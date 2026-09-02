@@ -156,11 +156,12 @@
       "must_contain": [
         "html.tk-admin-ui-zoom .min-h-screen",
         "html.tk-admin-ui-zoom .table-page-layout:not(.mobile-mode)",
+        "html.tk-admin-ui-zoom .supplier-sources-page",
         "flex: 1 1 auto",
         "height: auto !important",
         "var(--tk-admin-ui-zoom)"
       ],
-      "rationale": "Viewport layout for AdminShellView document zoom. min-h-screen compensation removes page-level bottom whitespace; the AppLayout flex stack + TablePageLayout flex-fill removes the residual dead band below pagination on dense admin tables (/admin/accounts)."
+      "rationale": "Viewport layout for AdminShellView document zoom. min-h-screen compensation removes page-level bottom whitespace; the AppLayout flex stack + TablePageLayout / Supplier Sources flex-fill removes the residual dead band below pagination or vh-fill page shells under zoom (/admin/accounts, /admin/supplier-sources)."
     },
     {
       "path": "frontend/src/views/user/studio/BakeOff.vue",
