@@ -462,21 +462,29 @@ func (s *SupplierSourceService) findReusableAccounts(
 	if err != nil {
 		return nil, err
 	}
-	externalMatches := make([]*Account, 0, len(matches))
+	// Only credential+endpoint matches that are relevant to THIS source's transport
+	// participate in adopt/conflict decisions. Other supplier-managed accounts that share
+	// the same key but a different channel_type (e.g. OpenAI chat vs Anthropic messages)
+	// must not block creating a parallel source — they are a separate projection identity.
+	relevantMatches := make([]*Account, 0, len(matches))
 	for _, match := range matches {
 		managedSourceID, managedMatch := supplierSourceIDFromAccount(match)
 		if managedMatch && managedSourceID == source.ID {
 			continue
 		}
-		externalMatches = append(externalMatches, match)
+		compatible := supplierReusableAccountTransport(match, source.Endpoint, source.ChannelType)
+		if managedMatch && !compatible {
+			continue
+		}
+		relevantMatches = append(relevantMatches, match)
 	}
-	if len(externalMatches) == 0 {
+	if len(relevantMatches) == 0 {
 		return result, nil
 	}
-	if len(externalMatches) > 1 {
+	if len(relevantMatches) > 1 {
 		return nil, ErrSupplierSourceMultipleMatches
 	}
-	match := externalMatches[0]
+	match := relevantMatches[0]
 	if len(managed) != 0 || len(targets) != 1 || IsSupplierManagedAccount(match) ||
 		match.Status != StatusActive || !supplierReusableAccountTransport(match, source.Endpoint, source.ChannelType) {
 		return nil, ErrSupplierSourceIdentityConflict

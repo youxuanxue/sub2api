@@ -7856,7 +7856,9 @@
         "TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection",
         "TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection",
         "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe",
-        "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift"
+        "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift",
+        "TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync",
+        "TestUS048_QianfanBaiduV2ExactMatchIsAdopted"
       ],
       "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require an immediate reprobe before structural projection or repair, and keep empty-band scheduling repair on the metadata-only path."
     },
@@ -7933,9 +7935,12 @@
         "supplierAccountNeedsProtocolRepublish(account, source.Endpoint, source.ChannelType)",
         "UpdateManagedAccountConcurrency(",
         "ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency)",
-        "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey"
+        "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey",
+        "compatible := supplierReusableAccountTransport(match, source.Endpoint, source.ChannelType)",
+        "if managedMatch && !compatible {",
+        "relevantMatches := make([]*Account, 0, len(matches))"
       ],
-      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence."
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence. Credential+endpoint collision with another supplier source is ignored when channel transports differ (OpenAI chat vs Anthropic messages), so parallel sources can create their own managed accounts."
     },
     {
       "path": "backend/internal/service/supplier_upstream_models.go",
