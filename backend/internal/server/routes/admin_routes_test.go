@@ -54,8 +54,11 @@ func TestUS048_SupplierSourceRoutesAreRegistered(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/supplier-sources/priority-preview"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id"},
 		{http.MethodPut, "/api/v1/admin/supplier-sources/:id"},
+		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/discover"},
+		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/discover/jobs/:job_id"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/probe"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/probe/jobs/:job_id"},
+		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/validate"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/sync"},
 	} {
 		require.True(t, registered[tt.method+" "+tt.path], "path=%s should be registered", tt.path)
@@ -65,7 +68,6 @@ func TestUS048_SupplierSourceRoutesAreRegistered(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/validate"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/activation-preview"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id/audits"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/activate"},

@@ -87,6 +87,12 @@ export interface SupplierSourceSyncResult {
   failed_step?: string
 }
 
+export interface SupplierSourceValidateResult {
+  source_id: number
+  probe_results: SupplierProbeResult[]
+  failed_step?: string
+}
+
 export interface SupplierUpstreamModelEntry {
   id: string
   type?: string
@@ -156,16 +162,23 @@ async function priorityPreview(): Promise<SupplierPriorityPreview> {
   return data
 }
 
-async function probe(id: number): Promise<SupplierSourceProbeResult> {
+async function discover(id: number): Promise<SupplierSourceProbeResult> {
   const { data } = await apiClient.post<SupplierSourceProbeResult>(
-    `/admin/supplier-sources/${id}/probe`,
+    `/admin/supplier-sources/${id}/discover`,
   )
   return data
 }
 
-async function getProbeJob(id: number, jobId: string): Promise<SupplierSourceProbeResult> {
+async function getDiscoverJob(id: number, jobId: string): Promise<SupplierSourceProbeResult> {
   const { data } = await apiClient.get<SupplierSourceProbeResult>(
-    `/admin/supplier-sources/${id}/probe/jobs/${encodeURIComponent(jobId)}`,
+    `/admin/supplier-sources/${id}/discover/jobs/${encodeURIComponent(jobId)}`,
+  )
+  return data
+}
+
+async function validate(id: number): Promise<SupplierSourceValidateResult> {
+  const { data } = await apiClient.post<SupplierSourceValidateResult>(
+    `/admin/supplier-sources/${id}/validate`,
   )
   return data
 }
@@ -175,4 +188,4 @@ async function sync(id: number): Promise<SupplierSourceSyncResult> {
   return data
 }
 
-export default { list, get, create, update, priorityPreview, probe, getProbeJob, sync }
+export default { list, get, create, update, priorityPreview, discover, getDiscoverJob, validate, sync }

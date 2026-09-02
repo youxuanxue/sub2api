@@ -1,150 +1,142 @@
 ---
-title: Supplier Source — split Probe vs Sync Accounts
+title: Supplier Source - discover, validate, save, and project
 status: approved
-approved_by: "xuejiao (operator directives 2026-09-01)"
+approved_by: "xuejiao (operator directives 2026-09-01; revised 2026-09-02)"
 approved_at: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 created: 2026-09-01
 owners: [tk-platform]
-scope: "amend US-048 / model-supplier-source-management: independent Probe and Sync; one public probe path; form draft from probe then save only"
+scope: "amend US-048 / model-supplier-source-management: four explicit actions; project owns its immediate write-gate probe; legacy probe routes remain aliases"
 related_stories: ["US-048"]
 amends: ["docs/approved/model-supplier-source-management.md"]
 related_design: ["docs/approved/model-supplier-source-fmgo-seedance-account-rewrite.md"]
-operator_locks: "2026-09-01: probe→save→sync; dirty form disables probe and sync; clean form disables save; sync re-probes; one public POST .../probe; same PR unregisters models-discover; channel capability selects probe protocol"
+operator_locks: "2026-09-02: discover -> validate -> save -> project; validate is read-only preview, never write authorization; project re-probes immediately before structural writes; no validation cache/token; POST .../probe and probe job remain discover aliases"
 ---
 
-# 供应源：探测校验 / 保存 / 同步账号（审批草案）
+# 供应源：发现 / 校验 / 保存 / 投影
 
 ## 一件事
 
-把「校验并同步」拆成三个动词，且对外只留一条探测主路径。
+把供应源页面的四个运营意图拆清楚，同时让账号写入门禁留在写路径自身：
 
-FMGo Seedance 账号侧动态改写不在本文件范围，见  
+```text
+发现模型 -> 校验模型 -> 保存 -> 投影账号
+```
+
+四个按钮是职责顺序，不是可复用的授权状态机。`Validate` 提供只读预览；`Project` 对结构变化在写入前
+重新探测本次将投影的已保存模型。进程重启、多实例切换或时间经过都不能绕过这个门禁。
+
+FMGo Seedance 账号侧动态改写不在本文件范围，见
 `docs/approved/model-supplier-source-fmgo-seedance-account-rewrite.md`。
-
-本文件已批准，实现按本文执行。
 
 ## 已拍板
 
 | 项 | 决定 |
 |---|---|
-| 按钮顺序 | **探测校验 → 保存 → 同步账号** |
-| 同步是否再测 | **要**。结构变化 / 非空 mapping 投影前仍门禁探测；失败不写账号 |
-| 探测 API | **P1** `POST .../probe` 为页面唯一探测入口；内部唯一实现 |
-| `models-discover` | **同 PR 撤管理路由**；单测打内部函数，不留 410、不靠僵尸 HTTP |
-| 探测回填草稿后 | **禁用探测与同步，只留保存** |
-| 手改未保存 | 探测、同步都禁用，先保存 |
-| 表单与库一致 | **禁用保存**；探测、同步可点 |
-| 探测协议 | **通道能力**决定协议（如 `channel_type=54` → 视频门禁）；**行**决定探哪个 upstream |
-| 写边界 | 探测：不写库、不写账号，只可回填页面草稿并标变更；保存：只写供应源表；同步：只窄写受管账号 |
-| 同步投影 | 投影库里已保存的 mapping 行，不做 inventory 展开 |
+| 按钮顺序 | **发现模型 -> 校验模型 -> 保存 -> 投影账号** |
+| Validate | 只读探测已保存配置；结果只用于当下判断，不授权未来写入 |
+| Project | 结构变化 / 非空 mapping 投影前即时重探；失败不写账号 |
+| 元数据快路 | 名称、priority、concurrency 等不改变结构时可不探测 |
+| 缓存 / token | 不存在 validation cache、TTL、probe token 或证据表 |
+| 新 API | `discover`、`discover job`、`validate`、`sync` |
+| 兼容 API | 旧 `probe`、`probe job` 路由继续注册，复用 Discover handler |
+| `models-discover` | 管理路由保持注销；不留 410 占位 |
+| 脏表单 | 发现、校验、投影禁用，先保存 |
+| 写边界 | 发现/校验不写库和账号；保存只写供应源；投影只窄写受管账号 |
 
-## 运营路径（唯一故事）
+## 行为
 
-```text
-探测校验 →（若有草稿变更）保存 → 同步账号
-```
+### 发现模型
 
-- **探测校验**：基于已保存供应事实，拉上游、规整建议、测已配置行可服务性；可把规整/建议写入表单草稿并标出变更；账号不变。
-- **保存**：草稿落库。表单干净时按钮禁用。
-- **同步账号**：只读库内事实 →（必要时）再测 → 投影账号。scheduler / gateway 仍只认账号。
+- 基于已保存供应源拉取上游 models、规整已配置 ID，并异步探测未配置候选。
+- 不探测已配置行，不写供应源，不写账号。
+- 规整回填或运营加入建议后表单变脏，只能先保存。
+- `POST .../probe` 与 `GET .../probe/jobs/:job_id` 是兼容别名，行为与 Discover 相同。
 
-探测始终验库，不验未保存草稿。回填后必须先保存。
+### 校验模型
 
-结果区两个标题：「上游发现」「已配置可服务性」。仍是一个按钮。
+- 基于已保存供应源逐行真实探测已配置模型。
+- 返回完整 `probe_results` 和 `failed_step`，不写任何状态。
+- 成功结果不缓存、不生成授权，不影响 Project 是否可点。
 
-## Delta
+### 保存
 
-### ADDED — 三按钮
+- 只把当前采购事实写入供应源表。
+- 表单与库一致时禁用保存；保存不会探测或投影账号。
 
-| 顺序 | 文案 | 写供应源 | 写账号 | 职责 |
-|---|---|---|---|---|
-| 1 | 探测校验 | 否（可改页面草稿） | 否 | 发现 + 已配置门禁探测 |
-| 2 | 保存 | 是 | 否 | 采购事实落库 |
-| 3 | 同步账号 | 否 | 是 | 再测（如需）+ 窄写投影 |
+### 投影账号
 
-### MODIFIED — 脏表单（无特例）
+- 只读取库内已保存事实，不消费 Discover/Validate 的浏览器或进程状态。
+- 结构变化时，在第一个结构写入之前用当次目标账号逐模型重探。
+- 任一探测失败，返回完整当次 `probe_results`、`failed_step=probe`、空 `changes`，不创建或更新账号。
+- 全部成功后，才按先增后减规则执行窄写；非空 mapping 携带本次探测证据。
+- 失败后重试会重新探测，不能复用上次成功或失败结果。
 
-| 表单状态 | 探测校验 | 保存 | 同步账号 |
-|---|---|---|---|
-| 干净（与库一致） | 可 | 禁 | 可 |
-| 手改未保存 | 禁 | 可 | 禁 |
-| 探测回填产生的草稿 | 禁 | 可 | 禁 |
-
-建议追加未点「加入表单」时表单仍干净：探测、同步可点。  
-回填后提示「请先保存，再同步」；不暗示草稿已被探测通过。
-
-### MODIFIED — API（一条探测主路径）
+## API
 
 ```text
+POST /admin/supplier-sources/:id/discover
+GET  /admin/supplier-sources/:id/discover/jobs/:job_id
+POST /admin/supplier-sources/:id/validate
+POST /admin/supplier-sources/:id/sync
+
+# compatibility aliases
 POST /admin/supplier-sources/:id/probe
 GET  /admin/supplier-sources/:id/probe/jobs/:job_id
-POST /admin/supplier-sources/:id/sync
 ```
 
-- `probe`：只读；= list/规整/候选探测 ∪ 已配置行门禁；返回发现字段 + `probe_results` + `failed_step`；永不写供应源表、永不写账号。
-- discover + 候选探测的**唯一**实现挂在 service 内部函数；`probe` 调用它。
-- `POST .../models-discover` 与 `.../models-discover/jobs/:id`：**同 PR 从管理路由注销**。禁止 410 占位。测试打内部函数。
-- `sync`：不前置 discover/probe 编排；结构变化时自带门禁探测；仅元数据漂移可不探。无 `probe_token` / 证据表。
+`discover` 和兼容 `probe` 共享一个 service owner；job 查询同样共享。禁止复制第二套发现状态机。
 
-### MODIFIED — 探测协议
+## 探测协议
 
 - 默认：Chat Completions 正向证据。
-- 通道能力为视频（DoubaoVideo / 54）→ 该通道真实视频方言，不得用「hi」Chat 伪成功。
-- FMGo `feimiao-v2` 的真实视频方言就是官方异步 `POST /v1/chat/completions`；Ark / XRToken 仍走各自视频口。
-- 每一行用该行 `upstream_model_id` 探测；失败封闭，不写账号。
-- 不按 client 名字开协议例外。
+- 视频通道（DoubaoVideo / 54）：走该通道真实视频方言，不用 `hi` Chat 冒充成功。
+- 每一行用该行 `upstream_model_id` 探测；失败封闭。
+- 不按 client 名字猜 transport，不建设通用协议配置器。
 
-### REMOVED
+## 状态矩阵
 
-- 「校验并同步」单按钮与同步前自动 discover。
-- 管理路由上的 `models-discover`（含 job）。
-- 「探测回填后仍可再探测」特例。
-- 干净表单仍可点保存。
+| 表单状态 | 发现 | 校验 | 保存 | 投影 |
+|---|---|---|---|---|
+| 干净（与库一致） | 可 | 可 | 禁 | 可 |
+| 手改未保存 | 禁 | 禁 | 可 | 禁 |
+| 发现回填草稿 | 禁 | 禁 | 可 | 禁 |
 
-## Scenarios
+Validate 成功或失败都不改变矩阵。Project 未先 Validate 仍可执行，因为它拥有自己的即时探测门禁。
 
-### 正向
+## 验收场景
 
-1. 已保存、表单干净 → 探测 → 见发现与已配置探测结果 → 账号不变；保存禁用。
-2. 探测回填草稿 → 仅保存可点 → 保存后表单干净 → 再同步；同步路径再测。
-3. 仅改 `base_priority` 并保存 → 同步可跳过模型探测，只改名/priority。
+1. 干净表单直接 Project：结构变化路径先探测；成功才写账号。
+2. 干净表单直接 Project：探测失败返回完整结果且零账号写；上游恢复后重试重新探测并成功。
+3. 先 Validate 成功、进程重启或请求落到另一实例、再 Project：Project 仍重新探测。
+4. 仅名称、priority 或 concurrency 漂移：Project 走元数据快路，不做模型探测。
+5. 旧客户端调用 `/probe` 与 probe job：仍得到 Discover 结果，不出现 404。
+6. 表单脏：发现、校验、投影都禁用，只能先保存。
 
-### 负向
-
-1. 手改或探测草稿未保存 → 探测、同步禁用。
-2. 已配置任一行门禁失败 → 全量结果展示，账号不写；保存后同步若仍需结构探测，再次失败封闭。
-3. 建议追加未加入表单并保存 → 不进库，不同步进账号。
-
-### 回归
-
-- Chat 类供应源：门禁语义与拆分前一致；不再强制先 discover。
-- 账号托管徽标：覆盖触发改为「同步账号」。
-
-## Validation
+## 验证
 
 ```bash
-go test -tags=unit ./internal/service/ -run 'US048|SupplierSource|Probe|Discover'
+go test -tags=unit ./internal/service -run 'US048|SupplierSource|Probe|Discover|Validate'
+go test -tags=unit ./internal/handler/admin ./internal/server/routes -run 'US048|SupplierSource'
 pnpm --dir frontend exec vitest run src/views/admin/__tests__/SupplierSourcesView.spec.ts
 pnpm --dir frontend exec playwright test e2e/us048-supplier-source-management.e2e.ts
 ```
 
-断言重点：三按钮顺序与禁用矩阵（干净禁保存）；`sync` 不调用 discover 编排；管理面无 `models-discover` 路由；probe 失败不写账号。
+Playwright 必须覆盖未先 Validate 的 Project 失败、零写入和重试恢复；API-only 测试不能代替该 UI 流程。
 
 ## 非目标
 
-- 不实现 Seedance SKU 动态改写（另页）。
-- 不新增状态机、探测历史表、分布式锁、`probe_token`。
+- 不新增 validation cache、授权 TTL、probe token、探测历史表或分布式锁。
 - 不把 `supplier_source_id` 引入 scheduler / gateway。
 - 不做通用全协议配置器。
-- 不在本页规定某供应源存 16 行还是 2 行。
+- 不重新注册 `models-discover`。
 
 ## 审批检查清单
 
-- [x] 按钮顺序探测 → 保存 → 同步
-- [x] 探测回填后只留保存；干净表单禁用保存
-- [x] sync 自带再测
-- [x] 对外只留 probe；同 PR 撤 models-discover 路由
-- [x] 通道能力选协议，行选 upstream
-- [x] Seedance 实现另页
-- [x] 已批准（2026-09-01）
+- [x] 四按钮顺序固定
+- [x] Validate 只读，不是写授权
+- [x] Project 在结构写入前即时重探
+- [x] 旧 `/probe` 路由保留为兼容别名
+- [x] 无 validation cache / token
+- [x] Playwright 覆盖 Project-before-Validate 失败与恢复
+- [x] 2026-09-02 运营修订已批准

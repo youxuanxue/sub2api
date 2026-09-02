@@ -86,6 +86,32 @@ func TestUS048_SupplierProbeAccountCarriesManagedIdentity(t *testing.T) {
 	require.Equal(t, 3, account.Extra[SupplierDiscountBandExtraKey])
 }
 
+func TestUS048_ValidateFailureReturnsEveryResultAndWritesNothing(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "FMGo", ChannelName: "seedance", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "model-ok", UpstreamModelID: "model-ok", PurchaseRatio: &ratio},
+			{ClientModelID: "doubao-seedance-2-0-260128", UpstreamModelID: "feimiao-seedance-2-0-260128", PurchaseRatio: &ratio},
+		},
+	}}
+	accounts := &supplierSyncAccountStoreFake{}
+	probe := &supplierSyncProbeFake{results: map[string]SupplierProbeResult{
+		"feimiao-seedance-2-0-260128": {Status: SupplierProbeStatusProtocolUnsupported, Detail: "supplier protocol unsupported"},
+	}}
+	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Validate(context.Background(), 7)
+
+	require.ErrorIs(t, err, ErrSupplierSourceProbeFailed)
+	require.Len(t, result.ProbeResults, 2)
+	require.Equal(t, SupplierProbeStatusPassed, result.ProbeResults[0].Status)
+	require.Equal(t, SupplierProbeStatusProtocolUnsupported, result.ProbeResults[1].Status)
+	require.Zero(t, accounts.createCalls)
+	require.Empty(t, accounts.updated)
+}
+
 func TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
@@ -105,11 +131,36 @@ func TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing(t *tes
 	result, err := svc.Sync(context.Background(), 7)
 
 	require.ErrorIs(t, err, ErrSupplierSourceProbeFailed)
+	require.Equal(t, "probe", result.FailedStep)
 	require.Len(t, result.ProbeResults, 2)
 	require.Equal(t, SupplierProbeStatusPassed, result.ProbeResults[0].Status)
 	require.Equal(t, SupplierProbeStatusProtocolUnsupported, result.ProbeResults[1].Status)
+	require.Empty(t, result.Changes)
 	require.Zero(t, accounts.createCalls)
 	require.Empty(t, accounts.updated)
+}
+
+func TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
+		},
+	}}
+	accounts := &supplierSyncAccountStoreFake{}
+	svc := NewSupplierSourceService(
+		repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
+	)
+
+	result, err := svc.Sync(context.Background(), 7)
+
+	require.NoError(t, err)
+	require.Len(t, result.ProbeResults, 1)
+	require.Equal(t, SupplierProbeStatusPassed, result.ProbeResults[0].Status)
+	require.Equal(t, 1, accounts.createCalls)
+	require.NotEmpty(t, accounts.updated)
 }
 
 func TestUS048_SupplierSyncMetadataOnlySkipsProbe(t *testing.T) {
@@ -472,7 +523,7 @@ func TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation(
 	require.Empty(t, accounts.updated)
 }
 
-func TestUS048_SupplierSyncProbesBeforeRepairingNonEmptySchedulingProjection(t *testing.T) {
+func TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
 		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
@@ -887,7 +938,7 @@ func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
 	require.Equal(t, 1000, accounts.managed[0].Concurrency)
 }
 
-func TestUS048_SupplierSyncProtocolIdentityDriftRequiresCurrentProbe(t *testing.T) {
+func TestUS048_SupplierSyncProtocolIdentityDriftReprobesBeforeRepair(t *testing.T) {
 	ratio := 0.5
 	capabilityID := int64(797)
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{

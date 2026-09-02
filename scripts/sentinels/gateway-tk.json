@@ -7769,14 +7769,16 @@
         "TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep",
         "TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges",
         "TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition",
+        "TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing",
         "TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation",
         "TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount",
         "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
-        "TestUS048_SupplierSyncProbesBeforeRepairingNonEmptySchedulingProjection",
+        "TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection",
+        "TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection",
         "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe",
         "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift"
       ],
-      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, and keep status/schedulable projection repair on the minimal probe boundary."
+      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require an immediate reprobe before structural projection or repair, and keep empty-band scheduling repair on the metadata-only path."
     },
     {
       "path": "backend/internal/service/crs_sync_supplier_managed_test.go",
@@ -7832,15 +7834,16 @@
     {
       "path": "backend/internal/handler/admin/supplier_source_handler.go",
       "must_contain": [
-        "func (h *SupplierSourceHandler) Probe(c *gin.Context)",
-        "result, err := h.service.Probe(c.Request.Context(), id)",
-        "func (h *SupplierSourceHandler) GetProbeJob(c *gin.Context)",
-        "result, err := h.service.GetSupplierProbeJob(c.Request.Context(), id, jobID)",
+        "func (h *SupplierSourceHandler) Discover(c *gin.Context)",
+        "result, err := h.service.Discover(c.Request.Context(), id)",
+        "func (h *SupplierSourceHandler) Validate(c *gin.Context)",
+        "func (h *SupplierSourceHandler) GetDiscoverJob(c *gin.Context)",
+        "result, err := h.service.GetSupplierDiscoverJob(c.Request.Context(), id, jobID)",
         "AccountConcurrency",
         "account_concurrency",
         "case errors.As(err, &syncErr):"
       ],
-      "rationale": "Admin probe must start the async probe job and expose job polling; upstream models-list failures must map through UpstreamModelSyncError.SafeMessage so the page never shows only an empty title. Supplier-source CRUD must round-trip account_concurrency."
+      "rationale": "Admin discover starts async candidate jobs with job polling; validate probes configured models; upstream models-list failures map through UpstreamModelSyncError.SafeMessage. Supplier-source CRUD must round-trip account_concurrency."
     },
     {
       "path": "backend/internal/service/supplier_source_service.go",
