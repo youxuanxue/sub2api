@@ -156,11 +156,12 @@
       "must_contain": [
         "html.tk-admin-ui-zoom .min-h-screen",
         "html.tk-admin-ui-zoom .table-page-layout:not(.mobile-mode)",
+        "html.tk-admin-ui-zoom .supplier-sources-page",
         "flex: 1 1 auto",
         "height: auto !important",
         "var(--tk-admin-ui-zoom)"
       ],
-      "rationale": "Viewport layout for AdminShellView document zoom. min-h-screen compensation removes page-level bottom whitespace; the AppLayout flex stack + TablePageLayout flex-fill removes the residual dead band below pagination on dense admin tables (/admin/accounts)."
+      "rationale": "Viewport layout for AdminShellView document zoom. min-h-screen compensation removes page-level bottom whitespace; the AppLayout flex stack + TablePageLayout / Supplier Sources flex-fill removes the residual dead band below pagination or vh-fill page shells under zoom (/admin/accounts, /admin/supplier-sources)."
     },
     {
       "path": "frontend/src/views/user/studio/BakeOff.vue",
@@ -1969,12 +1970,17 @@
         "name: 'AdminSupplierSources'",
         "component: () => import('@/views/admin/SupplierSourcesView.vue')"
       ],
-      "rationale": "The supplier-source page is the sole supported operations owner for supplier credentials, explicit model mappings, procurement ratios, supplier-only priority preview, current probe results and explicit one-source sync. An upstream rewrite of the admin route subtree could silently remove this entry while the backend and page still compile."
+      "rationale": "The supplier-source page is the sole supported operations owner for supplier credentials, explicit model mappings, procurement ratios, supplier-only priority preview, current probe results and explicit one-source sync. An upstream rewrite of the admin route subtree could silently remove this entry while the backend and page still compile. Supplier Sources keeps titleKey only so AppHeader does not repeat the long procurement blurb.",
+      "must_not_contain": [
+        "descriptionKey: 'admin.supplierSources.description'"
+      ]
     },
     {
       "path": "frontend/src/views/admin/SupplierSourcesView.vue",
       "must_contain": [
-        "w-full min-w-0 space-y-6",
+        "supplier-sources-page flex w-full min-w-0 flex-col gap-4",
+        "height: calc(100vh - 64px - 4rem)",
+        "data-test=\"supplier-sources-workspace\"",
         "data-test=\"supplier-sources-page\"",
         "const syncSucceeded = computed(() => (",
         "syncResult.value !== null",
@@ -1995,9 +2001,11 @@
         "syncSucceeded = ref",
         "watch(() => form.channel_type",
         "max-w-7xl",
-        "mx-auto max-w-7xl"
+        "mx-auto max-w-7xl",
+        "t('admin.supplierSources.description')",
+        "text-2xl font-semibold"
       ],
-      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. Discover polls async candidate jobs to completion; validate is a read-only preview; project displays the probe evidence returned by its own authoritative request without depending on prior validation state. Dirty or discover-backfilled drafts disable discover/validate/project. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints. Also anchors the full-bleed admin page shell (no max-w-7xl / mx-auto page chrome) so the layout stays aligned with Dashboard/RiskControl."
+      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. Discover polls async candidate jobs to completion; validate is a read-only preview; project displays the probe evidence returned by its own authoritative request without depending on prior validation state. Dirty or discover-backfilled drafts disable discover/validate/project. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints. Also anchors the full-bleed admin page shell (no max-w-7xl / mx-auto page chrome) so the layout stays aligned with Dashboard/RiskControl. Viewport-fill layout drops the in-page title/description shell (AppHeader owns the title) and stretches the list/editor workspace to the remaining main height."
     },
     {
       "path": "frontend/src/api/admin/supplierSources.ts",
@@ -2014,7 +2022,7 @@
     {
       "path": "frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts",
       "must_contain": [
-        "fills AppLayout main width like Dashboard/RiskControl (no max-w / mx-auto page shell)",
+        "fills AppLayout viewport without an in-page title shell",
         "saves new and existing sources through create or update only",
         "requires saving edited supplier facts before syncing the selected source",
         "renders account changes returned by sync",
@@ -2025,7 +2033,7 @@
         "shows probe failure message and failed_step outside the sync-result block",
         "offers and hydrates BaiduV2 while preserving a custom endpoint during source selection"
       ],
-      "rationale": "Focused UI regressions pin discover/validate/project workflow: save is side-effect free, unsaved edits block discover/validate/project, project renders account changes only, validate failures stay in validate panel, resolved failed_step cannot show success, async discover polling completes without auto-project, discover failures visible outside project block, BaiduV2 stays selectable without hydration overwriting custom endpoint, no state machine or account-group controls. Also pins the full-bleed page-shell regression."
+      "rationale": "Focused UI regressions pin discover/validate/project workflow: save is side-effect free, unsaved edits block discover/validate/project, project renders account changes only, validate failures stay in validate panel, resolved failed_step cannot show success, async discover polling completes without auto-project, discover failures visible outside project block, BaiduV2 stays selectable without hydration overwriting custom endpoint, no state machine or account-group controls. Also pins the full-bleed page-shell regression. Also pins viewport-fill layout without an in-page title shell."
     },
     {
       "path": "frontend/src/composables/useSupplierManagedAccount.ts",
