@@ -6758,6 +6758,7 @@
       "path": "backend/internal/service/openrouter_provider_tk_media.go",
       "must_contain": [
         "OpenRouterProviderImageRoute",
+        "openRouterProviderImageRouteModelID",
         "TranslateOpenRouterImageToChatCompletions",
         "TranslateChatCompletionsImageResponseToOpenRouter",
         "TranslateOpenRouterImageRequestToOpenAI",
@@ -6765,7 +6766,7 @@
         "TranslateOpenRouterVideoRequestToOpenAI",
         "TranslateOpenAIVideoFetchToOpenRouter"
       ],
-      "rationale": "Pure translation layer for OpenRouter provider image/video protocol compliance; gemini-native image maps OR /v1/images ↔ antigravity chat generateContent, other models stay on OpenAI-compat paths."
+      "rationale": "Pure translation layer for OpenRouter provider image/video protocol compliance; OR image route picks pipeline by bare model id (strip tokenkey/) so universal inference keys skip Group.Platform; gemini-native image maps OR /v1/images ↔ antigravity chat generateContent, other models stay on OpenAI-compat paths."
     },
     {
       "path": "backend/internal/service/openrouter_provider_tk_policy.go",

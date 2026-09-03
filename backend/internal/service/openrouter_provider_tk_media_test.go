@@ -21,6 +21,25 @@ func TestOpenRouterProviderImageRoute(t *testing.T) {
 	}
 }
 
+func TestOpenRouterProviderImageRoute_UniversalKeyIgnoresEmptyPlatform(t *testing.T) {
+	// Repro: OR inference api_keys.group_id IS NULL → Group.Platform "".
+	if got := OpenRouterProviderImageRoute("", "tokenkey/gemini-2.5-flash-image"); got != OpenRouterImageRouteAntigravityChat {
+		t.Fatalf("tokenkey-prefixed gemini image with empty platform=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute("", "tokenkey/gemini-3-pro-image"); got != OpenRouterImageRouteAntigravityChat {
+		t.Fatalf("pro-image=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute(PlatformOpenAI, "tokenkey/gemini-3.1-flash-image"); got != OpenRouterImageRouteAntigravityChat {
+		t.Fatalf("wrong bound platform must not force openai path=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute("", "tokenkey/grok-imagine-image"); got != OpenRouterImageRouteGrok {
+		t.Fatalf("tokenkey-prefixed grok image=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute("", "tokenkey/imagen-4.0-fast-generate-001"); got != OpenRouterImageRouteOpenAICompat {
+		t.Fatalf("imagen stays openai-compat=%q", got)
+	}
+}
+
 func TestTranslateOpenRouterImageToChatCompletions(t *testing.T) {
 	body := []byte(`{"model":"gemini-2.5-flash-image","prompt":"a cat","aspect_ratio":"16:9"}`)
 	out, err := TranslateOpenRouterImageToChatCompletions(body)

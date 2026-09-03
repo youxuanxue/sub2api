@@ -23,19 +23,29 @@ const (
 
 var openRouterChatCompletionDataURIRe = regexp.MustCompile(`data:([^;)\s]+);base64,([A-Za-z0-9+/=]+)`)
 
-// OpenRouterProviderImageRoute picks the backend pipeline after universal routing has
-// bound the inference key to a concrete group platform.
+// OpenRouterProviderImageRoute picks the backend pipeline for OR seller POST /v1/images.
+// Route by model identity (after stripping public tokenkey/ prefix). Do NOT require
+// apiKey.Group.Platform: OR inference keys are universal (group_id NULL) and platform
+// is only known after later universal routing — waiting on Group.Platform sent every
+// gemini-*-image request down the OpenAI images path as "Unsupported model".
 func OpenRouterProviderImageRoute(platform, model string) OpenRouterImageRoute {
-	platform = strings.TrimSpace(platform)
-	model = strings.TrimSpace(model)
+	_ = platform // retained for call-site compatibility; model id is the SSOT
+	model = openRouterProviderImageRouteModelID(model)
 	switch {
-	case platform == PlatformAntigravity && antigravity.IsImageModel(model):
+	case antigravity.IsImageModel(model):
 		return OpenRouterImageRouteAntigravityChat
-	case platform == PlatformGrok && isGrokImageGenerationModel(model):
+	case isGrokImageGenerationModel(model):
 		return OpenRouterImageRouteGrok
 	default:
 		return OpenRouterImageRouteOpenAICompat
 	}
+}
+
+func openRouterProviderImageRouteModelID(model string) string {
+	model = strings.TrimSpace(model)
+	model = strings.TrimPrefix(model, "tokenkey/")
+	model = strings.TrimPrefix(model, "models/")
+	return model
 }
 
 // TranslateOpenRouterImageToChatCompletions maps OR POST /v1/images to OpenAI chat
