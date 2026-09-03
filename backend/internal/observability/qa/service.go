@@ -825,6 +825,13 @@ func capturePlatform(current, inboundEndpoint string) string {
 
 func captureUpstreamEndpoint(inboundEndpoint, platform string, c *gin.Context) string {
 	inboundEndpoint = strings.TrimSpace(inboundEndpoint)
+	if c != nil {
+		if endpoint, ok := c.Get(string(ctxkey.ActualOpenAIUpstreamEndpoint)); ok {
+			if endpoint, ok := endpoint.(string); ok && strings.TrimSpace(endpoint) != "" {
+				return strings.TrimSpace(endpoint)
+			}
+		}
+	}
 	rawPath := ""
 	if c != nil && c.Request != nil && c.Request.URL != nil {
 		rawPath = c.Request.URL.Path

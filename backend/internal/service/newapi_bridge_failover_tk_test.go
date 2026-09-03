@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -31,7 +32,18 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_AccountLevelStatuses(t *test
 	}
 }
 
-func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOutageNeverMatch(t *testing.T) {
+func TestTkBridgeUpstreamShouldFailoverAfterPenalty_RequestScopedGatewayOutages(t *testing.T) {
+	t.Parallel()
+	for _, statusCode := range []int{502, 503, 504} {
+		statusCode := statusCode
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			t.Parallel()
+			require.True(t, tkBridgeUpstreamShouldFailoverAfterPenalty(upstreamBridgeError(statusCode, "gateway outage")))
+		})
+	}
+}
+
+func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOtherServerErrorsNeverMatch(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
@@ -40,7 +52,7 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOutageNeverMatch(t 
 		{"client 400", upstreamBridgeError(400, "The supported API model names are ...")},
 		{"model not found 404", upstreamBridgeError(404, "model_not_found")},
 		{"server 500", upstreamBridgeError(500, "internal error")},
-		{"server 502", upstreamBridgeError(502, "bad gateway")},
+		{"server 501", upstreamBridgeError(501, "not implemented")},
 		{"nil", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -48,6 +60,27 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOutageNeverMatch(t 
 			require.False(t, tkBridgeUpstreamShouldFailoverAfterPenalty(tc.err))
 		})
 	}
+}
+
+func TestBridgeWrapRelayErrorAfterPenalty_GatewayOutageReturnsRequestScopedFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	account := newNewAPIBridgeAccount()
+	apiErr := upstreamBridgeError(502, "Network error, please try again later.")
+
+	err := bridgeWrapRelayErrorAfterPenalty(context.Background(), nil, c, account, apiErr)
+	require.Error(t, err)
+
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr))
+	require.Equal(t, 502, failoverErr.StatusCode)
+	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.Contains(t, string(failoverErr.ResponseBody), "Network error")
+
+	var relayErr *NewAPIRelayError
+	require.False(t, errors.As(err, &relayErr))
 }
 
 func TestBridgeWrapRelayErrorAfterPenalty_AccountLevelReturnsFailover(t *testing.T) {
