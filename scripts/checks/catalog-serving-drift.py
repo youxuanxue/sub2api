@@ -12,6 +12,9 @@ from typing import Any
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "ops" / "pricing"))
+from pricing_registry import MODE_FIELDS, has_complete_price
+from servable_allowlist import ALLOWLIST_PLATFORMS, parse_allowlist_maps
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
 MANIFEST = SERVICE_DIR / "tk_served_models.json"
 OVERLAY = SERVICE_DIR / "tk_pricing_overlay.json"
@@ -27,53 +30,16 @@ ALLOWED_SCOPES = {
 }
 MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
-MODE_FIELDS = {
-    "audio_speech": ("input_cost_per_token", "output_cost_per_token"),
-    "audio_transcription": ("input_cost_per_token", "output_cost_per_token"),
-    "completion": ("input_cost_per_token", "output_cost_per_token"),
-    "embedding": ("input_cost_per_token",),
-    "image_generation": ("output_cost_per_image",),
-    "realtime": ("input_cost_per_token", "output_cost_per_token"),
-    "responses": ("input_cost_per_token", "output_cost_per_token"),
-    "video_generation": ("output_cost_per_second",),
-    "chat": ("input_cost_per_token", "output_cost_per_token"),
-}
-ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
-
-
-def _is_pos_number(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and value > 0
-    )
-
-
-def parse_allowlist_maps(go_text: str) -> dict[str, set[str]]:
-    out: dict[str, set[str]] = {}
-    for platform in ALLOWLIST_PLATFORMS:
-        match = re.search(
-            rf"servable-allowlist:begin {re.escape(platform)}"
-            rf"(.*?)servable-allowlist:end {re.escape(platform)}",
-            go_text,
-            re.S,
-        )
-        out[platform] = set(re.findall(r'"([^"]+)"\s*:', match.group(1))) if match else set()
-    return out
-
-
 def _price_errors(label: str, owner: str, overlay_entries: dict[str, Any]) -> list[str]:
     row = overlay_entries.get(owner)
     if not isinstance(row, dict):
         return [f"{label}: price owner {owner!r} is absent from tk_pricing_overlay.json"]
-    fields = MODE_FIELDS.get(row.get("mode"))
-    if fields is None:
+    alternatives = MODE_FIELDS.get(row.get("mode"))
+    if alternatives is None:
         return [f"{label}: price owner {owner!r} has unsupported mode {row.get('mode')!r}"]
-    return [
-        f"{label}: price owner {owner!r} requires {field} > 0, got {row.get(field)!r}"
-        for field in fields
-        if not _is_pos_number(row.get(field))
-    ]
+    if has_complete_price(row):
+        return []
+    return [f"{label}: price owner {owner!r} has no complete positive dimension set: {alternatives}"]
 
 
 def _scope_errors(label: str, scope: Any) -> list[str]:

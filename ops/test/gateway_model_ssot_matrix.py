@@ -24,6 +24,10 @@ _OPS_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 if _OPS_TEST_DIR not in sys.path:
     sys.path.insert(0, _OPS_TEST_DIR)
 from ssot_recent_success import load_skip_keys, parse_recent_success_tsv
+_PRICING_DIR = os.path.join(os.path.dirname(_OPS_TEST_DIR), "pricing")
+if _PRICING_DIR not in sys.path:
+    sys.path.insert(0, _PRICING_DIR)
+from servable_allowlist import parse_allowlist_maps
 
 DEFAULT_BASE_URL = os.environ.get("TK_FULLTEST_BASE_URL", "https://api.tokenkey.dev")
 DEFAULT_TIMEOUT = float(os.environ.get("TK_FULLTEST_TIMEOUT", "90"))
@@ -292,15 +296,7 @@ def local_item_effectively_unpriced(item: dict[str, Any]) -> bool:
 
 def parse_local_allowlists() -> dict[str, set[str]]:
     text = LOCAL_ALLOWLIST_GO.read_text(encoding="utf-8")
-    out: dict[str, set[str]] = {}
-    for platform in ("anthropic", "openai", "gemini", "antigravity", "grok"):
-        m = re.search(
-            rf"servable-allowlist:begin {platform}(.*?)servable-allowlist:end {platform}",
-            text,
-            re.S,
-        )
-        out[platform] = set(re.findall(r'"([^"]+)":\s*\{\}', m.group(1))) if m else set()
-    return out
+    return parse_allowlist_maps(text)
 
 
 def parse_local_served_manifest(manifest: dict[str, Any]) -> tuple[set[str], set[str]]:

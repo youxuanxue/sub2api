@@ -52,6 +52,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+from pricing_registry import has_complete_price, resolve_price_owner
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
@@ -80,20 +82,6 @@ run_probe_command = _PROBE.run_probe_command
 ACTIVATION_EVIDENCE_SCHEMA_VERSION = 2
 ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)
 ACTIVATION_CONFIRM = "yes-activate-model-surface"
-
-MODE_FIELDS = {
-    "image_generation": ("output_cost_per_image",),
-    "video_generation": ("output_cost_per_second",),
-    "chat": ("input_cost_per_token", "output_cost_per_token"),
-}
-
-# SQL generator registry for scripts/checks/ops-sql-coverage.py. The argparse
-# command wrapper name ends in `_sql` by convention, but the real generator is
-# build_snapshot_sql below.
-SELF_CHECK_EXEMPT = {
-    "cmd_snapshot_sql": "argparse command wrapper; build_snapshot_sql is enumerated",
-}
-
 
 class ManifestEntry:
     __slots__ = (
@@ -135,10 +123,6 @@ class Candidate:
         self.upstream_pricing_status = upstream_pricing_status
 
 
-def _is_pos_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
-
-
 def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -173,13 +157,7 @@ def load_overlay(path: Path = OVERLAY_PATH) -> dict[str, dict[str, Any]]:
 
 
 def overlay_price_ok(overlay: dict[str, dict[str, Any]], model_id: str) -> bool:
-    entry = overlay.get(model_id)
-    if not isinstance(entry, dict):
-        return False
-    fields = MODE_FIELDS.get(entry.get("mode"))
-    if not fields:
-        return False
-    return all(_is_pos_number(entry.get(field)) for field in fields)
+    return has_complete_price(overlay.get(model_id))
 
 
 def extract_model_items(obj: Any) -> list[tuple[str, str | None]]:
@@ -331,10 +309,12 @@ def price_status(
     manifest_by_model: dict[str, list[ManifestEntry]],
     overlay: dict[str, dict[str, Any]],
 ) -> tuple[str, str]:
-    if overlay_price_ok(overlay, model_id):
+    owner = resolve_price_owner(model_id, overlay)
+    if overlay_price_ok(overlay, owner):
         return "priced", "overlay"
     for entry in manifest_by_model.get(model_id, []):
-        if overlay_price_ok(overlay, entry.price_owner):
+        owner = resolve_price_owner(entry.price_owner, overlay)
+        if overlay_price_ok(overlay, owner):
             return "priced", "overlay"
     return "missing", "none"
 

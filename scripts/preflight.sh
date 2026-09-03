@@ -928,8 +928,12 @@ elif ! python3 -m unittest ops/pricing/test_model_activation.py >/dev/null 2>&1;
     echo "  FAIL: model activation behavior tests"
     echo "        — run: python3 -m unittest ops/pricing/test_model_activation.py"
     errors=$((errors + 1))
+elif ! python3 -m unittest ops/pricing/test_pricing_registry.py >/dev/null 2>&1; then
+    echo "  FAIL: pricing registry helper tests"
+    echo "        — run: python3 -m unittest ops/pricing/test_pricing_registry.py"
+    errors=$((errors + 1))
 else
-    echo "  ok: modelops plan/activation selftest + behavior tests"
+    echo "  ok: modelops plan/activation + pricing registry tests"
 fi
 
 # ---- sub2api: pricing-hotfix compatibility tool selftest -------------------

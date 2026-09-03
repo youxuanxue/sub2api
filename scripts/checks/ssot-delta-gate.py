@@ -32,12 +32,14 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "ops" / "pricing"))
+from pricing_registry import has_complete_price
+from servable_allowlist import ALLOWLIST_PLATFORMS, parse_allowlist_maps
 GO_REL = "backend/internal/service/pricing_catalog_supported_models_tk.go"
 MANIFEST_REL = "backend/internal/service/tk_served_models.json"
 OVERLAY_REL = "backend/internal/service/tk_pricing_overlay.json"
 BUNDLE_REL = "ops/pricing/model-surface-bundle.json"
 MIGRATION_PREFIX = "backend/migrations/tk_"
-ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
 MATRIX = REPO / "ops/test/gateway_model_ssot_matrix.py"
 
 MODEL_ID_RE = re.compile(r'"([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})"\s*:\s*"')
@@ -76,16 +78,7 @@ def catalog_paths_changed(base: str) -> bool:
     return False
 
 
-def parse_allowlist(go_text: str) -> dict[str, set[str]]:
-    out: dict[str, set[str]] = {}
-    for plat in ALLOWLIST_PLATFORMS:
-        m = re.search(
-            rf"servable-allowlist:begin {plat}(.*?)servable-allowlist:end {plat}",
-            go_text,
-            re.S,
-        )
-        out[plat] = set(re.findall(r'"([^"]+)":\s*\{\}', m.group(1))) if m else set()
-    return out
+parse_allowlist = parse_allowlist_maps
 
 
 def _read_at(base: str, rel: str) -> str:
@@ -118,14 +111,7 @@ def _load_manifest(text: str) -> dict[str, dict]:
 
 
 def _overlay_priced(entry: object) -> bool:
-    if not isinstance(entry, dict):
-        return False
-    return (
-        (entry.get("input_cost_per_token") or 0) > 0
-        or (entry.get("output_cost_per_token") or 0) > 0
-        or (entry.get("output_cost_per_image") or 0) > 0
-        or (entry.get("output_cost_per_second") or 0) > 0
-    )
+    return has_complete_price(entry)
 
 
 def local_displayed_pricing_models() -> set[str]:
@@ -441,14 +427,14 @@ def cmd_selftest(_args) -> int:
     m = MIGRATION_ADDED_MODEL_RE.match(line)
     assert m and m.group("id") == "glm-4.7-flash"
 
-    assert _overlay_priced({"output_cost_per_image": 0.04})
-    assert not _overlay_priced({"input_cost_per_token": 0})
+    assert _overlay_priced({"mode": "image_generation", "output_cost_per_image": 0.04})
+    assert not _overlay_priced({"mode": "chat", "input_cost_per_token": 0})
     assert overlay_delta_models_from_payloads(
         {},
         {
-            "hidden-priced": {"input_cost_per_token": 0.001},
-            "shown-priced": {"input_cost_per_token": 0.001},
-            "shown-free": {"input_cost_per_token": 0},
+            "hidden-priced": {"mode": "embedding", "input_cost_per_token": 0.001},
+            "shown-priced": {"mode": "embedding", "input_cost_per_token": 0.001},
+            "shown-free": {"mode": "embedding", "input_cost_per_token": 0},
         },
         {"shown-priced", "shown-free"},
     ) == {"shown-priced"}

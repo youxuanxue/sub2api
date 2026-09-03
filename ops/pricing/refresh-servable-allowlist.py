@@ -52,6 +52,7 @@ _reprobe_spec = importlib.util.spec_from_file_location(
 )
 _REPROBE = importlib.util.module_from_spec(_reprobe_spec)
 _reprobe_spec.loader.exec_module(_REPROBE)
+from servable_allowlist import ALLOWLIST_PLATFORMS
 
 CATALOG = REPO / "backend/resources/model-pricing/model_prices_and_context_window.json"
 GO_FILE = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
@@ -116,7 +117,7 @@ FAMILY_PLATFORM = {
     for platform, families in PROBE_FAMILIES_BY_PLATFORM.items()
     for family in families
 }
-GO_ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
+GO_ALLOWLIST_PLATFORMS = ALLOWLIST_PLATFORMS
 # Probe families that submit a REAL paid generation task (video). --skip-video
 # excludes them from live probing AND carries their current allowlist entries
 # forward un-probed, so a chat/image refresh never drops already-servable priced
