@@ -832,6 +832,7 @@ export default {
         colBound: '绑定',
         empty: '本分组暂无绑定账号',
         emptyFiltered: '没有符合条件的账号',
+        pickPlatform: '请先在表头选择平台，再查看未绑定/全部账号',
         total: '共 {count} 个',
         prevPage: '上一页',
         nextPage: '下一页',

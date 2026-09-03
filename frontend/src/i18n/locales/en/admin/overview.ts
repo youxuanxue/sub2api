@@ -839,6 +839,7 @@ export default {
         colBound: 'Bound',
         empty: 'No accounts bound to this group',
         emptyFiltered: 'No accounts match the filters',
+        pickPlatform: 'Select a platform in the header to browse unbound/all accounts',
         total: '{count} total',
         prevPage: 'Previous',
         nextPage: 'Next',

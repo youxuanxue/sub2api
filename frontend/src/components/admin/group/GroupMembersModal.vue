@@ -85,7 +85,6 @@
                   <select
                     v-model="filterSchedulable"
                     class="input input-sm w-full min-w-[5rem] text-xs font-normal"
-                    @change="applyClientFilters"
                   >
                     <option value="">{{ t('common.all') }}</option>
                     <option value="yes">{{ t('common.yes') }}</option>
@@ -117,7 +116,11 @@
             </tr>
             <tr v-else-if="displayRows.length === 0">
               <td colspan="6" class="px-3 py-6 text-center text-gray-500">
-                {{ t('admin.groups.members.emptyFiltered') }}
+                {{
+                  needsPlatformPick
+                    ? t('admin.groups.members.pickPlatform')
+                    : t('admin.groups.members.emptyFiltered')
+                }}
               </td>
             </tr>
             <tr
@@ -268,11 +271,6 @@ const displayRows = computed(() => {
   } else if (filterSchedulable.value === 'no') {
     list = list.filter((r) => !r.schedulable)
   }
-  if (filterBound.value === 'bound') {
-    list = list.filter((r) => boundIds.value.has(r.id))
-  } else if (filterBound.value === 'unbound') {
-    list = list.filter((r) => !boundIds.value.has(r.id))
-  }
   return list
 })
 
@@ -284,6 +282,13 @@ const totalLabel = computed(() => {
 const canNext = computed(() => {
   if (filterSchedulable.value) return false
   return page.value * pageSize < total.value
+})
+
+const needsPlatformPick = computed(() => {
+  if (filterBound.value === 'bound') return false
+  const gp = props.group?.platform || ''
+  if (gp === 'composite' && !filterPlatform.value) return true
+  return false
 })
 
 watch(
@@ -323,6 +328,14 @@ function isCandidateAllowed(acc: Row): boolean {
   return false
 }
 
+/** Single concrete platform for eligible-account queries (no multi-platform fan-out). */
+function resolveEligiblePlatform(): string | null {
+  if (filterPlatform.value) return filterPlatform.value
+  const gp = props.group?.platform || ''
+  if (!gp || gp === 'composite') return null
+  return gp
+}
+
 function scheduleReload() {
   if (reloadTimer) clearTimeout(reloadTimer)
   reloadTimer = setTimeout(() => {
@@ -334,10 +347,6 @@ function scheduleReload() {
 function onBoundFilterChange() {
   page.value = 1
   void reload()
-}
-
-function applyClientFilters() {
-  // schedulable filter is applied in displayRows
 }
 
 async function refreshBoundIds() {
@@ -387,63 +396,72 @@ async function loadBoundPage() {
     items = items.filter((r) => r.type === filterType.value)
   }
   rows.value = items
-  total.value = res.total || 0
+  // Client platform/type filters shrink the page; keep server total when unfiltered.
+  total.value =
+    filterPlatform.value || filterType.value ? items.length : res.total || 0
 }
 
-function accountListFilters(platform?: string) {
+function accountListFilters(platform: string) {
   return {
     search: search.value.trim() || undefined,
     lite: '1',
+    platform,
     ...(filterStatus.value ? { status: filterStatus.value } : {}),
-    ...(filterType.value ? { type: filterType.value } : {}),
-    ...(platform ? { platform } : {})
+    ...(filterType.value ? { type: filterType.value } : {})
   }
 }
 
 async function loadEligiblePage() {
   if (!props.group) return
-  const groupPlatform = props.group.platform
-  const platform =
-    filterPlatform.value ||
-    (groupPlatform === 'composite' || groupPlatform === 'anthropic' || groupPlatform === 'gemini'
-      ? undefined
-      : groupPlatform)
-
-  if (groupPlatform === 'composite' && !filterPlatform.value) {
-    // Fan-out first page per platform then merge/slice — keep simple: require platform filter or search.
-    const pages = await Promise.all(
-      COMPOSITE_CANDIDATE_PLATFORMS.map((p) => listAccounts(1, 10, accountListFilters(p)))
-    )
-    const byID = new Map<number, Account>()
-    for (const pageRes of pages) {
-      for (const acc of pageRes.items || []) {
-        if (isCandidateAllowed(acc)) byID.set(acc.id, acc)
-      }
-    }
-    const merged = [...byID.values()].sort((a, b) => a.name.localeCompare(b.name))
-    const start = (page.value - 1) * pageSize
-    rows.value = merged.slice(start, start + pageSize)
-    total.value = merged.length
+  const platform = resolveEligiblePlatform()
+  if (!platform) {
+    rows.value = []
+    total.value = 0
     return
   }
 
-  if ((groupPlatform === 'anthropic' || groupPlatform === 'gemini') && !filterPlatform.value) {
-    const [same, ag] = await Promise.all([
-      listAccounts(page.value, pageSize, accountListFilters(groupPlatform)),
-      listAccounts(1, pageSize, accountListFilters('antigravity'))
-    ])
-    const byID = new Map<number, Account>()
-    for (const acc of [...(same.items || []), ...(ag.items || [])]) {
-      if (isCandidateAllowed(acc)) byID.set(acc.id, acc)
-    }
-    rows.value = [...byID.values()]
-    total.value = Math.max(same.total || 0, byID.size)
+  if (filterBound.value === 'unbound') {
+    await loadUnboundPage(platform)
     return
   }
 
-  const res = await listAccounts(page.value, pageSize, accountListFilters(platform || groupPlatform))
+  // filterBound === 'all'
+  const res = await listAccounts(page.value, pageSize, accountListFilters(platform))
   rows.value = (res.items || []).filter(isCandidateAllowed)
   total.value = res.total || 0
+}
+
+/** Walk account pages to fill one page of unbound rows (stable skip by page index). */
+async function loadUnboundPage(platform: string) {
+  const skip = (page.value - 1) * pageSize
+  let skipped = 0
+  const collected: Account[] = []
+  let p = 1
+  let serverTotal = 0
+  const maxPages = 40
+
+  while (collected.length < pageSize && p <= maxPages) {
+    const res = await listAccounts(p, 50, accountListFilters(platform))
+    serverTotal = res.total || 0
+    const items = res.items || []
+    if (items.length === 0) break
+    for (const acc of items) {
+      if (!isCandidateAllowed(acc) || boundIds.value.has(acc.id)) continue
+      if (skipped < skip) {
+        skipped += 1
+        continue
+      }
+      collected.push(acc)
+      if (collected.length >= pageSize) break
+    }
+    if (p * 50 >= serverTotal) break
+    p += 1
+  }
+
+  rows.value = collected
+  // Exact when short page; otherwise enable Next until a short page proves end.
+  total.value =
+    collected.length < pageSize ? skip + collected.length : skip + pageSize + 1
 }
 
 async function toggleBound(row: Row) {
