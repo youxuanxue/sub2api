@@ -13,8 +13,7 @@
 # Flow (driven by scripts/release-decide-version.sh):
 #   action=skip-bump-skip-tag → nothing to do; exit 0 (deploy the existing tag).
 #   action=tag-only           → tag origin/main from an ephemeral worktree.
-#   action=bump-and-tag       → in the worktree: write VERSION, sync
-#                               endpoint-compat baseline anchor, commit
+#   action=bump-and-tag       → in the worktree: write VERSION, commit
 #                               "chore: bump VERSION to X.Y.Z" (pre-commit
 #                               preflight runs against the clean worktree),
 #                               push origin HEAD:main, then tag.
@@ -146,7 +145,7 @@ if [ "$ACTION" = "bump-and-tag" ]; then
   # (CLAUDE.md §9.2); release-tag.sh re-validates this before tagging.
   git -C "$WT_DIR" commit -m "chore: bump VERSION to $NEXT_VERSION
 
-Sync endpoint-compat baseline runtime anchor for release.yml gate.
+Release VERSION bump.
 no-web-impact"
   echo "[release-bump-and-tag] pushing bump commit to origin/main"
   PUSH_ERR=""
