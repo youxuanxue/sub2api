@@ -2,7 +2,7 @@
 title: Approved docs index
 status: approved
 approved_by: "docs cleanup 2026-07-09"
-revised_at: 2026-09-01
+revised_at: 2026-09-03
 ---
 
 # Approved docs index
@@ -10,6 +10,12 @@ revised_at: 2026-09-01
 `docs/approved/` is the approval baseline for high-risk work. These files are
 load-bearing: code comments, sentinels, migrations, and preflight checks refer
 to their paths. Prefer status changes and short index notes over moving files.
+
+Published migration files are immutable. A historical migration may retain a
+reference to a retired design document; treat that path as migration history
+and do not restore the retired document or edit the migration to rewrite it.
+This applies to the legacy references in `tk_006_add_qa_records_synth_fields.sql`
+and `tk_054_qwen_glm_dashscope_model_mapping.sql`.
 
 Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 `draft`, `pending`, `approved`, `shipped`, `archived`.
@@ -51,6 +57,8 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 | File | Topic |
 | --- | --- |
+| [`gateway-failover-policy-ssot.md`](gateway-failover-policy-ssot.md) | Gateway failover decision owner |
+| [`openai-compat-first-selection-failure.md`](openai-compat-first-selection-failure.md) | OpenAI-compatible first-selection failure contract |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |

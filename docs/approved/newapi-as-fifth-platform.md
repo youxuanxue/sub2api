@@ -351,7 +351,7 @@ go test -tags=integration -run 'TestUS00[89]_|TestUS01[0-5]_' ./backend/internal
 
 ## 11. 实施情况（2026-04-19 ~ 2026-04-20）
 
-PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/sub2api/pull/) — 待开。
+PR：[`feature/newapi-fifth-platform → main`](https://github.com/youxuanxue/sub2api/pull/10) — 已于 2026-04-20 合并。
 
 ### 11.1 提交序列（review 顺序）
 
