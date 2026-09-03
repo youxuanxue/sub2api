@@ -132,6 +132,19 @@ async function addParentDomainSession(context: BrowserContext) {
   ])
 }
 
+async function proxyProductOriginToLocalApp(page: Page) {
+  await page.route('https://tokenkey.dev/**', async (route) => {
+    const requested = new URL(route.request().url())
+    if (requested.pathname.startsWith('/api/') || requested.pathname === '/setup/status') {
+      await route.fallback()
+      return
+    }
+    const localUrl = `${scheme}://127.0.0.1:${port}${requested.pathname}${requested.search}`
+    const response = await route.fetch({ url: localUrl })
+    await route.fulfill({ response })
+  })
+}
+
 async function expectNoViewportOverflow(page: Page) {
   const metrics = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -273,6 +286,7 @@ test.describe('dual-market homepage', () => {
   })
 
   test('drives the global CTA through registration into the DeepSeek quickstart', async ({ page }) => {
+    await proxyProductOriginToLocalApp(page)
     await installAuthenticatedProductFixture(page)
     await page.route('**/api/v1/auth/register', (route) =>
       fulfillOk(route, {
@@ -283,18 +297,15 @@ test.describe('dual-market homepage', () => {
         user: testUser,
       }),
     )
-    await page.route('https://tokenkey.dev/register?**', (route) => route.abort())
     await page.goto(chinaExportHomepage)
 
-    const navigationRequest = page.waitForRequest((request) => {
-      const target = new URL(request.url())
-      return request.isNavigationRequest() && target.hostname === 'tokenkey.dev' && target.pathname === '/register'
-    })
-    await page.locator('[data-testid="china-export-primary-cta"]').click({ noWaitAfter: true })
-    const requestedRegistration = new URL((await navigationRequest).url())
-    expect(requestedRegistration.searchParams.get('redirect')).toBe('/quickstart?model=deepseek-chat&protocol=openai')
-
-    await page.goto(`${scheme}://tokenkey.dev:${port}${requestedRegistration.pathname}${requestedRegistration.search}`)
+    await page.locator('[data-testid="china-export-primary-cta"]').click()
+    await page.waitForURL(
+      (url) =>
+        url.origin === 'https://tokenkey.dev' &&
+        url.pathname === '/register' &&
+        url.searchParams.get('redirect') === '/quickstart?model=deepseek-chat&protocol=openai',
+    )
     await page.locator('#email').fill(testUser.email)
     await page.locator('#password').fill('TokenKey-E2E-Password-1973!')
     await page.locator('form button[type="submit"]').click()
