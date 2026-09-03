@@ -218,7 +218,7 @@ describe('HomeView compact mode', () => {
     expect(wrapper.get('[data-testid="china-export-home"]').exists()).toBe(true)
   })
 
-  it('keeps the China model order and qualified trial promise', () => {
+  it('keeps the China model order, free trial promise, and current proof media', () => {
     profileState.value = 'china-export'
 
     const wrapper = mountHome()
@@ -227,8 +227,34 @@ describe('HomeView compact mode', () => {
     expect(models).toEqual(['Seedance', 'Seedream', 'Qwen', 'DeepSeek', 'GLM', 'Kimi'])
     expect(wrapper.text()).toContain('home.chinaExport.creditDisclaimer')
     expect(wrapper.get('[data-testid="seedance-proof-video"]').attributes('src')).toBe(
-      '/seedance-official-showcase-b1aff7ba.mp4',
+      '/seedance-2-5-official-showcase-8b37bc3e.mp4',
     )
+    expect(wrapper.get('[data-testid="seedance-proof-video"]').attributes('poster')).toBe(
+      '/seedance-2-5-official-poster-db3ff793.jpg',
+    )
+  })
+
+  it('uses the TokenKey brand and current storefront palette for the China export homepage', () => {
+    profileState.value = 'china-export'
+
+    const wrapper = mountHome({ site_name: 'Sub2API' })
+
+    expect(wrapper.get('header').text()).toContain('TokenKey')
+    expect(wrapper.get('footer').text()).toContain('TokenKey')
+    expect(wrapper.get('footer').text()).not.toContain('Sub2API')
+    expect(wrapper.get('[data-home-profile]').classes()).toContain('via-primary-50/30')
+    expect(wrapper.get('[data-testid="china-export-primary-cta"]').classes()).toContain('btn-primary')
+  })
+
+  it('uses the shared terminal window structure for the China export request', () => {
+    profileState.value = 'china-export'
+
+    const terminal = mountHome().get('[data-testid="china-export-terminal"]')
+
+    expect(terminal.get('.terminal-window').exists()).toBe(true)
+    expect(terminal.get('.terminal-header').exists()).toBe(true)
+    expect(terminal.get('.terminal-body').text()).toContain('deepseek-chat')
+    expect(terminal.findAll('.terminal-buttons span')).toHaveLength(3)
   })
 
   it('sends the primary CTA to the shared product quickstart with DeepSeek selected', () => {

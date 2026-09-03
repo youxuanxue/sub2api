@@ -34,8 +34,8 @@
 		path /logo.png
 		path /favicon.ico
 		path /og-cover.png
-		path /seedance-official-showcase-b1aff7ba.mp4
-		path /seedance-official-poster-ad98e92e.jpg
+		path /seedance-2-5-official-showcase-8b37bc3e.mp4
+		path /seedance-2-5-official-poster-db3ff793.jpg
 	}
 	header @static ?Cache-Control "public, max-age=31536000, immutable"
 }
@@ -126,8 +126,8 @@ ${GLOBAL_SITE_DOMAIN} {
 		path /logo.png
 		path /favicon.ico
 		path /og-cover.png
-		path /seedance-official-showcase-b1aff7ba.mp4
-		path /seedance-official-poster-ad98e92e.jpg
+		path /seedance-2-5-official-showcase-8b37bc3e.mp4
+		path /seedance-2-5-official-poster-db3ff793.jpg
 	}
 	handle @global_runtime {
 		import tokenkey_reverse_proxy

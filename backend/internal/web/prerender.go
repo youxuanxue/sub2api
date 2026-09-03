@@ -208,7 +208,7 @@ func prerenderChinaExportHomeHTML() string {
 
 <section>
 <h2>Start free</h2>
-<p>$1 free credit - up to 1M DeepSeek tokens. Actual usage varies by model and input/output mix.</p>
+<p>Start with a free trial. No credit card required.</p>
 <a href="https://tokenkey.dev/register?redirect=%%2Fquickstart%%3Fmodel%%3Ddeepseek-chat%%26protocol%%3Dopenai">Create your account</a>
 </section>
 </body>

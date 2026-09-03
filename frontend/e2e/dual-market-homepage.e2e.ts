@@ -1,8 +1,9 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const port = process.env.E2E_HOMEPAGE_PORT || '3000'
-const currentHomepage = `http://tokenkey.dev:${port}/home`
-const chinaExportHomepage = `http://global.tokenkey.dev:${port}/home`
+const scheme = process.env.E2E_HOMEPAGE_SCHEME || 'http'
+const currentHomepage = `${scheme}://tokenkey.dev:${port}/home`
+const chinaExportHomepage = `${scheme}://global.tokenkey.dev:${port}/home`
 
 const publicSettings = {
   api_base_url: 'https://api.tokenkey.dev',
@@ -14,7 +15,7 @@ const publicSettings = {
   pricing_catalog_public: true,
   registration_enabled: true,
   site_logo: '/logo.svg',
-  site_name: 'TokenKey',
+  site_name: 'Sub2API',
   site_subtitle: 'One key for every AI model.',
 }
 
@@ -49,6 +50,20 @@ function rectanglesOverlap(
     first.y + first.height <= second.y ||
     second.y + second.height <= first.y
   )
+}
+
+async function terminalVisualTokens(terminal: Locator) {
+  return terminal.evaluate((node) => {
+    const windowStyle = getComputedStyle(node)
+    const headerStyle = getComputedStyle(node.querySelector('.terminal-header')!)
+    const bodyStyle = getComputedStyle(node.querySelector('.terminal-body')!)
+
+    return {
+      window: [windowStyle.backgroundImage, windowStyle.borderRadius, windowStyle.boxShadow],
+      header: [headerStyle.backgroundColor, headerStyle.borderBottomColor, headerStyle.padding],
+      body: [bodyStyle.fontFamily, bodyStyle.fontSize, bodyStyle.lineHeight, bodyStyle.padding],
+    }
+  })
 }
 
 test.describe('dual-market homepage', () => {
@@ -98,12 +113,54 @@ test.describe('dual-market homepage', () => {
       'href',
       'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
     )
+    await expect(page.locator('header')).toContainText('TokenKey')
+    await expect(page.locator('footer')).toContainText('TokenKey')
+    await expect(page.locator('footer')).not.toContainText('Sub2API')
+    await expect(page.locator('[data-testid="china-export-home"]')).toContainText('Free trial')
+    await expect(page.locator('[data-testid="china-export-home"]')).not.toContainText('$1')
+    await expect(page.locator('[data-testid="china-export-home"]')).not.toContainText('1M')
 
     const video = page.locator('[data-testid="seedance-proof-video"]')
     await expect(video).toBeVisible()
     await expect
       .poll(() => video.evaluate((node: HTMLVideoElement) => node.videoWidth * node.videoHeight))
       .toBeGreaterThan(0)
+    await expectNoViewportOverflow(page)
+  })
+
+  test('switches the China export homepage between English and Chinese', async ({ page }) => {
+    await page.addInitScript(() => {
+      if (!localStorage.getItem('tokenkey_locale')) {
+        localStorage.setItem('tokenkey_locale', 'en')
+      }
+    })
+    await page.goto(chinaExportHomepage)
+
+    await expect(page.locator('h1')).toHaveText("China's leading AI models. One API.")
+    await page.locator('header button').filter({ hasText: 'EN' }).click()
+    await page.getByRole('button', { name: /中文/ }).click()
+    await expect(page.locator('h1')).toHaveText('中国领先 AI 模型，一个 API。')
+    await expect(page.locator('[data-testid="china-export-home"]')).toContainText('免费试用')
+    await expect(page.locator('html')).toHaveAttribute('lang', 'zh')
+
+    await page.reload()
+    await expect(page.locator('h1')).toHaveText('中国领先 AI 模型，一个 API。')
+  })
+
+  test('keeps terminal chrome and typography identical across both homepages', async ({ page }) => {
+    await page.goto(currentHomepage)
+    const currentTerminal = page.locator('[data-home-profile="current"] .terminal-window')
+    await expect(currentTerminal).toBeVisible()
+    const currentTokens = await terminalVisualTokens(currentTerminal)
+
+    await page.goto(chinaExportHomepage)
+    const exportTerminal = page.locator('[data-testid="china-export-terminal"] .terminal-window')
+    await exportTerminal.scrollIntoViewIfNeeded()
+    await expect(exportTerminal).toBeVisible()
+    await expect(exportTerminal.locator('.terminal-title')).toHaveText('terminal')
+    await expect(exportTerminal.locator('.terminal-buttons span')).toHaveCount(3)
+    await expect(exportTerminal.locator('.terminal-copy-button')).toBeVisible()
+    expect(await terminalVisualTokens(exportTerminal)).toEqual(currentTokens)
     await expectNoViewportOverflow(page)
   })
 

@@ -103,7 +103,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
 
         self.assertIn("global.tokenkey.dev {", rendered)
         self.assertIn('header X-Robots-Tag "noindex, nofollow"', rendered)
-        self.assertIn("path /seedance-official-showcase-b1aff7ba.mp4", rendered)
+        self.assertIn("path /seedance-2-5-official-showcase-8b37bc3e.mp4", rendered)
         self.assertIn("path /api/v1/settings/public", rendered)
         self.assertIn("path /api/v1/auth/refresh", rendered)
         self.assertIn("path /api/v1/auth/me", rendered)

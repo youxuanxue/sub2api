@@ -163,7 +163,9 @@ func TestPrerenderMiddlewareChinaExportHomepage(t *testing.T) {
 			assert.Equal(t, "1", w.Header().Get("X-Prerender"))
 			assert.Contains(t, w.Body.String(), "China's leading AI models. One API.")
 			assert.Contains(t, w.Body.String(), `href="https://global.tokenkey.dev/"`)
-			assert.Contains(t, w.Body.String(), "$1 free credit - up to 1M DeepSeek tokens")
+			assert.Contains(t, w.Body.String(), "Start with a free trial. No credit card required.")
+			assert.NotContains(t, w.Body.String(), "$1")
+			assert.NotContains(t, w.Body.String(), "1M DeepSeek tokens")
 		})
 	}
 }

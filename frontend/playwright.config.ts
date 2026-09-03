@@ -16,6 +16,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL || 'http://localhost:8080',
     headless: true,
+    ignoreHTTPSErrors: process.env.E2E_IGNORE_HTTPS_ERRORS === '1',
     screenshot: 'on',
     video: 'retain-on-failure',
     trace: 'retain-on-failure',

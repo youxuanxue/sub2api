@@ -19,9 +19,9 @@ type HomeLocaleOverlay = {
   home: Record<string, unknown>
 }
 
-// The hostname, not the saved locale, owns the overseas homepage narrative.
-// Reusing one English object keeps the public promise identical for every visitor.
-const chinaExport = {
+// The hostname owns the overseas product narrative; the saved locale only
+// selects how that same promise is presented.
+const chinaExportEn = {
   eyebrow: 'Built for global teams',
   heroTitle: "China's leading AI models. One API.",
   heroSubtitle: 'Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi. One balance, one key, one OpenAI-compatible endpoint.',
@@ -29,8 +29,8 @@ const chinaExport = {
   openQuickstart: 'Open quickstart',
   browseModels: 'Browse all models',
   noCard: 'No card required. Your account and API key work across TokenKey.',
-  proofBadge: 'Seedance 1.0',
-  proofAlt: 'Still frame from the official Seedance 1.0 model showcase',
+  proofBadge: 'Seedance 2.5',
+  proofAlt: 'Still frame from the official Seedance 2.5 model showcase',
   proofCaption: 'Real model output from the official Seedance showcase.',
   proofSource: 'View source',
   modelsEyebrow: 'China model matrix',
@@ -51,17 +51,17 @@ const chinaExport = {
   verifyCta: 'Get your API key',
   copyCode: 'Copy request',
   copied: 'Copied',
-  faqEyebrow: '$1 free credit',
+  faqEyebrow: 'Free trial',
   faqTitle: 'Build before you pay.',
-  creditDisclaimer: '$1 free credit - up to 1M DeepSeek tokens. Actual usage varies by model and input/output mix.',
+  creditDisclaimer: 'Start with a free trial. No credit card required.',
   faq: {
     models: {
       q: 'Which models can I use now?',
       a: 'Start with Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi, then browse the full TokenKey catalog. Availability is shown in the shared model catalog and is not restricted by the homepage you used.',
     },
     credit: {
-      q: 'How does the $1 free credit work?',
-      a: 'A new eligible account receives $1 in USD balance. You can use it on any available model. It can cover up to 1M DeepSeek tokens; actual usage depends on the model and input/output mix.',
+      q: 'How does the free trial work?',
+      a: 'Create an eligible account to receive trial access. No credit card is required, and you can start with any model currently available to your account.',
     },
     data: {
       q: 'Where is my data processed?',
@@ -74,9 +74,62 @@ const chinaExport = {
   },
 } as const
 
+const chinaExportZh = {
+  eyebrow: '为全球团队打造',
+  heroTitle: '中国领先 AI 模型，一个 API。',
+  heroSubtitle: 'Seedance、Seedream、通义千问、DeepSeek、GLM 和 Kimi。共用余额、统一 Key、兼容 OpenAI 的接口。',
+  startFree: '免费试用',
+  openQuickstart: '打开快速开始',
+  browseModels: '浏览全部模型',
+  noCard: '无需信用卡。你的账户和 API Key 可在 TokenKey 全站通用。',
+  proofBadge: 'Seedance 2.5',
+  proofAlt: '字节跳动官方 Seedance 2.5 模型演示视频画面',
+  proofCaption: '字节跳动官方 Seedance 演示中的真实模型输出。',
+  proofSource: '查看来源',
+  modelsEyebrow: '中国模型矩阵',
+  modelsTitle: '先用你正在寻找的模型。',
+  modelsSubtitle: '首页顺序只决定你先看到什么，不限制账户可调用的模型。每个 TokenKey 用户都可访问完整模型目录。',
+  featured: '主推',
+  models: {
+    seedance: '面向电影感运动和创意制作工作流的视频生成。',
+    seedream: '面向产品、营销和概念设计的图像生成与编辑。',
+    qwen: '面向生产应用的阿里云语言与多模态模型。',
+    deepseek: '通过兼容 OpenAI 的 API 使用高效的推理和对话模型。',
+    glm: '面向智能体和应用的智谱 AI 语言与多模态模型。',
+    kimi: '面向长上下文推理、编程和智能体工作流的月之暗面模型。',
+  },
+  verifyEyebrow: '验证你的 Key',
+  verifyTitle: '一次请求，拿到首个响应。',
+  verifyDescription: '用 deepseek-chat 确认 API Key、余额和兼容 OpenAI 的接口已就绪，然后仅需替换模型 ID 即可开始生产工作流。',
+  verifyCta: '获取 API Key',
+  copyCode: '复制请求',
+  copied: '已复制',
+  faqEyebrow: '免费试用',
+  faqTitle: '先构建，后付费。',
+  creditDisclaimer: '免费开始试用，无需信用卡。',
+  faq: {
+    models: {
+      q: '现在可以使用哪些模型？',
+      a: '可以从 Seedance、Seedream、通义千问、DeepSeek、GLM 和 Kimi 开始，再浏览 TokenKey 完整模型目录。模型可用性以共用目录为准，不受你访问的首页限制。',
+    },
+    credit: {
+      q: '免费试用如何开通？',
+      a: '创建符合条件的账户即可获得试用权益，无需信用卡，并可从账户当前可用的任意模型开始。',
+    },
+    data: {
+      q: '数据在哪里处理？',
+      a: '处理位置和保留方式取决于每次请求选择的模型提供商。发送敏感或受监管数据前，请查阅所选模型提供商的政策。',
+    },
+    payments: {
+      q: '付款和退款如何处理？',
+      a: '可用的付款方式会显示在 TokenKey 共用收银台中。购买完成后会充入所有模型共用的 USD 余额，退款条件以产品内展示的条款为准。',
+    },
+  },
+} as const
+
 const en: HomeLocaleOverlay = {
   home: {
-    chinaExport,
+    chinaExport: chinaExportEn,
     hero: {
       title: STOREFRONT_SEO.en.heroTitle,
       subtitle: STOREFRONT_SEO.en.heroSubtitle,
@@ -218,7 +271,7 @@ const en: HomeLocaleOverlay = {
 
 const zh: HomeLocaleOverlay = {
   home: {
-    chinaExport,
+    chinaExport: chinaExportZh,
     hero: {
       title: STOREFRONT_SEO.zh.heroTitle,
       subtitle: STOREFRONT_SEO.zh.heroSubtitle,

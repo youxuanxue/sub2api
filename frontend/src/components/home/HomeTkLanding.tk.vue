@@ -6,10 +6,7 @@
     strings live in i18n/tk/home.tk.ts and are merged over the upstream locale.
   -->
   <div
-    class="relative flex min-h-screen flex-col overflow-hidden"
-    :class="isChinaExport
-      ? 'bg-[#f5f5f2] text-[#171717] dark:bg-[#111310] dark:text-white'
-      : 'bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950'"
+    class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
     :data-home-profile="profile"
   >
     <!-- Background Decorations -->
@@ -37,10 +34,10 @@
         <!-- Logo -->
         <div class="flex items-center gap-3">
           <div class="h-10 w-10 overflow-hidden rounded-xl shadow-md">
-            <img :src="siteLogo" alt="Logo" class="h-full w-full object-contain" />
+            <img :src="siteLogo" :alt="brandName" class="h-full w-full object-contain" />
           </div>
           <span v-if="isChinaExport" class="text-base font-semibold text-gray-950 dark:text-white">
-            TokenKey
+            {{ brandName }}
           </span>
         </div>
 
@@ -509,13 +506,16 @@
     </main>
 
     <main v-else class="relative z-10 flex-1" data-testid="china-export-home">
-      <section class="border-b border-black/10 px-5 pb-6 pt-6 dark:border-white/10 sm:px-8 sm:pb-14 sm:pt-8 lg:px-12 lg:pb-20 lg:pt-12">
+      <section class="border-b border-gray-200/50 px-5 pb-6 pt-6 dark:border-dark-800/50 sm:px-8 sm:pb-14 sm:pt-8 lg:px-12 lg:pb-20 lg:pt-12">
         <div class="mx-auto grid max-w-7xl items-center gap-6 sm:gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:gap-14">
           <div class="max-w-2xl">
-            <p class="mb-5 text-sm font-semibold uppercase text-[#b6432e]">
+            <p class="mb-5 text-sm font-semibold uppercase text-primary-600 dark:text-primary-400">
               {{ t('home.chinaExport.eyebrow') }}
             </p>
-            <h1 class="text-4xl font-semibold leading-[1.05] tracking-normal text-gray-950 dark:text-white sm:text-5xl lg:text-7xl">
+            <h1
+              class="break-keep text-4xl font-semibold leading-[1.05] tracking-normal text-gray-950 dark:text-white sm:text-5xl"
+              :class="locale === 'zh' ? 'lg:text-6xl' : 'lg:text-7xl'"
+            >
               {{ t('home.chinaExport.heroTitle') }}
             </h1>
             <p class="mt-6 max-w-xl text-lg leading-8 text-gray-600 dark:text-gray-300 sm:text-xl">
@@ -524,7 +524,7 @@
             <div class="mt-8 flex flex-wrap items-center gap-3">
               <a
                 :href="primaryCtaUrl"
-                class="btn bg-[#171717] px-6 py-3 text-base text-white shadow-lg shadow-black/15 hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-100"
+                class="btn btn-primary px-6 py-3 text-base shadow-lg shadow-primary-500/30"
                 data-testid="china-export-primary-cta"
               >
                 {{ isAuthenticated ? t('home.chinaExport.openQuickstart') : t('home.chinaExport.startFree') }}
@@ -532,7 +532,7 @@
               </a>
               <a
                 :href="absoluteProductUrl('/models')"
-                class="btn border border-black/15 bg-transparent px-6 py-3 text-base text-gray-800 hover:bg-black/5 dark:border-white/20 dark:text-white dark:hover:bg-white/10"
+                class="btn btn-secondary px-6 py-3 text-base"
               >
                 {{ t('home.chinaExport.browseModels') }}
               </a>
@@ -542,7 +542,7 @@
             </p>
           </div>
 
-          <figure class="overflow-hidden rounded-lg bg-[#111310] shadow-2xl shadow-black/20" data-testid="seedance-proof">
+          <figure class="overflow-hidden rounded-lg bg-dark-950 shadow-2xl shadow-primary-950/20" data-testid="seedance-proof">
             <div class="relative aspect-video overflow-hidden">
               <video
                 ref="seedanceVideo"
@@ -585,7 +585,7 @@
       <section class="px-5 pb-16 pt-6 sm:px-8 sm:pt-12 lg:px-12 lg:py-20" aria-labelledby="china-models-title">
         <div class="mx-auto max-w-7xl">
           <div class="max-w-2xl">
-            <p class="text-sm font-semibold uppercase text-[#23745c]" data-testid="china-models-eyebrow">{{ t('home.chinaExport.modelsEyebrow') }}</p>
+            <p class="text-sm font-semibold uppercase text-primary-600 dark:text-primary-400" data-testid="china-models-eyebrow">{{ t('home.chinaExport.modelsEyebrow') }}</p>
             <h2 id="china-models-title" class="mt-3 text-3xl font-semibold tracking-normal text-gray-950 dark:text-white sm:text-4xl">
               {{ t('home.chinaExport.modelsTitle') }}
             </h2>
@@ -598,7 +598,7 @@
             <div
               v-for="(model, index) in chinaModelCards"
               :key="model.name"
-              class="flex min-h-[132px] items-start gap-4 rounded-lg border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-[#181b17]"
+              class="flex min-h-[132px] items-start gap-4 rounded-lg border border-gray-200/50 bg-white/60 p-5 backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/60"
               :data-model-order="index + 1"
             >
               <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-sm font-bold text-white" :class="model.color">
@@ -607,7 +607,7 @@
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
                   <h3 class="text-base font-semibold text-gray-950 dark:text-white">{{ model.name }}</h3>
-                  <span v-if="index < 2" class="rounded bg-[#f4ded8] px-2 py-0.5 text-xs font-medium text-[#8e2f20] dark:bg-[#5a271f] dark:text-[#ffb4a5]">
+                  <span v-if="index < 2" class="rounded bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
                     {{ t('home.chinaExport.featured') }}
                   </span>
                 </div>
@@ -618,35 +618,42 @@
         </div>
       </section>
 
-      <section class="border-y border-black/10 bg-white px-5 py-16 dark:border-white/10 dark:bg-[#181b17] sm:px-8 lg:px-12 lg:py-20" aria-labelledby="verify-key-title">
+      <section class="border-y border-gray-200/50 bg-white/60 px-5 py-16 backdrop-blur-sm dark:border-dark-800/50 dark:bg-dark-800/60 sm:px-8 lg:px-12 lg:py-20" aria-labelledby="verify-key-title">
         <div class="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:gap-16">
           <div>
-            <p class="text-sm font-semibold uppercase text-[#b6432e]">{{ t('home.chinaExport.verifyEyebrow') }}</p>
+            <p class="text-sm font-semibold uppercase text-primary-600 dark:text-primary-400">{{ t('home.chinaExport.verifyEyebrow') }}</p>
             <h2 id="verify-key-title" class="mt-3 text-3xl font-semibold tracking-normal text-gray-950 dark:text-white sm:text-4xl">
               {{ t('home.chinaExport.verifyTitle') }}
             </h2>
             <p class="mt-4 text-base leading-7 text-gray-600 dark:text-gray-300">
               {{ t('home.chinaExport.verifyDescription') }}
             </p>
-            <a :href="primaryCtaUrl" class="mt-7 inline-flex items-center font-semibold text-[#9d3524] hover:underline dark:text-[#ff9c89]">
+            <a :href="primaryCtaUrl" class="mt-7 inline-flex items-center font-semibold text-primary-600 hover:underline dark:text-primary-400">
               {{ t('home.chinaExport.verifyCta') }}
               <Icon name="arrowRight" size="sm" class="ml-2" />
             </a>
           </div>
 
-          <div class="overflow-hidden rounded-lg bg-[#101410] text-gray-100 shadow-xl shadow-black/10">
-            <div class="flex h-11 items-center justify-between border-b border-white/10 px-4">
-              <span class="font-mono text-xs text-gray-400">curl</span>
-              <button
-                type="button"
-                class="flex h-8 w-8 items-center justify-center rounded-md text-gray-400 hover:bg-white/10 hover:text-white"
-                :title="codeCopied ? t('home.chinaExport.copied') : t('home.chinaExport.copyCode')"
-                @click="copyQuickstart"
-              >
-                <Icon :name="codeCopied ? 'check' : 'copy'" size="sm" />
-              </button>
+          <div class="terminal-container w-full max-w-[540px] lg:justify-self-end" data-testid="china-export-terminal">
+            <div class="terminal-window">
+              <div class="terminal-header">
+                <div class="terminal-buttons">
+                  <span class="btn-close"></span>
+                  <span class="btn-minimize"></span>
+                  <span class="btn-maximize"></span>
+                </div>
+                <span class="terminal-title">terminal</span>
+                <button
+                  type="button"
+                  class="terminal-copy-button"
+                  :title="codeCopied ? t('home.chinaExport.copied') : t('home.chinaExport.copyCode')"
+                  @click="copyQuickstart"
+                >
+                  <Icon :name="codeCopied ? 'check' : 'copy'" size="sm" />
+                </button>
+              </div>
+              <pre class="terminal-body terminal-command-body overflow-x-auto"><code>{{ deepseekCurl }}</code></pre>
             </div>
-            <pre class="overflow-x-auto p-5 text-sm leading-7"><code>{{ deepseekCurl }}</code></pre>
           </div>
         </div>
       </section>
@@ -654,11 +661,11 @@
       <section class="px-5 py-16 sm:px-8 lg:px-12 lg:py-20" aria-labelledby="china-faq-title">
         <div class="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.65fr)_minmax(0,1.35fr)] lg:gap-16">
           <div>
-            <p class="text-sm font-semibold uppercase text-[#23745c]">{{ t('home.chinaExport.faqEyebrow') }}</p>
+            <p class="text-sm font-semibold uppercase text-primary-600 dark:text-primary-400">{{ t('home.chinaExport.faqEyebrow') }}</p>
             <h2 id="china-faq-title" class="mt-3 text-3xl font-semibold tracking-normal text-gray-950 dark:text-white sm:text-4xl">
               {{ t('home.chinaExport.faqTitle') }}
             </h2>
-            <a :href="primaryCtaUrl" class="mt-7 inline-flex items-center font-semibold text-[#9d3524] hover:underline dark:text-[#ff9c89]">
+            <a :href="primaryCtaUrl" class="mt-7 inline-flex items-center font-semibold text-primary-600 hover:underline dark:text-primary-400">
               {{ t('home.chinaExport.startFree') }}
               <Icon name="arrowRight" size="sm" class="ml-2" />
             </a>
@@ -667,7 +674,7 @@
             </p>
           </div>
 
-          <div class="divide-y divide-black/10 border-y border-black/10 dark:divide-white/10 dark:border-white/10">
+          <div class="divide-y divide-gray-200/50 border-y border-gray-200/50 dark:divide-dark-700/50 dark:border-dark-700/50">
             <div v-for="key in chinaFaqKeys" :key="key">
               <button
                 type="button"
@@ -698,7 +705,7 @@
         class="mx-auto flex max-w-6xl flex-col items-center justify-center gap-4 text-center sm:flex-row sm:text-left"
       >
         <p class="text-sm text-gray-500 dark:text-dark-400">
-          &copy; {{ currentYear }} {{ siteName }}. {{ t('home.footer.allRightsReserved') }}
+          &copy; {{ currentYear }} {{ brandName }}. {{ t('home.footer.allRightsReserved') }}
         </p>
         <div class="flex items-center gap-4">
           <a
@@ -738,8 +745,9 @@ const props = withDefaults(defineProps<{
   profile: 'current',
 })
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const isChinaExport = computed(() => props.profile === 'china-export')
+const brandName = 'TokenKey'
 
 const CHINA_EXPORT_QUICKSTART = '/quickstart?model=deepseek-chat&protocol=openai'
 
@@ -754,18 +762,18 @@ const primaryCtaUrl = computed(() =>
 )
 
 const seedanceProof = {
-  videoUrl: '/seedance-official-showcase-b1aff7ba.mp4',
-  posterUrl: '/seedance-official-poster-ad98e92e.jpg',
-  sourceUrl: 'https://seed.bytedance.com/en/seedance',
+  videoUrl: '/seedance-2-5-official-showcase-8b37bc3e.mp4',
+  posterUrl: '/seedance-2-5-official-poster-db3ff793.jpg',
+  sourceUrl: 'https://seed.bytedance.com/en/seedance2_5',
 } as const
 
 const chinaModelCards = [
-  { name: 'Seedance', glyph: 'SD', color: 'bg-[#b6432e]', descriptionKey: 'home.chinaExport.models.seedance' },
-  { name: 'Seedream', glyph: 'SR', color: 'bg-[#23745c]', descriptionKey: 'home.chinaExport.models.seedream' },
-  { name: 'Qwen', glyph: 'Q', color: 'bg-[#3867a8]', descriptionKey: 'home.chinaExport.models.qwen' },
-  { name: 'DeepSeek', glyph: 'D', color: 'bg-[#4c55a5]', descriptionKey: 'home.chinaExport.models.deepseek' },
-  { name: 'GLM', glyph: 'G', color: 'bg-[#326c74]', descriptionKey: 'home.chinaExport.models.glm' },
-  { name: 'Kimi', glyph: 'K', color: 'bg-[#6d577e]', descriptionKey: 'home.chinaExport.models.kimi' },
+  { name: 'Seedance', glyph: 'SD', color: 'bg-primary-600', descriptionKey: 'home.chinaExport.models.seedance' },
+  { name: 'Seedream', glyph: 'SR', color: 'bg-blue-600', descriptionKey: 'home.chinaExport.models.seedream' },
+  { name: 'Qwen', glyph: 'Q', color: 'bg-amber-600', descriptionKey: 'home.chinaExport.models.qwen' },
+  { name: 'DeepSeek', glyph: 'D', color: 'bg-indigo-600', descriptionKey: 'home.chinaExport.models.deepseek' },
+  { name: 'GLM', glyph: 'G', color: 'bg-cyan-700', descriptionKey: 'home.chinaExport.models.glm' },
+  { name: 'Kimi', glyph: 'K', color: 'bg-violet-600', descriptionKey: 'home.chinaExport.models.kimi' },
 ] as const
 
 const deepseekCurl = `curl https://api.tokenkey.dev/v1/chat/completions \\
@@ -773,7 +781,12 @@ const deepseekCurl = `curl https://api.tokenkey.dev/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "deepseek-chat",
-    "messages": [{"role": "user", "content": "Say hello in one sentence."}]
+    "messages": [
+      {
+        "role": "user",
+        "content": "Say hello in one sentence."
+      }
+    ]
   }'`
 
 const codeCopied = ref(false)
@@ -887,7 +900,6 @@ const {
   isDark,
   showModelPlazaEntry,
   siteLogo,
-  siteName,
   toggleTheme,
   userInitial,
 } = useHomeShell()
@@ -921,7 +933,8 @@ const {
 
 /* Terminal Header */
 .terminal-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 52px;
   align-items: center;
   padding: 12px 16px;
   background: rgba(30, 41, 59, 0.8);
@@ -950,12 +963,27 @@ const {
 }
 
 .terminal-title {
-  flex: 1;
   text-align: center;
   font-size: 12px;
   font-family: ui-monospace, monospace;
   color: #64748b;
-  margin-right: 52px;
+}
+
+.terminal-copy-button {
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  border-radius: 6px;
+  color: #94a3b8;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.terminal-copy-button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Terminal Body */
@@ -964,6 +992,12 @@ const {
   font-family: ui-monospace, 'Fira Code', monospace;
   font-size: 14px;
   line-height: 2;
+}
+
+.terminal-command-body {
+  margin: 0;
+  color: #cbd5e1;
+  white-space: pre;
 }
 
 .code-line {

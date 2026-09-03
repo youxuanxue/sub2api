@@ -100,16 +100,16 @@ Start free. No card required.
 试用权益文案：
 
 ```text
-$1 free credit - up to 1M DeepSeek tokens.
-Actual usage varies by model and input/output mix.
+Start with a free trial.
+No credit card required.
 ```
 
-“1M tokens”只能在 CTA 附近或 FAQ 中与 `$1`、DeepSeek 和 `up to` 同时出现，不与 Seedance / Seedream 首屏价值主张争夺标题，也不得单独写成保证到账的 token 数。余额仍以 USD 计价，可用于任何模型，包括图像和视频模型；不创建 token wallet。
+海外首页只承诺“免费试用”和“无需信用卡”，不公开展示赠金金额或 token 数量。实际试用仍通过现有的 USD 统一余额机制发放，可用于账户当前可用的任何模型，包括图像和视频模型；不创建 token wallet。首发内部配置可暂保持 `$1` 赠金，但它不是对外文案或固定产品承诺。
 
 FAQ 只回答四个问题；答案必须与真实能力、价格和已发布产品政策一致，任一问题没有确定答案时不得正式上线：
 
 1. Which models can I use now?
-2. How does the $1 free credit work?
+2. How does the free trial work?
 3. Where is my data processed?
 4. How do payments and refunds work?
 
@@ -127,7 +127,7 @@ FAQ 只回答四个问题；答案必须与真实能力、价格和已发布产�
 global 首页主 CTA
   -> https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai
   -> 使用现有注册流程
-  -> 自动获得 $1 USD 余额和首个 API Key
+  -> 自动获得当前配置的试用余额和首个 API Key
   -> 进入现有 Quickstart，URL 预选 deepseek-chat
   -> 复制调用或进入现有 Playground
   -> 第一次成功响应
@@ -143,7 +143,7 @@ global 首页主 CTA
 
 首个 Key 的目标显示名为 `Default Key`。现有代码已经具备自动发 Key 能力，但代码默认名目前为 `trial`；上线时通过既有 `auto_generate_default_token_name` 配置设置为 `Default Key`，不新建第二套签发逻辑。
 
-现有 `$1` 注册赠金已经由 `signup_bonus_enabled` 和 `signup_bonus_balance` 支持。实施 PR 先验证邮箱注册和 OAuth 首次注册均只赠送一次、均记入统一余额与账本；除非验证失败，不改动余额数据模型。
+现有注册赠金已经由 `signup_bonus_enabled` 和 `signup_bonus_balance` 支持，首发内部配置暂定为 `$1`。实施 PR 先验证邮箱注册和 OAuth 首次注册均只赠送一次、均记入统一余额与账本；除非验证失败，不改动余额数据模型。海外首页不读取或展示该配置数值。
 
 ## 5. 前端与内容 Owner
 
@@ -230,7 +230,7 @@ global.tokenkey.dev {
 
 1. current / china-export 两种首页均由同一发布物和唯一 profile owner 驱动；
 2. `registration_enabled=true`、`pricing_catalog_public=true`，且相关关闭路径已经测试；
-3. `$1` 赠金和 `Default Key` 对同一新用户均只发放一次；
+3. 当前配置的试用赠金和 `Default Key` 对同一新用户均只发放一次；
 4. 首页媒体、模型名称、价格和 API 示例与真实产品能力一致；
 5. 本文档“自动化合同”全部通过，当前首页和既有 API 无回归；
 6. DNS、证书、Caddy、应用版本和功能开关均有可执行回滚步骤。
@@ -296,7 +296,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 3. 完成 `global.tokenkey.dev` 的 Caddy、证书、静态资源 allowlist、非首页重定向和回滚配置；
 4. 完成双 host 的 canonical、OG、crawler prerender 和生产候选状态的 `noindex`；
 5. 复用现有注册、统一余额、API Key、Quickstart、Studio 和支付页面，不产生市场分支；
-6. 配置并验证 `$1` 赠金、`Default Key` 和 Quickstart 的 `deepseek-chat` 预选；
+6. 配置并验证试用赠金、`Default Key` 和 Quickstart 的 `deepseek-chat` 预选；
 7. 补齐本文档“自动化合同”中的单元、集成和 Playwright 测试。
 
 完成标准：实现 PR 绑定本文档，聚焦测试全绿；desktop/mobile 真实 UI 无重叠、空白媒体或当前首页回归；部署物仍然只有一份。
@@ -305,7 +305,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 
 1. 在与生产一致的候选版本上跑完整测试、构建和项目 preflight；
 2. 从海外网络分别实调 Seedance、Seedream、Qwen、DeepSeek、GLM、Kimi，核对结果、错误和实际扣费；
-3. 用真实浏览器走通首页 -> 注册 -> `$1` -> `Default Key` -> DeepSeek 首调 -> Seedance / Seedream 生成；
+3. 用真实浏览器走通首页 -> 注册 -> 试用余额 -> `Default Key` -> DeepSeek 首调 -> Seedance / Seedream 生成；
 4. 验证 Session 跨子域有效，非首页 path/query 正确回到 `tokenkey.dev`；
 5. 演练关闭注册、catalog、赠金、支付和海外首页入口的回滚路径；
 6. 汇总未关闭问题；任何影响注册、调用、计费、回滚或当前用户的缺陷均阻断生产候选部署。
@@ -320,7 +320,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 发布同一应用版本
   -> 配置 global.tokenkey.dev DNS 与证书
   -> 启用 global host（302 + noindex）
-  -> 按发布配置设置 registration / public catalog / $1 bonus
+  -> 按发布配置设置 registration / public catalog / trial bonus
   -> 执行双 host、登录、首调、媒体生成冒烟
   -> 核对错误日志、响应与实际扣费
 ```
@@ -331,7 +331,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 
 ### 阶段 5：完成生产环境产品验收
 
-1. 使用全新测试账户走通首页、注册、`$1`、`Default Key`、DeepSeek 首调和 Seedance / Seedream 生成；
+1. 使用全新测试账户走通首页、注册、试用余额、`Default Key`、DeepSeek 首调和 Seedance / Seedream 生成；
 2. 分别实调六个首页模型，核对模型 ID、协议、结果、错误处理和实际扣费；
 3. 验证跨子域 Session、非首页 path/query 重定向、canonical、OG、crawler 和 `noindex`；
 4. 验证 current 首页、现有 Console、模型目录和既有 API 调用无回归；
@@ -376,10 +376,10 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 3. profile 只影响首页，不能改变模型权限、API Key 或余额；
 4. `global /`、`global /home` 成功，非首页 document 在灰度期 302、正式期 301，且 path/query 保真；
 5. current 首页 snapshot/关键文案/CTA 不回归；
-6. overseas 首页模型顺序、DeepSeek API 示例和试用限定文案正确；
+6. overseas 首页模型顺序、DeepSeek API 示例和免费试用文案正确，且不展示金额或 token 数量；
 7. crawler 在两个 host 得到不同且正确的 canonical/OG；
 8. 已登录 Session 在子域间有效，logout 能清除 parent-domain Cookie；
-9. 新用户仅获得一次 `$1` 赠金和一个 `Default Key`；
+9. 新用户仅获得一次当前配置的试用赠金和一个 `Default Key`；
 10. 真实浏览器从海外首页 CTA 经注册到 Quickstart，模型预选为 `deepseek-chat`，页面明确这是 Key 验证；
 11. desktop/mobile 下视频非空、主体可见、文本不重叠、reduced-motion 有 poster fallback；
 12. `home_content` 只覆盖 current profile，不能替换 china-export；
@@ -394,7 +394,7 @@ UI 端到端验收必须由 Playwright 驱动真实浏览器。后端 handler �
 
 1. Seedance / Seedream 从海外网络完成真实生成，结果和扣费正确；
 2. 六个首页模型在生产候选验收和正式上线前均通过真实可服务性检查；
-3. 真实新用户只获得一次 `$1` 赠金和一个 `Default Key`；
+3. 真实新用户只获得一次当前配置的试用赠金和一个 `Default Key`；
 4. 支付开启时，真实小额购买、webhook、余额入账和退款产品路径通过；
 5. 双 host、跨子域 Session、SEO 元数据和非首页重定向在生产环境符合合同；
 6. 生产候选保持 `noindex + 302`，正式上线切换和回滚均已实测。
