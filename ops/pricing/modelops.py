@@ -9,7 +9,6 @@ The deterministic model operations include:
   * normalize probe TSV output from ops/pricing/probe-servable-models.sh,
   * compare candidates against tk_served_models.json and tk_pricing_overlay.json,
   * compare repo intent against an optional live model_mapping snapshot,
-  * compare explicit mirror-account policies from a live mapping snapshot,
   * keep the public catalog / user menu surface tied to the same servable sets.
 
 Writes go through the reviewed owners:
@@ -21,12 +20,10 @@ Writes go through the reviewed owners:
 
 Usage:
 
-  python3 ops/pricing/modelops.py snapshot-sql --channel-type 17
   python3 ops/pricing/modelops.py plan \
     --upstream "$QWEN_ACCOUNT_ID":/tmp/qwen_upstream_models.json \
     --probe-results /tmp/qwen_probe.tsv \
-    --live-mapping /tmp/model_mapping_snapshot.json \
-    --mirror "$SOURCE_QWEN_ACCOUNT_ID":"$TARGET_QWEN_ACCOUNT_ID"
+    --live-mapping /tmp/model_mapping_snapshot.json
 
   python3 ops/pricing/modelops.py activate \
     --bundle /tmp/model-surface-bundle.json \
@@ -52,6 +49,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pricing_registry import has_complete_price, resolve_price_owner
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
@@ -88,20 +88,6 @@ ACTIVATION_EVIDENCE_SCHEMA_VERSION = 2
 ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)
 ACTIVATION_CONFIRM = "yes-activate-model-surface"
 
-MODE_FIELDS = {
-    "image_generation": ("output_cost_per_image",),
-    "video_generation": ("output_cost_per_second",),
-    "chat": ("input_cost_per_token", "output_cost_per_token"),
-}
-
-# SQL generator registry for scripts/checks/ops-sql-coverage.py. The argparse
-# command wrapper name ends in `_sql` by convention, but the real generator is
-# build_snapshot_sql below.
-SELF_CHECK_EXEMPT = {
-    "cmd_snapshot_sql": "argparse command wrapper; build_snapshot_sql is enumerated",
-}
-
-
 ManifestEntry = _MANIFEST.ManifestEntry
 
 
@@ -121,10 +107,6 @@ class Candidate:
         self.upstream_pricing_status = upstream_pricing_status
 
 
-def _is_pos_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
-
-
 def load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -142,13 +124,7 @@ def load_overlay(path: Path = OVERLAY_PATH) -> dict[str, dict[str, Any]]:
 
 
 def overlay_price_ok(overlay: dict[str, dict[str, Any]], model_id: str) -> bool:
-    entry = overlay.get(model_id)
-    if not isinstance(entry, dict):
-        return False
-    fields = MODE_FIELDS.get(entry.get("mode"))
-    if not fields:
-        return False
-    return all(_is_pos_number(entry.get(field)) for field in fields)
+    return has_complete_price(overlay.get(model_id))
 
 
 def extract_model_items(obj: Any) -> list[tuple[str, str | None]]:
@@ -300,10 +276,12 @@ def price_status(
     manifest_by_model: dict[str, list[ManifestEntry]],
     overlay: dict[str, dict[str, Any]],
 ) -> tuple[str, str]:
-    if overlay_price_ok(overlay, model_id):
+    owner = resolve_price_owner(model_id, overlay)
+    if overlay_price_ok(overlay, owner):
         return "priced", "overlay"
     for entry in manifest_by_model.get(model_id, []):
-        if overlay_price_ok(overlay, entry.price_owner):
+        owner = resolve_price_owner(entry.price_owner, overlay)
+        if overlay_price_ok(overlay, owner):
             return "priced", "overlay"
     return "missing", "none"
 
@@ -380,7 +358,6 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "inconclusive": [],
         "mapping_missing": [],
         "mapping_extra_review": [],
-        "mirror_drift": [],
         "probe_commands": [],
     }
 
@@ -449,8 +426,6 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
                     reason.append("unpriced")
                 if probe_status in ("unsupported", "mapping_gap", "probe_error", "inconclusive", "untested"):
                     reason.append(f"probe={probe_status}")
-                if args.strict_manifest:
-                    reason.append("strict-manifest")
                 plan["mapping_extra_review"].append({
                     "account_id": account_id,
                     "model_id": model_id,
@@ -461,32 +436,6 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
                     "reason": "; ".join(reason),
                 })
 
-    for mirror in args.mirror or []:
-        if ":" not in mirror:
-            raise SystemExit("--mirror must be SOURCE:TARGET")
-        source_id, target_id = (x.strip() for x in mirror.split(":", 1))
-        source = live.get(source_id)
-        target = live.get(target_id)
-        if not source or not target:
-            plan["mirror_drift"].append({
-                "source": source_id,
-                "target": target_id,
-                "error": "source or target account missing from --live-mapping snapshot",
-            })
-            continue
-        source_map = source.model_mapping
-        target_map = target.model_mapping
-        missing = sorted(k for k in source_map if k not in target_map)
-        extra = sorted(k for k in target_map if k not in source_map)
-        different = sorted(k for k in source_map if k in target_map and source_map[k] != target_map[k])
-        plan["mirror_drift"].append({
-            "source": source_id,
-            "target": target_id,
-            "missing_in_target": missing,
-            "extra_in_target": extra,
-            "value_differences": different,
-            "ok": not missing and not extra and not different,
-        })
     probe_groups: dict[str, set[str]] = collections.defaultdict(set)
     for item in plan["probe_needed"]:
         env = probe_env_name(item["account_id"], item["model_id"], overlay, live.get(item["account_id"]))
@@ -579,68 +528,12 @@ def print_plan(plan: dict[str, Any]) -> None:
                   f"(price={r['price_status']}/{r['price_source']}, probe={r['probe_status']})",
     )
 
-    print("\nmirror account drift")
-    if not plan["mirror_drift"]:
-        print("  ok: none")
-    for row in plan["mirror_drift"]:
-        if row.get("error"):
-            print(f"  - {row['source']} -> {row['target']}: {row['error']}")
-        elif row.get("ok"):
-            print(f"  - {row['source']} -> {row['target']}: ok")
-        else:
-            print(
-                f"  - {row['source']} -> {row['target']}: "
-                f"missing={row['missing_in_target']} extra={row['extra_in_target']} "
-                f"diff={row['value_differences']}"
-            )
-
 def cmd_plan(args: argparse.Namespace) -> int:
     plan = build_plan(args)
     if args.format == "json":
         print(json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True))
     else:
         print_plan(plan)
-    return 0
-
-
-def build_snapshot_sql(
-    accounts: list[str] | None = None,
-    channel_type: int | None = None,
-) -> str:
-    if bool(accounts) == (channel_type is not None):
-        raise SystemExit("choose exactly one of --accounts or --channel-type")
-    if accounts:
-        ids = ", ".join(a for a in accounts if a.isdigit())
-        if not ids or len(ids.split(", ")) != len(accounts):
-            raise SystemExit("--accounts must be a comma-separated list of numeric account ids")
-        where = f"id IN ({ids})"
-    else:
-        if channel_type is None or channel_type < 0:
-            raise SystemExit("--channel-type must be a non-negative integer")
-        where = f"platform = 'newapi' AND channel_type = {channel_type}"
-    return (
-        "SELECT jsonb_object_agg(id::text, jsonb_build_object(\n"
-        "  'id', id,\n"
-        "  'name', name,\n"
-        "  'platform', platform,\n"
-        "  'channel_type', channel_type,\n"
-        "  'model_mapping', COALESCE(credentials->'model_mapping', '{}'::jsonb)\n"
-        "))\n"
-        "FROM accounts\n"
-        f"WHERE {where} AND deleted_at IS NULL;"
-    )
-
-
-def iter_self_check_sql() -> list[tuple[str, str]]:
-    return [
-        ("build_snapshot_sql", build_snapshot_sql(accounts=["60", "72"])),
-        ("build_snapshot_sql_channel_type", build_snapshot_sql(channel_type=17)),
-    ]
-
-
-def cmd_snapshot_sql(args: argparse.Namespace) -> int:
-    accounts = [a.strip() for a in args.accounts.split(",") if a.strip()] if args.accounts else None
-    print(build_snapshot_sql(accounts=accounts, channel_type=args.channel_type))
     return 0
 
 
@@ -1229,8 +1122,6 @@ def _selftest() -> int:
         candidate=[f"missing-account:{listed_sample}"],
         probe_results=[],
         live_mapping=None,
-        mirror=[],
-        strict_manifest=False,
         format="json",
     ))
     if (
@@ -1294,8 +1185,6 @@ def _selftest() -> int:
             candidate=[],
             probe_results=[str(probe)],
             live_mapping=str(live_path),
-            mirror=["60:72"],
-            strict_manifest=False,
             format="json",
         )
         plan = build_plan(args)
@@ -1307,11 +1196,6 @@ def _selftest() -> int:
             failures.append(f"plan price_missing wrong: {plan['price_missing']}")
         if plan["probe_needed"]:
             failures.append(f"plan probe_needed wrong: {plan['probe_needed']}")
-        mirror_row = plan["mirror_drift"][0]
-        if mirror_row.get("missing_in_target") != ["qwen-extra"]:
-            failures.append(f"mirror diff wrong: {mirror_row}")
-        if "mirror_sync_commands" in plan:
-            failures.append("read-only planner must not emit parallel live mapping write commands")
 
     if failures:
         print("SELFTEST FAILED:")
@@ -1336,10 +1220,6 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--probe-results", action="append", default=[],
                       help="TSV output from ops/pricing/probe-servable-models.sh; can repeat")
     plan.add_argument("--live-mapping", help="JSON snapshot of live account model_mapping")
-    plan.add_argument("--mirror", action="append", default=[],
-                      help="SOURCE:TARGET mirror policy to diff from the live snapshot")
-    plan.add_argument("--strict-manifest", action="store_true",
-                      help="flag every live mapping key absent from manifest for removal review")
     plan.add_argument("--format", choices=("text", "json"), default="text")
     plan.set_defaults(func=cmd_plan)
 
@@ -1363,12 +1243,6 @@ def build_parser() -> argparse.ArgumentParser:
     activate.add_argument("--format", choices=("text", "json"), default="text")
     activate.set_defaults(func=cmd_activate)
 
-    snap = sub.add_parser("snapshot-sql", help="print read-only SQL for a live mapping snapshot")
-    snap_filter = snap.add_mutually_exclusive_group(required=True)
-    snap_filter.add_argument("--accounts", help="comma-separated account ids for a point lookup")
-    snap_filter.add_argument("--channel-type", type=int,
-                             help="snapshot all active newapi accounts with this channel_type, e.g. 17 for DashScope/Qwen")
-    snap.set_defaults(func=cmd_snapshot_sql)
     return parser
 
 

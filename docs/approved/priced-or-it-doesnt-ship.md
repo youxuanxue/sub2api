@@ -30,8 +30,8 @@ supersedes: none
 ## 1. 为什么需要闸
 
 native 空 `model_mapping` 仍可能 catch-all 透传未定价 id；billing 在
-`ErrModelPricingUnavailable` 时 fail-open 记 `$0`。CI A1（`catalog-serving-drift.py`）只保护
-已上架 id。闸是运行期对应：转发前用与 billing **同一两个价源、同一键**判定。
+`ErrModelPricingUnavailable` 时 fail-open 记 `$0`。静态 catalog/manifest/price-owner
+门禁只保护已声明的上架 id；闸是运行期对应：转发前用与 billing **同一两个价源、同一键**判定。
 
 ## 2. 闸点
 

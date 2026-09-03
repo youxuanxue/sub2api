@@ -17,6 +17,13 @@ SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
 MANIFEST = SERVICE_DIR / "tk_served_models.json"
 OVERLAY = SERVICE_DIR / "tk_pricing_overlay.json"
 ALLOWLIST_GO = SERVICE_DIR / "pricing_catalog_supported_models_tk.go"
+# The Go owner retains the ``servable-allowlist:begin`` marker blocks parsed below.
+
+PRICING_DIR = REPO_ROOT / "ops" / "pricing"
+if str(PRICING_DIR) not in sys.path:
+    sys.path.insert(0, str(PRICING_DIR))
+from pricing_registry import MODE_FIELDS, has_complete_price, resolve_price_owner
+from servable_allowlist import ALLOWLIST_PLATFORMS, parse_allowlist_maps
 
 _manifest_spec = importlib.util.spec_from_file_location(
     "tk_served_models_manifest",
@@ -25,53 +32,18 @@ _manifest_spec = importlib.util.spec_from_file_location(
 _MANIFEST = importlib.util.module_from_spec(_manifest_spec)
 _manifest_spec.loader.exec_module(_MANIFEST)
 
-MODE_FIELDS = {
-    "audio_speech": ("input_cost_per_token", "output_cost_per_token"),
-    "audio_transcription": ("input_cost_per_token", "output_cost_per_token"),
-    "completion": ("input_cost_per_token", "output_cost_per_token"),
-    "embedding": ("input_cost_per_token",),
-    "image_generation": ("output_cost_per_image",),
-    "realtime": ("input_cost_per_token", "output_cost_per_token"),
-    "responses": ("input_cost_per_token", "output_cost_per_token"),
-    "video_generation": ("output_cost_per_second",),
-    "chat": ("input_cost_per_token", "output_cost_per_token"),
-}
-ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
-
-
-def _is_pos_number(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and value > 0
-    )
-
-
-def parse_allowlist_maps(go_text: str) -> dict[str, set[str]]:
-    out: dict[str, set[str]] = {}
-    for platform in ALLOWLIST_PLATFORMS:
-        match = re.search(
-            rf"servable-allowlist:begin {re.escape(platform)}"
-            rf"(.*?)servable-allowlist:end {re.escape(platform)}",
-            go_text,
-            re.S,
-        )
-        out[platform] = set(re.findall(r'"([^"]+)"\s*:', match.group(1))) if match else set()
-    return out
-
-
 def _price_errors(label: str, owner: str, overlay_entries: dict[str, Any]) -> list[str]:
     row = overlay_entries.get(owner)
     if not isinstance(row, dict):
         return [f"{label}: price owner {owner!r} is absent from tk_pricing_overlay.json"]
-    fields = MODE_FIELDS.get(row.get("mode"))
-    if fields is None:
+    mode = row.get("mode")
+    alternatives = MODE_FIELDS.get(mode)
+    if alternatives is None:
         return [f"{label}: price owner {owner!r} has unsupported mode {row.get('mode')!r}"]
-    return [
-        f"{label}: price owner {owner!r} requires {field} > 0, got {row.get(field)!r}"
-        for field in fields
-        if not _is_pos_number(row.get(field))
-    ]
+    if has_complete_price(row):
+        return []
+    shapes = " or ".join("+".join(fields) for fields in alternatives)
+    return [f"{label}: price owner {owner!r} requires one complete positive shape ({shapes})"]
 
 
 def evaluate(
@@ -93,10 +65,10 @@ def evaluate(
     for entry in entries:
         model_id = entry.model_id
         label = f"manifest {model_id!r}"
-        price_owner = entry.price_owner
+        price_owner = resolve_price_owner(entry.price_owner, overlay)
         errors.extend(_price_errors(label, price_owner, overlay_entries))
         if entry.display:
-            resolved_owner = model_id if model_id in overlay_entries else aliases.get(model_id)
+            resolved_owner = resolve_price_owner(model_id, overlay)
             if resolved_owner != price_owner:
                 errors.append(
                     f"{label}: displayed model must resolve to {price_owner!r} through a direct owner or _aliases; got {resolved_owner!r}"
@@ -104,7 +76,7 @@ def evaluate(
 
     for platform, model_ids in allowlists.items():
         for model_id in sorted(model_ids):
-            owner = model_id if model_id in overlay_entries else aliases.get(model_id)
+            owner = resolve_price_owner(model_id, overlay)
             if not isinstance(owner, str):
                 errors.append(f"{platform} allowlist {model_id!r}: no direct price owner or _aliases entry")
                 continue

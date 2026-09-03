@@ -34,24 +34,11 @@ import math
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "ops" / "pricing"))
+from pricing_registry import MODE_FIELDS, is_positive_number
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 OVERLAY = REPO_ROOT / "backend" / "internal" / "service" / "tk_pricing_overlay.json"
-
-# mode -> alternative billable dimension sets. At least one complete set is required.
-MODE_FIELDS = {
-    "image_generation": (
-        ("output_cost_per_image",),
-        ("output_cost_per_image_token",),
-    ),
-    "video_generation": (("output_cost_per_second",),),
-    "chat": (("input_cost_per_token", "output_cost_per_token"),),
-    "completion": (("input_cost_per_token", "output_cost_per_token"),),
-    "responses": (("input_cost_per_token", "output_cost_per_token"),),
-    "realtime": (("input_cost_per_token", "output_cost_per_token"),),
-    "audio_transcription": (("input_cost_per_token", "output_cost_per_token"),),
-    "audio_speech": (("input_cost_per_token", "output_cost_per_token"),),
-    "embedding": (("input_cost_per_token",),),
-}
 
 RUNTIME_FLOAT_FIELDS = (
     "input_cost_per_token", "input_cost_per_token_priority",

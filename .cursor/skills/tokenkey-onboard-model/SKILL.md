@@ -18,7 +18,8 @@ description: >-
 **意图源** = `backend/internal/service/tk_served_models.json`（manifest）。它断言三方一致，不替代：
 
 1. 账号 `credentials.model_mapping`（RequestPlan 输入；新 floor 经 `modelops activate` 写入）
-2. `tk_pricing_overlay.json` / complete registry（价格 owner）
+2. `tk_pricing_overlay.json` / complete registry（价格 owner；校验 owner 为
+   `ops/pricing/pricing_registry.py`）
 
 测试样本必须从 manifest / overlay / allowlist owner 派生；禁止手写会随上架漂移的清单。
 

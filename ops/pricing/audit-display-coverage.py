@@ -10,7 +10,7 @@ present in the live public catalog. Paid rows must expose a non-zero price;
 ``check`` without ``--live`` validates the local projection inputs. ``--live``
 also fetches the public catalog and reports expected rows missing from that
 runtime projection. Static ownership is enforced by
-``scripts/checks/catalog-serving-drift.py`` A4.
+``scripts/checks/catalog-serving-drift.py``.
 """
 
 from __future__ import annotations
@@ -25,22 +25,16 @@ from pathlib import Path
 
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "ops" / "pricing"))
+from servable_allowlist import ALLOWLIST_PLATFORMS, parse_allowlist_maps
 GO_ALLOWLIST = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 REGISTRY = REPO / "backend/internal/service/tk_pricing_overlay.json"
 DEFAULT_BASE = os.environ.get("TOKENKEY_BASE_URL", "https://api.tokenkey.dev")
-PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
+PLATFORMS = ALLOWLIST_PLATFORMS
 
 
 def parse_allowlist(go_text: str) -> dict[str, set[str]]:
-    out: dict[str, set[str]] = {}
-    for platform in PLATFORMS:
-        match = re.search(
-            rf"servable-allowlist:begin {platform}(.*?)servable-allowlist:end {platform}",
-            go_text,
-            re.S,
-        )
-        out[platform] = set(re.findall(r'"([^"]+)":\s*\{\}', match.group(1))) if match else set()
-    return out
+    return parse_allowlist_maps(go_text)
 
 
 def registry_entry_catalog_valid(entry: object) -> bool:
