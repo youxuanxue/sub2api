@@ -6794,11 +6794,24 @@
       "path": "backend/internal/service/openrouter_provider_tk_catalog.go",
       "must_contain": [
         "BuildOpenRouterProviderCatalog",
+        "openRouterProviderSchemaVersion",
+        "openRouterProviderBuildModelDocument",
         "openRouterProviderModelHasListedPrice",
         "cfg.CatalogExcluded",
         "openRouterProviderCatalogCandidates"
       ],
-      "rationale": "Catalog builder is the seller onboarding contract owner; pricing/features/schema drift here breaks OpenRouter provider application compliance."
+      "rationale": "Catalog builder is the seller onboarding contract owner; schema 2.4 emission + pricing/features drift here breaks OpenRouter provider application compliance."
+    },
+    {
+      "path": "backend/internal/service/openrouter_provider_tk_schema.go",
+      "must_contain": [
+        "openRouterProviderBuildModelDocument",
+        "OpenRouterProviderPriceOverride",
+        "openRouterProviderBuildTextInputPricing",
+        "openRouterProviderBuildOutputModalities",
+        "openRouterProviderTierPriceOverrides"
+      ],
+      "rationale": "OpenRouter seller catalog schema 2.4 document builder (modality-owned pricing/capacity). Flat root pricing fields must not return; silent revert breaks new-provider onboarding."
     },
     {
       "path": "backend/cmd/qa-archive/main.go",
