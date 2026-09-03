@@ -653,6 +653,53 @@ func TestUS048_ExistingSupplierAccountMultipleMatchesStopBeforeProbeOrWrite(t *t
 	require.Empty(t, accounts.updated)
 }
 
+func TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync(t *testing.T) {
+	// Same CloudWise credential already projected under OpenAI chat (source 9 / bands 3–5)
+	// must not 409 an Anthropic messages source that needs its own managed accounts.
+	fableRatio := 0.85
+	opusRatio := 0.2
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 13, SupplierName: "cloudwise", ChannelName: "anthropic",
+		ChannelType: newapiconstant.ChannelTypeAnthropic, Endpoint: "https://api.cloudwise.ai/api",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		AccountConcurrency: 1000,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "claude-fable-5", UpstreamModelID: "claude-fable-5", PurchaseRatio: &fableRatio},
+			{ClientModelID: "claude-opus-4-6", UpstreamModelID: "claude-opus-4-6", PurchaseRatio: &opusRatio},
+		},
+	}}
+	openaiBand3 := supplierSyncManagedAccount(113, 9, 3, 130, map[string]string{"gpt-5.2": "gpt-5.2"}, true)
+	openaiBand3.ChannelType = newapiconstant.ChannelTypeOpenAI
+	openaiBand3.Credentials = supplierManagedCredentials(
+		"https://api.cloudwise.ai/api", "secret",
+		map[string]string{"gpt-5.2": "gpt-5.2"}, newapiconstant.ChannelTypeOpenAI,
+	)
+	openaiBand4 := supplierSyncManagedAccount(114, 9, 4, 140, map[string]string{"hy3": "hy3"}, true)
+	openaiBand4.ChannelType = newapiconstant.ChannelTypeOpenAI
+	openaiBand4.Credentials = supplierManagedCredentials(
+		"https://api.cloudwise.ai/api", "secret",
+		map[string]string{"hy3": "hy3"}, newapiconstant.ChannelTypeOpenAI,
+	)
+	openaiBand5 := supplierSyncManagedAccount(115, 9, 5, 150, map[string]string{"claude-fable-5": "claude-fable-5"}, true)
+	openaiBand5.ChannelType = newapiconstant.ChannelTypeOpenAI
+	openaiBand5.Credentials = supplierManagedCredentials(
+		"https://api.cloudwise.ai/api", "secret",
+		map[string]string{"claude-fable-5": "claude-fable-5"}, newapiconstant.ChannelTypeOpenAI,
+	)
+	accounts := &supplierSyncAccountStoreFake{
+		matches: []*Account{openaiBand3, openaiBand4, openaiBand5},
+	}
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 13)
+
+	require.NoError(t, err)
+	require.Empty(t, result.FailedStep)
+	require.Equal(t, 2, accounts.createCalls, "Anthropic source should create its own band accounts")
+	require.NotEmpty(t, accounts.updated)
+	require.NotEmpty(t, result.Changes)
+}
+
 func TestUS048_SupplierSyncSameBandRatioChangeDoesNotTouchAccounts(t *testing.T) {
 	ratio := 0.59
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
