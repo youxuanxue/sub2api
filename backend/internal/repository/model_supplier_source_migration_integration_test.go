@@ -16,6 +16,10 @@ import (
 func TestModelSupplierSourceMigrationCreatesOnlyTheSingleSourceTable(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
+	// Rebuild from the historical CREATE so the chain is exercised even when
+	// integrationDB already applied later migrations (supplier_lane present).
+	_, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS model_supplier_sources`)
+	require.NoError(t, err)
 	migrationSQL, err := dbmigrations.FS.ReadFile("tk_089_model_supplier_sources.sql")
 	require.NoError(t, err)
 	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
@@ -30,6 +34,8 @@ func TestModelSupplierSourceMigrationCreatesOnlyTheSingleSourceTable(t *testing.
 	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
 	migrationSQL, err = dbmigrations.FS.ReadFile("tk_094_supplier_source_lane_rename.sql")
 	require.NoError(t, err)
+	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
+	// Re-applying the rename must be a no-op once supplier_lane exists.
 	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
 
 	models := `[{"client_model_id":"deepseek-v4-pro","upstream_model_id":"deepseek-v4-pro","purchase_ratio":0.5}]`
