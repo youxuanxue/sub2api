@@ -69,6 +69,7 @@
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_QianfanBaiduV2ExactMatchIsAdopted`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_BaiduV2TransportAgainstOpenAISupplierIsRejected`
+- `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync`
 - `backend/internal/service/supplier_managed_transport_test.go`::`TestUS048_ResolveSupplierManagedTransportSelectsBaiduV2ForQianfan`
 - `backend/internal/service/supplier_managed_account_commands_test.go`::`TestUS048_SupplierQianfanCreateUsesBaiduV2Transport`
 - `backend/internal/service/supplier_source_sync_test.go`::`TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation`
