@@ -9,16 +9,18 @@ owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate; managed accounts behave like ordinary accounts after create, with sync overwriting projection fields"
 related_stories: ["US-048"]
 revision_note: >
-  2026-09-03: Supplier identity SSOT — row unique key is
-  (supplier_name, endpoint, credential_fingerprint, channel_type);
-  DB/API field channel_name renamed to supplier_lane (display label only).
-  Adoption candidates filter by channel_type transport. 2026-09-02: Anthropic
+  2026-09-03: Project writes managed accounts only and never probes;
+  validate remains the sole configured-model probe. Same day: supplier
+  identity SSOT — row unique key is (supplier_name, endpoint,
+  credential_fingerprint, channel_type); DB/API field channel_name
+  renamed to supplier_lane (display label only). Adoption candidates
+  filter by channel_type transport. 2026-09-02: Anthropic
   channel_type=14 messages-only exception.
 ---
 
 # TokenKey 模型供应源管理审批基线
 
-> 按钮与探测主路径以 [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) 为准：发现模型 -> 校验模型 -> 保存 -> 投影账号。FMGo Seedance 改写见 [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md)。
+> 按钮与探测主路径以 [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) 为准：发现模型 -> 保存 -> 校验模型 -> 投影账号。FMGo Seedance 改写见 [`model-supplier-source-fmgo-seedance-account-rewrite.md`](model-supplier-source-fmgo-seedance-account-rewrite.md)。
 
 ## 决策
 
@@ -81,10 +83,10 @@ account.priority = source.base_priority + discount_priority
 priority 自行判断和修改 `base_priority`。已选来源的表单存在未保存修改时，页面禁用发现、校验与投影并
 提示先保存；投影 API 始终只读取数据库中已保存的供应事实。
 
-发现、校验、保存、投影的按钮顺序、禁用矩阵与探测主路径以
+发现、保存、校验、投影的按钮顺序、禁用矩阵与探测主路径以
 [`model-supplier-source-probe-sync-split.md`](model-supplier-source-probe-sync-split.md) 为准。
 `POST .../discover` 只读发现候选，`POST .../validate` 只读校验已配置模型，保存只写供应源；
-`POST .../sync` 在结构写入前当次重探后投影账号。Validate 结果不缓存也不授权后续写入。
+`POST .../sync` 只投影账号，不探测。Validate 结果不缓存也不授权后续写入。
 旧 `POST .../probe` 与 probe job 路由保留为 Discover 兼容别名；管理路由不再注册 `models-discover`。
 
 上游列表仍按通道能力拉取（OpenAI 兼容 `/v1/models`；千帆 BaiduV2 为 `/v2/models`；DashScope Ali
@@ -98,11 +100,10 @@ API 必须返回可读 `message` 与 `failed_step`；管理页必须在结果区
 1. 供应商名称、`supplier_lane`（供应通道名）或 `base_priority` 变化时，只更新受管账号名称和 priority，不探测；
 1b. `account_concurrency` 变化时，只更新受管账号 `concurrency`，不探测；
 2. endpoint、credential、模型 ID、模型增减、跨档，或非空受管账号的 `status/schedulable` 与目标
-   不一致时，先用内存目标账号逐模型真实探测；空 mapping 的调度字段漂移无需探测；
-3. 任一模型失败，返回完整当次探测结果且不写账号；全部成功生成仅供本次同步调用链使用的通道协议
-   正向证据（默认 Chat；Anthropic 14 为 Messages；视频 54 为视频方言）；
-4. 先创建空 mapping、不可调度的新档位账号。非空投影必须携带该证据；service 和 repository 双重
-   拒绝未经探测的非空 mapping；
+   不一致时，直接按目标 mapping 投影，不探测；空 mapping 的调度字段漂移同样不探测；
+3. 非空投影按 `channel_type` 声明单一协议能力（默认 Chat；Anthropic 14 为 Messages；视频 54 为视频方言）；
+4. 先创建空 mapping、不可调度的新档位账号。非空投影必须携带该通道协议声明；service 和 repository 双重
+   拒绝未声明协议能力的非空 mapping；
 5. 单账号事务同时提交账号配置、该通道单一协议能力（默认 Chat Completions；Anthropic 仅 Messages）、
    `InitialProbeCompleted=true`/`OfficialSeed=false` 的正向证据及普通 scheduler outbox；提交后只读回
    配置确认，不做写后二次网络探测；

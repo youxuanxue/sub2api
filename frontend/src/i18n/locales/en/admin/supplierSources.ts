@@ -1,7 +1,7 @@
 export default {
   supplierSources: {
     title: 'Supplier Sources',
-    description: 'Maintain procurement facts. Discover reads upstream; validate probes saved models; save writes the source; project writes managed accounts.',
+    description: 'Maintain procurement facts. Discover reads upstream; validate probes saved models; save writes the source; project writes managed accounts and never probes.',
     sources: 'Sources',
     newSource: 'New source',
     empty: 'No supplier sources',

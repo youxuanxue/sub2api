@@ -235,7 +235,7 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 	result := &SupplierSourceSyncResult{
 		SourceID: sourceID, ProbeResults: make([]SupplierProbeResult, 0), Changes: make([]SupplierSourceAccountChange, 0),
 	}
-	if s == nil || s.repo == nil || s.accounts == nil || s.probe == nil || s.encryptor == nil || sourceID <= 0 {
+	if s == nil || s.repo == nil || s.accounts == nil || s.encryptor == nil || sourceID <= 0 {
 		result.FailedStep = "validate_request"
 		return result, ErrSupplierSourceInvalidInput
 	}
@@ -286,14 +286,6 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			return result, err
 		}
 		return result, nil
-	}
-
-	if len(source.Models) > 0 {
-		result.ProbeResults = s.probeSupplierTargets(ctx, source, credential, targets, managedByBand, adoptByBand)
-		if supplierProbeResultsFailed(result.ProbeResults) {
-			result.FailedStep = "probe"
-			return result, ErrSupplierSourceProbeFailed
-		}
 	}
 
 	workingByBand := make(map[int]*Account, len(managedByBand)+len(targets))

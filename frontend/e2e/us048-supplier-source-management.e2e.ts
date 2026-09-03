@@ -191,10 +191,11 @@ function validateOK(src: SupplierSource) {
   }
 }
 
-test('US048 project-before-validate reprobes, fails closed, and recovers on retry', async ({ page }) => {
+test('US048 project-before-validate writes accounts without probing', async ({ page }) => {
   let sources: SupplierSource[] = []
   let submitted: Record<string, unknown> | null = null
   let syncRequests = 0
+  let validateRequests = 0
 
   await installBase(page, async (route, path) => {
     const request = route.request()
@@ -243,44 +244,15 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/7/validate' && request.method() === 'POST') {
+      validateRequests += 1
       await fulfillSuccess(route, validateOK(sources[0]))
       return true
     }
     if (path === '/api/v1/admin/supplier-sources/7/sync' && request.method() === 'POST') {
       syncRequests += 1
-      if (syncRequests === 1) {
-        await fulfillError(route, 422, 'one or more supplier models failed validation', {
-          source_id: 7,
-          probe_results: [{
-            client_model_id: 'deepseek-v4-pro',
-            upstream_model_id: 'deepseek-v4-pro',
-            status: 'failed',
-            protocol: 'openai_chat_completions',
-            detail: 'temporary upstream failure',
-          }, {
-            client_model_id: 'qwen-3.7-max',
-            upstream_model_id: 'qwen-3.7-max',
-            status: 'passed',
-            protocol: 'openai_chat_completions',
-          }],
-          changes: [],
-          failed_step: 'probe',
-        })
-        return true
-      }
       await fulfillSuccess(route, {
         source_id: 7,
-        probe_results: [{
-          client_model_id: 'deepseek-v4-pro',
-          upstream_model_id: 'deepseek-v4-pro',
-          status: 'passed',
-          protocol: 'openai_chat_completions',
-        }, {
-          client_model_id: 'qwen-3.7-max',
-          upstream_model_id: 'qwen-3.7-max',
-          status: 'passed',
-          protocol: 'openai_chat_completions',
-        }],
+        probe_results: [],
         changes: [{
           account_id: 101,
           discount_band: 3,
@@ -353,23 +325,25 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
   expect(syncRequests).toBe(0)
   await page.locator('[data-test="notes"]').fill('首批最低合法比例')
   await expect(page.locator('[data-test="sync-source"]')).toBeEnabled()
+  await expect.poll(async () => page.locator(
+    '[data-test="discover-source"], [data-test="save-source"], [data-test="validate-source"], [data-test="sync-source"]',
+  ).evaluateAll(buttons => buttons.map(button => button.getAttribute('data-test')))).toEqual([
+    'discover-source',
+    'save-source',
+    'validate-source',
+    'sync-source',
+  ])
 
   await page.locator('[data-test="sync-source"]').click()
   const result = page.locator('[data-test="sync-result"]')
-  await expect(page.locator('[data-test="sync-error"]')).toContainText('one or more supplier models failed validation')
-  await expect(result).toContainText('失败步骤: probe')
-  await expect(result).toContainText('temporary upstream failure')
-  await expect(result).toContainText('qwen-3.7-max')
-  await expect(result).not.toContainText('投影完成')
-  expect(syncRequests).toBe(1)
-
-  await page.locator('[data-test="sync-source"]').click()
   await expect(result).toContainText('投影完成')
-  await expect(result).toContainText('passed')
   await expect(result).toContainText('新增模型: deepseek-v4-pro, qwen-3.7-max')
   await expect(result).toContainText('#101 · created · band 3')
   await expect(result).toContainText('priority — → 130')
-  expect(syncRequests).toBe(2)
+  await expect(result).not.toContainText('passed')
+  await expect(result).not.toContainText('失败步骤')
+  expect(syncRequests).toBe(1)
+  expect(validateRequests).toBe(0)
   await expect(page.getByRole('button', { name: /激活|暂停/ })).toHaveCount(0)
 })
 

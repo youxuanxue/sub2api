@@ -7863,12 +7863,12 @@
         "TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep",
         "TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges",
         "TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition",
-        "TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing",
+        "TestUS048_SupplierSyncProjectsEvenWhenValidateWouldFail",
         "TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation",
         "TestUS048_IncompatibleTransportExactMatchDoesNotBlockParallelProjection",
         "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
-        "TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection",
-        "TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection",
+        "TestUS048_SupplierSyncRepairsNonEmptySchedulingProjectionWithoutProbe",
+        "TestUS048_SupplierSyncProjectsWithoutCallingProbe",
         "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe",
         "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift",
         "TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync",
@@ -7876,7 +7876,7 @@
         "TestUS048_IncompatibleTransportCandidatesAreIgnoredForOpenAISupplier",
         "TestUS048_QianfanBaiduV2ExactMatchIsAdopted"
       ],
-      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require an immediate reprobe before structural projection or repair, and keep empty-band scheduling repair on the metadata-only path. Transport-incompatible credential matches are ignored; same-transport other-source managed accounts still conflict."
+      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources. Project writes managed accounts without probing; validate owns configured-model probes. Empty-band scheduling repair stays on the metadata-only path. Transport-incompatible credential matches are ignored; same-transport other-source managed accounts still conflict."
     },
     {
       "path": "backend/internal/service/crs_sync_supplier_managed_test.go",
@@ -7955,7 +7955,10 @@
         "ChannelType:           source.ChannelType,",
         "relevantMatches := make([]*Account, 0, len(matches))"
       ],
-      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict."
+      "must_not_contain": [
+        "result.ProbeResults = s.probeSupplierTargets"
+      ],
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write. Transport or capability identity drift is repaired by projection writes that declare channel_type protocol capability without a live model probe. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict."
     },
     {
       "path": "backend/internal/service/supplier_source_account_store.go",

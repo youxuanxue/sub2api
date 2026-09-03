@@ -176,9 +176,13 @@ async function getDiscoverJob(id: number, jobId: string): Promise<SupplierSource
   return data
 }
 
+const SUPPLIER_SOURCE_VALIDATE_TIMEOUT_MS = 300_000
+
 async function validate(id: number): Promise<SupplierSourceValidateResult> {
   const { data } = await apiClient.post<SupplierSourceValidateResult>(
     `/admin/supplier-sources/${id}/validate`,
+    undefined,
+    { timeout: SUPPLIER_SOURCE_VALIDATE_TIMEOUT_MS },
   )
   return data
 }
