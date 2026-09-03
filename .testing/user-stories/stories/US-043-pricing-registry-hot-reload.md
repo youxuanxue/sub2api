@@ -63,9 +63,6 @@
 - `scripts/checks/test_pricing_registry_publication.py`::`test_rejects_non_main_extra_event_or_extra_path`
 - `scripts/checks/test_pricing_registry_publication.py`::`test_rejects_deploy_price_write`
 - `scripts/checks/test_pricing_registry_publication.py`::`test_rejects_sensor_aws_or_runtime_publication_capability`
-- `scripts/checks/test_pricing_overlay.py`::`PricingRegistryMigrationParityTest.test_reconstructs_legacy_fill_only_precedence`
-- `scripts/checks/test_pricing_overlay.py`::`PricingRegistryMigrationParityTest.test_reports_approved_and_unapproved_price_deltas_separately`
-- `scripts/checks/test_pricing_overlay.py`::`PricingRegistryMigrationParityTest.test_materializes_legacy_openai_policy_before_comparison`
 
 运行命令：
 
@@ -77,13 +74,11 @@ python3 -m unittest scripts.checks.test_pricing_overlay \
   scripts.checks.test_pricing_registry_publication \
   ops.pricing.test_manage_overlay_runtime \
   ops.pricing.test_pricing_registry_sensor
-python3 scripts/checks/pricing-registry-migration-parity.py \
-  --output .testing/user-stories/attachments/US-043-pricing-registry-migration-parity.json
 ```
 
 ## Evidence
 
-- 不可变迁移报告：`.testing/user-stories/attachments/US-043-pricing-registry-migration-parity.json`。报告固定旧实现 commit、初始 registry commit、经复审修正后的 registry blob、外部源 commit 与 exact-byte SHA-256；比较 340 个 owner / 1252 个有效维度，未批准价差、缺失 owner、意外 owner 和全局 policy 差异均为 0，仅保留获批的 `kimi-k2.6` 4 个价差维度。
+- 一次性迁移证据：`.testing/user-stories/attachments/US-043-pricing-registry-migration-parity.json`。该不可变报告由引入 registry 的 commit `2e523bee7` 归档，固定旧实现、初始/复审 registry blob、外部源 commit 与 exact-byte SHA-256；比较 340 个 owner / 1252 个有效维度，未批准价差、缺失 owner、意外 owner 和全局 policy 差异均为 0，仅保留获批的 `kimi-k2.6` 4 个价差维度。迁移已完成，不再保留依赖历史 blob 和外部下载的一次性复算器。
 - 聚焦 Go/Python 行为测试、registry gate、上游 merge-tree 审计与项目 preflight 由本 PR 执行并记录。
 - 本变更无 Web surface；提交消息使用 `no-web-impact` 作为机械锚点。
 
