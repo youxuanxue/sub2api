@@ -880,6 +880,10 @@ echo "=== sub2api: catalog serving drift ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to validate tk_served_models.json)"
     errors=$((errors + 1))
+elif ! python3 -m unittest ops.pricing.test_served_models_manifest >/dev/null 2>&1; then
+    echo "  FAIL: served-models manifest parser tests"
+    echo "        — run: python3 -m unittest ops.pricing.test_served_models_manifest"
+    errors=$((errors + 1))
 elif ! python3 ./scripts/checks/catalog-serving-drift.py --selftest >/dev/null 2>&1; then
     echo "  FAIL: catalog-serving-drift.py selftest"
     echo "        — run: python3 scripts/checks/catalog-serving-drift.py --selftest"
@@ -888,7 +892,7 @@ elif ! python3 ./scripts/checks/catalog-serving-drift.py --quiet; then
     # catalog-serving-drift.py already printed the actionable failure.
     errors=$((errors + 1))
 else
-    echo "  ok: served-models manifest agrees with price/display/mapping declaration"
+    echo "  ok: shared served-models parser and price/display/mapping declaration agree"
 fi
 
 # ---- sub2api: Studio media coverage -----------------------------------------
@@ -2479,6 +2483,9 @@ echo "=== sub2api: servable-allowlist generator selftest ==="
 _servable_go="backend/internal/service/pricing_catalog_supported_models_tk.go"
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by servable-allowlist selftest)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest ops.pricing.test_servable_reprobe_ledger >/dev/null 2>&1; then
+    echo "  FAIL: servable reprobe ledger tests (re-run: python3 -m unittest ops.pricing.test_servable_reprobe_ledger)"
     errors=$((errors + 1))
 elif ! python3 ops/pricing/refresh-servable-allowlist.py selftest >/dev/null 2>&1; then
     echo "  FAIL: ops/pricing/refresh-servable-allowlist.py selftest failed (re-run: python3 ops/pricing/refresh-servable-allowlist.py selftest)"

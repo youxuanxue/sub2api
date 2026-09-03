@@ -13,6 +13,7 @@ non-empty discrete durations.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -24,6 +25,13 @@ OVERLAY = REPO / "backend/internal/service/tk_pricing_overlay.json"
 GO_ALLOWLIST = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 MANIFEST = REPO / "backend/internal/service/tk_served_models.json"
 MEDIA_PRESENTATIONS = REPO / "frontend/src/constants/studioMediaPresentations.tk.ts"
+
+_manifest_spec = importlib.util.spec_from_file_location(
+    "tk_served_models_manifest",
+    REPO / "ops" / "pricing" / "served_models_manifest.py",
+)
+_MANIFEST = importlib.util.module_from_spec(_manifest_spec)
+_manifest_spec.loader.exec_module(_MANIFEST)
 
 MODALITIES = ("image", "video")
 TOKEN_PRICE_FIELDS = ("input_cost_per_token", "output_cost_per_token")
@@ -117,17 +125,7 @@ def parse_go_map_ids(go_text: str, name: str) -> set[str]:
 
 
 def manifest_model_ids(manifest_text: str) -> set[str]:
-    data = json.loads(manifest_text)
-    entries = data.get("entries") if isinstance(data, dict) else None
-    if not isinstance(entries, dict):
-        return set()
-    if data.get("schema_version") != 3:
-        return set()
-    return {
-        model_id
-        for model_id, entry in entries.items()
-        if isinstance(model_id, str) and isinstance(entry, dict)
-    }
+    return _MANIFEST.parse_manifest_text(manifest_text).model_ids()
 
 
 def servable_source_ids(go_text: str, manifest_text: str) -> set[str]:

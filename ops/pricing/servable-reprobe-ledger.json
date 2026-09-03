@@ -1,6 +1,5 @@
 {
   "_doc": "Machine-readable reprobe policy for ops/pricing/refresh-servable-allowlist.py. probe_candidates are durable explicit candidate inputs with no freshness lifecycle; watchlist is only time-bounded operational follow-up; skiplist entries are excluded from probing; structurally_gone entries are the reviewed authority for catalog removal.",
-  "_generated_from": "2026-09-02 split durable probe candidates from expired watchlist evidence",
   "watchlist": [],
   "skiplist": [
     {
@@ -11,287 +10,287 @@
     {
       "platform": "openai",
       "model": "gpt-5.3",
-      "reason": "2026-07-10 native OpenAI OAuth account probes for gpt-5.3-chat-latest reached upstream and returned 400; bare gpt-5.3 remains a non-display alias to gpt-5.3-codex-spark and must not be auto-probed into the public allowlist."
+      "reason": "Non-display compatibility alias to gpt-5.3-codex-spark; do not auto-probe it into the public allowlist."
     },
     {
       "platform": "openai",
       "model": "gpt-5.3-chat-latest",
-      "reason": "2026-07-10 native OpenAI OAuth probes reached ChatGPT Codex upstream but returned 400; operator decision: keep as a non-display alias to gpt-5.3-codex-spark, not a public catalog row."
+      "reason": "Non-display compatibility alias to gpt-5.3-codex-spark; not a public catalog row."
     },
     {
       "platform": "openai",
       "model": "gpt-5.3-codex",
-      "reason": "2026-07-10 operator decision: legacy GPT-5.3 Codex ids are non-display aliases to gpt-5.3-codex-spark, not client-facing catalog rows."
+      "reason": "Legacy non-display alias to gpt-5.3-codex-spark; not a client-facing catalog row."
     },
     {
       "platform": "openai",
       "model": "gpt-5-codex",
-      "reason": "2026-07-10 operator decision: legacy GPT-5 Codex ids are non-display aliases to gpt-5.3-codex-spark, not client-facing catalog rows."
+      "reason": "Legacy non-display alias to gpt-5.3-codex-spark; not a client-facing catalog row."
     },
     {
       "platform": "openai",
       "model": "gpt-5.5-pro",
-      "reason": "2026-07-10 native OpenAI OAuth probes reached ChatGPT Codex upstream but returned 400; operator decision: keep as a non-display alias to gpt-5.5, not a public catalog row."
+      "reason": "Non-display compatibility alias to gpt-5.5; not a public catalog row."
     },
     {
       "platform": "newapi",
       "model": "seedance-1-0-pro-250528",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/contents/generations/tasks returned 404 unsupported; this no-prefix priced alias is billing parity only. The routed served ID is doubao-seedance-1-0-pro-250528."
+      "reason": "No-prefix priced alias is billing parity only; the routed served ID is doubao-seedance-1-0-pro-250528."
     },
     {
       "platform": "newapi",
       "model": "doubao-seedream-3-0-t2i-250415",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/images/generations activation probe returned 404 unsupported; do not map/list unless a future direct Ark probe returns 200."
+      "reason": "Direct Ark image endpoint rejects this ID; do not map/list unless a future direct probe returns 200."
     },
     {
       "platform": "newapi",
       "model": "doubao-seededit-3-0-i2i-250628",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/images/generations activation probe returned 404 unsupported; do not map/list unless a future direct Ark probe returns 200."
+      "reason": "Direct Ark image endpoint rejects this ID; do not map/list unless a future direct probe returns 200."
     },
     {
       "platform": "newapi",
       "model": "seedream-4-0-250828",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/images/generations activation probe returned 404 unsupported; do not map/list unless a future direct Ark probe returns 200."
+      "reason": "Direct Ark image endpoint rejects this ID; do not map/list unless a future direct probe returns 200."
     },
     {
       "platform": "newapi",
       "model": "doubao-seedance-1-0-lite-i2v-250428",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/contents/generations/tasks activation probe returned 404 unsupported; do not map/list unless a future direct Ark probe returns 200."
+      "reason": "Direct Ark video endpoint rejects this ID; do not map/list unless a future direct probe returns 200."
     },
     {
       "platform": "newapi",
       "model": "doubao-seedance-1-0-lite-t2v-250428",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/contents/generations/tasks activation probe returned 404 unsupported; do not map/list unless a future direct Ark probe returns 200."
+      "reason": "Direct Ark video endpoint rejects this ID; do not map/list unless a future direct probe returns 200."
     },
     {
       "platform": "newapi",
       "model": "wan2-1-14b-flf2v-250417",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/contents/generations/tasks activation probe returned 404 unsupported; do not map/list unless a future direct Ark probe returns 200."
+      "reason": "Direct Ark video endpoint rejects this ID; do not map/list unless a future direct probe returns 200."
     },
     {
       "platform": "newapi",
       "model": "wan2-1-14b-i2v-250225",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/contents/generations/tasks activation probe returned 404 unsupported; do not map/list unless a future direct Ark probe returns 200."
+      "reason": "Direct Ark video endpoint rejects this ID; do not map/list unless a future direct probe returns 200."
     },
     {
       "platform": "newapi",
       "model": "wan2-1-14b-t2v-250225",
-      "reason": "2026-07-02 direct VolcEngine Ark /api/v3/contents/generations/tasks activation probe returned 404 unsupported; do not map/list unless a future direct Ark probe returns 200."
+      "reason": "Direct Ark video endpoint rejects this ID; do not map/list unless a future direct probe returns 200."
     },
     {
       "platform": "antigravity",
       "model": "gemini-2.5-flash-image-preview",
-      "reason": "2026-07-02 prod ANTIGRAVITY_IMAGE_MODELS /v1/chat/completions via antigravity group_id=21 returned 429 not_allowlisted; this structural-dead alias is intentionally absent from canonical account mapping. Use gemini-2.5-flash-image, which maps to the servable image path."
+      "reason": "Non-display alias absent from canonical mapping; use gemini-2.5-flash-image for the servable image path."
     }
   ],
   "structurally_gone": [
     {
       "platform": "openai",
       "model": "gpt-5.2",
-      "reason": "2026-07-10 SSOT audit directive #2: legacy GPT-5.2 is intentionally hard-rejected via openai_deprecated_model_tk.go; keep priced for historical billing but never auto-probe back into the servable allowlist."
+      "reason": "Hard-rejected by openai_deprecated_model_tk.go; keep priced for historical billing but never auto-probe into the servable allowlist."
     },
     {
       "platform": "openai",
       "model": "gpt-5.2-pro",
-      "reason": "2026-07-10 SSOT audit directive #2: legacy GPT-5.2 Pro is intentionally hard-rejected via openai_deprecated_model_tk.go; do not advertise or auto-probe as a selectable model."
+      "reason": "Hard-rejected by openai_deprecated_model_tk.go; do not advertise or auto-probe as a selectable model."
     },
     {
       "platform": "grok",
       "model": "grok-imagine-image-pro",
-      "reason": "Retired upstream on 2026-05-15; replaced by grok-imagine-image-quality."
+      "reason": "Retired upstream; replaced by grok-imagine-image-quality."
     }
   ],
   "probe_candidates": [
     {
       "platform": "openai",
       "model": "gpt-5.1-codex",
-      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "reason": "OAuth backend support can change; retain for Responses reprobe.",
       "probe_family": "openai_responses"
     },
     {
       "platform": "openai",
       "model": "gpt-5.1-codex-max",
-      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "reason": "OAuth backend support can change; retain for Responses reprobe.",
       "probe_family": "openai_responses"
     },
     {
       "platform": "openai",
       "model": "gpt-5.1-codex-mini",
-      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "reason": "OAuth backend support can change; retain for Responses reprobe.",
       "probe_family": "openai_responses"
     },
     {
       "platform": "openai",
       "model": "gpt-5.2-codex",
-      "reason": "2026-06-23 prod /v1/responses reprobe returned 400 unsupported; GPT OAuth backend model set can change.",
+      "reason": "OAuth backend support can change; retain for Responses reprobe.",
       "probe_family": "openai_responses"
     },
     {
       "platform": "gemini",
       "model": "gemini-2.5-flash-image",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for chat-image reprobe.",
       "probe_family": "gemini_chat_image"
     },
     {
       "platform": "gemini",
       "model": "gemini-3.1-flash-image",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for chat-image reprobe.",
       "probe_family": "gemini_chat_image"
     },
     {
       "platform": "gemini",
       "model": "gemini-3-pro-image-preview",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for chat-image reprobe.",
       "probe_family": "gemini_chat_image"
     },
     {
       "platform": "gemini",
       "model": "nano-banana-pro-preview",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping exposes only gemini-2.5 text, Imagen 4.0, and veo-3.1-generate-001. Reprobe after Vertex mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for chat-image reprobe.",
       "probe_family": "gemini_chat_image"
     },
     {
       "platform": "gemini",
       "model": "imagen-3.0-capability-001",
-      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for image reprobe.",
       "probe_family": "gemini_image"
     },
     {
       "platform": "gemini",
       "model": "imagen-3.0-fast-generate-001",
-      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for image reprobe.",
       "probe_family": "gemini_image"
     },
     {
       "platform": "gemini",
       "model": "imagen-3.0-generate-001",
-      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for image reprobe.",
       "probe_family": "gemini_image"
     },
     {
       "platform": "gemini",
       "model": "imagen-3.0-generate-002",
-      "reason": "2026-07-02 prod /v1/images/generations via Vertex group_id=16 returned 429 not_allowlisted; current mapped Vertex image set is Imagen 4.0 only. Reprobe after Vertex mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for image reprobe.",
       "probe_family": "gemini_image"
     },
     {
       "platform": "gemini",
       "model": "veo-2.0-generate-001",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
+      "reason": "Requires matching Vertex video mapping and account support; retain for video reprobe.",
       "probe_family": "gemini_video"
     },
     {
       "platform": "gemini",
       "model": "veo-3.0-fast-generate-001",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
+      "reason": "Requires matching Vertex video mapping and account support; retain for video reprobe.",
       "probe_family": "gemini_video"
     },
     {
       "platform": "gemini",
       "model": "veo-3.0-generate-001",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
+      "reason": "Requires matching Vertex video mapping and account support; retain for video reprobe.",
       "probe_family": "gemini_video"
     },
     {
       "platform": "gemini",
       "model": "veo-3.1-fast-generate-001",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
+      "reason": "Requires matching Vertex video mapping and account support; retain for video reprobe.",
       "probe_family": "gemini_video"
     },
     {
       "platform": "gemini",
       "model": "veo-3.1-fast-generate-preview",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
+      "reason": "Requires matching Vertex video mapping and account support; retain for video reprobe.",
       "probe_family": "gemini_video"
     },
     {
       "platform": "gemini",
       "model": "veo-3.1-generate-preview",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
+      "reason": "Requires matching Vertex video mapping and account support; retain for video reprobe.",
       "probe_family": "gemini_video"
     },
     {
       "platform": "gemini",
       "model": "veo-3.1-lite-generate-preview",
-      "reason": "2026-07-02 prod /v1/video/generations via Vertex group_id=16 returned 429 not_allowlisted; live Vertex model_mapping currently exposes only veo-3.1-generate-001, so keep out of the gemini allowlist until a 200 probe after mapping expansion.",
+      "reason": "Requires matching Vertex video mapping and account support; retain for video reprobe.",
       "probe_family": "gemini_video"
     },
     {
       "platform": "gemini",
       "model": "gemini-2.0-flash-exp-image-generation",
-      "reason": "2026-07-02 prod /v1/chat/completions via Vertex group_id=16 returned 429 not_allowlisted; not in the current Vertex model_mapping. Reprobe only after mapping/account expansion.",
+      "reason": "Requires Vertex image-capable mapping and account support; retain for chat-image reprobe.",
       "probe_family": "gemini_chat_image"
     },
     {
       "platform": "openai",
       "model": "gpt-image-1",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
+      "reason": "Requires an OpenAI account with api.model.images.request; retain for image reprobe.",
       "probe_family": "openai_image"
     },
     {
       "platform": "openai",
       "model": "gpt-image-1-mini",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
+      "reason": "Requires an OpenAI account with api.model.images.request; retain for image reprobe.",
       "probe_family": "openai_image"
     },
     {
       "platform": "openai",
       "model": "gpt-image-1.5",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
+      "reason": "Requires an OpenAI account with api.model.images.request; retain for image reprobe.",
       "probe_family": "openai_image"
     },
     {
       "platform": "openai",
       "model": "gpt-image-1.5-2025-12-16",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
+      "reason": "Requires an OpenAI account with api.model.images.request; retain for image reprobe.",
       "probe_family": "openai_image"
     },
     {
       "platform": "openai",
       "model": "gpt-image-2",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
+      "reason": "Requires an OpenAI account with api.model.images.request; retain for image reprobe.",
       "probe_family": "openai_image"
     },
     {
       "platform": "openai",
       "model": "gpt-image-2-2026-04-21",
-      "reason": "2026-07-02 prod /v1/images/generations via OpenAI group_id=2 returned HTTP 400; upstream body says missing scope api.model.images.request on the serving account. Do not public/Studio-list until an OpenAI image-scoped account probes 200.",
+      "reason": "Requires an OpenAI account with api.model.images.request; retain for image reprobe.",
       "probe_family": "openai_image"
     },
     {
       "platform": "gemini",
       "model": "gemini-2.0-flash",
-      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must not become permanent catalog-removal evidence.",
+      "reason": "A project-scoped failure is inconclusive; retain for chat reprobe rather than catalog removal.",
       "probe_family": "gemini_chat"
     },
     {
       "platform": "gemini",
       "model": "gemini-2.0-flash-001",
-      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "reason": "A project-scoped failure is inconclusive; retain for chat reprobe.",
       "probe_family": "gemini_chat"
     },
     {
       "platform": "gemini",
       "model": "gemini-2.0-flash-lite",
-      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "reason": "A project-scoped failure is inconclusive; retain for chat reprobe.",
       "probe_family": "gemini_chat"
     },
     {
       "platform": "gemini",
       "model": "gemini-2.0-flash-lite-001",
-      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "reason": "A project-scoped failure is inconclusive; retain for chat reprobe.",
       "probe_family": "gemini_chat"
     },
     {
       "platform": "gemini",
       "model": "gemini-3-pro-preview",
-      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "reason": "A project-scoped failure is inconclusive; retain for chat reprobe.",
       "probe_family": "gemini_chat"
     },
     {
       "platform": "gemini",
       "model": "gemini-3.1-pro-preview",
-      "reason": "2026-06-09 project-scoped 502 on the then-current Vertex project was inconclusive and must remain eligible for re-probe.",
+      "reason": "A project-scoped failure is inconclusive; retain for chat reprobe.",
       "probe_family": "gemini_chat"
     }
   ]

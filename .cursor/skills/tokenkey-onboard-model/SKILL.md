@@ -64,7 +64,7 @@ prod live 对账：`manage-account-model-mapping-runtime.py check-accounts --jso
 
 ## 坑
 
-- 大陆价基准 RMB÷6.7（Moonshot 国内表；禁国际 USD 表给 `api.moonshot.cn`）
+- 官方价换算和税制以 complete registry row 的来源证据与 pricing gate 为准；skill 不固定汇率
 - 新 floor 一律 activation；不得把 activation 记录写回 manifest
 - 零计费高量：计费键是 `requested_model`，查 mapping chain
 - **合并等人授权**
