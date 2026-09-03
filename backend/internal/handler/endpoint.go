@@ -319,6 +319,12 @@ func GetInboundEndpoint(c *gin.Context) string {
 // and the account platform. Handlers call this after scheduling an
 // account, passing account.Platform.
 func GetUpstreamEndpoint(c *gin.Context, platform string) string {
+	// OpenAI-compatible forwarding records the route selected by the immutable
+	// protocol plan. Error paths may not have a result object, so this shared
+	// runtime fact must win over platform-based inference for Ops and QA.
+	if endpoint := service.GetActualOpenAIUpstreamEndpoint(c); endpoint != "" {
+		return endpoint
+	}
 	if c != nil {
 		if value, ok := c.Get(ctxKeyActualUpstreamEndpoint); ok {
 			if endpoint, ok := value.(string); ok && endpoint != "" {

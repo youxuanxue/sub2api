@@ -10,9 +10,10 @@ import (
 
 // tkBridgeUpstreamShouldFailoverAfterPenalty reports whether a bridge upstream
 // error should trigger the handler's existing failedAccountIDs failover loop
-// after the account-level penalty has been applied. Only account-standing /
-// credential / capacity failures qualify — never client-induced 400/404 or 5xx
-// provider outages (#617 pool-drain class).
+// after any account-level penalty has been applied. Account-standing failures
+// qualify, as do gateway outage statuses that are safe to retry on another
+// provider without mutating account state. Client-induced 400/404 and all other
+// 5xx remain terminal to avoid draining the pool (#617 class).
 func tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr *newapitypes.NewAPIError) bool {
 	if apiErr == nil {
 		return false
@@ -20,7 +21,16 @@ func tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr *newapitypes.NewAPIError)
 	if tkIsBridgeUpstreamArrears(apiErr) {
 		return true
 	}
-	return tkBridgePenaltyStatusEligible(apiErr.StatusCode)
+	return tkBridgePenaltyStatusEligible(apiErr.StatusCode) ||
+		tkBridgeRequestScopedFailoverStatusEligible(apiErr.StatusCode)
+}
+
+func tkBridgeRequestScopedFailoverStatusEligible(statusCode int) bool {
+	switch statusCode {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
 }
 
 func tkNewAPIBridgeUpstreamFailoverError(c *gin.Context, apiErr *newapitypes.NewAPIError) *UpstreamFailoverError {
