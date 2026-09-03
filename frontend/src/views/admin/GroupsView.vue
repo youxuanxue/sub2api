@@ -269,12 +269,7 @@
           </template>
 
           <template #cell-account_count="{ row }">
-            <button
-              type="button"
-              class="space-y-0.5 text-left text-xs hover:opacity-80"
-              :title="t('admin.groups.members.manage')"
-              @click="openMembersModal(row)"
-            >
+            <div class="space-y-0.5 text-left text-xs">
               <div>
                 <span class="text-gray-500 dark:text-gray-400">{{
                   t("admin.groups.accountsAvailable")
@@ -306,7 +301,7 @@
                   t("admin.groups.accountsTotal")
                 }}</span>
                 <span
-                  class="ml-1 font-medium text-primary-600 underline decoration-dotted dark:text-primary-400"
+                  class="ml-1 font-medium text-gray-700 dark:text-gray-300"
                   >{{ row.account_count || 0 }}</span
                 >
                 <span
@@ -314,7 +309,14 @@
                   >{{ t("admin.groups.accountsUnit") }}</span
                 >
               </div>
-            </button>
+              <button
+                type="button"
+                class="mt-0.5 font-medium text-primary-600 underline decoration-dotted hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                @click="openMembersModal(row)"
+              >
+                {{ t("admin.groups.members.manage") }}
+              </button>
+            </div>
           </template>
 
           <template #cell-capacity="{ row }">
@@ -385,6 +387,15 @@
               >
                 <Icon name="edit" size="sm" />
                 <span class="text-xs">{{ t("common.edit") }}</span>
+              </button>
+              <button
+                type="button"
+                data-testid="group-manage-members"
+                @click="openMembersModal(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-emerald-600 dark:hover:bg-dark-700 dark:hover:text-emerald-400"
+              >
+                <Icon name="users" size="sm" />
+                <span class="text-xs">{{ t("admin.groups.members.manage") }}</span>
               </button>
               <button
                 data-testid="group-duplicate"
