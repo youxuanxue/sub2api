@@ -64,6 +64,20 @@ RETURNING id
 	require.False(t, migrationTestTableExists(ctx, t, tx, "model_supplier_source_models"))
 	require.False(t, migrationTestTableExists(ctx, t, tx, "model_supplier_source_audits"))
 
+	// Different TokenKey transport is a parallel legal source on the same credential.
+	// Insert before the expected unique-violation so the aborted statement does not
+	// poison this transaction for subsequent assertions.
+	var parallelID int64
+	require.NoError(t, tx.QueryRowContext(ctx, `
+INSERT INTO model_supplier_sources (
+    supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential,
+    credential_fingerprint, base_priority, models, notes
+) VALUES ('佳杰', 'anthropic', 14, 'https://token.vstecscloud.com/v1', 'ciphertext-2', 'hmac:abc', 100, $1::jsonb, '')
+RETURNING id
+`, models).Scan(&parallelID))
+	require.Positive(t, parallelID)
+	require.NotEqual(t, sourceID, parallelID)
+
 	// Same row identity with a renamed supplier lane label must still conflict.
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO model_supplier_sources (
@@ -76,18 +90,6 @@ INSERT INTO model_supplier_sources (
 	require.True(t, errors.As(err, &pqErr))
 	require.Equal(t, pq.ErrorCode("23505"), pqErr.Code)
 	require.Equal(t, "model_supplier_sources_identity_unique", pqErr.Constraint)
-
-	// Different TokenKey transport is a parallel legal source on the same credential.
-	var parallelID int64
-	require.NoError(t, tx.QueryRowContext(ctx, `
-INSERT INTO model_supplier_sources (
-    supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential,
-    credential_fingerprint, base_priority, models, notes
-) VALUES ('佳杰', 'anthropic', 14, 'https://token.vstecscloud.com/v1', 'ciphertext-2', 'hmac:abc', 100, $1::jsonb, '')
-RETURNING id
-`, models).Scan(&parallelID))
-	require.Positive(t, parallelID)
-	require.NotEqual(t, sourceID, parallelID)
 }
 
 func migrationTestTableExists(ctx context.Context, t *testing.T, tx *sql.Tx, table string) bool {
