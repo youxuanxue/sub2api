@@ -48,13 +48,13 @@ func TestSupplierSourceRepositoryCreatePersistsSingleRowContract(t *testing.T) {
 		ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio,
 	}}
 	source := &service.SupplierSource{
-		SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
+		SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
 		EncryptedCredential: "ciphertext", CredentialFingerprint: "hmac:fingerprint",
 		BasePriority: 100, AccountConcurrency: 1000, Models: models, Notes: "lowest ratio only",
 	}
 
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO model_supplier_sources
-(supplier_name, channel_name, channel_type, endpoint, encrypted_credential, credential_fingerprint, base_priority, account_concurrency, models, notes)
+(supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential, credential_fingerprint, base_priority, account_concurrency, models, notes)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, created_at, updated_at`)).
 		WithArgs("佳杰", "stbl-5", 1, "https://token.vstecscloud.com/v1", "ciphertext", "hmac:fingerprint", 100, 1000, supplierModelsJSONArg{want: models}, "lowest ratio only").
@@ -78,13 +78,13 @@ func TestSupplierSourceRepositoryUpdateReplacesSingleRowContract(t *testing.T) {
 		ClientModelID: "qwen-3.7-max", UpstreamModelID: "qwen-3.7-max", PurchaseRatio: &ratio,
 	}}
 	source := &service.SupplierSource{
-		ID: 7, SupplierName: "VSTECS", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
+		ID: 7, SupplierName: "VSTECS", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
 		EncryptedCredential: "rotated-ciphertext", CredentialFingerprint: "hmac:rotated",
 		BasePriority: 120, AccountConcurrency: 1000, Models: models, Notes: "rotated",
 	}
 
 	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE model_supplier_sources
-SET supplier_name=$1, channel_name=$2, channel_type=$3, endpoint=$4, encrypted_credential=$5,
+SET supplier_name=$1, supplier_lane=$2, channel_type=$3, endpoint=$4, encrypted_credential=$5,
     credential_fingerprint=$6, base_priority=$7, account_concurrency=$8, models=$9, notes=$10, updated_at=NOW()
 WHERE id=$11
 RETURNING updated_at`)).
@@ -104,12 +104,12 @@ func TestSupplierSourceRepositoryGetReturnsModelsFromJSON(t *testing.T) {
 
 	now := time.Date(2026, 8, 28, 8, 0, 0, 0, time.UTC)
 	modelsJSON := []byte(`[{"client_model_id":"deepseek-v4-pro","upstream_model_id":"deepseek-v4-pro","purchase_ratio":0.5}]`)
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, supplier_name, channel_name, channel_type, endpoint, encrypted_credential,
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential,
 credential_fingerprint, base_priority, account_concurrency, models, notes, created_at, updated_at
 FROM model_supplier_sources WHERE id=$1`)).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "supplier_name", "channel_name", "channel_type", "endpoint", "encrypted_credential",
+			"id", "supplier_name", "supplier_lane", "channel_type", "endpoint", "encrypted_credential",
 			"credential_fingerprint", "base_priority", "account_concurrency", "models", "notes", "created_at", "updated_at",
 		}).AddRow(int64(7), "佳杰", "stbl-5", 1, "https://token.vstecscloud.com/v1", "ciphertext", "hmac:fingerprint", 100, 1000, modelsJSON, "", now, now))
 
@@ -134,7 +134,7 @@ func TestSupplierSourceRepositoryCreateClassifiesIdentityConflict(t *testing.T) 
 
 	repo := NewSupplierSourceRepository(db)
 	err = repo.Create(context.Background(), &service.SupplierSource{
-		SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://token.vstecscloud.com/v1",
+		SupplierName: "佳杰", SupplierLane: "stbl-5", Endpoint: "https://token.vstecscloud.com/v1",
 		EncryptedCredential: "ciphertext", CredentialFingerprint: "hmac:fingerprint", BasePriority: 100,
 	})
 	require.True(t, errors.Is(err, service.ErrSupplierSourceIdentityConflict))

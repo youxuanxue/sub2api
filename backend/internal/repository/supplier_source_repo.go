@@ -28,11 +28,11 @@ func (r *supplierSourceRepository) Create(ctx context.Context, source *service.S
 		return err
 	}
 	err = r.db.QueryRowContext(ctx, `INSERT INTO model_supplier_sources
-(supplier_name, channel_name, channel_type, endpoint, encrypted_credential, credential_fingerprint, base_priority, account_concurrency, models, notes)
+(supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential, credential_fingerprint, base_priority, account_concurrency, models, notes)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id, created_at, updated_at`,
 		source.SupplierName,
-		source.ChannelName,
+		source.SupplierLane,
 		source.ChannelType,
 		source.Endpoint,
 		source.EncryptedCredential,
@@ -57,12 +57,12 @@ func (r *supplierSourceRepository) Update(ctx context.Context, source *service.S
 		return err
 	}
 	err = r.db.QueryRowContext(ctx, `UPDATE model_supplier_sources
-SET supplier_name=$1, channel_name=$2, channel_type=$3, endpoint=$4, encrypted_credential=$5,
+SET supplier_name=$1, supplier_lane=$2, channel_type=$3, endpoint=$4, encrypted_credential=$5,
     credential_fingerprint=$6, base_priority=$7, account_concurrency=$8, models=$9, notes=$10, updated_at=NOW()
 WHERE id=$11
 RETURNING updated_at`,
 		source.SupplierName,
-		source.ChannelName,
+		source.SupplierLane,
 		source.ChannelType,
 		source.Endpoint,
 		source.EncryptedCredential,
@@ -83,13 +83,13 @@ RETURNING updated_at`,
 }
 
 func (r *supplierSourceRepository) Get(ctx context.Context, id int64) (*service.SupplierSource, error) {
-	return scanSupplierSource(r.db.QueryRowContext(ctx, `SELECT id, supplier_name, channel_name, channel_type, endpoint, encrypted_credential,
+	return scanSupplierSource(r.db.QueryRowContext(ctx, `SELECT id, supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential,
 credential_fingerprint, base_priority, account_concurrency, models, notes, created_at, updated_at
 FROM model_supplier_sources WHERE id=$1`, id))
 }
 
 func (r *supplierSourceRepository) List(ctx context.Context) ([]service.SupplierSource, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, supplier_name, channel_name, channel_type, endpoint, encrypted_credential,
+	rows, err := r.db.QueryContext(ctx, `SELECT id, supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential,
 credential_fingerprint, base_priority, account_concurrency, models, notes, created_at, updated_at
 FROM model_supplier_sources ORDER BY id`)
 	if err != nil {
@@ -121,7 +121,7 @@ func scanSupplierSource(scanner supplierSourceScanner) (*service.SupplierSource,
 	err := scanner.Scan(
 		&source.ID,
 		&source.SupplierName,
-		&source.ChannelName,
+		&source.SupplierLane,
 		&source.ChannelType,
 		&source.Endpoint,
 		&source.EncryptedCredential,

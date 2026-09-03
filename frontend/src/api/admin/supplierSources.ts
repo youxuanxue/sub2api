@@ -16,7 +16,7 @@ export interface SupplierSourceModel {
 export interface SupplierSource {
   id: number
   supplier_name: string
-  channel_name: string
+  supplier_lane: string
   channel_type: number
   endpoint: string
   base_priority: number
@@ -29,7 +29,7 @@ export interface SupplierSource {
 
 export interface SupplierSourceInput {
   supplier_name: string
-  channel_name: string
+  supplier_lane: string
   channel_type: number
   endpoint: string
   credential: string
@@ -42,7 +42,7 @@ export interface SupplierSourceInput {
 export interface SupplierPriorityPreviewEntry {
   source_id: number
   supplier_name: string
-  channel_name: string
+  supplier_lane: string
   discount_band: number
   discount_priority: number
   priority: number

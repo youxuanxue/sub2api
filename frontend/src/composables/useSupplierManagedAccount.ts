@@ -48,7 +48,7 @@ async function ensureSourceDirectoryLoaded(): Promise<void> {
     .then((sources) => {
       sourceNamesByID.value = new Map(sources.map(source => [
         source.id,
-        `${source.supplier_name}/${source.channel_name}`
+        `${source.supplier_name}/${source.supplier_lane}`
       ]))
     })
     .finally(() => {

@@ -16,6 +16,10 @@ import (
 func TestModelSupplierSourceMigrationCreatesOnlyTheSingleSourceTable(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
+	// Rebuild from the historical CREATE so the chain is exercised even when
+	// integrationDB already applied later migrations (supplier_lane present).
+	_, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS model_supplier_sources`)
+	require.NoError(t, err)
 	migrationSQL, err := dbmigrations.FS.ReadFile("tk_089_model_supplier_sources.sql")
 	require.NoError(t, err)
 	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
@@ -25,14 +29,22 @@ func TestModelSupplierSourceMigrationCreatesOnlyTheSingleSourceTable(t *testing.
 	migrationSQL, err = dbmigrations.FS.ReadFile("tk_091_model_supplier_sources_channel_type.sql")
 	require.NoError(t, err)
 	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
+	migrationSQL, err = dbmigrations.FS.ReadFile("tk_093_supplier_source_identity_ssot.sql")
+	require.NoError(t, err)
+	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
+	migrationSQL, err = dbmigrations.FS.ReadFile("tk_094_supplier_source_lane_rename.sql")
+	require.NoError(t, err)
+	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
+	// Re-applying the rename must be a no-op once supplier_lane exists.
+	require.NoError(t, execMigrationStatements(ctx, tx, migrationSQL))
 
 	models := `[{"client_model_id":"deepseek-v4-pro","upstream_model_id":"deepseek-v4-pro","purchase_ratio":0.5}]`
 	var sourceID int64
 	require.NoError(t, tx.QueryRowContext(ctx, `
 INSERT INTO model_supplier_sources (
-    supplier_name, channel_name, endpoint, encrypted_credential,
+    supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential,
     credential_fingerprint, base_priority, models, notes
-) VALUES ('佳杰', 'stbl-5', 'https://token.vstecscloud.com/v1', 'ciphertext', 'hmac:abc', 100, $1::jsonb, '')
+) VALUES ('佳杰', 'stbl-5', 1, 'https://token.vstecscloud.com/v1', 'ciphertext', 'hmac:abc', 100, $1::jsonb, '')
 RETURNING id
 `, models).Scan(&sourceID))
 	require.Positive(t, sourceID)
@@ -44,17 +56,34 @@ RETURNING id
 	require.Contains(t, columns, "base_priority")
 	require.Contains(t, columns, "account_concurrency")
 	require.Contains(t, columns, "channel_type")
+	require.Contains(t, columns, "supplier_lane")
 	require.Contains(t, columns, "models")
+	require.NotContains(t, columns, "channel_name")
 	require.NotContains(t, columns, "state")
 	require.NotContains(t, columns, "revision")
 	require.False(t, migrationTestTableExists(ctx, t, tx, "model_supplier_source_models"))
 	require.False(t, migrationTestTableExists(ctx, t, tx, "model_supplier_source_audits"))
 
+	// Different TokenKey transport is a parallel legal source on the same credential.
+	// Insert before the expected unique-violation so the aborted statement does not
+	// poison this transaction for subsequent assertions.
+	var parallelID int64
+	require.NoError(t, tx.QueryRowContext(ctx, `
+INSERT INTO model_supplier_sources (
+    supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential,
+    credential_fingerprint, base_priority, models, notes
+) VALUES ('佳杰', 'anthropic', 14, 'https://token.vstecscloud.com/v1', 'ciphertext-2', 'hmac:abc', 100, $1::jsonb, '')
+RETURNING id
+`, models).Scan(&parallelID))
+	require.Positive(t, parallelID)
+	require.NotEqual(t, sourceID, parallelID)
+
+	// Same row identity with a renamed supplier lane label must still conflict.
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO model_supplier_sources (
-    supplier_name, channel_name, endpoint, encrypted_credential,
+    supplier_name, supplier_lane, channel_type, endpoint, encrypted_credential,
     credential_fingerprint, base_priority, models, notes
-) VALUES ('佳杰', 'stbl-5', 'https://token.vstecscloud.com/v1', 'rotated-ciphertext', 'hmac:abc', 100, $1::jsonb, '')
+) VALUES ('佳杰', 'stbl-5-renamed', 1, 'https://token.vstecscloud.com/v1', 'rotated-ciphertext', 'hmac:abc', 100, $1::jsonb, '')
 `, models)
 	require.Error(t, err)
 	var pqErr *pq.Error
