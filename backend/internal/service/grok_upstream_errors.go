@@ -200,20 +200,20 @@ func grokContentPolicyClientMessage(responseBody []byte) string {
 func (s *OpenAIGatewayService) shouldFailoverGrokUpstreamError(statusCode int, responseBody []byte) bool {
 	semantic := gatewayFailureSemanticUnclassified
 	if isGrokContentPolicyRejection(statusCode, responseBody) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if tkIsGrokEntitlement403(statusCode, responseBody) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isGrokDecoderCompatibilityError(statusCode, responseBody) {
 		// A 422 emitted by xAI's ModelInput decoder is account/runtime
 		// compatibility, not quota exhaustion. Another account may run a
 		// different upstream build, so fail over without applying cooldown.
-		semantic = gatewayFailureSemanticRetryableAccount
+		semantic = gatewayFailureSemanticAccountFault
 	} else {
 		decision := classifyGrokUpstreamFailure(statusCode, responseBody, "")
 		switch decision.Class {
 		case GrokFailureFreeUsage, GrokFailureEmptyUpstream, GrokFailureBilling,
 			GrokFailureModelCapacity, GrokFailureCompatibility:
-			semantic = gatewayFailureSemanticRetryableAccount
+			semantic = gatewayFailureSemanticAccountFault
 		}
 	}
 	return classifyGatewayFailover(gatewayFailoverObservation{

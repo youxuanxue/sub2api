@@ -795,7 +795,7 @@ func isGoogleProjectConfigError(lowerMsg string) bool {
 
 func googleGatewayFailureSemantic(statusCode int, lowerMsg string) gatewayFailureSemantic {
 	if statusCode == http.StatusBadRequest && isGoogleProjectConfigError(lowerMsg) {
-		return gatewayFailureSemanticRetryableAccount
+		return gatewayFailureSemanticAccountFault
 	}
 	return gatewayFailureSemanticUnclassified
 }

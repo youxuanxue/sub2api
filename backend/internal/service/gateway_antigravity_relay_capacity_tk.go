@@ -45,16 +45,15 @@ func tkAntigravityRelayCapacityFailoverError(
 	if strings.TrimSpace(responseHeaders.Get("Retry-After")) == "" {
 		responseHeaders.Set("Retry-After", NoAvailableAccountsRetryAfterSeconds)
 	}
-	return &UpstreamFailoverError{
-		StatusCode:        statusCode,
-		ResponseBody:      responseBody,
-		ResponseHeaders:   responseHeaders,
-		Scope:             GatewayFailureScopeAccount,
-		Reason:            AntigravityRelayCapacityReason,
-		NextAccountAction: NextAccountRetry,
-		ClientStatusCode:  http.StatusTooManyRequests,
-		ClientMessage:     AntigravityRelayCapacityClientMessage,
-	}
+	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+		StatusCode:       statusCode,
+		ResponseBody:     responseBody,
+		ResponseHeaders:  responseHeaders,
+		Scope:            GatewayFailureScopeAccount,
+		Reason:           AntigravityRelayCapacityReason,
+		ClientStatusCode: http.StatusTooManyRequests,
+		ClientMessage:    AntigravityRelayCapacityClientMessage,
+	}, gatewayFailoverProfileGoogle, gatewayFailureSemanticAccountFault)
 }
 
 func newUpstreamFailoverErrorWithTKCapacity(

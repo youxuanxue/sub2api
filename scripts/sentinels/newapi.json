@@ -562,7 +562,8 @@
         "tkBridgeUpstreamShouldFailoverAfterPenalty",
         "tkNewAPIBridgeUpstreamFailoverError",
         "bridgeWrapRelayErrorAfterPenalty",
-        "NextAccountRetry"
+        "applyGatewayFailoverSemantic",
+        "gatewayFailureSemanticAccountFault"
       ],
       "rationale": "TK companion that converts penalized newapi bridge account-level faults (401/402/429 + upstream arrears 400/403) into UpstreamFailoverError for the existing handler failedAccountIDs loop. Client-induced 400/404 and 5xx outages must stay on NewAPIRelayError to avoid the #617 pool-drain. Dropping this file regresses prod Qwen arrears / DeepSeek 402 cases where a healthy sibling account exists but the first selected account's error was returned immediately."
     },

@@ -707,6 +707,7 @@ type UpstreamFailoverError struct {
 	ClientStatusCode         int
 	ClientErrorType          string
 	ClientMessage            string
+	failoverObservation      *gatewayFailoverObservation
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -717,7 +718,7 @@ func (e *UpstreamFailoverError) Error() string {
 }
 
 func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
-	return e != nil && e.NextAccountAction != NextAccountStop
+	return classifyGatewayFailoverError(e).RetryNextAccount
 }
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {

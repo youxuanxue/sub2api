@@ -61,30 +61,30 @@ func TestUS049_SemanticOverridesStatusAndFailsClosed(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "terminal request suppresses retryable status",
+			name: "shared fault suppresses failover status",
 			obs: gatewayFailoverObservation{
-				Profile: gatewayFailoverProfileOpenAI, Semantic: gatewayFailureSemanticTerminalRequest, StatusCode: 503,
+				Profile: gatewayFailoverProfileOpenAI, Semantic: gatewayFailureSemanticSharedFault, StatusCode: 503,
 			},
 			want: false,
 		},
 		{
 			name: "account signal enables terminal status",
 			obs: gatewayFailoverObservation{
-				Profile: gatewayFailoverProfileNewAPIBridge, Semantic: gatewayFailureSemanticRetryableAccount, StatusCode: 400,
+				Profile: gatewayFailoverProfileNewAPIBridge, Semantic: gatewayFailureSemanticAccountFault, StatusCode: 400,
 			},
 			want: true,
 		},
 		{
 			name: "transient signal enables terminal status",
 			obs: gatewayFailoverObservation{
-				Profile: gatewayFailoverProfileOpenAI, Semantic: gatewayFailureSemanticRetryableTransient, StatusCode: 400,
+				Profile: gatewayFailoverProfileOpenAI, Semantic: gatewayFailureSemanticTransientFault, StatusCode: 400,
 			},
 			want: true,
 		},
 		{
-			name: "unknown profile fails closed even with retry semantic",
+			name: "unknown profile fails closed even with transient fact",
 			obs: gatewayFailoverObservation{
-				Profile: gatewayFailoverProfileUnknown, Semantic: gatewayFailureSemanticRetryableTransient, StatusCode: 503,
+				Profile: gatewayFailoverProfileUnknown, Semantic: gatewayFailureSemanticTransientFault, StatusCode: 503,
 			},
 			want: false,
 		},
@@ -102,6 +102,38 @@ func TestUS049_SemanticOverridesStatusAndFailsClosed(t *testing.T) {
 			require.Equal(t, tc.want, classifyGatewayFailover(tc.obs).RetryNextAccount)
 		})
 	}
+}
+
+func TestUS049_RuntimeFailoverChokePointUsesGlobalPolicy(t *testing.T) {
+	require.False(t, (*UpstreamFailoverError)(nil).ShouldRetryNextAccount())
+	require.True(t, (&UpstreamFailoverError{}).ShouldRetryNextAccount(), "legacy zero value must keep retrying")
+	require.True(t, (&UpstreamFailoverError{NextAccountAction: NextAccountRetry}).ShouldRetryNextAccount())
+	require.False(t, (&UpstreamFailoverError{NextAccountAction: NextAccountStop}).ShouldRetryNextAccount())
+	require.False(t, (&UpstreamFailoverError{NextAccountAction: NextAccountAction(255)}).ShouldRetryNextAccount())
+
+	retryErr := applyGatewayFailoverSemantic(
+		&UpstreamFailoverError{StatusCode: http.StatusBadRequest},
+		gatewayFailoverProfileGrok,
+		gatewayFailureSemanticAccountFault,
+	)
+	require.Equal(t, NextAccountRetry, retryErr.NextAccountAction)
+	require.True(t, retryErr.ShouldRetryNextAccount())
+
+	stopErr := applyGatewayFailoverSemantic(
+		&UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable},
+		gatewayFailoverProfileOpenAI,
+		gatewayFailureSemanticSharedFault,
+	)
+	require.Equal(t, NextAccountStop, stopErr.NextAccountAction)
+	require.False(t, stopErr.ShouldRetryNextAccount())
+
+	unknownErr := applyGatewayFailoverSemantic(
+		&UpstreamFailoverError{},
+		gatewayFailoverProfileUnknown,
+		gatewayFailureSemanticAccountFault,
+	)
+	require.Equal(t, NextAccountStop, unknownErr.NextAccountAction)
+	require.False(t, unknownErr.ShouldRetryNextAccount())
 }
 
 func TestUS049_OpenAIPassthroughAccountMatrix(t *testing.T) {
@@ -152,12 +184,12 @@ func TestUS049_AdaptersDelegateWithoutBehaviorDrift(t *testing.T) {
 	bodyOnlyRateLimit := []byte(`{"error":{"message":"rate limit exceeded"}}`)
 	require.False(t, (&OpenAIGatewayService{}).shouldFailoverGrokUpstreamError(http.StatusBadRequest, bodyOnlyRateLimit))
 
-	require.Equal(t, gatewayFailureSemanticRetryableAccount,
+	require.Equal(t, gatewayFailureSemanticAccountFault,
 		gateway400FailureSemantic([]byte(`{"error":{"message":"anthropic-beta header requires beta"}}`)))
-	require.Equal(t, gatewayFailureSemanticTerminalRequest,
+	require.Equal(t, gatewayFailureSemanticSharedFault,
 		gateway400FailureSemantic([]byte(`{"error":{"message":"invalid request"}}`)))
 	googleSemantic := googleGatewayFailureSemantic(http.StatusBadRequest, "invalid project resource name")
-	require.Equal(t, gatewayFailureSemanticRetryableAccount, googleSemantic)
+	require.Equal(t, gatewayFailureSemanticAccountFault, googleSemantic)
 	require.True(t, classifyGatewayFailover(gatewayFailoverObservation{
 		Profile: gatewayFailoverProfileGoogle, Semantic: googleSemantic, StatusCode: http.StatusBadRequest,
 	}).RetryNextAccount)

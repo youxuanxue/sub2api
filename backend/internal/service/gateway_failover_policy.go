@@ -17,15 +17,16 @@ const (
 	gatewayFailoverProfileOpenAIPassthrough
 )
 
-// gatewayFailureSemantic is produced by protocol-specific body parsers. The
-// policy owns what that semantic means for account failover.
+// gatewayFailureSemantic is factual evidence produced by protocol-specific
+// body parsers. Its names deliberately avoid retry/stop language: only the
+// global policy may turn these facts into an account-failover decision.
 type gatewayFailureSemantic uint8
 
 const (
 	gatewayFailureSemanticUnclassified gatewayFailureSemantic = iota
-	gatewayFailureSemanticTerminalRequest
-	gatewayFailureSemanticRetryableAccount
-	gatewayFailureSemanticRetryableTransient
+	gatewayFailureSemanticSharedFault
+	gatewayFailureSemanticAccountFault
+	gatewayFailureSemanticTransientFault
 )
 
 type gatewayFailoverObservation struct {
@@ -54,9 +55,9 @@ func classifyGatewayFailover(obs gatewayFailoverObservation) gatewayFailoverDeci
 	}
 
 	switch obs.Semantic {
-	case gatewayFailureSemanticTerminalRequest:
+	case gatewayFailureSemanticSharedFault:
 		return gatewayFailoverDecision{}
-	case gatewayFailureSemanticRetryableAccount, gatewayFailureSemanticRetryableTransient:
+	case gatewayFailureSemanticAccountFault, gatewayFailureSemanticTransientFault:
 		return gatewayFailoverDecision{RetryNextAccount: true}
 	case gatewayFailureSemanticUnclassified:
 		// Continue into the centrally owned transport matrix.
@@ -78,6 +79,55 @@ func classifyGatewayFailover(obs gatewayFailoverObservation) gatewayFailoverDeci
 	default:
 		return gatewayFailoverDecision{}
 	}
+}
+
+// classifyGatewayFailoverError is the runtime choke point used by handlers.
+// New code records normalized evidence on the error via applyGatewayFailoverSemantic;
+// legacy composite literals are adapted here so their historical zero-value
+// retry behavior remains intact while the final boolean still has one owner.
+func classifyGatewayFailoverError(failoverErr *UpstreamFailoverError) gatewayFailoverDecision {
+	if failoverErr == nil {
+		return gatewayFailoverDecision{}
+	}
+	if failoverErr.failoverObservation != nil {
+		return classifyGatewayFailover(*failoverErr.failoverObservation)
+	}
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:  gatewayFailoverProfileGeneric,
+		Semantic: gatewayFailureSemanticFromLegacyAction(failoverErr.NextAccountAction),
+	})
+}
+
+func gatewayFailureSemanticFromLegacyAction(action NextAccountAction) gatewayFailureSemantic {
+	switch action {
+	case NextAccountLegacyRetry, NextAccountRetry:
+		return gatewayFailureSemanticAccountFault
+	case NextAccountStop:
+		return gatewayFailureSemanticSharedFault
+	default:
+		return gatewayFailureSemantic(255)
+	}
+}
+
+// applyGatewayFailoverSemantic stores adapter evidence and materializes the
+// legacy action field for compatibility with existing diagnostics and tests.
+// The action is derived from the global policy; adapters never set it directly.
+func applyGatewayFailoverSemantic(
+	failoverErr *UpstreamFailoverError,
+	profile gatewayFailoverProfile,
+	semantic gatewayFailureSemantic,
+) *UpstreamFailoverError {
+	if failoverErr == nil {
+		return nil
+	}
+	observation := gatewayFailoverObservation{Profile: profile, Semantic: semantic}
+	failoverErr.failoverObservation = &observation
+	if classifyGatewayFailover(observation).RetryNextAccount {
+		failoverErr.NextAccountAction = NextAccountRetry
+	} else {
+		failoverErr.NextAccountAction = NextAccountStop
+	}
+	return failoverErr
 }
 
 func genericGatewayFailoverStatus(statusCode int) bool {

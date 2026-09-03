@@ -624,12 +624,12 @@ func stripOpenAILegacyResponsesBeta(headers http.Header) {
 func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, responseBody []byte) bool {
 	semantic := gatewayFailureSemanticUnclassified
 	if hit, _, _ := detectOpenAICyberPolicy(responseBody); hit {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError("", responseBody) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIHTTPUpstreamAccessStateError(statusCode, "", responseBody) ||
 		isOpenAIRequestBodyTooLargeError(statusCode, "", responseBody) {
-		semantic = gatewayFailureSemanticRetryableAccount
+		semantic = gatewayFailureSemanticAccountFault
 	}
 	obs := gatewayFailoverObservation{
 		Profile:    gatewayFailoverProfileOpenAIPassthrough,
@@ -1369,20 +1369,20 @@ func applyOpenAIStreamFailedErrorPassthroughRule(
 }
 
 func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
-	semantic := gatewayFailureSemanticRetryableTransient
+	semantic := gatewayFailureSemanticTransientFault
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(message, payload) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIUpstreamAccessStateError(message, payload) {
-		semantic = gatewayFailureSemanticRetryableAccount
+		semantic = gatewayFailureSemanticAccountFault
 	} else {
 		semanticStatus := openAIStreamFailureStatus(payload, message)
 		if semanticStatus == http.StatusForbidden {
 			if openAIStream403AccountFailure(payload, message) {
-				semantic = gatewayFailureSemanticRetryableAccount
+				semantic = gatewayFailureSemanticAccountFault
 			} else {
-				semantic = gatewayFailureSemanticTerminalRequest
+				semantic = gatewayFailureSemanticSharedFault
 			}
 		} else if semanticStatus != http.StatusTooManyRequests &&
 			!isOpenAITransientProcessingError(http.StatusBadRequest, message, payload) {
@@ -1405,7 +1405,7 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 				"violat",
 			} {
 				if strings.Contains(combined, marker) {
-					semantic = gatewayFailureSemanticTerminalRequest
+					semantic = gatewayFailureSemanticSharedFault
 					break
 				}
 			}
@@ -1419,21 +1419,21 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 }
 
 func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
-	semantic := gatewayFailureSemanticTerminalRequest
+	semantic := gatewayFailureSemanticSharedFault
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(message, payload) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIUpstreamAccessStateError(message, payload) {
-		semantic = gatewayFailureSemanticRetryableAccount
+		semantic = gatewayFailureSemanticAccountFault
 	} else {
 		switch openAIStreamFailedEventSemanticStatus(payload, message) {
 		case http.StatusForbidden:
 			if openAIStream403AccountFailure(payload, message) {
-				semantic = gatewayFailureSemanticRetryableAccount
+				semantic = gatewayFailureSemanticAccountFault
 			}
 		case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
-			semantic = gatewayFailureSemanticRetryableAccount
+			semantic = gatewayFailureSemanticAccountFault
 		default:
 			combined := strings.ToLower(strings.TrimSpace(message + " " +
 				gjson.GetBytes(payload, "error.message").String() + " " +
@@ -1442,7 +1442,7 @@ func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 				strings.Contains(combined, "temporary") ||
 				strings.Contains(combined, "try again") ||
 				strings.Contains(combined, "please retry") {
-				semantic = gatewayFailureSemanticRetryableTransient
+				semantic = gatewayFailureSemanticTransientFault
 			}
 		}
 	}

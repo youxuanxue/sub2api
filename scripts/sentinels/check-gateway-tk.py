@@ -59,10 +59,13 @@ def load_registry() -> dict:
 
 _CONTENT_CACHE: dict[str, str] = {}
 
-_GO_FUNCTION_RE = re.compile(
-    r"(?m)^func\s+(?:\([^\n)]*\)\s*)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\("
+_GO_FUNC_START_RE = re.compile(r"(?m)^func\b")
+_GO_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_FAILOVER_FIELD_RE = re.compile(r"(?m)^\s*(?:ShouldFailover|RetryNextAccount)\s+bool\b")
+_LOCAL_NEXT_ACCOUNT_DECISION_RE = re.compile(r"\bNextAccount(?:Retry|Stop)\b")
+_VERDICT_SEMANTIC_RE = re.compile(
+    r"\bgatewayFailureSemantic(?:Retry|Failover|Stop|Terminal)[A-Za-z0-9_]*\b"
 )
-_FAILOVER_FIELD_RE = re.compile(r"(?m)^\s*ShouldFailover\s+bool\b")
 
 
 def read_file_cached(path_str: str) -> str:
@@ -119,6 +122,190 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     return (len(failures) == 0), failures
 
 
+def _strip_go_comments_and_literals(source: str) -> str:
+    """Blank comments and literals while preserving offsets and newlines."""
+    chars = list(source)
+    i = 0
+    state = "code"
+    while i < len(chars):
+        ch = chars[i]
+        nxt = chars[i + 1] if i + 1 < len(chars) else ""
+        if state == "code":
+            if ch == "/" and nxt == "/":
+                chars[i] = chars[i + 1] = " "
+                i += 2
+                state = "line_comment"
+                continue
+            if ch == "/" and nxt == "*":
+                chars[i] = chars[i + 1] = " "
+                i += 2
+                state = "block_comment"
+                continue
+            if ch in {'"', "'", "`"}:
+                chars[i] = " "
+                state = {"\"": "string", "'": "rune", "`": "raw"}[ch]
+        elif state == "line_comment":
+            if ch == "\n":
+                state = "code"
+            else:
+                chars[i] = " "
+        elif state == "block_comment":
+            if ch == "*" and nxt == "/":
+                chars[i] = chars[i + 1] = " "
+                i += 2
+                state = "code"
+                continue
+            if ch != "\n":
+                chars[i] = " "
+        elif state == "raw":
+            if ch == "`":
+                chars[i] = " "
+                state = "code"
+            elif ch != "\n":
+                chars[i] = " "
+        else:
+            if ch == "\\":
+                chars[i] = " "
+                if i + 1 < len(chars):
+                    if chars[i + 1] != "\n":
+                        chars[i + 1] = " "
+                    i += 2
+                    continue
+            if (state == "string" and ch == '"') or (state == "rune" and ch == "'"):
+                chars[i] = " "
+                state = "code"
+            elif ch != "\n":
+                chars[i] = " "
+        i += 1
+    return "".join(chars)
+
+
+def _skip_space(source: str, pos: int) -> int:
+    while pos < len(source) and source[pos].isspace():
+        pos += 1
+    return pos
+
+
+def _after_balanced(source: str, pos: int, opening: str, closing: str) -> int | None:
+    if pos >= len(source) or source[pos] != opening:
+        return None
+    depth = 0
+    for index in range(pos, len(source)):
+        if source[index] == opening:
+            depth += 1
+        elif source[index] == closing:
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
+
+
+def _go_functions(source: str) -> list[tuple[str, int, str]]:
+    """Return top-level Go function names, offsets, and sanitized bodies."""
+    clean = _strip_go_comments_and_literals(source)
+    functions: list[tuple[str, int, str]] = []
+    for start in _GO_FUNC_START_RE.finditer(clean):
+        pos = _skip_space(clean, start.end())
+        if pos < len(clean) and clean[pos] == "(":
+            pos = _after_balanced(clean, pos, "(", ")") or len(clean)
+            pos = _skip_space(clean, pos)
+        name_match = _GO_IDENT_RE.match(clean, pos)
+        if name_match is None:
+            continue
+        name = name_match.group(0)
+        pos = _skip_space(clean, name_match.end())
+        params_end = _after_balanced(clean, pos, "(", ")")
+        if params_end is None:
+            continue
+        body_start = clean.find("{", params_end)
+        if body_start < 0:
+            continue
+        body_end = _after_balanced(clean, body_start, "{", "}")
+        if body_end is None:
+            continue
+        functions.append((name, start.start(), clean[body_start:body_end]))
+    return functions
+
+
+def _has_direct_classifier_return(body: str, classifier: str) -> bool:
+    for match in re.finditer(rf"\breturn\s+{re.escape(classifier)}\s*", body):
+        pos = _skip_space(body, match.end())
+        call_end = _after_balanced(body, pos, "(", ")")
+        if call_end is None:
+            continue
+        pos = _skip_space(body, call_end)
+        suffix = ".RetryNextAccount"
+        if not body.startswith(suffix, pos):
+            continue
+        pos = _skip_space(body, pos + len(suffix))
+        if pos == len(body) or body[pos] in {"\n", ";", "}"}:
+            return True
+    return False
+
+
+def _failover_function_violation(name: str, body: str) -> str | None:
+    lower_name = name.lower()
+    if "shouldfailover" not in lower_name and "retrynextaccount" not in lower_name:
+        return None
+    classifier = (
+        "classifyGatewayFailoverError"
+        if name == "ShouldRetryNextAccount"
+        else "classifyGatewayFailover"
+    )
+    if _has_direct_classifier_return(body, classifier):
+        return None
+    return f"{name} must directly return {classifier}(...).RetryNextAccount"
+
+
+def _failover_scanner_selftest() -> list[str]:
+    fixture = """
+func (s *Service) shouldFailoverGood() bool {
+    return classifyGatewayFailover(gatewayFailoverObservation{}).RetryNextAccount
+}
+func (s *Service) shouldFailoverNoopCall() bool {
+    _ = classifyGatewayFailover(gatewayFailoverObservation{}).RetryNextAccount
+    return false
+}
+func (
+    s *Service
+) shouldFailoverSpoofed() bool {
+    // classifyGatewayFailover(gatewayFailoverObservation{})
+    return false
+}
+func retryNextAccountHidden() bool { return false }
+func (e *Error) ShouldRetryNextAccount() bool {
+    return classifyGatewayFailoverError(e).RetryNextAccount
+}
+"""
+    functions = {name: body for name, _, body in _go_functions(fixture)}
+    failures: list[str] = []
+    if _failover_function_violation("shouldFailoverGood", functions.get("shouldFailoverGood", "")):
+        failures.append("failover scanner self-test lost a real policy call")
+    if not _failover_function_violation("shouldFailoverNoopCall", functions.get("shouldFailoverNoopCall", "")):
+        failures.append("failover scanner self-test accepted a no-op policy call")
+    if not _failover_function_violation("shouldFailoverSpoofed", functions.get("shouldFailoverSpoofed", "")):
+        failures.append("failover scanner self-test accepted a comment-spoofed policy call")
+    if not _failover_function_violation("retryNextAccountHidden", functions.get("retryNextAccountHidden", "")):
+        failures.append("failover scanner self-test missed an alternate decision name")
+    if _failover_function_violation("ShouldRetryNextAccount", functions.get("ShouldRetryNextAccount", "")):
+        failures.append("failover scanner self-test rejected the runtime policy choke point")
+    action_fixture = _strip_go_comments_and_literals(
+        """type x struct {
+    RetryNextAccount bool
+}
+var _ = E{NextAccountAction: NextAccountRetry}
+var _ = gatewayFailureSemanticRetryableAccount
+"""
+    )
+    if (
+        not _FAILOVER_FIELD_RE.search(action_fixture)
+        or not _LOCAL_NEXT_ACCOUNT_DECISION_RE.search(action_fixture)
+        or not _VERDICT_SEMANTIC_RE.search(action_fixture)
+    ):
+        failures.append("failover scanner self-test missed a local decision field, action, or verdict semantic")
+    return failures
+
+
 def check_failover_ssot() -> tuple[bool, list[str]]:
     """Reject new adapter-local retry-next-account policy owners.
 
@@ -128,26 +315,35 @@ def check_failover_ssot() -> tuple[bool, list[str]]:
     keeps this check deterministic without depending on a local Go toolchain.
     """
     service_dir = REPO_ROOT / "backend" / "internal" / "service"
-    failures: list[str] = []
+    failures: list[str] = _failover_scanner_selftest()
     for file_path in sorted(service_dir.glob("*.go")):
         if file_path.name.endswith("_test.go"):
             continue
         source = file_path.read_text(encoding="utf-8", errors="replace")
+        clean = _strip_go_comments_and_literals(source)
         rel = file_path.relative_to(REPO_ROOT)
-        matches = list(_GO_FUNCTION_RE.finditer(source))
-        for index, match in enumerate(matches):
-            name = match.group("name")
-            if "shouldfailover" not in name.lower():
-                continue
-            end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
-            if "classifyGatewayFailover(" not in source[match.start():end]:
+        for name, offset, body in _go_functions(source):
+            violation = _failover_function_violation(name, body)
+            if violation:
                 failures.append(
-                    f"{rel}:{source.count(chr(10), 0, match.start()) + 1} "
-                    f"{name} must call classifyGatewayFailover directly"
+                    f"{rel}:{source.count(chr(10), 0, offset) + 1} "
+                    f"{violation}"
                 )
-        if _FAILOVER_FIELD_RE.search(source):
+        if file_path.name != "gateway_failover_policy.go" and _FAILOVER_FIELD_RE.search(clean):
             failures.append(
-                f"{rel} declares ShouldFailover bool; keep failover output in the global decision owner"
+                f"{rel} declares a failover decision bool; keep it in the global decision owner"
+            )
+        action_owner = file_path.name in {
+            "gateway_failover_policy.go",
+            "gateway_service.go",
+        }
+        if not action_owner and _LOCAL_NEXT_ACCOUNT_DECISION_RE.search(clean):
+            failures.append(
+                f"{rel} owns a local retry/stop action; submit a normalized semantic to applyGatewayFailoverSemantic"
+            )
+        if _VERDICT_SEMANTIC_RE.search(clean):
+            failures.append(
+                f"{rel} names a failure semantic as a retry/stop verdict; submit factual evidence to the global policy"
             )
     return (len(failures) == 0), failures
 
@@ -185,15 +381,15 @@ def main() -> int:
             "ok": failover_ok,
             "failures": failover_failures,
             "rationale": (
-                "Every production shouldFailover facade must delegate to "
-                "classifyGatewayFailover; protocol classifiers cannot own a "
-                "ShouldFailover boolean."
+                "Every production failover facade and handler choke point must "
+                "delegate to the global policy; protocol classifiers cannot own "
+                "a decision boolean or retry/stop action."
             ),
         }
     )
 
     if args.json:
-        json.dump({"total": len(sentinels), "failed": fail_count, "results": results}, sys.stdout, indent=2)
+        json.dump({"total": len(results), "failed": fail_count, "results": results}, sys.stdout, indent=2)
         sys.stdout.write("\n")
     else:
         if not args.quiet:

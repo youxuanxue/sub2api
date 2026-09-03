@@ -40,7 +40,7 @@ var errGrokCredentialStateUpdateFailed = errors.New("grok oauth account state up
 type grokCredentialFailureClass struct {
 	scope     GatewayFailureScope
 	reason    GatewayFailureReason
-	action    NextAccountAction
+	semantic  gatewayFailureSemantic
 	permanent bool
 	transient bool
 	message   string
@@ -111,18 +111,18 @@ func (s *OpenAIGatewayService) getRequestCredential(ctx context.Context, c *gin.
 	}
 	if s == nil || s.grokTokenProvider == nil {
 		return "", "", s.newGrokCredentialFailover(c, account, grokCredentialFailureClass{
-			scope:   GatewayFailureScopeProvider,
-			reason:  GrokCredentialReasonProviderConfig,
-			action:  NextAccountStop,
-			message: "Grok OAuth credential provider is unavailable",
+			scope:    GatewayFailureScopeProvider,
+			reason:   GrokCredentialReasonProviderConfig,
+			semantic: gatewayFailureSemanticSharedFault,
+			message:  "Grok OAuth credential provider is unavailable",
 		})
 	}
 	if s.isOpenAIAccountRuntimeBlocked(account) {
 		return "", "", s.newGrokCredentialFailover(c, account, grokCredentialFailureClass{
-			scope:   GatewayFailureScopeAccount,
-			reason:  GrokCredentialReasonAccountChanged,
-			action:  NextAccountRetry,
-			message: "Grok OAuth account is not currently schedulable",
+			scope:    GatewayFailureScopeAccount,
+			reason:   GrokCredentialReasonAccountChanged,
+			semantic: gatewayFailureSemanticAccountFault,
+			message:  "Grok OAuth account is not currently schedulable",
 		})
 	}
 
@@ -132,10 +132,10 @@ func (s *OpenAIGatewayService) getRequestCredential(ctx context.Context, c *gin.
 	}
 	if budgetExpired {
 		return "", "", s.newGrokCredentialFailover(c, account, grokCredentialFailureClass{
-			scope:   GatewayFailureScopeRequest,
-			reason:  GrokCredentialReasonFailoverTimeout,
-			action:  NextAccountStop,
-			message: "Grok OAuth credential failover budget exhausted",
+			scope:    GatewayFailureScopeRequest,
+			reason:   GrokCredentialReasonFailoverTimeout,
+			semantic: gatewayFailureSemanticSharedFault,
+			message:  "Grok OAuth credential failover budget exhausted",
 		})
 	}
 
@@ -143,10 +143,10 @@ func (s *OpenAIGatewayService) getRequestCredential(ctx context.Context, c *gin.
 	if err == nil {
 		if s.isOpenAIAccountRuntimeBlocked(account) {
 			return "", "", s.newGrokCredentialFailover(c, account, grokCredentialFailureClass{
-				scope:   GatewayFailureScopeAccount,
-				reason:  GrokCredentialReasonAccountChanged,
-				action:  NextAccountRetry,
-				message: "Grok OAuth account is not currently schedulable",
+				scope:    GatewayFailureScopeAccount,
+				reason:   GrokCredentialReasonAccountChanged,
+				semantic: gatewayFailureSemanticAccountFault,
+				message:  "Grok OAuth account is not currently schedulable",
 			})
 		}
 		return token, kind, nil
@@ -156,10 +156,10 @@ func (s *OpenAIGatewayService) getRequestCredential(ctx context.Context, c *gin.
 	}
 	if credentialCtx.Err() != nil {
 		return "", "", s.newGrokCredentialFailover(c, account, grokCredentialFailureClass{
-			scope:   GatewayFailureScopeRequest,
-			reason:  GrokCredentialReasonFailoverTimeout,
-			action:  NextAccountStop,
-			message: "Grok OAuth credential failover budget exhausted",
+			scope:    GatewayFailureScopeRequest,
+			reason:   GrokCredentialReasonFailoverTimeout,
+			semantic: gatewayFailureSemanticSharedFault,
+			message:  "Grok OAuth credential failover budget exhausted",
 		})
 	}
 
@@ -181,32 +181,32 @@ func (s *OpenAIGatewayService) getRequestCredential(ctx context.Context, c *gin.
 			}
 			if credentialCtx.Err() != nil {
 				return "", "", s.newGrokCredentialFailover(c, account, grokCredentialFailureClass{
-					scope:   GatewayFailureScopeRequest,
-					reason:  GrokCredentialReasonFailoverTimeout,
-					action:  NextAccountStop,
-					message: "Grok OAuth credential failover budget exhausted",
+					scope:    GatewayFailureScopeRequest,
+					reason:   GrokCredentialReasonFailoverTimeout,
+					semantic: gatewayFailureSemanticSharedFault,
+					message:  "Grok OAuth credential failover budget exhausted",
 				})
 			}
 			if errors.Is(mutationErr, errOAuthRefreshAccountStateChanged) {
 				class = grokCredentialFailureClass{
-					scope:   GatewayFailureScopeAccount,
-					reason:  GrokCredentialReasonAccountChanged,
-					action:  NextAccountRetry,
-					message: "Grok OAuth account eligibility changed",
+					scope:    GatewayFailureScopeAccount,
+					reason:   GrokCredentialReasonAccountChanged,
+					semantic: gatewayFailureSemanticAccountFault,
+					message:  "Grok OAuth account eligibility changed",
 				}
 			} else if errors.Is(mutationErr, errOAuthRefreshAccountRereadFailed) {
 				class = grokCredentialFailureClass{
-					scope:   GatewayFailureScopeProvider,
-					reason:  GrokCredentialReasonProviderDown,
-					action:  NextAccountStop,
-					message: "Grok OAuth account state is temporarily unavailable",
+					scope:    GatewayFailureScopeProvider,
+					reason:   GrokCredentialReasonProviderDown,
+					semantic: gatewayFailureSemanticSharedFault,
+					message:  "Grok OAuth account state is temporarily unavailable",
 				}
 			} else {
 				class = grokCredentialFailureClass{
-					scope:   GatewayFailureScopeProvider,
-					reason:  GrokCredentialReasonStateUpdate,
-					action:  NextAccountStop,
-					message: "Grok OAuth account state could not be updated safely",
+					scope:    GatewayFailureScopeProvider,
+					reason:   GrokCredentialReasonStateUpdate,
+					semantic: gatewayFailureSemanticSharedFault,
+					message:  "Grok OAuth account state could not be updated safely",
 				}
 			}
 		}
@@ -252,41 +252,41 @@ func classifyGrokCredentialFailure(account *Account, err error) grokCredentialFa
 
 	switch {
 	case errors.Is(err, errGrokOAuthRefreshTokenMissing), errors.Is(err, errGrokOAuthAccessTokenMissing), errors.Is(err, errGrokOAuthAccessTokenExpired):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonMissing, action: NextAccountRetry, permanent: true, message: "Grok OAuth credentials are missing or expired"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonMissing, semantic: gatewayFailureSemanticAccountFault, permanent: true, message: "Grok OAuth credentials are missing or expired"}
 	case contains("invalid_grant", "invalid_refresh_token", "token_expired", "refresh_token_reused", "refresh_token_invalidated", "app_session_terminated"):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonRevoked, action: NextAccountRetry, permanent: true, message: "Grok OAuth credentials require account action"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonRevoked, semantic: gatewayFailureSemanticAccountFault, permanent: true, message: "Grok OAuth credentials require account action"}
 	case contains("spending limit", "run out of credits", "out of credits", "credits exhausted", "included free usage"):
 		// Billing and rolling free-usage exhaustion recover without replacing the
 		// OAuth credential. Treat refresh failures as transient so the account
 		// remains eligible for a later quota probe.
-		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonRefreshTransient, action: NextAccountRetry, transient: true, message: "Grok OAuth billing quota is temporarily exhausted"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonRefreshTransient, semantic: gatewayFailureSemanticAccountFault, transient: true, message: "Grok OAuth billing quota is temporarily exhausted"}
 	case contains("grok_oauth_entitlement_denied", "entitlement_denied", "access_denied", "subscription required", "no active grok subscription"):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonEntitlement, action: NextAccountRetry, permanent: true, message: "Grok OAuth entitlement requires account action"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonEntitlement, semantic: gatewayFailureSemanticAccountFault, permanent: true, message: "Grok OAuth entitlement requires account action"}
 	case errors.Is(err, errGrokOAuthConfiguredProxyMiss), contains("grok_oauth_proxy_not_found"):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonProxyInvalid, action: NextAccountRetry, permanent: true, message: "Grok OAuth account proxy configuration is invalid"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonProxyInvalid, semantic: gatewayFailureSemanticAccountFault, permanent: true, message: "Grok OAuth account proxy configuration is invalid"}
 	case errors.Is(err, errOAuthRefreshAccountRereadFailed):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth account state is temporarily unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth account state is temporarily unavailable"}
 	case errors.Is(err, errOAuthRefreshCredentialPersist):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth shared credential state is temporarily unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth shared credential state is temporarily unavailable"}
 	case errors.As(err, &containmentErr):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth provider state is temporarily unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth provider state is temporarily unavailable"}
 	case errors.Is(err, errOAuthRefreshAccountStateChanged):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonAccountChanged, action: NextAccountRetry, message: "Grok OAuth account eligibility changed"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonAccountChanged, semantic: gatewayFailureSemanticAccountFault, message: "Grok OAuth account eligibility changed"}
 	case errors.As(err, &providerConfigErr):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, action: NextAccountStop, message: "Grok OAuth provider configuration is unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth provider configuration is unavailable"}
 	case errors.Is(err, errGrokOAuthRefreshNotConfigured), contains("invalid_client", "unauthorized_client", "invalid_scope", "unknown scope", "grok oauth service is not configured", "grok_oauth_proxy_not_available"):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, action: NextAccountStop, message: "Grok OAuth provider configuration is unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth provider configuration is unavailable"}
 	case contains("grok_oauth_proxy_lookup_failed"),
 		contains("grok_oauth_token_refresh_failed") && contains("status 403") && (account == nil || account.ProxyID == nil):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth provider is temporarily unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth provider is temporarily unavailable"}
 	case contains("grok_oauth_client_init_failed") && (account == nil || account.ProxyID == nil):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, action: NextAccountStop, message: "Grok OAuth provider configuration is unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth provider configuration is unavailable"}
 	case contains("grok_oauth_request_failed") && (account == nil || account.ProxyID == nil):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth provider is temporarily unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth provider is temporarily unavailable"}
 	case contains("status 429", "status 500", "status 502", "status 503", "status 504") && (account == nil || account.ProxyID == nil):
-		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth provider is temporarily unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, semantic: gatewayFailureSemanticSharedFault, message: "Grok OAuth provider is temporarily unavailable"}
 	default:
-		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonRefreshTransient, action: NextAccountRetry, transient: true, message: "Grok OAuth credential refresh is temporarily unavailable"}
+		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonRefreshTransient, semantic: gatewayFailureSemanticAccountFault, transient: true, message: "Grok OAuth credential refresh is temporarily unavailable"}
 	}
 }
 
@@ -655,12 +655,11 @@ func (s *OpenAIGatewayService) newGrokCredentialFailover(c *gin.Context, account
 		Kind:      "credential_failover",
 		Message:   class.message,
 	})
-	return &UpstreamFailoverError{
-		Stage:             GatewayFailureStageAccountAuth,
-		Scope:             class.scope,
-		Reason:            class.reason,
-		NextAccountAction: class.action,
-		ClientStatusCode:  http.StatusServiceUnavailable,
-		ClientMessage:     GrokCredentialUnavailableClientMessage,
-	}
+	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+		Stage:            GatewayFailureStageAccountAuth,
+		Scope:            class.scope,
+		Reason:           class.reason,
+		ClientStatusCode: http.StatusServiceUnavailable,
+		ClientMessage:    GrokCredentialUnavailableClientMessage,
+	}, gatewayFailoverProfileGrok, class.semantic)
 }

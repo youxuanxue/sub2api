@@ -149,15 +149,14 @@ func tkAnthropicBufferedFailure(
 	if len(body) == 0 {
 		body = tkAnthropicBufferedSyntheticFailure(upstreamErr.Kind, upstreamErr.Message).Payload
 	}
-	return &UpstreamFailoverError{
-		StatusCode:        upstreamErr.UpstreamStatus,
-		ResponseBody:      body,
-		ResponseHeaders:   headers,
-		ClientStatusCode:  tkAnthropicBufferedClientStatus(upstreamErr.UpstreamStatus),
-		ClientErrorType:   tkAnthropicBufferedClientErrType(upstreamErr.ErrType),
-		ClientMessage:     upstreamErr.Message,
-		NextAccountAction: NextAccountRetry,
-	}
+	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+		StatusCode:       upstreamErr.UpstreamStatus,
+		ResponseBody:     body,
+		ResponseHeaders:  headers,
+		ClientStatusCode: tkAnthropicBufferedClientStatus(upstreamErr.UpstreamStatus),
+		ClientErrorType:  tkAnthropicBufferedClientErrType(upstreamErr.ErrType),
+		ClientMessage:    upstreamErr.Message,
+	}, gatewayFailoverProfileGeneric, gatewayFailureSemanticTransientFault)
 }
 
 func tkNormalizeAnthropicBufferedUpstreamError(
@@ -235,8 +234,11 @@ func (s *OpenAIGatewayService) tkAnthropicBufferedFailoverError(
 	failoverErr.ClientStatusCode = base.ClientStatusCode
 	failoverErr.ClientErrorType = base.ClientErrorType
 	failoverErr.ClientMessage = base.ClientMessage
-	failoverErr.NextAccountAction = NextAccountRetry
-	return failoverErr
+	return applyGatewayFailoverSemantic(
+		failoverErr,
+		gatewayFailoverProfileGeneric,
+		gatewayFailureSemanticTransientFault,
+	)
 }
 
 func tkAnthropicBufferedPartialFailure(

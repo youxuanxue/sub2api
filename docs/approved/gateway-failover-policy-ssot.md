@@ -19,14 +19,16 @@ backend/internal/service/gateway_failover_policy.go
   classifyGatewayFailover(observation) -> decision.RetryNextAccount
 ```
 
-协议适配器仍负责解析供应商 body、SSE event 和账号配置，因为这些输入具有真实协议差异；适配器只能将结果归一成 failure semantic，不能自行定义 semantic 或 status 对应的 failover 布尔值。handler 的 `FailoverState.HandleFailoverError` 继续独占执行循环，本设计不改变重试次数、账号处罚、sticky 清理、最终错误透传或已输出流的重放边界。
+协议适配器仍负责解析供应商 body、SSE event 和账号配置，因为这些输入具有真实协议差异；适配器只能将结果归一成事实型 failure semantic，不能用 retry / stop / failover 命名 semantic，也不能自行定义 semantic 或 status 对应的 failover 布尔值。handler 的 `FailoverState.HandleFailoverError` 继续独占执行循环，本设计不改变重试次数、账号处罚、sticky 清理、最终错误透传或已输出流的重放边界。
+
+handler 消费的 `UpstreamFailoverError.ShouldRetryNextAccount` 也必须调用同文件的 `classifyGatewayFailoverError`，确保直接构造的 legacy failover error 和显式 terminal credential failure 最终仍经过全局 owner。legacy 零值保持历史 retry 行为；新代码用 `applyGatewayFailoverSemantic` 提交 profile + semantic，禁止在 adapter 内直接写 `NextAccountRetry` / `NextAccountStop`。
 
 ## 输入模型
 
 全局 policy 接收：
 
 - `Profile`：Generic、OpenAI、Google、Grok、NewAPI bridge 或 OpenAI passthrough 传输契约。
-- `Semantic`：未分类、确定性请求失败、账号特定失败、供应商瞬时失败。
+- `Semantic`：未分类、跨账号共享故障、账号特定故障、瞬时故障；这些值只描述事实，不携带 retry / stop verdict。
 - `StatusCode`：上游 HTTP 或从 SSE 推导出的语义状态码。
 - passthrough 所需的账号类型和账号自定义 pool retry 命中结果。
 
@@ -42,7 +44,7 @@ backend/internal/service/gateway_failover_policy.go
 | NewAPI bridge | `401, 402, 429, 502, 503, 504` |
 | OpenAI passthrough | 账号配置命中；所有账号 `429/529`；API key 账号 `500/502/503/504/520..524` |
 
-`terminal request` 无条件停止换号，即使 transport status 是 5xx；`retryable account` 和 `retryable transient` 无条件允许换号，即使 transport status 是 4xx。OpenAI 内容策略、context window、capability-scope 401 和 Grok entitlement/content policy 保持 terminal。OpenAI access-state、request-body-too-large account mismatch、容量/处理瞬时错误，Google project compatibility 400、Grok runtime compatibility，以及 NewAPI arrears 保持 failover。
+`shared fault` 由全局 policy 判定为停止换号，即使 transport status 是 5xx；`account fault` 和 `transient fault` 由全局 policy 判定为允许换号，即使 transport status 是 4xx。OpenAI 内容策略、context window、capability-scope 401 和 Grok entitlement/content policy 保持 terminal。OpenAI access-state、request-body-too-large account mismatch、容量/处理瞬时错误，Google project compatibility 400、Grok runtime compatibility，以及 NewAPI arrears 保持 failover。
 
 ## 不做什么
 
@@ -53,4 +55,4 @@ backend/internal/service/gateway_failover_policy.go
 
 ## 守卫
 
-`gateway_failover_policy_test.go` 覆盖全局矩阵、semantic 优先级、未知输入 fail closed、passthrough 账号矩阵和各 adapter 回归。`scripts/sentinels/gateway-tk.json` 锚定 owner、测试和所有 adapter 接线；`check-gateway-tk.py` 还会扫描整个 service package，要求今后新增的任意 `shouldFailover` facade 直接调用全局 owner，并禁止 classification structure 重新持有 `ShouldFailover bool` 字段。上游 merge 或新增平台若恢复私有 policy，preflight 必须失败。
+`gateway_failover_policy_test.go` 覆盖全局矩阵、semantic 优先级、未知输入 fail closed、handler runtime choke point、passthrough 账号矩阵和各 adapter 回归。`scripts/sentinels/gateway-tk.json` 锚定 owner、测试和所有 adapter 接线；`check-gateway-tk.py` 会对去除注释和字面量后的 Go 代码扫描完整函数体，要求任意 `shouldFailover` / `retryNextAccount` facade 以及 `ShouldRetryNextAccount` runtime choke point 委托全局 owner，并禁止 adapter 重新持有 decision bool、直接使用 `NextAccountRetry` / `NextAccountStop`，或引入带 retry / stop verdict 的 semantic 常量。上游 merge 或新增平台若恢复私有 policy，preflight 必须失败。

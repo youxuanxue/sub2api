@@ -6585,8 +6585,8 @@
         "func tkIsAntigravityRelayCapacityResponse(",
         "isEdgeMirrorStub(account, edgeIDPattern)",
         "resolveFinalAntigravityModelKey(ctx, account, requestedModel)",
-        "ClientStatusCode:  http.StatusTooManyRequests",
-        "ResponseHeaders:   responseHeaders"
+        "ClientStatusCode: http.StatusTooManyRequests",
+        "ResponseHeaders:  responseHeaders"
       ],
       "rationale": "Narrow owner for cross-edge Antigravity capacity semantics. Only internal Antigravity API-key relays carrying TokenKey's no-available-accounts envelope may become client 429; raw upstream status/body and safe Retry-After remain available for diagnostics. Losing or broadening these anchors either restores terminal 503s or misclassifies arbitrary provider faults."
     },
@@ -7359,7 +7359,7 @@
         "setOpsUpstreamError(c, upstreamErr.UpstreamStatus, upstreamErr.Message, upstreamErr.Detail)",
         "appendOpsUpstreamError(c, event)",
         "event.AccountID = account.ID",
-        "ClientErrorType:   tkAnthropicBufferedClientErrType(upstreamErr.ErrType)",
+        "ClientErrorType:  tkAnthropicBufferedClientErrType(upstreamErr.ErrType)",
         "MarkOpsStreamFailure("
       ],
       "rationale": "Single owner for buffered Anthropic SSE completion and failure semantics. A HTTP 200 stream can still terminate through an error frame, read failure, idle timeout, or incomplete EOF. Before any content block this owner returns an account-aware UpstreamFailoverError without committing the response; after content it preserves the partial response and marks stream_truncated toward SLA to avoid replay and duplicate billing. Insufficient-balance payloads are normalized to semantic 402 inside the same owner so CloudWise can cool only the mapped model without reintroducing a parallel error path. Completion detection, client error type mapping, provider/account attribution, and both Gateway/OpenAI account-health wrappers must remain centralized or an upstream merge can silently restore empty 200s, gateway-owned SLA pollution, whole-account disablement, or missing failover."
@@ -8092,11 +8092,13 @@
         "type gatewayFailoverObservation struct",
         "type gatewayFailoverDecision struct",
         "func classifyGatewayFailover(obs gatewayFailoverObservation) gatewayFailoverDecision",
+        "func classifyGatewayFailoverError(failoverErr *UpstreamFailoverError) gatewayFailoverDecision",
+        "func applyGatewayFailoverSemantic(",
         "gatewayFailoverProfileNewAPIBridge",
         "gatewayFailoverProfileOpenAIPassthrough",
-        "gatewayFailureSemanticTerminalRequest",
-        "gatewayFailureSemanticRetryableAccount",
-        "gatewayFailureSemanticRetryableTransient"
+        "gatewayFailureSemanticSharedFault",
+        "gatewayFailureSemanticAccountFault",
+        "gatewayFailureSemanticTransientFault"
       ],
       "rationale": "Global gateway failover SSOT: platform/channel adapters may parse provider evidence, but this owner alone maps normalized semantic, status, account type and configured retry into RetryNextAccount. Losing a profile or semantic reintroduces platform-local policy drift."
     },
@@ -8105,10 +8107,19 @@
       "must_contain": [
         "TestUS049_GlobalGatewayFailoverPolicyMatrix",
         "TestUS049_SemanticOverridesStatusAndFailsClosed",
+        "TestUS049_RuntimeFailoverChokePointUsesGlobalPolicy",
         "TestUS049_OpenAIPassthroughAccountMatrix",
         "TestUS049_AdaptersDelegateWithoutBehaviorDrift"
       ],
       "rationale": "Behavioral contract for the global failover matrix, semantic precedence, fail-closed unknown inputs, passthrough account differences and adapter compatibility."
+    },
+    {
+      "path": "backend/internal/service/gateway_service.go",
+      "must_contain": [
+        "func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {",
+        "return classifyGatewayFailoverError(e).RetryNextAccount"
+      ],
+      "rationale": "Every handler-visible retry-next-account decision must pass through the global policy, including legacy UpstreamFailoverError constructors and explicit terminal credential failures."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -8124,8 +8135,8 @@
       "must_contain": [
         "classifyGatewayFailover(gatewayFailoverObservation{",
         "Profile:    gatewayFailoverProfileOpenAI",
-        "gatewayFailureSemanticTerminalRequest",
-        "gatewayFailureSemanticRetryableTransient"
+        "gatewayFailureSemanticSharedFault",
+        "gatewayFailureSemanticTransientFault"
       ],
       "rationale": "OpenAI HTTP adapters may classify content, context, capability and transient payloads, but their final account failover decision must stay wired to the global owner."
     },
@@ -8178,7 +8189,7 @@
       "must_contain": [
         "classifyGatewayFailover(gatewayFailoverObservation{",
         "Profile:    gatewayFailoverProfileNewAPIBridge",
-        "semantic = gatewayFailureSemanticRetryableAccount"
+        "semantic = gatewayFailureSemanticAccountFault"
       ],
       "rationale": "NewAPI bridge may recognize account-standing arrears, but both that semantic and its narrow gateway-status matrix must be decided by the global failover owner rather than channel-specific booleans."
     },
@@ -8187,8 +8198,8 @@
       "must_contain": [
         "classifyGatewayFailover(gatewayFailoverObservation{",
         "Profile:    gatewayFailoverProfileGrok",
-        "gatewayFailureSemanticRetryableAccount",
-        "gatewayFailureSemanticTerminalRequest"
+        "gatewayFailureSemanticAccountFault",
+        "gatewayFailureSemanticSharedFault"
       ],
       "rationale": "Grok body parsing classifies content policy, entitlement, quota, capacity and compatibility evidence, while the final retry-next-account result remains globally owned."
     },
@@ -8206,7 +8217,7 @@
       "path": "backend/internal/service/openai_live.go",
       "must_contain": [
         "classifyGatewayFailover(gatewayFailoverObservation{",
-        "Semantic: gatewayFailureSemanticRetryableTransient"
+        "Semantic: gatewayFailureSemanticTransientFault"
       ],
       "rationale": "Live transport and credential failures must enter the same global OpenAI failover policy instead of returning an adapter-local boolean."
     },
@@ -8214,11 +8225,16 @@
       "path": "scripts/sentinels/check-gateway-tk.py",
       "must_contain": [
         "def check_failover_ssot()",
-        "if \"shouldfailover\" not in name.lower()",
-        "must call classifyGatewayFailover directly",
-        "_FAILOVER_FIELD_RE"
+        "def _strip_go_comments_and_literals(source: str)",
+        "def _go_functions(source: str)",
+        "def _has_direct_classifier_return(body: str, classifier: str)",
+        "def _failover_function_violation(name: str, body: str)",
+        "def _failover_scanner_selftest()",
+        "_FAILOVER_FIELD_RE",
+        "_LOCAL_NEXT_ACCOUNT_DECISION_RE",
+        "_VERDICT_SEMANTIC_RE"
       ],
-      "rationale": "The preflight checker must reject future platform/channel-local shouldFailover implementations and duplicated ShouldFailover fields, including additions in files not yet listed in the sentinel registry."
+      "rationale": "The preflight checker must reject future platform/channel-local failover implementations, comment-spoofed delegation, duplicated decision fields, direct NextAccountAction assignments and verdict-shaped semantics, including additions in files not yet listed in the sentinel registry."
     }
   ]
 }

@@ -261,13 +261,13 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 func shouldFailoverOpenAIUpstreamError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	semantic := gatewayFailureSemanticUnclassified
 	if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticRetryableTransient
+		semantic = gatewayFailureSemanticTransientFault
 	} else if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if tkIsCapabilityScope401(statusCode, upstreamBody) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if tkIsGrokEntitlement403(statusCode, upstreamBody) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	}
 	return classifyGatewayFailover(gatewayFailoverObservation{
 		Profile:    gatewayFailoverProfileOpenAI,
@@ -311,16 +311,16 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	// provider response in a retryable 5xx status. Never punish or rotate the
 	// selected credential for it.
 	if hit, _, _ := detectOpenAICyberPolicy(upstreamBody); hit {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if tkIsCapabilityScope401(statusCode, upstreamBody) {
-		semantic = gatewayFailureSemanticTerminalRequest
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) ||
 		isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticRetryableAccount
+		semantic = gatewayFailureSemanticAccountFault
 	} else if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticRetryableTransient
+		semantic = gatewayFailureSemanticTransientFault
 	}
 	return classifyGatewayFailover(gatewayFailoverObservation{
 		Profile:    gatewayFailoverProfileOpenAI,
@@ -359,7 +359,7 @@ func newOpenAIUpstreamFailoverError(
 		failoverErr.RequestScopedTransient = false
 		failoverErr.Scope = GatewayFailureScopeAccount
 		failoverErr.Reason = openAIRequestBodyTooLargeReason
-		failoverErr.NextAccountAction = NextAccountRetry
+		failoverErr = applyGatewayFailoverSemantic(failoverErr, gatewayFailoverProfileOpenAI, gatewayFailureSemanticAccountFault)
 		failoverErr.ClientStatusCode = http.StatusRequestEntityTooLarge
 		failoverErr.ClientMessage = OpenAIRequestBodyTooLargeClientMessage
 	}
@@ -369,7 +369,7 @@ func newOpenAIUpstreamFailoverError(
 		failoverErr.Stage = GatewayFailureStageAccountAuth
 		failoverErr.Scope = GatewayFailureScopeAccount
 		failoverErr.Reason = OpenAIUpstreamAccessStateReason
-		failoverErr.NextAccountAction = NextAccountRetry
+		failoverErr = applyGatewayFailoverSemantic(failoverErr, gatewayFailoverProfileOpenAI, gatewayFailureSemanticAccountFault)
 		failoverErr.ClientStatusCode = http.StatusBadGateway
 		failoverErr.ClientMessage = openAIUpstreamAccessUnavailableClientMessage
 	} else if requestScopedCapacity {

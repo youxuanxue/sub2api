@@ -1343,7 +1343,7 @@ func TestPermanentCredentialFailureDoesNotDisableConcurrentlyRefreshedAccount(t 
 	_, mutationErr := svc.applyGrokCredentialAccountFailure(context.Background(), account, grokCredentialFailureClass{
 		scope:     GatewayFailureScopeAccount,
 		reason:    GrokCredentialReasonRevoked,
-		action:    NextAccountRetry,
+		semantic:  gatewayFailureSemanticAccountFault,
 		permanent: true,
 	})
 

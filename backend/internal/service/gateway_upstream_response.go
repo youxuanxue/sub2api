@@ -217,7 +217,7 @@ func gateway400FailureSemantic(respBody []byte) gatewayFailureSemantic {
 	// 默认保守：无法识别则不切换。
 	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 	if msg == "" {
-		return gatewayFailureSemanticTerminalRequest
+		return gatewayFailureSemanticSharedFault
 	}
 
 	// 缺少/错误的 beta header：换账号/链路可能成功（尤其是混合调度时）。
@@ -225,18 +225,18 @@ func gateway400FailureSemantic(respBody []byte) gatewayFailureSemantic {
 	if strings.Contains(msg, "anthropic-beta") ||
 		strings.Contains(msg, "beta feature") ||
 		strings.Contains(msg, "requires beta") {
-		return gatewayFailureSemanticRetryableAccount
+		return gatewayFailureSemanticAccountFault
 	}
 
 	// thinking/tool streaming 等兼容性约束（常见于中间转换链路）
 	if strings.Contains(msg, "thinking") || strings.Contains(msg, "thought_signature") || strings.Contains(msg, "signature") {
-		return gatewayFailureSemanticRetryableAccount
+		return gatewayFailureSemanticAccountFault
 	}
 	if strings.Contains(msg, "tool_use") || strings.Contains(msg, "tool_result") || strings.Contains(msg, "tools") {
-		return gatewayFailureSemanticRetryableAccount
+		return gatewayFailureSemanticAccountFault
 	}
 
-	return gatewayFailureSemanticTerminalRequest
+	return gatewayFailureSemanticSharedFault
 }
 
 // sanitizeStreamError 返回不含网络地址的客户端可见错误描述。
