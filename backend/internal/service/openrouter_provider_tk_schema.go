@@ -11,22 +11,6 @@ const (
 	openRouterProviderDefaultQuantization = "fp16"
 )
 
-var openRouterProviderDefaultSamplingParameters = []string{
-	"temperature",
-	"top_p",
-	"max_tokens",
-	"stop",
-}
-
-type OpenRouterProviderPricingOverride struct {
-	MinPromptTokens int    `json:"min_prompt_tokens,omitempty"`
-	UTCStart        int    `json:"utc_start,omitempty"`
-	UTCEnd          int    `json:"utc_end,omitempty"`
-	Prompt          string `json:"prompt,omitempty"`
-	Completion      string `json:"completion,omitempty"`
-	InputCacheRead  string `json:"input_cache_read,omitempty"`
-}
-
 func openRouterProviderCatalogIndex(catalog *PublicCatalogResponse) map[string]PublicCatalogModel {
 	out := make(map[string]PublicCatalogModel)
 	if catalog == nil {
@@ -42,7 +26,7 @@ func openRouterProviderCatalogIndex(catalog *PublicCatalogResponse) map[string]P
 	return out
 }
 
-func openRouterProviderInputModalities(meta *PublicCatalogModel) []string {
+func openRouterProviderInputModalityTypes(meta *PublicCatalogModel) []string {
 	modalities := []string{"text"}
 	if meta == nil {
 		return modalities
@@ -58,42 +42,18 @@ func openRouterProviderInputModalities(meta *PublicCatalogModel) []string {
 	return modalities
 }
 
-func openRouterProviderOutputModalities(meta *PublicCatalogModel) []string {
+func openRouterProviderOutputModalityType(meta *PublicCatalogModel) string {
 	if meta == nil {
-		return []string{"text"}
+		return "text"
 	}
 	switch meta.Pricing.BillingMode {
 	case "image":
-		return []string{"image"}
+		return "image"
 	case "video":
-		return []string{"video"}
+		return "video"
 	default:
-		return []string{"text"}
+		return "text"
 	}
-}
-
-func openRouterProviderSupportedFeatures(meta *PublicCatalogModel) []string {
-	if meta == nil || len(meta.Capabilities) == 0 {
-		return nil
-	}
-	features := make([]string, 0, 6)
-	for _, cap := range meta.Capabilities {
-		switch cap {
-		case "tool_use":
-			features = openRouterAppendUniqueString(features, "tools")
-		case "response_schema":
-			features = openRouterAppendUniqueString(features, "json_mode")
-			features = openRouterAppendUniqueString(features, "structured_outputs")
-		case "reasoning":
-			features = openRouterAppendUniqueString(features, "reasoning")
-		case "web_search":
-			features = openRouterAppendUniqueString(features, "web_search")
-		}
-	}
-	if len(features) == 0 {
-		return nil
-	}
-	return features
 }
 
 func openRouterProviderDescription(cfg OpenRouterProviderConfig, publicID string, meta *PublicCatalogModel) string {
@@ -186,41 +146,277 @@ func openRouterProviderBaseMultiplier(group *Group, userMultiplier float64) floa
 	return mult
 }
 
-func openRouterProviderBuildPricing(
+func openRouterProviderBuildModelDocument(
+	cfg OpenRouterProviderConfig,
 	group *Group,
 	meta *PublicCatalogModel,
+	publicID, sourceID, slug string,
+	created int64,
 	promptUSD, completionUSD, cacheReadUSD, baseMult float64,
-) OpenRouterProviderModelPricing {
-	pricing := OpenRouterProviderModelPricing{
-		Prompt:         formatOpenRouterUSDPerToken(promptUSD * baseMult),
-		Completion:     formatOpenRouterUSDPerToken(completionUSD * baseMult),
-		Image:          "0",
-		Request:        "0",
-		InputCacheRead: formatOpenRouterUSDPerToken(cacheReadUSD * baseMult),
+) OpenRouterProviderModel {
+	outType := openRouterProviderOutputModalityType(meta)
+	item := OpenRouterProviderModel{
+		SchemaVersion:    openRouterProviderSchemaVersion,
+		ID:               publicID,
+		Name:             openRouterProviderDisplayName(cfg, publicID, meta),
+		Description:      openRouterProviderDescription(cfg, publicID, meta),
+		Created:          created,
+		Quantization:     openRouterProviderDefaultQuantization,
+		InputModalities:  openRouterProviderBuildInputModalities(cfg, group, meta, sourceID, promptUSD, cacheReadUSD, baseMult, outType),
+		OutputModalities: openRouterProviderBuildOutputModalities(cfg, group, meta, sourceID, completionUSD, baseMult, outType),
+		IsReady:          true,
+		OpenRouter: map[string]string{
+			"slug": slug,
+		},
+		Datacenters: openRouterProviderDatacenters(cfg),
 	}
-	if meta != nil && meta.Pricing.BillingMode == "image" && meta.Pricing.OutputCostPerImage > 0 {
-		pricing.Image = formatOpenRouterUSDPerToken(meta.Pricing.OutputCostPerImage * baseMult)
-	}
-	if meta != nil && meta.Pricing.BillingMode == "video" && meta.Pricing.OutputCostPerSecond > 0 {
-		pricing.Request = formatOpenRouterUSDPerToken(meta.Pricing.OutputCostPerSecond * openRouterProviderDefaultVideoQuoteSeconds * baseMult)
-	}
-	if tierOverrides := openRouterProviderTierPricingOverrides(meta, baseMult); len(tierOverrides) > 0 {
-		pricing.Overrides = tierOverrides
-		return pricing
-	}
-	if group != nil && group.PeakRateEnabled && group.PeakRateMultiplier > 1 {
-		if override, ok := openRouterProviderPeakPricingOverride(group, promptUSD, completionUSD, cacheReadUSD, baseMult); ok {
-			pricing.Overrides = []OpenRouterProviderPricingOverride{override}
-		}
-	}
-	return pricing
+	return item
 }
 
-func openRouterProviderTierPricingOverrides(meta *PublicCatalogModel, baseMult float64) []OpenRouterProviderPricingOverride {
+func openRouterProviderBuildInputModalities(
+	cfg OpenRouterProviderConfig,
+	group *Group,
+	meta *PublicCatalogModel,
+	sourceID string,
+	promptUSD, cacheReadUSD, baseMult float64,
+	outType string,
+) []OpenRouterProviderInputModality {
+	types := openRouterProviderInputModalityTypes(meta)
+	// Image/video generation still needs a text prompt input modality.
+	if outType == "image" || outType == "video" {
+		types = []string{"text"}
+	}
+	out := make([]OpenRouterProviderInputModality, 0, len(types))
+	for _, typ := range types {
+		switch typ {
+		case "text":
+			mod := OpenRouterProviderInputModality{
+				Type: "text",
+				SupportedInputs: map[string]any{
+					"max_context_length": OpenRouterProviderQuantity{
+						Value: openRouterProviderContextLength(cfg, meta),
+						Unit:  "token",
+					},
+				},
+			}
+			if outType == "text" {
+				mod.Pricing = openRouterProviderBuildTextInputPricing(group, meta, promptUSD, cacheReadUSD, baseMult)
+				if tpm := openRouterProviderCapacityTPM(cfg, sourceID); tpm != nil && *tpm > 0 {
+					mod.Capacity = []OpenRouterProviderCapacityEntry{{
+						Type:  "prompt",
+						Unit:  "token",
+						Per:   "minute",
+						Value: *tpm,
+					}}
+				}
+			}
+			out = append(out, mod)
+		case "image":
+			out = append(out, OpenRouterProviderInputModality{
+				Type: "image",
+				SupportedInputs: map[string]any{
+					"sources": map[string]any{"type": "enum", "values": []any{"url", "base64"}},
+					"formats": map[string]any{
+						"type":   "enum",
+						"values": []any{"image/png", "image/jpeg", "image/webp", "image/gif"},
+					},
+				},
+			})
+		case "file":
+			out = append(out, OpenRouterProviderInputModality{
+				Type: "file",
+				SupportedInputs: map[string]any{
+					"formats": map[string]any{"type": "enum", "values": []any{"application/pdf"}},
+				},
+			})
+		}
+	}
+	if len(out) == 0 {
+		return []OpenRouterProviderInputModality{{Type: "text"}}
+	}
+	return out
+}
+
+func openRouterProviderBuildOutputModalities(
+	cfg OpenRouterProviderConfig,
+	group *Group,
+	meta *PublicCatalogModel,
+	sourceID string,
+	completionUSD, baseMult float64,
+	outType string,
+) []OpenRouterProviderOutputModality {
+	switch outType {
+	case "image":
+		streaming := false
+		mod := OpenRouterProviderOutputModality{
+			Type:      "image",
+			Streaming: &streaming,
+		}
+		if unit := openRouterProviderMediaUnitUSD(meta); unit > 0 {
+			mod.Pricing = []OpenRouterProviderPriceEntry{{
+				Type:    "completion",
+				Unit:    "image",
+				CostUSD: formatOpenRouterUSDPerToken(unit * baseMult),
+			}}
+		}
+		return []OpenRouterProviderOutputModality{mod}
+	case "video":
+		streaming := false
+		mod := OpenRouterProviderOutputModality{
+			Type:      "video",
+			Streaming: &streaming,
+		}
+		if unit := openRouterProviderMediaUnitUSD(meta); unit > 0 {
+			mod.Pricing = []OpenRouterProviderPriceEntry{{
+				Type:    "completion",
+				Unit:    "second",
+				CostUSD: formatOpenRouterUSDPerToken(unit * baseMult),
+			}}
+		}
+		return []OpenRouterProviderOutputModality{mod}
+	default:
+		streaming := true
+		maxOut := openRouterProviderMaxOutputLength(cfg, meta)
+		mod := OpenRouterProviderOutputModality{
+			Type: "text",
+			MaxLength: &OpenRouterProviderQuantity{
+				Value: maxOut,
+				Unit:  "token",
+			},
+			Streaming:           &streaming,
+			SupportedParameters: openRouterProviderTextSupportedParameters(meta, maxOut),
+			Pricing:             openRouterProviderBuildTextOutputPricing(group, meta, completionUSD, baseMult),
+		}
+		if tpm := openRouterProviderCapacityTPM(cfg, sourceID); tpm != nil && *tpm > 0 {
+			mod.Capacity = []OpenRouterProviderCapacityEntry{{
+				Type:  "completion",
+				Unit:  "token",
+				Per:   "minute",
+				Value: *tpm,
+			}}
+		}
+		return []OpenRouterProviderOutputModality{mod}
+	}
+}
+
+func openRouterProviderTextSupportedParameters(meta *PublicCatalogModel, maxOut int) map[string]OpenRouterProviderParamDescriptor {
+	min0 := 0.0
+	max1 := 1.0
+	maxTokensMin := 1.0
+	maxTokensMax := float64(maxOut)
+	if maxTokensMax < 1 {
+		maxTokensMax = 1
+	}
+	maxStop := 4
+	params := map[string]OpenRouterProviderParamDescriptor{
+		"temperature": {Type: "range", Min: &min0, Max: &max1},
+		"top_p":       {Type: "range", Min: &min0, Max: &max1},
+		"max_tokens":  {Type: "integer", Min: &maxTokensMin, Max: &maxTokensMax, Unit: "token"},
+		"stop":        {Type: "array", MaxItems: &maxStop},
+	}
+	for _, feat := range openRouterProviderSupportedFeatureFlags(meta) {
+		params[feat] = OpenRouterProviderParamDescriptor{Type: "boolean"}
+	}
+	return params
+}
+
+func openRouterProviderSupportedFeatureFlags(meta *PublicCatalogModel) []string {
+	if meta == nil || len(meta.Capabilities) == 0 {
+		return nil
+	}
+	features := make([]string, 0, 6)
+	for _, cap := range meta.Capabilities {
+		switch cap {
+		case "tool_use":
+			features = openRouterAppendUniqueString(features, "tools")
+		case "response_schema":
+			features = openRouterAppendUniqueString(features, "structured_outputs")
+		case "reasoning":
+			features = openRouterAppendUniqueString(features, "reasoning")
+		case "web_search":
+			features = openRouterAppendUniqueString(features, "web_search")
+		}
+	}
+	return features
+}
+
+func openRouterProviderBuildTextInputPricing(
+	group *Group,
+	meta *PublicCatalogModel,
+	promptUSD, cacheReadUSD, baseMult float64,
+) []OpenRouterProviderPriceEntry {
+	out := make([]OpenRouterProviderPriceEntry, 0, 4)
+	usePeak := !openRouterProviderHasTokenTiers(meta)
+	if promptUSD > 0 {
+		entry := OpenRouterProviderPriceEntry{
+			Type:    "prompt",
+			Unit:    "token",
+			CostUSD: formatOpenRouterUSDPerToken(promptUSD * baseMult),
+		}
+		entry.Overrides = openRouterProviderTierPriceOverrides(meta, "input", baseMult)
+		out = append(out, entry)
+		if usePeak {
+			out = append(out, openRouterProviderPeakPriceEntries(group, "prompt", "token", promptUSD, baseMult)...)
+		}
+	}
+	if cacheReadUSD > 0 {
+		entry := OpenRouterProviderPriceEntry{
+			Type:    "cached_prompt",
+			Unit:    "token",
+			CostUSD: formatOpenRouterUSDPerToken(cacheReadUSD * baseMult),
+		}
+		entry.Overrides = openRouterProviderTierPriceOverrides(meta, "cache_read", baseMult)
+		out = append(out, entry)
+		if usePeak {
+			out = append(out, openRouterProviderPeakPriceEntries(group, "cached_prompt", "token", cacheReadUSD, baseMult)...)
+		}
+	}
+	return out
+}
+
+func openRouterProviderBuildTextOutputPricing(
+	group *Group,
+	meta *PublicCatalogModel,
+	completionUSD, baseMult float64,
+) []OpenRouterProviderPriceEntry {
+	if completionUSD <= 0 {
+		return nil
+	}
+	entry := OpenRouterProviderPriceEntry{
+		Type:    "completion",
+		Unit:    "token",
+		CostUSD: formatOpenRouterUSDPerToken(completionUSD * baseMult),
+	}
+	entry.Overrides = openRouterProviderTierPriceOverrides(meta, "output", baseMult)
+	out := []OpenRouterProviderPriceEntry{entry}
+	if !openRouterProviderHasTokenTiers(meta) {
+		out = append(out, openRouterProviderPeakPriceEntries(group, "completion", "token", completionUSD, baseMult)...)
+	}
+	return out
+}
+
+func openRouterProviderHasTokenTiers(meta *PublicCatalogModel) bool {
+	if meta == nil || len(meta.Pricing.Tiers) <= 1 {
+		return false
+	}
+	for i, tier := range meta.Pricing.Tiers {
+		if i == 0 {
+			continue
+		}
+		if tier.MinTokens > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// openRouterProviderTierPriceOverrides maps TokenKey long-context tiers onto schema 2.4
+// when.prompt_tokens predicates. Tier pricing wins over peak-window pricing (same as flat).
+func openRouterProviderTierPriceOverrides(meta *PublicCatalogModel, kind string, baseMult float64) []OpenRouterProviderPriceOverride {
 	if meta == nil || len(meta.Pricing.Tiers) <= 1 {
 		return nil
 	}
-	out := make([]OpenRouterProviderPricingOverride, 0, 2)
+	out := make([]OpenRouterProviderPriceOverride, 0, 2)
 	for i, tier := range meta.Pricing.Tiers {
 		if i == 0 || tier.MinTokens <= 0 {
 			continue
@@ -228,40 +424,57 @@ func openRouterProviderTierPricingOverrides(meta *PublicCatalogModel, baseMult f
 		if len(out) >= 2 {
 			break
 		}
-		cacheReadUSD := 0.0
-		if tier.CacheReadPer1K > 0 {
-			cacheReadUSD = tier.CacheReadPer1K / 1000
+		var cost float64
+		switch kind {
+		case "input":
+			cost = tier.InputPer1KTokens / 1000 * baseMult
+		case "output":
+			cost = tier.OutputPer1KTokens / 1000 * baseMult
+		case "cache_read":
+			if tier.CacheReadPer1K <= 0 {
+				continue
+			}
+			cost = tier.CacheReadPer1K / 1000 * baseMult
+		default:
+			continue
 		}
-		out = append(out, OpenRouterProviderPricingOverride{
-			MinPromptTokens: tier.MinTokens,
-			Prompt:          formatOpenRouterUSDPerToken(tier.InputPer1KTokens / 1000 * baseMult),
-			Completion:      formatOpenRouterUSDPerToken(tier.OutputPer1KTokens / 1000 * baseMult),
-			InputCacheRead:  formatOpenRouterUSDPerToken(cacheReadUSD * baseMult),
+		if cost <= 0 {
+			continue
+		}
+		out = append(out, OpenRouterProviderPriceOverride{
+			When: map[string]any{
+				"prompt_tokens": map[string]any{"gte": tier.MinTokens},
+			},
+			CostUSD: formatOpenRouterUSDPerToken(cost),
 		})
 	}
 	return out
 }
 
-func openRouterProviderPeakPricingOverride(
+func openRouterProviderPeakPriceEntries(
 	group *Group,
-	promptUSD, completionUSD, cacheReadUSD, baseMult float64,
-) (OpenRouterProviderPricingOverride, bool) {
-	if group == nil || !group.PeakRateEnabled || group.PeakRateMultiplier <= 1 {
-		return OpenRouterProviderPricingOverride{}, false
+	priceType, unit string,
+	baseUSD, baseMult float64,
+) []OpenRouterProviderPriceEntry {
+	if group == nil || !group.PeakRateEnabled || group.PeakRateMultiplier <= 1 || baseUSD <= 0 {
+		return nil
 	}
 	start, okStart := openRouterProviderLocalHMToUTCMinutes(group.PeakStart, timezone.Location(), time.Now())
 	end, okEnd := openRouterProviderLocalHMToUTCMinutes(group.PeakEnd, timezone.Location(), time.Now())
 	if !okStart || !okEnd || start == end {
-		return OpenRouterProviderPricingOverride{}, false
+		return nil
 	}
-	peakMult := group.PeakRateMultiplier
-	return OpenRouterProviderPricingOverride{
-		UTCStart:       start,
-		UTCEnd:         end,
-		Prompt:         formatOpenRouterUSDPerToken(promptUSD * baseMult * peakMult),
-		Completion:     formatOpenRouterUSDPerToken(completionUSD * baseMult * peakMult),
-		InputCacheRead: formatOpenRouterUSDPerToken(cacheReadUSD * baseMult * peakMult),
-	}, true
+	// Prefer tier overrides over peak windows when both exist on the same model.
+	// Peak entries are only emitted when the caller did not already attach tier overrides
+	// to the base entry; callers still may emit peak for SKUs without tiers.
+	s, e := start, end
+	return []OpenRouterProviderPriceEntry{{
+		Type:     priceType,
+		Unit:     unit,
+		CostUSD:  formatOpenRouterUSDPerToken(baseUSD * baseMult * group.PeakRateMultiplier),
+		UTCStart: &s,
+		UTCEnd:   &e,
+	}}
 }
 
 func openRouterProviderLocalHMToUTCMinutes(hm string, loc *time.Location, ref time.Time) (int, bool) {

@@ -31,12 +31,6 @@ MONITOR_KEY_ID = 370
 VALID_INPUT_MODALITIES = {"text", "image", "file", "audio", "video"}
 VALID_OUTPUT_MODALITIES = {"text", "image", "embeddings", "audio", "video", "rerank", "speech", "transcription"}
 VALID_QUANT = {"int4", "int8", "fp4", "mxfp4", "nvfp4", "fp6", "fp8", "mxfp8", "fp16", "bf16", "fp32"}
-VALID_SAMPLING = {
-    "temperature", "top_p", "top_k", "min_p", "top_a", "frequency_penalty",
-    "presence_penalty", "repetition_penalty", "stop", "seed", "max_tokens", "logit_bias",
-}
-VALID_FEATURES = {"tools", "json_mode", "structured_outputs", "logprobs", "web_search", "reasoning"}
-PRICE_FIELDS = ("prompt", "completion", "image", "request", "input_cache_read")
 USD_NUM = re.compile(r"^-?\d+(\.\d+)?$")
 
 
@@ -83,44 +77,77 @@ def http_json(method: str, url: str, api_key: str = "", body: dict | None = None
             return exc.code, raw, raw
 
 
+def modality_types(mods: Any) -> set[str]:
+    if not isinstance(mods, list):
+        return set()
+    out: set[str] = set()
+    for m in mods:
+        if isinstance(m, str):
+            out.add(m)
+        elif isinstance(m, dict) and m.get("type"):
+            out.add(str(m["type"]))
+    return out
+
+
+def validate_price_entries(entries: Any, report: Report, prefix: str) -> None:
+    if entries is None:
+        return
+    report.add(f"{prefix}.pricing.list", isinstance(entries, list), type(entries).__name__)
+    if not isinstance(entries, list):
+        return
+    for i, entry in enumerate(entries):
+        ep = f"{prefix}.pricing[{i}]"
+        if not isinstance(entry, dict):
+            report.add(ep, False, type(entry).__name__)
+            continue
+        for req in ("type", "unit", "cost_usd"):
+            report.add(f"{ep}.{req}", req in entry and entry[req] is not None, "")
+        cost = entry.get("cost_usd")
+        if isinstance(cost, str) and cost:
+            report.add(f"{ep}.cost_usd.numeric", bool(USD_NUM.match(cost)), cost)
+
+
+def validate_modality_list(mods: Any, valid: set[str], report: Report, prefix: str, kind: str) -> None:
+    report.add(f"{prefix}.{kind}.list", isinstance(mods, list) and len(mods) > 0, type(mods).__name__)
+    if not isinstance(mods, list):
+        return
+    for i, mod in enumerate(mods):
+        mp = f"{prefix}.{kind}[{i}]"
+        if not isinstance(mod, dict):
+            report.add(mp, False, type(mod).__name__)
+            continue
+        typ = mod.get("type")
+        report.add(f"{mp}.type", typ in valid, str(typ))
+        validate_price_entries(mod.get("pricing"), report, mp)
+
+
 def validate_model_entry(model: dict, report: Report) -> None:
     mid = model.get("id", "<missing>")
     prefix = f"catalog[{mid}]"
 
-    for req in ("id", "name", "created", "input_modalities", "output_modalities", "quantization",
-                "context_length", "max_output_length", "pricing", "supported_sampling_parameters", "is_ready"):
+    for req in ("schema_version", "id", "name", "created", "input_modalities", "output_modalities",
+                "quantization", "is_ready"):
         report.add(f"{prefix}.required.{req}", req in model and model[req] is not None,
                    "" if req in model else "missing")
+
+    report.add(f"{prefix}.schema_version", model.get("schema_version") == "2.4",
+               str(model.get("schema_version")))
 
     if not str(mid).startswith("tokenkey/"):
         report.add(f"{prefix}.id_prefix", False, f"id={mid!r}")
 
-    in_mod = model.get("input_modalities") or []
-    out_mod = model.get("output_modalities") or []
-    report.add(f"{prefix}.input_modalities.valid", all(m in VALID_INPUT_MODALITIES for m in in_mod), str(in_mod))
-    report.add(f"{prefix}.output_modalities.valid", all(m in VALID_OUTPUT_MODALITIES for m in out_mod), str(out_mod))
+    # Flat legacy fields must not reappear on new integrations.
+    for legacy in ("pricing", "context_length", "max_output_length",
+                   "supported_sampling_parameters", "supported_features", "capacity_tpm"):
+        if legacy in model:
+            report.add(f"{prefix}.no_flat.{legacy}", False, "legacy flat field present")
+
+    validate_modality_list(model.get("input_modalities"), VALID_INPUT_MODALITIES, report, prefix, "input_modalities")
+    validate_modality_list(model.get("output_modalities"), VALID_OUTPUT_MODALITIES, report, prefix, "output_modalities")
 
     quant = model.get("quantization")
     if quant:
         report.add(f"{prefix}.quantization.valid", quant in VALID_QUANT, quant)
-
-    pricing = model.get("pricing") or {}
-    for pf in PRICE_FIELDS:
-        if pf not in pricing:
-            report.add(f"{prefix}.pricing.{pf}", False, "missing")
-            continue
-        val = pricing[pf]
-        report.add(f"{prefix}.pricing.{pf}.string", isinstance(val, str), type(val).__name__)
-        if isinstance(val, str) and val and val != "0":
-            report.add(f"{prefix}.pricing.{pf}.numeric", bool(USD_NUM.match(val)), val)
-
-    for sp in model.get("supported_sampling_parameters") or []:
-        if sp not in VALID_SAMPLING:
-            report.add(f"{prefix}.sampling.invalid", False, sp)
-
-    for feat in model.get("supported_features") or []:
-        if feat not in VALID_FEATURES:
-            report.add(f"{prefix}.features.invalid", False, feat)
 
     for dc in model.get("datacenters") or []:
         cc = (dc or {}).get("country_code", "")
@@ -144,8 +171,9 @@ def pick_models(catalog: list[dict]) -> dict[str, str | None]:
     out: dict[str, str | None] = {"chat": None, "image": None, "imagen": None, "video": None}
     for m in catalog:
         mid = m.get("id", "")
-        outs = set(m.get("output_modalities") or [])
-        if out["chat"] is None and outs == {"text"} and "image" not in (m.get("input_modalities") or []):
+        outs = modality_types(m.get("output_modalities"))
+        ins = modality_types(m.get("input_modalities"))
+        if out["chat"] is None and outs == {"text"} and "image" not in ins:
             if "flash" in mid and "image" not in mid and "imagen" not in mid and "veo" not in mid:
                 out["chat"] = mid
         if out["image"] is None and "image" in outs and "gemini" in mid and "flash-image" in mid:
@@ -156,7 +184,7 @@ def pick_models(catalog: list[dict]) -> dict[str, str | None]:
             out["video"] = mid
     if out["chat"] is None:
         for m in catalog:
-            if (m.get("output_modalities") or []) == ["text"]:
+            if modality_types(m.get("output_modalities")) == {"text"}:
                 out["chat"] = m.get("id")
                 break
     return out
