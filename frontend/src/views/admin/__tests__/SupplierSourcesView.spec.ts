@@ -46,7 +46,7 @@ vi.mock('vue-router', () => ({
 const source = {
   id: 7,
   supplier_name: '佳杰',
-  channel_name: 'stbl-5',
+  supplier_lane: 'stbl-5',
   channel_type: 1,
   endpoint: 'https://token.vstecscloud.com/v1',
   base_priority: 100,
@@ -106,7 +106,7 @@ describe('SupplierSourcesView', () => {
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
 
-    expect((wrapper.get('[data-test="channel-name"]').element as HTMLInputElement).value).toBe('default')
+    expect((wrapper.get('[data-test="supplier-lane"]').element as HTMLInputElement).value).toBe('default')
     expect((wrapper.get('[data-test="base-priority"]').element as HTMLInputElement).value).toBe('100')
   })
 
@@ -163,7 +163,7 @@ describe('SupplierSourcesView', () => {
   it('selects the supplier source requested by source_id after loading the list', async () => {
     routeQuery.source_id = '7'
     list.mockResolvedValueOnce([
-      { ...source, id: 8, supplier_name: 'FMGo', channel_name: 'seedance' },
+      { ...source, id: 8, supplier_name: 'FMGo', supplier_lane: 'seedance' },
       source,
     ])
 
@@ -183,7 +183,7 @@ describe('SupplierSourcesView', () => {
 
     await wrapper.get('[data-test="new-source"]').trigger('click')
     await wrapper.get('[data-test="supplier-name"]').setValue('佳杰')
-    await wrapper.get('[data-test="channel-name"]').setValue('stbl-5')
+    await wrapper.get('[data-test="supplier-lane"]').setValue('stbl-5')
     await wrapper.get('[data-test="endpoint"]').setValue('https://token.vstecscloud.com/v1')
     await wrapper.get('[data-test="credential"]').setValue('secret')
     await wrapper.get('[data-test="save-source"]').trigger('submit')
@@ -542,7 +542,7 @@ describe('SupplierSourcesView', () => {
   })
 
   it('shows protocol_unsupported validate results from a 422 response without success wording', async () => {
-    list.mockResolvedValueOnce([{ ...source, id: 9, supplier_name: 'FMGo', channel_name: 'seedance' }])
+    list.mockResolvedValueOnce([{ ...source, id: 9, supplier_name: 'FMGo', supplier_lane: 'seedance' }])
     const failedResult = {
       source_id: 9,
       probe_results: [{
@@ -603,7 +603,7 @@ describe('SupplierSourcesView', () => {
   it('copies the selected source into a new editor without saving or exposing credentials', async () => {
     list.mockResolvedValueOnce([
       source,
-      { ...source, id: 8, channel_name: 'stbl-5 (admin.supplierSources.copySuffix)' },
+      { ...source, id: 8, supplier_lane: 'stbl-5 (admin.supplierSources.copySuffix)' },
     ])
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
@@ -618,7 +618,7 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.find('[data-test="sync-source"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="source-select-7"]').classes()).not.toContain('border-primary-500')
     expect((wrapper.get('[data-test="supplier-name"]').element as HTMLInputElement).value).toBe('佳杰')
-    expect((wrapper.get('[data-test="channel-name"]').element as HTMLInputElement).value).toBe(
+    expect((wrapper.get('[data-test="supplier-lane"]').element as HTMLInputElement).value).toBe(
       'stbl-5 (admin.supplierSources.copySuffix 2)',
     )
     expect((wrapper.get('[data-test="endpoint"]').element as HTMLInputElement).value).toBe(source.endpoint)
@@ -635,7 +635,7 @@ describe('SupplierSourcesView', () => {
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       supplier_name: '佳杰',
-      channel_name: 'stbl-5 (admin.supplierSources.copySuffix 2)',
+      supplier_lane: 'stbl-5 (admin.supplierSources.copySuffix 2)',
       credential: 'copied-secret',
       models: source.models,
     }))
@@ -648,12 +648,12 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
 
-    await wrapper.get('[data-test="channel-name"]').setValue('stbl-6')
+    await wrapper.get('[data-test="supplier-lane"]').setValue('stbl-6')
     await wrapper.get('[data-test="notes"]').setValue('未保存的合同备注')
     await wrapper.get('[data-test="copy-source"]').trigger('click')
     await nextTick()
 
-    expect((wrapper.get('[data-test="channel-name"]').element as HTMLInputElement).value).toBe(
+    expect((wrapper.get('[data-test="supplier-lane"]').element as HTMLInputElement).value).toBe(
       'stbl-6 (admin.supplierSources.copySuffix)',
     )
     expect((wrapper.get('[data-test="notes"]').element as HTMLTextAreaElement).value).toBe('未保存的合同备注')
@@ -669,7 +669,7 @@ describe('SupplierSourcesView', () => {
         ...source,
         id: 9,
         supplier_name: 'FMGo',
-        channel_name: 'seedance',
+        supplier_lane: 'seedance',
         models: [{
           client_model_id: 'doubao-seedance-2-0-260128',
           upstream_model_id: 'feimiao-seedance-2-0-260128',

@@ -19,7 +19,7 @@ func TestUS048_SupplierSourceCreateRejectsMalformedPurchaseRatioAtJSONBoundary(t
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/supplier-sources", bytes.NewBufferString(`{
 		"supplier_name":"佳杰",
-		"channel_name":"stbl-5",
+		"supplier_lane":"stbl-5",
 		"endpoint":"https://supplier.example/v1",
 		"credential":"secret",
 		"models":[{"client_model_id":"model","upstream_model_id":"model","purchase_ratio":"43折"}]
@@ -34,7 +34,7 @@ func TestUS048_SupplierSourceCreateRejectsMalformedPurchaseRatioAtJSONBoundary(t
 func TestUS048_SupplierSourceResponsesExposeOnlyManagementFacts(t *testing.T) {
 	ratio := 0.5
 	result := supplierSourceToResponse(&service.SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1,
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1,
 		Endpoint: "https://token.vstecscloud.com/v1", EncryptedCredential: "ciphertext",
 		CredentialFingerprint: "hmac:secret", BasePriority: 100, AccountConcurrency: 1000, Notes: "lowest ratio only",
 		Models: []service.SupplierSourceModel{{
@@ -61,7 +61,7 @@ func TestUS048_SupplierSourceResponsesExposeOnlyManagementFacts(t *testing.T) {
 func TestUS048_SupplierSourceRequestAllowsEmptyModelsAndCarriesBasePriority(t *testing.T) {
 	basePriority := 120
 	req := supplierSourceRequest{
-		SupplierName: "FMGo", ChannelName: "seedance", Endpoint: "https://fmgo.example/v1",
+		SupplierName: "FMGo", SupplierLane: "seedance", Endpoint: "https://fmgo.example/v1",
 		Credential: "secret", BasePriority: &basePriority, Models: []supplierSourceModelRequest{},
 	}
 

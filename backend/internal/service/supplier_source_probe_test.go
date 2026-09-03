@@ -54,7 +54,7 @@ func TestUS048_BuildSupplierModelsListURLUsesAliCompatibleModePath(t *testing.T)
 func TestUS048_ProbeUntilCompleteNormalizesAndSuggestsOnlyProbePassed(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
-		ID: 3, SupplierName: "baidu", ChannelName: "default",
+		ID: 3, SupplierName: "baidu", SupplierLane: "default",
 		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{
@@ -102,7 +102,7 @@ func TestUS048_ProbeUntilCompleteNormalizesAndSuggestsOnlyProbePassed(t *testing
 func TestUS048_ValidateProbesConfiguredRowsWithoutWritingAccounts(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
-		ID: 11, SupplierName: "baidu", ChannelName: "default",
+		ID: 11, SupplierName: "baidu", SupplierLane: "default",
 		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
 		EncryptedCredential: "enc:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
@@ -128,7 +128,7 @@ func TestUS048_ValidateProbesConfiguredRowsWithoutWritingAccounts(t *testing.T) 
 func TestUS048_ProbeUntilCompleteSuggestionsAloneDoNotBlockProjection(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
-		ID: 5, SupplierName: "baidu", ChannelName: "default",
+		ID: 5, SupplierName: "baidu", SupplierLane: "default",
 		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{
@@ -155,7 +155,7 @@ func TestUS048_ProbeUntilCompleteSuggestionsAloneDoNotBlockProjection(t *testing
 func TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
-		ID: 6, SupplierName: "FMGo", ChannelName: "seedance",
+		ID: 6, SupplierName: "FMGo", SupplierLane: "seedance",
 		ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1", EncryptedCredential: "enc:secret",
 		BasePriority: 100,
 		Models: []SupplierSourceModel{{
@@ -183,7 +183,7 @@ func TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap(t *test
 
 func TestUS048_ProbeUntilCompleteAuthFailureStopsWithoutSuggesting(t *testing.T) {
 	source := &SupplierSource{
-		ID: 4, SupplierName: "baidu", ChannelName: "default",
+		ID: 4, SupplierName: "baidu", SupplierLane: "default",
 		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
 		BasePriority: 100, Models: nil,
 	}
@@ -216,7 +216,7 @@ func TestUS048_GetSupplierProbeJobMissingReturnsFailedSnapshot(t *testing.T) {
 
 func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(t *testing.T) {
 	source := &SupplierSource{
-		ID: 8, SupplierName: "baidu", ChannelName: "default",
+		ID: 8, SupplierName: "baidu", SupplierLane: "default",
 		Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
 		BasePriority: 100, Models: nil,
 	}
@@ -254,7 +254,7 @@ func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(t *testing
 
 func TestUS048_FMGoProbeSkipsNonVideoInventory(t *testing.T) {
 	source := &SupplierSource{
-		ID: 10, SupplierName: "feimiao", ChannelName: "default",
+		ID: 10, SupplierName: "feimiao", SupplierLane: "default",
 		ChannelType:         newapiconstant.ChannelTypeDoubaoVideo,
 		Endpoint:            "https://www.fmgo.top",
 		EncryptedCredential: "enc:secret",

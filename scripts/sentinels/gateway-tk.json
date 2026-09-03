@@ -7852,16 +7852,18 @@
         "TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition",
         "TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing",
         "TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation",
-        "TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount",
+        "TestUS048_IncompatibleTransportExactMatchDoesNotBlockParallelProjection",
         "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
         "TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection",
         "TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection",
         "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe",
         "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift",
         "TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync",
+        "TestUS048_SameTransportOtherSourceManagedStillConflicts",
+        "TestUS048_IncompatibleTransportCandidatesAreIgnoredForOpenAISupplier",
         "TestUS048_QianfanBaiduV2ExactMatchIsAdopted"
       ],
-      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require an immediate reprobe before structural projection or repair, and keep empty-band scheduling repair on the metadata-only path."
+      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require an immediate reprobe before structural projection or repair, and keep empty-band scheduling repair on the metadata-only path. Transport-incompatible credential matches are ignored; same-transport other-source managed accounts still conflict."
     },
     {
       "path": "backend/internal/service/crs_sync_supplier_managed_test.go",
@@ -7937,11 +7939,19 @@
         "UpdateManagedAccountConcurrency(",
         "ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency)",
         "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey",
-        "compatible := supplierReusableAccountTransport(match, source.Endpoint, source.ChannelType)",
-        "if managedMatch && !compatible {",
+        "ChannelType:           source.ChannelType,",
         "relevantMatches := make([]*Account, 0, len(matches))"
       ],
-      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence. Credential+endpoint collision with another supplier source is ignored when channel transports differ (OpenAI chat vs Anthropic messages), so parallel sources can create their own managed accounts."
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_account_store.go",
+      "must_contain": [
+        "if match.ChannelType <= 0 {",
+        "if !supplierReusableAccountTransport(account, wantEndpoint, match.ChannelType) {",
+        "func (s *defaultSupplierSourceAccountStore) FindCredentialEndpointMatches("
+      ],
+      "rationale": "Adoption/conflict candidate SSOT filters by credential fingerprint + endpoint + channel_type (TokenKey transport). Incompatible transports never enter the candidate set, so parallel OpenAI/Anthropic supplier sources with the same key do not 409 each other."
     },
     {
       "path": "backend/internal/service/supplier_upstream_models.go",

@@ -23,7 +23,7 @@ func NewSupplierSourceHandler(svc *service.SupplierSourceService) *SupplierSourc
 
 type supplierSourceRequest struct {
 	SupplierName       string                       `json:"supplier_name" binding:"required,max=120"`
-	ChannelName        string                       `json:"channel_name" binding:"required,max=120"`
+	SupplierLane       string                       `json:"supplier_lane" binding:"required,max=120"`
 	ChannelType        int                          `json:"channel_type" binding:"required,gt=0"`
 	Endpoint           string                       `json:"endpoint" binding:"required,max=500"`
 	Credential         string                       `json:"credential" binding:"max=8192"`
@@ -42,7 +42,7 @@ type supplierSourceModelRequest struct {
 type supplierSourceResponse struct {
 	ID                 int64                         `json:"id"`
 	SupplierName       string                        `json:"supplier_name"`
-	ChannelName        string                        `json:"channel_name"`
+	SupplierLane       string                        `json:"supplier_lane"`
 	ChannelType        int                           `json:"channel_type"`
 	Endpoint           string                        `json:"endpoint"`
 	BasePriority       int                           `json:"base_priority"`
@@ -67,7 +67,7 @@ type supplierPriorityPreviewResponse struct {
 type supplierPriorityPreviewEntryResponse struct {
 	SourceID         int64    `json:"source_id"`
 	SupplierName     string   `json:"supplier_name"`
-	ChannelName      string   `json:"channel_name"`
+	SupplierLane     string   `json:"supplier_lane"`
 	DiscountBand     int      `json:"discount_band"`
 	DiscountPriority int      `json:"discount_priority"`
 	Priority         int      `json:"priority"`
@@ -88,7 +88,7 @@ func (r supplierSourceRequest) toInput() service.SupplierSourceInput {
 		})
 	}
 	return service.SupplierSourceInput{
-		SupplierName: r.SupplierName, ChannelName: r.ChannelName, ChannelType: r.ChannelType,
+		SupplierName: r.SupplierName, SupplierLane: r.SupplierLane, ChannelType: r.ChannelType,
 		Endpoint:   r.Endpoint,
 		Credential: r.Credential, BasePriority: r.BasePriority, AccountConcurrency: r.AccountConcurrency,
 		Notes: r.Notes, Models: models,
@@ -106,7 +106,7 @@ func supplierSourceToResponse(source *service.SupplierSource) *supplierSourceRes
 		})
 	}
 	return &supplierSourceResponse{
-		ID: source.ID, SupplierName: source.SupplierName, ChannelName: source.ChannelName,
+		ID: source.ID, SupplierName: source.SupplierName, SupplierLane: source.SupplierLane,
 		ChannelType: source.ChannelType, Endpoint: source.Endpoint, BasePriority: source.BasePriority,
 		AccountConcurrency: source.AccountConcurrency, Models: models, Notes: source.Notes,
 		CreatedAt: source.CreatedAt, UpdatedAt: source.UpdatedAt,
@@ -123,7 +123,7 @@ func supplierPriorityPreviewToResponse(preview *service.SupplierPriorityPreview)
 	}
 	for _, entry := range preview.Entries {
 		result.Entries = append(result.Entries, supplierPriorityPreviewEntryResponse{
-			SourceID: entry.SourceID, SupplierName: entry.SupplierName, ChannelName: entry.ChannelName,
+			SourceID: entry.SourceID, SupplierName: entry.SupplierName, SupplierLane: entry.SupplierLane,
 			DiscountBand: entry.DiscountBand, DiscountPriority: entry.DiscountPriority,
 			Priority: entry.Priority, ClientModelIDs: entry.ClientModelIDs,
 		})

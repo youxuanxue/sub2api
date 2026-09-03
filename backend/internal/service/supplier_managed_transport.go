@@ -90,6 +90,8 @@ func supplierManagedTransportOK(account *Account) bool {
 	}
 }
 
+// supplierReusableAccountTransport is the SSOT for "does this account share the source's
+// TokenKey channel_type transport?". Endpoint equality is checked separately.
 func supplierReusableAccountTransport(account *Account, sourceEndpoint string, sourceChannelType int) bool {
 	if !supplierManagedTransportOK(account) {
 		return false
