@@ -1,6 +1,6 @@
 -- TokenKey supplier-source row identity SSOT:
 -- (supplier_name, endpoint, credential_fingerprint, channel_type)
--- channel_name remains the operator-facing supplier lane label only and exits the unique key.
+-- supplier_lane remains the operator-facing supplier lane label only and exits the unique key.
 
 DO $$
 BEGIN

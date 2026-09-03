@@ -11,9 +11,9 @@ related_stories: ["US-048"]
 revision_note: >
   2026-09-03: Supplier identity SSOT — row unique key is
   (supplier_name, endpoint, credential_fingerprint, channel_type);
-  channel_name is supplier-lane label only. Adoption candidates filter by
-  the same channel_type transport. 2026-09-02: Anthropic channel_type=14
-  messages-only exception.
+  DB/API field channel_name renamed to supplier_lane (display label only).
+  Adoption candidates filter by channel_type transport. 2026-09-02: Anthropic
+  channel_type=14 messages-only exception.
 ---
 
 # TokenKey 模型供应源管理审批基线
@@ -24,7 +24,7 @@ revision_note: >
 
 运营只管理一个对象：供应源。一个供应源表示一个供应商、一个 **TokenKey 协议类型**（`channel_type`）、
 一个规范化 endpoint、一份 API Key、一个 `base_priority` 和一组明确的模型采购事实。字段
-`channel_name` 仅是供应商侧通道标签（供应通道名 / supplier lane），用于展示与分组，**不参与**
+`supplier_lane` 仅是供应商侧通道标签（供应通道名 / supplier lane），用于展示与分组，**不参与**
 行身份或接管冲突判定。保存只写供应源；运营主动点击“投影账号”后，系统才把事实投影为现有
 TokenKey 账号配置。
 
@@ -95,7 +95,7 @@ API 必须返回可读 `message` 与 `failed_step`；管理页必须在结果区
 
 同步按以下最小规则执行：
 
-1. 供应商名称、通道名称或 `base_priority` 变化时，只更新受管账号名称和 priority，不探测；
+1. 供应商名称、`supplier_lane`（供应通道名）或 `base_priority` 变化时，只更新受管账号名称和 priority，不探测；
 1b. `account_concurrency` 变化时，只更新受管账号 `concurrency`，不探测；
 2. endpoint、credential、模型 ID、模型增减、跨档，或非空受管账号的 `status/schedulable` 与目标
    不一致时，先用内存目标账号逐模型真实探测；空 mapping 的调度字段漂移无需探测；
@@ -119,7 +119,7 @@ API 必须返回可读 `message` 与 `failed_step`；管理页必须在结果区
 ```text
 ① 供应源行身份（model_supplier_sources）
    UNIQUE (supplier_name, endpoint, credential_fingerprint, channel_type)
-   channel_name = 供应通道名（展示标签），改名不改身份
+   supplier_lane = 供应通道名（展示标签），改名不改身份
 
 ② 投影/冲突候选（FindCredentialEndpointMatches）
    fingerprint + endpoint + channel_type（transport 兼容）
@@ -164,7 +164,7 @@ floor 收敛只作用于非供应源托管账号。否则会出现 Sync 子集 �
 账号列表显示徽标：
 
 ```text
-供应源托管 · {supplier_name}/{channel_name}
+供应源托管 · {supplier_name}/{supplier_lane}
 ```
 
 徽标链接携带 `source_id`，供应源页面加载列表后直接选中对应来源。账号编辑提示说明：平时可按普通

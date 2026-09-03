@@ -51,9 +51,9 @@ const (
 type SupplierSource struct {
 	ID           int64
 	SupplierName string
-	// ChannelName is the operator-facing supplier lane label (供应商通道名). It is NOT
+	// SupplierLane is the operator-facing supplier lane label (供应商通道名). It is NOT
 	// TokenKey transport and is not part of row or adoption identity.
-	ChannelName string
+	SupplierLane string
 	// ChannelType is the TokenKey/NewAPI Extension Engine transport (协议类型).
 	ChannelType           int
 	Endpoint              string
@@ -75,7 +75,7 @@ type SupplierSourceModel struct {
 
 type SupplierSourceInput struct {
 	SupplierName       string
-	ChannelName        string
+	SupplierLane       string
 	ChannelType        int
 	Endpoint           string
 	Credential         string
@@ -104,7 +104,7 @@ func (i *SupplierSourceInput) Normalize() error {
 		return ErrSupplierSourceInvalidInput
 	}
 	i.SupplierName = strings.TrimSpace(i.SupplierName)
-	i.ChannelName = strings.TrimSpace(i.ChannelName)
+	i.SupplierLane = strings.TrimSpace(i.SupplierLane)
 	i.Notes = strings.TrimSpace(i.Notes)
 	endpoint, err := NormalizeSupplierEndpoint(i.Endpoint)
 	if err != nil {
@@ -122,7 +122,7 @@ func (i SupplierSourceInput) Validate() error {
 	if err := (&i).Normalize(); err != nil {
 		return err
 	}
-	if i.SupplierName == "" || i.ChannelName == "" || i.Endpoint == "" {
+	if i.SupplierName == "" || i.SupplierLane == "" || i.Endpoint == "" {
 		return ErrSupplierSourceInvalidInput
 	}
 	if err := validateSupplierChannelType(i.ChannelType); err != nil {

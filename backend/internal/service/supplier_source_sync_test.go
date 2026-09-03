@@ -14,7 +14,7 @@ func TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly(t *testing.T) {
 	ratio := 0.5
 	notes := "inventory: feimiao-v2.5-720p-15s feimiao-v2-431-720p-15s feimiao-v2-mini-720p-10s"
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 10, SupplierName: "feimiao", ChannelName: "feimiao-svip",
+		ID: 10, SupplierName: "feimiao", SupplierLane: "feimiao-svip",
 		ChannelType:         newapiconstant.ChannelTypeDoubaoVideo,
 		Endpoint:            "https://www.fmgo.top",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
@@ -48,7 +48,7 @@ func TestUS048_FMGoSeedanceSyncProjectsOfficialClientsOnly(t *testing.T) {
 func TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount(t *testing.T) {
 	ratio05, ratio055 := 0.5, 0.55
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio05},
@@ -76,7 +76,7 @@ func TestUS048_SupplierSyncGroupsSameBandModelsIntoOneAccount(t *testing.T) {
 }
 
 func TestUS048_SupplierProbeAccountCarriesManagedIdentity(t *testing.T) {
-	source := &SupplierSource{ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1"}
+	source := &SupplierSource{ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1"}
 	account := supplierProbeAccount(nil, source, "secret", supplierTargetBand{
 		Band: 3, Priority: 130, Mapping: map[string]string{"client-model": "vendor-model"},
 	})
@@ -89,7 +89,7 @@ func TestUS048_SupplierProbeAccountCarriesManagedIdentity(t *testing.T) {
 func TestUS048_ValidateFailureReturnsEveryResultAndWritesNothing(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "FMGo", ChannelName: "seedance", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "FMGo", SupplierLane: "seedance", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "model-ok", UpstreamModelID: "model-ok", PurchaseRatio: &ratio},
@@ -115,7 +115,7 @@ func TestUS048_ValidateFailureReturnsEveryResultAndWritesNothing(t *testing.T) {
 func TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "FMGo", ChannelName: "seedance", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "FMGo", SupplierLane: "seedance", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "model-ok", UpstreamModelID: "model-ok", PurchaseRatio: &ratio},
@@ -143,7 +143,7 @@ func TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing(t *tes
 func TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
@@ -166,7 +166,7 @@ func TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection(t *testing.T) {
 func TestUS048_SupplierSyncMetadataOnlySkipsProbe(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -193,7 +193,7 @@ func TestUS048_SupplierSyncMetadataOnlySkipsProbe(t *testing.T) {
 func TestUS048_SupplierSyncNameChangeUpdatesAccountWithoutProbe(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰科技", ChannelName: "stbl-6", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰科技", SupplierLane: "stbl-6", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -218,7 +218,7 @@ func TestUS048_SupplierSyncNameChangeUpdatesAccountWithoutProbe(t *testing.T) {
 func TestUS048_SupplierSyncMovesModelByAddingBeforeRemoving(t *testing.T) {
 	ratio := 0.7
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -251,7 +251,7 @@ func TestUS048_SupplierSyncMovesModelByAddingBeforeRemoving(t *testing.T) {
 func TestUS048_SupplierSyncStopsBeforeRemovalWhenVerifiedProjectionWriteFails(t *testing.T) {
 	ratio := 0.7
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -279,7 +279,7 @@ func TestUS048_SupplierSyncStopsBeforeRemovalWhenVerifiedProjectionWriteFails(t 
 
 func TestUS048_SupplierSyncClearsEmptyBandWithoutDeletingAccount(t *testing.T) {
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{},
 	}}
@@ -303,7 +303,7 @@ func TestUS048_SupplierSyncClearsEmptyBandWithoutDeletingAccount(t *testing.T) {
 func TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges(t *testing.T) {
 	ratio05, ratio07 := 0.5, 0.7
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "move-model", UpstreamModelID: "move-model", PurchaseRatio: &ratio05},
@@ -349,7 +349,7 @@ func TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges(t 
 func TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -371,7 +371,7 @@ func TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition(t *testing
 func TestUS048_SupplierSyncCreateUpdateFailureRetryConverges(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -404,7 +404,7 @@ func TestUS048_SupplierSyncCreateUpdateFailureRetryConverges(t *testing.T) {
 func TestUS048_ExistingSupplierAccountIsAdoptedOnlyOnUniqueNarrowMatch(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "百度", ChannelName: "千帆", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
+		ID: 7, SupplierName: "百度", SupplierLane: "千帆", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio},
@@ -436,7 +436,7 @@ func TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation(
 	for _, status := range []string{StatusDisabled, StatusError} {
 		t.Run(status, func(t *testing.T) {
 			repo := &supplierSourceRepoFake{stored: &SupplierSource{
-				ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+				ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 				EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 				Models: []SupplierSourceModel{{
 					ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio,
@@ -469,7 +469,7 @@ func TestUS048_IncompatibleTransportExactMatchDoesNotBlockParallelProjection(t *
 	// do not rewrite or adopt the OpenAI misconfigured account.
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "百度", ChannelName: "qianfan", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
+		ID: 7, SupplierName: "百度", SupplierLane: "qianfan", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{
 			ClientModelID: "deepseek-v4-flash-0731", UpstreamModelID: "deepseek-v4-flash-0731", PurchaseRatio: &ratio,
@@ -498,7 +498,7 @@ func TestUS048_IncompatibleTransportExactMatchDoesNotBlockParallelProjection(t *
 func TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation(t *testing.T) {
 	ratio03, ratio05 := 0.3, 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "model-band-2", UpstreamModelID: "model-band-2", PurchaseRatio: &ratio03},
@@ -527,7 +527,7 @@ func TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation(
 func TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -551,7 +551,7 @@ func TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection(t
 
 func TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe(t *testing.T) {
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{},
 	}}
@@ -576,7 +576,7 @@ func TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe(t *testi
 func TestUS048_QianfanBaiduV2ExactMatchIsAdopted(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "百度", ChannelName: "千帆", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com/v2",
+		ID: 7, SupplierName: "百度", SupplierLane: "千帆", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com/v2",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{
 			ClientModelID: "glm-5.1", UpstreamModelID: "glm-5.1", PurchaseRatio: &ratio,
@@ -605,7 +605,7 @@ func TestUS048_IncompatibleTransportCandidatesAreIgnoredForOpenAISupplier(t *tes
 	// BaiduV2 account with same key must not block OpenAI supplier projection — different transport identity.
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{
 			ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio,
@@ -631,7 +631,7 @@ func TestUS048_IncompatibleTransportCandidatesAreIgnoredForOpenAISupplier(t *tes
 func TestUS048_ExistingSupplierAccountMultipleMatchesStopBeforeProbeOrWrite(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "百度", ChannelName: "千帆", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
+		ID: 7, SupplierName: "百度", SupplierLane: "千帆", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -659,7 +659,7 @@ func TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync(t *te
 	fableRatio := 0.85
 	opusRatio := 0.2
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 13, SupplierName: "cloudwise", ChannelName: "anthropic",
+		ID: 13, SupplierName: "cloudwise", SupplierLane: "anthropic",
 		ChannelType: newapiconstant.ChannelTypeAnthropic, Endpoint: "https://api.cloudwise.ai/api",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		AccountConcurrency: 1000,
@@ -705,7 +705,7 @@ func TestUS048_SameTransportOtherSourceManagedStillConflicts(t *testing.T) {
 	// credential/endpoint owned by another supplier source must still IdentityConflict.
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 14, SupplierName: "cloudwise", ChannelName: "openai-dup",
+		ID: 14, SupplierName: "cloudwise", SupplierLane: "openai-dup",
 		ChannelType: newapiconstant.ChannelTypeOpenAI, Endpoint: "https://api.cloudwise.ai/api",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{
@@ -733,7 +733,7 @@ func TestUS048_SameTransportOtherSourceManagedStillConflicts(t *testing.T) {
 func TestUS048_SupplierSyncSameBandRatioChangeDoesNotTouchAccounts(t *testing.T) {
 	ratio := 0.59
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰新名称", ChannelName: "stbl-5-new", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰新名称", SupplierLane: "stbl-5-new", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}}
@@ -754,7 +754,7 @@ func TestUS048_SupplierSyncSameBandRatioChangeDoesNotTouchAccounts(t *testing.T)
 func TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
 	}
@@ -990,7 +990,7 @@ func syncOperationLabel(input SupplierManagedAccountUpdateInput) string {
 func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		AccountConcurrency: 1000,
 		Models: []SupplierSourceModel{
@@ -1022,7 +1022,7 @@ func TestUS048_SupplierSyncProtocolIdentityDriftReprobesBeforeRepair(t *testing.
 	ratio := 0.5
 	capabilityID := int64(797)
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", Endpoint: "https://supplier.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", Endpoint: "https://supplier.example/v1",
 		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
 		AccountConcurrency: 1000,
 		Models: []SupplierSourceModel{{

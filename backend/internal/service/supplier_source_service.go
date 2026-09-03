@@ -12,7 +12,7 @@ import (
 type SupplierPriorityPreviewEntry struct {
 	SourceID         int64    `json:"source_id"`
 	SupplierName     string   `json:"supplier_name"`
-	ChannelName      string   `json:"channel_name"`
+	SupplierLane     string   `json:"supplier_lane"`
 	DiscountBand     int      `json:"discount_band"`
 	DiscountPriority int      `json:"discount_priority"`
 	Priority         int      `json:"priority"`
@@ -57,7 +57,7 @@ type SupplierSourceSyncResult struct {
 
 // SupplierAccountMatch is the SSOT key for adoption/conflict candidates:
 // credential fingerprint + normalized endpoint + TokenKey channel_type (transport).
-// channel_name (supplier lane label) is intentionally not part of matching.
+// supplier_lane (supplier lane label) is intentionally not part of matching.
 type SupplierAccountMatch struct {
 	Endpoint              string
 	CredentialFingerprint string
@@ -212,7 +212,7 @@ func (s *SupplierSourceService) PriorityPreview(ctx context.Context) (*SupplierP
 				return nil, priorityErr
 			}
 			preview.Entries = append(preview.Entries, SupplierPriorityPreviewEntry{
-				SourceID: source.ID, SupplierName: source.SupplierName, ChannelName: source.ChannelName,
+				SourceID: source.ID, SupplierName: source.SupplierName, SupplierLane: source.SupplierLane,
 				DiscountBand: band, DiscountPriority: discountPriority, Priority: targets[band].Priority,
 				ClientModelIDs: modelIDs,
 			})
@@ -793,7 +793,7 @@ func supplierSourceFromInput(input SupplierSourceInput, basePriority, accountCon
 		models = append(models, SupplierSourceModel(model))
 	}
 	return &SupplierSource{
-		SupplierName: input.SupplierName, ChannelName: input.ChannelName, ChannelType: input.ChannelType,
+		SupplierName: input.SupplierName, SupplierLane: input.SupplierLane, ChannelType: input.ChannelType,
 		Endpoint:     input.Endpoint,
 		BasePriority: basePriority, AccountConcurrency: ResolveSupplierSourceAccountConcurrency(accountConcurrency),
 		Models: models, Notes: input.Notes,
@@ -950,5 +950,5 @@ func sortedSupplierAccountBands(accounts map[int]*Account) []int {
 }
 
 func supplierManagedAccountName(source *SupplierSource, band int) string {
-	return fmt.Sprintf("%s/%s · 档位 %d", source.SupplierName, source.ChannelName, band)
+	return fmt.Sprintf("%s/%s · 档位 %d", source.SupplierName, source.SupplierLane, band)
 }

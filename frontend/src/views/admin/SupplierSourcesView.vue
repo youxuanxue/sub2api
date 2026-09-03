@@ -40,7 +40,7 @@
           </thead>
           <tbody>
             <tr v-for="entry in priorityPreview.entries" :key="`${entry.source_id}-${entry.discount_band}`">
-              <td class="px-2 py-2">{{ entry.supplier_name }}/{{ entry.channel_name }}</td>
+              <td class="px-2 py-2">{{ entry.supplier_name }}/{{ entry.supplier_lane }}</td>
               <td class="px-2 py-2">{{ entry.discount_band }}</td>
               <td class="px-2 py-2">{{ entry.priority }}</td>
               <td class="px-2 py-2">{{ entry.client_model_ids.join(', ') }}</td>
@@ -123,8 +123,8 @@
                   @click="selectSource(source)"
                 >
                   <div class="truncate text-sm font-medium">
-                    <template v-if="groupedSources.length > 1">{{ source.channel_name }}</template>
-                    <template v-else>{{ source.supplier_name }} · {{ source.channel_name }}</template>
+                    <template v-if="groupedSources.length > 1">{{ source.supplier_lane }}</template>
+                    <template v-else>{{ source.supplier_name }} · {{ source.supplier_lane }}</template>
                   </div>
                   <div class="truncate text-[11px] text-gray-500">
                     priority {{ source.base_priority }} · {{ source.models.length }} models
@@ -165,9 +165,9 @@
               <input v-model.trim="form.supplier_name" data-test="supplier-name" required class="mt-1 w-full rounded-lg border px-3 py-2" />
             </label>
             <label class="text-sm">
-              {{ t('admin.supplierSources.channelName') }}
-              <input v-model.trim="form.channel_name" data-test="channel-name" required class="mt-1 w-full rounded-lg border px-3 py-2" />
-              <span class="mt-1 block text-xs text-gray-500">{{ t('admin.supplierSources.channelNameHint') }}</span>
+              {{ t('admin.supplierSources.supplierLane') }}
+              <input v-model.trim="form.supplier_lane" data-test="supplier-lane" required class="mt-1 w-full rounded-lg border px-3 py-2" />
+              <span class="mt-1 block text-xs text-gray-500">{{ t('admin.supplierSources.supplierLaneHint') }}</span>
             </label>
           </div>
 
@@ -624,7 +624,7 @@ function sourceMatchesQuery(source: SupplierSource, rawQuery: string): boolean {
   if (query === '') return true
   const haystack = [
     source.supplier_name,
-    source.channel_name,
+    source.supplier_lane,
     source.notes,
     ...source.models.flatMap(model => [model.client_model_id, model.upstream_model_id]),
   ].join('\n').toLowerCase()
@@ -654,7 +654,7 @@ const emptyModel = (): SupplierSourceModel => ({
 
 const form = reactive<SupplierSourceInput>({
   supplier_name: '',
-  channel_name: 'default',
+  supplier_lane: 'default',
   channel_type: 1,
   endpoint: '',
   credential: '',
@@ -705,7 +705,7 @@ function resetForm(): void {
   saveError.value = ''
   Object.assign(form, {
     supplier_name: '',
-    channel_name: 'default',
+    supplier_lane: 'default',
     channel_type: 1,
     endpoint: '',
     credential: '',
@@ -727,7 +727,7 @@ function selectSource(source: SupplierSource): void {
   saveError.value = ''
   Object.assign(form, {
     supplier_name: source.supplier_name,
-    channel_name: source.channel_name,
+    supplier_lane: source.supplier_lane,
     channel_type: source.channel_type,
     endpoint: source.endpoint,
     credential: '',
@@ -738,15 +738,15 @@ function selectSource(source: SupplierSource): void {
   })
 }
 
-function nextCopyChannelName(source: Pick<SupplierSource, 'supplier_name' | 'channel_name' | 'endpoint'>): string {
+function nextCopySupplierLane(source: Pick<SupplierSource, 'supplier_name' | 'supplier_lane' | 'endpoint'>): string {
   const suffix = t('admin.supplierSources.copySuffix')
   const taken = new Set(
     sources.value
       .filter(item => item.supplier_name === source.supplier_name && item.endpoint === source.endpoint)
-      .map(item => item.channel_name),
+      .map(item => item.supplier_lane),
   )
-  const candidates = [`${source.channel_name} (${suffix})`]
-  for (let n = 2; n < 100; n++) candidates.push(`${source.channel_name} (${suffix} ${n})`)
+  const candidates = [`${source.supplier_lane} (${suffix})`]
+  for (let n = 2; n < 100; n++) candidates.push(`${source.supplier_lane} (${suffix} ${n})`)
   for (const name of candidates) {
     if (!taken.has(name) && name.length <= 120) return name
   }
@@ -767,9 +767,9 @@ function copySelected(): void {
   saveError.value = ''
   Object.assign(form, {
     supplier_name: input.supplier_name,
-    channel_name: nextCopyChannelName({
+    supplier_lane: nextCopySupplierLane({
       supplier_name: input.supplier_name,
-      channel_name: input.channel_name || origin.channel_name,
+      supplier_lane: input.supplier_lane || origin.supplier_lane,
       endpoint: input.endpoint,
     }),
     channel_type: input.channel_type,
@@ -784,7 +784,7 @@ function copySelected(): void {
   })
   void nextTick(() => {
     editorEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-    document.querySelector<HTMLInputElement>('[data-test="channel-name"]')?.focus()
+    document.querySelector<HTMLInputElement>('[data-test="supplier-lane"]')?.focus()
   })
 }
 
@@ -824,7 +824,7 @@ function buildInput(): SupplierSourceInput {
     }))
   return {
     supplier_name: form.supplier_name.trim(),
-    channel_name: form.channel_name.trim(),
+    supplier_lane: form.supplier_lane.trim(),
     channel_type: Number(form.channel_type),
     endpoint: form.endpoint.trim(),
     credential: form.credential,
@@ -842,7 +842,7 @@ const hasUnsavedChanges = computed(() => {
   if (input.credential.trim() !== '') return true
   if (
     input.supplier_name !== source.supplier_name
-    || input.channel_name !== source.channel_name
+    || input.supplier_lane !== source.supplier_lane
     || input.channel_type !== source.channel_type
     || input.endpoint !== source.endpoint
     || input.base_priority !== source.base_priority

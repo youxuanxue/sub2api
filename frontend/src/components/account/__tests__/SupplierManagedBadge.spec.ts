@@ -56,7 +56,7 @@ describe('SupplierManagedBadge', () => {
       {
         id: 7,
         supplier_name: '佳杰',
-        channel_name: 'VSTECS',
+        supplier_lane: 'VSTECS',
         endpoint: 'https://example.com/v1',
         base_priority: 100,
         models: [],
@@ -85,7 +85,7 @@ describe('SupplierManagedBadge', () => {
       {
         id: 7,
         supplier_name: '佳杰科技',
-        channel_name: 'VSTECS-新合同',
+        supplier_lane: 'VSTECS-新合同',
         endpoint: 'https://example.com/v1',
         base_priority: 100,
         models: [],

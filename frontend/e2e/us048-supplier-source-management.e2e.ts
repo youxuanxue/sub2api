@@ -26,7 +26,7 @@ interface SupplierModel {
 interface SupplierSource {
   id: number
   supplier_name: string
-  channel_name: string
+  supplier_lane: string
   channel_type: number
   endpoint: string
   base_priority: number
@@ -148,7 +148,7 @@ function source(overrides: Partial<SupplierSource> = {}): SupplierSource {
   return {
     id: 7,
     supplier_name: '佳杰',
-    channel_name: 'VSTECS',
+    supplier_lane: 'VSTECS',
     channel_type: 1,
     endpoint: 'https://token.vstecscloud.com/v1',
     base_priority: 100,
@@ -205,7 +205,7 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
     if (path === '/api/v1/admin/supplier-sources' && request.method() === 'POST') {
       submitted = request.postDataJSON() as Record<string, unknown>
       sources = [source({
-        channel_name: 'first-batch-lowest-ratio',
+        supplier_lane: 'first-batch-lowest-ratio',
         notes: '首批最低合法比例',
         models: [
           {
@@ -228,7 +228,7 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
         entries: [{
           source_id: 7,
           supplier_name: '佳杰',
-          channel_name: 'first-batch-lowest-ratio',
+          supplier_lane: 'first-batch-lowest-ratio',
           discount_band: 3,
           discount_priority: 30,
           priority: 130,
@@ -298,7 +298,7 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
 
   await page.goto('/admin/supplier-sources')
   await page.locator('[data-test="supplier-name"]').fill('佳杰')
-  await page.locator('[data-test="channel-name"]').fill('first-batch-lowest-ratio')
+  await page.locator('[data-test="supplier-lane"]').fill('first-batch-lowest-ratio')
   await page.locator('[data-test="endpoint"]').fill('https://token.vstecscloud.com/v1')
   await page.locator('[data-test="credential"]').fill('jiajie-e2e-secret')
   await page.locator('[data-test="notes"]').fill('首批最低合法比例')
@@ -316,7 +316,7 @@ test('US048 project-before-validate reprobes, fails closed, and recovers on retr
   expect(syncRequests).toBe(0)
   expect(submitted).toEqual({
     supplier_name: '佳杰',
-    channel_name: 'first-batch-lowest-ratio',
+    supplier_lane: 'first-batch-lowest-ratio',
     channel_type: 1,
     endpoint: 'https://token.vstecscloud.com/v1',
     credential: 'jiajie-e2e-secret',
@@ -377,7 +377,7 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
   const fmgo = source({
     id: 9,
     supplier_name: 'FMGo',
-    channel_name: 'seedance-video',
+    supplier_lane: 'seedance-video',
     endpoint: 'https://fmgo.invalid/v1',
     models: [{
       client_model_id: 'doubao-seedance-2-0-260128',
@@ -516,12 +516,12 @@ test('US048 accounts UI marks supplier-managed accounts and allows ordinary edit
   await expect(page).toHaveURL(/\/admin\/supplier-sources\?source_id=7$/)
   await expect(page.locator('[data-test="source-select-7"]')).toHaveClass(/border-primary-500/)
   await expect(page.locator('[data-test="supplier-name"]')).toHaveValue('佳杰')
-  await expect(page.locator('[data-test="channel-name"]')).toHaveValue('VSTECS')
+  await expect(page.locator('[data-test="supplier-lane"]')).toHaveValue('VSTECS')
 })
 
 test('US048 operator copies a source into a new editor and filters the list', async ({ page }) => {
   const jiajie = source({
-    channel_name: 'VSTECS',
+    supplier_lane: 'VSTECS',
     models: [{
       client_model_id: 'deepseek-v4-pro',
       upstream_model_id: 'deepseek-v4-pro',
@@ -531,7 +531,7 @@ test('US048 operator copies a source into a new editor and filters the list', as
   const fmgo = source({
     id: 9,
     supplier_name: 'FMGo',
-    channel_name: 'seedance',
+    supplier_lane: 'seedance',
     endpoint: 'https://fmgo.invalid/v1',
     models: [{
       client_model_id: 'doubao-seedance-2-0-260128',
@@ -551,7 +551,7 @@ test('US048 operator copies a source into a new editor and filters the list', as
       created = request.postDataJSON() as Record<string, unknown>
       await fulfillSuccess(route, source({
         id: 11,
-        channel_name: String(created.channel_name ?? ''),
+        supplier_lane: String(created.supplier_lane ?? ''),
         models: jiajie.models,
       }))
       return true
@@ -570,7 +570,7 @@ test('US048 operator copies a source into a new editor and filters the list', as
   await expect(page.locator('[data-test="copy-source"]')).toHaveCount(0)
   await expect(page.locator('[data-test="sync-source"]')).toHaveCount(0)
   await expect(page.locator('[data-test="source-select-7"]')).not.toHaveClass(/border-primary-500/)
-  await expect(page.locator('[data-test="channel-name"]')).toHaveValue('VSTECS (副本)')
+  await expect(page.locator('[data-test="supplier-lane"]')).toHaveValue('VSTECS (副本)')
   await expect(page.locator('[data-test="credential"]')).toHaveValue('')
   await expect(page.locator('[data-test="client-model-id"]')).toHaveValue('deepseek-v4-pro')
 
@@ -579,7 +579,7 @@ test('US048 operator copies a source into a new editor and filters the list', as
   await expect(page.locator('[data-test="source-select-11"]')).toBeVisible()
   expect(created).toMatchObject({
     supplier_name: '佳杰',
-    channel_name: 'VSTECS (副本)',
+    supplier_lane: 'VSTECS (副本)',
     credential: 'copied-e2e-secret',
   })
 
