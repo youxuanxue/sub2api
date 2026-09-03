@@ -21,11 +21,6 @@
           :placeholder="t('admin.groups.members.searchPlaceholder')"
           @input="scheduleReload"
         />
-        <select v-model="filterBound" class="input w-auto" @change="onBoundFilterChange">
-          <option value="all">{{ t('admin.groups.members.filterBoundAll') }}</option>
-          <option value="bound">{{ t('admin.groups.members.filterBoundYes') }}</option>
-          <option value="unbound">{{ t('admin.groups.members.filterBoundNo') }}</option>
-        </select>
         <button
           type="button"
           class="btn btn-secondary"
@@ -98,7 +93,20 @@
                   </select>
                 </div>
               </th>
-              <th class="px-3 py-2 text-left font-medium">{{ t('admin.groups.members.colBound') }}</th>
+              <th class="px-3 py-2 text-left font-medium">
+                <div class="space-y-1">
+                  <div>{{ t('admin.groups.members.colBound') }}</div>
+                  <select
+                    v-model="filterBound"
+                    class="input input-sm w-full min-w-[5rem] text-xs font-normal"
+                    @change="onBoundFilterChange"
+                  >
+                    <option value="all">{{ t('common.all') }}</option>
+                    <option value="bound">{{ t('admin.groups.members.filterBoundYes') }}</option>
+                    <option value="unbound">{{ t('admin.groups.members.filterBoundNo') }}</option>
+                  </select>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
