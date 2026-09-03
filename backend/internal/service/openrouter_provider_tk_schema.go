@@ -163,7 +163,7 @@ func openRouterProviderBuildModelDocument(
 		Created:          created,
 		Quantization:     openRouterProviderDefaultQuantization,
 		InputModalities:  openRouterProviderBuildInputModalities(cfg, group, meta, sourceID, promptUSD, cacheReadUSD, baseMult, outType),
-		OutputModalities: openRouterProviderBuildOutputModalities(cfg, group, meta, sourceID, completionUSD, baseMult, outType),
+		OutputModalities: openRouterProviderBuildOutputModalities(cfg, group, meta, completionUSD, baseMult, outType),
 		IsReady:          true,
 		OpenRouter: map[string]string{
 			"slug": slug,
@@ -241,7 +241,6 @@ func openRouterProviderBuildOutputModalities(
 	cfg OpenRouterProviderConfig,
 	group *Group,
 	meta *PublicCatalogModel,
-	sourceID string,
 	completionUSD, baseMult float64,
 	outType string,
 ) []OpenRouterProviderOutputModality {
@@ -277,7 +276,9 @@ func openRouterProviderBuildOutputModalities(
 	default:
 		streaming := true
 		maxOut := openRouterProviderMaxOutputLength(cfg, meta)
-		mod := OpenRouterProviderOutputModality{
+		// capacity_tpm stays a single quota (flat-era semantics): declare it only on
+		// input text prompt capacity. Duplicating onto output would double-count to OR.
+		return []OpenRouterProviderOutputModality{{
 			Type: "text",
 			MaxLength: &OpenRouterProviderQuantity{
 				Value: maxOut,
@@ -286,16 +287,7 @@ func openRouterProviderBuildOutputModalities(
 			Streaming:           &streaming,
 			SupportedParameters: openRouterProviderTextSupportedParameters(meta, maxOut),
 			Pricing:             openRouterProviderBuildTextOutputPricing(group, meta, completionUSD, baseMult),
-		}
-		if tpm := openRouterProviderCapacityTPM(cfg, sourceID); tpm != nil && *tpm > 0 {
-			mod.Capacity = []OpenRouterProviderCapacityEntry{{
-				Type:  "completion",
-				Unit:  "token",
-				Per:   "minute",
-				Value: *tpm,
-			}}
-		}
-		return []OpenRouterProviderOutputModality{mod}
+		}}
 	}
 }
 

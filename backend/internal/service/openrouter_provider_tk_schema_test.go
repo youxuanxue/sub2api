@@ -79,6 +79,26 @@ func TestOpenRouterProviderBuildModelDocument_OmitsZeroPriceEntries(t *testing.T
 	}
 }
 
+func TestOpenRouterProviderBuildModelDocument_CapacityTPMOnlyOnInput(t *testing.T) {
+	tpm := int64(250000)
+	cfg := DefaultOpenRouterProviderConfig()
+	cfg.CapacityTPM = &tpm
+	cfg.ModelCapacityTPM = map[string]int64{"demo": 120000}
+	item := openRouterProviderBuildModelDocument(
+		cfg, nil, nil,
+		"tokenkey/demo", "demo", "tokenkey/demo",
+		1,
+		0.001, 0.002, 0, 1,
+	)
+	inCap := item.InputModalities[0].Capacity
+	if len(inCap) != 1 || inCap[0].Type != "prompt" || inCap[0].Value != 120000 {
+		t.Fatalf("input capacity=%+v", inCap)
+	}
+	if len(item.OutputModalities[0].Capacity) != 0 {
+		t.Fatalf("output must not duplicate capacity_tpm: %+v", item.OutputModalities[0].Capacity)
+	}
+}
+
 func TestOpenRouterProviderBuildModelDocument_PeakWindowEntries(t *testing.T) {
 	cfg := DefaultOpenRouterProviderConfig()
 	group := &Group{
