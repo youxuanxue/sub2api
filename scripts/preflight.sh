@@ -2484,6 +2484,9 @@ _servable_go="backend/internal/service/pricing_catalog_supported_models_tk.go"
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by servable-allowlist selftest)"
     errors=$((errors + 1))
+elif ! python3 -m unittest ops.pricing.test_servable_reprobe_ledger >/dev/null 2>&1; then
+    echo "  FAIL: servable reprobe ledger tests (re-run: python3 -m unittest ops.pricing.test_servable_reprobe_ledger)"
+    errors=$((errors + 1))
 elif ! python3 ops/pricing/refresh-servable-allowlist.py selftest >/dev/null 2>&1; then
     echo "  FAIL: ops/pricing/refresh-servable-allowlist.py selftest failed (re-run: python3 ops/pricing/refresh-servable-allowlist.py selftest)"
     errors=$((errors + 1))

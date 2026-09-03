@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Callable
 
 LEDGER_LISTS = ("probe_candidates", "watchlist", "skiplist", "structurally_gone")
 VOLATILE_CANDIDATE_FIELDS = {"auto_probe", "last_probe", "freshness_days", "expires"}
+DURABLE_LISTS = {"probe_candidates", "skiplist", "structurally_gone"}
+DURABLE_REASON_ANTIPATTERNS = {
+    "calendar date": re.compile(r"\b20\d{2}-\d{2}-\d{2}\b"),
+    "account/group id": re.compile(r"\b(?:account|group)(?:_id)?\s*[=:]\s*\d+\b", re.IGNORECASE),
+    "point-in-time state": re.compile(r"\b(?:current|currently|live|then-current)\b", re.IGNORECASE),
+}
 
 
 def load(path: Path) -> dict:
@@ -53,6 +60,13 @@ def validate(
                 raise ValueError(f"{list_name}[{idx}]: platform and model are required")
             if not reason:
                 raise ValueError(f"{list_name}[{idx}] {platform}/{model}: reason is required")
+            if list_name in DURABLE_LISTS:
+                for label, pattern in DURABLE_REASON_ANTIPATTERNS.items():
+                    if pattern.search(str(reason)):
+                        raise ValueError(
+                            f"{list_name} {platform}/{model}: durable reason contains {label}; "
+                            "keep time-bounded evidence in watchlist or external evidence"
+                        )
             key = (platform, model)
             if key in seen:
                 raise ValueError(f"{platform}/{model}: appears in both {seen[key]} and {list_name}")
