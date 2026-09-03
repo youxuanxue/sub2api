@@ -140,6 +140,26 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("GLOBAL_SITE_DOMAIN is required", proc.stderr)
 
+    def test_enabled_global_phase_requires_a_resolvable_apex_hostname(self) -> None:
+        env = {
+            **os.environ,
+            "API_DOMAIN": "localhost",
+            "ACME_EMAIL": "ops@example.com",
+            "GLOBAL_SITE_DOMAIN": "global.tokenkey.dev",
+            "GLOBAL_SITE_PHASE": "candidate",
+        }
+        with tempfile.NamedTemporaryFile("w+", suffix=".caddy") as tmp:
+            proc = subprocess.run(
+                ["bash", str(_RENDER), str(_TEMPLATE), tmp.name],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("SITE_DOMAIN must resolve", proc.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -52,6 +52,10 @@
 #
 # Env:
 #   AWS_REGION / AWS_DEFAULT_REGION   region for SSM (optional)
+#   GLOBAL_SITE_PHASE                 prod-only: candidate, live, or disabled;
+#                                     omit to preserve the host's current value
+#   GLOBAL_SITE_DOMAIN                required with candidate/live; omit with
+#                                     disabled, which clears the persisted value
 #   EDGE_ID                           Lightsail Hybrid edge id; when set and
 #                                     instance_id is mi-*, targets by tag like
 #                                     deploy_via_ssm.sh.
@@ -91,6 +95,50 @@ if [[ ! -f "${CADDY_SRC}" ]]; then
   exit 1
 fi
 
+APPLY_GLOBAL_PROFILE=false
+TARGET_GLOBAL_SITE_PHASE=""
+TARGET_GLOBAL_SITE_DOMAIN=""
+global_phase_is_set="${GLOBAL_SITE_PHASE+x}"
+global_domain_is_set="${GLOBAL_SITE_DOMAIN+x}"
+
+if [[ "${KIND}" == edge && ( -n "${global_phase_is_set}" || -n "${global_domain_is_set}" ) ]]; then
+  echo "sync_caddyfile_via_ssm: GLOBAL_SITE_PHASE/DOMAIN are prod-only" >&2
+  exit 1
+fi
+if [[ "${KIND}" == prod ]]; then
+  if [[ -z "${global_phase_is_set}" && -n "${global_domain_is_set}" ]]; then
+    echo "sync_caddyfile_via_ssm: GLOBAL_SITE_DOMAIN requires GLOBAL_SITE_PHASE" >&2
+    exit 1
+  fi
+  if [[ -n "${global_phase_is_set}" ]]; then
+    APPLY_GLOBAL_PROFILE=true
+    TARGET_GLOBAL_SITE_PHASE="${GLOBAL_SITE_PHASE}"
+    case "${TARGET_GLOBAL_SITE_PHASE}" in
+      disabled)
+        if [[ -n "${GLOBAL_SITE_DOMAIN:-}" ]]; then
+          echo "sync_caddyfile_via_ssm: disabled phase must not include GLOBAL_SITE_DOMAIN" >&2
+          exit 1
+        fi
+        ;;
+      candidate|live)
+        TARGET_GLOBAL_SITE_DOMAIN="${GLOBAL_SITE_DOMAIN:-}"
+        if [[ -z "${global_domain_is_set}" || -z "${TARGET_GLOBAL_SITE_DOMAIN}" ]]; then
+          echo "sync_caddyfile_via_ssm: GLOBAL_SITE_DOMAIN is required for ${TARGET_GLOBAL_SITE_PHASE}" >&2
+          exit 1
+        fi
+        if [[ ! "${TARGET_GLOBAL_SITE_DOMAIN}" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]; then
+          echo "sync_caddyfile_via_ssm: GLOBAL_SITE_DOMAIN must be a lowercase DNS hostname" >&2
+          exit 1
+        fi
+        ;;
+      *)
+        echo "sync_caddyfile_via_ssm: GLOBAL_SITE_PHASE must be disabled, candidate, or live" >&2
+        exit 1
+        ;;
+    esac
+  fi
+fi
+
 # base64 the canonical repo Caddyfile; tr -d '\n' keeps it a single token so it
 # embeds cleanly in the SSM command array.
 CADDY_B64="$(base64 < "${CADDY_SRC}" | tr -d '\n')"
@@ -109,20 +157,41 @@ params_file="${OUTPUT_DIR}/ssm-params.json"
 stdout_file="${OUTPUT_DIR}/stdout.txt"
 stderr_file="${OUTPUT_DIR}/stderr.txt"
 
-jq -n --arg b64 "${CADDY_B64}" --arg render_b64 "${RENDER_SCRIPT_B64}" --arg kind "${KIND}" '{
+jq -n \
+  --arg b64 "${CADDY_B64}" \
+  --arg render_b64 "${RENDER_SCRIPT_B64}" \
+  --arg kind "${KIND}" \
+  --arg apply_global_profile "${APPLY_GLOBAL_PROFILE}" \
+  --arg global_site_phase "${TARGET_GLOBAL_SITE_PHASE}" \
+  --arg global_site_domain "${TARGET_GLOBAL_SITE_DOMAIN}" '{
   commands: [
     "set -euo pipefail",
-    ("KIND=" + $kind),
+    ("KIND=" + ($kind | @sh)),
+    ("APPLY_GLOBAL_PROFILE=" + ($apply_global_profile | @sh)),
+    ("TARGET_GLOBAL_SITE_PHASE=" + ($global_site_phase | @sh)),
+    ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
     "CADDY_DIR=/var/lib/tokenkey/caddy",
     "LIVE=$CADDY_DIR/Caddyfile",
+    "ENV_FILE=/var/lib/tokenkey/.env",
     "TS=$(date +%Y%m%d-%H%M%S)",
     "BACKUP=$CADDY_DIR/Caddyfile.before-$TS",
+    "ENV_BACKUP=$ENV_FILE.before-caddy-sync-$TS",
     "echo \"=== sync Caddyfile (kind=$KIND backup=$BACKUP) ===\"",
     "[ -f \"$LIVE\" ] || { echo \"::error::no live Caddyfile at $LIVE — is this a Stage0 host?\"; exit 1; }",
+    "[ -f \"$ENV_FILE\" ] || { echo \"::error::no environment file at $ENV_FILE — is this a Stage0 host?\"; exit 1; }",
     "sudo cp -a \"$LIVE\" \"$BACKUP\"",
-    "rollback() { rc=$?; echo \"::warning::sync failed; restoring previous Caddyfile\"; if [ -f \"$BACKUP\" ]; then sudo sh -c \"cat '\''$BACKUP'\'' > '\''$LIVE'\''\"; sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -5 || true; fi; exit $rc; }",
+    "sudo cp -a \"$ENV_FILE\" \"$ENV_BACKUP\"",
+    "rollback() { rc=$?; echo \"::warning::sync failed; restoring previous Caddyfile and environment\"; if [ -f \"$ENV_BACKUP\" ]; then sudo cp -a \"$ENV_BACKUP\" \"$ENV_FILE\"; fi; if [ -f \"$BACKUP\" ]; then sudo sh -c \"cat '\''$BACKUP'\'' > '\''$LIVE'\''\"; sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -5 || true; fi; exit $rc; }",
     "trap rollback ERR",
     "echo \"=== derive render vars (same set as boot UserData) ===\"",
+    "if [ \"$APPLY_GLOBAL_PROFILE\" = true ]; then",
+    "  ENV_NEW=$ENV_FILE.new-$TS",
+    "  sudo awk -v phase=\"$TARGET_GLOBAL_SITE_PHASE\" -v domain=\"$TARGET_GLOBAL_SITE_DOMAIN\" '\''BEGIN { phase_seen=0; domain_seen=0 } /^GLOBAL_SITE_PHASE=/ { print \"GLOBAL_SITE_PHASE=\" phase; phase_seen=1; next } /^GLOBAL_SITE_DOMAIN=/ { print \"GLOBAL_SITE_DOMAIN=\" domain; domain_seen=1; next } { print } END { if (!phase_seen) print \"GLOBAL_SITE_PHASE=\" phase; if (!domain_seen) print \"GLOBAL_SITE_DOMAIN=\" domain }'\'' \"$ENV_FILE\" | sudo tee \"$ENV_NEW\" >/dev/null",
+    "  sudo chown --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
+    "  sudo chmod --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
+    "  sudo mv \"$ENV_NEW\" \"$ENV_FILE\"",
+    "  echo \"global homepage phase persisted: $TARGET_GLOBAL_SITE_PHASE\"",
+    "fi",
     "# API_DOMAIN / ACME_EMAIL are persisted in the host .env at boot.",
     "set -a; . /var/lib/tokenkey/.env; set +a",
     "[ -n \"${API_DOMAIN:-}\" ] || { echo \"::error::API_DOMAIN empty in /var/lib/tokenkey/.env\"; exit 1; }",
@@ -131,7 +200,7 @@ jq -n --arg b64 "${CADDY_B64}" --arg render_b64 "${RENDER_SCRIPT_B64}" --arg kin
     "# current rendered Caddyfile so the allowlist survives the re-render verbatim.",
     "MAIN_GATEWAY_ALLOWED_CIDR=\"$(sed -n '\''s/^[[:space:]]*remote_ip[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
     "if [ \"$KIND\" = edge ] && [ -z \"$MAIN_GATEWAY_ALLOWED_CIDR\" ]; then echo \"::error::could not read remote_ip allowlist from live edge Caddyfile $LIVE\"; exit 1; fi",
-    "echo \"render vars: API_DOMAIN=$API_DOMAIN SITE_DOMAIN=${SITE_DOMAIN:-<derived>} ACME_EMAIL=${ACME_EMAIL:-} MAIN_GATEWAY_ALLOWED_CIDR=${MAIN_GATEWAY_ALLOWED_CIDR:-<none>}\"",
+    "echo \"render context loaded for kind=$KIND\"",
     ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
     "if [ \"$KIND\" = prod ]; then",
     ("  printf '\''%s'\'' \"" + $render_b64 + "\" | base64 -d > /tmp/render-prod-caddyfile.sh"),

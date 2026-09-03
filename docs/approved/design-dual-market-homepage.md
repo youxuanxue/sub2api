@@ -76,7 +76,7 @@ TTFC（Time to First Call）从用户点击首页主 CTA 开始，到其第一�
 
 首页只保留四个动作：
 
-1. Hero + Proof：同一首屏展示真实 Seedream 源图到 Seedance 成片，产品名和价值主张必须可见；
+1. Hero + Proof：同一首屏展示官方 Seedance 2.5 成片，产品名和价值主张必须可见；
 2. Models：Seedance、Seedream 是主角；Qwen、DeepSeek、GLM、Kimi 作为 `Also available`；
 3. Verify your key：一段短 OpenAI-compatible `deepseek-chat` 示例，明确它用于 30 秒验证 Key；
 4. CTA + FAQ：一个最终 CTA 和四个真实问题，不增加其他营销 section。
@@ -155,7 +155,7 @@ resolveHomepageProfile(hostname)
   all other hosts     -> current
 ```
 
-只有 `HomeView.vue` 可以消费该 profile。其他页面、store、API client 和后端业务逻辑不得读取 market profile。
+只有 `HomeView.vue` 可以消费该 profile 进行页面渲染。Router 可以调用同一 owner 的 global path redirect helper，但不得衍生第二套 profile；其他页面、store、API client 和后端业务逻辑不得读取 market profile。
 
 建议 owner 形状：
 
@@ -180,17 +180,15 @@ frontend/src/i18n/tk/home.tk.ts                  # 两个 profile 的展示文�
 
 ## 6. 真实媒体资产合同
 
-Hero 和 Proof 禁止使用假 UI、图库视频或无法追溯来源的样片。上线资产包至少包含：
+Hero 和 Proof 禁止使用假 UI、图库视频或无法追溯来源的样片。官方 Seedance 2.5 展示页的视频可以作为首发素材，不要求它来自 TokenKey 自己完成的一次 Seedream -> Seedance 工作流。上线资产包至少包含：
 
 | 资产 | 要求 |
 | --- | --- |
-| Seedance Hero | 真实模型输出；桌面与移动端均有可用裁切；静音自动播放、循环、可暂停 |
-| Seedream source | 展示实际输入图，不用后补的“示意图”冒充 |
-| Seedance result | 与 source 属于同一次可复现工作流，不能拼接无关视频 |
-| Poster | 首帧加载前不留黑框，弱网和 reduced-motion 下可独立表达结果 |
-| Provenance | 记录模型 ID/版本、prompt、生成时间、生成账号/授权、源文件 checksum |
+| Seedance Hero | 官方 Seedance 2.5 展示视频；桌面与移动端均有可用裁切；静音自动播放、循环、可暂停 |
+| Poster | 从同一官方视频派生；首帧加载前不留黑框，弱网和 reduced-motion 下可独立表达结果 |
+| Provenance | 记录官方来源页、模型版本、源文件与派生文件 checksum、转码/截帧说明，以及产品负责人的使用决定 |
 
-交付格式至少为 MP4 + WebM 视频、WebP/AVIF poster，并设置稳定 `aspect-ratio`，避免加载导致页面位移。媒体不应阻塞首屏标题和 CTA；移动端需展示结果主体而非模糊背景。
+首发交付允许使用 MP4 视频和 JPEG poster；可以按真实兼容性或性能收益增加 WebM、WebP/AVIF，但不作为上线硬门槛。媒体必须设置稳定 `aspect-ratio`，避免加载导致页面位移，不应阻塞首屏标题和 CTA；移动端需展示结果主体而非模糊背景。
 
 ## 7. SEO 与边缘路由合同
 
@@ -284,7 +282,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 
 1. 以本文档固定首批客户、首页承诺、两个 hostname、完整用户路径和明确不做项；
 2. 确认首页展示的六个模型具有真实可服务来源、准确 model ID 和价格；
-3. 确认 Seedream 源图、Seedance 成片及其生成凭证可以公开使用；
+3. 确认官方 Seedance 2.5 素材的来源、版本、checksum、派生过程和产品负责人使用决定均已记录；
 4. 记录产品研发依赖的外部结论及其状态；未获得明确结论的能力保持关闭，不由研发代码推断。
 
 完成标准：研发无需再猜测目标用户、页面结构、默认模型、域名行为或发布边界；任何新增需求先从首版删除，除非它阻断首次成功调用或已开放的核心产品路径。
@@ -292,7 +290,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 ### 阶段 2：完成产品研发
 
 1. 实现唯一的 hostname profile owner，以及 current / china-export 两种首页内容；
-2. 完成真实 Seedream -> Seedance 首屏、模型展示、DeepSeek Key 验证和 CTA；
+2. 完成官方 Seedance 2.5 首屏、模型展示、DeepSeek Key 验证和 CTA；
 3. 完成 `global.tokenkey.dev` 的 Caddy、证书、静态资源 allowlist、非首页重定向和回滚配置；
 4. 完成双 host 的 canonical、OG、crawler prerender 和生产候选状态的 `noindex`；
 5. 复用现有注册、统一余额、API Key、Quickstart、Studio 和支付页面，不产生市场分支；
@@ -410,7 +408,7 @@ UI 端到端验收必须由 Playwright 驱动真实浏览器。后端 handler �
 
 ## 14. 乔布斯式完成定义
 
-海外图像/视频产品开发者看到 Seedream 到 Seedance 的真实结果，立刻理解“一个 Key 调中国领先模型”；点一次 CTA 后用 DeepSeek 快速验证 Key，并能继续完成真实媒体生成和付费。
+海外图像/视频产品开发者看到官方 Seedance 2.5 的真实结果，立刻理解“一个 Key 调中国领先模型”；点一次 CTA 后用 DeepSeek 快速验证 Key，并能继续完成真实媒体生成和付费。
 
 现有用户完全感知不到这次架构扩展；产品研发、部署和上线始终只有一套系统。
 

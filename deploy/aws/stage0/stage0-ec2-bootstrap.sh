@@ -185,61 +185,20 @@ cd /var/lib/tokenkey
 # --- 3. docker-compose + Caddy from SSM ---------------------------------
 COMPOSE_PARAM="${STAGE0_PREFIX}/docker-compose.gzip.b64"
 CADDY_PARAM="${STAGE0_PREFIX}/caddyfile.template.gzip.b64"
+CADDY_RENDER_PARAM="${STAGE0_PREFIX}/render-prod-caddyfile.gzip.b64"
 COMPOSE_B64="$(aws ssm get-parameter --name "${COMPOSE_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 CADDY_B64="$(aws ssm get-parameter --name "${CADDY_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
+RENDER_B64="$(aws ssm get-parameter --name "${CADDY_RENDER_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
-
-render_prod_caddyfile() {
-  local template="$1" output="$2"
-  local site_domain="${SITE_DOMAIN:-}"
-  local global_site_domain="${GLOBAL_SITE_DOMAIN:-}"
-  local global_site_phase="${GLOBAL_SITE_PHASE:-disabled}"
-  local global_redirect_status
-  if [[ -z "${site_domain}" && "${API_DOMAIN}" == api.* ]]; then
-    site_domain="${API_DOMAIN#api.}"
-  fi
-  if [[ "${site_domain}" == "${API_DOMAIN}" ]]; then
-    site_domain=""
-  fi
-  case "${global_site_phase}" in
-    disabled) global_site_domain=""; global_redirect_status="302" ;;
-    candidate)
-      [[ -n "${global_site_domain}" ]] || { echo "GLOBAL_SITE_DOMAIN required for candidate" >&2; return 1; }
-      global_redirect_status="302"
-      ;;
-    live)
-      [[ -n "${global_site_domain}" ]] || { echo "GLOBAL_SITE_DOMAIN required for live" >&2; return 1; }
-      global_redirect_status="301"
-      ;;
-    *) echo "invalid GLOBAL_SITE_PHASE=${global_site_phase}" >&2; return 1 ;;
-  esac
-  local tmp phase_tmp
-  tmp="$(mktemp)"
-  phase_tmp="$(mktemp)"
-  export API_DOMAIN ACME_EMAIL SITE_DOMAIN="${site_domain}"
-  export GLOBAL_SITE_DOMAIN="${global_site_domain}" GLOBAL_REDIRECT_STATUS="${global_redirect_status}"
-  envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN $GLOBAL_SITE_DOMAIN $GLOBAL_REDIRECT_STATUS' < "${template}" > "${tmp}"
-  if [[ -z "${site_domain}" ]]; then
-    sed '/^# BEGIN_APEX_VHOST$/,/^# END_APEX_VHOST$/d' "${tmp}" \
-      | sed '/^# BEGIN_GLOBAL_VHOST$/,/^# END_GLOBAL_VHOST$/d' \
-      | sed '/^# BEGIN_API_MACHINE_SPLIT$/,/^# END_API_MACHINE_SPLIT$/d' \
-      | sed -e '/^# BEGIN_.*$/d' -e '/^# END_.*$/d' > "${output}"
-  else
-    sed '/^# BEGIN_API_FULL_PROXY$/,/^# END_API_FULL_PROXY$/d' "${tmp}" > "${phase_tmp}"
-    if [[ -z "${global_site_domain}" ]]; then
-      sed '/^# BEGIN_GLOBAL_VHOST$/,/^# END_GLOBAL_VHOST$/d' "${phase_tmp}" \
-        | sed -e '/^# BEGIN_.*$/d' -e '/^# END_.*$/d' > "${output}"
-    elif [[ "${global_site_phase}" == live ]]; then
-      sed '/^# BEGIN_GLOBAL_NOINDEX$/,/^# END_GLOBAL_NOINDEX$/d' "${phase_tmp}" \
-        | sed -e '/^# BEGIN_.*$/d' -e '/^# END_.*$/d' > "${output}"
-    else
-      sed -e '/^# BEGIN_.*$/d' -e '/^# END_.*$/d' "${phase_tmp}" > "${output}"
-    fi
-  fi
-  rm -f "${tmp}" "${phase_tmp}"
-}
-render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
+printf '%s' "${RENDER_B64}" | base64 -d | gunzip > caddy/render-prod-caddyfile.sh
+chmod 0755 caddy/render-prod-caddyfile.sh
+API_DOMAIN="${API_DOMAIN}" \
+ACME_EMAIL="${ACME_EMAIL}" \
+SITE_DOMAIN="${SITE_DOMAIN}" \
+GLOBAL_SITE_DOMAIN="${GLOBAL_SITE_DOMAIN}" \
+GLOBAL_SITE_PHASE="${GLOBAL_SITE_PHASE}" \
+  bash caddy/render-prod-caddyfile.sh caddy/Caddyfile.template caddy/Caddyfile
 
 install -d -m 0755 /etc/tokenkey
 install -d -m 0755 /usr/local/lib/tokenkey

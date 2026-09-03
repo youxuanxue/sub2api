@@ -2,6 +2,7 @@
 """Size gates for deploy/aws/stage0/build-cfn.sh outputs (stdlib-only)."""
 from __future__ import annotations
 
+import base64
 import gzip
 import os
 import pathlib
@@ -30,6 +31,29 @@ def _extract_userdata_body(cfn_text: str) -> str:
     return m.group(1)
 
 
+def _extract_marker_value(cfn_text: str, marker: str) -> str:
+    match = re.search(
+        rf"# >>> {re.escape(marker)} START[^\n]*\n\s*Value: '([^']*)'\n"
+        rf"\s*# >>> {re.escape(marker)} END",
+        cfn_text,
+    )
+    if not match:
+        raise AssertionError(f"{marker} payload not found")
+    return match.group(1)
+
+
+def _extract_userdata_launcher(cfn_text: str) -> str:
+    match = re.search(
+        r"^\s*# >>> USERDATA_LAUNCHER START[^\n]*\n(.*?)^\s*# >>> USERDATA_LAUNCHER END",
+        cfn_text,
+        re.M | re.S,
+    )
+    if not match:
+        raise AssertionError("UserData launcher markers not found")
+    lines = (line.removeprefix("          ") for line in match.group(1).splitlines())
+    return "#!/bin/bash\n" + "\n".join(lines) + "\n"
+
+
 class BuildCfnSizeTest(unittest.TestCase):
     def test_prod_userdata_under_ec2_limit(self) -> None:
         body = _extract_userdata_body(CFN_MAIN.read_text())
@@ -55,7 +79,7 @@ class BuildCfnSizeTest(unittest.TestCase):
         # additions, so the template now carries 3 part slots (see build-cfn.sh
         # split_b64_for_ssm + the BOOTSTRAP_GZB64_SSM_PART3 markers).
         raw = (STAGE0 / "stage0-ec2-bootstrap.sh").read_bytes()
-        b64 = __import__("base64").b64encode(gzip.compress(raw, 9)).decode()
+        b64 = base64.b64encode(gzip.compress(raw, 9)).decode()
         parts = [b64[i:i + SSM_STANDARD_LIMIT] for i in range(0, len(b64), SSM_STANDARD_LIMIT)]
         self.assertLessEqual(
             len(parts),
@@ -77,6 +101,28 @@ class BuildCfnSizeTest(unittest.TestCase):
             proc.returncode,
             0,
             msg=f"build-cfn --check failed:\nstdout={proc.stdout}\nstderr={proc.stderr}",
+        )
+
+    def test_prod_userdata_launcher_matches_source_and_exports_global_profile(self) -> None:
+        cfn_text = CFN_MAIN.read_text()
+        launcher = _extract_userdata_launcher(cfn_text)
+        self.assertEqual(
+            launcher,
+            (STAGE0 / "stage0-ec2-userdata-launcher.sub.sh").read_text(),
+        )
+        self.assertIn("export TK_GLOBAL_SITE_DOMAIN='${GlobalSiteDomain}'", launcher)
+        self.assertIn("export TK_GLOBAL_SITE_PHASE='${GlobalSitePhase}'", launcher)
+
+    def test_canonical_caddy_renderer_is_distributed_to_bootstrap(self) -> None:
+        cfn_text = CFN_MAIN.read_text()
+        encoded = _extract_marker_value(cfn_text, "CADDY_RENDER_GZB64_SSM")
+        self.assertEqual(
+            gzip.decompress(base64.b64decode(encoded)),
+            (STAGE0 / "render-prod-caddyfile.sh").read_bytes(),
+        )
+        self.assertIn(
+            "TokenkeyStage0CaddyRenderScriptGzipB64Parameter",
+            cfn_text,
         )
 
     def test_qa_boundary_runner_is_distributed_within_ssm_standard_limits(self) -> None:
@@ -109,7 +155,7 @@ class BuildCfnSizeTest(unittest.TestCase):
             assert runner is not None
             self.assertLessEqual(len(runner.group(1)), SSM_STANDARD_LIMIT)
             parts.append(runner.group(1))
-        runner_bytes = gzip.decompress(__import__("base64").b64decode("".join(parts)))
+        runner_bytes = gzip.decompress(base64.b64decode("".join(parts)))
         self.assertEqual(runner_bytes, (STAGE0 / "tokenkey-qa-boundary.sh").read_bytes())
 
     def test_build_cfn_check_detects_source_drift(self) -> None:

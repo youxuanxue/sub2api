@@ -34,7 +34,7 @@
         <!-- Logo -->
         <div class="flex items-center gap-3">
           <div class="h-10 w-10 overflow-hidden rounded-xl shadow-md">
-            <img :src="siteLogo" :alt="brandName" class="h-full w-full object-contain" />
+            <img :src="headerLogo" :alt="brandName" class="h-full w-full object-contain" />
           </div>
           <span v-if="isChinaExport" class="text-base font-semibold text-gray-950 dark:text-white">
             {{ brandName }}
@@ -903,6 +903,7 @@ const {
   toggleTheme,
   userInitial,
 } = useHomeShell()
+const headerLogo = computed(() => (isChinaExport.value ? '/logo.png' : siteLogo.value))
 </script>
 
 <style scoped>

@@ -15,7 +15,7 @@ import unittest
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "sync_caddyfile_via_ssm.sh"
 
 
-def _run_sync(kind: str = "prod"):
+def _run_sync(kind: str = "prod", extra_env: dict[str, str] | None = None):
     out_dir = pathlib.Path(tempfile.mkdtemp(prefix="sync-caddy-render-"))
     bin_dir = out_dir / "bin"
     bin_dir.mkdir()
@@ -41,6 +41,9 @@ def _run_sync(kind: str = "prod"):
         "AWS_REGION": "us-east-1",
         "STAGE0_SSM_OUTPUT_DIR": str(out_dir),
     }
+    env.pop("GLOBAL_SITE_PHASE", None)
+    env.pop("GLOBAL_SITE_DOMAIN", None)
+    env.update(extra_env or {})
     proc = subprocess.run(
         ["bash", str(_SCRIPT), kind, "i-0stub", "probe"],
         env=env,
@@ -75,6 +78,57 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         self.assertIn("Caddyfile.rewritten", joined)
         self.assertIn("render-prod-caddyfile.sh", joined)
         self.assertIn("envsubst '$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'", joined)
+
+    def test_prod_candidate_persists_domain_and_phase_before_render(self) -> None:
+        proc, params = _run_sync(
+            "prod",
+            {
+                "GLOBAL_SITE_PHASE": "candidate",
+                "GLOBAL_SITE_DOMAIN": "global.tokenkey.dev",
+            },
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        joined = "\n".join(params["commands"])
+
+        parsed = subprocess.run(
+            ["bash", "-n"], input=joined, text=True, capture_output=True, check=False
+        )
+        self.assertEqual(parsed.returncode, 0, msg=parsed.stderr)
+        self.assertIn("APPLY_GLOBAL_PROFILE='true'", joined)
+        self.assertIn("TARGET_GLOBAL_SITE_PHASE='candidate'", joined)
+        self.assertIn("TARGET_GLOBAL_SITE_DOMAIN='global.tokenkey.dev'", joined)
+        self.assertLess(joined.index("global homepage phase persisted"), joined.index("render context loaded"))
+        self.assertIn("restoring previous Caddyfile and environment", joined)
+
+    def test_prod_disabled_clears_persisted_domain(self) -> None:
+        proc, params = _run_sync("prod", {"GLOBAL_SITE_PHASE": "disabled"})
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        joined = "\n".join(params["commands"])
+        self.assertIn("TARGET_GLOBAL_SITE_PHASE='disabled'", joined)
+        self.assertIn("TARGET_GLOBAL_SITE_DOMAIN=''", joined)
+
+    def test_prod_preserves_existing_phase_when_inputs_are_omitted(self) -> None:
+        proc, params = _run_sync("prod")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        assert params is not None
+        self.assertIn("APPLY_GLOBAL_PROFILE='false'", "\n".join(params["commands"]))
+
+    def test_enabled_phase_requires_valid_hostname(self) -> None:
+        for domain in ("", "https://global.tokenkey.dev", "GLOBAL.tokenkey.dev"):
+            with self.subTest(domain=domain):
+                proc, params = _run_sync(
+                    "prod",
+                    {"GLOBAL_SITE_PHASE": "candidate", "GLOBAL_SITE_DOMAIN": domain},
+                )
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertIsNone(params)
+
+    def test_global_profile_inputs_are_rejected_for_edge(self) -> None:
+        proc, params = _run_sync("edge", {"GLOBAL_SITE_PHASE": "disabled"})
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIsNone(params)
 
 
 if __name__ == "__main__":

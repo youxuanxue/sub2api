@@ -184,6 +184,7 @@ func prerenderChinaExportHomeHTML() string {
 <html lang="en">
 <head>
 %s
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"TokenKey","url":"https://global.tokenkey.dev/","description":"Access Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi through one API."}</script>
 </head>
 <body>
 <h1>China's leading AI models. One API.</h1>

@@ -14,6 +14,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
 CADDY_SRC="${HERE}/Caddyfile"
+CADDY_RENDER_SRC="${HERE}/render-prod-caddyfile.sh"
 QA_BOUNDARY_SRC="${HERE}/tokenkey-qa-boundary.sh"
 PGDUMP_SRC="${HERE}/tokenkey-pgdump.sh"
 PRUNE_SRC="${HERE}/tokenkey-prune-ghcr-app-tags.sh"
@@ -32,7 +33,7 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 required=(
-  "${COMPOSE_SRC}" "${CADDY_SRC}"
+  "${COMPOSE_SRC}" "${CADDY_SRC}" "${CADDY_RENDER_SRC}"
   "${QA_BOUNDARY_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${DAILY_PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
   "${CFN_FILE}"
 )
@@ -73,6 +74,7 @@ split_b64_for_ssm() {
 
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
+CADDY_RENDER_GZB64="$(encode_gzb64 "${CADDY_RENDER_SRC}")"
 QA_BOUNDARY_GZB64="$(encode_gzb64 "${QA_BOUNDARY_SRC}")"
 QA_BOUNDARY_PART1="${QA_BOUNDARY_GZB64:0:${SSM_STANDARD_VALUE_LIMIT}}"
 QA_BOUNDARY_PART2="${QA_BOUNDARY_GZB64:${SSM_STANDARD_VALUE_LIMIT}}"
@@ -100,6 +102,7 @@ check_ssm_len() {
 
 check_ssm_len compose "${COMPOSE_GZB64}"
 check_ssm_len caddy "${CADDY_GZB64}"
+check_ssm_len caddy_render "${CADDY_RENDER_GZB64}"
 check_ssm_len qa_boundary_part1 "${QA_BOUNDARY_PART1}"
 check_ssm_len qa_boundary_part2 "${QA_BOUNDARY_PART2}"
 check_ssm_len pgdump "${PGDUMP_GZB64}"
@@ -130,6 +133,7 @@ refresh_template() {
   local indent='      '
   local new_compose="${indent}Value: '${COMPOSE_GZB64}'"
   local new_caddy="${indent}Value: '${caddy_blob}'"
+  local new_caddy_render="${indent}Value: '${CADDY_RENDER_GZB64}'"
   local new_qa_boundary1="${indent}Value: '${QA_BOUNDARY_PART1}'"
   local new_qa_boundary2="${indent}Value: '${QA_BOUNDARY_PART2}'"
   local new_pgdump="${indent}Value: '${PGDUMP_GZB64}'"
@@ -144,6 +148,7 @@ refresh_template() {
 
   awk -v new_compose_ssm="${new_compose}" \
       -v new_caddy_ssm="${new_caddy}" \
+      -v new_caddy_render_ssm="${new_caddy_render}" \
       -v new_qa_boundary1_ssm="${new_qa_boundary1}" \
       -v new_qa_boundary2_ssm="${new_qa_boundary2}" \
       -v new_pgdump_ssm="${new_pgdump}" \
@@ -158,6 +163,8 @@ refresh_template() {
     />>> COMPOSE_GZB64_SSM END/ { skip = 0; print; next }
     />>> CADDY_GZB64_SSM START/ { print; print new_caddy_ssm; skip = 1; next }
     />>> CADDY_GZB64_SSM END/ { skip = 0; print; next }
+    />>> CADDY_RENDER_GZB64_SSM START/ { print; print new_caddy_render_ssm; skip = 1; next }
+    />>> CADDY_RENDER_GZB64_SSM END/ { skip = 0; print; next }
     />>> QA_BOUNDARY_GZB64_SSM_PART1 START/ { print; print new_qa_boundary1_ssm; skip = 1; next }
     />>> QA_BOUNDARY_GZB64_SSM_PART1 END/ { skip = 0; print; next }
     />>> QA_BOUNDARY_GZB64_SSM_PART2 START/ { print; print new_qa_boundary2_ssm; skip = 1; next }
@@ -175,12 +182,18 @@ refresh_template() {
     />>> BOOTSTRAP_GZB64_SSM_PART3 START/ { print; print new_bootstrap3_ssm; skip = 1; next }
     />>> BOOTSTRAP_GZB64_SSM_PART3 END/ { skip = 0; print; next }
     />>> USERDATA_LAUNCHER START/ {
-      while ((getline line < userdata_file) > 0) print line
+      print
+      launcher_line = 0
+      while ((getline line < userdata_file) > 0) {
+        launcher_line += 1
+        if (launcher_line == 1 && line ~ /^[[:space:]]*#!\/bin\/bash$/) continue
+        print line
+      }
       close(userdata_file)
       skip = 1
       next
     }
-    />>> USERDATA_LAUNCHER END/ { skip = 0; next }
+    />>> USERDATA_LAUNCHER END/ { skip = 0; print; next }
     { if (!skip) print }
   ' "${src}" > "${dst}"
   rm -f "${userdata_tmp}"
@@ -212,6 +225,7 @@ if [[ "${mode}" == "check" ]]; then
   # gzip+base64 payloads (the version-fragile ones):
   committed_value COMPOSE_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${COMPOSE_SRC}" || report compose
   committed_value CADDY_GZB64_SSM   | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_SRC}"   || report caddy
+  committed_value CADDY_RENDER_GZB64_SSM | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${CADDY_RENDER_SRC}" || report caddy-render
   { committed_value BOOTSTRAP_GZB64_SSM_PART1; committed_value BOOTSTRAP_GZB64_SSM_PART2; committed_value BOOTSTRAP_GZB64_SSM_PART3; } \
     | tr -d '\n' | base64 -d 2>/dev/null | gunzip -c 2>/dev/null | cmp -s - "${BOOTSTRAP_SRC}" || report bootstrap
   # pgdump and QA boundary are also gzip+base64:
@@ -221,9 +235,17 @@ if [[ "${mode}" == "check" ]]; then
   # plain base64 payloads:
   committed_value GHCR_PRUNE_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${PRUNE_SRC}"      || report ghcr-prune
   committed_value GHCR_PRUNE_DAILY_B64_PARAM | base64 -d 2>/dev/null | cmp -s - "${DAILY_PRUNE_SRC}" || report ghcr-prune-daily
-  # (The thin UserData launcher is a pass-through YAML block, not a marker-spliced
-  #  SSM embed, so it is not part of the gzip-drift surface; its 16 KiB size guard
-  #  above still runs in both modes.)
+  committed_launcher_tmp="$(mktemp)"
+  {
+    printf '%s\n' '#!/bin/bash'
+    awk '
+      />>> USERDATA_LAUNCHER START/ { capture = 1; next }
+      />>> USERDATA_LAUNCHER END/ { capture = 0; next }
+      capture { sub(/^          /, ""); print }
+    ' "${CFN_FILE}"
+  } > "${committed_launcher_tmp}"
+  cmp -s "${committed_launcher_tmp}" "${LAUNCHER_SRC}" || report userdata-launcher
+  rm -f "${committed_launcher_tmp}"
 
   if [[ "${drift}" -eq 0 ]]; then
     echo "stage0 CFN embeds are up to date (content-verified)."
@@ -240,6 +262,7 @@ trap - EXIT
 echo "stage0 CFN refreshed."
 echo "  compose gzip+base64 (SSM): ${#COMPOSE_GZB64} chars"
 echo "  caddy gzip+base64 (SSM): ${#CADDY_GZB64} chars"
+echo "  caddy renderer gzip+base64 (SSM): ${#CADDY_RENDER_GZB64} chars"
 echo "  qa boundary gzip+base64 (SSM total): ${#QA_BOUNDARY_GZB64} chars (part1=${#QA_BOUNDARY_PART1}, part2=${#QA_BOUNDARY_PART2})"
 echo "  pgdump gzip+base64 (SSM): ${#PGDUMP_GZB64} chars"
 echo "  ghcr prune base64 (SSM): ${#PRUNE_B64} chars"

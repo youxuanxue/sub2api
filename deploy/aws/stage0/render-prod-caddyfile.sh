@@ -55,6 +55,11 @@ case "${global_site_phase}" in
     ;;
 esac
 
+if [[ "${global_site_phase}" != "disabled" && -z "${site_domain}" ]]; then
+  echo "SITE_DOMAIN must resolve when GLOBAL_SITE_PHASE=${global_site_phase}" >&2
+  exit 1
+fi
+
 tmp="$(mktemp)"
 trap 'rm -f "${tmp}"' EXIT
 

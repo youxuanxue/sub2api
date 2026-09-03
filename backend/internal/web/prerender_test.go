@@ -1,8 +1,10 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -166,6 +168,15 @@ func TestPrerenderMiddlewareChinaExportHomepage(t *testing.T) {
 			assert.Contains(t, w.Body.String(), "Start with a free trial. No credit card required.")
 			assert.NotContains(t, w.Body.String(), "$1")
 			assert.NotContains(t, w.Body.String(), "1M DeepSeek tokens")
+
+			structuredData := regexp.MustCompile(`<script type="application/ld\+json">([^<]+)</script>`).FindStringSubmatch(w.Body.String())
+			require.Len(t, structuredData, 2)
+			var website map[string]any
+			require.NoError(t, json.Unmarshal([]byte(structuredData[1]), &website))
+			assert.Equal(t, "https://schema.org", website["@context"])
+			assert.Equal(t, "WebSite", website["@type"])
+			assert.Equal(t, "TokenKey", website["name"])
+			assert.Equal(t, "https://global.tokenkey.dev/", website["url"])
 		})
 	}
 }
