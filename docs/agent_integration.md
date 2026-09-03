@@ -756,8 +756,6 @@ build a read-only model operations plan
 - `--candidate` (repeatable): ACCOUNT:MODEL ad hoc candidate; can repeat
 - `--probe-results` (repeatable): TSV output from ops/pricing/probe-servable-models.sh; can repeat
 - `--live-mapping`: JSON snapshot of live account model_mapping
-- `--mirror` (repeatable): SOURCE:TARGET mirror policy to diff from the live snapshot
-- `--strict-manifest`: flag every live mapping key absent from manifest for removal review
 - `--format` (choices: `text`, `json`; default: `text`):
 
 #### `modelops.py activate`
@@ -771,15 +769,6 @@ validate independent evidence, plan prod mapping, and explicitly activate a mode
 - `--prod-instance-id`: pin the full prod activation chain to this EC2 instance id
 - `--confirm`: write confirmation phrase: yes-activate-model-surface
 - `--format` (choices: `text`, `json`; default: `text`):
-
-#### `modelops.py snapshot-sql`
-
-print read-only SQL for a live mapping snapshot
-
-- `--accounts`: comma-separated account ids for a point lookup
-- `--channel-type`: snapshot all active newapi accounts with this channel_type, e.g. 17 for DashScope/Qwen
-
-- Constraint: exactly one of `--accounts`, `--channel-type`.
 
 ### `python3 ops/pricing/manage-account-model-mapping-runtime.py`
 
