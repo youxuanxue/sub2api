@@ -49,6 +49,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pricing_registry import has_complete_price, resolve_price_owner
 
 

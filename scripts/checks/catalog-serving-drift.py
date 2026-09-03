@@ -15,6 +15,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "ops" / "pricing"))
 from pricing_registry import MODE_FIELDS, has_complete_price
 from servable_allowlist import ALLOWLIST_PLATFORMS, parse_allowlist_maps
+# Marker ownership is implemented by ops/pricing/servable_allowlist.py; retain
+# this literal as the sentinel anchor for the marker-delimited Go projection.
+# servable-allowlist:begin
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
 MANIFEST = SERVICE_DIR / "tk_served_models.json"
 OVERLAY = SERVICE_DIR / "tk_pricing_overlay.json"

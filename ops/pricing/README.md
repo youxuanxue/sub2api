@@ -38,6 +38,7 @@ No tool in this directory may collapse those owners into a persistent `deliverab
 | `manage-account-model-mapping-runtime.py` | Validate, inspect and explicitly converge reviewed runtime/account mapping state. |
 | `../newapi/apply-model-mapping-live.py remove-live` | Guarded emergency removal only; cannot add or rewrite mapping keys. |
 | `model_surface_bundle.py` | Bundle schema and digest validation; owns no model list. |
+| `servable_allowlist.py` | Shared parser for marker-delimited native catalog allowlists. |
 | `pricing-registry-sensor.py` | Provider comparison evidence and registry-only PR candidate generation. |
 | `manage-overlay-runtime.py` | Protected-main registry publication and read-only runtime audit. |
 | `apply-pricing-hotfix.py` | Provider lookup evidence and explicitly scoped channel-price remediation. |
