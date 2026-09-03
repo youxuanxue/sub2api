@@ -60,7 +60,7 @@ Imagen / Veo **必须**走下面「推荐路径」；不要用 AI Studio API key
 - **可服务模型**：选择 **Vertex AI（channel_type 41）** 后，Admin 会**自动**从 `GET /api/v1/admin/channel-type-models` 读取 TokenKey Vertex 实测可服务清单并填入模型白名单（chat + Imagen + Veo，与 `supportedGeminiCatalogModels` 同源）。运营**无需手打**模型 ID；若要裁剪，在自动填充后取消勾选即可。
 - 也可点 **「获取模型列表」** 重新拉取同一预设（ch41 不走上游 GET /v1/models，无需 Base URL / API Key）。
 
-> 清单随 TokenKey 实测 allowlist 演进；勿填 `gemini-2.0-flash`、`gemini-3.x` 等未收录 ID。inventory 见 `docs/all-platform-model-inventory.md` §2.3。
+> 清单随 TokenKey 实测 allowlist 演进；勿填 `gemini-2.0-flash`、`gemini-3.x` 等未收录 ID。以 Admin 当前自动填充结果为准，不要依据历史清单手填。
 
 ### 3. 粘贴 Service Account JSON
 

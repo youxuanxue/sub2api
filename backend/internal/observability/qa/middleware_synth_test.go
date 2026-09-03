@@ -7,8 +7,7 @@ package qa
 // directly because the full Middleware path requires a wired APIKey
 // auth subject (covered by the integration tests). Pinning the
 // extractor here catches accidental rename/typo of the header names
-// (the M0 client writes these literal names per
-// docs/projects/auto-traj-from-supply-demand.md §6.1).
+// (the M0 client writes these literal names per the issue #59 contract).
 
 import (
 	"bytes"

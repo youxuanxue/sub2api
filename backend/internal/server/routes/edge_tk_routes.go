@@ -12,8 +12,8 @@ import (
 //
 //	GET /api/v1/edge/scheduling-capacity?platform=anthropic
 //
-// It is the read side of surface C (per docs/CLAUDE.md fifth-platform notes /
-// the anthropic-config plan): prod's reconciler calls it over HTTP to mirror a
+// It is the read side of the Anthropic config reconciliation surface C:
+// prod's reconciler calls it over HTTP to mirror a
 // live edge's Σ schedulable concurrency onto the prod stub account, using the
 // stub's already-held relay api-key (zero new secret).
 //

@@ -2509,7 +2509,7 @@ fi
 
 # ---- sub2api: display-coverage audit selftest -------------------------------
 # Static display ownership is already enforced repository-wide by
-# catalog-serving-drift A4. This audit is the read-only live close-out: it checks
+# catalog-serving-drift static check. This audit is the read-only live close-out: it checks
 # that complete-registry + allowlist expectations reached public /pricing.
 echo ""
 echo "=== sub2api: display-coverage audit selftest ==="

@@ -933,8 +933,7 @@ func captureStreamFlag(c *gin.Context, chunks []RawSSEChunk) bool {
 }
 
 // captureSynthHeaders extracts the X-Synth-* headers emitted by the M0
-// dual-CC synthetic pipeline (issue #59 /
-// docs/projects/auto-traj-from-supply-demand.md §6.1). Returns
+// dual-CC synthetic pipeline (issue #59 contract). Returns
 // (session, role, engineerLevel, dialogSynth). dialogSynth is true when
 // EITHER X-Synth-Session OR X-Synth-Pipeline is present — that pair is
 // our "this turn is a synth dialog" signal; the pipeline name itself is
