@@ -36,7 +36,6 @@ REPO = Path(__file__).resolve().parents[2]
 GO_REL = "backend/internal/service/pricing_catalog_supported_models_tk.go"
 MANIFEST_REL = "backend/internal/service/tk_served_models.json"
 OVERLAY_REL = "backend/internal/service/tk_pricing_overlay.json"
-BUNDLE_REL = "ops/pricing/model-surface-bundle.json"
 MIGRATION_PREFIX = "backend/migrations/tk_"
 ALLOWLIST_PLATFORMS = ("anthropic", "openai", "gemini", "antigravity", "grok")
 MATRIX = REPO / "ops/test/gateway_model_ssot_matrix.py"
@@ -103,17 +102,10 @@ def _read_at(base: str, rel: str) -> str:
         return ""
 
 
-def _load_manifest(
-    text: str, *, historical: bool = False
-) -> dict[str, object]:
+def _load_manifest(text: str) -> dict[str, object]:
     if not text.strip():
         return {}
-    try:
-        return _MANIFEST.parse_manifest_text(text).by_model()
-    except _MANIFEST.ManifestError:
-        if historical:
-            return {}
-        raise
+    return _MANIFEST.parse_manifest_text(text).by_model()
 
 
 def _overlay_priced(entry: object) -> bool:
@@ -174,19 +166,8 @@ def overlay_delta_models_from_payloads(
 def manifest_delta_models(base: str) -> set[str]:
     base_text = _read_at(base, MANIFEST_REL)
     head_text = (REPO / MANIFEST_REL).read_text(encoding="utf-8")
-    base_entries = _load_manifest(base_text, historical=True)
+    base_entries = _load_manifest(base_text)
     head_entries = _load_manifest(head_text)
-    if not base_entries and head_entries:
-        # A schema replacement is live-neutral only when the generated runtime
-        # floor artifact is unchanged. If it changed, conservatively probe every
-        # displayed row in the new manifest.
-        if BUNDLE_REL not in changed_paths(base):
-            return set()
-        return {
-            model_id
-            for model_id, entry in head_entries.items()
-            if entry.display
-        }
     out: set[str] = set()
     for model_id, head in head_entries.items():
         if not head.display:
@@ -431,13 +412,12 @@ def cmd_selftest(_args) -> int:
         == hm["qwen3-8b"].projection()
     )
     invalid_manifest = json.dumps({"entries": {}})
-    assert _load_manifest(invalid_manifest, historical=True) == {}
     try:
         _load_manifest(invalid_manifest)
     except _MANIFEST.ManifestError:
         pass
     else:
-        raise AssertionError("invalid head manifest must fail closed")
+        raise AssertionError("invalid manifest must fail closed")
 
     line = '+                "glm-4.7-flash": "glm-4.7-flash",'
     m = MIGRATION_ADDED_MODEL_RE.match(line)
