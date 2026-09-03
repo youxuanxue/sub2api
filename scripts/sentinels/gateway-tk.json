@@ -1331,11 +1331,12 @@
       "rationale": "GatewayService.Forward must intercept CloudWise non-claude /v1/messages before anthropic APIKey passthrough, otherwise #94 glm/kimi/minimax/deepseek stay on native messages."
     },
     {
-      "path": "backend/internal/service/gateway_forward.go",
+      "path": "backend/internal/service/gateway_failover_policy.go",
       "must_contain": [
-        "case 401, 402, 403, 424, 429, 529:"
+        "func genericGatewayFailoverStatus(statusCode int) bool",
+        "http.StatusPaymentRequired"
       ],
-      "rationale": "Gateway upstream failover status truth must include HTTP 402. A payment-required or exhausted-balance account is an account-standing failure, not a client request error; leaving 402 out keeps the dead account selected and turns every request into a final 502 instead of switching to a healthy account."
+      "rationale": "The global generic gateway failover status truth must include HTTP 402. A payment-required or exhausted-balance account is an account-standing failure, not a client request error; leaving 402 out keeps the dead account selected and turns every request into a final 502 instead of switching to a healthy account."
     },
     {
       "path": "backend/internal/service/gateway_tokensea_anthropic_relay_test.go",
@@ -8074,6 +8075,140 @@
         "if cost := accountStatsTokenCostFromBreakdown(mirror); cost != nil {"
       ],
       "rationale": "OpenAI-compatible usage settlement must mirror the same candidate and token policy used by user billing, including explicit zero, before account stats may consider LiteLLM fallback."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_policy.go",
+      "must_contain": [
+        "type gatewayFailoverObservation struct",
+        "type gatewayFailoverDecision struct",
+        "func classifyGatewayFailover(obs gatewayFailoverObservation) gatewayFailoverDecision",
+        "gatewayFailoverProfileNewAPIBridge",
+        "gatewayFailoverProfileOpenAIPassthrough",
+        "gatewayFailureSemanticTerminalRequest",
+        "gatewayFailureSemanticRetryableAccount",
+        "gatewayFailureSemanticRetryableTransient"
+      ],
+      "rationale": "Global gateway failover SSOT: platform/channel adapters may parse provider evidence, but this owner alone maps normalized semantic, status, account type and configured retry into RetryNextAccount. Losing a profile or semantic reintroduces platform-local policy drift."
+    },
+    {
+      "path": "backend/internal/service/gateway_failover_policy_test.go",
+      "must_contain": [
+        "TestUS049_GlobalGatewayFailoverPolicyMatrix",
+        "TestUS049_SemanticOverridesStatusAndFailsClosed",
+        "TestUS049_OpenAIPassthroughAccountMatrix",
+        "TestUS049_AdaptersDelegateWithoutBehaviorDrift"
+      ],
+      "rationale": "Behavioral contract for the global failover matrix, semantic precedence, fail-closed unknown inputs, passthrough account differences and adapter compatibility."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": [
+        "classifyGatewayFailover(gatewayFailoverObservation{",
+        "Profile:    gatewayFailoverProfileGeneric",
+        "Semantic:   gateway400FailureSemantic(respBody)"
+      ],
+      "rationale": "Generic Anthropic/Bedrock/compat status handling and the body-aware compatibility 400 path must delegate retry-next-account to the global policy owner."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "classifyGatewayFailover(gatewayFailoverObservation{",
+        "Profile:    gatewayFailoverProfileOpenAI",
+        "gatewayFailureSemanticTerminalRequest",
+        "gatewayFailureSemanticRetryableTransient"
+      ],
+      "rationale": "OpenAI HTTP adapters may classify content, context, capability and transient payloads, but their final account failover decision must stay wired to the global owner."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "Profile:    gatewayFailoverProfileOpenAIPassthrough",
+        "AccountConfiguredRetry = account.IsPoolMode()",
+        "return classifyGatewayFailover(obs).RetryNextAccount",
+        "StatusCode: openAIStreamFailureStatus(payload, message)",
+        "StatusCode: openAIStreamFailedEventSemanticStatus(payload, message)"
+      ],
+      "rationale": "OpenAI passthrough and both SSE terminal-event adapters must submit their normalized observation to the global failover owner; otherwise HTTP, response.failed and error frames can drift again."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "classifyGatewayFailover(gatewayFailoverObservation{",
+        "Profile:    gatewayFailoverProfileGoogle",
+        "googleGatewayFailureSemantic(resp.StatusCode, msg400)"
+      ],
+      "rationale": "Gemini native and compatibility entrypoints share this facade, which must delegate the final failover decision to the global Google profile."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "classifyGatewayFailover(gatewayFailoverObservation{",
+        "Profile:    gatewayFailoverProfileGoogle"
+      ],
+      "rationale": "Antigravity shares the centrally owned Google failover profile instead of maintaining a duplicate status switch."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "googleGatewayFailureSemantic(resp.StatusCode, strings.ToLower(upstreamMsg))",
+        "classifyGatewayFailover(gatewayFailoverObservation{"
+      ],
+      "rationale": "Antigravity Gemini's body-aware Google project compatibility error must be normalized and submitted to the global failover owner."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": [
+        "googleGatewayFailureSemantic(resp.StatusCode, msg)",
+        "classifyGatewayFailover(gatewayFailoverObservation{"
+      ],
+      "rationale": "Antigravity Claude compatibility uses the same Google project semantic and global failover owner as Gemini rather than a local boolean branch."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_failover_tk.go",
+      "must_contain": [
+        "classifyGatewayFailover(gatewayFailoverObservation{",
+        "Profile:    gatewayFailoverProfileNewAPIBridge",
+        "semantic = gatewayFailureSemanticRetryableAccount"
+      ],
+      "rationale": "NewAPI bridge may recognize account-standing arrears, but both that semantic and its narrow gateway-status matrix must be decided by the global failover owner rather than channel-specific booleans."
+    },
+    {
+      "path": "backend/internal/service/grok_upstream_errors.go",
+      "must_contain": [
+        "classifyGatewayFailover(gatewayFailoverObservation{",
+        "Profile:    gatewayFailoverProfileGrok",
+        "gatewayFailureSemanticRetryableAccount",
+        "gatewayFailureSemanticTerminalRequest"
+      ],
+      "rationale": "Grok body parsing classifies content policy, entitlement, quota, capacity and compatibility evidence, while the final retry-next-account result remains globally owned."
+    },
+    {
+      "path": "backend/internal/service/grok_upstream_failure.go",
+      "must_contain": [
+        "type GrokUpstreamFailureDecision struct"
+      ],
+      "must_not_contain": [
+        "ShouldFailover"
+      ],
+      "rationale": "Grok failure classification may own cooldown metadata but must not regain a second failover policy field."
+    },
+    {
+      "path": "backend/internal/service/openai_live.go",
+      "must_contain": [
+        "classifyGatewayFailover(gatewayFailoverObservation{",
+        "Semantic: gatewayFailureSemanticRetryableTransient"
+      ],
+      "rationale": "Live transport and credential failures must enter the same global OpenAI failover policy instead of returning an adapter-local boolean."
+    },
+    {
+      "path": "scripts/sentinels/check-gateway-tk.py",
+      "must_contain": [
+        "def check_failover_ssot()",
+        "if \"shouldfailover\" not in name.lower()",
+        "must call classifyGatewayFailover directly",
+        "_FAILOVER_FIELD_RE"
+      ],
+      "rationale": "The preflight checker must reject future platform/channel-local shouldFailover implementations and duplicated ShouldFailover fields, including additions in files not yet listed in the sentinel registry."
     }
   ]
 }

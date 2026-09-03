@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -57,6 +58,11 @@ def load_registry() -> dict:
 
 
 _CONTENT_CACHE: dict[str, str] = {}
+
+_GO_FUNCTION_RE = re.compile(
+    r"(?m)^func\s+(?:\([^\n)]*\)\s*)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\("
+)
+_FAILOVER_FIELD_RE = re.compile(r"(?m)^\s*ShouldFailover\s+bool\b")
 
 
 def read_file_cached(path_str: str) -> str:
@@ -113,6 +119,39 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
     return (len(failures) == 0), failures
 
 
+def check_failover_ssot() -> tuple[bool, list[str]]:
+    """Reject new adapter-local retry-next-account policy owners.
+
+    Provider adapters may parse payloads and expose a shouldFailover facade for
+    existing callers, but every such facade must directly submit an observation
+    to classifyGatewayFailover. Splitting by top-level Go function declaration
+    keeps this check deterministic without depending on a local Go toolchain.
+    """
+    service_dir = REPO_ROOT / "backend" / "internal" / "service"
+    failures: list[str] = []
+    for file_path in sorted(service_dir.glob("*.go")):
+        if file_path.name.endswith("_test.go"):
+            continue
+        source = file_path.read_text(encoding="utf-8", errors="replace")
+        rel = file_path.relative_to(REPO_ROOT)
+        matches = list(_GO_FUNCTION_RE.finditer(source))
+        for index, match in enumerate(matches):
+            name = match.group("name")
+            if "shouldfailover" not in name.lower():
+                continue
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
+            if "classifyGatewayFailover(" not in source[match.start():end]:
+                failures.append(
+                    f"{rel}:{source.count(chr(10), 0, match.start()) + 1} "
+                    f"{name} must call classifyGatewayFailover directly"
+                )
+        if _FAILOVER_FIELD_RE.search(source):
+            failures.append(
+                f"{rel} declares ShouldFailover bool; keep failover output in the global decision owner"
+            )
+    return (len(failures) == 0), failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--quiet", action="store_true", help="only print failures")
@@ -137,14 +176,30 @@ def main() -> int:
             }
         )
 
+    failover_ok, failover_failures = check_failover_ssot()
+    if not failover_ok:
+        fail_count += 1
+    results.append(
+        {
+            "path": "backend/internal/service (global failover SSOT invariant)",
+            "ok": failover_ok,
+            "failures": failover_failures,
+            "rationale": (
+                "Every production shouldFailover facade must delegate to "
+                "classifyGatewayFailover; protocol classifiers cannot own a "
+                "ShouldFailover boolean."
+            ),
+        }
+    )
+
     if args.json:
         json.dump({"total": len(sentinels), "failed": fail_count, "results": results}, sys.stdout, indent=2)
         sys.stdout.write("\n")
     else:
         if not args.quiet:
             print(
-                f"gateway TK sentinels: checking {len(sentinels)} entries from "
-                f"{REGISTRY_PATH.relative_to(REPO_ROOT)}"
+                f"gateway TK sentinels: checking {len(sentinels)} registered entries "
+                f"from {REGISTRY_PATH.relative_to(REPO_ROOT)} plus global invariants"
             )
         for r in results:
             if r["ok"]:
@@ -158,10 +213,10 @@ def main() -> int:
                     print(f"        why it matters: {r['rationale']}")
         if fail_count == 0:
             if not args.quiet:
-                print(f"gateway TK sentinels: PASS ({len(sentinels)}/{len(sentinels)} intact)")
+                print(f"gateway TK sentinels: PASS ({len(results)}/{len(results)} intact)")
         else:
             print(
-                f"gateway TK sentinels: FAIL ({fail_count}/{len(sentinels)} regressed)",
+                f"gateway TK sentinels: FAIL ({fail_count}/{len(results)} regressed)",
                 file=sys.stderr,
             )
             print("  Source of truth: scripts/sentinels/gateway-tk.json", file=sys.stderr)

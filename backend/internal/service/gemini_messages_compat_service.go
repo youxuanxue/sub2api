@@ -1032,7 +1032,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
 		if resp.StatusCode == http.StatusBadRequest {
 			msg400 := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-			if isGoogleProjectConfigError(msg400) {
+			semantic := googleGatewayFailureSemantic(resp.StatusCode, msg400)
+			if semantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
+				Profile: gatewayFailoverProfileGoogle, Semantic: semantic, StatusCode: resp.StatusCode,
+			}).RetryNextAccount {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
 				if upstreamReqID == "" {
 					upstreamReqID = resp.Header.Get("x-goog-request-id")
@@ -1565,7 +1568,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		// 精确匹配服务端配置类 400 错误，触发 failover + 临时封禁
 		if resp.StatusCode == http.StatusBadRequest {
 			msg400 := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-			if isGoogleProjectConfigError(msg400) {
+			semantic := googleGatewayFailureSemantic(resp.StatusCode, msg400)
+			if semantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
+				Profile: gatewayFailoverProfileGoogle, Semantic: semantic, StatusCode: resp.StatusCode,
+			}).RetryNextAccount {
 				evBody := unwrapIfNeeded(isOAuth, respBody)
 				upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(evBody)))
 				upstreamDetail := ""
@@ -1736,12 +1742,10 @@ func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(account *Ac
 }
 
 func (s *GeminiMessagesCompatService) shouldFailoverGeminiUpstreamError(statusCode int) bool {
-	switch statusCode {
-	case 401, 403, 429, 529:
-		return true
-	default:
-		return statusCode >= 500
-	}
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileGoogle,
+		StatusCode: statusCode,
+	}).RetryNextAccount
 }
 
 // skippedErrorPolicyFailoverError 命中 ErrorPolicySkipped（池模式、或自定义错误码未命中）

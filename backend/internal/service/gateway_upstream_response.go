@@ -212,12 +212,12 @@ func (s *GatewayService) isThinkingBlockSignatureError(respBody []byte) bool {
 	return false
 }
 
-func (s *GatewayService) shouldFailoverOn400(respBody []byte) bool {
+func gateway400FailureSemantic(respBody []byte) gatewayFailureSemantic {
 	// 只对"可能是兼容性差异导致"的 400 允许切换，避免无意义重试。
 	// 默认保守：无法识别则不切换。
 	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 	if msg == "" {
-		return false
+		return gatewayFailureSemanticTerminalRequest
 	}
 
 	// 缺少/错误的 beta header：换账号/链路可能成功（尤其是混合调度时）。
@@ -225,18 +225,18 @@ func (s *GatewayService) shouldFailoverOn400(respBody []byte) bool {
 	if strings.Contains(msg, "anthropic-beta") ||
 		strings.Contains(msg, "beta feature") ||
 		strings.Contains(msg, "requires beta") {
-		return true
+		return gatewayFailureSemanticRetryableAccount
 	}
 
 	// thinking/tool streaming 等兼容性约束（常见于中间转换链路）
 	if strings.Contains(msg, "thinking") || strings.Contains(msg, "thought_signature") || strings.Contains(msg, "signature") {
-		return true
+		return gatewayFailureSemanticRetryableAccount
 	}
 	if strings.Contains(msg, "tool_use") || strings.Contains(msg, "tool_result") || strings.Contains(msg, "tools") {
-		return true
+		return gatewayFailureSemanticRetryableAccount
 	}
 
-	return false
+	return gatewayFailureSemanticTerminalRequest
 }
 
 // sanitizeStreamError 返回不含网络地址的客户端可见错误描述。

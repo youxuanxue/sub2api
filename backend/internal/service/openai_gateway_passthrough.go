@@ -622,38 +622,25 @@ func stripOpenAILegacyResponsesBeta(headers http.Header) {
 }
 
 func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, responseBody []byte) bool {
+	semantic := gatewayFailureSemanticUnclassified
 	if hit, _, _ := detectOpenAICyberPolicy(responseBody); hit {
-		return false
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if isOpenAIContextWindowError("", responseBody) {
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if isOpenAIHTTPUpstreamAccessStateError(statusCode, "", responseBody) ||
+		isOpenAIRequestBodyTooLargeError(statusCode, "", responseBody) {
+		semantic = gatewayFailureSemanticRetryableAccount
 	}
-	if isOpenAIContextWindowError("", responseBody) {
-		return false
+	obs := gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileOpenAIPassthrough,
+		Semantic:   semantic,
+		StatusCode: statusCode,
 	}
-	if isOpenAIHTTPUpstreamAccessStateError(statusCode, "", responseBody) {
-		return true
+	if account != nil {
+		obs.AccountType = account.Type
+		obs.AccountConfiguredRetry = account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
 	}
-	if isOpenAIRequestBodyTooLargeError(statusCode, "", responseBody) {
-		return true
-	}
-	if account != nil && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode) {
-		return true
-	}
-	switch statusCode {
-	case http.StatusTooManyRequests, 529:
-		return true
-	}
-	if account == nil || account.Type != AccountTypeAPIKey {
-		return false
-	}
-	switch statusCode {
-	case http.StatusInternalServerError,
-		http.StatusBadGateway,
-		http.StatusServiceUnavailable,
-		http.StatusGatewayTimeout,
-		520, 521, 522, 523, 524:
-		return true
-	default:
-		return false
-	}
+	return classifyGatewayFailover(obs).RetryNextAccount
 }
 
 func writeOpenAIPassthroughErrorHeaders(dst, src http.Header) {
@@ -1382,82 +1369,88 @@ func applyOpenAIStreamFailedErrorPassthroughRule(
 }
 
 func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
+	semantic := gatewayFailureSemanticRetryableTransient
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
-		return false
-	}
-	if isOpenAIContextWindowError(message, payload) {
-		return false
-	}
-	if isOpenAIUpstreamAccessStateError(message, payload) {
-		return true
-	}
-	semanticStatus := openAIStreamFailureStatus(payload, message)
-	if semanticStatus == http.StatusForbidden {
-		return openAIStream403AccountFailure(payload, message)
-	}
-	// A response.failed event is transported over HTTP 200. Prefer its semantic
-	// rate-limit status over a generic/invalid_request error type so it can enter
-	// the same 429 retry policy as a regular upstream HTTP response.
-	if semanticStatus == http.StatusTooManyRequests {
-		return true
-	}
-	if isOpenAITransientProcessingError(http.StatusBadRequest, message, payload) {
-		return true
-	}
-	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String()))
-	if code == "" {
-		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
-	}
-	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String()))
-	if errType == "" {
-		errType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.type").String()))
-	}
-	combined := strings.ToLower(strings.TrimSpace(message + " " + code + " " + errType))
-	if combined == "" {
-		return true
-	}
-	nonRetryableMarkers := []string{
-		"invalid_request",
-		"content_policy",
-		"policy",
-		"safety",
-		"high-risk cyber",
-		"not allowed",
-		"violat",
-	}
-	for _, marker := range nonRetryableMarkers {
-		if strings.Contains(combined, marker) {
-			return false
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if isOpenAIContextWindowError(message, payload) {
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if isOpenAIUpstreamAccessStateError(message, payload) {
+		semantic = gatewayFailureSemanticRetryableAccount
+	} else {
+		semanticStatus := openAIStreamFailureStatus(payload, message)
+		if semanticStatus == http.StatusForbidden {
+			if openAIStream403AccountFailure(payload, message) {
+				semantic = gatewayFailureSemanticRetryableAccount
+			} else {
+				semantic = gatewayFailureSemanticTerminalRequest
+			}
+		} else if semanticStatus != http.StatusTooManyRequests &&
+			!isOpenAITransientProcessingError(http.StatusBadRequest, message, payload) {
+			code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String()))
+			if code == "" {
+				code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
+			}
+			errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String()))
+			if errType == "" {
+				errType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.type").String()))
+			}
+			combined := strings.ToLower(strings.TrimSpace(message + " " + code + " " + errType))
+			for _, marker := range []string{
+				"invalid_request",
+				"content_policy",
+				"policy",
+				"safety",
+				"high-risk cyber",
+				"not allowed",
+				"violat",
+			} {
+				if strings.Contains(combined, marker) {
+					semantic = gatewayFailureSemanticTerminalRequest
+					break
+				}
+			}
 		}
 	}
-	return true
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileOpenAI,
+		Semantic:   semantic,
+		StatusCode: openAIStreamFailureStatus(payload, message),
+	}).RetryNextAccount
 }
 
 func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
+	semantic := gatewayFailureSemanticTerminalRequest
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
-		return false
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if isOpenAIContextWindowError(message, payload) {
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if isOpenAIUpstreamAccessStateError(message, payload) {
+		semantic = gatewayFailureSemanticRetryableAccount
+	} else {
+		switch openAIStreamFailedEventSemanticStatus(payload, message) {
+		case http.StatusForbidden:
+			if openAIStream403AccountFailure(payload, message) {
+				semantic = gatewayFailureSemanticRetryableAccount
+			}
+		case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
+			semantic = gatewayFailureSemanticRetryableAccount
+		default:
+			combined := strings.ToLower(strings.TrimSpace(message + " " +
+				gjson.GetBytes(payload, "error.message").String() + " " +
+				gjson.GetBytes(payload, "response.error.message").String()))
+			if isOpenAITransientProcessingError(http.StatusBadRequest, message, payload) ||
+				strings.Contains(combined, "temporary") ||
+				strings.Contains(combined, "try again") ||
+				strings.Contains(combined, "please retry") {
+				semantic = gatewayFailureSemanticRetryableTransient
+			}
+		}
 	}
-	if isOpenAIContextWindowError(message, payload) {
-		return false
-	}
-	if isOpenAIUpstreamAccessStateError(message, payload) {
-		return true
-	}
-	switch openAIStreamFailedEventSemanticStatus(payload, message) {
-	case http.StatusForbidden:
-		return openAIStream403AccountFailure(payload, message)
-	case http.StatusUnauthorized, http.StatusTooManyRequests, 529:
-		return true
-	}
-	if isOpenAITransientProcessingError(http.StatusBadRequest, message, payload) {
-		return true
-	}
-	combined := strings.ToLower(strings.TrimSpace(message + " " +
-		gjson.GetBytes(payload, "error.message").String() + " " +
-		gjson.GetBytes(payload, "response.error.message").String()))
-	return strings.Contains(combined, "temporary") ||
-		strings.Contains(combined, "try again") ||
-		strings.Contains(combined, "please retry")
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileOpenAI,
+		Semantic:   semantic,
+		StatusCode: openAIStreamFailedEventSemanticStatus(payload, message),
+	}).RetryNextAccount
 }
 
 func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(

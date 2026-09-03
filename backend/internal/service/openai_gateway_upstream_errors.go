@@ -249,37 +249,31 @@ func IsOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 }
 
 func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool {
-	return shouldFailoverOpenAIUpstreamStatus(statusCode)
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileOpenAI,
+		StatusCode: statusCode,
+	}).RetryNextAccount
 }
 
-func shouldFailoverOpenAIUpstreamStatus(statusCode int) bool {
-	switch statusCode {
-	case 401, 402, 403, 405, 424, 429, 529:
-		// 424: same CloudWise-class provider-outage envelope as anthropic #94.
-		return true
-	default:
-		return statusCode >= 500
-	}
-}
-
-// shouldFailoverOpenAIUpstreamError is the single OpenAI failover decision.
-// HTTP callers pass the upstream status. SSE / buffered callers map the event
-// to a semantic status first; they must not re-implement transient /
-// context-window / terminal-client rules.
+// shouldFailoverOpenAIUpstreamError adapts OpenAI payloads to the global
+// failover policy. HTTP callers pass the upstream status; SSE / buffered
+// callers first map the event to a semantic status.
 func shouldFailoverOpenAIUpstreamError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	semantic := gatewayFailureSemanticUnclassified
 	if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
-		return true
+		semantic = gatewayFailureSemanticRetryableTransient
+	} else if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if tkIsCapabilityScope401(statusCode, upstreamBody) {
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if tkIsGrokEntitlement403(statusCode, upstreamBody) {
+		semantic = gatewayFailureSemanticTerminalRequest
 	}
-	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
-		return false
-	}
-	if tkIsCapabilityScope401(statusCode, upstreamBody) {
-		return false
-	}
-	if tkIsGrokEntitlement403(statusCode, upstreamBody) {
-		return false
-	}
-	return shouldFailoverOpenAIUpstreamStatus(statusCode)
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileOpenAI,
+		Semantic:   semantic,
+		StatusCode: statusCode,
+	}).RetryNextAccount
 }
 
 func isOpenAINonRetryableClientError(upstreamMsg string, upstreamBody []byte) bool {
@@ -312,28 +306,27 @@ func isOpenAINonRetryableClientError(upstreamMsg string, upstreamBody []byte) bo
 }
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	semantic := gatewayFailureSemanticUnclassified
 	// cyber_policy is request-scoped even when an intermediary wraps the
 	// provider response in a retryable 5xx status. Never punish or rotate the
 	// selected credential for it.
 	if hit, _, _ := detectOpenAICyberPolicy(upstreamBody); hit {
-		return false
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if tkIsCapabilityScope401(statusCode, upstreamBody) {
+		semantic = gatewayFailureSemanticTerminalRequest
+	} else if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) ||
+		isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
+		semantic = gatewayFailureSemanticRetryableAccount
+	} else if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
+		semantic = gatewayFailureSemanticRetryableTransient
 	}
-	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
-		return false
-	}
-	if tkIsCapabilityScope401(statusCode, upstreamBody) {
-		return false
-	}
-	if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) {
-		return true
-	}
-	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
-		return true
-	}
-	if s.shouldFailoverUpstreamError(statusCode) {
-		return true
-	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileOpenAI,
+		Semantic:   semantic,
+		StatusCode: statusCode,
+	}).RetryNextAccount
 }
 
 // OpenAIRequestBodyTooLargeClientMessage is the fixed downstream message used

@@ -41,10 +41,6 @@ type GrokUpstreamFailureDecision struct {
 	Model          string
 	Cooldown       time.Duration
 	ShouldCooldown bool
-	// ShouldFailover recommends trying another account before writing a
-	// terminal response (pre-commit only). Content-policy rejections are
-	// handled separately and never reach this classifier for failover.
-	ShouldFailover bool
 	// BlockModel is true only for empty-output when a model id is known.
 	// Free-usage never sets this: the account cools, not a single model.
 	BlockModel   bool
@@ -84,7 +80,6 @@ func classifyGrokUpstreamFailure(statusCode int, responseBody []byte, requestedM
 			Model:          model,
 			Cooldown:       grokFreeUsageCooldownDuration(low),
 			ShouldCooldown: true,
-			ShouldFailover: true,
 			BlockModel:     false,
 			Reason:         firstNonEmpty(text, code, "free usage exhausted"),
 		}
@@ -109,7 +104,6 @@ func classifyGrokUpstreamFailure(statusCode int, responseBody []byte, requestedM
 			Model:          model,
 			Cooldown:       30 * time.Minute,
 			ShouldCooldown: true,
-			ShouldFailover: true,
 			BlockModel:     model != "",
 			Reason:         reason,
 		}
@@ -123,7 +117,6 @@ func classifyGrokUpstreamFailure(statusCode int, responseBody []byte, requestedM
 		return GrokUpstreamFailureDecision{
 			Class:          GrokFailureCompatibility,
 			Model:          model,
-			ShouldFailover: true,
 			ShouldCooldown: false,
 			Reason:         firstNonEmpty(text, "grok response compatibility error"),
 		}
@@ -136,7 +129,6 @@ func classifyGrokUpstreamFailure(statusCode int, responseBody []byte, requestedM
 			Model:          model,
 			Cooldown:       4 * time.Minute,
 			ShouldCooldown: true,
-			ShouldFailover: true,
 			BlockModel:     model != "",
 			Reason:         firstNonEmpty(text, "empty model output"),
 		}
@@ -149,7 +141,6 @@ func classifyGrokUpstreamFailure(statusCode int, responseBody []byte, requestedM
 			Model:          model,
 			Cooldown:       time.Minute,
 			ShouldCooldown: true,
-			ShouldFailover: true,
 			BlockModel:     false,
 			Reason:         firstNonEmpty(text, "model capacity"),
 		}
@@ -162,7 +153,6 @@ func classifyGrokUpstreamFailure(statusCode int, responseBody []byte, requestedM
 			Model:          model,
 			Cooldown:       10 * time.Minute,
 			ShouldCooldown: true,
-			ShouldFailover: true,
 			BlockModel:     false,
 			Reason:         firstNonEmpty(text, "rate limit"),
 		}
@@ -174,7 +164,6 @@ func classifyGrokUpstreamFailure(statusCode int, responseBody []byte, requestedM
 			Class:          GrokFailureServer,
 			Cooldown:       2 * time.Minute,
 			ShouldCooldown: true,
-			ShouldFailover: true,
 			Reason:         firstNonEmpty(text, "server error"),
 		}
 	}
@@ -602,9 +591,9 @@ func (s *OpenAIGatewayService) applyGrokUpstreamFailureDecision(
 	case GrokFailureServer:
 		reason = "grok upstream temporary error"
 	case GrokFailureCompatibility:
-		// Deliberately no account mutation. The caller uses ShouldFailover to
-		// retry another account; cooling a pool for a request-shape mismatch
-		// would remove healthy accounts.
+		// Deliberately no account mutation. The failover policy retries another
+		// account; cooling a pool for a request-shape mismatch would remove
+		// healthy accounts.
 		return true
 	default:
 		return false
