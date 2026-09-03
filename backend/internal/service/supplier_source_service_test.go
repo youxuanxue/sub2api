@@ -14,7 +14,7 @@ func TestUS048_CreateSupplierSourceEncryptsCredentialAndDefaultsBasePriority(t *
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
 
 	created, err := svc.Create(context.Background(), SupplierSourceInput{
-		SupplierName: " 佳杰 ", ChannelName: " stbl-5 ", ChannelType: 1,
+		SupplierName: " 佳杰 ", SupplierLane: " stbl-5 ", ChannelType: 1,
 		Endpoint: "https://token.vstecscloud.com/v1/", Credential: "secret", Notes: " lowest ratio only ",
 		Models: []SupplierSourceModelInput{{
 			ClientModelID: " deepseek-v4-pro ", UpstreamModelID: " deepseek-v4-pro ", PurchaseRatio: &ratio,
@@ -24,7 +24,7 @@ func TestUS048_CreateSupplierSourceEncryptsCredentialAndDefaultsBasePriority(t *
 	require.NoError(t, err)
 	require.Equal(t, 1, repo.createCalls)
 	require.Equal(t, "佳杰", created.SupplierName)
-	require.Equal(t, "stbl-5", created.ChannelName)
+	require.Equal(t, "stbl-5", created.SupplierLane)
 	require.Equal(t, 1, created.ChannelType)
 	require.Equal(t, "https://token.vstecscloud.com/v1", created.Endpoint)
 	require.Equal(t, "enc:secret", repo.stored.EncryptedCredential)
@@ -40,7 +40,7 @@ func TestUS048_CreateSupplierSourceAcceptsEmptyModelList(t *testing.T) {
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
 
 	created, err := svc.Create(context.Background(), SupplierSourceInput{
-		SupplierName: "FMGo", ChannelName: "seedance", ChannelType: 1, Endpoint: "https://fmgo.example/v1", Credential: "secret",
+		SupplierName: "FMGo", SupplierLane: "seedance", ChannelType: 1, Endpoint: "https://fmgo.example/v1", Credential: "secret",
 	})
 
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestUS048_CreateSupplierSourceAcceptsEmptyModelList(t *testing.T) {
 func TestUS048_SupplierSourceRejectsAccountConcurrencyAboveDatabaseInteger(t *testing.T) {
 	tooLarge := SupplierSourceMaxAccountConcurrency + 1
 	input := SupplierSourceInput{
-		SupplierName: "佳杰", ChannelName: "default", Endpoint: "https://supplier.example/v1",
+		SupplierName: "佳杰", SupplierLane: "default", Endpoint: "https://supplier.example/v1",
 		AccountConcurrency: &tooLarge,
 	}
 
@@ -61,14 +61,14 @@ func TestUS048_SupplierSourceRejectsAccountConcurrencyAboveDatabaseInteger(t *te
 func TestUS048_UpdateSupplierSourceBlankCredentialKeepsStoredSecretIdentity(t *testing.T) {
 	basePriority := 120
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
 		EncryptedCredential: "enc:old", CredentialFingerprint: "fp:old", BasePriority: 100,
 		Models: []SupplierSourceModel{}, CreatedAt: time.Date(2026, 8, 27, 8, 0, 0, 0, time.UTC),
 	}}
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
 
 	updated, err := svc.Update(context.Background(), 7, SupplierSourceInput{
-		SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://new.example/v1",
+		SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://new.example/v1",
 		Credential: "", BasePriority: &basePriority, Models: []SupplierSourceModelInput{},
 	})
 
@@ -82,13 +82,13 @@ func TestUS048_UpdateSupplierSourceBlankCredentialKeepsStoredSecretIdentity(t *t
 
 func TestUS048_UpdateSupplierSourceProvidedCredentialRotatesStoredSecretIdentity(t *testing.T) {
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
 		EncryptedCredential: "enc:old", CredentialFingerprint: "fp:old", BasePriority: 100,
 	}}
 	svc := NewSupplierSourceService(repo, nil, nil, supplierSourceTestEncryptor{}, supplierSourceTestFingerprinter{})
 
 	updated, err := svc.Update(context.Background(), 7, SupplierSourceInput{
-		SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
+		SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: 1, Endpoint: "https://old.example/v1",
 		Credential: "new-secret", Models: []SupplierSourceModelInput{},
 	})
 
@@ -101,7 +101,7 @@ func TestUS048_UpdateSupplierSourceProvidedCredentialRotatesStoredSecretIdentity
 func TestUS048_PriorityPreviewGroupsModelsBySourceBand(t *testing.T) {
 	ratio05, ratio055, ratio09 := 0.5, 0.55, 0.9
 	repo := &supplierSourceRepoFake{items: []SupplierSource{{
-		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", BasePriority: 100,
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", BasePriority: 100,
 		Models: []SupplierSourceModel{
 			{ClientModelID: "deepseek-v4-pro", UpstreamModelID: "deepseek-v4-pro", PurchaseRatio: &ratio05},
 			{ClientModelID: "qwen-3.7-max", UpstreamModelID: "qwen-3.7-max", PurchaseRatio: &ratio055},
@@ -114,8 +114,8 @@ func TestUS048_PriorityPreviewGroupsModelsBySourceBand(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []SupplierPriorityPreviewEntry{
-		{SourceID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", DiscountBand: 3, DiscountPriority: 30, Priority: 130, ClientModelIDs: []string{"deepseek-v4-pro", "qwen-3.7-max"}},
-		{SourceID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", DiscountBand: 5, DiscountPriority: 50, Priority: 150, ClientModelIDs: []string{"fallback-model"}},
+		{SourceID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", DiscountBand: 3, DiscountPriority: 30, Priority: 130, ClientModelIDs: []string{"deepseek-v4-pro", "qwen-3.7-max"}},
+		{SourceID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", DiscountBand: 5, DiscountPriority: 50, Priority: 150, ClientModelIDs: []string{"fallback-model"}},
 	}, preview.Entries)
 }
 

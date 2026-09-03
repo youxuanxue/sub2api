@@ -50,7 +50,7 @@ func (f *supplierUpstreamModelsHTTPFake) DoWithTLS(req *http.Request, proxyURL s
 func TestUS048_SupplierSourceInputRejectsUnknownChannelType(t *testing.T) {
 	ratio := 0.5
 	input := SupplierSourceInput{
-		SupplierName: "ali", ChannelName: "default", ChannelType: 99999,
+		SupplierName: "ali", SupplierLane: "default", ChannelType: 99999,
 		Endpoint: "https://dashscope.aliyuncs.com", Credential: "secret",
 		Models: []SupplierSourceModelInput{{
 			ClientModelID: "qwen3.7-max", UpstreamModelID: "qwen3.7-max", PurchaseRatio: &ratio,

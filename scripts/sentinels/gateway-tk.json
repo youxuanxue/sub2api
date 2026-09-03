@@ -2827,6 +2827,7 @@
     {
       "path": "ops/pricing/modelops.py",
       "must_contain": [
+        "REPO_ROOT / \"ops\" / \"pricing\" / \"served_models_manifest.py\"",
         "REPO_ROOT / \"ops\" / \"pricing\" / \"modelops_probe.py\"",
         "probe_env_name = _PROBE.probe_env_name",
         "ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)",
@@ -2846,7 +2847,7 @@
         "openai_tokensea_relay",
         "openai_cloudwise_relay"
       ],
-      "rationale": "The single prod model-surface activation entry validates current/target bundle digests, rejects stale or incomplete independent probe/pricing evidence, defaults to a reviewed mapping dry-run, requires a fixed outer confirmation before the inner mapping apply, and fails unless the post-apply prod release gate passes. It deliberately never targets Edge; direct Edge diagnostics/apply remain a separate mapping-manager capability."
+      "rationale": "The single prod model-surface activation entry consumes the shared validated manifest projection, validates current/target bundle digests, rejects stale or incomplete independent probe/pricing evidence, defaults to a reviewed mapping dry-run, requires a fixed outer confirmation before the inner mapping apply, and fails unless the post-apply prod release gate passes. It deliberately never targets Edge; direct Edge diagnostics/apply remain a separate mapping-manager capability."
     },
     {
       "path": "ops/pricing/modelops_probe.py",
@@ -7851,14 +7852,18 @@
         "TestUS048_SupplierSyncReadbackFailureReportsTheCompletedAddition",
         "TestUS048_SupplierSyncProbeFailureReturnsEveryResultAndWritesNothing",
         "TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation",
-        "TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount",
+        "TestUS048_IncompatibleTransportExactMatchDoesNotBlockParallelProjection",
         "TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation",
         "TestUS048_SupplierSyncReprobesBeforeRepairingNonEmptySchedulingProjection",
         "TestUS048_SupplierSyncReprobesImmediatelyBeforeProjection",
         "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe",
-        "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift"
+        "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift",
+        "TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync",
+        "TestUS048_SameTransportOtherSourceManagedStillConflicts",
+        "TestUS048_IncompatibleTransportCandidatesAreIgnoredForOpenAISupplier",
+        "TestUS048_QianfanBaiduV2ExactMatchIsAdopted"
       ],
-      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require an immediate reprobe before structural projection or repair, and keep empty-band scheduling repair on the metadata-only path."
+      "rationale": "Sync regressions keep failed_step and completed changes present on early and mid-write errors, preserve successful additions, stop pending removals and prove retry convergence. They also block duplicate creation whenever an exact account match cannot satisfy the narrow adoption contract, including disabled/error accounts and multi-band sources, require an immediate reprobe before structural projection or repair, and keep empty-band scheduling repair on the metadata-only path. Transport-incompatible credential matches are ignored; same-transport other-source managed accounts still conflict."
     },
     {
       "path": "backend/internal/service/crs_sync_supplier_managed_test.go",
@@ -7933,9 +7938,20 @@
         "supplierAccountNeedsProtocolRepublish(account, source.Endpoint, source.ChannelType)",
         "UpdateManagedAccountConcurrency(",
         "ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency)",
-        "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey"
+        "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey",
+        "ChannelType:           source.ChannelType,",
+        "relevantMatches := make([]*Account, 0, len(matches))"
       ],
-      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence."
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write, while transport or capability identity drift enters the normal real-probe path before any full projection republishes protocol evidence. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_account_store.go",
+      "must_contain": [
+        "if match.ChannelType <= 0 {",
+        "if !supplierReusableAccountTransport(account, wantEndpoint, match.ChannelType) {",
+        "func (s *defaultSupplierSourceAccountStore) FindCredentialEndpointMatches("
+      ],
+      "rationale": "Adoption/conflict candidate SSOT filters by credential fingerprint + endpoint + channel_type (TokenKey transport). Incompatible transports never enter the candidate set, so parallel OpenAI/Anthropic supplier sources with the same key do not 409 each other."
     },
     {
       "path": "backend/internal/service/supplier_upstream_models.go",

@@ -12,7 +12,7 @@ import (
 type SupplierPriorityPreviewEntry struct {
 	SourceID         int64    `json:"source_id"`
 	SupplierName     string   `json:"supplier_name"`
-	ChannelName      string   `json:"channel_name"`
+	SupplierLane     string   `json:"supplier_lane"`
 	DiscountBand     int      `json:"discount_band"`
 	DiscountPriority int      `json:"discount_priority"`
 	Priority         int      `json:"priority"`
@@ -55,9 +55,13 @@ type SupplierSourceSyncResult struct {
 	FailedStep   string                        `json:"failed_step,omitempty"`
 }
 
+// SupplierAccountMatch is the SSOT key for adoption/conflict candidates:
+// credential fingerprint + normalized endpoint + TokenKey channel_type (transport).
+// supplier_lane (supplier lane label) is intentionally not part of matching.
 type SupplierAccountMatch struct {
 	Endpoint              string
 	CredentialFingerprint string
+	ChannelType           int
 }
 
 type SupplierSourceAccountStore interface {
@@ -208,7 +212,7 @@ func (s *SupplierSourceService) PriorityPreview(ctx context.Context) (*SupplierP
 				return nil, priorityErr
 			}
 			preview.Entries = append(preview.Entries, SupplierPriorityPreviewEntry{
-				SourceID: source.ID, SupplierName: source.SupplierName, ChannelName: source.ChannelName,
+				SourceID: source.ID, SupplierName: source.SupplierName, SupplierLane: source.SupplierLane,
 				DiscountBand: band, DiscountPriority: discountPriority, Priority: targets[band].Priority,
 				ClientModelIDs: modelIDs,
 			})
@@ -457,26 +461,30 @@ func (s *SupplierSourceService) findReusableAccounts(
 		return result, nil
 	}
 	matches, err := s.accounts.FindCredentialEndpointMatches(ctx, SupplierAccountMatch{
-		Endpoint: source.Endpoint, CredentialFingerprint: source.CredentialFingerprint,
+		Endpoint:              source.Endpoint,
+		CredentialFingerprint: source.CredentialFingerprint,
+		ChannelType:           source.ChannelType,
 	})
 	if err != nil {
 		return nil, err
 	}
-	externalMatches := make([]*Account, 0, len(matches))
+	// Store already restricted candidates to this source's transport. Skip accounts this
+	// source already owns; any remaining match participates in adopt/conflict.
+	relevantMatches := make([]*Account, 0, len(matches))
 	for _, match := range matches {
 		managedSourceID, managedMatch := supplierSourceIDFromAccount(match)
 		if managedMatch && managedSourceID == source.ID {
 			continue
 		}
-		externalMatches = append(externalMatches, match)
+		relevantMatches = append(relevantMatches, match)
 	}
-	if len(externalMatches) == 0 {
+	if len(relevantMatches) == 0 {
 		return result, nil
 	}
-	if len(externalMatches) > 1 {
+	if len(relevantMatches) > 1 {
 		return nil, ErrSupplierSourceMultipleMatches
 	}
-	match := externalMatches[0]
+	match := relevantMatches[0]
 	if len(managed) != 0 || len(targets) != 1 || IsSupplierManagedAccount(match) ||
 		match.Status != StatusActive || !supplierReusableAccountTransport(match, source.Endpoint, source.ChannelType) {
 		return nil, ErrSupplierSourceIdentityConflict
@@ -785,7 +793,7 @@ func supplierSourceFromInput(input SupplierSourceInput, basePriority, accountCon
 		models = append(models, SupplierSourceModel(model))
 	}
 	return &SupplierSource{
-		SupplierName: input.SupplierName, ChannelName: input.ChannelName, ChannelType: input.ChannelType,
+		SupplierName: input.SupplierName, SupplierLane: input.SupplierLane, ChannelType: input.ChannelType,
 		Endpoint:     input.Endpoint,
 		BasePriority: basePriority, AccountConcurrency: ResolveSupplierSourceAccountConcurrency(accountConcurrency),
 		Models: models, Notes: input.Notes,
@@ -942,5 +950,5 @@ func sortedSupplierAccountBands(accounts map[int]*Account) []int {
 }
 
 func supplierManagedAccountName(source *SupplierSource, band int) string {
-	return fmt.Sprintf("%s/%s · 档位 %d", source.SupplierName, source.ChannelName, band)
+	return fmt.Sprintf("%s/%s · 档位 %d", source.SupplierName, source.SupplierLane, band)
 }

@@ -24,6 +24,7 @@ Exit: 0 ok/skip, 1 gate fail, 2 error.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -32,15 +33,24 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "ops" / "pricing"))
+PRICING_DIR = REPO / "ops" / "pricing"
+if str(PRICING_DIR) not in sys.path:
+    sys.path.insert(0, str(PRICING_DIR))
 from pricing_registry import has_complete_price
 from servable_allowlist import ALLOWLIST_PLATFORMS, parse_allowlist_maps
+
 GO_REL = "backend/internal/service/pricing_catalog_supported_models_tk.go"
 MANIFEST_REL = "backend/internal/service/tk_served_models.json"
 OVERLAY_REL = "backend/internal/service/tk_pricing_overlay.json"
-BUNDLE_REL = "ops/pricing/model-surface-bundle.json"
 MIGRATION_PREFIX = "backend/migrations/tk_"
 MATRIX = REPO / "ops/test/gateway_model_ssot_matrix.py"
+
+_manifest_spec = importlib.util.spec_from_file_location(
+    "tk_served_models_manifest",
+    REPO / "ops" / "pricing" / "served_models_manifest.py",
+)
+_MANIFEST = importlib.util.module_from_spec(_manifest_spec)
+_manifest_spec.loader.exec_module(_MANIFEST)
 
 MODEL_ID_RE = re.compile(r'"([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})"\s*:\s*"')
 MODEL_ID_FULL_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$")
@@ -78,7 +88,8 @@ def catalog_paths_changed(base: str) -> bool:
     return False
 
 
-parse_allowlist = parse_allowlist_maps
+def parse_allowlist(go_text: str) -> dict[str, set[str]]:
+    return parse_allowlist_maps(go_text)
 
 
 def _read_at(base: str, rel: str) -> str:
@@ -88,26 +99,10 @@ def _read_at(base: str, rel: str) -> str:
         return ""
 
 
-def _load_manifest(text: str) -> dict[str, dict]:
+def _load_manifest(text: str) -> dict[str, object]:
     if not text.strip():
         return {}
-    data = json.loads(text)
-    if data.get("schema_version") != 3:
-        return {}
-    entries = data.get("entries") or {}
-    out: dict[str, dict] = {}
-    for model_id, raw in entries.items():
-        if not isinstance(raw, dict):
-            continue
-        model_id = str(model_id).strip()
-        out[model_id] = {
-            "model_id": model_id,
-            "channel_type": raw.get("channel_type"),
-            "scopes": raw.get("scopes", []),
-            "price_owner": raw.get("price_owner", model_id),
-            "display": raw.get("display", False),
-        }
-    return out
+    return _MANIFEST.parse_manifest_text(text).by_model()
 
 
 def _overlay_priced(entry: object) -> bool:
@@ -163,37 +158,19 @@ def manifest_delta_models(base: str) -> set[str]:
     head_text = (REPO / MANIFEST_REL).read_text(encoding="utf-8")
     base_entries = _load_manifest(base_text)
     head_entries = _load_manifest(head_text)
-    if not base_entries and head_entries:
-        # A schema replacement is live-neutral only when the generated runtime
-        # floor artifact is unchanged. If it changed, conservatively probe every
-        # displayed row in the new manifest.
-        if BUNDLE_REL not in changed_paths(base):
-            return set()
-        return {
-            model_id
-            for model_id, entry in head_entries.items()
-            if entry.get("display")
-        }
     out: set[str] = set()
     for model_id, head in head_entries.items():
-        if not head.get("display"):
+        if not head.display:
             continue
         base_entry = base_entries.get(model_id)
         if base_entry is None:
             out.add(model_id)
             continue
-        if not base_entry.get("display"):
+        if not base_entry.display:
             out.add(model_id)
             continue
-        for field in (
-            "channel_type",
-            "scopes",
-            "price_owner",
-            "display",
-        ):
-            if base_entry.get(field) != head.get(field):
-                out.add(model_id)
-                break
+        if base_entry.projection() != head.projection():
+            out.add(model_id)
     return out
 
 
@@ -416,12 +393,21 @@ def cmd_selftest(_args) -> int:
     )
     bm = _load_manifest(base_manifest)
     hm = _load_manifest(head_manifest)
-    assert hm["qwen3-8b"]["display"] is True
-    assert bm["qwen3-8b"]["display"] is False
+    assert hm["qwen3-8b"].display is True
+    assert bm["qwen3-8b"].display is False
     equivalent = json.loads(base_manifest)
     equivalent["entries"]["qwen3-8b"]["display"] = True
-    assert _load_manifest(json.dumps(equivalent)) == hm
-    assert _load_manifest(json.dumps({"entries": {}})) == {}
+    assert (
+        _load_manifest(json.dumps(equivalent))["qwen3-8b"].projection()
+        == hm["qwen3-8b"].projection()
+    )
+    invalid_manifest = json.dumps({"entries": {}})
+    try:
+        _load_manifest(invalid_manifest)
+    except _MANIFEST.ManifestError:
+        pass
+    else:
+        raise AssertionError("invalid manifest must fail closed")
 
     line = '+                "glm-4.7-flash": "glm-4.7-flash",'
     m = MIGRATION_ADDED_MODEL_RE.match(line)
@@ -432,9 +418,9 @@ def cmd_selftest(_args) -> int:
     assert overlay_delta_models_from_payloads(
         {},
         {
-            "hidden-priced": {"mode": "embedding", "input_cost_per_token": 0.001},
-            "shown-priced": {"mode": "embedding", "input_cost_per_token": 0.001},
-            "shown-free": {"mode": "embedding", "input_cost_per_token": 0},
+            "hidden-priced": {"mode": "chat", "input_cost_per_token": 0.001, "output_cost_per_token": 0.001},
+            "shown-priced": {"mode": "chat", "input_cost_per_token": 0.001, "output_cost_per_token": 0.001},
+            "shown-free": {"mode": "chat", "input_cost_per_token": 0},
         },
         {"shown-priced", "shown-free"},
     ) == {"shown-priced"}

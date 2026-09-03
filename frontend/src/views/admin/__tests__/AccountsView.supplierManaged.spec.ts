@@ -191,7 +191,7 @@ describe('AccountsView supplier-managed accounts', () => {
       {
         id: 7,
         supplier_name: '佳杰',
-        channel_name: 'VSTECS',
+        supplier_lane: 'VSTECS',
         endpoint: 'https://example.com',
         channel_type: 1,
         base_priority: 100,

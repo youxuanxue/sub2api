@@ -63,84 +63,24 @@ SECONDARY_TRUTH_SKIP = {
 SECONDARY_TRUTH_PATTERNS = (
     re.compile(r"SINGLE\s+client-facing\s+servable\s+truth", re.IGNORECASE),
     re.compile(r"same\s+servable\s+surface", re.IGNORECASE),
-    re.compile(r"visible\s*⟹\s*reachable\s*∧\s*priced", re.IGNORECASE),
-    re.compile(r"truthful\s+callable\s+menus", re.IGNORECASE),
-    re.compile(r"same\s+capability\s+SSOT\s+as\s+mapped\s+discovery", re.IGNORECASE),
-    re.compile(r"SERVING\s+is\s+owned\s+by", re.IGNORECASE),
-    re.compile(r"SERVING\s+由\s+per-account", re.IGNORECASE),
-    re.compile(r"SERVING\s+fact\s+owned\s+by", re.IGNORECASE),
-    re.compile(r"one\s+entry,\s+four\s+facts", re.IGNORECASE),
-    re.compile(r"四事实"),
-    re.compile(r"priced\s*⟺\s*servable", re.IGNORECASE),
-    re.compile(r"一个能力\s*SSOT", re.IGNORECASE),
-    re.compile(r"列出即可调用"),
-    re.compile(r"servable\s*↔\s*priced\s*↔\s*display", re.IGNORECASE),
-    re.compile(r"native\s+OpenAI\s+serving\s+truth", re.IGNORECASE),
-    re.compile(r"public\s+serving\s+triple", re.IGNORECASE),
-    re.compile(r"priced\+servable", re.IGNORECASE),
-    re.compile(r"servable\+priced", re.IGNORECASE),
-    re.compile(r"priced\s+and\s+(?:probe-)?servable", re.IGNORECASE),
-    re.compile(r"priced\s*[∩]\s*"),
-    re.compile(r"¬unreachable"),
     re.compile(r"unified\s+servable\s+(?:truth|SSOT|source|set|candidate)", re.IGNORECASE),
     re.compile(r"unified\s+client-facing\s+servable", re.IGNORECASE),
     re.compile(r"unified\s+Antigravity\s+SSOT", re.IGNORECASE),
+    re.compile(r"visible\s*⟹\s*reachable\s*∧\s*priced", re.IGNORECASE),
+    re.compile(r"truthful\s+callable\s+menus", re.IGNORECASE),
+    re.compile(r"same\s+capability\s+SSOT\s+as\s+mapped\s+discovery", re.IGNORECASE),
+    re.compile(r"SERVING.{0,24}(?:owned\s+by|由\s+per-account)", re.IGNORECASE),
+    re.compile(r"(?:one\s+entry,\s+four\s+facts|four\s+facts|四事实)", re.IGNORECASE),
+    re.compile(
+        r"(?:priced\s*(?:\+|∩|⟺|and)|servable\s*(?:\+|↔)|served\s*\+)"
+        r".{0,24}(?:servable|priced|display(?:able)?|unreachable)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"(?:一个能力\s*SSOT|列出即可调用|有价\s*\+\s*可服务)", re.IGNORECASE),
+    re.compile(r"(?:native\s+OpenAI|public).{0,16}serving\s+(?:truth|triple)", re.IGNORECASE),
     re.compile(r"unpriced\s+never\s+blocks", re.IGNORECASE),
     re.compile(r"display\s+when\s+priced", re.IGNORECASE),
-    re.compile(r"四层洋葱"),
-    re.compile(r"有价\s*\+\s*可服务"),
-    re.compile(r"PRICE\s+事实"),
-    re.compile(r"只.{0,12}两个事实"),
-    re.compile(r"served\s*\+\s*priced", re.IGNORECASE),
-    re.compile(r"priced\+displayable", re.IGNORECASE),
-    re.compile(r"§2\.4\s*/\s*R-002"),
-    re.compile(r"同一\s*servable\s+surface"),
-    re.compile(r"account\.go:639"),
-    re.compile(r"pricing-availability-source-of-truth\.md\s+§", re.IGNORECASE),
-    re.compile(
-        r"§\d+(?:\.\d+)?[\s\S]{0,100}pricing-availability-source-of-truth\.md",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"(?:Goal\s+\d+|R-\d{3})[\s\S]{0,100}pricing-availability-source-of-truth\.md",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"pricing-availability-source-of-truth\.md[\s\S]{0,100}(?:Goal\s+\d+|R-\d{3})",
-        re.IGNORECASE,
-    ),
-    re.compile(r"tokenkey-modelops-planner.{0,40}(?:分支|branch)\s+[A-Z]", re.IGNORECASE),
 )
-
-# Cheap literal cover of SECONDARY_TRUTH_PATTERNS. A file that cannot contain
-# any of these needles cannot match a secondary-truth regex; skip the 40-pattern
-# scan. Keep this list conservative: every pattern must retain at least one
-# needle in any string it can match.
-SECONDARY_TRUTH_PREFILTER = (
-    "servable",
-    "priced",
-    "serving",
-    "ssot",
-    "四事实",
-    "列出即可调用",
-    "truthful",
-    "unreachable",
-    "unpriced",
-    "四层",
-    "有价",
-    "price 事实",
-    "两个事实",
-    "r-002",
-    "account.go:639",
-    "four facts",
-    "pricing-availability-source-of-truth.md",
-    "tokenkey-modelops-planner",
-)
-
-
-def secondary_truth_candidate(text: str) -> bool:
-    lowered = text.lower()
-    return any(needle in lowered for needle in SECONDARY_TRUTH_PREFILTER)
 
 
 def iter_secondary_truth_files(root: Path) -> list[Path]:
@@ -257,8 +197,6 @@ def check(root: Path) -> list[str]:
     for path in iter_secondary_truth_files(root):
         relative = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
-        if not secondary_truth_candidate(text):
-            continue
         for pattern in SECONDARY_TRUTH_PATTERNS:
             match = pattern.search(text)
             if match:

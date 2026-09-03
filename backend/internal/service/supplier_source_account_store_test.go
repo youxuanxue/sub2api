@@ -26,7 +26,7 @@ func TestUS048_SupplierAccountStoreMatchesWithoutReadingGroups(t *testing.T) {
 	store := NewSupplierSourceAccountStore(repo, commands, supplierSourceTestFingerprinter{})
 
 	matches, err := store.FindCredentialEndpointMatches(context.Background(), SupplierAccountMatch{
-		Endpoint: "https://qianfan.baidubce.com/v1", CredentialFingerprint: "fp:secret",
+		Endpoint: "https://qianfan.baidubce.com/v1", CredentialFingerprint: "fp:secret", ChannelType: 46,
 	})
 
 	require.NoError(t, err)
@@ -35,6 +35,17 @@ func TestUS048_SupplierAccountStoreMatchesWithoutReadingGroups(t *testing.T) {
 	require.Empty(t, matches[0].AccountGroups)
 	require.Empty(t, matches[0].GroupIDs)
 	require.Empty(t, matches[0].Groups)
+
+	openaiMatches, err := store.FindCredentialEndpointMatches(context.Background(), SupplierAccountMatch{
+		Endpoint: "https://qianfan.baidubce.com/v1", CredentialFingerprint: "fp:secret", ChannelType: 1,
+	})
+	require.NoError(t, err)
+	require.Empty(t, openaiMatches, "incompatible transport must not enter adoption candidates")
+
+	_, err = store.FindCredentialEndpointMatches(context.Background(), SupplierAccountMatch{
+		Endpoint: "https://qianfan.baidubce.com/v1", CredentialFingerprint: "fp:secret",
+	})
+	require.ErrorIs(t, err, ErrSupplierSourceInvalidInput)
 
 	managed, err := store.ListManagedAccounts(context.Background(), 7)
 	require.NoError(t, err)

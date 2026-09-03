@@ -53,12 +53,18 @@ if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pricing_registry import has_complete_price, resolve_price_owner
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVICE_DIR = REPO_ROOT / "backend" / "internal" / "service"
 MANIFEST_PATH = SERVICE_DIR / "tk_served_models.json"
 OVERLAY_PATH = SERVICE_DIR / "tk_pricing_overlay.json"
 MAPPING_MANAGER_PATH = REPO_ROOT / "ops" / "pricing" / "manage-account-model-mapping-runtime.py"
+
+_manifest_spec = importlib.util.spec_from_file_location(
+    "tk_served_models_manifest",
+    REPO_ROOT / "ops" / "pricing" / "served_models_manifest.py",
+)
+_MANIFEST = importlib.util.module_from_spec(_manifest_spec)
+_manifest_spec.loader.exec_module(_MANIFEST)
 
 _bundle_spec = importlib.util.spec_from_file_location(
     "tk_model_surface_bundle", REPO_ROOT / "ops" / "pricing" / "model_surface_bundle.py")
@@ -82,28 +88,7 @@ ACTIVATION_EVIDENCE_SCHEMA_VERSION = 2
 ACTIVATION_EVIDENCE_MAX_AGE = dt.timedelta(hours=24)
 ACTIVATION_CONFIRM = "yes-activate-model-surface"
 
-class ManifestEntry:
-    __slots__ = (
-        "model_id",
-        "channel_type",
-        "scopes",
-        "price_owner",
-        "display",
-    )
-
-    def __init__(
-        self,
-        model_id: str,
-        channel_type: int | None,
-        scopes: tuple[dict[str, Any], ...],
-        price_owner: str,
-        display: bool,
-    ) -> None:
-        self.model_id = model_id
-        self.channel_type = channel_type
-        self.scopes = scopes
-        self.price_owner = price_owner
-        self.display = display
+ManifestEntry = _MANIFEST.ManifestEntry
 
 
 class Candidate:
@@ -127,27 +112,10 @@ def load_json(path: Path) -> Any:
 
 
 def load_manifest(path: Path = MANIFEST_PATH) -> list[ManifestEntry]:
-    data = load_json(path)
-    if data.get("schema_version") != 3:
-        raise SystemExit(f"{path}: unsupported schema_version {data.get('schema_version')!r}")
-    entries = data.get("entries")
-    if not isinstance(entries, dict):
-        raise SystemExit(f"{path}: top-level entries object missing")
-    out: list[ManifestEntry] = []
-    for model_id, raw in entries.items():
-        if not isinstance(raw, dict):
-            raise SystemExit(f"{path}: {model_id}: entry is not an object")
-        channel_type = raw.get("channel_type")
-        if channel_type is not None:
-            channel_type = int(channel_type)
-        out.append(ManifestEntry(
-            model_id=str(model_id),
-            channel_type=channel_type,
-            scopes=tuple(scope for scope in raw.get("scopes", []) if isinstance(scope, dict)),
-            price_owner=str(raw.get("price_owner") or model_id),
-            display=bool(raw.get("display", False)),
-        ))
-    return out
+    try:
+        return list(_MANIFEST.load_manifest(path).entries)
+    except _MANIFEST.ManifestError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def load_overlay(path: Path = OVERLAY_PATH) -> dict[str, dict[str, Any]]:
