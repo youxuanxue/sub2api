@@ -38,13 +38,14 @@ REQUIRED_OR_PROVIDER_MARKERS = {
         "InternalModelID",
     ),
     REPO_ROOT / "backend/internal/service/openrouter_provider_tk_schema.go": (
-        "OpenRouterProviderPricingOverride",
-        "openRouterProviderDefaultSamplingParameters",
+        "OpenRouterProviderPriceOverride",
+        "openRouterProviderSchemaVersion",
         "openRouterProviderDefaultQuantization",
     ),
     REPO_ROOT / "ops/pricing/openrouter-provider-onboarding.md": (
         "monitor_api_key_ids",
         "invoicing_contact_email",
+        "schema 2.4",
     ),
 }
 
