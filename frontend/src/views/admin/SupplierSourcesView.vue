@@ -301,6 +301,14 @@
               {{ t('admin.supplierSources.discover') }}
             </button>
             <button
+              data-test="save-source"
+              type="submit"
+              :disabled="saving || discovering || validating || syncing || !canSaveSelected"
+              class="rounded-lg bg-primary-600 px-4 py-2 text-white disabled:opacity-50"
+            >
+              {{ t('admin.supplierSources.save') }}
+            </button>
+            <button
               v-if="selected"
               data-test="validate-source"
               type="button"
@@ -309,14 +317,6 @@
               @click="validateSelected"
             >
               {{ t('admin.supplierSources.validate') }}
-            </button>
-            <button
-              data-test="save-source"
-              type="submit"
-              :disabled="saving || discovering || validating || syncing || !canSaveSelected"
-              class="rounded-lg bg-primary-600 px-4 py-2 text-white disabled:opacity-50"
-            >
-              {{ t('admin.supplierSources.save') }}
             </button>
             <button
               v-if="selected"
@@ -499,9 +499,9 @@
             </span>
           </div>
 
-          <div>
+          <div v-if="syncResult.probe_results.length">
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredProbes') }}</h3>
-            <ul v-if="syncResult.probe_results.length" class="mt-2 space-y-2 text-sm">
+            <ul class="mt-2 space-y-2 text-sm">
               <li
                 v-for="probe in syncResult.probe_results"
                 :key="`projected-${probe.client_model_id}-${probe.upstream_model_id}`"

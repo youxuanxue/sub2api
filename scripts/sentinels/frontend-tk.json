@@ -1996,7 +1996,10 @@
         "useNewApiChannelTypes",
         "supplierChannelTypeOptions",
         "item.channel_type === SUPPLIER_BAIDU_V2_CHANNEL_TYPE",
-        "@change=\"applyChannelTypeDefaultEndpoint(form.channel_type)\""
+        "@change=\"applyChannelTypeDefaultEndpoint(form.channel_type)\"",
+        "v-if=\"syncResult.probe_results.length\"",
+        "data-test=\"save-source\"",
+        "data-test=\"validate-source\""
       ],
       "must_not_contain": [
         "syncSucceeded = ref",
@@ -2006,7 +2009,7 @@
         "t('admin.supplierSources.description')",
         "text-2xl font-semibold"
       ],
-      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. Discover polls async candidate jobs to completion; validate is a read-only preview; project displays the probe evidence returned by its own authoritative request without depending on prior validation state. Dirty or discover-backfilled drafts disable discover/validate/project. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints. Also anchors the full-bleed admin page shell (no max-w-7xl / mx-auto page chrome) so the layout stays aligned with Dashboard/RiskControl. Viewport-fill layout drops the in-page title/description shell (AppHeader owns the title) and stretches the list/editor workspace to the remaining main height."
+      "rationale": "The supplier page derives success from the current response, the current request error, and absence of failed_step. Discover polls async candidate jobs to completion; validate is a read-only preview; project writes accounts and hides an empty probe list. Dirty or discover-backfilled drafts disable discover/validate/project. Visible action order is discover, save, validate, project. BaiduV2 remains an explicit supplier transport even though it is absent from NewAPI's generic model-fetch set, and catalog endpoint defaults apply only to operator channel changes so source hydration preserves persisted custom endpoints. Also anchors the full-bleed admin page shell (no max-w-7xl / mx-auto page chrome) so the layout stays aligned with Dashboard/RiskControl. Viewport-fill layout drops the in-page title/description shell (AppHeader owns the title) and stretches the list/editor workspace to the remaining main height."
     },
     {
       "path": "frontend/src/api/admin/supplierSources.ts",
@@ -2016,9 +2019,11 @@
         "async function getDiscoverJob(id: number, jobId: string): Promise<SupplierSourceProbeResult>",
         "`/admin/supplier-sources/${id}/discover/jobs/${encodeURIComponent(jobId)}`",
         "async function validate(id: number): Promise<SupplierSourceValidateResult>",
-        "`/admin/supplier-sources/${id}/validate`"
+        "`/admin/supplier-sources/${id}/validate`",
+        "SUPPLIER_SOURCE_VALIDATE_TIMEOUT_MS = 300_000",
+        "{ timeout: SUPPLIER_SOURCE_VALIDATE_TIMEOUT_MS }"
       ],
-      "rationale": "Admin client must expose discover start + job poll, validate configured models, and project accounts via sync. Dropping poll forces synchronous long discovers behind the browser timeout again."
+      "rationale": "Admin client must expose discover start + job poll, validate configured models, and project accounts via sync. Validate keeps a long timeout because it probes every configured model; discover and project stay on the default client timeout. Dropping poll forces synchronous long discovers behind the browser timeout again."
     },
     {
       "path": "frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts",
@@ -2032,9 +2037,13 @@
         "contains no state machine, audit, activation, pause, or account-group controls",
         "polls a running probe job until completed without syncing",
         "shows probe failure message and failed_step outside the sync-result block",
-        "offers and hydrates BaiduV2 while preserving a custom endpoint during source selection"
+        "offers and hydrates BaiduV2 while preserving a custom endpoint during source selection",
+        "'discover-source'",
+        "'save-source'",
+        "'validate-source'",
+        "'sync-source'"
       ],
-      "rationale": "Focused UI regressions pin discover/validate/project workflow: save is side-effect free, unsaved edits block discover/validate/project, project renders account changes only, validate failures stay in validate panel, resolved failed_step cannot show success, async discover polling completes without auto-project, discover failures visible outside project block, BaiduV2 stays selectable without hydration overwriting custom endpoint, no state machine or account-group controls. Also pins the full-bleed page-shell regression. Also pins viewport-fill layout without an in-page title shell."
+      "rationale": "Focused UI regressions pin discover/save/validate/project workflow: save is side-effect free, unsaved edits block discover/validate/project, project renders account changes without probe rows, validate failures stay in validate panel, resolved failed_step cannot show success, async discover polling completes without auto-project, discover failures visible outside project block, visible button order is discover then save then validate then project, BaiduV2 stays selectable without hydration overwriting custom endpoint, no state machine or account-group controls. Also pins the full-bleed page-shell regression. Also pins viewport-fill layout without an in-page title shell."
     },
     {
       "path": "frontend/src/composables/useSupplierManagedAccount.ts",

@@ -1,30 +1,30 @@
 ---
 title: Supplier Source - discover, validate, save, and project
 status: approved
-approved_by: "xuejiao (operator directives 2026-09-01; revised 2026-09-02)"
+approved_by: "xuejiao (operator directives 2026-09-01; revised 2026-09-02; orthogonal project 2026-09-03)"
 approved_at: 2026-09-01
-updated: 2026-09-02
+updated: 2026-09-03
 created: 2026-09-01
 owners: [tk-platform]
-scope: "amend US-048 / model-supplier-source-management: four explicit actions; project owns its immediate write-gate probe; legacy probe routes remain aliases"
+scope: "amend US-048 / model-supplier-source-management: four orthogonal actions; validate owns model probe; project writes accounts only; legacy probe routes remain aliases"
 related_stories: ["US-048"]
 amends: ["docs/approved/model-supplier-source-management.md"]
 related_design: ["docs/approved/model-supplier-source-fmgo-seedance-account-rewrite.md"]
-operator_locks: "2026-09-02: discover -> validate -> save -> project; validate is read-only preview, never write authorization; project re-probes immediately before structural writes; no validation cache/token; POST .../probe and probe job remain discover aliases; Anthropic channel_type=14 messages-only probe/project"
+operator_locks: "2026-09-03: discover / validate / save / project are orthogonal; validate owns model probe; project never probes; no validation cache/token; POST .../probe and probe job remain discover aliases; Anthropic channel_type=14 messages-only validate/project"
 ---
 
 # 供应源：发现 / 校验 / 保存 / 投影
 
 ## 一件事
 
-把供应源页面的四个运营意图拆清楚，同时让账号写入门禁留在写路径自身：
+把供应源页面的四个运营意图拆成独立、正交的动作：
 
 ```text
-发现模型 -> 校验模型 -> 保存 -> 投影账号
+发现模型 | 保存 | 校验模型 | 投影账号
 ```
 
-四个按钮是职责顺序，不是可复用的授权状态机。`Validate` 提供只读预览；`Project` 对结构变化在写入前
-重新探测本次将投影的已保存模型。进程重启、多实例切换或时间经过都不能绕过这个门禁。
+四个按钮各做一件事，互不授权、互不复用结果。`Validate` 是唯一的已配置模型探测；`Project`
+只把库内已保存事实写入受管账号，不探测。进程重启、多实例切换或时间经过都不能让投影去探测。
 
 FMGo Seedance 账号侧动态改写不在本文件范围，见
 `docs/approved/model-supplier-source-fmgo-seedance-account-rewrite.md`。
@@ -33,10 +33,10 @@ FMGo Seedance 账号侧动态改写不在本文件范围，见
 
 | 项 | 决定 |
 |---|---|
-| 按钮顺序 | **发现模型 -> 校验模型 -> 保存 -> 投影账号** |
+| 按钮顺序 | **发现模型 -> 保存 -> 校验模型 -> 投影账号** |
 | Validate | 只读探测已保存配置；结果只用于当下判断，不授权未来写入 |
-| Project | 结构变化 / 非空 mapping 投影前即时重探；失败不写账号 |
-| 元数据快路 | 名称、priority、concurrency 等不改变结构时可不探测 |
+| Project | 只窄写受管账号；不探测模型，也不消费 Validate 结果 |
+| 元数据快路 | 名称、priority、concurrency 等不改变结构时只改元数据 |
 | 缓存 / token | 不存在 validation cache、TTL、probe token 或证据表 |
 | 新 API | `discover`、`discover job`、`validate`、`sync` |
 | 兼容 API | 旧 `probe`、`probe job` 路由继续注册，复用 Discover handler |
@@ -67,10 +67,9 @@ FMGo Seedance 账号侧动态改写不在本文件范围，见
 ### 投影账号
 
 - 只读取库内已保存事实，不消费 Discover/Validate 的浏览器或进程状态。
-- 结构变化时，在第一个结构写入之前用当次目标账号逐模型重探。
-- 任一探测失败，返回完整当次 `probe_results`、`failed_step=probe`、空 `changes`，不创建或更新账号。
-- 全部成功后，才按先增后减规则执行窄写；非空 mapping 携带本次探测证据。
-- 失败后重试会重新探测，不能复用上次成功或失败结果。
+- 不探测已配置模型；`probe_results` 为空。
+- 结构变化按先增后减规则窄写受管账号；非空 mapping 按 `channel_type` 声明单一协议能力。
+- 写失败返回 `failed_step + changes[]`，重试重新计算差异并继续收敛。
 
 ## API
 
@@ -89,6 +88,8 @@ GET  /admin/supplier-sources/:id/probe/jobs/:job_id
 
 ## 探测协议
 
+本节只约束发现/校验。投影不探测，只按 `channel_type` 声明协议能力。
+
 - 默认：Chat Completions 正向证据。
 - 视频通道（DoubaoVideo / 54）：走该通道真实视频方言，不用 `hi` Chat 冒充成功。
 - Anthropic 通道（14）：走 `/v1/messages` 正向证据（CloudWise Claude opus/sonnet 上游仅 messages）；
@@ -98,19 +99,19 @@ GET  /admin/supplier-sources/:id/probe/jobs/:job_id
 
 ## 状态矩阵
 
-| 表单状态 | 发现 | 校验 | 保存 | 投影 |
+| 表单状态 | 发现 | 保存 | 校验 | 投影 |
 |---|---|---|---|---|
-| 干净（与库一致） | 可 | 可 | 禁 | 可 |
-| 手改未保存 | 禁 | 禁 | 可 | 禁 |
-| 发现回填草稿 | 禁 | 禁 | 可 | 禁 |
+| 干净（与库一致） | 可 | 禁 | 可 | 可 |
+| 手改未保存 | 禁 | 可 | 禁 | 禁 |
+| 发现回填草稿 | 禁 | 可 | 禁 | 禁 |
 
-Validate 成功或失败都不改变矩阵。Project 未先 Validate 仍可执行，因为它拥有自己的即时探测门禁。
+Validate 成功或失败都不改变矩阵。Project 未先 Validate 仍可执行，因为它不探测、也不依赖校验结果。
 
 ## 验收场景
 
-1. 干净表单直接 Project：结构变化路径先探测；成功才写账号。
-2. 干净表单直接 Project：探测失败返回完整结果且零账号写；上游恢复后重试重新探测并成功。
-3. 先 Validate 成功、进程重启或请求落到另一实例、再 Project：Project 仍重新探测。
+1. 干净表单直接 Project：不探测，结构变化直接写账号。
+2. 干净表单直接 Project：即使 Validate 会对某行失败，Project 仍写账号且 `probe_results` 为空。
+3. 先 Validate 失败、再 Project：Project 仍写账号，不复用也不重放校验结果。
 4. 仅名称、priority 或 concurrency 漂移：Project 走元数据快路，不做模型探测。
 5. 旧客户端调用 `/probe` 与 probe job：仍得到 Discover 结果，不出现 404。
 6. 表单脏：发现、校验、投影都禁用，只能先保存。
@@ -124,7 +125,7 @@ pnpm --dir frontend exec vitest run src/views/admin/__tests__/SupplierSourcesVie
 pnpm --dir frontend exec playwright test e2e/us048-supplier-source-management.e2e.ts
 ```
 
-Playwright 必须覆盖未先 Validate 的 Project 失败、零写入和重试恢复；API-only 测试不能代替该 UI 流程。
+Playwright 必须覆盖未先 Validate 的 Project 直接成功写入；API-only 测试不能代替该 UI 流程。
 
 ## 非目标
 
@@ -137,8 +138,8 @@ Playwright 必须覆盖未先 Validate 的 Project 失败、零写入和重试�
 
 - [x] 四按钮顺序固定
 - [x] Validate 只读，不是写授权
-- [x] Project 在结构写入前即时重探
+- [x] Project 不探测，只写受管账号
 - [x] 旧 `/probe` 路由保留为兼容别名
 - [x] 无 validation cache / token
-- [x] Playwright 覆盖 Project-before-Validate 失败与恢复
-- [x] 2026-09-02 运营修订已批准
+- [x] Playwright 覆盖未先 Validate 的 Project 直接写入
+- [x] 2026-09-03 运营修订：四步正交，探测只属于校验模型

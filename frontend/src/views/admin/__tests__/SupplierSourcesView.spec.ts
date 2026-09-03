@@ -150,6 +150,12 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.get('[data-test="discover-source"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="discover-source"], [data-test="save-source"], [data-test="validate-source"], [data-test="sync-source"]').map(button => button.attributes('data-test'))).toEqual([
+      'discover-source',
+      'save-source',
+      'validate-source',
+      'sync-source',
+    ])
   })
 
   it('shows blank purchase ratio as band 6 and priority base plus 60', async () => {
@@ -495,10 +501,7 @@ describe('SupplierSourcesView', () => {
     list.mockResolvedValueOnce([source])
     sync.mockResolvedValueOnce({
       source_id: 7,
-      probe_results: [{
-        client_model_id: 'deepseek-v4-pro', upstream_model_id: 'deepseek-v4-pro',
-        status: 'passed', protocol: 'openai_chat_completions',
-      }],
+      probe_results: [],
       changes: [{
         account_id: 101, discount_band: 3, action: 'created',
         added_models: ['deepseek-v4-pro', 'qwen-3.7-max'], removed_models: [],
@@ -517,7 +520,8 @@ describe('SupplierSourcesView', () => {
     expect(result).toContain('qwen-3.7-max')
     expect(result).toContain('101')
     expect(result).toContain('created')
-    expect(result).toContain('passed')
+    expect(result).not.toContain('passed')
+    expect(result).not.toContain('admin.supplierSources.configuredProbes')
     expect(validate).not.toHaveBeenCalled()
   })
 

@@ -1,7 +1,7 @@
 export default {
   supplierSources: {
     title: '供应源',
-    description: '维护采购事实。发现模型只读上游；校验模型探测已保存配置；保存落库；投影账号写入受管账号。',
+    description: '维护采购事实。发现模型只读上游；校验模型探测已保存配置；保存只写供应源；投影账号只写受管账号，不探测。',
     sources: '供应源列表',
     newSource: '新增供应源',
     empty: '暂无供应源',
