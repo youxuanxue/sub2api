@@ -68,12 +68,12 @@ python3 ops/pricing/manage-openrouter-provider-config.py snapshot  # read live c
 # edit catalog_excluded_model_ids / stream_only_model_ids in settings JSON, then upsert via admin or update-config
 ```
 
-Catalog must include token-priced chat models plus media-priced rows (`pricing.image` for Imagen/Seedream, `pricing.request` for Veo) with matching `output_modalities`.
+Catalog uses OpenRouter provider **schema 2.4** (modality-owned pricing/capacity). Token-priced chat models expose text input/output modalities; media rows use output `image` (`completion` / `image`) or `video` (`completion` / `second`). Flat legacy catalog fields are not emitted.
 
 ## Inference model id contract
 
-OpenRouter calls inference with the same `id` returned by `/openrouter/v1/models` (for example `tokenkey/deepseek-v4-pro`). TokenKey rewrites that public id back to the internal scheduling id before routing.
+OpenRouter calls inference with the same `id` returned by `/openrouter/v1/models` (for example `tokenkey/deepseek-v4-pro`). TokenKey rewrites that public id back to the internal scheduling id before routing. Customer `/v1/*` gateway behavior is unchanged.
 
 - Chat: `POST /v1/chat/completions`
-- Image (`output_modalities` includes `image`): `POST /openrouter/v1/images` — OR schema in/out (`data[].b64_json`)
-- Video (`output_modalities` includes `video`): `POST /openrouter/v1/videos` → `202` with `{id,polling_url,status}`; poll `GET /openrouter/v1/videos/{id}`
+- Image (output modality `type=image`): `POST /openrouter/v1/images` — OR schema in/out (`data[].b64_json`)
+- Video (output modality `type=video`): `POST /openrouter/v1/videos` → `202` with `{id,polling_url,status}`; poll `GET /openrouter/v1/videos/{id}`
