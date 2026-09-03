@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -55,6 +56,9 @@ func (s *defaultSupplierSourceAccountStore) FindCredentialEndpointMatches(
 	if s == nil || s.reader == nil {
 		return nil, ErrSupplierProjectionReaderMissing
 	}
+	if match.ChannelType <= 0 {
+		return nil, fmt.Errorf("%w: channel_type", ErrSupplierSourceInvalidInput)
+	}
 	accounts, err := s.reader.ListSupplierAdoptionCandidates(ctx)
 	if err != nil {
 		return nil, err
@@ -66,6 +70,9 @@ func (s *defaultSupplierSourceAccountStore) FindCredentialEndpointMatches(
 	result := make([]*Account, 0)
 	for index := range accounts {
 		account := &accounts[index]
+		if !supplierReusableAccountTransport(account, wantEndpoint, match.ChannelType) {
+			continue
+		}
 		baseURL, _ := account.Credentials["base_url"].(string)
 		if !supplierManagedEndpointsEqual(baseURL, wantEndpoint) {
 			continue

@@ -1,18 +1,19 @@
 ---
 title: TokenKey Model Supplier Source Management
 status: approved
-approved_by: "xuejiao (operator directives through 2026-09-02)"
+approved_by: "xuejiao (operator directives through 2026-09-03)"
 approved_at: 2026-08-27
-updated: 2026-09-02
+updated: 2026-09-03
 created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate; managed accounts behave like ordinary accounts after create, with sync overwriting projection fields"
 related_stories: ["US-048"]
 revision_note: >
-  2026-09-02: Anthropic channel_type=14 is a first-class supplier transport exception
-  (like BaiduV2/46 and DoubaoVideo/54). CloudWise Claude opus/sonnet upstream only
-  accepts messages; supplier probe/project declare messages-only capability and refuse
-  Chat Completions evidence for that channel.
+  2026-09-03: Supplier identity SSOT — row unique key is
+  (supplier_name, endpoint, credential_fingerprint, channel_type);
+  channel_name is supplier-lane label only. Adoption candidates filter by
+  the same channel_type transport. 2026-09-02: Anthropic channel_type=14
+  messages-only exception.
 ---
 
 # TokenKey 模型供应源管理审批基线
@@ -21,9 +22,11 @@ revision_note: >
 
 ## 决策
 
-运营只管理一个对象：供应源。一个供应源表示一个供应商通道、一个 endpoint、一份 API Key、一个
-`base_priority` 和一组明确的模型采购事实。保存只写供应源；运营主动点击“投影账号”后，系统才
-把事实投影为现有 TokenKey 账号配置。
+运营只管理一个对象：供应源。一个供应源表示一个供应商、一个 **TokenKey 协议类型**（`channel_type`）、
+一个规范化 endpoint、一份 API Key、一个 `base_priority` 和一组明确的模型采购事实。字段
+`channel_name` 仅是供应商侧通道标签（供应通道名 / supplier lane），用于展示与分组，**不参与**
+行身份或接管冲突判定。保存只写供应源；运营主动点击“投影账号”后，系统才把事实投影为现有
+TokenKey 账号配置。
 
 线上调度不增加任何供应来源概念。scheduler 继续只比较账号现有 `priority`，数值越小越先调度；
 供应源只是按固定规则写出这个字段：
@@ -111,6 +114,24 @@ API 必须返回可读 `message` 与 `failed_step`；管理页必须在结果区
 不增加 draft/ready/enabled、activate、pause、蓝绿账号、影子 revision、停机屏障或紧急止损状态。页面
 在请求期间禁用重复提交；同一来源不支持人工并发编辑或同步，不为低频管理面引入分布式锁或任务编排。
 
+## 身份 SSOT（三层，各一 owner）
+
+```text
+① 供应源行身份（model_supplier_sources）
+   UNIQUE (supplier_name, endpoint, credential_fingerprint, channel_type)
+   channel_name = 供应通道名（展示标签），改名不改身份
+
+② 投影/冲突候选（FindCredentialEndpointMatches）
+   fingerprint + endpoint + channel_type（transport 兼容）
+   不兼容协议类型的账号永不进入候选；其它源同 transport 托管账号 → IdentityConflict
+
+③ 受管账号身份（accounts.extra）
+   supplier_source_id + supplier_discount_band
+```
+
+同供应商、同 endpoint、同凭证、**不同 `channel_type`**（例如 OpenAI chat=1 与 Anthropic
+messages=14）是合法并行供应源，各自投影自己的受管账号。
+
 ## 账号复用与 ownership
 
 受管账号只增加：
@@ -120,11 +141,12 @@ supplier_source_id
 supplier_discount_band
 ```
 
-`supplier_source_id + supplier_discount_band` 是唯一逻辑身份。已有普通账号只有在 endpoint、凭证指纹、
-解析后的 NewAPI transport（OpenAI 或 Qianfan 的 BaiduV2）、唯一匹配、单非空档位以及 mapping 子集等窄
-条件全部满足时才可接管；账号组不参与匹配，接管前后保持不变。匹配查询覆盖全部未删除 NewAPI 账号以
-识别凭证冲突；只有当前 `status=active` 的唯一精确匹配可自动接管，`disabled/error` 精确匹配返回冲突，
-不绕过它新建重复账号。
+`supplier_source_id + supplier_discount_band` 是受管账号唯一逻辑身份。已有**未托管**普通账号只有在
+endpoint、凭证指纹、**同一 `channel_type` transport**、唯一匹配、单非空档位以及 mapping 子集等窄
+条件全部满足时才可接管；账号组不参与匹配，接管前后保持不变。匹配查询只返回与本源 transport
+兼容的未删除 NewAPI 账号；只有当前 `status=active` 的唯一精确匹配可自动接管，`disabled/error`
+精确匹配返回冲突，不绕过它新建重复账号。其它供应源已托管且 transport 相同的账号一律
+`IdentityConflict`；transport 不同则视为无关身份，不阻挡本源新建投影。
 
 受管账号创建后，在账号管理页按**普通账号**对待：可编辑、删除、复制、切换调度、批量更新等。
 普通创建与导入仍拒绝伪造 `supplier_source_id` / `supplier_discount_band`；普通 Extra 编辑会保留

@@ -55,9 +55,13 @@ type SupplierSourceSyncResult struct {
 	FailedStep   string                        `json:"failed_step,omitempty"`
 }
 
+// SupplierAccountMatch is the SSOT key for adoption/conflict candidates:
+// credential fingerprint + normalized endpoint + TokenKey channel_type (transport).
+// channel_name (supplier lane label) is intentionally not part of matching.
 type SupplierAccountMatch struct {
 	Endpoint              string
 	CredentialFingerprint string
+	ChannelType           int
 }
 
 type SupplierSourceAccountStore interface {
@@ -457,23 +461,19 @@ func (s *SupplierSourceService) findReusableAccounts(
 		return result, nil
 	}
 	matches, err := s.accounts.FindCredentialEndpointMatches(ctx, SupplierAccountMatch{
-		Endpoint: source.Endpoint, CredentialFingerprint: source.CredentialFingerprint,
+		Endpoint:              source.Endpoint,
+		CredentialFingerprint: source.CredentialFingerprint,
+		ChannelType:           source.ChannelType,
 	})
 	if err != nil {
 		return nil, err
 	}
-	// Only credential+endpoint matches that are relevant to THIS source's transport
-	// participate in adopt/conflict decisions. Other supplier-managed accounts that share
-	// the same key but a different channel_type (e.g. OpenAI chat vs Anthropic messages)
-	// must not block creating a parallel source — they are a separate projection identity.
+	// Store already restricted candidates to this source's transport. Skip accounts this
+	// source already owns; any remaining match participates in adopt/conflict.
 	relevantMatches := make([]*Account, 0, len(matches))
 	for _, match := range matches {
 		managedSourceID, managedMatch := supplierSourceIDFromAccount(match)
 		if managedMatch && managedSourceID == source.ID {
-			continue
-		}
-		compatible := supplierReusableAccountTransport(match, source.Endpoint, source.ChannelType)
-		if managedMatch && !compatible {
 			continue
 		}
 		relevantMatches = append(relevantMatches, match)

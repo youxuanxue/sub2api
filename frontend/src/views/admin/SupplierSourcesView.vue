@@ -167,6 +167,7 @@
             <label class="text-sm">
               {{ t('admin.supplierSources.channelName') }}
               <input v-model.trim="form.channel_name" data-test="channel-name" required class="mt-1 w-full rounded-lg border px-3 py-2" />
+              <span class="mt-1 block text-xs text-gray-500">{{ t('admin.supplierSources.channelNameHint') }}</span>
             </label>
           </div>
 
@@ -185,6 +186,7 @@
                 {{ option.label }}
               </option>
             </select>
+            <span class="mt-1 block text-xs text-gray-500">{{ t('admin.supplierSources.channelTypeHint') }}</span>
             <span v-if="channelTypesError" class="mt-1 block text-xs text-red-600">{{ channelTypesError }}</span>
           </label>
 

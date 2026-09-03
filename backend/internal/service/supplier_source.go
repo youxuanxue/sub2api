@@ -49,9 +49,12 @@ const (
 )
 
 type SupplierSource struct {
-	ID                    int64
-	SupplierName          string
-	ChannelName           string
+	ID           int64
+	SupplierName string
+	// ChannelName is the operator-facing supplier lane label (供应商通道名). It is NOT
+	// TokenKey transport and is not part of row or adoption identity.
+	ChannelName string
+	// ChannelType is the TokenKey/NewAPI Extension Engine transport (协议类型).
 	ChannelType           int
 	Endpoint              string
 	EncryptedCredential   string

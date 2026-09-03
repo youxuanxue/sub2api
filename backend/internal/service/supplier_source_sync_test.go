@@ -464,7 +464,9 @@ func TestUS048_NonActiveExactAccountMatchBlocksDuplicateSupplierAccountCreation(
 	}
 }
 
-func TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAccount(t *testing.T) {
+func TestUS048_IncompatibleTransportExactMatchDoesNotBlockParallelProjection(t *testing.T) {
+	// Wrong-transport same key/endpoint is a separate identity — create BaiduV2 projection,
+	// do not rewrite or adopt the OpenAI misconfigured account.
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
 		ID: 7, SupplierName: "百度", ChannelName: "qianfan", ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com",
@@ -482,16 +484,15 @@ func TestUS048_IncompatibleTransportExactMatchBlocksAdoptionWithoutRewritingAcco
 	}
 	accounts := &supplierSyncAccountStoreFake{matches: []*Account{existing}}
 	svc := NewSupplierSourceService(
-		repo, accounts, &supplierSyncProbeFake{failIfCalled: true}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
+		repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
 	)
 
 	result, err := svc.Sync(context.Background(), 7)
 
-	require.ErrorIs(t, err, ErrSupplierSourceIdentityConflict)
-	require.Equal(t, "match_existing_account", result.FailedStep)
-	require.Zero(t, accounts.createCalls)
-	require.Empty(t, accounts.updated)
-	require.Equal(t, newapiconstant.ChannelTypeOpenAI, existing.ChannelType, "wrong OpenAI transport on Qianfan must not be rewritten during blocked adoption")
+	require.NoError(t, err)
+	require.Empty(t, result.FailedStep)
+	require.Equal(t, 1, accounts.createCalls)
+	require.Equal(t, newapiconstant.ChannelTypeOpenAI, existing.ChannelType, "incompatible OpenAI account must remain untouched")
 }
 
 func TestUS048_MultiBandExactAccountMatchBlocksDuplicateSupplierAccountCreation(t *testing.T) {
@@ -600,7 +601,8 @@ func TestUS048_QianfanBaiduV2ExactMatchIsAdopted(t *testing.T) {
 	require.Equal(t, "adopted", result.Changes[0].Action)
 }
 
-func TestUS048_BaiduV2TransportAgainstOpenAISupplierIsRejected(t *testing.T) {
+func TestUS048_IncompatibleTransportCandidatesAreIgnoredForOpenAISupplier(t *testing.T) {
+	// BaiduV2 account with same key must not block OpenAI supplier projection — different transport identity.
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
 		ID: 7, SupplierName: "佳杰", ChannelName: "stbl-5", ChannelType: 1, Endpoint: "https://token.vstecscloud.com/v1",
@@ -617,15 +619,13 @@ func TestUS048_BaiduV2TransportAgainstOpenAISupplierIsRejected(t *testing.T) {
 			map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"}, 1),
 		GroupIDs: []int64{4, 9}, Status: StatusActive, Schedulable: true,
 	}}}
-	probe := &supplierSyncProbeFake{failIfCalled: true}
-	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
 	result, err := svc.Sync(context.Background(), 7)
 
-	require.ErrorIs(t, err, ErrSupplierSourceIdentityConflict)
-	require.Empty(t, result.ProbeResults)
-	require.Zero(t, accounts.createCalls)
-	require.Empty(t, accounts.updated)
+	require.NoError(t, err)
+	require.Empty(t, result.FailedStep)
+	require.Equal(t, 1, accounts.createCalls)
 }
 
 func TestUS048_ExistingSupplierAccountMultipleMatchesStopBeforeProbeOrWrite(t *testing.T) {
@@ -698,6 +698,36 @@ func TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync(t *te
 	require.Equal(t, 2, accounts.createCalls, "Anthropic source should create its own band accounts")
 	require.NotEmpty(t, accounts.updated)
 	require.NotEmpty(t, result.Changes)
+}
+
+func TestUS048_SameTransportOtherSourceManagedStillConflicts(t *testing.T) {
+	// Parallel sources share identity only when channel_type differs. Same transport + same
+	// credential/endpoint owned by another supplier source must still IdentityConflict.
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 14, SupplierName: "cloudwise", ChannelName: "openai-dup",
+		ChannelType: newapiconstant.ChannelTypeOpenAI, Endpoint: "https://api.cloudwise.ai/api",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{{
+			ClientModelID: "gpt-5.2", UpstreamModelID: "gpt-5.2", PurchaseRatio: &ratio,
+		}},
+	}}
+	otherSource := supplierSyncManagedAccount(113, 9, 3, 130, map[string]string{"gpt-5.2": "gpt-5.2"}, true)
+	otherSource.ChannelType = newapiconstant.ChannelTypeOpenAI
+	otherSource.Credentials = supplierManagedCredentials(
+		"https://api.cloudwise.ai/api", "secret",
+		map[string]string{"gpt-5.2": "gpt-5.2"}, newapiconstant.ChannelTypeOpenAI,
+	)
+	accounts := &supplierSyncAccountStoreFake{matches: []*Account{otherSource}}
+	svc := NewSupplierSourceService(
+		repo, accounts, &supplierSyncProbeFake{failIfCalled: true}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{},
+	)
+
+	result, err := svc.Sync(context.Background(), 14)
+
+	require.ErrorIs(t, err, ErrSupplierSourceIdentityConflict)
+	require.Equal(t, "match_existing_account", result.FailedStep)
+	require.Zero(t, accounts.createCalls)
 }
 
 func TestUS048_SupplierSyncSameBandRatioChangeDoesNotTouchAccounts(t *testing.T) {
@@ -862,12 +892,15 @@ func (f *supplierSyncAccountStoreFake) ListManagedAccounts(context.Context, int6
 	return result, nil
 }
 
-func (f *supplierSyncAccountStoreFake) FindCredentialEndpointMatches(context.Context, SupplierAccountMatch) ([]*Account, error) {
+func (f *supplierSyncAccountStoreFake) FindCredentialEndpointMatches(_ context.Context, match SupplierAccountMatch) ([]*Account, error) {
 	if f.matchErr != nil {
 		return nil, f.matchErr
 	}
 	result := make([]*Account, 0, len(f.matches))
 	for _, account := range f.matches {
+		if !supplierReusableAccountTransport(account, match.Endpoint, match.ChannelType) {
+			continue
+		}
 		result = append(result, cloneSupplierProjectionAccount(account))
 	}
 	return result, nil
