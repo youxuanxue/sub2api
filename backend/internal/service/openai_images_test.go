@@ -1433,7 +1433,7 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyAccessStateUsesTypedFailover(t 
 	require.Equal(t, GatewayFailureStageAccountAuth, failoverErr.Stage)
 	require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
 	require.Equal(t, OpenAIUpstreamAccessStateReason, failoverErr.Reason)
-	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.Equal(t, http.StatusBadGateway, failoverErr.ClientStatusCode)
 	require.Equal(t, openAIUpstreamAccessUnavailableClientMessage, failoverErr.ClientMessage)
 	require.False(t, failoverErr.RetryableOnSameAccount)

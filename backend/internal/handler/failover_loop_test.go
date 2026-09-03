@@ -239,9 +239,8 @@ func TestHandleFailoverError_BasicSwitch(t *testing.T) {
 		mock := &mockTempUnscheduler{}
 		fs := newFastFailoverState(3, false)
 		stopErr := &service.UpstreamFailoverError{
-			Stage:             service.GatewayFailureStageAccountAuth,
-			Scope:             service.GatewayFailureScopeProvider,
-			NextAccountAction: service.NextAccountStop,
+			Stage: service.GatewayFailureStageAccountAuth,
+			Scope: service.GatewayFailureScopeProvider,
 		}
 
 		action := fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformGrok, testSameAccountRetryLimit, stopErr)
@@ -265,9 +264,8 @@ func TestHandleFailoverError_BasicSwitch(t *testing.T) {
 		mock := &mockTempUnscheduler{}
 		fs := newFastFailoverState(3, false)
 		err := &service.UpstreamFailoverError{
-			Stage:             service.GatewayFailureStageAccountAuth,
-			Scope:             service.GatewayFailureScopeAccount,
-			NextAccountAction: service.NextAccountRetry,
+			Stage: service.GatewayFailureStageAccountAuth,
+			Scope: service.GatewayFailureScopeAccount,
 		}
 
 		action := fs.HandleFailoverError(ctx, mock, 101, service.PlatformGrok, testSameAccountRetryLimit, err)

@@ -237,12 +237,12 @@ func (c *grokCredentialBlockingCache) wasDeleted() bool {
 	return c.deleted
 }
 
-func TestUpstreamFailoverErrorNextAccountActionPreservesLegacyRetry(t *testing.T) {
+func TestUpstreamFailoverErrorScopePreservesLegacyRetry(t *testing.T) {
 	t.Parallel()
 
 	require.True(t, (&UpstreamFailoverError{}).ShouldRetryNextAccount())
-	require.True(t, (&UpstreamFailoverError{NextAccountAction: NextAccountRetry}).ShouldRetryNextAccount())
-	require.False(t, (&UpstreamFailoverError{NextAccountAction: NextAccountStop}).ShouldRetryNextAccount())
+	require.True(t, (&UpstreamFailoverError{Scope: GatewayFailureScopeAccount}).ShouldRetryNextAccount())
+	require.False(t, (&UpstreamFailoverError{Scope: GatewayFailureScopeProvider}).ShouldRetryNextAccount())
 }
 
 func TestGetRequestCredentialMapsPermanentGrokOAuthFailureAndRedactsSecrets(t *testing.T) {
@@ -393,7 +393,7 @@ func TestGetRequestCredentialMissingAccessNeverRefreshesAndPermanentlyFailsOver(
 			require.Empty(t, token)
 			require.Empty(t, kind)
 			require.Equal(t, GrokCredentialReasonMissing, failoverErr.Reason)
-			require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+			require.True(t, failoverErr.ShouldRetryNextAccount())
 			require.Zero(t, refresher.refreshCalls, "structurally missing access credentials must not reach the token endpoint")
 			require.Equal(t, 1, baseRepo.setErrorCalls)
 			require.Equal(t, StatusError, account.Status)
@@ -424,7 +424,7 @@ func TestGetRequestCredentialWarmCachedAccessWithMissingRefreshPermanentlyFailsO
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, GrokCredentialReasonMissing, failoverErr.Reason)
-	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.Zero(t, refresher.refreshCalls)
 	require.Equal(t, 1, baseRepo.setErrorCalls)
 	require.Equal(t, []string{GrokTokenCacheKey(account)}, cache.deletedKeys)
@@ -467,7 +467,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 		var failoverErr *UpstreamFailoverError
 		require.ErrorAs(t, err, &failoverErr)
 		require.Equal(t, GatewayFailureScopeProvider, failoverErr.Scope)
-		require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+		require.False(t, failoverErr.ShouldRetryNextAccount())
 		require.Zero(t, repo.setErrorCalls)
 		require.Zero(t, repo.setTempUnschedCalls)
 		require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
@@ -499,11 +499,11 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 				if tt.err != nil {
 					require.Equal(t, GatewayFailureScopeProvider, failoverErr.Scope)
 					require.Equal(t, GrokCredentialReasonProviderDown, failoverErr.Reason)
-					require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+					require.False(t, failoverErr.ShouldRetryNextAccount())
 				} else {
 					require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
 					require.Equal(t, GrokCredentialReasonAccountChanged, failoverErr.Reason)
-					require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+					require.True(t, failoverErr.ShouldRetryNextAccount())
 				}
 				require.Zero(t, baseRepo.setErrorCalls)
 				require.Zero(t, baseRepo.setTempUnschedCalls)
@@ -562,7 +562,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 				require.ErrorAs(t, err, &failoverErr)
 				require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
 				require.Equal(t, GrokCredentialReasonAccountChanged, failoverErr.Reason)
-				require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+				require.True(t, failoverErr.ShouldRetryNextAccount())
 				require.Zero(t, repo.setErrorCalls)
 				require.Zero(t, repo.setTempUnschedCalls)
 				require.Empty(t, cache.deletedKeys)
@@ -591,7 +591,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 		require.ErrorAs(t, err, &failoverErr)
 		require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
 		require.Equal(t, GrokCredentialReasonMissing, failoverErr.Reason)
-		require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+		require.True(t, failoverErr.ShouldRetryNextAccount())
 		require.Equal(t, 1, baseRepo.setErrorCalls)
 		require.Zero(t, baseRepo.setTempUnschedCalls)
 		require.Equal(t, StatusError, freshAccount.Status)
@@ -676,7 +676,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 		require.ErrorAs(t, err, &failoverErr)
 		require.Equal(t, GatewayFailureScopeProvider, failoverErr.Scope)
 		require.Equal(t, GrokCredentialReasonProviderDown, failoverErr.Reason)
-		require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+		require.False(t, failoverErr.ShouldRetryNextAccount())
 		require.Zero(t, repo.setErrorCalls)
 		require.Zero(t, repo.setTempUnschedCalls)
 		require.Empty(t, cache.deletedKeys)
@@ -703,7 +703,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 		require.ErrorAs(t, err, &failoverErr)
 		require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
 		require.Equal(t, GrokCredentialReasonRefreshTransient, failoverErr.Reason)
-		require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+		require.True(t, failoverErr.ShouldRetryNextAccount())
 		require.Zero(t, repo.setErrorCalls)
 		require.Equal(t, 1, repo.setTempUnschedCalls)
 		require.Empty(t, cache.deletedKeys)
@@ -730,7 +730,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 		require.ErrorAs(t, err, &failoverErr)
 		require.Equal(t, GatewayFailureScopeProvider, failoverErr.Scope)
 		require.Equal(t, GrokCredentialReasonProviderDown, failoverErr.Reason)
-		require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+		require.False(t, failoverErr.ShouldRetryNextAccount())
 		require.Zero(t, repo.setErrorCalls)
 		require.Zero(t, repo.setTempUnschedCalls)
 		require.Empty(t, cache.deletedKeys)
@@ -759,7 +759,7 @@ func TestGetRequestCredentialMapsTransientAndProviderFailuresSeparately(t *testi
 		require.ErrorAs(t, err, &failoverErr)
 		require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
 		require.Equal(t, GrokCredentialReasonProxyInvalid, failoverErr.Reason)
-		require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+		require.True(t, failoverErr.ShouldRetryNextAccount())
 		require.Equal(t, 1, baseRepo.setErrorCalls)
 		require.Equal(t, StatusError, account.Status)
 		require.False(t, account.Schedulable)
@@ -785,7 +785,7 @@ func TestGetRequestCredentialRuntimeBlockWinsBeforeWarmTokenCache(t *testing.T) 
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, GrokCredentialReasonAccountChanged, failoverErr.Reason)
-	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.Zero(t, cache.getCalls)
 	require.Zero(t, repo.setErrorCalls)
 	require.Zero(t, repo.setTempUnschedCalls)
@@ -813,7 +813,7 @@ func TestGetRequestCredentialWarmCachedAccessWithMissingConfiguredProxyPermanent
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, GrokCredentialReasonProxyInvalid, failoverErr.Reason)
-	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.Zero(t, refresher.refreshCalls)
 	require.Equal(t, 1, baseRepo.setErrorCalls)
 	require.Equal(t, []string{GrokTokenCacheKey(account)}, cache.deletedKeys)
@@ -910,7 +910,7 @@ func TestGetRequestCredentialStateMutationFailureStopsAndKeepsRuntimeBlock(t *te
 			require.ErrorAs(t, err, &failoverErr)
 			require.Equal(t, GatewayFailureScopeProvider, failoverErr.Scope)
 			require.Equal(t, GrokCredentialReasonStateUpdate, failoverErr.Reason)
-			require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+			require.False(t, failoverErr.ShouldRetryNextAccount())
 			require.Equal(t, tt.wantSetError, repo.setErrorCalls)
 			require.Equal(t, tt.wantSetTemp, repo.setTempUnschedCalls)
 			require.Len(t, cache.deletedKeys, tt.wantCacheDelete)
@@ -1052,7 +1052,7 @@ func TestGetRequestCredentialBudgetBoundsBlockedConditionalMutation(t *testing.T
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, GatewayFailureScopeRequest, failoverErr.Scope)
 	require.Equal(t, GrokCredentialReasonFailoverTimeout, failoverErr.Reason)
-	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 	require.Empty(t, token)
 	require.Empty(t, kind)
 	require.Less(t, time.Since(startedAt), 500*time.Millisecond)
@@ -1069,7 +1069,7 @@ func TestGetRequestCredentialLockHeldTimeoutDoesNotQuarantineAccount(t *testing.
 		buildRepo  func(*Account) AccountRepository
 		wantScope  GatewayFailureScope
 		wantReason GatewayFailureReason
-		wantAction NextAccountAction
+		wantRetry  bool
 	}{
 		{
 			name: "authoritative row unchanged",
@@ -1080,7 +1080,7 @@ func TestGetRequestCredentialLockHeldTimeoutDoesNotQuarantineAccount(t *testing.
 			},
 			wantScope:  GatewayFailureScopeAccount,
 			wantReason: GrokCredentialReasonAccountChanged,
-			wantAction: NextAccountRetry,
+			wantRetry:  true,
 		},
 		{
 			name: "selected account was deleted",
@@ -1091,7 +1091,7 @@ func TestGetRequestCredentialLockHeldTimeoutDoesNotQuarantineAccount(t *testing.
 			},
 			wantScope:  GatewayFailureScopeAccount,
 			wantReason: GrokCredentialReasonAccountChanged,
-			wantAction: NextAccountRetry,
+			wantRetry:  true,
 		},
 		{
 			name: "shared account store unavailable",
@@ -1102,7 +1102,7 @@ func TestGetRequestCredentialLockHeldTimeoutDoesNotQuarantineAccount(t *testing.
 			},
 			wantScope:  GatewayFailureScopeProvider,
 			wantReason: GrokCredentialReasonProviderDown,
-			wantAction: NextAccountStop,
+			wantRetry:  false,
 		},
 	}
 
@@ -1125,7 +1125,7 @@ func TestGetRequestCredentialLockHeldTimeoutDoesNotQuarantineAccount(t *testing.
 			require.ErrorAs(t, err, &failoverErr)
 			require.Equal(t, tt.wantScope, failoverErr.Scope)
 			require.Equal(t, tt.wantReason, failoverErr.Reason)
-			require.Equal(t, tt.wantAction, failoverErr.NextAccountAction)
+			require.Equal(t, tt.wantRetry, failoverErr.ShouldRetryNextAccount())
 			require.Less(t, time.Since(startedAt), 3*time.Second)
 			switch countingRepo := repo.(type) {
 			case *tokenRefreshAccountRepo:
@@ -1426,7 +1426,7 @@ func TestCredentialFailureConditionalMutationLosesToConcurrentProxyRepair(t *tes
 			var failoverErr *UpstreamFailoverError
 			require.ErrorAs(t, err, &failoverErr)
 			require.Equal(t, GrokCredentialReasonAccountChanged, failoverErr.Reason)
-			require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+			require.True(t, failoverErr.ShouldRetryNextAccount())
 			require.Zero(t, repo.setErrorCalls)
 			require.Zero(t, repo.setTempUnschedCalls)
 			require.Empty(t, cache.deletedKeys)
@@ -1455,7 +1455,7 @@ func TestCredentialFailureConditionalMutationLosesToSameIDProxyRestoration(t *te
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, GrokCredentialReasonAccountChanged, failoverErr.Reason)
-	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.Zero(t, repo.setErrorCalls)
 	require.Zero(t, repo.setTempUnschedCalls)
 	require.Empty(t, cache.deletedKeys)
@@ -1580,7 +1580,7 @@ func TestGetRequestCredentialSharedCredentialPersistenceFailureStopsWithoutAccou
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, GatewayFailureScopeProvider, failoverErr.Scope)
 	require.Equal(t, GrokCredentialReasonProviderDown, failoverErr.Reason)
-	require.Equal(t, NextAccountStop, failoverErr.NextAccountAction)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 	require.Equal(t, 1, repo.conditionalSuccessCalls)
 	require.Zero(t, repo.updateCredentialsCalls)
 	require.Zero(t, repo.setErrorCalls)

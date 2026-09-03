@@ -665,23 +665,14 @@ const (
 	GatewayFailureStageAccountAuth GatewayFailureStage = "account_auth"
 )
 
-// GatewayFailureScope identifies whether selecting another account can help.
+// GatewayFailureScope identifies the ownership domain used for failure
+// attribution. The global failover policy alone maps it to an action.
 type GatewayFailureScope string
 
 const (
 	GatewayFailureScopeAccount  GatewayFailureScope = "account"
 	GatewayFailureScopeProvider GatewayFailureScope = "provider"
 	GatewayFailureScopeRequest  GatewayFailureScope = "request"
-)
-
-// NextAccountAction is tri-state for backwards compatibility. The zero value
-// means legacy retry behavior; only NextAccountStop explicitly short-circuits.
-type NextAccountAction uint8
-
-const (
-	NextAccountLegacyRetry NextAccountAction = iota
-	NextAccountRetry
-	NextAccountStop
 )
 
 type GatewayFailureReason string
@@ -703,7 +694,6 @@ type UpstreamFailoverError struct {
 	Stage                    GatewayFailureStage
 	Scope                    GatewayFailureScope
 	Reason                   GatewayFailureReason
-	NextAccountAction        NextAccountAction
 	ClientStatusCode         int
 	ClientErrorType          string
 	ClientMessage            string

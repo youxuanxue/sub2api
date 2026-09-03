@@ -8234,7 +8234,7 @@
         "_LOCAL_NEXT_ACCOUNT_DECISION_RE",
         "_VERDICT_SEMANTIC_RE"
       ],
-      "rationale": "The preflight checker must reject future platform/channel-local failover implementations, comment-spoofed delegation, duplicated decision fields, direct NextAccountAction assignments and verdict-shaped semantics, including additions in files not yet listed in the sentinel registry."
+      "rationale": "The preflight checker recursively scans backend production Go and must reject future platform/channel-local failover implementations, comment-spoofed delegation, duplicated decision fields/actions and verdict-shaped semantics, including additions in files not yet listed in the sentinel registry."
     }
   ]
 }

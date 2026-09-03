@@ -74,7 +74,7 @@ func TestOpenAIRequestBodyLimitFailover_HTTP413SwitchesAccountsBeforeWrite(t *te
 			require.Equal(t, http.StatusRequestEntityTooLarge, failoverErr.StatusCode)
 			require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
 			require.Equal(t, GatewayFailureReason("openai_request_body_too_large"), failoverErr.Reason)
-			require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+			require.True(t, failoverErr.ShouldRetryNextAccount())
 			require.Equal(t, http.StatusRequestEntityTooLarge, failoverErr.ClientStatusCode)
 			require.Equal(t, "Request payload is too large", failoverErr.ClientMessage)
 			require.False(t, failoverErr.RetryableOnSameAccount, "a body limit requires another account, not another attempt on the same account")

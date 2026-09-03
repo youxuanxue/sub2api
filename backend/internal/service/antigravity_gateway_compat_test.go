@@ -369,7 +369,7 @@ func TestAntigravityCompatUnauthorizedIsCredentialFailure(t *testing.T) {
 	require.Equal(t, GatewayFailureStageAccountAuth, failoverErr.Stage)
 	require.Equal(t, GatewayFailureScopeAccount, failoverErr.Scope)
 	require.Equal(t, AntigravityCredentialRejectedReason, failoverErr.Reason)
-	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.Equal(t, http.StatusBadGateway, failoverErr.ClientStatusCode)
 	require.Equal(t, AntigravityCredentialRejectedClientMessage, failoverErr.ClientMessage)
 	require.Equal(t, "auth-3757", failoverErr.ResponseHeaders.Get("X-Request-Id"))

@@ -314,9 +314,9 @@ def check_failover_ssot() -> tuple[bool, list[str]]:
     to classifyGatewayFailover. Splitting by top-level Go function declaration
     keeps this check deterministic without depending on a local Go toolchain.
     """
-    service_dir = REPO_ROOT / "backend" / "internal" / "service"
+    backend_dir = REPO_ROOT / "backend"
     failures: list[str] = _failover_scanner_selftest()
-    for file_path in sorted(service_dir.glob("*.go")):
+    for file_path in sorted(backend_dir.rglob("*.go")):
         if file_path.name.endswith("_test.go"):
             continue
         source = file_path.read_text(encoding="utf-8", errors="replace")
@@ -333,13 +333,9 @@ def check_failover_ssot() -> tuple[bool, list[str]]:
             failures.append(
                 f"{rel} declares a failover decision bool; keep it in the global decision owner"
             )
-        action_owner = file_path.name in {
-            "gateway_failover_policy.go",
-            "gateway_service.go",
-        }
-        if not action_owner and _LOCAL_NEXT_ACCOUNT_DECISION_RE.search(clean):
+        if _LOCAL_NEXT_ACCOUNT_DECISION_RE.search(clean):
             failures.append(
-                f"{rel} owns a local retry/stop action; submit a normalized semantic to applyGatewayFailoverSemantic"
+                f"{rel} owns a retry/stop action; submit factual evidence to the global failover policy"
             )
         if _VERDICT_SEMANTIC_RE.search(clean):
             failures.append(
@@ -377,7 +373,7 @@ def main() -> int:
         fail_count += 1
     results.append(
         {
-            "path": "backend/internal/service (global failover SSOT invariant)",
+            "path": "backend (global failover SSOT invariant)",
             "ok": failover_ok,
             "failures": failover_failures,
             "rationale": (

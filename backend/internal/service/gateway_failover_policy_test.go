@@ -107,16 +107,16 @@ func TestUS049_SemanticOverridesStatusAndFailsClosed(t *testing.T) {
 func TestUS049_RuntimeFailoverChokePointUsesGlobalPolicy(t *testing.T) {
 	require.False(t, (*UpstreamFailoverError)(nil).ShouldRetryNextAccount())
 	require.True(t, (&UpstreamFailoverError{}).ShouldRetryNextAccount(), "legacy zero value must keep retrying")
-	require.True(t, (&UpstreamFailoverError{NextAccountAction: NextAccountRetry}).ShouldRetryNextAccount())
-	require.False(t, (&UpstreamFailoverError{NextAccountAction: NextAccountStop}).ShouldRetryNextAccount())
-	require.False(t, (&UpstreamFailoverError{NextAccountAction: NextAccountAction(255)}).ShouldRetryNextAccount())
+	require.True(t, (&UpstreamFailoverError{Scope: GatewayFailureScopeAccount}).ShouldRetryNextAccount())
+	require.False(t, (&UpstreamFailoverError{Scope: GatewayFailureScopeProvider}).ShouldRetryNextAccount())
+	require.False(t, (&UpstreamFailoverError{Scope: GatewayFailureScopeRequest}).ShouldRetryNextAccount())
+	require.False(t, (&UpstreamFailoverError{Scope: GatewayFailureScope("unknown")}).ShouldRetryNextAccount())
 
 	retryErr := applyGatewayFailoverSemantic(
 		&UpstreamFailoverError{StatusCode: http.StatusBadRequest},
 		gatewayFailoverProfileGrok,
 		gatewayFailureSemanticAccountFault,
 	)
-	require.Equal(t, NextAccountRetry, retryErr.NextAccountAction)
 	require.True(t, retryErr.ShouldRetryNextAccount())
 
 	stopErr := applyGatewayFailoverSemantic(
@@ -124,7 +124,6 @@ func TestUS049_RuntimeFailoverChokePointUsesGlobalPolicy(t *testing.T) {
 		gatewayFailoverProfileOpenAI,
 		gatewayFailureSemanticSharedFault,
 	)
-	require.Equal(t, NextAccountStop, stopErr.NextAccountAction)
 	require.False(t, stopErr.ShouldRetryNextAccount())
 
 	unknownErr := applyGatewayFailoverSemantic(
@@ -132,7 +131,6 @@ func TestUS049_RuntimeFailoverChokePointUsesGlobalPolicy(t *testing.T) {
 		gatewayFailoverProfileUnknown,
 		gatewayFailureSemanticAccountFault,
 	)
-	require.Equal(t, NextAccountStop, unknownErr.NextAccountAction)
 	require.False(t, unknownErr.ShouldRetryNextAccount())
 }
 

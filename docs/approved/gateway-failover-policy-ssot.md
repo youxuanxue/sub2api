@@ -21,7 +21,7 @@ backend/internal/service/gateway_failover_policy.go
 
 协议适配器仍负责解析供应商 body、SSE event 和账号配置，因为这些输入具有真实协议差异；适配器只能将结果归一成事实型 failure semantic，不能用 retry / stop / failover 命名 semantic，也不能自行定义 semantic 或 status 对应的 failover 布尔值。handler 的 `FailoverState.HandleFailoverError` 继续独占执行循环，本设计不改变重试次数、账号处罚、sticky 清理、最终错误透传或已输出流的重放边界。
 
-handler 消费的 `UpstreamFailoverError.ShouldRetryNextAccount` 也必须调用同文件的 `classifyGatewayFailoverError`，确保直接构造的 legacy failover error 和显式 terminal credential failure 最终仍经过全局 owner。legacy 零值保持历史 retry 行为；新代码用 `applyGatewayFailoverSemantic` 提交 profile + semantic，禁止在 adapter 内直接写 `NextAccountRetry` / `NextAccountStop`。
+handler 消费的 `UpstreamFailoverError.ShouldRetryNextAccount` 也必须调用同文件的 `classifyGatewayFailoverError`，确保直接构造的 legacy failover error 和显式 shared credential failure 最终仍经过全局 owner。`UpstreamFailoverError` 不暴露 retry / stop action 字段；legacy 空 scope 保持历史 retry 行为，显式 scope 作为事实由全局 policy 映射。新代码用 `applyGatewayFailoverSemantic` 提交 profile + semantic。
 
 ## 输入模型
 
@@ -55,4 +55,4 @@ handler 消费的 `UpstreamFailoverError.ShouldRetryNextAccount` 也必须调用
 
 ## 守卫
 
-`gateway_failover_policy_test.go` 覆盖全局矩阵、semantic 优先级、未知输入 fail closed、handler runtime choke point、passthrough 账号矩阵和各 adapter 回归。`scripts/sentinels/gateway-tk.json` 锚定 owner、测试和所有 adapter 接线；`check-gateway-tk.py` 会对去除注释和字面量后的 Go 代码扫描完整函数体，要求任意 `shouldFailover` / `retryNextAccount` facade 以及 `ShouldRetryNextAccount` runtime choke point 委托全局 owner，并禁止 adapter 重新持有 decision bool、直接使用 `NextAccountRetry` / `NextAccountStop`，或引入带 retry / stop verdict 的 semantic 常量。上游 merge 或新增平台若恢复私有 policy，preflight 必须失败。
+`gateway_failover_policy_test.go` 覆盖全局矩阵、semantic 优先级、未知输入 fail closed、handler runtime choke point、passthrough 账号矩阵和各 adapter 回归。`scripts/sentinels/gateway-tk.json` 锚定 owner、测试和所有 adapter 接线；`check-gateway-tk.py` 会对去除注释和字面量后的整个 backend 生产 Go 树扫描完整函数体，要求任意 `shouldFailover` / `retryNextAccount` facade 以及 `ShouldRetryNextAccount` runtime choke point 委托全局 owner，并禁止重新持有 decision bool、retry / stop action 或 verdict 型 semantic。上游 merge 或新增平台若恢复私有 policy，preflight 必须失败。

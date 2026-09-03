@@ -94,24 +94,25 @@ func classifyGatewayFailoverError(failoverErr *UpstreamFailoverError) gatewayFai
 	}
 	return classifyGatewayFailover(gatewayFailoverObservation{
 		Profile:  gatewayFailoverProfileGeneric,
-		Semantic: gatewayFailureSemanticFromLegacyAction(failoverErr.NextAccountAction),
+		Semantic: gatewayFailureSemanticFromScope(failoverErr.Scope),
 	})
 }
 
-func gatewayFailureSemanticFromLegacyAction(action NextAccountAction) gatewayFailureSemantic {
-	switch action {
-	case NextAccountLegacyRetry, NextAccountRetry:
+func gatewayFailureSemanticFromScope(scope GatewayFailureScope) gatewayFailureSemantic {
+	switch scope {
+	case "", GatewayFailureScopeAccount:
+		// Empty scope preserves the historical behavior of legacy failover
+		// errors constructed before factual observations were introduced.
 		return gatewayFailureSemanticAccountFault
-	case NextAccountStop:
+	case GatewayFailureScopeProvider, GatewayFailureScopeRequest:
 		return gatewayFailureSemanticSharedFault
 	default:
 		return gatewayFailureSemantic(255)
 	}
 }
 
-// applyGatewayFailoverSemantic stores adapter evidence and materializes the
-// legacy action field for compatibility with existing diagnostics and tests.
-// The action is derived from the global policy; adapters never set it directly.
+// applyGatewayFailoverSemantic stores adapter evidence. Only the global policy
+// may turn this evidence into a retry-next-account decision.
 func applyGatewayFailoverSemantic(
 	failoverErr *UpstreamFailoverError,
 	profile gatewayFailoverProfile,
@@ -122,11 +123,6 @@ func applyGatewayFailoverSemantic(
 	}
 	observation := gatewayFailoverObservation{Profile: profile, Semantic: semantic}
 	failoverErr.failoverObservation = &observation
-	if classifyGatewayFailover(observation).RetryNextAccount {
-		failoverErr.NextAccountAction = NextAccountRetry
-	} else {
-		failoverErr.NextAccountAction = NextAccountStop
-	}
 	return failoverErr
 }
 
