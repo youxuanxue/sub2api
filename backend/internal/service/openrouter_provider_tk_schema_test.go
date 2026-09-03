@@ -1,23 +1,106 @@
 package service
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
-func TestOpenRouterProviderBuildPricing_IncludesZeroSKUFields(t *testing.T) {
-	pricing := openRouterProviderBuildPricing(nil, nil, 0.000002, 0.000006, 0, 1)
-	if pricing.Image != "0" || pricing.Request != "0" {
-		t.Fatalf("pricing=%+v", pricing)
+func TestOpenRouterProviderBuildModelDocument_SchemaVersionAndTextShape(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
+	meta := &PublicCatalogModel{
+		Capabilities: []string{"tool_use", "reasoning"},
+		Pricing: PublicCatalogPricing{
+			InputPer1KTokens:  2,
+			OutputPer1KTokens: 6,
+		},
+		ContextWindow:   200000,
+		MaxOutputTokens: 8192,
 	}
-	if pricing.Prompt == "" || pricing.Completion == "" {
-		t.Fatalf("pricing=%+v", pricing)
+	item := openRouterProviderBuildModelDocument(
+		cfg, nil, meta,
+		"tokenkey/demo", "demo", "tokenkey/demo",
+		1,
+		0.002, 0.006, 0, 1,
+	)
+	if item.SchemaVersion != openRouterProviderSchemaVersion {
+		t.Fatalf("schema_version=%q", item.SchemaVersion)
+	}
+	if len(item.InputModalities) != 1 || item.InputModalities[0].Type != "text" {
+		t.Fatalf("input=%+v", item.InputModalities)
+	}
+	if len(item.OutputModalities) != 1 || item.OutputModalities[0].Type != "text" {
+		t.Fatalf("output=%+v", item.OutputModalities)
+	}
+	inPricing := item.InputModalities[0].Pricing
+	if len(inPricing) != 1 || inPricing[0].Type != "prompt" || inPricing[0].CostUSD != formatOpenRouterUSDPerToken(0.002) {
+		t.Fatalf("input pricing=%+v", inPricing)
+	}
+	outPricing := item.OutputModalities[0].Pricing
+	if len(outPricing) != 1 || outPricing[0].Type != "completion" {
+		t.Fatalf("output pricing=%+v", outPricing)
+	}
+	params := item.OutputModalities[0].SupportedParameters
+	if params["tools"].Type != "boolean" || params["reasoning"].Type != "boolean" {
+		t.Fatalf("params=%+v", params)
+	}
+	// 2.4 must not zero-stuff unused root SKUs.
+	raw, err := json.Marshal(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generic map[string]any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := generic["pricing"]; ok {
+		t.Fatalf("flat pricing must not appear: %s", raw)
+	}
+	if _, ok := generic["context_length"]; ok {
+		t.Fatalf("flat context_length must not appear: %s", raw)
 	}
 }
 
-func TestOpenRouterProviderBuildPricing_PeakOverrideUsesBaseOffPeak(t *testing.T) {
+func TestOpenRouterProviderBuildModelDocument_OmitsZeroPriceEntries(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
+	item := openRouterProviderBuildModelDocument(
+		cfg, nil, nil,
+		"tokenkey/demo", "demo", "tokenkey/demo",
+		1,
+		0.001, 0, 0, 1,
+	)
+	if len(item.InputModalities[0].Pricing) != 1 {
+		t.Fatalf("pricing=%+v", item.InputModalities[0].Pricing)
+	}
+	if len(item.OutputModalities[0].Pricing) != 0 {
+		t.Fatalf("zero completion must be omitted: %+v", item.OutputModalities[0].Pricing)
+	}
+}
+
+func TestOpenRouterProviderBuildModelDocument_CapacityTPMOnlyOnInput(t *testing.T) {
+	tpm := int64(250000)
+	cfg := DefaultOpenRouterProviderConfig()
+	cfg.CapacityTPM = &tpm
+	cfg.ModelCapacityTPM = map[string]int64{"demo": 120000}
+	item := openRouterProviderBuildModelDocument(
+		cfg, nil, nil,
+		"tokenkey/demo", "demo", "tokenkey/demo",
+		1,
+		0.001, 0.002, 0, 1,
+	)
+	inCap := item.InputModalities[0].Capacity
+	if len(inCap) != 1 || inCap[0].Type != "prompt" || inCap[0].Value != 120000 {
+		t.Fatalf("input capacity=%+v", inCap)
+	}
+	if len(item.OutputModalities[0].Capacity) != 0 {
+		t.Fatalf("output must not duplicate capacity_tpm: %+v", item.OutputModalities[0].Capacity)
+	}
+}
+
+func TestOpenRouterProviderBuildModelDocument_PeakWindowEntries(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
 	group := &Group{
 		PeakRateEnabled:    true,
 		PeakStart:          "09:00",
@@ -25,15 +108,26 @@ func TestOpenRouterProviderBuildPricing_PeakOverrideUsesBaseOffPeak(t *testing.T
 		PeakRateMultiplier: 2,
 		SubscriptionType:   SubscriptionTypeSubscription,
 	}
-	pricing := openRouterProviderBuildPricing(group, nil, 0.000002, 0.000006, 0.000001, 1.5)
-	if pricing.Prompt != formatOpenRouterUSDPerToken(0.000003) {
-		t.Fatalf("off-peak prompt=%q", pricing.Prompt)
+	item := openRouterProviderBuildModelDocument(
+		cfg, group, nil,
+		"tokenkey/demo", "demo", "tokenkey/demo",
+		1,
+		0.000002, 0.000006, 0.000001, 1.5,
+	)
+	in := item.InputModalities[0].Pricing
+	if len(in) < 2 {
+		t.Fatalf("expected base+peak prompt entries, got %+v", in)
 	}
-	if len(pricing.Overrides) != 1 {
-		t.Fatalf("overrides=%+v", pricing.Overrides)
+	basePrompt := in[0]
+	if basePrompt.Type != "prompt" || basePrompt.UTCStart != nil {
+		t.Fatalf("base prompt=%+v", basePrompt)
 	}
-	if pricing.Overrides[0].Prompt != formatOpenRouterUSDPerToken(0.000006) {
-		t.Fatalf("peak prompt=%q", pricing.Overrides[0].Prompt)
+	if basePrompt.CostUSD != formatOpenRouterUSDPerToken(0.000003) {
+		t.Fatalf("off-peak prompt=%q", basePrompt.CostUSD)
+	}
+	peak := in[1]
+	if peak.UTCStart == nil || peak.UTCEnd == nil || peak.CostUSD != formatOpenRouterUSDPerToken(0.000006) {
+		t.Fatalf("peak prompt=%+v", peak)
 	}
 }
 
@@ -47,53 +141,62 @@ func TestOpenRouterProviderLocalHMToUTCMinutes(t *testing.T) {
 	}
 }
 
-func TestOpenRouterProviderSupportedFeatures_FromCapabilities(t *testing.T) {
+func TestOpenRouterProviderSupportedFeatureFlags(t *testing.T) {
 	meta := &PublicCatalogModel{
 		Capabilities: []string{"tool_use", "reasoning", "response_schema"},
 	}
-	features := openRouterProviderSupportedFeatures(meta)
+	features := openRouterProviderSupportedFeatureFlags(meta)
 	if len(features) < 3 {
 		t.Fatalf("features=%v", features)
 	}
-}
-
-func TestOpenRouterProviderSupportedFeatures_NoCapabilitiesReturnsNil(t *testing.T) {
-	if got := openRouterProviderSupportedFeatures(nil); got != nil {
-		t.Fatalf("got=%v want nil", got)
-	}
-	if got := openRouterProviderSupportedFeatures(&PublicCatalogModel{}); got != nil {
+	if got := openRouterProviderSupportedFeatureFlags(nil); got != nil {
 		t.Fatalf("got=%v want nil", got)
 	}
 }
 
-func TestOpenRouterProviderBuildPricing_VideoBillingUsesRequestSKU(t *testing.T) {
+func TestOpenRouterProviderBuildModelDocument_VideoBillingUsesSecondSKU(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
 	meta := &PublicCatalogModel{
 		Pricing: PublicCatalogPricing{
 			BillingMode:         "video",
 			OutputCostPerSecond: 0.05,
 		},
 	}
-	pricing := openRouterProviderBuildPricing(nil, meta, 0, 0, 0, 1)
-	want := formatOpenRouterUSDPerToken(0.05 * openRouterProviderDefaultVideoQuoteSeconds)
-	if pricing.Request != want {
-		t.Fatalf("request=%q want %q", pricing.Request, want)
+	item := openRouterProviderBuildModelDocument(
+		cfg, nil, meta,
+		"tokenkey/veo", "veo", "tokenkey/veo",
+		1, 0, 0, 0, 1,
+	)
+	if len(item.OutputModalities) != 1 || item.OutputModalities[0].Type != "video" {
+		t.Fatalf("output=%+v", item.OutputModalities)
+	}
+	pricing := item.OutputModalities[0].Pricing
+	if len(pricing) != 1 || pricing[0].Unit != "second" || pricing[0].CostUSD != formatOpenRouterUSDPerToken(0.05) {
+		t.Fatalf("pricing=%+v", pricing)
 	}
 }
 
-func TestOpenRouterProviderBuildPricing_ImageBillingUsesImageSKU(t *testing.T) {
+func TestOpenRouterProviderBuildModelDocument_ImageBillingUsesImageSKU(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
 	meta := &PublicCatalogModel{
 		Pricing: PublicCatalogPricing{
 			BillingMode:        "image",
 			OutputCostPerImage: 0.04,
 		},
 	}
-	pricing := openRouterProviderBuildPricing(nil, meta, 0, 0, 0, 1)
-	if pricing.Image != formatOpenRouterUSDPerToken(0.04) {
-		t.Fatalf("image=%q", pricing.Image)
+	item := openRouterProviderBuildModelDocument(
+		cfg, nil, meta,
+		"tokenkey/imagen", "imagen", "tokenkey/imagen",
+		1, 0, 0, 0, 1,
+	)
+	pricing := item.OutputModalities[0].Pricing
+	if len(pricing) != 1 || pricing[0].Unit != "image" || pricing[0].CostUSD != formatOpenRouterUSDPerToken(0.04) {
+		t.Fatalf("pricing=%+v", pricing)
 	}
 }
 
-func TestOpenRouterProviderBuildPricing_TierOverridesPreferPeak(t *testing.T) {
+func TestOpenRouterProviderBuildModelDocument_TierOverridesPreferPeak(t *testing.T) {
+	cfg := DefaultOpenRouterProviderConfig()
 	meta := &PublicCatalogModel{
 		Pricing: PublicCatalogPricing{
 			Tiers: []PublicCatalogTier{
@@ -103,15 +206,27 @@ func TestOpenRouterProviderBuildPricing_TierOverridesPreferPeak(t *testing.T) {
 		},
 	}
 	group := &Group{PeakRateEnabled: true, PeakStart: "09:00", PeakEnd: "12:00", PeakRateMultiplier: 2}
-	pricing := openRouterProviderBuildPricing(group, meta, 0.000002, 0.000006, 0, 1)
-	if len(pricing.Overrides) != 1 || pricing.Overrides[0].MinPromptTokens != 200000 {
-		t.Fatalf("overrides=%+v", pricing.Overrides)
+	item := openRouterProviderBuildModelDocument(
+		cfg, group, meta,
+		"tokenkey/demo", "demo", "tokenkey/demo",
+		1, 0.000002, 0.000006, 0, 1,
+	)
+	in := item.InputModalities[0].Pricing
+	if len(in) != 1 {
+		t.Fatalf("tier models must not emit peak window entries: %+v", in)
+	}
+	if len(in[0].Overrides) != 1 {
+		t.Fatalf("overrides=%+v", in[0].Overrides)
+	}
+	when, _ := in[0].Overrides[0].When["prompt_tokens"].(map[string]any)
+	if when["gte"] != 200000 {
+		t.Fatalf("when=%+v", in[0].Overrides[0].When)
 	}
 }
 
-func TestOpenRouterProviderInputModalities_VisionAddsImage(t *testing.T) {
+func TestOpenRouterProviderInputModalityTypes_VisionAddsImage(t *testing.T) {
 	meta := &PublicCatalogModel{Capabilities: []string{"vision"}}
-	got := openRouterProviderInputModalities(meta)
+	got := openRouterProviderInputModalityTypes(meta)
 	if len(got) != 2 || got[1] != "image" {
 		t.Fatalf("modalities=%v", got)
 	}

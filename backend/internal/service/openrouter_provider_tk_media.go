@@ -12,8 +12,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-const openRouterProviderDefaultVideoQuoteSeconds = 8
-
 // OpenRouterImageRoute selects the downstream handler family for OR seller POST /v1/images.
 type OpenRouterImageRoute string
 

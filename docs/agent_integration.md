@@ -1107,10 +1107,12 @@ after a terminal status (`succeeded` / `failed`) return 404.
 TokenKey may expose a seller catalog for OpenRouter onboarding:
 
 - `GET /openrouter/v1/models` — allowlisted OR API keys only; returns
-  OpenRouter provider schema with `tokenkey/<model>` ids and USD prices
-  after group/user rate multipliers. Configured via ops JSON setting
-  `tk_openrouter_provider_config` (`group_ids`, `billing_user_id`,
-  `allowed_api_key_ids`, `monitor_api_key_ids`).
+  OpenRouter provider **schema 2.4** documents with `tokenkey/<model>` ids
+  and modality-owned USD prices after group/user rate multipliers.
+  Configured via ops JSON setting `tk_openrouter_provider_config`
+  (`group_ids`, `billing_user_id`, `allowed_api_key_ids`,
+  `monitor_api_key_ids`). Customer gateway paths outside this seller
+  surface are unchanged.
 - Allowlisted OR/monitor keys also receive the same catalog from
   `GET /v1/models`.
 - Inference keys accept catalog ids on `POST /v1/chat/completions`; TokenKey

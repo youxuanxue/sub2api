@@ -9,34 +9,74 @@ import (
 	"time"
 )
 
-// OpenRouterProviderModel is the subset of OpenRouter provider /v1/models schema
-// TokenKey emits for onboarding and monitoring.
+const openRouterProviderSchemaVersion = "2.4"
+
+// OpenRouterProviderModel is the OpenRouter provider /v1/models document (schema 2.4).
+// Only the OR seller surface emits this shape; TokenKey customer gateway paths are unchanged.
 type OpenRouterProviderModel struct {
-	ID                          string                         `json:"id"`
-	Name                        string                         `json:"name"`
-	Description                 string                         `json:"description,omitempty"`
-	Created                     int64                          `json:"created"`
-	InputModalities             []string                       `json:"input_modalities"`
-	OutputModalities            []string                       `json:"output_modalities"`
-	Quantization                string                         `json:"quantization"`
-	ContextLength               int                            `json:"context_length"`
-	MaxOutputLength             int                            `json:"max_output_length"`
-	Pricing                     OpenRouterProviderModelPricing `json:"pricing"`
-	SupportedSamplingParameters []string                       `json:"supported_sampling_parameters"`
-	SupportedFeatures           []string                       `json:"supported_features,omitempty"`
-	IsReady                     bool                           `json:"is_ready"`
-	CapacityTPM                 *int64                         `json:"capacity_tpm,omitempty"`
-	OpenRouter                  map[string]string              `json:"openrouter,omitempty"`
-	Datacenters                 []OpenRouterProviderDatacenter `json:"datacenters,omitempty"`
+	SchemaVersion    string                             `json:"schema_version"`
+	ID               string                             `json:"id"`
+	Name             string                             `json:"name"`
+	Description      string                             `json:"description,omitempty"`
+	Created          int64                              `json:"created"`
+	Quantization     string                             `json:"quantization"`
+	InputModalities  []OpenRouterProviderInputModality  `json:"input_modalities"`
+	OutputModalities []OpenRouterProviderOutputModality `json:"output_modalities"`
+	IsReady          bool                               `json:"is_ready"`
+	OpenRouter       map[string]string                  `json:"openrouter,omitempty"`
+	Datacenters      []OpenRouterProviderDatacenter     `json:"datacenters,omitempty"`
 }
 
-type OpenRouterProviderModelPricing struct {
-	Prompt         string                              `json:"prompt"`
-	Completion     string                              `json:"completion"`
-	Image          string                              `json:"image"`
-	Request        string                              `json:"request"`
-	InputCacheRead string                              `json:"input_cache_read"`
-	Overrides      []OpenRouterProviderPricingOverride `json:"overrides,omitempty"`
+type OpenRouterProviderInputModality struct {
+	Type            string                            `json:"type"`
+	SupportedInputs map[string]any                    `json:"supported_inputs,omitempty"`
+	Pricing         []OpenRouterProviderPriceEntry    `json:"pricing,omitempty"`
+	Capacity        []OpenRouterProviderCapacityEntry `json:"capacity,omitempty"`
+}
+
+type OpenRouterProviderOutputModality struct {
+	Type                string                                       `json:"type"`
+	MaxLength           *OpenRouterProviderQuantity                  `json:"max_length,omitempty"`
+	Streaming           *bool                                        `json:"streaming,omitempty"`
+	SupportedParameters map[string]OpenRouterProviderParamDescriptor `json:"supported_parameters,omitempty"`
+	Pricing             []OpenRouterProviderPriceEntry               `json:"pricing,omitempty"`
+	Capacity            []OpenRouterProviderCapacityEntry            `json:"capacity,omitempty"`
+}
+
+type OpenRouterProviderQuantity struct {
+	Value int    `json:"value"`
+	Unit  string `json:"unit,omitempty"`
+}
+
+type OpenRouterProviderParamDescriptor struct {
+	Type     string   `json:"type"`
+	Min      *float64 `json:"min,omitempty"`
+	Max      *float64 `json:"max,omitempty"`
+	Unit     string   `json:"unit,omitempty"`
+	MaxItems *int     `json:"max_items,omitempty"`
+	Values   []any    `json:"values,omitempty"`
+	Default  any      `json:"default,omitempty"`
+}
+
+type OpenRouterProviderPriceEntry struct {
+	Type      string                            `json:"type"`
+	Unit      string                            `json:"unit"`
+	CostUSD   string                            `json:"cost_usd"`
+	UTCStart  *int                              `json:"utc_start,omitempty"`
+	UTCEnd    *int                              `json:"utc_end,omitempty"`
+	Overrides []OpenRouterProviderPriceOverride `json:"overrides,omitempty"`
+}
+
+type OpenRouterProviderPriceOverride struct {
+	When    map[string]any `json:"when"`
+	CostUSD string         `json:"cost_usd"`
+}
+
+type OpenRouterProviderCapacityEntry struct {
+	Type  string `json:"type"`
+	Unit  string `json:"unit"`
+	Per   string `json:"per,omitempty"`
+	Value int64  `json:"value"`
 }
 
 type OpenRouterProviderDatacenter struct {
@@ -189,26 +229,19 @@ func (s *GatewayService) BuildOpenRouterProviderCatalog(
 			slug = strings.TrimSpace(cfg.Slug) + "/" + strings.TrimPrefix(publicID, cfg.ModelIDPrefix)
 		}
 
-		item := OpenRouterProviderModel{
-			ID:                          publicID,
-			Name:                        openRouterProviderDisplayName(cfg, publicID, metaPtr),
-			Description:                 openRouterProviderDescription(cfg, publicID, metaPtr),
-			Created:                     created,
-			InputModalities:             openRouterProviderInputModalities(metaPtr),
-			OutputModalities:            openRouterProviderOutputModalities(metaPtr),
-			Quantization:                openRouterProviderDefaultQuantization,
-			ContextLength:               openRouterProviderContextLength(cfg, metaPtr),
-			MaxOutputLength:             openRouterProviderMaxOutputLength(cfg, metaPtr),
-			Pricing:                     openRouterProviderBuildPricing(group, metaPtr, promptUSD, completionUSD, cacheReadUSD, baseMult),
-			SupportedSamplingParameters: append([]string(nil), openRouterProviderDefaultSamplingParameters...),
-			SupportedFeatures:           openRouterProviderSupportedFeatures(metaPtr),
-			IsReady:                     true,
-			CapacityTPM:                 openRouterProviderCapacityTPM(cfg, entry.sourceID),
-			OpenRouter: map[string]string{
-				"slug": slug,
-			},
-			Datacenters: openRouterProviderDatacenters(cfg),
-		}
+		item := openRouterProviderBuildModelDocument(
+			cfg,
+			group,
+			metaPtr,
+			publicID,
+			entry.sourceID,
+			slug,
+			created,
+			promptUSD,
+			completionUSD,
+			cacheReadUSD,
+			baseMult,
+		)
 		openRouterProviderEnrichCatalogItem(&item, cfg, entry.sourceID)
 		out = append(out, item)
 	}
