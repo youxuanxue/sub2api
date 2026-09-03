@@ -9,6 +9,7 @@ maintain a second hand-written model list.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -32,6 +33,13 @@ LOCAL_FALLBACK_PRICING = REPO / "backend/resources/model-pricing/model_prices_an
 LOCAL_TK_OVERLAY = REPO / "backend/internal/service/tk_pricing_overlay.json"
 LOCAL_ALLOWLIST_GO = REPO / "backend/internal/service/pricing_catalog_supported_models_tk.go"
 LOCAL_SERVED_MANIFEST = REPO / "backend/internal/service/tk_served_models.json"
+
+_manifest_spec = importlib.util.spec_from_file_location(
+    "tk_served_models_manifest",
+    REPO / "ops" / "pricing" / "served_models_manifest.py",
+)
+_MANIFEST = importlib.util.module_from_spec(_manifest_spec)
+_manifest_spec.loader.exec_module(_MANIFEST)
 
 VENDOR_PLATFORM = {
     "anthropic": "anthropic",
@@ -304,19 +312,8 @@ def parse_local_allowlists() -> dict[str, set[str]]:
 
 
 def parse_local_served_manifest(manifest: dict[str, Any]) -> tuple[set[str], set[str]]:
-    if manifest.get("schema_version") != 3:
-        return set(), set()
-    entries = manifest.get("entries") if isinstance(manifest.get("entries"), dict) else {}
-    listed: set[str] = set()
-    displayed: set[str] = set()
-    for model_id, entry in entries.items():
-        if not isinstance(model_id, str) or not model_id.strip() or not isinstance(entry, dict):
-            continue
-        model_id = model_id.strip()
-        listed.add(model_id)
-        if entry.get("display"):
-            displayed.add(model_id)
-    return listed, displayed
+    parsed = _MANIFEST.parse_manifest_document(manifest)
+    return parsed.model_ids(), parsed.displayed_model_ids()
 
 
 def load_local_served_manifest() -> tuple[set[str], set[str]]:
@@ -830,9 +827,12 @@ def cmd_selftest(_args) -> int:
     })
     assert listed == {"shown-model", "hidden-model"}
     assert displayed == {"shown-model"}
-    assert parse_local_served_manifest(
-        {"entries": {"old-shape": {"display": True}}}
-    ) == (set(), set())
+    try:
+        parse_local_served_manifest({"entries": {"old-shape": {"display": True}}})
+    except _MANIFEST.ManifestError:
+        pass
+    else:
+        raise AssertionError("invalid served manifest must fail closed")
     payload = {
         "data": [
             {"vendor": "openai", "model_id": "gpt-5.1", "pricing": {"input_per_1k_tokens": 1}},

@@ -327,14 +327,24 @@
       "rationale": "Overwrite-protection gates for the media unpriced-reject guard: lock guard<->video-billing parity (billing semantics change must update the guard in the same change) and the empty-model fail-open premise (the OAuth default image model must stay priced in the shipped chain). Deleting these tests re-opens the silent-drift channels they close."
     },
     {
+      "path": "ops/pricing/served_models_manifest.py",
+      "must_contain": [
+        "SCHEMA_VERSION = 3",
+        "ENTRY_FIELDS = {\"channel_type\", \"scopes\", \"price_owner\", \"display\"}",
+        "ALLOWED_SCOPES",
+        "class ManifestEntry",
+        "def parse_manifest_document(",
+        "def displayed_model_ids("
+      ],
+      "rationale": "Single read-only Python parser for the schema-v3 curated newapi intent. Modelops planning, catalog drift, delta discovery, endpoint matrices, and Studio coverage must consume the same validated model/display/scope projection instead of silently diverging on malformed input."
+    },
+    {
       "path": "scripts/checks/catalog-serving-drift.py",
       "must_contain": [
         "tk_served_models.json",
         "servable-allowlist:begin",
-        "SCHEMA_VERSION = 3",
-        "ENTRY_FIELDS = {\"channel_type\", \"scopes\", \"price_owner\", \"display\"}",
-        "ALLOWED_SCOPES",
-        "def _scope_errors(",
+        "served_models_manifest.py",
+        "parse_manifest_document(manifest)",
         "def cmd_selftest(",
         "unknown fields: notes",
         "_aliases"
