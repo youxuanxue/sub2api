@@ -45,15 +45,10 @@ func (s *GatewayService) shouldRetryUpstreamError(account *Account, statusCode i
 
 // shouldFailoverUpstreamError determines whether an upstream error should trigger account failover.
 func (s *GatewayService) shouldFailoverUpstreamError(statusCode int) bool {
-	switch statusCode {
-	case 401, 402, 403, 424, 429, 529:
-		// 424: CloudWise-class relays wrap their upstream outage as Failed
-		// Dependency + server_error. Prod 2026-08-21 #94 returned terminal
-		// 424s while kiro still served after 429 failover.
-		return true
-	default:
-		return statusCode >= 500
-	}
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileGeneric,
+		StatusCode: statusCode,
+	}).RetryNextAccount
 }
 
 func retryBackoffDelay(attempt int) time.Duration {
@@ -1036,7 +1031,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
-			if s.shouldFailoverOn400(respBody) {
+			if classifyGatewayFailover(gatewayFailoverObservation{
+				Profile:    gatewayFailoverProfileGeneric,
+				Semantic:   gateway400FailureSemantic(respBody),
+				StatusCode: resp.StatusCode,
+			}).RetryNextAccount {
 				upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 				upstreamDetail := ""

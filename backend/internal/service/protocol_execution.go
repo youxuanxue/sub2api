@@ -57,22 +57,21 @@ type ProtocolExecutionAccountLoader func(ctx context.Context, accountID int64) (
 
 func protocolExecutionPreSendFailure(cause error, scope GatewayFailureScope) error {
 	reason := protocolExecutionStaleReason
-	nextAccountAction := NextAccountRetry
+	failoverSemantic := gatewayFailureSemanticAccountFault
 	if scope == GatewayFailureScopeProvider {
 		reason = protocolExecutionReloadFailReason
-		nextAccountAction = NextAccountStop
+		failoverSemantic = gatewayFailureSemanticSharedFault
 	}
 	return errors.Join(
-		&UpstreamFailoverError{
-			StatusCode:        http.StatusServiceUnavailable,
-			Stage:             GatewayFailureStageInference,
-			Scope:             scope,
-			Reason:            reason,
-			NextAccountAction: nextAccountAction,
-			ClientStatusCode:  http.StatusServiceUnavailable,
-			ClientErrorType:   "server_error",
-			ClientMessage:     "Service temporarily unavailable",
-		},
+		applyGatewayFailoverSemantic(&UpstreamFailoverError{
+			StatusCode:       http.StatusServiceUnavailable,
+			Stage:            GatewayFailureStageInference,
+			Scope:            scope,
+			Reason:           reason,
+			ClientStatusCode: http.StatusServiceUnavailable,
+			ClientErrorType:  "server_error",
+			ClientMessage:    "Service temporarily unavailable",
+		}, gatewayFailoverProfileGeneric, failoverSemantic),
 		cause,
 	)
 }

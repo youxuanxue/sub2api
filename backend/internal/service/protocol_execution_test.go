@@ -511,8 +511,8 @@ func TestExecuteSelectedProtocolRetriesNextAccountWhenAuthoritativeAccountWasDel
 	if !errors.As(err, &failoverErr) {
 		t.Fatalf("ExecuteSelectedProtocol error = %v, want UpstreamFailoverError", err)
 	}
-	if failoverErr.Scope != GatewayFailureScopeAccount || failoverErr.NextAccountAction != NextAccountRetry || failoverErr.Reason != protocolExecutionStaleReason {
-		t.Fatalf("failover classification = scope %q action %q reason %q", failoverErr.Scope, failoverErr.NextAccountAction, failoverErr.Reason)
+	if failoverErr.Scope != GatewayFailureScopeAccount || !failoverErr.ShouldRetryNextAccount() || failoverErr.Reason != protocolExecutionStaleReason {
+		t.Fatalf("failover classification = scope %q retry %t reason %q", failoverErr.Scope, failoverErr.ShouldRetryNextAccount(), failoverErr.Reason)
 	}
 }
 

@@ -18,19 +18,15 @@ func tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr *newapitypes.NewAPIError)
 	if apiErr == nil {
 		return false
 	}
+	semantic := gatewayFailureSemanticUnclassified
 	if tkIsBridgeUpstreamArrears(apiErr) {
-		return true
+		semantic = gatewayFailureSemanticAccountFault
 	}
-	return tkBridgePenaltyStatusEligible(apiErr.StatusCode) ||
-		tkBridgeRequestScopedFailoverStatusEligible(apiErr.StatusCode)
-}
-
-func tkBridgeRequestScopedFailoverStatusEligible(statusCode int) bool {
-	switch statusCode {
-	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return true
-	}
-	return false
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileNewAPIBridge,
+		Semantic:   semantic,
+		StatusCode: apiErr.StatusCode,
+	}).RetryNextAccount
 }
 
 func tkNewAPIBridgeUpstreamFailoverError(c *gin.Context, apiErr *newapitypes.NewAPIError) *UpstreamFailoverError {
@@ -43,11 +39,10 @@ func tkNewAPIBridgeUpstreamFailoverError(c *gin.Context, apiErr *newapitypes.New
 			TkRecordBridgeUpstreamError(c, statusCode, apiErr)
 		}
 	}
-	return &UpstreamFailoverError{
-		StatusCode:        statusCode,
-		ResponseBody:      body,
-		NextAccountAction: NextAccountRetry,
-	}
+	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+		StatusCode:   statusCode,
+		ResponseBody: body,
+	}, gatewayFailoverProfileNewAPIBridge, gatewayFailureSemanticAccountFault)
 }
 
 func bridgeWrapRelayErrorAfterPenalty(

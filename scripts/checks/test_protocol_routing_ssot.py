@@ -74,7 +74,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "type responsesToGeminiAdapter struct{}\n"
             "type geminiIdentityAdapter struct{}\n"
             "func ExecuteGeminiProtocolProfile(){}\n"
-            "func protocolExecutionPreSendFailure(){ UpstreamFailoverError(); NextAccountRetry() }\n"
+            "func protocolExecutionPreSendFailure(){ applyGatewayFailoverSemantic(UpstreamFailoverError(), gatewayFailureSemanticAccountFault) }\n"
             "func ExecuteSelectedProtocol(){ freshAccount := loadAccount(); if freshAccount == nil { protocolExecutionPreSendFailure() }; if !protocolPlansRoutingEquivalent(plan, router.Plan(request, fresh)) { protocolExecutionPreSendFailure() }; withProtocolExecutionAccount(freshAccount); state := ExecutionAccountState{CredentialPresent: ProtocolAuthorizationPresent(freshAccount)}; if router.Execute(state) == ErrStalePlan || router.Execute(state) == ErrMissingCredential { protocolExecutionPreSendFailure() } }\n"
             "func protocolPlansRoutingEquivalent(scheduled, fresh Plan) bool { return scheduled.CapabilityKey() == fresh.CapabilityKey() && scheduled.Endpoint() == fresh.Endpoint() }\n"
             "func ProtocolAuthorizationPresent(account Account){ ProtocolAuthorizationSnapshotCredentialKey(); if account.IsNewAPIVertexServiceAccount(){ parseVertexServiceAccountKey(account) }; protocolAuthorizationToken(account) }\n"

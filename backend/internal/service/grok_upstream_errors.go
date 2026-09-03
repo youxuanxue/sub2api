@@ -198,24 +198,29 @@ func grokContentPolicyClientMessage(responseBody []byte) string {
 // Free-usage / empty-output / billing bodies also failover even when the HTTP
 // status alone would not (e.g. 400 with free-usage-exhausted).
 func (s *OpenAIGatewayService) shouldFailoverGrokUpstreamError(statusCode int, responseBody []byte) bool {
+	semantic := gatewayFailureSemanticUnclassified
 	if isGrokContentPolicyRejection(statusCode, responseBody) {
-		return false
+		semantic = gatewayFailureSemanticSharedFault
+	} else if tkIsGrokEntitlement403(statusCode, responseBody) {
+		semantic = gatewayFailureSemanticSharedFault
+	} else if isGrokDecoderCompatibilityError(statusCode, responseBody) {
+		// A 422 emitted by xAI's ModelInput decoder is account/runtime
+		// compatibility, not quota exhaustion. Another account may run a
+		// different upstream build, so fail over without applying cooldown.
+		semantic = gatewayFailureSemanticAccountFault
+	} else {
+		decision := classifyGrokUpstreamFailure(statusCode, responseBody, "")
+		switch decision.Class {
+		case GrokFailureFreeUsage, GrokFailureEmptyUpstream, GrokFailureBilling,
+			GrokFailureModelCapacity, GrokFailureCompatibility:
+			semantic = gatewayFailureSemanticAccountFault
+		}
 	}
-	if tkIsGrokEntitlement403(statusCode, responseBody) {
-		return false
-	}
-	// A 422 emitted by xAI's ModelInput decoder is account/runtime compatibility,
-	// not quota exhaustion. Another account may run a different upstream build,
-	// so fail over without applying an account cooldown.
-	if isGrokDecoderCompatibilityError(statusCode, responseBody) {
-		return true
-	}
-	decision := classifyGrokUpstreamFailure(statusCode, responseBody, "")
-	switch decision.Class {
-	case GrokFailureFreeUsage, GrokFailureEmptyUpstream, GrokFailureBilling, GrokFailureModelCapacity, GrokFailureCompatibility:
-		return decision.ShouldFailover
-	}
-	return s.shouldFailoverUpstreamError(statusCode)
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileGrok,
+		Semantic:   semantic,
+		StatusCode: statusCode,
+	}).RetryNextAccount
 }
 
 func isGrokDecoderCompatibilityError(statusCode int, responseBody []byte) bool {

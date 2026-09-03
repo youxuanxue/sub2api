@@ -19,12 +19,11 @@ import (
 func TestGatewayChatCredentialStopDoesNotSelectAnotherAccountAndReturnsSafe503(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stopErr := &service.UpstreamFailoverError{
-		Stage:             service.GatewayFailureStageAccountAuth,
-		Scope:             service.GatewayFailureScopeProvider,
-		Reason:            service.GrokCredentialReasonProviderConfig,
-		NextAccountAction: service.NextAccountStop,
-		ClientStatusCode:  http.StatusTeapot,
-		ClientMessage:     "invalid_client client_secret=must-not-leak",
+		Stage:            service.GatewayFailureStageAccountAuth,
+		Scope:            service.GatewayFailureScopeProvider,
+		Reason:           service.GrokCredentialReasonProviderConfig,
+		ClientStatusCode: http.StatusTeapot,
+		ClientMessage:    "invalid_client client_secret=must-not-leak",
 	}
 	state := NewFailoverState(3, false)
 	action := state.HandleFailoverError(context.Background(), &mockTempUnscheduler{}, 71, service.PlatformGrok, 0, stopErr)
@@ -49,14 +48,13 @@ func TestGatewayChatAntigravityCredentialFailureReturnsActionableMessage(t *test
 	c, _ := gin.CreateTestContext(recorder)
 
 	(&GatewayHandler{}).handleCCFailoverExhausted(c, &service.UpstreamFailoverError{
-		StatusCode:        http.StatusUnauthorized,
-		Stage:             service.GatewayFailureStageAccountAuth,
-		Scope:             service.GatewayFailureScopeAccount,
-		Reason:            service.AntigravityCredentialRejectedReason,
-		NextAccountAction: service.NextAccountRetry,
-		ClientStatusCode:  http.StatusBadGateway,
-		ClientMessage:     service.AntigravityCredentialRejectedClientMessage,
-		ResponseBody:      []byte(`{"error":{"message":"Invalid bearer token","refresh_token":"must-not-leak"}}`),
+		StatusCode:       http.StatusUnauthorized,
+		Stage:            service.GatewayFailureStageAccountAuth,
+		Scope:            service.GatewayFailureScopeAccount,
+		Reason:           service.AntigravityCredentialRejectedReason,
+		ClientStatusCode: http.StatusBadGateway,
+		ClientMessage:    service.AntigravityCredentialRejectedClientMessage,
+		ResponseBody:     []byte(`{"error":{"message":"Invalid bearer token","refresh_token":"must-not-leak"}}`),
 	}, false)
 
 	require.Equal(t, http.StatusBadGateway, recorder.Code)
@@ -71,14 +69,13 @@ func TestOpenAIAccessStateCredentialFailureUsesTypedSafeResponse(t *testing.T) {
 	c, _ := gin.CreateTestContext(recorder)
 
 	(&OpenAIGatewayHandler{}).handleFailoverExhausted(c, &service.UpstreamFailoverError{
-		StatusCode:        http.StatusForbidden,
-		Stage:             service.GatewayFailureStageAccountAuth,
-		Scope:             service.GatewayFailureScopeAccount,
-		Reason:            service.OpenAIUpstreamAccessStateReason,
-		NextAccountAction: service.NextAccountRetry,
-		ClientStatusCode:  http.StatusBadGateway,
-		ClientMessage:     "Upstream access is temporarily unavailable, please retry later",
-		ResponseBody:      []byte(`{"error":{"message":"Your workspace is deactivated","token":"must-not-leak"}}`),
+		StatusCode:       http.StatusForbidden,
+		Stage:            service.GatewayFailureStageAccountAuth,
+		Scope:            service.GatewayFailureScopeAccount,
+		Reason:           service.OpenAIUpstreamAccessStateReason,
+		ClientStatusCode: http.StatusBadGateway,
+		ClientMessage:    "Upstream access is temporarily unavailable, please retry later",
+		ResponseBody:     []byte(`{"error":{"message":"Your workspace is deactivated","token":"must-not-leak"}}`),
 	}, false)
 
 	require.Equal(t, http.StatusBadGateway, recorder.Code)
@@ -193,12 +190,11 @@ func TestCredentialFailoverExhaustionReturnsFixedSafe503(t *testing.T) {
 	h := &OpenAIGatewayHandler{}
 
 	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
-		Stage:             service.GatewayFailureStageAccountAuth,
-		Scope:             service.GatewayFailureScopeAccount,
-		Reason:            service.GrokCredentialReasonRevoked,
-		NextAccountAction: service.NextAccountRetry,
-		ClientStatusCode:  http.StatusTeapot,
-		ClientMessage:     "invalid_grant refresh_token=must-not-leak",
+		Stage:            service.GatewayFailureStageAccountAuth,
+		Scope:            service.GatewayFailureScopeAccount,
+		Reason:           service.GrokCredentialReasonRevoked,
+		ClientStatusCode: http.StatusTeapot,
+		ClientMessage:    "invalid_grant refresh_token=must-not-leak",
 	}, false)
 
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
@@ -380,10 +376,9 @@ func TestOpsWebSocketCredentialFailoverExhaustedIsRecorded(t *testing.T) {
 			Reason: string(service.GrokCredentialReasonRevoked), Message: "Grok OAuth credentials require account action",
 		}})
 		closeOpenAIWSFailoverExhausted(c, nil, &service.UpstreamFailoverError{
-			Stage:             service.GatewayFailureStageAccountAuth,
-			Scope:             service.GatewayFailureScopeAccount,
-			Reason:            service.GrokCredentialReasonRevoked,
-			NextAccountAction: service.NextAccountStop,
+			Stage:  service.GatewayFailureStageAccountAuth,
+			Scope:  service.GatewayFailureScopeAccount,
+			Reason: service.GrokCredentialReasonRevoked,
 		})
 	})
 

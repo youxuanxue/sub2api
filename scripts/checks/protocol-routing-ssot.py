@@ -682,7 +682,8 @@ def check(root: Path) -> list[str]:
         pre_send_failure_bodies = function_bodies(source, "protocolExecutionPreSendFailure")
         if not pre_send_failure_bodies or not all(
             contains_identifier(body, "UpstreamFailoverError")
-            and contains_identifier(body, "NextAccountRetry")
+            and contains_identifier(body, "applyGatewayFailoverSemantic")
+            and contains_identifier(body, "gatewayFailureSemanticAccountFault")
             for body in pre_send_failure_bodies
         ):
             errors.append("protocol pre-send failure owner does not provide retry-next-account semantics")

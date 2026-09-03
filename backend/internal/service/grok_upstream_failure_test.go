@@ -38,7 +38,6 @@ func TestClassifyGrokUpstreamFailure_FreeUsage(t *testing.T) {
 			d := classifyGrokUpstreamFailure(tc.status, []byte(tc.body), "grok-4.5")
 			require.Equal(t, GrokFailureFreeUsage, d.Class)
 			require.True(t, d.ShouldCooldown)
-			require.True(t, d.ShouldFailover)
 			require.False(t, d.BlockModel, "free-usage must not soft-block models")
 			require.Equal(t, grokFreeUsageProbeCooldown, d.Cooldown)
 		})
@@ -49,7 +48,6 @@ func TestClassifyGrokUpstreamFailure_EmptyUpstream(t *testing.T) {
 	d := classifyGrokUpstreamFailure(http.StatusBadGateway, []byte(`empty model output: no content/tool_calls`), "grok-4.5")
 	require.Equal(t, GrokFailureEmptyUpstream, d.Class)
 	require.True(t, d.ShouldCooldown)
-	require.True(t, d.ShouldFailover)
 	require.True(t, d.BlockModel)
 	require.Equal(t, 4*time.Minute, d.Cooldown)
 }
@@ -66,14 +64,12 @@ func TestClassifyGrokUpstreamFailure_Billing(t *testing.T) {
 	d := classifyGrokUpstreamFailure(http.StatusForbidden, []byte(`{"code":"personal-team-blocked:spending-limit","error":"spending limit reached"}`), "")
 	require.Equal(t, GrokFailureBilling, d.Class)
 	require.True(t, d.ShouldCooldown)
-	require.True(t, d.ShouldFailover)
 }
 
 func TestClassifyGrokUpstreamFailure_GrokSubscriptionRequiredIsBilling(t *testing.T) {
 	d := classifyGrokUpstreamFailure(http.StatusPaymentRequired,
 		[]byte(`{"error":{"message":"You have run out of credits or need a Grok subscription"}}`), "grok-4.6")
 	require.Equal(t, GrokFailureBilling, d.Class)
-	require.True(t, d.ShouldFailover)
 	require.True(t, d.ShouldCooldown)
 }
 
@@ -129,7 +125,6 @@ func TestClassifyGrokUpstreamFailure_ValidationNoCool(t *testing.T) {
 	d := classifyGrokUpstreamFailure(http.StatusBadRequest, []byte(`{"error":{"message":"invalid tool schema"}}`), "")
 	require.Equal(t, GrokFailureNone, d.Class)
 	require.False(t, d.ShouldCooldown)
-	require.False(t, d.ShouldFailover)
 }
 
 func TestClassifyGrokUpstreamFailure_FreeUsageWinsOver5xx(t *testing.T) {
@@ -147,7 +142,6 @@ func TestClassifyGrokUpstreamFailure_CompatibilityDoesNotCooldown(t *testing.T) 
 	for _, body := range cases {
 		d := classifyGrokUpstreamFailure(http.StatusUnprocessableEntity, []byte(body), "grok-4.6")
 		require.Equal(t, GrokFailureCompatibility, d.Class, body)
-		require.True(t, d.ShouldFailover, body)
 		require.False(t, d.ShouldCooldown, body)
 		require.Zero(t, d.Cooldown, body)
 	}
@@ -166,7 +160,6 @@ func TestClassifyGrokUpstreamFailure_GenericShapeErrorDoesNotFailover(t *testing
 	d := classifyGrokUpstreamFailure(http.StatusBadRequest,
 		[]byte(`{"error":{"message":"data did not match any variant of the untagged enum content"}}`), "grok-4.6")
 	require.NotEqual(t, GrokFailureCompatibility, d.Class)
-	require.False(t, d.ShouldFailover)
 }
 
 func TestShouldFailoverGrokUpstreamError_FreeUsageBody(t *testing.T) {

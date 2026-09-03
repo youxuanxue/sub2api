@@ -75,7 +75,7 @@ func TestBridgeWrapRelayErrorAfterPenalty_GatewayOutageReturnsRequestScopedFailo
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, 502, failoverErr.StatusCode)
-	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.Contains(t, string(failoverErr.ResponseBody), "Network error")
 
@@ -96,7 +96,7 @@ func TestBridgeWrapRelayErrorAfterPenalty_AccountLevelReturnsFailover(t *testing
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, 402, failoverErr.StatusCode)
-	require.Equal(t, NextAccountRetry, failoverErr.NextAccountAction)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.True(t, failoverErr.ShouldRetryNextAccount())
 	require.Contains(t, string(failoverErr.ResponseBody), "Insufficient Balance")
 

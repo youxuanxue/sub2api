@@ -48,12 +48,11 @@ func TestOpenAIBodyLimitFailoverExhausted_ReturnsRedactedResponsesSSE(t *testing
 
 func bodyLimitFailoverTestError() *service.UpstreamFailoverError {
 	return &service.UpstreamFailoverError{
-		StatusCode:        http.StatusRequestEntityTooLarge,
-		ResponseBody:      []byte(`{"error":{"message":"proxy limit secret=must-not-leak"}}`),
-		Scope:             service.GatewayFailureScopeAccount,
-		Reason:            service.GatewayFailureReason("openai_request_body_too_large"),
-		NextAccountAction: service.NextAccountRetry,
-		ClientStatusCode:  http.StatusRequestEntityTooLarge,
-		ClientMessage:     "Request payload is too large",
+		StatusCode:       http.StatusRequestEntityTooLarge,
+		ResponseBody:     []byte(`{"error":{"message":"proxy limit secret=must-not-leak"}}`),
+		Scope:            service.GatewayFailureScopeAccount,
+		Reason:           service.GatewayFailureReason("openai_request_body_too_large"),
+		ClientStatusCode: http.StatusRequestEntityTooLarge,
+		ClientMessage:    "Request payload is too large",
 	}
 }

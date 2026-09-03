@@ -84,7 +84,7 @@ func TestOpenAIUpstreamAccessStateClassification(t *testing.T) {
 			require.True(t, err.IsCredentialFailure())
 			require.Equal(t, GatewayFailureScopeAccount, err.Scope)
 			require.Equal(t, OpenAIUpstreamAccessStateReason, err.Reason)
-			require.Equal(t, NextAccountRetry, err.NextAccountAction)
+			require.True(t, err.ShouldRetryNextAccount())
 			require.False(t, err.RetryableOnSameAccount)
 			require.False(t, err.RequestScopedTransient)
 			require.Equal(t, http.StatusBadGateway, err.ClientStatusCode)

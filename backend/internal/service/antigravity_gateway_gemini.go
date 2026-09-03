@@ -355,7 +355,10 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
 		// 精确匹配服务端配置类 400 错误，触发同账号重试 + failover
-		if resp.StatusCode == http.StatusBadRequest && isGoogleProjectConfigError(strings.ToLower(upstreamMsg)) {
+		googleSemantic := googleGatewayFailureSemantic(resp.StatusCode, strings.ToLower(upstreamMsg))
+		if googleSemantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
+			Profile: gatewayFailoverProfileGoogle, Semantic: googleSemantic, StatusCode: resp.StatusCode,
+		}).RetryNextAccount {
 			log.Printf("%s status=400 google_config_error failover=true upstream_message=%q account=%d", prefix, upstreamMsg, account.ID)
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,

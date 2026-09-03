@@ -779,12 +779,10 @@ func logPrefix(sessionID, accountName string) string {
 }
 
 func (s *AntigravityGatewayService) shouldFailoverUpstreamError(statusCode int) bool {
-	switch statusCode {
-	case 401, 403, 429, 529:
-		return true
-	default:
-		return statusCode >= 500
-	}
+	return classifyGatewayFailover(gatewayFailoverObservation{
+		Profile:    gatewayFailoverProfileGoogle,
+		StatusCode: statusCode,
+	}).RetryNextAccount
 }
 
 // isGoogleProjectConfigError 判断（已提取的小写）错误消息是否属于 Google 服务端配置类问题。
@@ -793,6 +791,13 @@ func (s *AntigravityGatewayService) shouldFailoverUpstreamError(statusCode int) 
 func isGoogleProjectConfigError(lowerMsg string) bool {
 	// Google 间歇性 Bug：Project ID 有效但被临时识别失败
 	return strings.Contains(lowerMsg, "invalid project resource name")
+}
+
+func googleGatewayFailureSemantic(statusCode int, lowerMsg string) gatewayFailureSemantic {
+	if statusCode == http.StatusBadRequest && isGoogleProjectConfigError(lowerMsg) {
+		return gatewayFailureSemanticAccountFault
+	}
+	return gatewayFailureSemanticUnclassified
 }
 
 // googleConfigErrorCooldown 服务端配置类 400 错误的临时封禁时长

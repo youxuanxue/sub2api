@@ -95,7 +95,7 @@ func TestAntigravityRelayCapacityFailoverError_MapsClient429(t *testing.T) {
 	require.Equal(t, AntigravityRelayCapacityClientMessage, err.ClientMessage)
 	require.Equal(t, NoAvailableAccountsRetryAfterSeconds, err.ResponseHeaders.Get("Retry-After"))
 	require.Equal(t, GatewayFailureScopeAccount, err.Scope)
-	require.Equal(t, NextAccountRetry, err.NextAccountAction)
+	require.True(t, err.ShouldRetryNextAccount())
 }
 
 func TestGeminiErrorPolicyInLoop_AntigravityRelayCapacityStopsSameAccountRetry(t *testing.T) {

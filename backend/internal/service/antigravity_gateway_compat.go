@@ -451,17 +451,16 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 }
 
 func antigravityCredentialRejectedError(resp *http.Response, body []byte) *UpstreamFailoverError {
-	return &UpstreamFailoverError{
-		StatusCode:        resp.StatusCode,
-		ResponseBody:      body,
-		ResponseHeaders:   resp.Header.Clone(),
-		Stage:             GatewayFailureStageAccountAuth,
-		Scope:             GatewayFailureScopeAccount,
-		Reason:            AntigravityCredentialRejectedReason,
-		NextAccountAction: NextAccountRetry,
-		ClientStatusCode:  http.StatusBadGateway,
-		ClientMessage:     AntigravityCredentialRejectedClientMessage,
-	}
+	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+		StatusCode:       resp.StatusCode,
+		ResponseBody:     body,
+		ResponseHeaders:  resp.Header.Clone(),
+		Stage:            GatewayFailureStageAccountAuth,
+		Scope:            GatewayFailureScopeAccount,
+		Reason:           AntigravityCredentialRejectedReason,
+		ClientStatusCode: http.StatusBadGateway,
+		ClientMessage:    AntigravityCredentialRejectedClientMessage,
+	}, gatewayFailoverProfileGoogle, gatewayFailureSemanticAccountFault)
 }
 
 func (s *AntigravityGatewayService) writeAntigravityCompatError(
