@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -120,7 +121,7 @@ type OpenAIUsage struct {
 	ImageOutputTokens        int `json:"image_output_tokens,omitempty"`
 }
 
-const openAIUpstreamEndpointContextKey = "openai_actual_upstream_endpoint"
+const openAIUpstreamEndpointContextKey = string(ctxkey.ActualOpenAIUpstreamEndpoint)
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {

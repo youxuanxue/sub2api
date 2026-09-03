@@ -41,6 +41,10 @@ const (
 	// ChannelType 当前请求最终命中的上游 channel_type（用于统一证据/排障链路字段）。
 	ChannelType Key = "ctx_channel_type"
 
+	// ActualOpenAIUpstreamEndpoint records the endpoint selected by OpenAI-compatible
+	// protocol routing so usage, Ops, and QA observe the same outbound path.
+	ActualOpenAIUpstreamEndpoint Key = "openai_actual_upstream_endpoint"
+
 	// RetryCount 表示当前请求在网关层的重试次数（用于 Ops 记录与排障）。
 	RetryCount Key = "ctx_retry_count"
 

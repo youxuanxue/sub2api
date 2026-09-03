@@ -443,3 +443,14 @@ func TestGetUpstreamEndpoint_FullFlow(t *testing.T) {
 	got := GetUpstreamEndpoint(c, service.PlatformOpenAI)
 	require.Equal(t, "/v1/responses/compact", got)
 }
+
+func TestGetUpstreamEndpoint_NewAPIUsesActualProtocolRouteOnError(t *testing.T) {
+	const actualEndpoint = "/api/v1/chat/completions"
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointChatCompletions, nil)
+	c.Set(ctxKeyInboundEndpoint, EndpointChatCompletions)
+	service.SetActualOpenAIUpstreamEndpoint(c, actualEndpoint)
+
+	require.Equal(t, actualEndpoint, GetUpstreamEndpoint(c, service.PlatformNewAPI))
+}

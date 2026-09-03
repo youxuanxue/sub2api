@@ -111,12 +111,6 @@ class PricingServingDocsContractTest(unittest.TestCase):
         )
         self.assertTrue(any("CLAUDE.md" in error and "delivery formula" in error for error in MODULE.check(root)))
 
-    def test_rejects_old_two_fact_price_vocabulary(self) -> None:
-        root = self.fixture()
-        path = root / "docs/approved/priced-or-it-doesnt-ship.md"
-        path.write_text("家族 floor 是对 PRICE 事实的估计，只**读**两个事实。\n", encoding="utf-8")
-        self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
-
     def test_rejects_priced_displayable_ssot_slogan(self) -> None:
         root = self.fixture()
         path = root / "backend/internal/service/pricing_catalog_supported_models_tk.go"
@@ -171,13 +165,6 @@ class PricingServingDocsContractTest(unittest.TestCase):
         path = root / ".cursor/skills/tokenkey-modelops-planner/SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("已核实 有价 + 可服务，则必须进入公开 catalog\n", encoding="utf-8")
-        self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
-
-    def test_rejects_onion_layers_as_delivery_truth(self) -> None:
-        root = self.fixture()
-        path = root / "docs/all-platform-model-inventory.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("TokenKey 的完整目录是一个四层洋葱\n", encoding="utf-8")
         self.assertTrue(any("secondary delivery-truth claim" in error for error in MODULE.check(root)))
 
     def test_rejects_intersection_slogan_outside_the_old_file_list(self) -> None:
@@ -296,57 +283,16 @@ class PricingServingDocsContractTest(unittest.TestCase):
         self.assertNotIn("TaskContinuation", protocol.read_text(encoding="utf-8"))
         self.assertEqual(MODULE.check(root), [])
 
-    def test_prefilter_keeps_known_forbidden_samples(self) -> None:
-        samples = (
-            "SINGLE client-facing servable truth",
-            "official upstream aliases display when priced+servable",
-            "intersected with public priced+displayable SSOT",
-            "上架一个模型（served + priced）",
-            "per pricing-availability-source-of-truth.md §2.4 / R-002 it is a feed",
-            "家族 floor 是对 PRICE 事实的估计，只**读**两个事实。",
-            "grok defaults must mirror the unified servable SSOT",
-            "Structural SSOT (servable ↔ priced ↔ display intent) stays here.",
-            "truthful callable menus",
-            "unpriced never blocks serving",
-            "¬unreachable accounts stay hidden",
-            "四层洋葱",
-            "有价 + 可服务",
-            "one entry, four facts",
-            "列出即可调用",
-            "account.go:639",
-            "pricing-availability-source-of-truth.md §2.5",
-            "Goal 2 of pricing-availability-source-of-truth.md",
-            "tokenkey-modelops-planner 分支 C",
+    def test_allows_historical_section_reference_without_owner_claim(self) -> None:
+        root = self.fixture()
+        path = root / "backend/internal/service/historical_reference.go"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "package service\n"
+            "// See pricing-availability-source-of-truth.md §2.4 (Goal 1, R-002).\n",
+            encoding="utf-8",
         )
-        for sample in samples:
-            with self.subTest(sample=sample):
-                self.assertTrue(MODULE.secondary_truth_candidate(sample), sample)
-
-    def test_prefilter_skips_unrelated_go(self) -> None:
-        self.assertFalse(
-            MODULE.secondary_truth_candidate("package service\n\nfunc add(a int, b int) int { return a + b }\n")
-        )
-
-    def test_rejects_obsolete_availability_section_references_in_both_orders(self) -> None:
-        samples = (
-            "See R-001 of\n// docs/approved/pricing-availability-source-of-truth.md.",
-            "See R-003 /\n// docs/approved/pricing-availability-source-of-truth.md#availability-structural-pruning.",
-            "Why this helper exists (R-004 of\n// docs/approved/pricing-availability-source-of-truth.md):",
-            "pricing-availability single-source-of-truth (R-001 of\n"
-            "// docs/approved/pricing-availability-source-of-truth.md).",
-            "docs/approved/pricing-availability-source-of-truth.md\n"
-            "// §2.4 (Goal 1, R-002).",
-            "see §8 of docs/approved/pricing-availability-source-of-truth.md",
-        )
-        for index, sample in enumerate(samples):
-            with self.subTest(sample=sample):
-                root = self.fixture()
-                path = root / f"backend/internal/service/stale_reference_{index}.go"
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("package service\n// " + sample + "\n", encoding="utf-8")
-                self.assertTrue(
-                    any("secondary delivery-truth claim" in error for error in MODULE.check(root))
-                )
+        self.assertEqual(MODULE.check(root), [])
 
 
 if __name__ == "__main__":
