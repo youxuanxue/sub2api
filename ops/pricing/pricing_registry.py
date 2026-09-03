@@ -42,4 +42,3 @@ def resolve_price_owner(model_id: str, overlay: dict[str, Any]) -> str:
     aliases = overlay.get("_aliases")
     owner = aliases.get(model_id) if isinstance(aliases, dict) else None
     return owner if isinstance(owner, str) and owner else model_id
-

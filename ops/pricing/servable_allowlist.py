@@ -24,4 +24,3 @@ def parse_allowlist_maps(go_text: str) -> dict[str, set[str]]:
             else set()
         )
     return out
-
