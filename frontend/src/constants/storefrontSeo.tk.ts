@@ -6,9 +6,20 @@
  */
 export const STOREFRONT_SEO = {
   siteTitle: 'TokenKey - AI API Gateway',
-  canonicalOrigin: 'https://api.tokenkey.dev',
+  canonicalOrigin: 'https://tokenkey.dev',
   ogImagePath: '/og-cover.png',
-  ogImageUrl: 'https://api.tokenkey.dev/og-cover.png',
+  ogImageUrl: 'https://tokenkey.dev/og-cover.png',
+  chinaExport: {
+    siteTitle: 'TokenKey - China\'s Leading AI Models, One API',
+    metaDescription:
+      'Access Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi with one API key. Start free with $1 credit; no card required.',
+    ogDescription:
+      'China\'s leading AI models through one API. Build with Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi.',
+    twitterDescription:
+      'Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi through one API key.',
+    canonicalUrl: 'https://global.tokenkey.dev/',
+    ogImageUrl: 'https://global.tokenkey.dev/seedance-official-poster-ad98e92e.jpg',
+  },
   zh: {
     metaDescription:
       'TokenKey - AI API Gateway. 每一次调用，都是官方品质。文本、图像、视频，一个 Key 全搞定。One key for every AI model, routed direct.',

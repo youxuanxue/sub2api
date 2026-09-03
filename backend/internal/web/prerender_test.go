@@ -100,6 +100,7 @@ func TestPrerenderMiddleware(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Host = "tokenkey.dev"
 			if tt.ua != "" {
 				req.Header.Set("User-Agent", tt.ua)
 			}
@@ -131,10 +132,46 @@ func TestPrerenderMiddlewareRootPath(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "tokenkey.dev"
 	req.Header.Set("User-Agent", "Googlebot")
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "1", w.Header().Get("X-Prerender"))
 	assert.Contains(t, w.Body.String(), "TokenKey - AI API Gateway")
+	assert.Contains(t, w.Body.String(), `href="https://tokenkey.dev/"`)
+}
+
+func TestPrerenderMiddlewareChinaExportHomepage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, path := range []string{"/", "/home"} {
+		t.Run(path, func(t *testing.T) {
+			router := gin.New()
+			router.Use(PrerenderMiddleware())
+			router.GET("/*path", func(c *gin.Context) {
+				c.String(http.StatusOK, "spa")
+			})
+
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Host = "global.tokenkey.dev:443"
+			req.Header.Set("User-Agent", "Googlebot")
+			router.ServeHTTP(w, req)
+
+			require.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, "1", w.Header().Get("X-Prerender"))
+			assert.Contains(t, w.Body.String(), "China's leading AI models. One API.")
+			assert.Contains(t, w.Body.String(), `href="https://global.tokenkey.dev/"`)
+			assert.Contains(t, w.Body.String(), "$1 free credit - up to 1M DeepSeek tokens")
+		})
+	}
+}
+
+func TestChinaExportHomepageHostIsExact(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, isChinaExportHomepageHost("GLOBAL.TOKENKEY.DEV.:443"))
+	assert.False(t, isChinaExportHomepageHost("global.tokenkey.dev.example.com"))
+	assert.False(t, isChinaExportHomepageHost("tokenkey.dev"))
 }

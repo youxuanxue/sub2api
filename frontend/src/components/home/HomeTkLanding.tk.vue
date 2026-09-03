@@ -6,10 +6,14 @@
     strings live in i18n/tk/home.tk.ts and are merged over the upstream locale.
   -->
   <div
-    class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
+    class="relative flex min-h-screen flex-col overflow-hidden"
+    :class="isChinaExport
+      ? 'bg-[#f5f5f2] text-[#171717] dark:bg-[#111310] dark:text-white'
+      : 'bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950'"
+    :data-home-profile="profile"
   >
     <!-- Background Decorations -->
-    <div class="pointer-events-none absolute inset-0 overflow-hidden">
+    <div v-if="!isChinaExport" class="pointer-events-none absolute inset-0 overflow-hidden">
       <div
         class="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-primary-400/20 blur-3xl"
       ></div>
@@ -31,10 +35,13 @@
     <header class="relative z-20 px-6 py-4">
       <nav class="mx-auto flex max-w-6xl items-center justify-between">
         <!-- Logo -->
-        <div class="flex items-center">
+        <div class="flex items-center gap-3">
           <div class="h-10 w-10 overflow-hidden rounded-xl shadow-md">
             <img :src="siteLogo" alt="Logo" class="h-full w-full object-contain" />
           </div>
+          <span v-if="isChinaExport" class="text-base font-semibold text-gray-950 dark:text-white">
+            TokenKey
+          </span>
         </div>
 
         <!-- Nav Actions -->
@@ -54,6 +61,16 @@
             <Icon name="book" size="md" />
           </a>
 
+          <router-link
+            v-if="!isChinaExport && showModelPlazaEntry"
+            to="/model-plaza"
+            class="inline-flex items-center gap-1.5 rounded-lg p-2 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            :title="t('nav.modelPlaza')"
+          >
+            <Icon name="grid" size="md" />
+            <span class="hidden sm:inline">{{ t('nav.modelPlaza') }}</span>
+          </router-link>
+
           <!-- Theme Toggle -->
           <button
             @click="toggleTheme"
@@ -65,8 +82,28 @@
           </button>
 
           <!-- Login / Dashboard Button -->
+          <a
+            v-if="isChinaExport && isAuthenticated"
+            :href="absoluteProductUrl(dashboardPath)"
+            class="inline-flex items-center gap-1.5 rounded-full bg-gray-900 py-1 pl-1 pr-2.5 transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
+          >
+            <span
+              class="flex h-5 w-5 items-center justify-center rounded-full bg-primary-600 text-[10px] font-semibold text-white"
+            >
+              {{ userInitial }}
+            </span>
+            <span class="text-xs font-medium text-white">{{ t('home.dashboard') }}</span>
+            <Icon name="arrowRight" size="xs" class="text-gray-400" />
+          </a>
+          <a
+            v-else-if="isChinaExport"
+            :href="absoluteProductUrl('/login')"
+            class="inline-flex items-center rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
+          >
+            {{ t('home.login') }}
+          </a>
           <router-link
-            v-if="isAuthenticated"
+            v-else-if="isAuthenticated"
             :to="dashboardPath"
             class="inline-flex items-center gap-1.5 rounded-full bg-gray-900 py-1 pl-1 pr-2.5 transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
           >
@@ -102,7 +139,7 @@
     </header>
 
     <!-- Main Content -->
-    <main class="relative z-10 flex-1 px-6 pb-16 pt-6">
+    <main v-if="!isChinaExport" class="relative z-10 flex-1 px-6 pb-16 pt-6">
       <div class="mx-auto max-w-6xl">
         <!-- Hero Section - Left/Right Layout -->
         <div class="mb-12 flex flex-col items-center justify-between gap-12 lg:flex-row lg:gap-16">
@@ -114,7 +151,7 @@
               <span
                 v-for="line in heroTitleLines"
                 :key="line"
-                class="block whitespace-nowrap"
+                class="block [overflow-wrap:anywhere]"
               >
                 {{ line }}
               </span>
@@ -123,7 +160,7 @@
               <span
                 v-for="line in heroSubtitleLines"
                 :key="line"
-                class="block sm:whitespace-nowrap"
+                class="block"
               >
                 {{ line }}
               </span>
@@ -471,6 +508,190 @@
       </div>
     </main>
 
+    <main v-else class="relative z-10 flex-1" data-testid="china-export-home">
+      <section class="border-b border-black/10 px-5 pb-6 pt-6 dark:border-white/10 sm:px-8 sm:pb-14 sm:pt-8 lg:px-12 lg:pb-20 lg:pt-12">
+        <div class="mx-auto grid max-w-7xl items-center gap-6 sm:gap-10 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:gap-14">
+          <div class="max-w-2xl">
+            <p class="mb-5 text-sm font-semibold uppercase text-[#b6432e]">
+              {{ t('home.chinaExport.eyebrow') }}
+            </p>
+            <h1 class="text-4xl font-semibold leading-[1.05] tracking-normal text-gray-950 dark:text-white sm:text-5xl lg:text-7xl">
+              {{ t('home.chinaExport.heroTitle') }}
+            </h1>
+            <p class="mt-6 max-w-xl text-lg leading-8 text-gray-600 dark:text-gray-300 sm:text-xl">
+              {{ t('home.chinaExport.heroSubtitle') }}
+            </p>
+            <div class="mt-8 flex flex-wrap items-center gap-3">
+              <a
+                :href="primaryCtaUrl"
+                class="btn bg-[#171717] px-6 py-3 text-base text-white shadow-lg shadow-black/15 hover:bg-black dark:bg-white dark:text-black dark:hover:bg-gray-100"
+                data-testid="china-export-primary-cta"
+              >
+                {{ isAuthenticated ? t('home.chinaExport.openQuickstart') : t('home.chinaExport.startFree') }}
+                <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
+              </a>
+              <a
+                :href="absoluteProductUrl('/models')"
+                class="btn border border-black/15 bg-transparent px-6 py-3 text-base text-gray-800 hover:bg-black/5 dark:border-white/20 dark:text-white dark:hover:bg-white/10"
+              >
+                {{ t('home.chinaExport.browseModels') }}
+              </a>
+            </div>
+            <p class="mt-4 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('home.chinaExport.noCard') }}
+            </p>
+          </div>
+
+          <figure class="overflow-hidden rounded-lg bg-[#111310] shadow-2xl shadow-black/20" data-testid="seedance-proof">
+            <div class="relative aspect-video overflow-hidden">
+              <video
+                ref="seedanceVideo"
+                class="h-full w-full object-cover motion-reduce:hidden"
+                :src="seedanceProof.videoUrl"
+                :poster="seedanceProof.posterUrl"
+                autoplay
+                muted
+                loop
+                playsinline
+                controls
+                preload="metadata"
+                data-testid="seedance-proof-video"
+              ></video>
+              <img
+                :src="seedanceProof.posterUrl"
+                :alt="t('home.chinaExport.proofAlt')"
+                class="hidden h-full w-full object-cover motion-reduce:block"
+                data-testid="seedance-proof-poster"
+              />
+              <div class="pointer-events-none absolute left-4 top-4 rounded bg-black/75 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
+                {{ t('home.chinaExport.proofBadge') }}
+              </div>
+            </div>
+            <figcaption class="flex flex-col gap-1 px-4 py-3 text-sm text-white/80 sm:flex-row sm:items-center sm:justify-between">
+              <span>{{ t('home.chinaExport.proofCaption') }}</span>
+              <a
+                :href="seedanceProof.sourceUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="pointer-events-auto text-white underline decoration-white/40 underline-offset-4 hover:decoration-white"
+              >
+                {{ t('home.chinaExport.proofSource') }}
+              </a>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="px-5 pb-16 pt-6 sm:px-8 sm:pt-12 lg:px-12 lg:py-20" aria-labelledby="china-models-title">
+        <div class="mx-auto max-w-7xl">
+          <div class="max-w-2xl">
+            <p class="text-sm font-semibold uppercase text-[#23745c]" data-testid="china-models-eyebrow">{{ t('home.chinaExport.modelsEyebrow') }}</p>
+            <h2 id="china-models-title" class="mt-3 text-3xl font-semibold tracking-normal text-gray-950 dark:text-white sm:text-4xl">
+              {{ t('home.chinaExport.modelsTitle') }}
+            </h2>
+            <p class="mt-4 text-base leading-7 text-gray-600 dark:text-gray-300">
+              {{ t('home.chinaExport.modelsSubtitle') }}
+            </p>
+          </div>
+
+          <div class="mt-10 grid gap-3 md:grid-cols-2 lg:grid-cols-3" data-testid="china-model-list">
+            <div
+              v-for="(model, index) in chinaModelCards"
+              :key="model.name"
+              class="flex min-h-[132px] items-start gap-4 rounded-lg border border-black/10 bg-white p-5 dark:border-white/10 dark:bg-[#181b17]"
+              :data-model-order="index + 1"
+            >
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-sm font-bold text-white" :class="model.color">
+                {{ model.glyph }}
+              </span>
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h3 class="text-base font-semibold text-gray-950 dark:text-white">{{ model.name }}</h3>
+                  <span v-if="index < 2" class="rounded bg-[#f4ded8] px-2 py-0.5 text-xs font-medium text-[#8e2f20] dark:bg-[#5a271f] dark:text-[#ffb4a5]">
+                    {{ t('home.chinaExport.featured') }}
+                  </span>
+                </div>
+                <p class="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">{{ t(model.descriptionKey) }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="border-y border-black/10 bg-white px-5 py-16 dark:border-white/10 dark:bg-[#181b17] sm:px-8 lg:px-12 lg:py-20" aria-labelledby="verify-key-title">
+        <div class="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:gap-16">
+          <div>
+            <p class="text-sm font-semibold uppercase text-[#b6432e]">{{ t('home.chinaExport.verifyEyebrow') }}</p>
+            <h2 id="verify-key-title" class="mt-3 text-3xl font-semibold tracking-normal text-gray-950 dark:text-white sm:text-4xl">
+              {{ t('home.chinaExport.verifyTitle') }}
+            </h2>
+            <p class="mt-4 text-base leading-7 text-gray-600 dark:text-gray-300">
+              {{ t('home.chinaExport.verifyDescription') }}
+            </p>
+            <a :href="primaryCtaUrl" class="mt-7 inline-flex items-center font-semibold text-[#9d3524] hover:underline dark:text-[#ff9c89]">
+              {{ t('home.chinaExport.verifyCta') }}
+              <Icon name="arrowRight" size="sm" class="ml-2" />
+            </a>
+          </div>
+
+          <div class="overflow-hidden rounded-lg bg-[#101410] text-gray-100 shadow-xl shadow-black/10">
+            <div class="flex h-11 items-center justify-between border-b border-white/10 px-4">
+              <span class="font-mono text-xs text-gray-400">curl</span>
+              <button
+                type="button"
+                class="flex h-8 w-8 items-center justify-center rounded-md text-gray-400 hover:bg-white/10 hover:text-white"
+                :title="codeCopied ? t('home.chinaExport.copied') : t('home.chinaExport.copyCode')"
+                @click="copyQuickstart"
+              >
+                <Icon :name="codeCopied ? 'check' : 'copy'" size="sm" />
+              </button>
+            </div>
+            <pre class="overflow-x-auto p-5 text-sm leading-7"><code>{{ deepseekCurl }}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="px-5 py-16 sm:px-8 lg:px-12 lg:py-20" aria-labelledby="china-faq-title">
+        <div class="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.65fr)_minmax(0,1.35fr)] lg:gap-16">
+          <div>
+            <p class="text-sm font-semibold uppercase text-[#23745c]">{{ t('home.chinaExport.faqEyebrow') }}</p>
+            <h2 id="china-faq-title" class="mt-3 text-3xl font-semibold tracking-normal text-gray-950 dark:text-white sm:text-4xl">
+              {{ t('home.chinaExport.faqTitle') }}
+            </h2>
+            <a :href="primaryCtaUrl" class="mt-7 inline-flex items-center font-semibold text-[#9d3524] hover:underline dark:text-[#ff9c89]">
+              {{ t('home.chinaExport.startFree') }}
+              <Icon name="arrowRight" size="sm" class="ml-2" />
+            </a>
+            <p class="mt-3 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">
+              {{ t('home.chinaExport.creditDisclaimer') }}
+            </p>
+          </div>
+
+          <div class="divide-y divide-black/10 border-y border-black/10 dark:divide-white/10 dark:border-white/10">
+            <div v-for="key in chinaFaqKeys" :key="key">
+              <button
+                type="button"
+                class="flex min-h-[64px] w-full items-center justify-between gap-4 py-4 text-left"
+                :aria-expanded="Boolean(openChinaFaqItems[key])"
+                @click="toggleChinaFaq(key)"
+              >
+                <span class="font-medium text-gray-950 dark:text-white">{{ t(`home.chinaExport.faq.${key}.q`) }}</span>
+                <Icon
+                  name="chevronDown"
+                  size="sm"
+                  class="shrink-0 transition-transform"
+                  :class="{ 'rotate-180': openChinaFaqItems[key] }"
+                />
+              </button>
+              <p v-show="openChinaFaqItems[key]" class="max-w-3xl pb-5 pr-10 text-sm leading-6 text-gray-600 dark:text-gray-300">
+                {{ t(`home.chinaExport.faq.${key}.a`) }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
     <!-- Footer -->
     <footer class="relative z-10 border-t border-gray-200/50 px-6 py-8 dark:border-dark-800/50">
       <div
@@ -496,10 +717,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAuthStore, useAppStore } from '@/stores'
-import { resolveSiteLogo } from '@/utils/branding'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
@@ -510,8 +729,67 @@ import {
   homeProviderModalityLabel,
   homeProviderModalityClass,
 } from '@/constants/homeProviders.tk'
+import { PRODUCT_ORIGIN, type HomepageProfile } from '@/features/home/marketProfile.tk'
+import { useHomeShell } from '@/features/home/useHomeShell.tk'
+
+const props = withDefaults(defineProps<{
+  profile?: HomepageProfile
+}>(), {
+  profile: 'current',
+})
 
 const { t } = useI18n()
+const isChinaExport = computed(() => props.profile === 'china-export')
+
+const CHINA_EXPORT_QUICKSTART = '/quickstart?model=deepseek-chat&protocol=openai'
+
+function absoluteProductUrl(path: string): string {
+  return new URL(path, PRODUCT_ORIGIN).toString()
+}
+
+const primaryCtaUrl = computed(() =>
+  isAuthenticated.value
+    ? absoluteProductUrl(CHINA_EXPORT_QUICKSTART)
+    : `${PRODUCT_ORIGIN}/register?redirect=${encodeURIComponent(CHINA_EXPORT_QUICKSTART)}`,
+)
+
+const seedanceProof = {
+  videoUrl: '/seedance-official-showcase-b1aff7ba.mp4',
+  posterUrl: '/seedance-official-poster-ad98e92e.jpg',
+  sourceUrl: 'https://seed.bytedance.com/en/seedance',
+} as const
+
+const chinaModelCards = [
+  { name: 'Seedance', glyph: 'SD', color: 'bg-[#b6432e]', descriptionKey: 'home.chinaExport.models.seedance' },
+  { name: 'Seedream', glyph: 'SR', color: 'bg-[#23745c]', descriptionKey: 'home.chinaExport.models.seedream' },
+  { name: 'Qwen', glyph: 'Q', color: 'bg-[#3867a8]', descriptionKey: 'home.chinaExport.models.qwen' },
+  { name: 'DeepSeek', glyph: 'D', color: 'bg-[#4c55a5]', descriptionKey: 'home.chinaExport.models.deepseek' },
+  { name: 'GLM', glyph: 'G', color: 'bg-[#326c74]', descriptionKey: 'home.chinaExport.models.glm' },
+  { name: 'Kimi', glyph: 'K', color: 'bg-[#6d577e]', descriptionKey: 'home.chinaExport.models.kimi' },
+] as const
+
+const deepseekCurl = `curl https://api.tokenkey.dev/v1/chat/completions \\
+  -H "Authorization: Bearer $TOKENKEY_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "deepseek-chat",
+    "messages": [{"role": "user", "content": "Say hello in one sentence."}]
+  }'`
+
+const codeCopied = ref(false)
+async function copyQuickstart() {
+  await navigator.clipboard.writeText(deepseekCurl)
+  codeCopied.value = true
+  window.setTimeout(() => {
+    codeCopied.value = false
+  }, 1600)
+}
+
+const chinaFaqKeys = ['models', 'credit', 'data', 'payments'] as const
+const openChinaFaqItems = reactive<Record<string, boolean>>({})
+function toggleChinaFaq(key: string) {
+  openChinaFaqItems[key] = !openChinaFaqItems[key]
+}
 
 const heroTitleLines = computed(() => {
   const title = t('home.hero.title')
@@ -601,55 +879,18 @@ function toggleFaq(key: string) {
   openFaqItems[key] = !openFaqItems[key]
 }
 
-const authStore = useAuthStore()
-const appStore = useAppStore()
-
-// Site settings - directly from appStore (already initialized from injected config)
-const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'TokenKey')
-const siteLogo = computed(() =>
-  resolveSiteLogo(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo),
-)
-const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
-
-// Theme
-const isDark = ref(document.documentElement.classList.contains('dark'))
-
-// Auth state
-const isAuthenticated = computed(() => authStore.isAuthenticated)
-const isAdmin = computed(() => authStore.isAdmin)
-const dashboardPath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
-const userInitial = computed(() => {
-  const user = authStore.user
-  if (!user || !user.email) return ''
-  return user.email.charAt(0).toUpperCase()
-})
-
-// Current year for footer
-const currentYear = computed(() => new Date().getFullYear())
-
-// Toggle theme
-function toggleTheme() {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
-}
-
-// Initialize theme
-function initTheme() {
-  const savedTheme = localStorage.getItem('theme')
-  if (
-    savedTheme === 'dark' ||
-    (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  ) {
-    isDark.value = true
-    document.documentElement.classList.add('dark')
-  }
-}
-
-onMounted(() => {
-  initTheme()
-  authStore.checkAuth()
-})
+const {
+  currentYear,
+  dashboardPath,
+  docUrl,
+  isAuthenticated,
+  isDark,
+  showModelPlazaEntry,
+  siteLogo,
+  siteName,
+  toggleTheme,
+  userInitial,
+} = useHomeShell()
 </script>
 
 <style scoped>

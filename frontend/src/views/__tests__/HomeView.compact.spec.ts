@@ -3,7 +3,7 @@ import { mount, RouterLinkStub } from '@vue/test-utils'
 
 import HomeView from '../HomeView.vue'
 
-const { appStore, authStore } = vi.hoisted(() => ({
+const { appStore, authStore, profileState } = vi.hoisted(() => ({
   appStore: {
     cachedPublicSettings: {} as Record<string, unknown>,
     siteName: 'Fallback site',
@@ -18,6 +18,9 @@ const { appStore, authStore } = vi.hoisted(() => ({
     user: null as { email?: string } | null,
     checkAuth: vi.fn(),
   },
+  profileState: {
+    value: 'current' as 'current' | 'china-export',
+  },
 }))
 
 vi.mock('@/stores', () => ({
@@ -28,6 +31,14 @@ vi.mock('@/stores', () => ({
 vi.mock('@/stores/app', () => ({
   useAppStore: () => appStore,
 }))
+
+vi.mock('@/features/home/marketProfile.tk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/home/marketProfile.tk')>()
+  return {
+    ...actual,
+    resolveHomepageProfile: () => profileState.value,
+  }
+})
 
 vi.mock('vue-i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-i18n')>()
@@ -73,6 +84,7 @@ describe('HomeView compact mode', () => {
     authStore.user = null
     authStore.checkAuth.mockClear()
     appStore.fetchPublicSettings.mockClear()
+    profileState.value = 'current'
     localStorage.clear()
     vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
   })
@@ -180,5 +192,52 @@ describe('HomeView compact mode', () => {
     })
 
     expect(modelPlazaDestination(wrapper)).toBeUndefined()
+  })
+
+  it('ignores custom home content on the China export hostname', () => {
+    profileState.value = 'china-export'
+
+    const wrapper = mountHome({ home_content: '<section id="custom-home">Custom home</section>' })
+
+    expect(wrapper.find('#custom-home').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="china-export-home"]').exists()).toBe(true)
+    expect(wrapper.get('[data-home-profile]').attributes('data-home-profile')).toBe('china-export')
+  })
+
+  it('ignores compact mode and internal Model Plaza navigation on the China export hostname', () => {
+    profileState.value = 'china-export'
+
+    const wrapper = mountHome({
+      compact_home_enabled: true,
+      model_plaza_enabled: true,
+      model_plaza_require_auth: false,
+    })
+
+    expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
+    expect(modelPlazaDestination(wrapper)).toBeUndefined()
+    expect(wrapper.get('[data-testid="china-export-home"]').exists()).toBe(true)
+  })
+
+  it('keeps the China model order and qualified trial promise', () => {
+    profileState.value = 'china-export'
+
+    const wrapper = mountHome()
+    const models = wrapper.get('[data-testid="china-model-list"]').findAll('h3').map((node) => node.text())
+
+    expect(models).toEqual(['Seedance', 'Seedream', 'Qwen', 'DeepSeek', 'GLM', 'Kimi'])
+    expect(wrapper.text()).toContain('home.chinaExport.creditDisclaimer')
+    expect(wrapper.get('[data-testid="seedance-proof-video"]').attributes('src')).toBe(
+      '/seedance-official-showcase-b1aff7ba.mp4',
+    )
+  })
+
+  it('sends the primary CTA to the shared product quickstart with DeepSeek selected', () => {
+    profileState.value = 'china-export'
+
+    const href = mountHome().get('[data-testid="china-export-primary-cta"]').attributes('href')
+
+    expect(href).toBe(
+      'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
+    )
   })
 })

@@ -213,6 +213,10 @@ export default defineConfig(({ mode }) => {
     server: {
       host: '0.0.0.0',
       port: devPort,
+      allowedHosts: ['tokenkey.dev', 'global.tokenkey.dev'],
+      watch: {
+        ignored: ['**/e2e/artifacts/**', '**/e2e/report/**'],
+      },
       proxy: {
         '/api': {
           target: backendUrl,

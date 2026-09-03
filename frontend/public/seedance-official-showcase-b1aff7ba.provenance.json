@@ -1,0 +1,18 @@
+{
+  "release_eligible": false,
+  "release_blocker": "Replace with a TokenKey-generated Seedream-to-Seedance workflow whose prompt, account authorization and public-use permission are recorded.",
+  "model": "Seedance 1.0",
+  "source_page": "https://seed.bytedance.com/en/seedance",
+  "source_media": "https://lf3-static.bytednsdoc.com/obj/eden-cn/bdeh7uhpsuht/Seedance1.0.mp4",
+  "source_sha256": "dec05188bbdcf0339caab2ccbb7f9b9012bf16ffcbbb951334128455aab62369",
+  "derived_media": "seedance-official-showcase-b1aff7ba.mp4",
+  "derived_sha256": "b1aff7ba4fa1694c3002499c86309dc5a2ccc4968d1edbe126b8185d436c5db0",
+  "poster": "seedance-official-poster-ad98e92e.jpg",
+  "poster_sha256": "ad98e92e8e88ff0ae48b16beb2c16f2830b052f5c4ab66a3ada7c53960fd5d1e",
+  "transformation": "First 8 seconds transcoded with macOS avconvert Preset1280x720",
+  "prompt": null,
+  "generated_at": null,
+  "generation_account": null,
+  "public_use_authorization": null,
+  "recorded_at": "2026-09-03"
+}

@@ -19,8 +19,64 @@ type HomeLocaleOverlay = {
   home: Record<string, unknown>
 }
 
+// The hostname, not the saved locale, owns the overseas homepage narrative.
+// Reusing one English object keeps the public promise identical for every visitor.
+const chinaExport = {
+  eyebrow: 'Built for global teams',
+  heroTitle: "China's leading AI models. One API.",
+  heroSubtitle: 'Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi. One balance, one key, one OpenAI-compatible endpoint.',
+  startFree: 'Start free',
+  openQuickstart: 'Open quickstart',
+  browseModels: 'Browse all models',
+  noCard: 'No card required. Your account and API key work across TokenKey.',
+  proofBadge: 'Seedance 1.0',
+  proofAlt: 'Still frame from the official Seedance 1.0 model showcase',
+  proofCaption: 'Real model output from the official Seedance showcase.',
+  proofSource: 'View source',
+  modelsEyebrow: 'China model matrix',
+  modelsTitle: 'Start with the models you came for.',
+  modelsSubtitle: 'The order changes what you discover first, not what your account can call. Every TokenKey user keeps access to the full catalog.',
+  featured: 'Featured',
+  models: {
+    seedance: 'Video generation for cinematic motion and creative production workflows.',
+    seedream: 'Image generation and editing for product, campaign and concept work.',
+    qwen: 'Alibaba Cloud language and multimodal models for production applications.',
+    deepseek: 'Fast, capable reasoning and chat through an OpenAI-compatible API.',
+    glm: 'Zhipu AI language and multimodal models for agents and applications.',
+    kimi: 'Moonshot AI models for long-context reasoning, coding and agent workflows.',
+  },
+  verifyEyebrow: 'Verify your key',
+  verifyTitle: 'Your first response in one request.',
+  verifyDescription: 'Use deepseek-chat to confirm that your key, balance and OpenAI-compatible endpoint are ready. Then switch the model ID for your production workflow.',
+  verifyCta: 'Get your API key',
+  copyCode: 'Copy request',
+  copied: 'Copied',
+  faqEyebrow: '$1 free credit',
+  faqTitle: 'Build before you pay.',
+  creditDisclaimer: '$1 free credit - up to 1M DeepSeek tokens. Actual usage varies by model and input/output mix.',
+  faq: {
+    models: {
+      q: 'Which models can I use now?',
+      a: 'Start with Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi, then browse the full TokenKey catalog. Availability is shown in the shared model catalog and is not restricted by the homepage you used.',
+    },
+    credit: {
+      q: 'How does the $1 free credit work?',
+      a: 'A new eligible account receives $1 in USD balance. You can use it on any available model. It can cover up to 1M DeepSeek tokens; actual usage depends on the model and input/output mix.',
+    },
+    data: {
+      q: 'Where is my data processed?',
+      a: 'Processing location and retention depend on the model provider selected for each request. Review the provider policy for your chosen model before sending sensitive or regulated data.',
+    },
+    payments: {
+      q: 'How do payments and refunds work?',
+      a: 'Available payment methods appear in the shared TokenKey checkout. Completed purchases credit the same USD balance used by every model. Refund eligibility follows the terms shown in the product.',
+    },
+  },
+} as const
+
 const en: HomeLocaleOverlay = {
   home: {
+    chinaExport,
     hero: {
       title: STOREFRONT_SEO.en.heroTitle,
       subtitle: STOREFRONT_SEO.en.heroSubtitle,
@@ -162,6 +218,7 @@ const en: HomeLocaleOverlay = {
 
 const zh: HomeLocaleOverlay = {
   home: {
+    chinaExport,
     hero: {
       title: STOREFRONT_SEO.zh.heroTitle,
       subtitle: STOREFRONT_SEO.zh.heroSubtitle,

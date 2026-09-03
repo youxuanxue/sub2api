@@ -16,6 +16,7 @@ import { resolveRouteDocumentTitle } from './title'
 import { scrollBehavior } from './scrollBehavior'
 import { adminRoutes } from './admin.tk'
 import { userRoutes } from './user.tk'
+import { resolveGlobalProductRedirect, resolveHomepageProfile } from '@/features/home/marketProfile.tk'
 
 /**
  * Route definitions with lazy loading
@@ -312,6 +313,17 @@ function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: bo
 router.beforeEach(async (to, _from, next) => {
   // 开始导航加载状态
   navigationLoading.startNavigation()
+
+  const globalProductRedirect = resolveGlobalProductRedirect(window.location.hostname, to.fullPath)
+  if (globalProductRedirect) {
+    window.location.assign(globalProductRedirect)
+    return
+  }
+
+  if (to.path === '/' && resolveHomepageProfile(window.location.hostname) === 'china-export') {
+    next('/home')
+    return
+  }
 
   const authStore = useAuthStore()
 

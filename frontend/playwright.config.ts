@@ -19,7 +19,13 @@ export default defineConfig({
     screenshot: 'on',
     video: 'retain-on-failure',
     trace: 'retain-on-failure',
-    launchOptions: { args: ['--no-proxy-server'] },
+    launchOptions: {
+      args: [
+        '--proxy-server=direct://',
+        '--proxy-bypass-list=*',
+        '--host-resolver-rules=MAP tokenkey.dev 127.0.0.1, MAP global.tokenkey.dev 127.0.0.1',
+      ],
+    },
   },
   projects: [{
     name: 'chromium',
