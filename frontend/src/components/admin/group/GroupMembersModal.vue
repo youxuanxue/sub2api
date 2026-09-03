@@ -25,7 +25,7 @@
           type="button"
           class="btn btn-secondary"
           :disabled="loading"
-          @click="reload"
+          @click="reload({ refreshBound: true })"
         >
           {{ t('common.refresh') }}
         </button>
@@ -198,6 +198,7 @@ import {
   type GroupMemberAccount
 } from '@/api/admin/groups'
 import { list as listAccounts } from '@/api/admin/accounts'
+import { ALLOWED_QUOTA_PLATFORMS } from '@/constants/gatewayPlatforms'
 import type { AdminGroup, Account } from '@/types'
 import { useAppStore } from '@/stores/app'
 
@@ -218,6 +219,7 @@ const appStore = useAppStore()
 
 const rows = ref<Row[]>([])
 const boundIds = ref<Set<number>>(new Set())
+const boundIdsReady = ref(false)
 const total = ref(0)
 const page = ref(1)
 const pageSize = 20
@@ -233,19 +235,6 @@ const filterSchedulable = ref('')
 
 let reloadTimer: ReturnType<typeof setTimeout> | null = null
 
-const COMPOSITE_CANDIDATE_PLATFORMS = [
-  'anthropic',
-  'openai',
-  'gemini',
-  'antigravity',
-  'newapi',
-  'kiro',
-  'grok',
-  'kimi',
-  'zhipu',
-  'deepseek'
-] as const
-
 const addHint = computed(() => {
   const platform = props.group?.platform || ''
   if (platform === 'composite') {
@@ -259,7 +248,8 @@ const addHint = computed(() => {
 
 const platformOptions = computed(() => {
   const gp = props.group?.platform || ''
-  if (gp === 'composite') return [...COMPOSITE_CANDIDATE_PLATFORMS]
+  // SSOT: concrete account platforms (excludes composite).
+  if (gp === 'composite') return [...ALLOWED_QUOTA_PLATFORMS]
   if (gp === 'anthropic' || gp === 'gemini') return [gp, 'antigravity']
   return gp ? [gp] : []
 })
@@ -302,7 +292,8 @@ watch(
     filterType.value = ''
     filterStatus.value = ''
     filterSchedulable.value = ''
-    void reload()
+    boundIdsReady.value = false
+    void reload({ refreshBound: true })
   }
 )
 
@@ -362,13 +353,23 @@ async function refreshBoundIds() {
     if (p > 50) break
   }
   boundIds.value = ids
+  boundIdsReady.value = true
 }
 
-async function reload() {
+async function ensureBoundIds(force = false) {
+  if (!force && boundIdsReady.value) return
+  await refreshBoundIds()
+}
+
+async function reload(opts?: { refreshBound?: boolean }) {
   if (!props.group) return
   loading.value = true
   try {
-    await refreshBoundIds()
+    // Bound-ID set is only needed for unbound/all filtering and toggle state.
+    // Refresh on open (and explicit force); reuse across search/filter/page.
+    if (opts?.refreshBound || filterBound.value !== 'bound' || !boundIdsReady.value) {
+      await ensureBoundIds(Boolean(opts?.refreshBound))
+    }
 
     if (filterBound.value === 'bound') {
       await loadBoundPage()
@@ -382,23 +383,43 @@ async function reload() {
   }
 }
 
+function matchesBoundClientFilters(row: Row): boolean {
+  if (filterPlatform.value && row.platform !== filterPlatform.value) return false
+  if (filterType.value && row.type !== filterType.value) return false
+  return true
+}
+
 async function loadBoundPage() {
   if (!props.group) return
-  const res = await listGroupAccounts(props.group.id, page.value, pageSize, {
+  const query = {
     search: search.value.trim() || undefined,
     status: filterStatus.value || undefined
-  })
-  let items = (res.items || []) as Row[]
-  if (filterPlatform.value) {
-    items = items.filter((r) => r.platform === filterPlatform.value)
   }
-  if (filterType.value) {
-    items = items.filter((r) => r.type === filterType.value)
+  const needsClientShape = Boolean(filterPlatform.value || filterType.value)
+
+  if (!needsClientShape) {
+    const res = await listGroupAccounts(props.group.id, page.value, pageSize, query)
+    rows.value = (res.items || []) as Row[]
+    total.value = res.total || 0
+    return
   }
-  rows.value = items
-  // Client platform/type filters shrink the page; keep server total when unfiltered.
-  total.value =
-    filterPlatform.value || filterType.value ? items.length : res.total || 0
+
+  // API has no platform/type; walk membership pages, filter, then slice.
+  const filtered: Row[] = []
+  let p = 1
+  const size = 100
+  for (;;) {
+    const res = await listGroupAccounts(props.group.id, p, size, query)
+    for (const item of res.items || []) {
+      if (matchesBoundClientFilters(item)) filtered.push(item)
+    }
+    if (!res.items?.length || p * size >= (res.total || 0)) break
+    p += 1
+    if (p > 50) break
+  }
+  const start = (page.value - 1) * pageSize
+  rows.value = filtered.slice(start, start + pageSize)
+  total.value = filtered.length
 }
 
 function accountListFilters(platform: string) {
