@@ -57,8 +57,8 @@ Planner classifications are directions, not writes:
 - `probe_needed`: run the emitted probe family.
 - `price_missing`: collect official evidence and change the correct price owner.
 - `ready_for_onboard`: update curated intent and build a target bundle.
-- `mapping_missing` or mirror drift: review the bundle/live diff; do not hot-merge an
-  individual key as a replacement for activation.
+- `mapping_missing` or live mapping extras: review the bundle/live diff; do not hot-merge
+  an individual key as a replacement for activation.
 - `surfaces.catalog_menu`: use the catalog refresh branch separately.
 
 ## New-model activation

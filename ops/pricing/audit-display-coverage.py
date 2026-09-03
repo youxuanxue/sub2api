@@ -10,7 +10,7 @@ present in the live public catalog. Paid rows must expose a non-zero price;
 ``check`` without ``--live`` validates the local projection inputs. ``--live``
 also fetches the public catalog and reports expected rows missing from that
 runtime projection. Static ownership is enforced by
-``scripts/checks/catalog-serving-drift.py`` A4.
+``scripts/checks/catalog-serving-drift.py``.
 """
 
 from __future__ import annotations
