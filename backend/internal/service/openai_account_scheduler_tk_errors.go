@@ -11,7 +11,7 @@ import (
 // "no available accounts" error messages produced by the OpenAI-compat
 // scheduler.
 //
-// Background (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md, P1-2):
+// Background (docs/approved/newapi-as-fifth-platform.md + historical P1-2 audit):
 // the OpenAI-compat scheduling pool now carries both `openai` and `newapi`
 // accounts (see docs/approved/newapi-as-fifth-platform.md). Hard-coded
 // "no available OpenAI accounts" error text caused operator confusion when

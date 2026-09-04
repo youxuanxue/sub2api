@@ -8,9 +8,6 @@
 |------|------|
 | [cc-fingerprint-changelog.md](./cc-fingerprint-changelog.md) | Claude Code 指纹对齐 changelog（skill 追加） |
 | [antigravity-fingerprint-changelog.md](./antigravity-fingerprint-changelog.md) | Antigravity 指纹对齐 changelog（skill 追加） |
-| [cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md](./cc-uk1-oauth-edge-uk1-sticky-audit-2026-05-12.md) | cc-uk1 链路代码审计（配置步骤见 operator 手册） |
-| [edge-fra1-400-investigation-facts-2026-05-13.md](./edge-fra1-400-investigation-facts-2026-05-13.md) | edge-fra1 400 排障事实 |
-| [tokenkey-prod-aws-config-2026-05-10.md](./tokenkey-prod-aws-config-2026-05-10.md) | Prod AWS 配置快照 |
-| [oidc-least-privilege-diagnostics-backlog.md](./oidc-least-privilege-diagnostics-backlog.md) | OIDC 最小权限诊断 backlog |
+| [edge-capacity-report-20260720-c1.md](./edge-capacity-report-20260720-c1.md) | Edge 容量报告（skill `tokenkey-edge-capacity-report` 刷新） |
 
-命名约定：`YYYY-MM-DD` 后缀 = 历史存档，不再当现行手册维护。
+命名约定：带日期后缀的报告由对应 skill / 脚本刷新；不要把一次性排障笔记堆回本目录。

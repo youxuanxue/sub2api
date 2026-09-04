@@ -6,10 +6,9 @@ description: >-
 
 # TokenKey：新增 Lightsail Edge 网关全流程
 
-适用于 TokenKey fork of sub2api。Lightsail Edge 与 EC2 Edge **并行**（不是替代）。
+适用于 TokenKey fork of sub2api。Lightsail 是 edge 的唯一路径（EC2/CFN edge 已移除）；prod 主网关仍是 EC2/CFN。
 权威纪律以仓库根 `CLAUDE.md` 为准（ARM 多架构镜像、release/deploy 顺序、preflight 不绕过）。
-默认路径与放弃决策见 `docs/deploy/tokenkey-multiregion-egress-gateway-plan.md` §6.1 与
-`docs/spec-delta-edge-lightsail.md`。
+默认路径与放弃决策见 `docs/spec-delta/edge-lightsail.md`。
 
 ## 确定性基线（机械化 vs 真判断）
 
