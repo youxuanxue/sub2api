@@ -47,14 +47,14 @@ Parameters:
     Description: "REQUIRED. Public hostname (DNS A-record must point to the EIP). Caddy will request a Let's Encrypt cert for it. Example: api.tokenkey.dev"
   GlobalSiteDomain:
     Type: String
-    Default: ''
+    Default: global.tokenkey.dev
     AllowedPattern: '^$|^[a-z0-9.-]+\.[a-z]{2,}$'
-    Description: Optional overseas homepage hostname. Set to global.tokenkey.dev only when enabling its release phase.
+    Description: Overseas homepage hostname. The production default opens global.tokenkey.dev in candidate mode.
   GlobalSitePhase:
     Type: String
-    Default: disabled
+    Default: candidate
     AllowedValues: [disabled, candidate, live]
-    Description: disabled removes the vhost; candidate serves noindex with 302 redirects; live removes noindex and uses 301 redirects.
+    Description: candidate opens the homepage for invited users, temporarily redirects other paths to the main site, and asks search engines not to index it; live allows indexing and makes those redirects permanent.
   AcmeEmail:
     Type: String
     AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'

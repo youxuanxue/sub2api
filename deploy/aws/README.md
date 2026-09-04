@@ -63,11 +63,11 @@ EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 `global.tokenkey.dev` 的发布阶段也由同一热同步入口确定性切换。脚本先原子备份并更新主机 `.env`，再渲染、校验和 reload；任一步失败会同时恢复 `.env` 与 Caddyfile。不要手改远端配置：
 
 ```bash
-# 生产候选：302 + noindex
+# 生产候选：海外首页可供受邀用户访问；其他页面临时跳到主站；搜索引擎暂不收录
 GLOBAL_SITE_PHASE=candidate GLOBAL_SITE_DOMAIN=global.tokenkey.dev \
   AWS_REGION=us-east-1 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
 
-# 正式上线：301，允许索引
+# 正式上线：搜索引擎可以收录；其他页面永久跳到主站
 GLOBAL_SITE_PHASE=live GLOBAL_SITE_DOMAIN=global.tokenkey.dev \
   AWS_REGION=us-east-1 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
 
@@ -77,6 +77,8 @@ GLOBAL_SITE_PHASE=disabled \
 ```
 
 不传 `GLOBAL_SITE_PHASE` 和 `GLOBAL_SITE_DOMAIN` 时保留主机现状，只刷新模板。candidate/live 必须同时给出合法 hostname；disabled 会清空已持久化的 global domain。新实例的持久配置仍由 CloudFormation 参数 `GlobalSiteDomain` / `GlobalSitePhase` 决定，因此完成阶段切换后也要用同值更新 stack，避免后续实例替换恢复旧阶段。
+
+这里的 `302` 表示“临时跳转”：访问 `global.tokenkey.dev` 的登录、注册、控制台等非首页地址时，浏览器会跳到 `tokenkey.dev` 的同一路径，但不会长期记死这条规则。`noindex` 表示“暂不进入搜索结果”：受邀用户仍可直接打开海外首页，只是 Google、Bing 等搜索引擎暂时不应收录它。
 
 ### Apex 域名阶段一（tokenkey.dev → api.tokenkey.dev）
 
