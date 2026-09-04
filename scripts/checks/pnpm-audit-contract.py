@@ -15,18 +15,19 @@ WORKFLOWS = (
 )
 ACTION_REF = "uses: ./.github/actions/pnpm-audit"
 ACTION_ANCHORS = (
-    "dest: ~/setup-pnpm-audit",
-    "version: 11.7.0",
     "../tools/run_pnpm_audit.py",
     "--attempts 3",
-    "--timeout-seconds 180",
+    "--timeout-seconds 30",
     "tools/check_pnpm_audit_exceptions.py",
 )
+ACTION_FORBIDDEN = ("pnpm/action-setup@",)
 RUNNER_ANCHORS = (
-    "--registry=https://registry.npmjs.org/",
-    'data.get("advisories")',
-    'data.get("vulnerabilities")',
-    'data.get("metadata")',
+    'OSV_QUERY_URL = "https://api.osv.dev/v1/querybatch"',
+    '"curl",',
+    '"--max-filesize",',
+    '"list", "--prod", "--depth", "Infinity", "--json"',
+    '"advisories": advisories',
+    '"metadata":',
     'output.unlink(missing_ok=True)',
 )
 
@@ -37,6 +38,9 @@ def violations() -> list[str]:
     for anchor in ACTION_ANCHORS:
         if anchor not in action:
             errors.append(f"{ACTION.relative_to(REPO_ROOT)} missing {anchor!r}")
+    for anchor in ACTION_FORBIDDEN:
+        if anchor in action:
+            errors.append(f"{ACTION.relative_to(REPO_ROOT)} must not contain {anchor!r}")
     runner = RUNNER.read_text(encoding="utf-8")
     for anchor in RUNNER_ANCHORS:
         if anchor not in runner:
