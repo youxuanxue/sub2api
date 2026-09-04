@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "bfdf70d3ba9f13b8a3f840057909be73c3cf3cfa412a90673dc4af47d7e4f523",
+  "floor_sha256": "27bc76104cf78c1c87c0539cf7472ea5e29cba4c3fa23a0a05dfd685d0d242a7",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -60,7 +60,6 @@
         "gemini-3.5-flash-low": "gemini-3.5-flash-low",
         "gemini-3.6-flash": "gemini-3.6-flash-tiered",
         "gemini-3.7-flash": "gemini-3.7-flash-medium",
-        "gemini-3.8-flash": "gemini-3.8-flash-medium",
         "gemini-pro-agent": "gemini-pro-agent"
       },
       "bedrock": {
