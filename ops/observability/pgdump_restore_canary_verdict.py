@@ -52,17 +52,30 @@ def _parse_time(value: object) -> dt.datetime | None:
     return parsed.astimezone(dt.timezone.utc)
 
 
-def _finding(target_id: str, *, healthy: bool, summary: str) -> dict[str, str]:
+def _finding(
+    target_id: str,
+    *,
+    healthy: bool,
+    summary: str,
+    status: str | None = None,
+    severity: str | None = None,
+) -> dict[str, str]:
+    if status is None:
+        status = "ok" if healthy else "issue_candidate"
+    if severity is None:
+        severity = "info" if healthy else "error"
+    if status == "warning":
+        title = f"pg_dump restore canary self-healed for {target_id}"
+    elif healthy:
+        title = f"pg_dump restore canary is current for {target_id}"
+    else:
+        title = f"pg_dump restore canary needs attention for {target_id}"
     return {
         "target_id": target_id,
         "kind": "pgdump_restore_canary",
-        "status": "ok" if healthy else "issue_candidate",
-        "severity": "info" if healthy else "error",
-        "title": (
-            f"pg_dump restore canary is current for {target_id}"
-            if healthy
-            else f"pg_dump restore canary needs attention for {target_id}"
-        ),
+        "status": status,
+        "severity": severity,
+        "title": title,
         "summary": summary,
         "signature": f"pgdump-restore-canary|{target_id}",
     }
@@ -143,6 +156,17 @@ def evaluate_receipt(
     age = current_time.astimezone(dt.timezone.utc) - completed_at
     if age < dt.timedelta(0) or age > MAX_RECEIPT_AGE:
         return _finding(target_id, healthy=False, summary=f"restore canary receipt is stale: age={age}")
+    if receipt.get("healed_from_stale_dump") is True:
+        return _finding(
+            target_id,
+            healthy=True,
+            status="warning",
+            severity="warning",
+            summary=(
+                "restore canary self-healed after a stale S3 dump; "
+                "verify tokenkey-pgdump.timer still publishes hourly objects"
+            ),
+        )
     return _finding(
         target_id,
         healthy=True,

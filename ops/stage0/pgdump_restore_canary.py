@@ -39,6 +39,10 @@ class CanaryError(RuntimeError):
     """The restore canary could not prove a usable recovery object."""
 
 
+class StaleDumpError(CanaryError):
+    """Newest matching S3 dump is outside the restore freshness window."""
+
+
 def _default_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, **kwargs)
 
@@ -242,7 +246,7 @@ def _select_object(
     modified, key, modified_raw, size = max(candidates, key=lambda item: item[0])
     age = current_time.astimezone(dt.timezone.utc) - modified
     if age < dt.timedelta(0) or age > FRESHNESS:
-        raise CanaryError(f"newest S3 pgdump object is stale or future-dated: age={age}")
+        raise StaleDumpError(f"newest S3 pgdump object is stale or future-dated: age={age}")
     return key, modified_raw, size
 
 
@@ -553,19 +557,24 @@ def main(argv: Iterable[str] | None = None) -> int:
         else:
             try:
                 receipt = run_canary(args.target, receipt_root=receipt_root)
-            except CanaryError as exc:
+            except StaleDumpError as exc:
                 # Hourly dumps can gap after edge IP rotation / timer drift.
                 # Prefer restoring the newest S3 object when it is fresh; otherwise
                 # self-heal by creating one dump and proving its round-trip restore
                 # so daily diagnostics stop filing missing-receipt issues for a week.
-                if "stale or future-dated" not in str(exc):
-                    raise
+                # Stamp the receipt so verdict can warn: edges have no separate
+                # pgdump_freshness gate, and a silent healthy receipt would hide a
+                # broken tokenkey-pgdump.timer until the next weekly run.
                 print(
                     f"pgdump restore canary: existing dump unusable ({exc}); "
                     "creating a fresh dump",
                     file=sys.stderr,
                 )
-                receipt = run_fresh_dump_canary(args.target, receipt_root=receipt_root)
+                receipt = dict(
+                    run_fresh_dump_canary(args.target, receipt_root=receipt_root)
+                )
+                receipt["healed_from_stale_dump"] = True
+                _atomic_receipt(receipt_root / "latest.json", receipt)
     except CanaryError as exc:
         print(f"pgdump restore canary failed: {exc}", file=sys.stderr)
         return 2
