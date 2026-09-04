@@ -499,6 +499,19 @@ jobs:
           set -euo pipefail
           bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
 
+      - name: Post-deploy supplier projection check (read-only)
+        # ADVISORY ONLY: supplier/account config drift is reported after release,
+        # while status and schedulable remain scheduler-owned runtime state.
+        continue-on-error: true  # preflight-allow: advisory post-release drift report
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+          bash ops/observability/check-supplier-projection.sh \
+            --target prod \
+            --expected-instance-id "$INSTANCE_ID" \
+            --timeout-seconds 180
+
       # Same deploy job: reuse the already-approved prod Environment + OIDC.
       # A second job with environment: prod would re-open Required reviewers
       # and start the +5min clock after that gate, not after cutover.

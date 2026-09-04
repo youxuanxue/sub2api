@@ -136,6 +136,9 @@ func protocolRoutingAccountHasNoTextModels(account *Account) bool {
 	if account == nil {
 		return false
 	}
+	if account.ChannelType == newapiconstant.ChannelTypeDoubaoVideo {
+		return true
+	}
 	if isNewAPIXRTokenAccount(account) {
 		return true
 	}

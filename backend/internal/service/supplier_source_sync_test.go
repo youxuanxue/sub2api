@@ -1081,3 +1081,37 @@ func TestSupplierAccountNeedsProtocolRepublishDetectsLegacyNonExclusiveCredentia
 	}
 	require.False(t, supplierAccountNeedsProtocolRepublish(migrated, "https://supplier.example/v1", 1))
 }
+
+func TestSupplierAccountNeedsProtocolRepublishSkipsAlignedMediaOnlyAccount(t *testing.T) {
+	account := &Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: supplierManagedCredentials(
+			"https://www.fmgo.top", "secret",
+			map[string]string{"doubao-seedance-2-0-260128": "feimiao-v2-431-720p-15s"},
+			newapiconstant.ChannelTypeDoubaoVideo,
+		),
+	}
+
+	require.False(t, supplierAccountNeedsProtocolRepublish(
+		account, "https://www.fmgo.top", newapiconstant.ChannelTypeDoubaoVideo,
+	))
+}
+
+func TestSupplierAccountNeedsProtocolRepublishCleansStaleMediaOnlyCapability(t *testing.T) {
+	capabilityID := int64(797)
+	account := &Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: supplierManagedCredentials(
+			"https://www.fmgo.top", "secret",
+			map[string]string{"doubao-seedance-2-0-260128": "feimiao-v2-431-720p-15s"},
+			newapiconstant.ChannelTypeDoubaoVideo,
+		),
+		ProtocolEndpointCapabilityID: &capabilityID,
+	}
+
+	require.True(t, supplierAccountNeedsProtocolRepublish(
+		account, "https://www.fmgo.top", newapiconstant.ChannelTypeDoubaoVideo,
+	))
+}
