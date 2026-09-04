@@ -7,17 +7,36 @@ import (
 )
 
 func TestOpenRouterProviderImageRoute(t *testing.T) {
-	if got := OpenRouterProviderImageRoute(PlatformAntigravity, "gemini-2.5-flash-image"); got != OpenRouterImageRouteAntigravityChat {
+	if got := OpenRouterProviderImageRoute("gemini-2.5-flash-image"); got != OpenRouterImageRouteAntigravityChat {
 		t.Fatalf("antigravity gemini image=%q", got)
 	}
-	if got := OpenRouterProviderImageRoute(PlatformGrok, "grok-imagine-image"); got != OpenRouterImageRouteGrok {
+	if got := OpenRouterProviderImageRoute("grok-imagine-image"); got != OpenRouterImageRouteGrok {
 		t.Fatalf("grok image=%q", got)
 	}
-	if got := OpenRouterProviderImageRoute(PlatformNewAPI, "imagen-4.0-fast-generate-001"); got != OpenRouterImageRouteOpenAICompat {
+	if got := OpenRouterProviderImageRoute("imagen-4.0-fast-generate-001"); got != OpenRouterImageRouteOpenAICompat {
 		t.Fatalf("imagen=%q", got)
 	}
-	if got := OpenRouterProviderImageRoute(PlatformAntigravity, "gemini-2.5-flash"); got != OpenRouterImageRouteOpenAICompat {
+	if got := OpenRouterProviderImageRoute("gemini-2.5-flash"); got != OpenRouterImageRouteOpenAICompat {
 		t.Fatalf("antigravity text=%q", got)
+	}
+}
+
+func TestOpenRouterProviderImageRoute_UniversalKeyIgnoresEmptyPlatform(t *testing.T) {
+	// Repro: OR inference api_keys.group_id IS NULL; route must not depend on Group.Platform.
+	if got := OpenRouterProviderImageRoute("tokenkey/gemini-2.5-flash-image"); got != OpenRouterImageRouteAntigravityChat {
+		t.Fatalf("tokenkey-prefixed gemini image=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute("tokenkey/gemini-3-pro-image"); got != OpenRouterImageRouteAntigravityChat {
+		t.Fatalf("pro-image=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute("tokenkey/gemini-3.1-flash-image"); got != OpenRouterImageRouteAntigravityChat {
+		t.Fatalf("flash-image=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute("tokenkey/grok-imagine-image"); got != OpenRouterImageRouteGrok {
+		t.Fatalf("tokenkey-prefixed grok image=%q", got)
+	}
+	if got := OpenRouterProviderImageRoute("tokenkey/imagen-4.0-fast-generate-001"); got != OpenRouterImageRouteOpenAICompat {
+		t.Fatalf("imagen stays openai-compat=%q", got)
 	}
 }
 

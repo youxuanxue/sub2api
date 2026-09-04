@@ -101,7 +101,7 @@ func (h *Handlers) OpenRouterProviderImages(c *gin.Context) {
 	}
 
 	model := strings.TrimSpace(gjsonGetString(body, "model"))
-	route := service.OpenRouterProviderImageRoute(openRouterProviderGroupPlatform(c), model)
+	route := service.OpenRouterProviderImageRoute(model)
 
 	var (
 		forwardBody       []byte
@@ -145,14 +145,6 @@ func (h *Handlers) OpenRouterProviderImages(c *gin.Context) {
 		return
 	}
 	c.Data(status, "application/json", orBody)
-}
-
-func openRouterProviderGroupPlatform(c *gin.Context) string {
-	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
-	if !ok || apiKey == nil || apiKey.Group == nil {
-		return ""
-	}
-	return strings.TrimSpace(apiKey.Group.Platform)
 }
 
 // OpenRouterProviderVideoSubmit serves POST /openrouter/v1/videos for OpenRouter provider inference.
