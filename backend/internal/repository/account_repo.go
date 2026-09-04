@@ -948,8 +948,12 @@ func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, accoun
 	if err != nil {
 		return err
 	}
+	capabilityInput, err := service.BuildProtocolEndpointCapabilityLinkInput(updatedAccount)
+	if err != nil {
+		return err
+	}
 	protocolPublished := false
-	if len(updatedAccount.GetModelMapping()) > 0 {
+	if len(updatedAccount.GetModelMapping()) > 0 && capabilityInput.Governed {
 		protocolPublished, err = publishVerifiedSupplierProtocolCapability(
 			ctx,
 			r.protocolCapabilityRepository(ctx),

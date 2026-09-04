@@ -141,6 +141,68 @@ func TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping(t
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestUS048_SupplierMediaProjectionUnlinksStaleTextCapability(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	t.Cleanup(func() { _ = client.Close() })
+	repo := newAccountRepositoryWithSQL(client, db, nil, nil)
+
+	credentials := map[string]any{
+		"api_key":                      "secret",
+		"base_url":                     "https://www.fmgo.top",
+		"protocol_endpoints_exclusive": true,
+		"api_base_urls": map[string]any{
+			"chat_completions": "https://www.fmgo.top",
+		},
+		"model_mapping": map[string]any{
+			"doubao-seedance-2-0-260128": "feimiao-v2-431-720p-15s",
+		},
+	}
+	credentialJSON, err := json.Marshal(credentials)
+	require.NoError(t, err)
+	account := &service.Account{
+		ID: 41, Name: "FMGo/seedance · 档位 3",
+		Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: credentials,
+		Extra: map[string]any{
+			service.SupplierSourceIDExtraKey:     int64(10),
+			service.SupplierDiscountBandExtraKey: 3,
+		},
+		Priority: 130, Status: service.StatusActive, Schedulable: true, Concurrency: 1000,
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s)UPDATE accounts\s+SET\s+name = \$1,\s+platform = \$2,\s+type = \$3,\s+channel_type = \$4,\s+credentials = \$5::jsonb,\s+extra = COALESCE\(extra, '\{\}'::jsonb\) \|\| \$6::jsonb,\s+priority = \$7,\s+status = \$8,\s+schedulable = \$9,\s+concurrency = \$10,\s+updated_at = NOW\(\)\s+WHERE id = \$11 AND deleted_at IS NULL`).
+		WithArgs(
+			account.Name, account.Platform, account.Type, account.ChannelType,
+			string(credentialJSON), `{"supplier_discount_band":3,"supplier_source_id":10}`,
+			account.Priority, account.Status, account.Schedulable, account.Concurrency, account.ID,
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`(?s)SELECT id, platform, type, credentials, extra, channel_type, protocol_endpoint_capability_id.*FOR UPDATE`).
+		WithArgs(account.ID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "platform", "type", "credentials", "extra", "channel_type", "protocol_endpoint_capability_id",
+		}).AddRow(
+			account.ID, account.Platform, account.Type, string(credentialJSON),
+			`{"supplier_discount_band":3,"supplier_source_id":10}`, account.ChannelType, int64(9),
+		))
+	mock.ExpectExec(`(?s)UPDATE accounts\s+SET protocol_endpoint_capability_id=NULL,\s+extra=jsonb_set`).
+		WithArgs(account.ID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
+		WithArgs(service.SchedulerOutboxEventAccountChanged, account.ID, nil, nil, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err = repo.UpdateSupplierProjection(context.Background(), account, true)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUS048_SupplierVerifiedProtocolForAnthropicIsMessages(t *testing.T) {
 	require.Equal(t, protocolrouter.ProtocolMessages, supplierVerifiedProtocolForAccount(&service.Account{
 		ChannelType: newapiconstant.ChannelTypeAnthropic,

@@ -77,6 +77,16 @@
       "setup_error"
     ]
   },
+  "probe-supplier-projection.sh": {
+    "companions": [
+      "ops/observability/supplier_projection_check.py"
+    ],
+    "verdicts": [
+      "aligned",
+      "drift",
+      "setup_error"
+    ]
+  },
   "probe_kiro_claude_models.sh": {
     "companions": [
       "ops/stage0/probe_account_model.sh",

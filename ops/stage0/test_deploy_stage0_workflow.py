@@ -115,15 +115,24 @@ class DeployStage0WorkflowTest(unittest.TestCase):
 
         self.assertLess(baseline, image_mutation)
         post_release = deploy.index("name: Plan checks from live→new PRs")
+        supplier_projection = deploy.index(
+            "name: Post-deploy supplier projection check (read-only)"
+        )
         post_release_immediate = deploy.index("name: Check PR hooks immediately")
         post_release_delayed = deploy.index("name: Check traffic and 5xx after 5 minutes")
         post_release_gate = deploy.index("name: Enforce post-release verdicts")
         self.assertLess(smoke, post_release)
+        self.assertLess(smoke, supplier_projection)
+        self.assertLess(supplier_projection, post_release)
         self.assertLess(post_release, post_release_immediate)
         self.assertLess(post_release_immediate, post_release_delayed)
         self.assertLess(post_release_delayed, post_release_gate)
         self.assertLess(post_release_gate, notification)
         self.assertIn("release_post_check.py gate", deploy[post_release_gate:notification])
+        supplier_block = deploy[supplier_projection:post_release]
+        self.assertIn("continue-on-error: true", supplier_block)
+        self.assertIn("check-supplier-projection.sh", supplier_block)
+        self.assertIn('--expected-instance-id "$INSTANCE_ID"', supplier_block)
         block = deploy[baseline:image_mutation]
         self.assertIn("resolve-prod-running-tag-via-ssm.sh", block)
         self.assertIn('INSTANCE_ID: ${{ steps.instance.outputs.id }}', block)

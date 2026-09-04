@@ -387,6 +387,21 @@ func TestProtocolRoutingMediaOnlyClassificationExcludesKnownImageAliases(t *test
 	}
 }
 
+func TestProtocolRoutingMediaOnlyClassificationExcludesVideoChannelVendorSKU(t *testing.T) {
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeDoubaoVideo,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"video-client": "private-vendor-sku"},
+		},
+	}
+
+	if !protocolRoutingAccountHasNoTextModels(account) {
+		t.Fatal("channel 54 vendor SKU entered text protocol governance")
+	}
+}
+
 func TestProtocolRoutingMigrationReportFailsCutoverWhenRouterMissing(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{{
 		ID:       9,

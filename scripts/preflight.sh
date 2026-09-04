@@ -990,6 +990,24 @@ else
     echo "  ok: account model_mapping tool/SSOT contract selftest"
 fi
 
+# ---- sub2api: supplier projection post-release check -----------------------
+# Supplier-source mapping ownership is separate from the platform model floor.
+# Keep its field diff, redaction, media-only and runtime-state exclusions tested.
+echo ""
+echo "=== sub2api: supplier projection post-release check ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for supplier projection check tests)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest \
+    ops.observability.test_supplier_projection_check \
+    ops.observability.test_check_supplier_projection >/dev/null 2>&1; then
+    echo "  FAIL: supplier projection post-release check tests"
+    echo "        - run: python3 -m unittest ops.observability.test_supplier_projection_check ops.observability.test_check_supplier_projection"
+    errors=$((errors + 1))
+else
+    echo "  ok: supplier projection post-release check tests"
+fi
+
 # ---- sub2api: generated model-surface bundle drift -------------------------
 # Rollout consumes the generated bundle without compiling Go. Keep the checked-in
 # artifact byte-identical to the Go owner so it cannot become a second hand-edited

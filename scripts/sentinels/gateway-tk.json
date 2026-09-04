@@ -7671,12 +7671,14 @@
         "func (r *accountRepository) UpdateSupplierProjection(ctx context.Context, account *service.Account, protocolProbePassed bool) error",
         "if len(account.GetModelMapping()) > 0 && !protocolProbePassed {",
         "publishVerifiedSupplierProtocolCapability(",
+        "capabilityInput.Governed",
+        "ensureAccountProtocolEndpointCapability(ctx, client, updatedAccount)",
         "concurrency = $10",
         "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil)",
         "enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil)",
         "extra = COALESCE(extra, '{}'::jsonb) || $6::jsonb"
       ],
-      "rationale": "Production-only narrow write paths for supplier metadata, concurrency and full projections. Concurrency-only sync writes the single owned column plus scheduler invalidation without fabricating probe evidence. Non-empty full projections fail closed without the current sync call's protocol probe evidence; the same account transaction publishes the verified channel protocol capability (Chat Completions by default, Messages for Anthropic channel_type=14) before ordinary scheduler invalidation. These writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
+      "rationale": "Production-only narrow write paths for supplier metadata, concurrency and full projections. Concurrency-only sync writes the single owned column plus scheduler invalidation without fabricating probe evidence. Governed non-empty text projections publish the verified channel protocol capability (Chat Completions by default, Messages for Anthropic channel_type=14); ungoverned media projections use the ordinary lifecycle helper so a stale text capability is unlinked instead of blocking Sync. These writes avoid account-group payloads, and the full projection merges only the two owned supplier keys while preserving every non-owned Extra. The generic AccountRepository.Update forwards billing and unrelated runtime fields, so supplier sync must never fall back to it."
     },
     {
       "path": "backend/internal/repository/account_repo.go",
@@ -7745,6 +7747,7 @@
         "TestUS048_SupplierMetadataRepositoryWritesOnlyNameAndPriority",
         "TestUS048_SupplierConcurrencyRepositoryWritesOnlyConcurrency",
         "TestUS048_SupplierConfigurationRepositoryRejectsUnverifiedNonEmptyMapping",
+        "TestUS048_SupplierMediaProjectionUnlinksStaleTextCapability",
         "TestUS048_SupplierAnthropicProjectionPublishesMessagesCapability",
         "TestUS048_SupplierAnthropicProjectionRejectsChatOnlyIdentity",
         "TestUS048_SupplierVerifiedProtocolForAnthropicIsMessages",
@@ -7872,6 +7875,8 @@
         "TestUS048_SupplierSyncProjectsWithoutCallingProbe",
         "TestUS048_SupplierSyncRepairsEmptySchedulingProjectionWithoutProbe",
         "TestSupplierAccountNeedsProtocolRepublishDetectsTransportDrift",
+        "TestSupplierAccountNeedsProtocolRepublishSkipsAlignedMediaOnlyAccount",
+        "TestSupplierAccountNeedsProtocolRepublishCleansStaleMediaOnlyCapability",
         "TestUS048_OpenAISupplierAccountsDoNotBlockAnthropicParallelSourceSync",
         "TestUS048_SameTransportOtherSourceManagedStillConflicts",
         "TestUS048_IncompatibleTransportCandidatesAreIgnoredForOpenAISupplier",
@@ -7952,6 +7957,7 @@
         "supplierAccountNeedsProtocolRepublish(account, source.Endpoint, source.ChannelType)",
         "UpdateManagedAccountConcurrency(",
         "ResolveSupplierSourceAccountConcurrency(source.AccountConcurrency)",
+        "return account.ProtocolEndpointCapabilityID != nil || account.ProtocolEndpointCapability != nil",
         "identity.Key() != account.ProtocolEndpointCapability.CapabilityKey",
         "ChannelType:           source.ChannelType,",
         "relevantMatches := make([]*Account, 0, len(matches))"
@@ -7959,7 +7965,71 @@
       "must_not_contain": [
         "result.ProbeResults = s.probeSupplierTargets"
       ],
-      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write. Transport or capability identity drift is repaired by projection writes that declare channel_type protocol capability without a live model probe. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict."
+      "rationale": "Supplier sync repairs managed-account concurrency through the narrow concurrency write. Governed text identity drift is repaired by a projection write; media-only accounts without a text capability are already converged, while a stale capability link triggers exactly one cleanup write. Adoption candidates are already transport-scoped by FindCredentialEndpointMatches(channel_type); sync only skips this source's managed accounts before adopt/conflict."
+    },
+    {
+      "path": "backend/internal/service/protocol_probe_model_tk.go",
+      "must_contain": [
+        "if account.ChannelType == newapiconstant.ChannelTypeDoubaoVideo {",
+        "func protocolRoutingAccountHasNoTextModels(account *Account) bool"
+      ],
+      "rationale": "Channel type 54 is a video endpoint family even when a private upstream SKU lacks a seedance-style name. It must never enter text protocol governance or supplier capability publication."
+    },
+    {
+      "path": "ops/observability/supplier_projection_check.py",
+      "must_contain": [
+        "MEDIA_ONLY_CHANNEL_TYPES = {54}",
+        "def evaluate_snapshot(snapshot: dict[str, Any], fingerprint_key: str)",
+        "def _mapping_has_no_text_models(mapping: dict[str, str]) -> bool",
+        "\"ignored_runtime_fields\": [\"status\", \"schedulable\"]",
+        "hmac.compare_digest",
+        "\"verdict\": \"drift\" if drift else \"aligned\""
+      ],
+      "rationale": "Pure post-release supplier projection evaluator. It derives bands, compares supplier-owned structural fields and credential HMACs, excludes scheduler-owned runtime state, treats video as non-text, and emits only redacted field-named drift."
+    },
+    {
+      "path": "ops/observability/probe-supplier-projection.sh",
+      "must_contain": [
+        "default_transaction_read_only=on",
+        "python3 /tmp/supplier_projection_check.py --snapshot -",
+        "COALESCE(a.extra, '{}'::jsonb) ? 'supplier_source_id'"
+      ],
+      "must_not_contain": [
+        "'status', a.status",
+        "'schedulable', a.schedulable"
+      ],
+      "rationale": "Remote read-only owner for the post-release supplier/account snapshot. It computes credential alignment on-host and never selects scheduling state, so status or quota-driven schedulability cannot become configuration drift."
+    },
+    {
+      "path": "ops/observability/check-supplier-projection.sh",
+      "must_contain": [
+        "0 aligned, 1 drift, 2 setup/transport failure",
+        "--script \"$ROOT/ops/observability/probe-supplier-projection.sh\"",
+        "drift) exit 1",
+        "setup_error) exit 2"
+      ],
+      "rationale": "Local post-release entrypoint maps run-probe's generic remote-failure code back to stable checker semantics while preserving the redacted JSON report."
+    },
+    {
+      "path": "ops/observability/test_supplier_projection_check.py",
+      "must_contain": [
+        "test_runtime_scheduling_state_does_not_create_drift",
+        "test_structural_and_credential_drift_is_field_named_and_redacted",
+        "test_media_only_projection_needs_no_text_capability",
+        "test_media_only_stale_text_capability_is_drift",
+        "test_empty_text_band_retains_protocol_capability",
+        "test_mixed_transport_media_mapping_needs_no_text_capability"
+      ],
+      "rationale": "Behavior regressions pin runtime-state exclusion, credential redaction, structural drift, and the media-only capability lifecycle for the post-release checker."
+    },
+    {
+      "path": ".github/workflows/deploy-stage0.yml",
+      "must_contain": [
+        "name: Post-deploy supplier projection check (read-only)",
+        "bash ops/observability/check-supplier-projection.sh",
+        "--expected-instance-id \"$INSTANCE_ID\""
+      ],
+      "rationale": "The supplier projection audit runs automatically after the prod smoke/display gates as an advisory post-release check against the exact deployed instance."
     },
     {
       "path": "backend/internal/service/supplier_source_account_store.go",

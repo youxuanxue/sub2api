@@ -602,10 +602,6 @@ func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint stri
 	if account == nil || len(supplierModelMapping(account.Credentials)) == 0 {
 		return false
 	}
-	// Migrate legacy managed credentials that still fan identity from bare base_url.
-	if !accountDeclaresExclusiveProtocolEndpoints(account) {
-		return true
-	}
 	want, err := resolveSupplierManagedTransport(sourceEndpoint, sourceChannelType)
 	if err != nil {
 		return true
@@ -618,7 +614,16 @@ func supplierAccountNeedsProtocolRepublish(account *Account, sourceEndpoint stri
 		return true
 	}
 	identity, governed, err := BuildProtocolEndpointIdentity(account)
-	if err != nil || !governed {
+	if err != nil {
+		return true
+	}
+	if !governed {
+		// Media-only accounts intentionally have no text protocol identity. A stale
+		// link still needs one projection write so the repository can unlink it.
+		return account.ProtocolEndpointCapabilityID != nil || account.ProtocolEndpointCapability != nil
+	}
+	// Migrate legacy text credentials that still fan identity from bare base_url.
+	if !accountDeclaresExclusiveProtocolEndpoints(account) {
 		return true
 	}
 	if account.ProtocolEndpointCapability != nil &&
