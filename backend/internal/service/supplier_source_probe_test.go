@@ -194,8 +194,8 @@ func TestUS048_ProbeUntilCompleteAuthFailureDoesNotFailJob(t *testing.T) {
 			{ID: "deepseek-v4-pro", Type: "chat"},
 		},
 		probeStatus: map[string]SupplierProbeStatus{
-			"glm-5.1":          SupplierProbeStatusAuthFailed,
-			"deepseek-v4-pro":  SupplierProbeStatusPassed,
+			"glm-5.1":         SupplierProbeStatusAuthFailed,
+			"deepseek-v4-pro": SupplierProbeStatusPassed,
 		},
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
