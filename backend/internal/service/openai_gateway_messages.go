@@ -83,57 +83,18 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	apiKeyID := getAPIKeyIDFromContext(c)
-	anthropicDigestChain := ""
-	anthropicMatchedDigestChain := ""
-	compatPromptCacheInjected := false
-	// Grok is outside the gpt-5/codex compat injector, but Claude Code still
-	// carries a stable session id. Prefer that as the Grok prompt-cache seed so
-	// multi-turn /v1/messages traffic can hit xAI's server-side cache.
-	if promptCacheKey == "" && account.Platform == PlatformGrok {
-		if seededKey, injected := tkResolveAnthropicCompatPromptCacheKey(c, account, body, &anthropicReq, upstreamModel, promptCacheKey); injected {
-			promptCacheKey = seededKey
-			compatPromptCacheInjected = true
-		}
-	}
-	if promptCacheKey == "" && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
-		promptCacheKey = promptCacheKeyFromAnthropicMetadataSession(&anthropicReq)
-		if promptCacheKey == "" {
-			promptCacheKey = deriveAnthropicCacheControlPromptCacheKey(&anthropicReq)
-		}
-		if promptCacheKey == "" {
-			anthropicDigestChain = buildOpenAICompatAnthropicDigestChain(anthropicDigestReq)
-			if reusedKey, matchedChain := s.findOpenAICompatAnthropicDigestPromptCacheKey(account, apiKeyID, anthropicDigestChain); reusedKey != "" {
-				promptCacheKey = reusedKey
-				anthropicMatchedDigestChain = matchedChain
-			} else {
-				promptCacheKey = promptCacheKeyFromAnthropicDigest(anthropicDigestChain)
-			}
-		}
-		compatPromptCacheInjected = promptCacheKey != ""
-	}
-	compatReplayTrimmed := false
-	compatReplayTrimmedByPolicy := false
-	compatReplayGuardEnabled := shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)
-	compatCompactionPolicy := resolveOpenAICompatMessagesCompactionPolicy(account, apiKeyGroup(getAPIKeyFromContext(c)))
-	compatContinuationEnabled := openAICompatContinuationEnabled(account, upstreamModel)
-	previousResponseID := ""
-	if compatContinuationEnabled {
-		previousResponseID = s.getOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey)
-	}
-	compatContinuationDisabled := compatContinuationEnabled &&
-		s.isOpenAICompatSessionContinuationDisabled(ctx, c, account, promptCacheKey)
-	compatTurnState := ""
-	if compatReplayGuardEnabled && shouldEvaluateOpenAICompatMessagesCompactionForAccount(account, previousResponseID, compatContinuationDisabled) {
-		if shouldApplyOpenAICompatMessagesCompaction(compatCompactionPolicy, &anthropicReq) {
-			compatReplayTrimmed = applyOpenAICompatMessagesCompaction(account, &anthropicReq)
-			compatReplayTrimmedByPolicy = compatReplayTrimmed
-		}
-	}
-	SetOpenAICompatMessagesOpsContext(c, OpenAICompatMessagesOpsSnapshot{
-		PreviousResponseIDAttached: previousResponseID != "",
-		MessagesCompactionApplied:  compatReplayTrimmedByPolicy,
-		EstimatedInputTokens:       estimateAnthropicRequestInputTokens(&anthropicReq),
-	})
+	sessionPrep := s.tkPrepareOpenAICompatMessagesSession(ctx, c, account, body, &anthropicReq, anthropicDigestReq, upstreamModel, promptCacheKey, apiKeyID)
+	promptCacheKey = sessionPrep.promptCacheKey
+	compatPromptCacheInjected := sessionPrep.compatPromptCacheInjected
+	anthropicDigestChain := sessionPrep.anthropicDigestChain
+	anthropicMatchedDigestChain := sessionPrep.anthropicMatchedDigestChain
+	compatReplayTrimmed := sessionPrep.compatReplayTrimmed
+	compatReplayTrimmedByPolicy := sessionPrep.compatReplayTrimmedByPolicy
+	compatReplayGuardEnabled := sessionPrep.compatReplayGuardEnabled
+	compatCompactionPolicy := sessionPrep.compatCompactionPolicy
+	compatContinuationEnabled := sessionPrep.compatContinuationEnabled
+	previousResponseID := sessionPrep.previousResponseID
+	compatTurnState := sessionPrep.compatTurnState
 
 	// 3. Convert Anthropic → Responses after compatibility-only replay guard.
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
@@ -683,18 +644,6 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		}
 	}
 	return result, nil
-}
-
-func isOpenAICompatResponsesTerminalEvent(eventType string) bool {
-	switch strings.TrimSpace(eventType) {
-	// TK: align with openAIStreamEventIsTerminal so cancelled/canceled close
-	// the streaming loop instead of falling through. See Wei-Shaw/sub2api#1322.
-	case "response.completed", "response.done", "response.incomplete", "response.failed",
-		"response.cancelled", "response.canceled":
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *OpenAIGatewayService) recordOpenAIMessagesStreamUpstreamError(c *gin.Context, account *Account, upstreamRequestID, kind, message string) {
