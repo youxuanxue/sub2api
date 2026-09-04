@@ -16,6 +16,7 @@ const { list, create, update, priorityPreview, discover, getDiscoverJob, validat
   routeQuery: {} as Record<string, unknown>,
   channelTypes: { value: [
     { channel_type: 1, name: 'OpenAI', base_url: 'https://api.openai.com/v1' },
+    { channel_type: 14, name: 'Anthropic', base_url: 'https://api.anthropic.com' },
     { channel_type: 17, name: 'Ali', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
     { channel_type: 46, name: 'Baidu V2', base_url: 'https://qianfan.baidubce.com' },
   ] },
@@ -248,7 +249,7 @@ describe('SupplierSourcesView', () => {
     await nextTick()
 
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
-    expect(discover).toHaveBeenCalledWith(7, { channelScoped: true })
+    expect(discover).toHaveBeenCalledWith(7, {})
     expect(validate).toHaveBeenCalledWith(7)
     expect(sync).toHaveBeenCalledWith(7)
 
@@ -256,19 +257,23 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
   })
 
-  it('can disable channel-scoped discover to probe the full upstream catalog', async () => {
+  it('defaults channel-scoped discover only for Anthropic and can enable it for other channels', async () => {
     list.mockResolvedValueOnce([source])
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
     await wrapper.get('[data-test="source-select-7"]').trigger('click')
 
     const checkbox = wrapper.get('[data-test="discover-channel-scoped"] input')
-    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
-    await checkbox.setValue(false)
+    expect((checkbox.element as HTMLInputElement).checked).toBe(false)
     await wrapper.get('[data-test="discover-source"]').trigger('click')
     await flushPromises()
-
     expect(discover).toHaveBeenCalledWith(7, {})
+
+    discover.mockClear()
+    await checkbox.setValue(true)
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
+    await flushPromises()
+    expect(discover).toHaveBeenCalledWith(7, { channelScoped: true })
   })
 
   it('requires saving edited supplier facts before syncing the selected source', async () => {

@@ -563,6 +563,7 @@ const { t } = useI18n()
 const route = useRoute()
 const { types: channelTypes, loading: channelTypesLoading, error: channelTypesError, load: loadChannelTypes } = useNewApiChannelTypes()
 const SUPPLIER_BAIDU_V2_CHANNEL_TYPE = 46
+const SUPPLIER_ANTHROPIC_CHANNEL_TYPE = 14
 
 const supplierChannelTypeOptions = computed(() =>
   channelTypes.value
@@ -865,9 +866,9 @@ const blocksDiscoverValidateProject = computed(() => hasUnsavedChanges.value || 
 const canSaveSelected = computed(() => !selected.value || hasUnsavedChanges.value || discoverNeedsSave.value)
 
 function syncDiscoverChannelScopedForSource(source: Pick<SupplierSource, 'channel_type'> | null): void {
-  // Default on when a source is selected: Anthropic → Claude* via SSOT; channels
-  // without a family rule still probe every probeable type.
-  discoverChannelScoped.value = source != null
+  // Default on only when channel_type has a family SSOT rule (Anthropic → Claude*).
+  // Channels without a rule stay unchecked so the label is not a no-op trap.
+  discoverChannelScoped.value = source?.channel_type === SUPPLIER_ANTHROPIC_CHANNEL_TYPE
 }
 
 function replaceSource(source: SupplierSource): void {

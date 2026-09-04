@@ -47,7 +47,6 @@ export default {
     discoverEmpty: '上游列表已处理：当前配置无需规整，也没有探测通过的建议追加。',
     normalizedChanges: '规整变更',
     suggestedAppends: '建议追加（探测通过，已写入上方草稿）',
-    appendSuggested: '将建议加入表单',
     rejectedCandidates: '未建议追加',
     configuredIssues: '配置项未匹配上游列表',
     globalPriorityPreview: '全局 priority 预览',

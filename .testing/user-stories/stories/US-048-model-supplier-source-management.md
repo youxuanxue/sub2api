@@ -144,7 +144,7 @@
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`offers and hydrates BaiduV2 while preserving a custom endpoint during source selection`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`drafts normalize and probe-passed suggestions into the form without saving`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`drafts probe-passed suggestions alone without auto-sync`
-- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`can disable channel-scoped discover to probe the full upstream catalog`
+- `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`defaults channel-scoped discover only for Anthropic and can enable it for other channels`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`shows probe failure message and failed_step outside the sync-result block`
 - `backend/internal/handler/admin/supplier_source_handler_test.go`::`TestUS048_ProbeUpstreamListFailureReturnsSafeMessageAndFailedStep`
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`renders account changes returned by sync`
