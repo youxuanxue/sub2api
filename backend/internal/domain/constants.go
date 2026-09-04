@@ -157,6 +157,13 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.7-flash-high":   "gemini-3.7-flash-high",
 	"gemini-3.7-flash-low":    "gemini-3.7-flash-low",
 	"gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
+	// Gemini 3.8 Flash (Google 2026-09-02): official thinking levels are
+	// LOW/MEDIUM/HIGH, default MEDIUM. Follow the 3.7 Antigravity wire
+	// pattern until live fetchAvailableModels says otherwise.
+	"gemini-3.8-flash":        "gemini-3.8-flash-medium",
+	"gemini-3.8-flash-high":   "gemini-3.8-flash-high",
+	"gemini-3.8-flash-low":    "gemini-3.8-flash-low",
+	"gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
 	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
 	"gemini-pro-agent": "gemini-pro-agent",
 }
