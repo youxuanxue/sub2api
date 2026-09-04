@@ -7939,7 +7939,8 @@
       "path": "backend/internal/handler/admin/supplier_source_handler.go",
       "must_contain": [
         "func (h *SupplierSourceHandler) Discover(c *gin.Context)",
-        "result, err := h.service.Discover(c.Request.Context(), id)",
+        "ChannelScoped: parseSupplierDiscoverChannelScoped(c.Query(\"channel_scoped\"))",
+        "result, err := h.service.Discover(c.Request.Context(), id, opts)",
         "func (h *SupplierSourceHandler) Validate(c *gin.Context)",
         "func (h *SupplierSourceHandler) GetDiscoverJob(c *gin.Context)",
         "result, err := h.service.GetSupplierDiscoverJob(c.Request.Context(), id, jobID)",
@@ -7947,7 +7948,7 @@
         "account_concurrency",
         "case errors.As(err, &syncErr):"
       ],
-      "rationale": "Admin discover starts async candidate jobs with job polling; validate probes configured models; upstream models-list failures map through UpstreamModelSyncError.SafeMessage. Supplier-source CRUD must round-trip account_concurrency."
+      "rationale": "Admin discover starts async candidate jobs with optional channel_scoped family filtering and job polling; validate probes configured models; upstream models-list failures map through UpstreamModelSyncError.SafeMessage. Supplier-source CRUD must round-trip account_concurrency."
     },
     {
       "path": "backend/internal/service/supplier_source_service.go",
