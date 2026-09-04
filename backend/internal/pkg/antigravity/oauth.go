@@ -37,7 +37,7 @@ const (
 	// Ground truth = 本机 `agy`（Antigravity CLI，`brew install --cask antigravity-cli`）版本；
 	// UA 形如 `antigravity/cli/<ver> darwin/arm64`。运行时可经 admin 设置
 	// antigravity_user_agent_version 热推覆盖。
-	DefaultUserAgentVersion = "1.1.19"
+	DefaultUserAgentVersion = "1.1.26"
 
 	// 固定的 redirect_uri（用户需手动复制 code）
 	RedirectURI = "http://localhost:8085/callback"
