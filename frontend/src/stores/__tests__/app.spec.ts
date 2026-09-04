@@ -52,6 +52,7 @@ function createPublicSettings(overrides: Partial<PublicSettings> = {}): PublicSe
     balance_low_notify_enabled: false,
     account_quota_notify_enabled: false,
     balance_low_notify_threshold: 0,
+    pricing_catalog_public: true,
     channel_monitor_enabled: true,
     channel_monitor_default_interval_seconds: 60,
     available_channels_enabled: false,
@@ -324,6 +325,21 @@ describe('useAppStore', () => {
   // --- 公开设置 ---
 
   describe('公开设置加载', () => {
+    it('保留公开定价开关，供导航与快捷入口消费', async () => {
+      for (const pricingCatalogPublic of [true, false]) {
+        setActivePinia(createPinia())
+        const settings = createPublicSettings({
+          pricing_catalog_public: pricingCatalogPublic,
+        })
+        vi.mocked(getPublicSettings).mockResolvedValueOnce(settings)
+        const store = useAppStore()
+
+        await expect(store.fetchPublicSettings(true)).resolves.toEqual(settings)
+        expect(store.cachedPublicSettings?.pricing_catalog_public).toBe(pricingCatalogPublic)
+        expect(window.__APP_CONFIG__?.pricing_catalog_public).toBe(pricingCatalogPublic)
+      }
+    })
+
     it('并发调用复用并等待同一个请求，包括 force 调用', async () => {
       const deferred = createDeferred<PublicSettings>()
       vi.mocked(getPublicSettings).mockReturnValue(deferred.promise)
