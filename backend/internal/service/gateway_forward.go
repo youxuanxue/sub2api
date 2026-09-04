@@ -173,12 +173,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		bindPreContentStreamKeepalive(c, hwka)
 		result, err := s.kiroGateway.Forward(ctx, c, account, parsed, startTime)
 		stopPreContentStreamKeepalive(c)
-		if err != nil && s.rateLimitService != nil {
-			var failoverErr *UpstreamFailoverError
-			if errors.As(err, &failoverErr) {
-				s.rateLimitService.HandleUpstreamError(ctx, account, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody)
-			}
-		}
+		s.tkHandleKiroForwardUpstreamError(ctx, account, err)
 		return result, err
 	}
 
@@ -204,46 +199,16 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		body = parsed.Body.Bytes()
 		return nil
 	}
+	getBody := func() []byte { return body }
 	reqModel := parsed.Model
 	reqStream := parsed.Stream
 	originalModel := reqModel
 
-	// TK: strip the Claude Code 1M-context model alias suffix before model
-	// mapping / scheduling / pricing. See gateway_anthropic_context_window_alias_tk.go.
-	if account.Platform == PlatformAnthropic {
-		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
-			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
-				return nil, err
-			}
-			logger.LegacyPrintf("service.gateway",
-				"TK context-window alias stripped before forward (prevents Anthropic 404 + silent 200K fallback, claude-code #60913): %s -> %s account=%d",
-				reqModel, bare, account.ID)
-			reqModel, parsed.Model, originalModel = bare, bare, bare
-		}
-	}
-
-	// TK canonical-OAuth ingress gates. cc_only=false groups admit non-CC
-	// traffic and complete the disguise on egress via haiku mimicry below.
-	groupAdmitsNonCC := s.tkGroupAdmitsNonCC(ctx, parsed)
-	if c != nil && c.Request != nil && s.isCanonicalAnthropicOAuth(account) {
-		if s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
-			if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
-				return nil, err
-			}
-		} else if !groupAdmitsNonCC {
-			if err := checkCanonicalIngressUA(c.Request.Header); err != nil {
-				return nil, err
-			}
-		}
-		if newModel, remapped := remapDeprecatedOpusOnCanonical(reqModel); remapped {
-			if err := replaceBody(s.replaceModelInBody(body, newModel)); err != nil {
-				return nil, err
-			}
-			logger.LegacyPrintf("service.gateway",
-				"Canonical OAuth model remap: %s -> %s (account: %s)",
-				reqModel, newModel, account.Name)
-			reqModel, parsed.Model = newModel, newModel
-		}
+	var groupAdmitsNonCC bool
+	var prepErr error
+	reqModel, originalModel, groupAdmitsNonCC, prepErr = s.tkPrepareAnthropicForwardIngress(ctx, c, account, parsed, reqModel, originalModel, getBody, replaceBody)
+	if prepErr != nil {
+		return nil, prepErr
 	}
 
 	// === DEBUG: 打印客户端原始请求（headers + body 摘要）===
@@ -412,19 +377,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		parsed.Model = mappedModel
 		logger.LegacyPrintf("service.gateway", "Model mapping applied: %s -> %s (account: %s, source=%s)", originalModel, mappedModel, account.Name, mappingSource)
 	}
-	if account.Platform == PlatformAnthropic {
-		if replacement, deprecated := tkIsDeprecatedAnthropicModel(mappedModel); deprecated {
-			TkWriteAnthropicDeprecatedModelError(c, mappedModel, replacement)
-			return nil, fmt.Errorf("anthropic model %q is retired (suggest %q)", mappedModel, replacement)
-		}
-	}
-
-	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
-		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
-	}
-
-	if handled, ncErr := s.tkModelNotFoundShortCircuit(c, account, mappedModel); handled {
-		return nil, ncErr
+	if err := s.tkApplyAnthropicForwardPostMappingGates(ctx, c, account, originalModel, mappedModel); err != nil {
+		return nil, err
 	}
 
 	if s.shouldInjectAnthropicCacheTTL1h(ctx, account) {
@@ -456,7 +410,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
 	// text blocks, drop explicit disabled thinking for Fable, and strip fields
 	// rejected by newer Anthropic models before upstream.
-	if err := replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
+	if err := s.tkSanitizeAnthropicForwardBody(account, getBody, replaceBody); err != nil {
 		return nil, err
 	}
 	// Pre-filter: strip web-search history blocks the upstream cannot accept
@@ -494,22 +448,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			logger.LegacyPrintf("service.gateway", "Account %d: rewrote thinking.type for %s (Anthropic-SDK default 'enabled' -> vendor-specific)", account.ID, reqModel)
 		}
 	}
-	if account.Platform == PlatformAnthropic {
-		body = s.applySigPreemptIfArmed(ctx, c, account, body, reqModel)
-	}
-	if account.Platform == PlatformAnthropic {
-		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), false); err != nil {
-			return nil, err
-		}
-	}
-	if account.Platform == PlatformAnthropic {
-		stickyBody, _, err := applyStickyToAnthropicMessagesBody(ctx, c, s.settingService, account, body, reqModel, isClaudeCode)
-		if err != nil {
-			return nil, err
-		}
-		if err := replaceBody(stickyBody); err != nil {
-			return nil, err
-		}
+	if err := s.tkApplyAnthropicForwardPreSendGuards(ctx, c, account, reqModel, isClaudeCode, getBody, replaceBody); err != nil {
+		return nil, err
 	}
 	setOpsUpstreamRequestBody(c, body)
 
