@@ -1,0 +1,17 @@
+{
+  "release_eligible": true,
+  "model": "Seedance 2.5",
+  "source_page": "https://seed.bytedance.com/en/seedance2_5",
+  "source_media": "https://v3-magicarena-v.365yg.com/605e2a8e890e73cd998f46b01faf0560/7d374f96/video/tos/cn/tos-cn-v-13c08f/oMawrUIRQHja1tM7HjCBSWDB7NEASIfgerBC5x/",
+  "source_sha256": "8b37bc3ee6a15bfeeb0f5df7f7348db5e4e1d529992be9681ce96d1f2e96620f",
+  "derived_media": "seedance-2-5-official-showcase-8b37bc3e.mp4",
+  "derived_sha256": "8b37bc3ee6a15bfeeb0f5df7f7348db5e4e1d529992be9681ce96d1f2e96620f",
+  "poster": "seedance-2-5-official-poster-db3ff793.jpg",
+  "poster_sha256": "db3ff793270511989c35c520911c36279cf008635fdfcd7ff7569c557c22f7e3",
+  "transformation": "None; uses the official compressed showcase media and poster published on the Seedance 2.5 page.",
+  "prompt": null,
+  "generated_at": null,
+  "generation_account": null,
+  "public_use_authorization": "TokenKey product owner approved use of the official ByteDance showcase media for this homepage in PR #1973 on 2026-09-03.",
+  "recorded_at": "2026-09-03"
+}

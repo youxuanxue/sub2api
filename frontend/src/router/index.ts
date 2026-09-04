@@ -16,6 +16,8 @@ import { resolveRouteDocumentTitle } from './title'
 import { scrollBehavior } from './scrollBehavior'
 import { adminRoutes } from './admin.tk'
 import { userRoutes } from './user.tk'
+import { resolveGlobalProductRedirect, resolveHomepageProfile } from '@/features/home/marketProfile.tk'
+import { isBackendModePublicRouteAllowed } from './backendModeAccess'
 
 /**
  * Route definitions with lazy loading
@@ -281,37 +283,20 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal']
-const BACKEND_MODE_CALLBACK_PATHS = [
-  '/auth/callback',
-  '/auth/linuxdo/callback',
-  '/auth/dingtalk/callback',
-  '/auth/dingtalk/email-completion',
-  '/auth/oidc/callback',
-  '/auth/wechat/callback',
-  '/auth/wechat/payment/callback',
-]
-const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
-
-function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
-  if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
-    return true
-  }
-
-  if (BACKEND_MODE_CALLBACK_PATHS.some((callbackPath) => path === callbackPath)) {
-    return true
-  }
-
-  if (hasPendingAuthSession && BACKEND_MODE_PENDING_AUTH_PATHS.some((allowedPath) => path === allowedPath)) {
-    return true
-  }
-
-  return false
-}
-
 router.beforeEach(async (to, _from, next) => {
   // 开始导航加载状态
   navigationLoading.startNavigation()
+
+  const globalProductRedirect = resolveGlobalProductRedirect(window.location.hostname, to.fullPath)
+  if (globalProductRedirect) {
+    window.location.assign(globalProductRedirect)
+    return
+  }
+
+  if (to.path === '/' && resolveHomepageProfile(window.location.hostname) === 'china-export') {
+    next('/home')
+    return
+  }
 
   const authStore = useAuthStore()
 

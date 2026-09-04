@@ -60,6 +60,26 @@ EDGE_ID=<edge> bash ops/stage0/sync_caddyfile_via_ssm.sh edge <mi-id>
 
 脚本复刻开机渲染：`API_DOMAIN`/`ACME_EMAIL`/`SITE_DOMAIN` 取自主机 `.env`（`SITE_DOMAIN` 未设且 `API_DOMAIN` 为 `api.*` 时自动推导 apex，如 `api.tokenkey.dev` → `tokenkey.dev`）；edge 的 `MAIN_GATEWAY_ALLOWED_CIDR`（不在 `.env`）从当前 Caddyfile 的 `remote_ip` 行反读以原样保留 allowlist。prod 主机如果已迁移到 blue/green，会在渲染 canonical Caddyfile 后保留当前 `active-color` 对应的 `tokenkey-blue|green:8080` upstream，避免热同步把流量指回 legacy `tokenkey:8080`。先在一次性 caddy 容器里 `caddy validate`，通过才**就地**写回（`cat > Caddyfile` 保 inode，避免 bind-mount 单文件换 inode 后容器看不到），再 `caddy reload`；任一步失败自动回滚到 backup 并 reload。
 
+`global.tokenkey.dev` 的发布阶段也由同一热同步入口确定性切换。脚本先原子备份并更新主机 `.env`，再渲染、校验和 reload；任一步失败会同时恢复 `.env` 与 Caddyfile。不要手改远端配置：
+
+```bash
+# 生产候选：海外首页开放；其他页面临时跳到主站
+GLOBAL_SITE_PHASE=candidate GLOBAL_SITE_DOMAIN=global.tokenkey.dev \
+  AWS_REGION=us-east-1 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
+
+# 正式上线：其他页面永久跳到主站
+GLOBAL_SITE_PHASE=live GLOBAL_SITE_DOMAIN=global.tokenkey.dev \
+  AWS_REGION=us-east-1 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
+
+# 关闭海外入口；也用于从 candidate/live 回退
+GLOBAL_SITE_PHASE=disabled \
+  AWS_REGION=us-east-1 bash ops/stage0/sync_caddyfile_via_ssm.sh prod <prod-instance-id>
+```
+
+不传 `GLOBAL_SITE_PHASE` 和 `GLOBAL_SITE_DOMAIN` 时保留主机现状，只刷新模板。candidate/live 必须同时给出合法 hostname；disabled 会清空已持久化的 global domain。新实例的持久配置仍由 CloudFormation 参数 `GlobalSiteDomain` / `GlobalSitePhase` 决定，因此完成阶段切换后也要用同值更新 stack，避免后续实例替换恢复旧阶段。
+
+这里的 `302` 表示“临时跳转”：访问 `global.tokenkey.dev` 的登录、注册、控制台等非首页地址时，浏览器会跳到 `tokenkey.dev` 的同一路径，但不会长期记死这条规则。海外首页本身正常开放，也允许搜索引擎收录。
+
 ### Apex 域名阶段一（tokenkey.dev → api.tokenkey.dev）
 
 **目标**：占住 apex HTTPS 证书，浏览器访问 `https://tokenkey.dev` 永久 301 到 `https://api.tokenkey.dev`；不改应用 settings、OAuth、支付回调。

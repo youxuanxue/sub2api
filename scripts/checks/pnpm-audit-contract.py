@@ -8,17 +8,27 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ACTION = REPO_ROOT / ".github" / "actions" / "pnpm-audit" / "action.yml"
+RUNNER = REPO_ROOT / "tools" / "run_pnpm_audit.py"
 WORKFLOWS = (
     REPO_ROOT / ".github" / "workflows" / "backend-ci.yml",
     REPO_ROOT / ".github" / "workflows" / "security-scan.yml",
 )
 ACTION_REF = "uses: ./.github/actions/pnpm-audit"
 ACTION_ANCHORS = (
-    "dest: ~/setup-pnpm-audit",
-    "version: 11.7.0",
-    "--registry=https://registry.npmjs.org/",
-    '("advisories", "vulnerabilities", "metadata")',
+    "../tools/run_pnpm_audit.py",
+    "--attempts 3",
+    "--timeout-seconds 30",
     "tools/check_pnpm_audit_exceptions.py",
+)
+ACTION_FORBIDDEN = ("pnpm/action-setup@",)
+RUNNER_ANCHORS = (
+    'OSV_QUERY_URL = "https://api.osv.dev/v1/querybatch"',
+    '"curl",',
+    '"--max-filesize",',
+    '"list", "--prod", "--depth", "Infinity", "--json"',
+    '"advisories": advisories',
+    '"metadata":',
+    'output.unlink(missing_ok=True)',
 )
 
 
@@ -28,6 +38,13 @@ def violations() -> list[str]:
     for anchor in ACTION_ANCHORS:
         if anchor not in action:
             errors.append(f"{ACTION.relative_to(REPO_ROOT)} missing {anchor!r}")
+    for anchor in ACTION_FORBIDDEN:
+        if anchor in action:
+            errors.append(f"{ACTION.relative_to(REPO_ROOT)} must not contain {anchor!r}")
+    runner = RUNNER.read_text(encoding="utf-8")
+    for anchor in RUNNER_ANCHORS:
+        if anchor not in runner:
+            errors.append(f"{RUNNER.relative_to(REPO_ROOT)} missing {anchor!r}")
     for path in WORKFLOWS:
         text = path.read_text(encoding="utf-8")
         if text.count(ACTION_REF) != 1:

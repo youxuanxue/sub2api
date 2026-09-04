@@ -14,12 +14,21 @@ _TEMPLATE = _HERE / "Caddyfile"
 _RENDER = _HERE / "render-prod-caddyfile.sh"
 
 
-def _render(*, api_domain: str, site_domain: str = "", acme_email: str = "ops@example.com") -> str:
+def _render(
+    *,
+    api_domain: str,
+    site_domain: str = "",
+    acme_email: str = "ops@example.com",
+    global_site_domain: str = "",
+    global_site_phase: str = "disabled",
+) -> str:
     env = {
         **os.environ,
         "API_DOMAIN": api_domain,
         "ACME_EMAIL": acme_email,
         "SITE_DOMAIN": site_domain,
+        "GLOBAL_SITE_DOMAIN": global_site_domain,
+        "GLOBAL_SITE_PHASE": global_site_phase,
     }
     with tempfile.NamedTemporaryFile("w+", suffix=".caddy", delete=False) as tmp:
         out_path = pathlib.Path(tmp.name)
@@ -77,6 +86,78 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertIn("custom.example {", rendered)
         self.assertIn("redir https://custom.example{uri} permanent", rendered)
         self.assertIn("api.custom.example {", rendered)
+
+    def test_global_homepage_is_disabled_by_default(self) -> None:
+        rendered = _render(api_domain="api.tokenkey.dev")
+
+        self.assertNotIn("global.tokenkey.dev {", rendered)
+        self.assertNotIn("GLOBAL_REDIRECT_STATUS", rendered)
+        self.assertNotIn("BEGIN_GLOBAL_VHOST", rendered)
+
+    def test_candidate_global_homepage_is_allowlisted_and_uses_temporary_redirects(self) -> None:
+        rendered = _render(
+            api_domain="api.tokenkey.dev",
+            global_site_domain="global.tokenkey.dev",
+            global_site_phase="candidate",
+        )
+
+        self.assertIn("global.tokenkey.dev {", rendered)
+        self.assertNotIn("X-Robots-Tag", rendered)
+        self.assertIn("path /seedance-2-5-official-showcase-8b37bc3e.mp4", rendered)
+        self.assertIn("path /api/v1/settings/public", rendered)
+        self.assertIn("path /api/v1/auth/refresh", rendered)
+        self.assertIn("path /api/v1/auth/me", rendered)
+        self.assertIn("redir https://tokenkey.dev{uri} 302", rendered)
+
+    def test_live_global_homepage_uses_permanent_redirect(self) -> None:
+        rendered = _render(
+            api_domain="api.tokenkey.dev",
+            global_site_domain="global.tokenkey.dev",
+            global_site_phase="live",
+        )
+
+        self.assertIn("global.tokenkey.dev {", rendered)
+        self.assertNotIn("X-Robots-Tag", rendered)
+        self.assertIn("redir https://tokenkey.dev{uri} 301", rendered)
+
+    def test_enabled_global_phase_requires_an_explicit_hostname(self) -> None:
+        env = {
+            **os.environ,
+            "API_DOMAIN": "api.tokenkey.dev",
+            "ACME_EMAIL": "ops@example.com",
+            "GLOBAL_SITE_PHASE": "candidate",
+        }
+        with tempfile.NamedTemporaryFile("w+", suffix=".caddy") as tmp:
+            proc = subprocess.run(
+                ["bash", str(_RENDER), str(_TEMPLATE), tmp.name],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("GLOBAL_SITE_DOMAIN is required", proc.stderr)
+
+    def test_enabled_global_phase_requires_a_resolvable_apex_hostname(self) -> None:
+        env = {
+            **os.environ,
+            "API_DOMAIN": "localhost",
+            "ACME_EMAIL": "ops@example.com",
+            "GLOBAL_SITE_DOMAIN": "global.tokenkey.dev",
+            "GLOBAL_SITE_PHASE": "candidate",
+        }
+        with tempfile.NamedTemporaryFile("w+", suffix=".caddy") as tmp:
+            proc = subprocess.run(
+                ["bash", str(_RENDER), str(_TEMPLATE), tmp.name],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("SITE_DOMAIN must resolve", proc.stderr)
 
 
 if __name__ == "__main__":

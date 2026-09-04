@@ -19,6 +19,8 @@ SITE_DOMAIN="${TK_SITE_DOMAIN:-}"
 if [[ -z "${SITE_DOMAIN}" && "${API_DOMAIN}" == api.* ]]; then
   SITE_DOMAIN="${API_DOMAIN#api.}"
 fi
+GLOBAL_SITE_DOMAIN="${TK_GLOBAL_SITE_DOMAIN:-}"
+GLOBAL_SITE_PHASE="${TK_GLOBAL_SITE_PHASE:-disabled}"
 ADMIN_EMAIL="${TK_ADMIN_EMAIL:-}"
 [ -z "${ADMIN_EMAIL}" ] && ADMIN_EMAIL="admin@${API_DOMAIN}"
 TZ_VALUE="${TK_TZ:-UTC}"
@@ -183,47 +185,20 @@ cd /var/lib/tokenkey
 # --- 3. docker-compose + Caddy from SSM ---------------------------------
 COMPOSE_PARAM="${STAGE0_PREFIX}/docker-compose.gzip.b64"
 CADDY_PARAM="${STAGE0_PREFIX}/caddyfile.template.gzip.b64"
+CADDY_RENDER_PARAM="${STAGE0_PREFIX}/render-prod-caddyfile.gzip.b64"
 COMPOSE_B64="$(aws ssm get-parameter --name "${COMPOSE_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 CADDY_B64="$(aws ssm get-parameter --name "${CADDY_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
+RENDER_B64="$(aws ssm get-parameter --name "${CADDY_RENDER_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
-
-render_prod_caddyfile() {
-  local template="$1" output="$2"
-  local site_domain="${SITE_DOMAIN:-}"
-  if [[ -z "${site_domain}" && "${API_DOMAIN}" == api.* ]]; then
-    site_domain="${API_DOMAIN#api.}"
-  fi
-  if [[ "${site_domain}" == "${API_DOMAIN}" ]]; then
-    site_domain=""
-  fi
-  local tmp
-  tmp="$(mktemp)"
-  export API_DOMAIN ACME_EMAIL SITE_DOMAIN="${site_domain}"
-  envsubst '$API_DOMAIN $ACME_EMAIL $SITE_DOMAIN' < "${template}" > "${tmp}"
-  if [[ -z "${site_domain}" ]]; then
-    sed '/^# BEGIN_APEX_VHOST$/,/^# END_APEX_VHOST$/d' "${tmp}" \
-      | sed '/^# BEGIN_API_MACHINE_SPLIT$/,/^# END_API_MACHINE_SPLIT$/d' \
-      | sed \
-        -e '/^# BEGIN_APEX_VHOST$/d' \
-        -e '/^# END_APEX_VHOST$/d' \
-        -e '/^# BEGIN_API_FULL_PROXY$/d' \
-        -e '/^# END_API_FULL_PROXY$/d' \
-        -e '/^# BEGIN_API_MACHINE_SPLIT$/d' \
-        -e '/^# END_API_MACHINE_SPLIT$/d' > "${output}"
-  else
-    sed '/^# BEGIN_API_FULL_PROXY$/,/^# END_API_FULL_PROXY$/d' "${tmp}" \
-      | sed \
-        -e '/^# BEGIN_APEX_VHOST$/d' \
-        -e '/^# END_APEX_VHOST$/d' \
-        -e '/^# BEGIN_API_FULL_PROXY$/d' \
-        -e '/^# END_API_FULL_PROXY$/d' \
-        -e '/^# BEGIN_API_MACHINE_SPLIT$/d' \
-        -e '/^# END_API_MACHINE_SPLIT$/d' > "${output}"
-  fi
-  rm -f "${tmp}"
-}
-render_prod_caddyfile caddy/Caddyfile.template caddy/Caddyfile
+printf '%s' "${RENDER_B64}" | base64 -d | gunzip > caddy/render-prod-caddyfile.sh
+chmod 0755 caddy/render-prod-caddyfile.sh
+API_DOMAIN="${API_DOMAIN}" \
+ACME_EMAIL="${ACME_EMAIL}" \
+SITE_DOMAIN="${SITE_DOMAIN}" \
+GLOBAL_SITE_DOMAIN="${GLOBAL_SITE_DOMAIN}" \
+GLOBAL_SITE_PHASE="${GLOBAL_SITE_PHASE}" \
+  bash caddy/render-prod-caddyfile.sh caddy/Caddyfile.template caddy/Caddyfile
 
 install -d -m 0755 /etc/tokenkey
 install -d -m 0755 /usr/local/lib/tokenkey
@@ -296,6 +271,8 @@ set -a; . "${SECRET_FILE}"; set +a
 cat > /var/lib/tokenkey/.env <<ENVEOF
 API_DOMAIN=${API_DOMAIN}
 SITE_DOMAIN=${SITE_DOMAIN}
+GLOBAL_SITE_DOMAIN=${GLOBAL_SITE_DOMAIN}
+GLOBAL_SITE_PHASE=${GLOBAL_SITE_PHASE}
 SERVER_FRONTEND_URL=https://${SITE_DOMAIN:-${API_DOMAIN}}
 ACME_EMAIL=${ACME_EMAIL}
 TZ=${TZ_VALUE}

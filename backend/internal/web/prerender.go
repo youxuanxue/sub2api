@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -47,7 +48,7 @@ func PrerenderMiddleware() gin.HandlerFunc {
 		var html string
 		switch path {
 		case "/", "/home":
-			html = prerenderHomeHTML()
+			html = prerenderHomeHTML(c.Request.Host)
 		case "/pricing":
 			html = prerenderPricingHTML()
 		case "/quickstart":
@@ -65,8 +66,7 @@ func PrerenderMiddleware() gin.HandlerFunc {
 	}
 }
 
-func prerenderHead(title, description, ogDescription, canonicalPath string) string {
-	canonicalURL := storefrontCanonicalOrigin + canonicalPath
+func prerenderHead(title, description, ogDescription, twitterDescription, canonicalURL, ogImageURL string) string {
 	return fmt.Sprintf(`<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>%s</title>
@@ -81,12 +81,35 @@ func prerenderHead(title, description, ogDescription, canonicalPath string) stri
 <meta name="twitter:description" content="%s">
 <meta name="twitter:image" content="%s">
 <link rel="canonical" href="%s">`,
-		title, description, title, ogDescription, storefrontOGImageURL,
-		canonicalURL, title, storefrontENTwitterDescription, storefrontOGImageURL, canonicalURL)
+		title, description, title, ogDescription, ogImageURL,
+		canonicalURL, title, twitterDescription, ogImageURL, canonicalURL)
 }
 
-func prerenderHomeHTML() string {
-	head := prerenderHead(storefrontSiteTitle, storefrontZHMetaDescription, storefrontZHOGDescription, "/")
+func requestHostname(hostport string) string {
+	host := strings.TrimSpace(strings.ToLower(hostport))
+	if parsed, _, err := net.SplitHostPort(host); err == nil {
+		host = parsed
+	}
+	return strings.TrimSuffix(host, ".")
+}
+
+func isChinaExportHomepageHost(hostport string) bool {
+	return requestHostname(hostport) == "global.tokenkey.dev"
+}
+
+func prerenderHomeHTML(host string) string {
+	if isChinaExportHomepageHost(host) {
+		return prerenderChinaExportHomeHTML()
+	}
+
+	head := prerenderHead(
+		storefrontSiteTitle,
+		storefrontZHMetaDescription,
+		storefrontZHOGDescription,
+		storefrontENTwitterDescription,
+		storefrontCanonicalOrigin+"/",
+		storefrontOGImageURL,
+	)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -148,11 +171,56 @@ func prerenderHomeHTML() string {
 </html>`, head, storefrontSiteTitle, storefrontZHHeroSubtitle, storefrontZHFreeTrial, storefrontENFreeTrial)
 }
 
+func prerenderChinaExportHomeHTML() string {
+	head := prerenderHead(
+		chinaExportSiteTitle,
+		chinaExportMetaDescription,
+		chinaExportOGDescription,
+		chinaExportTwitterDescription,
+		chinaExportCanonicalURL,
+		chinaExportOGImageURL,
+	)
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en">
+<head>
+%s
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"TokenKey","url":"https://global.tokenkey.dev/","description":"Access Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi through one API."}</script>
+</head>
+<body>
+<h1>China's leading AI models. One API.</h1>
+<p>Seedance, Seedream, Qwen, DeepSeek, GLM and Kimi. Start free. No card required.</p>
+
+<section>
+<h2>China model matrix</h2>
+<ol>
+<li>Seedance</li>
+<li>Seedream</li>
+<li>Qwen</li>
+<li>DeepSeek</li>
+<li>GLM</li>
+<li>Kimi</li>
+</ol>
+</section>
+
+<section>
+<h2>Verify your key</h2>
+<p>Use deepseek-chat to verify your API key, balance and OpenAI-compatible endpoint.</p>
+</section>
+
+<section>
+<h2>Start free</h2>
+<p>Start with a free trial. No credit card required.</p>
+<a href="https://tokenkey.dev/register?redirect=%%2Fquickstart%%3Fmodel%%3Ddeepseek-chat%%26protocol%%3Dopenai">Create your account</a>
+</section>
+</body>
+</html>`, head)
+}
+
 func prerenderPricingHTML() string {
 	title := "TokenKey 定价 - AI API Pricing"
 	desc := "TokenKey AI API 定价方案。官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时模型可用性监控。"
 	ogDesc := "官方 API 定价，透明可预期。文本、图像、视频模型统一定价目录，实时可用性监控。订阅配额制费用可预测。"
-	head := prerenderHead(title, desc, ogDesc, "/pricing")
+	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, storefrontCanonicalOrigin+"/pricing", storefrontOGImageURL)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -193,7 +261,7 @@ func prerenderQuickstartHTML() string {
 	title := "Quick Start - TokenKey AI API Gateway"
 	desc := "2 分钟开始使用 TokenKey AI API。获取 API Key，配置 Claude Code / Cursor / Codex / Cline，立即调用所有主流 AI 模型。"
 	ogDesc := "Get started in 2 minutes. One API key for Claude, GPT, Gemini, Qwen, and more."
-	head := prerenderHead(title, desc, ogDesc, "/quickstart")
+	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, storefrontCanonicalOrigin+"/quickstart", storefrontOGImageURL)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -236,7 +304,7 @@ func prerenderModelsHTML() string {
 	title := "Model Marketplace - TokenKey AI API Gateway"
 	desc := "Browse and compare AI models by capability, provider, and price. Text, image, and video models in one catalog with transparent per-model pricing."
 	ogDesc := "Browse Claude, GPT, Gemini, Qwen, and more. Filter by modality and provider, then jump to live pricing."
-	head := prerenderHead(title, desc, ogDesc, "/models")
+	head := prerenderHead(title, desc, ogDesc, storefrontENTwitterDescription, storefrontCanonicalOrigin+"/models", storefrontOGImageURL)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
