@@ -17,6 +17,8 @@ class CandidateHandler(http.server.BaseHTTPRequestHandler):
     pricing_public = True
     redirect_status = 302
     malformed_settings = False
+    signup_bonus_balance = 1
+    payment_enabled = False
 
     def do_GET(self) -> None:
         if self.path == "/":
@@ -30,8 +32,8 @@ class CandidateHandler(http.server.BaseHTTPRequestHandler):
                 "registration_enabled": True,
                 "pricing_catalog_public": self.pricing_public,
                 "signup_bonus_enabled": True,
-                "signup_bonus_balance_usd": 1,
-                "payment_enabled": False,
+                "signup_bonus_balance_usd": self.signup_bonus_balance,
+                "payment_enabled": self.payment_enabled,
             }})
         elif self.path in {"/login?next=%2Fconsole", "/register"}:
             self.send_response(self.redirect_status)
@@ -59,6 +61,8 @@ class ProbeGlobalCandidateTest(unittest.TestCase):
         CandidateHandler.pricing_public = True
         CandidateHandler.redirect_status = 302
         CandidateHandler.malformed_settings = False
+        CandidateHandler.signup_bonus_balance = 1
+        CandidateHandler.payment_enabled = False
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), CandidateHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -99,6 +103,24 @@ class ProbeGlobalCandidateTest(unittest.TestCase):
         rows = [json.loads(line) for line in proc.stdout.splitlines()]
         self.assertEqual(rows[-1]["failures"], ["public_settings"])
         self.assertIn('"pricing_catalog_public": false', rows[3]["detail"])
+
+    def test_positive_trial_and_enabled_payment_do_not_pin_temporary_config(self) -> None:
+        CandidateHandler.signup_bonus_balance = 2.5
+        CandidateHandler.payment_enabled = True
+
+        proc = self._run()
+
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+
+    def test_non_positive_trial_balance_fails(self) -> None:
+        CandidateHandler.signup_bonus_balance = 0
+
+        proc = self._run()
+
+        self.assertEqual(proc.returncode, 4, msg=proc.stderr + proc.stdout)
+        rows = [json.loads(line) for line in proc.stdout.splitlines()]
+        self.assertEqual(rows[-1]["failures"], ["public_settings"])
+        self.assertIn('"signup_bonus_balance_usd": 0', rows[3]["detail"])
 
     def test_live_phase_requires_permanent_redirects(self) -> None:
         CandidateHandler.redirect_status = 301

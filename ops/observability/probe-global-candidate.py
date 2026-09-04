@@ -101,10 +101,15 @@ class Probe:
                 "registration_enabled": True,
                 "pricing_catalog_public": True,
                 "signup_bonus_enabled": True,
-                "signup_bonus_balance_usd": 1,
-                "payment_enabled": False,
             }
             mismatches = {key: settings.get(key) for key, value in expected.items() if settings.get(key) != value}
+            signup_bonus = settings.get("signup_bonus_balance_usd")
+            if (
+                isinstance(signup_bonus, bool)
+                or not isinstance(signup_bonus, (int, float))
+                or signup_bonus <= 0
+            ):
+                mismatches["signup_bonus_balance_usd"] = signup_bonus
             settings_ok = status == 200 and not mismatches
             self._record("public_settings", settings_ok, f"http={status} mismatches={json.dumps(mismatches, sort_keys=True)}")
 
