@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -251,15 +252,38 @@ func supplierModelBelongsToFamily(id string, family ModelFamily) bool {
 	return false
 }
 
-// supplierChannelTypeModelFamilies is the SSOT for "channel_type-related" model
-// families used when discover runs with ChannelScoped.
+// supplierChannelTypeModelFamilyRules is the SSOT for "channel_type-related"
+// model families used when discover runs with ChannelScoped. UI defaults for the
+// channel_scoped checkbox must derive from this map (via
+// SupplierDiscoverChannelScopedChannelTypes), not hardcode channel IDs.
+var supplierChannelTypeModelFamilyRules = map[int][]ModelFamily{
+	newapiconstant.ChannelTypeAnthropic: {"claude"},
+}
+
 func supplierChannelTypeModelFamilies(channelType int) ([]ModelFamily, bool) {
-	switch channelType {
-	case newapiconstant.ChannelTypeAnthropic:
-		return []ModelFamily{"claude"}, true
-	default:
+	families, ok := supplierChannelTypeModelFamilyRules[channelType]
+	if !ok {
 		return nil, false
 	}
+	return append([]ModelFamily(nil), families...), true
+}
+
+// SupplierDiscoverChannelScopedChannelTypes returns sorted channel_type IDs that
+// have a discover family rule. Empty means no channel defaults channel_scoped on.
+func SupplierDiscoverChannelScopedChannelTypes() []int {
+	out := make([]int, 0, len(supplierChannelTypeModelFamilyRules))
+	for channelType := range supplierChannelTypeModelFamilyRules {
+		out = append(out, channelType)
+	}
+	sort.Ints(out)
+	return out
+}
+
+// SupplierChannelTypeHasDiscoverFamilyRule reports whether channelType has an
+// ID-family restriction when ChannelScoped is enabled.
+func SupplierChannelTypeHasDiscoverFamilyRule(channelType int) bool {
+	_, ok := supplierChannelTypeModelFamilyRules[channelType]
+	return ok
 }
 
 // supplierChannelTypeModelFamilyMatch reports whether upstreamID belongs to the

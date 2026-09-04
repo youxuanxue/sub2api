@@ -563,7 +563,6 @@ const { t } = useI18n()
 const route = useRoute()
 const { types: channelTypes, loading: channelTypesLoading, error: channelTypesError, load: loadChannelTypes } = useNewApiChannelTypes()
 const SUPPLIER_BAIDU_V2_CHANNEL_TYPE = 46
-const SUPPLIER_ANTHROPIC_CHANNEL_TYPE = 14
 
 const supplierChannelTypeOptions = computed(() =>
   channelTypes.value
@@ -584,6 +583,7 @@ const validating = ref(false)
 const syncing = ref(false)
 const previewing = ref(false)
 const discoverChannelScoped = ref(false)
+const discoverChannelScopedChannelTypes = ref<Set<number>>(new Set())
 const sources = ref<SupplierSource[]>([])
 const selected = ref<SupplierSource | null>(null)
 const copiedFrom = ref<SupplierSource | null>(null)
@@ -677,13 +677,21 @@ function applyChannelTypeDefaultEndpoint(channelType: number): void {
   if (baseUrl) {
     form.endpoint = baseUrl.replace(/\/v1\/?$/, '')
   }
+  syncDiscoverChannelScopedForSource({ channel_type: channelType })
 }
 
 async function load(): Promise<void> {
   loading.value = true
   try {
     await loadChannelTypes().catch(() => undefined)
-    sources.value = await adminAPI.supplierSources.list()
+    const [listed, channelScopedDefaults] = await Promise.all([
+      adminAPI.supplierSources.list(),
+      adminAPI.supplierSources.discoverChannelScopedDefaults().catch(() => ({ channel_types: [] as number[] })),
+    ])
+    discoverChannelScopedChannelTypes.value = new Set(
+      (channelScopedDefaults.channel_types ?? []).filter(type => Number.isFinite(type)),
+    )
+    sources.value = listed
     const requestedSourceID = sourceIDFromQuery(route.query.source_id)
     const requestedSource = requestedSourceID === null
       ? null
@@ -866,9 +874,11 @@ const blocksDiscoverValidateProject = computed(() => hasUnsavedChanges.value || 
 const canSaveSelected = computed(() => !selected.value || hasUnsavedChanges.value || discoverNeedsSave.value)
 
 function syncDiscoverChannelScopedForSource(source: Pick<SupplierSource, 'channel_type'> | null): void {
-  // Default on only when channel_type has a family SSOT rule (Anthropic → Claude*).
+  // Default on only when backend SSOT has a channel_type → family rule.
   // Channels without a rule stay unchecked so the label is not a no-op trap.
-  discoverChannelScoped.value = source?.channel_type === SUPPLIER_ANTHROPIC_CHANNEL_TYPE
+  const channelType = source?.channel_type
+  discoverChannelScoped.value = channelType != null
+    && discoverChannelScopedChannelTypes.value.has(channelType)
 }
 
 function replaceSource(source: SupplierSource): void {

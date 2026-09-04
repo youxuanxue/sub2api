@@ -137,8 +137,19 @@ export interface SupplierSourceProbeResult {
   failed_step?: string
 }
 
+export interface SupplierDiscoverChannelScopedDefaults {
+  channel_types: number[]
+}
+
 async function list(): Promise<SupplierSource[]> {
   const { data } = await apiClient.get<SupplierSource[]>('/admin/supplier-sources')
+  return data
+}
+
+async function discoverChannelScopedDefaults(): Promise<SupplierDiscoverChannelScopedDefaults> {
+  const { data } = await apiClient.get<SupplierDiscoverChannelScopedDefaults>(
+    '/admin/supplier-sources/discover-channel-scoped-defaults',
+  )
   return data
 }
 
@@ -198,4 +209,15 @@ async function sync(id: number): Promise<SupplierSourceSyncResult> {
   return data
 }
 
-export default { list, get, create, update, priorityPreview, discover, getDiscoverJob, validate, sync }
+export default {
+  list,
+  get,
+  create,
+  update,
+  priorityPreview,
+  discoverChannelScopedDefaults,
+  discover,
+  getDiscoverJob,
+  validate,
+  sync,
+}

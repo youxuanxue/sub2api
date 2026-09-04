@@ -340,6 +340,10 @@ func TestUS048_AnthropicChannelScopedDiscoverProbesOnlyClaudeFamily(t *testing.T
 }
 
 func TestUS048_OpenAIChannelScopedHasNoIDFamilyRule(t *testing.T) {
+	require.False(t, SupplierChannelTypeHasDiscoverFamilyRule(newapiconstant.ChannelTypeOpenAI))
+	require.True(t, SupplierChannelTypeHasDiscoverFamilyRule(newapiconstant.ChannelTypeAnthropic))
+	require.Equal(t, []int{newapiconstant.ChannelTypeAnthropic}, SupplierDiscoverChannelScopedChannelTypes())
+
 	source := &SupplierSource{
 		ID: 13, SupplierName: "tokensea", SupplierLane: "openai",
 		ChannelType: newapiconstant.ChannelTypeOpenAI, Endpoint: "https://agent.tokensea.ai/v1",

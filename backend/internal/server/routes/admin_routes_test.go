@@ -52,6 +52,7 @@ func TestUS048_SupplierSourceRoutesAreRegistered(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/supplier-sources"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/priority-preview"},
+		{http.MethodGet, "/api/v1/admin/supplier-sources/discover-channel-scoped-defaults"},
 		{http.MethodGet, "/api/v1/admin/supplier-sources/:id"},
 		{http.MethodPut, "/api/v1/admin/supplier-sources/:id"},
 		{http.MethodPost, "/api/v1/admin/supplier-sources/:id/discover"},

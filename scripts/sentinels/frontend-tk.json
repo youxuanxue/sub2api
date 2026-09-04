@@ -2023,6 +2023,8 @@
         "adminAPI.supplierSources.getDiscoverJob(sourceID, jobID)",
         "data-test=\"discover-candidate-progress\"",
         "data-test=\"discover-channel-scoped\"",
+        "discoverChannelScopedChannelTypes.value = new Set(",
+        "discoverChannelScopedDefaults().catch(() => ({ channel_types: [] as number[] }))",
         "v-if=\"discoverResult.probe_status === 'running'\"",
         "form.channel_type",
         "supplier_lane: 'default'",
@@ -2052,6 +2054,8 @@
         "options: { channelScoped?: boolean } = {}",
         "`/admin/supplier-sources/${id}/discover`",
         "channel_scoped: '1'",
+        "async function discoverChannelScopedDefaults(): Promise<SupplierDiscoverChannelScopedDefaults>",
+        "'/admin/supplier-sources/discover-channel-scoped-defaults'",
         "async function getDiscoverJob(id: number, jobId: string): Promise<SupplierSourceProbeResult>",
         "`/admin/supplier-sources/${id}/discover/jobs/${encodeURIComponent(jobId)}`",
         "async function validate(id: number): Promise<SupplierSourceValidateResult>",
@@ -2059,7 +2063,7 @@
         "SUPPLIER_SOURCE_VALIDATE_TIMEOUT_MS = 300_000",
         "{ timeout: SUPPLIER_SOURCE_VALIDATE_TIMEOUT_MS }"
       ],
-      "rationale": "Admin client must expose discover start + optional channel_scoped filter + job poll, validate configured models, and project accounts via sync. Validate keeps a long timeout because it probes every configured model; discover and project stay on the default client timeout. Dropping poll forces synchronous long discovers behind the browser timeout again."
+      "rationale": "Admin client must expose discover start + optional channel_scoped filter + job poll, channel-scoped defaults from the backend family-rule SSOT, validate configured models, and project accounts via sync. Validate keeps a long timeout because it probes every configured model; discover and project stay on the default client timeout. Dropping poll forces synchronous long discovers behind the browser timeout again."
     },
     {
       "path": "frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts",
@@ -2074,6 +2078,7 @@
         "polls a running probe job until completed without syncing",
         "shows probe failure message and failed_step outside the sync-result block",
         "offers and hydrates BaiduV2 while preserving a custom endpoint during source selection",
+        "defaults channel-scoped discover only for Anthropic and can enable it for other channels",
         "'discover-source'",
         "'save-source'",
         "'validate-source'",

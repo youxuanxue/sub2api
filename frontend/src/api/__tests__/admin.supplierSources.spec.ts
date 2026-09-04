@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { post } = vi.hoisted(() => ({
+const { post, get } = vi.hoisted(() => ({
   post: vi.fn(),
+  get: vi.fn(),
 }))
 
 vi.mock('../client', () => ({
   apiClient: {
     post,
+    get,
   },
 }))
 
@@ -15,6 +17,7 @@ import supplierSources from '@/api/admin/supplierSources'
 describe('admin supplierSources API', () => {
   beforeEach(() => {
     post.mockReset()
+    get.mockReset()
   })
 
   it('gives validate a long timeout because it probes every configured model', async () => {
@@ -49,5 +52,14 @@ describe('admin supplierSources API', () => {
       undefined,
       { params: { channel_scoped: '1' } },
     )
+  })
+
+  it('loads discover channel-scoped defaults from the backend SSOT', async () => {
+    get.mockResolvedValue({ data: { channel_types: [14] } })
+
+    await expect(supplierSources.discoverChannelScopedDefaults()).resolves.toEqual({
+      channel_types: [14],
+    })
+    expect(get).toHaveBeenCalledWith('/admin/supplier-sources/discover-channel-scoped-defaults')
   })
 })

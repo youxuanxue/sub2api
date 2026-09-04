@@ -4,11 +4,12 @@ import { nextTick } from 'vue'
 
 import SupplierSourcesView from '../SupplierSourcesView.vue'
 
-const { list, create, update, priorityPreview, discover, getDiscoverJob, validate, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
+const { list, create, update, priorityPreview, discoverChannelScopedDefaults, discover, getDiscoverJob, validate, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   priorityPreview: vi.fn(),
+  discoverChannelScopedDefaults: vi.fn(),
   discover: vi.fn(),
   getDiscoverJob: vi.fn(),
   validate: vi.fn(),
@@ -32,7 +33,19 @@ vi.mock('@/composables/useNewApiChannelTypes', () => ({
 }))
 
 vi.mock('@/api/admin', () => ({
-  adminAPI: { supplierSources: { list, create, update, priorityPreview, discover, getDiscoverJob, validate, sync } },
+  adminAPI: {
+    supplierSources: {
+      list,
+      create,
+      update,
+      priorityPreview,
+      discoverChannelScopedDefaults,
+      discover,
+      getDiscoverJob,
+      validate,
+      sync,
+    },
+  },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -69,6 +82,7 @@ describe('SupplierSourcesView', () => {
     create.mockReset()
     update.mockReset()
     priorityPreview.mockReset().mockResolvedValue({ entries: [], warnings: [] })
+    discoverChannelScopedDefaults.mockReset().mockResolvedValue({ channel_types: [14] })
     discover.mockReset().mockResolvedValue({
       source_id: 7,
       probe_status: 'completed',
@@ -274,6 +288,19 @@ describe('SupplierSourcesView', () => {
     await wrapper.get('[data-test="discover-source"]').trigger('click')
     await flushPromises()
     expect(discover).toHaveBeenCalledWith(7, { channelScoped: true })
+
+    const anthropicSource = { ...source, id: 8, channel_type: 14, supplier_lane: 'anthropic' }
+    list.mockResolvedValueOnce([anthropicSource])
+    const anthropicWrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await anthropicWrapper.get('[data-test="source-select-8"]').trigger('click')
+    expect(
+      (anthropicWrapper.get('[data-test="discover-channel-scoped"] input').element as HTMLInputElement).checked,
+    ).toBe(true)
+    discover.mockClear()
+    await anthropicWrapper.get('[data-test="discover-source"]').trigger('click')
+    await flushPromises()
+    expect(discover).toHaveBeenCalledWith(8, { channelScoped: true })
   })
 
   it('requires saving edited supplier facts before syncing the selected source', async () => {
