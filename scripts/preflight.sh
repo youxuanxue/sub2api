@@ -3237,10 +3237,12 @@ echo "=== sub2api: pnpm audit owner contract ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by pnpm-audit-contract.py)"
     errors=$((errors + 1))
+elif ! python3 -m unittest tools.test_run_pnpm_audit >/dev/null; then
+    errors=$((errors + 1))
 elif ! python3 ./scripts/checks/pnpm-audit-contract.py --quiet; then
     errors=$((errors + 1))
 else
-    echo "  ok: frontend security workflows share the pinned bulk-advisory audit owner"
+    echo "  ok: frontend security workflows share the bounded, fail-closed audit owner"
 fi
 
 # ---- sub2api: Node version alignment -----------------------------------------

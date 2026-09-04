@@ -17,36 +17,10 @@ runs:
       shell: bash
       working-directory: frontend
       run: |
-        # Advisory exit is expected. The JSON shape check distinguishes it from
-        # registry/network errors before the exception checker decides pass/fail.
-        pnpm audit \
-          --registry=https://registry.npmjs.org/ \
-          --prod \
-          --audit-level=high \
-          --json > audit.json || true # preflight-allow: swallow
-        python3 - <<'PY'
-        import json
-        import sys
-
-        try:
-            with open("audit.json", encoding="utf-8") as handle:
-                data = json.load(handle)
-        except Exception as exc:
-            sys.stderr.write(
-                f"::error title=pnpm audit::audit.json is not valid JSON ({exc}); "
-                "audit failed to run.\n"
-            )
-            sys.exit(1)
-        if not (
-            isinstance(data, dict)
-            and any(key in data for key in ("advisories", "vulnerabilities", "metadata"))
-        ):
-            sys.stderr.write(
-                "::error title=pnpm audit::audit result lacks "
-                "advisories/vulnerabilities/metadata; refusing a vacuous pass.\n"
-            )
-            sys.exit(1)
-        PY
+        python3 ../tools/run_pnpm_audit.py \
+          --output audit.json \
+          --attempts 3 \
+          --timeout-seconds 60
 
     - name: Check audit exceptions
       shell: bash
