@@ -94,7 +94,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("GLOBAL_REDIRECT_STATUS", rendered)
         self.assertNotIn("BEGIN_GLOBAL_VHOST", rendered)
 
-    def test_candidate_global_homepage_is_allowlisted_and_noindex(self) -> None:
+    def test_candidate_global_homepage_is_allowlisted_and_uses_temporary_redirects(self) -> None:
         rendered = _render(
             api_domain="api.tokenkey.dev",
             global_site_domain="global.tokenkey.dev",
@@ -102,15 +102,14 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         )
 
         self.assertIn("global.tokenkey.dev {", rendered)
-        self.assertIn('header X-Robots-Tag "noindex, nofollow"', rendered)
+        self.assertNotIn("X-Robots-Tag", rendered)
         self.assertIn("path /seedance-2-5-official-showcase-8b37bc3e.mp4", rendered)
         self.assertIn("path /api/v1/settings/public", rendered)
         self.assertIn("path /api/v1/auth/refresh", rendered)
         self.assertIn("path /api/v1/auth/me", rendered)
         self.assertIn("redir https://tokenkey.dev{uri} 302", rendered)
-        self.assertNotIn("BEGIN_GLOBAL_NOINDEX", rendered)
 
-    def test_live_global_homepage_uses_permanent_redirect_without_noindex(self) -> None:
+    def test_live_global_homepage_uses_permanent_redirect(self) -> None:
         rendered = _render(
             api_domain="api.tokenkey.dev",
             global_site_domain="global.tokenkey.dev",

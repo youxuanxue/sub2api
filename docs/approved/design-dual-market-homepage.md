@@ -221,10 +221,10 @@ global.tokenkey.dev {
 | 状态 | 进入条件 | 对外状态 |
 | --- | --- | --- |
 | 开发中 | 产品基线已冻结 | `global` 不处于公开可用状态 |
-| 生产候选 | 自动化合同全绿且可以确定性回滚 | 海外首页向受邀用户开放；其他页面临时跳到主站；搜索引擎暂不收录 |
-| 已上线 | 生产验收与发布证据全部通过 | 海外首页允许搜索引擎收录；其他页面永久跳到主站 |
+| 生产候选 | 自动化合同全绿且可以确定性回滚 | 海外首页开放；其他页面临时跳到主站 |
+| 已上线 | 生产验收与发布证据全部通过 | 海外首页保持开放；其他页面永久跳到主站 |
 
-生产候选阶段的“临时跳到主站”在 HTTP 中使用 `302`：浏览器不会长期记住跳转规则，便于随时调整或回滚。“搜索引擎暂不收录”使用 `noindex`：不影响受邀用户直接打开链接，只阻止页面提前出现在 Google、Bing 等搜索结果中。
+生产候选阶段的“临时跳到主站”在 HTTP 中使用 `302`：浏览器不会长期记住跳转规则，便于随时调整或回滚。海外首页从候选开放开始即可被搜索引擎正常收录。
 
 进入生产候选前必须全部通过：
 
@@ -294,7 +294,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 1. 实现唯一的 hostname profile owner，以及 current / china-export 两种首页内容；
 2. 完成官方 Seedance 2.5 首屏、模型展示、DeepSeek Key 验证和 CTA；
 3. 完成 `global.tokenkey.dev` 的 Caddy、证书、静态资源 allowlist、非首页重定向和回滚配置；
-4. 完成双 host 的 canonical、OG、crawler prerender 和生产候选状态的 `noindex`；
+4. 完成双 host 的 canonical、OG 和 crawler prerender；
 5. 复用现有注册、统一余额、API Key、Quickstart、Studio 和支付页面，不产生市场分支；
 6. 配置并验证试用赠金、`Default Key` 和 Quickstart 的 `deepseek-chat` 预选；
 7. 补齐本文档“自动化合同”中的单元、集成和 Playwright 测试。
@@ -319,13 +319,13 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 ```text
 发布同一应用版本
   -> 配置 global.tokenkey.dev DNS 与证书
-  -> 启用 global host（302 + noindex）
+  -> 启用 global host（非首页临时跳到主站）
   -> 按发布配置设置 registration / public catalog / trial bonus
   -> 执行双 host、登录、首调、媒体生成冒烟
   -> 核对错误日志、响应与实际扣费
 ```
 
-任一步失败立即停止后续切换并按演练路径回滚。不得手改线上 Caddyfile；生产候选保持 `302 + noindex`，不能提前切换为已上线状态。
+任一步失败立即停止后续切换并按演练路径回滚。不得手改线上 Caddyfile；生产候选的非首页路径保持临时跳转，不能提前切换为永久跳转。
 
 完成标准：生产环境可以执行完整产品验收；当前用户、API 客户端和 `tokenkey.dev` 首页不受影响。
 
@@ -333,7 +333,7 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 
 1. 使用全新测试账户走通首页、注册、试用余额、`Default Key`、DeepSeek 首调和 Seedance / Seedream 生成；
 2. 分别实调六个首页模型，核对模型 ID、协议、结果、错误处理和实际扣费；
-3. 验证跨子域 Session、非首页 path/query 重定向、canonical、OG、crawler 和 `noindex`；
+3. 验证跨子域 Session、非首页 path/query 重定向、canonical、OG 和 crawler；
 4. 验证 current 首页、现有 Console、模型目录和既有 API 调用无回归；
 5. 若 `payment_enabled=true`，完成真实小额购买、webhook、余额入账和退款产品路径；
 6. 按第 10 节口径完成 TTFC 验收，修复阻断核心路径的问题后重新验证；
@@ -346,12 +346,12 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 上线当日只执行已经验证过的切换：
 
 1. 再次检查六个首页模型、价格、余额扣费和支付状态；
-2. 部署最终官网，保持 `noindex + 302`；
+2. 部署最终官网，非首页路径保持临时跳转；
 3. 完成一次匿名注册、DeepSeek 首调和 Seedance / Seedream 生成；若支付已开启，同时完成真实小额支付冒烟；
-4. 冒烟通过后移除 `noindex`、开启英文 SEO，并将非首页重定向由 `302` 切为 `301`；
+4. 冒烟通过后将非首页重定向由临时跳转切为永久跳转；
 5. 检查 `global.tokenkey.dev` 的首页、公开元数据和所有 CTA 均指向正式产品路径，记录上线版本和时间。
 
-任一核心冒烟失败，立即恢复 `noindex + 302`，关闭受影响开关并回滚应用版本。产品负责人记录唯一上线结论，不以“部分可用”宣布成功。
+任一核心冒烟失败，立即恢复非首页临时跳转，关闭受影响开关并回滚应用版本。产品负责人记录唯一上线结论，不以“部分可用”宣布成功。
 
 完成标准：海外用户从发现、注册、首次调用到媒体生成形成完整体验；支付开启时购买路径同样完整；当前市场和所有既有 API 调用无回归。
 
@@ -384,7 +384,6 @@ TTFC 达标只说明接入路径足够简单，不说明 Seedance / Seedream 产
 11. desktop/mobile 下视频非空、主体可见、文本不重叠、reduced-motion 有 poster fallback；
 12. `home_content` 只覆盖 current profile，不能替换 china-export；
 13. Caddy 配置可确定性渲染，并能从 301 恢复为 302 后回退上线前版本；
-14. 未通过上线门禁时，crawler 得到 `noindex`。
 
 UI 端到端验收必须由 Playwright 驱动真实浏览器。后端 handler 测试、curl 或直接 API 调用不能替代第 10-11 条。
 
@@ -397,7 +396,7 @@ UI 端到端验收必须由 Playwright 驱动真实浏览器。后端 handler �
 3. 真实新用户只获得一次当前配置的试用赠金和一个 `Default Key`；
 4. 支付开启时，真实小额购买、webhook、余额入账和退款产品路径通过；
 5. 双 host、跨子域 Session、SEO 元数据和非首页重定向在生产环境符合合同；
-6. 生产候选保持 `noindex + 302`，正式上线切换和回滚均已实测。
+6. 生产候选保持非首页临时跳转，正式上线切换为永久跳转，且回滚均已实测。
 
 ## 13. 明确延期
 

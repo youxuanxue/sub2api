@@ -7,7 +7,7 @@
 #   SITE_DOMAIN  optional human apex host, e.g. tokenkey.dev
 #                When unset and API_DOMAIN is api.*, derives apex by stripping api.
 #   GLOBAL_SITE_DOMAIN  optional overseas homepage host, e.g. global.tokenkey.dev
-#   GLOBAL_SITE_PHASE   disabled (default), candidate (302 + noindex), or live (301)
+#   GLOBAL_SITE_PHASE   disabled (default), candidate (302), or live (301)
 #
 # Usage:
 #   API_DOMAIN=api.tokenkey.dev ACME_EMAIL=ops@example.com \
@@ -78,9 +78,7 @@ strip_render_markers() {
     -e '/^# BEGIN_API_MACHINE_SPLIT$/d' \
     -e '/^# END_API_MACHINE_SPLIT$/d' \
     -e '/^# BEGIN_GLOBAL_VHOST$/d' \
-    -e '/^# END_GLOBAL_VHOST$/d' \
-    -e '/^# BEGIN_GLOBAL_NOINDEX$/d' \
-    -e '/^# END_GLOBAL_NOINDEX$/d'
+    -e '/^# END_GLOBAL_VHOST$/d'
 }
 
 if [[ -z "${site_domain}" ]]; then
@@ -95,9 +93,6 @@ else
   sed '/^# BEGIN_API_FULL_PROXY$/,/^# END_API_FULL_PROXY$/d' "${rendered}" > "${phase_tmp}"
   if [[ -z "${global_site_domain}" ]]; then
     sed '/^# BEGIN_GLOBAL_VHOST$/,/^# END_GLOBAL_VHOST$/d' "${phase_tmp}" \
-      | strip_render_markers > "${output}"
-  elif [[ "${global_site_phase}" == "live" ]]; then
-    sed '/^# BEGIN_GLOBAL_NOINDEX$/,/^# END_GLOBAL_NOINDEX$/d' "${phase_tmp}" \
       | strip_render_markers > "${output}"
   else
     strip_render_markers < "${phase_tmp}" > "${output}"
