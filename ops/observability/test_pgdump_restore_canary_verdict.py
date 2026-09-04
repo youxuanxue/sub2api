@@ -60,6 +60,15 @@ class PgdumpRestoreCanaryVerdictTest(unittest.TestCase):
         self.assertEqual(finding["status"], "ok")
         self.assertEqual(finding["kind"], "pgdump_restore_canary")
 
+    def test_healed_from_stale_dump_receipt_is_warning_not_missing(self) -> None:
+        receipt = valid_receipt()
+        receipt["healed_from_stale_dump"] = True
+        finding = self.evaluate(json.dumps(receipt))
+        self.assertEqual(finding["status"], "warning")
+        self.assertEqual(finding["severity"], "warning")
+        self.assertIn("self-healed", finding["summary"])
+        self.assertIn("tokenkey-pgdump.timer", finding["summary"])
+
     def test_missing_receipt_is_actionable(self) -> None:
         finding = self.evaluate("")
         self.assertEqual(finding["status"], "issue_candidate")

@@ -218,9 +218,56 @@ class PgdumpRestoreCanaryTest(unittest.TestCase):
 
     def test_stale_object_fails_before_download(self) -> None:
         fake = FakeCommands(objects=[{"Key": "edge/us3/pgdump/tokenkey-20260818T010000Z.sql.gz", "LastModified": "2026-08-18T01:01:00Z", "Size": 2000}])
-        with self.assertRaisesRegex(canary.CanaryError, "stale"):
+        with self.assertRaisesRegex(canary.StaleDumpError, "stale"):
             self.run_case(fake)
         self.assertFalse(any(call[:3] == ["aws", "s3", "cp"] for call in fake.calls))
+
+    def test_main_falls_back_to_fresh_dump_when_newest_object_is_stale(self) -> None:
+        healed = {
+            "schema_version": 2,
+            "mode": "pgdump_restore_canary",
+            "target": "edge:us3",
+            "completed_at": "2026-08-18T08:00:00Z",
+            "s3_round_trip_verified": True,
+        }
+        with tempfile.TemporaryDirectory() as raw:
+            receipt_root = pathlib.Path(raw) / "canary"
+            receipt_root.mkdir()
+            with mock.patch.object(
+                canary,
+                "run_canary",
+                side_effect=canary.StaleDumpError(
+                    "newest S3 pgdump object is stale or future-dated: age=2 days"
+                ),
+            ) as restore_existing:
+                with mock.patch.object(
+                    canary, "run_fresh_dump_canary", return_value=healed
+                ) as create_dump:
+                    code = canary.main(
+                        ["--target", "edge:us3", "--receipt-root", str(receipt_root)]
+                    )
+            written = json.loads((receipt_root / "latest.json").read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        restore_existing.assert_called_once()
+        create_dump.assert_called_once()
+        self.assertEqual(create_dump.call_args.kwargs["receipt_root"], receipt_root)
+        self.assertTrue(written["healed_from_stale_dump"])
+        self.assertEqual(written["target"], "edge:us3")
+
+    def test_main_does_not_fall_back_for_non_stale_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            receipt_root = pathlib.Path(raw) / "canary"
+            with mock.patch.object(
+                canary,
+                "run_canary",
+                side_effect=canary.CanaryError("live PostgreSQL container is not running"),
+            ):
+                with mock.patch.object(canary, "run_fresh_dump_canary") as create_dump:
+                    code = canary.main(
+                        ["--target", "edge:us3", "--receipt-root", str(receipt_root)]
+                    )
+        self.assertEqual(code, 2)
+        create_dump.assert_not_called()
 
     def test_insufficient_capacity_aborts_before_docker_run(self) -> None:
         fake = FakeCommands()
