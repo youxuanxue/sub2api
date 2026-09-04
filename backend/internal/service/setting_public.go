@@ -240,6 +240,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAllowUserViewErrorRequests,
 		SettingKeySignupBonusEnabled,
 		SettingKeySignupBonusBalance,
+		SettingKeyPricingCatalogPublic,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -382,6 +383,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		SignupBonusEnabled:           signupBonusEnabled,
 		SignupBonusBalanceDisplayUSD: signupBonusBalance,
+		PricingCatalogPublic:         !isFalseSettingValue(settings[SettingKeyPricingCatalogPublic]),
 	}, nil
 }
 

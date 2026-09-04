@@ -104,6 +104,31 @@ func TestSettingService_GetPublicSettings_SignupBonusPreviewZeroWhenDisabled(t *
 	require.InDelta(t, 0, got.SignupBonusBalanceDisplayUSD, 1e-9)
 }
 
+func TestSettingService_GetPublicSettings_ExposesPricingCatalogPublic(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "enabled", value: "true", want: true},
+		{name: "explicitly disabled", value: "false", want: false},
+		{name: "missing defaults enabled", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			values := map[string]string{}
+			if tc.value != "" {
+				values[SettingKeyPricingCatalogPublic] = tc.value
+			}
+			svc := NewSettingService(&settingPublicRepoStub{values: values}, &config.Config{})
+
+			got, err := svc.GetPublicSettings(context.Background())
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got.PricingCatalogPublic)
+		})
+	}
+}
+
 func TestSettingService_GetPublicSettings_ExposesTablePreferences(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{
