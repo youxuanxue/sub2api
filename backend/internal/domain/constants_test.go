@@ -131,15 +131,20 @@ func TestDefaultAntigravityModelMapping_Gemini37MediumDefault(t *testing.T) {
 	}
 }
 
-func TestDefaultAntigravityModelMapping_Gemini38MediumDefault(t *testing.T) {
+func TestDefaultAntigravityModelMapping_Gemini38PendingLiveNotMapped(t *testing.T) {
 	t.Parallel()
 
-	if got := DefaultAntigravityModelMapping["gemini-3.8-flash"]; got != "gemini-3.8-flash-medium" {
-		t.Fatalf("gemini-3.8-flash must map to the medium wire id, got %q", got)
-	}
-	for _, wire := range []string{"gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high"} {
-		if got := DefaultAntigravityModelMapping[wire]; got != wire {
-			t.Fatalf("%s must be an identity wire mapping, got %q", wire, got)
+	// Boundary: 2026-09-04 us3/us4 fetchAvailableModels does not advertise
+	// gemini-3.8-*. Guessed wire ids must not land in the compiled default.
+	for _, key := range []string{
+		"gemini-3.8-flash",
+		"gemini-3.8-flash-low",
+		"gemini-3.8-flash-medium",
+		"gemini-3.8-flash-high",
+		"gemini-3.8-flash-tiered",
+	} {
+		if _, ok := DefaultAntigravityModelMapping[key]; ok {
+			t.Fatalf("%s must stay out of DefaultAntigravityModelMapping until live fetchAvailableModels lists it", key)
 		}
 	}
 }
