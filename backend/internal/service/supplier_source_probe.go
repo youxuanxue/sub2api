@@ -56,8 +56,8 @@ type SupplierProbeRejectedCandidate struct {
 
 // SupplierSourceProbeResult is a read-only preview used by probe before account projection.
 // List + normalize return immediately; candidate Chat probes continue asynchronously under JobID.
-// It never writes accounts or the supplier source row. The UI applies NormalizedModels when
-// NeedsConfirmation is set; SuggestedAppends stay opt-in via an explicit form action.
+// It never writes accounts or the supplier source row. The UI drafts NormalizedModels and
+// SuggestedAppends into the editor when NeedsConfirmation is set; persistence still requires save.
 type SupplierSourceProbeResult struct {
 	SourceID           int64                            `json:"source_id"`
 	JobID              string                           `json:"job_id,omitempty"`
