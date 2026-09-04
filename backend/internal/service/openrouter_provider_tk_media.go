@@ -24,12 +24,11 @@ const (
 var openRouterChatCompletionDataURIRe = regexp.MustCompile(`data:([^;)\s]+);base64,([A-Za-z0-9+/=]+)`)
 
 // OpenRouterProviderImageRoute picks the backend pipeline for OR seller POST /v1/images.
-// Route by model identity (after stripping public tokenkey/ prefix). Do NOT require
+// Route by model identity (after stripping public tokenkey/ prefix). Do NOT use
 // apiKey.Group.Platform: OR inference keys are universal (group_id NULL) and platform
 // is only known after later universal routing — waiting on Group.Platform sent every
 // gemini-*-image request down the OpenAI images path as "Unsupported model".
-func OpenRouterProviderImageRoute(platform, model string) OpenRouterImageRoute {
-	_ = platform // retained for call-site compatibility; model id is the SSOT
+func OpenRouterProviderImageRoute(model string) OpenRouterImageRoute {
 	model = openRouterProviderImageRouteModelID(model)
 	switch {
 	case antigravity.IsImageModel(model):

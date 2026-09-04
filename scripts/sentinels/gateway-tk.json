@@ -6748,11 +6748,10 @@
         "OpenRouterProviderVideoSubmit",
         "OpenRouterProviderVideoFetch",
         "OpenRouterProviderImageRoute",
-        "openRouterProviderGroupPlatform",
         "TranslateOpenRouterImageRequestToOpenAI",
         "BuildOpenRouterVideoSubmitResponse"
       ],
-      "rationale": "OpenRouter seller image/video inference adapters: OR JSON ↔ internal handlers with platform dispatch (antigravity chat for gemini-*-image, grok/openai-compat otherwise) and OR response shapes (b64_json images, 202 video submit + poll)."
+      "rationale": "OpenRouter seller image/video inference adapters: OR JSON ↔ internal handlers with model-id dispatch (antigravity chat for gemini-*-image, grok/openai-compat otherwise) and OR response shapes (b64_json images, 202 video submit + poll)."
     },
     {
       "path": "backend/internal/service/openrouter_provider_tk_media.go",
