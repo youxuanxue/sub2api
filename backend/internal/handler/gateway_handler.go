@@ -32,7 +32,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 )
 
 const gatewayCompatibilityMetricsLogInterval = 1024
@@ -130,32 +129,6 @@ func NewGatewayHandler(
 	}
 }
 
-func prepareGatewayMessagesExecution(
-	c *gin.Context,
-	gatewayService *service.GatewayService,
-	account *service.Account,
-	groupID *int64,
-	parsed *service.ParsedRequest,
-	mapping service.ChannelMappingResult,
-	request protocolrouter.CanonicalRequest,
-) (*service.ParsedRequest, []byte, error) {
-	executionParsed := *parsed
-	if err := executionParsed.ReplaceBody(request.Body()); err != nil {
-		return nil, nil, err
-	}
-	if mapping.Mapped {
-		executionParsed.Model = mapping.MappedModel
-		if err := executionParsed.ReplaceBody(gatewayService.ReplaceModelInBody(executionParsed.Body.Bytes(), mapping.MappedModel)); err != nil {
-			return nil, nil, err
-		}
-	}
-	if err := executionParsed.ReplaceBody(gatewayService.ApplyBedrockCCCompat(c, executionParsed.Body.Bytes(), executionParsed.Model, account, groupID)); err != nil {
-		return nil, nil, err
-	}
-	c.Set("parsed_request", &executionParsed)
-	return &executionParsed, executionParsed.Body.Bytes(), nil
-}
-
 // Messages handles Claude API compatible messages endpoint
 // POST /v1/messages
 func (h *GatewayHandler) Messages(c *gin.Context) {
@@ -247,18 +220,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
 	}
-	canonicalRequest, err := newCanonicalProtocolRequest(
-		protocolrouter.ProtocolMessages,
-		protocolrouter.ResponsesPathNone,
-		reqModel,
-		reqStream,
-		body,
-	)
-	if err != nil {
+	if err := h.tkAttachMessagesProtocolRouting(c, reqModel, reqStream, body); err != nil {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
-	c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
@@ -357,20 +322,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
-	var recoveryExcludedAccountID int64
-	if platform == service.PlatformKiro && sessionKey != "" {
-		var recoveryErr error
-		recoveryExcludedAccountID, recoveryErr = h.gatewayService.ConsumeKiroSessionRecovery(c.Request.Context(), apiKey.GroupID, sessionKey)
-		if recoveryErr != nil {
-			reqLog.Warn("gateway.kiro_session_recovery_consume_failed", zap.Error(recoveryErr))
-			recoveryExcludedAccountID = 0
-		}
-		if recoveryExcludedAccountID > 0 {
-			reqLog.Warn("gateway.kiro_session_recovery_excluding_account",
-				zap.Int64("account_id", recoveryExcludedAccountID),
-			)
-		}
-	}
+	recoveryExcludedAccountID := h.tkConsumeKiroSessionRecovery(c.Request.Context(), reqLog, platform, apiKey.GroupID, sessionKey)
 
 	if platform == service.PlatformAnthropic {
 		if h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog) {
@@ -700,10 +652,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	for {
 		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
-		if recoveryExcludedAccountID > 0 {
-			fs.FailedAccountIDs[recoveryExcludedAccountID] = struct{}{}
-			recoveryExcludedAccountID = 0
-		}
+		tkSeedFailoverExcludedAccount(fs, &recoveryExcludedAccountID)
 		retryWithFallback := false
 
 		for {
@@ -918,72 +867,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			forwardStart := time.Now()
-			value, executeErr := service.ExecuteSelectedProtocol(
-				requestCtx,
-				h.protocolRouter,
-				selection,
-				account,
-				h.gatewayService.ValidateProtocolEndpoint,
-				h.gatewayService.LoadProtocolExecutionAccount,
-				service.ProtocolExecutors{
-					NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-						executionParsedReq, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
-						if prepareErr != nil {
-							return nil, prepareErr
-						}
-						if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
-							return h.antigravityGatewayService.Forward(executionCtx, c, account, attemptBody, hasBoundSession)
-						}
-						return h.gatewayService.Forward(executionCtx, c, account, executionParsedReq)
-					},
-					MessagesIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-						executionParsedReq, _, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
-						if prepareErr != nil {
-							return nil, prepareErr
-						}
-						setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						return h.gatewayService.Forward(executionCtx, c, account, executionParsedReq)
-					},
-					MessagesToResponses: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-						_, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
-						if prepareErr != nil {
-							return nil, prepareErr
-						}
-						setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						openAIResult, forwardErr := h.openAIGatewayService.ForwardAsAnthropic(executionCtx, c, account, attemptBody, "", channelMapping.MappedModel)
-						return service.ForwardResultFromOpenAI(openAIResult), forwardErr
-					},
-					MessagesToChat: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-						_, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
-						if prepareErr != nil {
-							return nil, prepareErr
-						}
-						setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						openAIResult, forwardErr := h.openAIGatewayService.ForwardAsAnthropicDispatched(executionCtx, c, account, attemptBody, "", channelMapping.MappedModel)
-						return service.ForwardResultFromOpenAI(openAIResult), forwardErr
-					},
-					MessagesToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-						_, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
-						if prepareErr != nil {
-							return nil, prepareErr
-						}
-						setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-						return service.ExecuteGeminiProtocolProfile(
-							plan.GeminiProfile(),
-							func() (*service.ForwardResult, error) {
-								return h.antigravityGatewayService.Forward(executionCtx, c, account, attemptBody, hasBoundSession)
-							},
-							func() (*service.ForwardResult, error) {
-								return h.geminiCompatService.Forward(executionCtx, c, account, attemptBody)
-							},
-						)
-					},
-				},
-			)
-			err = executeErr
-			if value != nil {
-				result, _ = value.(*service.ForwardResult)
-			}
+			result, err = h.executeMessagesSelectedProtocol(c, requestCtx, selection, account, apiKey, attemptParsedReq, channelMapping, hasBoundSession)
 			tkRecordForwardResponseTail(c, forwardStart)
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）
@@ -1059,21 +943,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			if err != nil {
-				if service.IsKiroPostOutputStreamDisconnect(err) && sessionKey != "" {
-					recoveryCtx, cancelRecovery := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 2*time.Second)
-					recoveryErr := h.gatewayService.RememberKiroSessionRecovery(recoveryCtx, currentAPIKey.GroupID, sessionKey, account.ID)
-					cancelRecovery()
-					if recoveryErr != nil {
-						reqLog.Warn("gateway.kiro_session_recovery_record_failed",
-							zap.Int64("account_id", account.ID),
-							zap.Error(recoveryErr),
-						)
-					} else {
-						reqLog.Warn("gateway.kiro_session_recovery_recorded",
-							zap.Int64("account_id", account.ID),
-						)
-					}
-				}
+				h.tkRememberKiroSessionRecoveryOnDisconnect(c, reqLog, currentAPIKey.GroupID, sessionKey, account.ID, err)
 				// Beta policy block: return 400 immediately, no failover
 				var betaBlockedErr *service.BetaBlockedError
 				if errors.As(err, &betaBlockedErr) {
@@ -1082,41 +952,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 
-				if h.handleKiroContentFilteredError(c, err) {
-					return
-				}
-
-				// Kiro upstream rejected the model (HTTP 400 INVALID_MODEL_ID):
-				// return 400 immediately with a clear message, no failover (every
-				// Kiro account rejects the same unknown model identically).
-				var kiroInvalidModelErr *service.KiroInvalidModelError
-				if errors.As(err, &kiroInvalidModelErr) {
-					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", kiroInvalidModelErr.ClientMessage())
-					return
-				}
-
-				var kiroInvalidRequestErr *service.KiroInvalidRequestError
-				if errors.As(err, &kiroInvalidRequestErr) {
-					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", kiroInvalidRequestErr.ClientMessage())
-					return
-				}
-
-				var kiroQuotaErr *service.KiroEndpointQuotaExhaustedError
-				if errors.As(err, &kiroQuotaErr) {
-					c.Header("Retry-After", strconv.Itoa(service.KiroEndpointQuotaExhaustedRetryAfterSeconds()))
-					h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", kiroQuotaErr.ClientMessage())
-					return
-				}
-
-				// TK canonical-OAuth ingress UA reject: 403 immediately, no failover.
-				// Local policy denial, not account/provider health — mark it
-				// business-limited so strict-mode canary reject volume stays out of
-				// error-rate dashboards (mirrors the BetaBlockedError branch above).
-				// See gateway_service_tk_canonical_oauth_guard.go.
-				var canonicalUARejectErr *service.CanonicalIngressUARejectedError
-				if errors.As(err, &canonicalUARejectErr) {
-					service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalPolicyDenied)
-					h.errorResponse(c, http.StatusForbidden, "permission_error", canonicalUARejectErr.Error())
+				if h.tkHandleMessagesNonFailoverForwardError(c, err) {
 					return
 				}
 
@@ -1273,27 +1109,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
-	if apiKey != nil && apiKey.IsUniversal() && groupID == nil {
-		protocol := service.UniversalProtocolOpenAI
-		if isAnthropicModelsRequest(c) {
-			protocol = service.UniversalProtocolAnthropic
-		}
-		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, protocol)
-		if err != nil {
-			requestLogger(c, "gateway.models", zap.String("protocol", string(protocol))).Warn("capability_discovery_failed", zap.Error(err))
-			if protocol == service.UniversalProtocolAnthropic {
-				h.errorResponse(c, http.StatusInternalServerError, "api_error", "Model discovery unavailable")
-			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Model discovery unavailable"}})
-			}
-			return
-		}
-		ids := capabilityModelIDs(capabilities, "")
-		if protocol == service.UniversalProtocolAnthropic {
-			c.JSON(http.StatusOK, gin.H{"object": "list", "data": claude.ModelsForIDs(ids)})
-		} else {
-			c.JSON(http.StatusOK, gin.H{"object": "list", "data": openai.ModelsForIDs(ids)})
-		}
+	if h.tryServeUniversalModels(c, apiKey, groupID) {
 		return
 	}
 
@@ -1576,17 +1392,6 @@ func customModelsListAllowsModel(availablePatterns []string, model string) bool 
 	return false
 }
 
-func customModelsListComparableModel(model string) string {
-	model = strings.TrimSpace(model)
-	if model == "" || !strings.HasPrefix(model, "claude-") {
-		return model
-	}
-	if base, ok := strings.CutSuffix(model, "-thinking"); ok {
-		model = base
-	}
-	return claude.DenormalizeModelID(model)
-}
-
 func defaultModelIDsForPlatform(platform string) []string {
 	switch platform {
 	case service.PlatformOpenAI:
@@ -1659,33 +1464,7 @@ func mergeModelIDs(primary, secondary []string) []string {
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
-	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.IsUniversal() && apiKey.Group == nil {
-		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolAntigravity)
-		if err != nil {
-			requestLogger(c, "gateway.antigravity_models", zap.String("protocol", string(service.UniversalProtocolAntigravity))).Warn("capability_discovery_failed", zap.Error(err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Model discovery unavailable"}})
-			return
-		}
-		models := antigravityModelsForCapabilityIDs(capabilityModelIDs(capabilities, ""))
-		c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
-		return
-	}
-	// TK: §5.x override-default — filter antigravity.DefaultModels() by pricing +
-	// availability. Candidate set is always the antigravity-specific list (not the
-	// full cross-platform catalog). Response shape is always []antigravity.ClaudeModel.
-	// Goal 2 / R-003; shape/scope regression fix from review-20260507 R-001/R-002.
-	models := h.tkAntigravityDefaultModels(c.Request.Context())
-	// TK: enforce the group's supported_model_scopes on the advertised list, so a
-	// narrow antigravity group without the claude scope hides Claude here. Empty
-	// scopes = unrestricted; canonical scopes (claude + gemini_text + gemini_image)
-	// are enforced only after an operator-reviewed apply-accounts run.
-	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
-		models = tkAntigravityFilterModelsByGroupScopes(apiKey.Group.SupportedModelScopes, models)
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	h.serveAntigravityModels(c)
 }
 
 func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service.APIKey {
@@ -1728,21 +1507,7 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 		return
 	}
 
-	var usageData gin.H
-	var dailyUsage any
-	var modelStats any
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { usageData = h.buildUsageData(gctx, apiKey.ID); return nil })
-	g.Go(func() error { dailyUsage = h.buildAPIKeyDailyUsage(c, subject.UserID, apiKey.ID, days); return nil })
-	g.Go(func() error {
-		if h.usageService != nil {
-			if stats, err := h.usageService.GetAPIKeyModelStats(gctx, apiKey.ID, startTime, endTime); err == nil && len(stats) > 0 {
-				modelStats = stats
-			}
-		}
-		return nil
-	})
-	_ = g.Wait()
+	usageData, dailyUsage, modelStats := h.tkLoadUsageAggregates(c, ctx, subject.UserID, apiKey.ID, days, startTime, endTime)
 
 	// 判断模式: key 有总额度或速率限制 → quota_limited，否则 → unrestricted
 	isQuotaLimited := apiKey.Quota > 0 || apiKey.HasRateLimits()
@@ -2046,22 +1811,9 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 	}
 
 	if failoverErr.ClientStatusCode > 0 {
-		// 记录原始上游状态码，以便 ops 错误日志捕获真实的上游错误。
-		upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
-		service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
-		if retryAfter := failoverErr.ResponseHeaders.Get("Retry-After"); retryAfter != "" {
-			c.Header("Retry-After", retryAfter)
+		if h.tkHandleFailoverClientStatus(c, failoverErr, statusCode, responseBody, streamStarted) {
+			return
 		}
-		message := failoverErr.ClientMessage
-		if message == "" {
-			message = service.GatewayFailoverClientMessage(failoverErr.ClientStatusCode)
-		}
-		errType := strings.TrimSpace(failoverErr.ClientErrorType)
-		if errType == "" {
-			errType = "api_error"
-		}
-		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, errType, message, streamStarted)
-		return
 	}
 
 	// 先检查透传规则
@@ -2094,24 +1846,14 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
-	if statusCode == http.StatusForbidden {
-		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
-	}
-	if platform == service.PlatformAnthropic {
-		if msg := service.ExtractUpstreamErrorMessage(responseBody); msg != "" {
-			errMsg = msg
-		}
-		errMsg = service.TkEnrichClaudeIncidentMessage(errMsg, statusCode)
-	}
+	errMsg = h.tkEnrichMappedUpstreamErrorMessage(c, platform, statusCode, responseBody, errMsg)
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
 
 // handleFailoverExhaustedSimple 简化版本，用于没有响应体的情况
 func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
-	if statusCode == http.StatusForbidden {
-		errMsg = service.TkEnrichForbiddenMessage(c, errMsg)
-	}
+	errMsg = h.tkEnrichMappedUpstreamErrorMessage(c, "", statusCode, nil, errMsg)
 	service.SetOpsUpstreamError(c, statusCode, errMsg, "")
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
 }
@@ -2172,28 +1914,6 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 // 否则下游收到的就是 silent EOF。
 func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool {
 	return h.ensureForwardErrorResponseForError(c, nil, streamStarted)
-}
-
-func (h *GatewayHandler) ensureForwardErrorResponseForError(c *gin.Context, err error, streamStarted bool) bool {
-	if c == nil || c.Writer == nil {
-		return false
-	}
-	// A canceled inbound request means the caller has already gone away. Writing a
-	// generic 502 here only corrupts access/ops semantics; there is no client left
-	// to receive it. Keep the established 499 classification used by failover and
-	// concurrency cancellation paths.
-	if isClientClosedRequest(c, err) {
-		markClientClosedForwardRequest(c)
-		return false
-	}
-	if service.IsResponseCommitted(c) {
-		return false
-	}
-	if c.Writer.Written() {
-		streamStarted = true
-	}
-	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", streamStarted)
-	return true
 }
 
 // gatewayForwardErrorAlreadyCommunicated reports whether a Forward implementation
@@ -2274,17 +1994,6 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 			"message": message,
 		},
 	})
-}
-
-func (h *GatewayHandler) handleKiroContentFilteredError(c *gin.Context, err error) bool {
-	var contentFilteredErr *service.KiroContentFilteredError
-	if !errors.As(err, &contentFilteredErr) {
-		return false
-	}
-	service.MarkOpsClientContentFiltered(c)
-	c.Header(service.KiroOutcomeHeader, service.KiroContentFilteredOutcome)
-	h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.KiroContentFilteredClientMessage())
-	return true
 }
 
 // CountTokens handles token counting endpoint

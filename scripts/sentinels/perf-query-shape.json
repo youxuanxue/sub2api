@@ -197,11 +197,11 @@
       "rationale": "ListAffiliateInvite/Rebate/TransferRecords MUST use COUNT(*) OVER() instead of a separate COUNT(*) query before the paginated SELECT. Reverting to dual sequential queries returns byte-identical pagination totals but doubles DB round-trips (~780ms → ~400ms TTFB on /admin/affiliates/transfers). affiliate_repo.go is upstream-shaped and churned; integration tests do not assert query shape, so this substring is the only mechanical guard."
     },
     {
-      "path": "backend/internal/handler/gateway_handler.go",
+      "path": "backend/internal/handler/gateway_handler_tk_usage.go",
       "must_contain": [
-        "g.Go(func() error { usageData = h.buildUsageData(gctx, apiKey.ID); return nil })"
+        "g.Go(func() error { usageData = h.buildUsageData(gctx, apiKeyID); return nil })"
       ],
-      "rationale": "GatewayHandler.Usage (/key-usage) MUST parallelize buildUsageData, buildAPIKeyDailyUsage, and GetAPIKeyModelStats via errgroup.WithContext. Reverting to sequential calls returns byte-identical JSON but restores ~612ms TTFB (~250ms when parallel). gateway_handler.go is upstream-owned; no test asserts concurrency shape, so this call-site substring is the mechanical guard."
+      "rationale": "GatewayHandler.Usage (/key-usage) MUST parallelize buildUsageData, buildAPIKeyDailyUsage, and GetAPIKeyModelStats via errgroup.WithContext. Reverting to sequential calls returns byte-identical JSON but restores ~612ms TTFB (~250ms when parallel). gateway_handler_tk_usage.go owns the errgroup shape after TK companion extraction; no test asserts concurrency shape, so this call-site substring is the mechanical guard."
     }
   ]
 }

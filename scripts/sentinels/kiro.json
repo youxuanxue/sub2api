@@ -527,9 +527,8 @@
       "rationale": "Registration of KiroTokenRefresher into the background refresh ticker's refreshers[]/executors[]. An upstream merge that rewrites NewTokenRefreshService must preserve this line, or kiro refresh never runs even though the refresher type still exists."
     },
     {
-      "path": "backend/internal/handler/gateway_handler.go",
+      "path": "backend/internal/handler/gateway_handler_tk_kiro.go",
       "must_contain": [
-        "account.IsKiro()",
         "handleKiroContentFilteredError",
         "service.MarkOpsClientContentFiltered(c)",
         "service.KiroInvalidModelError",

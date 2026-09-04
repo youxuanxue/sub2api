@@ -24,7 +24,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             path = root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             gemini_executors = {
-                "backend/internal/handler/gateway_handler.go": "MessagesToGemini",
+                "backend/internal/handler/gateway_handler_tk_protocol_execute.go": "MessagesToGemini",
                 "backend/internal/handler/gateway_handler_chat_completions.go": "ChatToGemini",
                 "backend/internal/handler/gateway_handler_responses.go": "ResponsesToGemini",
                 "backend/internal/handler/openai_gateway_handler.go": "MessagesToGemini: route, ResponsesToGemini",
