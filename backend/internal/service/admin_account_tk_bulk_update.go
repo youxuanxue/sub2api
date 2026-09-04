@@ -4,8 +4,10 @@ import (
 	"context"
 )
 
-// tkPrepareBulkUpdateExtras applies TokenKey bulk-update Extra guards and
-// upstream-billing probe eligibility checks against the hydrated target set.
+// tkPrepareBulkUpdateExtras applies TokenKey bulk-update Extra guards against
+// the hydrated target set. ProbeEnabled eligibility stays AFTER OpenAI settings
+// validation in BulkUpdateAccounts so dual-failure error priority matches the
+// pre-companion order (supplier → OpenAI settings → probe).
 func (s *adminServiceImpl) tkPrepareBulkUpdateExtras(input *BulkUpdateAccountsInput, cachedTargets []*Account) error {
 	hasManaged := false
 	for _, account := range cachedTargets {
@@ -19,25 +21,25 @@ func (s *adminServiceImpl) tkPrepareBulkUpdateExtras(input *BulkUpdateAccountsIn
 	} else if err := ValidateSupplierReservedAccountExtra(input.Extra); err != nil {
 		return err
 	}
+	return nil
+}
 
-	if input.ProbeEnabled != nil {
-		targetsByID := make(map[int64]*Account, len(cachedTargets))
-		for _, account := range cachedTargets {
-			if account != nil {
-				targetsByID[account.ID] = account
-			}
+// tkValidateBulkProbeEnabled enforces upstream-billing probe eligibility after
+// OpenAI settings validation (same relative order as origin/main BulkUpdate).
+func (s *adminServiceImpl) tkValidateBulkProbeEnabled(input *BulkUpdateAccountsInput, targetsByID map[int64]*Account) error {
+	if input == nil || input.ProbeEnabled == nil {
+		return nil
+	}
+	for _, accountID := range input.AccountIDs {
+		account, ok := targetsByID[accountID]
+		if !ok {
+			return ErrAccountNotFound
 		}
-		for _, accountID := range input.AccountIDs {
-			account, ok := targetsByID[accountID]
-			if !ok {
-				return ErrAccountNotFound
-			}
-			if !isUpstreamBillingProbeAccount(account) {
-				return ErrUpstreamBillingProbeAccountInvalid
-			}
-			if *input.ProbeEnabled && !upstreamBillingProbeSupportsSub2APIBilling(account) {
-				return ErrUpstreamBillingProbeAccountInvalid
-			}
+		if !isUpstreamBillingProbeAccount(account) {
+			return ErrUpstreamBillingProbeAccountInvalid
+		}
+		if *input.ProbeEnabled && !upstreamBillingProbeSupportsSub2APIBilling(account) {
+			return ErrUpstreamBillingProbeAccountInvalid
 		}
 	}
 	return nil

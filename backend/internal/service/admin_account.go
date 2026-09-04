@@ -601,6 +601,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		}
 		result.LongContextInheritedCount = inheritedCount
 	}
+	if err := s.tkValidateBulkProbeEnabled(input, targetsByID); err != nil {
+		return nil, err
+	}
 	// 影子账号绝不持有凭据:批量更新携带凭据时,目标中不得含影子(外审 G5,与单账号
 	// UpdateAccount 守卫对齐)。覆盖显式 IDs 与 filter 解析出的 IDs(此处 AccountIDs 已解析完成)。
 	if len(input.Credentials) > 0 {
