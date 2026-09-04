@@ -132,6 +132,19 @@ class SupplierProjectionCheckTest(unittest.TestCase):
             ["protocol_capability_link"],
         )
 
+    def test_empty_text_band_retains_protocol_capability(self) -> None:
+        account = self.account()
+        account["name"] = "cloudwise/default · 档位 3"
+        account["credentials"]["model_mapping"] = {}
+        account["extra"]["supplier_discount_band"] = 3
+        account["priority"] = 230
+
+        report = MOD.evaluate_snapshot(
+            {"sources": [self.source()], "accounts": [self.account(), account]}, self.key
+        )
+
+        self.assertEqual(report["verdict"], "aligned")
+
     def test_missing_band_and_orphan_account_are_reported(self) -> None:
         orphan = self.account()
         orphan["id"] = 999

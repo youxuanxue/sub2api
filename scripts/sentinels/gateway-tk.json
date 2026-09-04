@@ -8015,7 +8015,8 @@
         "test_runtime_scheduling_state_does_not_create_drift",
         "test_structural_and_credential_drift_is_field_named_and_redacted",
         "test_media_only_projection_needs_no_text_capability",
-        "test_media_only_stale_text_capability_is_drift"
+        "test_media_only_stale_text_capability_is_drift",
+        "test_empty_text_band_retains_protocol_capability"
       ],
       "rationale": "Behavior regressions pin runtime-state exclusion, credential redaction, structural drift, and the media-only capability lifecycle for the post-release checker."
     },

@@ -111,12 +111,12 @@ def _expected_protocol(source: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _protocol_differences(
-    account: dict[str, Any], source: dict[str, Any], desired_mapping: dict[str, str]
+    account: dict[str, Any], source: dict[str, Any]
 ) -> list[str]:
     capability_id = account.get("capability_id")
     capability_key = account.get("capability_key")
     supported = account.get("supported_protocols") or []
-    if not desired_mapping or int(source.get("channel_type") or 0) in MEDIA_ONLY_CHANNEL_TYPES:
+    if int(source.get("channel_type") or 0) in MEDIA_ONLY_CHANNEL_TYPES:
         if capability_id is not None or capability_key or supported:
             return ["protocol_capability_link"]
         return []
@@ -269,7 +269,7 @@ def evaluate_snapshot(snapshot: dict[str, Any], fingerprint_key: str) -> dict[st
                     differences.append("priority")
                 if int(account.get("concurrency") or 0) != expected_concurrency:
                     differences.append("concurrency")
-                differences.extend(_protocol_differences(account, source, desired_mapping))
+                differences.extend(_protocol_differences(account, source))
                 account_results.append(
                     {
                         "account_id": account.get("id"),
