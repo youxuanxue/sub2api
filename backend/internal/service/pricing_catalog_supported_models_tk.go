@@ -159,6 +159,7 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 	"gemini-3.5-flash-lite":         {},
 	"gemini-3.6-flash":              {},
 	"gemini-3.7-flash":              {},
+	"gemini-3.8-flash":              {},
 	"imagen-4.0-fast-generate-001":  {},
 	"imagen-4.0-generate-001":       {},
 	"imagen-4.0-ultra-generate-001": {},

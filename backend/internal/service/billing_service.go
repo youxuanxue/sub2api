@@ -382,6 +382,12 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 0.075e-6,
 		SupportsCacheBreakdown: false,
 	}
+	s.fallbackPrices["gemini-3.8-flash"] = &ModelPricing{
+		InputPricePerToken:     0.75e-6,
+		OutputPricePerToken:    3.75e-6,
+		CacheReadPricePerToken: 0.075e-6,
+		SupportsCacheBreakdown: false,
+	}
 
 	// OpenAI GPT-5.4（业务指定价格）
 	s.fallbackPrices["gpt-5.4"] = &ModelPricing{
@@ -835,6 +841,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	}
 	if strings.Contains(modelLower, "gemini-3.1-pro") || strings.Contains(modelLower, "gemini-3-1-pro") {
 		return s.fallbackPrices["gemini-3.1-pro"]
+	}
+	if strings.Contains(modelLower, "gemini-3.8-flash") || strings.Contains(modelLower, "gemini-3-8-flash") {
+		return s.fallbackPrices["gemini-3.8-flash"]
 	}
 	if strings.Contains(modelLower, "gemini-3.7-flash") || strings.Contains(modelLower, "gemini-3-7-flash") {
 		return s.fallbackPrices["gemini-3.7-flash"]

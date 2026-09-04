@@ -96,7 +96,7 @@ func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 	owners := []string{
 		"claude-sonnet-4", "claude-3-5-sonnet", "claude-3-5-haiku",
 		"claude-3-opus", "claude-3-haiku", "claude-fable-5",
-		"gemini-3.1-pro", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-pro",
+		"gemini-3.1-pro", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-pro",
 		"gemini-2.5-flash-lite", "gemini-2.5-flash", "glm-4.7-flash",
 		"glm-4.5-flash", "kimi-k3", "kimi-k2.6", "kimi-k2.5", "kimi-k2-thinking", "kimi-k2",
 		"minimax-m3", "minimax-m2.7-highspeed", "minimax-m2.7",

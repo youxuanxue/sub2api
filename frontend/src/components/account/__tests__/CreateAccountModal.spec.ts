@@ -46,6 +46,9 @@ vi.mock('@/api/admin', () => ({
     tlsFingerprintProfiles: {
       list: vi.fn().mockResolvedValue([]),
     },
+    gemini: {
+      getCapabilities: vi.fn().mockResolvedValue({ ai_studio_oauth_enabled: false }),
+    },
   },
 }))
 
@@ -491,6 +494,29 @@ describe('CreateAccountModal Grok OAuth upstream config', () => {
 
     expect(showErrorMock).toHaveBeenCalledWith('admin.accounts.headerOverride.blockedName')
     expect(createAccountMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('CreateAccountModal Gemini OAuth channel defaults', () => {
+  it('defaults new Gemini OAuth to code_assist and marks google_one as legacy', async () => {
+    expect(createAccountModalSource).toContain("ref<'code_assist' | 'google_one' | 'ai_studio'>('code_assist')")
+    expect(createAccountModalSource).toContain('data-testid="gemini-oauth-personal-subscription-hint"')
+    expect(createAccountModalSource).toContain('admin.accounts.gemini.oauthType.personalSubscriptionHint')
+    expect(createAccountModalSource).toContain('admin.accounts.gemini.oauthType.badges.legacy')
+
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Gemini')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="gemini-oauth-personal-subscription-hint"]').text()).toBe(
+      'admin.accounts.gemini.oauthType.personalSubscriptionHint'
+    )
+    expect(wrapper.get('[data-testid="gemini-oauth-type-code-assist"]').classes().join(' ')).toContain(
+      'border-blue-500'
+    )
+    expect(wrapper.get('[data-testid="gemini-oauth-type-google-one"]').text()).toContain(
+      'admin.accounts.gemini.oauthType.badges.legacy'
+    )
   })
 })
 

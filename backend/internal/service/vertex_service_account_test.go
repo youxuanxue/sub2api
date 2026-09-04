@@ -105,6 +105,7 @@ func TestVertexLocationUsesGlobalForGlobalOnlyGeminiModels(t *testing.T) {
 	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3.5-flash-lite"))
 	require.Equal(t, vertexGlobalLocation, account.VertexLocation("models/gemini-3.6-flash"))
 	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3.7-flash"))
+	require.Equal(t, vertexGlobalLocation, account.VertexLocation("gemini-3.8-flash"))
 	require.Equal(t, "us-central1", account.VertexLocation("gemini-2.5-flash"))
 }
 

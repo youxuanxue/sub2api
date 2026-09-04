@@ -157,6 +157,10 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.7-flash-high":   "gemini-3.7-flash-high",
 	"gemini-3.7-flash-low":    "gemini-3.7-flash-low",
 	"gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
+	// Gemini 3.8 Flash is priced and listed on Gemini API / Vertex, but
+	// 2026-09-04 us3/us4 fetchAvailableModels still has no gemini-3.8-*
+	// wire ids. Do not add guessed -medium/-tiered keys here: empty-mapping
+	// edge OAuth accounts serve this map at generic deploy time.
 	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
 	"gemini-pro-agent": "gemini-pro-agent",
 }
