@@ -417,6 +417,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/admin/supplier-sources/:id/probe/jobs/:job_id` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/supplier-sources/:id/sync` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/supplier-sources/:id/validate` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/supplier-sources/discover-channel-scoped-defaults` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/supplier-sources/priority-preview` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/system/check-updates` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/system/restart` from `backend/internal/server/routes/admin.go`

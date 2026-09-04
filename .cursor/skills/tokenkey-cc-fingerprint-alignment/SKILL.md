@@ -42,7 +42,7 @@ python3 ops/anthropic/capture_cc_fingerprint.py classify-config \
 
 关联：本机 `cc0-here` / `claude0-here` launcher（抓包环境）、`tokenkey-anthropic-oauth-config`
 skill（ja3 变更时的 TLS profile apply）、
-`docs/spec-delta/cc-canonical-ua-beta-2.1.152.md`（PR #423 实例）。
+`docs/spec-delta/cc-oauth-mimicry-fingerprint-scope.md` + `docs/ops/cc-fingerprint-changelog.md`。
 
 ## 抓包 / 日更
 

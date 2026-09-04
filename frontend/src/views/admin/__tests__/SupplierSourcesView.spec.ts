@@ -4,11 +4,12 @@ import { nextTick } from 'vue'
 
 import SupplierSourcesView from '../SupplierSourcesView.vue'
 
-const { list, create, update, priorityPreview, discover, getDiscoverJob, validate, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
+const { list, create, update, priorityPreview, discoverChannelScopedDefaults, discover, getDiscoverJob, validate, sync, routeQuery, channelTypes } = vi.hoisted(() => ({
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
   priorityPreview: vi.fn(),
+  discoverChannelScopedDefaults: vi.fn(),
   discover: vi.fn(),
   getDiscoverJob: vi.fn(),
   validate: vi.fn(),
@@ -16,6 +17,7 @@ const { list, create, update, priorityPreview, discover, getDiscoverJob, validat
   routeQuery: {} as Record<string, unknown>,
   channelTypes: { value: [
     { channel_type: 1, name: 'OpenAI', base_url: 'https://api.openai.com/v1' },
+    { channel_type: 14, name: 'Anthropic', base_url: 'https://api.anthropic.com' },
     { channel_type: 17, name: 'Ali', base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
     { channel_type: 46, name: 'Baidu V2', base_url: 'https://qianfan.baidubce.com' },
   ] },
@@ -31,7 +33,19 @@ vi.mock('@/composables/useNewApiChannelTypes', () => ({
 }))
 
 vi.mock('@/api/admin', () => ({
-  adminAPI: { supplierSources: { list, create, update, priorityPreview, discover, getDiscoverJob, validate, sync } },
+  adminAPI: {
+    supplierSources: {
+      list,
+      create,
+      update,
+      priorityPreview,
+      discoverChannelScopedDefaults,
+      discover,
+      getDiscoverJob,
+      validate,
+      sync,
+    },
+  },
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -68,6 +82,7 @@ describe('SupplierSourcesView', () => {
     create.mockReset()
     update.mockReset()
     priorityPreview.mockReset().mockResolvedValue({ entries: [], warnings: [] })
+    discoverChannelScopedDefaults.mockReset().mockResolvedValue({ channel_types: [14] })
     discover.mockReset().mockResolvedValue({
       source_id: 7,
       probe_status: 'completed',
@@ -248,12 +263,44 @@ describe('SupplierSourcesView', () => {
     await nextTick()
 
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
-    expect(discover).toHaveBeenCalledWith(7)
+    expect(discover).toHaveBeenCalledWith(7, {})
     expect(validate).toHaveBeenCalledWith(7)
     expect(sync).toHaveBeenCalledWith(7)
 
     resolveSync({ source_id: 7, probe_results: [], changes: [] })
     await flushPromises()
+  })
+
+  it('defaults channel-scoped discover only for Anthropic and can enable it for other channels', async () => {
+    list.mockResolvedValueOnce([source])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+
+    const checkbox = wrapper.get('[data-test="discover-channel-scoped"] input')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(false)
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
+    await flushPromises()
+    expect(discover).toHaveBeenCalledWith(7, {})
+
+    discover.mockClear()
+    await checkbox.setValue(true)
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
+    await flushPromises()
+    expect(discover).toHaveBeenCalledWith(7, { channelScoped: true })
+
+    const anthropicSource = { ...source, id: 8, channel_type: 14, supplier_lane: 'anthropic' }
+    list.mockResolvedValueOnce([anthropicSource])
+    const anthropicWrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await anthropicWrapper.get('[data-test="source-select-8"]').trigger('click')
+    expect(
+      (anthropicWrapper.get('[data-test="discover-channel-scoped"] input').element as HTMLInputElement).checked,
+    ).toBe(true)
+    discover.mockClear()
+    await anthropicWrapper.get('[data-test="discover-source"]').trigger('click')
+    await flushPromises()
+    expect(discover).toHaveBeenCalledWith(8, { channelScoped: true })
   })
 
   it('requires saving edited supplier facts before syncing the selected source', async () => {
@@ -283,7 +330,7 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
   })
 
-  it('applies probe normalize to the form and keeps suggestions opt-in', async () => {
+  it('drafts normalize and probe-passed suggestions into the form without saving', async () => {
     list.mockResolvedValueOnce([source])
     discover.mockResolvedValueOnce({
       source_id: 7,
@@ -332,19 +379,15 @@ describe('SupplierSourcesView', () => {
       'admin.supplierSources.discoverNeedsSave',
     )
     expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
-    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(1)
-    expect((wrapper.get('[data-test="upstream-model-id"]').element as HTMLInputElement).value)
-      .toBe('deepseek-v4-pro')
-
-    await wrapper.get('[data-test="append-suggested"]').trigger('click')
-    await nextTick()
     const upstreamInputs = wrapper.findAll('[data-test="upstream-model-id"]')
     expect(upstreamInputs).toHaveLength(2)
+    expect((upstreamInputs[0].element as HTMLInputElement).value).toBe('deepseek-v4-pro')
     expect((upstreamInputs[1].element as HTMLInputElement).value).toBe('glm-5.1')
+    expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
   })
 
-  it('keeps suggestions opt-in and does not auto-sync after probe', async () => {
+  it('drafts probe-passed suggestions alone without auto-sync', async () => {
     list.mockResolvedValueOnce([source])
     discover.mockResolvedValueOnce({
       source_id: 7,
@@ -362,7 +405,7 @@ describe('SupplierSourcesView', () => {
       rejected_candidates: [],
       configured_issues: [],
       probe_results: [],
-      needs_confirmation: false,
+      needs_confirmation: true,
     })
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
@@ -372,8 +415,9 @@ describe('SupplierSourcesView', () => {
 
     expect(sync).not.toHaveBeenCalled()
     expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
-    expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
-    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-test="discover-needs-save"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(2)
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
   })
 
   it('polls a running probe job until completed without syncing', async () => {
@@ -431,7 +475,7 @@ describe('SupplierSourcesView', () => {
         rejected_candidates: [],
         configured_issues: [],
         probe_results: [],
-        needs_confirmation: false,
+        needs_confirmation: true,
       })
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
@@ -452,7 +496,9 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
     expect(sync).not.toHaveBeenCalled()
     expect(wrapper.find('[data-test="discover-candidate-progress"]').exists()).toBe(false)
-    expect(wrapper.get('[data-test="append-suggested"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="discover-needs-save"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(2)
 
     vi.useRealTimers()
   })
