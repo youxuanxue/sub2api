@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -275,7 +276,7 @@ func TestDuplicateAccountPreservesNewAPIChannelType(t *testing.T) {
 	ctx := context.Background()
 	repo := newDuplicateAccountRepoStub()
 	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
-	const volcEngineChannelType = 45
+	const volcEngineChannelType = newapiconstant.ChannelTypeVolcEngine
 	source := &Account{
 		Name:        "volcengine-agent-plan",
 		Platform:    PlatformNewAPI,
