@@ -20,6 +20,45 @@ func tkRegistryAliasOwnerPricing(owner string) *ModelPricing {
 	return pricing
 }
 
+func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
+	if p == nil || p.TokenPricingAbsent || tkIsEffectivelyUnpriced(p) {
+		return nil
+	}
+	price5m := p.CacheCreationInputTokenCost
+	price1h := p.CacheCreationInputTokenCostAbove1hr
+	return &ModelPricing{
+		InputPricePerToken:                 p.InputCostPerToken,
+		InputPricePerTokenPriority:         p.InputCostPerTokenPriority,
+		OutputPricePerToken:                p.OutputCostPerToken,
+		OutputPricePerTokenPriority:        p.OutputCostPerTokenPriority,
+		ThinkingOutputPricePerToken:        p.ThinkingOutputCostPerToken,
+		CacheCreationPricePerToken:         p.CacheCreationInputTokenCost,
+		CacheCreationPricePerTokenPriority: p.CacheCreationInputTokenCostPriority,
+		CacheReadPricePerToken:             p.CacheReadInputTokenCost,
+		CacheReadPricePerTokenPriority:     p.CacheReadInputTokenCostPriority,
+		CacheCreation5mPrice:               price5m,
+		CacheCreation1hPrice:               price1h,
+		SupportsCacheBreakdown:             price1h > 0 && price1h > price5m,
+		LongContextInputThreshold:          p.LongContextInputTokenThreshold,
+		LongContextThresholdInclusive:      p.LongContextThresholdInclusive,
+		LongContextInputMultiplier:         p.LongContextInputCostMultiplier,
+		LongContextOutputMultiplier:        p.LongContextOutputCostMultiplier,
+		ImageInputPricePerToken:            p.InputCostPerImageToken,
+		ImageOutputPricePerToken:           p.OutputCostPerImageToken,
+		Intervals:                          p.Intervals,
+		registrySnapshot:                   p.registrySnapshot,
+	}
+}
+
+func tkOverlayModelPricing(model string) *ModelPricing {
+	owner := strings.ToLower(strings.TrimSpace(model))
+	pricing := tkModelPricingFromLiteLLM(loadTKPricingOverlay()[owner])
+	if pricing != nil {
+		pricing.registryOwner = owner
+	}
+	return pricing
+}
+
 func tkPricingRegistryAliasOwner(model string) (string, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
 	snapshot := loadTKPricingOverlaySnapshot()
