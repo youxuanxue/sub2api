@@ -162,9 +162,15 @@ async function priorityPreview(): Promise<SupplierPriorityPreview> {
   return data
 }
 
-async function discover(id: number): Promise<SupplierSourceProbeResult> {
+async function discover(
+  id: number,
+  options: { channelScoped?: boolean } = {},
+): Promise<SupplierSourceProbeResult> {
+  const params = options.channelScoped ? { channel_scoped: '1' } : undefined
   const { data } = await apiClient.post<SupplierSourceProbeResult>(
     `/admin/supplier-sources/${id}/discover`,
+    undefined,
+    params ? { params } : undefined,
   )
   return data
 }

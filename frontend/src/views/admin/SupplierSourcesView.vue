@@ -289,7 +289,7 @@
           </div>
 
           <p v-if="saveError" class="text-sm text-red-600">{{ saveError }}</p>
-          <div class="flex flex-wrap gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <button
               v-if="selected"
               data-test="discover-source"
@@ -300,6 +300,20 @@
             >
               {{ t('admin.supplierSources.discover') }}
             </button>
+            <label
+              v-if="selected"
+              data-test="discover-channel-scoped"
+              class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"
+              :title="t('admin.supplierSources.discoverChannelScopedHint')"
+            >
+              <input
+                v-model="discoverChannelScoped"
+                type="checkbox"
+                class="rounded border-gray-300"
+                :disabled="saving || discovering || validating || syncing"
+              >
+              {{ t('admin.supplierSources.discoverChannelScoped') }}
+            </label>
             <button
               data-test="save-source"
               type="submit"
@@ -409,15 +423,6 @@
                 {{ model.upstream_model_id }} · ratio {{ model.purchase_ratio ?? '—' }}
               </li>
             </ul>
-            <button
-              v-if="discoverResult.probe_status === 'completed'"
-              type="button"
-              data-test="append-suggested"
-              class="mt-2 text-sm text-primary-600"
-              @click="appendSuggestedModels"
-            >
-              {{ t('admin.supplierSources.appendSuggested') }}
-            </button>
           </div>
           <div v-if="discoverResult.configured_issues.length">
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredIssues') }}</h3>
@@ -577,6 +582,7 @@ const discovering = ref(false)
 const validating = ref(false)
 const syncing = ref(false)
 const previewing = ref(false)
+const discoverChannelScoped = ref(false)
 const sources = ref<SupplierSource[]>([])
 const selected = ref<SupplierSource | null>(null)
 const copiedFrom = ref<SupplierSource | null>(null)
@@ -703,6 +709,7 @@ function resetForm(): void {
   discoverNeedsSave.value = false
   syncError.value = ''
   saveError.value = ''
+  syncDiscoverChannelScopedForSource(null)
   Object.assign(form, {
     supplier_name: '',
     supplier_lane: 'default',
@@ -725,6 +732,7 @@ function selectSource(source: SupplierSource): void {
   discoverNeedsSave.value = false
   syncError.value = ''
   saveError.value = ''
+  syncDiscoverChannelScopedForSource(source)
   Object.assign(form, {
     supplier_name: source.supplier_name,
     supplier_lane: source.supplier_lane,
@@ -782,6 +790,7 @@ function copySelected(): void {
     models: input.models.length > 0 ? input.models.map(model => ({ ...model })) : [emptyModel()],
     notes: input.notes,
   })
+  syncDiscoverChannelScopedForSource({ channel_type: Number(input.channel_type) })
   void nextTick(() => {
     editorEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
     document.querySelector<HTMLInputElement>('[data-test="supplier-lane"]')?.focus()
@@ -855,6 +864,12 @@ const hasUnsavedChanges = computed(() => {
 const blocksDiscoverValidateProject = computed(() => hasUnsavedChanges.value || discoverNeedsSave.value)
 const canSaveSelected = computed(() => !selected.value || hasUnsavedChanges.value || discoverNeedsSave.value)
 
+function syncDiscoverChannelScopedForSource(source: Pick<SupplierSource, 'channel_type'> | null): void {
+  // Default on when a source is selected: Anthropic → Claude* via SSOT; channels
+  // without a family rule still probe every probeable type.
+  discoverChannelScoped.value = source != null
+}
+
 function replaceSource(source: SupplierSource): void {
   const index = sources.value.findIndex(item => item.id === source.id)
   if (index >= 0) sources.value[index] = source
@@ -888,32 +903,68 @@ async function loadPriorityPreview(): Promise<void> {
 }
 
 function applyDiscoverToForm(result: SupplierSourceProbeResult): void {
-  // Only rewrite configured rows to canonical IDs. Suggested appends stay in the
-  // discover panel until the operator explicitly adds them — auto-appending would
-  // re-dirty the form on every project after the operator removed unwanted models.
-  form.models = result.normalized_models.length > 0
+  // Draft normalized configured rows plus probe-passed suggestions into the editor
+  // without saving. Operators can edit the draft, then save explicitly.
+  const drafted = result.normalized_models.length > 0
     ? result.normalized_models.map(model => ({
       client_model_id: model.client_model_id,
       upstream_model_id: model.upstream_model_id,
       purchase_ratio: model.purchase_ratio,
     }))
-    : [emptyModel()]
-}
-
-function appendSuggestedModels(): void {
-  if (!discoverResult.value) return
+    : []
   const existing = new Set(
-    form.models.map(model => model.client_model_id.trim().toLowerCase()).filter(Boolean),
+    drafted.map(model => model.client_model_id.trim().toLowerCase()).filter(Boolean),
   )
-  for (const model of discoverResult.value.suggested_appends) {
+  for (const model of result.suggested_appends) {
     const key = model.client_model_id.trim().toLowerCase()
     if (!key || existing.has(key)) continue
-    form.models.push({
+    drafted.push({
       client_model_id: model.client_model_id,
       upstream_model_id: model.upstream_model_id,
       purchase_ratio: model.purchase_ratio,
     })
     existing.add(key)
+  }
+  form.models = drafted.length > 0 ? drafted : [emptyModel()]
+}
+
+async function discoverSelected(): Promise<void> {
+  if (!selected.value || blocksDiscoverValidateProject.value) return
+  discovering.value = true
+  syncResult.value = null
+  discoverResult.value = null
+  validateResult.value = null
+  discoverNeedsSave.value = false
+  syncError.value = ''
+  try {
+    const started = await adminAPI.supplierSources.discover(
+      selected.value.id,
+      discoverChannelScoped.value ? { channelScoped: true } : {},
+    )
+    const discovered = await waitDiscoverJob(selected.value.id, started)
+    discoverResult.value = discovered
+    const shouldDraft = discovered.needs_confirmation
+      || discovered.normalized_changes.length > 0
+      || discovered.suggested_appends.length > 0
+    if (shouldDraft) {
+      applyDiscoverToForm(discovered)
+      discoverNeedsSave.value = true
+    }
+  } catch (error) {
+    const discovered = supplierDiscoverResultFromError(error)
+    if (discovered) {
+      discoverResult.value = discovered
+      const shouldDraft = discovered.needs_confirmation
+        || discovered.normalized_changes.length > 0
+        || discovered.suggested_appends.length > 0
+      if (shouldDraft) {
+        applyDiscoverToForm(discovered)
+        discoverNeedsSave.value = true
+      }
+    }
+    syncError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    discovering.value = false
   }
 }
 
@@ -994,37 +1045,6 @@ async function waitDiscoverJob(
     }
   }
   throw new Error('supplier discover timed out')
-}
-
-async function discoverSelected(): Promise<void> {
-  if (!selected.value || blocksDiscoverValidateProject.value) return
-  discovering.value = true
-  syncResult.value = null
-  discoverResult.value = null
-  validateResult.value = null
-  discoverNeedsSave.value = false
-  syncError.value = ''
-  try {
-    const started = await adminAPI.supplierSources.discover(selected.value.id)
-    const discovered = await waitDiscoverJob(selected.value.id, started)
-    discoverResult.value = discovered
-    if (discovered.needs_confirmation) {
-      applyDiscoverToForm(discovered)
-      discoverNeedsSave.value = true
-    }
-  } catch (error) {
-    const discovered = supplierDiscoverResultFromError(error)
-    if (discovered) {
-      discoverResult.value = discovered
-      if (discovered.needs_confirmation) {
-        applyDiscoverToForm(discovered)
-        discoverNeedsSave.value = true
-      }
-    }
-    syncError.value = error instanceof Error ? error.message : String(error)
-  } finally {
-    discovering.value = false
-  }
 }
 
 async function validateSelected(): Promise<void> {

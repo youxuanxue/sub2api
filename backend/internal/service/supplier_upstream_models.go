@@ -218,3 +218,76 @@ func supplierUpstreamTypeProbeable(modelType string, channelType int) bool {
 		return false
 	}
 }
+
+// supplierModelBelongsToFamily uses modelFamilyRules SSOT, including regional /
+// path-style IDs (us.anthropic.claude-*, provider/claude-*).
+func supplierModelBelongsToFamily(id string, family ModelFamily) bool {
+	if family == "" {
+		return false
+	}
+	if DetectModelFamily(id) == family {
+		return true
+	}
+	key := supplierModelMatchKey(id)
+	if key == "" {
+		return false
+	}
+	for _, rule := range modelFamilyRules {
+		if rule.Family != family {
+			continue
+		}
+		for _, prefix := range rule.Prefixes {
+			prefix = strings.ToLower(strings.TrimSpace(prefix))
+			if prefix == "" {
+				continue
+			}
+			if strings.HasPrefix(key, prefix) ||
+				strings.Contains(key, "."+prefix) ||
+				strings.Contains(key, "/"+prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// supplierChannelTypeModelFamilies is the SSOT for "channel_type-related" model
+// families used when discover runs with ChannelScoped.
+func supplierChannelTypeModelFamilies(channelType int) ([]ModelFamily, bool) {
+	switch channelType {
+	case newapiconstant.ChannelTypeAnthropic:
+		return []ModelFamily{"claude"}, true
+	default:
+		return nil, false
+	}
+}
+
+// supplierChannelTypeModelFamilyMatch reports whether upstreamID belongs to the
+// channel_type family SSOT. hasRule=false means no ID-family restriction beyond
+// type/inventory filters.
+func supplierChannelTypeModelFamilyMatch(channelType int, upstreamID string) (inFamily bool, hasRule bool) {
+	families, hasRule := supplierChannelTypeModelFamilies(channelType)
+	if !hasRule {
+		return true, false
+	}
+	for _, family := range families {
+		if supplierModelBelongsToFamily(upstreamID, family) {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+// supplierDiscoverRejectsOutsideChannelFamily reports the reject reason when
+// ChannelScoped is on and the upstream ID is outside the channel family SSOT.
+// Empty reason means do not reject on family grounds.
+func supplierDiscoverRejectsOutsideChannelFamily(channelType int, channelScoped bool, upstreamID string) string {
+	if !channelScoped {
+		return ""
+	}
+	inFamily, hasRule := supplierChannelTypeModelFamilyMatch(channelType, upstreamID)
+	if !hasRule || inFamily {
+		return ""
+	}
+	return "non_channel_family"
+}

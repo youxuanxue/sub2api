@@ -221,7 +221,10 @@ func (h *SupplierSourceHandler) Discover(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.service.Discover(c.Request.Context(), id)
+	opts := service.SupplierDiscoverOptions{
+		ChannelScoped: parseSupplierDiscoverChannelScoped(c.Query("channel_scoped")),
+	}
+	result, err := h.service.Discover(c.Request.Context(), id, opts)
 	if err != nil {
 		writeSupplierSourceProbeError(c, result, err)
 		return
@@ -308,6 +311,15 @@ func supplierSourceID(c *gin.Context) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+func parseSupplierDiscoverChannelScoped(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeSupplierSourceError(c *gin.Context, err error) {

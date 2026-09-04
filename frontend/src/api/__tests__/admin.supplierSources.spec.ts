@@ -35,7 +35,19 @@ describe('admin supplierSources API', () => {
     await supplierSources.discover(7)
     await supplierSources.sync(7)
 
-    expect(post).toHaveBeenCalledWith('/admin/supplier-sources/7/discover')
+    expect(post).toHaveBeenCalledWith('/admin/supplier-sources/7/discover', undefined, undefined)
     expect(post).toHaveBeenCalledWith('/admin/supplier-sources/7/sync')
+  })
+
+  it('passes channel_scoped when discover is restricted to channel family', async () => {
+    post.mockResolvedValue({ data: { source_id: 7 } })
+
+    await supplierSources.discover(7, { channelScoped: true })
+
+    expect(post).toHaveBeenCalledWith(
+      '/admin/supplier-sources/7/discover',
+      undefined,
+      { params: { channel_scoped: '1' } },
+    )
   })
 })

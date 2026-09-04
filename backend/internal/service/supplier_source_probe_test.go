@@ -77,7 +77,7 @@ func TestUS048_ProbeUntilCompleteNormalizesAndSuggestsOnlyProbePassed(t *testing
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	result, err := svc.ProbeUntilComplete(context.Background(), 3)
+	result, err := svc.ProbeUntilComplete(context.Background(), 3, SupplierDiscoverOptions{})
 	require.NoError(t, err)
 	require.True(t, result.NeedsConfirmation)
 	require.Len(t, result.NormalizedChanges, 1)
@@ -144,9 +144,9 @@ func TestUS048_ProbeUntilCompleteSuggestionsAloneDoNotBlockProjection(t *testing
 		probeStatus: map[string]SupplierProbeStatus{"glm-5.1": SupplierProbeStatusPassed},
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
-	result, err := svc.ProbeUntilComplete(context.Background(), 5)
+	result, err := svc.ProbeUntilComplete(context.Background(), 5, SupplierDiscoverOptions{})
 	require.NoError(t, err)
-	require.False(t, result.NeedsConfirmation)
+	require.True(t, result.NeedsConfirmation)
 	require.Empty(t, result.NormalizedChanges)
 	require.Len(t, result.SuggestedAppends, 1)
 	require.Equal(t, "glm-5.1", result.SuggestedAppends[0].UpstreamModelID)
@@ -171,7 +171,7 @@ func TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap(t *test
 		},
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
-	result, err := svc.ProbeUntilComplete(context.Background(), 6)
+	result, err := svc.ProbeUntilComplete(context.Background(), 6, SupplierDiscoverOptions{})
 	require.NoError(t, err)
 	require.True(t, result.NeedsConfirmation)
 	require.Len(t, result.NormalizedModels, 1)
@@ -181,7 +181,7 @@ func TestUS048_ProbeUntilCompletePreservesIntentionalClientUpstreamRemap(t *test
 	require.Equal(t, "feimiao-seedance-2-0-260128", result.NormalizedChanges[0].ToUpstreamModelID)
 }
 
-func TestUS048_ProbeUntilCompleteAuthFailureStopsWithoutSuggesting(t *testing.T) {
+func TestUS048_ProbeUntilCompleteAuthFailureDoesNotFailJob(t *testing.T) {
 	source := &SupplierSource{
 		ID: 4, SupplierName: "baidu", SupplierLane: "default",
 		ChannelType: newapiconstant.ChannelTypeBaiduV2, Endpoint: "https://qianfan.baidubce.com", EncryptedCredential: "enc:secret",
@@ -189,17 +189,28 @@ func TestUS048_ProbeUntilCompleteAuthFailureStopsWithoutSuggesting(t *testing.T)
 	}
 	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
 	lister := &supplierProbeFake{
-		entries: []SupplierUpstreamModelEntry{{ID: "glm-5.1", Type: "chat"}},
+		entries: []SupplierUpstreamModelEntry{
+			{ID: "glm-5.1", Type: "chat"},
+			{ID: "deepseek-v4-pro", Type: "chat"},
+		},
 		probeStatus: map[string]SupplierProbeStatus{
-			"glm-5.1": SupplierProbeStatusAuthFailed,
+			"glm-5.1":          SupplierProbeStatusAuthFailed,
+			"deepseek-v4-pro":  SupplierProbeStatusPassed,
 		},
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
-	result, err := svc.ProbeUntilComplete(context.Background(), 4)
-	require.ErrorIs(t, err, ErrSupplierSourceProbeFailed)
-	require.Equal(t, "probe_candidate", result.FailedStep)
-	require.Equal(t, SupplierProbeJobFailed, result.ProbeStatus)
-	require.Empty(t, result.SuggestedAppends)
+	result, err := svc.ProbeUntilComplete(context.Background(), 4, SupplierDiscoverOptions{})
+	require.NoError(t, err)
+	require.Empty(t, result.FailedStep)
+	require.Equal(t, SupplierProbeJobCompleted, result.ProbeStatus)
+	require.True(t, result.NeedsConfirmation)
+	require.Len(t, result.SuggestedAppends, 1)
+	require.Equal(t, "deepseek-v4-pro", result.SuggestedAppends[0].UpstreamModelID)
+	rejected := map[string]string{}
+	for _, item := range result.RejectedCandidates {
+		rejected[item.UpstreamModelID] = item.Reason
+	}
+	require.Equal(t, "auth_failed", rejected["glm-5.1"])
 }
 
 func TestUS048_GetSupplierProbeJobMissingReturnsFailedSnapshot(t *testing.T) {
@@ -230,7 +241,7 @@ func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(t *testing
 	}
 	lister := &supplierProbeFake{entries: entries, probeStatus: probeStatus}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
-	started, err := svc.StartSupplierProbeJob(context.Background(), 8)
+	started, err := svc.StartSupplierProbeJob(context.Background(), 8, SupplierDiscoverOptions{})
 	require.NoError(t, err)
 	require.Equal(t, SupplierProbeJobRunning, started.ProbeStatus)
 	require.Equal(t, 12, started.ProbeTotal)
@@ -276,7 +287,7 @@ func TestUS048_FMGoProbeSkipsNonVideoInventory(t *testing.T) {
 	}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
-	result, err := svc.ProbeUntilComplete(context.Background(), 10)
+	result, err := svc.ProbeUntilComplete(context.Background(), 10, SupplierDiscoverOptions{})
 	require.NoError(t, err)
 	rejected := map[string]string{}
 	for _, item := range result.RejectedCandidates {
@@ -289,6 +300,98 @@ func TestUS048_FMGoProbeSkipsNonVideoInventory(t *testing.T) {
 	require.NotContains(t, rejected, "feimiao-v2.5-720p-15s")
 	require.Equal(t, int64(2), lister.probeCalls.Load())
 	require.Len(t, result.SuggestedAppends, 2)
+}
+
+func TestUS048_AnthropicChannelScopedDiscoverProbesOnlyClaudeFamily(t *testing.T) {
+	source := &SupplierSource{
+		ID: 12, SupplierName: "tokensea", SupplierLane: "anthropic",
+		ChannelType: newapiconstant.ChannelTypeAnthropic, Endpoint: "https://agent.tokensea.ai/v1",
+		EncryptedCredential: "enc:secret", BasePriority: 100, Models: nil,
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	lister := &supplierProbeFake{
+		entries: []SupplierUpstreamModelEntry{
+			{ID: "claude-sonnet-4-6", Type: "chat"},
+			{ID: "us.anthropic.claude-opus-5", Type: "chat"},
+			{ID: "gpt-5-mini", Type: "chat"},
+			{ID: "deepseek-v4-pro", Type: "chat"},
+			{ID: "doubao-seedance-2.0", Type: "chat"},
+		},
+		probeStatus: map[string]SupplierProbeStatus{
+			"claude-sonnet-4-6":          SupplierProbeStatusPassed,
+			"us.anthropic.claude-opus-5": SupplierProbeStatusPassed,
+		},
+	}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.ProbeUntilComplete(context.Background(), 12, SupplierDiscoverOptions{ChannelScoped: true})
+	require.NoError(t, err)
+	rejected := map[string]string{}
+	for _, item := range result.RejectedCandidates {
+		rejected[item.UpstreamModelID] = item.Reason
+	}
+	require.Equal(t, "non_channel_family", rejected["gpt-5-mini"])
+	require.Equal(t, "non_channel_family", rejected["deepseek-v4-pro"])
+	require.Equal(t, "non_channel_family", rejected["doubao-seedance-2.0"])
+	require.Equal(t, int64(2), lister.probeCalls.Load())
+	require.Len(t, result.SuggestedAppends, 2)
+	require.Empty(t, result.FailedStep)
+	require.True(t, result.NeedsConfirmation)
+}
+
+func TestUS048_OpenAIChannelScopedHasNoIDFamilyRule(t *testing.T) {
+	source := &SupplierSource{
+		ID: 13, SupplierName: "tokensea", SupplierLane: "openai",
+		ChannelType: newapiconstant.ChannelTypeOpenAI, Endpoint: "https://agent.tokensea.ai/v1",
+		EncryptedCredential: "enc:secret", BasePriority: 100, Models: nil,
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	lister := &supplierProbeFake{
+		entries: []SupplierUpstreamModelEntry{
+			{ID: "claude-fable-5.1", Type: "chat"},
+			{ID: "gpt-5-mini", Type: "chat"},
+		},
+		probeStatus: map[string]SupplierProbeStatus{
+			"claude-fable-5.1": SupplierProbeStatusPassed,
+			"gpt-5-mini":       SupplierProbeStatusPassed,
+		},
+	}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.ProbeUntilComplete(context.Background(), 13, SupplierDiscoverOptions{ChannelScoped: true})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), lister.probeCalls.Load())
+	require.Len(t, result.SuggestedAppends, 2)
+}
+
+func TestUS048_AnthropicWithoutChannelScopedProbesAllChatCandidates(t *testing.T) {
+	source := &SupplierSource{
+		ID: 14, SupplierName: "tokensea", SupplierLane: "anthropic",
+		ChannelType: newapiconstant.ChannelTypeAnthropic, Endpoint: "https://agent.tokensea.ai/v1",
+		EncryptedCredential: "enc:secret", BasePriority: 100, Models: nil,
+	}
+	repo := &supplierSourceRepoFake{stored: cloneSupplierSourceForTest(source)}
+	lister := &supplierProbeFake{
+		entries: []SupplierUpstreamModelEntry{
+			{ID: "claude-sonnet-4-6", Type: "chat"},
+			{ID: "gpt-5-mini", Type: "chat"},
+		},
+		probeStatus: map[string]SupplierProbeStatus{
+			"claude-sonnet-4-6": SupplierProbeStatusPassed,
+			"gpt-5-mini":        SupplierProbeStatusModelUnsupported,
+		},
+	}
+	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.ProbeUntilComplete(context.Background(), 14, SupplierDiscoverOptions{})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), lister.probeCalls.Load())
+	require.Len(t, result.SuggestedAppends, 1)
+	rejected := map[string]string{}
+	for _, item := range result.RejectedCandidates {
+		rejected[item.UpstreamModelID] = item.Reason
+	}
+	require.Equal(t, "model_unsupported", rejected["gpt-5-mini"])
 }
 
 func TestUS048_ExtractSupplierUpstreamModelEntriesKeepsType(t *testing.T) {

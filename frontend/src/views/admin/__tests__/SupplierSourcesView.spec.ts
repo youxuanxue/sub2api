@@ -248,12 +248,27 @@ describe('SupplierSourcesView', () => {
     await nextTick()
 
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
-    expect(discover).toHaveBeenCalledWith(7)
+    expect(discover).toHaveBeenCalledWith(7, { channelScoped: true })
     expect(validate).toHaveBeenCalledWith(7)
     expect(sync).toHaveBeenCalledWith(7)
 
     resolveSync({ source_id: 7, probe_results: [], changes: [] })
     await flushPromises()
+  })
+
+  it('can disable channel-scoped discover to probe the full upstream catalog', async () => {
+    list.mockResolvedValueOnce([source])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+
+    const checkbox = wrapper.get('[data-test="discover-channel-scoped"] input')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+    await checkbox.setValue(false)
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
+    await flushPromises()
+
+    expect(discover).toHaveBeenCalledWith(7, {})
   })
 
   it('requires saving edited supplier facts before syncing the selected source', async () => {
@@ -283,7 +298,7 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.find('[data-test="sync-save-first"]').exists()).toBe(false)
   })
 
-  it('applies probe normalize to the form and keeps suggestions opt-in', async () => {
+  it('drafts normalize and probe-passed suggestions into the form without saving', async () => {
     list.mockResolvedValueOnce([source])
     discover.mockResolvedValueOnce({
       source_id: 7,
@@ -332,19 +347,15 @@ describe('SupplierSourcesView', () => {
       'admin.supplierSources.discoverNeedsSave',
     )
     expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
-    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(1)
-    expect((wrapper.get('[data-test="upstream-model-id"]').element as HTMLInputElement).value)
-      .toBe('deepseek-v4-pro')
-
-    await wrapper.get('[data-test="append-suggested"]').trigger('click')
-    await nextTick()
     const upstreamInputs = wrapper.findAll('[data-test="upstream-model-id"]')
     expect(upstreamInputs).toHaveLength(2)
+    expect((upstreamInputs[0].element as HTMLInputElement).value).toBe('deepseek-v4-pro')
     expect((upstreamInputs[1].element as HTMLInputElement).value).toBe('glm-5.1')
+    expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
   })
 
-  it('keeps suggestions opt-in and does not auto-sync after probe', async () => {
+  it('drafts probe-passed suggestions alone without auto-sync', async () => {
     list.mockResolvedValueOnce([source])
     discover.mockResolvedValueOnce({
       source_id: 7,
@@ -362,7 +373,7 @@ describe('SupplierSourcesView', () => {
       rejected_candidates: [],
       configured_issues: [],
       probe_results: [],
-      needs_confirmation: false,
+      needs_confirmation: true,
     })
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
@@ -372,8 +383,9 @@ describe('SupplierSourcesView', () => {
 
     expect(sync).not.toHaveBeenCalled()
     expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
-    expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
-    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-test="discover-needs-save"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(2)
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
   })
 
   it('polls a running probe job until completed without syncing', async () => {
@@ -431,7 +443,7 @@ describe('SupplierSourcesView', () => {
         rejected_candidates: [],
         configured_issues: [],
         probe_results: [],
-        needs_confirmation: false,
+        needs_confirmation: true,
       })
     const wrapper = mount(SupplierSourcesView)
     await flushPromises()
@@ -452,7 +464,9 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
     expect(sync).not.toHaveBeenCalled()
     expect(wrapper.find('[data-test="discover-candidate-progress"]').exists()).toBe(false)
-    expect(wrapper.get('[data-test="append-suggested"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="discover-needs-save"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(2)
 
     vi.useRealTimers()
   })
