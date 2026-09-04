@@ -10,7 +10,7 @@ import (
 func TestGeminiCLIUserAgentShape(t *testing.T) {
 	t.Parallel()
 
-	const wantVersion = "0.56.0"
+	const wantVersion = "0.58.0"
 	if !strings.Contains(GeminiCLIUserAgent, "GeminiCLI/"+wantVersion+"/") {
 		t.Fatalf("UA missing GeminiCLI/%s/ prefix segment: %q", wantVersion, GeminiCLIUserAgent)
 	}
