@@ -6551,11 +6551,24 @@
       "must_contain": [
         "cachedTargets, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)",
         "if needMixedChannelCheck || needPublicGroupAggregatorCheck {",
-        "MergeAccountCredentials(\n\t\t\taccount.Credentials, input.Credentials, account.ChannelType, CredentialMergeAdmin,",
-        "PrepareBulkCredentialPatch(input.Credentials)",
-        "FinalizeAccountCredentials(input.Credentials, input.ChannelType)"
+        "PrepareBulkCredentialPatch(input.Credentials)"
       ],
       "rationale": "Bulk edits now hydrate every target once before any write so supplier-managed ownership and the existing public-group aggregator policy share one complete account snapshot. The later map fill remains required for group-only edits with SkipMixedChannelCheck. Admin create/update/bulk must finalize protocol identity credentials. Without these call sites, ordinary NewAPI edits and bulk base_url rotations can keep exclusive urls pointing at a prior supplier."
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_update.go",
+      "must_contain": [
+        "MergeAccountCredentials(\n\t\t\taccount.Credentials, input.Credentials, account.ChannelType, CredentialMergeAdmin,",
+        "FinalizeAccountCredentials(account.Credentials, account.ChannelType)"
+      ],
+      "rationale": "Bulk edits now hydrate every target once before any write so supplier-managed ownership and the existing public-group aggregator policy share one complete account snapshot. The later map fill remains required for group-only edits with SkipMixedChannelCheck. Admin create/update/bulk must finalize protocol identity credentials. Without these call sites, ordinary NewAPI edits and bulk base_url rotations can keep exclusive urls pointing at a prior supplier. (update companion credential merge/finalize)"
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_create.go",
+      "must_contain": [
+        "FinalizeAccountCredentials(input.Credentials, input.ChannelType)"
+      ],
+      "rationale": "Bulk edits now hydrate every target once before any write so supplier-managed ownership and the existing public-group aggregator policy share one complete account snapshot. The later map fill remains required for group-only edits with SkipMixedChannelCheck. Admin create/update/bulk must finalize protocol identity credentials. Without these call sites, ordinary NewAPI edits and bulk base_url rotations can keep exclusive urls pointing at a prior supplier. (create companion finalize credentials)"
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
@@ -6776,11 +6789,25 @@
       "rationale": "Scheme C loop prevention: public groups must reject OpenRouter/Coze/Submodel aggregator upstream accounts. Dropping this policy re-opens universal-key routing into OpenRouter relay loops."
     },
     {
-      "path": "backend/internal/service/admin_account.go",
+      "path": "backend/internal/service/admin_account_tk_create.go",
       "must_contain": [
         "checkPublicGroupAggregatorChannelPolicy"
       ],
-      "rationale": "Admin account create/update must invoke scheme C policy at the write boundary; the helper alone does not block bad group bindings."
+      "rationale": "Admin account create/update must invoke scheme C policy at the write boundary; the helper alone does not block bad group bindings. (create companion)"
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_update.go",
+      "must_contain": [
+        "checkPublicGroupAggregatorChannelPolicy"
+      ],
+      "rationale": "Admin account create/update must invoke scheme C policy at the write boundary; the helper alone does not block bad group bindings. (update companion)"
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_bulk_update.go",
+      "must_contain": [
+        "checkPublicGroupAggregatorChannelPolicy"
+      ],
+      "rationale": "Admin account create/update must invoke scheme C policy at the write boundary; the helper alone does not block bad group bindings. (bulk companion)"
     },
     {
       "path": "backend/internal/service/openrouter_provider_tk_model.go",
@@ -7630,14 +7657,28 @@
       "path": "backend/internal/service/admin_account.go",
       "must_contain": [
         "ValidateSupplierReservedAccountExtra(input.Extra)",
-        "StripSupplierReservedAccountExtra(input.Extra)",
-        "PreserveSupplierManagedExtraKeys(account, normalizedExtra)",
         "SupplierSourceIDExtraKey:",
         "func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int64)",
-        "func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opts ShadowOptions)",
-        "if IsSupplierManagedAccount(account) {"
+        "func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opts ShadowOptions)"
       ],
       "rationale": "Ordinary account admin writes treat supplier-managed accounts like ordinary accounts. Reserved Extra keys cannot be forged on create/import; managed Extra edits strip/forge-guard reserved keys and PreserveSupplierManagedExtraKeys keeps sync identity; duplicate strips supplier identity keys. Projection field overwrite remains owned by supplier-source sync narrow writes, not by these generic guards."
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_update.go",
+      "must_contain": [
+        "StripSupplierReservedAccountExtra(input.Extra)",
+        "PreserveSupplierManagedExtraKeys(account, normalizedExtra)",
+        "if IsSupplierManagedAccount(account) {"
+      ],
+      "rationale": "Ordinary account admin writes treat supplier-managed accounts like ordinary accounts. Reserved Extra keys cannot be forged on create/import; managed Extra edits strip/forge-guard reserved keys and PreserveSupplierManagedExtraKeys keeps sync identity; duplicate strips supplier identity keys. Projection field overwrite remains owned by supplier-source sync narrow writes, not by these generic guards. (update companion supplier guards)"
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_bulk_update.go",
+      "must_contain": [
+        "StripSupplierReservedAccountExtra(input.Extra)",
+        "if IsSupplierManagedAccount(account) {"
+      ],
+      "rationale": "Ordinary account admin writes treat supplier-managed accounts like ordinary accounts. Reserved Extra keys cannot be forged on create/import; managed Extra edits strip/forge-guard reserved keys and PreserveSupplierManagedExtraKeys keeps sync identity; duplicate strips supplier identity keys. Projection field overwrite remains owned by supplier-source sync narrow writes, not by these generic guards. (bulk companion supplier guards)"
     },
     {
       "path": "backend/internal/service/supplier_managed_account_guard_test.go",

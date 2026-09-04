@@ -894,8 +894,14 @@ def check(root: Path) -> list[str]:
         ):
             errors.append("protocol routing is missing the scheduler authorization regression test")
 
-    account_handler = root / "backend/internal/handler/admin/account_handler.go"
-    if account_handler.is_file():
+    # Probe scheduling lives in the TK companion so account_handler.go stays
+    # upstream-shaped; accept either path as long as one owner has the bodies.
+    account_handler_probe_owners = (
+        root / "backend/internal/handler/admin/account_handler_tk_protocol_probe.go",
+        root / "backend/internal/handler/admin/account_handler.go",
+    )
+    account_handler = next((path for path in account_handler_probe_owners if path.is_file()), None)
+    if account_handler is not None:
         source = strip_go_comments_and_literals(account_handler.read_text(encoding="utf-8"))
         bodies = function_bodies(source, "scheduleProtocolCapabilityProbes")
         if not bodies:

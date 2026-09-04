@@ -434,17 +434,31 @@
       "path": "backend/internal/handler/admin/account_handler.go",
       "must_contain": [
         "tkGeminiAdminAvailableModels(c.Request.Context(), account)",
+        "tkClaudeAdminModelsForIDs(sortedModelMappingKeys(mapping))",
+        "scheduleProtocolCapabilityProbes"
+      ],
+      "rationale": "Admin GetAvailableModels dispatcher keeps the Gemini/Claude menu call sites and create/update/re-test scheduleProtocolCapabilityProbes injection points after TK companion extraction. Model builders and protocol-probe implementation live in account_handler_tk_available_models.go / account_handler_tk_protocol_probe.go."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_available_models.go",
+      "must_contain": [
         "func tkGeminiAdminAvailableModels(",
         "func tkGeminiAdminModelsForMapping(",
         "service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)",
         "func tkAdminModelOptions[",
-        "[]dto.AccountModelOption",
-        "tkClaudeAdminModelsForIDs(sortedModelMappingKeys(mapping))",
-        "scheduleProtocolCapabilityProbes",
-        "service.ProtocolProbeCandidates(account)",
-        "ProbeAccountProtocolCapabilities"
+        "[]dto.AccountModelOption"
       ],
-      "rationale": "Admin GET /admin/accounts/:id/models for Gemini routes through tkGeminiAdminAvailableModels (model_mapping SSOT). Non-Google-One accounts still intersect mapping with ServableClientFacingIDs via tkGeminiAdminModelsForMapping; Google One keeps the conservative whitelist from GetModelMapping without servable pruning. Every platform projects package-specific metadata through tkAdminModelOptions into the same []dto.AccountModelOption HTTP contract. Governed custom-account create/update/re-test lifecycle events must schedule one account+revision candidate-set probe job; that job evaluates Chat Completions, Responses, and native Anthropic Messages before one complete-set CAS write."
+      "rationale": "Admin available-models TK builders: Gemini routes through tkGeminiAdminAvailableModels (model_mapping SSOT). Non-Google-One accounts still intersect mapping with ServableClientFacingIDs via tkGeminiAdminModelsForMapping; Google One keeps the conservative whitelist from GetModelMapping without servable pruning. Every platform projects package-specific metadata through tkAdminModelOptions into the same []dto.AccountModelOption HTTP contract."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_tk_protocol_probe.go",
+      "must_contain": [
+        "func (h *AccountHandler) scheduleProtocolCapabilityProbes(",
+        "service.ProtocolProbeCandidates(account)",
+        "ProbeAccountProtocolCapabilities",
+        "func (h *AccountHandler) ProbeProtocols("
+      ],
+      "rationale": "Governed custom-account create/update/re-test lifecycle events schedule one account+revision candidate-set probe job via scheduleProtocolCapabilityProbes; ProbeProtocols is the synchronous admin re-test handler. That job evaluates Chat Completions, Responses, and native Anthropic Messages before one complete-set CAS write."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_available_models_test.go",

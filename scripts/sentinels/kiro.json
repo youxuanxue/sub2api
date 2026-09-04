@@ -84,7 +84,7 @@
       "rationale": "Focused request-recorder evidence that streaming and runtime paths stay byte-identical to the canonical CLI identity and that per-account machine metadata cannot alter the wire identity."
     },
     {
-      "path": "backend/internal/service/admin_account.go",
+      "path": "backend/internal/service/admin_account_tk_billing_probe.go",
       "must_contain": [
         "func normalizeAccountPriority",
         "platform == PlatformKiro",

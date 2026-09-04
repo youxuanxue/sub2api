@@ -20,6 +20,13 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 POLICY_GO = REPO_ROOT / "backend/internal/service/openrouter_provider_tk_policy.go"
 ADMIN_ACCOUNT_GO = REPO_ROOT / "backend/internal/service/admin_account.go"
+# Policy call sites may live in TK companions after OPC extraction.
+ADMIN_ACCOUNT_POLICY_OWNERS = (
+    REPO_ROOT / "backend/internal/service/admin_account.go",
+    REPO_ROOT / "backend/internal/service/admin_account_tk_create.go",
+    REPO_ROOT / "backend/internal/service/admin_account_tk_update.go",
+    REPO_ROOT / "backend/internal/service/admin_account_tk_bulk_update.go",
+)
 ROUTE_GO = REPO_ROOT / "backend/internal/server/routes/gateway.go"
 CONFIG_EXAMPLE = REPO_ROOT / "ops/pricing/examples/openrouter-provider-config.example.json"
 
@@ -94,12 +101,13 @@ def main() -> int:
             if marker not in text:
                 return _fail(f"{path.name} missing marker {marker!r}")
 
-    if not ADMIN_ACCOUNT_GO.is_file():
+    admin_owners = [path for path in ADMIN_ACCOUNT_POLICY_OWNERS if path.is_file()]
+    if not admin_owners:
         return _fail(f"missing admin account owner: {ADMIN_ACCOUNT_GO}")
-    admin_text = ADMIN_ACCOUNT_GO.read_text(encoding="utf-8")
+    admin_text = "\n".join(path.read_text(encoding="utf-8") for path in admin_owners)
     for marker in REQUIRED_ADMIN_ACCOUNT_MARKERS:
         if marker not in admin_text:
-            return _fail(f"admin_account.go missing policy call site {marker!r}")
+            return _fail(f"admin account owners missing policy call site {marker!r}")
 
     return 0
 
