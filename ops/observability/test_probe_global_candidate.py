@@ -17,18 +17,28 @@ class CandidateHandler(http.server.BaseHTTPRequestHandler):
     pricing_public = True
     redirect_status = 302
     malformed_settings = False
+    home_alias_contract = True
+    meta_noindex = False
+    settings_code = 0
     signup_bonus_balance = 1
     payment_enabled = False
 
     def do_GET(self) -> None:
-        if self.path == "/":
-            self._send(200, "text/html", b"""<html><head><link rel="canonical" href="https://global.tokenkey.dev/"></head><body><h1>China's leading AI models. One API.</h1></body></html>""")
-        elif self.path == "/home":
-            self._send(200, "text/html", b"home")
+        if self.path in {"/", "/home"}:
+            if self.path == "/home" and not self.home_alias_contract:
+                self._send(200, "text/html", b"<html><body>current homepage</body></html>")
+                return
+            robots = '<meta name="robots" content="noindex">' if self.meta_noindex else ""
+            body = (
+                '<html><head><link rel="canonical" href="https://global.tokenkey.dev/">'
+                f"{robots}</head><body>"
+                "<h1>China's leading AI models. One API.</h1></body></html>"
+            ).encode()
+            self._send(200, "text/html", body)
         elif self.path == "/setup/status":
             self._json({"code": 0, "data": {"needs_setup": False}})
         elif self.path == "/api/v1/settings/public":
-            self._json({"code": 0, "data": None if self.malformed_settings else {
+            self._json({"code": self.settings_code, "data": None if self.malformed_settings else {
                 "registration_enabled": True,
                 "pricing_catalog_public": self.pricing_public,
                 "signup_bonus_enabled": True,
@@ -61,6 +71,9 @@ class ProbeGlobalCandidateTest(unittest.TestCase):
         CandidateHandler.pricing_public = True
         CandidateHandler.redirect_status = 302
         CandidateHandler.malformed_settings = False
+        CandidateHandler.home_alias_contract = True
+        CandidateHandler.meta_noindex = False
+        CandidateHandler.settings_code = 0
         CandidateHandler.signup_bonus_balance = 1
         CandidateHandler.payment_enabled = False
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), CandidateHandler)
@@ -103,6 +116,34 @@ class ProbeGlobalCandidateTest(unittest.TestCase):
         rows = [json.loads(line) for line in proc.stdout.splitlines()]
         self.assertEqual(rows[-1]["failures"], ["public_settings"])
         self.assertIn('"pricing_catalog_public": false', rows[3]["detail"])
+
+    def test_home_alias_requires_the_export_crawler_contract(self) -> None:
+        CandidateHandler.home_alias_contract = False
+
+        proc = self._run()
+
+        self.assertEqual(proc.returncode, 4, msg=proc.stderr + proc.stdout)
+        rows = [json.loads(line) for line in proc.stdout.splitlines()]
+        self.assertEqual(rows[-1]["failures"], ["home_alias"])
+
+    def test_meta_noindex_fails_both_homepage_paths(self) -> None:
+        CandidateHandler.meta_noindex = True
+
+        proc = self._run()
+
+        self.assertEqual(proc.returncode, 4, msg=proc.stderr + proc.stdout)
+        rows = [json.loads(line) for line in proc.stdout.splitlines()]
+        self.assertEqual(rows[-1]["failures"], ["homepage", "home_alias"])
+
+    def test_nonzero_public_settings_api_code_fails(self) -> None:
+        CandidateHandler.settings_code = 500
+
+        proc = self._run()
+
+        self.assertEqual(proc.returncode, 4, msg=proc.stderr + proc.stdout)
+        rows = [json.loads(line) for line in proc.stdout.splitlines()]
+        self.assertEqual(rows[-1]["failures"], ["public_settings"])
+        self.assertIn("api_code=500", rows[3]["detail"])
 
     def test_positive_trial_and_enabled_payment_do_not_pin_temporary_config(self) -> None:
         CandidateHandler.signup_bonus_balance = 2.5

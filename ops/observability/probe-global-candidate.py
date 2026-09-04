@@ -58,21 +58,24 @@ class Probe:
     def _record(self, check: str, ok: bool, detail: str) -> None:
         self.results.append(Result(check=check, status="ok" if ok else "fail", detail=detail))
 
+    @staticmethod
+    def _homepage_contract(status: int, headers: dict[str, str], body: bytes) -> bool:
+        text = body.decode("utf-8", errors="replace")
+        return (
+            status == 200
+            and "<h1>China's leading AI models. One API.</h1>" in text
+            and '<link rel="canonical" href="https://global.tokenkey.dev/">' in text
+            and "noindex" not in headers.get("x-robots-tag", "").lower()
+            and "noindex" not in text.lower()
+        )
+
     def run(self) -> list[Result]:
         redirect_code = 302 if self.phase == "candidate" else 301
         try:
-            status, headers, body = self._request("/", crawler=True)
-            text = body.decode("utf-8", errors="replace")
-            homepage_ok = (
-                status == 200
-                and "<h1>China's leading AI models. One API.</h1>" in text
-                and '<link rel="canonical" href="https://global.tokenkey.dev/">' in text
-                and "noindex" not in headers.get("x-robots-tag", "").lower()
-            )
-            self._record("homepage", homepage_ok, f"http={status} crawler_contract={homepage_ok}")
-
-            status, _, _ = self._request("/home")
-            self._record("home_alias", status == 200, f"http={status}")
+            for check, path in (("homepage", "/"), ("home_alias", "/home")):
+                status, headers, body = self._request(path, crawler=True)
+                homepage_ok = self._homepage_contract(status, headers, body)
+                self._record(check, homepage_ok, f"http={status} crawler_contract={homepage_ok}")
 
             status, _, body = self._request("/setup/status")
             try:
@@ -110,8 +113,13 @@ class Probe:
                 or signup_bonus <= 0
             ):
                 mismatches["signup_bonus_balance_usd"] = signup_bonus
-            settings_ok = status == 200 and not mismatches
-            self._record("public_settings", settings_ok, f"http={status} mismatches={json.dumps(mismatches, sort_keys=True)}")
+            settings_ok = status == 200 and envelope.get("code") == 0 and not mismatches
+            self._record(
+                "public_settings",
+                settings_ok,
+                f"http={status} api_code={envelope.get('code')!r} "
+                f"mismatches={json.dumps(mismatches, sort_keys=True)}",
+            )
 
             for check, path in (
                 ("login_redirect", "/login?next=%2Fconsole"),
