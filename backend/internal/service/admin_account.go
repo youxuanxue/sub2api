@@ -308,6 +308,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		Notes:                 cloneAccountValuePointer(source.Notes),
 		Platform:              source.Platform,
 		Type:                  source.Type,
+		ChannelType:           source.ChannelType,
 		Credentials:           credentials,
 		Extra:                 extra,
 		ProxyID:               cloneAccountValuePointer(proxyID),
