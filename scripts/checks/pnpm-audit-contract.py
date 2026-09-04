@@ -19,7 +19,7 @@ ACTION_ANCHORS = (
     "version: 11.7.0",
     "../tools/run_pnpm_audit.py",
     "--attempts 3",
-    "--timeout-seconds 60",
+    "--timeout-seconds 180",
     "tools/check_pnpm_audit_exceptions.py",
 )
 RUNNER_ANCHORS = (

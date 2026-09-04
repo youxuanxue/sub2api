@@ -20,7 +20,7 @@ runs:
         python3 ../tools/run_pnpm_audit.py \
           --output audit.json \
           --attempts 3 \
-          --timeout-seconds 60
+          --timeout-seconds 180
 
     - name: Check audit exceptions
       shell: bash
