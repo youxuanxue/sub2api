@@ -7939,7 +7939,10 @@
       "path": "backend/internal/handler/admin/supplier_source_handler.go",
       "must_contain": [
         "func (h *SupplierSourceHandler) Discover(c *gin.Context)",
-        "result, err := h.service.Discover(c.Request.Context(), id)",
+        "ChannelScoped: parseSupplierDiscoverChannelScoped(c.Query(\"channel_scoped\"))",
+        "result, err := h.service.Discover(c.Request.Context(), id, opts)",
+        "func (h *SupplierSourceHandler) DiscoverChannelScopedDefaults(c *gin.Context)",
+        "ChannelTypes: service.SupplierDiscoverChannelScopedChannelTypes()",
         "func (h *SupplierSourceHandler) Validate(c *gin.Context)",
         "func (h *SupplierSourceHandler) GetDiscoverJob(c *gin.Context)",
         "result, err := h.service.GetSupplierDiscoverJob(c.Request.Context(), id, jobID)",
@@ -7947,7 +7950,7 @@
         "account_concurrency",
         "case errors.As(err, &syncErr):"
       ],
-      "rationale": "Admin discover starts async candidate jobs with job polling; validate probes configured models; upstream models-list failures map through UpstreamModelSyncError.SafeMessage. Supplier-source CRUD must round-trip account_concurrency."
+      "rationale": "Admin discover starts async candidate jobs with optional channel_scoped family filtering and job polling; discover-channel-scoped-defaults exposes the family-rule SSOT for UI checkbox defaults; validate probes configured models; upstream models-list failures map through UpstreamModelSyncError.SafeMessage. Supplier-source CRUD must round-trip account_concurrency."
     },
     {
       "path": "backend/internal/service/supplier_source_service.go",
@@ -8047,9 +8050,11 @@
         "case newapiconstant.ChannelTypeAli:",
         "return base + \"/compatible-mode/v1/models\"",
         "return strings.TrimRight(newapiintegration.QianfanBaseURL, \"/\") + \"/v2/models\"",
-        "ID: -1001, ChannelType: transport.ChannelType, Concurrency: 4,"
+        "ID: -1001, ChannelType: transport.ChannelType, Concurrency: 4,",
+        "var supplierChannelTypeModelFamilyRules = map[int][]ModelFamily{",
+        "func SupplierDiscoverChannelScopedChannelTypes() []int"
       ],
-      "rationale": "Supplier upstream listing owns channel_type-aware models paths (Ali compatible-mode, BaiduV2 /v2/models, default OpenAI /v1/models) and a dedicated negative list identity so concurrent discovers do not contend on account-id caches."
+      "rationale": "Supplier upstream listing owns channel_type-aware models paths (Ali compatible-mode, BaiduV2 /v2/models, default OpenAI /v1/models) and a dedicated negative list identity so concurrent discovers do not contend on account-id caches. Channel-scoped discover family rules live in one map SSOT that also feeds the admin defaults API."
     },
     {
       "path": "backend/internal/service/account_protocol_endpoint_credentials.go",

@@ -11,10 +11,16 @@ type SupplierSourceValidateResult struct {
 	FailedStep   string                `json:"failed_step,omitempty"`
 }
 
+// SupplierDiscoverOptions narrows candidate probing for Discover / probe aliases.
+// ChannelScoped applies the channel_type → model-family SSOT (e.g. Anthropic → Claude*).
+type SupplierDiscoverOptions struct {
+	ChannelScoped bool
+}
+
 // Discover lists/normalizes upstream models and probes unconfigured candidates. It never writes
 // the supplier source or accounts, and does not probe configured rows.
-func (s *SupplierSourceService) Discover(ctx context.Context, sourceID int64) (*SupplierSourceProbeResult, error) {
-	return s.StartSupplierProbeJob(ctx, sourceID)
+func (s *SupplierSourceService) Discover(ctx context.Context, sourceID int64, opts SupplierDiscoverOptions) (*SupplierSourceProbeResult, error) {
+	return s.StartSupplierProbeJob(ctx, sourceID, opts)
 }
 
 // Validate probes configured supplier models for servability as a read-only preview. Sync always

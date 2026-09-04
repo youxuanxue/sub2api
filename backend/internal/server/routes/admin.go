@@ -148,6 +148,7 @@ func registerSupplierSourceRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		sources.GET("", h.Admin.SupplierSource.List)
 		sources.POST("", h.Admin.SupplierSource.Create)
 		sources.GET("/priority-preview", h.Admin.SupplierSource.PriorityPreview)
+		sources.GET("/discover-channel-scoped-defaults", h.Admin.SupplierSource.DiscoverChannelScopedDefaults)
 		sources.GET("/:id", h.Admin.SupplierSource.Get)
 		sources.PUT("/:id", h.Admin.SupplierSource.Update)
 		sources.POST("/:id/discover", h.Admin.SupplierSource.Discover)

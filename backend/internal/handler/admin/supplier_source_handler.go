@@ -203,6 +203,19 @@ func (h *SupplierSourceHandler) PriorityPreview(c *gin.Context) {
 	response.Success(c, supplierPriorityPreviewToResponse(preview))
 }
 
+// DiscoverChannelScopedDefaults exposes the channel_type IDs that have a
+// discover family-rule SSOT entry so the admin UI can default the checkbox
+// without hardcoding Anthropic/14.
+func (h *SupplierSourceHandler) DiscoverChannelScopedDefaults(c *gin.Context) {
+	response.Success(c, supplierDiscoverChannelScopedDefaultsResponse{
+		ChannelTypes: service.SupplierDiscoverChannelScopedChannelTypes(),
+	})
+}
+
+type supplierDiscoverChannelScopedDefaultsResponse struct {
+	ChannelTypes []int `json:"channel_types"`
+}
+
 func (h *SupplierSourceHandler) Sync(c *gin.Context) {
 	id, ok := supplierSourceID(c)
 	if !ok {
@@ -221,7 +234,10 @@ func (h *SupplierSourceHandler) Discover(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.service.Discover(c.Request.Context(), id)
+	opts := service.SupplierDiscoverOptions{
+		ChannelScoped: parseSupplierDiscoverChannelScoped(c.Query("channel_scoped")),
+	}
+	result, err := h.service.Discover(c.Request.Context(), id, opts)
 	if err != nil {
 		writeSupplierSourceProbeError(c, result, err)
 		return
@@ -308,6 +324,15 @@ func supplierSourceID(c *gin.Context) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+func parseSupplierDiscoverChannelScoped(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeSupplierSourceError(c *gin.Context, err error) {

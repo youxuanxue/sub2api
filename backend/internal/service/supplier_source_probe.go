@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
@@ -57,8 +56,8 @@ type SupplierProbeRejectedCandidate struct {
 
 // SupplierSourceProbeResult is a read-only preview used by probe before account projection.
 // List + normalize return immediately; candidate Chat probes continue asynchronously under JobID.
-// It never writes accounts or the supplier source row. The UI applies NormalizedModels when
-// NeedsConfirmation is set; SuggestedAppends stay opt-in via an explicit form action.
+// It never writes accounts or the supplier source row. The UI drafts NormalizedModels and
+// SuggestedAppends into the editor when NeedsConfirmation is set; persistence still requires save.
 type SupplierSourceProbeResult struct {
 	SourceID           int64                            `json:"source_id"`
 	JobID              string                           `json:"job_id,omitempty"`
@@ -137,7 +136,7 @@ func (s *SupplierSourceService) probeConfiguredSourceModels(ctx context.Context,
 // StartSupplierProbeJob lists/normalizes synchronously, then probes every probeable upstream
 // candidate asynchronously with high concurrency. Poll GetSupplierProbeJob until ProbeStatus
 // is completed or failed. SuggestedAppends only include probe-passed models.
-func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourceID int64) (*SupplierSourceProbeResult, error) {
+func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourceID int64, opts SupplierDiscoverOptions) (*SupplierSourceProbeResult, error) {
 	result := emptySupplierSourceProbeResult(sourceID)
 	if s == nil || s.repo == nil || s.probe == nil || s.encryptor == nil || sourceID <= 0 {
 		result.FailedStep = "validate_request"
@@ -251,6 +250,12 @@ func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourc
 			})
 			continue
 		}
+		if reason := supplierDiscoverRejectsOutsideChannelFamily(source.ChannelType, opts.ChannelScoped, entry.ID); reason != "" {
+			result.RejectedCandidates = append(result.RejectedCandidates, SupplierProbeRejectedCandidate{
+				UpstreamModelID: entry.ID, Type: entry.Type, Reason: reason,
+			})
+			continue
+		}
 		probeable = append(probeable, entry)
 	}
 
@@ -286,8 +291,8 @@ func (s *SupplierSourceService) StartSupplierProbeJob(ctx context.Context, sourc
 // ProbeUntilComplete starts async probe and, for callers that expect a finished snapshot
 // (unit tests), waits until the probe job completes. HTTP handlers should use
 // StartSupplierProbeJob + GetSupplierProbeJob instead.
-func (s *SupplierSourceService) ProbeUntilComplete(ctx context.Context, sourceID int64) (*SupplierSourceProbeResult, error) {
-	result, err := s.StartSupplierProbeJob(ctx, sourceID)
+func (s *SupplierSourceService) ProbeUntilComplete(ctx context.Context, sourceID int64, opts SupplierDiscoverOptions) (*SupplierSourceProbeResult, error) {
+	result, err := s.StartSupplierProbeJob(ctx, sourceID, opts)
 	if err != nil {
 		return result, err
 	}
@@ -310,9 +315,6 @@ func (s *SupplierSourceService) ProbeUntilComplete(ctx context.Context, sourceID
 			return result, nil
 		}
 		if result.ProbeStatus == SupplierProbeJobFailed {
-			if result.FailedStep == "probe_candidate" {
-				return result, ErrSupplierSourceProbeFailed
-			}
 			return result, fmt.Errorf("supplier source probe failed")
 		}
 	}
@@ -348,17 +350,12 @@ func (s *SupplierSourceService) runSupplierProbeCandidates(
 ) {
 	defer job.cancel()
 	defaultRatio := supplierProbeDefaultPurchaseRatio
-	var authFailed atomic.Bool
 	sem := make(chan struct{}, supplierProbeCandidateConcurrency)
 	var wg sync.WaitGroup
 	for _, entry := range probeable {
 		wg.Add(1)
 		go func(entry SupplierUpstreamModelEntry) {
 			defer wg.Done()
-			if authFailed.Load() {
-				job.markProbeSkipped(entry, "canceled")
-				return
-			}
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
@@ -366,7 +363,7 @@ func (s *SupplierSourceService) runSupplierProbeCandidates(
 				return
 			}
 			defer func() { <-sem }()
-			if authFailed.Load() {
+			if ctx.Err() != nil {
 				job.markProbeSkipped(entry, "canceled")
 				return
 			}
@@ -375,17 +372,13 @@ func (s *SupplierSourceService) runSupplierProbeCandidates(
 			})
 			probeResult.ClientModelID = entry.ID
 			probeResult.UpstreamModelID = entry.ID
-			if probeResult.Status == SupplierProbeStatusAuthFailed {
-				authFailed.Store(true)
-				job.cancel()
-				job.applyProbeOutcome(entry, probeResult, &defaultRatio, true)
-				return
-			}
-			job.applyProbeOutcome(entry, probeResult, &defaultRatio, false)
+			// Per-candidate auth/model failures stay rejected; they must not cancel
+			// siblings or fail the whole discover job.
+			job.applyProbeOutcome(entry, probeResult, &defaultRatio)
 		}(entry)
 	}
 	wg.Wait()
-	job.finish(authFailed.Load())
+	job.finish()
 }
 
 func (r *supplierProbeJobRegistry) put(sourceID int64, jobID string, job *supplierProbeJob) {
@@ -446,7 +439,6 @@ func (j *supplierProbeJob) applyProbeOutcome(
 	entry SupplierUpstreamModelEntry,
 	probeResult SupplierProbeResult,
 	defaultRatio *float64,
-	authFailed bool,
 ) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -457,16 +449,6 @@ func (j *supplierProbeJob) applyProbeOutcome(
 		return
 	}
 	j.result.ProbeResults = append(j.result.ProbeResults, probeResult)
-	if authFailed || probeResult.Status == SupplierProbeStatusAuthFailed {
-		j.result.RejectedCandidates = append(j.result.RejectedCandidates, SupplierProbeRejectedCandidate{
-			UpstreamModelID: entry.ID, Type: entry.Type, Reason: string(probeResult.Status),
-			Detail: probeResult.Detail,
-		})
-		j.result.FailedStep = "probe_candidate"
-		j.result.ProbeStatus = SupplierProbeJobFailed
-		j.err = ErrSupplierSourceProbeFailed
-		return
-	}
 	if probeResult.Status != SupplierProbeStatusPassed {
 		j.result.RejectedCandidates = append(j.result.RejectedCandidates, SupplierProbeRejectedCandidate{
 			UpstreamModelID: entry.ID, Type: entry.Type, Reason: string(probeResult.Status),
@@ -508,7 +490,7 @@ func (j *supplierProbeJob) noteProbeDoneLocked(upstreamModelID string) bool {
 	return true
 }
 
-func (j *supplierProbeJob) finish(authFailed bool) {
+func (j *supplierProbeJob) finish() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.result == nil {
@@ -517,15 +499,10 @@ func (j *supplierProbeJob) finish(authFailed bool) {
 	if j.result.ProbeDone > j.result.ProbeTotal {
 		j.result.ProbeDone = j.result.ProbeTotal
 	}
-	if authFailed || j.result.ProbeStatus == SupplierProbeJobFailed {
-		j.result.ProbeStatus = SupplierProbeJobFailed
-		if j.err == nil {
-			j.err = ErrSupplierSourceProbeFailed
-		}
-		return
-	}
 	j.result.ProbeStatus = SupplierProbeJobCompleted
-	j.result.NeedsConfirmation = len(j.result.NormalizedChanges) > 0
+	j.result.FailedStep = ""
+	j.err = nil
+	j.result.NeedsConfirmation = len(j.result.NormalizedChanges) > 0 || len(j.result.SuggestedAppends) > 0
 }
 
 func emptySupplierSourceProbeResult(sourceID int64) *SupplierSourceProbeResult {
