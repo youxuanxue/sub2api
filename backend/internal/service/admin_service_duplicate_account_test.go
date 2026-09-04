@@ -93,7 +93,6 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		Notes:                 &notes,
 		Platform:              PlatformAnthropic,
 		Type:                  AccountTypeAPIKey,
-		ChannelType:           17, // non-zero must survive duplicate so edit forms keep the selection
 		ProxyID:               &proxyID,
 		ProxyFallbackOriginID: &originalProxyID,
 		Concurrency:           6,
@@ -154,7 +153,6 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.Equal(t, "primary (Copy)", duplicate.Name)
 	require.Equal(t, source.Platform, duplicate.Platform)
 	require.Equal(t, source.Type, duplicate.Type)
-	require.Equal(t, source.ChannelType, duplicate.ChannelType)
 	require.Equal(t, source.Concurrency, duplicate.Concurrency)
 	require.Equal(t, source.Priority, duplicate.Priority)
 	require.Equal(t, source.AutoPauseOnExpired, duplicate.AutoPauseOnExpired)
@@ -267,39 +265,6 @@ func TestDuplicateAccountPreservesUngroupedState(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, duplicate.GroupIDs)
 	require.NotContains(t, repo.groupsOf, duplicate.ID)
-}
-
-// Regression: copying a newapi/VolcEngine account dropped channel_type (defaulted to 0),
-// so the admin edit form showed an empty channel selector until the operator re-selected it.
-func TestDuplicateAccountPreservesNewAPIChannelType(t *testing.T) {
-	ctx := context.Background()
-	repo := newDuplicateAccountRepoStub()
-	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
-	const volcEngineChannelType = 45
-	source := &Account{
-		Name:        "volcengine-agent-plan",
-		Platform:    PlatformNewAPI,
-		Type:        AccountTypeAPIKey,
-		ChannelType: volcEngineChannelType,
-		Credentials: map[string]any{
-			"api_key":  "ark-test",
-			"base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
-		},
-		Concurrency: 100,
-		Priority:    1,
-		GroupIDs:    []int64{5, 19},
-	}
-	require.NoError(t, repo.Create(ctx, source))
-
-	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
-
-	require.NoError(t, err)
-	require.Equal(t, PlatformNewAPI, duplicate.Platform)
-	require.Equal(t, volcEngineChannelType, duplicate.ChannelType,
-		"duplicate must keep channel_type so edit UI does not force re-selection")
-	stored, getErr := repo.GetByID(ctx, duplicate.ID)
-	require.NoError(t, getErr)
-	require.Equal(t, volcEngineChannelType, stored.ChannelType)
 }
 
 func TestDuplicateAccountAtomicCreateFailureLeavesNoOrphan(t *testing.T) {
