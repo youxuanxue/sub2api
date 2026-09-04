@@ -100,6 +100,37 @@ def _credential_matches(api_key: Any, fingerprint: Any, key: str) -> bool:
     return hmac.compare_digest(digest, str(fingerprint or ""))
 
 
+# Keep this conservative fallback aligned with protocolRoutingAccountHasNoTextModels.
+def _model_is_non_text(value: Any) -> bool:
+    model = str(value or "").strip().lower()
+    if not model:
+        return False
+    antigravity_model = model.removeprefix("models/")
+    return (
+        model.startswith("gpt-image-")
+        or model in {"grok-imagine", "grok-imagine-edit"}
+        or model.startswith(("grok-imagine-image", "grok-imagine-video", "grok-video"))
+        or "nano-banana" in antigravity_model
+        or (
+            antigravity_model.startswith("gemini-")
+            and (
+                antigravity_model.endswith("-image")
+                or "-image-" in antigravity_model
+            )
+        )
+        or "seedance" in model
+        or "seedream" in model
+        or model.startswith(("dall-e", "sora", "veo-", "imagen-"))
+        or "embedding" in model
+        or "rerank" in model
+        or model.startswith(("bge-", "tts-", "whisper-"))
+    )
+
+
+def _mapping_has_no_text_models(mapping: dict[str, str]) -> bool:
+    return bool(mapping) and all(_model_is_non_text(model) for model in mapping.values())
+
+
 def _expected_protocol(source: dict[str, Any]) -> tuple[str, str, str]:
     channel_type = int(source.get("channel_type") or 0)
     endpoint = _normalized_endpoint(source.get("endpoint"))
@@ -111,12 +142,15 @@ def _expected_protocol(source: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _protocol_differences(
-    account: dict[str, Any], source: dict[str, Any]
+    account: dict[str, Any], source: dict[str, Any], desired_mapping: dict[str, str]
 ) -> list[str]:
     capability_id = account.get("capability_id")
     capability_key = account.get("capability_key")
     supported = account.get("supported_protocols") or []
-    if int(source.get("channel_type") or 0) in MEDIA_ONLY_CHANNEL_TYPES:
+    if (
+        int(source.get("channel_type") or 0) in MEDIA_ONLY_CHANNEL_TYPES
+        or _mapping_has_no_text_models(desired_mapping)
+    ):
         if capability_id is not None or capability_key or supported:
             return ["protocol_capability_link"]
         return []
@@ -269,7 +303,7 @@ def evaluate_snapshot(snapshot: dict[str, Any], fingerprint_key: str) -> dict[st
                     differences.append("priority")
                 if int(account.get("concurrency") or 0) != expected_concurrency:
                     differences.append("concurrency")
-                differences.extend(_protocol_differences(account, source))
+                differences.extend(_protocol_differences(account, source, desired_mapping))
                 account_results.append(
                     {
                         "account_id": account.get("id"),

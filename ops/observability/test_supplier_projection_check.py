@@ -145,6 +145,24 @@ class SupplierProjectionCheckTest(unittest.TestCase):
 
         self.assertEqual(report["verdict"], "aligned")
 
+    def test_mixed_transport_media_mapping_needs_no_text_capability(self) -> None:
+        source = self.source(channel_type=45)
+        source["models"][0]["client_model_id"] = "doubao-seedream-5-0-260128"
+        source["models"][0]["upstream_model_id"] = "seedream-5-0-260128"
+        account = self.account(channel_type=45)
+        account["credentials"]["model_mapping"] = {
+            "doubao-seedream-5-0-260128": "seedream-5-0-260128"
+        }
+        account["capability_id"] = None
+        account["capability_key"] = None
+        account["capability_identity"] = None
+        account["supported_protocols"] = []
+        account["probe_evidence"] = None
+
+        report = MOD.evaluate_snapshot({"sources": [source], "accounts": [account]}, self.key)
+
+        self.assertEqual(report["verdict"], "aligned")
+
     def test_missing_band_and_orphan_account_are_reported(self) -> None:
         orphan = self.account()
         orphan["id"] = 999

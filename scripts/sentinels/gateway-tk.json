@@ -7980,6 +7980,7 @@
       "must_contain": [
         "MEDIA_ONLY_CHANNEL_TYPES = {54}",
         "def evaluate_snapshot(snapshot: dict[str, Any], fingerprint_key: str)",
+        "def _mapping_has_no_text_models(mapping: dict[str, str]) -> bool",
         "\"ignored_runtime_fields\": [\"status\", \"schedulable\"]",
         "hmac.compare_digest",
         "\"verdict\": \"drift\" if drift else \"aligned\""
@@ -8016,7 +8017,8 @@
         "test_structural_and_credential_drift_is_field_named_and_redacted",
         "test_media_only_projection_needs_no_text_capability",
         "test_media_only_stale_text_capability_is_drift",
-        "test_empty_text_band_retains_protocol_capability"
+        "test_empty_text_band_retains_protocol_capability",
+        "test_mixed_transport_media_mapping_needs_no_text_capability"
       ],
       "rationale": "Behavior regressions pin runtime-state exclusion, credential redaction, structural drift, and the media-only capability lifecycle for the post-release checker."
     },
