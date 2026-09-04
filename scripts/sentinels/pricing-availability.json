@@ -259,14 +259,8 @@
       "path": "backend/internal/service/billing_service.go",
       "must_contain": [
         "tkIsEffectivelyUnpriced",
-        "func tkModelPricingFromLiteLLM",
-        "ThinkingOutputPricePerToken:        p.ThinkingOutputCostPerToken",
-        "Intervals:                          p.Intervals",
         "pricing.ThinkingOutputPricePerToken",
-        "tkIsFlatPerImageModel(model)",
         "normalizeOpenAIBillingModel",
-        "func tkOverlayModelPricing",
-        "tkModelPricingFromLiteLLM(loadTKPricingOverlay()[owner])",
         "tkOverlayModelPricing(\"deepseek-v4-flash\")",
         "tkApplyDeepSeekPeakValleyPricing",
         "tkOverlayModelPricing(\"glm-5.2\")",
@@ -274,6 +268,28 @@
         "if fallback.registryOwner == \"\""
       ],
       "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_registry_alias.go",
+      "must_contain": [
+        "func tkModelPricingFromLiteLLM",
+        "func tkOverlayModelPricing"
+      ],
+      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. (overlay helpers in companion)"
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_flat_image.go",
+      "must_contain": [
+        "tkIsFlatPerImageModel(model)"
+      ],
+      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. (flat image multiplier in companion)"
+    },
+    {
+      "path": "backend/internal/service/billing_service.go",
+      "must_contain": [
+        "return tkApplyDefaultImageSizeMultiplier(model, imageSize, basePrice)"
+      ],
+      "rationale": "Thin call site for Imagen flat / size-tier multiplier companion."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias.go",
@@ -478,6 +494,15 @@
         "return nil, fmt.Errorf(\"read model availability for %s/%s: %w\""
       ],
       "rationale": "Automatic-key discovery fallback uses the same servable catalog as pricing, but unlike storefront rendering it must surface availability repository errors. This strict companion preserves structurally-gone pruning and priced membership without converting an unknown repository state into a successful capability menu."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_registry_alias.go",
+      "must_contain": [
+        "ThinkingOutputPricePerToken:        p.ThinkingOutputCostPerToken",
+        "Intervals:                          p.Intervals",
+        "tkModelPricingFromLiteLLM(loadTKPricingOverlay()[owner])"
+      ],
+      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. (LiteLLM/overlay conversion moved to companion)"
     }
   ]
 }

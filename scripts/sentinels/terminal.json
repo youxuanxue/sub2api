@@ -14,7 +14,7 @@
     },
     {
       "name": "openai_compat_responses_terminal_helper",
-      "source": "backend/internal/service/openai_gateway_messages.go",
+      "source": "backend/internal/service/openai_gateway_messages_tk.go",
       "required_literals": [
         "func isOpenAICompatResponsesTerminalEvent(eventType string) bool {",
         "case \"response.completed\", \"response.done\", \"response.incomplete\", \"response.failed\",",

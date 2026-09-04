@@ -62,11 +62,25 @@
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
-        "if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {",
-        "if !s.tkPricedServingGate(ctx, c, tkGateWireGemini, account.Platform, originalModel, originalModel) {",
         "tkBillingService         *BillingService"
       ],
       "rationale": "Route hooks 4/6 + 5/6 — gemini compat Forward (Anthropic /v1/messages ingress → tkGateWireAnthropic envelope) AND ForwardNative (native Gemini ingress → tkGateWireGemini envelope; countTokens is exempted just before this call). BOTH judge originalModel (billing's key here — gemini native bills result.Model=originalModel; judging mappedModel was BLOCKER1, the catch-all leak). This is the first-launch enabled platform, so a revert here is the highest-impact. The tkBillingService struct-field anchor proves the gate's oracle dep slot survives (the gemini compat service holds none of its deps on the upstream constructor)."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_prepare.go",
+      "must_contain": [
+        "func (s *GeminiMessagesCompatService) tkPrepareGeminiMessagesForward(",
+        "func (s *GeminiMessagesCompatService) tkPrepareGeminiNativeForward("
+      ],
+      "rationale": "Route hooks 4/6 + 5/6 — gemini compat Forward (Anthropic /v1/messages ingress → tkGateWireAnthropic envelope) AND ForwardNative (native Gemini ingress → tkGateWireGemini envelope; countTokens is exempted just before this call). BOTH judge originalModel (billing's key here — gemini native bills result.Model=originalModel; judging mappedModel was BLOCKER1, the catch-all leak). This is the first-launch enabled platform, so a revert here is the highest-impact. The tkBillingService struct-field anchor proves the gate's oracle dep slot survives (the gemini compat service holds none of its deps on the upstream constructor). (prepare companion)"
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "s.tkPrepareGeminiMessagesForward(",
+        "s.tkPrepareGeminiNativeForward("
+      ],
+      "rationale": "Thin Gemini Forward/Native TK prepare call sites."
     },
     {
       "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
@@ -76,11 +90,19 @@
       "rationale": "Route hook 6/6 — the third gemini ingress (OpenAI /v1/chat/completions onto a gemini account, forwardClaudeBodyAsChatCompletions). This route had NO gate in v1's first cut (BLOCKER2) — an OpenAI-CC client could hit a gemini account with an unpriced model and serve $0 on the launch platform. OpenAI wire envelope; judges originalModel."
     },
     {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_prepare.go",
+      "must_contain": [
+        "func (s *GeminiMessagesCompatService) tkPrepareGeminiMessagesForward("
+      ],
+      "rationale": "Route hook (native anthropic /v1/messages catch-all). Inserted right after the deprecated-model gate (post-mapping, pre-forward) — the native catch-all (empty model_mapping = allow-all) is the original vulnerability hot spot. anthropic is NOT in the first-launch enabled set but joins per the rollout plan; the hook (on originalModel, billing's key) must survive until then. (prepare companion)"
+    },
+    {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
-        "if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {"
+        "s.tkPrepareGeminiMessagesForward(",
+        "s.tkPrepareGeminiNativeForward("
       ],
-      "rationale": "Route hook (native anthropic /v1/messages catch-all). Inserted right after the deprecated-model gate (post-mapping, pre-forward) — the native catch-all (empty model_mapping = allow-all) is the original vulnerability hot spot. anthropic is NOT in the first-launch enabled set but joins per the rollout plan; the hook (on originalModel, billing's key) must survive until then."
+      "rationale": "Thin Gemini Forward/Native TK prepare call sites."
     },
     {
       "path": "backend/internal/service/domain_constants.go",
