@@ -57,8 +57,8 @@ func TestResolveMoonshotRegionalBaseAtSave_BothFail(t *testing.T) {
 	}
 }
 
-// TestResolveMoonshotRegionalBaseAtSave_SingleBaseAllFail 复现 docs/bugs/2026-04-23-newapi-fifth-platform-audit.md
-// 的 P0-3：原实现在错误路径上硬写 errs[0], errs[1]，bases 长度 != 2 时直接 panic
+// TestResolveMoonshotRegionalBaseAtSave_SingleBaseAllFail 复现 Moonshot 单 base 全失败时的 resolve-at-save 行为
+// （历史 P0-3）：原实现在错误路径上硬写 errs[0], errs[1]，bases 长度 != 2 时直接 panic
 // （admin 保存账号的 HTTP 线程会 500）。本用例注入单 base 触发失败路径，断言不 panic
 // 且错误信息聚合了所有探测错误。
 func TestResolveMoonshotRegionalBaseAtSave_SingleBaseAllFail(t *testing.T) {

@@ -180,7 +180,7 @@ func TestUS015_Sticky_OpenAIGroup_HitPreserved(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// P0-2 (docs/bugs/2026-04-23-newapi-fifth-platform-audit.md):
+// P0-2 (newapi pool isolation; see docs/approved/newapi-as-fifth-platform.md):
 // 修复 tryStickySessionHit 与 SelectAccountWithLoadAwareness Layer-1 在跨平台
 // sticky binding 时不清理 Redis 映射，导致整个 TTL 周期内每次同 sessionHash
 // 请求都重做一次 snapshot 查询并落到 Layer 2。scheduler 路径

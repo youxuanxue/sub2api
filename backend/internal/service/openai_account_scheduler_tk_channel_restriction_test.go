@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Tests for docs/bugs/2026-04-23-newapi-fifth-platform-audit.md P0-1 + P1-2.
+// Tests for newapi channel restriction / pool isolation (historical P0-1 + P1-2).
 //
 // P0-1: defaultOpenAIAccountScheduler 之前完全跳过 channel pricing /
 //       upstream model restriction 检查，与 SelectAccountWithLoadAwareness 入口
