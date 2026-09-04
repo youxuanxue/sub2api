@@ -208,12 +208,10 @@ def evaluate_snapshot(snapshot: dict[str, Any], fingerprint_key: str) -> dict[st
         by_band: dict[int, list[dict[str, Any]]] = {}
         source_issues: list[dict[str, Any]] = []
         account_results: list[dict[str, Any]] = []
-        invalid_account_ids: set[Any] = set()
         duplicate_account_ids: set[Any] = set()
         for account in managed:
             band = _positive_int((account.get("extra") or {}).get("supplier_discount_band"))
             if band is None or band > 6:
-                invalid_account_ids.add(account.get("id"))
                 source_issues.append(
                     {"code": "invalid_band", "account_id": account.get("id")}
                 )
