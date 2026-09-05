@@ -107,13 +107,17 @@ func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	mapping := openAITokenseaRelayAccountModelMappingFloor(context.Background(), nil, nil)
 	requireIdentityMappingForIDs(t, mapping, tokenseaRelayCorePublicFloorIDs())
 	require.NotEmpty(t, mapping)
-	require.Contains(t, mapping, "gpt-5.4")
 	require.Contains(t, mapping, "claude-sonnet-4-6")
+	// Retired client-facing ids are not public floor members; wire remaps cover access.
+	require.NotContains(t, mapping, "gpt-5.4")
+	require.NotContains(t, mapping, "gpt-5.4-mini")
+	require.NotContains(t, mapping, "gpt-5.2")
 	// Bare gpt-5.6 is an overlay pricing alias → sol; floor serves the wire tiers.
 	require.NotContains(t, mapping, "gpt-5.6", "bare gpt-5.6 is pricing-alias-only; floor owner serves sol/terra/luna")
 	require.Contains(t, mapping, "gpt-5.6-luna")
 	require.Contains(t, mapping, "gpt-5.6-sol")
 	require.Contains(t, mapping, "gpt-5.6-terra")
+	require.Contains(t, mapping, "gpt-5.5")
 	require.NotContains(t, mapping, "byteplus/dreamina-seedance-2-0-260128", "non-SSOT upstream id is a boundary sample, not an owner copy")
 	// Live 2026-08-20 account 92 raw chat: listed DeepSeek/Qwen/GLM/Kimi IDs
 	// returned 400 openai_error; dated flash-0731 is not even listed.

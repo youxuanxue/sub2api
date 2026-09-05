@@ -31,7 +31,8 @@ func TestAnthropicTokenseaRelayFloorMapsShortNamesToWireIDs(t *testing.T) {
 	require.Equal(t, "claude-opus-4-5-20251101", mapping["claude-opus-4-5"])
 	require.Equal(t, "claude-opus-4-5-20251101", mapping["claude-opus-4-5-20251101"])
 	require.Equal(t, "claude-sonnet-4-6", mapping["claude-sonnet-4-6"])
-	require.Equal(t, "gpt-5.4", mapping["gpt-5.4"])
+	require.Equal(t, "gpt-5.5", mapping["gpt-5.5"])
+	require.NotContains(t, mapping, "gpt-5.4", "retired client-facing OpenAI ids stay off the public tokensea floor")
 	require.NotContains(t, mapping, "qwen3.7-max", "curated newapi id is a boundary sample, not an owner copy")
 	for _, id := range tokenseaRelayCorePublicFloorIDs() {
 		require.Contains(t, mapping, id, "93 floor must include every 92 live SSOT key")
@@ -146,10 +147,10 @@ func TestIsModelSupported_AnthropicTokenseaGateOverridesExplicitForbiddenMapping
 	t.Parallel()
 	account := tokenseaAnthropicRelayAccount()
 	account.Credentials["model_mapping"] = map[string]any{
-		"gpt-5.4":                  "gpt-5.4",
+		"gpt-5.5":                  "gpt-5.5",
 		"gpt-not-in-tokensea-ssot": "gpt-not-in-tokensea-ssot",
 	}
-	require.True(t, account.IsModelSupported("gpt-5.4"))
+	require.True(t, account.IsModelSupported("gpt-5.5"))
 	require.False(t, account.IsModelSupported("gpt-not-in-tokensea-ssot"))
 }
 
