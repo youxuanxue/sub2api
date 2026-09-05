@@ -176,24 +176,19 @@ func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID, userID int64, ke
 }
 
 func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64, keyName string) bool {
-	if !c.Enabled {
+	if !c.Enabled || apiKeyID <= 0 {
 		return false
 	}
 	keyName = strings.TrimSpace(keyName)
+	// Conventional name on the billing user is the SSOT after settings drop key-id lists.
 	if c.isBillingUser(userID) && keyName == OpenRouterProviderInferenceKeyName {
 		return true
 	}
-	if len(c.AllowedAPIKeyIDs) > 0 {
-		for _, id := range c.AllowedAPIKeyIDs {
-			if id == apiKeyID {
-				return true
-			}
+	// Legacy allowlist: numeric ids still honor until ops strips them post-deploy.
+	for _, id := range c.AllowedAPIKeyIDs {
+		if id == apiKeyID {
+			return true
 		}
-		return false
-	}
-	// Legacy: no id allowlist — any billing-user key except the conventional monitor name.
-	if c.isBillingUser(userID) && keyName != OpenRouterProviderMonitorKeyName {
-		return true
 	}
 	return false
 }

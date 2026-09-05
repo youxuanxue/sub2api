@@ -56,6 +56,9 @@ func TestOpenRouterProviderConfig_NameBasedKeysOnBillingUser(t *testing.T) {
 	if !cfg.CanAccessCatalog(2, 32, OpenRouterProviderMonitorKeyName) {
 		t.Fatal("monitor name must access catalog")
 	}
+	if cfg.AllowsInferenceAPIKey(3, 32, "scratch") {
+		t.Fatal("non-conventional billing-user key must not infer after id-list removal")
+	}
 }
 
 func TestNormalizeOpenRouterProviderChatBody_RewritesModel(t *testing.T) {

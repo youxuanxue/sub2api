@@ -179,16 +179,22 @@ func TestOpenRouterProviderConfig_AllowsAPIKey(t *testing.T) {
 	if cfg.AllowsAPIKey(43, 7, "") {
 		t.Fatal("non-allowlisted key must fail when allowlist present")
 	}
-
+	// Name SSOT must not widen to every billing-user key once id lists are empty.
 	cfg = OpenRouterProviderConfig{Enabled: true, BillingUserID: 7}
-	if !cfg.AllowsAPIKey(100, 7, "") {
-		t.Fatal("billing user keys must pass when allowlist empty")
+	if cfg.AllowsAPIKey(100, 7, "") {
+		t.Fatal("unnamed billing-user key must not pass when allowlists are empty")
 	}
-	if cfg.AllowsAPIKey(100, 8, "") {
-		t.Fatal("other user keys must fail")
+	if cfg.AllowsAPIKey(100, 8, OpenRouterProviderInferenceKeyName) {
+		t.Fatal("named inference key on other user must fail")
+	}
+	if !cfg.AllowsInferenceAPIKey(100, 7, OpenRouterProviderInferenceKeyName) {
+		t.Fatal("named inference key on billing user must pass")
 	}
 	if cfg.AllowsInferenceAPIKey(100, 7, OpenRouterProviderMonitorKeyName) {
 		t.Fatal("monitor-named key must not infer even for billing user")
+	}
+	if cfg.AllowsInferenceAPIKey(100, 7, "debug-scratch") {
+		t.Fatal("arbitrary billing-user key name must not infer")
 	}
 }
 
