@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # verify-edge-lightsail-network.sh — Post-provision / post-DNS checks for Lightsail edges.
 #
-# Hardened public-port baseline: TCP 443 + 8443 OPEN, TCP 80 and 22 CLOSED.
+# Hardened public-port baseline: TCP 443 + 8443 + UDP 34567 OPEN; TCP 80 and 22 CLOSED.
 # 443 carries business + ACME TLS-ALPN-01 (Caddyfile.edge disable_http_challenge),
-# so HTTP-01 / public 80 is unneeded; 8443 is an alternate connection port kept
-# open by design (NOT force-closed); SSH (22) is operated via SSM / Lightsail
-# console, never the public port. Cert renewal still rides 443 only.
+# so HTTP-01 / public 80 is unneeded; 8443 is an alternate TCP connection port kept
+# open by design (NOT force-closed); UDP 34567 is hysteria / alternate UDP ingress
+# kept open by design; SSH (22) is operated via SSM / Lightsail console, never the
+# public port. Cert renewal still rides 443 only.
 #
 # Confirms the firewall matches that baseline and (optionally) public HTTPS
-# /health succeeds. --enforce-ports rewrites the firewall to 443 + 8443 (closes
-# 22/80, keeps 8443); --renew-cert restarts Caddy when DNS was late (ACME NXDOMAIN).
+# /health succeeds. --enforce-ports rewrites the firewall to 443 + 8443 + UDP 34567
+# (closes 22/80, keeps 8443 and 34567); --renew-cert restarts Caddy when DNS was
+# late (ACME NXDOMAIN).
 #
 # Usage:
 #   bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--enforce-ports] [--renew-cert]
@@ -35,16 +37,17 @@ usage() {
 Usage:
   bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--enforce-ports] [--renew-cert]
 
-Hardened baseline: TCP 443 + 8443 open; TCP 80 and 22 closed.
+Hardened baseline: TCP 443 + 8443 + UDP 34567 open; TCP 80 and 22 closed.
 
 Checks:
   - Lightsail public port 443 is open (80/22 expected closed; drift warned)
   - Lightsail public port 8443 is open (alternate connection port; warn if missing)
+  - Lightsail public UDP 34567 is open (hysteria / alternate UDP; warn if missing)
   - dig @1.1.1.1 A record matches static IP (when DNS exists)
   - curl https://api-<edge_id>.tokenkey.dev/health (best effort)
 
 Options:
-  --enforce-ports  put-instance-public-ports to 443 + 8443 (closes public 22 and 80)
+  --enforce-ports  put-instance-public-ports to 443 + 8443 + UDP 34567 (closes public 22 and 80)
   --renew-cert     restart tokenkey-caddy via SSM (after DNS cutover / ACME retry)
 EOF
 }
@@ -120,29 +123,32 @@ fi
 
 port_open() {
   local port="$1"
+  local proto="${2:-tcp}"
   aws lightsail get-instance-port-states --region "$REGION" --instance-name "$INSTANCE" \
-    --query "portStates[?fromPort==\`${port}\` && toPort==\`${port}\` && state=='open'] | length(@)" \
+    --query "portStates[?fromPort==\`${port}\` && toPort==\`${port}\` && protocol=='${proto}' && state=='open'] | length(@)" \
     --output text 2>/dev/null | grep -qv '^0$'
 }
 
 echo "[verify-edge-lightsail-network] edge_id=${EDGE_ID} region=${REGION} instance=${INSTANCE}"
 echo "[verify-edge-lightsail-network] domain=${DOMAIN} static_ip=${STATIC_IP}"
 
-# Hardened baseline = 443 + 8443 open, 80/22 closed. --enforce-ports rewrites the
-# whole firewall to exactly that (put = replace semantics, so it also drops the
-# Lightsail-default public SSH 22 and any historical 80, while KEEPING 8443).
+# Hardened baseline = TCP 443 + 8443 + UDP 34567 open, 80/22 closed. --enforce-ports
+# rewrites the whole firewall to exactly that (put = replace semantics, so it also
+# drops the Lightsail-default public SSH 22 and any historical 80, while KEEPING
+# 8443 and UDP 34567).
 if $ENFORCE_PORTS; then
-  echo "[verify-edge-lightsail-network] enforcing public ports = 443 + 8443 (closes 22 and 80, keeps 8443)..."
+  echo "[verify-edge-lightsail-network] enforcing public ports = TCP 443 + 8443 + UDP 34567 (closes 22 and 80)..."
   aws lightsail put-instance-public-ports \
     --region "$REGION" \
     --instance-name "$INSTANCE" \
     --port-infos \
       "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" \
-      "fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0" >/dev/null \
+      "fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0" \
+      "fromPort=34567,toPort=34567,protocol=udp,cidrs=0.0.0.0/0" >/dev/null \
     || { echo "[verify-edge-lightsail-network] FAIL: put-instance-public-ports failed" >&2; exit 3; }
 fi
 
-if ! port_open 443; then
+if ! port_open 443 tcp; then
   echo "[verify-edge-lightsail-network] FAIL: TCP 443 not open (rerun with --enforce-ports)" >&2
   exit 3
 fi
@@ -150,18 +156,25 @@ echo "[verify-edge-lightsail-network] ok: firewall TCP 443 open"
 
 # 8443 is part of the hardened baseline (alternate connection port). Open is
 # expected; warn (not fail) if missing so an operator can rerun --enforce-ports.
-if port_open 8443; then
+if port_open 8443 tcp; then
   echo "[verify-edge-lightsail-network] ok: firewall TCP 8443 open"
 else
-  echo "[verify-edge-lightsail-network] WARN: public TCP 8443 not open (baseline is 443 + 8443) — run with --enforce-ports to open" >&2
+  echo "[verify-edge-lightsail-network] WARN: public TCP 8443 not open (baseline is 443 + 8443 + UDP 34567) — run with --enforce-ports to open" >&2
+fi
+
+# UDP 34567 is part of the hardened baseline (hysteria / alternate UDP ingress).
+if port_open 34567 udp; then
+  echo "[verify-edge-lightsail-network] ok: firewall UDP 34567 open"
+else
+  echo "[verify-edge-lightsail-network] WARN: public UDP 34567 not open (baseline is 443 + 8443 + UDP 34567) — run with --enforce-ports to open" >&2
 fi
 
 # Drift from the hardened baseline: 80 / 22 should be closed.
 drift_ports=()
-port_open 80 && drift_ports+=("80")
-port_open 22 && drift_ports+=("22")
+port_open 80 tcp && drift_ports+=("80")
+port_open 22 tcp && drift_ports+=("22")
 if [[ ${#drift_ports[@]} -gt 0 ]]; then
-  echo "[verify-edge-lightsail-network] WARN: public TCP ${drift_ports[*]} still open (baseline is 443 + 8443) — run with --enforce-ports to close" >&2
+  echo "[verify-edge-lightsail-network] WARN: public TCP ${drift_ports[*]} still open (baseline is 443 + 8443 + UDP 34567) — run with --enforce-ports to close" >&2
 fi
 
 if $RENEW_CERT; then
