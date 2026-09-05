@@ -8691,7 +8691,8 @@
         "TestBuildAliTokenPlanSpeechSynthesizerRequest_MissingInput",
         "TestBuildAliTokenPlanSpeechSynthesizerRequest_MissingModel",
         "TestBuildAliTokenPlanSpeechSynthesizerRequest_DefaultVoice",
-        "longanlingxin"
+        "longanlingxin",
+        "TestForwardAliTokenPlanTTS_RejectsNonTokenPlanAccount"
       ],
       "rationale": "Focused regressions for Ali Token Plan SpeechSynthesizer request shaping: positive OpenAI-compat body→DashScope payload, missing input/model rejects, and default voice longanlingxin. Upstream merge that deletes the companion must trip this registry entry."
     },
@@ -8701,9 +8702,48 @@
         "func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context)",
         "ForwardAliTokenPlanTTS",
         "TkTTSModelUnpriced",
-        "TkUnpricedMediaModelMessage(reqModel, \"tts\")"
+        "TkUnpricedMediaModelMessage(reqModel, \"tts\")",
+        "tkApplyTTSHold",
+        "IsNewAPIAliTokenPlanAccount"
       ],
       "rationale": "POST /v1/audio/speech handler: Token Plan native forward + unpriced TTS reject. Losing TkTTSModelUnpriced re-opens serve-unpriced for character-priced speech."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_hold.go",
+      "must_contain": [
+        "func (h *OpenAIGatewayHandler) tkApplyTTSHold(",
+        "TkReserveTTSHold"
+      ],
+      "rationale": "TTS character hold wrapper for /v1/audio/speech."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_hold.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) TkReserveTTSHold(",
+        "EstimateTTSHold"
+      ],
+      "rationale": "Character-priced TTS balance hold mirrors settlement units (chars/1e6)."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_hold.go",
+      "must_contain": [
+        "func (s *BillingService) EstimateTTSHold("
+      ],
+      "rationale": "TTS hold estimate must use CalculateAudioCostForModel character units."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_preset_tk.go",
+      "must_contain": [
+        "func IsNewAPIAliTokenPlanAccount(account *Account) bool"
+      ],
+      "rationale": "Exported Token Plan account predicate for AudioSpeech failover skip."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_audio_speech_tk_test.go",
+      "must_contain": [
+        "TestAudioSpeech_UnpricedModelRejectedWithoutForward"
+      ],
+      "rationale": "Handler regression: unpriced TTS returns 400 before forward."
     }
   ]
 }

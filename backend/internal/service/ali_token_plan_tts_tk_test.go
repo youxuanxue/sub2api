@@ -3,8 +3,10 @@
 package service
 
 import (
+	"context"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,4 +44,16 @@ func TestBuildAliTokenPlanSpeechSynthesizerRequest_DefaultVoice(t *testing.T) {
 	}`))
 	require.NoError(t, err)
 	require.Contains(t, string(payload), `"voice":"longanlingxin"`)
+}
+
+func TestForwardAliTokenPlanTTS_RejectsNonTokenPlanAccount(t *testing.T) {
+	s := &OpenAIGatewayService{}
+	account := &Account{
+		Platform:    PlatformNewAPI,
+		ChannelType: newapiconstant.ChannelTypeAli,
+		Credentials: map[string]any{"base_url": "https://dashscope.aliyuncs.com"},
+	}
+	_, err := s.ForwardAliTokenPlanTTS(context.Background(), nil, account, []byte(`{"model":"qwen-audio-3.0-tts-plus","input":"hi"}`))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not an Ali Token Plan")
 }

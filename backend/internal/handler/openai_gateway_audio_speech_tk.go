@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -107,7 +108,7 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
-	hold, holdReject := h.tkApplyBalanceHoldNoOutput(c, apiKey, reqModel, body)
+	hold, holdReject := h.tkApplyTTSHold(c, apiKey, reqModel, utf8.RuneCountInString(inputText))
 	if holdReject {
 		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
 		return
@@ -173,6 +174,19 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 		}
 
 		account := selection.Account
+		if !service.IsNewAPIAliTokenPlanAccount(account) {
+			// Native SpeechSynthesizer forward is Token Plan only; mis-mapped
+			// PAYG/other Ali accounts must not abort the loop before a capable
+			// account is tried.
+			failedAccountIDs[account.ID] = struct{}{}
+			h.gatewayService.RecordOpenAIAccountSwitch()
+			if switchCount >= maxAccountSwitches {
+				h.handleStreamingAwareError(c, http.StatusBadGateway, "api_error", "No Ali Token Plan account available for audio speech", streamStarted)
+				return
+			}
+			switchCount++
+			continue
+		}
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
 		setOpsSelectedAccountFrom(c, account)
 		openAIMarkAffinitySelected(c, groupName, account.ID)

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -48,6 +49,41 @@ func TestCalculateAudioCostForModel_AliTTSOverlay(t *testing.T) {
 	require.InDelta(t, wantPerM*0.001, got.ActualCost, 1e-12)
 	require.False(t, s.TkTTSModelUnpriced("qwen-audio-3.0-tts-plus", nil))
 	require.True(t, s.TkTTSModelUnpriced("totally-unknown-tts-model", nil))
+}
+
+func TestTkTTSModelUnpriced_GroupExplicitZeroIsPricedFree(t *testing.T) {
+	t.Parallel()
+	s := &BillingService{}
+	zero := 0.0
+	group := &Group{AudioTTSPricePerMillionChars: &zero}
+	require.False(t, s.TkTTSModelUnpriced("totally-unknown-tts-model", group))
+	cfg := &audioPriceConfig{TTSPerMChars: &zero}
+	require.Equal(t, 0.0, s.CalculateAudioCostForModel("totally-unknown-tts-model", "tts", 0.01, cfg, 1).ActualCost)
+}
+
+func TestCalculateAudioCostForModel_GroupOverrideBeatsRegistry(t *testing.T) {
+	t.Parallel()
+	s := &BillingService{}
+	registryPerM := s.TkRegistryTTSPricePerMillionChars("qwen-audio-3.0-tts-plus")
+	require.Greater(t, registryPerM, 0.0)
+	override := 42.0
+	cfg := &audioPriceConfig{TTSPerMChars: &override}
+	got := s.CalculateAudioCostForModel("qwen-audio-3.0-tts-plus", "tts", 0.01, cfg, 1.0)
+	require.InDelta(t, 0.42, got.ActualCost, 1e-12)
+	require.Greater(t, math.Abs(got.ActualCost-registryPerM*0.01), 1e-6)
+}
+
+func TestAliTTSBillingUnits_FromCharacterCount(t *testing.T) {
+	t.Parallel()
+	s := &BillingService{}
+	chars := 10000 // 0.01 M chars
+	units := float64(chars) / 1_000_000.0
+	perM := s.TkRegistryTTSPricePerMillionChars("qwen-audio-3.0-tts-plus")
+	require.Greater(t, perM, 0.0)
+	hold := s.EstimateTTSHold("qwen-audio-3.0-tts-plus", chars, nil, 1.0)
+	settle := s.CalculateAudioCostForModel("qwen-audio-3.0-tts-plus", "tts", units, nil, 1.0)
+	require.InDelta(t, hold, settle.ActualCost, 1e-12)
+	require.InDelta(t, perM*0.01, settle.ActualCost, 1e-12)
 }
 
 func floatPtr(v float64) *float64 { return &v }
