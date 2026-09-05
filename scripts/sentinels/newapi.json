@@ -986,9 +986,11 @@
         "accountModelMappingOverrideAccounts",
         "NewAPIModelDisplayIDsForAccount",
         "tkServedModelsManifestPresetIDsForSelector",
-        "isNewAPIXRTokenAccount"
+        "isNewAPIXRTokenAccount",
+        "isNewAPIAliTokenPlanAccount",
+        "isNewAPIQianfanTokenPlanAccount"
       ],
-      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or channel-wide preset. isNewAPIXRTokenAccount is the ch54 XRToken selector: its preset/display menus consume the manifest's XRToken scope, including shared rows indexed under ch45."
+      "rationale": "Agent Plan admin preset, model-surface account override, and default probe model derive from the platform/channel/base_url property selector, not an account-id registry or channel-wide preset. isNewAPIXRTokenAccount is the ch54 XRToken selector; isNewAPIAliTokenPlanAccount / isNewAPIQianfanTokenPlanAccount keep MaaS Token Plan and Qianfan Token Plan Person floors off the bare ch17/ch46 PAYG presets."
     },
     {
       "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan.go",
@@ -1007,9 +1009,13 @@
         "func manifestEntryScopeKeys(",
         "func manifestScopeKey(",
         "newAPIQianfanModelMappingPresetIDs",
-        "newAPIXRTokenModelMappingPresetIDs"
+        "newAPIXRTokenModelMappingPresetIDs",
+        "newAPIAliTokenPlanModelMappingPresetIDs",
+        "newAPIQianfanTokenPlanModelMappingPresetIDs",
+        "IsAliTokenPlanBaseURL",
+        "IsQianfanTokenPlanBaseURL"
       ],
-      "rationale": "Property-scoped manifest projections keep Agent Plan, Qianfan, and XRToken mapping/display menus aligned with the schema-v3 channel/base-URL scopes. One model may belong to multiple property scopes without a second model-id registry."
+      "rationale": "Property-scoped manifest projections keep Agent Plan, Qianfan PAYG/Token Plan, Ali Token Plan, and XRToken mapping/display menus aligned with the schema-v3 channel/base-URL scopes. One model may belong to multiple property scopes without a second model-id registry. Losing IsAliTokenPlanBaseURL / IsQianfanTokenPlanBaseURL in manifestScopeKey silently drops Token Plan property floors back into bare channel presets."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_tk_volcagentplan.go",

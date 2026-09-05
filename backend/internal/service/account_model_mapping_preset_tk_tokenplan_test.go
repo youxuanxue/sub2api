@@ -87,6 +87,8 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 			foundAli = true
 			require.Contains(t, override.ModelMapping, "qwen3.6-flash")
 			require.Contains(t, override.ModelMapping, "deepseek-v4-flash-0731")
+			require.Contains(t, override.ModelMapping, "wan2.7-image")
+			require.Contains(t, override.ModelMapping, "wan2.7-image-pro")
 			require.NotContains(t, override.ModelMapping, "qwen3-8b")
 		}
 		if override.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&

@@ -3182,6 +3182,27 @@
       "rationale": "Manifest preset/display projection for XRToken account 96 (ch54): asserts the ch54-scoped ids and the ch45-indexed shared ids merge into one menu, that the documented '.../v1' base is accepted, and that a plain official-Ark ch54 account does NOT inherit the XRToken shared list. Prevents an upstream merge from dropping the merge step and silently shrinking the served Seedance set. The floor test proves modelops activate actually has an XRToken delta to apply (all five SKUs) and that every exported target is identity — the vendor prefix must never be stored as a mapping target."
     },
     {
+      "path": "backend/internal/service/account_model_mapping_preset_tk_tokenplan_test.go",
+      "must_contain": [
+        "TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount",
+        "TestNewAPIModelMappingPresetIDsForQianfanTokenPlanAccount",
+        "TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides",
+        "PAYG-only ch17 floor ids must not leak into Token Plan override",
+        "wan2.7-image"
+      ],
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested."
+    },
+    {
+      "path": "backend/internal/service/tk_served_models_manifest_tk_test.go",
+      "must_contain": [
+        "TestTkServedModelsManifestProjectionsMatchRawOwner",
+        "manifestScopeKeyForTest",
+        "IsAliTokenPlanBaseURL",
+        "IsQianfanTokenPlanBaseURL"
+      ],
+      "rationale": "Raw-owner projection test must recognize the same property scopes as production manifestScopeKey (including Ali/Qianfan Token Plan). A parallel hardcoded allowlist would drift and falsely pass while Token Plan scopes are silently dropped from the live loader."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_usage_tk_video_billing_test.go",
       "must_contain": [
         "TestIsOpenAIVideoUsageResult",
