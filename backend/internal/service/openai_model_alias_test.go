@@ -44,3 +44,18 @@ func TestCanonicalizeOpenAICompatRoutingModel(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAIWireBillingEffortStripInvariants(t *testing.T) {
+	t.Parallel()
+
+	// Effort strip must keep the billing family; entitlement wire remap is
+	// upstream-only. This is the invariant that twice broke CI when remap
+	// leaked into NormalizeOpenAICompatRequestedModel.
+	require.Equal(t, "gpt-5.4", NormalizeOpenAICompatRequestedModel("gpt-5.4-xhigh"))
+	require.Equal(t, "gpt-5.4", normalizeOpenAIBillingModel("gpt-5.4-xhigh"))
+	require.Equal(t, "gpt-5.5", CanonicalizeOpenAICompatRoutingModel("gpt-5.4"))
+
+	oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	require.Equal(t, "gpt-5.5", normalizeOpenAIModelForUpstream(oauth, "gpt-5.4"))
+	require.Equal(t, []string{"gpt-5.4", "gpt-5.5"}, openAIChannelRestrictionModelCandidates("gpt-5.4"))
+}

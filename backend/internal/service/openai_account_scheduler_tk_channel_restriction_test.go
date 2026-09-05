@@ -77,12 +77,35 @@ func TestP01_Scheduler_ChannelPricingRestriction_Blocks(t *testing.T) {
 // TestP01_Scheduler_ChannelPricingRestriction_AllowsListedModel 回归保护：
 // 请求模型在白名单内时正常选号，不被新加的检查误杀。
 //
-// Channel restriction checks the CanonicalizeOpenAICompatRoutingModel id
-// (bare gpt-5.4 → gpt-5.5), so the pricing allowlist must include that wire id.
+// BillingModelSourceRequested must honor the client/billing family id even when
+// routing canonicalize remaps bare gpt-5.4 → gpt-5.5 for upstream entitlement.
 func TestP01_Scheduler_ChannelPricingRestriction_AllowsListedModel(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(91002)
 	pool := []*Account{newAPIAccount(91201, 7)}
+	channel := Channel{
+		ID:                 1,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceRequested,
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformNewAPI, Models: []string{"gpt-5.4"}},
+		},
+	}
+	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, pool, channel)
+
+	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.4", nil, OpenAIUpstreamTransportAny, false)
+	require.NoError(t, err, "whitelisted billing-family model must be allowed through the new restriction gate")
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(91201), selection.Account.ID)
+}
+
+func TestP01_Scheduler_ChannelPricingRestriction_AllowsWireAliasWhenListed(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(91006)
+	pool := []*Account{newAPIAccount(91202, 7)}
 	channel := Channel{
 		ID:                 1,
 		Status:             StatusActive,
@@ -96,10 +119,10 @@ func TestP01_Scheduler_ChannelPricingRestriction_AllowsListedModel(t *testing.T)
 	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, pool, channel)
 
 	selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.4", nil, OpenAIUpstreamTransportAny, false)
-	require.NoError(t, err, "whitelisted model must be allowed through the new restriction gate")
+	require.NoError(t, err, "operators who allowlist the wire id must still pass")
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
-	require.Equal(t, int64(91201), selection.Account.ID)
+	require.Equal(t, int64(91202), selection.Account.ID)
 }
 
 // TestP01_Scheduler_NoChannelService_NoRegression 当 channelService==nil（旧测试
