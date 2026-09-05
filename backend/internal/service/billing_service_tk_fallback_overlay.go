@@ -6,8 +6,9 @@ import "strings"
 // Codex fallback prices after the generic Claude/Gemini matchers. Returns nil
 // when no TK branch matches (caller continues to Grok / final nil).
 //
-// Intentional closed matches (e.g. glm-4.5-x) also return nil; those IDs do not
-// hit later Grok matchers, so behavior stays identical to an early return nil.
+// Intentional closed matches (e.g. glm-4.5-x) also return nil so the caller
+// continues into Grok/final nil; those IDs do not match Grok owners, so the
+// observed price stays nil (same as an early closed return).
 func (s *BillingService) tkResolveFallbackOverlayPricing(modelLower string) *ModelPricing {
 	if s == nil {
 		return nil
