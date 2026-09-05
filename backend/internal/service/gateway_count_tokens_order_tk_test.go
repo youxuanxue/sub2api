@@ -3,60 +3,84 @@
 package service
 
 import (
-	"bufio"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
-// TestForwardCountTokens_EstimateBeforeUAGateOrderPin pins the control-flow
-// order that companion extraction must preserve: shouldEstimateCountTokensLocally
-// short-circuits BEFORE the canonical-OAuth UA gate. Moving the gate into the
-// pre-estimate companion would change estimate-platform behavior (P0 ProbeEnabled
-// order-drift class).
-func TestForwardCountTokens_EstimateBeforeUAGateOrderPin(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	srcPath := filepath.Join(filepath.Dir(thisFile), "gateway_count_tokens.go")
-	f, err := os.Open(srcPath)
-	require.NoError(t, err)
-	defer f.Close()
-
-	var estimateLine, uaGateLine int
-	sc := bufio.NewScanner(f)
-	line := 0
-	for sc.Scan() {
-		line++
-		text := sc.Text()
-		if strings.Contains(text, "shouldEstimateCountTokensLocally(account)") {
-			estimateLine = line
-		}
-		if strings.Contains(text, "checkCanonicalIngressUAStrict(") {
-			uaGateLine = line
-		}
-	}
-	require.NoError(t, sc.Err())
-	require.NotZero(t, estimateLine, "estimate short-circuit must remain in gateway_count_tokens.go")
-	require.NotZero(t, uaGateLine, "UA gate must remain in gateway_count_tokens.go after estimate")
-	require.Less(t, estimateLine, uaGateLine,
-		"shouldEstimateCountTokensLocally must precede checkCanonicalIngressUAStrict")
+func forceCanonicalIngressStrict(t *testing.T, enabled bool) {
+	t.Helper()
+	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
+		canonicalIngressStrict: enabled,
+		expiresAt:              time.Now().Add(time.Hour).UnixNano(),
+	})
+	t.Cleanup(func() {
+		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{})
+	})
 }
 
-// TestTkPrepareCountTokensAnthropicBody_DoesNotContainUAGate pins that the
-// companion prepare helper does not swallow the UA gate (which must stay after
-// estimate in ForwardCountTokens).
-func TestTkPrepareCountTokensAnthropicBody_DoesNotContainUAGate(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	srcPath := filepath.Join(filepath.Dir(thisFile), "gateway_count_tokens_tk.go")
-	body, err := os.ReadFile(srcPath)
+// TestForwardCountTokens_EstimateSkipsStrictUAGate pins the control-flow order
+// companion extraction must preserve: shouldEstimateCountTokensLocally
+// short-circuits BEFORE the canonical-OAuth UA gate. Estimate platforms
+// (Antigravity/Gemini/Kiro) must keep returning local estimates even when
+// strict ingress would reject the UA on Anthropic OAuth paths.
+func TestForwardCountTokens_EstimateSkipsStrictUAGate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	forceCanonicalIngressStrict(t, true)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+	req.Header.Set("User-Agent", "openai-python/1.0") // rejected by strict allow-list
+	c.Request = req
+
+	svc := &GatewayService{settingService: &SettingService{}}
+	account := &Account{ID: 1, Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	parsed := &ParsedRequest{
+		Model: "claude-sonnet-4-6",
+		Body:  mustNewRequestBodyRef([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`)),
+	}
+
+	err := svc.ForwardCountTokens(c.Request.Context(), c, account, parsed)
 	require.NoError(t, err)
-	require.NotContains(t, string(body), "checkCanonicalIngressUAStrict",
-		"UA gate must not live in the pre-estimate companion")
-	require.NotContains(t, string(body), "IsAnthropicCanonicalIngressStrictEnabled",
-		"UA gate setting check must not live in the pre-estimate companion")
+	require.Equal(t, http.StatusOK, rec.Code, "estimate path must not hit UA gate; got body=%s", rec.Body.String())
+	require.Contains(t, rec.Body.String(), `"input_tokens"`)
+}
+
+// TestTkPrepareCountTokensAnthropicBody_DoesNotEnforceUAGate pins that the
+// pre-estimate companion never writes a UA-gate 403 (gate stays in
+// ForwardCountTokens after shouldEstimateCountTokensLocally).
+func TestTkPrepareCountTokensAnthropicBody_DoesNotEnforceUAGate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	forceCanonicalIngressStrict(t, true)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+	req.Header.Set("User-Agent", "openai-python/1.0")
+	c.Request = req
+
+	svc := &GatewayService{settingService: &SettingService{}}
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`)
+	stored := append([]byte(nil), body...)
+	replaceBody := func(next []byte) error {
+		stored = append([]byte(nil), next...)
+		return nil
+	}
+	getBody := func() []byte { return stored }
+
+	account := &Account{ID: 7, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
+	next, model, err := svc.tkPrepareCountTokensAnthropicBody(
+		context.Background(), c, account, body, "claude-sonnet-4-5", replaceBody, getBody,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "claude-sonnet-4-5", model)
+	require.NotEmpty(t, next)
+	require.NotEqual(t, http.StatusForbidden, rec.Code,
+		"prepare companion must not enforce UA gate; got body=%s", rec.Body.String())
 }
