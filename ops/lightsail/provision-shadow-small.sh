@@ -241,7 +241,8 @@ fi
 aws lightsail put-instance-public-ports --region "$REGION" --instance-name "$SHADOW_NAME" \
   --port-infos \
     "fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0" \
-    "fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0" >/dev/null
+    "fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0" \
+    "fromPort=34567,toPort=34567,protocol=udp,cidrs=0.0.0.0/0" >/dev/null
 SHADOW_IP="$(aws lightsail get-static-ip --region "$REGION" --static-ip-name "$SHADOW_IP_NAME" --query 'staticIp.ipAddress' --output text)"
 echo "shadow temp ip=${SHADOW_IP}"
 assert_live_untouched
