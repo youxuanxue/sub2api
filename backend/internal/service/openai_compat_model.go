@@ -95,7 +95,14 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 		return trimmed, "", false
 	}
 
-	return normalizeCodexModel(modelID), reasoningEffort, true
+	// Strip the effort token only. Do not apply Codex entitlement remaps here
+	// (e.g. gpt-5.4 → gpt-5.6-terra): those belong in normalizeOpenAIModelForUpstream
+	// so account model_mapping and billing still see the requested family id.
+	baseModel := strings.Join(parts[:len(parts)-1], "-")
+	if baseModel == "" {
+		return trimmed, "", false
+	}
+	return baseModel, reasoningEffort, true
 }
 
 func openAIReasoningEffortToClaudeOutputEffort(effort string) string {

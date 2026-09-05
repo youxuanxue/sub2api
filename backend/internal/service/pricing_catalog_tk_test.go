@@ -668,6 +668,40 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	assert.False(t, got["minimax-m2.7"], "unmapped vendor hidden until universal mapping exists")
 }
 
+func TestPublicCatalog_HidesRetiredOpenAIClientFacingIDs(t *testing.T) {
+	t.Parallel()
+	// Settlement may still price retired ids; public FilterPublicCatalogToServable
+	// must not advertise them once they leave the OpenAI allowlist.
+	fixture := `{
+	  "gpt-5.2": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-5.2-codex": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-5.2-pro": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-5.4": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-5.4-mini": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-5.5": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-5.6-terra": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
+	  "gpt-5.6-luna": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}
+	}`
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(fixture), time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC), true
+	})
+	full := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, full)
+	public := FilterPublicCatalogToServable(full)
+	require.NotNil(t, public)
+	got := make(map[string]bool, len(public.Data))
+	for _, m := range public.Data {
+		got[m.ModelID] = true
+	}
+	for _, retired := range []string{"gpt-5.2", "gpt-5.2-codex", "gpt-5.2-pro", "gpt-5.4", "gpt-5.4-mini"} {
+		assert.False(t, got[retired], "retired client-facing id %q must not appear on public /pricing", retired)
+	}
+	assert.True(t, got["gpt-5.5"], "gpt-5.5 remains public")
+	assert.True(t, got["gpt-5.6-terra"], "terra remains public")
+	assert.True(t, got["gpt-5.6-luna"], "luna remains public")
+}
+
 func firstMapKeyForTest(t *testing.T, m map[string]struct{}) string {
 	t.Helper()
 	require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")

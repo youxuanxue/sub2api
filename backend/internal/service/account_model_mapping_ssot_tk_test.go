@@ -107,12 +107,17 @@ func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	mapping := openAITokenseaRelayAccountModelMappingFloor(context.Background(), nil, nil)
 	requireIdentityMappingForIDs(t, mapping, tokenseaRelayCorePublicFloorIDs())
 	require.NotEmpty(t, mapping)
-	require.Contains(t, mapping, "gpt-5.4")
 	require.Contains(t, mapping, "claude-sonnet-4-6")
-	require.Contains(t, mapping, "gpt-5.6")
+	// Retired client-facing ids are not public floor members; wire remaps cover access.
+	require.NotContains(t, mapping, "gpt-5.4")
+	require.NotContains(t, mapping, "gpt-5.4-mini")
+	require.NotContains(t, mapping, "gpt-5.2")
+	// Bare gpt-5.6 is an overlay pricing alias → sol; floor serves the wire tiers.
+	require.NotContains(t, mapping, "gpt-5.6", "bare gpt-5.6 is pricing-alias-only; floor owner serves sol/terra/luna")
 	require.Contains(t, mapping, "gpt-5.6-luna")
 	require.Contains(t, mapping, "gpt-5.6-sol")
 	require.Contains(t, mapping, "gpt-5.6-terra")
+	require.Contains(t, mapping, "gpt-5.5")
 	require.NotContains(t, mapping, "byteplus/dreamina-seedance-2-0-260128", "non-SSOT upstream id is a boundary sample, not an owner copy")
 	// Live 2026-08-20 account 92 raw chat: listed DeepSeek/Qwen/GLM/Kimi IDs
 	// returned 400 openai_error; dated flash-0731 is not even listed.
@@ -162,11 +167,14 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 		"codex-mini-latest",
 		"gpt-5.3-chat-latest",
 	} {
-		require.True(t, account.IsModelSupported(model), "known routing alias should match the OpenAI floor")
+		// Scheduler admits aliases via CanonicalizeOpenAICompatRoutingModel before
+		// IsModelSupported; mapping lookup itself only strips effort/spelling.
+		routed := CanonicalizeOpenAICompatRoutingModel(model)
+		require.True(t, account.IsModelSupported(routed), "known routing alias %q (routed %q) should match the OpenAI floor", model, routed)
 	}
 	require.True(t, account.IsModelSupported("gpt-5.3-codex-spark"), "spark itself remains served")
-	require.True(t, account.IsModelSupported("gpt-5.3-codex"), "legacy codex id should alias to spark without display")
-	require.True(t, account.IsModelSupported("gpt-5-codex"), "legacy GPT-5 Codex id should alias to spark without display")
+	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-codex")), "legacy codex id should alias to spark without display")
+	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5-codex")), "legacy GPT-5 Codex id should alias to spark without display")
 	require.False(t, account.IsModelSupported("gpt-not-a-real-id-zzz"), "unknown OpenAI ids must stay out of the floor")
 }
 

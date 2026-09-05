@@ -137,8 +137,7 @@ func (s *OpenAIGatewayService) grokNativeVideoSubmit(
 	}
 	// Honor a per-account model_mapping if any (account 6 has none → passthrough),
 	// identical to the chat raw path.
-	billingModel := resolveOpenAIForwardModel(account, reqModel, "")
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	_, upstreamModel := resolveOpenAICompatForwardModels(account, reqModel, "")
 	upstreamBody := body
 	if upstreamModel != "" && upstreamModel != reqModel {
 		upstreamBody = ReplaceModelInBody(body, upstreamModel)

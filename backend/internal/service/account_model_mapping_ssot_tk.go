@@ -483,10 +483,10 @@ func anthropicTokenseaRelayModelMappingFloor() map[string]string {
 
 // tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already
 // served on prod account 92 but absent from the 47-id upstream snapshot.
+// Bare gpt-5.6 is overlay pricing-alias-only (→ sol); floor serves sol/terra/luna.
 var tokenseaRelaySharedExtraSSOTIDs = []string{
 	"codex-auto-review",
 	"gpt-5.3-codex-spark",
-	"gpt-5.6",
 }
 
 func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {

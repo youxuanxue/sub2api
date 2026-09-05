@@ -243,15 +243,17 @@ func TestResolveOpenAIForwardMappedModels_CompactMappingPrecedence(t *testing.T)
 			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
 				Credentials: conflictingMappings},
 			requireCompact: true,
-			wantBilling:    "gpt-5.4",
-			wantUpstream:   "gpt-5.5-openai-compact",
+			// Compact upstream is gpt-5.5-openai-compact; settlement follows that family.
+			wantBilling:  "gpt-5.5",
+			wantUpstream: "gpt-5.5-openai-compact",
 		},
 		{
 			name: "non-compact uses ordinary mapping",
 			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
 				Credentials: conflictingMappings},
-			wantBilling:  "gpt-5.4",
-			wantUpstream: "gpt-5.4",
+			// Ordinary mapping yields gpt-5.4; OAuth remaps wire to terra and bills terra.
+			wantBilling:  "gpt-5.6-terra",
+			wantUpstream: "gpt-5.6-terra",
 		},
 		{
 			name: "compact falls back to ordinary mapped model",
@@ -397,7 +399,7 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			name:    "oauth normalizes known codex alias",
 			account: &Account{Type: AccountTypeOAuth},
 			model:   "gpt-5.4-high",
-			want:    "gpt-5.4",
+			want:    "gpt-5.6-terra",
 		},
 		{
 			name:    "oauth routes GPT-5.5 Pro alias to GPT-5.5",

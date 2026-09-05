@@ -140,6 +140,7 @@ type AccountTestService struct {
 	grokTokenProvider         *GrokTokenProvider
 	antigravityGatewayService *AntigravityGatewayService
 	kiroGatewayService        *KiroGatewayService
+	openAIGatewayService      *OpenAIGatewayService
 	rateLimitService          *RateLimitService
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config

@@ -140,8 +140,7 @@ func prepareNativeOpenAIInputTokensCountRequest(body []byte, account *Account) (
 	if originalModel == "" {
 		return nil, fmt.Errorf("parse responses input_tokens request: model is required")
 	}
-	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, "")
 	req.Model = upstreamModel
 	return &openAIInputTokensCountPrepared{
 		Request:         req,
@@ -409,8 +408,7 @@ func prepareOpenAIInputTokensCountRequest(
 	originalModel := anthropicReq.Model
 	applyOpenAICompatModelNormalization(&anthropicReq)
 	normalizedModel := anthropicReq.Model
-	billingModel := resolveOpenAIForwardModel(account, normalizedModel, strings.TrimSpace(defaultMappedModel))
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, normalizedModel, strings.TrimSpace(defaultMappedModel))
 
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
 	if err != nil {

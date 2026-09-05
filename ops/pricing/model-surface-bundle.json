@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "0d13b7ea93c11fd6798ee557b511e6ab81c0a47623c2c1aca79cdd954b4545a8",
+  "floor_sha256": "5c5e7cfbbfabc02fd6c1cb843f841f136e5c6d4d89a6a98f2934e96eaeeb6895",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -32,10 +32,7 @@
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
         "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
-        "gpt-5.4": "gpt-5.4",
-        "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.5": "gpt-5.5",
-        "gpt-5.6": "gpt-5.6",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-terra": "gpt-5.6-terra"
@@ -200,8 +197,6 @@
       "openai": {
         "codex-auto-review": "codex-auto-review",
         "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
-        "gpt-5.4": "gpt-5.4",
-        "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.5": "gpt-5.5",
         "gpt-5.6": "gpt-5.6",
         "gpt-5.6-luna": "gpt-5.6-luna",
@@ -209,9 +204,10 @@
         "gpt-5.6-terra": "gpt-5.6-terra"
       },
       "openai_ainzy_relay": {
-        "gpt-5.4": "gpt-5.4",
-        "gpt-5.4-mini": "gpt-5.4-mini",
-        "gpt-5.5": "gpt-5.5"
+        "gpt-5.5": "gpt-5.5",
+        "gpt-5.6-luna": "gpt-5.6-luna",
+        "gpt-5.6-sol": "gpt-5.6-sol",
+        "gpt-5.6-terra": "gpt-5.6-terra"
       },
       "openai_cloudwise_relay": {
         "claude-*": "claude-*",
@@ -236,10 +232,7 @@
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image-preview",
         "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
-        "gpt-5.4": "gpt-5.4",
-        "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.5": "gpt-5.5",
-        "gpt-5.6": "gpt-5.6",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-terra": "gpt-5.6-terra"

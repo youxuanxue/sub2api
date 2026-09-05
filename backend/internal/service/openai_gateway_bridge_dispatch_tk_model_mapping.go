@@ -16,8 +16,7 @@ func rewriteNewAPIBridgeBodyModel(account *Account, body []byte, defaultMappedMo
 	if originalModel == "" || account == nil {
 		return body
 	}
-	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	_, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
 	if upstreamModel == "" || upstreamModel == originalModel {
 		return body
 	}

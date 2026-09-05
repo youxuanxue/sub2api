@@ -58,22 +58,24 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	// servable-allowlist:begin openai
 	"codex-auto-review":   {},
 	"gpt-5.3-codex-spark": {},
-	"gpt-5.4":             {},
-	"gpt-5.4-mini":        {},
-	"gpt-5.5":             {},
-	"gpt-5.6":             {},
-	"gpt-5.6-luna":        {},
-	"gpt-5.6-sol":         {},
-	"gpt-5.6-terra":       {},
+	// gpt-5.4 / gpt-5.4-mini / gpt-5.2 are retired client-facing ids: OAuth
+	// remaps them for access, but public /pricing and menus must not advertise
+	// them (upstream Codex entitlement dropped 5.2; 5.4 → terra/luna).
+	"gpt-5.5":       {},
+	"gpt-5.6":       {},
+	"gpt-5.6-luna":  {},
+	"gpt-5.6-sol":   {},
+	"gpt-5.6-terra": {},
 	// servable-allowlist:end openai
 }
 
 // supportedOpenAIAinzyRelayCatalogModels is the compiled mapping floor for the
 // api.ainzy.net/v1 relay scope. It is separate from native OpenAI membership.
 var supportedOpenAIAinzyRelayCatalogModels = map[string]struct{}{
-	"gpt-5.4":      {},
-	"gpt-5.4-mini": {},
-	"gpt-5.5":      {},
+	"gpt-5.5":       {},
+	"gpt-5.6-luna":  {},
+	"gpt-5.6-sol":   {},
+	"gpt-5.6-terra": {},
 }
 
 // supportedOpenAITokenseaRelayCatalogModels is the upstream-listed universe for
@@ -108,8 +110,6 @@ var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 	"glm-5.1":                        {},
 	"glm-5.2":                        {},
 	"gpt-4o-2024-05-13":              {},
-	"gpt-5.4":                        {},
-	"gpt-5.4-mini":                   {},
 	"gpt-5.5":                        {},
 	"gpt-5.6-luna":                   {},
 	"gpt-5.6-sol":                    {},

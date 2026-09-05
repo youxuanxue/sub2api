@@ -486,7 +486,56 @@ func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Contex
 	if billingModel == "" {
 		return false
 	}
+	if mapping.BillingModelSource == BillingModelSourceRequested {
+		return s.isOpenAIRequestedModelRestrictedByChannel(ctx, *groupID, requestedModel)
+	}
 	return s.channelService.IsModelRestricted(ctx, *groupID, billingModel)
+}
+
+// isOpenAIRequestedModelRestrictedByChannel allows a request when the channel
+// pricing allowlist contains either the billing-family id or the entitlement
+// wire id. Routing remaps (gpt-5.4 → gpt-5.6-terra) must not silently block operators
+// who still allowlist the client/billing family.
+func (s *OpenAIGatewayService) isOpenAIRequestedModelRestrictedByChannel(ctx context.Context, groupID int64, requestedModel string) bool {
+	candidates := openAIChannelRestrictionModelCandidates(requestedModel)
+	if len(candidates) == 0 {
+		return false
+	}
+	for _, candidate := range candidates {
+		if !s.channelService.IsModelRestricted(ctx, groupID, candidate) {
+			return false
+		}
+	}
+	return true
+}
+
+func openAIChannelRestrictionModelCandidates(requestedModel string) []string {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return nil
+	}
+	seen := make(map[string]struct{}, 4)
+	out := make([]string, 0, 4)
+	add := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return
+		}
+		if _, ok := seen[model]; ok {
+			return
+		}
+		seen[model] = struct{}{}
+		out = append(out, model)
+	}
+	add(requestedModel)
+	add(NormalizeOpenAICompatRequestedModel(requestedModel))
+	if family := normalizeOpenAIBillingModel(requestedModel); family != "" {
+		add(family)
+	}
+	if wire := CanonicalizeOpenAICompatRoutingModel(requestedModel); wire != "" {
+		add(wire)
+	}
+	return out
 }
 
 func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Context, groupID int64, account *Account, requestedModel string, requireCompact bool) bool {

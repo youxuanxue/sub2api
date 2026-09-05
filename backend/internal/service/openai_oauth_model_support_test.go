@@ -102,6 +102,40 @@ func TestIsModelSupported_OpenAIOAuthPassthroughIgnoresLeftoverMapping(t *testin
 	require.True(t, account.IsModelSupported("deepseek-v4"), "透传应放行任意模型")
 }
 
+func TestIsModelSupported_OpenAICompatMappingPrefersClientFacingThenWireRemap(t *testing.T) {
+	t.Parallel()
+
+	// API-key identity maps must still match client-facing family ids first
+	// (gpt-5.4), without requiring the Codex wire remap key (terra).
+	apiKey := &Account{
+		ID:       10,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},
+		},
+	}
+	require.True(t, apiKey.IsModelSupported("gpt-5.4"))
+	require.True(t, apiKey.IsModelSupported("gpt-5.4-high"))
+	mapped, matched := apiKey.ResolveMappedModel("gpt-5.4-high")
+	require.True(t, matched)
+	require.Equal(t, "gpt-5.4", mapped)
+
+	// Spark default mapping only lists display spark ids; legacy aliases reach
+	// them via Canonicalize fallback after spelling/effort lookup misses.
+	spark := &Account{
+		ID:       11,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping": defaultSparkShadowModelMapping(),
+		},
+	}
+	require.True(t, spark.IsModelSupported("gpt-5.3-codex-spark"))
+	require.True(t, spark.IsModelSupported("gpt-5.3-codex"), "legacy alias must fall back to wire remap")
+	require.False(t, spark.IsModelSupported("gpt-5.5"), "non-spark family stays outside spark whitelist")
+}
+
 func TestIsModelSupported_OpenAIAPIKeyEmptyMappingAllowsAll(t *testing.T) {
 	account := &Account{
 		ID:       2,

@@ -52,7 +52,8 @@ func TestTkWriteUnsupportedAnthropicModelAtIngress_AllowsTokenseaPublicSSOTModel
 	gin.SetMode(gin.TestMode)
 	h := &GatewayHandler{}
 	// Boundary samples from the tokensea public SSOT floor, not a copied catalog.
-	for _, model := range []string{"gpt-5.4", "gemini-3-pro-image"} {
+	// gpt-5.4 is retired from public declaration; use a still-public OpenAI id.
+	for _, model := range []string{"gpt-5.5", "gemini-3-pro-image"} {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		require.False(t, h.tkWriteUnsupportedAnthropicModelAtIngress(c, model, false, nil), model)
 	}

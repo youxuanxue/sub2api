@@ -33,6 +33,7 @@ func (s *OpenAIGatewayService) tkTrySelectAccountByGuardianParentWhenSchedulerNi
 	groupID *int64,
 	groupPlatform string,
 	sessionHash string,
+	restrictionModel string,
 	requestedModel string,
 	excludedIDs map[int64]struct{},
 	requiredTransport OpenAIUpstreamTransport,
@@ -45,8 +46,8 @@ func (s *OpenAIGatewayService) tkTrySelectAccountByGuardianParentWhenSchedulerNi
 	if guardianParentAccountID <= 0 {
 		return nil, decision, false, nil
 	}
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
-		return nil, decision, true, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkOpenAICompatChannelPricingRestrictionError(requestedModel))
+	if s.checkChannelPricingRestriction(ctx, groupID, restrictionModel) {
+		return nil, decision, true, s.tkGroupUnsupportedModelRecordErr(groupID, restrictionModel, tkOpenAICompatChannelPricingRestrictionError(restrictionModel))
 	}
 	fallbackScheduler := &defaultOpenAIAccountScheduler{service: s, stats: newOpenAIAccountRuntimeStats()}
 	selection, _, _, err := fallbackScheduler.selectBySessionHash(ctx, OpenAIAccountScheduleRequest{
@@ -56,6 +57,7 @@ func (s *OpenAIGatewayService) tkTrySelectAccountByGuardianParentWhenSchedulerNi
 		StickyAccountID:         guardianParentAccountID,
 		PreserveStickyBinding:   true,
 		RequestedModel:          requestedModel,
+		RestrictionModel:        restrictionModel,
 		RequiredTransport:       requiredTransport,
 		RequiredCapability:      requiredCapability,
 		RequiredImageCapability: requiredImageCapability,

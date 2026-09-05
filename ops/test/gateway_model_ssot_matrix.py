@@ -82,7 +82,7 @@ DEPLOY_CANARY_PROTOCOLS: dict[str, list[str]] = {
 }
 DEFAULT_DEPLOY_CANARY_MODEL: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
-    "openai": "gpt-5.4",
+    "openai": "gpt-5.6-terra",
     "gemini": "gemini-2.5-flash",
     "antigravity": "gemini-3.5-flash",
     "newapi": "qwen3-8b",
@@ -900,7 +900,7 @@ def cmd_selftest(_args) -> int:
     soft_args = argparse.Namespace(model=["missing-model"], require_rows=False)
     assert required_row_misses(soft_args, rows) == []
     local_rows, _local_excluded = rows_from_public_catalog(local_pricing_payload(), "local-fixture")
-    local_require = argparse.Namespace(model=["gpt-5.4"], require_rows=True)
+    local_require = argparse.Namespace(model=["gpt-5.6-terra"], require_rows=True)
     assert not required_row_misses(local_require, local_rows)
     assert "kiro" in PLATFORM_CHOICES, "deploy-stage0 sharded gate includes kiro; argparse must accept it"
     canary = select_deploy_canary_rows(rows)

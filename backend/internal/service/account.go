@@ -727,11 +727,15 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 		return ""
 	}
 	if IsOpenAICompatPlatform(platform) {
+		// Spelling + effort-suffix strip only. Entitlement remaps
+		// (gpt-5.4 → terra, gpt-5.4-mini → luna) belong in
+		// normalizeOpenAIModelForUpstream — mapping / served-set lookups must
+		// still match client-facing family ids (gpt-5.4, gpt-5.2, …).
 		if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
-			if alias := resolveOpenAICompatRoutingAlias(canonical); alias != "" {
-				return alias
-			}
-			return canonical
+			trimmed = canonical
+		}
+		if stripped := NormalizeOpenAICompatRequestedModel(trimmed); stripped != "" {
+			trimmed = stripped
 		}
 	}
 	if canonical := normalizeGLMVolcengineDatedModelID(trimmed); canonical != "" {
@@ -834,11 +838,12 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		}
 		return true // 无映射 = 允许所有
 	}
-	if mappingSupportsRequestedModel(mapping, requestedModel) {
-		return true
+	for _, key := range openaiCompatMappingLookupKeys(a.Platform, requestedModel) {
+		if mappingSupportsRequestedModel(mapping, key) {
+			return true
+		}
 	}
-	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
-	return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
+	return false
 }
 
 // GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）
@@ -855,16 +860,43 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 	if len(mapping) == 0 {
 		return requestedModel, false
 	}
-	if mappedModel, matched := resolveRequestedModelInMapping(mapping, requestedModel); matched {
-		return applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel), true
-	}
-	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
-	if normalized != requestedModel {
-		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
+	for _, key := range openaiCompatMappingLookupKeys(a.Platform, requestedModel) {
+		if mappedModel, matched := resolveRequestedModelInMapping(mapping, key); matched {
 			return applyOpenAICloudwiseRelayUpstreamModelID(a, mappedModel), true
 		}
 	}
 	return requestedModel, false
+}
+
+// openaiCompatMappingLookupKeys returns ordered mapping keys for account
+// admission. Spelling + effort-strip come first so API-key identity maps
+// (gpt-5.4 → gpt-5.4) still hit client-facing family ids; Codex entitlement
+// remaps (Canonicalize) are a fallback so spark / terra / luna wire keys remain
+// reachable from legacy aliases without forcing remaps into every lookup.
+func openaiCompatMappingLookupKeys(platform, requestedModel string) []string {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return nil
+	}
+	seen := make(map[string]struct{}, 4)
+	out := make([]string, 0, 4)
+	add := func(key string) {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	add(requestedModel)
+	add(normalizeRequestedModelForLookup(platform, requestedModel))
+	if IsOpenAICompatPlatform(platform) {
+		add(CanonicalizeOpenAICompatRoutingModel(requestedModel))
+	}
+	return out
 }
 
 // GetOpenAICompactMode returns the compact routing mode for an OpenAI account.

@@ -85,6 +85,9 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
 		return s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 	}
+	if account.IsOpenAIOAuthLike() {
+		return s.fetchOpenAICodexOAuthUpstreamModels(ctx, account)
+	}
 
 	if s.httpUpstream == nil {
 		return nil, newUpstreamModelSyncConfigError("Upstream HTTP client is not configured", nil)
@@ -401,6 +404,31 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 	return dedupeAndSortModelIDs(models), nil
 }
 
+// fetchOpenAICodexOAuthUpstreamModels syncs ChatGPT OAuth / SetupToken accounts
+// through the Codex models manifest (slug list). The generic OpenAI /v1/models
+// probe only supports API keys and was rejecting OAuth sync, which left account
+// model_mapping stale against the live ChatGPT Codex allowlist.
+func (s *AccountTestService) fetchOpenAICodexOAuthUpstreamModels(ctx context.Context, account *Account) ([]string, error) {
+	if s == nil || s.openAIGatewayService == nil {
+		return nil, newUpstreamModelSyncConfigError("OpenAI gateway service is not configured for Codex model sync", nil)
+	}
+	manifest, err := s.openAIGatewayService.FetchCodexModelsManifest(ctx, account, "", "")
+	if err != nil {
+		return nil, newUpstreamModelSyncUpstreamError("Failed to fetch Codex models manifest", err)
+	}
+	if manifest == nil || len(manifest.Body) == 0 {
+		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
+	}
+	models, err := extractCodexManifestModelIDs(manifest.Body)
+	if err != nil {
+		return nil, newUpstreamModelSyncUpstreamError("Codex models manifest response was not valid JSON", err)
+	}
+	if len(models) == 0 {
+		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
+	}
+	return models, nil
+}
+
 func (s *AccountTestService) doUpstreamModelsRequest(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
 	if s.tlsFPProfileService == nil {
 		return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
@@ -444,6 +472,36 @@ func buildGeminiModelsURL(base string) string {
 type upstreamModelEntry struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type codexManifestModelEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+func extractCodexManifestModelIDs(body []byte) ([]string, error) {
+	var response struct {
+		Models []codexManifestModelEntry `json:"models"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("parse Codex models manifest: %w", err)
+	}
+	models := make([]string, 0, len(response.Models))
+	for _, entry := range response.Models {
+		id := strings.TrimSpace(entry.Slug)
+		if id == "" {
+			id = strings.TrimSpace(entry.ID)
+		}
+		if id == "" {
+			id = strings.TrimSpace(entry.Name)
+		}
+		if id != "" {
+			models = append(models, id)
+		}
+	}
+	return dedupeAndSortModelIDs(models), nil
 }
 
 func extractUpstreamModelIDs(body []byte) ([]string, error) {
@@ -486,6 +544,9 @@ func extractUpstreamModelIDs(body []byte) ([]string, error) {
 
 func upstreamModelEntryID(entry upstreamModelEntry) string {
 	modelID := strings.TrimSpace(entry.ID)
+	if modelID == "" {
+		modelID = strings.TrimSpace(entry.Slug)
+	}
 	if modelID == "" {
 		modelID = strings.TrimSpace(entry.Name)
 	}

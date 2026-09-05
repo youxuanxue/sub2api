@@ -13,7 +13,8 @@ import (
 
 func TestTkGroupUnsupportedModelCacheKey_NormalizesModel(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, "18\x00gpt-5.4-mini", tkGroupUnsupportedModelCacheKey(18, " GPT-5.4-Mini "))
+	// Cache keys follow CanonicalizeOpenAICompatRoutingModel (mini → luna).
+	require.Equal(t, "18\x00gpt-5.6-luna", tkGroupUnsupportedModelCacheKey(18, " GPT-5.4-Mini "))
 	require.Equal(t, "", tkGroupUnsupportedModelCacheKey(18, "   "))
 	require.Equal(t, "", tkGroupUnsupportedModelCacheKey(0, "gpt-4"))
 }

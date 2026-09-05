@@ -228,9 +228,11 @@
       "must_contain": [
         "func (s *PricingService) ListModelNamesByProvider",
         "if s != nil && s.useActiveRegistry",
-        "pricingData = snapshot.Models"
+        "pricingData = snapshot.Models",
+        "owner, ok := snapshot.Aliases[candidate]",
+        "normalizeOpenAIBillingModel(model)"
       ],
-      "rationale": "Provider model listing must read the immutable active registry in production. The mutable pricingData field remains only an upstream compatibility cache and direct-test fixture; reading it here lets a concurrent provider sync make the admin sync-models response stale after a successful hot reload."
+      "rationale": "Provider model listing must read the immutable active registry in production. GetModelPricing must resolve overlay `_aliases` before OpenAI family fallback (else public aliases like gpt-5.6-chat-latest inherit the gpt-5.4 default card), and GPT-5.6 fixture/fallback folds must share normalizeOpenAIBillingModel with BillingService rather than a parallel hardcode in normalizeModelNameForPricing."
     },
     {
       "path": "backend/internal/service/pricing_service_test.go",
@@ -265,9 +267,11 @@
         "tkApplyDeepSeekPeakValleyPricing",
         "tkOverlayModelPricing(\"glm-5.2\")",
         "getRegistryAliasPricing(model)",
-        "if fallback.registryOwner == \"\""
+        "if fallback.registryOwner == \"\"",
+        "normalized := normalizeOpenAIBillingModel(model)",
+        "isOpenAIGPT56Model(normalized)"
       ],
-      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models."
+      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. GPT-5.6 cache-creation / long-context policy must key off normalizeOpenAIBillingModel (settlement), never normalizeKnownOpenAICodexModel / entitlement wire remaps — otherwise dated gpt-5.4-* inherit terra cache-write invention."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias.go",
@@ -327,7 +331,7 @@
         "gpt-5.6-chat-latest",
         "return \"gpt-5.6-sol\""
       ],
-      "rationale": "GPT-5.6 billing tier normalization is intentionally split from codex wire normalization (normalizeKnownOpenAICodexModel / normalizeCodexModel): upstream wire ids such as gpt-5.6-chat-latest must stay intact for OAuth transform while billing collapses chat-latest to the Sol tier key. Merging tier collapse back into normalizeKnownOpenAICodexModel silently breaks TestNormalizeCodexModel_Gpt53 and mis-bills chat-latest at the gpt-5.4 family floor. Pinning normalizeOpenAIBillingModel and the Sol collapse makes an upstream merge refactor fail CI instead of regressing wire vs billing separation."
+      "rationale": "GPT-5.6 settlement collapses bare gpt-5.6 and gpt-5.6-chat-latest to the Sol tier key in normalizeOpenAIBillingModel. Public catalog/price aliases for those ids live only in tk_pricing_overlay.json _aliases → gpt-5.6-sol (no duplicate price rows). Wire entitlement remaps stay in codexModelMap. Pinning the billing Sol collapse keeps chat-latest from falling through to the gpt-5.4 family floor if overlay alias resolution is skipped."
     },
     {
       "path": "scripts/checks/pricing-overlay.py",

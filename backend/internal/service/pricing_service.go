@@ -706,6 +706,25 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		}
 	}
 
+	// 1b. Declared public aliases (_aliases) — sole owner for public id → price
+	// card folds such as gpt-5.6 / gpt-5.6-chat-latest → gpt-5.6-sol. Must run
+	// before fuzzy / OpenAI family fallback, or an alias without a model row
+	// silently inherits the gpt-5.4 default card (SSOT).
+	if snapshot != nil {
+		for _, candidate := range lookupCandidates {
+			if candidate == "" {
+				continue
+			}
+			owner, ok := snapshot.Aliases[candidate]
+			if !ok || owner == "" {
+				continue
+			}
+			if pricing, ok := pricingData[owner]; ok {
+				return present(pricing)
+			}
+		}
+	}
+
 	// 2. 处理常见的模型名称变体
 	// claude-opus-4-5-20251101 -> claude-opus-4.5-20251101
 	for _, candidate := range lookupCandidates {
@@ -900,12 +919,9 @@ func normalizeModelNameForPricing(model string) string {
 
 	model = strings.TrimLeft(model, "/")
 	if canonical := canonicalizeOpenAIModelAliasSpelling(model); canonical != "" {
-		if canonical == "gpt-5.6" {
-			return "gpt-5.6-sol"
-		}
-		if suffix, ok := strings.CutPrefix(canonical, "gpt-5.6-"); ok && (suffix == "max" || isKnownCodexModelSuffix(suffix)) {
-			return "gpt-5.6-sol"
-		}
+		// Public folds (bare gpt-5.6 / chat-latest → sol) live in overlay
+		// `_aliases` and are resolved in GetModelPricing. Effort/date suffixes
+		// fold via normalizeOpenAIBillingModel inside matchOpenAIModel (SSOT).
 		return canonical
 	}
 	if canonical := normalizeGLMVolcengineDatedModelID(model); canonical != "" {
@@ -1112,14 +1128,13 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		}
 	}
 
-	if strings.HasPrefix(model, "gpt-5.6-sol") {
-		return s.pricingData["gpt-5.6-sol"]
-	}
-	if strings.HasPrefix(model, "gpt-5.6-terra") {
-		return s.pricingData["gpt-5.6-terra"]
-	}
-	if strings.HasPrefix(model, "gpt-5.6-luna") {
-		return s.pricingData["gpt-5.6-luna"]
+	// GPT-5.6 family settlement keys (sol/terra/luna, bare, chat-latest,
+	// effort suffixes) share normalizeOpenAIBillingModel with BillingService.
+	if normalized := normalizeOpenAIBillingModel(model); normalized != "" {
+		switch normalized {
+		case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
+			return s.pricingData[normalized]
+		}
 	}
 
 	// GPT-5.5 compatibility variants resolve to the routed GPT-5.5 owner.

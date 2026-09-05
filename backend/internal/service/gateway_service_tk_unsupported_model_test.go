@@ -145,7 +145,8 @@ func TestTkWrapSelectionFailure(t *testing.T) {
 	})
 
 	t.Run("tokensea public SSOT does not beat capacity 429", func(t *testing.T) {
-		err := tkWrapSelectionFailure(PlatformAnthropic, "gpt-5.4", selectionFailureStats{
+		// gpt-5.4 is retired from public SSOT; use a still-public OpenAI floor id.
+		err := tkWrapSelectionFailure(PlatformAnthropic, "gpt-5.5", selectionFailureStats{
 			Total:            5,
 			ModelUnsupported: 4,
 			Unschedulable:    1,

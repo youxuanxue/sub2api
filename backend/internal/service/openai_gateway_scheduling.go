@@ -251,7 +251,7 @@ func (s *OpenAIGatewayService) SelectAccountForModel(ctx context.Context, groupI
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 // SelectAccountForModelWithExclusions 选择支持指定模型的账号，同时排除指定的账号。
 func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
-	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, 0, "", false)
+	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, 0, "", false, true)
 }
 
 // SelectAccountForTokenCount selects an account for a non-billable token-count
@@ -278,6 +278,7 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 		0,
 		requiredCapability,
 		false,
+		true,
 	)
 }
 
@@ -592,8 +593,10 @@ func ResolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 }
 
 // resolveOpenAIForwardMappedModels is the shared account mapping chain for
-// Forward callers. billingModel retains the ordinary mapping used for usage
-// accounting, while upstreamModel is the model the scheduler has admitted.
+// Forward callers. upstreamModel is what the account actually sends; billing
+// settles on that admitted upstream id (via normalizeOpenAIBillingModel) so
+// ChatGPT Codex entitlement remaps (gpt-5.4 → terra, mini → luna) are billed
+// at the served tier, not the obsolete client-facing family card.
 func resolveOpenAIForwardMappedModels(account *Account, requestedModel string, requireCompact bool) (billingModel, upstreamModel string) {
 	requestedModel = strings.TrimSpace(requestedModel)
 	if account != nil && account.IsOpenAIPassthroughEnabled() {
@@ -608,6 +611,7 @@ func resolveOpenAIForwardMappedModels(account *Account, requestedModel string, r
 	if strings.TrimSpace(upstreamModel) == "" {
 		upstreamModel = billingModel
 	}
+	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
 	return billingModel, upstreamModel
 }
 
@@ -618,14 +622,19 @@ func resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel string) strin
 	return strings.TrimSpace(billingModel)
 }
 
-func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, error) {
+func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool, enforceChannelRestriction bool) (*Account, error) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
-	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
-		slog.Warn("channel pricing restriction blocked request",
-			"group_id", derefGroupID(groupID),
-			"model", requestedModel)
-		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
+	if enforceChannelRestriction {
+		restrictionModel := requestedModel
+		requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
+		if s.checkChannelPricingRestriction(ctx, groupID, restrictionModel) {
+			slog.Warn("channel pricing restriction blocked request",
+				"group_id", derefGroupID(groupID),
+				"model", restrictionModel)
+			return nil, tkOpenAICompatChannelPricingRestrictionError(restrictionModel)
+		}
+	} else {
+		requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	}
 
 	// 1. 尝试粘性会话命中
@@ -880,12 +889,13 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
+	restrictionModel := requestedModel
 	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+	if s.checkChannelPricingRestriction(ctx, groupID, restrictionModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
-			"model", requestedModel)
-		return nil, tkOpenAICompatChannelPricingRestrictionError(requestedModel)
+			"model", restrictionModel)
+		return nil, tkOpenAICompatChannelPricingRestrictionError(restrictionModel)
 	}
 
 	cfg := s.schedulingConfig()
@@ -898,7 +908,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		}
 	}
 	if s.concurrencyService == nil || !cfg.LoadBatchEnabled {
-		account, err := s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate)
+		account, err := s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability, preferLowUpstreamRate, false)
 		if err != nil {
 			return nil, err
 		}

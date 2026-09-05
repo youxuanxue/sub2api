@@ -46,9 +46,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 	}
 	clientStream := gjson.GetBytes(body, "stream").Bool()
 
-	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
 	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
+	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
 
 	upstreamBody := body
 	if upstreamModel != originalModel {

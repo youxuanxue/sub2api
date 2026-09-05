@@ -11,22 +11,25 @@ import (
 )
 
 var codexModelMap = map[string]string{
-	"gpt-5.6":                    "gpt-5.6-sol",
-	"gpt-5.6-sol":                "gpt-5.6-sol",
-	"gpt-5.6-terra":              "gpt-5.6-terra",
-	"gpt-5.6-luna":               "gpt-5.6-luna",
-	"gpt-5.6-chat-latest":        "gpt-5.6-chat-latest",
-	"gpt-5.5":                    "gpt-5.5",
-	"gpt-5.5-pro":                "gpt-5.5",
-	"codex-auto-review":          "codex-auto-review",
-	"gpt-5.4":                    "gpt-5.4",
-	"gpt-5.4-mini":               "gpt-5.4-mini",
-	"gpt-5.4-none":               "gpt-5.4",
-	"gpt-5.4-low":                "gpt-5.4",
-	"gpt-5.4-medium":             "gpt-5.4",
-	"gpt-5.4-high":               "gpt-5.4",
-	"gpt-5.4-xhigh":              "gpt-5.4",
-	"gpt-5.4-chat-latest":        "gpt-5.4",
+	// Bare gpt-5.6 and chat-latest fold to Sol (flagship GPT-5.6 tier).
+	"gpt-5.6":             "gpt-5.6-sol",
+	"gpt-5.6-sol":         "gpt-5.6-sol",
+	"gpt-5.6-terra":       "gpt-5.6-terra",
+	"gpt-5.6-luna":        "gpt-5.6-luna",
+	"gpt-5.6-chat-latest": "gpt-5.6-sol",
+	"gpt-5.5":             "gpt-5.5",
+	"gpt-5.5-pro":         "gpt-5.5",
+	"codex-auto-review":   "codex-auto-review",
+	// ChatGPT Codex dropped GPT-5.4 / GPT-5.4 mini (2026-08-31). Official
+	// replacement: bare 5.4 → GPT-5.6 Terra, 5.4 mini → GPT-5.6 Luna.
+	"gpt-5.4":                    "gpt-5.6-terra",
+	"gpt-5.4-mini":               "gpt-5.6-luna",
+	"gpt-5.4-none":               "gpt-5.6-terra",
+	"gpt-5.4-low":                "gpt-5.6-terra",
+	"gpt-5.4-medium":             "gpt-5.6-terra",
+	"gpt-5.4-high":               "gpt-5.6-terra",
+	"gpt-5.4-xhigh":              "gpt-5.6-terra",
+	"gpt-5.4-chat-latest":        "gpt-5.6-terra",
 	"gpt-5.3":                    "gpt-5.3-codex-spark",
 	"gpt-5.3-none":               "gpt-5.3-codex-spark",
 	"gpt-5.3-low":                "gpt-5.3-codex-spark",
@@ -44,53 +47,53 @@ var codexModelMap = map[string]string{
 	"gpt-5.3-codex-spark-medium": "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-high":   "gpt-5.3-codex-spark",
 	"gpt-5.3-codex-spark-xhigh":  "gpt-5.3-codex-spark",
-	"gpt-5.2":                    "gpt-5.2",
-	"gpt-5.2-none":               "gpt-5.2",
-	"gpt-5.2-low":                "gpt-5.2",
-	"gpt-5.2-medium":             "gpt-5.2",
-	"gpt-5.2-high":               "gpt-5.2",
-	"gpt-5.2-xhigh":              "gpt-5.2",
-	"gpt-5":                      "gpt-5.5",
-	"gpt-5-chat":                 "gpt-5.5",
-	"gpt-5-chat-latest":          "gpt-5.5",
-	"gpt-5-codex":                "gpt-5.3-codex-spark",
-	"gpt-5-codex-none":           "gpt-5.3-codex-spark",
-	"gpt-5-codex-low":            "gpt-5.3-codex-spark",
-	"gpt-5-codex-medium":         "gpt-5.3-codex-spark",
-	"gpt-5-codex-high":           "gpt-5.3-codex-spark",
-	"gpt-5-codex-xhigh":          "gpt-5.3-codex-spark",
-	"gpt-5-mini":                 "gpt-5.4",
-	"gpt-5-nano":                 "gpt-5.4",
-	"gpt-5.1":                    "gpt-5.4",
-	"gpt-5.1-codex":              "gpt-5.3-codex-spark",
-	"gpt-5.1-codex-max":          "gpt-5.3-codex-spark",
-	"gpt-5.1-codex-mini":         "gpt-5.3-codex-spark",
-	"gpt-5.2-codex":              "gpt-5.2",
-	"codex-mini-latest":          "gpt-5.3-codex-spark",
-	"gpt-5.3-chat-latest":        "gpt-5.3-codex-spark",
+	// ChatGPT Codex no longer entitles gpt-5.2 (2026-09 probe: upstream 400).
+	// Keep request→wire remaps for compatibility; do not advertise publicly.
+	"gpt-5.2":             "gpt-5.5",
+	"gpt-5.2-none":        "gpt-5.5",
+	"gpt-5.2-low":         "gpt-5.5",
+	"gpt-5.2-medium":      "gpt-5.5",
+	"gpt-5.2-high":        "gpt-5.5",
+	"gpt-5.2-xhigh":       "gpt-5.5",
+	"gpt-5.2-codex":       "gpt-5.5",
+	"gpt-5":               "gpt-5.5",
+	"gpt-5-chat":          "gpt-5.5",
+	"gpt-5-chat-latest":   "gpt-5.5",
+	"gpt-5-codex":         "gpt-5.3-codex-spark",
+	"gpt-5-codex-none":    "gpt-5.3-codex-spark",
+	"gpt-5-codex-low":     "gpt-5.3-codex-spark",
+	"gpt-5-codex-medium":  "gpt-5.3-codex-spark",
+	"gpt-5-codex-high":    "gpt-5.3-codex-spark",
+	"gpt-5-codex-xhigh":   "gpt-5.3-codex-spark",
+	"gpt-5-mini":          "gpt-5.5",
+	"gpt-5-nano":          "gpt-5.5",
+	"gpt-5.1":             "gpt-5.5",
+	"gpt-5.1-codex":       "gpt-5.3-codex-spark",
+	"gpt-5.1-codex-max":   "gpt-5.3-codex-spark",
+	"gpt-5.1-codex-mini":  "gpt-5.3-codex-spark",
+	"codex-mini-latest":   "gpt-5.3-codex-spark",
+	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
 }
 
 var codexVersionModelPrefixes = []struct {
 	prefix string
 	target string
 }{
+	// Longer GPT-5.6 prefixes first so sol/terra/luna/chat-latest win over bare gpt-5.6.
 	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
+	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-sol"},
+	{prefix: "gpt-5.6", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.3-codex-spark", target: "gpt-5.3-codex-spark"},
 	{prefix: "gpt-5.3-codex", target: "gpt-5.3-codex-spark"},
 	{prefix: "gpt-5-codex", target: "gpt-5.3-codex-spark"},
-	{prefix: "gpt-5.4-mini", target: "gpt-5.4-mini"},
+	{prefix: "gpt-5.4-mini", target: "gpt-5.6-luna"},
 	{prefix: "gpt-5.4-nano", target: "gpt-5.4-nano"},
-	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
-	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
-	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
-	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-chat-latest"},
-	{prefix: "gpt-5.6", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.5-pro", target: "gpt-5.5"},
 	{prefix: "gpt-5.5", target: "gpt-5.5"},
-	{prefix: "gpt-5.4", target: "gpt-5.4"},
-	{prefix: "gpt-5.2", target: "gpt-5.2"},
+	{prefix: "gpt-5.4", target: "gpt-5.6-terra"},
+	{prefix: "gpt-5.2", target: "gpt-5.5"},
 }
 
 type codexTransformResult struct {
@@ -628,7 +631,7 @@ func stringifyCodexContentText(value any) string {
 func normalizeCodexModel(model string) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
-		return "gpt-5.4"
+		return "gpt-5.5"
 	}
 	if mapped, ok := normalizeKnownCodexModel(model); ok {
 		return mapped
@@ -644,32 +647,55 @@ func normalizeKnownCodexModel(model string) (string, bool) {
 	if isOpenAIImageGenerationModel(model) {
 		return model, true
 	}
+	if stripped, ok := applyOpenAICompatContextWindowModelAlias(model); ok {
+		model = stripped
+	}
 
 	modelID := lastOpenAIModelSegment(model)
-
 	if normalized := canonicalizeOpenAIModelAliasSpelling(modelID); normalized != "" {
 		modelID = normalized
 	}
-	if mapped := normalizeKnownOpenAICodexModel(modelID); mapped != "" {
+	if mapped := remapOpenAICodexWireModel(modelID); mapped != "" {
 		return mapped, true
+	}
+	return "", false
+}
+
+// remapOpenAICodexWireModel is the single owner for ChatGPT Codex entitlement
+// wire ids: codexModelMap exact keys + codexVersionModelPrefixes effort/date
+// suffixes. Scheduling (normalizeKnownOpenAICodexModel) and upstream transform
+// (normalizeKnownCodexModel) must both call this — do not fork a second GPT
+// switch in openai_model_alias.go (SSOT).
+func remapOpenAICodexWireModel(modelID string) string {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return ""
+	}
+	if mapped := getNormalizedCodexModel(modelID); mapped != "" {
+		return mapped
+	}
+	if strings.HasSuffix(modelID, "-openai-compact") {
+		if mapped := getNormalizedCodexModel(strings.TrimSuffix(modelID, "-openai-compact")); mapped != "" {
+			return mapped
+		}
 	}
 	key := codexModelLookupKey(modelID)
 	if key == "" {
-		return "", false
+		return ""
 	}
 	if mapped := getNormalizedCodexModel(key); mapped != "" {
-		return mapped, true
+		return mapped
 	}
 	for _, item := range codexVersionModelPrefixes {
 		if key == item.prefix {
-			return item.target, true
+			return item.target
 		}
 		suffix, ok := strings.CutPrefix(key, item.prefix+"-")
 		if ok && isKnownCodexModelSuffix(suffix) {
-			return item.target, true
+			return item.target
 		}
 	}
-	return "", false
+	return ""
 }
 
 func codexModelLookupKey(modelID string) string {

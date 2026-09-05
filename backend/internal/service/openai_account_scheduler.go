@@ -84,6 +84,11 @@ type OpenAIAccountScheduleRequest struct {
 	PreviousResponseCanMove bool
 	UseUpstreamTokenCost    bool
 	RequestedModel          string
+	// RestrictionModel is the client-facing model id used for channel pricing
+	// allowlists when BillingModelSourceRequested. Empty falls back to
+	// RequestedModel. Keep this distinct from RequestedModel when routing
+	// canonicalize remaps entitlement wire ids (e.g. gpt-5.4 → gpt-5.6-terra).
+	RestrictionModel        string
 	RequiredTransport       OpenAIUpstreamTransport
 	RequiredCapability      OpenAIEndpointCapability
 	RequiredImageCapability OpenAIImagesCapability
@@ -92,6 +97,13 @@ type OpenAIAccountScheduleRequest struct {
 	// and compact_model_mapping; native remote compaction v2 leaves it false.
 	RequireCompact bool
 	ExcludedIDs    map[int64]struct{}
+}
+
+func (req OpenAIAccountScheduleRequest) modelForChannelRestriction() string {
+	if model := strings.TrimSpace(req.RestrictionModel); model != "" {
+		return model
+	}
+	return strings.TrimSpace(req.RequestedModel)
 }
 
 func (req OpenAIAccountScheduleRequest) schedulePlatform() string {
@@ -403,8 +415,8 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		if err := s.service.tkGroupUnsupportedModelShortCircuit(req.GroupID, req.RequestedModel); err != nil {
 			return nil, decision, err
 		}
-		if s.service.checkChannelPricingRestriction(ctx, req.GroupID, req.RequestedModel) {
-			return nil, decision, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.RequestedModel, tkOpenAICompatChannelPricingRestrictionError(req.RequestedModel))
+		if s.service.checkChannelPricingRestriction(ctx, req.GroupID, req.modelForChannelRestriction()) {
+			return nil, decision, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.modelForChannelRestriction(), tkOpenAICompatChannelPricingRestrictionError(req.modelForChannelRestriction()))
 		}
 	}
 
@@ -2315,6 +2327,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if strings.TrimSpace(previousResponseID) == "" {
 		guardianParentAccountID = s.resolveOpenAIGuardianParentAccountID(ctx, groupID)
 	}
+	restrictionModel := requestedModel
 	requestedModel = CanonicalizeOpenAICompatRoutingModel(requestedModel)
 	if err := s.tkGroupUnsupportedModelShortCircuit(groupID, requestedModel); err != nil {
 		return nil, decision, err
@@ -2332,6 +2345,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			groupID,
 			groupPlatform,
 			sessionHash,
+			restrictionModel,
 			requestedModel,
 			excludedIDs,
 			requiredTransport,
@@ -2350,7 +2364,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {
-				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, groupPlatform, legacySessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
+				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, groupPlatform, legacySessionHash, restrictionModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
 				if err != nil {
 					return nil, decision, err
 				}
@@ -2375,7 +2389,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 
 		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 		for {
-			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, groupPlatform, legacySessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
+			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, groupPlatform, legacySessionHash, restrictionModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
 			if err != nil {
 				return nil, decision, err
 			}
@@ -2399,11 +2413,11 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		}
 	}
 
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+	if s.checkChannelPricingRestriction(ctx, groupID, restrictionModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
-			"model", requestedModel)
-		return nil, decision, s.tkGroupUnsupportedModelRecordErr(groupID, requestedModel, tkOpenAICompatChannelPricingRestrictionError(requestedModel))
+			"model", restrictionModel)
+		return nil, decision, s.tkGroupUnsupportedModelRecordErr(groupID, restrictionModel, tkOpenAICompatChannelPricingRestrictionError(restrictionModel))
 	}
 
 	var stickyAccountID int64
@@ -2433,6 +2447,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		PreviousResponseCanMove: previousResponseCanMove,
 		UseUpstreamTokenCost:    useUpstreamTokenCost,
 		RequestedModel:          requestedModel,
+		RestrictionModel:        restrictionModel,
 		RequiredTransport:       requiredTransport,
 		RequiredCapability:      requiredCapability,
 		RequiredImageCapability: requiredImageCapability,

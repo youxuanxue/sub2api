@@ -55,9 +55,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	clientStream := anthropicReq.Stream
 
 	// 2. Model mapping
-	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, normalizedModel, defaultMappedModel)
 	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
+	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
 
 	// 3. Convert Anthropic → Chat Completions body
 	chatBody, err := anthropicToChatCompletionsBody(&anthropicReq, upstreamModel)

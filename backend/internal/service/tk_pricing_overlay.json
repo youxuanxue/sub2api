@@ -8,7 +8,9 @@
   "_aliases": {
     "deepseek-v4-flash-0731": "deepseek-v4-flash",
     "deepseek-v4-pro-0813": "deepseek-v4-pro",
-    "gpt-5.5-pro": "gpt-5.5"
+    "gpt-5.5-pro": "gpt-5.5",
+    "gpt-5.6": "gpt-5.6-sol",
+    "gpt-5.6-chat-latest": "gpt-5.6-sol"
   },
   "_config": {
     "official_list_base_tax": {
@@ -7115,122 +7117,6 @@
     "regional_processing_uplift_multiplier_us": 1.1,
     "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
   },
-  "gpt-5.6": {
-    "cache_read_input_token_cost": 5e-07,
-    "cache_read_input_token_cost_above_272k_tokens": 1e-06,
-    "cache_read_input_token_cost_flex": 2.5e-07,
-    "cache_read_input_token_cost_priority": 1e-06,
-    "input_cost_per_token": 5e-06,
-    "input_cost_per_token_above_272k_tokens": 1e-05,
-    "input_cost_per_token_batches": 2.5e-06,
-    "input_cost_per_token_flex": 2.5e-06,
-    "input_cost_per_token_priority": 1e-05,
-    "litellm_provider": "openai",
-    "max_input_tokens": 1050000,
-    "max_output_tokens": 128000,
-    "max_tokens": 128000,
-    "mode": "chat",
-    "output_cost_per_token": 3e-05,
-    "output_cost_per_token_above_272k_tokens": 4.5e-05,
-    "output_cost_per_token_batches": 1.5e-05,
-    "output_cost_per_token_flex": 1.5e-05,
-    "output_cost_per_token_priority": 6e-05,
-    "supported_endpoints": [
-      "/v1/chat/completions",
-      "/v1/batch",
-      "/v1/responses"
-    ],
-    "supported_modalities": [
-      "text",
-      "image"
-    ],
-    "supported_output_modalities": [
-      "text"
-    ],
-    "supports_function_calling": true,
-    "supports_minimal_reasoning_effort": false,
-    "supports_native_streaming": true,
-    "supports_none_reasoning_effort": true,
-    "supports_parallel_function_calling": true,
-    "supports_pdf_input": true,
-    "supports_prompt_caching": true,
-    "supports_reasoning": true,
-    "supports_response_schema": true,
-    "supports_service_tier": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "supports_vision": true,
-    "supports_web_search": true,
-    "supports_xhigh_reasoning_effort": true,
-    "cache_creation_input_token_cost": 6.25e-06,
-    "cache_creation_input_token_cost_priority": 1.25e-05,
-    "long_context_input_token_threshold": 272000,
-    "long_context_input_cost_multiplier": 2.0,
-    "long_context_output_cost_multiplier": 1.5,
-    "source": "Bare gpt-5.6 alias maps to the Sol owner (openai_codex_transform/openai_model_alias). This authoritative registry row drives billing and /pricing; provider-LiteLLM data was used as offline evidence only and is not read at runtime. Captured 2026-06-27.",
-    "cache_creation_input_token_cost_above_272k_tokens": 1.25e-05,
-    "cache_creation_input_token_cost_above_272k_tokens_flex": 6.25e-06,
-    "cache_creation_input_token_cost_flex": 3.125e-06,
-    "cache_read_input_token_cost_above_272k_tokens_flex": 5e-07,
-    "input_cost_per_token_above_272k_tokens_flex": 5e-06,
-    "output_cost_per_token_above_272k_tokens_flex": 2.25e-05,
-    "regional_processing_uplift_multiplier_eu": 1.1,
-    "regional_processing_uplift_multiplier_us": 1.1
-  },
-  "gpt-5.6-chat-latest": {
-    "cache_read_input_token_cost": 5e-07,
-    "cache_read_input_token_cost_above_272k_tokens": 1e-06,
-    "cache_read_input_token_cost_flex": 2.5e-07,
-    "cache_read_input_token_cost_priority": 0,
-    "input_cost_per_token": 5e-06,
-    "input_cost_per_token_above_272k_tokens": 1e-05,
-    "input_cost_per_token_batches": 2.5e-06,
-    "input_cost_per_token_flex": 2.5e-06,
-    "input_cost_per_token_priority": 0,
-    "litellm_provider": "openai",
-    "max_input_tokens": 1050000,
-    "max_output_tokens": 128000,
-    "max_tokens": 128000,
-    "mode": "chat",
-    "output_cost_per_token": 3e-05,
-    "output_cost_per_token_above_272k_tokens": 4.5e-05,
-    "output_cost_per_token_batches": 1.5e-05,
-    "output_cost_per_token_flex": 1.5e-05,
-    "output_cost_per_token_priority": 0,
-    "supported_endpoints": [
-      "/v1/chat/completions",
-      "/v1/batch",
-      "/v1/responses"
-    ],
-    "supported_modalities": [
-      "text",
-      "image"
-    ],
-    "supported_output_modalities": [
-      "text"
-    ],
-    "supports_function_calling": true,
-    "supports_minimal_reasoning_effort": false,
-    "supports_native_streaming": true,
-    "supports_none_reasoning_effort": true,
-    "supports_parallel_function_calling": true,
-    "supports_pdf_input": true,
-    "supports_prompt_caching": true,
-    "supports_reasoning": true,
-    "supports_response_schema": true,
-    "supports_service_tier": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": true,
-    "supports_vision": true,
-    "supports_web_search": true,
-    "supports_xhigh_reasoning_effort": true,
-    "cache_creation_input_token_cost": 6.25e-06,
-    "cache_creation_input_token_cost_priority": 0,
-    "long_context_input_token_threshold": 272000,
-    "long_context_input_cost_multiplier": 2.0,
-    "long_context_output_cost_multiplier": 1.5,
-    "source": "GPT-5.6 chat-latest bills as Sol (billing_service collapses it). gpt-5.6 is absent from the upstream Wei-Shaw/litellm runtime mirror prod fetches, so the overlay carries it for /pricing display (billing already correct via billing_service fallbackPrices, PR #1030). Mirrors resources/model-pricing/model_prices_and_context_window.json. Captured 2026-06-27."
-  },
   "gpt-5.6-luna": {
     "cache_read_input_token_cost": 2e-08,
     "cache_read_input_token_cost_above_272k_tokens": 4e-08,
@@ -10043,9 +9929,9 @@
   "glm-5.3": {
     "litellm_provider": "zhipu",
     "mode": "chat",
-    "input_cost_per_token": 0.0000011940298507462686,
-    "output_cost_per_token": 0.00000417910447761194,
-    "cache_read_input_token_cost": 0.00000029850746268656716,
+    "input_cost_per_token": 1.1940298507462686e-06,
+    "output_cost_per_token": 4.17910447761194e-06,
+    "cache_read_input_token_cost": 2.9850746268656716e-07,
     "source": "BigModel official pricing https://bigmodel.cn/pricing, captured 2026-08-19: GLM-5.3 input ¥8/Mtok, output ¥28/Mtok, cache-hit ¥2/Mtok, 1M context, no input-tier split; CNY/USD=6.7. Cross-checked Z.AI international https://docs.z.ai/guides/overview/pricing same day: GLM-5.3 $1.4/$0.26/$4.4 per 1M tokens (USD list; TokenKey GLM owner remains BigModel CNY÷6.7, matching glm-5.2). LiteLLM has no glm-5.3 row (lookup 2026-08-19). Pricing source only: serving remains the configured OpenAI-compat / DashScope path (runtime DB/config, not pricing truth), not BigModel/Zhipu direct. Overlay stores pre-tax official list rates; TokenKey applies the official_list_base_tax zhipu multiplier at resolution/catalog time. Cache storage is listed as limited-time free."
   },
   "glm-5.3-flash": {
@@ -10066,31 +9952,31 @@
   "hy3": {
     "litellm_provider": "tencent",
     "mode": "chat",
-    "input_cost_per_token": 0.000000132,
-    "output_cost_per_token": 0.000000528,
-    "cache_read_input_token_cost": 0.000000033,
+    "input_cost_per_token": 1.32e-07,
+    "output_cost_per_token": 5.28e-07,
+    "cache_read_input_token_cost": 3.3e-08,
     "source": "Tencent Cloud TokenHub international model pricing https://www-sg.tencentcloud.com/document/product/1300/78937 captured 2026-09-01: Hy3 $0.132/$0.528/$0.033 per 1M tokens (input/output/cache). Served via supplier OpenAI-compat path (cloudwise account mapping), not Tencent direct."
   },
   "qwen3.6-plus": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.00000029850746268656716,
-    "output_cost_per_token": 0.0000011940298507462686,
-    "cache_read_input_token_cost": 0.00000029850746268656716,
+    "input_cost_per_token": 2.9850746268656716e-07,
+    "output_cost_per_token": 1.1940298507462686e-06,
+    "cache_read_input_token_cost": 2.9850746268656716e-07,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 256000,
-        "input_cost_per_token": 0.00000029850746268656716,
-        "output_cost_per_token": 0.0000011940298507462686,
-        "cache_read_input_token_cost": 0.00000029850746268656716
+        "input_cost_per_token": 2.9850746268656716e-07,
+        "output_cost_per_token": 1.1940298507462686e-06,
+        "cache_read_input_token_cost": 2.9850746268656716e-07
       },
       {
         "min_tokens": 256000,
         "max_tokens": null,
-        "input_cost_per_token": 0.0000008955223880597015,
-        "output_cost_per_token": 0.000003582089552238806,
-        "cache_read_input_token_cost": 0.0000008955223880597015
+        "input_cost_per_token": 8.955223880597015e-07,
+        "output_cost_per_token": 3.582089552238806e-06,
+        "cache_read_input_token_cost": 8.955223880597015e-07
       }
     ],
     "source": "TEMPORARY owner cloned from qwen3.7-plus DashScope CNY÷6.7 incl. input-tier intervals (2026-09-01 supplier hotfix). Replace with Alibaba DashScope official qwen3.6-plus China-mainland list when captured. LiteLLM also lists openrouter/qwen/qwen3.6-plus at $0.325/$1.95 per 1M (not used; keep DashScope family consistency)."
@@ -10098,22 +9984,22 @@
   "qwen3.6-35b-a3b": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.00000005970149253731344,
-    "output_cost_per_token": 0.0000004776119402985075,
+    "input_cost_per_token": 5.970149253731344e-08,
+    "output_cost_per_token": 4.776119402985075e-07,
     "supports_vision": true,
     "supports_reasoning": false,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 128000,
-        "input_cost_per_token": 0.00000005970149253731344,
-        "output_cost_per_token": 0.0000004776119402985075
+        "input_cost_per_token": 5.970149253731344e-08,
+        "output_cost_per_token": 4.776119402985075e-07
       },
       {
         "min_tokens": 128000,
         "max_tokens": null,
-        "input_cost_per_token": 0.00000023880597014925373,
-        "output_cost_per_token": 0.00000191044776119403
+        "input_cost_per_token": 2.388059701492537e-07,
+        "output_cost_per_token": 1.91044776119403e-06
       }
     ],
     "source": "TEMPORARY owner cloned from qwen3.5-35b-a3b incl. input-tier intervals (same size class) for 2026-09-01 supplier hotfix. Replace with DashScope official qwen3.6-35b-a3b list when captured."
@@ -10121,17 +10007,17 @@
   "qwen3.6-max-preview": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.0000017910447761194032,
-    "output_cost_per_token": 0.000005373134328358209,
-    "cache_read_input_token_cost": 0.0000017910447761194032,
+    "input_cost_per_token": 1.7910447761194032e-06,
+    "output_cost_per_token": 5.373134328358209e-06,
+    "cache_read_input_token_cost": 1.7910447761194032e-06,
     "source": "TEMPORARY owner cloned from qwen3.8-max DashScope CNY÷6.7 for 2026-09-01 supplier hotfix (max-tier preview). Replace with DashScope official qwen3.6-max-preview list when captured."
   },
   "qwen3.8-27b": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.0000004,
-    "output_cost_per_token": 0.000003,
-    "cache_read_input_token_cost": 0.00000004,
+    "input_cost_per_token": 4e-07,
+    "output_cost_per_token": 3e-06,
+    "cache_read_input_token_cost": 4e-08,
     "max_input_tokens": 262144,
     "max_tokens": 262144,
     "supports_prompt_caching": true,
@@ -10144,23 +10030,23 @@
   "qwen3.8-flash": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.0000001791044776119403,
-    "output_cost_per_token": 0.0000010746268656716418,
-    "cache_read_input_token_cost": 0.0000001791044776119403,
+    "input_cost_per_token": 1.791044776119403e-07,
+    "output_cost_per_token": 1.0746268656716418e-06,
+    "cache_read_input_token_cost": 1.791044776119403e-07,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 256000,
-        "input_cost_per_token": 0.0000001791044776119403,
-        "output_cost_per_token": 0.0000010746268656716418,
-        "cache_read_input_token_cost": 0.0000001791044776119403
+        "input_cost_per_token": 1.791044776119403e-07,
+        "output_cost_per_token": 1.0746268656716418e-06,
+        "cache_read_input_token_cost": 1.791044776119403e-07
       },
       {
         "min_tokens": 256000,
         "max_tokens": null,
-        "input_cost_per_token": 0.0000007164179104477612,
-        "output_cost_per_token": 0.000004298507462686567,
-        "cache_read_input_token_cost": 0.0000007164179104477612
+        "input_cost_per_token": 7.164179104477612e-07,
+        "output_cost_per_token": 4.298507462686567e-06,
+        "cache_read_input_token_cost": 7.164179104477612e-07
       }
     ],
     "source": "TEMPORARY owner cloned from qwen3.6-flash DashScope CNY÷6.7 incl. input-tier intervals for 2026-09-01 supplier hotfix (flash-tier). Replace with DashScope official qwen3.8-flash list when captured."

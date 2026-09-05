@@ -230,13 +230,16 @@ func TestForwardAsAnthropic_NormalizesRoutingAndEffortForGpt54XHigh(t *testing.T
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "gpt-5.4-xhigh", result.Model)
-	require.Equal(t, "gpt-5.4", result.UpstreamModel)
-	require.Equal(t, "gpt-5.4", result.BillingModel)
+	// Effort strip keeps the gpt-5.4 family id for mapping; OAuth entitlement
+	// remaps upstream to gpt-5.6-terra and settlement follows that served tier.
+	require.Equal(t, "gpt-5.6-terra", result.UpstreamModel)
+	require.Equal(t, "gpt-5.6-terra", result.BillingModel)
 	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "xhigh", *result.ReasoningEffort)
+	// GPT-5.6 family (terra) accepts OpenAI "max"; client xhigh folds to max on wire.
+	require.Equal(t, "max", *result.ReasoningEffort)
 
-	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.Equal(t, "xhigh", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Equal(t, "gpt-5.6-terra", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "max", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "gpt-5.4-xhigh", gjson.GetBytes(rec.Body.Bytes(), "model").String())
 	require.Equal(t, "ok", gjson.GetBytes(rec.Body.Bytes(), "content.0.text").String())
@@ -270,7 +273,7 @@ func TestForwardAsAnthropic_PreservesMaxForFinalGPT56ResponsesModel(t *testing.T
 			name:          "OAuth mapping wins and keeps Sol max",
 			account:       rawGPT56ResponsesOAuthAccount("sol", "gpt-5.6-sol"),
 			model:         "sol",
-			defaultMapped: "gpt-5.6-terra",
+			defaultMapped: "gpt-5.6-sol",
 			effort:        "max",
 			wantModel:     "gpt-5.6-sol",
 			wantEffort:    "max",

@@ -1067,7 +1067,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorReports
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.Nil(t, selection)
-	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.4 (pool=0)")
+	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.5 (pool=0)")
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_EnabledUsesAdvancedPreviousResponseRouting(t *testing.T) {
@@ -1951,7 +1951,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_ModelRateLimit
 		Priority:    0,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gpt-5.4": map[string]any{
+				"gpt-5.5": map[string]any{
 					"rate_limit_reset_at": resetAt,
 				},
 			},
@@ -1972,6 +1972,13 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_ModelRateLimit
 	}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.4", nil)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	// gpt-5.4 no longer routes onto the gpt-5.5 rate-limit key (wire→terra);
+	// primary must remain selectable for non-5.5 families.
+	require.Equal(t, int64(32101), account.ID)
+
+	account, err = svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.5", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
 	require.Equal(t, int64(32102), account.ID)
