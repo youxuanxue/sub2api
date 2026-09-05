@@ -3735,11 +3735,12 @@
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
-        "tkOpenAICompatChannelPricingRestrictionError(req.RequestedModel)",
+        "tkOpenAICompatChannelPricingRestrictionError(req.modelForChannelRestriction())",
         "openAICompatNoCandidateEval",
-        "tkGroupUnsupportedModelShortCircuit"
+        "tkGroupUnsupportedModelShortCircuit",
+        "RestrictionModel"
       ],
-      "rationale": "The candidate-filter-empty branch (len(filtered)==0) in selectByLoadBalance must route through openAICompatNoCandidateError (TK companion) so a pool emptied purely by unservable model NAME surfaces ErrUnsupportedModel→400, not empty-pool 429 (prod 2026-06-13). Reverting this one-line hook to the inline noAvailableOpenAISelectionError/platform-label returns compiles clean but re-buries 'client asked for a model nobody serves' inside the 429 capacity family, re-triggering false ops alerts. Only this branch routes here — the len(accounts)==0 and post-load-balance slot-acquire branches stay 429 (genuine capacity)."
+      "rationale": "The candidate-filter-empty branch (len(filtered)==0) in selectByLoadBalance must route through openAICompatNoCandidateError (TK companion) so a pool emptied purely by unservable model NAME surfaces ErrUnsupportedModel→400, not empty-pool 429 (prod 2026-06-13). Channel pricing allowlist rejects must use modelForChannelRestriction() (RestrictionModel / client id) so BillingModelSourceRequested still matches billing-family allowlists after routing remaps wire ids (gpt-5.4 → gpt-5.5). Reverting either hook compiles clean but re-buries client-owned failures inside the 429 capacity family."
     },
     {
       "rationale": "selectAccountForModelWithExclusions AND selectAccountWithLoadAwareness (LoadBatch Layer-2 len(candidates)==0, prod default) must route pool-emptied-by-unservable-model exits through openAICompatNoCandidateError, canonicalize model spellings at selection entry, and surface ErrUnsupportedModel→400 on every OpenAI-compat surface — not just scheduler selectByLoadBalance (prod 2026-07: Qwen direct key gpt5.4-mini still hit routing/platform 429 when LoadBatch path returned bare ErrNoAvailableAccounts). Reverting either hook compiles clean but re-buries unservable-model as empty-pool 429.",

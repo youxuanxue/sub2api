@@ -30,6 +30,28 @@ func TestUS043_GPT55ProAliasBillsRoutedRegistryOwner(t *testing.T) {
 		"declared public alias must not raise served_at_fallback")
 }
 
+func TestGPT56PublicAliasesBillSolOwner(t *testing.T) {
+	resetPricingRegistrySnapshot(t)
+	pricingService := NewPricingService(&config.Config{}, nil)
+	billing := NewBillingService(&config.Config{}, pricingService)
+
+	sol := pricingService.GetModelPricing("gpt-5.6-sol")
+	require.NotNil(t, sol)
+
+	for _, alias := range []string{"gpt-5.6", "gpt-5.6-chat-latest"} {
+		owner, declared := tkPricingRegistryAliasOwner(alias)
+		require.Truef(t, declared, "%s must be overlay _aliases → gpt-5.6-sol (SSOT), not a duplicate price row", alias)
+		require.Equal(t, "gpt-5.6-sol", owner)
+
+		pricing, err := billing.GetModelPricing(alias)
+		require.NoError(t, err, alias)
+		require.InDelta(t, sol.InputCostPerToken, pricing.InputPricePerToken, 1e-15, alias)
+		require.InDelta(t, sol.OutputCostPerToken, pricing.OutputPricePerToken, 1e-15, alias)
+		require.False(t, billing.IsServedViaFamilyFloor(alias),
+			"declared public alias %s must not raise served_at_fallback", alias)
+	}
+}
+
 func TestUS043_LegacyFallbackNumbersCannotAffectBilling(t *testing.T) {
 	resetPricingRegistrySnapshot(t)
 	billing := NewBillingService(&config.Config{}, &PricingService{})
