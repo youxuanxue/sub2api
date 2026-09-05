@@ -26,10 +26,10 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             gemini_executors = {
                 "backend/internal/handler/gateway_handler_tk_protocol_execute.go": "MessagesToGemini",
                 "backend/internal/handler/gateway_handler_chat_completions.go": "ChatToGemini",
-                "backend/internal/handler/gateway_handler_responses.go": "ResponsesToGemini",
+                "backend/internal/handler/gateway_handler_tk_responses_execute.go": "ResponsesToGemini",
                 "backend/internal/handler/openai_gateway_handler.go": "MessagesToGemini: route, ResponsesToGemini",
                 "backend/internal/handler/openai_chat_completions.go": "ChatToGemini",
-                "backend/internal/handler/gemini_v1beta_handler.go": "GeminiIdentity",
+                "backend/internal/handler/gemini_v1beta_handler_tk_execute.go": "GeminiIdentity",
             }[relative]
             authoritative_helper = {
                 "backend/internal/handler/openai_gateway_handler.go": (
@@ -40,7 +40,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
                     "prepareBody := func(executionAccount *service.Account, request CanonicalRequest) []byte { return request.Body() }; "
                     "prepareBody(account, request); "
                 ),
-                "backend/internal/handler/gemini_v1beta_handler.go": (
+                "backend/internal/handler/gemini_v1beta_handler_tk_execute.go": (
                     "forwardNonGoverned := func(executionCtx context.Context, executionAccount *service.Account, request CanonicalRequest) (any, error) { return request.Body(), nil }; "
                     "forwardNonGoverned(executionCtx, account, request); "
                 ),
@@ -368,7 +368,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
 
     def test_rejects_forward_bypass_outside_selected_protocol_execution(self) -> None:
         root = self.fixture()
-        handler = root / "backend/internal/handler/gateway_handler_responses.go"
+        handler = root / "backend/internal/handler/gateway_handler_tk_responses_execute.go"
         handler.write_text(
             handler.read_text(encoding="utf-8")
             + "func bad(){ h.gatewayService.ForwardAsResponses() }\n",
@@ -413,7 +413,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
 
     def test_rejects_handler_level_gemini_profile_selection(self) -> None:
         root = self.fixture()
-        handler = root / "backend/internal/handler/gemini_v1beta_handler.go"
+        handler = root / "backend/internal/handler/gemini_v1beta_handler_tk_execute.go"
         handler.write_text(
             handler.read_text(encoding="utf-8")
             + "func bad(){ GeminiEndpointAntigravityCloudCode() }\n",

@@ -17,7 +17,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -257,28 +256,13 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("get access token: %w", err)
 	}
 
-	// Native-catalog Grok SKUs are provisioned on /v1/chat/completions; /v1/responses
-	// often returns opaque 400s. Skip the responses hop for SSOT / universal parity.
-	// Use the client-facing model id: mapped aliases like grok -> grok-4.6 still
-	// ride /v1/responses; only explicit catalog ids skip the hop.
-	if !protocolExecutionBound(ctx) && account.Platform == PlatformGrok && grokGroupServesNativeCatalogModel(normalizedModel) {
-		fallbackResult, fallbackErr := s.fallbackAnthropicToGrokChatCompletions(
-			ctx,
-			c,
-			account,
-			&anthropicReq,
-			clientStream,
-			originalModel,
-			billingModel,
-			upstreamModel,
-			token,
-			grokCacheIdentity,
-			startTime,
-		)
-		if fallbackResult != nil {
-			fallbackResult.CompactCandidate = compactCandidate
-		}
-		return fallbackResult, fallbackErr
+	// TK: Grok native-catalog → chat completions early fallback.
+	if result, handled, err := s.tkTryGrokNativeCatalogChatFallback(
+		ctx, c, account, &anthropicReq, clientStream,
+		originalModel, billingModel, upstreamModel, normalizedModel,
+		token, grokCacheIdentity, startTime, compactCandidate,
+	); handled {
+		return result, err
 	}
 
 	// 6. Build upstream request
@@ -433,29 +417,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
-		if !protocolExecutionBound(ctx) && account.Platform == PlatformGrok && isGrokResponsesModelNotSupportedRetryable(resp.StatusCode, upstreamMsg, respBody) {
-			logger.L().Info("openai messages: grok responses model not supported, fallback to chat completions",
-				zap.Int64("account_id", account.ID),
-				zap.Int("upstream_status", resp.StatusCode),
-				zap.String("upstream_model", upstreamModel),
-			)
-			fallbackResult, fallbackErr := s.fallbackAnthropicToGrokChatCompletions(
-				ctx,
-				c,
-				account,
-				&anthropicReq,
-				clientStream,
-				originalModel,
-				billingModel,
-				upstreamModel,
-				token,
-				grokCacheIdentity,
-				startTime,
-			)
-			if fallbackResult != nil {
-				fallbackResult.CompactCandidate = compactCandidate
-			}
-			return fallbackResult, fallbackErr
+		// TK: Grok responses model-not-supported → chat completions fallback.
+		if result, handled, err := s.tkTryGrokResponsesModelNotSupportedChatFallback(
+			ctx, c, account, &anthropicReq, clientStream,
+			originalModel, billingModel, upstreamModel,
+			token, grokCacheIdentity, startTime, compactCandidate,
+			resp.StatusCode, upstreamMsg, respBody,
+		); handled {
+			return result, err
 		}
 		// Non-failover error: return Anthropic-formatted error to client
 		return s.handleAnthropicErrorResponse(resp, c, account, billingModel)
@@ -1315,154 +1284,6 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	}
 }
 
-func (s *OpenAIGatewayService) handleAnthropicJSONResponsesAsStream(
-	resp *http.Response,
-	c *gin.Context,
-	account *Account,
-	originalModel string,
-	billingModel string,
-	upstreamModel string,
-	startTime time.Time,
-) (*OpenAIForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read json responses body: %w", err)
-	}
-	if bodyHasSSEFraming(body) {
-		resp.Body = io.NopCloser(bytes.NewReader(body))
-		return s.handleAnthropicStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
-	}
-
-	var finalResponse apicompat.ResponsesResponse
-	if err := json.Unmarshal(body, &finalResponse); err != nil || (strings.TrimSpace(finalResponse.ID) == "" && strings.TrimSpace(finalResponse.Status) == "") {
-		return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, body, "OpenAI messages upstream returned non-SSE JSON without a Responses object")
-	}
-
-	status := strings.TrimSpace(finalResponse.Status)
-	if status == "failed" {
-		return s.handleAnthropicJSONResponsesFailed(resp, c, account, requestID, body, &finalResponse)
-	}
-
-	state := apicompat.NewResponsesEventToAnthropicState()
-	state.Model = originalModel
-	if anthropicMessageStartAlreadySent(c) {
-		state.MessageStartSent = true
-	}
-	eventType := "response.completed"
-	if status == "incomplete" {
-		eventType = "response.incomplete"
-	}
-	events := apicompat.ResponsesEventToAnthropicEvents(&apicompat.ResponsesStreamEvent{
-		Type:     eventType,
-		Response: &finalResponse,
-	}, state)
-	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
-	for _, evt := range events {
-		sse, marshalErr := apicompat.ResponsesAnthropicEventToSSE(evt)
-		if marshalErr != nil {
-			continue
-		}
-		writeStreamHeaders()
-		if _, writeErr := fmt.Fprint(c.Writer, sse); writeErr != nil {
-			break
-		}
-	}
-	if len(events) > 0 {
-		c.Writer.Flush()
-	}
-
-	usage := OpenAIUsage{}
-	if finalResponse.Usage != nil {
-		usage = copyOpenAIUsageFromResponsesUsage(finalResponse.Usage)
-	}
-	ms := int(time.Since(startTime).Milliseconds())
-	result := &OpenAIForwardResult{
-		RequestID:                     requestID,
-		ResponseID:                    finalResponse.ID,
-		Usage:                         usage,
-		Model:                         originalModel,
-		BillingModel:                  billingModel,
-		UpstreamModel:                 upstreamModel,
-		UpstreamResponseModel:         observedUpstreamResponseModel(c),
-		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
-		Stream:                        true,
-		Duration:                      time.Since(startTime),
-		FirstTokenMs:                  &ms,
-		StopReason:                    state.StopReason,
-		IncompleteReason:              state.IncompleteReason,
-		ContentTextLen:                utf8.RuneCountInString(collectAnthropicStreamText(events)),
-	}
-	logOpenAISuccessMissingUsage(c.Request.Context(), c, account, resp, &usage, eventType, false)
-	return result, nil
-}
-
-func (s *OpenAIGatewayService) handleAnthropicJSONResponsesFailed(
-	resp *http.Response,
-	c *gin.Context,
-	account *Account,
-	requestID string,
-	body []byte,
-	finalResponse *apicompat.ResponsesResponse,
-) (*OpenAIForwardResult, error) {
-	payload := body
-	if gjson.GetBytes(body, "type").String() != "response.failed" {
-		if wrapped, wrapErr := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse}); wrapErr == nil {
-			payload = wrapped
-		}
-	}
-	usage := OpenAIUsage{}
-	if finalResponse != nil && finalResponse.Usage != nil {
-		usage = copyOpenAIUsageFromResponsesUsage(finalResponse.Usage)
-	}
-	if hit, code, msg := detectOpenAICyberPolicy(payload); hit {
-		MarkOpsCyberPolicy(c, CyberPolicyMark{
-			Code:           code,
-			Message:        msg,
-			Body:           truncateString(string(payload), 4096),
-			UpstreamStatus: http.StatusOK,
-			UpstreamInTok:  usage.InputTokens,
-			UpstreamOutTok: usage.OutputTokens,
-		})
-		clientMsg := msg
-		if clientMsg == "" {
-			clientMsg = "Request blocked by upstream cyber-security policy"
-		}
-		if c.Writer.Written() {
-			if _, writeErr := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE("invalid_request_error", clientMsg)); writeErr == nil {
-				c.Writer.Flush()
-			}
-		} else {
-			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
-		}
-		return nil, fmt.Errorf("openai cyber_policy: %s", msg)
-	}
-	message := extractOpenAISSEErrorMessage(payload)
-	if !c.Writer.Written() && openAIStreamFailedEventShouldFailover(payload, message) {
-		return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, message, resp.Header)
-	}
-	message = s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", payload, message)
-	errStatus, errType := openAIStreamFailedClientResponse(payload, message, "api_error")
-	if c.Writer.Written() {
-		if _, writeErr := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE(errType, message)); writeErr == nil {
-			c.Writer.Flush()
-		}
-	} else {
-		writeAnthropicError(c, errStatus, errType, message)
-	}
-	return nil, fmt.Errorf("upstream response failed: %s", message)
-}
-
-func collectAnthropicStreamText(events []apicompat.AnthropicStreamEvent) string {
-	var text strings.Builder
-	for _, evt := range events {
-		if evt.Delta != nil && evt.Delta.Type == "text_delta" {
-			_, _ = text.WriteString(evt.Delta.Text)
-		}
-	}
-	return text.String()
-}
-
 // writeAnthropicError writes an error response in Anthropic Messages API format.
 func writeAnthropicError(c *gin.Context, statusCode int, errType, message string) {
 	c.JSON(statusCode, gin.H{
@@ -1505,144 +1326,4 @@ func copyOpenAIUsageFromResponsesUsage(usage *apicompat.ResponsesUsage) OpenAIUs
 		result.CacheReadInputTokens = usage.InputTokensDetails.CachedTokens
 	}
 	return result
-}
-
-func isGrokResponsesModelNotSupportedRetryable(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
-	if statusCode != http.StatusBadRequest && statusCode != http.StatusNotFound && statusCode != http.StatusUnprocessableEntity {
-		return false
-	}
-	check := func(message string) bool {
-		lower := strings.ToLower(strings.TrimSpace(message))
-		if lower == "" {
-			return false
-		}
-		if strings.Contains(lower, "model_not_supported") || strings.Contains(lower, "unsupported_model") {
-			return true
-		}
-		if strings.Contains(lower, "model") && (strings.Contains(lower, "not supported") || strings.Contains(lower, "unsupported")) {
-			return true
-		}
-		if strings.Contains(lower, "responses") && strings.Contains(lower, "not support") {
-			return true
-		}
-		return false
-	}
-	if check(upstreamMsg) || check(string(upstreamBody)) {
-		return true
-	}
-	return check(gjson.GetBytes(upstreamBody, "error.code").String()) ||
-		check(gjson.GetBytes(upstreamBody, "error.message").String())
-}
-
-func (s *OpenAIGatewayService) fallbackAnthropicToGrokChatCompletions(
-	ctx context.Context,
-	c *gin.Context,
-	account *Account,
-	anthropicReq *apicompat.AnthropicRequest,
-	clientStream bool,
-	originalModel string,
-	billingModel string,
-	upstreamModel string,
-	token string,
-	grokCacheIdentity string,
-	startTime time.Time,
-) (*OpenAIForwardResult, error) {
-	chatBody, err := anthropicToChatCompletionsBody(anthropicReq, upstreamModel)
-	if err != nil {
-		return nil, fmt.Errorf("fallback convert anthropic to chat completions: %w", err)
-	}
-	if strippedBody, stripErr := stripRedundantGrokChatViewImageTool(chatBody); stripErr != nil {
-		return nil, fmt.Errorf("fallback strip redundant Grok Chat view_image tool: %w", stripErr)
-	} else {
-		chatBody = strippedBody
-	}
-	targetURL, err := s.resolveGrokChatCompletionsUpstream(account)
-	if err != nil {
-		return nil, err
-	}
-	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	upstreamReq, err := buildGrokChatCompletionsRequest(upstreamCtx, c, targetURL, chatBody, token)
-	releaseUpstreamCtx()
-	if err != nil {
-		return nil, fmt.Errorf("fallback build grok chat completions request: %w", err)
-	}
-	applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
-
-	proxyURL := ""
-	if account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
-	hwka.stop()
-	if err != nil {
-		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	s.updateGrokUsageSnapshot(ctx, account, xai.ParseQuotaHeaders(resp.Header, resp.StatusCode))
-	if resp.StatusCode >= 400 {
-		respBody := s.readUpstreamErrorBody(resp)
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		return s.handleAnthropicErrorResponse(resp, c, account, billingModel)
-	}
-
-	upstreamBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("fallback read grok chat completions body: %w", err)
-	}
-
-	buf := bytes.NewBuffer(upstreamBody)
-	if clientStream {
-		return convertBufferedChatCompletionsToAnthropicSSE(c, buf, originalModel, billingModel, upstreamModel, startTime)
-	}
-	return convertBufferedChatCompletionsToAnthropicJSON(c, buf, originalModel, billingModel, upstreamModel, startTime)
-}
-
-func (s *OpenAIGatewayService) resolveGrokChatCompletionsUpstream(account *Account) (string, error) {
-	if s == nil {
-		return "", fmt.Errorf("openai gateway service is nil")
-	}
-	if account == nil {
-		return "", fmt.Errorf("grok chat completions: account is nil")
-	}
-	switch {
-	case account.IsGrokOAuth():
-		return buildOpenAIChatCompletionsURL(account.GetGrokBaseURL()), nil
-	case account.IsGrokAPIKey():
-		baseURL := account.GetOpenAIBaseURL()
-		if strings.TrimSpace(baseURL) == "" {
-			return "", fmt.Errorf("grok relay account %d missing base_url", account.ID)
-		}
-		validatedURL, err := s.validateUpstreamBaseURLForAccount(account, baseURL)
-		if err != nil {
-			return "", err
-		}
-		return buildOpenAIChatCompletionsURL(validatedURL), nil
-	default:
-		return "", fmt.Errorf("grok account type %s is not supported for chat completions fallback", account.Type)
-	}
-}
-
-func buildGrokChatCompletionsRequest(ctx context.Context, c *gin.Context, targetURL string, body []byte, token string) (*http.Request, error) {
-	if strings.TrimSpace(targetURL) == "" {
-		return nil, fmt.Errorf("grok chat completions target URL is empty")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	if c != nil {
-		if v := strings.TrimSpace(c.GetHeader("User-Agent")); v != "" {
-			req.Header.Set("User-Agent", v)
-		}
-		if v := strings.TrimSpace(c.GetHeader("OpenAI-Beta")); v != "" {
-			req.Header.Set("OpenAI-Beta", v)
-		}
-	}
-	applyGrokCLIHeaders(req.Header)
-	return req, nil
 }

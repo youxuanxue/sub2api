@@ -81,39 +81,6 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 
 const postgresParameterBatchSize = 50000
 
-const codexFingerprintSeedCanonicalPattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-const codexFingerprintNilSeed = "00000000-0000-0000-0000-000000000000"
-
-func codexFingerprintSeedValidSQL(extraExpr string) string {
-	value := "(" + extraExpr + " ->> 'codex_fingerprint_seed')"
-	return "(" + value + " ~ '" + codexFingerprintSeedCanonicalPattern + "' AND " + value + " <> '" + codexFingerprintNilSeed + "')"
-}
-
-func ensureCodexFingerprintSeedSQL(extraExpr string) string {
-	return "CASE WHEN platform = 'openai' AND type = 'oauth' THEN " +
-		"jsonb_set(" + extraExpr + ", '{codex_fingerprint_seed}', " +
-		"CASE WHEN " + codexFingerprintSeedValidSQL("extra") +
-		" THEN to_jsonb(extra ->> 'codex_fingerprint_seed') ELSE to_jsonb(gen_random_uuid()::text) END, true) " +
-		"ELSE " + extraExpr + " END"
-}
-
-func stripCodexFingerprintSeedFromExtraUpdate(extra map[string]any) map[string]any {
-	if extra == nil {
-		return nil
-	}
-	if _, exists := extra["codex_fingerprint_seed"]; !exists {
-		return extra
-	}
-	stripped := make(map[string]any, len(extra)-1)
-	for key, value := range extra {
-		if key == "codex_fingerprint_seed" {
-			continue
-		}
-		stripped[key] = value
-	}
-	return stripped
-}
-
 // NewAccountRepository 创建账户仓储实例。
 // 这是对外暴露的构造函数，返回接口类型以便于依赖注入。
 func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache, tierResolver service.TierExtraResolver) service.AccountRepository {
@@ -1078,13 +1045,8 @@ func (r *accountRepository) updateLockedAccount(
 		schedulable = false
 	}
 
-	// TK: strip tier-overlaid extra keys before persisting so the in-memory
-	// runtime overlay (base_rpm / max_sessions / ...) never leaks to the DB
-	// ("零账号写"). No-op for non-tier-managed accounts.
-	extraToPersist := account.Extra
-	if r.tierResolver != nil {
-		extraToPersist = r.tierResolver.TierManagedExtraStripped(account)
-	}
+	// TK: strip tier-overlaid extra keys before persisting — see account_repo_tk_tier.go
+	extraToPersist := r.tkExtraToPersist(account)
 
 	builder := client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
@@ -1534,25 +1496,8 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) *dbent.AccountQuery {
 	q := r.client.Account.Query()
 
-	if platform == service.AccountListPlatformKiroStubFilter {
-		q = q.Where(accountKiroRelayStubPredicate())
-	} else if platform == service.PlatformKiro {
-		q = q.Where(
-			dbaccount.Or(
-				dbaccount.PlatformEQ(service.PlatformKiro),
-				accountKiroRelayStubPredicate(),
-			),
-		)
-	} else if platform == service.PlatformAnthropic {
-		q = q.Where(
-			dbaccount.And(
-				dbaccount.PlatformEQ(service.PlatformAnthropic),
-				dbaccount.Not(accountKiroRelayStubPredicate()),
-			),
-		)
-	} else if platform != "" {
-		q = q.Where(dbaccount.PlatformEQ(platform))
-	}
+	// TK: Kiro stub / platform list filter — see account_repo_tk_kiro.go
+	q = r.tkApplyKiroPlatformListFilter(q, platform)
 	if channelType > 0 {
 		q = q.Where(dbaccount.ChannelTypeEQ(channelType))
 	}
@@ -1674,17 +1619,6 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 		return nil, nil, err
 	}
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
-}
-
-func accountKiroRelayStubPredicate() dbpredicate.Account {
-	return dbaccount.And(
-		dbaccount.PlatformEQ(service.PlatformAnthropic),
-		dbaccount.TypeEQ(service.AccountTypeAPIKey),
-		dbpredicate.Account(func(s *entsql.Selector) {
-			s.Where(entsql.ExprP(fmt.Sprintf("LOWER(TRIM(%s->>'mirror_platform')) = 'kiro'", s.C(dbaccount.FieldCredentials))))
-			s.Where(entsql.ExprP(fmt.Sprintf("(%s->>'base_url') ~ '^https://api-[a-z0-9]+\\.tokenkey\\.dev/?$'", s.C(dbaccount.FieldCredentials))))
-		}),
-	)
 }
 
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, channelType int) ([]service.Account, error) {
@@ -3082,30 +3016,6 @@ func (r *accountRepository) ClearRateLimit(ctx context.Context, id int64) error 
 	return nil
 }
 
-func (r *accountRepository) ClearAntigravityQuotaScopes(ctx context.Context, id int64) error {
-	client := clientFromContext(ctx, r.client)
-	result, err := client.ExecContext(
-		ctx,
-		"UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) - 'antigravity_quota_scopes', updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
-		id,
-	)
-	if err != nil {
-		return err
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return service.ErrAccountNotFound
-	}
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear quota scopes failed: account=%d err=%v", id, err)
-	}
-	return nil
-}
-
 func (r *accountRepository) ClearModelRateLimits(ctx context.Context, id int64) error {
 	client := clientFromContext(ctx, r.client)
 	result, err := client.ExecContext(
@@ -3865,11 +3775,8 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if capability, ok := capabilitiesByAccount[acc.ID]; ok {
 			out.ProtocolEndpointCapability = capability
 		}
-		// TK: overlay per-tier config (base_rpm / max_sessions / ...) onto the
-		// in-memory Extra so runtime getters resolve tier values; nil-safe.
-		if r.tierResolver != nil {
-			r.tierResolver.ApplyTierExtra(out)
-		}
+		// TK: overlay per-tier config on load — see account_repo_tk_tier.go
+		r.tkApplyTierExtraOnLoad(out)
 		outAccounts = append(outAccounts, *out)
 	}
 

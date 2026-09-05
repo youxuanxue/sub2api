@@ -38,11 +38,17 @@
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
       "must_contain": [
         "TkRecordFailureFromErr",
-        "tkGeminiFallbackModelsList",
         "TkEvalBodyGuard(",
         "TkEnrichForbiddenMessage("
       ],
-      "rationale": "gemini_v1beta_handler.go has multiple TK injection points: (1) the failure tap on the /v1beta forward path that detects Google's 'Requested entity was not found' responses (TkRecordFailureFromErr), (2) the filtered Gemini fallback model list for the two static-fallback response paths (tkGeminiFallbackModelsList), (3) the pre-flight body-size guard before SelectAccount (TkEvalBodyGuard) — same data-driven motivation as anthropic opus-4-7 oversize rejection, and (4) the actionable-message enrichment for upstream 403 in mapGeminiUpstreamError's caller (TkEnrichForbiddenMessage). The Gemini handler is large and frequently touched by upstream; each TK injection is a 1-line addition easy to lose in merge conflict resolution."
+      "rationale": "gemini_v1beta_handler.go TK injection points retained in the upstream-shaped file after P3: (1) failure tap TkRecordFailureFromErr, (2) pre-flight TkEvalBodyGuard, (3) TkEnrichForbiddenMessage for upstream 403. The filtered Gemini fallback list moved to gemini_v1beta_handler_tk_platform.go."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_platform.go",
+      "must_contain": [
+        "tkGeminiFallbackModelsList"
+      ],
+      "rationale": "Filtered Gemini fallback model list for static-fallback response paths. Moved with P3 platform companion; dropping it collapses Gemini model listing to an empty/incorrect menu."
     },
     {
       "path": "backend/internal/service/gateway_service.go",
@@ -263,15 +269,21 @@
         "tkIsEffectivelyUnpriced",
         "pricing.ThinkingOutputPricePerToken",
         "normalizeOpenAIBillingModel",
-        "tkOverlayModelPricing(\"deepseek-v4-flash\")",
         "tkApplyDeepSeekPeakValleyPricing",
-        "tkOverlayModelPricing(\"glm-5.2\")",
         "getRegistryAliasPricing(model)",
         "if fallback.registryOwner == \"\"",
         "normalized := normalizeOpenAIBillingModel(model)",
         "isOpenAIGPT56Model(normalized)"
       ],
-      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. GPT-5.6 cache-creation / long-context policy must key off normalizeOpenAIBillingModel (settlement), never normalizeKnownOpenAICodexModel / entitlement wire remaps — otherwise dated gpt-5.4-* inherit terra cache-write invention."
+      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. GPT-5.6 cache-creation / long-context policy must key off normalizeOpenAIBillingModel (settlement), never normalizeKnownOpenAICodexModel / entitlement wire remaps — otherwise dated gpt-5.4-* inherit terra cache-write invention. P3: deepseek/glm overlay aliases moved to billing_service_tk_fallback_overlay.go."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_fallback_overlay.go",
+      "must_contain": [
+        "tkOverlayModelPricing(\"deepseek-v4-flash\")",
+        "tkOverlayModelPricing(\"glm-5.2\")"
+      ],
+      "rationale": "P3 companion: deepseek-v4-flash / glm-5.2 pricing overlay aliases for billing fallback. Dropping them reintroduces price drift for those families."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias.go",

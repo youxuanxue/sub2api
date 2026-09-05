@@ -445,12 +445,19 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
+        "if result, handled, err := s.tkTryForwardKiro(ctx, c, account, parsed, startTime); handled {"
+      ],
+      "rationale": "Thin Forward() call site for the Kiro early branch after P3 companion extraction. An upstream merge that rewrites Forward() must keep this hook or Kiro accounts fall through to the Anthropic path."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_tk_kiro.go",
+      "must_contain": [
         "account.IsKiro()",
         "kiroGateway",
         "beginHeaderWaitKeepalive(c, parsed != nil && parsed.Stream)",
         "bindPreContentStreamKeepalive(c, hwka)"
       ],
-      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. Kiro dial/thinking can sit silent for minutes with no client-visible SSE (unsigned reasoning stays off the wire); the shared pre-content header-wait keepalive must be bound on this early branch or idle intermediaries and Claude Code drop/appear stuck. An upstream merge that rewrites Forward()/NewGatewayService() must preserve the dispatch branch (or kiro accounts fall through to the Anthropic path and fail)."
+      "rationale": "The Forward() dispatch injection point (next to IsBedrock) + the GatewayService.kiroGateway field. Kiro dial/thinking can sit silent for minutes with no client-visible SSE (unsigned reasoning stays off the wire); the shared pre-content header-wait keepalive must be bound on this early branch or idle intermediaries and Claude Code drop/appear stuck. Companion holds the branch body after P3 extraction."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_keepalive_test.go",
@@ -881,13 +888,19 @@
       "rationale": "Admin account list keeps the Extension Engine channel_type dropdown on the upstream-shaped filter bar. Losing this Select mixes Qwen/DeepSeek/Vertex into one newapi list after an upstream filter rewrite."
     },
     {
-      "path": "backend/internal/repository/account_repo.go",
+      "path": "backend/internal/repository/account_repo_tk_kiro.go",
       "must_contain": [
         "accountKiroRelayStubPredicate",
-        "PlatformAnthropic",
+        "PlatformAnthropic"
+      ],
+      "rationale": "Account list filtering must keep native Kiro plus Anthropic Kiro-mirror stubs under Kiro, exclude those stubs from Anthropic, and apply channel_type for Extension Engine. An upstream rewrite of accountListFilteredQuery can drop either predicate while compile and unrelated sentinels still pass. P3: predicate lives in account_repo_tk_kiro companion."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
         "ChannelTypeEQ"
       ],
-      "rationale": "Account list filtering must keep native Kiro plus Anthropic Kiro-mirror stubs under Kiro, exclude those stubs from Anthropic, and apply channel_type for Extension Engine. An upstream rewrite of accountListFilteredQuery can drop either predicate while compile and unrelated sentinels still pass."
+      "rationale": "Extension Engine channel_type filter remains in upstream-shaped accountListFilteredQuery; Kiro stub predicates live in account_repo_tk_kiro.go."
     },
     {
       "path": "frontend/src/constants/mirrorPlatformOptions.tk.ts",
