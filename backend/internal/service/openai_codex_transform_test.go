@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1359,41 +1360,40 @@ func TestApplyCodexOAuthTransform_EmptyInput(t *testing.T) {
 	require.Len(t, input, 0)
 }
 
-func TestNormalizeCodexModel_Gpt53(t *testing.T) {
-	cases := map[string]string{
-		"gpt-5.4":                   "gpt-5.5",
-		"gpt5.5":                    "gpt-5.5",
-		"openai/gpt5.5":             "gpt-5.5",
-		"gpt-5.5-pro":               "gpt-5.5",
-		"gpt5.5-pro":                "gpt-5.5",
-		"openai/gpt5.5-pro":         "gpt-5.5",
-		"gpt-5.5-pro-high":          "gpt-5.5",
-		"codex-auto-review":         "codex-auto-review",
-		"gpt5.4":                    "gpt-5.5",
-		"gpt-5.4-high":              "gpt-5.5",
-		"gpt-5.4-chat-latest":       "gpt-5.5",
-		"gpt 5.4":                   "gpt-5.5",
-		"gpt-5.4-mini":              "gpt-5.4-mini",
-		"gpt5.4-mini":               "gpt-5.4-mini",
-		"gpt5.4mini":                "gpt-5.4-mini",
-		"gpt 5.4 mini":              "gpt-5.4-mini",
-		"gpt-5.3":                   "gpt-5.3-codex-spark",
-		"gpt5.3":                    "gpt-5.3-codex-spark",
-		"gpt-5.3-codex":             "gpt-5.3-codex-spark",
-		"gpt5.3-codex":              "gpt-5.3-codex-spark",
-		"gpt5.3codex":               "gpt-5.3-codex-spark",
-		"gpt-5.3-codex-xhigh":       "gpt-5.3-codex-spark",
-		"gpt-5.3-codex-spark":       "gpt-5.3-codex-spark",
-		"gpt5.3-codex-spark":        "gpt-5.3-codex-spark",
-		"gpt5.3codexspark":          "gpt-5.3-codex-spark",
-		"gpt 5.3 codex spark":       "gpt-5.3-codex-spark",
-		"gpt-5.3-codex-spark-high":  "gpt-5.3-codex-spark",
-		"gpt-5.3-codex-spark-xhigh": "gpt-5.3-codex-spark",
-		"gpt 5.3 codex":             "gpt-5.3-codex-spark",
+func TestNormalizeCodexModel_FollowsCodexModelMapOwner(t *testing.T) {
+	t.Parallel()
+
+	// Positive samples from the wire owner — no hand-copied GPT remap table.
+	keys := make([]string, 0, len(codexModelMap))
+	for in := range codexModelMap {
+		keys = append(keys, in)
+	}
+	sort.Strings(keys)
+	for _, in := range keys {
+		require.Equal(t, codexModelMap[in], normalizeCodexModel(in), in)
 	}
 
-	for input, expected := range cases {
-		require.Equal(t, expected, normalizeCodexModel(input))
+	// Boundary spelling samples (not owner-key copies).
+	boundaries := map[string]string{
+		"gpt5.5":              "gpt-5.5",
+		"openai/gpt5.5":       "gpt-5.5",
+		"gpt5.5-pro":          "gpt-5.5",
+		"openai/gpt5.5-pro":   "gpt-5.5",
+		"gpt5.4":              "gpt-5.6-terra",
+		"gpt 5.4":             "gpt-5.6-terra",
+		"gpt5.4-mini":         "gpt-5.6-luna",
+		"gpt5.4mini":          "gpt-5.6-luna",
+		"gpt 5.4 mini":        "gpt-5.6-luna",
+		"gpt5.3":              "gpt-5.3-codex-spark",
+		"gpt5.3-codex":        "gpt-5.3-codex-spark",
+		"gpt5.3codex":         "gpt-5.3-codex-spark",
+		"gpt5.3-codex-spark":  "gpt-5.3-codex-spark",
+		"gpt5.3codexspark":    "gpt-5.3-codex-spark",
+		"gpt 5.3 codex spark": "gpt-5.3-codex-spark",
+		"gpt 5.3 codex":       "gpt-5.3-codex-spark",
+	}
+	for input, expected := range boundaries {
+		require.Equal(t, expected, normalizeCodexModel(input), input)
 	}
 }
 

@@ -494,7 +494,7 @@ func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Contex
 
 // isOpenAIRequestedModelRestrictedByChannel allows a request when the channel
 // pricing allowlist contains either the billing-family id or the entitlement
-// wire id. Routing remaps (gpt-5.4 → gpt-5.5) must not silently block operators
+// wire id. Routing remaps (gpt-5.4 → gpt-5.6-terra) must not silently block operators
 // who still allowlist the client/billing family.
 func (s *OpenAIGatewayService) isOpenAIRequestedModelRestrictedByChannel(ctx context.Context, groupID int64, requestedModel string) bool {
 	candidates := openAIChannelRestrictionModelCandidates(requestedModel)

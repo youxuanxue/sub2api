@@ -28,7 +28,7 @@ func newOpenAICompactFallbackTestContext(t *testing.T, path string) *gin.Context
 
 func TestPrepareOpenAICompactFallbackRetryRequiresExplicitCompact(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}}}
 	c := newOpenAICompactFallbackTestContext(t, "/v1/responses")
 	body := []byte(`{"model":"gpt-5.5","input":[{"type":"message","role":"user","content":"hello"}]}`)
 	errorBody := []byte(`{"error":{"code":"context_length_exceeded","message":"maximum context length exceeded"}}`)
@@ -44,7 +44,7 @@ func TestPrepareOpenAICompactFallbackRetryRequiresExplicitCompact(t *testing.T) 
 
 func TestPrepareOpenAICompactFallbackRetryPreservesNativeTriggerAndContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}}}
 	c := newOpenAICompactFallbackTestContext(t, "/v1/responses")
 	MarkOpenAINativeCompactionV2(c)
 	body := []byte(`{"model":"gpt-5.5","stream":true,"input":[{"type":"message","role":"user","content":"hello"},{"type":"compaction_trigger"}]}`)
@@ -56,8 +56,8 @@ func TestPrepareOpenAICompactFallbackRetryPreservesNativeTriggerAndContext(t *te
 	)
 
 	require.True(t, retry)
-	require.Equal(t, "gpt-5.4-mini", fallbackModel)
-	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(retryBody, "model").String())
+	require.Equal(t, "gpt-5.6-luna", fallbackModel)
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(retryBody, "model").String())
 	require.True(t, HasCompactionTriggerInInput(retryBody))
 	require.True(t, isOpenAINativeCompactionV2(c))
 	require.Equal(t, pathBefore, openAIResponsesRequestPathSuffix(c))
@@ -105,7 +105,7 @@ func TestOpenAIGatewayForwardUsesGlobalCompactModelOnInitialLegacyRequest(t *tes
 
 func TestPrepareOpenAICompactFallbackRetryLegacyPathAndSingleAttemptGuard(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}}}
 	c := newOpenAICompactFallbackTestContext(t, "/v1/responses/compact")
 	body := []byte(`{"model":"gpt-5.5","input":[]}`)
 	errorBody := []byte(`{"response":{"status":"failed","error":null}}`)
@@ -114,7 +114,7 @@ func TestPrepareOpenAICompactFallbackRetryLegacyPathAndSingleAttemptGuard(t *tes
 		c, nil, "gpt-5.5", body, http.StatusBadRequest, "", errorBody, false,
 	)
 	require.True(t, retry)
-	require.Equal(t, "gpt-5.4-mini", fallbackModel)
+	require.Equal(t, "gpt-5.6-luna", fallbackModel)
 	require.Equal(t, "/compact", openAIResponsesRequestPathSuffix(c))
 
 	secondBody, secondModel, secondRetry := svc.prepareOpenAICompactFallbackRetry(
@@ -127,7 +127,7 @@ func TestPrepareOpenAICompactFallbackRetryLegacyPathAndSingleAttemptGuard(t *tes
 
 func TestPrepareOpenAICompactFallbackRetryDoesNotHideSpecificBusinessFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}}}
 	c := newOpenAICompactFallbackTestContext(t, "/v1/responses/compact")
 	body := []byte(`{"model":"gpt-5.5","input":[]}`)
 	errorBody := []byte(`{"response":{"status":"failed","error":{"type":"permission_error","message":"workspace denied"}}}`)
@@ -198,7 +198,7 @@ func TestOpenAIGatewayForwardRetriesExplicitNativeCompactHTTPFailureOnce(t *test
 		},
 	}}
 	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}},
+		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}},
 		httpUpstream: upstream,
 	}
 	account := &Account{
@@ -213,7 +213,7 @@ func TestOpenAIGatewayForwardRetriesExplicitNativeCompactHTTPFailureOnce(t *test
 	require.NotNil(t, result)
 	require.Len(t, upstream.bodies, 2)
 	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[1], "model").String())
 	require.True(t, HasCompactionTriggerInInput(upstream.bodies[1]))
 	require.Equal(t, upstream.requests[0].URL.Path, upstream.requests[1].URL.Path)
 	require.NotContains(t, upstream.requests[1].URL.Path, "/compact")
@@ -249,7 +249,7 @@ func TestOpenAIGatewayForwardRetriesExplicitNativeCompactSSEFailureBeforeOutput(
 		},
 	}}
 	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}},
+		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}},
 		httpUpstream: upstream,
 	}
 	account := &Account{
@@ -264,7 +264,7 @@ func TestOpenAIGatewayForwardRetriesExplicitNativeCompactSSEFailureBeforeOutput(
 	require.NotNil(t, result)
 	require.Len(t, upstream.bodies, 2)
 	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[1], "model").String())
 	require.Equal(t, upstream.requests[0].URL.Path, upstream.requests[1].URL.Path)
 	require.NotContains(t, upstream.requests[1].URL.Path, "/compact")
 }
@@ -288,7 +288,7 @@ func TestOpenAIGatewayForwardRetriesStreamingCompactFailureBeforeOutput(t *testi
 		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(completed))},
 	}}
 	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}},
+		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}},
 		httpUpstream: upstream,
 	}
 	account := &Account{
@@ -302,7 +302,7 @@ func TestOpenAIGatewayForwardRetriesStreamingCompactFailureBeforeOutput(t *testi
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, upstream.bodies, 2)
-	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[1], "model").String())
 	require.NotContains(t, recorder.Body.String(), "context_length_exceeded")
 	require.Contains(t, recorder.Body.String(), "response.completed")
 }
@@ -327,7 +327,7 @@ func TestOpenAIGatewayForwardDoesNotRecurseWhenCompactFallbackAlsoFails(t *testi
 		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(failed))},
 	}}
 	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}},
+		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}},
 		httpUpstream: upstream,
 	}
 	account := &Account{
@@ -342,7 +342,7 @@ func TestOpenAIGatewayForwardDoesNotRecurseWhenCompactFallbackAlsoFails(t *testi
 	require.Nil(t, result)
 	require.Len(t, upstream.bodies, 2)
 	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Equal(t, "gpt-5.4-mini", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "gpt-5.6-luna", gjson.GetBytes(upstream.bodies[1], "model").String())
 	var compactSignal *openAICompactFallbackSignal
 	require.False(t, errors.As(err, &compactSignal))
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
@@ -373,7 +373,7 @@ func TestOpenAIPassthroughCompactFallbackSecondStreamFailureUsesStandardErrorPat
 		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(failed))},
 	}}
 	svc := &OpenAIGatewayService{
-		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4-mini"}},
+		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.6-luna"}},
 		httpUpstream: upstream,
 	}
 	account := &Account{

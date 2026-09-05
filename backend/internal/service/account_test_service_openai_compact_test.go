@@ -78,7 +78,7 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, "chatgpt-acc", upstream.lastReq.Header.Get("chatgpt-account-id"))
 	require.Equal(t, "true", upstream.lastReq.Header.Get("x-openai-fedramp"))
-	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "gpt-5.6-terra", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "store").Bool())
 	inputItems := gjson.GetBytes(upstream.lastBody, "input").Array()

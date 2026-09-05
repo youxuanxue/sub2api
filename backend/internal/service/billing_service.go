@@ -1611,7 +1611,14 @@ func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *
 	if pricing == nil {
 		return nil
 	}
-	normalized := normalizeKnownOpenAICodexModel(model)
+	// Settlement family only — never entitlement wire remaps (gpt-5.4 → terra).
+	normalized := normalizeOpenAIBillingModel(model)
+	if normalized == "" {
+		normalized = canonicalizeOpenAIModelAliasSpelling(model)
+	}
+	if normalized == "" {
+		normalized = strings.ToLower(strings.TrimSpace(model))
+	}
 	isGPT56 := isOpenAIGPT56Model(normalized)
 	usesLegacyLongContextPricing := usesOpenAILegacyLongContextPricing(normalized)
 	if !isGPT56 && !usesLegacyLongContextPricing {

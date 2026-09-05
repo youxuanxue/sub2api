@@ -87,7 +87,7 @@ type OpenAIAccountScheduleRequest struct {
 	// RestrictionModel is the client-facing model id used for channel pricing
 	// allowlists when BillingModelSourceRequested. Empty falls back to
 	// RequestedModel. Keep this distinct from RequestedModel when routing
-	// canonicalize remaps entitlement wire ids (e.g. gpt-5.4 → gpt-5.5).
+	// canonicalize remaps entitlement wire ids (e.g. gpt-5.4 → gpt-5.6-terra).
 	RestrictionModel        string
 	RequiredTransport       OpenAIUpstreamTransport
 	RequiredCapability      OpenAIEndpointCapability

@@ -116,7 +116,7 @@ func normalizeKnownOpenAICodexModel(model string) string {
 }
 
 // normalizeOpenAIBillingModel maps OpenAI/Codex wire ids to billing tier keys.
-// Upstream entitlement remaps (e.g. gpt-5.4 → gpt-5.5 for ChatGPT Codex) must
+// Upstream entitlement remaps (e.g. gpt-5.4 → gpt-5.6-terra for ChatGPT Codex) must
 // NOT change settlement owners: billing stays on the requested family's price
 // card. GPT-5.6 bare/chat-latest fold to Sol (flagship tier).
 func normalizeOpenAIBillingModel(model string) string {

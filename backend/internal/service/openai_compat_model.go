@@ -96,7 +96,7 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 	}
 
 	// Strip the effort token only. Do not apply Codex entitlement remaps here
-	// (e.g. gpt-5.4 → gpt-5.5): those belong in normalizeOpenAIModelForUpstream
+	// (e.g. gpt-5.4 → gpt-5.6-terra): those belong in normalizeOpenAIModelForUpstream
 	// so account model_mapping and billing still see the requested family id.
 	baseModel := strings.Join(parts[:len(parts)-1], "-")
 	if baseModel == "" {

@@ -267,9 +267,11 @@
         "tkApplyDeepSeekPeakValleyPricing",
         "tkOverlayModelPricing(\"glm-5.2\")",
         "getRegistryAliasPricing(model)",
-        "if fallback.registryOwner == \"\""
+        "if fallback.registryOwner == \"\"",
+        "normalized := normalizeOpenAIBillingModel(model)",
+        "isOpenAIGPT56Model(normalized)"
       ],
-      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models."
+      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. GPT-5.6 cache-creation / long-context policy must key off normalizeOpenAIBillingModel (settlement), never normalizeKnownOpenAICodexModel / entitlement wire remaps — otherwise dated gpt-5.4-* inherit terra cache-write invention."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias.go",

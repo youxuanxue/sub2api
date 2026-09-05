@@ -78,7 +78,7 @@ func TestP01_Scheduler_ChannelPricingRestriction_Blocks(t *testing.T) {
 // 请求模型在白名单内时正常选号，不被新加的检查误杀。
 //
 // BillingModelSourceRequested must honor the client/billing family id even when
-// routing canonicalize remaps bare gpt-5.4 → gpt-5.5 for upstream entitlement.
+// routing canonicalize remaps bare gpt-5.4 → gpt-5.6-terra for upstream entitlement.
 func TestP01_Scheduler_ChannelPricingRestriction_AllowsListedModel(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(91002)
@@ -113,7 +113,7 @@ func TestP01_Scheduler_ChannelPricingRestriction_AllowsWireAliasWhenListed(t *te
 		RestrictModels:     true,
 		BillingModelSource: BillingModelSourceRequested,
 		ModelPricing: []ChannelModelPricing{
-			{Platform: PlatformNewAPI, Models: []string{"gpt-5.5"}},
+			{Platform: PlatformNewAPI, Models: []string{"gpt-5.6-terra"}},
 		},
 	}
 	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, pool, channel)
