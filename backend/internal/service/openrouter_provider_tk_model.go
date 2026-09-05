@@ -22,7 +22,7 @@ func (s *SettingService) NormalizeOpenRouterProviderChatBody(
 	if err != nil {
 		return body, "", false, err
 	}
-	if !cfg.AllowsInferenceAPIKey(apiKeyID, userID) {
+	if !cfg.AllowsSellerAPIKey(apiKeyID, userID) {
 		return body, "", false, nil
 	}
 	modelResult := gjson.GetBytes(body, "model")

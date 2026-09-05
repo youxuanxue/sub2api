@@ -44,5 +44,19 @@ class MergeMissingListFieldsTest(unittest.TestCase):
         self.assertEqual(merged["stream_only_model_ids"], ["custom-stream"])
 
 
+class ParseSnapshotKeyIDTest(unittest.TestCase):
+    def test_prefers_openrouter_name(self) -> None:
+        raw = "11|other\n22|openrouter\n33|another"
+        self.assertEqual(mgr._parse_snapshot_key_id(raw), 22)
+
+    def test_falls_back_to_any_key(self) -> None:
+        # Boundary: ops label missing → any billing-user key is enough.
+        raw = "11|legacy-name\n33|another"
+        self.assertEqual(mgr._parse_snapshot_key_id(raw), 11)
+
+    def test_empty(self) -> None:
+        self.assertEqual(mgr._parse_snapshot_key_id(""), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

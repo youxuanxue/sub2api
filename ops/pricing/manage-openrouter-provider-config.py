@@ -29,8 +29,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTING_KEY = "tk_openrouter_provider_config"
 BILLING_USER_ID = 32
 SELLER_KEY_NAME = "openrouter"
-# Accepted when looking up an existing key (legacy dual-key names).
-LEGACY_SELLER_KEY_NAMES = ("openrouter", "openrouter-inference", "openrouter-monitor")
 APP_URL = "http://127.0.0.1:8080"
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
@@ -74,7 +72,6 @@ USER_ID = 32
 REQUESTED_GROUP_ID = __GROUP_ID__
 CREATE_GROUP = __CREATE_GROUP__
 SELLER_NAME = "openrouter"
-LEGACY_NAMES = ("openrouter", "openrouter-inference", "openrouter-monitor")
 CONFIG = json.loads("""__CONFIG_JSON__""")
 APP_URL = "http://127.0.0.1:8080"
 APP_CONTAINER = "tokenkey-green"
@@ -178,11 +175,13 @@ group_id = ensure_group_id()
 ensure_user_allowed_group(group_id)
 
 existing = list_user_keys()
-seller_id = 0
-for name in LEGACY_NAMES:
-    seller_id = find_key_id(existing, name)
-    if seller_id > 0:
-        break
+seller_id = find_key_id(existing, SELLER_NAME)
+if seller_id <= 0:
+    for item in existing or []:
+        if (item.get("status") or "") != "disabled":
+            seller_id = int(item.get("id") or 0)
+            if seller_id > 0:
+                break
 if seller_id <= 0:
     seller_id = create_key(SELLER_NAME, group_id)
 
@@ -369,15 +368,12 @@ def _parse_snapshot_groups(groups_raw: str) -> list[int]:
     return ids
 
 
-def _parse_snapshot_key_id(api_keys_raw: str, names: tuple[str, ...] | str) -> int:
-    if isinstance(names, str):
-        names = (names,)
-    for want in names:
-        for line in api_keys_raw.splitlines():
-            parts = line.split("|")
-            if len(parts) >= 2 and parts[1] == want and parts[0].isdigit():
-                return int(parts[0])
-    # Any active key for the billing user is enough (runtime is ownership-based).
+def _parse_snapshot_key_id(api_keys_raw: str, preferred_name: str = SELLER_KEY_NAME) -> int:
+    """Prefer ops label `openrouter`, else any active key for the billing user."""
+    for line in api_keys_raw.splitlines():
+        parts = line.split("|")
+        if len(parts) >= 2 and parts[1] == preferred_name and parts[0].isdigit():
+            return int(parts[0])
     for line in api_keys_raw.splitlines():
         parts = line.split("|")
         if len(parts) >= 1 and parts[0].isdigit():
@@ -401,7 +397,7 @@ def cmd_update_config(args) -> int:
     supply_group_ids = _parse_snapshot_groups(groups_raw)
     if not supply_group_ids:
         fail("user 32 has no allowed groups; catalog would be empty")
-    seller_id = _parse_snapshot_key_id(keys_raw, LEGACY_SELLER_KEY_NAMES)
+    seller_id = _parse_snapshot_key_id(keys_raw)
     if seller_id <= 0:
         fail("billing user has no API keys; run bootstrap first")
 
