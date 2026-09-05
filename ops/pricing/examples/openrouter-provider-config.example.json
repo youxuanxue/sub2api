@@ -12,17 +12,23 @@
   "catalog_excluded_model_ids": [
     "claude-fable-5",
     "claude-opus-4-1",
+    "deepseek-v3.2",
     "gemini-3.1-pro",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-pro-preview",
     "gemini-3-pro-image",
     "gemini-3.1-flash-image",
     "gemini-3.1-flash-image-preview",
+    "gpt-5.2",
     "doubao-seedance-2-0-260128",
     "doubao-seedance-2-0-fast-260128",
     "doubao-seedance-2-5-260628"
   ],
   "stream_only_model_ids": [
     "glm-4.5",
-    "glm-4.5-air"
+    "glm-4.5-air",
+    "qwen3.8-2.4t-a95b"
   ],
   "datacenter_country_codes": ["US", "SG"],
   "privacy_policy_url": "https://tokenkey.dev/privacy",
