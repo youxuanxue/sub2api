@@ -7,12 +7,12 @@ Ops checklist for [OpenRouter provider application](https://openrouter.ai/provid
 | Surface | URL |
 | --- | --- |
 | Models catalog | `https://api.tokenkey.dev/openrouter/v1/models` |
-| Alias models catalog | `https://api.tokenkey.dev/v1/models` (same payload for allowlisted OR/monitor keys) |
+| Alias models catalog | `https://api.tokenkey.dev/v1/models` (same payload for billing-user seller keys) |
 | Chat inference | `https://api.tokenkey.dev/v1/chat/completions` |
 | Image inference | `https://api.tokenkey.dev/openrouter/v1/images` |
 | Video inference | `https://api.tokenkey.dev/openrouter/v1/videos` (submit + poll `/openrouter/v1/videos/{id}`) |
 
-Catalog auth: Bearer token on billing user keys named `openrouter-inference` (inference + catalog) or `openrouter-monitor` (catalog read-only).
+Catalog + inference auth: any API key owned by `billing_user_id` (ops bootstrap label: `openrouter`). No separate monitor/inference key split.
 
 ## Settings JSON
 
@@ -23,16 +23,15 @@ That example tracks **policy fields** (`billing_user_id`, exclude/stream lists, 
 **Derived at runtime (do not duplicate in settings):**
 
 - Supply groups ← `user_allowed_groups` for `billing_user_id`
-- Inference key ← billing user API key named `openrouter-inference`
-- Monitor key ← billing user API key named `openrouter-monitor`
+- Seller auth ← any API key owned by `billing_user_id`
 
-Change OR supply surface by editing user 32’s allowed groups / those two key names only.
+Change OR supply surface by editing user 32’s allowed groups only.
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
 ```
 
-Prod bootstrap (creates named keys + config; prints ids only, never key secrets):
+Prod bootstrap (creates seller key named `openrouter` if missing + config; prints ids only, never key secrets):
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
@@ -41,7 +40,7 @@ python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert
 
 Required fields in settings:
 
-- `billing_user_id`: OR billing user (supply groups + key-name scope)
+- `billing_user_id`: OR billing user (supply groups + key ownership)
 - `catalog_excluded_model_ids`: internal model ids omitted from seller catalog
 - `stream_only_model_ids`: chat models requiring `stream=true`
 
@@ -59,7 +58,7 @@ Required fields in settings:
 ```bash
 python3 ops/pricing/probe-openrouter-provider-chain.py --via-ssm --full-catalog
 python3 ops/pricing/probe-openrouter-provider-inference-serial.py --via-ssm
-TK_OR_PROVIDER_KEY=sk-or-monitor python3 ops/pricing/export-openrouter-provider-models.py
+TK_OR_PROVIDER_KEY=sk-or-seller python3 ops/pricing/export-openrouter-provider-models.py
 go test -tags=unit ./backend/internal/service -run OpenRouter
 go test -tags=unit ./backend/internal/handler -run OpenRouterProvider
 ```

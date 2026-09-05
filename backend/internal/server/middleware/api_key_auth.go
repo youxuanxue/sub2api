@@ -181,12 +181,9 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 
-		// OpenRouter seller inference keys use tokenkey/<model> public ids; rewrite
+		// OpenRouter seller keys use tokenkey/<model> public ids; rewrite
 		// before universal routing peeks model and before handler servable checks.
 		MaybeRewriteOpenRouterProviderChatBody(c, apiKey, settingService)
-		if MaybeRejectOpenRouterProviderMonitorInference(c, apiKey, settingService) {
-			return
-		}
 
 		// 全能 Key（routing_mode=universal）：在分组/订阅/余额校验之前，把请求按入口端点 +
 		// 模型解析到一个后端组并就地替换为“绑定该组的普通 key”。这样下面所有现成的分组可用性 /

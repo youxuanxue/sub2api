@@ -421,17 +421,16 @@ func NewOpenAIGatewayService(
 	return svc
 }
 
-// NormalizeOpenRouterProviderChatBody rewrites tokenkey/* model ids for OR inference keys.
+// NormalizeOpenRouterProviderChatBody rewrites tokenkey/* model ids for OR seller keys.
 func (s *OpenAIGatewayService) NormalizeOpenRouterProviderChatBody(
 	ctx context.Context,
 	apiKeyID, userID int64,
-	keyName string,
 	body []byte,
 ) ([]byte, error) {
 	if s == nil || s.settingService == nil {
 		return body, nil
 	}
-	newBody, _, changed, err := s.settingService.NormalizeOpenRouterProviderChatBody(ctx, apiKeyID, userID, keyName, body)
+	newBody, _, changed, err := s.settingService.NormalizeOpenRouterProviderChatBody(ctx, apiKeyID, userID, body)
 	if err != nil || !changed {
 		return body, err
 	}

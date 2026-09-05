@@ -9,11 +9,10 @@ import (
 )
 
 // NormalizeOpenRouterProviderChatBody rewrites tokenkey/<model> requests from
-// OpenRouter inference keys back to the internal model id used by scheduling.
+// OpenRouter seller keys back to the internal model id used by scheduling.
 func (s *SettingService) NormalizeOpenRouterProviderChatBody(
 	ctx context.Context,
 	apiKeyID, userID int64,
-	keyName string,
 	body []byte,
 ) ([]byte, string, bool, error) {
 	if s == nil || len(body) == 0 || !gjson.ValidBytes(body) {
@@ -23,7 +22,7 @@ func (s *SettingService) NormalizeOpenRouterProviderChatBody(
 	if err != nil {
 		return body, "", false, err
 	}
-	if !cfg.AllowsInferenceAPIKey(apiKeyID, userID, keyName) {
+	if !cfg.AllowsInferenceAPIKey(apiKeyID, userID) {
 		return body, "", false, nil
 	}
 	modelResult := gjson.GetBytes(body, "model")

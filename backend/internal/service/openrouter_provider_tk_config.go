@@ -8,18 +8,17 @@ import (
 
 const SettingKeyTKOpenRouterProviderConfig = "tk_openrouter_provider_config"
 
-// Conventional API key names on the OR billing user. Runtime auth matches these
-// names (scoped to billing_user_id) so settings need not hardcode key numeric ids.
-const (
-	OpenRouterProviderInferenceKeyName = "openrouter-inference"
-	OpenRouterProviderMonitorKeyName   = "openrouter-monitor"
-)
+// OpenRouterProviderSellerKeyName is an optional ops bootstrap label for the
+// billing user's OR seller key. Runtime auth does NOT match on name — any API
+// key owned by billing_user_id is allowed for the full seller surface.
+const OpenRouterProviderSellerKeyName = "openrouter"
 
 // OpenRouterProviderConfig configures the TokenKey seller surface for OpenRouter.
 // Supply groups are NOT stored here: BuildOpenRouterProviderCatalog reads
 // billing_user_id's user_allowed_groups at runtime (single source of truth).
-// Inference/monitor keys are resolved by conventional names on the billing user;
-// AllowedAPIKeyIDs / MonitorAPIKeyIDs remain optional legacy allowlists.
+// Seller auth is billing_user_id ownership (any of that user's API keys).
+// AllowedAPIKeyIDs / MonitorAPIKeyIDs remain optional legacy allowlists and both
+// grant the full seller surface (catalog + inference) during migration.
 // Loop prevention uses scheme C (no aggregator channels on public groups).
 // Legacy JSON field "group_ids" is ignored when billing_user_id is set.
 type OpenRouterProviderConfig struct {
@@ -160,12 +159,19 @@ func (c OpenRouterProviderConfig) isBillingUser(userID int64) bool {
 	return c.BillingUserID > 0 && c.BillingUserID == userID
 }
 
-func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID, userID int64, keyName string) bool {
+// AllowsSellerAPIKey is the single seller-surface allow check: billing-user
+// ownership, or a legacy numeric id allowlist entry.
+func (c OpenRouterProviderConfig) AllowsSellerAPIKey(apiKeyID, userID int64) bool {
 	if !c.Enabled || apiKeyID <= 0 {
 		return false
 	}
-	if c.isBillingUser(userID) && strings.TrimSpace(keyName) == OpenRouterProviderMonitorKeyName {
+	if c.isBillingUser(userID) {
 		return true
+	}
+	for _, id := range c.AllowedAPIKeyIDs {
+		if id == apiKeyID {
+			return true
+		}
 	}
 	for _, id := range c.MonitorAPIKeyIDs {
 		if id == apiKeyID {
@@ -175,31 +181,18 @@ func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID, userID int64, ke
 	return false
 }
 
-func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64, keyName string) bool {
-	if !c.Enabled || apiKeyID <= 0 {
-		return false
-	}
-	keyName = strings.TrimSpace(keyName)
-	// Conventional name on the billing user is the SSOT after settings drop key-id lists.
-	if c.isBillingUser(userID) && keyName == OpenRouterProviderInferenceKeyName {
-		return true
-	}
-	// Legacy allowlist: numeric ids still honor until ops strips them post-deploy.
-	for _, id := range c.AllowedAPIKeyIDs {
-		if id == apiKeyID {
-			return true
-		}
-	}
-	return false
+// AllowsInferenceAPIKey allows catalog + inference (same seller surface).
+func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64) bool {
+	return c.AllowsSellerAPIKey(apiKeyID, userID)
 }
 
-func (c OpenRouterProviderConfig) CanAccessCatalog(apiKeyID, userID int64, keyName string) bool {
-	return c.AllowsMonitorAPIKey(apiKeyID, userID, keyName) || c.AllowsInferenceAPIKey(apiKeyID, userID, keyName)
+func (c OpenRouterProviderConfig) CanAccessCatalog(apiKeyID, userID int64) bool {
+	return c.AllowsSellerAPIKey(apiKeyID, userID)
 }
 
 // AllowsAPIKey keeps the previous name for catalog/inference allow checks used in tests.
-func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64, keyName string) bool {
-	return c.CanAccessCatalog(apiKeyID, userID, keyName)
+func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64) bool {
+	return c.AllowsSellerAPIKey(apiKeyID, userID)
 }
 
 func (c OpenRouterProviderConfig) PublicModelID(model string) string {

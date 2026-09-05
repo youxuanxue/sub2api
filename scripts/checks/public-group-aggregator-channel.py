@@ -50,7 +50,7 @@ REQUIRED_OR_PROVIDER_MARKERS = {
         "openRouterProviderDefaultQuantization",
     ),
     REPO_ROOT / "ops/pricing/openrouter-provider-onboarding.md": (
-        "openrouter-monitor",
+        "billing_user_id",
         "invoicing_contact_email",
         "schema 2.4",
     ),

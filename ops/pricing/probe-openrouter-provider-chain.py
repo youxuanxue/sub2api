@@ -5,7 +5,7 @@ Validates endpoints and catalog schema against:
 https://openrouter.ai/docs/guides/community/for-providers
 
 Runs locally against https://api.tokenkey.dev when keys are set, or via SSM on prod
-when --via-ssm is passed (reads OR inference/monitor keys from prod DB).
+when --via-ssm is passed (reads an OR seller key from prod DB for billing user 32).
 
 Exit 0 = all checks pass; 1 = compliance failures; 2 = setup error.
 """
@@ -26,8 +26,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASE_URL = "https://api.tokenkey.dev"
 BILLING_USER_ID = 32
-INFERENCE_KEY_NAME = "openrouter-inference"
-MONITOR_KEY_NAME = "openrouter-monitor"
+SELLER_KEY_NAMES = ("openrouter", "openrouter-inference", "openrouter-monitor")
 
 VALID_INPUT_MODALITIES = {"text", "image", "file", "audio", "video"}
 VALID_OUTPUT_MODALITIES = {"text", "image", "embeddings", "audio", "video", "rerank", "speech", "transcription"}
@@ -191,7 +190,7 @@ def pick_models(catalog: list[dict]) -> dict[str, str | None]:
     return out
 
 
-def run_probe(base_url: str, inference_key: str, monitor_key: str, full_catalog: bool) -> Report:
+def run_probe(base_url: str, api_key: str, full_catalog: bool) -> Report:
     report = Report()
     base = base_url.rstrip("/")
 
@@ -199,25 +198,14 @@ def run_probe(base_url: str, inference_key: str, monitor_key: str, full_catalog:
     code, _, _ = http_json("GET", f"{base}/openrouter/v1/models")
     report.add("auth.catalog_no_key", code == 401, f"http={code}")
 
-    code, _, _ = http_json("GET", f"{base}/openrouter/v1/models", monitor_key)
-    report.add("auth.catalog_monitor", code == 200, f"http={code}")
+    code, _, _ = http_json("GET", f"{base}/openrouter/v1/models", api_key)
+    report.add("auth.catalog_seller", code == 200, f"http={code}")
 
-    code, _, _ = http_json("GET", f"{base}/openrouter/v1/models", inference_key)
-    report.add("auth.catalog_inference", code == 200, f"http={code}")
-
-    code, alias_payload, _ = http_json("GET", f"{base}/v1/models", monitor_key)
-    report.add("auth.alias_v1_models_monitor", code == 200, f"http={code}")
-
-    code, _, raw = http_json("POST", f"{base}/v1/chat/completions", monitor_key,
-                             {"model": "tokenkey/claude-sonnet-4-6", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1})
-    report.add("auth.monitor_blocks_chat", code == 403, f"http={code} body={raw[:120]}")
-
-    code, _, raw = http_json("POST", f"{base}/openrouter/v1/images", monitor_key,
-                             {"model": "tokenkey/gemini-2.5-flash-image", "prompt": "x"})
-    report.add("auth.monitor_blocks_images", code == 403, f"http={code}")
+    code, alias_payload, _ = http_json("GET", f"{base}/v1/models", api_key)
+    report.add("auth.alias_v1_models", code == 200, f"http={code}")
 
     # Catalog schema (full or sample)
-    code, catalog_payload, _ = http_json("GET", f"{base}/openrouter/v1/models", monitor_key)
+    code, catalog_payload, _ = http_json("GET", f"{base}/openrouter/v1/models", api_key)
     report.add("catalog.fetch", code == 200, f"http={code}")
     catalog = validate_catalog(catalog_payload if isinstance(catalog_payload, dict) else {}, report,
                                sample_limit=0 if full_catalog else 25)
@@ -236,7 +224,7 @@ def run_probe(base_url: str, inference_key: str, monitor_key: str, full_catalog:
 
     # Chat inference with public id
     if picks["chat"]:
-        code, body, raw = http_json("POST", f"{base}/v1/chat/completions", inference_key, {
+        code, body, raw = http_json("POST", f"{base}/v1/chat/completions", api_key, {
             "model": picks["chat"],
             "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
             "max_tokens": 8,
@@ -249,7 +237,7 @@ def run_probe(base_url: str, inference_key: str, monitor_key: str, full_catalog:
 
     # Gemini native image
     if picks["image"]:
-        code, body, raw = http_json("POST", f"{base}/openrouter/v1/images", inference_key, {
+        code, body, raw = http_json("POST", f"{base}/openrouter/v1/images", api_key, {
             "model": picks["image"],
             "prompt": "a single red apple on white background",
             "aspect_ratio": "1:1",
@@ -261,7 +249,7 @@ def run_probe(base_url: str, inference_key: str, monitor_key: str, full_catalog:
 
     # Imagen / vertex image regression
     if picks["imagen"]:
-        code, body, raw = http_json("POST", f"{base}/openrouter/v1/images", inference_key, {
+        code, body, raw = http_json("POST", f"{base}/openrouter/v1/images", api_key, {
             "model": picks["imagen"],
             "prompt": "a blue circle",
             "aspect_ratio": "1:1",
@@ -273,7 +261,7 @@ def run_probe(base_url: str, inference_key: str, monitor_key: str, full_catalog:
 
     # Video submit (optional — only if catalog lists video output)
     if picks["video"]:
-        code, body, raw = http_json("POST", f"{base}/openrouter/v1/videos", inference_key, {
+        code, body, raw = http_json("POST", f"{base}/openrouter/v1/videos", api_key, {
             "model": picks["video"],
             "prompt": "a cat walking",
         }, timeout=120)
@@ -284,24 +272,25 @@ def run_probe(base_url: str, inference_key: str, monitor_key: str, full_catalog:
             report.add("infer.video_submit.shape", bool(task_id) and bool(poll), json.dumps(body)[:200])
             if task_id and poll:
                 code2, body2, _ = http_json("GET", poll.replace(base, base) if poll.startswith("http") else f"{base}/openrouter/v1/videos/{task_id}",
-                                            inference_key, timeout=60)
+                                            api_key, timeout=60)
                 report.add("infer.video_poll.status", code2 == 200, f"http={code2}")
 
     return report
 
 
-def fetch_keys_via_ssm() -> tuple[str, str]:
+def fetch_keys_via_ssm() -> str:
+    """Return one seller API key for billing user 32 (legacy dual names accepted)."""
     spec = importlib.util.spec_from_file_location("ssm", REPO_ROOT / "ops/stage0/ssm_execution.py")
     ssm = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ssm)
     inst = ssm.resolve_prod_instance()
+    names_repr = repr(list(SELLER_KEY_NAMES))
     py = f"""
 import subprocess, json
 PSQL = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
         "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c"]
 USER_ID = {BILLING_USER_ID}
-INFERENCE_NAME = {INFERENCE_KEY_NAME!r}
-MONITOR_NAME = {MONITOR_KEY_NAME!r}
+NAMES = {names_repr}
 
 def key_for(name):
     sql = (
@@ -310,7 +299,21 @@ def key_for(name):
     )
     return subprocess.check_output(PSQL + [sql], text=True).strip()
 
-print(json.dumps({{"inference": key_for(INFERENCE_NAME), "monitor": key_for(MONITOR_NAME)}}))
+def any_key():
+    sql = (
+        "SELECT key FROM api_keys WHERE user_id=%d AND deleted_at IS NULL "
+        "ORDER BY id LIMIT 1" % USER_ID
+    )
+    return subprocess.check_output(PSQL + [sql], text=True).strip()
+
+key = ""
+for name in NAMES:
+    key = key_for(name)
+    if key:
+        break
+if not key:
+    key = any_key()
+print(json.dumps({{"key": key}}))
 """
     shell = f"python3 - <<'PY'\n{py}\nPY"
     b64 = base64.b64encode(shell.encode()).decode()
@@ -319,29 +322,28 @@ print(json.dumps({{"inference": key_for(INFERENCE_NAME), "monitor": key_for(MONI
         line = line.strip()
         if line.startswith("{"):
             data = json.loads(line)
-            inf = (data.get("inference") or "").strip()
-            mon = (data.get("monitor") or "").strip()
-            if inf and mon:
-                return inf, mon
-    raise RuntimeError(f"failed to fetch keys via SSM; tail={out[-800:]}")
+            key = (data.get("key") or "").strip()
+            if key:
+                return key
+    raise RuntimeError(f"failed to fetch seller key via SSM; tail={out[-800:]}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default=BASE_URL)
-    parser.add_argument("--inference-key", default="")
-    parser.add_argument("--monitor-key", default="")
-    parser.add_argument("--via-ssm", action="store_true", help="fetch OR keys from prod via SSM")
+    parser.add_argument("--api-key", default="", help="OR seller API key (billing user)")
+    parser.add_argument("--inference-key", default="", help="alias of --api-key (compat)")
+    parser.add_argument("--monitor-key", default="", help="ignored; compat alias")
+    parser.add_argument("--via-ssm", action="store_true", help="fetch OR seller key from prod via SSM")
     parser.add_argument("--full-catalog", action="store_true", help="validate every catalog entry (slow)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    inference_key = args.inference_key.strip()
-    monitor_key = args.monitor_key.strip()
-    if args.via_ssm or (not inference_key or not monitor_key):
-        inference_key, monitor_key = fetch_keys_via_ssm()
+    api_key = (args.api_key or args.inference_key or args.monitor_key).strip()
+    if args.via_ssm or not api_key:
+        api_key = fetch_keys_via_ssm()
 
-    report = run_probe(args.base_url, inference_key, monitor_key, args.full_catalog)
+    report = run_probe(args.base_url, api_key, args.full_catalog)
     failed = [c for c in report.checks if not c.ok]
 
     if args.json:

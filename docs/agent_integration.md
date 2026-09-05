@@ -1096,13 +1096,13 @@ after a terminal status (`succeeded` / `failed`) return 404.
 
 TokenKey may expose a seller catalog for OpenRouter onboarding:
 
-- `GET /openrouter/v1/models` — OR billing-user keys named `openrouter-inference`
-  or `openrouter-monitor` only; returns OpenRouter provider **schema 2.4**
-  documents with `tokenkey/<model>` ids and modality-owned USD prices after
-  group/user rate multipliers. Configured via ops JSON setting
-  `tk_openrouter_provider_config` (`billing_user_id`, exclude/stream lists).
-  Supply groups are the billing user's `user_allowed_groups`. Customer
-  gateway paths outside this seller surface are unchanged.
+- `GET /openrouter/v1/models` — any API key owned by `billing_user_id`;
+  returns OpenRouter provider **schema 2.4** documents with `tokenkey/<model>`
+  ids and modality-owned USD prices after group/user rate multipliers.
+  Configured via ops JSON setting `tk_openrouter_provider_config`
+  (`billing_user_id`, exclude/stream lists). Supply groups are the billing
+  user's `user_allowed_groups`. Customer gateway paths outside this seller
+  surface are unchanged.
 - Allowlisted OR/monitor keys also receive the same catalog from
   `GET /v1/models`.
 - Inference keys accept catalog ids on `POST /v1/chat/completions`; TokenKey

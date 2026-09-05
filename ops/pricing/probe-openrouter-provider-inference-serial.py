@@ -170,21 +170,20 @@ def infer_one(base: str, api_key: str, model: dict, http_json) -> InferResult:
 
 def run_serial(
     base_url: str,
-    inference_key: str,
-    monitor_key: str,
+    api_key: str,
     *,
     sleep_s: float,
     http_json,
 ) -> SerialReport:
     base = base_url.rstrip("/")
-    code, payload, _ = http_json("GET", f"{base}/openrouter/v1/models", monitor_key, timeout=60)
+    code, payload, _ = http_json("GET", f"{base}/openrouter/v1/models", api_key, timeout=60)
     if code != 200:
         raise RuntimeError(f"catalog fetch failed http={code}")
     catalog = sorted(payload.get("data") or [], key=lambda m: m.get("id", ""))
     report = SerialReport()
     total = len(catalog)
     for i, model in enumerate(catalog, 1):
-        result = infer_one(base, inference_key, model, http_json)
+        result = infer_one(base, api_key, model, http_json)
         report.results.append(result)
         mark = "OK" if result.ok else "FAIL"
         stream_note = " stream" if result.kind == "chat" and stream_required(model) else ""
@@ -202,24 +201,23 @@ def main() -> int:
     chain = load_chain_probe()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default=BASE_URL)
-    parser.add_argument("--inference-key", default="")
-    parser.add_argument("--monitor-key", default="")
+    parser.add_argument("--api-key", default="")
+    parser.add_argument("--inference-key", default="", help="alias of --api-key (compat)")
+    parser.add_argument("--monitor-key", default="", help="ignored; compat")
     parser.add_argument("--via-ssm", action="store_true")
     parser.add_argument("--sleep", type=float, default=DEFAULT_SLEEP_S, help="seconds between models")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
-    inference_key = args.inference_key.strip()
-    monitor_key = args.monitor_key.strip()
-    if args.via_ssm or not inference_key or not monitor_key:
-        inference_key, monitor_key = chain.fetch_keys_via_ssm()
+    api_key = (args.api_key or args.inference_key or args.monitor_key).strip()
+    if args.via_ssm or not api_key:
+        api_key = chain.fetch_keys_via_ssm()
 
-    print(f"Serial OR inference smoke — {args.base_url} models=sleep {args.sleep}s")
+    print(f"Serial OR inference smoke — {args.base_url} sleep={args.sleep}s")
     sys.stdout.flush()
     report = run_serial(
         args.base_url,
-        inference_key,
-        monitor_key,
+        api_key,
         sleep_s=args.sleep,
         http_json=chain.http_json,
     )

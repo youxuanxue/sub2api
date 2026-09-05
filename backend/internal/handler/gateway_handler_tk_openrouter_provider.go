@@ -33,7 +33,7 @@ func (h *GatewayHandler) serveOpenRouterProviderModels(c *gin.Context) bool {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "load openrouter provider config", "code": 500}})
 		return true
 	}
-	if !cfg.CanAccessCatalog(apiKey.ID, apiKey.UserID, apiKey.Name) {
+	if !cfg.CanAccessCatalog(apiKey.ID, apiKey.UserID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "api key not authorized for openrouter provider catalog", "code": 403}})
 		return true
 	}
@@ -56,7 +56,7 @@ func (h *GatewayHandler) tryServeOpenRouterProviderModels(c *gin.Context) bool {
 		return false
 	}
 	cfg, err := h.settingService.GetOpenRouterProviderConfig(c.Request.Context())
-	if err != nil || !cfg.CanAccessCatalog(apiKey.ID, apiKey.UserID, apiKey.Name) {
+	if err != nil || !cfg.CanAccessCatalog(apiKey.ID, apiKey.UserID) {
 		return false
 	}
 	return h.serveOpenRouterProviderModels(c)
