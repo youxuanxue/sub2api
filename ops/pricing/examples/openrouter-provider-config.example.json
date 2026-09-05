@@ -23,7 +23,10 @@
     "gpt-5.2",
     "doubao-seedance-2-0-260128",
     "doubao-seedance-2-0-fast-260128",
-    "doubao-seedance-2-5-260628"
+    "doubao-seedance-2-5-260628",
+    "wan2.7-image",
+    "wan2.7-image-pro",
+    "qwen-audio-3.0-realtime-plus"
   ],
   "stream_only_model_ids": [
     "glm-4.5",
