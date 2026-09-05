@@ -58,5 +58,28 @@ class ParseSnapshotKeyIDTest(unittest.TestCase):
         self.assertEqual(mgr._parse_snapshot_key_id(""), 0)
 
 
+class UnionListFieldsFromExampleTest(unittest.TestCase):
+    def test_unions_example_excludes_preserving_live_extras(self) -> None:
+        example = {
+            "catalog_excluded_model_ids": ["a", "b"],
+            "stream_only_model_ids": ["s1"],
+        }
+        live = {
+            "catalog_excluded_model_ids": ["b", "live-only"],
+            "stream_only_model_ids": [],
+        }
+        merged = mgr._union_list_fields_from_example(live, example)
+        self.assertEqual(merged["catalog_excluded_model_ids"], ["a", "b", "live-only"])
+        self.assertEqual(merged["stream_only_model_ids"], ["s1"])
+
+    def test_example_image_video_excludes_present(self) -> None:
+        example = mgr._load_default_config()
+        for mid in (
+            "gemini-3.1-flash-image",
+            "doubao-seedance-2-0-260128",
+        ):
+            self.assertIn(mid, example["catalog_excluded_model_ids"])
+
+
 if __name__ == "__main__":
     unittest.main()

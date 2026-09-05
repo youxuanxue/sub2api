@@ -95,7 +95,16 @@ func isNewAPIQwen3Model(model string) bool {
 }
 
 func normalizeNewAPIQwenNonStreamingPayload(model string, payload map[string]any) {
-	if !isNewAPIQwen3Model(model) || payload == nil {
+	if payload == nil {
+		return
+	}
+	model = strings.TrimSpace(strings.ToLower(model))
+	// Thinking-required variants must keep enable_thinking=true (and stream);
+	// never coerce them to the generic Qwen3 non-streaming false default.
+	if isNewAPIResponsesQwenStreamThinkingVariant(model) {
+		return
+	}
+	if !isNewAPIQwen3Model(model) {
 		return
 	}
 	if stream, _ := payload["stream"].(bool); stream {
@@ -104,11 +113,33 @@ func normalizeNewAPIQwenNonStreamingPayload(model string, payload map[string]any
 	payload["enable_thinking"] = false
 }
 
+// applyNewAPIQwenNonStreamingShape normalizes Qwen chat bodies for DashScope:
+// thinking-required variants force stream=true + enable_thinking=true; other
+// Qwen3 non-streaming calls force enable_thinking=false (upstream 400 otherwise).
 func applyNewAPIQwenNonStreamingShape(model string, body []byte) []byte {
-	if len(body) == 0 || !isNewAPIQwen3Model(model) || gjson.GetBytes(body, "stream").Bool() {
+	if len(body) == 0 {
+		return body
+	}
+	model = strings.TrimSpace(strings.ToLower(model))
+	if isNewAPIResponsesQwenStreamThinkingVariant(model) {
+		return applyNewAPIQwenStreamThinkingShape(body)
+	}
+	if !isNewAPIQwen3Model(model) || gjson.GetBytes(body, "stream").Bool() {
 		return body
 	}
 	shaped, err := sjson.SetBytes(body, "enable_thinking", false)
+	if err != nil {
+		return body
+	}
+	return shaped
+}
+
+func applyNewAPIQwenStreamThinkingShape(body []byte) []byte {
+	shaped, err := sjson.SetBytes(body, "stream", true)
+	if err != nil {
+		return body
+	}
+	shaped, err = sjson.SetBytes(shaped, "enable_thinking", true)
 	if err != nil {
 		return body
 	}

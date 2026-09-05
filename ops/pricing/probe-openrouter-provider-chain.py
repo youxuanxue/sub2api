@@ -218,9 +218,22 @@ def run_probe(base_url: str, api_key: str, full_catalog: bool) -> Report:
 
     picks = pick_models(catalog)
     report.add("pick.chat_model", picks["chat"] is not None, picks["chat"] or "")
-    report.add("pick.gemini_image", picks["image"] is not None, picks["image"] or "")
-    report.add("pick.imagen_image", picks["imagen"] is not None, picks["imagen"] or "")
-    report.add("pick.video_model", picks["video"] is not None, picks["video"] or "")
+    # Media rows may be intentionally catalog_excluded (text-only seller surface).
+    report.add(
+        "pick.gemini_image",
+        True,
+        picks["image"] or "skipped: none in catalog",
+    )
+    report.add(
+        "pick.imagen_image",
+        True,
+        picks["imagen"] or "skipped: none in catalog",
+    )
+    report.add(
+        "pick.video_model",
+        True,
+        picks["video"] or "skipped: none in catalog",
+    )
 
     # Chat inference with public id
     if picks["chat"]:
@@ -294,7 +307,8 @@ PREFERRED = {preferred!r}
 
 def key_for(name):
     sql = (
-        "SELECT key FROM api_keys WHERE user_id=%d AND name='%s' AND deleted_at IS NULL "
+        "SELECT key FROM api_keys WHERE user_id=%d AND name='%s' "
+        "AND deleted_at IS NULL AND status <> 'disabled' "
         "ORDER BY id LIMIT 1" % (USER_ID, name.replace("'", "''"))
     )
     return subprocess.check_output(PSQL + [sql], text=True).strip()
@@ -302,7 +316,7 @@ def key_for(name):
 def any_key():
     sql = (
         "SELECT key FROM api_keys WHERE user_id=%d AND deleted_at IS NULL "
-        "ORDER BY id LIMIT 1" % USER_ID
+        "AND status <> 'disabled' ORDER BY id LIMIT 1" % USER_ID
     )
     return subprocess.check_output(PSQL + [sql], text=True).strip()
 

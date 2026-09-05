@@ -74,17 +74,26 @@ CREATE_GROUP = __CREATE_GROUP__
 SELLER_NAME = "openrouter"
 CONFIG = json.loads("""__CONFIG_JSON__""")
 APP_URL = "http://127.0.0.1:8080"
-APP_CONTAINER = "tokenkey-green"
+APP_CONTAINER = "tokenkey-blue"
+import subprocess
+for name in ("tokenkey-blue", "tokenkey-green"):
+    try:
+        out = subprocess.check_output(
+            ["sudo", "docker", "inspect", "-f", "{{.State.Running}}", name], text=True
+        ).strip()
+        if out == "true":
+            APP_CONTAINER = name
+            break
+    except Exception:
+        pass
 
 def psql_scalar(sql):
-    import subprocess
     cmd = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
            "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql]
     out = subprocess.check_output(cmd, text=True).strip()
     return out if out and out != r"\N" else ""
 
 def admin_request(method, path, payload=None):
-    import subprocess
     admin_key = psql_scalar("SELECT value FROM settings WHERE key='admin_api_key' LIMIT 1")
     if not admin_key:
         raise SystemExit("admin_api_key missing in settings")
@@ -255,6 +264,26 @@ def _merge_missing_list_fields(cfg: dict[str, Any], example: dict[str, Any] | No
     return merged
 
 
+def _union_list_fields_from_example(cfg: dict[str, Any], example: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Ensure example list SSOT entries are present; keep live-only extras."""
+    if example is None:
+        example = _load_default_config()
+    merged = dict(cfg)
+    for key in _EXAMPLE_LIST_FIELDS:
+        seen: set[str] = set()
+        out: list[str] = []
+        for item in list(example.get(key) or []) + list(merged.get(key) or []):
+            if not isinstance(item, str):
+                continue
+            item = item.strip()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            out.append(item)
+        merged[key] = out
+    return merged
+
+
 def _resolve_group_id(instance_id: str, group_id: int | None, create_group: bool) -> int:
     if group_id and group_id > 0:
         return group_id
@@ -404,7 +433,7 @@ def cmd_update_config(args) -> int:
     cfg_sql = f"SELECT value FROM settings WHERE key = {_sql_literal(SETTING_KEY)} LIMIT 1;"
     existing_raw = _decode_settings_value(_run_psql_query(inst, cfg_sql, "or-provider update: config"))
     if existing_raw:
-        cfg = _merge_missing_list_fields(json.loads(existing_raw))
+        cfg = _union_list_fields_from_example(_merge_missing_list_fields(json.loads(existing_raw)))
     else:
         cfg = _load_default_config()
     cfg.pop("group_ids", None)
@@ -419,7 +448,9 @@ def cmd_update_config(args) -> int:
             "seller_key_id": seller_id,
             "seller_key_name": SELLER_KEY_NAME,
             "would_upsert": SETTING_KEY,
-            "note": "group_ids and key id lists are not written; runtime reads user_allowed_groups + billing-user ownership",
+            "note": "group_ids and key id lists are not written; catalog_excluded/stream_only union example SSOT; runtime reads user_allowed_groups + billing-user ownership",
+            "catalog_excluded_model_ids": cfg.get("catalog_excluded_model_ids"),
+            "stream_only_model_ids": cfg.get("stream_only_model_ids"),
         }, indent=2, ensure_ascii=False))
         return 0
 
@@ -433,6 +464,129 @@ def cmd_update_config(args) -> int:
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return 0
     fail(f"update-config did not return result JSON; output tail:\n{out[-1500:]}")
+
+
+def _remote_hygiene_keys_script() -> str:
+    """Create seller key named openrouter; disable legacy dual-key names."""
+    py = r'''
+import json, subprocess
+
+USER_ID = 32
+SELLER_NAME = "openrouter"
+LEGACY_DISABLE = ("openrouter-inference", "openrouter-monitor")
+APP_URL = "http://127.0.0.1:8080"
+APP_CONTAINER = "tokenkey-blue"
+for name in ("tokenkey-blue", "tokenkey-green"):
+    try:
+        out = subprocess.check_output(
+            ["sudo", "docker", "inspect", "-f", "{{.State.Running}}", name], text=True
+        ).strip()
+        if out == "true":
+            APP_CONTAINER = name
+            break
+    except Exception:
+        pass
+
+def psql_scalar(sql):
+    cmd = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
+           "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c", sql]
+    out = subprocess.check_output(cmd, text=True).strip()
+    return out if out and out != r"\N" else ""
+
+def admin_request(method, path, payload=None):
+    admin_key = psql_scalar("SELECT value FROM settings WHERE key='admin_api_key' LIMIT 1")
+    if not admin_key:
+        raise SystemExit("admin_api_key missing in settings")
+    cmd = ["sudo", "docker", "exec", APP_CONTAINER, "curl", "-sS", "-X", method,
+           "-H", f"x-api-key: {admin_key}", APP_URL + path]
+    if payload is not None:
+        cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(payload)])
+    out = subprocess.check_output(cmd, text=True)
+    return json.loads(out)
+
+def unwrap(resp):
+    if isinstance(resp, dict) and "data" in resp:
+        return resp["data"]
+    return resp
+
+def list_user_keys():
+    resp = admin_request("GET", f"/api/v1/admin/users/{USER_ID}/api-keys?page=1&page_size=100")
+    data = unwrap(resp)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return data.get("items") or []
+    return []
+
+def find_active(keys, name):
+    for item in keys or []:
+        if (item.get("name") or "") == name and (item.get("status") or "") != "disabled":
+            return int(item["id"])
+    return 0
+
+existing = list_user_keys()
+seller_id = find_active(existing, SELLER_NAME)
+created = False
+if seller_id <= 0:
+    resp = admin_request("POST", f"/api/v1/admin/users/{USER_ID}/api-keys", {
+        "name": SELLER_NAME,
+        "routing_mode": "universal",
+    })
+    data = unwrap(resp)
+    seller_id = int(data.get("id") or 0)
+    created = True
+    if seller_id <= 0:
+        raise SystemExit("create openrouter key failed")
+
+disabled_ids = []
+for name in LEGACY_DISABLE:
+    kid = find_active(existing, name)
+    if kid <= 0 or kid == seller_id:
+        continue
+    # Admin API has no status update; ops uses SQL for key disable.
+    sql = (
+        "UPDATE api_keys SET status='disabled', updated_at=NOW() "
+        f"WHERE id={kid} AND user_id={USER_ID} AND deleted_at IS NULL;"
+    )
+    psql_scalar(sql)
+    verify = psql_scalar(
+        f"SELECT id FROM api_keys WHERE id={kid} AND user_id={USER_ID} "
+        f"AND status='disabled' AND deleted_at IS NULL LIMIT 1;"
+    )
+    if verify and verify.splitlines()[0].strip().isdigit():
+        disabled_ids.append(int(verify.splitlines()[0].strip()))
+
+print(json.dumps({
+    "billing_user_id": USER_ID,
+    "seller_key_id": seller_id,
+    "seller_key_name": SELLER_NAME,
+    "seller_key_created": created,
+    "disabled_legacy_key_ids": disabled_ids,
+    "app_container": APP_CONTAINER,
+}, ensure_ascii=False))
+'''
+    return "set -euo pipefail\n" f"python3 <<'PYEOF'\n{py}\nPYEOF\n"
+
+
+def cmd_hygiene_keys(args) -> int:
+    inst = _SSM.resolve_prod_instance()
+    if args.dry_run:
+        print(json.dumps({
+            "dry_run": True,
+            "billing_user_id": BILLING_USER_ID,
+            "would_ensure_seller_key_name": SELLER_KEY_NAME,
+            "would_disable_names": ["openrouter-inference", "openrouter-monitor"],
+        }, indent=2, ensure_ascii=False))
+        return 0
+    shell = _remote_hygiene_keys_script()
+    b64 = base64.b64encode(shell.encode()).decode()
+    out = _SSM.run_shell_b64(inst, b64, "or-provider hygiene-keys")
+    for line in reversed(out.splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            print(json.dumps(json.loads(line), indent=2, ensure_ascii=False))
+            return 0
+    fail(f"hygiene-keys did not return result JSON; output tail:\n{out[-1500:]}")
 
 
 def cmd_bootstrap(args) -> int:
@@ -473,11 +627,15 @@ def main() -> int:
     boot.add_argument("--dry-run", action="store_true")
     upd = sub.add_parser("update-config", help="upsert config keys for user 32; supply groups come from user_allowed_groups at runtime")
     upd.add_argument("--dry-run", action="store_true")
+    hyg = sub.add_parser("hygiene-keys", help="ensure seller key named openrouter; disable legacy dual-key names")
+    hyg.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.cmd == "snapshot":
         return cmd_snapshot(args)
     if args.cmd == "update-config":
         return cmd_update_config(args)
+    if args.cmd == "hygiene-keys":
+        return cmd_hygiene_keys(args)
     if args.cmd == "bootstrap":
         return cmd_bootstrap(args)
     fail(f"unknown command {args.cmd!r}")

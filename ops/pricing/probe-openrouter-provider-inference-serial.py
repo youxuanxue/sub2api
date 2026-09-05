@@ -86,19 +86,45 @@ def stream_required(model: dict) -> bool:
     return "stream=true" in desc.lower()
 
 
+def _internal_model_id(model_id: str) -> str:
+    mid = str(model_id or "").strip().lower()
+    if "/" in mid:
+        mid = mid.split("/", 1)[1]
+    return mid
+
+
+# DashScope variants that reject enable_thinking!=true (gateway also forces these).
+_THINKING_REQUIRED_INTERNAL_IDS = frozenset(
+    {
+        "qwen3.8-2.4t-a95b",
+        "qwen3.7-max-preview",
+        "qwen3.7-max-2026-05-17",
+    }
+)
+
+
+def thinking_required(model_id: str) -> bool:
+    return _internal_model_id(model_id) in _THINKING_REQUIRED_INTERNAL_IDS
+
+
 def infer_chat(base: str, api_key: str, model_id: str, *, stream: bool, http_json) -> tuple[int, bool, str]:
+    payload: dict = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+        "max_tokens": 8,
+        "stream": stream,
+    }
+    if thinking_required(model_id):
+        payload["stream"] = True
+        payload["enable_thinking"] = True
     code, body, detail = http_json(
         "POST",
         f"{base}/v1/chat/completions",
         api_key,
-        {
-            "model": model_id,
-            "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
-            "max_tokens": 8,
-            "stream": stream,
-        },
+        payload,
         timeout=120,
     )
+    stream = bool(payload.get("stream"))
     if stream:
         raw = body if isinstance(body, str) else detail
         ok = code == 200 and isinstance(raw, str) and "data:" in raw
@@ -244,7 +270,7 @@ def main() -> int:
             for r in failed:
                 print(f"  - {r.model} ({r.kind}) http={r.http} {r.detail[:200]}")
 
-    return 0 if report.passed else 1
+    return 0 if not failed else 1
 
 
 if __name__ == "__main__":

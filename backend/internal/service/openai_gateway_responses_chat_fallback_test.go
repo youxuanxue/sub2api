@@ -635,6 +635,20 @@ func TestApplyNewAPIQwenNonStreamingShape(t *testing.T) {
 		require.True(t, gjson.GetBytes(shaped, "enable_thinking").Bool())
 	})
 
+	t.Run("qwen3.8 thinking-required forces stream and thinking", func(t *testing.T) {
+		body := []byte(`{"model":"qwen3.8-2.4t-a95b","stream":false,"messages":[{"role":"user","content":"hi"}]}`)
+		shaped := applyNewAPIQwenNonStreamingShape("qwen3.8-2.4t-a95b", body)
+		require.True(t, gjson.GetBytes(shaped, "stream").Bool())
+		require.True(t, gjson.GetBytes(shaped, "enable_thinking").Bool())
+	})
+
+	t.Run("qwen3.8 thinking-required upgrades missing flags", func(t *testing.T) {
+		body := []byte(`{"model":"qwen3.8-2.4t-a95b","messages":[{"role":"user","content":"hi"}]}`)
+		shaped := applyNewAPIQwenNonStreamingShape("qwen3.8-2.4t-a95b", body)
+		require.True(t, gjson.GetBytes(shaped, "stream").Bool())
+		require.True(t, gjson.GetBytes(shaped, "enable_thinking").Bool())
+	})
+
 	t.Run("other models remain unchanged", func(t *testing.T) {
 		body := []byte(`{"model":"deepseek-chat","stream":false,"enable_thinking":true}`)
 		shaped := applyNewAPIQwenNonStreamingShape("deepseek-chat", body)
