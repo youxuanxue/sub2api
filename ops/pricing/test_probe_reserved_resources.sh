@@ -27,6 +27,9 @@ assert_eq "$(tk_probe_canonical_scope endpoint_matrix_grok grok source_group_id 
 unset TK_PROBE_LEGACY_SCOPE
 
 assert_eq "$(tk_probe_platform_reuse_scopes | tr '\n' ' ' | sed 's/ $//')" "anthropic kiro openai gemini grok antigravity newapi" "platform reuse scopes"
+assert_eq "$(tk_probe_canonical_catalog_scopes | tr '\n' ' ' | sed 's/ $//')" "anthropic_srcgrp_1_cc anthropic_srcgrp_1_kiro kiro_srcgrp_1_kiro openai_srcgrp_2 gemini_srcgrp_16 newapi_srcgrp_16 newapi_srcgrp_18 newapi_srcgrp_5 antigravity_srcgrp_21 grok_srcgrp_25" "canonical catalog scopes"
+assert_eq "$(tk_probe_canonical_keep_scopes | tr '\n' ' ' | sed 's/ $//')" "anthropic_srcgrp_1_cc anthropic_srcgrp_1_kiro kiro_srcgrp_1_kiro openai_srcgrp_2 gemini_srcgrp_16 newapi_srcgrp_16 newapi_srcgrp_18 newapi_srcgrp_5 antigravity_srcgrp_21 grok_srcgrp_25 anthropic kiro openai gemini grok antigravity newapi" "canonical keep scopes"
+assert_eq "$(tk_probe_keep_names_sql)" "('__tk_probe_anthropic_srcgrp_1_cc_group', '__tk_probe_anthropic_srcgrp_1_cc_key', '__tk_probe_anthropic_srcgrp_1_kiro_group', '__tk_probe_anthropic_srcgrp_1_kiro_key', '__tk_probe_kiro_srcgrp_1_kiro_group', '__tk_probe_kiro_srcgrp_1_kiro_key', '__tk_probe_openai_srcgrp_2_group', '__tk_probe_openai_srcgrp_2_key', '__tk_probe_gemini_srcgrp_16_group', '__tk_probe_gemini_srcgrp_16_key', '__tk_probe_newapi_srcgrp_16_group', '__tk_probe_newapi_srcgrp_16_key', '__tk_probe_newapi_srcgrp_18_group', '__tk_probe_newapi_srcgrp_18_key', '__tk_probe_newapi_srcgrp_5_group', '__tk_probe_newapi_srcgrp_5_key', '__tk_probe_antigravity_srcgrp_21_group', '__tk_probe_antigravity_srcgrp_21_key', '__tk_probe_grok_srcgrp_25_group', '__tk_probe_grok_srcgrp_25_key', '__tk_probe_anthropic_group', '__tk_probe_anthropic_key', '__tk_probe_kiro_group', '__tk_probe_kiro_key', '__tk_probe_openai_group', '__tk_probe_openai_key', '__tk_probe_gemini_group', '__tk_probe_gemini_key', '__tk_probe_grok_group', '__tk_probe_grok_key', '__tk_probe_antigravity_group', '__tk_probe_antigravity_key', '__tk_probe_newapi_group', '__tk_probe_newapi_key')" "keep names sql"
 if ! tk_probe_is_legacy_oneoff_probe_name "__tk_probe_tkprobe-2-20260629T102307Z-3222117"; then
 	echo "FAIL: tkprobe legacy group name should match legacy oneoff probe pattern" >&2
 	exit 1
@@ -99,6 +102,35 @@ TK_PROBE_TEST_SCENARIO=group_id
 tk_probe_clear_bindings probe
 if ! printf '%s' "$TK_PROBE_LAST_SQL" | grep -q "status = 'disabled'"; then
 	echo "FAIL: clear_bindings should disable reusable probe key/group" >&2
+	exit 1
+fi
+if ! printf '%s' "$TK_PROBE_LAST_SQL" | grep -q "INSERT INTO scheduler_outbox"; then
+	echo "FAIL: clear_bindings should enqueue scheduler_outbox group_changed" >&2
+	exit 1
+fi
+tk_probe_cleanup_named_group 39 '__tk_probe_probe_group' '__tk_probe_probe_key' reusable
+if ! printf '%s' "$TK_PROBE_LAST_SQL" | grep -q "INSERT INTO scheduler_outbox"; then
+	echo "FAIL: reusable named cleanup should enqueue scheduler_outbox group_changed" >&2
+	exit 1
+fi
+tk_probe_cleanup_named_group 39 '__tk_probe_tkprobe-x' '__tk_probe_tkprobe-x' oneoff
+if ! printf '%s' "$TK_PROBE_LAST_SQL" | grep -q "deleted_at = NOW()"; then
+	echo "FAIL: oneoff named cleanup should soft-delete group/key" >&2
+	exit 1
+fi
+command -v flock >/dev/null 2>&1 || flock() { return 0; }
+flock() { return 0; }
+flock() { return 0; }
+tk_probe_acquire_reuse_lock() { return 0; }
+tk_probe_prepare_platform_reuse_probe newapi 122
+assert_eq "$TK_PROBE_SCOPE" "newapi" "platform reuse scope"
+assert_eq "$TK_PROBE_GROUP_ID" "1" "platform reuse group id"
+if [[ ! "$TK_PROBE_KEY_ID" =~ ^[0-9]+$ ]]; then
+	echo "FAIL: platform reuse probe should leave a numeric key id" >&2
+	exit 1
+fi
+if [ -z "$TK_PROBE_KEY" ]; then
+	echo "FAIL: platform reuse probe should leave a reusable key value" >&2
 	exit 1
 fi
 

@@ -11,20 +11,12 @@ RESOURCES="$ROOT/../pricing/probe_reserved_resources.sh"
 
 text="$(cat "$PRUNE")"
 
-while IFS= read -r scope; do
-	[ -z "$scope" ] && continue
-	if ! grep -q "$scope" <<<"$text"; then
-		echo "FAIL: prune script missing platform reuse scope from probe_reserved_resources: ${scope}" >&2
-		exit 1
-	fi
-done < <(tk_probe_platform_reuse_scopes)
-
-if ! grep -q 'prune_candidates_legacy_tkprobe_groups' <<<"$text"; then
-	echo "FAIL: prune script should report legacy tkprobe group candidates" >&2
+if ! grep -q 'tk_probe_prune_report current' <<<"$text"; then
+	echo "FAIL: prune script should delegate reporting to probe_reserved_resources" >&2
 	exit 1
 fi
-if ! grep -q 'stale_probe_bindings' <<<"$text"; then
-	echo "FAIL: prune script should report stale probe account_groups bindings" >&2
+if ! grep -q 'tk_probe_prune_noncanonical' <<<"$text"; then
+	echo "FAIL: prune script should delegate pruning to probe_reserved_resources" >&2
 	exit 1
 fi
 if ! grep -q 'probe_reserved_resources.sh' <<<"$text"; then

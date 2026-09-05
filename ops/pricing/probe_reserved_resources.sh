@@ -18,6 +18,15 @@
 #   tk_probe_bind_from_group_id_like SCOPE GID PATTERN -> copy source group id accounts whose name matches SQL LIKE
 #   tk_probe_clear_bindings SCOPE           -> remove account_groups rows and disable probe key/group
 #   tk_probe_prepare_catalog SCOPE PLATFORM BIND_KIND BIND_VAL -> ensure + bind + key
+#   tk_probe_prepare_platform_reuse_probe PLATFORM ACCOUNT_ID -> ensure + bind + key for platform-scoped account-model probes
+#   tk_probe_cleanup_platform_reuse_probe SCOPE -> clear reusable bindings and enqueue group_changed
+#   tk_probe_canonical_catalog_scopes       -> prints canonical catalog scopes, one per line
+#   tk_probe_canonical_keep_scopes          -> prints all scopes retained by prune, one per line
+#   tk_probe_keep_names_sql                 -> prints SQL tuple of canonical __tk_probe_* group/key names
+#   tk_probe_cleanup_snapshot LIMIT LABEL   -> print cleanup snapshot counters
+#   tk_probe_cleanup_all_reserved           -> delete probe bindings + disable reusable probe rows
+#   tk_probe_prune_report LABEL             -> print prune candidate counters
+#   tk_probe_prune_noncanonical             -> soft-delete non-canonical probe rows
 #   tk_probe_reuse_lock_path SCOPE              -> lock file path (shared with account-model-probe)
 #   tk_probe_acquire_reuse_lock SCOPE           -> flock until release (serializes account_groups mutations)
 #   tk_probe_release_reuse_locks                -> release all locks held by this shell
@@ -184,6 +193,40 @@ tk_probe_platform_reuse_scopes() {
 	printf '%s\n' anthropic kiro openai gemini grok antigravity newapi
 }
 
+tk_probe_canonical_catalog_scopes() {
+	printf '%s\n' \
+		anthropic_srcgrp_1_cc \
+		anthropic_srcgrp_1_kiro \
+		kiro_srcgrp_1_kiro \
+		openai_srcgrp_2 \
+		gemini_srcgrp_16 \
+		newapi_srcgrp_16 \
+		newapi_srcgrp_18 \
+		newapi_srcgrp_5 \
+		antigravity_srcgrp_21 \
+		grok_srcgrp_25
+}
+
+tk_probe_canonical_keep_scopes() {
+	tk_probe_canonical_catalog_scopes
+	tk_probe_platform_reuse_scopes
+}
+
+tk_probe_keep_names_sql() {
+	local first=1 scope
+	printf '('
+	while IFS= read -r scope; do
+		[ -n "$scope" ] || continue
+		if [ "$first" = 1 ]; then
+			first=0
+		else
+			printf ', '
+		fi
+		printf "'__tk_probe_%s_group', '__tk_probe_%s_key'" "$scope" "$scope"
+	done < <(tk_probe_canonical_keep_scopes)
+	printf ')'
+}
+
 tk_probe_is_legacy_oneoff_probe_name() { # $1=group or key name
 	case "$1" in
 	__tk_probe_tkprobe*) return 0 ;;
@@ -273,14 +316,18 @@ tk_probe_ensure_group() { # $1=scope $2=platform
 INSERT INTO groups (
   name, description, platform, rate_multiplier, is_exclusive, status,
   subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, sort_order, rpm_limit, created_at, updated_at
+  model_routing_enabled, model_routing, allow_messages_dispatch, supported_model_scopes,
+  messages_dispatch_model_config, models_list_config,
+  sort_order, rpm_limit, created_at, updated_at
 ) VALUES (
   '$(tk_probe_sql_escape "$group_name")',
   'reserved reusable catalog/account probe group; direct probe key only; excluded from universal routing',
   '$(tk_probe_sql_escape "$platform")',
   1.0, true, 'active',
   'standard', 30, false,
-  false, '{}'::jsonb, 2147483000, 0, NOW(), NOW()
+  false, '{}'::jsonb, true, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+  '{}'::jsonb, '{}'::jsonb,
+  2147483000, 0, NOW(), NOW()
 )
 ON CONFLICT (name) WHERE (deleted_at IS NULL)
 DO UPDATE SET
@@ -294,6 +341,10 @@ DO UPDATE SET
   claude_code_only = false,
   model_routing_enabled = false,
   model_routing = '{}'::jsonb,
+  allow_messages_dispatch = true,
+  supported_model_scopes = '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
+  messages_dispatch_model_config = '{}'::jsonb,
+  models_list_config = '{}'::jsonb,
   sort_order = 2147483000,
   rpm_limit = 0,
   updated_at = NOW()
@@ -382,6 +433,18 @@ INSERT INTO api_keys (
 	fi
 }
 
+tk_probe_enqueue_group_changed() { # $1=group_id
+	local group_id="$1"
+	if [[ ! "$group_id" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: invalid group id '$group_id' for scheduler_outbox" >&2
+		return 1
+	fi
+	tk_probe_psql -c "
+INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+VALUES ('group_changed', NULL, ${group_id}, NULL);
+" >/dev/null
+}
+
 tk_probe_clear_bindings() { # $1=scope
 	local scope="$1" group_name group_id
 	group_name="$(tk_probe_group_name "$scope")"
@@ -391,10 +454,10 @@ SELECT COALESCE((
   WHERE name = '$(tk_probe_sql_escape "$group_name")' AND deleted_at IS NULL
   ORDER BY id LIMIT 1
 ), '');
-	")"
+		")"
 	if [[ "$group_id" =~ ^[0-9]+$ ]]; then
-		tk_probe_psql -c "DELETE FROM account_groups WHERE group_id = ${group_id};" >/dev/null
 		tk_probe_psql -c "
+DELETE FROM account_groups WHERE group_id = ${group_id};
 UPDATE api_keys
 SET status = 'disabled',
     updated_at = NOW()
@@ -407,9 +470,73 @@ SET status = 'disabled',
 WHERE id = ${group_id}
   AND name = '$(tk_probe_sql_escape "$group_name")'
   AND deleted_at IS NULL;
+INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+VALUES ('group_changed', NULL, ${group_id}, NULL);
 " >/dev/null
 	fi
 }
+
+tk_probe_cleanup_named_group() { # $1=group_id $2=group_name $3=key_name $4=lifecycle
+	local group_id="$1" group_name="$2" key_name="$3" lifecycle="$4"
+	if [[ ! "$group_id" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: invalid group id '$group_id' for cleanup" >&2
+		return 1
+	fi
+	if [ -z "$group_name" ] || [ -z "$key_name" ]; then
+		echo "probe_reserved_resources: cleanup requires non-empty group/key names" >&2
+		return 1
+	fi
+	case "$lifecycle" in
+		reusable)
+			tk_probe_psql -c "
+DELETE FROM account_groups WHERE group_id = ${group_id};
+UPDATE api_keys
+SET status = 'disabled',
+    updated_at = NOW()
+WHERE group_id = ${group_id}
+  AND name = '$(tk_probe_sql_escape "$key_name")'
+  AND deleted_at IS NULL;
+UPDATE groups
+SET status = 'disabled',
+    updated_at = NOW()
+WHERE id = ${group_id}
+  AND name = '$(tk_probe_sql_escape "$group_name")'
+  AND deleted_at IS NULL;
+INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+VALUES ('group_changed', NULL, ${group_id}, NULL);
+" >/dev/null
+			;;
+		oneoff)
+			tk_probe_psql -c "
+DELETE FROM account_groups WHERE group_id = ${group_id};
+DELETE FROM user_allowed_groups WHERE group_id = ${group_id};
+UPDATE api_keys
+SET status = 'disabled',
+    deleted_at = NOW(),
+    updated_at = NOW()
+WHERE group_id = ${group_id}
+  AND name = '$(tk_probe_sql_escape "$key_name")'
+  AND deleted_at IS NULL;
+UPDATE groups
+SET status = 'disabled',
+    deleted_at = NOW(),
+    updated_at = NOW()
+WHERE id = ${group_id}
+  AND name = '$(tk_probe_sql_escape "$group_name")'
+  AND deleted_at IS NULL;
+" >/dev/null
+			;;
+		*)
+			echo "probe_reserved_resources: unknown cleanup lifecycle '$lifecycle'" >&2
+			return 1
+			;;
+	esac
+}
+
+tk_probe_cleanup_platform_reuse_probe() { # $1=scope
+	tk_probe_clear_bindings "$1"
+}
+
 
 tk_probe_bind_account_ids() { # $1=scope $2=ids (comma/space)
 	local scope="$1" ids_raw="$2" id
@@ -586,6 +713,45 @@ SELECT COUNT(*)::text FROM account_groups WHERE group_id = ${TK_PROBE_GROUP_ID};
 	fi
 }
 
+tk_probe_prepare_platform_reuse_probe() { # $1=platform $2=account_id
+	local platform="$1" account_id="$2" scope group_name
+	if [[ ! "$account_id" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: invalid account id '$account_id' for platform reuse probe" >&2
+		return 1
+	fi
+	scope="$(tk_probe_scope_from_platform "$platform")"
+	if [ -z "$scope" ]; then
+		echo "probe_reserved_resources: empty scope for platform '$platform'" >&2
+		return 1
+	fi
+	TK_PROBE_REQUESTED_SCOPE="$scope"
+	TK_PROBE_SCOPE="$scope"
+	TK_PROBE_GROUP_ID=""
+	TK_PROBE_KEY=""
+	TK_PROBE_KEY_ID=""
+	if ! tk_probe_acquire_reuse_lock "$scope"; then
+		return 1
+	fi
+	tk_probe_ensure_group "$scope" "$platform" || return 1
+	group_name="$(tk_probe_group_name "$scope")"
+	tk_probe_unbind_account_from_stale_probe_groups "$account_id" "$group_name" || {
+		tk_probe_clear_bindings "$scope" >/dev/null 2>&1 || true # preflight-allow: cleanup failed probe resource
+		return 1
+	}
+	tk_probe_bind_account_ids "$scope" "$account_id" || {
+		tk_probe_clear_bindings "$scope" >/dev/null 2>&1 || true # preflight-allow: cleanup failed probe resource
+		return 1
+	}
+	tk_probe_enqueue_group_changed "$TK_PROBE_GROUP_ID" || {
+		tk_probe_clear_bindings "$scope" >/dev/null 2>&1 || true # preflight-allow: cleanup failed probe resource
+		return 1
+	}
+	tk_probe_ensure_key "$scope" || {
+		tk_probe_clear_bindings "$scope" >/dev/null 2>&1 || true # preflight-allow: cleanup failed probe resource
+		return 1
+	}
+}
+
 # Ensure group+key and bind accounts. BIND_KIND: account_ids | source_group | source_group_id | group_like | group_id_like
 # (group_like bind_val = "GROUP|PATTERN", split on the first '|').
 # (group_id_like bind_val = "GROUP_ID|PATTERN", split on the first '|').
@@ -619,4 +785,198 @@ tk_probe_prepare_catalog() { # $1=scope $2=platform $3=bind_kind $4=bind_val
 		tk_probe_clear_bindings "$scope" >/dev/null 2>&1 || true # preflight-allow: cleanup failed probe resource
 		return 1
 	}
+}
+
+tk_probe_cleanup_snapshot() { # $1=limit $2=label
+	local limit="$1" label="$2"
+	printf 'snapshot=%s
+' "$label"
+	tk_probe_psql <<SQL
+WITH probe_groups AS (
+  SELECT id, name, status
+  FROM groups
+  WHERE name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+    AND deleted_at IS NULL
+),
+probe_keys AS (
+  SELECT k.id, k.name, k.status
+  FROM api_keys k
+  WHERE k.deleted_at IS NULL
+    AND (
+      k.name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+      OR k.group_id IN (SELECT id FROM probe_groups)
+    )
+),
+probe_bindings AS (
+  SELECT ag.account_id, ag.group_id
+  FROM account_groups ag
+  WHERE ag.group_id IN (SELECT id FROM probe_groups)
+)
+SELECT 'active_probe_groups=' || COUNT(*) FROM probe_groups WHERE status = 'active'
+UNION ALL
+SELECT 'active_probe_keys=' || COUNT(*) FROM probe_keys WHERE status = 'active'
+UNION ALL
+SELECT 'probe_account_group_bindings=' || COUNT(*) FROM probe_bindings
+UNION ALL
+SELECT 'probe_group_rows=' || COUNT(*) FROM probe_groups
+UNION ALL
+SELECT 'probe_key_rows=' || COUNT(*) FROM probe_keys
+UNION ALL
+SELECT 'active_group_sample=' || COALESCE(string_agg(name, ', ' ORDER BY name), '')
+FROM (SELECT name FROM probe_groups WHERE status = 'active' ORDER BY name LIMIT ${limit}) s
+UNION ALL
+SELECT 'active_key_sample=' || COALESCE(string_agg(name, ', ' ORDER BY name), '')
+FROM (SELECT name FROM probe_keys WHERE status = 'active' ORDER BY name LIMIT ${limit}) s;
+SQL
+}
+
+tk_probe_cleanup_all_reserved() {
+	tk_probe_psql <<'SQL'
+BEGIN;
+WITH probe_groups AS (
+  SELECT id
+  FROM groups
+  WHERE name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+    AND deleted_at IS NULL
+),
+deleted_bindings AS (
+  DELETE FROM account_groups
+  WHERE group_id IN (SELECT id FROM probe_groups)
+  RETURNING 1
+),
+disabled_keys AS (
+  UPDATE api_keys
+  SET status = 'disabled',
+      updated_at = NOW()
+  WHERE deleted_at IS NULL
+    AND status <> 'disabled'
+    AND (
+      name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+      OR group_id IN (SELECT id FROM probe_groups)
+    )
+  RETURNING 1
+),
+disabled_groups AS (
+  UPDATE groups
+  SET status = 'disabled',
+      updated_at = NOW()
+  WHERE deleted_at IS NULL
+    AND status <> 'disabled'
+    AND name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+  RETURNING 1
+),
+queued_group_changed AS (
+  INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+  SELECT 'group_changed', NULL, id, NULL
+  FROM probe_groups
+  RETURNING 1
+),
+legacy_soft_deleted_keys AS (
+  UPDATE api_keys
+  SET deleted_at = NOW(),
+      status = 'disabled',
+      updated_at = NOW()
+  WHERE deleted_at IS NULL
+    AND name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\\'
+  RETURNING 1
+),
+legacy_soft_deleted_groups AS (
+  UPDATE groups
+  SET deleted_at = NOW(),
+      status = 'disabled',
+      updated_at = NOW()
+  WHERE deleted_at IS NULL
+    AND name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\\'
+  RETURNING 1
+)
+SELECT 'deleted_account_group_bindings=' || COUNT(*) FROM deleted_bindings
+UNION ALL
+SELECT 'disabled_probe_keys=' || COUNT(*) FROM disabled_keys
+UNION ALL
+SELECT 'disabled_probe_groups=' || COUNT(*) FROM disabled_groups
+UNION ALL
+SELECT 'queued_group_changed=' || COUNT(*) FROM queued_group_changed
+UNION ALL
+SELECT 'soft_deleted_legacy_tkprobe_keys=' || COUNT(*) FROM legacy_soft_deleted_keys
+UNION ALL
+SELECT 'soft_deleted_legacy_tkprobe_groups=' || COUNT(*) FROM legacy_soft_deleted_groups;
+COMMIT;
+SQL
+}
+
+tk_probe_prune_report() { # $1=label
+	local label="$1" keep_names
+	keep_names="$(tk_probe_keep_names_sql)"
+	printf 'snapshot=%s
+' "$label"
+	tk_probe_psql <<SQL
+SELECT 'probe_group_rows=' || COUNT(*) FROM groups
+WHERE name LIKE '\_\_tk\_probe\_%' ESCAPE '\\' AND deleted_at IS NULL;
+SELECT 'probe_key_rows=' || COUNT(*) FROM api_keys
+WHERE deleted_at IS NULL AND name LIKE '\_\_tk\_probe\_%' ESCAPE '\\';
+SELECT 'prune_candidates_groups=' || COUNT(*) FROM groups
+WHERE name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+  AND deleted_at IS NULL
+  AND name NOT IN ${keep_names};
+SELECT 'prune_candidates_keys=' || COUNT(*) FROM api_keys
+WHERE deleted_at IS NULL
+  AND name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+  AND name NOT IN ${keep_names};
+SELECT 'prune_candidates_legacy_tkprobe_groups=' || COUNT(*) FROM groups
+WHERE name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\\'
+  AND deleted_at IS NULL;
+SELECT 'stale_probe_bindings=' || COUNT(*) FROM account_groups ag
+JOIN groups g ON g.id = ag.group_id
+WHERE g.deleted_at IS NULL
+  AND g.name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+  AND (
+    g.name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\\'
+    OR g.name NOT IN ${keep_names}
+  );
+SELECT 'kept_group_names=' || COALESCE(string_agg(name, ', ' ORDER BY name), '')
+FROM groups
+WHERE deleted_at IS NULL AND name IN ${keep_names};
+SQL
+}
+
+tk_probe_prune_noncanonical() {
+	local keep_names
+	keep_names="$(tk_probe_keep_names_sql)"
+	tk_probe_psql <<SQL
+BEGIN;
+WITH doomed_groups AS (
+  SELECT id, name FROM groups
+  WHERE name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+    AND deleted_at IS NULL
+    AND name NOT IN ${keep_names}
+),
+deleted_bindings AS (
+  DELETE FROM account_groups
+  WHERE group_id IN (SELECT id FROM doomed_groups)
+  RETURNING 1
+),
+deleted_keys AS (
+  UPDATE api_keys
+  SET deleted_at = NOW(), status = 'disabled', updated_at = NOW()
+  WHERE deleted_at IS NULL
+    AND (
+      name IN (SELECT replace(name, '_group', '_key') FROM doomed_groups)
+      OR group_id IN (SELECT id FROM doomed_groups)
+    )
+    AND name NOT IN ${keep_names}
+  RETURNING 1
+),
+deleted_groups AS (
+  UPDATE groups
+  SET deleted_at = NOW(), status = 'disabled', updated_at = NOW()
+  WHERE id IN (SELECT id FROM doomed_groups)
+  RETURNING 1
+)
+SELECT 'deleted_account_group_bindings=' || COUNT(*) FROM deleted_bindings
+UNION ALL
+SELECT 'soft_deleted_probe_keys=' || COUNT(*) FROM deleted_keys
+UNION ALL
+SELECT 'soft_deleted_probe_groups=' || COUNT(*) FROM deleted_groups;
+COMMIT;
+SQL
 }
