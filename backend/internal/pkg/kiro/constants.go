@@ -9,7 +9,7 @@ const DefaultKiroAccountPriority = 10
 // DefaultKiroCLIVersion is the sole Kiro client release owner. The HTTP identity
 // below is captured from the installed kiro-cli binary; do not infer any segment
 // from release metadata alone.
-const DefaultKiroCLIVersion = "2.21.0"
+const DefaultKiroCLIVersion = "2.21.1"
 
 const (
 	kiroCLISDKVersion    = "1.3.10"
