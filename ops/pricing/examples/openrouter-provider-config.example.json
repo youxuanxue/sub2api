@@ -12,7 +12,13 @@
   "catalog_excluded_model_ids": [
     "claude-fable-5",
     "claude-opus-4-1",
-    "gemini-3.1-pro"
+    "gemini-3.1-pro",
+    "gemini-3-pro-image",
+    "gemini-3.1-flash-image",
+    "gemini-3.1-flash-image-preview",
+    "doubao-seedance-2-0-260128",
+    "doubao-seedance-2-0-fast-260128",
+    "doubao-seedance-2-5-260628"
   ],
   "stream_only_model_ids": [
     "glm-4.5",

@@ -12,7 +12,7 @@ Ops checklist for [OpenRouter provider application](https://openrouter.ai/provid
 | Image inference | `https://api.tokenkey.dev/openrouter/v1/images` |
 | Video inference | `https://api.tokenkey.dev/openrouter/v1/videos` (submit + poll `/openrouter/v1/videos/{id}`) |
 
-Catalog + inference auth: any API key owned by `billing_user_id` (ops bootstrap label: `openrouter`). No separate monitor/inference key split.
+Catalog + inference auth: any API key owned by `billing_user_id` (ops bootstrap label: `openrouter`). No separate monitor/inference key split. Ops hygiene: `hygiene-keys` ensures one `openrouter` key and disables legacy `openrouter-inference` / `openrouter-monitor` names.
 
 ## Settings JSON
 
@@ -27,15 +27,18 @@ That example tracks **policy fields** (`billing_user_id`, exclude/stream lists, 
 
 Change OR supply surface by editing user 32’s allowed groups only.
 
+Image / video models that the current seller groups cannot serve are listed in `catalog_excluded_model_ids` (text-only seller catalog for now).
+
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
 ```
 
-Prod bootstrap (creates seller key named `openrouter` if missing + config; prints ids only, never key secrets):
+Prod bootstrap / hygiene:
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
-python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert billing user + exclude/stream; strips stale group_ids / key id lists if present
+python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert billing user + exclude/stream; unions example list SSOT
+python3 ops/pricing/manage-openrouter-provider-config.py hygiene-keys   # ensure openrouter key; disable legacy dual names
 ```
 
 Required fields in settings:
