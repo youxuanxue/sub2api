@@ -550,7 +550,8 @@ for name in LEGACY_DISABLE:
     )
     psql_scalar(sql)
     verify = psql_scalar(
-        f"SELECT id FROM api_keys WHERE id={kid} AND user_id={USER_ID} AND status='disabled' LIMIT 1;"
+        f"SELECT id FROM api_keys WHERE id={kid} AND user_id={USER_ID} "
+        f"AND status='disabled' AND deleted_at IS NULL LIMIT 1;"
     )
     if verify and verify.splitlines()[0].strip().isdigit():
         disabled_ids.append(int(verify.splitlines()[0].strip()))
