@@ -6847,7 +6847,8 @@
       "must_contain": [
         "OpenRouterProviderModels",
         "BuildOpenRouterProviderCatalog",
-        "GetOpenRouterProviderConfig"
+        "GetOpenRouterProviderConfig",
+        "AllowsSellerAPIKey"
       ],
       "rationale": "OpenRouter seller catalog surface: GET /openrouter/v1/models must stay wired to tk_openrouter_provider_config + BuildOpenRouterProviderCatalog. Upstream merges can drop this companion while the route still compiles via a stub handler."
     },
@@ -6870,7 +6871,8 @@
         "OpenRouterProviderVideoFetch",
         "OpenRouterProviderImageRoute",
         "TranslateOpenRouterImageRequestToOpenAI",
-        "BuildOpenRouterVideoSubmitResponse"
+        "BuildOpenRouterVideoSubmitResponse",
+        "AllowsSellerAPIKey"
       ],
       "rationale": "OpenRouter seller image/video inference adapters: OR JSON ↔ internal handlers with model-id dispatch (antigravity chat for gemini-*-image, grok/openai-compat otherwise) and OR response shapes (b64_json images, 202 video submit + poll)."
     },
@@ -6922,9 +6924,19 @@
       "path": "backend/internal/service/openrouter_provider_tk_model.go",
       "must_contain": [
         "NormalizeOpenRouterProviderChatBody",
-        "InternalModelID"
+        "InternalModelID",
+        "AllowsSellerAPIKey"
       ],
-      "rationale": "OpenRouter inference path must rewrite tokenkey/* public model ids back to internal catalog ids before gateway scheduling."
+      "rationale": "OpenRouter inference path must rewrite tokenkey/* public model ids back to internal catalog ids before gateway scheduling, and only for billing_user seller keys."
+    },
+    {
+      "path": "backend/internal/service/openrouter_provider_tk_config.go",
+      "must_contain": [
+        "AllowsSellerAPIKey",
+        "BillingUserID",
+        "SettingKeyTKOpenRouterProviderConfig"
+      ],
+      "rationale": "OpenRouter seller auth SSOT: any API key owned by billing_user_id gets the full seller surface. Legacy group_ids / allowed_api_key_ids / monitor_api_key_ids must not return."
     },
     {
       "path": "backend/internal/service/openrouter_provider_tk_catalog.go",
@@ -6934,9 +6946,11 @@
         "openRouterProviderBuildModelDocument",
         "openRouterProviderModelHasListedPrice",
         "cfg.CatalogExcluded",
-        "openRouterProviderCatalogCandidates"
+        "openRouterProviderCatalogCandidates",
+        "ResolveOpenRouterProviderSupplyGroupIDs",
+        "BillingUserID"
       ],
-      "rationale": "Catalog builder is the seller onboarding contract owner; schema 2.4 emission + pricing/features drift here breaks OpenRouter provider application compliance."
+      "rationale": "Catalog builder is the seller onboarding contract owner; schema 2.4 emission + pricing/features drift here breaks OpenRouter provider application compliance. Supply groups must resolve from billing_user_id → user_allowed_groups (no group_ids fallback)."
     },
     {
       "path": "backend/internal/service/openrouter_provider_tk_schema.go",

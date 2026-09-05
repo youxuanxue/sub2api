@@ -77,7 +77,7 @@ func (h *GatewayHandler) authorizeOpenRouterProviderInference(c *gin.Context) (s
 	if apiKey.User != nil && apiKey.User.ID > 0 {
 		userID = apiKey.User.ID
 	}
-	if !cfg.AllowsInferenceAPIKey(apiKey.ID, userID) {
+	if !cfg.AllowsSellerAPIKey(apiKey.ID, userID) {
 		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "api key not authorized for openrouter provider inference", "code": 403}})
 		return cfg, true
 	}

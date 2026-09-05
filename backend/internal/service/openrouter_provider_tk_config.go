@@ -17,19 +17,13 @@ const OpenRouterProviderSellerKeyName = "openrouter"
 // Supply groups are NOT stored here: BuildOpenRouterProviderCatalog reads
 // billing_user_id's user_allowed_groups at runtime (single source of truth).
 // Seller auth is billing_user_id ownership (any of that user's API keys).
-// AllowedAPIKeyIDs / MonitorAPIKeyIDs remain optional legacy allowlists and both
-// grant the full seller surface (catalog + inference) during migration.
 // Loop prevention uses scheme C (no aggregator channels on public groups).
-// Legacy JSON field "group_ids" is ignored when billing_user_id is set.
+// Unknown JSON keys (legacy group_ids / key id lists) are ignored on parse.
 type OpenRouterProviderConfig struct {
-	Enabled       bool   `json:"enabled"`
-	ModelIDPrefix string `json:"model_id_prefix"`
-	Slug          string `json:"slug"`
-	// GroupIDs is legacy-only. Prefer billing user allowed groups; ignored when BillingUserID > 0.
-	GroupIDs               []int64          `json:"group_ids,omitempty"`
+	Enabled                bool             `json:"enabled"`
+	ModelIDPrefix          string           `json:"model_id_prefix"`
+	Slug                   string           `json:"slug"`
 	BillingUserID          int64            `json:"billing_user_id"`
-	AllowedAPIKeyIDs       []int64          `json:"allowed_api_key_ids,omitempty"`
-	MonitorAPIKeyIDs       []int64          `json:"monitor_api_key_ids,omitempty"`
 	DefaultContextLen      int              `json:"default_context_length"`
 	CapacityTPM            *int64           `json:"capacity_tpm"`
 	ModelCapacityTPM       map[string]int64 `json:"model_capacity_tpm"`
@@ -159,40 +153,13 @@ func (c OpenRouterProviderConfig) isBillingUser(userID int64) bool {
 	return c.BillingUserID > 0 && c.BillingUserID == userID
 }
 
-// AllowsSellerAPIKey is the single seller-surface allow check: billing-user
-// ownership, or a legacy numeric id allowlist entry.
+// AllowsSellerAPIKey is the single seller-surface allow check: any API key
+// owned by billing_user_id (catalog + inference).
 func (c OpenRouterProviderConfig) AllowsSellerAPIKey(apiKeyID, userID int64) bool {
 	if !c.Enabled || apiKeyID <= 0 {
 		return false
 	}
-	if c.isBillingUser(userID) {
-		return true
-	}
-	for _, id := range c.AllowedAPIKeyIDs {
-		if id == apiKeyID {
-			return true
-		}
-	}
-	for _, id := range c.MonitorAPIKeyIDs {
-		if id == apiKeyID {
-			return true
-		}
-	}
-	return false
-}
-
-// AllowsInferenceAPIKey allows catalog + inference (same seller surface).
-func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64) bool {
-	return c.AllowsSellerAPIKey(apiKeyID, userID)
-}
-
-func (c OpenRouterProviderConfig) CanAccessCatalog(apiKeyID, userID int64) bool {
-	return c.AllowsSellerAPIKey(apiKeyID, userID)
-}
-
-// AllowsAPIKey keeps the previous name for catalog/inference allow checks used in tests.
-func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64) bool {
-	return c.AllowsSellerAPIKey(apiKeyID, userID)
+	return c.isBillingUser(userID)
 }
 
 func (c OpenRouterProviderConfig) PublicModelID(model string) string {
@@ -229,34 +196,26 @@ func (c OpenRouterProviderConfig) InternalModelID(publicID string) (string, bool
 	return internal, true
 }
 
-func (c OpenRouterProviderConfig) CatalogBaseURL(apiBase string) string {
+func openRouterProviderAbsoluteURL(apiBase, path string) string {
 	base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
 	if base == "" {
 		base = "https://api.tokenkey.dev"
 	}
-	return base + "/openrouter/v1/models"
+	return base + path
+}
+
+func (c OpenRouterProviderConfig) CatalogBaseURL(apiBase string) string {
+	return openRouterProviderAbsoluteURL(apiBase, "/openrouter/v1/models")
 }
 
 func (c OpenRouterProviderConfig) InferenceBaseURL(apiBase string) string {
-	base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
-	if base == "" {
-		base = "https://api.tokenkey.dev"
-	}
-	return base + "/v1/chat/completions"
+	return openRouterProviderAbsoluteURL(apiBase, "/v1/chat/completions")
 }
 
 func (c OpenRouterProviderConfig) ImagesBaseURL(apiBase string) string {
-	base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
-	if base == "" {
-		base = "https://api.tokenkey.dev"
-	}
-	return base + "/openrouter/v1/images"
+	return openRouterProviderAbsoluteURL(apiBase, "/openrouter/v1/images")
 }
 
 func (c OpenRouterProviderConfig) VideosBaseURL(apiBase string) string {
-	base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
-	if base == "" {
-		base = "https://api.tokenkey.dev"
-	}
-	return base + "/openrouter/v1/videos"
+	return openRouterProviderAbsoluteURL(apiBase, "/openrouter/v1/videos")
 }

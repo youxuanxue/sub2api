@@ -26,7 +26,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASE_URL = "https://api.tokenkey.dev"
 BILLING_USER_ID = 32
-SELLER_KEY_NAMES = ("openrouter", "openrouter-inference", "openrouter-monitor")
+SELLER_KEY_NAME = "openrouter"
 
 VALID_INPUT_MODALITIES = {"text", "image", "file", "audio", "video"}
 VALID_OUTPUT_MODALITIES = {"text", "image", "embeddings", "audio", "video", "rerank", "speech", "transcription"}
@@ -279,18 +279,18 @@ def run_probe(base_url: str, api_key: str, full_catalog: bool) -> Report:
 
 
 def fetch_keys_via_ssm() -> str:
-    """Return one seller API key for billing user 32 (legacy dual names accepted)."""
+    """Return one seller API key for billing user 32 (prefer name openrouter)."""
     spec = importlib.util.spec_from_file_location("ssm", REPO_ROOT / "ops/stage0/ssm_execution.py")
     ssm = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ssm)
     inst = ssm.resolve_prod_instance()
-    names_repr = repr(list(SELLER_KEY_NAMES))
+    preferred = SELLER_KEY_NAME
     py = f"""
 import subprocess, json
 PSQL = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
         "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c"]
 USER_ID = {BILLING_USER_ID}
-NAMES = {names_repr}
+PREFERRED = {preferred!r}
 
 def key_for(name):
     sql = (
@@ -306,13 +306,7 @@ def any_key():
     )
     return subprocess.check_output(PSQL + [sql], text=True).strip()
 
-key = ""
-for name in NAMES:
-    key = key_for(name)
-    if key:
-        break
-if not key:
-    key = any_key()
+key = key_for(PREFERRED) or any_key()
 print(json.dumps({{"key": key}}))
 """
     shell = f"python3 - <<'PY'\n{py}\nPY"

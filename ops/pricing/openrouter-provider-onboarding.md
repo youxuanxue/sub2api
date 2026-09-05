@@ -35,7 +35,7 @@ Prod bootstrap (creates seller key named `openrouter` if missing + config; print
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
-python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert billing user + exclude/stream; strips legacy group_ids / key id lists
+python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert billing user + exclude/stream; strips stale group_ids / key id lists if present
 ```
 
 Required fields in settings:

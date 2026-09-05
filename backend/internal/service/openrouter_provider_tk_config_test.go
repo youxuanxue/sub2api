@@ -167,24 +167,44 @@ func TestOpenRouterProviderConfig_CatalogAndInferenceURLs(t *testing.T) {
 	}
 }
 
-func TestOpenRouterProviderConfig_AllowsAPIKey(t *testing.T) {
-	cfg := OpenRouterProviderConfig{
-		Enabled:          true,
-		AllowedAPIKeyIDs: []int64{42},
-		BillingUserID:    7,
-	}
-	if !cfg.AllowsAPIKey(42, 99) {
-		t.Fatal("allowed api key id must pass")
-	}
-	if cfg.AllowsAPIKey(43, 99) {
-		t.Fatal("non-allowlisted key must fail when not billing user")
-	}
-	cfg = OpenRouterProviderConfig{Enabled: true, BillingUserID: 7}
-	if !cfg.AllowsAPIKey(100, 7) {
+func TestOpenRouterProviderConfig_AllowsSellerAPIKey(t *testing.T) {
+	cfg := OpenRouterProviderConfig{Enabled: true, BillingUserID: 7}
+	if !cfg.AllowsSellerAPIKey(100, 7) {
 		t.Fatal("any billing-user key must pass")
 	}
-	if cfg.AllowsAPIKey(100, 8) {
+	if cfg.AllowsSellerAPIKey(100, 8) {
 		t.Fatal("other user keys must fail")
+	}
+	if cfg.AllowsSellerAPIKey(0, 7) {
+		t.Fatal("zero api key id must fail")
+	}
+	cfg.Enabled = false
+	if cfg.AllowsSellerAPIKey(100, 7) {
+		t.Fatal("disabled config must fail")
+	}
+}
+
+func TestParseOpenRouterProviderConfig_IgnoresLegacyFields(t *testing.T) {
+	// Boundary: stale settings JSON may still carry group_ids / key id lists.
+	raw := `{
+		"enabled": true,
+		"billing_user_id": 32,
+		"group_ids": [1, 2],
+		"allowed_api_key_ids": [10],
+		"monitor_api_key_ids": [99]
+	}`
+	cfg, err := ParseOpenRouterProviderConfig(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BillingUserID != 32 || !cfg.Enabled {
+		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+	if !cfg.AllowsSellerAPIKey(1, 32) {
+		t.Fatal("billing user must authorize after ignoring legacy lists")
+	}
+	if cfg.AllowsSellerAPIKey(10, 0) {
+		t.Fatal("legacy key id lists must not authorize without billing user match")
 	}
 }
 

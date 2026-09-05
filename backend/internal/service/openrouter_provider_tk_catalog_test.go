@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -16,7 +17,6 @@ func TestResolveOpenRouterProviderSupplyGroupIDs_FromBillingUserAllowedGroups(t 
 	}
 	got, err := svc.ResolveOpenRouterProviderSupplyGroupIDs(context.Background(), OpenRouterProviderConfig{
 		BillingUserID: 32,
-		GroupIDs:      []int64{99, 100}, // legacy must be ignored
 	})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -38,23 +38,18 @@ func TestResolveOpenRouterProviderSupplyGroupIDs_BillingUserEmptyGroups(t *testi
 	}
 	_, err := svc.ResolveOpenRouterProviderSupplyGroupIDs(context.Background(), OpenRouterProviderConfig{
 		BillingUserID: 32,
-		GroupIDs:      []int64{1},
 	})
 	if err == nil {
 		t.Fatal("expected error when billing user has no allowed groups")
 	}
 }
 
-func TestResolveOpenRouterProviderSupplyGroupIDs_LegacyFallbackWithoutBillingUser(t *testing.T) {
+func TestResolveOpenRouterProviderSupplyGroupIDs_RequiresBillingUser(t *testing.T) {
+	// Boundary: missing billing_user_id must fail (legacy group_ids fallback removed).
 	svc := &GatewayService{}
-	got, err := svc.ResolveOpenRouterProviderSupplyGroupIDs(context.Background(), OpenRouterProviderConfig{
-		GroupIDs: []int64{2, 1, 2},
-	})
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
-	}
-	if len(got) != 2 || got[0] != 1 || got[1] != 2 {
-		t.Fatalf("got %v", got)
+	_, err := svc.ResolveOpenRouterProviderSupplyGroupIDs(context.Background(), OpenRouterProviderConfig{})
+	if err == nil || !strings.Contains(err.Error(), "billing_user_id required") {
+		t.Fatalf("expected billing_user_id required, got %v", err)
 	}
 }
 

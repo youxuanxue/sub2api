@@ -26,43 +26,30 @@ func TestOpenRouterProviderConfig_SellerAuthBillingUser(t *testing.T) {
 	if !cfg.AllowsSellerAPIKey(1, 32) {
 		t.Fatal("any billing-user key must pass seller surface")
 	}
-	if !cfg.AllowsInferenceAPIKey(1, 32) {
-		t.Fatal("billing-user key must infer")
-	}
-	if !cfg.CanAccessCatalog(2, 32) {
-		t.Fatal("billing-user key must read catalog")
+	if !cfg.AllowsSellerAPIKey(2, 32) {
+		t.Fatal("second billing-user key must also pass")
 	}
 	if cfg.AllowsSellerAPIKey(1, 99) {
 		t.Fatal("other user must fail")
 	}
+	if cfg.AllowsSellerAPIKey(0, 32) {
+		t.Fatal("zero api key id must fail")
+	}
 }
 
-func TestOpenRouterProviderConfig_LegacyIDAllowlist(t *testing.T) {
-	cfg := OpenRouterProviderConfig{
-		Enabled:          true,
-		AllowedAPIKeyIDs: []int64{10},
-		MonitorAPIKeyIDs: []int64{99},
-		BillingUserID:    7,
-	}
-	if !cfg.CanAccessCatalog(99, 0) {
-		t.Fatal("legacy monitor id must access full seller surface")
-	}
-	if !cfg.AllowsInferenceAPIKey(99, 0) {
-		t.Fatal("legacy monitor id must also infer after dual-key removal")
-	}
-	if !cfg.AllowsInferenceAPIKey(10, 0) {
-		t.Fatal("legacy inference id must pass")
-	}
-	if cfg.AllowsSellerAPIKey(11, 0) {
-		t.Fatal("unknown id outside billing user must fail")
+func TestOpenRouterProviderConfig_SellerAuthRequiresBillingUser(t *testing.T) {
+	// Boundary: no billing_user_id → no seller access (legacy key-id lists removed).
+	cfg := OpenRouterProviderConfig{Enabled: true}
+	if cfg.AllowsSellerAPIKey(10, 0) {
+		t.Fatal("without billing_user_id seller surface must stay closed")
 	}
 }
 
 func TestNormalizeOpenRouterProviderChatBody_RewritesModel(t *testing.T) {
 	rawCfg := OpenRouterProviderConfig{
-		Enabled:          true,
-		AllowedAPIKeyIDs: []int64{10},
-		ModelIDPrefix:    "tokenkey/",
+		Enabled:       true,
+		BillingUserID: 1,
+		ModelIDPrefix: "tokenkey/",
 	}
 	encoded, err := json.Marshal(rawCfg)
 	if err != nil {
