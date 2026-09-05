@@ -76,6 +76,14 @@ class ProbeAccountModelTest(unittest.TestCase):
         self.assertIn('tk_probe_cleanup_named_group "$GROUP_ID" "$GROUP_NAME" "$KEY_NAME" reusable', script)
         self.assertNotIn("tk_probe_unbind_account_from_stale_probe_groups", script)
 
+    def test_oneoff_supported_model_scopes_json_keeps_shell_escaped_quotes(self) -> None:
+        script = _SCRIPT.read_text()
+
+        expected = r"""false, '{}'::jsonb, true, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,"""
+        broken = """false, '{}'::jsonb, true, '["claude", "gemini_text", "gemini_image"]'::jsonb,"""
+        self.assertIn(expected, script)
+        self.assertNotIn(broken, script)
+
     def test_rebinding_group_notifies_scheduler_snapshot(self) -> None:
         script = _SCRIPT.read_text()
         self.assertIn('INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)', script)

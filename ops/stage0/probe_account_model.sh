@@ -222,7 +222,7 @@ INSERT INTO groups (
 	  '$(sql_escape "$PLATFORM")',
 	  1.0, true, 'active',
 	  'standard', 30, false,
-	  false, '{}'::jsonb, true, '["claude", "gemini_text", "gemini_image"]'::jsonb,
+	  false, '{}'::jsonb, true, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
 	  '{}'::jsonb, '{}'::jsonb,
 	  2147483000, 0, NOW(), NOW()
 	) RETURNING id;

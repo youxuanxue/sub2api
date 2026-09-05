@@ -50,6 +50,9 @@ tk_probe_psql() {
 		fi
 		shift
 	done
+	if [ -z "$sql" ]; then
+		sql="$(cat)"
+	fi
 	TK_PROBE_LAST_SQL="$sql"
 	case "$TK_PROBE_TEST_SCENARIO" in
 	case_match)
@@ -118,6 +121,15 @@ if ! printf '%s' "$TK_PROBE_LAST_SQL" | grep -q "deleted_at = NOW()"; then
 	echo "FAIL: oneoff named cleanup should soft-delete group/key" >&2
 	exit 1
 fi
+tk_probe_cleanup_all_reserved
+python3 - "$TK_PROBE_LAST_SQL" <<'PY'
+import sys
+sql = sys.argv[1]
+if "ESCAPE '\\\\'" in sql:
+    raise SystemExit("FAIL: single-quoted cleanup heredoc must not send a two-character SQL ESCAPE")
+if sql.count("ESCAPE '\\'") != 5:
+    raise SystemExit("FAIL: cleanup apply SQL should use a single backslash ESCAPE in all LIKE clauses")
+PY
 command -v flock >/dev/null 2>&1 || flock() { return 0; }
 flock() { return 0; }
 flock() { return 0; }

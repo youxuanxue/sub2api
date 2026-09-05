@@ -836,7 +836,7 @@ BEGIN;
 WITH probe_groups AS (
   SELECT id
   FROM groups
-  WHERE name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+  WHERE name LIKE '\_\_tk\_probe\_%' ESCAPE '\'
     AND deleted_at IS NULL
 ),
 deleted_bindings AS (
@@ -851,7 +851,7 @@ disabled_keys AS (
   WHERE deleted_at IS NULL
     AND status <> 'disabled'
     AND (
-      name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+      name LIKE '\_\_tk\_probe\_%' ESCAPE '\'
       OR group_id IN (SELECT id FROM probe_groups)
     )
   RETURNING 1
@@ -862,7 +862,7 @@ disabled_groups AS (
       updated_at = NOW()
   WHERE deleted_at IS NULL
     AND status <> 'disabled'
-    AND name LIKE '\_\_tk\_probe\_%' ESCAPE '\\'
+    AND name LIKE '\_\_tk\_probe\_%' ESCAPE '\'
   RETURNING 1
 ),
 queued_group_changed AS (
@@ -877,7 +877,7 @@ legacy_soft_deleted_keys AS (
       status = 'disabled',
       updated_at = NOW()
   WHERE deleted_at IS NULL
-    AND name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\\'
+    AND name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\'
   RETURNING 1
 ),
 legacy_soft_deleted_groups AS (
@@ -886,7 +886,7 @@ legacy_soft_deleted_groups AS (
       status = 'disabled',
       updated_at = NOW()
   WHERE deleted_at IS NULL
-    AND name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\\'
+    AND name LIKE '\_\_tk\_probe\_tkprobe%' ESCAPE '\'
   RETURNING 1
 )
 SELECT 'deleted_account_group_bindings=' || COUNT(*) FROM deleted_bindings
