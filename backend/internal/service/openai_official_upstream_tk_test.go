@@ -102,6 +102,12 @@ func TestAccountShouldLocalEstimateCountTokens_DerivedForeignAccounts(t *testing
 		ChannelType: newapiconstant.ChannelTypeVolcEngine,
 		Credentials: map[string]any{"api_key": "ark-test", "base_url": newapiintegration.VolcEngineAgentPlanBaseURL},
 	}), "Agent Plan keeps its dedicated Ark input_tokens URL")
+	require.True(t, AccountShouldLocalEstimateCountTokens(&Account{
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeBaiduV2,
+		Credentials: map[string]any{"api_key": "qf-test", "base_url": newapiintegration.QianfanTokenPlanBaseURL},
+	}), "Qianfan Token Plan must local-estimate; native chat base must not invent responses/input_tokens")
 	require.False(t, AccountShouldLocalEstimateCountTokens(&Account{
 		Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.cloudwise.ai/api"},

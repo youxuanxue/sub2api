@@ -785,6 +785,41 @@
       "rationale": "Agent Plan base-url detection for VolcEngine ch45 accounts using /api/plan/v3 instead of pay-as-you-go /api/v3. Without it admin probes and preset selection fall back to wrong upstream paths (404 InvalidEndpointOrModel)."
     },
     {
+      "path": "backend/internal/integration/newapi/ali_token_plan.go",
+      "must_contain": [
+        "AliTokenPlanBaseURL",
+        "NormalizeAliTokenPlanBaseURL",
+        "IsAliTokenPlanBaseURL"
+      ],
+      "rationale": "Aliyun MaaS Token Plan host detection for ch17 accounts. Without NormalizeAliTokenPlanBaseURL, pasted /compatible-mode/v1 or /apps/anthropic bases double-suffix under the Ali adaptor and every probe/chat 404s."
+    },
+    {
+      "path": "backend/internal/integration/newapi/ali_token_plan_test.go",
+      "must_contain": [
+        "TestIsAliTokenPlanBaseURL",
+        "TestNormalizeAliTokenPlanBaseURL"
+      ],
+      "rationale": "Regression for Ali Token Plan host normalization and channel-type guard; prevents silent misrouting when credentials suffix the compatible-mode or Anthropic path."
+    },
+    {
+      "path": "backend/internal/integration/newapi/qianfan_token_plan.go",
+      "must_contain": [
+        "QianfanTokenPlanBaseURL",
+        "QianfanTokenPlanAnthropicBaseURL",
+        "NormalizeQianfanTokenPlanBaseURL",
+        "IsQianfanTokenPlanBaseURL"
+      ],
+      "rationale": "Baidu Qianfan Token Plan Person base-url detection for ch46. Without it the BaiduV2 adaptor appends /v2/chat/completions onto the plan root (or routes the plan key to PAYG) and every chat/admin test 404s."
+    },
+    {
+      "path": "backend/internal/integration/newapi/qianfan_token_plan_test.go",
+      "must_contain": [
+        "TestIsQianfanTokenPlanBaseURL",
+        "TestNormalizeQianfanTokenPlanBaseURL"
+      ],
+      "rationale": "Regression for Qianfan Token Plan Person path normalization versus PAYG /v2; prevents silent collapse of plan accounts into the BaiduV2 PAYG URL builder."
+    },
+    {
       "path": "backend/internal/integration/newapi/qianfan.go",
       "must_contain": [
         "QianfanBaseURL",
@@ -1012,6 +1047,7 @@
         "func AccountUsesOfficialOpenAIUpstream",
         "baseURL != \"\" && isOfficialOpenAIModelsBaseURL(baseURL)",
         "func AccountShouldLocalEstimateCountTokens",
+        "isNewAPIQianfanTokenPlanAccount(account)",
         "func IsOfficialOpenAIAPIKeyHelpText",
         "func IsForeignCredentialOfficialOpenAIReject",
         "func OfficialOpenAIFallbackAllowed",
@@ -1019,7 +1055,7 @@
         "isOfficialOpenAIModelsBaseURL",
         "platform.openai.com/account/api-keys"
       ],
-      "rationale": "The legacy official-host safety predicate must require an explicit api.openai.com base_url for configurable OpenAI API-key accounts, matching the protocol-routing SSOT; an empty URL is unresolved, not an official profile. NewAPI channels, CN providers, CloudWise/tokensea, and any future platform also default to foreign. OfficialOpenAIFallbackAllowed / ErrForeignCredentialOfficialOpenAIFallback are the write side of this boundary: native forwarders fail closed instead of defaulting an unresolved base_url to api.openai.com, which can POST a DashScope/Ark key to OpenAI and return the 'Incorrect API key provided' routing-defect shape (Qwen/Qwen-2/Qwen-4, 2026-08-24)."
+      "rationale": "The legacy official-host safety predicate must require an explicit api.openai.com base_url for configurable OpenAI API-key accounts, matching the protocol-routing SSOT; an empty URL is unresolved, not an official profile. NewAPI channels, CN providers, CloudWise/tokensea, and any future platform also default to foreign. Qianfan Token Plan must local-estimate count_tokens because nativeOpenAIBaseURLForAccount is non-empty for chat yet the plan has no responses/input_tokens surface. OfficialOpenAIFallbackAllowed / ErrForeignCredentialOfficialOpenAIFallback are the write side of this boundary: native forwarders fail closed instead of defaulting an unresolved base_url to api.openai.com, which can POST a DashScope/Ark key to OpenAI and return the 'Incorrect API key provided' routing-defect shape (Qwen/Qwen-2/Qwen-4, 2026-08-24)."
     },
     {
       "path": "backend/internal/service/openai_gateway_request_body.go",
@@ -1028,9 +1064,10 @@
         "account.Type == AccountTypeAPIKey || account.Type == AccountTypeUpstream",
         "return strings.TrimSpace(account.GetCredential(\"base_url\"))",
         "func nativeOpenAIApiKeyForAccount(account *Account) string",
+        "isNewAPIQianfanTokenPlanAccount(account)",
         "return account.GetOpenAIProtocolAPIKey()"
       ],
-      "rationale": "Native text transports must preserve an omitted configurable OpenAI API-key/upstream base_url as unresolved. Falling through to GetOpenAIBaseURL would synthesize api.openai.com before the fail-closed boundary can distinguish an explicit custom endpoint from an implicit official-host fallback, contradicting docs/approved/protocol-routing-ssot.md section 6. The sibling credential accessor preserves CloudWise and Agent Plan special bindings while using the canonical OpenAI-protocol key accessor for ordinary OpenAI/NewAPI/CN accounts."
+      "rationale": "Native text transports must preserve an omitted configurable OpenAI API-key/upstream base_url as unresolved. Falling through to GetOpenAIBaseURL would synthesize api.openai.com before the fail-closed boundary can distinguish an explicit custom endpoint from an implicit official-host fallback, contradicting docs/approved/protocol-routing-ssot.md section 6. The sibling credential accessor preserves CloudWise, Agent Plan, and Qianfan Token Plan special bindings while using the canonical OpenAI-protocol key accessor for ordinary OpenAI/NewAPI/CN accounts."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_upstream_error_prelude.go",
@@ -1097,21 +1134,27 @@
       "must_contain": [
         "func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, resolvedModel string) (string, error)",
         "isNewAPIVolcEngineAgentPlanAccount(account)",
+        "isNewAPIQianfanTokenPlanAccount(account)",
         "newapiintegration.VolcEngineAgentPlanBaseURL",
+        "newapiintegration.QianfanTokenPlanBaseURL",
+        "newapiintegration.QianfanTokenPlanAnthropicBaseURL",
         "endpoint, err := bridge.ResolveTextEndpoint(in, format, resolvedModel)"
       ],
-      "rationale": "Single NewAPI text-endpoint resolver shared by protocol planning and capability probes. Provider paths such as DashScope ch17 and VolcEngine Agent Plan differ from generic /v1 endpoints; losing this owner recreates split path tables and lets probes persist false capability facts for otherwise healthy accounts."
+      "rationale": "Single NewAPI text-endpoint resolver shared by protocol planning and capability probes. Provider paths such as DashScope ch17, VolcEngine Agent Plan, and Qianfan Token Plan Person differ from generic /v1 endpoints; losing this owner recreates split path tables and lets probes persist false capability facts for otherwise healthy accounts."
     },
     {
       "path": "backend/internal/service/account_supported_protocols_test.go",
       "must_contain": [
         "TestProtocolAccountSnapshotUsesCanonicalAgentPlanEndpoints",
+        "TestProtocolAccountSnapshotUsesCanonicalQianfanTokenPlanEndpoints",
         "VolcEngineAgentPlanBaseURL+\"/chat/completions\"",
         "VolcEngineAgentPlanBaseURL+\"/responses\"",
+        "QianfanTokenPlanBaseURL+\"/chat/completions\"",
+        "QianfanTokenPlanAnthropicBaseURL+\"/v1/messages\"",
         "TestProtocolRouterRejectsResolvedModelOutsideOfficialRoutePolicy",
         "ErrModelNotAllowed"
       ],
-      "rationale": "Regression proof that Agent Plan account 88 resolves both governed text protocols under the canonical /api/plan/v3 base instead of probing or executing the generic VolcEngine paths that returned 404 during rollout preparation."
+      "rationale": "Regression proof that Agent Plan and Qianfan Token Plan resolve governed text protocols under their canonical plan bases instead of probing or executing the generic VolcEngine/BaiduV2 paths that returned 404 during rollout preparation."
     },
     {
       "path": "backend/internal/service/protocol_capability_probe.go",

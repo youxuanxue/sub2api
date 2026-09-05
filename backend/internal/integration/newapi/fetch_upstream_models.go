@@ -16,7 +16,7 @@ import (
 // UpstreamModelFetchAllowed matches new-api web MODEL_FETCHABLE_CHANNEL_TYPES (channel.constants.js).
 func UpstreamModelFetchAllowed(channelType int) bool {
 	switch channelType {
-	case 1, 4, 14, 34, 17, 26, 27, 24, 47, 25, 20, 23, 31, 40, 42, 48, 43, 45, 54:
+	case 1, 4, 14, 34, 17, 26, 27, 24, 47, 25, 20, 23, 31, 40, 42, 48, 43, 45, 46, 54:
 		return true
 	default:
 		return false
@@ -72,7 +72,14 @@ func FetchUpstreamModelList(ctx context.Context, baseURL string, channelType int
 
 	switch channelType {
 	case newapiconstant.ChannelTypeAli:
+		base = NormalizeAliTokenPlanBaseURL(base)
 		return fetchOpenAICompatModels(ctx, base+"/compatible-mode/v1/models", key)
+	case newapiconstant.ChannelTypeBaiduV2:
+		modelsURL, err := qianfanModelsURL(channelType, base)
+		if err != nil {
+			return nil, err
+		}
+		return fetchOpenAICompatModels(ctx, modelsURL, key)
 	case newapiconstant.ChannelTypeVolcEngine, newapiconstant.ChannelTypeDoubaoVideo:
 		modelsURL, err := volcEngineModelsURL(channelType, base)
 		if err != nil {
@@ -126,6 +133,15 @@ func volcEngineModelsURL(channelType int, base string) (string, error) {
 		return openAIBase + "/models", nil
 	}
 	return strings.TrimRight(base, "/") + "/api/v3/models", nil
+}
+
+// qianfanModelsURL resolves the admin "fetch models" URL for BaiduV2.
+// Token Plan Person lists at {plan}/models; PAYG has no TokenKey-owned contract.
+func qianfanModelsURL(channelType int, base string) (string, error) {
+	if IsQianfanTokenPlanBaseURL(channelType, base) {
+		return strings.TrimRight(QianfanTokenPlanBaseURL, "/") + "/models", nil
+	}
+	return "", fmt.Errorf("upstream model fetch is not supported for BaiduV2 base_url %q", base)
 }
 
 // openAICompatModelEntry mirrors the OpenAI /v1/models response shape with the

@@ -27,3 +27,16 @@ func TestIsAliTokenPlanBaseURL(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeAliTokenPlanBaseURL(t *testing.T) {
+	t.Parallel()
+	if got := NormalizeAliTokenPlanBaseURL(AliTokenPlanBaseURL + "/compatible-mode/v1/"); got != AliTokenPlanBaseURL {
+		t.Fatalf("normalize compatible-mode = %q", got)
+	}
+	if got := NormalizeAliTokenPlanBaseURL(AliTokenPlanBaseURL + "/apps/anthropic"); got != AliTokenPlanBaseURL {
+		t.Fatalf("normalize anthropic = %q", got)
+	}
+	if got := NormalizeAliTokenPlanBaseURL("https://dashscope.aliyuncs.com"); got != "https://dashscope.aliyuncs.com" {
+		t.Fatalf("passthrough = %q", got)
+	}
+}

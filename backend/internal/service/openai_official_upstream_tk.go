@@ -46,6 +46,12 @@ func AccountShouldLocalEstimateCountTokens(account *Account) bool {
 	if account.IsCNProvider() {
 		return true
 	}
+	// Qianfan Token Plan Person has no OpenAI Responses input_tokens surface;
+	// nativeOpenAIBaseURLForAccount is non-empty for chat, so without this
+	// branch count_tokens would invent .../tokenplan/personal/v1/responses/input_tokens.
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		return true
+	}
 	return strings.TrimSpace(nativeOpenAIBaseURLForAccount(account)) == ""
 }
 
