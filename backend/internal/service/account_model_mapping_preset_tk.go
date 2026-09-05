@@ -88,6 +88,20 @@ func isNewAPIVolcEngineAgentPlanAccount(account *Account) bool {
 		newapiintegration.IsVolcEngineAgentPlanBaseURL(account.ChannelType, account.GetBaseURL())
 }
 
+func isNewAPIQianfanTokenPlanAccount(account *Account) bool {
+	return account != nil &&
+		account.Platform == PlatformNewAPI &&
+		account.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&
+		newapiintegration.IsQianfanTokenPlanBaseURL(account.ChannelType, account.GetBaseURL())
+}
+
+func isNewAPIAliTokenPlanAccount(account *Account) bool {
+	return account != nil &&
+		account.Platform == PlatformNewAPI &&
+		account.ChannelType == newapiconstant.ChannelTypeAli &&
+		newapiintegration.IsAliTokenPlanBaseURL(account.ChannelType, account.GetBaseURL())
+}
+
 func isNewAPIQianfanAccount(account *Account) bool {
 	return account != nil &&
 		account.Platform == PlatformNewAPI &&

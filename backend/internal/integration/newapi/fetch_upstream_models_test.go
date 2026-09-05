@@ -105,6 +105,23 @@ func TestVolcEngineModelsURL_ResolvesAgentPlanSpecialBase(t *testing.T) {
 	}
 }
 
+func TestQianfanModelsURL_TokenPlanAndPAYG(t *testing.T) {
+	t.Parallel()
+	got, err := qianfanModelsURL(newapiconstant.ChannelTypeBaiduV2, QianfanTokenPlanBaseURL)
+	if err != nil {
+		t.Fatalf("token plan: %v", err)
+	}
+	if want := QianfanTokenPlanBaseURL + "/models"; got != want {
+		t.Fatalf("token plan URL = %q, want %q", got, want)
+	}
+	if _, err := qianfanModelsURL(newapiconstant.ChannelTypeBaiduV2, QianfanBaseURL); err == nil {
+		t.Fatal("PAYG BaiduV2 must fail closed")
+	}
+	if !UpstreamModelFetchAllowed(newapiconstant.ChannelTypeBaiduV2) {
+		t.Fatal("BaiduV2 must allow upstream model fetch so Token Plan admin can list models")
+	}
+}
+
 func TestMoonshotAlternateRegionalBase(t *testing.T) {
 	t.Parallel()
 	if g := MoonshotAlternateRegionalBase("https://api.moonshot.cn"); g != "https://api.moonshot.ai" {

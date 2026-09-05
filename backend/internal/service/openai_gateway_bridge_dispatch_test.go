@@ -82,6 +82,28 @@ func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
 			want:     false,
 		},
 		{
+			name: "qianfan Token Plan chat uses native OpenAI path",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				ChannelType: newapiconstant.ChannelTypeBaiduV2,
+				Platform:    domain.PlatformNewAPI,
+				Credentials: map[string]any{"base_url": newapiintegration.QianfanTokenPlanBaseURL},
+			},
+			endpoint: BridgeEndpointChatCompletions,
+			want:     false,
+		},
+		{
+			name: "qianfan payg still uses newapi bridge",
+			account: &Account{
+				Type:        AccountTypeAPIKey,
+				ChannelType: newapiconstant.ChannelTypeBaiduV2,
+				Platform:    domain.PlatformNewAPI,
+				Credentials: map[string]any{"base_url": newapiintegration.QianfanBaseURL},
+			},
+			endpoint: BridgeEndpointChatCompletions,
+			want:     true,
+		},
+		{
 			name: "positive channel type unknown endpoint",
 			account: &Account{
 				ChannelType: 2,

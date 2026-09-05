@@ -27,6 +27,12 @@ func (s *OpenAIGatewayService) ShouldDispatchToNewAPIBridge(account *Account, en
 		(endpoint == BridgeEndpointChatCompletions || endpoint == BridgeEndpointResponses) {
 		return false
 	}
+	// Qianfan Token Plan Person uses /v2/tokenplan/personal/* — the BaiduV2
+	// adaptor would append /v2/chat/completions and miss the plan root.
+	if isNewAPIQianfanTokenPlanAccount(account) &&
+		(endpoint == BridgeEndpointChatCompletions || endpoint == BridgeEndpointResponses) {
+		return false
+	}
 	var st *SettingService
 	if s != nil {
 		st = s.settingService

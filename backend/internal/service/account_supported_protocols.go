@@ -439,6 +439,18 @@ func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, r
 	if account == nil || account.Platform != PlatformNewAPI || account.ChannelType <= 0 {
 		return "", nil
 	}
+	// Qianfan Token Plan Person: plan roots differ from BaiduV2 PAYG (/v2/...).
+	// Handle before the Chat/Responses-only format switch so Messages is not dropped.
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		switch protocol {
+		case protocolrouter.ProtocolChatCompletions:
+			return strings.TrimRight(newapiintegration.QianfanTokenPlanBaseURL, "/") + "/chat/completions", nil
+		case protocolrouter.ProtocolMessages:
+			return strings.TrimRight(newapiintegration.QianfanTokenPlanAnthropicBaseURL, "/") + "/v1/messages", nil
+		default:
+			return "", nil
+		}
+	}
 	var format newapitypes.RelayFormat
 	switch protocol {
 	case protocolrouter.ProtocolChatCompletions:

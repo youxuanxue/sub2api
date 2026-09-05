@@ -367,6 +367,45 @@ func TestProtocolAccountSnapshotUsesCanonicalAgentPlanEndpoints(t *testing.T) {
 	}
 }
 
+func TestProtocolAccountSnapshotUsesCanonicalQianfanTokenPlanEndpoints(t *testing.T) {
+	account := &Account{
+		ID:          130,
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeBaiduV2,
+		Credentials: map[string]any{
+			"api_key":       "secret",
+			"base_url":      newapiintegration.QianfanTokenPlanBaseURL,
+			"model_mapping": map[string]any{"deepseek-v4-flash": "deepseek-v4-flash"},
+		},
+		Extra: map[string]any{
+			SupportedProtocolsExtraKey: []any{"chat_completions", "messages"},
+		},
+	}
+
+	chatEndpoint, err := protocolExactEndpoint(account, protocolrouter.ProtocolChatCompletions, "deepseek-v4-flash")
+	if err != nil {
+		t.Fatalf("protocolExactEndpoint chat: %v", err)
+	}
+	if got, want := chatEndpoint, newapiintegration.QianfanTokenPlanBaseURL+"/chat/completions"; got != want {
+		t.Fatalf("chat endpoint = %q, want %q", got, want)
+	}
+	messagesEndpoint, err := protocolExactEndpoint(account, protocolrouter.ProtocolMessages, "deepseek-v4-flash")
+	if err != nil {
+		t.Fatalf("protocolExactEndpoint messages: %v", err)
+	}
+	if got, want := messagesEndpoint, newapiintegration.QianfanTokenPlanAnthropicBaseURL+"/v1/messages"; got != want {
+		t.Fatalf("messages endpoint = %q, want %q", got, want)
+	}
+	responsesEndpoint, err := protocolExactEndpoint(account, protocolrouter.ProtocolResponses, "deepseek-v4-flash")
+	if err != nil {
+		t.Fatalf("protocolExactEndpoint responses: %v", err)
+	}
+	if responsesEndpoint != "" {
+		t.Fatalf("responses endpoint = %q, want empty (Token Plan has no responses surface)", responsesEndpoint)
+	}
+}
+
 func TestProtocolExactEndpointsOmitsUnsupportedNewAPIProtocol(t *testing.T) {
 	account := qianfanChatTestAccount(90)
 	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)

@@ -9,6 +9,12 @@ func defaultNewAPIAccountTestModel(account *Account) string {
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		return newapiintegration.VolcEngineAgentPlanDefaultTestModel
 	}
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		return newapiintegration.QianfanTokenPlanDefaultTestModel
+	}
+	if isNewAPIAliTokenPlanAccount(account) {
+		return newapiintegration.AliTokenPlanDefaultTestModel
+	}
 	return openai.DefaultTestModel
 }
 

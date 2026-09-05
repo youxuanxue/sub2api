@@ -77,6 +77,9 @@ func newAPIBridgeChannelInputForModel(account *Account, userID int64, groupLabel
 	}
 	baseURL := strings.TrimSpace(account.GetBaseURL())
 	baseURL = newapiintegration.NormalizeArkChannelBaseURL(account.ChannelType, baseURL)
+	if account.ChannelType == newapiconstant.ChannelTypeAli {
+		baseURL = newapiintegration.NormalizeAliTokenPlanBaseURL(baseURL)
+	}
 	if shouldNormalizeNewAPIOpenAIChannelBaseURL(account) {
 		baseURL = normalizeNewAPIOpenAIChannelBaseURL(baseURL)
 	}
