@@ -76,8 +76,8 @@ func TestNormalizeOpenAICompatRequestedModel(t *testing.T) {
 		input string
 		want  string
 	}{
-		{name: "gpt reasoning alias strips xhigh", input: "gpt-5.4-xhigh", want: "gpt-5.5"},
-		{name: "gpt reasoning alias strips none", input: "gpt-5.4-none", want: "gpt-5.5"},
+		{name: "gpt reasoning alias strips xhigh", input: "gpt-5.4-xhigh", want: "gpt-5.4"},
+		{name: "gpt reasoning alias strips none", input: "gpt-5.4-none", want: "gpt-5.4"},
 		{name: "gpt context alias strips 1m", input: "gpt-5.5[1m]", want: "gpt-5.5"},
 		{name: "gpt reasoning and context alias", input: "gpt-5.5-xhigh[1m]", want: "gpt-5.5"},
 		{name: "codex max model stays intact", input: "gpt-5.1-codex-max", want: "gpt-5.1-codex-max"},
@@ -99,7 +99,7 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 
 		applyOpenAICompatModelNormalization(req)
 
-		require.Equal(t, "gpt-5.5", req.Model)
+		require.Equal(t, "gpt-5.4", req.Model)
 		require.NotNil(t, req.OutputConfig)
 		require.Equal(t, "max", req.OutputConfig.Effort)
 	})
@@ -112,7 +112,7 @@ func TestApplyOpenAICompatModelNormalization(t *testing.T) {
 
 		applyOpenAICompatModelNormalization(req)
 
-		require.Equal(t, "gpt-5.5", req.Model)
+		require.Equal(t, "gpt-5.4", req.Model)
 		require.NotNil(t, req.OutputConfig)
 		require.Equal(t, "low", req.OutputConfig.Effort)
 	})
@@ -230,12 +230,14 @@ func TestForwardAsAnthropic_NormalizesRoutingAndEffortForGpt54XHigh(t *testing.T
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "gpt-5.4-xhigh", result.Model)
-	require.Equal(t, "gpt-5.4", result.UpstreamModel)
+	// Effort strip keeps the gpt-5.4 family id for mapping/billing; OAuth
+	// entitlement remaps the upstream wire id to gpt-5.5.
+	require.Equal(t, "gpt-5.5", result.UpstreamModel)
 	require.Equal(t, "gpt-5.4", result.BillingModel)
 	require.NotNil(t, result.ReasoningEffort)
 	require.Equal(t, "xhigh", *result.ReasoningEffort)
 
-	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, "xhigh", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "gpt-5.4-xhigh", gjson.GetBytes(rec.Body.Bytes(), "model").String())

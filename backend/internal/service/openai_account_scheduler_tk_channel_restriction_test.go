@@ -76,6 +76,9 @@ func TestP01_Scheduler_ChannelPricingRestriction_Blocks(t *testing.T) {
 
 // TestP01_Scheduler_ChannelPricingRestriction_AllowsListedModel 回归保护：
 // 请求模型在白名单内时正常选号，不被新加的检查误杀。
+//
+// Channel restriction checks the CanonicalizeOpenAICompatRoutingModel id
+// (bare gpt-5.4 → gpt-5.5), so the pricing allowlist must include that wire id.
 func TestP01_Scheduler_ChannelPricingRestriction_AllowsListedModel(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(91002)
@@ -87,7 +90,7 @@ func TestP01_Scheduler_ChannelPricingRestriction_AllowsListedModel(t *testing.T)
 		RestrictModels:     true,
 		BillingModelSource: BillingModelSourceRequested,
 		ModelPricing: []ChannelModelPricing{
-			{Platform: PlatformNewAPI, Models: []string{"gpt-5.4"}},
+			{Platform: PlatformNewAPI, Models: []string{"gpt-5.5"}},
 		},
 	}
 	svc, _ := newSchedFixtureWithChannel(t, groupID, PlatformNewAPI, pool, channel)
