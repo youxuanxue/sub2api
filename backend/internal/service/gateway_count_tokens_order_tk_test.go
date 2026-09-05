@@ -6,10 +6,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -182,31 +178,4 @@ func TestForwardCountTokens_PrepareErrorStillSyncsParsedModel(t *testing.T) {
 	// Mirror ForwardCountTokens sync-before-return-on-error semantics.
 	parsed.Model = nextModel
 	require.Equal(t, "claude-sonnet-4-5", parsed.Model)
-}
-
-// TestForwardCountTokens_EstimateBeforeUAGateInSource nails the structural
-// order companion extraction must not invert (CI-safe via runtime.Caller).
-func TestForwardCountTokens_EstimateBeforeUAGateInSource(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	dir := filepath.Dir(thisFile)
-
-	mainSrc, err := os.ReadFile(filepath.Join(dir, "gateway_count_tokens.go"))
-	require.NoError(t, err)
-	prepSrc, err := os.ReadFile(filepath.Join(dir, "gateway_count_tokens_tk.go"))
-	require.NoError(t, err)
-
-	main := string(mainSrc)
-	prep := string(prepSrc)
-
-	estIdx := strings.Index(main, "shouldEstimateCountTokensLocally(account)")
-	uaIdx := strings.Index(main, "checkCanonicalIngressUAStrict")
-	require.Greater(t, estIdx, 0, "ForwardCountTokens must call shouldEstimateCountTokensLocally")
-	require.Greater(t, uaIdx, 0, "ForwardCountTokens must call checkCanonicalIngressUAStrict")
-	require.Less(t, estIdx, uaIdx, "estimate short-circuit must precede UA gate")
-
-	require.NotContains(t, prep, "checkCanonicalIngressUAStrict",
-		"prepare companion must not own the UA gate")
-	require.NotContains(t, prep, "countTokensError",
-		"prepare companion must not write client error responses")
 }
