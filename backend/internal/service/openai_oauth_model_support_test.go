@@ -136,6 +136,17 @@ func TestIsModelSupported_OpenAICompatMappingPrefersClientFacingThenWireRemap(t 
 	require.False(t, spark.IsModelSupported("gpt-5.5"), "non-spark family stays outside spark whitelist")
 }
 
+func TestIsModelSupported_OpenAIAPIKeyEmptyMappingAllowsAll(t *testing.T) {
+	account := &Account{
+		ID:       2,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+	}
+
+	// API Key 账号（第三方 OpenAI 兼容上游）可服务任意别名，语义不变。
+	require.True(t, account.IsModelSupported("deepseek-v4"))
+	require.True(t, account.IsModelSupported("gpt-5.4"))
+}
 
 func TestIsModelSupported_NonOpenAIPlatformsUnchanged(t *testing.T) {
 	anthropic := &Account{ID: 3, Platform: PlatformAnthropic, Type: AccountTypeOAuth}
