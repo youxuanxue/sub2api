@@ -61,6 +61,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 
 		// Cleanup function provider
 		provideCleanup,
+		provideTKCleanupHooks,
 
 		// Application struct
 		wire.Struct(new(Application), "Server", "PromptAudit", "Cleanup"),
@@ -93,12 +94,6 @@ func provideCleanup(
 	apiKeyService *service.APIKeyService,
 	authCacheInvalidationWorker *service.AuthCacheInvalidationWorker,
 	schedulerSnapshot *service.SchedulerSnapshotService,
-	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
-	// internal/service/scheduler_rate_limit_reaper.go.
-	schedulerRateLimitReaper *service.SchedulerRateLimitReaper,
-	// TK: per-node anthropic config self-healer — see
-	// internal/service/anthropic_config_reconciler.go.
-	anthropicConfigReconciler *service.AnthropicConfigReconciler,
 	upstreamBalanceSentinel *service.UpstreamBalanceSentinel,
 	tokenRefresh *service.TokenRefreshService,
 	accountExpiry *service.AccountExpiryService,
@@ -108,10 +103,6 @@ func provideCleanup(
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
 	idempotencyCleanup *service.IdempotencyCleanupService,
-	// TokenKey: pre-flight balance-hold reconciler — passed so its sweep ticker
-	// is Stopped at shutdown and so wire forces evaluation of
-	// ProvideHoldReconcilerService (which starts the ticker at construction).
-	holdReconciler *service.HoldReconcilerService,
 	batchImageCleanup *service.BatchImageCleanupService,
 	batchImageWorker *service.BatchImageWorkerRuntime,
 	pricing *service.PricingService,
@@ -132,66 +123,8 @@ func provideCleanup(
 	channelMonitorRunner *service.ChannelMonitorRunner,
 	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
 	terminalOutcomeRecorder *service.TerminalOutcomeRecorder,
-	// TokenKey: account-incident Feishu notifier. Passed so its digest ticker is
-	// Stopped at shutdown, and so wire forces evaluation of
-	// ProvideTKAccountIncidentNotifier (which attaches it onto RateLimitService).
-	accountIncidentNotifier *service.TKAccountIncidentNotifier,
-	// TokenKey: pricing-missing Feishu notifier. Passed so its digest ticker is
-	// Stopped at shutdown, and so wire forces evaluation of
-	// ProvideTKPricingMissingNotifier (which attaches it onto both gateways).
-	pricingMissingNotifier *service.TKPricingMissingNotifier,
-	// TokenKey: forces wire to evaluate ProvideTKAuthServiceColdStart so the
-	// trial-key issuer gets wired onto AuthService at startup. The value is
-	// unused — only the dependency edge matters. See US-029 / US-030.
-	_ service.TKAuthServiceColdStartReady,
-	// TokenKey: forces wire to evaluate ProvideTKGatewayPricingAvailability so
-	// GatewayService.SetPricingAvailabilityService is called at startup. The
-	// handler-side wiring is forced via ProvideTKPricingCatalogHandler being
-	// the constructor used by handler ProviderSet. See
-	// docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner.
-	_ service.TKGatewayPricingAvailabilityReady,
-	// TokenKey: forces wire to evaluate ProvideTKPricingOverlayRuntime so the
-	// runtime hot-pushable pricing overlay (settings-blob getter + catalog cache
-	// invalidator + pub/sub subscribe) is wired onto PricingService at startup.
-	// Without this edge wire would dead-code the post-construction setter.
-	_ service.TKPricingOverlayRuntimeReady,
-	// TokenKey: forces wire to evaluate ProvideTKAccountModelMappingRuntimeServing
-	// so empty-mapping Antigravity accounts honor the runtime overlay at boot
-	// and on settings_updated. Without this edge wire dead-codes the reload.
-	_ service.TKAccountModelMappingRuntimeServingReady,
-	// TokenKey: forces wire to evaluate ProvideTKGatewayAnthropicSigPreempt so
-	// GatewayService.SetAnthropicSigPreemptCache is called at startup. Without
-	// this dependency edge wire would dead-code the post-construction setter
-	// because no other production component references the sentinel.
-	_ service.TKGatewayAnthropicSigPreemptReady,
-	// TokenKey: forces wire to evaluate ProvideTKAnthropicSaturation so the
-	// saturation counter is wired onto GatewayService + RateLimitService at
-	// startup (otherwise wire dead-codes the post-construction setters).
-	_ service.TKAnthropicSaturationReady,
-	// TokenKey: forces wire to evaluate ProvideTKOpenAISaturation so the OpenAI
-	// edge-mirror saturation counter is wired at startup.
-	_ service.TKOpenAISaturationReady,
-	// TokenKey: forces wire to evaluate ProvideTKAntigravitySaturation so
-	// sustained relay empty-pool responses create exact-model cooldowns.
-	_ service.TKAntigravitySaturationReady,
-	// TokenKey: forces wire to evaluate ProvideTKGatewayHandlerModelList so
-	// GatewayHandler.SetModelListFilter is called at startup. See
-	// docs/approved/pricing-availability-source-of-truth.md#availability-structural-pruning.
-	_ handler.TKGatewayHandlerModelListReady,
-	// TokenKey: forces wire to evaluate ProvideTKUniversalModelsProvider so the
-	// universal-key resolver's "group served-model set" truth source
-	// (GatewayService.GetAvailableModels) is wired onto APIKeyService at startup.
-	// Without this edge wire dead-codes the post-construction setter and the
-	// resolver silently falls back to platform-level routing. See
-	// docs/approved/universal-key-routing.md.
-	_ service.TKUniversalModelsProviderReady,
-	// TokenKey: forces wire to evaluate ProvideTKGroupUnsupportedModelCache so
-	// the shared selection-time unsupported-model negative cache is wired at startup.
-	_ service.TKGroupUnsupportedModelCacheReady,
-	// Forces the additive, idempotent protocol capability migration/report to
-	// run at startup. Accounts that are not cutover-ready remain excluded by
-	// the scheduler hard gate and are emitted as remediation entries.
-	_ service.ProtocolRoutingSSOTReady,
+	// TokenKey cleanup / force-eval edges — see wire_tk_cleanup.go.
+	tkHooks tkCleanupHooks,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
@@ -300,18 +233,12 @@ func provideCleanup(
 				}
 				return nil
 			}},
-			// TK fix for upstream Wei-Shaw/sub2api#2538 — see
-			// internal/service/scheduler_rate_limit_reaper.go.
 			{"SchedulerRateLimitReaper", func() error {
-				if schedulerRateLimitReaper != nil {
-					schedulerRateLimitReaper.Stop()
-				}
+				tkHooks.stopSchedulerRateLimitReaper()
 				return nil
 			}},
 			{"AnthropicConfigReconciler", func() error {
-				if anthropicConfigReconciler != nil {
-					anthropicConfigReconciler.Stop()
-				}
+				tkHooks.stopAnthropicConfigReconciler()
 				return nil
 			}},
 			{"UpstreamBalanceSentinel", func() error {
@@ -333,9 +260,7 @@ func provideCleanup(
 				return nil
 			}},
 			{"HoldReconcilerService", func() error {
-				if holdReconciler != nil {
-					holdReconciler.Stop()
-				}
+				tkHooks.stopHoldReconciler()
 				return nil
 			}},
 			{"BatchImageCleanupService", func() error {
@@ -471,15 +396,11 @@ func provideCleanup(
 				return nil
 			}},
 			{"AccountIncidentNotifier", func() error {
-				if accountIncidentNotifier != nil {
-					accountIncidentNotifier.Stop()
-				}
+				tkHooks.stopAccountIncidentNotifier()
 				return nil
 			}},
 			{"PricingMissingNotifier", func() error {
-				if pricingMissingNotifier != nil {
-					pricingMissingNotifier.Stop()
-				}
+				tkHooks.stopPricingMissingNotifier()
 				return nil
 			}},
 			{"UserPlatformQuotaUsageFlusher", func() error {

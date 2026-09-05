@@ -219,9 +219,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `DELETE /api/v1/admin/groups/:id` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/groups/:id` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/groups/:id` from `backend/internal/server/routes/admin.go`
-- `DELETE /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin.go`
-- `GET /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin.go`
-- `POST /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin.go`
+- `DELETE /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin_tk_group_membership_routes.go`
+- `GET /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin_tk_group_membership_routes.go`
+- `POST /api/v1/admin/groups/:id/accounts` from `backend/internal/server/routes/admin_tk_group_membership_routes.go`
 - `GET /api/v1/admin/groups/:id/api-keys` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/groups/:id/composite-routes` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/groups/:id/composite-routes` from `backend/internal/server/routes/admin.go`
@@ -650,7 +650,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /images/edits/async` from `backend/internal/server/routes/gateway.go`
 - `POST /images/generations` from `backend/internal/server/routes/gateway.go`
 - `POST /images/generations/async` from `backend/internal/server/routes/gateway.go`
-- `POST /images/presign` from `backend/internal/server/routes/gateway.go`
+- `POST /images/presign` from `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`
 - `GET /images/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
 - `POST /messages/count_tokens` from `backend/internal/server/routes/gateway.go`
 - `GET /models` from `backend/internal/server/routes/gateway.go`
@@ -688,7 +688,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /v1/images/edits/async` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/images/generations` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/images/generations/async` from `backend/internal/server/routes/gateway.go`
-- `POST /v1/images/presign` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/images/presign` from `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`
 - `GET /v1/images/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/live` from `backend/internal/server/routes/gateway.go`
 - `GET /v1/live/:call_id` from `backend/internal/server/routes/gateway.go`

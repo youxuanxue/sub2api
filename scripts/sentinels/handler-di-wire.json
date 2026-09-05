@@ -18,7 +18,7 @@
       "rationale": "DI registration center: AdminHandlers and Handlers struct fields are the sole compile-time link between TK handler implementations and the application. Dropping any field silently deregisters the corresponding TK surface (routes still reference the handler but get nil, causing runtime panics or silent 404s). The 8 anchors cover all TK-only struct fields across both structs."
     },
     {
-      "path": "backend/internal/handler/wire.go",
+      "path": "backend/internal/handler/wire_tk.go",
       "must_contain": [
         "ProvideTKPricingCatalogHandler",
         "ProvideTKGatewayHandlerModelList",
@@ -49,7 +49,7 @@
       "rationale": "TK setting fields for canonical OAuth hardening toggles (ingress strict + haiku mimicry) and the cold-start diff helper call site. These are woven into the upstream-shaped GetSettings/UpdateSettings response/request structs and the settings diff function — dropping them compiles cleanly but silently removes the admin UI's ability to toggle canonical OAuth guards and loses cold-start setting change audit trail."
     },
     {
-      "path": "backend/internal/handler/wire.go",
+      "path": "backend/internal/handler/wire_tk.go",
       "must_contain": [
         "capabilities *service.UniversalCapabilityService,",
         "h.SetUniversalCapabilityService(capabilities)",

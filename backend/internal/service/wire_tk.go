@@ -4,8 +4,56 @@ import (
 	"context"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+
+	"github.com/google/wire"
 )
+
+// TKProviderSet is the Wire provider set for TokenKey-only service DI.
+// Composed into ProviderSet so upstream-shaped wire.go stays free of TK
+// provider listings (CLAUDE.md §5 companion pattern).
+var TKProviderSet = wire.NewSet(
+	NewMePricingCatalogService,
+	ProvideSchedulerRateLimitReaper,
+	ProvideAnthropicConfigReconciler,
+	ProvideEdgeAccountsAggregator,
+	NewTierService,
+	wire.Bind(new(TierExtraResolver), new(*TierService)),
+	NewAccountTierService,
+	ProvideHoldReconcilerService,
+	ProvideTKAuthServiceColdStart,
+	ProvidePricingAvailabilityService,
+	ProvideTKGatewayPricingAvailability,
+	ProvideTKUniversalModelsProvider,
+	ProvideTKGroupUnsupportedModelCache,
+	ProvideTKPricingOverlayRuntime,
+	ProvideTKAccountModelMappingRuntimeServing,
+	NewModelListFilter,
+	NewUniversalCapabilityService,
+	ProvideTKGatewayAnthropicSigPreempt,
+	ProvideTKAnthropicSaturation,
+	ProvideTKOpenAISaturation,
+	ProvideTKAntigravitySaturation,
+	ProvideTKAccountIncidentNotifier,
+	ProvideTKPricingMissingNotifier,
+)
+
+// tkWireSettingServiceExtras applies TokenKey-only SettingService post-construction
+// wiring that must run immediately after LoadForwardedClientIPSettings and before
+// migrations (cross-replica settings pub/sub), matching pre-companion order.
+func tkWireSettingServiceExtras(svc *SettingService, pubsub SettingPubSub) {
+	// Fan out SystemSettings writes (e.g. HTTP UA version) across replicas via
+	// Redis pub/sub so a change is reflected within seconds, not the 60s cache TTL.
+	svc.EnableSettingsPubSub(context.Background(), pubsub)
+}
+
+// tkWireClaudeCodeResolvers installs Claude Code fingerprint resolvers after
+// shared antigravity resolver wiring (same relative order as pre-companion).
+func tkWireClaudeCodeResolvers(svc *SettingService) {
+	SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)
+	claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)
+}
 
 // TKAuthServiceColdStartReady is a wire sentinel: holding it proves that
 // AuthService has had its trial-key issuer wired. provideCleanup takes this

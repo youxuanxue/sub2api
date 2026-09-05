@@ -53,6 +53,25 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	// the Stop() call.
 	schedulerRateLimitReaperSvc := service.NewSchedulerRateLimitReaper(nil, cfg)
 	opsSystemLogSinkSvc := service.NewOpsSystemLogSink(nil)
+	tkHooks := provideTKCleanupHooks(
+		schedulerRateLimitReaperSvc,
+		nil, // anthropicConfigReconciler
+		nil, // holdReconciler
+		nil, // accountIncidentNotifier
+		nil, // pricingMissingNotifier
+		service.TKAuthServiceColdStartReady{},
+		service.TKGatewayPricingAvailabilityReady{},
+		service.TKPricingOverlayRuntimeReady{},
+		service.TKAccountModelMappingRuntimeServingReady{},
+		service.TKGatewayAnthropicSigPreemptReady{},
+		service.TKAnthropicSaturationReady{},
+		service.TKOpenAISaturationReady{},
+		service.TKAntigravitySaturationReady{},
+		handler.TKGatewayHandlerModelListReady{},
+		service.TKUniversalModelsProviderReady{},
+		service.TKGroupUnsupportedModelCacheReady{},
+		service.ProtocolRoutingSSOTReady{},
+	)
 
 	cleanup := provideCleanup(
 		nil, // entClient
@@ -68,8 +87,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // apiKeyService
 		nil, // authCacheInvalidationWorker
 		schedulerSnapshotSvc,
-		schedulerRateLimitReaperSvc,
-		nil, // anthropicConfigReconciler
 		nil, // upstreamBalanceSentinel
 		tokenRefreshSvc,
 		accountExpirySvc,
@@ -79,7 +96,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		subscriptionExpirySvc,
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
-		nil, // holdReconciler
 		nil, // batchImageCleanup
 		nil, // batchImageWorker
 		pricingSvc,
@@ -92,35 +108,22 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		openAIOAuthSvc,
 		geminiOAuthSvc,
 		antigravityOAuthSvc,
-		nil,                                   // grokOAuth
-		nil,                                   // openAIGateway
-		nil,                                   // scheduledTestRunner
-		nil,                                   // backupSvc
-		nil,                                   // paymentOrderExpiry
-		nil,                                   // channelMonitorRunner
-		nil,                                   // channelMonitorV2Aggregator
-		nil,                                   // terminalOutcomeRecorder
-		nil,                                   // accountIncidentNotifier
-		nil,                                   // pricingMissingNotifier
-		service.TKAuthServiceColdStartReady{}, // TK: forces SetTrialKeyIssuer wiring
-		service.TKGatewayPricingAvailabilityReady{},        // TK: forces SetPricingAvailabilityService wiring
-		service.TKPricingOverlayRuntimeReady{},             // TK: forces runtime overlay (settings hot-push) wiring
-		service.TKAccountModelMappingRuntimeServingReady{}, // TK: forces AG empty-mapping runtime overlay wiring
-		service.TKGatewayAnthropicSigPreemptReady{},        // TK: forces SetAnthropicSigPreemptCache wiring
-		service.TKAnthropicSaturationReady{},               // TK: forces SetAnthropicSaturationCounter wiring
-		service.TKOpenAISaturationReady{},                  // TK: forces SetOpenAISaturationCounter wiring
-		service.TKAntigravitySaturationReady{},             // TK: forces SetAntigravitySaturationCounter wiring
-		handler.TKGatewayHandlerModelListReady{},           // TK: forces SetModelListFilter wiring
-		service.TKUniversalModelsProviderReady{},           // TK: forces universal-key models-provider wiring
-		service.TKGroupUnsupportedModelCacheReady{},        // TK: forces group unsupported negative cache wiring
-		service.ProtocolRoutingSSOTReady{},                 // TK: forces protocol capability migration/report wiring
-		nil,                                                // quotaFlusher
-		nil,                                                // upstreamBillingProbe
-		nil,                                                // ollamaCloudUsage
-		nil,                                                // auditLog
-		nil,                                                // promptAudit
-		nil,                                                // telemetryArchive
-		nil,                                                // telemetryArchiveHealth
+		nil, // grokOAuth
+		nil, // openAIGateway
+		nil, // scheduledTestRunner
+		nil, // backupSvc
+		nil, // paymentOrderExpiry
+		nil, // channelMonitorRunner
+		nil, // channelMonitorV2Aggregator
+		nil, // terminalOutcomeRecorder
+		tkHooks,
+		nil, // quotaFlusher
+		nil, // upstreamBillingProbe
+		nil, // ollamaCloudUsage
+		nil, // auditLog
+		nil, // promptAudit
+		nil, // telemetryArchive
+		nil, // telemetryArchiveHealth
 	)
 
 	require.NotPanics(t, func() {

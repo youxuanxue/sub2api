@@ -1906,17 +1906,16 @@
       "rationale": "Per-user pricing-catalog route MUST stay wired inside the JWT-only authenticated group. Without this line GET /api/v1/me/pricing-catalog 404s, the UI segmented control silently falls back to the public catalog, and users lose the 'your menu' view that drives upgrade-decision conversions. Upstream merges of routes/user.go cannot touch this companion file but a sloppy edit could drop the registration; pinning the literal closes that gap."
     },
     {
-      "path": "backend/internal/service/wire.go",
+      "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "NewMePricingCatalogService"
       ],
       "rationale": "ProviderSet MUST register the per-user pricing-catalog service. Without it `wire` regen fails to satisfy the *MePricingCatalogService dependency in handler/wire.go and falls back to a nil handler (500 on /api/v1/me/pricing-catalog). The TK-only feature lives in service/me_pricing_catalog_tk.go but only this registration makes it reachable at runtime — easy to silently drop in an upstream merge of the ProviderSet."
     },
     {
-      "path": "backend/internal/handler/wire.go",
+      "path": "backend/internal/handler/wire_tk.go",
       "must_contain": [
-        "NewMePricingCatalogHandler",
-        "MePricingCatalog: mePricingCatalogHandler"
+        "NewMePricingCatalogHandler"
       ],
       "rationale": "Handler ProviderSet + ProvideHandlers assignment for the per-user pricing-catalog endpoint. Two lines must both survive: the ProviderSet registration so wire can construct the handler, and the field assignment in ProvideHandlers so the runtime Handlers struct actually carries it (a missing assignment lets wire compile but silently leaves Handlers.MePricingCatalog nil → routes/user_tk_routes.go skips registration via its nil guard)."
     },
@@ -2011,10 +2010,10 @@
       "rationale": "Forward call site of the Anthropic-native request-body normalizer (tool_choice string -> object; strip thinking when tool_choice forces tool use). Split from gateway_service.go after upstream merge moved Forward into gateway_forward.go."
     },
     {
-      "path": "backend/internal/service/gateway_count_tokens.go",
+      "path": "backend/internal/service/gateway_count_tokens_tk.go",
       "must_contain": [
         "// TK: normalize Anthropic native request body for count_tokens path",
-        "body = s.tkNormalizeAnthropicRequestBody(ctx, c, body, account)"
+        "nextBody = s.tkNormalizeAnthropicRequestBody(ctx, c, nextBody, account)"
       ],
       "rationale": "Count_tokens call site of the Anthropic-native request-body normalizer. The count_tokens-specific banner comment is pinned because the bare normalizer literal alone would be satisfied by the Forward call site, leaving count_tokens silently unguarded."
     },
@@ -2171,7 +2170,7 @@
       "rationale": "GetOrCreateFingerprint must accept tlsProfileName and skip ingress UA version upgrades when canonical TLS template is active."
     },
     {
-      "path": "backend/internal/service/wire.go",
+      "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)",
         "claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)"
@@ -4447,7 +4446,7 @@
       "rationale": "Thin TK injection at the top of the upstream-owned parseTimeRange (the single chokepoint for all 7 dashboard time-window endpoints). Rolling presets (近24小时/7/14/30天) send absolute epoch-ms start_ts/end_ts so the window is timezone-independent; without this hook the window falls back to the viewer's browser-reported timezone and two admin sessions on different timezones (e.g. a fingerprint browser spoofing a US zone vs Asia/Shanghai) again see materially different dashboard numbers for the same selection. The implementation lives in the dashboard_handler_tk_window.go companion; this sentinel anchors the one-line call site that an upstream merge copying the old parseTimeRange shape back would silently drop."
     },
     {
-      "path": "backend/internal/service/gateway_usage_billing.go",
+      "path": "backend/internal/service/gateway_usage_billing_tk.go",
       "must_contain": [
         "s.tkNotifyServedZeroCost(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)"
       ],
@@ -4563,9 +4562,9 @@
       "rationale": "The native Forward pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkApplyAnthropicRequestCompatibilityRules so explicit thinking.type=disabled never reaches fable upstreams, top-level sampling params never reach Opus 4.7+/Sonnet 5+ Anthropic upstreams, and short-cached adaptive-thinking rules apply before the next upstream call. An upstream merge that restores the bare two-function chain silently reverts these fixes and surfaces raw upstream 400s again."
     },
     {
-      "path": "backend/internal/service/gateway_count_tokens.go",
+      "path": "backend/internal/service/gateway_count_tokens_tk.go",
       "must_contain": [
-        "replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account)))))"
+        "replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(nextBody, account)))))"
       ],
       "rationale": "The count_tokens pre-send sanitize chain must wrap the StripEmptyTextBlocks(TkSanitizeRequestBody(...)) combo with tkStripFableDisabledThinking and tkApplyAnthropicRequestCompatibilityRules so explicit thinking.type=disabled never reaches fable upstreams, top-level sampling params never reach Opus 4.7+/Sonnet 5+ Anthropic upstreams, and short-cached compatibility rules reduce repeated upstream 400s."
     },
@@ -4665,7 +4664,7 @@
       "rationale": "TK default-off override for upstream's always-on admin compliance acknowledgement gate (CLAUDE.md §5.x option 2). Upstream 423-locks every /api/v1/admin/* route per admin user until an interactive frontend ack; TokenKey fleet admin automation (admin_api_key over x-api-key, forged short-lived edge JWTs, SSM ops scripts) has no ack step — an upstream merge that silently restores the bare AdminComplianceGuard registration bricks every automated admin surface across prod + edges at once. tk_admin_compliance_gate_enabled=true re-enables the upstream behavior per node."
     },
     {
-      "path": "backend/internal/server/routes/admin.go",
+      "path": "backend/internal/server/routes/admin_tk_compliance.go",
       "must_contain": [
         "middleware.TkAdminComplianceGuardIfEnabled(settingService)"
       ],
@@ -5097,16 +5096,15 @@
     {
       "path": "backend/internal/service/wire.go",
       "must_contain": [
-        "func ProvideHoldReconcilerService(repo UsageBillingRepository) *HoldReconcilerService {",
-        "ProvideHoldReconcilerService,"
+        "func ProvideHoldReconcilerService(repo UsageBillingRepository) *HoldReconcilerService {"
       ],
       "rationale": "Hold reconciler DI registration (PR #746): the crash-recovery sweep that refunds leaked holds. If the provider drops out of ProviderSet together with its cleanup parameter, the build still compiles — and every crash-leaked hold pins user balance forever. Sentinel makes the silent-consistent deletion loud."
     },
     {
-      "path": "backend/cmd/server/wire.go",
+      "path": "backend/cmd/server/wire_tk_cleanup.go",
       "must_contain": [
         "holdReconciler *service.HoldReconcilerService,",
-        "{\"HoldReconcilerService\", func() error {"
+        "stopHoldReconciler"
       ],
       "rationale": "Hold reconciler shutdown hook in provideCleanup (PR #746): forces wire to construct (and therefore start) the reconciler and stops its ticker at shutdown. Same silent-consistent-deletion risk as the service/wire.go entry."
     },
@@ -5795,14 +5793,14 @@
       "rationale": "Wire boundary for the Antigravity empty-mapping runtime overlay. The setting getter, initial reload, and settings_updated subscription must stay forced into the server graph; otherwise sync-runtime writes settings that no replica ever serves."
     },
     {
-      "path": "backend/internal/service/wire.go",
+      "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "ProvideTKAccountModelMappingRuntimeServing,"
       ],
       "rationale": "ProviderSet registration for the Antigravity empty-mapping runtime overlay. Dropping this member lets wire skip the provider while the rest of the graph compiles, so sync-runtime again becomes a settings-only no-op."
     },
     {
-      "path": "backend/cmd/server/wire.go",
+      "path": "backend/cmd/server/wire_tk_cleanup.go",
       "must_contain": [
         "_ service.TKAccountModelMappingRuntimeServingReady,"
       ],
@@ -8558,6 +8556,28 @@
         "Wei-Shaw/sub2api#1322"
       ],
       "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322). (terminal classifier moved to companion)"
+    },
+    {
+      "path": "backend/internal/service/wire_tk.go",
+      "must_contain": [
+        "ProvideHoldReconcilerService,"
+      ],
+      "rationale": "TKProviderSet must keep ProvideHoldReconcilerService so wire constructs the crash-recovery hold reconciler (PR #746). Companion listing after extraction from ProviderSet."
+    },
+    {
+      "path": "backend/internal/handler/wire.go",
+      "must_contain": [
+        "MePricingCatalog: mePricingCatalogHandler"
+      ],
+      "rationale": "ProvideHandlers assignment so Handlers.MePricingCatalog is non-nil at runtime (routes/user_tk_routes.go nil-guards registration)."
+    },
+    {
+      "path": "backend/cmd/server/wire.go",
+      "must_contain": [
+        "{\"HoldReconcilerService\", func() error {",
+        "tkHooks.stopHoldReconciler()"
+      ],
+      "rationale": "provideCleanup must still Stop the hold reconciler via tkHooks after TK cleanup deps were extracted."
     }
   ]
 }

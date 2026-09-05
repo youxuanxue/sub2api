@@ -52,7 +52,7 @@
       "rationale": "gateway_service.go carries the success-path availability tap inside recordUsageCore (the 100%-hit path for all platform forwards) plus the TK 403 error-message enrichment in handleErrorResponse. Three sentinels: tkPricingAvailability (field declaration), RecordOutcome (success tap), and TkEnrichForbiddenMessage (403 client-message enrichment, replaces the default 'Upstream access forbidden, please contact administrator' with body-size hint). An upstream merge restructuring recordUsageCore or handleErrorResponse could silently remove any of these, collapsing the availability signal or regressing the 403 UX to the unhelpful default."
     },
     {
-      "path": "backend/internal/service/gateway_usage_billing.go",
+      "path": "backend/internal/service/gateway_usage_billing_tk.go",
       "must_contain": [
         "s.tkPricingAvailability.RecordOutcome(ctx, AvailabilityOutcome{"
       ],

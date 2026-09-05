@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -53,41 +52,17 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		body = parsed.Body.Bytes()
 		return nil
 	}
+	getBody := func() []byte { return parsed.Body.Bytes() }
 	reqModel := parsed.Model
 
-	// TK: strip Claude Code context-window aliases before count_tokens reaches
-	// upstream or per-account breaker accounting.
-	if account != nil && account.Platform == PlatformAnthropic {
-		if bare, aliased := tkStripContextWindowModelAlias(reqModel); aliased {
-			if err := replaceBody(s.replaceModelInBody(body, bare)); err != nil {
-				return err
-			}
-			reqModel, parsed.Model = bare, bare
-			logger.LegacyPrintf("service.gateway",
-				"TK context-window alias stripped on count_tokens (claude-code #60913): -> %s account=%d", bare, account.ID)
-		}
-	}
-
-	// Pre-filter: sanitize invalid UTF-8 / lone surrogate escapes, strip empty
-	// text blocks, drop explicit disabled thinking for Fable, and strip fields
-	// rejected by newer Anthropic models.
-	if err := replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(body, account))))); err != nil {
-		return err
-	}
-
-	// TK: normalize Anthropic native request body for count_tokens path.
-	if account != nil && account.Platform == PlatformAnthropic {
-		body = s.tkNormalizeAnthropicRequestBody(ctx, c, body, account)
-	}
-
-	if next, stripped := StripCountTokensUnsupportedFields(body); len(stripped) > 0 {
-		body = next
-		slog.Info(
-			"count_tokens.stripped_unsupported_fields",
-			"account_id", account.ID,
-			"account_name", account.Name,
-			"fields", stripped,
-		)
+	var prepErr error
+	body, reqModel, prepErr = s.tkPrepareCountTokensAnthropicBody(ctx, c, account, body, reqModel, replaceBody, getBody)
+	// Sync model even when prepare fails mid-way (e.g. alias strip succeeded,
+	// later replaceBody failed) so parsed.Model matches the rewritten body —
+	// same eager write semantics as the pre-companion inline path.
+	parsed.Model = reqModel
+	if prepErr != nil {
+		return prepErr
 	}
 
 	if shouldEstimateCountTokensLocally(account) {
@@ -96,6 +71,8 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// TK canonical-OAuth strict ingress UA gate on count_tokens.
+	// Must stay AFTER shouldEstimateCountTokensLocally (estimate platforms
+	// short-circuit without hitting this gate).
 	if c != nil && c.Request != nil && s.isCanonicalAnthropicOAuth(account) &&
 		s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
 		if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
