@@ -13,7 +13,7 @@ add new root-level design notes unless no existing bucket fits.
 | Small implementation deltas | [`spec-delta/README.md`](spec-delta/README.md) | Intent records for non-approval changes. |
 | Raw evidence and captured upstream pricing | [`evidence/README.md`](evidence/README.md) | Evidence only; not an operator runbook. |
 | Account/fingerprint references | [`accounts/README.md`](accounts/README.md) | Account onboarding and upstream-account baselines. |
-| Public in-product pages | [`public/`](public/) | Only this subtree may be synced to production Pages. |
+| Public in-product pages | `docs/public/` (gitignored; sync via `sync-docs-to-pages` workflow) | Only this subtree may be synced to production Pages. |
 | Agent/process reference | [`global/`](global/) | Overflow for root `CLAUDE.md` and upstream-merge discipline. |
 
 ## Boundaries

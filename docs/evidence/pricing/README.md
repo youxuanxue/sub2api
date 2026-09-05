@@ -12,7 +12,6 @@ fallback under `backend/resources/model-pricing/`.
 | --- | --- |
 | [`bigmodel_pricing_20260709.md`](bigmodel_pricing_20260709.md) | BigModel GLM pricing capture; pricing source only, GLM serving remains Alibaba DashScope via Qwen accounts. |
 | [`aliyun_pricing_20260612.md`](aliyun_pricing_20260612.md) | Alibaba DashScope pricing capture used by existing overlay provenance. |
-| [`aliyun_pricing_20260701.md`](aliyun_pricing_20260701.md) | Later Alibaba DashScope pricing capture for modelops work. |
 | [`google_vertex_pricing_20260619.md`](google_vertex_pricing_20260619.md) | Google Vertex media pricing capture. |
 | [`xai_pricing_20260815.md`](xai_pricing_20260815.md) | xAI Grok token pricing, inclusive 200k long-context tiers, and local usage-normalization evidence. |
 | [`volcengine_pricing_20260611.md`](volcengine_pricing_20260611.md) | VolcEngine Ark pricing capture. |
