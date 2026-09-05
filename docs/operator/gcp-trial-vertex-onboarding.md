@@ -127,13 +127,24 @@ curl -sS https://api.tokenkey.dev/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Say hi in one word."}],"max_tokens":16}'
 
-# 图片 / 视频（账号须已声明对应 ID；分组须 allow_image_generation）
-python3 docs/examples/media-generation/generate_media.py image "a red apple on a wooden table"
-python3 docs/examples/media-generation/generate_media.py video "a puppy running on a beach"
+# 图片（账号须已声明 imagen-*；分组须 allow_image_generation）
+curl -sS https://api.tokenkey.dev/v1/images/generations \
+  -H "Authorization: Bearer $TOKENKEY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"imagen-4.0-fast-generate-001","prompt":"a red apple on a wooden table","n":1}'
+
+# 视频：异步提交后轮询（账号须已声明 veo-*）
+TASK_ID=$(curl -sS https://api.tokenkey.dev/v1/video/generations \
+  -H "Authorization: Bearer $TOKENKEY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"veo-3.1-generate-001","prompt":"a puppy running on a beach"}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')
+curl -sS "https://api.tokenkey.dev/v1/video/generations/$TASK_ID" \
+  -H "Authorization: Bearer $TOKENKEY_API_KEY"
 ```
 
 - Chat 应返回 200 与 `choices[0].message.content`。
-- 媒体应产出 `out_image_*.png` / `out_video_*.mp4`。
+- 图片应返回 OpenAI 形 `data[]`（`b64_json` 或 `url`）；视频提交应返回 task id，轮询至终态。
 - GCP Console → Billing → Reports：Vertex AI 用量上升、试用额度下降即成功。
 
 ---
