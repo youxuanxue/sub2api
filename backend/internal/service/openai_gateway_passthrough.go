@@ -575,9 +575,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		return nil, err
 	}
 
-	if req.Header.Get("content-type") == "" {
-		req.Header.Set("content-type", "application/json")
-	}
+	// Codex ChatGPT upstream rejects Content-Type with charset parameters
+	// (Wei-Shaw/sub2api#963). Always pin a strict JSON media type after the
+	// client whitelist copy so charset=utf-8 never leaks upstream.
+	req.Header.Set("content-type", "application/json")
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)

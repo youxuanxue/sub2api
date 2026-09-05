@@ -37,7 +37,7 @@ func TestNormalizeOpenAICompatRequestedModel_StripsContextWindowAlias(t *testing
 	t.Parallel()
 
 	require.Equal(t, "gpt-5.5", NormalizeOpenAICompatRequestedModel("gpt-5.5[1m]"))
-	require.Equal(t, "gpt-5.4", NormalizeOpenAICompatRequestedModel("gpt-5.4-xhigh[1m]"))
+	require.Equal(t, "gpt-5.5", NormalizeOpenAICompatRequestedModel("gpt-5.4-xhigh[1m]"))
 }
 
 func TestApplyOpenAICompatModelNormalization_StripsContextWindowAliasBeforeReasoning(t *testing.T) {

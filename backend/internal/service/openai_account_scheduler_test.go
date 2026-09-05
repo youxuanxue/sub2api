@@ -1067,7 +1067,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorReports
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.Nil(t, selection)
-	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.4 (pool=0)")
+	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.5 (pool=0)")
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_EnabledUsesAdvancedPreviousResponseRouting(t *testing.T) {
@@ -1951,7 +1951,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_ModelRateLimit
 		Priority:    0,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gpt-5.4": map[string]any{
+				"gpt-5.5": map[string]any{
 					"rate_limit_reset_at": resetAt,
 				},
 			},

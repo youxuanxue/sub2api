@@ -11,22 +11,24 @@ import (
 )
 
 var codexModelMap = map[string]string{
-	"gpt-5.6":                    "gpt-5.6-sol",
-	"gpt-5.6-sol":                "gpt-5.6-sol",
-	"gpt-5.6-terra":              "gpt-5.6-terra",
-	"gpt-5.6-luna":               "gpt-5.6-luna",
-	"gpt-5.6-chat-latest":        "gpt-5.6-chat-latest",
-	"gpt-5.5":                    "gpt-5.5",
-	"gpt-5.5-pro":                "gpt-5.5",
-	"codex-auto-review":          "codex-auto-review",
-	"gpt-5.4":                    "gpt-5.4",
+	// Bare gpt-5.6 and chat-latest fold to Sol (flagship GPT-5.6 tier).
+	"gpt-5.6":             "gpt-5.6-sol",
+	"gpt-5.6-sol":         "gpt-5.6-sol",
+	"gpt-5.6-terra":       "gpt-5.6-terra",
+	"gpt-5.6-luna":        "gpt-5.6-luna",
+	"gpt-5.6-chat-latest": "gpt-5.6-sol",
+	"gpt-5.5":             "gpt-5.5",
+	"gpt-5.5-pro":         "gpt-5.5",
+	"codex-auto-review":   "codex-auto-review",
+	// gpt-5.4 left the ChatGPT Codex allowlist; route bare 5.4 traffic to 5.5.
+	"gpt-5.4":                    "gpt-5.5",
 	"gpt-5.4-mini":               "gpt-5.4-mini",
-	"gpt-5.4-none":               "gpt-5.4",
-	"gpt-5.4-low":                "gpt-5.4",
-	"gpt-5.4-medium":             "gpt-5.4",
-	"gpt-5.4-high":               "gpt-5.4",
-	"gpt-5.4-xhigh":              "gpt-5.4",
-	"gpt-5.4-chat-latest":        "gpt-5.4",
+	"gpt-5.4-none":               "gpt-5.5",
+	"gpt-5.4-low":                "gpt-5.5",
+	"gpt-5.4-medium":             "gpt-5.5",
+	"gpt-5.4-high":               "gpt-5.5",
+	"gpt-5.4-xhigh":              "gpt-5.5",
+	"gpt-5.4-chat-latest":        "gpt-5.5",
 	"gpt-5.3":                    "gpt-5.3-codex-spark",
 	"gpt-5.3-none":               "gpt-5.3-codex-spark",
 	"gpt-5.3-low":                "gpt-5.3-codex-spark",
@@ -59,9 +61,9 @@ var codexModelMap = map[string]string{
 	"gpt-5-codex-medium":         "gpt-5.3-codex-spark",
 	"gpt-5-codex-high":           "gpt-5.3-codex-spark",
 	"gpt-5-codex-xhigh":          "gpt-5.3-codex-spark",
-	"gpt-5-mini":                 "gpt-5.4",
-	"gpt-5-nano":                 "gpt-5.4",
-	"gpt-5.1":                    "gpt-5.4",
+	"gpt-5-mini":                 "gpt-5.5",
+	"gpt-5-nano":                 "gpt-5.5",
+	"gpt-5.1":                    "gpt-5.5",
 	"gpt-5.1-codex":              "gpt-5.3-codex-spark",
 	"gpt-5.1-codex-max":          "gpt-5.3-codex-spark",
 	"gpt-5.1-codex-mini":         "gpt-5.3-codex-spark",
@@ -85,11 +87,11 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
 	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
-	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-chat-latest"},
+	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.5-pro", target: "gpt-5.5"},
 	{prefix: "gpt-5.5", target: "gpt-5.5"},
-	{prefix: "gpt-5.4", target: "gpt-5.4"},
+	{prefix: "gpt-5.4", target: "gpt-5.5"},
 	{prefix: "gpt-5.2", target: "gpt-5.2"},
 }
 
@@ -628,7 +630,7 @@ func stringifyCodexContentText(value any) string {
 func normalizeCodexModel(model string) string {
 	model = strings.TrimSpace(model)
 	if model == "" {
-		return "gpt-5.4"
+		return "gpt-5.5"
 	}
 	if mapped, ok := normalizeKnownCodexModel(model); ok {
 		return mapped

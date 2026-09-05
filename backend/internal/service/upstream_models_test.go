@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -351,4 +352,73 @@ func TestFetchUpstreamSupportedModelsDoesNotExposeUpstreamBody(t *testing.T) {
 	require.Equal(t, UpstreamModelSyncErrorUpstream, syncErr.Kind)
 	require.NotContains(t, syncErr.SafeMessage(), "SECRET_TOKEN")
 	require.Contains(t, syncErr.SafeMessage(), "HTTP 502")
+}
+
+func TestExtractCodexManifestModelIDsPrefersSlug(t *testing.T) {
+	t.Parallel()
+
+	models, err := extractCodexManifestModelIDs([]byte(`{
+		"models":[
+			{"slug":"gpt-5.6-terra","id":"ignored"},
+			{"id":"gpt-5.5"},
+			{"name":"codex-auto-review"},
+			{"slug":"gpt-5.6-terra"}
+		]
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, []string{"codex-auto-review", "gpt-5.5", "gpt-5.6-terra"}, models)
+}
+
+func TestFetchUpstreamSupportedModelsOpenAIOAuthUsesCodexManifest(t *testing.T) {
+	t.Parallel()
+
+	originalURL := chatgptCodexModelsURL
+	t.Cleanup(func() { chatgptCodexModelsURL = originalURL })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Contains(t, r.URL.RawQuery, "client_version=")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5.6-terra"},{"slug":"gpt-5.5"},{"slug":"gpt-5.6-terra"}]}`))
+	}))
+	t.Cleanup(server.Close)
+	chatgptCodexModelsURL = server.URL
+
+	openAI := &OpenAIGatewayService{
+		cfg:          upstreamModelSyncTestConfig(),
+		httpUpstream: &httpUpstreamRecorder{},
+	}
+	svc := &AccountTestService{
+		openAIGatewayService: openAI,
+		cfg:                  upstreamModelSyncTestConfig(),
+	}
+
+	models, err := svc.FetchUpstreamSupportedModels(context.Background(), &Account{
+		ID:       9,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "acct-1",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"gpt-5.5", "gpt-5.6-terra"}, models)
+}
+
+func TestFetchUpstreamSupportedModelsOpenAIOAuthRequiresGateway(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig()}
+	_, err := svc.FetchUpstreamSupportedModels(context.Background(), &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "oauth-token",
+		},
+	})
+	require.Error(t, err)
+	var syncErr *UpstreamModelSyncError
+	require.True(t, errors.As(err, &syncErr))
+	require.Equal(t, UpstreamModelSyncErrorConfiguration, syncErr.Kind)
 }

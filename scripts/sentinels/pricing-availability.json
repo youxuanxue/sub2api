@@ -327,7 +327,7 @@
         "gpt-5.6-chat-latest",
         "return \"gpt-5.6-sol\""
       ],
-      "rationale": "GPT-5.6 billing tier normalization is intentionally split from codex wire normalization (normalizeKnownOpenAICodexModel / normalizeCodexModel): upstream wire ids such as gpt-5.6-chat-latest must stay intact for OAuth transform while billing collapses chat-latest to the Sol tier key. Merging tier collapse back into normalizeKnownOpenAICodexModel silently breaks TestNormalizeCodexModel_Gpt53 and mis-bills chat-latest at the gpt-5.4 family floor. Pinning normalizeOpenAIBillingModel and the Sol collapse makes an upstream merge refactor fail CI instead of regressing wire vs billing separation."
+      "rationale": "GPT-5.6 billing tier normalization is intentionally split from scheduling remaps: billing collapses bare gpt-5.6 and gpt-5.6-chat-latest to the Sol tier key via normalizeOpenAIBillingModel (return \"gpt-5.6-sol\"). Codex upstream transform may also route those aliases to Sol for entitlement stability, but settlement must keep an explicit Sol collapse here so chat-latest cannot fall through to the gpt-5.4 family floor. Pinning normalizeOpenAIBillingModel + the chat-latest/Sol literals makes an upstream merge refactor fail CI instead of silently mis-billing."
     },
     {
       "path": "scripts/checks/pricing-overlay.py",

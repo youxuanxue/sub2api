@@ -151,7 +151,7 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	case strings.Contains(normalized, "gpt-5.4-nano"):
 		return "gpt-5.4-nano"
 	case strings.Contains(normalized, "gpt-5.4"):
-		return "gpt-5.4"
+		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5.2"):
 		return "gpt-5.2"
 	case strings.Contains(normalized, "gpt-5.3-codex-spark"):
@@ -169,28 +169,73 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	case normalized == "gpt-5":
 		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5"):
-		return "gpt-5.4"
+		return "gpt-5.5"
 	default:
 		return ""
 	}
 }
 
 // normalizeOpenAIBillingModel maps OpenAI/Codex wire ids to billing tier keys.
-// Codex wire transform keeps ids such as gpt-5.6-chat-latest; billing collapses them to Sol/Terra/Luna.
+// Upstream entitlement remaps (e.g. gpt-5.4 → gpt-5.5 for ChatGPT Codex) must
+// NOT change settlement owners: billing stays on the requested family's price
+// card. GPT-5.6 bare/chat-latest fold to Sol (flagship tier).
 func normalizeOpenAIBillingModel(model string) string {
-	normalized := normalizeKnownOpenAICodexModel(model)
-	if normalized == "" || !strings.Contains(normalized, "gpt-5.6") {
-		return normalized
+	normalized := canonicalizeOpenAIModelAliasSpelling(model)
+	if normalized == "" {
+		normalized = strings.ToLower(lastOpenAIModelSegment(model))
 	}
+	if normalized == "" {
+		return ""
+	}
+
 	switch {
-	case strings.Contains(normalized, "luna"):
+	case strings.Contains(normalized, "gpt-5.6-luna"):
 		return "gpt-5.6-luna"
-	case strings.Contains(normalized, "terra"):
+	case strings.Contains(normalized, "gpt-5.6-terra"):
 		return "gpt-5.6-terra"
-	case strings.Contains(normalized, "chat"), strings.Contains(normalized, "sol"), normalized == "gpt-5.6":
+	case strings.Contains(normalized, "gpt-5.6-chat-latest"),
+		strings.Contains(normalized, "gpt-5.6-sol"),
+		normalized == "gpt-5.6":
 		return "gpt-5.6-sol"
+	case strings.HasPrefix(normalized, "gpt-5.6-"):
+		suffix := strings.TrimPrefix(normalized, "gpt-5.6-")
+		if suffix == "max" || isKnownCodexModelSuffix(suffix) {
+			return "gpt-5.6-sol"
+		}
+		return ""
+	case strings.Contains(normalized, "gpt-5.5-pro"):
+		return "gpt-5.5"
+	case strings.Contains(normalized, "gpt-5.5"):
+		return "gpt-5.5"
+	case strings.Contains(normalized, "gpt-5.4-mini"):
+		return "gpt-5.4-mini"
+	case strings.Contains(normalized, "gpt-5.4-nano"):
+		return "gpt-5.4-nano"
+	case strings.Contains(normalized, "gpt-5.4"):
+		return "gpt-5.4"
+	case strings.Contains(normalized, "gpt-5.2"):
+		return "gpt-5.2"
+	case strings.Contains(normalized, "gpt-5.3-codex-spark"):
+		return "gpt-5.3-codex-spark"
+	case strings.Contains(normalized, "gpt-5.3-codex"):
+		return "gpt-5.3-codex-spark"
+	case strings.Contains(normalized, "gpt-5-codex"):
+		return "gpt-5.3-codex-spark"
+	case normalized == "gpt-5.3":
+		return "gpt-5.3-codex-spark"
+	case normalized == "codex-auto-review":
+		return "codex-auto-review"
+	case strings.Contains(normalized, "codex"):
+		return "gpt-5.3-codex-spark"
+	case strings.Contains(normalized, "gpt-5-chat"):
+		return "gpt-5.5"
+	case normalized == "gpt-5":
+		return "gpt-5.5"
+	case strings.Contains(normalized, "gpt-5"):
+		// Legacy gpt-5.1 / gpt-5-mini / etc. keep the gpt-5.4 settlement owner.
+		return "gpt-5.4"
 	default:
-		return "gpt-5.6-sol"
+		return ""
 	}
 }
 

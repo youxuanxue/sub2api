@@ -289,3 +289,61 @@ func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForOAuth(t *tes
 		})
 	}
 }
+
+func TestOpenAIGatewayServiceForward_NormalizesResponsesLiteToolsForAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.144.1")
+	c.Request.Header.Set(responsesLiteHeader, "true")
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"resp_lite_apikey","object":"response","usage":{"input_tokens":1,"output_tokens":1}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}},
+	}, httpUpstream: upstream}
+	account := &Account{
+		ID: 502, Name: "responses-lite-apikey", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Concurrency: 1, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.openai.com"},
+	}
+	body := []byte(`{
+		"model":"gpt-5.6-terra","stream":false,"instructions":"test","parallel_tool_calls":true,
+		"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],
+		"input":[{"type":"message","role":"user","content":"hello"}]
+	}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "true", upstream.lastReq.Header.Get(responsesLiteHeader))
+	require.Equal(t, "false", gjson.GetBytes(upstream.lastBody, "parallel_tool_calls").Raw)
+}
+
+func TestOpenAIBuildUpstreamRequestStripsContentTypeCharset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("Content-Type", "application/json; charset=utf-8")
+	c.Request.Header.Set("User-Agent", "codex-tui/0.153.2")
+
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+	account := &Account{
+		Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "acct"},
+	}
+
+	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5.5","stream":true}`), "token", false, "", false)
+	require.NoError(t, err)
+	require.Equal(t, "application/json", req.Header.Get("Content-Type"))
+	require.NotContains(t, req.Header.Get("Content-Type"), "charset")
+}
