@@ -207,3 +207,94 @@ func tkResolveAnthropicCompatPromptCacheKey(
 	}
 	return promptCacheKey, false
 }
+
+type tkOpenAICompatMessagesSessionPrep struct {
+	promptCacheKey              string
+	compatPromptCacheInjected   bool
+	anthropicDigestChain        string
+	anthropicMatchedDigestChain string
+	compatReplayTrimmed         bool
+	compatReplayTrimmedByPolicy bool
+	compatReplayGuardEnabled    bool
+	compatCompactionPolicy      openAICompatMessagesCompactionPolicy
+	compatContinuationEnabled   bool
+	previousResponseID          string
+	compatContinuationDisabled  bool
+	compatTurnState             string
+}
+
+// tkPrepareOpenAICompatMessagesSession applies TokenKey prompt-cache seeding,
+// continuation lookup, and messages-compaction replay guard before Anthropic→
+// Responses conversion.
+func (s *OpenAIGatewayService) tkPrepareOpenAICompatMessagesSession(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	anthropicReq *apicompat.AnthropicRequest,
+	anthropicDigestReq *apicompat.AnthropicRequest,
+	upstreamModel string,
+	promptCacheKey string,
+	apiKeyID int64,
+) tkOpenAICompatMessagesSessionPrep {
+	out := tkOpenAICompatMessagesSessionPrep{promptCacheKey: strings.TrimSpace(promptCacheKey)}
+	// Grok is outside the gpt-5/codex compat injector, but Claude Code still
+	// carries a stable session id. Prefer that as the Grok prompt-cache seed so
+	// multi-turn /v1/messages traffic can hit xAI's server-side cache.
+	if out.promptCacheKey == "" && account.Platform == PlatformGrok {
+		if seededKey, injected := tkResolveAnthropicCompatPromptCacheKey(c, account, body, anthropicReq, upstreamModel, out.promptCacheKey); injected {
+			out.promptCacheKey = seededKey
+			out.compatPromptCacheInjected = true
+		}
+	}
+	if out.promptCacheKey == "" && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
+		out.promptCacheKey = promptCacheKeyFromAnthropicMetadataSession(anthropicReq)
+		if out.promptCacheKey == "" {
+			out.promptCacheKey = deriveAnthropicCacheControlPromptCacheKey(anthropicReq)
+		}
+		if out.promptCacheKey == "" {
+			out.anthropicDigestChain = buildOpenAICompatAnthropicDigestChain(anthropicDigestReq)
+			if reusedKey, matchedChain := s.findOpenAICompatAnthropicDigestPromptCacheKey(account, apiKeyID, out.anthropicDigestChain); reusedKey != "" {
+				out.promptCacheKey = reusedKey
+				out.anthropicMatchedDigestChain = matchedChain
+			} else {
+				out.promptCacheKey = promptCacheKeyFromAnthropicDigest(out.anthropicDigestChain)
+			}
+		}
+		out.compatPromptCacheInjected = out.promptCacheKey != ""
+	}
+	out.compatReplayGuardEnabled = shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)
+	out.compatCompactionPolicy = resolveOpenAICompatMessagesCompactionPolicy(account, apiKeyGroup(getAPIKeyFromContext(c)))
+	out.compatContinuationEnabled = openAICompatContinuationEnabled(account, upstreamModel)
+	if out.compatContinuationEnabled {
+		out.previousResponseID = s.getOpenAICompatSessionResponseID(ctx, c, account, out.promptCacheKey)
+	}
+	out.compatContinuationDisabled = out.compatContinuationEnabled &&
+		s.isOpenAICompatSessionContinuationDisabled(ctx, c, account, out.promptCacheKey)
+	if out.compatReplayGuardEnabled && shouldEvaluateOpenAICompatMessagesCompactionForAccount(account, out.previousResponseID, out.compatContinuationDisabled) {
+		if shouldApplyOpenAICompatMessagesCompaction(out.compatCompactionPolicy, anthropicReq) {
+			out.compatReplayTrimmed = applyOpenAICompatMessagesCompaction(account, anthropicReq)
+			out.compatReplayTrimmedByPolicy = out.compatReplayTrimmed
+		}
+	}
+	SetOpenAICompatMessagesOpsContext(c, OpenAICompatMessagesOpsSnapshot{
+		PreviousResponseIDAttached: out.previousResponseID != "",
+		MessagesCompactionApplied:  out.compatReplayTrimmedByPolicy,
+		EstimatedInputTokens:       estimateAnthropicRequestInputTokens(anthropicReq),
+	})
+	return out
+}
+
+// isOpenAICompatResponsesTerminalEvent reports whether an OpenAI Responses SSE
+// event type should close the Anthropic-compat streaming loop.
+func isOpenAICompatResponsesTerminalEvent(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	// TK: align with openAIStreamEventIsTerminal so cancelled/canceled close
+	// the streaming loop instead of falling through. See Wei-Shaw/sub2api#1322.
+	case "response.completed", "response.done", "response.incomplete", "response.failed",
+		"response.cancelled", "response.canceled":
+		return true
+	default:
+		return false
+	}
+}

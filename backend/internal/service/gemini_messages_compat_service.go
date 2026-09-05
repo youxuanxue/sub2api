@@ -608,27 +608,12 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	originalModel := req.Model
-	// TK: 分组级 Claude→Gemini 模型映射 (gemini_messages_dispatch_tk.go)。
-	// handler 通过 gin.Context 透传 *Group；resolver 仅当 group 非空且
-	// 配置了映射规则、且 req.Model 不是 gemini-* 形态时才改写 req.Model。
-	if g := tkGroupFromGinContext(c); g != nil {
-		if mapped := g.TKResolveGeminiDispatchModel(req.Model); mapped != "" {
-			req.Model = mapped
-		}
+	var prepErr error
+	req.Model, prepErr = s.tkPrepareGeminiMessagesForward(ctx, c, account, originalModel, req.Model)
+	if prepErr != nil {
+		return nil, prepErr
 	}
 	mappedModel, requestModel := resolveGeminiForwardModels(account, req.Model)
-	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject
-	// unpriced models with a 404 BEFORE forward / stream start (SSE pre-flight).
-	// No-op unless account.Platform is in the enabled set (gemini ships first).
-	// Forward serves an Anthropic /v1/messages ingress (writeClaudeError elsewhere),
-	// so the 404 body must be the ANTHROPIC envelope (BLOCKER4: byte-align to the
-	// client's wire protocol, not account.Platform). Judge originalModel — billing
-	// records on result.Model=originalModel here (forwardResultBillingModel), so the
-	// gate must use the exact key billing charges (BLOCKER1). See
-	// gateway_priced_serving_gate_tk.go.
-	if !s.tkPricedServingGate(ctx, c, tkGateWireAnthropic, account.Platform, originalModel, originalModel) {
-		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
-	}
 	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
@@ -1201,17 +1186,8 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
 
 	mappedModel, requestModel := resolveGeminiForwardModels(account, originalModel)
-	// TK priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md): reject unpriced
-	// models with a 404 BEFORE forward / stream start (SSE pre-flight). Native Gemini ingress
-	// (generateContent/streamGenerateContent) → Gemini 404 envelope. countTokens is EXEMPT
-	// (docs §4, BLOCKER5): it is zero-billing (Usage{}) and a never-hard-fail pre-flight, so
-	// gating it breaks that contract for no leak benefit. Judge originalModel — billing records
-	// result.Model=originalModel here, so the gate must use billing's exact key (BLOCKER1).
-	// No-op unless account.Platform is in the enabled set. See gateway_priced_serving_gate_tk.go.
-	if action != "countTokens" {
-		if !s.tkPricedServingGate(ctx, c, tkGateWireGemini, account.Platform, originalModel, originalModel) {
-			return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
-		}
+	if err := s.tkPrepareGeminiNativeForward(ctx, c, account, originalModel, action); err != nil {
+		return nil, err
 	}
 	ctx = withGeminiCodeAssistMappedModel(ctx, mappedModel)
 
@@ -3114,33 +3090,7 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 
 	resetAt := ParseGeminiRateLimitResetTime(body)
 	if resetAt == nil {
-		// 根据账号类型使用不同的默认重置时间。
-		//
-		// TK: See upstream Wei-Shaw/sub2api#641 —— 反代 Gemini CLI 的
-		// google_one OAuth 账号收到 429（无 quotaResetDelay/retryDelay）时，
-		// upstream 旧逻辑直接封禁到 PST 午夜，完全忽略 tier 上的 Cooldown
-		// 配置（如 google_ai_pro 的 5min）。所有 OAuth 账号（含 google_one /
-		// aistudio OAuth / code_assist）都应走 tier cooldown；只有非 OAuth
-		// 的 AI Studio API Key 才用 PST 午夜兜底。
-		var ra time.Time
-		if account.Type == AccountTypeOAuth {
-			cooldown := geminiCooldownForTier(tierID)
-			if s.rateLimitService != nil {
-				cooldown = s.rateLimitService.GeminiCooldown(ctx, account)
-			}
-			ra = time.Now().Add(cooldown)
-			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (OAuth oauth_type=%s, tier=%s, project=%s, code_assist=%v) rate limited, cooldown=%v", account.ID, oauthType, tierID, projectID, isCodeAssist, time.Until(ra).Truncate(time.Second))
-		} else {
-			// API Key (AI Studio): PST 午夜
-			if ts := nextGeminiDailyResetUnix(); ts != nil {
-				ra = time.Unix(*ts, 0)
-				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (API Key, type=%s) rate limited, reset at PST midnight (%v)", account.ID, account.Type, ra)
-			} else {
-				// 兜底：5 分钟
-				ra = time.Now().Add(5 * time.Minute)
-				logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited, fallback to 5min", account.ID)
-			}
-		}
+		ra := s.tkGeminiDefaultRateLimitResetAt(ctx, account, oauthType, tierID, projectID, isCodeAssist)
 		_ = s.accountRepo.SetRateLimited(ctx, account.ID, ra)
 		return
 	}

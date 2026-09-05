@@ -137,12 +137,18 @@
       "rationale": "TK companion invoked from admin_service.go CreateAccount/UpdateAccount that pins newapi/Moonshot accounts to the regional base_url their API key actually accepts. Without it, admins silently save accounts with the wrong region (api.moonshot.cn vs .ai), and the relay hot path 401s every request because it deliberately does not do per-request region fallback. Build-break alone is insufficient: an upstream merge that simultaneously removes the call sites would silently regress this without compile failure."
     },
     {
-      "path": "backend/internal/service/admin_account.go",
+      "path": "backend/internal/service/admin_account_tk_create.go",
+      "rationale": "CreateAccount and UpdateAccount are separate persistence boundaries and must both invoke the Moonshot regional resolver. The two context-specific anchors distinguish the create call (followed by unconditional Grok create validation) from the update call (followed by conditional Grok refresh validation), so one surviving call cannot mask deletion of the other. (create boundary companion)",
       "must_contain": [
-        "if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := resolveGrokTokenOnSave",
-        "if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {\n\t\treturn nil, err\n\t}\n\tif account.Platform == PlatformGrok"
-      ],
-      "rationale": "CreateAccount and UpdateAccount are separate persistence boundaries and must both invoke the Moonshot regional resolver. The two context-specific anchors distinguish the create call (followed by unconditional Grok create validation) from the update call (followed by conditional Grok refresh validation), so one surviving call cannot mask deletion of the other."
+        "if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := resolveGrokTokenOnSave"
+      ]
+    },
+    {
+      "path": "backend/internal/service/admin_account_tk_update.go",
+      "rationale": "CreateAccount and UpdateAccount are separate persistence boundaries and must both invoke the Moonshot regional resolver. The two context-specific anchors distinguish the create call (followed by unconditional Grok create validation) from the update call (followed by conditional Grok refresh validation), so one surviving call cannot mask deletion of the other. (update boundary companion)",
+      "must_contain": [
+        "if err := resolveNewAPIMoonshotBaseURLOnSave(ctx, account); err != nil {\n\t\treturn err\n\t}\n\tif account.Platform == PlatformGrok"
+      ]
     },
     {
       "path": "backend/internal/integration/newapi/channel_types.go",
@@ -429,10 +435,16 @@
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
-        "func accountSupportsOpenAICapabilities",
-        "account.IsOpenAI() && !account.SupportsOpenAIEndpointCapability"
+        "func accountSupportsOpenAICapabilities"
       ],
       "rationale": "TK reconciliation of upstream endpoint-capability gating onto the fifth-platform scheduler. accountSupportsOpenAICapabilities applies the OpenAI endpoint-capability filter to native `openai` accounts ONLY (`account.IsOpenAI() && !...`), so `newapi` accounts (platform != openai, !IsOpenAI) are never fail-closed out of chat/embeddings scheduling. If a future merge drops the IsOpenAI() guard and applies SupportsOpenAIEndpointCapability unconditionally, every newapi account would be filtered out of the compat pool — a total fifth-platform outage. Must survive future upstream merges."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler_tk_slot_full_escape.go",
+      "must_contain": [
+        "account.IsOpenAI() && !account.SupportsOpenAIEndpointCapability(requiredCapability)"
+      ],
+      "rationale": "TK reconciliation of upstream endpoint-capability gating onto the fifth-platform scheduler. accountSupportsOpenAICapabilities applies the OpenAI endpoint-capability filter to native `openai` accounts ONLY (`account.IsOpenAI() && !...`), so `newapi` accounts (platform != openai, !IsOpenAI) are never fail-closed out of chat/embeddings scheduling. If a future merge drops the IsOpenAI() guard and applies SupportsOpenAIEndpointCapability unconditionally, every newapi account would be filtered out of the compat pool — a total fifth-platform outage. Must survive future upstream merges. (moved)"
     },
     {
       "path": "backend/internal/relay/bridge/context_input.go",
@@ -635,11 +647,12 @@
       "rationale": "Regression for the real vstecscloud 403 insufficient_user_quota response shape plus a marker-outside-message boundary: the bridge must SetError, emit newapi_arrears through the account incident notifier, preserve the upstream detail, and make the same failover decision from the complete envelope."
     },
     {
-      "path": "backend/internal/service/ratelimit_service.go",
+      "path": "backend/internal/service/ratelimit_service_tk_upstream_error_prelude.go",
       "must_contain": [
-        "tkTryHandleStandingBilling"
+        "tkTryHandleStandingBilling",
+        "func (s *RateLimitService) tkTryHandleUpstreamErrorPrelude("
       ],
-      "rationale": "HandleUpstreamError must call tkTryHandleStandingBilling before pool-mode skip and tryTempUnschedulable. Otherwise a generic 403 temp rule or Anthropic stub-saturation fallthrough leaves prepaid-dead accounts (tokensea 用户额度不足) schedulable with no Feishu account-failure card."
+      "rationale": "HandleUpstreamError must call tkTryHandleStandingBilling (via tkTryHandleUpstreamErrorPrelude) before pool-mode skip and tryTempUnschedulable. Otherwise a generic 403 temp rule or Anthropic stub-saturation fallthrough leaves prepaid-dead accounts (tokensea 用户额度不足) schedulable with no Feishu account-failure card."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
@@ -1020,7 +1033,7 @@
       "rationale": "Native text transports must preserve an omitted configurable OpenAI API-key/upstream base_url as unresolved. Falling through to GetOpenAIBaseURL would synthesize api.openai.com before the fail-closed boundary can distinguish an explicit custom endpoint from an implicit official-host fallback, contradicting docs/approved/protocol-routing-ssot.md section 6. The sibling credential accessor preserves CloudWise and Agent Plan special bindings while using the canonical OpenAI-protocol key accessor for ordinary OpenAI/NewAPI/CN accounts."
     },
     {
-      "path": "backend/internal/service/ratelimit_service.go",
+      "path": "backend/internal/service/ratelimit_service_tk_upstream_error_prelude.go",
       "must_contain": [
         "IsForeignCredentialOfficialOpenAIReject(account, statusCode, responseBody)",
         "foreign_credential_official_openai_reject_skip_penalty"

@@ -8,7 +8,30 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
+
+func (h *GatewayHandler) tkLoadUsageAggregates(
+	c *gin.Context,
+	ctx context.Context,
+	userID, apiKeyID int64,
+	days int,
+	startTime, endTime time.Time,
+) (usageData gin.H, dailyUsage any, modelStats any) {
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { usageData = h.buildUsageData(gctx, apiKeyID); return nil })
+	g.Go(func() error { dailyUsage = h.buildAPIKeyDailyUsage(c, userID, apiKeyID, days); return nil })
+	g.Go(func() error {
+		if h.usageService != nil {
+			if stats, err := h.usageService.GetAPIKeyModelStats(gctx, apiKeyID, startTime, endTime); err == nil && len(stats) > 0 {
+				modelStats = stats
+			}
+		}
+		return nil
+	})
+	_ = g.Wait()
+	return usageData, dailyUsage, modelStats
+}
 
 func (h *GatewayHandler) usageWalletBalance(c *gin.Context, ctx context.Context, apiKey *service.APIKey, userID int64) float64 {
 	fallback := 0.0

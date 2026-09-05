@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -9,8 +10,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // SetModelListFilter wires the optional client model-list filter into
@@ -36,6 +39,76 @@ func (h *OpenAIGatewayHandler) SetUniversalCapabilityService(capabilities *servi
 	if h != nil {
 		h.tkCapabilities = capabilities
 	}
+}
+
+// tryServeUniversalModels serves /v1/models for universal keys with no group.
+// Returns true when the request was handled (success or error response written).
+func (h *GatewayHandler) tryServeUniversalModels(c *gin.Context, apiKey *service.APIKey, groupID *int64) bool {
+	if apiKey == nil || !apiKey.IsUniversal() || groupID != nil {
+		return false
+	}
+	protocol := service.UniversalProtocolOpenAI
+	if isAnthropicModelsRequest(c) {
+		protocol = service.UniversalProtocolAnthropic
+	}
+	capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, protocol)
+	if err != nil {
+		requestLogger(c, "gateway.models", zap.String("protocol", string(protocol))).Warn("capability_discovery_failed", zap.Error(err))
+		if protocol == service.UniversalProtocolAnthropic {
+			h.errorResponse(c, http.StatusInternalServerError, "api_error", "Model discovery unavailable")
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Model discovery unavailable"}})
+		}
+		return true
+	}
+	ids := capabilityModelIDs(capabilities, "")
+	if protocol == service.UniversalProtocolAnthropic {
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": claude.ModelsForIDs(ids)})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": openai.ModelsForIDs(ids)})
+	}
+	return true
+}
+
+func (h *GatewayHandler) serveAntigravityModels(c *gin.Context) {
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.IsUniversal() && apiKey.Group == nil {
+		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolAntigravity)
+		if err != nil {
+			requestLogger(c, "gateway.antigravity_models", zap.String("protocol", string(service.UniversalProtocolAntigravity))).Warn("capability_discovery_failed", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Model discovery unavailable"}})
+			return
+		}
+		models := antigravityModelsForCapabilityIDs(capabilityModelIDs(capabilities, ""))
+		c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
+		return
+	}
+	// TK: §5.x override-default — filter antigravity.DefaultModels() by pricing +
+	// availability. Candidate set is always the antigravity-specific list (not the
+	// full cross-platform catalog). Response shape is always []antigravity.ClaudeModel.
+	// Goal 2 / R-003; shape/scope regression fix from review-20260507 R-001/R-002.
+	models := h.tkAntigravityDefaultModels(c.Request.Context())
+	// TK: enforce the group's supported_model_scopes on the advertised list, so a
+	// narrow antigravity group without the claude scope hides Claude here. Empty
+	// scopes = unrestricted; canonical scopes (claude + gemini_text + gemini_image)
+	// are enforced only after an operator-reviewed apply-accounts run.
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
+		models = tkAntigravityFilterModelsByGroupScopes(apiKey.Group.SupportedModelScopes, models)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"object": "list",
+		"data":   models,
+	})
+}
+
+func customModelsListComparableModel(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" || !strings.HasPrefix(model, "claude-") {
+		return model
+	}
+	if base, ok := strings.CutSuffix(model, "-thinking"); ok {
+		model = base
+	}
+	return claude.DenormalizeModelID(model)
 }
 
 func (h *GatewayHandler) universalCapabilities(ctx context.Context, apiKey *service.APIKey, protocol service.UniversalProtocol) ([]service.UniversalCapability, error) {

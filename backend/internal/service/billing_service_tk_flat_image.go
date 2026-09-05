@@ -22,3 +22,25 @@ import "strings"
 func tkIsFlatPerImageModel(model string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "imagen-")
 }
+
+// tkApplyDefaultImageSizeMultiplier applies Seedream-style 2K/4K size tiers,
+// except for flat-priced Imagen which must return basePrice unchanged.
+func tkApplyDefaultImageSizeMultiplier(model string, imageSize string, basePrice float64) float64 {
+	// TK: Imagen bills at its FLAT official per-image price. Google prices Imagen
+	// as a single $/image per quality variant with NO 1K/2K/4K generation tier, so
+	// the size-tier multiplier below (real only for genuine pixel-size tiers such
+	// as Seedream) must not apply. Imagen requests carry ratio codes (no size) and
+	// default to "2K", which silently marked them up ×1.5 — this exemption removes
+	// that. Routes through the same function as the pre-flight HOLD, so settle and
+	// hold stay consistent. See tkIsFlatPerImageModel.
+	if tkIsFlatPerImageModel(model) {
+		return basePrice
+	}
+	if imageSize == "2K" {
+		return basePrice * 1.5
+	}
+	if imageSize == "4K" {
+		return basePrice * 2
+	}
+	return basePrice
+}

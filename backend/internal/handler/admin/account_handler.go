@@ -3,9 +3,6 @@ package admin
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -19,14 +16,9 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -36,43 +28,6 @@ import (
 // OAuthHandler handles OAuth-related operations for accounts
 type OAuthHandler struct {
 	oauthService *service.OAuthService
-}
-
-type protocolCapabilityProbeScheduler interface {
-	ProbeAccountProtocolCapabilitiesBatch(ctx context.Context, accountIDs []int64)
-}
-
-type protocolCapabilityProbeRunner interface {
-	ProbeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64) (service.ProtocolProbeRunResult, error)
-}
-
-type protocolCapabilityProbeResponse struct {
-	CapabilityKey        string     `json:"capability_key"`
-	SupportedProtocols   []string   `json:"supported_protocols"`
-	Revision             int64      `json:"revision"`
-	LastProbedAt         *time.Time `json:"last_probed_at"`
-	AffectedAccountCount int        `json:"affected_account_count"`
-}
-
-func protocolCapabilityProbeProjection(result service.ProtocolProbeRunResult) *protocolCapabilityProbeResponse {
-	if result.Capability == nil {
-		return nil
-	}
-	protocols, err := service.NormalizeSupportedProtocols(result.Capability.SupportedProtocols)
-	if err != nil {
-		protocols = nil
-	}
-	supportedProtocols := make([]string, len(protocols))
-	for i, protocol := range protocols {
-		supportedProtocols[i] = string(protocol)
-	}
-	return &protocolCapabilityProbeResponse{
-		CapabilityKey:        result.Capability.CapabilityKey,
-		SupportedProtocols:   supportedProtocols,
-		Revision:             result.Capability.Revision,
-		LastProbedAt:         result.Capability.LastProbedAt,
-		AffectedAccountCount: result.AffectedAccountCount,
-	}
 }
 
 // NewOAuthHandler creates a new OAuth handler
@@ -696,44 +651,15 @@ func (h *AccountHandler) List(c *gin.Context) {
 	// Build response with concurrency info
 	result := make([]AccountWithConcurrency, len(accounts))
 	for i := range accounts {
-		acc := &accounts[i]
-		// In lite mode (list view) use the shallow mapper, which keeps GroupIDs but
-		// omits the fully-embedded Groups/AccountGroups objects. Those dominate the
-		// list payload (~3.1KB of ~4.5KB per row — the same group definitions are
-		// duplicated across every account row), and the list resolves group chips
-		// client-side from group_ids + the already-loaded groups list. The full
-		// payload (with embedded Groups) is still served for non-lite callers and
-		// for single-account detail/edit fetches.
-		accountDTO := dto.AccountFromService(acc)
-		if lite {
-			accountDTO = dto.AccountFromServiceShallow(acc)
-		}
-		accountDTO = h.enrichAccountResponse(accountDTO)
-		item := AccountWithConcurrency{
-			Account:            accountDTO,
-			CurrentConcurrency: concurrencyCounts[acc.ID],
-			SchedulerScore:     schedulerScores[acc.ID],
-			SchedulerScores:    schedulerGroupScores[acc.ID],
-			// TK: tag anthropic mirror-stub rows with their edge id so the accounts
-			// UI can expand them into that edge's accounts inline ("" for non-stubs).
-			EdgeID: service.MirrorStubEdgeID(acc),
-		}
-
-		// 添加活跃会话数（仅当启用时）
-		if activeSessions != nil {
-			if count, ok := activeSessions[acc.ID]; ok {
-				item.ActiveSessions = &count
-			}
-		}
-
-		// 添加 RPM 计数（仅当启用时）
-		if rpmCounts != nil {
-			if rpm, ok := rpmCounts[acc.ID]; ok {
-				item.CurrentRPM = &rpm
-			}
-		}
-
-		result[i] = item
+		result[i] = h.tkBuildAccountListRow(
+			&accounts[i],
+			lite,
+			concurrencyCounts,
+			schedulerScores,
+			schedulerGroupScores,
+			activeSessions,
+			rpmCounts,
+		)
 	}
 
 	h.enrichShadowParents(c.Request.Context(), result)
@@ -749,76 +675,6 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	response.Paginated(c, result, total, page, pageSize)
-}
-
-func parseAccountListChannelTypeQuery(raw string) (int, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0, nil
-	}
-	parsed, err := strconv.Atoi(raw)
-	if err != nil || parsed < 0 {
-		return 0, infraerrors.BadRequest("INVALID_CHANNEL_TYPE_FILTER", "invalid channel_type filter")
-	}
-	return parsed, nil
-}
-
-func buildAccountsListETag(
-	items []AccountWithConcurrency,
-	total int64,
-	page, pageSize int,
-	platform, accountType, status, search string,
-	channelType int,
-	lite bool,
-) string {
-	payload := struct {
-		Total       int64                    `json:"total"`
-		Page        int                      `json:"page"`
-		PageSize    int                      `json:"page_size"`
-		Platform    string                   `json:"platform"`
-		AccountType string                   `json:"type"`
-		Status      string                   `json:"status"`
-		Search      string                   `json:"search"`
-		ChannelType int                      `json:"channel_type"`
-		Lite        bool                     `json:"lite"`
-		Items       []AccountWithConcurrency `json:"items"`
-	}{
-		Total:       total,
-		Page:        page,
-		PageSize:    pageSize,
-		Platform:    platform,
-		AccountType: accountType,
-		Status:      status,
-		Search:      search,
-		ChannelType: channelType,
-		Lite:        lite,
-		Items:       items,
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(raw)
-	return "\"" + hex.EncodeToString(sum[:]) + "\""
-}
-
-func ifNoneMatchMatched(ifNoneMatch, etag string) bool {
-	if etag == "" || ifNoneMatch == "" {
-		return false
-	}
-	for _, token := range strings.Split(ifNoneMatch, ",") {
-		candidate := strings.TrimSpace(token)
-		if candidate == "*" {
-			return true
-		}
-		if candidate == etag {
-			return true
-		}
-		if strings.HasPrefix(candidate, "W/") && strings.TrimPrefix(candidate, "W/") == etag {
-			return true
-		}
-	}
-	return false
 }
 
 // GetByID handles getting an account by ID
@@ -1102,50 +958,6 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
-func (h *AccountHandler) scheduleProtocolCapabilityProbes(account *service.Account) {
-	if account == nil {
-		return
-	}
-	if h.protocolProbeScheduler == nil {
-		return
-	}
-	if len(service.ProtocolProbeCandidates(account)) == 0 {
-		return
-	}
-	h.scheduleProtocolCapabilityProbeBatch([]int64{account.ID})
-}
-
-func (h *AccountHandler) scheduleProtocolCapabilityProbeBatch(accountIDs []int64) {
-	if h == nil || h.protocolProbeScheduler == nil || len(accountIDs) == 0 {
-		return
-	}
-	ids := append([]int64(nil), accountIDs...)
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("protocol_capability_probe_panic", "account_count", len(ids), "recover", r)
-			}
-		}()
-		h.protocolProbeScheduler.ProbeAccountProtocolCapabilitiesBatch(context.Background(), ids)
-	}()
-}
-
-func protocolCapabilityProbeRequiredForUpdate(req UpdateAccountRequest) bool {
-	if req.Type != "" || req.ChannelType != nil || len(req.Credentials) > 0 {
-		return true
-	}
-	return protocolCapabilityExtraChanged(req.Extra)
-}
-
-func protocolCapabilityExtraChanged(extra map[string]any) bool {
-	if len(extra) == 0 {
-		return false
-	}
-	_, customBaseURLChanged := extra["custom_base_url"]
-	_, customBaseURLEnabledChanged := extra["custom_base_url_enabled"]
-	return customBaseURLChanged || customBaseURLEnabledChanged
-}
-
 // Delete handles deleting an account
 // DELETE /api/v1/admin/accounts/:id
 func (h *AccountHandler) Delete(c *gin.Context) {
@@ -1221,57 +1033,6 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	if account, err := h.adminService.GetAccount(c.Request.Context(), accountID); err == nil {
 		h.scheduleProtocolCapabilityProbes(account)
 	}
-}
-
-// ProbeProtocols synchronously re-tests the native text protocols for one
-// account and returns the refreshed account snapshot.
-// POST /api/v1/admin/accounts/:id/protocol-probe
-func (h *AccountHandler) ProbeProtocols(c *gin.Context) {
-	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		response.BadRequest(c, "Invalid account ID")
-		return
-	}
-
-	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	if h.protocolProbeScheduler == nil {
-		response.ErrorWithDetails(c, http.StatusServiceUnavailable, "Protocol probe unavailable", "protocol_probe_unavailable", nil)
-		return
-	}
-	if len(service.ProtocolProbeCandidates(account)) == 0 {
-		response.Success(c, gin.H{
-			"account": h.buildAccountResponseWithRuntime(c.Request.Context(), account),
-			"outcome": service.ProtocolProbeRunNotApplicable,
-			"reason":  "no_protocol_probe_candidates",
-		})
-		return
-	}
-	runner, ok := h.protocolProbeScheduler.(protocolCapabilityProbeRunner)
-	if !ok {
-		response.ErrorWithDetails(c, http.StatusServiceUnavailable, "Protocol probe unavailable", "protocol_probe_unavailable", nil)
-		return
-	}
-	result, err := runner.ProbeAccountProtocolCapabilitiesNow(c.Request.Context(), accountID)
-	if err != nil {
-		response.ErrorFrom(c, fmt.Errorf("protocol probe account %d: %w", accountID, err))
-		return
-	}
-	account, err = h.adminService.GetAccount(c.Request.Context(), accountID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, gin.H{
-		"account":    h.buildAccountResponseWithRuntime(c.Request.Context(), account),
-		"capability": protocolCapabilityProbeProjection(result),
-		"outcome":    result.Outcome,
-		"reason":     result.Reason,
-	})
 }
 
 // RecoverState handles unified recovery of recoverable account runtime state.
@@ -2875,197 +2636,6 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, tkClaudeAdminModelsForIDs(sortedModelMappingKeys(mapping)))
-}
-
-// Admin available-models always crosses the HTTP boundary as one minimal DTO;
-// platform package model types remain internal metadata sources.
-func tkAdminModelOptions[T any](models []T, fields func(T) (string, string)) []dto.AccountModelOption {
-	out := make([]dto.AccountModelOption, 0, len(models))
-	for _, model := range models {
-		id, displayName := fields(model)
-		if displayName == "" {
-			displayName = id
-		}
-		out = append(out, dto.AccountModelOption{ID: id, DisplayName: displayName})
-	}
-	return out
-}
-
-func tkAdminModelOptionsForIDs(ids []string) []dto.AccountModelOption {
-	out := make([]dto.AccountModelOption, 0, len(ids))
-	for _, id := range ids {
-		out = append(out, dto.AccountModelOption{ID: id, DisplayName: id})
-	}
-	return out
-}
-
-func sortedModelMappingKeys(mapping map[string]string) []string {
-	ids := make([]string, 0, len(mapping))
-	for id := range mapping {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
-}
-
-func tkOpenAIAdminModelsForIDs(ids []string) []dto.AccountModelOption {
-	return tkAdminModelOptions(openai.ModelsForIDs(ids), func(model openai.Model) (string, string) {
-		return model.ID, model.DisplayName
-	})
-}
-
-func tkOpenAIAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
-	ids := service.ServableClientFacingIDs(ctx, service.PlatformOpenAI, nil, nil)
-	defaultModelID := openai.DefaultModels[0].ID
-	sort.SliceStable(ids, func(i, j int) bool {
-		if ids[i] == defaultModelID || ids[j] == defaultModelID {
-			return ids[i] == defaultModelID && ids[j] != defaultModelID
-		}
-		return ids[i] < ids[j]
-	})
-	return tkOpenAIAdminModelsForIDs(ids)
-}
-
-func tkGrokAdminModelsForIDs(ids []string) []dto.AccountModelOption {
-	return tkAdminModelOptions(xai.ModelsForIDs(ids), func(model xai.Model) (string, string) {
-		return model.ID, model.DisplayName
-	})
-}
-
-func tkGrokAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
-	ids := service.ServableClientFacingIDs(ctx, service.PlatformGrok, nil, nil)
-	sort.SliceStable(ids, func(i, j int) bool {
-		if ids[i] == service.GrokDefaultTestModelID {
-			return true
-		}
-		if ids[j] == service.GrokDefaultTestModelID {
-			return false
-		}
-		return ids[i] < ids[j]
-	})
-	return tkGrokAdminModelsForIDs(ids)
-}
-
-func accountHasExplicitModelMapping(account *service.Account) bool {
-	if account == nil {
-		return false
-	}
-	switch rawMapping := account.Credentials["model_mapping"].(type) {
-	case map[string]any:
-		return len(rawMapping) > 0
-	case map[string]string:
-		return len(rawMapping) > 0
-	default:
-		return false
-	}
-}
-
-func tkGeminiAdminModelsForIDs(ids []string) []dto.AccountModelOption {
-	return tkAdminModelOptions(geminicli.ModelsForIDs(ids), func(model geminicli.Model) (string, string) {
-		return model.ID, model.DisplayName
-	})
-}
-
-func tkGeminiAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
-	return tkGeminiAdminModelsForIDs(
-		service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil),
-	)
-}
-
-func tkGeminiAdminAvailableModels(ctx context.Context, account *service.Account) []dto.AccountModelOption {
-	mapping := account.GetModelMapping()
-	if len(mapping) == 0 {
-		return tkGeminiAdminDefaultModels(ctx)
-	}
-	// Google One mapping is already a conservative whitelist; do not intersect
-	// with the global servable catalog (gemini-2.0-flash may be menu-hidden).
-	if account.IsGeminiGoogleOne() {
-		ids := make([]string, 0, len(mapping))
-		for requestedModel := range mapping {
-			ids = append(ids, requestedModel)
-		}
-		sort.Strings(ids)
-		return tkGeminiAdminModelsForIDs(ids)
-	}
-	return tkGeminiAdminModelsForMapping(ctx, mapping)
-}
-
-func tkGeminiAdminModelsForMapping(ctx context.Context, mapping map[string]string) []dto.AccountModelOption {
-	if len(mapping) == 0 {
-		return tkGeminiAdminDefaultModels(ctx)
-	}
-
-	servable := service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)
-	servableSet := make(map[string]struct{}, len(servable))
-	for _, id := range servable {
-		servableSet[id] = struct{}{}
-	}
-
-	ids := make([]string, 0, len(mapping))
-	for requestedModel := range mapping {
-		if len(servableSet) > 0 {
-			if _, ok := servableSet[requestedModel]; !ok {
-				continue
-			}
-		}
-		ids = append(ids, requestedModel)
-	}
-	sort.Strings(ids)
-	return tkGeminiAdminModelsForIDs(ids)
-}
-
-// tkAntigravityAdminDefaultModels returns admin account-test models from the unified
-// antigravity servable set, intersected with the account whitelist (mapAntigravityModel).
-// Matches gateway tkAntigravityDefaultModels; DefaultModels only supplies display metadata.
-func tkAntigravityAdminDefaultModels(ctx context.Context, account *service.Account) []dto.AccountModelOption {
-	defaults := antigravity.DefaultModels()
-	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
-	for _, m := range defaults {
-		byID[m.ID] = m
-	}
-	ids := service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, nil)
-	sort.SliceStable(ids, func(i, j int) bool {
-		if ids[i] == service.AntigravityDefaultTestModelID {
-			return true
-		}
-		if ids[j] == service.AntigravityDefaultTestModelID {
-			return false
-		}
-		return ids[i] < ids[j]
-	})
-	out := make([]dto.AccountModelOption, 0, len(ids))
-	for _, id := range ids {
-		if account != nil && service.MapAntigravityModel(account, id) == "" {
-			continue
-		}
-		if m, ok := byID[id]; ok {
-			out = append(out, dto.AccountModelOption{ID: id, DisplayName: m.DisplayName})
-			continue
-		}
-		out = append(out, dto.AccountModelOption{ID: id, DisplayName: id})
-	}
-	return out
-}
-
-func tkClaudeModelsToAdminOptions(models []claude.Model, ids []string) []dto.AccountModelOption {
-	out := tkAdminModelOptions(models, func(model claude.Model) (string, string) {
-		return model.ID, model.DisplayName
-	})
-	if len(ids) == len(out) {
-		for i := range out {
-			out[i].ID = ids[i]
-		}
-	}
-	return out
-}
-
-func tkClaudeAdminModelsForIDs(ids []string) []dto.AccountModelOption {
-	return tkClaudeModelsToAdminOptions(claude.ModelsForIDs(ids), ids)
-}
-
-func tkClaudeAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
-	ids := service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil)
-	return tkClaudeModelsToAdminOptions(claude.ModelsForIDs(ids), nil)
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

@@ -58,8 +58,6 @@
       "name": "openai_compat_continuation_injection",
       "source": "backend/internal/service/openai_gateway_messages.go",
       "required_literals": [
-        "compatContinuationEnabled := openAICompatContinuationEnabled(account, upstreamModel)",
-        "previousResponseID = s.getOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey)",
         "s.bindOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey, result.ResponseID)",
         "openAICompatShouldTrimForContinuation(account)"
       ]
@@ -88,10 +86,6 @@
       "name": "openai_compat_messages_compaction_injection",
       "source": "backend/internal/service/openai_gateway_messages.go",
       "required_literals": [
-        "compatCompactionPolicy := resolveOpenAICompatMessagesCompactionPolicy(account, apiKeyGroup(getAPIKeyFromContext(c)))",
-        "shouldEvaluateOpenAICompatMessagesCompactionForAccount(account, previousResponseID, compatContinuationDisabled)",
-        "if shouldApplyOpenAICompatMessagesCompaction(compatCompactionPolicy, &anthropicReq) {",
-        "compatReplayTrimmed = applyOpenAICompatMessagesCompaction(account, &anthropicReq)",
         "zap.Bool(\"compat_messages_compaction_applied\", true)",
         "zap.Int(\"compat_messages_compaction_input_tokens_threshold\", compatCompactionPolicy.inputTokenLimit)"
       ]
@@ -154,6 +148,31 @@
       "source": "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
       "required_literals": [
         "if _, ok := parsed.(map[string]any); !ok {"
+      ]
+    },
+    {
+      "name": "openai_compat_messages_session_prep_companion",
+      "source": "backend/internal/service/openai_gateway_messages_tk.go",
+      "required_literals": [
+        "out.compatContinuationEnabled = openAICompatContinuationEnabled(account, upstreamModel)",
+        "out.previousResponseID = s.getOpenAICompatSessionResponseID(ctx, c, account, out.promptCacheKey)"
+      ]
+    },
+    {
+      "name": "openai_compat_messages_session_prep_callsite",
+      "source": "backend/internal/service/openai_gateway_messages.go",
+      "required_literals": [
+        "s.tkPrepareOpenAICompatMessagesSession("
+      ]
+    },
+    {
+      "name": "openai_compat_messages_compaction_companion",
+      "source": "backend/internal/service/openai_gateway_messages_tk.go",
+      "required_literals": [
+        "out.compatCompactionPolicy = resolveOpenAICompatMessagesCompactionPolicy(account, apiKeyGroup(getAPIKeyFromContext(c)))",
+        "shouldEvaluateOpenAICompatMessagesCompactionForAccount(account, out.previousResponseID, out.compatContinuationDisabled)",
+        "if shouldApplyOpenAICompatMessagesCompaction(out.compatCompactionPolicy, anthropicReq) {",
+        "out.compatReplayTrimmed = applyOpenAICompatMessagesCompaction(account, anthropicReq)"
       ]
     }
   ]

@@ -1050,45 +1050,6 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	return nil
 }
 
-func tkModelPricingFromLiteLLM(p *LiteLLMModelPricing) *ModelPricing {
-	if p == nil || p.TokenPricingAbsent || tkIsEffectivelyUnpriced(p) {
-		return nil
-	}
-	price5m := p.CacheCreationInputTokenCost
-	price1h := p.CacheCreationInputTokenCostAbove1hr
-	return &ModelPricing{
-		InputPricePerToken:                 p.InputCostPerToken,
-		InputPricePerTokenPriority:         p.InputCostPerTokenPriority,
-		OutputPricePerToken:                p.OutputCostPerToken,
-		OutputPricePerTokenPriority:        p.OutputCostPerTokenPriority,
-		ThinkingOutputPricePerToken:        p.ThinkingOutputCostPerToken,
-		CacheCreationPricePerToken:         p.CacheCreationInputTokenCost,
-		CacheCreationPricePerTokenPriority: p.CacheCreationInputTokenCostPriority,
-		CacheReadPricePerToken:             p.CacheReadInputTokenCost,
-		CacheReadPricePerTokenPriority:     p.CacheReadInputTokenCostPriority,
-		CacheCreation5mPrice:               price5m,
-		CacheCreation1hPrice:               price1h,
-		SupportsCacheBreakdown:             price1h > 0 && price1h > price5m,
-		LongContextInputThreshold:          p.LongContextInputTokenThreshold,
-		LongContextThresholdInclusive:      p.LongContextThresholdInclusive,
-		LongContextInputMultiplier:         p.LongContextInputCostMultiplier,
-		LongContextOutputMultiplier:        p.LongContextOutputCostMultiplier,
-		ImageInputPricePerToken:            p.InputCostPerImageToken,
-		ImageOutputPricePerToken:           p.OutputCostPerImageToken,
-		Intervals:                          p.Intervals,
-		registrySnapshot:                   p.registrySnapshot,
-	}
-}
-
-func tkOverlayModelPricing(model string) *ModelPricing {
-	owner := strings.ToLower(strings.TrimSpace(model))
-	pricing := tkModelPricingFromLiteLLM(loadTKPricingOverlay()[owner])
-	if pricing != nil {
-		pricing.registryOwner = owner
-	}
-	return pricing
-}
-
 // IsServedViaFamilyFloor reports whether `model` has no direct active-registry owner but resolves
 // through a compatibility alias to another registry owner. It is retained as the convergence
 // signal for served_at_fallback alerts; the returned dimensions are still registry-owned, never
@@ -2139,27 +2100,7 @@ func (s *BillingService) getDefaultImagePrice(model string, imageSize string) fl
 	if basePrice <= 0 {
 		return 0
 	}
-
-	// TK: Imagen bills at its FLAT official per-image price. Google prices Imagen
-	// as a single $/image per quality variant with NO 1K/2K/4K generation tier, so
-	// the size-tier multiplier below (real only for genuine pixel-size tiers such
-	// as Seedream) must not apply. Imagen requests carry ratio codes (no size) and
-	// default to "2K", which silently marked them up ×1.5 — this exemption removes
-	// that. Routes through the same function as the pre-flight HOLD, so settle and
-	// hold stay consistent. See tkIsFlatPerImageModel (billing_service_tk_flat_image.go).
-	if tkIsFlatPerImageModel(model) {
-		return basePrice
-	}
-
-	// 2K 尺寸 1.5 倍，4K 尺寸翻倍
-	if imageSize == "2K" {
-		return basePrice * 1.5
-	}
-	if imageSize == "4K" {
-		return basePrice * 2
-	}
-
-	return basePrice
+	return tkApplyDefaultImageSizeMultiplier(model, imageSize, basePrice)
 }
 
 func (s *BillingService) getDefaultVideoPrice(model string, resolution string) float64 {

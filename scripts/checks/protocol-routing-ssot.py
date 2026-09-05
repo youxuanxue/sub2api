@@ -59,7 +59,7 @@ OWNER_FILES = (
 )
 
 GOVERNED_HANDLERS = (
-    "backend/internal/handler/gateway_handler.go",
+    "backend/internal/handler/gateway_handler_tk_protocol_execute.go",
     "backend/internal/handler/gateway_handler_chat_completions.go",
     "backend/internal/handler/gateway_handler_responses.go",
     "backend/internal/handler/openai_gateway_handler.go",
@@ -68,7 +68,7 @@ GOVERNED_HANDLERS = (
 )
 
 HANDLER_GEMINI_EXECUTORS = {
-    "backend/internal/handler/gateway_handler.go": ("MessagesToGemini",),
+    "backend/internal/handler/gateway_handler_tk_protocol_execute.go": ("MessagesToGemini",),
     "backend/internal/handler/gateway_handler_chat_completions.go": ("ChatToGemini",),
     "backend/internal/handler/gateway_handler_responses.go": ("ResponsesToGemini",),
     "backend/internal/handler/openai_gateway_handler.go": (
@@ -117,7 +117,7 @@ TARGET_BOUNDARIES = {
 }
 
 FORWARD_BOUNDARIES = {
-    "backend/internal/handler/gateway_handler.go": (
+    "backend/internal/handler/gateway_handler_tk_protocol_execute.go": (
         r"\bh\.gatewayService\.Forward\s*\(",
     ),
     "backend/internal/handler/gateway_handler_chat_completions.go": (
@@ -894,8 +894,14 @@ def check(root: Path) -> list[str]:
         ):
             errors.append("protocol routing is missing the scheduler authorization regression test")
 
-    account_handler = root / "backend/internal/handler/admin/account_handler.go"
-    if account_handler.is_file():
+    # Probe scheduling lives in the TK companion so account_handler.go stays
+    # upstream-shaped; accept either path as long as one owner has the bodies.
+    account_handler_probe_owners = (
+        root / "backend/internal/handler/admin/account_handler_tk_protocol_probe.go",
+        root / "backend/internal/handler/admin/account_handler.go",
+    )
+    account_handler = next((path for path in account_handler_probe_owners if path.is_file()), None)
+    if account_handler is not None:
         source = strip_go_comments_and_literals(account_handler.read_text(encoding="utf-8"))
         bodies = function_bodies(source, "scheduleProtocolCapabilityProbes")
         if not bodies:

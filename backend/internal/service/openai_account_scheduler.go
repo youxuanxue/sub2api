@@ -460,36 +460,12 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		decision.SelectedAccountType = sel.Account.Type
 	}
 
-	var stickySel *AccountSelectionResult
-	stickyWaitPlan := false
-	if !req.StickyWeighted {
-		var escapedSticky bool
-		var escapedStickyAccountID int64
-		var err error
-		stickySel, escapedSticky, escapedStickyAccountID, err = s.selectBySessionHash(ctx, req)
-		if err != nil {
-			return nil, decision, err
-		}
-		if stickySel != nil && stickySel.Acquired {
-			markStickyHit(stickySel)
-			return stickySel, decision, nil
-		}
-
-		stickyWaitPlan = stickySel != nil && stickySel.Account != nil
-		if stickyWaitPlan && !s.stickySlotFullEscapeEnabled(ctx) {
-			markStickyHit(stickySel)
-			return stickySel, decision, nil
-		}
-		if escapedSticky {
-			req.PreserveStickyBinding = true
-			if escapedStickyAccountID > 0 {
-				req.ExcludedIDs = cloneExcludedAccountIDs(req.ExcludedIDs)
-				if req.ExcludedIDs == nil {
-					req.ExcludedIDs = make(map[int64]struct{})
-				}
-				req.ExcludedIDs[escapedStickyAccountID] = struct{}{}
-			}
-		}
+	stickySel, stickyWaitPlan, earlySticky, err := s.tkSelectStickySessionPhase(ctx, &req, markStickyHit)
+	if err != nil {
+		return nil, decision, err
+	}
+	if earlySticky != nil {
+		return earlySticky, decision, nil
 	}
 
 	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
@@ -530,22 +506,6 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 	return selection, decision, nil
-}
-
-func (s *defaultOpenAIAccountScheduler) stickySlotFullEscapeEnabled(ctx context.Context) bool {
-	if s == nil || s.service == nil {
-		return true
-	}
-	if s.service.settingService == nil {
-		if s.service.cfg != nil {
-			cfg := s.service.cfg.Gateway.OpenAIScheduler
-			if !cfg.StickyEscapeEnabled && (cfg.StickyEscapeTTFTMs > 0 || cfg.StickyEscapeErrorRate > 0) {
-				return false
-			}
-		}
-		return true
-	}
-	return s.service.settingService.IsStickySlotFullEscapeEnabled(ctx)
 }
 
 func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
@@ -2537,13 +2497,7 @@ func accountSupportsOpenAICapabilities(account *Account, requiredCapability Open
 	if account == nil {
 		return false
 	}
-	// TK fifth platform: upstream gates on IsOpenAI() and would fail-closed
-	// every newapi account. Apply endpoint-capability only to native OpenAI.
-	if account.IsOpenAI() && !account.SupportsOpenAIEndpointCapability(requiredCapability) {
-		return false
-	}
-	if account.IsGrok() && requiredCapability == OpenAIEndpointCapabilityGrokMediaGeneration &&
-		!account.SupportsOpenAIEndpointCapability(requiredCapability) {
+	if !tkOpenAICompatEndpointCapabilityAllows(account, requiredCapability) {
 		return false
 	}
 	return account.SupportsOpenAIImageCapability(requiredImageCapability)

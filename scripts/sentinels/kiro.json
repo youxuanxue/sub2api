@@ -84,7 +84,7 @@
       "rationale": "Focused request-recorder evidence that streaming and runtime paths stay byte-identical to the canonical CLI identity and that per-account machine metadata cannot alter the wire identity."
     },
     {
-      "path": "backend/internal/service/admin_account.go",
+      "path": "backend/internal/service/admin_account_tk_billing_probe.go",
       "must_contain": [
         "func normalizeAccountPriority",
         "platform == PlatformKiro",
@@ -527,9 +527,8 @@
       "rationale": "Registration of KiroTokenRefresher into the background refresh ticker's refreshers[]/executors[]. An upstream merge that rewrites NewTokenRefreshService must preserve this line, or kiro refresh never runs even though the refresher type still exists."
     },
     {
-      "path": "backend/internal/handler/gateway_handler.go",
+      "path": "backend/internal/handler/gateway_handler_tk_kiro.go",
       "must_contain": [
-        "account.IsKiro()",
         "handleKiroContentFilteredError",
         "service.MarkOpsClientContentFiltered(c)",
         "service.KiroInvalidModelError",

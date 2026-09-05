@@ -378,41 +378,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	s.maybeHandleOpenAITeamLinkedError(ctx, account, statusCode, responseBody)
 	customErrorCodesEnabled := account.IsCustomErrorCodesEnabled()
 
-	if IsForeignCredentialOfficialOpenAIReject(account, statusCode, responseBody) {
-		slog.Error("foreign_credential_official_openai_reject_skip_penalty",
-			"account_id", account.ID,
-			"platform", account.Platform,
-			"channel_type", account.ChannelType,
-			"status_code", statusCode,
-			"expected_base_url", nativeOpenAIBaseURLForAccount(account))
-		return false
+	if handled, disable := s.tkTryHandleUpstreamErrorPrelude(ctx, account, statusCode, headers, responseBody, firstRequestedModel(requestedModel)); handled {
+		return disable
 	}
-
-	if s.handleOpenAICompatDownstreamCapacityPenalty(ctx, account, statusCode, responseBody) {
-		return true
-	}
-
-	// CloudWise model pools are independent. Handle their model-balance 402
-	// before pool-mode and custom-error-code early exits so every CloudWise
-	// account shape persists the same exact-model five-hour cooldown. If the
-	// model scope cannot be persisted, bypass those early exits and retain the
-	// conservative account-level 402 fallback.
+	// Recompute for pool-mode / custom-error carve-outs (predicate is cheap;
+	// prelude already applied the CloudWise cooldown early returns above).
 	cloudwiseModelBalance402 := tkIsCloudwiseModelBalance402Response(account, statusCode, responseBody)
-	if cloudwiseModelBalance402 && s.tkTryCloudwiseModelBalanceCooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
-		return true
-	}
-	if s.tkTryCloudwiseProvider424Cooldown(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel)) {
-		return true
-	}
-
-	// Account-standing prepaid/balance exhaustion (tokensea 用户额度不足, 402
-	// Insufficient Balance, Anthropic credit balance, …) is the same SSOT as
-	// newapi_arrears: SetError + immediate Feishu P0. Must beat pool-mode skip
-	// and tryTempUnschedulable so a generic 403 rule cannot flap a dead prepaid
-	// account (prod 2026-08-30 tokensea-cc #93).
-	if s.tkTryHandleStandingBilling(ctx, account, statusCode, responseBody) {
-		return true
-	}
 
 	// 池模式默认不标记本地账号状态；但管理员显式配置的临时不可调度规则优先。
 	// 401 保留现有认证错误语义，不在这里改变池模式的认证处理。
@@ -499,157 +470,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		}
 		// 其他 400 错误（如参数问题）不处理，不禁用账号
 	case 401:
-		if tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, statusCode, upstreamMsg, responseBody) {
-			slog.Info("anthropic_downstream_kiro_oauth_401_skip_penalty",
-				"account_id", account.ID,
-				"status_code", statusCode)
-			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "kiro_oauth_401")
-			return true
-		}
-		if tkIsCapabilityScope401(statusCode, responseBody) {
-			slog.Info("capability_scope_401_skip_penalty",
-				"account_id", account.ID, "platform", account.Platform, "message", upstreamMsg)
-			return false
-		}
-		if account.Platform == PlatformNewAPI && IsOpenAICompatModelNotFound404(responseBody, upstreamMsg) {
-			slog.Info("newapi_model_not_found_401_skip_auth_penalty",
-				"account_id", account.ID,
-				"channel_type", account.ChannelType,
-				"message", upstreamMsg)
-			return false
-		}
-		// 外审第9轮:Spark 影子无独立凭据,401 是母账号 token 问题——失效缓存 / refresh_token 判断 /
-		// 永久禁用 / 临时不可调度都必须落到凭据 owner(母账号),否则影子(无 refresh_token)必中
-		// "refresh_token missing"永久禁用分支、母账号 token cache 也不会被清,把母账号可恢复的 token
-		// 问题变成影子永久死亡。母账号被标记 temp-unschedulable 后由 parentHealthyForShadow 级联排除影子。
-		// 非影子时 resolveCredentialAccount 返回自身;母账号缺失/损坏(orphan 影子,罕见)时回退到原 account。
-		authAccount := account
-		if resolved, rerr := resolveCredentialAccount(ctx, s.accountRepo, account); rerr == nil && resolved != nil {
-			authAccount = resolved
-		}
-		if authAccount.Platform == PlatformOpenAI && tkIsPermanentOpenAIAuth401(responseBody) {
-			openai401Code := extractUpstreamErrorCode(responseBody)
-			msg := "Unauthorized (401): account authentication failed permanently"
-			if openai401Code == "token_invalidated" || openai401Code == "token_revoked" {
-				msg = "Token revoked (401): account authentication permanently revoked"
-			}
-			if upstreamMsg != "" {
-				if openai401Code == "token_invalidated" || openai401Code == "token_revoked" {
-					msg = "Token revoked (401): " + upstreamMsg
-				} else {
-					msg = "Unauthorized (401): " + upstreamMsg
-				}
-			}
-			s.handleAuthError(ctx, authAccount, msg)
-			shouldDisable = true
-			break
-		}
-		if account.Platform == PlatformAnthropic && account.Type == AccountTypeOAuth {
-			if s.tokenCacheInvalidator != nil {
-				if err := s.tokenCacheInvalidator.InvalidateToken(ctx, account); err != nil {
-					slog.Warn("oauth_401_invalidate_cache_failed", "account_id", account.ID, "error", err)
-				}
-			}
-			msg := "OAuth 401 — manual re-authorization required (re-login via account management)"
-			if upstreamMsg != "" {
-				msg = "OAuth 401: " + upstreamMsg
-			}
-			slog.Warn("oauth_401_immediate_disable",
-				"account_id", account.ID, "platform", account.Platform)
-			s.handleAuthError(ctx, account, msg)
-			shouldDisable = true
-			break
-		}
-		// OpenAI: token_invalidated / token_revoked 表示 token 被永久作废（非过期），直接标记 error
-		openai401Code := extractUpstreamErrorCode(responseBody)
-		if authAccount.Platform == PlatformOpenAI && (openai401Code == "token_invalidated" || openai401Code == "token_revoked") {
-			msg := "Token revoked (401): account authentication permanently revoked"
-			if upstreamMsg != "" {
-				msg = "Token revoked (401): " + upstreamMsg
-			}
-			s.handleAuthError(ctx, authAccount, msg)
-			shouldDisable = true
-			break
-		}
-		// OpenAI: {"detail":"Unauthorized"} 表示 token 完全无效（非标准 OpenAI 错误格式），直接标记 error
-		if authAccount.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
-			msg := "Unauthorized (401): account authentication failed permanently"
-			if upstreamMsg != "" {
-				msg = "Unauthorized (401): " + upstreamMsg
-			}
-			s.handleAuthError(ctx, authAccount, msg)
-			shouldDisable = true
-			break
-		}
-		// OAuth 账号在 401 错误时临时不可调度（给 token 刷新窗口）；非 OAuth 账号保持原有 SetError 行为。
-		if authAccount.Type == AccountTypeOAuth {
-			// 1. 失效缓存
-			if s.tokenCacheInvalidator != nil {
-				if err := s.tokenCacheInvalidator.InvalidateToken(ctx, authAccount); err != nil {
-					slog.Warn("oauth_401_invalidate_cache_failed", "account_id", authAccount.ID, "error", err)
-				}
-			}
-			// 缺少 refresh_token 的 OAuth 账号无法在冷却期内自愈（后台刷新服务也会跳过），
-			// 直接走 SetError 永久禁用，避免冷却结束后再被选中产生一发无意义的 502。
-			if strings.TrimSpace(authAccount.GetCredential("refresh_token")) == "" {
-				msg := "Authentication failed (401): refresh_token missing, cannot recover"
-				if upstreamMsg != "" {
-					msg = "OAuth 401 (no refresh_token): " + upstreamMsg
-				}
-				s.handleAuthError(ctx, authAccount, msg)
-				shouldDisable = true
-				break
-			}
-			// 2. 临时不可调度，替代 SetError（保持 status=active 让刷新服务能拾取）
-			// 注意：此处不再写回 account.Credentials/expires_at。
-			// 原实现使用请求开始时的 account 快照整列覆盖 credentials JSONB（见
-			// persistAccountCredentials → accountRepository.UpdateCredentials → SetCredentials），
-			// 在另一个 worker 刚刷新完 refresh_token 的窄窗口内会把新 refresh_token 回滚为旧值，
-			// 导致下一周期用旧 refresh_token 调上游拿到 invalid_grant 后，
-			// tryRecoverFromRefreshRace 重读 DB 发现 currentRT == usedRT 也救不回来，账号被错误 disable。
-			// 这里仅依赖 InvalidateToken + SetTempUnschedulable 让账号在冷却期内不被调度，
-			// 冷却结束后由 token_provider 的 NeedsRefresh / token_refresh_service 走带分布式锁的正路刷新。
-			if s.tkDisableIfOAuth401OnValidToken(ctx, authAccount, upstreamMsg) {
-				shouldDisable = true
-				break
-			}
-			msg := "Authentication failed (401): invalid or expired credentials"
-			if upstreamMsg != "" {
-				msg = "OAuth 401: " + upstreamMsg
-			}
-			if authAccount.Platform == PlatformAntigravity {
-				extraUpdates := antigravityForceTokenRefreshExtra("401_invalid")
-				if err := s.accountRepo.UpdateExtra(ctx, authAccount.ID, extraUpdates); err != nil {
-					slog.Warn("antigravity_401_force_refresh_mark_failed", "account_id", authAccount.ID, "error", err)
-				} else {
-					if authAccount.Extra == nil {
-						authAccount.Extra = make(map[string]any, len(extraUpdates))
-					}
-					for k, v := range extraUpdates {
-						authAccount.Extra[k] = v
-					}
-					slog.Info("antigravity_401_force_refresh_marked", "account_id", authAccount.ID)
-				}
-			}
-			cooldownMinutes := s.cfg.RateLimit.OAuth401CooldownMinutes
-			if cooldownMinutes <= 0 {
-				cooldownMinutes = 10
-			}
-			until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
-			s.notifyAccountSchedulingBlocked(authAccount, until, "oauth_401")
-			if err := s.accountRepo.SetTempUnschedulable(ctx, authAccount.ID, until, msg); err != nil {
-				slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", authAccount.ID, "error", err)
-			}
-			shouldDisable = true
-		} else {
-			// 非 OAuth：保持 SetError 行为
-			msg := "Authentication failed (401): invalid or expired credentials"
-			if upstreamMsg != "" {
-				msg = "Authentication failed (401): " + upstreamMsg
-			}
-			s.handleAuthError(ctx, authAccount, msg)
-			shouldDisable = true
-		}
+		shouldDisable = s.tkHandleAuth401(ctx, account, upstreamMsg, responseBody)
 	case 402:
 		// 国产供应商：余额不足是可恢复状态（充值/检测恢复后由周期任务自动解除），
 		// 不能走 handleAuthError 永久置 status=error。改为可恢复的临时停调。
@@ -698,37 +519,8 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				"status_code", statusCode)
 		}
 	case 429:
-		if account.Platform == PlatformAnthropic && tkIsAnthropicRequestOwned429Message(upstreamMsg, responseBody) {
-			slog.Info("anthropic_request_owned_429_skip_penalty",
-				"account_id", account.ID,
-				"status_code", statusCode)
-			return true
-		}
-		if account.Platform == PlatformAnthropic && tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) {
-			slog.Info("anthropic_downstream_no_available_accounts_skip_penalty",
-				"account_id", account.ID,
-				"status_code", statusCode)
-			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "no_available_accounts")
-			return true
-		}
-		if account.Platform == PlatformAnthropic && tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody) {
-			slog.Info("anthropic_downstream_failover_exhausted_skip_penalty",
-				"account_id", account.ID,
-				"status_code", statusCode)
-			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "all_available_accounts_exhausted")
-			return true
-		}
-		if tkSkipDownstreamKiroServiceUnavailablePenalty(account, statusCode, upstreamMsg, responseBody) {
-			slog.Info("anthropic_downstream_kiro_service_unavailable_skip_penalty",
-				"account_id", account.ID,
-				"status_code", statusCode)
-			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "kiro_service_unavailable")
-			return true
-		}
-		if account.Platform == PlatformAnthropic && tkIsAnthropicNonAuthoritative429(headers, responseBody) {
-			tkLogAnthropicNonAuthoritative429Skip(account, statusCode)
-			s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, "non_authoritative_429")
-			return true
+		if handled, disable := s.tkTryHandle429Extras(ctx, account, statusCode, headers, upstreamMsg, responseBody); handled {
+			return disable
 		}
 		rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)
 		if account.Platform == PlatformAnthropic && tkAnthropicStubHealthFuseEligible(statusCode, rateLimitSet) {
@@ -1198,99 +990,12 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 		}
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
-	if s.tkMaybeRefreshKiroInvalidBearer403(ctx, account, upstreamMsg, responseBody) {
-		return true
-	}
-	if account.Platform == PlatformAnthropic {
-		if tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, http.StatusForbidden, upstreamMsg, responseBody) {
-			slog.Info("anthropic_downstream_kiro_oauth_403_skip_penalty",
-				"account_id", account.ID,
-				"status_code", http.StatusForbidden)
-			s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "kiro_oauth_403")
-			return true
-		}
-		if tkSkipRelayedCanonicalIngressRejectPenalty(http.StatusForbidden, upstreamMsg, responseBody) {
-			slog.Info("anthropic_downstream_canonical_ingress_reject_skip_penalty",
-				"account_id", account.ID)
-			return true
-		}
-		if s.tkTryDisableAnthropicOrgBan403(ctx, account, upstreamMsg, responseBody) {
-			return true
-		}
-		if s.tkTryDisableAnthropicTLSFingerprint403(ctx, account, upstreamMsg, responseBody) {
-			return true
-		}
-		if s.tkTryEscalatePersistentBodyless403(ctx, account, upstreamMsg, responseBody) {
-			return true
-		}
-		if tkIsAnthropicAccountAuthFatal403(upstreamMsg, responseBody) {
-			msg := buildForbiddenErrorMessage(
-				"Access forbidden (403):",
-				upstreamMsg,
-				responseBody,
-				"account may be suspended or lack permissions",
-			)
-			s.handleAuthError(ctx, account, msg)
-			return true
-		}
-		s.recordAnthropicStubSaturation(ctx, account.ID, http.StatusForbidden, "permission_failover")
-		return true
-	}
-	// 非 Antigravity 平台：保持原有行为
-	msg := buildForbiddenErrorMessage(
-		"Access forbidden (403):",
-		upstreamMsg,
-		responseBody,
-		"account may be suspended or lack permissions",
-	)
-	s.handleAuthError(ctx, account, msg)
-	return true
+	return s.tkHandleNonOpenAI403(ctx, account, upstreamMsg, responseBody)
 }
 
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
-	if matched := matchTempUnschedKeyword(strings.ToLower(string(responseBody)), openAICloudflareChallengeKeywords); matched != "" {
-		slog.Warn(
-			"openai_403_cf_challenge_skip_cooldown",
-			"account_id", account.ID,
-			"matched_keyword", matched,
-			"upstream_msg", upstreamMsg,
-		)
-		return true
-	}
-	if matched := tkIsOpenAIClientInducedCapability403(upstreamMsg, responseBody); matched != "" {
-		slog.Info("openai_403_client_induced_capability_skip_cooldown",
-			"account_id", account.ID,
-			"matched", matched)
-		return true
-	}
-	if openAIIsHTMLBody(responseBody) {
-		slog.Warn(
-			"openai_403_html_body_skip_cooldown",
-			"account_id", account.ID,
-			"upstream_msg", upstreamMsg,
-		)
-		return true
-	}
-	// 上游代理 / CDN 在请求到达 OpenAI API 之前就拦下时，回的是 HTML 403 页面而不是
-	// {"error":{...}} 结构化错误。这类响应描述的是「这条链路 / 这个端点被挡了」，
-	// 不构成账号凭据或权限失效的证据——例如无效的 /v1/responses 子路径（#5334）。
-	//
-	// 据此写账号状态会把请求级错误放大成账号级处罚：首次即 temp-unschedulable，
-	// 连续 openAI403DisableThreshold 次直接永久禁用；而 403 又在 failover 状态集里，
-	// 同一个坏请求会被逐个账号重放，足以把整组账号打下线。
-	//
-	// 与既有口径一致：count_tokens 路径的 isOpenAIOAuthInputTokensUnsupported 已把
-	// 「HTML 403 page without a structured error」按端点级响应处理；
-	// shouldApplyOpenAIAlphaSearchAccountErrorSideEffects 的不变式也是端点级错误
-	// 只换号、不写账号错误状态。这里只跳过账号处罚，不改变 failover 行为——
-	// 换个走不同代理的账号仍有可能成功。
-	if isHTMLResponse(responseBody) {
-		slog.Warn(
-			"openai_403_html_body_skips_account_penalty",
-			"account_id", account.ID,
-			"upstream_message", upstreamMsg,
-		)
-		return false
+	if handled, disable := s.tkOpenAI403PrePenaltyGates(account, upstreamMsg, responseBody); handled {
+		return disable
 	}
 
 	msg := buildForbiddenErrorMessage(
