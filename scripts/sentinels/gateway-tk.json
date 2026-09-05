@@ -8611,6 +8611,23 @@
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
+        "return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)\n\t}\n\n\tresult, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel)"
+      ],
+      "rationale": "OpenAI Forward must keep PlatformGrok early-return BEFORE tkTryRouteOpenAIForwardProtocol. Dropping the order lets Grok traffic enter protocol/normalize/raw-CC companions and regresses the dedicated Grok Responses path while unit tests on companion helpers can stay green."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward_tk_protocol_dispatch.go",
+      "must_contain": [
+        "if target, planned := protocolExecutionTarget(ctx); planned {",
+        "if account.IsAnthropicProtocol() {",
+        "if account.IsOpenAIApiKey() {",
+        "if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {"
+      ],
+      "rationale": "P2 protocol-dispatch companion owns the load-bearing early-routing order after Grok: planned protocol target → Anthropic-protocol native → API-key normalize → shouldForward raw-CC. Reordering (especially Anthropic after raw-CC, or normalize after shouldForward) silently breaks CN Anthropic Responses and CloudWise dual-stack accounts. Focused regressions live in openai_gateway_forward_tk_protocol_dispatch_test.go."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
         "req.Host = \"chatgpt.com\"\n\t\tif err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, req.Header, account); err != nil {\n\t\t\treturn nil, fmt.Errorf(\"resolve chatgpt account headers: %w\", err)\n\t\t}\n\t}\n\n\t// Whitelist passthrough headers\n\tfor key, values := range c.Request.Header {\n\t\tlowerKey := strings.ToLower(key)\n\t\tif openaiAllowedHeaders[lowerKey] {\n\t\t\tfor _, v := range values {\n\t\t\t\treq.Header.Add(key, v)\n\t\t\t}\n\t\t}\n\t}\n\tif err := s.tkApplyOpenAIForwardUpstreamHeaders(ctx, c, req, account, body, promptCacheKey, isCodexCLI); err != nil {"
       ],
       "rationale": "OpenAI OAuth HTTP forward must keep auth → ChatGPT Host/chatgpt-account-id → client whitelist → tkApplyOpenAIForwardUpstreamHeaders (session/UA/fingerprint/enforce). P2 companion extraction briefly parked ChatGPT headers after whitelist; chatgpt-account-id is not in openaiAllowedHeaders today so outbound bytes stayed equivalent, but the drifted order would silently accept a future whitelist expansion or upstream merge. Contiguous substring pins relative order in the upstream-shaped call site."
