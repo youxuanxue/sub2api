@@ -8,17 +8,28 @@ import (
 
 const SettingKeyTKOpenRouterProviderConfig = "tk_openrouter_provider_config"
 
+// OpenRouterProviderSellerKeyName is an optional ops bootstrap label for the
+// billing user's OR seller key. Runtime auth does NOT match on name — any API
+// key owned by billing_user_id is allowed for the full seller surface.
+const OpenRouterProviderSellerKeyName = "openrouter"
+
 // OpenRouterProviderConfig configures the TokenKey seller surface for OpenRouter.
-// OR dedicated groups do not need is_exclusive=true; loop prevention uses scheme C
-// (no aggregator channels on public groups) plus explicit group_ids here.
+// Supply groups are NOT stored here: BuildOpenRouterProviderCatalog reads
+// billing_user_id's user_allowed_groups at runtime (single source of truth).
+// Seller auth is billing_user_id ownership (any of that user's API keys).
+// AllowedAPIKeyIDs / MonitorAPIKeyIDs remain optional legacy allowlists and both
+// grant the full seller surface (catalog + inference) during migration.
+// Loop prevention uses scheme C (no aggregator channels on public groups).
+// Legacy JSON field "group_ids" is ignored when billing_user_id is set.
 type OpenRouterProviderConfig struct {
-	Enabled                bool             `json:"enabled"`
-	ModelIDPrefix          string           `json:"model_id_prefix"`
-	Slug                   string           `json:"slug"`
-	GroupIDs               []int64          `json:"group_ids"`
+	Enabled       bool   `json:"enabled"`
+	ModelIDPrefix string `json:"model_id_prefix"`
+	Slug          string `json:"slug"`
+	// GroupIDs is legacy-only. Prefer billing user allowed groups; ignored when BillingUserID > 0.
+	GroupIDs               []int64          `json:"group_ids,omitempty"`
 	BillingUserID          int64            `json:"billing_user_id"`
-	AllowedAPIKeyIDs       []int64          `json:"allowed_api_key_ids"`
-	MonitorAPIKeyIDs       []int64          `json:"monitor_api_key_ids"`
+	AllowedAPIKeyIDs       []int64          `json:"allowed_api_key_ids,omitempty"`
+	MonitorAPIKeyIDs       []int64          `json:"monitor_api_key_ids,omitempty"`
 	DefaultContextLen      int              `json:"default_context_length"`
 	CapacityTPM            *int64           `json:"capacity_tpm"`
 	ModelCapacityTPM       map[string]int64 `json:"model_capacity_tpm"`
@@ -144,9 +155,23 @@ func openRouterProviderEnrichCatalogItem(item *OpenRouterProviderModel, cfg Open
 	}
 }
 
-func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID int64) bool {
+func (c OpenRouterProviderConfig) isBillingUser(userID int64) bool {
+	return c.BillingUserID > 0 && c.BillingUserID == userID
+}
+
+// AllowsSellerAPIKey is the single seller-surface allow check: billing-user
+// ownership, or a legacy numeric id allowlist entry.
+func (c OpenRouterProviderConfig) AllowsSellerAPIKey(apiKeyID, userID int64) bool {
 	if !c.Enabled || apiKeyID <= 0 {
 		return false
+	}
+	if c.isBillingUser(userID) {
+		return true
+	}
+	for _, id := range c.AllowedAPIKeyIDs {
+		if id == apiKeyID {
+			return true
+		}
 	}
 	for _, id := range c.MonitorAPIKeyIDs {
 		if id == apiKeyID {
@@ -156,31 +181,18 @@ func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID int64) bool {
 	return false
 }
 
+// AllowsInferenceAPIKey allows catalog + inference (same seller surface).
 func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64) bool {
-	if !c.Enabled {
-		return false
-	}
-	if len(c.AllowedAPIKeyIDs) > 0 {
-		for _, id := range c.AllowedAPIKeyIDs {
-			if id == apiKeyID {
-				return true
-			}
-		}
-		return false
-	}
-	if c.BillingUserID > 0 && c.BillingUserID == userID {
-		return true
-	}
-	return false
+	return c.AllowsSellerAPIKey(apiKeyID, userID)
 }
 
 func (c OpenRouterProviderConfig) CanAccessCatalog(apiKeyID, userID int64) bool {
-	return c.AllowsMonitorAPIKey(apiKeyID) || c.AllowsInferenceAPIKey(apiKeyID, userID)
+	return c.AllowsSellerAPIKey(apiKeyID, userID)
 }
 
 // AllowsAPIKey keeps the previous name for catalog/inference allow checks used in tests.
 func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64) bool {
-	return c.CanAccessCatalog(apiKeyID, userID)
+	return c.AllowsSellerAPIKey(apiKeyID, userID)
 }
 
 func (c OpenRouterProviderConfig) PublicModelID(model string) string {

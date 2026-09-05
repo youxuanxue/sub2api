@@ -421,7 +421,7 @@ func NewOpenAIGatewayService(
 	return svc
 }
 
-// NormalizeOpenRouterProviderChatBody rewrites tokenkey/* model ids for OR inference keys.
+// NormalizeOpenRouterProviderChatBody rewrites tokenkey/* model ids for OR seller keys.
 func (s *OpenAIGatewayService) NormalizeOpenRouterProviderChatBody(
 	ctx context.Context,
 	apiKeyID, userID int64,

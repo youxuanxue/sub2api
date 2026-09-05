@@ -3,10 +3,7 @@
   "slug": "tokenkey",
   "model_id_prefix": "tokenkey/",
   "provider_display_name": "TokenKey",
-  "group_ids": [1, 2, 16, 18, 21, 25],
   "billing_user_id": 32,
-  "allowed_api_key_ids": [369],
-  "monitor_api_key_ids": [370],
   "default_context_length": 200000,
   "capacity_tpm": 500000,
   "model_capacity_tpm": {

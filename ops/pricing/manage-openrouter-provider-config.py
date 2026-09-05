@@ -3,11 +3,13 @@
 
 Subcommands
 -----------
-  snapshot      Read-only: user 32 groups, existing OR-named keys, live config.
-  bootstrap     Create inference + monitor keys for user 32 (if missing), upsert
+  snapshot      Read-only: user 32 allowed groups, existing OR-named keys, live config.
+  bootstrap     Create seller key for user 32 (if missing), upsert
                 tk_openrouter_provider_config, publish settings_updated.
-  update-config Upsert tk_openrouter_provider_config from user 32 allowed groups
-                + existing OR inference/monitor key ids (no key creation).
+  update-config Upsert tk_openrouter_provider_config (billing user +
+                exclude/stream lists). Supply groups and key ids are NOT
+                stored — runtime reads user_allowed_groups; any API key owned
+                by billing_user_id is authorized for the seller surface.
 
 Secrets policy: bootstrap prints only api_key ids and config field names — never
 the raw key material returned by the admin create endpoint.
@@ -26,8 +28,9 @@ from typing import Any, NoReturn
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTING_KEY = "tk_openrouter_provider_config"
 BILLING_USER_ID = 32
-INFERENCE_KEY_NAME = "openrouter-inference"
-MONITOR_KEY_NAME = "openrouter-monitor"
+SELLER_KEY_NAME = "openrouter"
+# Accepted when looking up an existing key (legacy dual-key names).
+LEGACY_SELLER_KEY_NAMES = ("openrouter", "openrouter-inference", "openrouter-monitor")
 APP_URL = "http://127.0.0.1:8080"
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
@@ -70,8 +73,8 @@ import json, sys
 USER_ID = 32
 REQUESTED_GROUP_ID = __GROUP_ID__
 CREATE_GROUP = __CREATE_GROUP__
-INFERENCE_NAME = "openrouter-inference"
-MONITOR_NAME = "openrouter-monitor"
+SELLER_NAME = "openrouter"
+LEGACY_NAMES = ("openrouter", "openrouter-inference", "openrouter-monitor")
 CONFIG = json.loads("""__CONFIG_JSON__""")
 APP_URL = "http://127.0.0.1:8080"
 APP_CONTAINER = "tokenkey-green"
@@ -175,17 +178,18 @@ group_id = ensure_group_id()
 ensure_user_allowed_group(group_id)
 
 existing = list_user_keys()
-inference_id = find_key_id(existing, INFERENCE_NAME)
-monitor_id = find_key_id(existing, MONITOR_NAME)
-if inference_id <= 0:
-    inference_id = create_key(INFERENCE_NAME, group_id)
-if monitor_id <= 0:
-    monitor_id = create_key(MONITOR_NAME, group_id)
+seller_id = 0
+for name in LEGACY_NAMES:
+    seller_id = find_key_id(existing, name)
+    if seller_id > 0:
+        break
+if seller_id <= 0:
+    seller_id = create_key(SELLER_NAME, group_id)
 
 CONFIG["billing_user_id"] = USER_ID
-CONFIG["group_ids"] = [group_id]
-CONFIG["allowed_api_key_ids"] = [inference_id]
-CONFIG["monitor_api_key_ids"] = [monitor_id]
+CONFIG.pop("group_ids", None)  # runtime reads user_allowed_groups
+CONFIG.pop("allowed_api_key_ids", None)  # runtime: any billing-user key
+CONFIG.pop("monitor_api_key_ids", None)
 CONFIG["enabled"] = True
 
 config_text = json.dumps(CONFIG, ensure_ascii=False, separators=(",", ":"))
@@ -213,8 +217,8 @@ subprocess.run(
 print(json.dumps({
     "billing_user_id": USER_ID,
     "group_id": group_id,
-    "inference_key_id": inference_id,
-    "monitor_key_id": monitor_id,
+    "seller_key_id": seller_id,
+    "seller_key_name": SELLER_NAME,
     "config_key": "tk_openrouter_provider_config",
     "enabled": True,
 }, ensure_ascii=False))
@@ -299,25 +303,23 @@ def cmd_snapshot(_args) -> int:
 
 
 def _remote_update_config_script(
-    group_ids: list[int],
-    inference_key_id: int,
-    monitor_key_id: int,
+    seller_key_id: int,
     config: dict,
+    supply_group_ids: list[int],
 ) -> str:
     config_json = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
     py = r'''
 import json, subprocess, base64
 
 USER_ID = 32
-GROUP_IDS = __GROUP_IDS__
-INFERENCE_ID = __INFERENCE_ID__
-MONITOR_ID = __MONITOR_ID__
+SELLER_ID = __SELLER_ID__
+SUPPLY_GROUP_IDS = __SUPPLY_GROUP_IDS__
 CONFIG = json.loads("""__CONFIG_JSON__""")
 
 CONFIG["billing_user_id"] = USER_ID
-CONFIG["group_ids"] = GROUP_IDS
-CONFIG["allowed_api_key_ids"] = [INFERENCE_ID]
-CONFIG["monitor_api_key_ids"] = [MONITOR_ID]
+CONFIG.pop("group_ids", None)  # runtime reads user_allowed_groups for billing_user_id
+CONFIG.pop("allowed_api_key_ids", None)
+CONFIG.pop("monitor_api_key_ids", None)
 CONFIG["enabled"] = True
 
 config_text = json.dumps(CONFIG, ensure_ascii=False, separators=(",", ":"))
@@ -341,15 +343,15 @@ subprocess.run(
 )
 print(json.dumps({
     "billing_user_id": USER_ID,
-    "group_ids": GROUP_IDS,
-    "inference_key_id": INFERENCE_ID,
-    "monitor_key_id": MONITOR_ID,
+    "supply_group_ids_from_user": SUPPLY_GROUP_IDS,
+    "seller_key_id": SELLER_ID,
+    "seller_key_name": "openrouter",
     "config_key": "tk_openrouter_provider_config",
     "enabled": True,
 }, ensure_ascii=False))
-'''.replace("__GROUP_IDS__", json.dumps(group_ids)).replace(
-        "__INFERENCE_ID__", str(inference_key_id)
-    ).replace("__MONITOR_ID__", str(monitor_key_id)).replace(
+'''.replace("__SUPPLY_GROUP_IDS__", json.dumps(supply_group_ids)).replace(
+        "__SELLER_ID__", str(seller_key_id)
+    ).replace(
         "__CONFIG_JSON__", config_json.replace("\\", "\\\\").replace('"', '\\"')
     )
     return "set -euo pipefail\n" f"python3 <<'PYEOF'\n{py}\nPYEOF\n"
@@ -367,10 +369,18 @@ def _parse_snapshot_groups(groups_raw: str) -> list[int]:
     return ids
 
 
-def _parse_snapshot_key_id(api_keys_raw: str, name: str) -> int:
+def _parse_snapshot_key_id(api_keys_raw: str, names: tuple[str, ...] | str) -> int:
+    if isinstance(names, str):
+        names = (names,)
+    for want in names:
+        for line in api_keys_raw.splitlines():
+            parts = line.split("|")
+            if len(parts) >= 2 and parts[1] == want and parts[0].isdigit():
+                return int(parts[0])
+    # Any active key for the billing user is enough (runtime is ownership-based).
     for line in api_keys_raw.splitlines():
         parts = line.split("|")
-        if len(parts) >= 2 and parts[1] == name and parts[0].isdigit():
+        if len(parts) >= 1 and parts[0].isdigit():
             return int(parts[0])
     return 0
 
@@ -388,15 +398,12 @@ def cmd_update_config(args) -> int:
     )
     groups_raw = _run_psql_query(inst, groups_sql, "or-provider update: groups")
     keys_raw = _run_psql_query(inst, keys_sql, "or-provider update: keys")
-    group_ids = _parse_snapshot_groups(groups_raw)
-    if args.group_ids:
-        group_ids = [int(x) for x in args.group_ids.split(",") if x.strip()]
-    if not group_ids:
-        fail("no group_ids resolved; pass --group-ids or ensure user 32 has allowed groups")
-    inference_id = _parse_snapshot_key_id(keys_raw, INFERENCE_KEY_NAME)
-    monitor_id = _parse_snapshot_key_id(keys_raw, MONITOR_KEY_NAME)
-    if inference_id <= 0 or monitor_id <= 0:
-        fail(f"missing OR keys: inference={inference_id} monitor={monitor_id}; run bootstrap first")
+    supply_group_ids = _parse_snapshot_groups(groups_raw)
+    if not supply_group_ids:
+        fail("user 32 has no allowed groups; catalog would be empty")
+    seller_id = _parse_snapshot_key_id(keys_raw, LEGACY_SELLER_KEY_NAMES)
+    if seller_id <= 0:
+        fail("billing user has no API keys; run bootstrap first")
 
     cfg_sql = f"SELECT value FROM settings WHERE key = {_sql_literal(SETTING_KEY)} LIMIT 1;"
     existing_raw = _decode_settings_value(_run_psql_query(inst, cfg_sql, "or-provider update: config"))
@@ -404,19 +411,23 @@ def cmd_update_config(args) -> int:
         cfg = _merge_missing_list_fields(json.loads(existing_raw))
     else:
         cfg = _load_default_config()
+    cfg.pop("group_ids", None)
+    cfg.pop("allowed_api_key_ids", None)
+    cfg.pop("monitor_api_key_ids", None)
 
     if args.dry_run:
         print(json.dumps({
             "dry_run": True,
             "billing_user_id": BILLING_USER_ID,
-            "group_ids": group_ids,
-            "inference_key_id": inference_id,
-            "monitor_key_id": monitor_id,
+            "supply_group_ids_from_user": supply_group_ids,
+            "seller_key_id": seller_id,
+            "seller_key_name": SELLER_KEY_NAME,
             "would_upsert": SETTING_KEY,
+            "note": "group_ids and key id lists are not written; runtime reads user_allowed_groups + billing-user ownership",
         }, indent=2, ensure_ascii=False))
         return 0
 
-    shell = _remote_update_config_script(group_ids, inference_id, monitor_id, cfg)
+    shell = _remote_update_config_script(seller_id, cfg, supply_group_ids)
     b64 = base64.b64encode(shell.encode()).decode()
     out = _SSM.run_shell_b64(inst, b64, "or-provider update-config")
     for line in reversed(out.splitlines()):
@@ -438,8 +449,7 @@ def cmd_bootstrap(args) -> int:
             "billing_user_id": BILLING_USER_ID,
             "group_id": group_id,
             "would_upsert": SETTING_KEY,
-            "inference_key_name": INFERENCE_KEY_NAME,
-            "monitor_key_name": MONITOR_KEY_NAME,
+            "seller_key_name": SELLER_KEY_NAME,
         }, indent=2, ensure_ascii=False))
         return 0
     shell = _remote_bootstrap_script(group_id, cfg, args.create_group)
@@ -465,8 +475,7 @@ def main() -> int:
                       help="create OpenRouter group when missing (default: true)")
     boot.add_argument("--no-create-group", dest="create_group", action="store_false")
     boot.add_argument("--dry-run", action="store_true")
-    upd = sub.add_parser("update-config", help="upsert config from user 32 groups + existing OR keys")
-    upd.add_argument("--group-ids", default="", help="comma-separated group ids (default: user allowed groups)")
+    upd = sub.add_parser("update-config", help="upsert config keys for user 32; supply groups come from user_allowed_groups at runtime")
     upd.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.cmd == "snapshot":

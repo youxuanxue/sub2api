@@ -135,6 +135,61 @@ func (s *GatewayService) openRouterProviderCatalogCandidates(ctx context.Context
 	return order
 }
 
+// ResolveOpenRouterProviderSupplyGroupIDs returns the seller catalog supply groups.
+// Owner is billing_user_id → user_allowed_groups. Legacy cfg.GroupIDs is only a
+// fallback when BillingUserID is unset (tests / empty config).
+func (s *GatewayService) ResolveOpenRouterProviderSupplyGroupIDs(
+	ctx context.Context,
+	cfg OpenRouterProviderConfig,
+) ([]int64, error) {
+	if cfg.BillingUserID > 0 {
+		if s == nil || s.userRepo == nil {
+			return nil, fmt.Errorf("openrouter provider: user repository required to resolve supply groups")
+		}
+		user, err := s.userRepo.GetByID(ctx, cfg.BillingUserID)
+		if err != nil {
+			return nil, fmt.Errorf("openrouter provider billing user %d: %w", cfg.BillingUserID, err)
+		}
+		if user == nil {
+			return nil, fmt.Errorf("openrouter provider billing user %d not found", cfg.BillingUserID)
+		}
+		out := make([]int64, 0, len(user.AllowedGroups))
+		seen := make(map[int64]struct{}, len(user.AllowedGroups))
+		for _, id := range user.AllowedGroups {
+			if id <= 0 {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+		if len(out) == 0 {
+			return nil, fmt.Errorf("openrouter provider billing user %d has no allowed groups", cfg.BillingUserID)
+		}
+		return out, nil
+	}
+	out := make([]int64, 0, len(cfg.GroupIDs))
+	seen := make(map[int64]struct{}, len(cfg.GroupIDs))
+	for _, id := range cfg.GroupIDs {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	if len(out) == 0 {
+		return nil, fmt.Errorf("openrouter provider config: billing_user_id or legacy group_ids required")
+	}
+	return out, nil
+}
+
 func (s *GatewayService) BuildOpenRouterProviderCatalog(
 	ctx context.Context,
 	cfg OpenRouterProviderConfig,
@@ -142,8 +197,9 @@ func (s *GatewayService) BuildOpenRouterProviderCatalog(
 	if !cfg.Enabled {
 		return nil, fmt.Errorf("openrouter provider config disabled")
 	}
-	if len(cfg.GroupIDs) == 0 {
-		return nil, fmt.Errorf("openrouter provider config: group_ids required")
+	groupIDs, err := s.ResolveOpenRouterProviderSupplyGroupIDs(ctx, cfg)
+	if err != nil {
+		return nil, err
 	}
 	if s == nil || s.groupRepo == nil {
 		return nil, fmt.Errorf("gateway service not configured")
@@ -157,7 +213,7 @@ func (s *GatewayService) BuildOpenRouterProviderCatalog(
 	seen := make(map[string]modelEntry)
 	order := make([]string, 0)
 
-	for _, groupID := range cfg.GroupIDs {
+	for _, groupID := range groupIDs {
 		if groupID <= 0 {
 			continue
 		}

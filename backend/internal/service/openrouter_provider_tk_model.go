@@ -9,7 +9,7 @@ import (
 )
 
 // NormalizeOpenRouterProviderChatBody rewrites tokenkey/<model> requests from
-// OpenRouter inference keys back to the internal model id used by scheduling.
+// OpenRouter seller keys back to the internal model id used by scheduling.
 func (s *SettingService) NormalizeOpenRouterProviderChatBody(
 	ctx context.Context,
 	apiKeyID, userID int64,

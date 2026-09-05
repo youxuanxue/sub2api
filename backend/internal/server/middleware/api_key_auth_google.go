@@ -121,9 +121,6 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		}
 
 		MaybeRewriteOpenRouterProviderChatBody(c, apiKey, settingService)
-		if MaybeRejectOpenRouterProviderMonitorInference(c, apiKey, settingService) {
-			return
-		}
 
 		// 全能 Key：在分组/订阅校验之前解析后端组并就地替换（见 universal_routing_tk.go）。
 		// /v1beta 形状为 gemini，解析到 gemini/antigravity 后端组；失败时已写出 Google 形状错误。
