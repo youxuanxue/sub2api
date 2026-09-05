@@ -105,9 +105,9 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 ### 冒烟 / 本机 curl 对域名长期 `HTTP 000` 或 TCP 超时
 
 Lightsail **实例控制台「Networking」防火墙**的硬化基线是**放行 TCP 443 + 8443 + UDP 34567**（443 = HTTPS 业务 + ACME TLS-ALPN-01；
-8443 = 备用 TCP 连接口；UDP 34567 = hysteria / 备用 UDP 入口，按设计保持开放、不强制关掉）；**80 与 22 关闭**（证书走 TLS-ALPN-01 无需 80，续签仍只走 443；SSH 走 SSM / 控制台 browser SSH，不依赖公网 22）。仅靠正确 DNS（A → Static IP）不够；若 443 没开，`curl https://api-…/health` 会与 GitHub runner 一致：约 130s 级连接超时。
+8443 = 备用 TCP 连接口；UDP 34567 = hysteria / 备用 UDP 入口，按设计保持开放、不强制关掉）；**80 关闭**。22 默认关闭；兼作本机 fingerprint egress 的 edge 可由 `lightsail-ssh-cidr` 仅向当前直连公网 IPv4 `/32` 开放，禁止 `0.0.0.0/0`。证书走 TLS-ALPN-01，无需 80，续签仍只走 443。仅靠正确 DNS（A → Static IP）不够；若 443 没开，`curl https://api-…/health` 会与 GitHub runner 一致：约 130s 级连接超时。
 
-- 自检：`aws lightsail get-instance-port-states --region <region> --instance-name <instance_name>`（期望 443 + 8443 + UDP 34567 open，80/22 closed）
+- 自检：`aws lightsail get-instance-port-states --region <region> --instance-name <instance_name>`（期望 443 + 8443 + UDP 34567 open、80 closed；22 closed 或仅一个公网 IPv4 `/32`）
 - 一次性修复 / 收口到基线（与 provision 脚本行为一致，原子覆盖整张防火墙表）：  
   `bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --enforce-ports`  
   其内部即 `aws lightsail put-instance-public-ports --region <region> --instance-name <instance_name> --port-infos fromPort=443,toPort=443,protocol=tcp,cidrs=0.0.0.0/0 fromPort=8443,toPort=8443,protocol=tcp,cidrs=0.0.0.0/0 fromPort=34567,toPort=34567,protocol=udp,cidrs=0.0.0.0/0`（put = 替换语义，顺带关掉默认 22 与历史 80，同时保留 8443 与 UDP 34567）。
