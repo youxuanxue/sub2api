@@ -82,41 +82,14 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		}
 	}
 
-	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)
-	shouldMimicClaudeCode := account.IsOAuth() && !isClaudeCodeCT
-
-	if shouldMimicClaudeCode {
-		normalizeOpts := claudeOAuthNormalizeOptions{stripSystemCacheControl: true}
-		hadContextManagement := gjson.GetBytes(body, "context_management").Exists()
-		var normalizedBody []byte
-		normalizedBody, reqModel = normalizeClaudeOAuthRequestBody(body, reqModel, normalizeOpts)
-		if !hadContextManagement && gjson.GetBytes(normalizedBody, "context_management").Exists() {
-			if stripped, ok := deleteJSONPathBytes(normalizedBody, "context_management"); ok {
-				normalizedBody = stripped
-			}
-		}
-		if err := replaceBody(normalizedBody); err != nil {
-			return err
-		}
-
-		if err := replaceBody(s.rewriteMessageCacheControlIfEnabled(ctx, body)); err != nil {
-			return err
-		}
-		if rw := buildToolNameRewriteFromBody(body); rw != nil {
-			if err := replaceBody(applyToolNameRewriteToBody(body, rw)); err != nil {
-				return err
-			}
-		} else {
-			if err := replaceBody(applyToolsLastCacheBreakpoint(body)); err != nil {
-				return err
-			}
-		}
-		if strippedBody, _ := StripCountTokensUnsupportedFields(body); !bytes.Equal(strippedBody, body) {
-			if err := replaceBody(strippedBody); err != nil {
-				return err
-			}
-		}
+	// TK: OAuth non-CC mimicry (must stay AFTER estimate-local + canonical UA gate).
+	shouldMimicClaudeCode, reqModel, err := s.tkApplyCountTokensOAuthMimicry(
+		ctx, c, account, reqModel, parsed.MetadataUserID, replaceBody, getBody,
+	)
+	if err != nil {
+		return err
 	}
+	body = getBody()
 
 	// 应用模型映射：
 	// - APIKey 账号：使用账号级别的显式映射（如果配置），否则透传原始模型名
@@ -147,19 +120,10 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 			logger.LegacyPrintf("service.gateway", "CountTokens model mapping applied: %s -> %s (account: %s, source=%s)", originalReqModel, mappedModel, account.Name, mappingSource)
 		}
 	}
-	if account.Platform == PlatformAnthropic && reqModel != "" {
-		if replacement, deprecated := tkIsDeprecatedAnthropicModel(reqModel); deprecated {
-			TkWriteAnthropicDeprecatedModelError(c, reqModel, replacement)
-			return fmt.Errorf("anthropic model %q is retired (suggest %q)", reqModel, replacement)
-		}
-	}
-	if account.Platform == PlatformAnthropic {
-		body = s.applySigPreemptIfArmed(ctx, c, account, body, reqModel)
-	}
-	if account.Platform == PlatformAnthropic {
-		if err := s.tkRejectInvalidAnthropicToolContext(ctx, c, account, body, s.tkRequiresClaudeCodeSystemSurface(ctx, c, account), false); err != nil {
-			return err
-		}
+	// TK: post-mapping guards (deprecated / sig preempt / tool-context).
+	body, err = s.tkApplyCountTokensPostMapGuards(ctx, c, account, body, reqModel)
+	if err != nil {
+		return err
 	}
 
 	// 获取凭证

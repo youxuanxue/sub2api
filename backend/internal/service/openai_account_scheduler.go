@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -420,45 +419,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
-	// Production Select() only sets GroupPlatform. Empty req.Platform normalizes
-	// to openai, so the gate must use schedulePlatform() — the same SSOT as
-	// sticky/load-balance — or newapi/grok/CN groups inherit OpenAI response sticky.
-	if previousResponseID != "" && req.schedulePlatform() == PlatformOpenAI &&
-		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
-		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
-			ctx,
-			req.GroupID,
-			previousResponseID,
-			req.RequestedModel,
-			req.ExcludedIDs,
-			req.RequiredCapability,
-			req.RequireCompact,
-		)
-		if err != nil {
-			return nil, decision, err
-		}
-		if selection != nil && selection.Account != nil {
-			compatible, _ := s.isAccountRequestCompatibleReason(ctx, selection.Account, req)
-			if !compatible ||
-				!s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) ||
-				!s.service.openAIAccountMatchesSchedulingGroup(ctx, selection.Account, req.GroupID, req.schedulePlatform()) {
-				if selection.ReleaseFunc != nil {
-					selection.ReleaseFunc()
-				}
-				selection = nil
-			}
-		}
-		if selection != nil && selection.Account != nil {
-			decision.Layer = openAIAccountScheduleLayerPreviousResponse
-			decision.StickyPreviousHit = true
-			decision.SelectedAccountID = selection.Account.ID
-			decision.SelectedAccountType = selection.Account.Type
-			if req.SessionHash != "" {
-				_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, selection.Account.ID)
-			}
-			return selection, decision, nil
-		}
+	// TK: previous_response_id sticky — see openai_account_scheduler_tk_previous_response.go
+	if selection, decision, handled, err := s.tkTrySelectByPreviousResponseID(ctx, req, decision); handled {
+		return selection, decision, err
 	}
 
 	if selection, decision, handled, err := s.tkTrySelectGuardianParent(ctx, req, decision); handled {
@@ -2461,61 +2424,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	}
 	selection, err = attachProtocolPlan(ctx, selection)
 	return selection, decision, err
-}
-
-func accountSupportsOpenAIVideoCapability(account *Account) bool {
-	if account == nil {
-		return false
-	}
-	if UsesGrokNativeVideoArm(account) {
-		return true
-	}
-	return engine.IsVideoSupportedForAccount(account.Platform, account.ChannelType)
-}
-
-func accountSupportsOpenAIRequestCapabilities(
-	account *Account,
-	requiredCapability OpenAIEndpointCapability,
-	requiredImageCapability OpenAIImagesCapability,
-	requiredVideoSupport bool,
-) bool {
-	if !accountSupportsOpenAICapabilities(account, requiredCapability, requiredImageCapability) {
-		return false
-	}
-	if requiredVideoSupport && !accountSupportsOpenAIVideoCapability(account) {
-		return false
-	}
-	return true
-}
-
-func accountSupportsOpenAIRequestCapabilitiesForContext(
-	ctx context.Context,
-	account *Account,
-	requiredCapability OpenAIEndpointCapability,
-	requiredImageCapability OpenAIImagesCapability,
-	requiredVideoSupport bool,
-) bool {
-	if protocolRoutingOwnsOpenAITextCapability(ctx, requiredCapability) {
-		return account != nil &&
-			account.SupportsOpenAIImageCapability(requiredImageCapability) &&
-			(!requiredVideoSupport || accountSupportsOpenAIVideoCapability(account))
-	}
-	return accountSupportsOpenAIRequestCapabilities(
-		account,
-		requiredCapability,
-		requiredImageCapability,
-		requiredVideoSupport,
-	)
-}
-
-func accountSupportsOpenAICapabilities(account *Account, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability) bool {
-	if account == nil {
-		return false
-	}
-	if !tkOpenAICompatEndpointCapabilityAllows(account, requiredCapability) {
-		return false
-	}
-	return account.SupportsOpenAIImageCapability(requiredImageCapability)
 }
 
 func cloneExcludedAccountIDs(excludedIDs map[int64]struct{}) map[int64]struct{} {

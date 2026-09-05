@@ -51,7 +51,7 @@ OWNER_FILES = (
     "backend/internal/handler/wire.go",
     "backend/internal/handler/wire_protocol_ssot_tk.go",
     "backend/internal/handler/openai_gateway_count_tokens.go",
-    "backend/internal/handler/gemini_v1beta_handler.go",
+    "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
     "backend/internal/handler/admin/account_handler.go",
     "backend/internal/server/router.go",
     "backend/internal/server/routes/common.go",
@@ -61,22 +61,22 @@ OWNER_FILES = (
 GOVERNED_HANDLERS = (
     "backend/internal/handler/gateway_handler_tk_protocol_execute.go",
     "backend/internal/handler/gateway_handler_chat_completions.go",
-    "backend/internal/handler/gateway_handler_responses.go",
+    "backend/internal/handler/gateway_handler_tk_responses_execute.go",
     "backend/internal/handler/openai_gateway_handler.go",
     "backend/internal/handler/openai_chat_completions.go",
-    "backend/internal/handler/gemini_v1beta_handler.go",
+    "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
 )
 
 HANDLER_GEMINI_EXECUTORS = {
     "backend/internal/handler/gateway_handler_tk_protocol_execute.go": ("MessagesToGemini",),
     "backend/internal/handler/gateway_handler_chat_completions.go": ("ChatToGemini",),
-    "backend/internal/handler/gateway_handler_responses.go": ("ResponsesToGemini",),
+    "backend/internal/handler/gateway_handler_tk_responses_execute.go": ("ResponsesToGemini",),
     "backend/internal/handler/openai_gateway_handler.go": (
         "MessagesToGemini",
         "ResponsesToGemini",
     ),
     "backend/internal/handler/openai_chat_completions.go": ("ChatToGemini",),
-    "backend/internal/handler/gemini_v1beta_handler.go": ("GeminiIdentity",),
+    "backend/internal/handler/gemini_v1beta_handler_tk_execute.go": ("GeminiIdentity",),
 }
 
 CONCRETE_ADAPTERS = (
@@ -123,7 +123,7 @@ FORWARD_BOUNDARIES = {
     "backend/internal/handler/gateway_handler_chat_completions.go": (
         r"\.ForwardAsChatCompletions(?:Dispatched)?\s*\(",
     ),
-    "backend/internal/handler/gateway_handler_responses.go": (
+    "backend/internal/handler/gateway_handler_tk_responses_execute.go": (
         r"\.ForwardAsResponses(?:Dispatched)?\s*\(",
     ),
     "backend/internal/handler/openai_chat_completions.go": (
@@ -149,7 +149,7 @@ AUTHORITATIVE_ACCOUNT_HELPERS = {
             r"\bprepareBody\s*\(\s*account\s*,",
         ),
     ),
-    "backend/internal/handler/gemini_v1beta_handler.go": (
+    "backend/internal/handler/gemini_v1beta_handler_tk_execute.go": (
         (
             "forwardNonGoverned",
             r"\bforwardNonGoverned\s*:=\s*func\s*\(\s*executionCtx\s+context\.Context\s*,\s*executionAccount\s+\*service\.Account\s*,",
