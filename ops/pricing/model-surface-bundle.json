@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "5c5e7cfbbfabc02fd6c1cb843f841f136e5c6d4d89a6a98f2934e96eaeeb6895",
+  "floor_sha256": "877c654d42ecdf7af8d6f6cbaa936837515b8b0e5221e181f41d918c8a37214c",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -330,6 +330,23 @@
     "account_overrides": [
       {
         "platform": "newapi",
+        "channel_type": 17,
+        "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
+        "model_mapping": {
+          "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
+          "deepseek-v4-pro": "deepseek-v4-pro",
+          "glm-5.2": "glm-5.2",
+          "qwen3.6-flash": "qwen3.6-flash",
+          "qwen3.7-max": "qwen3.7-max",
+          "qwen3.7-plus": "qwen3.7-plus",
+          "qwen3.8-flash": "qwen3.8-flash",
+          "qwen3.8-max": "qwen3.8-max",
+          "wan2.7-image": "wan2.7-image",
+          "wan2.7-image-pro": "wan2.7-image-pro"
+        }
+      },
+      {
+        "platform": "newapi",
         "channel_type": 45,
         "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
         "model_mapping": {
@@ -385,6 +402,21 @@
           "qwen3.5-27b": "qwen3.5-27b",
           "qwen3.5-35b-a3b": "qwen3.5-35b-a3b",
           "qwen3.5-397b-a17b": "qwen3.5-397b-a17b"
+        }
+      },
+      {
+        "platform": "newapi",
+        "channel_type": 46,
+        "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal",
+        "model_mapping": {
+          "deepseek-v4-flash": "deepseek-v4-flash",
+          "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
+          "deepseek-v4-pro": "deepseek-v4-pro",
+          "deepseek-v4-pro-0813": "deepseek-v4-pro-0813",
+          "glm-5.1": "glm-5.1",
+          "glm-5.2": "glm-5.2",
+          "glm-5.3-flash": "glm-5.3-flash",
+          "kimi-k2.6": "kimi-k2.6"
         }
       },
       {

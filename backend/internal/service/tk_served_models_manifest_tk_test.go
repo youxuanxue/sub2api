@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
 // Embed the manifest independently from the production loader so the test
@@ -209,14 +211,15 @@ func manifestScopeKeysForTest(entry tkServedModelsOwnerEntryForTest) []string {
 }
 
 func manifestScopeKeyForTest(scope tkServedModelsOwnerScopeForTest) string {
-	baseURL := strings.TrimRight(strings.ToLower(strings.TrimSpace(scope.BaseURL)), "/")
-	valid := (scope.ChannelType == 45 && baseURL == "https://ark.cn-beijing.volces.com/api/plan/v3") ||
-		(scope.ChannelType == 46 && baseURL == "https://qianfan.baidubce.com") ||
-		(scope.ChannelType == 54 && baseURL == "https://api.xrtoken.net")
-	if !valid {
+	// Keep recognition aligned with production manifestScopeKey (same integration helpers).
+	if !newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsQianfanTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsAliTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsXRTokenBaseURL(scope.ChannelType, scope.BaseURL) {
 		return ""
 	}
-	return "newapi:" + strconv.Itoa(scope.ChannelType) + ":" + baseURL
+	return normalizeAccountModelMappingOverrideScope(PlatformNewAPI, scope.ChannelType, scope.BaseURL)
 }
 
 func requireServedManifestProjectionEqualForTest(t *testing.T, name string, want, got any) {

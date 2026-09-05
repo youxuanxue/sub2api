@@ -168,6 +168,8 @@ func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
 func manifestScopeKey(scope tkServedModelsManifestScope) string {
 	if !newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsQianfanTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsAliTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsXRTokenBaseURL(scope.ChannelType, scope.BaseURL) {
 		return ""
 	}
@@ -218,6 +220,38 @@ func newAPIQianfanModelDisplayPresetIDs() []string {
 		PlatformNewAPI,
 		newapiconstant.ChannelTypeBaiduV2,
 		newapiintegration.QianfanBaseURL,
+	)
+}
+
+func newAPIAliTokenPlanModelMappingPresetIDs() []string {
+	return tkServedModelsManifestPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeAli,
+		newapiintegration.AliTokenPlanBaseURL,
+	)
+}
+
+func newAPIAliTokenPlanModelDisplayPresetIDs() []string {
+	return tkServedModelsManifestDisplayPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeAli,
+		newapiintegration.AliTokenPlanBaseURL,
+	)
+}
+
+func newAPIQianfanTokenPlanModelMappingPresetIDs() []string {
+	return tkServedModelsManifestPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeBaiduV2,
+		newapiintegration.QianfanTokenPlanBaseURL,
+	)
+}
+
+func newAPIQianfanTokenPlanModelDisplayPresetIDs() []string {
+	return tkServedModelsManifestDisplayPresetIDsForSelector(
+		PlatformNewAPI,
+		newapiconstant.ChannelTypeBaiduV2,
+		newapiintegration.QianfanTokenPlanBaseURL,
 	)
 }
 
