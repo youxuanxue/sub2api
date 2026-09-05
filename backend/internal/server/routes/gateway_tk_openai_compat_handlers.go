@@ -298,6 +298,19 @@ func tkOpenAICompatVideoContentHandler(h *handler.Handlers) gin.HandlerFunc {
 	}
 }
 
+// registerTKOpenAICompatImagePresignRoutes wires the Studio reload path that
+// re-mints a short-lived presigned URL for an already-offloaded image.
+func registerTKOpenAICompatImagePresignRoutes(routes terminalRouteRegistrar, h *handler.Handlers) {
+	routes.Register(http.MethodPost, "/images/presign", Excluded("presign"), h.OpenAIGateway.ImagesPresign)
+}
+
+// registerTKOpenAICompatImagePresignRoutesNoPrefix mirrors the above for the
+// no-/v1-prefix aliases registered directly on *gin.Engine.
+func registerTKOpenAICompatImagePresignRoutesNoPrefix(routes terminalRouteRegistrar, h *handler.Handlers, mw ...gin.HandlerFunc) {
+	chain := append(append([]gin.HandlerFunc{}, mw...), h.OpenAIGateway.ImagesPresign)
+	routes.Register(http.MethodPost, "/images/presign", Excluded("presign"), chain...)
+}
+
 // registerTKOpenAICompatVideoRoutes wires the async video task routes: POST
 // submit at `/video/generations`, the OpenAI-compat alias `/videos`, and the
 // xAI-shaped alias `/videos/generations` (needed for the prod→edge grok relay,

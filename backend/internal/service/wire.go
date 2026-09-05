@@ -12,7 +12,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/telemetryarchive"
@@ -909,9 +908,6 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load forwarded client ip settings failed: %v", err)
 	}
-	// TK: fan out SystemSettings writes (e.g. HTTP UA version) across replicas via
-	// Redis pub/sub so a change is reflected within seconds, not the 60s cache TTL.
-	svc.EnableSettingsPubSub(context.Background(), pubsub)
 	// Fold deprecated codex_cli_only global toggles into the new policy model
 	// (whitelist + engine-fingerprint signal list) on startup; idempotent.
 	if err := svc.MigrateOpenAIAllowClaudeCodeCodexPluginSetting(context.Background()); err != nil {
@@ -924,8 +920,7 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 		logger.LegacyPrintf("service.setting", "Warning: migrate Grok default text model failed: %v", err)
 	}
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
-	SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)
-	claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)
+	tkWireSettingServiceExtras(svc, pubsub)
 	// Codex identity enforcement has no request context; the resolver's TTL
 	// cache keeps this background lookup off the hot path.
 	SetCodexCanonicalUserAgentResolver(func() string {
@@ -985,8 +980,6 @@ var ProviderSet = wire.NewSet(
 	NewDashboardService,
 	ProvidePricingService,
 	NewPricingCatalogService,
-	// TK: per-user pricing catalog ("Your Menu") — see me_pricing_catalog_tk.go
-	NewMePricingCatalogService,
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
@@ -1060,13 +1053,7 @@ var ProviderSet = wire.NewSet(
 	ProvideUserMessageQueueService,
 	NewUsageRecordWorkerPool,
 	ProvideSchedulerSnapshotService,
-	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
-	// scheduler_rate_limit_reaper.go.
-	ProvideSchedulerRateLimitReaper,
-	ProvideAnthropicConfigReconciler,
 	ProvideUpstreamBalanceSentinel,
-	// TK: prod-side cross-edge read-only account overview — see edge_accounts_aggregator_tk.go.
-	ProvideEdgeAccountsAggregator,
 	NewIdentityService,
 	NewCRSSyncService,
 	ProvideUpdateService,
@@ -1088,15 +1075,10 @@ var ProviderSet = wire.NewSet(
 	NewTotpService,
 	NewErrorPassthroughService,
 	NewTLSFingerprintProfileService,
-	// TK: anthropic-oauth stability tier reference service (CRUD + pub/sub + resolver).
-	NewTierService,
-	wire.Bind(new(TierExtraResolver), new(*TierService)),
-	NewAccountTierService,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
 	ProvideIdempotencyCleanupService,
-	ProvideHoldReconcilerService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,
@@ -1116,59 +1098,9 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorV2Aggregator,
 	ProvideTerminalOutcomeRecorder,
 	NewChannelMonitorRequestTemplateService,
-	// TokenKey: cold-start binding (US-029 / US-030) — wires the trial-key
-	// issuer onto AuthService post-construction. The returned sentinel is
-	// consumed by provideCleanup (cmd/server/wire.go) so wire forces evaluation.
-	ProvideTKAuthServiceColdStart,
-	// TokenKey: pricing-availability evidence owner; see
-	// docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner. Builds the
-	// availability service and wires it onto GatewayService post-construction.
-	// Handler-side wiring lives in handler/wire.go (ProvideTKPricingCatalogHandler).
-	ProvidePricingAvailabilityService,
-	ProvideTKGatewayPricingAvailability,
-	// TokenKey: wires GatewayService.GetAvailableModels onto the universal-key
-	// resolver (APIKeyService) post-construction so resolution filters candidate
-	// groups by the models they actually serve. Consumed by provideCleanup.
-	ProvideTKUniversalModelsProvider,
-	ProvideTKGroupUnsupportedModelCache,
-	// TokenKey: runtime hot-pushable pricing overlay — wires the settings-blob
-	// getter + catalog-cache invalidator onto PricingService, does the initial
-	// load, and subscribes to the settings pub/sub for immediate reloads. Lets a
-	// new model be priced + surfaced in /pricing without a release. Consumed by
-	// provideCleanup so wire forces evaluation.
-	ProvideTKPricingOverlayRuntime,
-	// TokenKey: runtime overlay for empty-mapping Antigravity serving — loads
-	// tk_account_model_mapping_runtime at boot and on settings_updated so edge
-	// empty AG accounts can hot-add models without writing credentials.
-	// Consumed by provideCleanup so wire forces evaluation.
-	ProvideTKAccountModelMappingRuntimeServing,
-	// TokenKey: client model-list filter — CatalogPolicy projection
-	// (priced, not structurally-gone) for /v1/models, /v1beta/models, /antigravity/models.
-	NewModelListFilter,
-	NewUniversalCapabilityService,
-	// TokenKey: Anthropic signature_error preempt — wires the per-account
-	// thinking-block preempt cache onto GatewayService post-construction.
-	// Same shape as ProvideTKGatewayPricingAvailability; consumed by
-	// provideCleanup in cmd/server/wire.go so wire forces evaluation.
-	ProvideTKGatewayAnthropicSigPreempt,
-	// TokenKey: anthropic saturated mirror-stub de-prioritization — wires the
-	// Redis saturation counter onto GatewayService (scheduler read) and
-	// RateLimitService (skip-penalty write). Consumed by provideCleanup so wire
-	// forces evaluation.
-	ProvideTKAnthropicSaturation,
-	ProvideTKOpenAISaturation,
-	ProvideTKAntigravitySaturation,
-	// TokenKey: account-incident → Feishu notifier. Builds the notifier, starts
-	// its digest ticker, and wires it onto RateLimitService post-construction.
-	// Returns the instance so provideCleanup (cmd/server/wire.go) can Stop() the
-	// ticker at shutdown — same lifecycle shape as ChannelMonitorRunner.
-	ProvideTKAccountIncidentNotifier,
-	// TokenKey: pricing-missing → Feishu notifier. Builds the notifier, starts
-	// its digest ticker, and wires it onto GatewayService + OpenAIGatewayService
-	// post-construction. Returns the instance so provideCleanup
-	// (cmd/server/wire.go) can Stop() the ticker at shutdown.
-	ProvideTKPricingMissingNotifier,
 	ProvideUserPlatformQuotaUsageFlusher,
+	// TokenKey-only providers — see wire_tk.go.
+	TKProviderSet,
 )
 
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。

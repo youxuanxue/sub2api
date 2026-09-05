@@ -870,8 +870,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	accountRateMultiplier := account.BillingRateMultiplier()
 
 	// TK: served-but-zero-cost and family-floor observability probes.
-	s.tkNotifyServedZeroCost(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)
-	tkNotifyServedAtFallback(s.tkPricingMissingNotifier, s.billingService, cost, apiKey, billingModel, requestedModel, result.UpstreamModel, tkClaudeUsageBillableUnits(result.Usage, result.ImageCount))
+	s.tkRecordUsagePostCostObservability(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)
 
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
@@ -896,15 +895,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	// TK: passive availability observability — record successful forward outcome.
-	if s.tkPricingAvailability != nil {
-		s.tkPricingAvailability.RecordOutcome(ctx, AvailabilityOutcome{
-			Platform:           account.Platform,
-			ModelID:            result.UpstreamModel,
-			AccountID:          account.ID,
-			Success:            true,
-			UpstreamStatusCode: 200,
-		})
-	}
+	s.tkRecordAvailabilitySuccessOutcome(ctx, account, result)
 
 	// 配额平台由 handler 在请求 ctx 内经 QuotaPlatform() 算定并通过 input 传入；
 	// 后扣运行在 worker 池的 background ctx 上，无法再从 ctx 取 ForcePlatform。

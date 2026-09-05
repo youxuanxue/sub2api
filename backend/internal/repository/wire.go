@@ -97,8 +97,6 @@ var ProviderSet = wire.NewSet(
 	NewUserGroupRateRepository,
 	NewErrorPassthroughRepository,
 	NewTLSFingerprintProfileRepository,
-	// TK: anthropic-oauth stability tier reference table — see tier_repo.go / tier_service.go.
-	NewTierRepository,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
 	NewChannelMonitorV2Repository,
@@ -109,8 +107,6 @@ var ProviderSet = wire.NewSet(
 	NewAffiliateRepository,
 	NewUserPlatformQuotaRepository,     // T14: user × platform quota
 	NewUserPlatformQuotaServiceAdapter, // T14: adapter → service.UserPlatformQuotaRepository
-	// TK: pricing availability persistence — see docs/approved/pricing-availability-source-of-truth.md
-	NewModelAvailabilityRepository,
 	NewSupplierSourceRepository,
 
 	// Cache implementations
@@ -143,16 +139,12 @@ var ProviderSet = wire.NewSet(
 	NewLeaderLockCache,
 	ProvideSchedulerCache,
 	NewSchedulerOutboxRepository,
-	// TK fix for upstream Wei-Shaw/sub2api#2538 — see
-	// account_repo_tk_rate_limit_reaper.go.
-	NewRateLimitExpiryRepository,
 	NewAuthCacheInvalidationOutboxRepository,
 	NewProxyLatencyCache,
 	NewTotpCache,
 	NewRefreshTokenCache,
 	NewErrorPassthroughCache,
 	NewTLSFingerprintProfileCache,
-	NewTierCache,
 	NewContentModerationHashCache,
 	NewSettingPubSub,
 
@@ -187,6 +179,9 @@ var ProviderSet = wire.NewSet(
 	ProvideEnt,
 	ProvideSQLDB,
 	ProvideRedis,
+
+	// TokenKey-only providers — see wire_tk.go.
+	TKProviderSet,
 )
 
 // ProvideEnt 为依赖注入提供 Ent 客户端。

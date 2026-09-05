@@ -22,10 +22,7 @@ func RegisterAdminRoutes(
 ) {
 	admin := v1.Group("/admin")
 	admin.Use(gin.HandlerFunc(adminAuth))
-	// TK: compliance gate is setting-gated, default off (CLAUDE.md §5.x — fleet
-	// admin automation has no interactive ack step). Upstream guard runs as-is
-	// once tk_admin_compliance_gate_enabled=true.
-	admin.Use(middleware.TkAdminComplianceGuardIfEnabled(settingService))
+	applyTKAdminComplianceMiddleware(admin, settingService)
 	// 面板全局按用户限流（默认管理员豁免，可在系统设置中关闭豁免）
 	admin.Use(panelRateLimiter.Global())
 	// 审计中间件挂在认证之后：所有管理面变更类操作 + 敏感读取入审计日志
@@ -383,10 +380,7 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		groups.PUT("/:id/rpm-overrides", h.Admin.Group.BatchSetGroupRPMOverrides)
 		groups.DELETE("/:id/rpm-overrides", h.Admin.Group.ClearGroupRPMOverrides)
 		groups.GET("/:id/api-keys", h.Admin.Group.GetGroupAPIKeys)
-		// TK: group membership panel (account_groups SSOT view/add/remove)
-		groups.GET("/:id/accounts", h.Admin.Group.ListAccounts)
-		groups.POST("/:id/accounts", h.Admin.Group.BindAccounts)
-		groups.DELETE("/:id/accounts", h.Admin.Group.UnbindAccounts)
+		registerTKGroupMembershipRoutes(groups, h)
 	}
 }
 

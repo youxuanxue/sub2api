@@ -135,9 +135,7 @@ func RegisterGatewayRoutes(
 		gatewayRoutes.Register(http.MethodPost, "/embeddings", SyncInference, tkOpenAICompatEmbeddingsHandler(h))
 		gatewayRoutes.Register(http.MethodPost, "/images/generations", SyncInference, tkOpenAICompatImageGenerationsHandler(h))
 		gatewayRoutes.Register(http.MethodPost, "/images/edits", SyncInference, tkOpenAICompatImageEditsHandler(h))
-		// TK: re-mint a short-lived presigned URL for an already-offloaded image
-		// (the Studio reload path). Utility endpoint — no group-platform routing.
-		gatewayRoutes.Register(http.MethodPost, "/images/presign", Excluded("presign"), h.OpenAIGateway.ImagesPresign)
+		registerTKOpenAICompatImagePresignRoutes(gatewayRoutes, h)
 		registerTKOpenAICompatVideoRoutes(gatewayRoutes, h)
 		gatewayRoutes.Register(http.MethodPost, "/alpha/search", SyncInference, textBodyLimit, h.OpenAIGateway.AlphaSearch)
 		gatewayRoutes.Register(http.MethodPost, "/images/generations/async", AsyncSubmission, h.AsyncImage.Submit)
@@ -258,8 +256,7 @@ func RegisterGatewayRoutes(
 	rootRoutes.Register(http.MethodPost, "/images/generations", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageGenerationsHandler(h))
 	rootRoutes.Register(http.MethodPost, "/images/edits", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageEditsHandler(h))
 	rootRoutes.Register(http.MethodGet, "/models", Excluded("model_catalog"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, modelsHandler)
-	// TK: presigned-URL re-mint for offloaded images (Studio reload), no-prefix alias.
-	rootRoutes.Register(http.MethodPost, "/images/presign", Excluded("presign"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.ImagesPresign)
+	registerTKOpenAICompatImagePresignRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	registerTKOpenAICompatVideoRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	rootRoutes.Register(http.MethodPost, "/alpha/search", SyncInference, textBodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.AlphaSearch)
 	rootRoutes.Register(http.MethodPost, "/messages/count_tokens", Excluded("count_tokens"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatCountTokensPOST(h))

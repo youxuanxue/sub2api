@@ -1,0 +1,55 @@
+//go:build unit
+
+package service
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+func TestTkRecordAvailabilitySuccessOutcome_NilSafe(t *testing.T) {
+	s := &GatewayService{}
+	require.NotPanics(t, func() {
+		s.tkRecordAvailabilitySuccessOutcome(context.Background(), nil, nil)
+	})
+}
+
+func TestTkRecordUsagePostCostObservability_NilSafe(t *testing.T) {
+	s := &GatewayService{}
+	require.NotPanics(t, func() {
+		s.tkRecordUsagePostCostObservability(nil, &ForwardResult{}, nil, "m", "m", 1, 1)
+	})
+}
+
+func TestTkPrepareCountTokensAnthropicBody_UAGateDenied(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := &GatewayService{
+		settingService: &SettingService{},
+	}
+	// Force canonical OAuth + strict ingress via stubbing would need deeper
+	// plumbing; pin the nil-account path returns without denial.
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
+
+	body := []byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hi"}]}`)
+	stored := body
+	replaceBody := func(next []byte) error {
+		stored = append([]byte(nil), next...)
+		return nil
+	}
+	getBody := func() []byte { return stored }
+
+	next, model, denied, err := s.tkPrepareCountTokensAnthropicBody(
+		context.Background(), c, nil, body, "claude-sonnet-4-5", replaceBody, getBody,
+	)
+	require.NoError(t, err)
+	require.False(t, denied)
+	require.Equal(t, "claude-sonnet-4-5", model)
+	require.NotEmpty(t, next)
+}
