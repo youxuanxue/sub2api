@@ -57,10 +57,13 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 
 	var prepErr error
 	body, reqModel, prepErr = s.tkPrepareCountTokensAnthropicBody(ctx, c, account, body, reqModel, replaceBody, getBody)
+	// Sync model even when prepare fails mid-way (e.g. alias strip succeeded,
+	// later replaceBody failed) so parsed.Model matches the rewritten body —
+	// same eager write semantics as the pre-companion inline path.
+	parsed.Model = reqModel
 	if prepErr != nil {
 		return prepErr
 	}
-	parsed.Model = reqModel
 
 	if shouldEstimateCountTokensLocally(account) {
 		writeEstimatedAnthropicCountTokens(c, body)

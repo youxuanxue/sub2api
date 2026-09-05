@@ -19,6 +19,20 @@ func TestTkRecordAvailabilitySuccessOutcome_NilSafe(t *testing.T) {
 	})
 }
 
+func TestTkRecordAvailabilitySuccessOutcome_RecordsSuccess(t *testing.T) {
+	avail, repo, _ := newAvailabilityTestService(t)
+	s := &GatewayService{tkPricingAvailability: avail}
+	account := &Account{ID: 9, Platform: PlatformAnthropic}
+	result := &ForwardResult{UpstreamModel: "claude-sonnet-4-5"}
+
+	s.tkRecordAvailabilitySuccessOutcome(context.Background(), account, result)
+
+	st, err := repo.Get(context.Background(), PlatformAnthropic, "claude-sonnet-4-5")
+	require.NoError(t, err)
+	require.Equal(t, AvailabilityStatusOK, st.Status,
+		"success outcome companion must feed the availability owner")
+}
+
 func TestTkRecordUsagePostCostObservability_NilSafe(t *testing.T) {
 	s := &GatewayService{}
 	require.NotPanics(t, func() {
