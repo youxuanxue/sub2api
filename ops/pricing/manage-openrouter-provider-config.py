@@ -3,11 +3,13 @@
 
 Subcommands
 -----------
-  snapshot      Read-only: user 32 groups, existing OR-named keys, live config.
+  snapshot      Read-only: user 32 allowed groups, existing OR-named keys, live config.
   bootstrap     Create inference + monitor keys for user 32 (if missing), upsert
                 tk_openrouter_provider_config, publish settings_updated.
-  update-config Upsert tk_openrouter_provider_config from user 32 allowed groups
-                + existing OR inference/monitor key ids (no key creation).
+  update-config Upsert tk_openrouter_provider_config (billing user +
+                exclude/stream lists). Supply groups and key ids are NOT
+                stored — runtime reads user_allowed_groups and keys named
+                openrouter-inference / openrouter-monitor.
 
 Secrets policy: bootstrap prints only api_key ids and config field names — never
 the raw key material returned by the admin create endpoint.
@@ -183,9 +185,9 @@ if monitor_id <= 0:
     monitor_id = create_key(MONITOR_NAME, group_id)
 
 CONFIG["billing_user_id"] = USER_ID
-CONFIG["group_ids"] = [group_id]
-CONFIG["allowed_api_key_ids"] = [inference_id]
-CONFIG["monitor_api_key_ids"] = [monitor_id]
+CONFIG.pop("group_ids", None)  # runtime reads user_allowed_groups
+CONFIG.pop("allowed_api_key_ids", None)  # runtime matches openrouter-inference by name
+CONFIG.pop("monitor_api_key_ids", None)  # runtime matches openrouter-monitor by name
 CONFIG["enabled"] = True
 
 config_text = json.dumps(CONFIG, ensure_ascii=False, separators=(",", ":"))
@@ -215,6 +217,8 @@ print(json.dumps({
     "group_id": group_id,
     "inference_key_id": inference_id,
     "monitor_key_id": monitor_id,
+    "inference_key_name": INFERENCE_NAME,
+    "monitor_key_name": MONITOR_NAME,
     "config_key": "tk_openrouter_provider_config",
     "enabled": True,
 }, ensure_ascii=False))
@@ -299,25 +303,25 @@ def cmd_snapshot(_args) -> int:
 
 
 def _remote_update_config_script(
-    group_ids: list[int],
     inference_key_id: int,
     monitor_key_id: int,
     config: dict,
+    supply_group_ids: list[int],
 ) -> str:
     config_json = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
     py = r'''
 import json, subprocess, base64
 
 USER_ID = 32
-GROUP_IDS = __GROUP_IDS__
 INFERENCE_ID = __INFERENCE_ID__
 MONITOR_ID = __MONITOR_ID__
+SUPPLY_GROUP_IDS = __SUPPLY_GROUP_IDS__
 CONFIG = json.loads("""__CONFIG_JSON__""")
 
 CONFIG["billing_user_id"] = USER_ID
-CONFIG["group_ids"] = GROUP_IDS
-CONFIG["allowed_api_key_ids"] = [INFERENCE_ID]
-CONFIG["monitor_api_key_ids"] = [MONITOR_ID]
+CONFIG.pop("group_ids", None)  # runtime reads user_allowed_groups for billing_user_id
+CONFIG.pop("allowed_api_key_ids", None)
+CONFIG.pop("monitor_api_key_ids", None)
 CONFIG["enabled"] = True
 
 config_text = json.dumps(CONFIG, ensure_ascii=False, separators=(",", ":"))
@@ -341,13 +345,15 @@ subprocess.run(
 )
 print(json.dumps({
     "billing_user_id": USER_ID,
-    "group_ids": GROUP_IDS,
+    "supply_group_ids_from_user": SUPPLY_GROUP_IDS,
     "inference_key_id": INFERENCE_ID,
     "monitor_key_id": MONITOR_ID,
+    "inference_key_name": "openrouter-inference",
+    "monitor_key_name": "openrouter-monitor",
     "config_key": "tk_openrouter_provider_config",
     "enabled": True,
 }, ensure_ascii=False))
-'''.replace("__GROUP_IDS__", json.dumps(group_ids)).replace(
+'''.replace("__SUPPLY_GROUP_IDS__", json.dumps(supply_group_ids)).replace(
         "__INFERENCE_ID__", str(inference_key_id)
     ).replace("__MONITOR_ID__", str(monitor_key_id)).replace(
         "__CONFIG_JSON__", config_json.replace("\\", "\\\\").replace('"', '\\"')
@@ -388,11 +394,9 @@ def cmd_update_config(args) -> int:
     )
     groups_raw = _run_psql_query(inst, groups_sql, "or-provider update: groups")
     keys_raw = _run_psql_query(inst, keys_sql, "or-provider update: keys")
-    group_ids = _parse_snapshot_groups(groups_raw)
-    if args.group_ids:
-        group_ids = [int(x) for x in args.group_ids.split(",") if x.strip()]
-    if not group_ids:
-        fail("no group_ids resolved; pass --group-ids or ensure user 32 has allowed groups")
+    supply_group_ids = _parse_snapshot_groups(groups_raw)
+    if not supply_group_ids:
+        fail("user 32 has no allowed groups; catalog would be empty")
     inference_id = _parse_snapshot_key_id(keys_raw, INFERENCE_KEY_NAME)
     monitor_id = _parse_snapshot_key_id(keys_raw, MONITOR_KEY_NAME)
     if inference_id <= 0 or monitor_id <= 0:
@@ -404,19 +408,25 @@ def cmd_update_config(args) -> int:
         cfg = _merge_missing_list_fields(json.loads(existing_raw))
     else:
         cfg = _load_default_config()
+    cfg.pop("group_ids", None)
+    cfg.pop("allowed_api_key_ids", None)
+    cfg.pop("monitor_api_key_ids", None)
 
     if args.dry_run:
         print(json.dumps({
             "dry_run": True,
             "billing_user_id": BILLING_USER_ID,
-            "group_ids": group_ids,
+            "supply_group_ids_from_user": supply_group_ids,
             "inference_key_id": inference_id,
             "monitor_key_id": monitor_id,
+            "inference_key_name": INFERENCE_KEY_NAME,
+            "monitor_key_name": MONITOR_KEY_NAME,
             "would_upsert": SETTING_KEY,
+            "note": "group_ids and key id lists are not written; runtime reads user_allowed_groups + key names",
         }, indent=2, ensure_ascii=False))
         return 0
 
-    shell = _remote_update_config_script(group_ids, inference_id, monitor_id, cfg)
+    shell = _remote_update_config_script(inference_id, monitor_id, cfg, supply_group_ids)
     b64 = base64.b64encode(shell.encode()).decode()
     out = _SSM.run_shell_b64(inst, b64, "or-provider update-config")
     for line in reversed(out.splitlines()):
@@ -465,8 +475,7 @@ def main() -> int:
                       help="create OpenRouter group when missing (default: true)")
     boot.add_argument("--no-create-group", dest="create_group", action="store_false")
     boot.add_argument("--dry-run", action="store_true")
-    upd = sub.add_parser("update-config", help="upsert config from user 32 groups + existing OR keys")
-    upd.add_argument("--group-ids", default="", help="comma-separated group ids (default: user allowed groups)")
+    upd = sub.add_parser("update-config", help="upsert config keys for user 32; supply groups come from user_allowed_groups at runtime")
     upd.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.cmd == "snapshot":

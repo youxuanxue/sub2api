@@ -173,19 +173,22 @@ func TestOpenRouterProviderConfig_AllowsAPIKey(t *testing.T) {
 		AllowedAPIKeyIDs: []int64{42},
 		BillingUserID:    7,
 	}
-	if !cfg.AllowsAPIKey(42, 99) {
+	if !cfg.AllowsAPIKey(42, 99, "") {
 		t.Fatal("allowed api key id must pass")
 	}
-	if cfg.AllowsAPIKey(43, 7) {
+	if cfg.AllowsAPIKey(43, 7, "") {
 		t.Fatal("non-allowlisted key must fail when allowlist present")
 	}
 
 	cfg = OpenRouterProviderConfig{Enabled: true, BillingUserID: 7}
-	if !cfg.AllowsAPIKey(100, 7) {
+	if !cfg.AllowsAPIKey(100, 7, "") {
 		t.Fatal("billing user keys must pass when allowlist empty")
 	}
-	if cfg.AllowsAPIKey(100, 8) {
+	if cfg.AllowsAPIKey(100, 8, "") {
 		t.Fatal("other user keys must fail")
+	}
+	if cfg.AllowsInferenceAPIKey(100, 7, OpenRouterProviderMonitorKeyName) {
+		t.Fatal("monitor-named key must not infer even for billing user")
 	}
 }
 

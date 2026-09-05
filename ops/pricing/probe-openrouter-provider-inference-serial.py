@@ -56,8 +56,21 @@ class SerialReport:
         return all(r.ok for r in self.results)
 
 
-def route_kind(output_modalities: list[str]) -> str:
-    outs = set(output_modalities or [])
+def modality_types(mods) -> set[str]:
+    """Accept schema 2.4 modality objects or legacy string lists."""
+    out: set[str] = set()
+    for m in mods or []:
+        if isinstance(m, dict):
+            t = m.get("type")
+            if isinstance(t, str) and t:
+                out.add(t)
+        elif isinstance(m, str) and m:
+            out.add(m)
+    return out
+
+
+def route_kind(output_modalities) -> str:
+    outs = modality_types(output_modalities)
     if "video" in outs:
         return "video"
     if "image" in outs and "text" not in outs:

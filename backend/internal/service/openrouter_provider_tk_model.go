@@ -13,6 +13,7 @@ import (
 func (s *SettingService) NormalizeOpenRouterProviderChatBody(
 	ctx context.Context,
 	apiKeyID, userID int64,
+	keyName string,
 	body []byte,
 ) ([]byte, string, bool, error) {
 	if s == nil || len(body) == 0 || !gjson.ValidBytes(body) {
@@ -22,7 +23,7 @@ func (s *SettingService) NormalizeOpenRouterProviderChatBody(
 	if err != nil {
 		return body, "", false, err
 	}
-	if !cfg.AllowsInferenceAPIKey(apiKeyID, userID) {
+	if !cfg.AllowsInferenceAPIKey(apiKeyID, userID, keyName) {
 		return body, "", false, nil
 	}
 	modelResult := gjson.GetBytes(body, "model")

@@ -31,17 +31,17 @@ func (s *orProviderSettingRepoStub) GetValue(_ context.Context, key string) (str
 func TestMaybeRewriteOpenRouterProviderChatBody_UniversalKeyBeforeRouting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfgJSON, _ := json.Marshal(service.OpenRouterProviderConfig{
-		Enabled:          true,
-		ModelIDPrefix:    "tokenkey/",
-		BillingUserID:    32,
-		AllowedAPIKeyIDs: []int64{369},
+		Enabled:       true,
+		ModelIDPrefix: "tokenkey/",
+		BillingUserID: 32,
 	})
 	settingSvc := service.NewSettingService(&orProviderSettingRepoStub{value: string(cfgJSON)}, nil)
 
 	apiKey := &service.APIKey{
-		ID:     369,
-		UserID: 32,
-		User:   &service.User{ID: 32},
+		ID:          1,
+		Name:        service.OpenRouterProviderInferenceKeyName,
+		UserID:      32,
+		User:        &service.User{ID: 32},
 		RoutingMode: service.RoutingModeUniversal,
 	}
 
@@ -64,15 +64,18 @@ func TestMaybeRewriteOpenRouterProviderChatBody_UniversalKeyBeforeRouting(t *tes
 func TestMaybeRewriteOpenRouterProviderChatBody_MonitorKeyNoRewrite(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfgJSON, _ := json.Marshal(service.OpenRouterProviderConfig{
-		Enabled:           true,
-		ModelIDPrefix:     "tokenkey/",
-		MonitorAPIKeyIDs:  []int64{370},
-		BillingUserID:     32,
-		AllowedAPIKeyIDs:  []int64{369},
+		Enabled:       true,
+		ModelIDPrefix: "tokenkey/",
+		BillingUserID: 32,
 	})
 	settingSvc := service.NewSettingService(&orProviderSettingRepoStub{value: string(cfgJSON)}, nil)
 
-	apiKey := &service.APIKey{ID: 370, UserID: 32, User: &service.User{ID: 32}}
+	apiKey := &service.APIKey{
+		ID:     2,
+		Name:   service.OpenRouterProviderMonitorKeyName,
+		UserID: 32,
+		User:   &service.User{ID: 32},
+	}
 	body := []byte(`{"model":"tokenkey/claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", io.NopCloser(bytes.NewReader(body)))
@@ -92,15 +95,18 @@ func TestMaybeRewriteOpenRouterProviderChatBody_MonitorKeyNoRewrite(t *testing.T
 func TestMaybeRejectOpenRouterProviderMonitorInference_BlocksChat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfgJSON, _ := json.Marshal(service.OpenRouterProviderConfig{
-		Enabled:          true,
-		ModelIDPrefix:    "tokenkey/",
-		MonitorAPIKeyIDs: []int64{370},
-		AllowedAPIKeyIDs: []int64{369},
-		BillingUserID:    32,
+		Enabled:       true,
+		ModelIDPrefix: "tokenkey/",
+		BillingUserID: 32,
 	})
 	settingSvc := service.NewSettingService(&orProviderSettingRepoStub{value: string(cfgJSON)}, nil)
 
-	apiKey := &service.APIKey{ID: 370, UserID: 32, User: &service.User{ID: 32}}
+	apiKey := &service.APIKey{
+		ID:     2,
+		Name:   service.OpenRouterProviderMonitorKeyName,
+		UserID: 32,
+		User:   &service.User{ID: 32},
+	}
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", io.NopCloser(bytes.NewReader([]byte(`{"model":"tokenkey/x","messages":[]}`))))
@@ -120,12 +126,16 @@ func TestMaybeRejectOpenRouterProviderMonitorInference_BlocksChat(t *testing.T) 
 func TestMaybeRejectOpenRouterProviderMonitorInference_AllowsCatalogPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfgJSON, _ := json.Marshal(service.OpenRouterProviderConfig{
-		Enabled:          true,
-		MonitorAPIKeyIDs: []int64{370},
-		AllowedAPIKeyIDs: []int64{369},
+		Enabled:       true,
+		BillingUserID: 32,
 	})
 	settingSvc := service.NewSettingService(&orProviderSettingRepoStub{value: string(cfgJSON)}, nil)
-	apiKey := &service.APIKey{ID: 370, UserID: 32, User: &service.User{ID: 32}}
+	apiKey := &service.APIKey{
+		ID:     2,
+		Name:   service.OpenRouterProviderMonitorKeyName,
+		UserID: 32,
+		User:   &service.User{ID: 32},
+	}
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/openrouter/v1/models", nil)
@@ -138,13 +148,16 @@ func TestMaybeRejectOpenRouterProviderMonitorInference_AllowsCatalogPath(t *test
 func TestMaybeRejectOpenRouterProviderMonitorInference_InferenceKeyPasses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfgJSON, _ := json.Marshal(service.OpenRouterProviderConfig{
-		Enabled:          true,
-		MonitorAPIKeyIDs: []int64{370},
-		AllowedAPIKeyIDs: []int64{369},
-		BillingUserID:    32,
+		Enabled:       true,
+		BillingUserID: 32,
 	})
 	settingSvc := service.NewSettingService(&orProviderSettingRepoStub{value: string(cfgJSON)}, nil)
-	apiKey := &service.APIKey{ID: 369, UserID: 32, User: &service.User{ID: 32}}
+	apiKey := &service.APIKey{
+		ID:     1,
+		Name:   service.OpenRouterProviderInferenceKeyName,
+		UserID: 32,
+		User:   &service.User{ID: 32},
+	}
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", io.NopCloser(bytes.NewReader([]byte(`{"model":"tokenkey/x","messages":[]}`))))

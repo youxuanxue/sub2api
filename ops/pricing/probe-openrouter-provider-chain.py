@@ -25,8 +25,9 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASE_URL = "https://api.tokenkey.dev"
-INFERENCE_KEY_ID = 369
-MONITOR_KEY_ID = 370
+BILLING_USER_ID = 32
+INFERENCE_KEY_NAME = "openrouter-inference"
+MONITOR_KEY_NAME = "openrouter-monitor"
 
 VALID_INPUT_MODALITIES = {"text", "image", "file", "audio", "video"}
 VALID_OUTPUT_MODALITIES = {"text", "image", "embeddings", "audio", "video", "rerank", "speech", "transcription"}
@@ -298,11 +299,18 @@ def fetch_keys_via_ssm() -> tuple[str, str]:
 import subprocess, json
 PSQL = ["sudo", "docker", "exec", "-i", "tokenkey-postgres",
         "psql", "-U", "tokenkey", "-d", "tokenkey", "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1", "-c"]
-def key_for(kid):
-    sql = f"SELECT key FROM api_keys WHERE id={{kid}} AND deleted_at IS NULL LIMIT 1"
-    out = subprocess.check_output(PSQL + [sql], text=True).strip()
-    return out
-print(json.dumps({{"inference": key_for({INFERENCE_KEY_ID}), "monitor": key_for({MONITOR_KEY_ID})}}))
+USER_ID = {BILLING_USER_ID}
+INFERENCE_NAME = {INFERENCE_KEY_NAME!r}
+MONITOR_NAME = {MONITOR_KEY_NAME!r}
+
+def key_for(name):
+    sql = (
+        "SELECT key FROM api_keys WHERE user_id=%d AND name='%s' AND deleted_at IS NULL "
+        "ORDER BY id LIMIT 1" % (USER_ID, name.replace("'", "''"))
+    )
+    return subprocess.check_output(PSQL + [sql], text=True).strip()
+
+print(json.dumps({{"inference": key_for(INFERENCE_NAME), "monitor": key_for(MONITOR_NAME)}}))
 """
     shell = f"python3 - <<'PY'\n{py}\nPY"
     b64 = base64.b64encode(shell.encode()).decode()

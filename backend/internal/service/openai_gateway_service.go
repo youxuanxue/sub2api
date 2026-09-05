@@ -425,12 +425,13 @@ func NewOpenAIGatewayService(
 func (s *OpenAIGatewayService) NormalizeOpenRouterProviderChatBody(
 	ctx context.Context,
 	apiKeyID, userID int64,
+	keyName string,
 	body []byte,
 ) ([]byte, error) {
 	if s == nil || s.settingService == nil {
 		return body, nil
 	}
-	newBody, _, changed, err := s.settingService.NormalizeOpenRouterProviderChatBody(ctx, apiKeyID, userID, body)
+	newBody, _, changed, err := s.settingService.NormalizeOpenRouterProviderChatBody(ctx, apiKeyID, userID, keyName, body)
 	if err != nil || !changed {
 		return body, err
 	}

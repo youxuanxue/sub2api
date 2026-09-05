@@ -12,33 +12,38 @@ Ops checklist for [OpenRouter provider application](https://openrouter.ai/provid
 | Image inference | `https://api.tokenkey.dev/openrouter/v1/images` |
 | Video inference | `https://api.tokenkey.dev/openrouter/v1/videos` (submit + poll `/openrouter/v1/videos/{id}`) |
 
-Catalog auth: Bearer token using either `allowed_api_key_ids` (inference + catalog) or `monitor_api_key_ids` (catalog read-only).
+Catalog auth: Bearer token on billing user keys named `openrouter-inference` (inference + catalog) or `openrouter-monitor` (catalog read-only).
 
 ## Settings JSON
 
 Write `tk_openrouter_provider_config` from `ops/pricing/examples/openrouter-provider-config.example.json`.
 
-That example tracks **prod IDs and URLs** (user 32, six supply `group_ids`, inference/monitor key ids). It never stores raw API key strings — only numeric ids. Re-sync after bootstrap or group/key changes:
+That example tracks **policy fields** (`billing_user_id`, exclude/stream lists, capacity, compliance URLs). It never stores raw API key strings or numeric key ids.
+
+**Derived at runtime (do not duplicate in settings):**
+
+- Supply groups ← `user_allowed_groups` for `billing_user_id`
+- Inference key ← billing user API key named `openrouter-inference`
+- Monitor key ← billing user API key named `openrouter-monitor`
+
+Change OR supply surface by editing user 32’s allowed groups / those two key names only.
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
-# compare group_ids / allowed_api_key_ids / monitor_api_key_ids, then edit example if drifted
 ```
 
-Prod bootstrap (creates group/keys/config; prints ids only, never key secrets):
+Prod bootstrap (creates named keys + config; prints ids only, never key secrets):
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
-python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert 6 group_ids + existing keys; backfills missing catalog_excluded_model_ids / stream_only_model_ids from example JSON
+python3 ops/pricing/manage-openrouter-provider-config.py update-config  # upsert billing user + exclude/stream; strips legacy group_ids / key id lists
 ```
 
-Required fields:
+Required fields in settings:
 
-- `group_ids`: OR supply groups (scheme C — no ct20/49/53 on public groups)
-- `billing_user_id` + `allowed_api_key_ids`: OR production inference key
-- `monitor_api_key_ids`: OR monitor key for `/v1/models` polling
-- `catalog_excluded_model_ids`: internal model ids omitted from seller catalog (SSOT: example JSON + live settings)
-- `stream_only_model_ids`: chat models requiring `stream=true` (SSOT: example JSON + live settings)
+- `billing_user_id`: OR billing user (supply groups + key-name scope)
+- `catalog_excluded_model_ids`: internal model ids omitted from seller catalog
+- `stream_only_model_ids`: chat models requiring `stream=true`
 
 ## P2 compliance fields
 
@@ -61,7 +66,7 @@ go test -tags=unit ./backend/internal/handler -run OpenRouterProvider
 
 Catalog exclude / stream-only lists live only in `tk_openrouter_provider_config` (template: `ops/pricing/examples/openrouter-provider-config.example.json`). Runtime reads settings on each catalog build; update JSON + `PUBLISH settings_updated` — no redeploy.
 
-To patch prod exclude/stream lists without touching group ids:
+To patch prod exclude/stream lists:
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot  # read live config

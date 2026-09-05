@@ -40,7 +40,7 @@ func MaybeRewriteOpenRouterProviderChatBody(c *gin.Context, apiKey *service.APIK
 		userID = apiKey.User.ID
 	}
 	normalized, _, changed, err := settingService.NormalizeOpenRouterProviderChatBody(
-		c.Request.Context(), apiKey.ID, userID, peekBytes,
+		c.Request.Context(), apiKey.ID, userID, apiKey.Name, peekBytes,
 	)
 	if err != nil || !changed {
 		return
@@ -78,10 +78,10 @@ func MaybeRejectOpenRouterProviderMonitorInference(c *gin.Context, apiKey *servi
 	if apiKey.User != nil && apiKey.User.ID > 0 {
 		userID = apiKey.User.ID
 	}
-	if !cfg.AllowsMonitorAPIKey(apiKey.ID) {
+	if !cfg.AllowsMonitorAPIKey(apiKey.ID, userID, apiKey.Name) {
 		return false
 	}
-	if cfg.AllowsInferenceAPIKey(apiKey.ID, userID) {
+	if cfg.AllowsInferenceAPIKey(apiKey.ID, userID, apiKey.Name) {
 		return false
 	}
 	c.JSON(http.StatusForbidden, gin.H{

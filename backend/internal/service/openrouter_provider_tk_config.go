@@ -8,17 +8,29 @@ import (
 
 const SettingKeyTKOpenRouterProviderConfig = "tk_openrouter_provider_config"
 
+// Conventional API key names on the OR billing user. Runtime auth matches these
+// names (scoped to billing_user_id) so settings need not hardcode key numeric ids.
+const (
+	OpenRouterProviderInferenceKeyName = "openrouter-inference"
+	OpenRouterProviderMonitorKeyName   = "openrouter-monitor"
+)
+
 // OpenRouterProviderConfig configures the TokenKey seller surface for OpenRouter.
-// OR dedicated groups do not need is_exclusive=true; loop prevention uses scheme C
-// (no aggregator channels on public groups) plus explicit group_ids here.
+// Supply groups are NOT stored here: BuildOpenRouterProviderCatalog reads
+// billing_user_id's user_allowed_groups at runtime (single source of truth).
+// Inference/monitor keys are resolved by conventional names on the billing user;
+// AllowedAPIKeyIDs / MonitorAPIKeyIDs remain optional legacy allowlists.
+// Loop prevention uses scheme C (no aggregator channels on public groups).
+// Legacy JSON field "group_ids" is ignored when billing_user_id is set.
 type OpenRouterProviderConfig struct {
-	Enabled                bool             `json:"enabled"`
-	ModelIDPrefix          string           `json:"model_id_prefix"`
-	Slug                   string           `json:"slug"`
-	GroupIDs               []int64          `json:"group_ids"`
+	Enabled       bool   `json:"enabled"`
+	ModelIDPrefix string `json:"model_id_prefix"`
+	Slug          string `json:"slug"`
+	// GroupIDs is legacy-only. Prefer billing user allowed groups; ignored when BillingUserID > 0.
+	GroupIDs               []int64          `json:"group_ids,omitempty"`
 	BillingUserID          int64            `json:"billing_user_id"`
-	AllowedAPIKeyIDs       []int64          `json:"allowed_api_key_ids"`
-	MonitorAPIKeyIDs       []int64          `json:"monitor_api_key_ids"`
+	AllowedAPIKeyIDs       []int64          `json:"allowed_api_key_ids,omitempty"`
+	MonitorAPIKeyIDs       []int64          `json:"monitor_api_key_ids,omitempty"`
 	DefaultContextLen      int              `json:"default_context_length"`
 	CapacityTPM            *int64           `json:"capacity_tpm"`
 	ModelCapacityTPM       map[string]int64 `json:"model_capacity_tpm"`
@@ -144,9 +156,16 @@ func openRouterProviderEnrichCatalogItem(item *OpenRouterProviderModel, cfg Open
 	}
 }
 
-func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID int64) bool {
+func (c OpenRouterProviderConfig) isBillingUser(userID int64) bool {
+	return c.BillingUserID > 0 && c.BillingUserID == userID
+}
+
+func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID, userID int64, keyName string) bool {
 	if !c.Enabled || apiKeyID <= 0 {
 		return false
+	}
+	if c.isBillingUser(userID) && strings.TrimSpace(keyName) == OpenRouterProviderMonitorKeyName {
+		return true
 	}
 	for _, id := range c.MonitorAPIKeyIDs {
 		if id == apiKeyID {
@@ -156,9 +175,13 @@ func (c OpenRouterProviderConfig) AllowsMonitorAPIKey(apiKeyID int64) bool {
 	return false
 }
 
-func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64) bool {
+func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64, keyName string) bool {
 	if !c.Enabled {
 		return false
+	}
+	keyName = strings.TrimSpace(keyName)
+	if c.isBillingUser(userID) && keyName == OpenRouterProviderInferenceKeyName {
+		return true
 	}
 	if len(c.AllowedAPIKeyIDs) > 0 {
 		for _, id := range c.AllowedAPIKeyIDs {
@@ -168,19 +191,20 @@ func (c OpenRouterProviderConfig) AllowsInferenceAPIKey(apiKeyID, userID int64) 
 		}
 		return false
 	}
-	if c.BillingUserID > 0 && c.BillingUserID == userID {
+	// Legacy: no id allowlist — any billing-user key except the conventional monitor name.
+	if c.isBillingUser(userID) && keyName != OpenRouterProviderMonitorKeyName {
 		return true
 	}
 	return false
 }
 
-func (c OpenRouterProviderConfig) CanAccessCatalog(apiKeyID, userID int64) bool {
-	return c.AllowsMonitorAPIKey(apiKeyID) || c.AllowsInferenceAPIKey(apiKeyID, userID)
+func (c OpenRouterProviderConfig) CanAccessCatalog(apiKeyID, userID int64, keyName string) bool {
+	return c.AllowsMonitorAPIKey(apiKeyID, userID, keyName) || c.AllowsInferenceAPIKey(apiKeyID, userID, keyName)
 }
 
 // AllowsAPIKey keeps the previous name for catalog/inference allow checks used in tests.
-func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64) bool {
-	return c.CanAccessCatalog(apiKeyID, userID)
+func (c OpenRouterProviderConfig) AllowsAPIKey(apiKeyID, userID int64, keyName string) bool {
+	return c.CanAccessCatalog(apiKeyID, userID, keyName)
 }
 
 func (c OpenRouterProviderConfig) PublicModelID(model string) string {
