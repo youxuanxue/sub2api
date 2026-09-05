@@ -129,8 +129,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if handled || err != nil {
 		return result, err
 	}
-	// Refresh request view only when API-key normalize inside the companion
-	// mutated the payload (same as pre-extract inline path).
+	// Companion may mutate body via API-key normalize; refresh only on change.
+	// (Pre-extract main always re-parsed inside the API-key branch; equal bytes
+	// make a fresh view a no-op, so skip the alloc.)
 	if !bytes.Equal(body, outBody) {
 		body = outBody
 		originalBody = outBody
@@ -1229,6 +1230,18 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	for key, values := range authHeaders {
 		for _, value := range values {
 			req.Header.Add(key, value)
+		}
+	}
+
+	// Set headers specific to OAuth accounts (ChatGPT internal API).
+	// Must run BEFORE the client whitelist copy so account Host/chatgpt-account-id
+	// cannot be ordered after a future whitelist expansion (parity with upstream-
+	// shaped main: auth → ChatGPT → whitelist → session/UA/fingerprint).
+	if account.UsesOpenAICodexProtocol() {
+		// Required: set Host for ChatGPT API (must use req.Host, not Header.Set)
+		req.Host = "chatgpt.com"
+		if err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, req.Header, account); err != nil {
+			return nil, fmt.Errorf("resolve chatgpt account headers: %w", err)
 		}
 	}
 

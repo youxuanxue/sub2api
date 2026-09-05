@@ -3138,6 +3138,34 @@ func TestOpenAIBuildUpstreamRequestGrokAPIKeyRelayRequiresBaseURL(t *testing.T) 
 	require.Contains(t, err.Error(), "missing base_url")
 }
 
+// ChatGPT Host + chatgpt-account-id must survive the full header pipeline
+// (auth → ChatGPT → whitelist → tkApply). Order itself is pinned by the
+// gateway-tk sentinel contiguous substring on buildUpstreamRequest.
+func TestOpenAIBuildUpstreamRequestSetsChatGPTHostAndAccountID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5","stream":true}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	// Client noise that must not displace account-owned ChatGPT headers
+	// (chatgpt-account-id is not in openaiAllowedHeaders; Host is req.Host).
+	c.Request.Header.Set("chatgpt-account-id", "client-spoofed")
+	c.Request.Header.Set("Host", "evil.example")
+
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"chatgpt_account_id": "acct-from-credentials"},
+	}
+
+	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, body, "token", false, "", false)
+	require.NoError(t, err)
+	require.Equal(t, "chatgpt.com", req.Host)
+	require.Equal(t, "acct-from-credentials", req.Header.Get("chatgpt-account-id"))
+	require.NotEqual(t, "client-spoofed", req.Header.Get("chatgpt-account-id"))
+}
+
 func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

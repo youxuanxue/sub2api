@@ -8609,11 +8609,22 @@
       "rationale": "codex_cli_only (only Codex official clients) must be enforced at EVERY OpenAI gateway forward entry point through the single helper enforceCodexClientRestriction — not only on /v1/responses (Forward). Upstream Wei-Shaw/sub2api#3014: enforcement living only inside Forward let plain clients reach a restricted OAuth account via the /v1/chat/completions compat entry (internally converted to Responses), bypassing the policy. Anchor the helper definition + the Forward call site so a future merge/refactor cannot drop the shared enforcement back into a single endpoint and silently re-open the bypass. The rejection returns a plain error (NOT *UpstreamFailoverError) so handlers do not fail over to another account and re-bypass the per-account policy. Regression test: TestForwardAsChatCompletions_CodexCliOnlyBlocksCompatEntry. Helper definition lives in TK companion; Forward keeps the call site."
     },
     {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "req.Host = \"chatgpt.com\"\n\t\tif err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, req.Header, account); err != nil {\n\t\t\treturn nil, fmt.Errorf(\"resolve chatgpt account headers: %w\", err)\n\t\t}\n\t}\n\n\t// Whitelist passthrough headers\n\tfor key, values := range c.Request.Header {\n\t\tlowerKey := strings.ToLower(key)\n\t\tif openaiAllowedHeaders[lowerKey] {\n\t\t\tfor _, v := range values {\n\t\t\t\treq.Header.Add(key, v)\n\t\t\t}\n\t\t}\n\t}\n\tif err := s.tkApplyOpenAIForwardUpstreamHeaders(ctx, c, req, account, body, promptCacheKey, isCodexCLI); err != nil {"
+      ],
+      "rationale": "OpenAI OAuth HTTP forward must keep auth → ChatGPT Host/chatgpt-account-id → client whitelist → tkApplyOpenAIForwardUpstreamHeaders (session/UA/fingerprint/enforce). P2 companion extraction briefly parked ChatGPT headers after whitelist; chatgpt-account-id is not in openaiAllowedHeaders today so outbound bytes stayed equivalent, but the drifted order would silently accept a future whitelist expansion or upstream merge. Contiguous substring pins relative order in the upstream-shaped call site."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_forward_tk_upstream_headers.go",
       "must_contain": [
         "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
       ],
-      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress must be re-presented upstream as the canonical Codex identity, and the terminal HTTP forward call must enforce a User-Agent/originator/version triple derived from one runtime version owner. Dropping the final enforcement call silently restores arbitrary or stale client identity upstream, which degrades account health while unrelated unit tests can remain green. This anchors structure only; the version literal is intentionally owned by fingerprint-alignment. Identity header enforcement call site moved with upstream-header companion."
+      "must_not_contain": [
+        "resolveAndSetOpenAIChatGPTAccountHeaders",
+        "req.Host = \"chatgpt.com\""
+      ],
+      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress must be re-presented upstream as the canonical Codex identity, and the terminal HTTP forward call must enforce a User-Agent/originator/version triple derived from one runtime version owner. Dropping the final enforcement call silently restores arbitrary or stale client identity upstream, which degrades account health while unrelated unit tests can remain green. This anchors structure only; the version literal is intentionally owned by fingerprint-alignment. Identity header enforcement call site moved with upstream-header companion. ChatGPT Host/account headers must NOT live here — they belong before whitelist in buildUpstreamRequest."
     }
   ]
 }

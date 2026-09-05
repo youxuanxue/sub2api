@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -10,7 +9,9 @@ import (
 )
 
 // tkApplyOpenAIForwardUpstreamHeaders applies Codex/OAuth outbound headers after
-// auth headers + whitelist copy and before ApplyHeaderOverrides.
+// auth + ChatGPT Host/account headers + whitelist copy, and before
+// ApplyHeaderOverrides. ChatGPT Host/chatgpt-account-id stay in
+// buildUpstreamRequest (before whitelist) — do not move them here.
 func (s *OpenAIGatewayService) tkApplyOpenAIForwardUpstreamHeaders(
 	ctx context.Context,
 	c *gin.Context,
@@ -20,15 +21,6 @@ func (s *OpenAIGatewayService) tkApplyOpenAIForwardUpstreamHeaders(
 	promptCacheKey string,
 	isCodexCLI bool,
 ) error {
-	// Set headers specific to OAuth accounts (ChatGPT internal API)
-	if account.UsesOpenAICodexProtocol() {
-		// Required: set Host for ChatGPT API (must use req.Host, not Header.Set)
-		req.Host = "chatgpt.com"
-		if err := resolveAndSetOpenAIChatGPTAccountHeaders(ctx, s.accountRepo, req.Header, account); err != nil {
-			return fmt.Errorf("resolve chatgpt account headers: %w", err)
-		}
-	}
-
 	// 客户端回带的 x-codex-turn-state 若已知由其他账号铸造（failover 换号），
 	// 剥离后再出站——异账号 blob 与本账号的（指纹收敛后）出站身份自相矛盾。
 	s.guardOpenAICodexTurnStateEcho(c, account, req.Header)
