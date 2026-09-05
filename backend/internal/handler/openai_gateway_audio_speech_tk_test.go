@@ -37,7 +37,7 @@ func TestAudioSpeech_UnpricedModelRejectedWithoutForward(t *testing.T) {
 	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: userID, Concurrency: 1})
 
 	h := &OpenAIGatewayHandler{
-		gatewayService: service.NewOpenAIGatewayServiceForUnitTests(&service.BillingService{}, &config.Config{RunMode: config.RunModeSimple}),
+		gatewayService:      service.NewOpenAIGatewayServiceForUnitTests(&service.BillingService{}, &config.Config{RunMode: config.RunModeSimple}),
 		billingCacheService: service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil),
 		apiKeyService:       &service.APIKeyService{},
 		concurrencyHelper: &ConcurrencyHelper{concurrencyService: service.NewConcurrencyService(
