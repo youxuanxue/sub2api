@@ -83,6 +83,28 @@ func (s *OpenAIGatewayService) TkImageModelUnpriced(model string, group *Group) 
 	return s.billingService.TkImageModelUnpriced(model, group)
 }
 
+// TkTTSModelUnpriced reports whether the requested model has no character-priced
+// TTS rate and no group audio_tts_price_per_million_chars override.
+func (s *BillingService) TkTTSModelUnpriced(model string, group *Group) bool {
+	if strings.TrimSpace(model) == "" {
+		return false
+	}
+	if group != nil && group.AudioTTSPricePerMillionChars != nil {
+		return false
+	}
+	if s == nil {
+		return false
+	}
+	return s.TkRegistryTTSPricePerMillionChars(model) <= 0
+}
+
+func (s *OpenAIGatewayService) TkTTSModelUnpriced(model string, group *Group) bool {
+	if s == nil {
+		return false
+	}
+	return s.billingService.TkTTSModelUnpriced(model, group)
+}
+
 // TkUnpricedMediaModelMessage is the client-facing 400 body for both media
 // surfaces — explicit about WHY (no silent wrong charge) and about the way
 // out (operator adds pricing).

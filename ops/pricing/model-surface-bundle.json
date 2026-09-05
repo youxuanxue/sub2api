@@ -342,7 +342,8 @@
           "qwen3.8-flash": "qwen3.8-flash",
           "qwen3.8-max": "qwen3.8-max",
           "wan2.7-image": "wan2.7-image",
-          "wan2.7-image-pro": "wan2.7-image-pro"
+          "wan2.7-image-pro": "wan2.7-image-pro",
+          "qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus"
         }
       },
       {

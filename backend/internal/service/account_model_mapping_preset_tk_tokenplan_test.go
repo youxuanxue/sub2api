@@ -89,7 +89,9 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 			require.Contains(t, override.ModelMapping, "deepseek-v4-flash-0731")
 			require.Contains(t, override.ModelMapping, "wan2.7-image")
 			require.Contains(t, override.ModelMapping, "wan2.7-image-pro")
+			require.Contains(t, override.ModelMapping, "qwen-audio-3.0-tts-plus")
 			require.NotContains(t, override.ModelMapping, "qwen3-8b")
+			require.NotContains(t, override.ModelMapping, "qwen-audio-3.0-realtime-plus")
 		}
 		if override.ChannelType == newapiconstant.ChannelTypeBaiduV2 &&
 			override.BaseURL == newapiintegration.QianfanTokenPlanBaseURL {

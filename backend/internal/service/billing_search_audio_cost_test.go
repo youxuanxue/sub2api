@@ -39,4 +39,15 @@ func TestCalculateAudioCost(t *testing.T) {
 	require.Equal(t, 0.0, s.CalculateAudioCost("realtime", 1, &audioPriceConfig{RealtimePerMin: &zero}, 1).ActualCost)
 }
 
+func TestCalculateAudioCostForModel_AliTTSOverlay(t *testing.T) {
+	t.Parallel()
+	s := &BillingService{}
+	wantPerM := s.TkRegistryTTSPricePerMillionChars("qwen-audio-3.0-tts-plus")
+	require.Greater(t, wantPerM, 0.0)
+	got := s.CalculateAudioCostForModel("qwen-audio-3.0-tts-plus", "tts", 0.001, nil, 1.0)
+	require.InDelta(t, wantPerM*0.001, got.ActualCost, 1e-12)
+	require.False(t, s.TkTTSModelUnpriced("qwen-audio-3.0-tts-plus", nil))
+	require.True(t, s.TkTTSModelUnpriced("totally-unknown-tts-model", nil))
+}
+
 func floatPtr(v float64) *float64 { return &v }

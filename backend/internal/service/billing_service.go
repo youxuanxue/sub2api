@@ -1932,6 +1932,12 @@ type audioPriceConfig struct {
 // CalculateAudioCost supports realtime (per min), tts (per M chars), stt (per hr).
 // Missing group prices use defaults; explicit 0 means free for that mode.
 func (s *BillingService) CalculateAudioCost(mode string, durationOrUnits float64, groupConfig *audioPriceConfig, rateMultiplier float64) *CostBreakdown {
+	return s.CalculateAudioCostForModel("", mode, durationOrUnits, groupConfig, rateMultiplier)
+}
+
+// CalculateAudioCostForModel is CalculateAudioCost with optional model-level
+// TTS registry price (output_cost_per_character × 1e6) when group TTS is unset.
+func (s *BillingService) CalculateAudioCostForModel(model, mode string, durationOrUnits float64, groupConfig *audioPriceConfig, rateMultiplier float64) *CostBreakdown {
 	if durationOrUnits <= 0 {
 		return &CostBreakdown{}
 	}
@@ -1946,6 +1952,8 @@ func (s *BillingService) CalculateAudioCost(mode string, durationOrUnits float64
 		unitPrice = defaultAudioTTSPricePerMillionChars
 		if groupConfig != nil && groupConfig.TTSPerMChars != nil {
 			unitPrice = *groupConfig.TTSPerMChars
+		} else if p := s.TkRegistryTTSPricePerMillionChars(model); p > 0 {
+			unitPrice = p
 		}
 	case "stt":
 		unitPrice = defaultAudioSTTPricePerHour
@@ -1967,6 +1975,16 @@ func (s *BillingService) CalculateAudioCost(mode string, durationOrUnits float64
 		ActualCost:  total * rateMultiplier,
 		BillingMode: string(BillingModePerRequest),
 	}
+}
+
+// TkRegistryTTSPricePerMillionChars returns registry TTS USD / million chars
+// derived from output_cost_per_character (already base-taxed at read).
+func (s *BillingService) TkRegistryTTSPricePerMillionChars(model string) float64 {
+	pricing := s.tkRegistryMediaPricing(model)
+	if pricing == nil || pricing.OutputCostPerCharacter <= 0 {
+		return 0
+	}
+	return pricing.OutputCostPerCharacter * 1_000_000.0
 }
 
 // CalculateImageCost 计算图片生成费用
