@@ -44,6 +44,18 @@ func (s *AccountTestService) testNewAPIAccountConnectionTK(c *gin.Context, accou
 			apiKey,
 		)
 	}
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		// Pass the full chat path: buildOpenAIChatCompletionsURL would otherwise
+		// append /v1/chat/completions onto .../tokenplan/personal.
+		return s.testOpenAIChatCompletionsConnection(
+			c,
+			account,
+			testModelID,
+			testPrompt,
+			newapiintegration.QianfanTokenPlanBaseURL+"/chat/completions",
+			apiKey,
+		)
+	}
 
 	stream := true
 	maxTokens := uint(1024)

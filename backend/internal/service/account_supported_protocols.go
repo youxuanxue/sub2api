@@ -455,6 +455,13 @@ func protocolExactEndpoint(account *Account, protocol protocolrouter.Protocol, r
 		}
 		return base + "/chat/completions", nil
 	}
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		base := strings.TrimRight(newapiintegration.QianfanTokenPlanBaseURL, "/")
+		if protocol == protocolrouter.ProtocolResponses {
+			return "", nil
+		}
+		return base + "/chat/completions", nil
+	}
 	in := newAPIBridgeChannelInputForModel(account, 0, "", resolvedModel).WithoutModelMapping()
 	endpoint, err := bridge.ResolveTextEndpoint(in, format, resolvedModel)
 	if err != nil {

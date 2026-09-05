@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -137,6 +138,9 @@ func nativeAnthropicAPIKeyForAccount(account *Account) string {
 func (s *OpenAIGatewayService) nativeAnthropicTargetURL(ctx context.Context, account *Account) (string, error) {
 	if endpoint := protocolExecutionEndpoint(ctx, ""); endpoint != "" {
 		return endpoint, nil
+	}
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		return strings.TrimRight(newapiintegration.QianfanTokenPlanAnthropicBaseURL, "/") + "/v1/messages", nil
 	}
 	baseURL := strings.TrimSpace(account.GetAnthropicProtocolBaseURL())
 	if baseURL == "" {

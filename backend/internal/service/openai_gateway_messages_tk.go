@@ -26,6 +26,11 @@ func (s *OpenAIGatewayService) newAPIBridgeOwnsAnthropicMessages(account *Accoun
 	if account == nil || account.Platform != PlatformNewAPI {
 		return false
 	}
+	// Qianfan Token Plan Person exposes a dedicated Anthropic root; do not send
+	// Claude traffic through the BaiduV2 adaptor (which only has /v2/chat).
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		return false
+	}
 	return s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions)
 }
 
@@ -42,6 +47,10 @@ func (s *OpenAIGatewayService) tkTryRouteForwardAsAnthropic(
 	// never claim them for an OpenAI-shaped fallback.
 	if s.newAPIBridgeOwnsAnthropicMessages(account) {
 		result, err := s.ForwardAsAnthropicDispatched(ctx, c, account, body, "", defaultMappedModel)
+		return result, true, err
+	}
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		result, err := s.forwardAnthropicViaNativeAnthropicEndpoint(ctx, c, account, body, defaultMappedModel)
 		return result, true, err
 	}
 	if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {

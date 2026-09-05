@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -138,6 +139,9 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		return newapiintegration.QianfanTokenPlanBaseURL + "/chat/completions", nil
+	}
 	baseURL := nativeOpenAIBaseURLForAccount(account)
 	if baseURL == "" {
 		// A foreign credential (newapi channel, relay, ...) must never be POSTed
