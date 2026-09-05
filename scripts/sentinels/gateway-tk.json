@@ -2279,11 +2279,11 @@
       "rationale": "Handler MUST translate the canonical-OAuth UA-reject service error into an immediate HTTP 403 + `permission_error` body without falling into failover. Without this branch the rejection propagates as a generic upstream error and the failover loop retries the same forbidden ingress against other accounts, defeating the gate."
     },
     {
-      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "path": "backend/internal/service/openai_gateway_passthrough_tk_short_stream_buffer.go",
       "must_contain": [
-        "shortStreamBufferBytes",
-        "pendingLines",
-        "shouldReleasePending"
+        "type tkPassthroughPendingSSE struct {",
+        "func (p *tkPassthroughPendingSSE) shouldRelease(",
+        "func (p *tkPassthroughPendingSSE) writeAndClear("
       ],
       "rationale": "TK short-stream buffer on the OpenAI Responses passthrough (upstream Wei-Shaw/sub2api#2245). When gateway.responses_short_stream_buffer_bytes>0, handleStreamingResponsePassthrough holds the first body content in a byte window before the first flush, so an upstream that EOFs before a terminal event fails over cleanly instead of shipping a half-finished HTTP 200 SSE that strict Responses clients reject with 'stream closed before response.completed'. An upstream merge that rewrites the passthrough streaming loop could silently drop this guard; the sentinel forces the merge to keep (or deliberately remove) the buffer wiring."
     },
@@ -3586,7 +3586,6 @@
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
       "must_contain": [
-        "func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context, c *gin.Context, account *Account, body []byte) error {",
         "if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {"
       ],
       "rationale": "codex_cli_only (only Codex official clients) must be enforced at EVERY OpenAI gateway forward entry point through the single helper enforceCodexClientRestriction — not only on /v1/responses (Forward). Upstream Wei-Shaw/sub2api#3014: enforcement living only inside Forward let plain clients reach a restricted OAuth account via the /v1/chat/completions compat entry (internally converted to Responses), bypassing the policy. Anchor the helper definition + the Forward call site so a future merge/refactor cannot drop the shared enforcement back into a single endpoint and silently re-open the bypass. The rejection returns a plain error (NOT *UpstreamFailoverError) so handlers do not fail over to another account and re-bypass the per-account policy. Regression test: TestForwardAsChatCompletions_CodexCliOnlyBlocksCompatEntry."
@@ -6102,11 +6101,10 @@
       "rationale": "Regression anchors for buffered missing-terminal failover: [DONE]/EOF with no content must UpstreamFailoverError without committing client body; partial delta without terminal must stay 502 and must not failover. The NonRetryable anchors pin the shouldFailover gate: a content_policy/safety/invalid_request response.failed must surface to the client as an error and must NOT failover to a sibling account."
     },
     {
-      "path": "backend/internal/service/openai_gateway_forward.go",
+      "path": "backend/internal/service/openai_gateway_forward_tk_codex_identity.go",
       "must_contain": [
         "func resolveOpenAICodexUserAgent(",
-        "func (s *OpenAIGatewayService) applyOpenAICodexUserAgent(",
-        "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
+        "func (s *OpenAIGatewayService) applyOpenAICodexUserAgent("
       ],
       "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress must be re-presented upstream as the canonical Codex identity, and the terminal HTTP forward call must enforce a User-Agent/originator/version triple derived from one runtime version owner. Dropping the final enforcement call silently restores arbitrary or stale client identity upstream, which degrades account health while unrelated unit tests can remain green. This anchors structure only; the version literal is intentionally owned by fingerprint-alignment."
     },
@@ -6153,7 +6151,7 @@
       ]
     },
     {
-      "path": "backend/internal/service/openai_gateway_forward.go",
+      "path": "backend/internal/service/openai_gateway_forward_tk_upstream_headers.go",
       "must_contain": [
         "if compatMessagesBridge {",
         "req.Header.Del(\"originator\")"
@@ -6613,7 +6611,7 @@
       "rationale": "Admin handler for POST /admin/users/:id/api-keys. Pins the CreateForUser entry point and idempotency scope for ops relay key provisioning."
     },
     {
-      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
       "must_contain": [
         "func openAIStreamFailedClientResponse(",
         "must not surface as 502"
@@ -8396,7 +8394,7 @@
       "rationale": "OpenAI HTTP adapters may classify content, context, capability and transient payloads, but their final account failover decision must stay wired to the global owner."
     },
     {
-      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
       "must_contain": [
         "Profile:    gatewayFailoverProfileOpenAIPassthrough",
         "AccountConfiguredRetry = account.IsPoolMode()",
@@ -8593,6 +8591,29 @@
         "tkHooks.stopHoldReconciler()"
       ],
       "rationale": "provideCleanup must still Stop the hold reconciler via tkHooks after TK cleanup deps were extracted."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "shortStreamBufferBytes",
+        "newTkPassthroughPendingSSE(",
+        "pendingSSE.shouldRelease("
+      ],
+      "rationale": "TK short-stream buffer on the OpenAI Responses passthrough (upstream Wei-Shaw/sub2api#2245). When gateway.responses_short_stream_buffer_bytes>0, handleStreamingResponsePassthrough holds the first body content in a byte window before the first flush, so an upstream that EOFs before a terminal event fails over cleanly instead of shipping a half-finished HTTP 200 SSE that strict Responses clients reject with 'stream closed before response.completed'. An upstream merge that rewrites the passthrough streaming loop could silently drop this guard; the sentinel forces the merge to keep (or deliberately remove) the buffer wiring. Companion holds buffer type; upstream-shaped file must keep wiring call sites."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward_tk_codex_identity.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context, c *gin.Context, account *Account, body []byte) error {"
+      ],
+      "rationale": "codex_cli_only (only Codex official clients) must be enforced at EVERY OpenAI gateway forward entry point through the single helper enforceCodexClientRestriction — not only on /v1/responses (Forward). Upstream Wei-Shaw/sub2api#3014: enforcement living only inside Forward let plain clients reach a restricted OAuth account via the /v1/chat/completions compat entry (internally converted to Responses), bypassing the policy. Anchor the helper definition + the Forward call site so a future merge/refactor cannot drop the shared enforcement back into a single endpoint and silently re-open the bypass. The rejection returns a plain error (NOT *UpstreamFailoverError) so handlers do not fail over to another account and re-bypass the per-account policy. Regression test: TestForwardAsChatCompletions_CodexCliOnlyBlocksCompatEntry. Helper definition lives in TK companion; Forward keeps the call site."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward_tk_upstream_headers.go",
+      "must_contain": [
+        "enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))"
+      ],
+      "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress must be re-presented upstream as the canonical Codex identity, and the terminal HTTP forward call must enforce a User-Agent/originator/version triple derived from one runtime version owner. Dropping the final enforcement call silently restores arbitrary or stale client identity upstream, which degrades account health while unrelated unit tests can remain green. This anchors structure only; the version literal is intentionally owned by fingerprint-alignment. Identity header enforcement call site moved with upstream-header companion."
     }
   ]
 }
