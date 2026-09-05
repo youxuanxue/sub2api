@@ -33,7 +33,7 @@
 | HTTP stainless | 无 | `x-stainless-package-version` / `runtime-version` 等 canonical 块 |
 | system | SDK 默认字符串，无 billing | 3-block：billing header + identity + 静态 prose |
 
-结构化出站观测（不记全文）：`gateway.anthropic_oauth_mimic_egress`（SDK ingress 全量采样）与 `gateway.anthropic_prompt_fingerprint`（system surface 类 + hash）。只读探针：`ops/observability/probe-oauth-mimicry-chain.sh`。详见 [`docs/spec-delta-cc-oauth-mimicry-fingerprint-scope.md`](../spec-delta-cc-oauth-mimicry-fingerprint-scope.md)。
+结构化出站观测（不记全文）：`gateway.anthropic_oauth_mimic_egress`（SDK ingress 全量采样）与 `gateway.anthropic_prompt_fingerprint`（system surface 类 + hash）。只读探针：`ops/observability/probe-oauth-mimicry-chain.sh`。详见 [`docs/spec-delta/cc-oauth-mimicry-fingerprint-scope.md`](../spec-delta/cc-oauth-mimicry-fingerprint-scope.md)。
 
 **Profile 命名稳定性**：profile 名 `tk_canonical_cc_oauth` 不含 cc CLI patch version——TLS ClientHello 跨 cc 2.1.142 → 2.1.152 等 patch release 字节不变（同 ja3_hash），换 patch version 不需要 DB profile rename / migration。
 
