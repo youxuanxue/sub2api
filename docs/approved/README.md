@@ -62,7 +62,6 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
-| [`glm-direct-zhipuv4-onboarding.md`](glm-direct-zhipuv4-onboarding.md) | GLM direct onboarding |
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
 | [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |
@@ -99,18 +98,12 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
-| [`disable-cancel-storm-detector.md`](disable-cancel-storm-detector.md) | Cancel-storm detector retirement |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
-| [`prod-user-visible-failure-hotfix-2026-08-24.md`](prod-user-visible-failure-hotfix-2026-08-24.md) | User-visible failure hotfix |
-| [`tk041-migration-checksum-remediation.md`](tk041-migration-checksum-remediation.md) | Migration checksum remediation |
-| [`tk052-reenable-anthropic-request-normalize.md`](tk052-reenable-anthropic-request-normalize.md) | Anthropic request normalize |
 
 ### Upstream merge anchors
 
 | File | Topic |
 | --- | --- |
-| [`upstream-merge-2026-07-02.md`](upstream-merge-2026-07-02.md) | Upstream merge 2026-07-02 |
-| [`upstream-merge-2026-07-25-migrations.md`](upstream-merge-2026-07-25-migrations.md) | Upstream merge 2026-07-25 migrations |
 | [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations |
 
 ## Pending baselines
