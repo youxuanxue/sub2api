@@ -1,6 +1,6 @@
 ---
 title: Upstream Merge 2026-07-25 — Migration Approval Anchor
-status: approved
+status: archived
 approved_by: tk-upstream-agent (automated upstream merge process)
 approved_at: 2026-07-25
 authors: [tk-upstream-agent]

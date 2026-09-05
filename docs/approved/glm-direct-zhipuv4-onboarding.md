@@ -1,6 +1,6 @@
 ---
 title: GLM Direct ZhipuV4 Onboarding
-status: approved
+status: archived
 approved_by: "xuejiao (operator directive, 2026-06-22)"
 approved_at: 2026-06-22
 authors: [agent]

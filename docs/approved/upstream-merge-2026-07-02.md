@@ -1,6 +1,6 @@
 ---
 title: Upstream Merge 2026-07-02 High-Risk Anchor
-status: approved
+status: archived
 approved_by: xuejiao (PR #1154 merge)
 approved_at: 2026-07-02
 created: 2026-07-02

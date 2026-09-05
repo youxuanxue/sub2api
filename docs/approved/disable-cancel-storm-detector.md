@@ -1,6 +1,6 @@
 ---
 title: Disable Cancel-Storm Detector
-status: approved
+status: archived
 approved_by: "xuejiao (operator directive, PR #957)"
 approved_at: 2026-06-23
 authors: [agent]

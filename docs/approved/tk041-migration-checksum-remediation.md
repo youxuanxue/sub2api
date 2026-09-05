@@ -1,6 +1,6 @@
 ---
 title: tk_041 migration checksum remediation
-status: approved
+status: archived
 approved_by: xuejiao
 approved_at: 2026-07-01
 authors: [agent]

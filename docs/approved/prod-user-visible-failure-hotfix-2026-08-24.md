@@ -1,6 +1,6 @@
 ---
 title: Prod user-visible failure hotfix — Anthropic SSE and NewAPI chat dispatch
-status: approved
+status: archived
 approved_by: user (chat confirmation 2026-08-24)
 approved_at: 2026-08-24
 authors: [agent]

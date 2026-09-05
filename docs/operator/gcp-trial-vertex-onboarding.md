@@ -1,7 +1,7 @@
 # Google Cloud $300 试用 · Vertex 媒体账号配置指南
 
 > **给运营**：把 Google Cloud 免费试用（$300 / 90 天）配成 TokenKey 上可跑 **Imagen / Veo** 的 Vertex 账号，让额度经 Vertex 计费消耗。
-> 网关前置：PR #488（newapi ch41 Vertex 桥接 + imagen/veo 计费）；端到端脚本见 `docs/examples/media-generation/`（PR #500）。
+> 网关前置：PR #488（newapi ch41 Vertex 桥接 + imagen/veo 计费）。端到端验证走 Stage0 / modelops probe，不再维护已删除的 `docs/examples/media-generation/` 示例树。
 
 ---
 
