@@ -77,6 +77,8 @@ class UnionListFieldsFromExampleTest(unittest.TestCase):
         for mid in (
             "gemini-3.1-flash-image",
             "doubao-seedance-2-0-260128",
+            "wan2.7-image",
+            "wan2.7-image-pro",
         ):
             self.assertIn(mid, example["catalog_excluded_model_ids"])
 

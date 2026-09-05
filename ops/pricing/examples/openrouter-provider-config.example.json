@@ -23,14 +23,19 @@
     "gpt-5.2",
     "doubao-seedance-2-0-260128",
     "doubao-seedance-2-0-fast-260128",
-    "doubao-seedance-2-5-260628"
+    "doubao-seedance-2-5-260628",
+    "wan2.7-image",
+    "wan2.7-image-pro"
   ],
   "stream_only_model_ids": [
     "glm-4.5",
     "glm-4.5-air",
     "qwen3.8-2.4t-a95b"
   ],
-  "datacenter_country_codes": ["US", "SG"],
+  "datacenter_country_codes": [
+    "US",
+    "SG"
+  ],
   "privacy_policy_url": "https://tokenkey.dev/privacy",
   "terms_of_service_url": "https://tokenkey.dev/terms",
   "status_page_url": "https://status.tokenkey.dev",
