@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -9,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -184,18 +182,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	requestCtx = service.WithThinkingEnabled(
 		requestCtx, parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
 	)
-	canonicalRequest, err := newCanonicalProtocolRequest(
-		protocolrouter.ProtocolResponses,
-		protocolrouter.ResponsesPathRoot,
-		reqModel,
-		reqStream,
-		body,
-	)
-	if err != nil {
+	// TK: canonical Responses request + WithProtocolRouting — see gateway_handler_tk_responses_execute.go
+	var attachErr error
+	requestCtx, attachErr = h.tkAttachResponsesProtocolRouting(requestCtx, reqModel, reqStream, body)
+	if attachErr != nil {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
-	requestCtx = service.WithProtocolRouting(requestCtx, h.protocolRouter, canonicalRequest)
 	c.Request = c.Request.WithContext(requestCtx)
 	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
@@ -203,11 +196,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	if apiKey.Group != nil {
 		groupPlatform = apiKey.Group.Platform
 	}
-	groupUsesGeminiCompat := service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)
-	selectionSessionHash := sessionHash
-	if groupUsesGeminiCompat && selectionSessionHash != "" {
-		selectionSessionHash = "gemini:" + selectionSessionHash
-	}
+	// TK: Gemini session prefix — see gateway_handler_tk_responses_execute.go
+	selectionSessionHash, groupUsesGeminiCompat := tkResponsesSelectionSessionHash(sessionHash, groupPlatform, reqModel)
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
@@ -296,14 +286,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
-		if groupPlatform == service.PlatformGemini && account.Platform != service.PlatformGemini {
-			if accountReleaseFunc != nil {
-				accountReleaseFunc()
-			}
-			fs.FailedAccountIDs[account.ID] = struct{}{}
-			continue
-		}
-		if groupPlatform == service.PlatformAntigravity && account.Platform != service.PlatformAntigravity {
+		// TK: platform mismatch skip — see gateway_handler_tk_responses_execute.go
+		if tkResponsesAccountPlatformMismatch(groupPlatform, account) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
@@ -318,82 +302,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		forwardStart := time.Now()
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
-		value, executeErr := service.ExecuteSelectedProtocol(
-			requestCtx,
-			h.protocolRouter,
-			selection,
-			account,
-			h.gatewayService.ValidateProtocolEndpoint,
-			h.gatewayService.LoadProtocolExecutionAccount,
-			service.ProtocolExecutors{
-				NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
-						if h.geminiCompatService == nil {
-							return nil, errors.New("gemini compatibility service is not configured")
-						}
-						return h.geminiCompatService.ForwardAsResponses(executionCtx, c, account, forwardBody)
-					}
-					if shouldUseAntigravityCompat(account) {
-						if h.antigravityGatewayService == nil {
-							return nil, errors.New("antigravity compatibility service is not configured")
-						}
-						setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-						return h.antigravityGatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
-					}
-					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
-				},
-				ResponsesIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsResponsesDispatched(executionCtx, c, account, forwardBody)
-					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
-				},
-				ResponsesToChat: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					openAIResult, forwardErr := h.openAIGatewayService.Forward(executionCtx, c, account, forwardBody)
-					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
-				},
-				ResponsesToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
-				},
-				ResponsesToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					return service.ExecuteGeminiProtocolProfile(
-						plan.GeminiProfile(),
-						func() (*service.ForwardResult, error) {
-							return h.antigravityGatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
-						},
-						func() (*service.ForwardResult, error) {
-							return h.geminiCompatService.ForwardAsResponses(executionCtx, c, account, forwardBody)
-						},
-					)
-				},
-			},
-		)
-		err = executeErr
-		if value != nil {
-			result, _ = value.(*service.ForwardResult)
-		}
+		// TK: ProtocolExecutors wiring — see gateway_handler_tk_responses_execute.go
+		result, err = h.executeResponsesSelectedProtocol(c, requestCtx, selection, account, channelMapping, reqModel, parsedReq)
 		tkRecordForwardResponseTail(c, forwardStart)
 
 		if accountReleaseFunc != nil {
