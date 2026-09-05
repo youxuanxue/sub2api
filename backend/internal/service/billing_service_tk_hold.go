@@ -106,6 +106,20 @@ func (s *BillingService) EstimateVideoHold(model string, seconds int64, rateMult
 	return bd.ActualCost
 }
 
+// EstimateTTSHold returns an upper bound for character-priced TTS: the request
+// input rune count (settlement uses upstream usage.characters when present,
+// else the same rune count) billed via CalculateAudioCostForModel.
+func (s *BillingService) EstimateTTSHold(model string, characterCount int, groupConfig *audioPriceConfig, rateMultiplier float64) float64 {
+	if characterCount <= 0 {
+		return 0
+	}
+	bd := s.CalculateAudioCostForModel(model, "tts", float64(characterCount)/1_000_000.0, groupConfig, rateMultiplier)
+	if bd == nil {
+		return 0
+	}
+	return bd.ActualCost
+}
+
 // maxFloat returns the largest of the given values (0 for an empty list).
 func maxFloat(vs ...float64) float64 {
 	m := 0.0

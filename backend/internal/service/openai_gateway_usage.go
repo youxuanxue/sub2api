@@ -567,7 +567,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 			})
 		}
 		cfg := groupAudioPriceConfigFromAPIKey(apiKey)
-		return s.billingService.CalculateAudioCost(result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, webSearchMultiplier), nil
+		return s.billingService.CalculateAudioCostForModel(billingModel, result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, webSearchMultiplier), nil
 	}
 
 	if result != nil && result.ImageCount > 0 {

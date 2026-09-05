@@ -15,6 +15,7 @@ MODE_FIELDS: dict[str, tuple[tuple[str, ...], ...]] = {
     "image_generation": (("output_cost_per_image",), ("output_cost_per_image_token",)),
     "realtime": (("input_cost_per_token", "output_cost_per_token"),),
     "responses": (("input_cost_per_token", "output_cost_per_token"),),
+    "tts": (("output_cost_per_character",),),
     "video_generation": (("output_cost_per_second",),),
     "chat": (("input_cost_per_token", "output_cost_per_token"),),
 }

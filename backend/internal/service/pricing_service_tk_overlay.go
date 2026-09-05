@@ -166,6 +166,9 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		if e.OutputCostPerSecond != nil {
 			p.OutputCostPerSecond = *e.OutputCostPerSecond
 		}
+		if e.OutputCostPerCharacter != nil {
+			p.OutputCostPerCharacter = *e.OutputCostPerCharacter
+		}
 		if e.InputCostPerToken != nil {
 			p.InputCostPerToken = *e.InputCostPerToken
 		}
@@ -313,6 +316,7 @@ func validateTKPricingRegistryOwner(model string, p *LiteLLMModelPricing) error 
 		p.LongContextOutputCostMultiplier, p.OutputCostPerImage,
 		p.OutputCostPerImageToken, p.InputCostPerImageToken, p.ImagePrice1K,
 		p.ImagePrice2K, p.ImagePrice4K, p.OutputCostPerSecond,
+		p.OutputCostPerCharacter,
 	}
 	for _, value := range values {
 		if !tkFiniteNonNegative(value) {
@@ -367,6 +371,10 @@ func validateTKPricingRegistryOwner(model string, p *LiteLLMModelPricing) error 
 	case "video_generation":
 		if !tkPositive(p.OutputCostPerSecond) {
 			return fmt.Errorf("registry model %s mode=video_generation lacks per-second price", model)
+		}
+	case "tts":
+		if !tkPositive(p.OutputCostPerCharacter) {
+			return fmt.Errorf("registry model %s mode=tts lacks output_cost_per_character", model)
 		}
 	default:
 		return fmt.Errorf("registry model %s has unsupported mode %q", model, p.Mode)
@@ -566,7 +574,8 @@ func tkIsEffectivelyUnpriced(p *LiteLLMModelPricing) bool {
 		p.ImagePrice1K == 0 &&
 		p.ImagePrice2K == 0 &&
 		p.ImagePrice4K == 0 &&
-		p.OutputCostPerSecond == 0
+		p.OutputCostPerSecond == 0 &&
+		p.OutputCostPerCharacter == 0
 }
 
 func tkRegistryWebSearchPricePerCall() float64 {

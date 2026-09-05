@@ -190,6 +190,28 @@ func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, mo
 	return amount
 }
 
+// TkReserveTTSHold estimates character-priced TTS cost from the request input
+// rune count and reserves it. Same fail-open posture as TkReserveTokenHold.
+func (s *OpenAIGatewayService) TkReserveTTSHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, characterCount int) (held bool, reject bool) {
+	if s == nil || s.billingService == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
+		return false, false
+	}
+	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
+	cfg := groupAudioPriceConfigFromAPIKey(apiKey)
+	amount := s.billingService.EstimateTTSHold(model, characterCount, cfg, multiplier)
+	held, reject, err := tkReserveBalanceHold(ctx, s.usageBillingRepo, requestID, user.ID, apiKey.ID, amount)
+	if err != nil {
+		logger.L().Error("openai_gateway.hold_reserve_failed",
+			zap.String("request_id", requestID),
+			zap.Int64("user_id", user.ID),
+			zap.Float64("amount", amount),
+			zap.Error(err),
+		)
+		return false, false
+	}
+	return held, reject
+}
+
 // TkReserveVideoHold reserves the exact cost the video submit path will bill.
 // Same fail-open posture as TkReserveTokenHold.
 func (s *OpenAIGatewayService) TkReserveVideoHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, seconds int64, resolution string, opts *VideoBillingOptions) (held bool, reject bool) {

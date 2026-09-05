@@ -789,9 +789,11 @@
       "must_contain": [
         "AliTokenPlanBaseURL",
         "NormalizeAliTokenPlanBaseURL",
-        "IsAliTokenPlanBaseURL"
+        "IsAliTokenPlanBaseURL",
+        "AliTokenPlanSpeechSynthesizerPath",
+        "AliTokenPlanSpeechSynthesizerURL"
       ],
-      "rationale": "Aliyun MaaS Token Plan host detection for ch17 accounts. Without NormalizeAliTokenPlanBaseURL, pasted /compatible-mode/v1 or /apps/anthropic bases double-suffix under the Ali adaptor and every probe/chat 404s."
+      "rationale": "Aliyun MaaS Token Plan host detection for ch17 accounts. Without NormalizeAliTokenPlanBaseURL, pasted /compatible-mode/v1 or /apps/anthropic bases double-suffix under the Ali adaptor and every probe/chat 404s. SpeechSynthesizer URL owner for Token Plan TTS; path must stay on /api/v1/services/audio/tts/SpeechSynthesizer after host normalize."
     },
     {
       "path": "backend/internal/integration/newapi/ali_token_plan_test.go",

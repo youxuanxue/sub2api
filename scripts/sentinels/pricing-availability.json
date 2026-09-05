@@ -253,9 +253,13 @@
         "applyCatalogOverlayPricingFromSnapshot(resp, snapshot)",
         "attachCatalogDeepSeekPeakValleyFromSnapshot(resp, snapshot)",
         "catalogModelFromRegistry(name, p)",
-        "func (s *PricingCatalogService) InvalidateCache"
+        "func (s *PricingCatalogService) InvalidateCache",
+        "OutputCostPerCharacter",
+        "case \"tts\":",
+        "pricing.BillingMode = \"tts\"",
+        "catalogMediaBillingMode"
       ],
-      "rationale": "Catalog projection hook for the active complete registry. BuildPublicCatalog may still parse upstream metadata, but applyCatalogRegistrySnapshot must replace every external non-zero price and project intervals, tax, video, and DeepSeek policy from one immutable registry snapshot. Cache publication must also reject a response if that snapshot changed during construction. Channel pricing remains a higher explicit scope. Dropping either hook can make display and settlement disagree while both paths continue to compile."
+      "rationale": "Catalog projection hook for the active complete registry. BuildPublicCatalog may still parse upstream metadata, but applyCatalogRegistrySnapshot must replace every external non-zero price and project intervals, tax, video, and DeepSeek policy from one immutable registry snapshot. Cache publication must also reject a response if that snapshot changed during construction. Channel pricing remains a higher explicit scope. Dropping either hook can make display and settlement disagree while both paths continue to compile. Public catalog must project character-priced TTS (billing_mode=tts + output_cost_per_character) from the registry snapshot; dropping the case silently hides storefront price while settlement still charges."
     },
     {
       "path": "backend/internal/service/billing_service.go",
@@ -407,9 +411,12 @@
         "TokenPricingAbsent:      e.InputCostPerToken == nil && e.OutputCostPerToken == nil",
         "SupportsReasoning:       e.SupportsReasoning",
         "tkOverlayMu",
-        "tkOverlayEffective"
+        "tkOverlayEffective",
+        "case \"tts\":",
+        "output_cost_per_character",
+        "p.OutputCostPerCharacter"
       ],
-      "rationale": "The registry loader builds one immutable snapshot containing model prices, catalog metadata, executable policy, and publication metadata. A valid runtime envelope exactly replaces the embedded snapshot; there is no union. Invalid schema/digest/content keeps last-known-good. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before swap, TokenPricingAbsent preserves media/token settlement separation, and SupportsReasoning anchors catalog capability projection."
+      "rationale": "The registry loader builds one immutable snapshot containing model prices, catalog metadata, executable policy, and publication metadata. A valid runtime envelope exactly replaces the embedded snapshot; there is no union. Invalid schema/digest/content keeps last-known-good. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before swap, TokenPricingAbsent preserves media/token settlement separation, and SupportsReasoning anchors catalog capability projection. Registry owner validation for mode=tts requires a positive output_cost_per_character; parse/unpriced checks must copy and consider the field or TTS rows load as free/invalid."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_runtime_test.go",

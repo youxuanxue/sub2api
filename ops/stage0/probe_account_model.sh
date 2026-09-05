@@ -356,20 +356,48 @@ case "$ENDPOINT" in
 esac
 
 # Direct probe groups default allow_image_generation=false; image endpoints need it on.
-# Media unpriced guard admits either registry/overlay image price OR group image_price_*.
-# Seed image_price_1k on the exclusive probe group so attribution can be checked before
-# the overlay lands in a release binary (channel model_pricing alone is not consulted).
+#
+# CRITICAL: always clear model_pricing. Never write billing_mode=image +
+# image_output_price — that field is ImageOutputPricePerToken. With zero image
+# output tokens, settlement becomes $0 and shadows overlay per-image prices
+# (wan2.7-image prod incident on probe group #262).
+#
+# Pricing seed:
+# - Default (post-overlay release): only flip allow_image_generation; settlement
+#   uses registry/overlay output_cost_per_image (correct attribution + cost).
+# - Pre-overlay / forced: set IMAGE_PROBE_PRICE=<usd> to seed flat
+#   image_price_{1k,2k,4k}. Requests often settle as size=2K, so all three tiers
+#   must be set together.
 if [[ "$ENDPOINT" == "images" && -n "${GROUP_ID:-}" ]]; then
-  IMAGE_PROBE_PRICE="${IMAGE_PROBE_PRICE:-0.03}"
-  "${PSQL[@]}" -c "
+  if [[ -n "${IMAGE_PROBE_PRICE:-}" ]]; then
+    "${PSQL[@]}" -c "
 UPDATE groups
 SET allow_image_generation = true,
     image_price_1k = ${IMAGE_PROBE_PRICE}::numeric,
+    image_price_2k = ${IMAGE_PROBE_PRICE}::numeric,
+    image_price_4k = ${IMAGE_PROBE_PRICE}::numeric,
+    model_pricing = '[]'::jsonb,
     updated_at = NOW()
 WHERE id = ${GROUP_ID};
 INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
 VALUES ('group_changed', NULL, ${GROUP_ID}, NULL);
 " >/dev/null || fail_json "failed to enable image pricing on probe group ${GROUP_ID}"
+  else
+    # Clear any leftover group image_price_* so settlement uses overlay, not a
+    # stale probe seed from a previous run on a reusable probe group.
+    "${PSQL[@]}" -c "
+UPDATE groups
+SET allow_image_generation = true,
+    image_price_1k = NULL,
+    image_price_2k = NULL,
+    image_price_4k = NULL,
+    model_pricing = '[]'::jsonb,
+    updated_at = NOW()
+WHERE id = ${GROUP_ID};
+INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+VALUES ('group_changed', NULL, ${GROUP_ID}, NULL);
+" >/dev/null || fail_json "failed to enable image generation on probe group ${GROUP_ID}"
+  fi
 fi
 
 tmp_payload="$(mktemp)"

@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "877c654d42ecdf7af8d6f6cbaa936837515b8b0e5221e181f41d918c8a37214c",
+  "floor_sha256": "675f95901ca8615c4474d439fd95d857d682d6b7d2b20fac5e80a027297ee26e",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -336,6 +336,7 @@
           "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
           "deepseek-v4-pro": "deepseek-v4-pro",
           "glm-5.2": "glm-5.2",
+          "qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus",
           "qwen3.6-flash": "qwen3.6-flash",
           "qwen3.7-max": "qwen3.7-max",
           "qwen3.7-plus": "qwen3.7-plus",

@@ -965,7 +965,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 			}
 		}
 		cfg := groupAudioPriceConfigFromAPIKey(apiKey)
-		return s.billingService.CalculateAudioCost(result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier), nil
+		return s.billingService.CalculateAudioCostForModel(billingModel, result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier), nil
 	}
 
 	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。
