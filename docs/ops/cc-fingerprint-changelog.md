@@ -23,6 +23,7 @@ re-document it per patch — note "A/B unchanged" in the row instead.
 
 | cc version | date (UTC) | type | note |
 |---|---|---|---|
+| 2.1.261 | 2026-09-05 | pure UA | 2.1.260→2.1.261, TLS/beta 未变 |
 | 2.1.260 | 2026-09-04 | pure UA | 2.1.241→2.1.260, TLS/beta 未变 |
 | 2.1.152 | 2026-05-27 (PR #423) | **decision** | Canonical OAuth UA + beta architecture established (first bimodal Haiku observation; runtime HTTP mimicry). Living scope: [`cc-oauth-mimicry-fingerprint-scope.md`](../spec-delta/cc-oauth-mimicry-fingerprint-scope.md). |
 | 2.1.153 | 2026-05-28 | **decision** | Haiku beta **set** changed: added `thinking-token-count` + `structured-outputs`, dropped `claude-code` + `extended-cache-ttl`; `last-wins` variant pick. |
