@@ -50,7 +50,7 @@ REQUIRED_OR_PROVIDER_MARKERS = {
         "openRouterProviderDefaultQuantization",
     ),
     REPO_ROOT / "ops/pricing/openrouter-provider-onboarding.md": (
-        "monitor_api_key_ids",
+        "openrouter-monitor",
         "invoicing_contact_email",
         "schema 2.4",
     ),
@@ -89,7 +89,7 @@ def main() -> int:
     if not CONFIG_EXAMPLE.is_file():
         return _fail(f"missing config example: {CONFIG_EXAMPLE}")
     example_text = CONFIG_EXAMPLE.read_text(encoding="utf-8")
-    for marker in ("monitor_api_key_ids", "privacy_policy_url", "status_page_url"):
+    for marker in ("billing_user_id", "privacy_policy_url", "status_page_url"):
         if marker not in example_text:
             return _fail(f"config example missing marker {marker!r}")
 
