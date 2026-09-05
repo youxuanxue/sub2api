@@ -102,6 +102,13 @@ func isNewAPIAliTokenPlanAccount(account *Account) bool {
 		newapiintegration.IsAliTokenPlanBaseURL(account.ChannelType, account.GetBaseURL())
 }
 
+// IsNewAPIAliTokenPlanAccount reports whether the account is an Ali MaaS Token
+// Plan newapi account (ch17 + Token Plan base_url). Exported for gateway
+// handlers that must skip non-Token-Plan accounts before native TTS forward.
+func IsNewAPIAliTokenPlanAccount(account *Account) bool {
+	return isNewAPIAliTokenPlanAccount(account)
+}
+
 func isNewAPIQianfanAccount(account *Account) bool {
 	return account != nil &&
 		account.Platform == PlatformNewAPI &&

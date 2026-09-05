@@ -2350,9 +2350,10 @@
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
       "must_contain": [
-        "logTokenCostPricingMissing(billingModel, apiKey, result, err)"
+        "logTokenCostPricingMissing(billingModel, apiKey, result, err)",
+        "CalculateAudioCostForModel(billingModel, result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier)"
       ],
-      "rationale": "TK#1833/#1544: calculateTokenCost in upstream gateway_usage_billing.go must surface pricing-missing as an observable structured log instead of a silent ActualCost:0 revenue leak."
+      "rationale": "TK#1833/#1544: calculateTokenCost in upstream gateway_usage_billing.go must surface pricing-missing as an observable structured log instead of a silent ActualCost:0 revenue leak. Anthropic/generic RecordUsage audio settlement must resolve TTS via CalculateAudioCostForModel (registry OutputCostPerCharacter) rather than group-only CalculateAudioCost — otherwise Ali Token Plan TTS settles at the hardcoded group default and catalog/settlement diverge."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
@@ -3133,9 +3134,10 @@
       "path": "backend/internal/service/openai_gateway_usage.go",
       "must_contain": [
         "isOpenAIVideoUsageResult(result)",
-        "tkTryCalculateOpenAIVideoUsageCost"
+        "tkTryCalculateOpenAIVideoUsageCost",
+        "CalculateAudioCostForModel(billingModel, result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, webSearchMultiplier)"
       ],
-      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path."
+      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path. OpenAI-compat RecordUsage audio settlement must use CalculateAudioCostForModel so character-priced TTS overlay rates apply on the /v1/audio/speech path."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
@@ -3188,9 +3190,10 @@
         "TestNewAPIModelMappingPresetIDsForQianfanTokenPlanAccount",
         "TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides",
         "PAYG-only ch17 floor ids must not leak into Token Plan override",
-        "wan2.7-image"
+        "wan2.7-image",
+        "qwen-audio-3.0-tts-plus"
       ],
-      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested."
+      "rationale": "Property-scope regressions for Ali MaaS Token Plan and Qianfan Token Plan Person: presets must come from the Token Plan base_url scope (not bare ch17/ch46 PAYG), PAYG-only ids must not leak, ops floor export must include both overrides, and Ali override must carry wan2.7 image identities once priced/manifested. Ali Token Plan floor must include priced TTS identity once manifested."
     },
     {
       "path": "backend/internal/service/tk_served_models_manifest_tk_test.go",
@@ -4796,9 +4799,10 @@
       "must_contain": [
         "TkVideoModelUnpriced",
         "TkImageModelUnpriced",
-        "TkUnpricedMediaModelMessage"
+        "TkUnpricedMediaModelMessage",
+        "TkTTSModelUnpriced"
       ],
-      "rationale": "Media unpriced-reject policy (operator decision 2026-06-12): image/video gateway surfaces refuse to serve models with no usable price — the pre-spend 400 replaces the post-spend served_zero_cost P0 for media, where one task is real upstream money (video up to ~$22) and image otherwise falls back to a blind hardcoded $0.134. Also the safety premise that lets new upstream channels auto-enable: their models arrive unpriced and are rejected until the human pricing act. Removing this file silently reverts media to serve-unpriced."
+      "rationale": "Media unpriced-reject policy (operator decision 2026-06-12): image/video gateway surfaces refuse to serve models with no usable price — the pre-spend 400 replaces the post-spend served_zero_cost P0 for media, where one task is real upstream money (video up to ~$22) and image otherwise falls back to a blind hardcoded $0.134. Also the safety premise that lets new upstream channels auto-enable: their models arrive unpriced and are rejected until the human pricing act. Removing this file silently reverts media to serve-unpriced. TTS joins image/video unpriced-reject policy."
     },
     {
       "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
@@ -5935,9 +5939,11 @@
       "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
       "must_contain": [
         "strings.HasPrefix(videoTaskRouteID(c), \"vt_\")",
-        "h.OpenAIGateway.VideoFetch(c)"
+        "h.OpenAIGateway.VideoFetch(c)",
+        "func tkOpenAICompatAudioSpeechHandler(h *handler.Handlers) gin.HandlerFunc",
+        "h.OpenAIGateway.AudioSpeech(c)"
       ],
-      "rationale": "Registry-owned vt_ status reads must reach VideoFetch before Grok/composite/native platform gates because the model-less GET's temporary platform cannot identify the submit route. Non-vt_ provider request IDs continue through their native status handlers."
+      "rationale": "Registry-owned vt_ status reads must reach VideoFetch before Grok/composite/native platform gates because the model-less GET's temporary platform cannot identify the submit route. Non-vt_ provider request IDs continue through their native status handlers. OpenAI-compat platform gate for POST /audio/speech; non-compat groups must keep 404. Injection into AudioSpeech is the only route into native Token Plan TTS."
     },
     {
       "path": "backend/internal/server/routes/gateway_test.go",
@@ -6879,9 +6885,11 @@
         "OpenRouterProviderModels",
         "OpenRouterProviderImages",
         "OpenRouterProviderVideoSubmit",
-        "OpenRouterProviderVideoFetch"
+        "OpenRouterProviderVideoFetch",
+        "gatewayRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, tkOpenAICompatAudioSpeechHandler(h))",
+        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
       ],
-      "rationale": "Route registration for OpenRouter provider catalog + image/video inference surfaces; without this group the onboarding endpoints 404 even when config is present."
+      "rationale": "Route registration for OpenRouter provider catalog + image/video inference surfaces; without this group the onboarding endpoints 404 even when config is present. Public OpenAI-compat audio speech routes on /v1 and root must stay wired to tkOpenAICompatAudioSpeechHandler; dropping either registration silently removes the TTS surface while catalog/docs still advertise it."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_openrouter_provider_media.go",
@@ -8663,6 +8671,79 @@
         "req.Host = \"chatgpt.com\""
       ],
       "rationale": "OpenAI OAuth upstream Codex fingerprint normalization (prod GPT-pro1 id=9, 2026-06-25). Non-Codex OAuth ingress must be re-presented upstream as the canonical Codex identity, and the terminal HTTP forward call must enforce a User-Agent/originator/version triple derived from one runtime version owner. Dropping the final enforcement call silently restores arbitrary or stale client identity upstream, which degrades account health while unrelated unit tests can remain green. This anchors structure only; the version literal is intentionally owned by fingerprint-alignment. Identity header enforcement call site moved with upstream-header companion. ChatGPT Host/account headers must NOT live here — they belong before whitelist in buildUpstreamRequest."
+    },
+    {
+      "path": "backend/internal/service/ali_token_plan_tts_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) ForwardAliTokenPlanTTS(",
+        "buildAliTokenPlanSpeechSynthesizerRequest",
+        "AliTokenPlanSpeechSynthesizerURL",
+        "usage.characters",
+        "AudioUsage: &AudioUsage{",
+        "Mode:            \"tts\""
+      ],
+      "rationale": "Ali Token Plan native TTS forwarder (OpenAI /v1/audio/speech). Bypasses unimplemented new-api ConvertAudioRequest; character usage from upstream usage.characters (fallback rune count) must keep Mode=tts for CalculateAudioCostForModel settlement. Dropping this file silently 404s speech while catalog still lists the model."
+    },
+    {
+      "path": "backend/internal/service/ali_token_plan_tts_tk_test.go",
+      "must_contain": [
+        "TestBuildAliTokenPlanSpeechSynthesizerRequest_Positive",
+        "TestBuildAliTokenPlanSpeechSynthesizerRequest_MissingInput",
+        "TestBuildAliTokenPlanSpeechSynthesizerRequest_MissingModel",
+        "TestBuildAliTokenPlanSpeechSynthesizerRequest_DefaultVoice",
+        "longanlingxin",
+        "TestForwardAliTokenPlanTTS_RejectsNonTokenPlanAccount"
+      ],
+      "rationale": "Focused regressions for Ali Token Plan SpeechSynthesizer request shaping: positive OpenAI-compat body→DashScope payload, missing input/model rejects, and default voice longanlingxin. Upstream merge that deletes the companion must trip this registry entry."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_audio_speech_tk.go",
+      "must_contain": [
+        "func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context)",
+        "ForwardAliTokenPlanTTS",
+        "TkTTSModelUnpriced",
+        "TkUnpricedMediaModelMessage(reqModel, \"tts\")",
+        "tkApplyTTSHold",
+        "IsNewAPIAliTokenPlanAccount"
+      ],
+      "rationale": "POST /v1/audio/speech handler: Token Plan native forward + unpriced TTS reject. Losing TkTTSModelUnpriced re-opens serve-unpriced for character-priced speech."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_hold.go",
+      "must_contain": [
+        "func (h *OpenAIGatewayHandler) tkApplyTTSHold(",
+        "TkReserveTTSHold"
+      ],
+      "rationale": "TTS character hold wrapper for /v1/audio/speech."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_hold.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) TkReserveTTSHold(",
+        "EstimateTTSHold"
+      ],
+      "rationale": "Character-priced TTS balance hold mirrors settlement units (chars/1e6)."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_hold.go",
+      "must_contain": [
+        "func (s *BillingService) EstimateTTSHold("
+      ],
+      "rationale": "TTS hold estimate must use CalculateAudioCostForModel character units."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_preset_tk.go",
+      "must_contain": [
+        "func IsNewAPIAliTokenPlanAccount(account *Account) bool"
+      ],
+      "rationale": "Exported Token Plan account predicate for AudioSpeech failover skip."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_audio_speech_tk_test.go",
+      "must_contain": [
+        "TestAudioSpeech_UnpricedModelRejectedWithoutForward"
+      ],
+      "rationale": "Handler regression: unpriced TTS returns 400 before forward."
     }
   ]
 }

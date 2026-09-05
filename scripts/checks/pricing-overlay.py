@@ -52,6 +52,7 @@ RUNTIME_FLOAT_FIELDS = (
     "cache_read_input_token_cost_above_272k_tokens", "output_cost_per_image",
     "output_cost_per_image_token", "input_cost_per_image_token", "image_price_1k",
     "image_price_2k", "image_price_4k", "output_cost_per_second",
+    "output_cost_per_character",
 )
 RUNTIME_INT_FIELDS = (
     "long_context_input_token_threshold", "max_input_tokens", "max_output_tokens",

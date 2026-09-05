@@ -174,3 +174,12 @@ func (h *OpenAIGatewayHandler) tkApplyVideoHold(c *gin.Context, apiKey *service.
 		return h.gatewayService.TkReserveVideoHold(c.Request.Context(), requestID, reqModel, apiKey.User, apiKey, seconds, billing.Resolution, billing.Options())
 	})
 }
+
+// tkApplyTTSHold reserves a pre-flight hold for character-priced TTS
+// (characterCount = utf8 rune count of request input; settlement uses the same
+// unit via AudioUsage.DurationOrUnits = chars/1e6).
+func (h *OpenAIGatewayHandler) tkApplyTTSHold(c *gin.Context, apiKey *service.APIKey, reqModel string, characterCount int) (hold *tkHoldHandle, reject bool) {
+	return h.tkApplyHold(c, apiKey, "", func(requestID string) (bool, bool) {
+		return h.gatewayService.TkReserveTTSHold(c.Request.Context(), requestID, reqModel, apiKey.User, apiKey, characterCount)
+	})
+}

@@ -179,6 +179,7 @@ func tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(p *LiteLLMModelPricing, 
 	c.ImagePrice2K = tkApplyBaseTaxMultiplier(c.ImagePrice2K, multiplier)
 	c.ImagePrice4K = tkApplyBaseTaxMultiplier(c.ImagePrice4K, multiplier)
 	c.OutputCostPerSecond = tkApplyBaseTaxMultiplier(c.OutputCostPerSecond, multiplier)
+	c.OutputCostPerCharacter = tkApplyBaseTaxMultiplier(c.OutputCostPerCharacter, multiplier)
 	if len(c.Intervals) > 0 {
 		c.Intervals = tkApplyBaseTaxToPricingIntervals(c.Intervals, multiplier)
 	}
@@ -245,6 +246,7 @@ func tkApplyBaseTaxToPublicCatalogPricingWithPolicy(vendor string, p *PublicCata
 	p.ImagePrice2K = tkApplyBaseTaxMultiplier(p.ImagePrice2K, multiplier)
 	p.ImagePrice4K = tkApplyBaseTaxMultiplier(p.ImagePrice4K, multiplier)
 	p.OutputCostPerSecond = tkApplyBaseTaxMultiplier(p.OutputCostPerSecond, multiplier)
+	p.OutputCostPerCharacter = tkApplyBaseTaxMultiplier(p.OutputCostPerCharacter, multiplier)
 	if len(p.Tiers) > 0 {
 		for i := range p.Tiers {
 			p.Tiers[i].InputPer1KTokens = tkApplyBaseTaxMultiplier(p.Tiers[i].InputPer1KTokens, multiplier)

@@ -198,6 +198,24 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 	}
 }
 
+// tkOpenAICompatAudioSpeechHandler routes POST /audio/speech for OpenAI-compat
+// platform groups (Ali Token Plan TTS and future character-priced owners).
+func tkOpenAICompatAudioSpeechHandler(h *handler.Handlers) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
+			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "The audio speech API is only available for OpenAI-compatible platform groups",
+				},
+			})
+			return
+		}
+		h.OpenAIGateway.AudioSpeech(c)
+	}
+}
+
 // tkOpenAICompatImageEditsHandler routes POST /images/edits for native OpenAI
 // and Grok groups. NewAPI bridge channels do not currently expose a uniform
 // edit capability, so they stay gated here.

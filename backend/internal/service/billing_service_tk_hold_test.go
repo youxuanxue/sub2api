@@ -287,3 +287,19 @@ func TestMaxFloat(t *testing.T) {
 		}
 	}
 }
+
+func TestEstimateTTSHold_MatchesCharacterSettlement(t *testing.T) {
+	s := &BillingService{}
+	chars := 5000
+	hold := s.EstimateTTSHold("qwen-audio-3.0-tts-plus", chars, nil, 2.0)
+	settle := s.CalculateAudioCostForModel("qwen-audio-3.0-tts-plus", "tts", float64(chars)/1_000_000.0, nil, 2.0)
+	if hold != settle.ActualCost {
+		t.Fatalf("EstimateTTSHold=%v settle=%v", hold, settle.ActualCost)
+	}
+	if hold <= 0 {
+		t.Fatal("expected positive TTS hold for priced registry model")
+	}
+	if s.EstimateTTSHold("qwen-audio-3.0-tts-plus", 0, nil, 1) != 0 {
+		t.Fatal("zero characters must reserve nothing")
+	}
+}

@@ -72,6 +72,10 @@ type LiteLLMModelPricing struct {
 	ImagePrice2K            float64 `json:"image_price_2k,omitempty"`
 	ImagePrice4K            float64 `json:"image_price_4k,omitempty"`
 	OutputCostPerSecond     float64 `json:"output_cost_per_second"` // 视频生成模型每秒价格（veo 等）
+	// OutputCostPerCharacter is USD per billable character for character-priced
+	// TTS owners (e.g. Ali Qwen-Audio-TTS). CalculateAudioCost("tts") multiplies
+	// by 1e6 to obtain the per-million-chars unit used by AudioUsage.
+	OutputCostPerCharacter float64 `json:"output_cost_per_character,omitempty"`
 
 	// Intervals 输入-token 区间分档定价（active registry 扩展，见
 	// tk_pricing_overlay.json 的 "intervals"）。空 = 扁平定价。
@@ -140,6 +144,7 @@ type LiteLLMRawEntry struct {
 	ImagePrice2K                        *float64 `json:"image_price_2k"`
 	ImagePrice4K                        *float64 `json:"image_price_4k"`
 	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`
+	OutputCostPerCharacter              *float64 `json:"output_cost_per_character"`
 	InputCostPerTokenAbove272K          *float64 `json:"input_cost_per_token_above_272k_tokens"`
 	OutputCostPerTokenAbove272K         *float64 `json:"output_cost_per_token_above_272k_tokens"`
 	CacheReadInputTokenCostAbove272K    *float64 `json:"cache_read_input_token_cost_above_272k_tokens"`
@@ -516,6 +521,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 		if entry.OutputCostPerSecond != nil {
 			pricing.OutputCostPerSecond = *entry.OutputCostPerSecond
+		}
+		if entry.OutputCostPerCharacter != nil {
+			pricing.OutputCostPerCharacter = *entry.OutputCostPerCharacter
 		}
 
 		result[modelName] = pricing
