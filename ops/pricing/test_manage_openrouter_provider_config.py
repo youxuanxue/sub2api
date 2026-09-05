@@ -79,6 +79,7 @@ class UnionListFieldsFromExampleTest(unittest.TestCase):
             "doubao-seedance-2-0-260128",
             "wan2.7-image",
             "wan2.7-image-pro",
+            "qwen-audio-3.0-realtime-plus",
         ):
             self.assertIn(mid, example["catalog_excluded_model_ids"])
 
