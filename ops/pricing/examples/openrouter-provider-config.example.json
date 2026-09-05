@@ -33,10 +33,7 @@
     "glm-4.5-air",
     "qwen3.8-2.4t-a95b"
   ],
-  "datacenter_country_codes": [
-    "US",
-    "SG"
-  ],
+  "datacenter_country_codes": ["US", "SG"],
   "privacy_policy_url": "https://tokenkey.dev/privacy",
   "terms_of_service_url": "https://tokenkey.dev/terms",
   "status_page_url": "https://status.tokenkey.dev",
