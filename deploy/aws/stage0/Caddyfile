@@ -134,6 +134,10 @@ ${GLOBAL_SITE_DOMAIN} {
 		method GET
 		path /api/v1/settings/public
 	}
+	@global_setup_status {
+		method GET
+		path /setup/status
+	}
 	@global_session_refresh {
 		method POST
 		path /api/v1/auth/refresh
@@ -143,6 +147,9 @@ ${GLOBAL_SITE_DOMAIN} {
 		path /api/v1/auth/me
 	}
 	handle @global_public_settings {
+		import tokenkey_reverse_proxy
+	}
+	handle @global_setup_status {
 		import tokenkey_reverse_proxy
 	}
 	handle @global_session_refresh {

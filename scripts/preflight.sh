@@ -2746,6 +2746,18 @@ elif ! python3 ./scripts/checks/cfn-template-version.py; then
     errors=$((errors + 1))
 fi
 
+# ---- sub2api: CloudFormation resource dependencies -------------------------
+# `DependsOn` is a string reference, so stale logical IDs can survive template
+# regeneration and local YAML parsing before AWS rejects the stack update.
+echo ""
+echo "=== sub2api: CloudFormation resource dependencies ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for CFN dependency check)"
+    errors=$((errors + 1))
+elif ! python3 ./deploy/aws/stage0/cfn-resource-dependencies.py; then
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: Lightsail OIDC perm coverage -----------------------------------
 # Discover-by-failure on AWS implicit permission contracts is the OPC
 # anti-pattern that PRs #397/#398/#399 each fixed in isolation. This gate

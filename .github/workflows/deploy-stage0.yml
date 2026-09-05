@@ -490,6 +490,9 @@ jobs:
           # already-deployed image.
           bash ops/stage0/post_deploy_smoke.sh
 
+      - name: Post-deploy global candidate contract
+        run: python3 ops/observability/probe-global-candidate.py --phase candidate
+
       - name: Post-deploy SSOT display gate (deploy canary)
         env:
           TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}

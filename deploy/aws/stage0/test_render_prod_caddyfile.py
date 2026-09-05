@@ -105,9 +105,22 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("X-Robots-Tag", rendered)
         self.assertIn("path /seedance-2-5-official-showcase-8b37bc3e.mp4", rendered)
         self.assertIn("path /api/v1/settings/public", rendered)
+        self.assertIn("path /setup/status", rendered)
         self.assertIn("path /api/v1/auth/refresh", rendered)
         self.assertIn("path /api/v1/auth/me", rendered)
         self.assertIn("redir https://tokenkey.dev{uri} 302", rendered)
+
+    def test_candidate_global_homepage_keeps_non_bootstrap_routes_on_the_apex(self) -> None:
+        rendered = _render(
+            api_domain="api.tokenkey.dev",
+            global_site_domain="global.tokenkey.dev",
+            global_site_phase="candidate",
+        )
+
+        self.assertIn("@global_setup_status", rendered)
+        self.assertRegex(rendered, r"(?ms)@global_setup_status \{.*?method GET.*?path /setup/status")
+        self.assertNotIn("path /register", rendered)
+        self.assertNotIn("path /login", rendered)
 
     def test_live_global_homepage_uses_permanent_redirect(self) -> None:
         rendered = _render(
