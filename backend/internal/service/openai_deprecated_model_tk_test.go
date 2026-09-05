@@ -47,13 +47,12 @@ func TestTkLookupDeprecatedOpenAIModel(t *testing.T) {
 		require.Equal(t, wantReplacement, replacement)
 	}
 
-	// gpt-5.2-pro is silently rewritten to gpt-5.2 by the routing-alias substring
-	// fallback (openai_model_alias.go) before selection failure is observed — the
-	// lookup must catch the routed form too, mirroring the anthropic raw+normalized
-	// lookup order.
+	// gpt-5.2-pro is an exact deprecated-table key. Wire prefix remaps only
+	// effort/date suffixes (isKnownCodexModelSuffix), so "pro" stays gpt-5.2-pro
+	// under CanonicalizeOpenAICompatRoutingModel — lookup must still hit the table.
 	matched, replacement, ok := TkLookupDeprecatedOpenAIModel(CanonicalizeOpenAICompatRoutingModel("gpt-5.2-pro"))
 	require.True(t, ok)
-	require.Equal(t, "gpt-5.2", matched)
+	require.Equal(t, "gpt-5.2-pro", matched)
 	require.Equal(t, "gpt-5.5", replacement)
 
 	_, _, ok = TkLookupDeprecatedOpenAIModel(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-codex-xhigh"))

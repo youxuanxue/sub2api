@@ -78,9 +78,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	clientStream := anthropicReq.Stream // client's original stream preference
 
 	// 2. Model mapping
-	billingModel := resolveOpenAIForwardModel(account, normalizedModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, normalizedModel, defaultMappedModel)
 	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
+	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	apiKeyID := getAPIKeyIDFromContext(c)
 	sessionPrep := s.tkPrepareOpenAICompatMessagesSession(ctx, c, account, body, &anthropicReq, anthropicDigestReq, upstreamModel, promptCacheKey, apiKeyID)

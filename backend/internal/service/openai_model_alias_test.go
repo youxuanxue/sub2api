@@ -49,9 +49,8 @@ func TestCanonicalizeOpenAICompatRoutingModel(t *testing.T) {
 func TestOpenAIWireBillingEffortStripInvariants(t *testing.T) {
 	t.Parallel()
 
-	// Effort strip must keep the billing family; entitlement wire remap is
-	// upstream-only. This is the invariant that twice broke CI when remap
-	// leaked into NormalizeOpenAICompatRequestedModel.
+	// Effort strip must keep the mapping/family id; entitlement wire remap is
+	// upstream-only. Settlement then follows the admitted upstream model.
 	require.Equal(t, "gpt-5.4", NormalizeOpenAICompatRequestedModel("gpt-5.4-xhigh"))
 	require.Equal(t, "gpt-5.4", normalizeOpenAIBillingModel("gpt-5.4-xhigh"))
 	require.Equal(t, "gpt-5.4-mini", normalizeOpenAIBillingModel("gpt-5.4-mini"))
@@ -64,6 +63,21 @@ func TestOpenAIWireBillingEffortStripInvariants(t *testing.T) {
 	oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	require.Equal(t, wantBare, normalizeOpenAIModelForUpstream(oauth, "gpt-5.4"))
 	require.Equal(t, wantMini, normalizeOpenAIModelForUpstream(oauth, "gpt-5.4-mini"))
+	require.Equal(t, wantBare, normalizeOpenAIBillingModel(wantBare))
+	require.Equal(t, wantMini, normalizeOpenAIBillingModel(wantMini))
+
+	billing, upstream := resolveOpenAIForwardMappedModels(oauth, "gpt-5.4", false)
+	require.Equal(t, wantBare, upstream)
+	require.Equal(t, wantBare, billing, "OAuth must bill the served Terra/Luna tier, not the retired 5.4 card")
+	billing, upstream = resolveOpenAIForwardMappedModels(oauth, "gpt-5.4-mini", false)
+	require.Equal(t, wantMini, upstream)
+	require.Equal(t, wantMini, billing)
+
+	apiKey := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	billing, upstream = resolveOpenAIForwardMappedModels(apiKey, "gpt-5.4", false)
+	require.Equal(t, "gpt-5.4", upstream)
+	require.Equal(t, "gpt-5.4", billing, "API-key paths that still send gpt-5.4 keep gpt-5.4 settlement")
+
 	require.Equal(t, []string{"gpt-5.4", wantBare}, openAIChannelRestrictionModelCandidates("gpt-5.4"))
 	require.Equal(t, []string{"gpt-5.4-mini", wantMini}, openAIChannelRestrictionModelCandidates("gpt-5.4-mini"))
 }

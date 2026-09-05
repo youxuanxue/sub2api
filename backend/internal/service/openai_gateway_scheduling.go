@@ -593,8 +593,10 @@ func ResolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 }
 
 // resolveOpenAIForwardMappedModels is the shared account mapping chain for
-// Forward callers. billingModel retains the ordinary mapping used for usage
-// accounting, while upstreamModel is the model the scheduler has admitted.
+// Forward callers. upstreamModel is what the account actually sends; billing
+// settles on that admitted upstream id (via normalizeOpenAIBillingModel) so
+// ChatGPT Codex entitlement remaps (gpt-5.4 → terra, mini → luna) are billed
+// at the served tier, not the obsolete client-facing family card.
 func resolveOpenAIForwardMappedModels(account *Account, requestedModel string, requireCompact bool) (billingModel, upstreamModel string) {
 	requestedModel = strings.TrimSpace(requestedModel)
 	if account != nil && account.IsOpenAIPassthroughEnabled() {
@@ -609,6 +611,7 @@ func resolveOpenAIForwardMappedModels(account *Account, requestedModel string, r
 	if strings.TrimSpace(upstreamModel) == "" {
 		upstreamModel = billingModel
 	}
+	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
 	return billingModel, upstreamModel
 }
 

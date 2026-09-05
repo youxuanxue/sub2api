@@ -115,10 +115,25 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	return remapOpenAICodexWireModel(normalized)
 }
 
-// normalizeOpenAIBillingModel maps OpenAI/Codex wire ids to billing tier keys.
-// Upstream entitlement remaps (e.g. gpt-5.4 → gpt-5.6-terra for ChatGPT Codex) must
-// NOT change settlement owners: billing stays on the requested family's price
-// card. GPT-5.6 bare/chat-latest fold to Sol (flagship tier).
+// settleOpenAIBillingFromUpstream prefers the price card of the model actually
+// admitted upstream. ChatGPT Codex entitlement remaps (gpt-5.4→terra,
+// mini→luna) therefore settle on Terra/Luna; API-key identity paths that still
+// send gpt-5.4 keep the gpt-5.4 card.
+func settleOpenAIBillingFromUpstream(billingModel, upstreamModel string) string {
+	if settled := normalizeOpenAIBillingModel(upstreamModel); settled != "" {
+		return settled
+	}
+	if settled := normalizeOpenAIBillingModel(billingModel); settled != "" {
+		return settled
+	}
+	return billingModel
+}
+
+// normalizeOpenAIBillingModel maps OpenAI/Codex ids to settlement price keys.
+// Prefer the admitted upstream / wire id when callers pass it (see
+// resolveOpenAIForwardMappedModels): gpt-5.6-terra and gpt-5.6-luna settle on
+// themselves. Client-facing gpt-5.4 / gpt-5.4-mini ids keep their own cards for
+// API-key paths that still send those wire ids unchanged.
 func normalizeOpenAIBillingModel(model string) string {
 	normalized := canonicalizeOpenAIModelAliasSpelling(model)
 	if normalized == "" {

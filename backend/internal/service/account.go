@@ -727,11 +727,15 @@ func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 		return ""
 	}
 	if IsOpenAICompatPlatform(platform) {
-		// Spelling normalize only. Entitlement remaps (gpt-5.4 → terra,
-		// gpt-5.4-mini → luna) belong in normalizeOpenAIModelForUpstream —
-		// mapping / served-set lookups must still match client-facing ids.
+		// Spelling + effort-suffix strip only. Entitlement remaps
+		// (gpt-5.4 → terra, gpt-5.4-mini → luna) belong in
+		// normalizeOpenAIModelForUpstream — mapping / served-set lookups must
+		// still match client-facing family ids (gpt-5.4, gpt-5.2, …).
 		if canonical := canonicalizeOpenAIModelAliasSpelling(trimmed); canonical != "" {
-			return canonical
+			trimmed = canonical
+		}
+		if stripped := NormalizeOpenAICompatRequestedModel(trimmed); stripped != "" {
+			trimmed = stripped
 		}
 	}
 	if canonical := normalizeGLMVolcengineDatedModelID(trimmed); canonical != "" {

@@ -238,8 +238,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		return nil, fmt.Errorf("convert responses to chat completions: %w", err)
 	}
 
-	billingModel := resolveOpenAIForwardModel(account, originalModel, "")
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, "")
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 	chatReq.Model = upstreamModel
 	if clientStream {

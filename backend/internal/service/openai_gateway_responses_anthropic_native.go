@@ -71,9 +71,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	}
 
 	// 4. Model mapping（OpenAI 网关统一入口的映射语义）
-	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
 	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
+	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
 	anthropicReq.Model = upstreamModel
 
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)

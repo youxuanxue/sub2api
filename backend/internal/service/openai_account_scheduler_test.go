@@ -1974,6 +1974,13 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_ModelRateLimit
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.4", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
+	// gpt-5.4 no longer routes onto the gpt-5.5 rate-limit key (wire→terra);
+	// primary must remain selectable for non-5.5 families.
+	require.Equal(t, int64(32101), account.ID)
+
+	account, err = svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.5", nil)
+	require.NoError(t, err)
+	require.NotNil(t, account)
 	require.Equal(t, int64(32102), account.ID)
 
 	account, err = svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.3", nil)

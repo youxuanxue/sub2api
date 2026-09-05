@@ -106,8 +106,7 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 	if originalModel == "" {
 		return nil, fmt.Errorf("model is required")
 	}
-	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
 	// Embeddings is a billed surface and must hit the priced-serving gate.
 	// images/generations stays on its own media path — do not gate it here.
 	if urlSegment == "embeddings" {

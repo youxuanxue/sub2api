@@ -21,6 +21,15 @@ func resolveOpenAIForwardModel(account *Account, requestedModel, messagesDispatc
 	return mappedModel
 }
 
+// resolveOpenAICompatForwardModels resolves account mapping then settles billing
+// on the model actually admitted upstream (Codex entitlement remaps).
+func resolveOpenAICompatForwardModels(account *Account, requestedModel, messagesDispatchMappedModel string) (billingModel, upstreamModel string) {
+	billingModel = resolveOpenAIForwardModel(account, requestedModel, messagesDispatchMappedModel)
+	upstreamModel = normalizeOpenAIModelForUpstream(account, billingModel)
+	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
+	return billingModel, upstreamModel
+}
+
 // openAIOAuthForeignModelPrefixes 列出明确属于其他厂商家族的模型名前缀。
 // Codex 上游不可能服务这些模型：转发阶段 normalizeOpenAIModelForUpstream
 // 对未知模型原样透传，上游必然返回不可重试的 400。
