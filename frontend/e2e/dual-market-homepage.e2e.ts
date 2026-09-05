@@ -153,6 +153,16 @@ async function expectNoViewportOverflow(page: Page) {
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth)
 }
 
+async function expectInsideViewport(page: Page, locator: Locator) {
+  const [box, viewportWidth] = await Promise.all([
+    locator.boundingBox(),
+    page.evaluate(() => document.documentElement.clientWidth),
+  ])
+  expect(box).not.toBeNull()
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(viewportWidth)
+}
+
 function rectanglesOverlap(
   first: { x: number; y: number; width: number; height: number },
   second: { x: number; y: number; width: number; height: number },
@@ -354,6 +364,13 @@ test.describe('dual-market homepage', () => {
     const nextSectionSignal = await page.locator('[data-testid="china-models-eyebrow"]').boundingBox()
     expect(nextSectionSignal).not.toBeNull()
     expect(nextSectionSignal!.y + nextSectionSignal!.height).toBeLessThanOrEqual(844)
+
+    const verifyTitle = page.locator('#verify-key-title')
+    const terminal = page.locator('[data-testid="china-export-terminal"]')
+    const copyButton = terminal.locator('.terminal-copy-button')
+    await expectInsideViewport(page, verifyTitle)
+    await expectInsideViewport(page, terminal)
+    await expectInsideViewport(page, copyButton)
     await expectNoViewportOverflow(page)
   })
 

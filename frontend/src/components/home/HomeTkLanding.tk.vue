@@ -620,7 +620,7 @@
 
       <section class="border-y border-gray-200/50 bg-white/60 px-5 py-16 backdrop-blur-sm dark:border-dark-800/50 dark:bg-dark-800/60 sm:px-8 lg:px-12 lg:py-20" aria-labelledby="verify-key-title">
         <div class="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:gap-16">
-          <div>
+          <div class="min-w-0">
             <p class="text-sm font-semibold uppercase text-primary-600 dark:text-primary-400">{{ t('home.chinaExport.verifyEyebrow') }}</p>
             <h2 id="verify-key-title" class="mt-3 text-3xl font-semibold tracking-normal text-gray-950 dark:text-white sm:text-4xl">
               {{ t('home.chinaExport.verifyTitle') }}
@@ -634,7 +634,7 @@
             </a>
           </div>
 
-          <div class="terminal-container w-full max-w-[540px] lg:justify-self-end" data-testid="china-export-terminal">
+          <div class="terminal-container min-w-0 w-full max-w-[540px] lg:justify-self-end" data-testid="china-export-terminal">
             <div class="terminal-window">
               <div class="terminal-header">
                 <div class="terminal-buttons">
