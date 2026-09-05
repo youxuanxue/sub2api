@@ -260,7 +260,8 @@ ls -l "$HOME/Codes/keys/tokenkey-<edge_id>-admin-password.txt"   # chmod 600，�
 
 ```bash
 bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --enforce-ports
-# 机械验收：Lightsail get-instance-port-states 中**仅 TCP 443 为 open**（22/80 已关）
+# 机械验收：TCP 443 + 8443、UDP 34567 open，TCP 80 closed；双用途 fingerprint edge 可由
+# 本机 `lightsail-ssh-cidr` 把 TCP 22 限定到一个公网 IPv4 /32，其他 22 暴露均为 drift。
 ```
 
 **禁止**在 443 未开时进入 DNS/smoke——现象是连接超时，不是应用 5xx。
@@ -336,7 +337,7 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 | `provision` 步骤 fail，managed instance 未注册 | SSM Hybrid activation expired / 网络不通 | Lightsail 浏览器 SSH 看 `/var/log/tokenkey-lightsail-bootstrap.log`；`BOOTSTRAP_FAIL: ` 行即根因 |
 | GHA `smoke` / SSM 步骤失败，本机同 tag 却正常 | **`aws` / workflow 用了错的 `--region`**（误用 `ec2_equivalent_region`）或 job **工作目录**与脚本相对路径不一致 | 用 `python3 ops/stage0/edge_ssm_execution.py --repo-root . --edge-id <id> --format env` 核对输出的 **`REGION`**；workflow 里凡 SSM 调用必须与之一致；检查 `defaults.run.working-directory` / `cd` |
 | `external_health` 报 5xx | Caddy 还在签证书 / docker compose 起不来 | `ssh` 进实例 `docker compose -f /var/lib/tokenkey/docker-compose.yml ps` |
-| 公网 `curl https://api-<id>.tokenkey.dev` **连接超时** | Lightsail 防火墙 **缺 TCP 443**（基线 TCP 443 + 8443 + UDP 34567；80/22 应关） | §2.2 `verify-edge-lightsail-network.sh --enforce-ports` |
+| 公网 `curl https://api-<id>.tokenkey.dev` **连接超时** | Lightsail 防火墙 **缺 TCP 443**（基线 TCP 443 + 8443 + UDP 34567；80 应关，双用途 edge 的 22 仅允许一个公网 IPv4 /32） | §2.2 `verify-edge-lightsail-network.sh --enforce-ports` |
 | DNS 已指 Static IP 但 **TLS handshake 失败** | provision 时 DNS 为 NXDOMAIN，ACME 未签成功 | §3 `--renew-cert` 重启 `tokenkey-caddy` |
 | Static IP 已分配但 attach 失败 | 旧 instance 还在持有该 Static IP | `aws lightsail detach-static-ip` 再重 attach；或 `recreate=true` 重来 |
 | GHCR pull 401 | PAT 过期 / 写错 SSM 路径 | 用 1.4 重新 put-parameter |

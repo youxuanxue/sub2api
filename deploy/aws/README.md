@@ -309,7 +309,7 @@ IP 被上游污染需轮换 Static IP：[`.cursor/skills/tokenkey-stage0-edge-li
 公网暴露收窄到 TCP 443（**prod 仅 443**；**edge 为 TCP 443 + 8443 + UDP 34567**，8443 为备用 TCP 连接口、UDP 34567 为 hysteria / 备用 UDP 入口，按设计保持开放）：
 
 - **80 关闭**：证书改用 **TLS-ALPN-01**（走 443，Caddyfile `disable_http_challenge`），不再需要 HTTP-01 / `:80` 跳转；edge 的 8443 / 34567 不参与续签，TLS-ALPN-01 仍只在 443 上完成。
-- **22 关闭**：运维全走 SSM Session Manager（prod）/ Lightsail 控制台 browser SSH（edge），均不依赖公网 22。prod 由 `AdminCidr` 默认 `127.0.0.1/32` 收口；edge 由 `put-instance-public-ports` 声明完整端口集 = 443 + 8443 + UDP 34567（覆盖掉 Lightsail 默认的 22）。
+- **22 默认关闭**：运维走 SSM Session Manager（prod）/ Lightsail 控制台 browser SSH（edge）。兼作本机 fingerprint egress 的 edge 例外由 `lightsail-ssh-cidr` 仅向当前直连公网 IPv4 `/32` 开放；禁止 `0.0.0.0/0`。prod 由 `AdminCidr` 默认 `127.0.0.1/32` 收口；edge provision 仍以 443 + 8443 + UDP 34567 为初始端口集。
 
 唯一实质风险是证书续签——靠「**先切 ALPN 配置 → 验证可签 → 再关 80**」的顺序消除。**rollout 必须按此序，PR 合并本身零 live 影响（现网证书 ~30d 内仍有效）：**
 

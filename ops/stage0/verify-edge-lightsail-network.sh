@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # verify-edge-lightsail-network.sh — Post-provision / post-DNS checks for Lightsail edges.
 #
-# Hardened public-port baseline: TCP 443 + 8443 + UDP 34567 OPEN; TCP 80 and 22 CLOSED.
+# Hardened public-port baseline: TCP 443 + 8443 + UDP 34567 OPEN; TCP 80 CLOSED.
 # 443 carries business + ACME TLS-ALPN-01 (Caddyfile.edge disable_http_challenge),
 # so HTTP-01 / public 80 is unneeded; 8443 is an alternate TCP connection port kept
 # open by design (NOT force-closed); UDP 34567 is hysteria / alternate UDP ingress
-# kept open by design; SSH (22) is operated via SSM / Lightsail console, never the
-# public port. Cert renewal still rides 443 only.
+# kept open by design. SSH (22) is normally closed; dual-purpose fingerprint edges
+# may pin it to one public IPv4 /32 for local SOCKS tunnels. Cert renewal still rides 443.
 #
 # Confirms the firewall matches that baseline and (optionally) public HTTPS
 # /health succeeds. --enforce-ports rewrites the firewall to 443 + 8443 + UDP 34567
@@ -27,6 +27,7 @@ set -euo pipefail
 _OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${_OPS_DIR}/../.." && pwd)"
 RESOLVE="${REPO_ROOT}/deploy/aws/lightsail/resolve-edge-lightsail-target.py"
+FIREWALL_POLICY="${REPO_ROOT}/ops/stage0/lightsail_firewall_policy.py"
 
 ENFORCE_PORTS=false
 RENEW_CERT=false
@@ -37,10 +38,12 @@ usage() {
 Usage:
   bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--enforce-ports] [--renew-cert]
 
-Hardened baseline: TCP 443 + 8443 + UDP 34567 open; TCP 80 and 22 closed.
+Hardened baseline: TCP 443 + 8443 + UDP 34567 open; TCP 80 closed.
+SSH 22 must be closed or restricted to one public IPv4 /32 for a dual-purpose edge.
 
 Checks:
-  - Lightsail public port 443 is open (80/22 expected closed; drift warned)
+  - Lightsail public port 443 is open (80 expected closed; drift warned)
+  - TCP 22 is closed or restricted to one public IPv4 /32 (unsafe exposure warned)
   - Lightsail public port 8443 is open (alternate connection port; warn if missing)
   - Lightsail public UDP 34567 is open (hysteria / alternate UDP; warn if missing)
   - dig @1.1.1.1 A record matches static IP (when DNS exists)
@@ -169,12 +172,24 @@ else
   echo "[verify-edge-lightsail-network] WARN: public UDP 34567 not open (baseline is 443 + 8443 + UDP 34567) — run with --enforce-ports to open" >&2
 fi
 
-# Drift from the hardened baseline: 80 / 22 should be closed.
-drift_ports=()
-port_open 80 tcp && drift_ports+=("80")
-port_open 22 tcp && drift_ports+=("22")
-if [[ ${#drift_ports[@]} -gt 0 ]]; then
-  echo "[verify-edge-lightsail-network] WARN: public TCP ${drift_ports[*]} still open (baseline is 443 + 8443 + UDP 34567) — run with --enforce-ports to close" >&2
+# TCP 22 is normally closed, but the local fingerprint egress automation may retain
+# exactly one public IPv4 /32. Anything broader remains unsafe drift.
+PORT_STATES_JSON="$(aws lightsail get-instance-port-states --region "$REGION" --instance-name "$INSTANCE" --output json)"
+SSH_POSTURE="$(printf '%s' "$PORT_STATES_JSON" | python3 "$FIREWALL_POLICY" ssh-posture)"
+case "$SSH_POSTURE" in
+  closed)
+    echo "[verify-edge-lightsail-network] ok: firewall TCP 22 closed"
+    ;;
+  restricted)
+    echo "[verify-edge-lightsail-network] ok: firewall TCP 22 restricted to one IPv4 /32"
+    ;;
+  *)
+    echo "[verify-edge-lightsail-network] WARN: public TCP 22 exposure is broader than one IPv4 /32 — run with --enforce-ports to close" >&2
+    ;;
+esac
+
+if port_open 80 tcp; then
+  echo "[verify-edge-lightsail-network] WARN: public TCP 80 still open (baseline is 443 + 8443 + UDP 34567) — run with --enforce-ports to close" >&2
 fi
 
 if $RENEW_CERT; then
