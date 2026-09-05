@@ -51,53 +51,10 @@ func RegisterGatewayRoutes(
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
 
-	isOpenAIGatewayPlatform := func(c *gin.Context) bool {
-		return getGroupPlatform(c) == service.PlatformOpenAI
-	}
-	countTokensHandler := func(c *gin.Context) {
-		switch getGroupPlatform(c) {
-		case service.PlatformOpenAI, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek:
-			h.OpenAIGateway.CountTokens(c)
-		case service.PlatformGrok:
-			h.OpenAIGateway.GrokCountTokens(c)
-		default:
-			if isOpenAICompatPlatform(getGroupPlatform(c)) {
-				h.OpenAIGateway.CountTokens(c)
-				return
-			}
-			h.Gateway.CountTokens(c)
-		}
-	}
-	modelsHandler := func(c *gin.Context) {
-		apiKey, _ := middleware.GetAPIKeyFromContext(c)
-		if c.Query("client_version") != "" && (isOpenAIGatewayPlatform(c) || getGroupPlatform(c) == service.PlatformComposite || (apiKey != nil && apiKey.IsUniversal())) {
-			h.OpenAIGateway.CodexModels(c)
-			return
-		}
-		h.Gateway.Models(c)
-	}
-	// /responses/*subpath 的子路径会被转发到上游同名端点之后，因此在入口就拒掉
-	// 不可转发的子路径，不让它进入调度与转发流程。可转发的判定见
-	// service.IsForwardableOpenAIResponsesRequestPath 及 upstream_path_guard.go。
-	guardResponsesSubpath := func(next gin.HandlerFunc) gin.HandlerFunc {
-		return func(c *gin.Context) {
-			if !service.IsForwardableOpenAIResponsesRequestPath(c) {
-				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
-				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
-					"error": gin.H{
-						"type":    "not_found_error",
-						"message": "Unsupported responses subpath",
-					},
-				})
-				return
-			}
-			if service.IsOpenAIResponsesInputTokensRequestPath(c) && isOpenAICompatPlatform(getGroupPlatform(c)) {
-				h.OpenAIGateway.ResponsesInputTokens(c)
-				return
-			}
-			next(c)
-		}
-	}
+	countTokensHandler := tkOpenAICompatCountTokensPOST(h)
+	modelsHandler := tkModelsHandler(h)
+	// /responses/*subpath：入口拒掉不可转发子路径（见 service.IsForwardableOpenAIResponsesRequestPath）。
+	guardResponsesSubpath := tkGuardResponsesSubpath(h)
 	responsesHandler := tkOpenAICompatResponsesPOST(h)
 
 	// API网关（Claude API兼容）
@@ -259,7 +216,7 @@ func RegisterGatewayRoutes(
 	registerTKOpenAICompatImagePresignRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	registerTKOpenAICompatVideoRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	rootRoutes.Register(http.MethodPost, "/alpha/search", SyncInference, textBodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.AlphaSearch)
-	rootRoutes.Register(http.MethodPost, "/messages/count_tokens", Excluded("count_tokens"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatCountTokensPOST(h))
+	rootRoutes.Register(http.MethodPost, "/messages/count_tokens", Excluded("count_tokens"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
 	codexDirect.Use(bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	codexRoutes := newTerminalRouteRegistrar(codexDirect, terminalOutcomeRecorder)

@@ -10,50 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
-
-var errCodexClientRestricted = errors.New("codex_cli_only restriction: only codex official clients are allowed")
-
-func isOfficialOpenAICodexUserAgent(ua string) bool {
-	ua = strings.TrimSpace(ua)
-	if ua == "" {
-		return false
-	}
-	return openai.IsCodexCLIRequest(ua) || openai.IsCodexOfficialClientRequest(ua)
-}
-
-func resolveOpenAICodexUserAgent(ctx context.Context, s *OpenAIGatewayService, account *Account, inboundUserAgent string) string {
-	if s != nil && s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
-		return codexCLIUserAgent
-	}
-	if account != nil {
-		if customUA := strings.TrimSpace(account.GetOpenAIUserAgent()); customUA != "" {
-			return customUA
-		}
-	}
-	if isOfficialOpenAICodexUserAgent(inboundUserAgent) {
-		return strings.TrimSpace(inboundUserAgent)
-	}
-	if s != nil && s.settingService != nil {
-		if ua := strings.TrimSpace(s.settingService.GetOpenAICodexUserAgent(ctx)); ua != "" {
-			return ua
-		}
-	}
-	return codexCLIUserAgent
-}
-
-func (s *OpenAIGatewayService) applyOpenAICodexUserAgent(ctx context.Context, req *http.Request, account *Account, inboundUserAgent string) {
-	if req == nil || account == nil || !account.IsOpenAIOAuthLike() {
-		return
-	}
-	req.Header.Set("user-agent", resolveOpenAICodexUserAgent(ctx, s, account, inboundUserAgent))
-}
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
@@ -164,46 +125,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
 	}
 
-	if target, planned := protocolExecutionTarget(ctx); planned {
-		switch target {
-		case protocolrouter.ProtocolMessages:
-			return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
-		case protocolrouter.ProtocolChatCompletions:
-			return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
-		case protocolrouter.ProtocolResponses:
-			// Continue through the native Responses transport below.
-		default:
-			return nil, fmt.Errorf("unsupported selected protocol target %q", target)
-		}
+	result, outBody, handled, err := s.tkTryRouteOpenAIForwardProtocol(ctx, c, account, body, reqModel)
+	if handled || err != nil {
+		return result, err
 	}
-
-	// CN 供应商 anthropic 协议账号：/v1/responses 入站是交叉协议组合
-	// （Responses 客户端 × Anthropic 上游），转成 Anthropic 请求走原生端点。
-	// 不能落到下面的 raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
-	if account.IsAnthropicProtocol() {
-		return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
-	}
-	if account.IsOpenAIApiKey() {
-		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(body); normalizeErr != nil {
-			return nil, normalizeErr
-		} else if changed {
-			body = normalized
-			originalBody = normalized
-		}
-		if normalized, changed, normalizeErr := normalizeOpenAIAPIKeyStoreFalseReasoningReplay(body, isOpenAIResponsesCompactPath(c)); normalizeErr != nil {
-			return nil, normalizeErr
-		} else if changed {
-			body = normalized
-			originalBody = normalized
-		}
+	// Companion may mutate body via API-key normalize; refresh only on change.
+	// (Pre-extract main always re-parsed inside the API-key branch; equal bytes
+	// make a fresh view a no-op, so skip the alloc.)
+	if !bytes.Equal(body, outBody) {
+		body = outBody
+		originalBody = outBody
 		requestView = newOpenAIRequestView(body)
 		reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
 		originalModel = reqModel
 	}
 
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
-		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
-	}
 	if account.IsOpenAI() && (account.IsOpenAIApiKey() || account.IsOpenAIOAuthLike()) {
 		sanitizedBody, changed, sanitizeErr := sanitizeOpenAIResponsesInputItemIDs(body)
 		if sanitizeErr != nil {
@@ -500,52 +436,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
-		codexResult := codexTransformResult{}
-		if compatMessagesBridge {
-			codexResult = applyCodexOAuthTransformWithOptions(decoded, codexOAuthTransformOptions{IsCodexCLI: isCodexCLI, IsCompact: isCompactRequest, SkipDefaultInstructions: true, PreserveToolCallIDs: true})
-			ensureCodexOAuthInstructionsField(decoded)
+		var codexModified bool
+		upstreamModel, promptCacheKey, codexModified, err = s.tkApplyCodexOAuthForwardBody(
+			c, account, decoded, isCodexCLI, isCompactRequest, compatMessagesBridge, upstreamModel, promptCacheKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if codexModified {
 			markDecodedModified()
-		} else {
-			codexResult = applyCodexOAuthTransform(decoded, isCodexCLI, isCompactRequest)
-		}
-		if codexResult.Error != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": codexResult.Error.Error()}})
-			return nil, codexResult.Error
-		}
-		setCodexToolNameReverse(c, codexResult.ToolNameReverse)
-		if codexResult.Modified {
-			markDecodedModified()
-		}
-		// 带真实 device_id 时补齐 client_metadata 安装标识，与真实 Codex 对齐（compact 形态不同，跳过）。
-		if !isCompactRequest && applyCodexClientMetadata(decoded, account) {
-			markDecodedModified()
-		}
-		stageCodexFingerprintIDs(c, nil)
-		// 指纹收敛：一次性解析收敛 ID，请求体和出站头共享同一份 IDs（保证 turn_id 等随机字段一致）。
-		// fingerprintIDs 在此处解析，后续 buildUpstreamRequest 中使用同一份。
-		if !isCompactRequest {
-			var clientHeaders http.Header
-			if c != nil && c.Request != nil {
-				clientHeaders = c.Request.Header
-			}
-			fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
-			if fpIDs != nil {
-				if applyCodexFingerprintClientMetadata(decoded, fpIDs) {
-					markDecodedModified()
-				}
-			}
-			// 将 fpIDs 存入 gin context，供 buildUpstreamRequest 中头改写使用。
-			// 无条件覆写（含 nil）：failover 从收敛账号切到 off 账号时，上一
-			// 账号的 IDs 不得残留（stageCodexFingerprintIDs 注释）。
-			stageCodexFingerprintIDs(c, fpIDs)
-		}
-		if codexResult.NormalizedModel != "" {
-			upstreamModel = codexResult.NormalizedModel
-		}
-		if currentPromptCacheKey, ok := decoded["prompt_cache_key"].(string); ok && currentPromptCacheKey != "" {
-			promptCacheKey = currentPromptCacheKey
-		} else if codexResult.PromptCacheKey != "" {
-			promptCacheKey = codexResult.PromptCacheKey
 		}
 	}
 
@@ -1268,49 +1167,6 @@ func openAIStreamFailoverBlockedByClientOutput(firstTokenMs *int) bool {
 	return firstTokenMs != nil
 }
 
-func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
-	if account == nil || account.Type != AccountTypeAPIKey {
-		return false
-	}
-	if account.IsCNProvider() {
-		// CN 的显式协议配置优先于异步探针 Extra；adaptive 仅 DeepSeek 有原生
-		// Responses，Kimi/GLM 回退 Chat Completions。
-		switch account.GetAPIProtocol() {
-		case APIProtocolChatCompletions:
-			return true
-		case APIProtocolAdaptive:
-			return account.Platform != PlatformDeepseek
-		case APIProtocolResponses, APIProtocolAnthropic:
-			return false
-		default:
-			return false
-		}
-	}
-	// Dual-stack MaaS relays advertise /v1/responses (probe treats 400 as
-	// "endpoint exists") but only implement Chat + Anthropic Messages.
-	if account.IsOpenAICloudwiseRelay() || account.IsOpenAITokenseaRelay() {
-		return true
-	}
-	return !openai_compat.ShouldUseResponsesAPI(account.Extra)
-}
-
-func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context, c *gin.Context, account *Account, body []byte) error {
-	restrictionResult := s.detectCodexClientRestriction(c, account, body)
-	apiKeyID := getAPIKeyIDFromContext(c)
-	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
-	if restrictionResult.Enabled && !restrictionResult.Matched {
-		MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "forbidden_error",
-				"message": CodexClientRestrictionMessage(restrictionResult),
-			},
-		})
-		return errCodexClientRestricted
-	}
-	return nil
-}
-
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
 	// A governed request executes the immutable endpoint selected by
 	// protocolrouter. Legacy/non-governed traffic may resolve an explicit
@@ -1377,7 +1233,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		}
 	}
 
-	// Set headers specific to OAuth accounts (ChatGPT internal API)
+	// Set headers specific to OAuth accounts (ChatGPT internal API).
+	// Must run BEFORE the client whitelist copy so account Host/chatgpt-account-id
+	// cannot be ordered after a future whitelist expansion (parity with upstream-
+	// shaped main: auth → ChatGPT → whitelist → session/UA/fingerprint).
 	if account.UsesOpenAICodexProtocol() {
 		// Required: set Host for ChatGPT API (must use req.Host, not Header.Set)
 		req.Host = "chatgpt.com"
@@ -1395,76 +1254,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			}
 		}
 	}
-	// 客户端回带的 x-codex-turn-state 若已知由其他账号铸造（failover 换号），
-	// 剥离后再出站——异账号 blob 与本账号的（指纹收敛后）出站身份自相矛盾。
-	s.guardOpenAICodexTurnStateEcho(c, account, req.Header)
-	if account.UsesOpenAICodexProtocol() {
-		compatMessagesBridge := isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)
-		// 清除客户端透传的 session 头，后续用隔离后的值重新设置，防止跨用户会话碰撞。
-		clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
-		req.Header.Del("conversation_id")
-		req.Header.Del("session_id")
-
-		if compatMessagesBridge {
-			req.Header.Del("OpenAI-Beta")
-			req.Header.Del("originator")
-		} else {
-			req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, isCodexCLI))
-		}
-		apiKeyID := getAPIKeyIDFromContext(c)
-		if isOpenAIResponsesCompactPath(c) {
-			req.Header.Set("accept", "application/json")
-			if req.Header.Get("version") == "" {
-				req.Header.Set("version", CodexCanonicalClientVersion())
-			}
-			compactSession := resolveOpenAICompactSessionID(c)
-			req.Header.Set("session_id", isolateOpenAISessionID(apiKeyID, compactSession))
-		} else {
-			req.Header.Set("accept", "text/event-stream")
-			if req.Header.Get("version") == "" {
-				req.Header.Set("version", codexCLIVersion)
-			}
-		}
-		if promptCacheKey != "" {
-			isolated := isolateOpenAISessionID(apiKeyID, promptCacheKey)
-			req.Header.Set("session_id", isolated)
-			if !compatMessagesBridge || clientConversationID != "" {
-				req.Header.Set("conversation_id", isolated)
-			}
-		}
-	} else if isOpenAIResponsesCompactPath(c) {
-		// compact 上游是 unary JSON 协议：API-key 账号也显式声明 Accept，
-		// 避免 OpenAI 兼容网关按 SSE 返回（#3777 期望行为 4）。
-		req.Header.Set("accept", "application/json")
-	}
-
-	// Apply custom User-Agent if configured
-	if account.IsOpenAIOAuthLike() {
-		inboundUA := ""
-		if c != nil {
-			inboundUA = c.GetHeader("User-Agent")
-		}
-		s.applyOpenAICodexUserAgent(ctx, req, account, inboundUA)
-	} else {
-		customUA := account.GetOpenAIUserAgent()
-		if customUA != "" {
-			req.Header.Set("user-agent", customUA)
-		}
-	}
-
-	// 若开启 ForceCodexCLI，则强制将上游 User-Agent 伪装为规范 Codex 身份。
-	// 用于网关未透传/改写 User-Agent 时，仍能命中 Codex 侧识别逻辑。
-	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
-		req.Header.Set("user-agent", CodexCanonicalUserAgent())
-	}
-
-	// 指纹收敛：使用 Forward() 中预计算的收敛 ID 改写出站头，与请求体使用同一份 IDs。
-	applyStagedCodexFingerprintHeaders(c, account, req.Header)
-
-	// 终态收口：强制统一 OAuth 出站身份（User-Agent / originator / version 同源自洽）。
-	// 客户端自报身份不参与构造，浏览器型 UA 也因此不会再到达上游（原浏览器 UA 兜底已被吸收）。
-	if account.IsOpenAIOAuthLike() {
-		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
+	if err := s.tkApplyOpenAIForwardUpstreamHeaders(ctx, c, req, account, body, promptCacheKey, isCodexCLI); err != nil {
+		return nil, err
 	}
 
 	// Codex ChatGPT upstream rejects Content-Type with charset parameters

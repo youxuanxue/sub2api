@@ -112,7 +112,7 @@ TARGET_BOUNDARIES = {
         "protocolExecutionTarget",
         "protocolExecutionBound",
     ),
-    "backend/internal/service/openai_gateway_forward.go": ("protocolExecutionTarget",),
+    "backend/internal/service/openai_gateway_forward_tk_protocol_dispatch.go": ("protocolExecutionTarget",),
     "backend/internal/service/openai_gateway_bridge_dispatch.go": ("protocolExecutionBound",),
 }
 

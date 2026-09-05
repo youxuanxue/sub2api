@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,8 @@ func tkOpenAICompatMessagesPOST(h *handler.Handlers) gin.HandlerFunc {
 func tkOpenAICompatCountTokensPOST(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		switch getGroupPlatform(c) {
+		case service.PlatformOpenAI, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek:
+			h.OpenAIGateway.CountTokens(c)
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokCountTokens(c)
 		default:
@@ -39,6 +42,41 @@ func tkOpenAICompatCountTokensPOST(h *handler.Handlers) gin.HandlerFunc {
 				return
 			}
 			h.Gateway.CountTokens(c)
+		}
+	}
+}
+
+func tkModelsHandler(h *handler.Handlers) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		apiKey, _ := middleware.GetAPIKeyFromContext(c)
+		if c.Query("client_version") != "" && (getGroupPlatform(c) == service.PlatformOpenAI || getGroupPlatform(c) == service.PlatformComposite || (apiKey != nil && apiKey.IsUniversal())) {
+			h.OpenAIGateway.CodexModels(c)
+			return
+		}
+		h.Gateway.Models(c)
+	}
+}
+
+// tkGuardResponsesSubpath rejects non-forwardable /responses/*subpath requests
+// before scheduling. Forwardable paths: service.IsForwardableOpenAIResponsesRequestPath.
+func tkGuardResponsesSubpath(h *handler.Handlers) func(gin.HandlerFunc) gin.HandlerFunc {
+	return func(next gin.HandlerFunc) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			if !service.IsForwardableOpenAIResponsesRequestPath(c) {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{
+					"error": gin.H{
+						"type":    "not_found_error",
+						"message": "Unsupported responses subpath",
+					},
+				})
+				return
+			}
+			if service.IsOpenAIResponsesInputTokensRequestPath(c) && isOpenAICompatPlatform(getGroupPlatform(c)) {
+				h.OpenAIGateway.ResponsesInputTokens(c)
+				return
+			}
+			next(c)
 		}
 	}
 }
