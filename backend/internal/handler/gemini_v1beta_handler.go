@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -51,15 +50,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini/antigravity 分组
+	// TK: platform allow — see gemini_v1beta_handler_tk_platform.go
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
 		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 		return
 	}
 
-	// 强制 antigravity 模式：返回 antigravity 支持的模型列表
-	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, antigravity.FallbackGeminiModelsList())
+	// TK: CatalogPolicy / force-platform branches — see gemini_v1beta_handler_tk_platform.go
+	if h.tkGeminiV1BetaTryForceAntigravityListModels(c, forcePlatform) {
 		return
 	}
 
@@ -68,8 +67,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		// 没有 gemini 账户，检查是否有 antigravity 账户可用
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
 		if hasAntigravity {
-			// antigravity 账户使用静态模型列表，TK: CatalogPolicy 投影（有价且非 structurally-gone）
-			c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
+			h.tkGeminiV1BetaListModelsCatalogFallback(c)
 			return
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -84,8 +82,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		// TK: CatalogPolicy 投影（有价且非 structurally-gone）
-		c.JSON(http.StatusOK, h.tkGeminiFallbackModelsList(c.Request.Context()))
+		h.tkGeminiV1BetaListModelsCatalogFallback(c)
 		return
 	}
 	writeUpstreamResponse(c, res)
@@ -100,6 +97,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini/antigravity 分组
+	// TK: platform allow — see gemini_v1beta_handler_tk_platform.go
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
 		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
@@ -121,9 +119,8 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		modelName = strings.TrimSpace(resolvedModel)
 	}
 
-	// 强制 antigravity 模式：返回 antigravity 模型信息
-	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
+	// TK: CatalogPolicy / force-platform branches — see gemini_v1beta_handler_tk_platform.go
+	if h.tkGeminiV1BetaTryForceAntigravityGetModel(c, forcePlatform, modelName) {
 		return
 	}
 
@@ -132,8 +129,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		// 没有 gemini 账户，检查是否有 antigravity 账户可用
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
 		if hasAntigravity {
-			// antigravity 账户使用静态模型信息
-			c.JSON(http.StatusOK, gemini.FallbackModel(modelName))
+			h.tkGeminiV1BetaGetModelAntigravityFallback(c, modelName)
 			return
 		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -148,7 +144,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModel(modelName, res) {
-		c.JSON(http.StatusOK, gemini.FallbackModel(modelName))
+		h.tkGeminiV1BetaGetModelAntigravityFallback(c, modelName)
 		return
 	}
 	writeUpstreamResponse(c, res)
@@ -177,6 +173,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	)
 
 	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini/antigravity 分组
+	// TK: platform allow — see gemini_v1beta_handler_tk_platform.go
 	if !middleware.HasForcePlatform(c) {
 		if !geminiV1BetaGroupPlatformAllowed(apiKey) {
 			googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
@@ -214,19 +211,12 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		googleError(c, http.StatusBadRequest, "Request body is empty")
 		return
 	}
+	// TK: canonical Gemini generateContent + WithProtocolRouting — see gemini_v1beta_handler_tk_execute.go
 	if action != "countTokens" {
-		canonicalRequest, canonicalErr := newCanonicalProtocolRequest(
-			protocolrouter.ProtocolGeminiGenerateContent,
-			protocolrouter.ResponsesPathNone,
-			modelName,
-			stream,
-			body,
-		)
-		if canonicalErr != nil {
+		if attachErr := h.tkAttachGeminiGenerateContentProtocolRouting(c, modelName, stream, body); attachErr != nil {
 			googleError(c, http.StatusBadRequest, "Invalid request body")
 			return
 		}
-		c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
 	}
 
 	setOpsRequestModelAndBody(c, modelName, stream, body)
@@ -552,56 +542,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 		}
 		sessionGroupID := derefGroupID(apiKey.GroupID)
-		forwardNonGoverned := func(executionCtx context.Context, executionAccount *service.Account, request protocolrouter.CanonicalRequest) (any, error) {
-			forwardBody := request.Body()
-			if executionAccount.Platform == service.PlatformAntigravity && executionAccount.Type != service.AccountTypeAPIKey {
-				return h.antigravityGatewayService.ForwardGemini(
-					executionCtx,
-					c,
-					executionAccount,
-					modelName,
-					action,
-					stream,
-					forwardBody,
-					hasBoundSession,
-					service.WithForwardGeminiSession(sessionGroupID, sessionKey),
-				)
-			}
-			return h.geminiCompatService.ForwardNative(executionCtx, c, executionAccount, modelName, action, stream, forwardBody)
-		}
-		value, executeErr := service.ExecuteSelectedProtocol(
-			requestCtx,
-			h.protocolRouter,
-			selection,
-			account,
-			h.gatewayService.ValidateProtocolEndpoint,
-			h.gatewayService.LoadProtocolExecutionAccount,
-			service.ProtocolExecutors{
-				NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					return forwardNonGoverned(executionCtx, account, request)
-				},
-				GeminiIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					forwardBody := request.Body()
-					return service.ExecuteGeminiProtocolProfile(
-						plan.GeminiProfile(),
-						func() (*service.ForwardResult, error) {
-							return h.antigravityGatewayService.ForwardGemini(
-								executionCtx, c, account, modelName, action, stream, forwardBody, hasBoundSession,
-								service.WithForwardGeminiSession(sessionGroupID, sessionKey),
-							)
-						},
-						func() (*service.ForwardResult, error) {
-							return h.geminiCompatService.ForwardNative(executionCtx, c, account, modelName, action, stream, forwardBody)
-						},
-					)
-				},
-			},
+		// TK: ProtocolExecutors wiring — see gemini_v1beta_handler_tk_execute.go
+		result, err = h.executeGeminiV1BetaSelectedProtocol(
+			c, requestCtx, selection, account, modelName, action, stream, hasBoundSession, sessionGroupID, sessionKey,
 		)
-		err = executeErr
-		if value != nil {
-			result, _ = value.(*service.ForwardResult)
-		}
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
@@ -693,23 +637,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			zap.Int("switch_count", fs.SwitchCount),
 		)
 		return
-	}
-}
-
-func geminiV1BetaGroupPlatformAllowed(apiKey *service.APIKey) bool {
-	if apiKey == nil || apiKey.Group == nil {
-		return false
-	}
-	switch apiKey.Group.Platform {
-	case service.PlatformGemini, service.PlatformAntigravity:
-		return true
-	case service.PlatformNewAPI:
-		// Direct newapi keys remain outside the native Gemini surface. Universal
-		// routing has already proved exact Vertex account/model serviceability
-		// before replacing the key's backing group.
-		return apiKey.IsUniversal()
-	default:
-		return false
 	}
 }
 

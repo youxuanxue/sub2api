@@ -433,11 +433,11 @@
       "rationale": "Post-#325/#326 bridge: /api/v1/me/pricing-catalog (Your Menu) falls back to account credentials when no channel pricing covers the target group. NewAPIModelDisplayIDsForAccount preserves the existing channel-type display projection while selecting Agent Plan rows by platform/channel_type/base_url; served_on is historical evidence only. This prevents shared channel types from dropping valid Agent Plan models or leaking them into pay-as-you-go accounts."
     },
     {
-      "path": "backend/internal/service/openai_account_scheduler.go",
+      "path": "backend/internal/service/openai_account_scheduler_tk_capability.go",
       "must_contain": [
         "func accountSupportsOpenAICapabilities"
       ],
-      "rationale": "TK reconciliation of upstream endpoint-capability gating onto the fifth-platform scheduler. accountSupportsOpenAICapabilities applies the OpenAI endpoint-capability filter to native `openai` accounts ONLY (`account.IsOpenAI() && !...`), so `newapi` accounts (platform != openai, !IsOpenAI) are never fail-closed out of chat/embeddings scheduling. If a future merge drops the IsOpenAI() guard and applies SupportsOpenAIEndpointCapability unconditionally, every newapi account would be filtered out of the compat pool — a total fifth-platform outage. Must survive future upstream merges."
+      "rationale": "TK reconciliation of upstream endpoint-capability gating onto the fifth-platform scheduler. accountSupportsOpenAICapabilities applies the OpenAI endpoint-capability filter to native `openai` accounts ONLY (`account.IsOpenAI() && !...`), so `newapi` accounts (platform != openai, !IsOpenAI) are never fail-closed out of chat/embeddings scheduling. If a future merge drops the IsOpenAI() guard and applies SupportsOpenAIEndpointCapability unconditionally, every newapi account would be filtered out of the compat pool — a total fifth-platform outage. Must survive future upstream merges. Helper moved to capability companion in P3."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler_tk_slot_full_escape.go",
@@ -1393,13 +1393,20 @@
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
       "must_contain": [
+        "tkAttachGeminiGenerateContentProtocolRouting("
+      ],
+      "rationale": "Gemini generateContent/streamGenerateContent must still attach protocol routing before scheduling via the P3 tk_execute companion helper. CountTokens remains outside this generation router (caller skips the attach)."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
+      "must_contain": [
         "protocolrouter.ProtocolGeminiGenerateContent",
         "service.WithProtocolRouting(",
         "service.ExecuteSelectedProtocol(",
         "GeminiIdentity: func(",
         "service.ExecuteGeminiProtocolProfile("
       ],
-      "rationale": "Gemini generateContent and streamGenerateContent create the canonical fourth-protocol request before scheduling and execute only the selected identity plan; countTokens remains outside this generation router."
+      "rationale": "Gemini generateContent and streamGenerateContent create the canonical fourth-protocol request before scheduling and execute only the selected identity plan; countTokens remains outside this generation router. Attach + ExecuteSelectedProtocol wiring lives in the P3 tk_execute companion."
     },
     {
       "path": "backend/internal/service/openai_apikey_chat_completions_probe_test.go",
