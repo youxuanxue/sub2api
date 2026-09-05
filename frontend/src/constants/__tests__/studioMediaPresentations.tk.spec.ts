@@ -10,6 +10,7 @@ import {
   MEDIA_MODEL_PRESENTATIONS,
   IMAGEN_IMAGE_SIZES,
   SEEDREAM_IMAGE_SIZES,
+  WAN27_IMAGE_SIZES,
   GEMINI_IMAGE_SIZES,
   type ModalityKeyOption,
   type StudioParam,
@@ -428,7 +429,7 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     expect(new Set(IMAGEN_IMAGE_SIZES.map((o) => o.ratio))).toEqual(IMAGEN_VALID)
   })
 
-  it('gemini is flatImageBilling; imagen is flat-priced (no size tier); only seedream stays tiered', () => {
+  it('gemini is flatImageBilling; imagen/wan are flat-priced (no size tier); only seedream stays tiered', () => {
     const gemini = MEDIA_MODEL_PRESENTATIONS.filter((m) => m.modality === 'image' && m.flatImageBilling)
     expect(gemini.length).toBeGreaterThan(0)
     for (const m of gemini) {
@@ -440,6 +441,11 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     // flatImageBilling (it keeps /v1/images routing, multi-image n, no image-input).
     // Mirrors backend tkIsFlatPerImageModel.
     for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.imageSizes === IMAGEN_IMAGE_SIZES)) {
+      expect(m.flatPricePerImage).toBe(true)
+      expect(m.flatImageBilling).toBeFalsy()
+    }
+    // Wan 2.7 sends pixels like Seedream but bills flat CNY/image (Token Plan / DashScope).
+    for (const m of MEDIA_MODEL_PRESENTATIONS.filter((m) => m.imageSizes === WAN27_IMAGE_SIZES)) {
       expect(m.flatPricePerImage).toBe(true)
       expect(m.flatImageBilling).toBeFalsy()
     }

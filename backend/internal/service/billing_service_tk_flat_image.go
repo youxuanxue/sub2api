@@ -20,7 +20,17 @@ import "strings"
 // (imagen-4.0-ultra-generate-001, imagen-3.0-generate-002, …) without enumerating
 // ids; the only models named `imagen-*` are Google's flat-priced Imagen family.
 func tkIsFlatPerImageModel(model string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "imagen-")
+	m := strings.ToLower(strings.TrimSpace(model))
+	// Google Imagen: flat $/image per quality variant (no 1K/2K/4K generation tier).
+	if strings.HasPrefix(m, "imagen-") {
+		return true
+	}
+	// Ali Wan 2.7 (Token Plan / DashScope): official price is CNY per successful
+	// image with no resolution-tier multiplier in the published list.
+	if strings.HasPrefix(m, "wan2.7-image") {
+		return true
+	}
+	return false
 }
 
 // tkApplyDefaultImageSizeMultiplier applies Seedream-style 2K/4K size tiers,

@@ -141,6 +141,20 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			}
 			return identityModelMapping(ids), true
 		}
+		if isNewAPIAliTokenPlanAccount(account) {
+			ids := NewAPIModelMappingPresetIDsForAccount(account)
+			if len(ids) == 0 {
+				return nil, false
+			}
+			return identityModelMapping(ids), true
+		}
+		if isNewAPIQianfanTokenPlanAccount(account) {
+			ids := NewAPIModelMappingPresetIDsForAccount(account)
+			if len(ids) == 0 {
+				return nil, false
+			}
+			return identityModelMapping(ids), true
+		}
 		if isNewAPIQianfanAccount(account) {
 			ids := NewAPIModelMappingPresetIDsForAccount(account)
 			if len(ids) == 0 {

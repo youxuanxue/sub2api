@@ -17,8 +17,10 @@ SCHEMA_VERSION = 3
 ENTRY_FIELDS = {"channel_type", "scopes", "price_owner", "display"}
 SCOPE_FIELDS = {"channel_type", "base_url"}
 ALLOWED_SCOPES = {
+    (17, "https://token-plan.cn-beijing.maas.aliyuncs.com"),
     (45, "https://ark.cn-beijing.volces.com/api/plan/v3"),
     (46, "https://qianfan.baidubce.com"),
+    (46, "https://qianfan.baidubce.com/v2/tokenplan/personal"),
     (54, "https://api.xrtoken.net"),
 }
 MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")

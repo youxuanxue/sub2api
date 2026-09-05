@@ -125,8 +125,8 @@ if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_
   fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
-  messages|count_tokens|chat|responses|embeddings) ;;
-  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, or embeddings" ;;
+  messages|count_tokens|chat|responses|embeddings|images) ;;
+  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, or images" ;;
 esac
 
 PROBE_ID="tkprobe-${ACCOUNT_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -302,6 +302,19 @@ elif endpoint == "count_tokens":
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
     }
+elif endpoint == "images":
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        "size": "1024x1024",
+    }
+elif endpoint == "messages":
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
 else:
     payload = {
         "model": model,
@@ -339,7 +352,25 @@ case "$ENDPOINT" in
   chat) PATH_SUFFIX="/v1/chat/completions"; AUTH_HEADER_NAME="Authorization";;
   embeddings) PATH_SUFFIX="/v1/embeddings"; AUTH_HEADER_NAME="Authorization";;
   responses) PATH_SUFFIX="/v1/responses"; AUTH_HEADER_NAME="Authorization";;
+  images) PATH_SUFFIX="/v1/images/generations"; AUTH_HEADER_NAME="Authorization";;
 esac
+
+# Direct probe groups default allow_image_generation=false; image endpoints need it on.
+# Media unpriced guard admits either registry/overlay image price OR group image_price_*.
+# Seed image_price_1k on the exclusive probe group so attribution can be checked before
+# the overlay lands in a release binary (channel model_pricing alone is not consulted).
+if [[ "$ENDPOINT" == "images" && -n "${GROUP_ID:-}" ]]; then
+  IMAGE_PROBE_PRICE="${IMAGE_PROBE_PRICE:-0.03}"
+  "${PSQL[@]}" -c "
+UPDATE groups
+SET allow_image_generation = true,
+    image_price_1k = ${IMAGE_PROBE_PRICE}::numeric,
+    updated_at = NOW()
+WHERE id = ${GROUP_ID};
+INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
+VALUES ('group_changed', NULL, ${GROUP_ID}, NULL);
+" >/dev/null || fail_json "failed to enable image pricing on probe group ${GROUP_ID}"
+fi
 
 tmp_payload="$(mktemp)"
 tmp_body="$(mktemp)"

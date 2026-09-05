@@ -320,9 +320,10 @@
       "path": "backend/internal/service/billing_service_tk_flat_image.go",
       "must_contain": [
         "func tkIsFlatPerImageModel",
-        "\"imagen-\""
+        "\"imagen-\"",
+        "\"wan2.7-image\""
       ],
-      "rationale": "tkIsFlatPerImageModel is the imagen-scoped flat-billing predicate consumed by getDefaultImagePrice (billing_service.go, separately pinned): Imagen (Vertex) is priced by Google as a flat $/image per quality variant with NO 1K/2K/4K generation tier, so it must escape the 2K→×1.5 / 4K→×2 size-tier multiplier that is real only for genuine pixel-size models (Seedream). The `imagen-` prefix is the load-bearing scope — narrowing it (e.g. an upstream refactor that drops the predicate or changes the prefix) silently re-applies the ×1.5 markup to Imagen, the exact overcharge this exemption removed. Settlement AND the pre-flight HOLD both route through getDefaultImagePrice, so this one predicate keeps them consistent; the FE mirror is studioMediaPresentations.tk.ts flatPricePerImage (guarded by frontend-tk sentinels / studioMediaPresentations spec)."
+      "rationale": "tkIsFlatPerImageModel is the flat-billing predicate consumed by getDefaultImagePrice (billing_service.go, separately pinned): Imagen (Vertex) and Ali Wan 2.7 bill as a flat $/image with NO 1K/2K/4K generation tier, so they must escape the 2K→×1.5 / 4K→×2 size-tier multiplier that is real only for genuine pixel-size models (Seedream). The `imagen-` and `wan2.7-image` prefixes are the load-bearing scope — narrowing them silently re-applies the size-tier markup. Settlement AND the pre-flight HOLD both route through getDefaultImagePrice, so this one predicate keeps them consistent; the FE mirror is studioMediaPresentations.tk.ts flatPricePerImage (guarded by frontend-tk sentinels / studioMediaPresentations spec)."
     },
     {
       "path": "backend/internal/service/openai_model_alias.go",

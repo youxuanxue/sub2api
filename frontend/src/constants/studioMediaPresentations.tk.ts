@@ -30,6 +30,7 @@ const VERTEX = 'Google Vertex'
 const VOLC = 'VolcEngine'
 const GEMINI = 'Google Gemini'
 const XAI = 'xAI'
+const DASHSCOPE = 'Alibaba DashScope'
 
 const VENDOR_LABELS: Record<string, string> = {
   xai: XAI,
@@ -37,6 +38,7 @@ const VENDOR_LABELS: Record<string, string> = {
   volcengine: VOLC,
   google: GEMINI,
   gemini: GEMINI,
+  dashscope: DASHSCOPE,
 }
 
 function formatVendorLabel(vendor?: string): string {
@@ -184,6 +186,21 @@ export const SEEDREAM_IMAGE_SIZES: ImageSizeOption[] = [
   { ratio: '4:3', value: '2048x1536' },
   { ratio: '9:16', value: '1152x2048' },
   { ratio: '16:9', value: '2048x1152' },
+]
+
+/**
+ * Wan 2.7: OpenAI-compat size is WxH pixels; Ali adaptor rewrites `x` → `*`.
+ * Official 2K recommended set (wan2.7-image max; Studio also uses this for pro —
+ * 4K remains available via API for pro but is not a Studio chip yet).
+ * Billing is flat per successful image (no Seedream-style size-tier multiplier).
+ * ref: https://help.aliyun.com/zh/model-studio/text-to-image
+ */
+export const WAN27_IMAGE_SIZES: ImageSizeOption[] = [
+  { ratio: '1:1', value: '2048x2048' },
+  { ratio: '3:4', value: '1728x2368' },
+  { ratio: '4:3', value: '2368x1728' },
+  { ratio: '9:16', value: '1536x2688' },
+  { ratio: '16:9', value: '2688x1536' },
 ]
 
 /**
@@ -359,6 +376,28 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     modality: 'image',
     supportedParams: [],
     imageSizes: SEEDREAM_IMAGE_SIZES,
+  },
+  {
+    modelId: 'wan2.7-image',
+    displayName: 'Wan 2.7',
+    qualityBadge: 'draft',
+    qualityBadgeKey: 'studio.badge.draft',
+    vendorLabel: DASHSCOPE,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: WAN27_IMAGE_SIZES,
+    flatPricePerImage: true, // Ali Token Plan bills flat CNY/image ÷ FX — see backend tkIsFlatPerImageModel
+  },
+  {
+    modelId: 'wan2.7-image-pro',
+    displayName: 'Wan 2.7 · Pro',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: DASHSCOPE,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: WAN27_IMAGE_SIZES,
+    flatPricePerImage: true,
   },
   {
     modelId: 'imagen-4.0-generate-001',

@@ -10050,5 +10050,19 @@
       }
     ],
     "source": "TEMPORARY owner cloned from qwen3.6-flash DashScope CNY÷6.7 incl. input-tier intervals for 2026-09-01 supplier hotfix (flash-tier). Replace with DashScope official qwen3.8-flash list when captured."
+  },
+  "wan2.7-image": {
+    "litellm_provider": "dashscope",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.029850746268656716,
+    "failure_billing": "success_only",
+    "source": "https://help.aliyun.com/zh/model-studio/wan2-7-image, captured 2026-09-05: Beijing list 0.2 CNY/image ÷ 6.7 USD; Token Plan sync multimodal-generation probe 200 on 2026-09-05."
+  },
+  "wan2.7-image-pro": {
+    "litellm_provider": "dashscope",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.07462686567164178,
+    "failure_billing": "success_only",
+    "source": "https://help.aliyun.com/zh/model-studio/wan2-7-image-pro, captured 2026-09-05: Beijing list 0.5 CNY/image ÷ 6.7 USD; Token Plan sync multimodal-generation probe 200 on 2026-09-05."
   }
 }

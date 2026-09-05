@@ -92,6 +92,25 @@ class ServedModelsManifestTest(unittest.TestCase):
         with self.assertRaisesRegex(manifest.ManifestError, "supported normalized"):
             manifest.parse_manifest_document(data)
 
+    def test_allows_ali_and_qianfan_token_plan_property_scopes(self) -> None:
+        data = self.valid_document()
+        data["entries"]["token-plan-model"] = {
+            "display": True,
+            "scopes": [
+                {
+                    "channel_type": 17,
+                    "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
+                },
+                {
+                    "channel_type": 46,
+                    "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal",
+                },
+            ],
+        }
+        parsed = manifest.parse_manifest_document(data)
+        ids = {entry.model_id for entry in parsed.entries}
+        self.assertIn("token-plan-model", ids)
+
     def test_requires_a_route_scope(self) -> None:
         data = self.valid_document()
         data["entries"]["shown-model"].pop("channel_type")

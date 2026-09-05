@@ -140,6 +140,27 @@ func accountModelMappingOverrideAccounts() []*Account {
 				"base_url": newapiintegration.QianfanBaseURL,
 			},
 		},
+		// Ali MaaS Token Plan shares ChannelTypeAli with PAYG DashScope and is
+		// told apart only by base_url. Without this override, check-accounts
+		// compares the account against the generic ch17 floor and reports false
+		// "missing SSOT keys" for every PAYG-only curated id.
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeAli,
+			Credentials: map[string]any{
+				"base_url": newapiintegration.AliTokenPlanBaseURL,
+			},
+		},
+		// Qianfan Token Plan Person shares ChannelTypeBaiduV2 with PAYG Qianfan.
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeBaiduV2,
+			Credentials: map[string]any{
+				"base_url": newapiintegration.QianfanTokenPlanBaseURL,
+			},
+		},
 		// XRToken shares ChannelTypeDoubaoVideo with official Ark and is told
 		// apart only by base_url, so its manifest property scope is narrower
 		// than the generic ch54 floor. Without this entry the bundle carries no
@@ -171,6 +192,16 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 		sort.Strings(ids)
 		return ids
 	}
+	if isNewAPIAliTokenPlanAccount(account) {
+		ids := newAPIAliTokenPlanModelMappingPresetIDs()
+		sort.Strings(ids)
+		return ids
+	}
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		ids := newAPIQianfanTokenPlanModelMappingPresetIDs()
+		sort.Strings(ids)
+		return ids
+	}
 	if isNewAPIQianfanAccount(account) {
 		ids := newAPIQianfanModelMappingPresetIDs()
 		sort.Strings(ids)
@@ -193,6 +224,16 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		ids := tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
+		sort.Strings(ids)
+		return ids
+	}
+	if isNewAPIAliTokenPlanAccount(account) {
+		ids := newAPIAliTokenPlanModelDisplayPresetIDs()
+		sort.Strings(ids)
+		return ids
+	}
+	if isNewAPIQianfanTokenPlanAccount(account) {
+		ids := newAPIQianfanTokenPlanModelDisplayPresetIDs()
 		sort.Strings(ids)
 		return ids
 	}

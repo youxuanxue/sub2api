@@ -12,6 +12,14 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
+        },
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        },
+        {
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
       ]
     },
@@ -26,6 +34,10 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
+        },
+        {
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
       ]
     },
@@ -52,6 +64,10 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
+        },
+        {
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
       ]
     },
@@ -109,7 +125,13 @@
     },
     "qwen3.7-max": {
       "display": true,
-      "channel_type": 17
+      "channel_type": 17,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
     },
     "qwen3.7-max-preview": {
       "display": true,
@@ -129,7 +151,13 @@
     },
     "qwen3.7-plus": {
       "display": true,
-      "channel_type": 17
+      "channel_type": 17,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
     },
     "qwen3.7-flash": {
       "display": true,
@@ -145,11 +173,23 @@
     },
     "qwen3.8-max": {
       "display": true,
-      "channel_type": 17
+      "channel_type": 17,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
     },
     "qwen3.6-flash": {
       "display": true,
-      "channel_type": 17
+      "channel_type": 17,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
     },
     "qwen3-coder-plus": {
       "display": true,
@@ -338,6 +378,14 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
+        },
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        },
+        {
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
       ]
     },
@@ -352,6 +400,10 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
+        },
+        {
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
       ]
     },
@@ -468,6 +520,14 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
+        },
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        },
+        {
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
       ],
       "price_owner": "deepseek-v4-flash"
@@ -676,6 +736,52 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
+        }
+      ]
+    },
+    "qwen3.8-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
+    "deepseek-v4-pro-0813": {
+      "display": true,
+      "price_owner": "deepseek-v4-pro",
+      "scopes": [
+        {
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
+        }
+      ]
+    },
+    "glm-5.3-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 46,
+          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
+        }
+      ]
+    },
+    "wan2.7-image": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
+    "wan2.7-image-pro": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ]
     }
