@@ -163,14 +163,7 @@ if [[ -z "$PLATFORM" ]]; then
   fail_json "target account platform is empty"
 fi
 
-PROBE_SCOPE="$(python3 - "$PLATFORM" <<'PY'
-import re
-import sys
-
-scope = re.sub(r"[^a-z0-9]+", "_", sys.argv[1].strip().lower()).strip("_")
-print((scope or "platform")[:48])
-PY
-)"
+PROBE_SCOPE="$(tk_probe_scope_from_platform "$PLATFORM")"
 if [[ -z "$PROBE_SCOPE" ]]; then
   fail_json "failed to derive probe scope"
 fi
@@ -184,16 +177,7 @@ else
 fi
 
 API_KEY=""
-if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
-  if ! command -v flock >/dev/null 2>&1; then
-    fail_json "flock is required when PROBE_REUSE_MODE=1"
-  fi
-  LOCK_PATH="/tmp/tokenkey-account-model-probe-${PROBE_SCOPE}.lock"
-  exec 9>"$LOCK_PATH"
-  if ! flock -w "$PROBE_LOCK_TIMEOUT_SECONDS" 9; then
-    fail_json "timed out waiting for probe reuse lock"
-  fi
-else
+if [[ "$PROBE_REUSE_MODE" != "1" ]]; then
   API_KEY="$(new_probe_api_key)"
 fi
 
@@ -205,20 +189,9 @@ cleanup() {
   fi
   if [[ -n "${GROUP_ID:-}" ]]; then
     if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
-      "${PSQL[@]}" -c "
-	DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
-	UPDATE api_keys SET status='disabled', updated_at=NOW() WHERE group_id = ${GROUP_ID} AND name = '$(sql_escape "$KEY_NAME")' AND deleted_at IS NULL;
-	UPDATE groups SET status='disabled', updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(sql_escape "$GROUP_NAME")' AND deleted_at IS NULL;
-	INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
-	VALUES ('group_changed', NULL, ${GROUP_ID}, NULL);
-	" >/dev/null 2>&1 || true # preflight-allow: swallow
+      tk_probe_cleanup_named_group "$GROUP_ID" "$GROUP_NAME" "$KEY_NAME" reusable >/dev/null 2>&1 || true # preflight-allow: swallow
     else
-      "${PSQL[@]}" -c "
-	DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
-	DELETE FROM user_allowed_groups WHERE group_id = ${GROUP_ID};
-	UPDATE api_keys SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE group_id = ${GROUP_ID} AND name = '$(sql_escape "$KEY_NAME")' AND deleted_at IS NULL;
-	UPDATE groups SET status='disabled', deleted_at=NOW(), updated_at=NOW() WHERE id = ${GROUP_ID} AND name = '$(sql_escape "$GROUP_NAME")' AND deleted_at IS NULL;
-	" >/dev/null 2>&1 || true # preflight-allow: swallow
+      tk_probe_cleanup_named_group "$GROUP_ID" "$GROUP_NAME" "$KEY_NAME" oneoff >/dev/null 2>&1 || true # preflight-allow: swallow
     fi
   fi
   sudo docker exec "$APP_CONTAINER" rm -f /tmp/tk-probe-request.json /tmp/tk-probe-response.json /tmp/tk-probe-headers.txt >/dev/null 2>&1 || true # preflight-allow: swallow
@@ -226,62 +199,15 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
-  GROUP_ID="$("${PSQL[@]}" -c "
-SELECT COALESCE((
-  SELECT id::text
-  FROM groups
-  WHERE name = '$(sql_escape "$GROUP_NAME")'
-    AND deleted_at IS NULL
-  ORDER BY id
-  LIMIT 1
-), '');
-" | tr -d '\n')"
-  if [[ -n "$GROUP_ID" ]]; then
-    psql_capture_numeric GROUP_ID "failed to update probe group name=${GROUP_NAME} platform=${PLATFORM}" "
-UPDATE groups
-SET
-  description = 'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
-  platform = '$(sql_escape "$PLATFORM")',
-  rate_multiplier = 1.0,
-  is_exclusive = true,
-  status = 'active',
-  subscription_type = 'standard',
-  default_validity_days = 30,
-  claude_code_only = false,
-  model_routing_enabled = false,
-  model_routing = '{}'::jsonb,
-  allow_messages_dispatch = true,
-  supported_model_scopes = '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
-  models_list_config = '{}'::jsonb,
-  sort_order = 2147483000,
-  rpm_limit = 0,
-  updated_at = NOW()
-WHERE id = ${GROUP_ID}
-  AND name = '$(sql_escape "$GROUP_NAME")'
-  AND deleted_at IS NULL
-RETURNING id;
-"
-  else
-    psql_capture_numeric GROUP_ID "failed to insert probe group name=${GROUP_NAME} platform=${PLATFORM}" "
-INSERT INTO groups (
-  name, description, platform, rate_multiplier, is_exclusive, status,
-  subscription_type, default_validity_days, claude_code_only,
-  model_routing_enabled, model_routing, allow_messages_dispatch, supported_model_scopes,
-  messages_dispatch_model_config, models_list_config,
-  sort_order, rpm_limit, created_at, updated_at
-) VALUES (
-  '$(sql_escape "$GROUP_NAME")',
-  'reserved reusable account/model probe group; direct probe key only; excluded from universal routing',
-  '$(sql_escape "$PLATFORM")',
-  1.0, true, 'active',
-  'standard', 30, false,
-  false, '{}'::jsonb, true, '[\"claude\", \"gemini_text\", \"gemini_image\"]'::jsonb,
-  '{}'::jsonb, '{}'::jsonb,
-  2147483000, 0, NOW(), NOW()
-)
-RETURNING id;
-"
+  if ! tk_probe_prepare_platform_reuse_probe "$PLATFORM" "$ACCOUNT_ID"; then
+    fail_json "failed to prepare reusable probe resources for platform=${PLATFORM} account_id=${ACCOUNT_ID}"
   fi
+  PROBE_SCOPE="${TK_PROBE_SCOPE}"
+  GROUP_ID="${TK_PROBE_GROUP_ID}"
+  API_KEY_ID="${TK_PROBE_KEY_ID}"
+  API_KEY="${TK_PROBE_KEY}"
+  GROUP_NAME="$(tk_probe_group_name "$PROBE_SCOPE")"
+  KEY_NAME="$(tk_probe_key_name "$PROBE_SCOPE")"
 else
   psql_capture_numeric GROUP_ID "failed to insert one-off probe group name=${GROUP_NAME} platform=${PLATFORM}" "
 INSERT INTO groups (
@@ -301,24 +227,15 @@ INSERT INTO groups (
 	  2147483000, 0, NOW(), NOW()
 	) RETURNING id;
 "
-fi
 
-if [[ ! "$GROUP_ID" =~ ^[0-9]+$ ]]; then
-  fail_json "failed to prepare probe group name=${GROUP_NAME} platform=${PLATFORM}"
-fi
+  if [[ ! "$GROUP_ID" =~ ^[0-9]+$ ]]; then
+    fail_json "failed to prepare probe group name=${GROUP_NAME} platform=${PLATFORM}"
+  fi
 
-"${PSQL[@]}" -c "
+  "${PSQL[@]}" -c "
 INSERT INTO user_allowed_groups (user_id, group_id, created_at)
 VALUES (${PROBE_USER_ID}, ${GROUP_ID}, NOW())
 ON CONFLICT (user_id, group_id) DO NOTHING;
-" >/dev/null
-
-if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
-  tk_probe_unbind_account_from_stale_probe_groups "$ACCOUNT_ID" "$GROUP_NAME" || \
-    fail_json "failed to unbind stale __tk_probe_* groups for account_id=${ACCOUNT_ID}"
-fi
-
-"${PSQL[@]}" -c "
 DELETE FROM account_groups WHERE group_id = ${GROUP_ID};
 INSERT INTO account_groups (account_id, group_id, priority, created_at)
 VALUES (${ACCOUNT_ID}, ${GROUP_ID}, 1, NOW())
@@ -327,64 +244,6 @@ INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
 VALUES ('group_changed', NULL, ${GROUP_ID}, NULL);
 " >/dev/null
 
-if [[ "$PROBE_REUSE_MODE" == "1" ]]; then
-  NEW_API_KEY="$(new_probe_api_key)"
-  API_KEY_ROW="$("${PSQL[@]}" -c "
-WITH existing AS (
-  SELECT id
-  FROM api_keys
-  WHERE group_id = ${GROUP_ID}
-    AND name = '$(sql_escape "$KEY_NAME")'
-    AND deleted_at IS NULL
-  ORDER BY id
-  LIMIT 1
-)
-SELECT COALESCE((SELECT id::text FROM existing), '');
-" | tr -d '\n')"
-  if [[ -n "$API_KEY_ROW" ]]; then
-    API_KEY_ID="$API_KEY_ROW"
-    API_KEY="$("${PSQL[@]}" -c "
-UPDATE api_keys
-SET
-  user_id = ${PROBE_USER_ID},
-  key = '$(sql_escape "$NEW_API_KEY")',
-  status = 'active',
-  routing_mode = 'direct',
-  quota = 0,
-  quota_used = 0,
-  rate_limit_5h = 0,
-  rate_limit_1d = 0,
-  rate_limit_7d = 0,
-  usage_5h = 0,
-  usage_1d = 0,
-  usage_7d = 0,
-  updated_at = NOW()
-WHERE id = ${API_KEY_ID}
-  AND group_id = ${GROUP_ID}
-  AND name = '$(sql_escape "$KEY_NAME")'
-  AND deleted_at IS NULL
-RETURNING key;
-" | tr -d '\n')"
-  else
-    API_KEY="$NEW_API_KEY"
-    psql_capture_numeric API_KEY_ID "failed to insert probe API key name=${KEY_NAME} group_id=${GROUP_ID}" "
-INSERT INTO api_keys (
-  user_id, key, name, group_id, status, routing_mode,
-  quota, quota_used, rate_limit_5h, rate_limit_1d, rate_limit_7d,
-  usage_5h, usage_1d, usage_7d, created_at, updated_at
-) VALUES (
-  ${PROBE_USER_ID},
-  '$(sql_escape "$API_KEY")',
-  '$(sql_escape "$KEY_NAME")',
-  ${GROUP_ID},
-  'active',
-  'direct',
-  0, 0, 0, 0, 0,
-  0, 0, 0, NOW(), NOW()
-) RETURNING id;
-"
-  fi
-else
   psql_capture_numeric API_KEY_ID "failed to insert one-off probe API key name=${KEY_NAME} group_id=${GROUP_ID}" "
 INSERT INTO api_keys (
   user_id, key, name, group_id, status, routing_mode,
