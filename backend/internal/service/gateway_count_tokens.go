@@ -55,20 +55,28 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	getBody := func() []byte { return parsed.Body.Bytes() }
 	reqModel := parsed.Model
 
-	var denied bool
 	var prepErr error
-	body, reqModel, denied, prepErr = s.tkPrepareCountTokensAnthropicBody(ctx, c, account, body, reqModel, replaceBody, getBody)
+	body, reqModel, prepErr = s.tkPrepareCountTokensAnthropicBody(ctx, c, account, body, reqModel, replaceBody, getBody)
 	if prepErr != nil {
 		return prepErr
-	}
-	if denied {
-		return nil
 	}
 	parsed.Model = reqModel
 
 	if shouldEstimateCountTokensLocally(account) {
 		writeEstimatedAnthropicCountTokens(c, body)
 		return nil
+	}
+
+	// TK canonical-OAuth strict ingress UA gate on count_tokens.
+	// Must stay AFTER shouldEstimateCountTokensLocally (estimate platforms
+	// short-circuit without hitting this gate).
+	if c != nil && c.Request != nil && s.isCanonicalAnthropicOAuth(account) &&
+		s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
+		if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
+			MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
+			s.countTokensError(c, http.StatusForbidden, "permission_error", err.Error())
+			return nil
+		}
 	}
 
 	isClaudeCodeCT := IsClaudeCodeClient(ctx) || isClaudeCodeClient(c.GetHeader("User-Agent"), parsed.MetadataUserID)

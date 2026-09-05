@@ -11,5 +11,6 @@ import (
 func TestTkWireSettingServiceExtras_NilSafe(t *testing.T) {
 	require.NotPanics(t, func() {
 		tkWireSettingServiceExtras(nil, nil)
+		tkWireClaudeCodeResolvers(nil)
 	})
 }

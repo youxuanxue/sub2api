@@ -26,13 +26,11 @@ func TestTkRecordUsagePostCostObservability_NilSafe(t *testing.T) {
 	})
 }
 
-func TestTkPrepareCountTokensAnthropicBody_UAGateDenied(t *testing.T) {
+func TestTkPrepareCountTokensAnthropicBody_NilAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := &GatewayService{
 		settingService: &SettingService{},
 	}
-	// Force canonical OAuth + strict ingress via stubbing would need deeper
-	// plumbing; pin the nil-account path returns without denial.
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil)
@@ -45,11 +43,10 @@ func TestTkPrepareCountTokensAnthropicBody_UAGateDenied(t *testing.T) {
 	}
 	getBody := func() []byte { return stored }
 
-	next, model, denied, err := s.tkPrepareCountTokensAnthropicBody(
+	next, model, err := s.tkPrepareCountTokensAnthropicBody(
 		context.Background(), c, nil, body, "claude-sonnet-4-5", replaceBody, getBody,
 	)
 	require.NoError(t, err)
-	require.False(t, denied)
 	require.Equal(t, "claude-sonnet-4-5", model)
 	require.NotEmpty(t, next)
 }

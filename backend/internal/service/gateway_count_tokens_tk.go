@@ -3,18 +3,20 @@ package service
 import (
 	"context"
 	"log/slog"
-	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 )
 
 // tkPrepareCountTokensAnthropicBody applies TokenKey-only count_tokens ingress
-// transforms (context-window alias strip, Anthropic request compatibility,
-// native body normalize, unsupported-field strip, canonical-OAuth UA gate).
+// transforms that run BEFORE shouldEstimateCountTokensLocally:
+// context-window alias strip, Anthropic request compatibility, native body
+// normalize, unsupported-field strip.
+//
+// The canonical-OAuth UA gate MUST remain in ForwardCountTokens AFTER the
+// estimate short-circuit — estimate platforms never hit that gate.
 // replaceBody mutates the parsed request buffer; getBody re-reads it after
-// each successful rewrite. Returns denied=true when the UA gate already wrote
-// the client error response.
+// each successful rewrite.
 func (s *GatewayService) tkPrepareCountTokensAnthropicBody(
 	ctx context.Context,
 	c *gin.Context,
@@ -23,7 +25,7 @@ func (s *GatewayService) tkPrepareCountTokensAnthropicBody(
 	reqModel string,
 	replaceBody func(next []byte) error,
 	getBody func() []byte,
-) (nextBody []byte, nextModel string, denied bool, err error) {
+) (nextBody []byte, nextModel string, err error) {
 	nextBody, nextModel = body, reqModel
 
 	// Strip Claude Code context-window aliases before count_tokens reaches
@@ -31,7 +33,7 @@ func (s *GatewayService) tkPrepareCountTokensAnthropicBody(
 	if account != nil && account.Platform == PlatformAnthropic {
 		if bare, aliased := tkStripContextWindowModelAlias(nextModel); aliased {
 			if err := replaceBody(s.replaceModelInBody(nextBody, bare)); err != nil {
-				return nextBody, nextModel, false, err
+				return nextBody, nextModel, err
 			}
 			nextBody = getBody()
 			nextModel = bare
@@ -44,7 +46,7 @@ func (s *GatewayService) tkPrepareCountTokensAnthropicBody(
 	// text blocks, drop explicit disabled thinking for Fable, and strip fields
 	// rejected by newer Anthropic models.
 	if err := replaceBody(tkApplyAnthropicRequestCompatibilityRules(account, tkStripFableDisabledThinking(StripEmptyTextBlocks(TkSanitizeRequestBody(nextBody, account))))); err != nil {
-		return nextBody, nextModel, false, err
+		return nextBody, nextModel, err
 	}
 	nextBody = getBody()
 
@@ -63,15 +65,5 @@ func (s *GatewayService) tkPrepareCountTokensAnthropicBody(
 		)
 	}
 
-	// Canonical-OAuth strict ingress UA gate on count_tokens.
-	if c != nil && c.Request != nil && s.isCanonicalAnthropicOAuth(account) &&
-		s.settingService.IsAnthropicCanonicalIngressStrictEnabled(ctx) {
-		if err := checkCanonicalIngressUAStrict(c.Request.Header); err != nil {
-			MarkOpsClientPolicyDenied(c, OpsClientPolicyDeniedReasonLocalPolicyDenied)
-			s.countTokensError(c, http.StatusForbidden, "permission_error", err.Error())
-			return nextBody, nextModel, true, nil
-		}
-	}
-
-	return nextBody, nextModel, false, nil
+	return nextBody, nextModel, nil
 }

@@ -40,12 +40,17 @@ var TKProviderSet = wire.NewSet(
 )
 
 // tkWireSettingServiceExtras applies TokenKey-only SettingService post-construction
-// wiring (cross-replica settings pub/sub + Claude Code fingerprint resolvers).
-// Upstream-shaped ProvideSettingService keeps shared migrations/resolvers.
+// wiring that must run immediately after LoadForwardedClientIPSettings and before
+// migrations (cross-replica settings pub/sub), matching pre-companion order.
 func tkWireSettingServiceExtras(svc *SettingService, pubsub SettingPubSub) {
 	// Fan out SystemSettings writes (e.g. HTTP UA version) across replicas via
 	// Redis pub/sub so a change is reflected within seconds, not the 60s cache TTL.
 	svc.EnableSettingsPubSub(context.Background(), pubsub)
+}
+
+// tkWireClaudeCodeResolvers installs Claude Code fingerprint resolvers after
+// shared antigravity resolver wiring (same relative order as pre-companion).
+func tkWireClaudeCodeResolvers(svc *SettingService) {
 	SetClaudeCodeUserAgentResolver(svc.GetClaudeCodeUserAgentVersion)
 	claude.SetClaudeCodeMimicryBetasResolver(svc.GetClaudeCodeMimicryBetas)
 }

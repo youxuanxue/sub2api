@@ -908,6 +908,7 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	if err := svc.LoadForwardedClientIPSettings(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: load forwarded client ip settings failed: %v", err)
 	}
+	tkWireSettingServiceExtras(svc, pubsub)
 	// Fold deprecated codex_cli_only global toggles into the new policy model
 	// (whitelist + engine-fingerprint signal list) on startup; idempotent.
 	if err := svc.MigrateOpenAIAllowClaudeCodeCodexPluginSetting(context.Background()); err != nil {
@@ -920,7 +921,7 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 		logger.LegacyPrintf("service.setting", "Warning: migrate Grok default text model failed: %v", err)
 	}
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
-	tkWireSettingServiceExtras(svc, pubsub)
+	tkWireClaudeCodeResolvers(svc)
 	// Codex identity enforcement has no request context; the resolver's TTL
 	// cache keeps this background lookup off the hot path.
 	SetCodexCanonicalUserAgentResolver(func() string {
