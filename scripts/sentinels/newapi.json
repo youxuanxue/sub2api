@@ -1344,10 +1344,7 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "func (h *OpenAIGatewayHandler) SetGeminiProtocolServices(",
-        "ResponsesToGemini: func(",
-        "MessagesToGemini: func(",
-        "executeOpenAIGeminiRoute("
+        "func (h *OpenAIGatewayHandler) SetGeminiProtocolServices("
       ],
       "rationale": "The OpenAI Responses and Messages ingress paths must supply their registered Gemini executors. Without these callbacks the planner legally selects Gemini and execution fails with ErrProtocolExecutorMissing before reaching the already-wired provider transport."
     },

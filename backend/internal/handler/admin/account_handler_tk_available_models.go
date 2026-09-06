@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"net/http"
 	"sort"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -9,8 +10,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+
+	"github.com/gin-gonic/gin"
 )
 
 // Admin available-models always crosses the HTTP boundary as one minimal DTO;
@@ -202,4 +206,124 @@ func tkClaudeAdminModelsForIDs(ids []string) []dto.AccountModelOption {
 func tkClaudeAdminDefaultModels(ctx context.Context) []dto.AccountModelOption {
 	ids := service.ServableClientFacingIDs(ctx, service.PlatformAnthropic, nil, nil)
 	return tkClaudeModelsToAdminOptions(claude.ModelsForIDs(ids), nil)
+}
+
+// tkRespondAvailableModels dispatches admin available-models by account platform.
+func (h *AccountHandler) tkRespondAvailableModels(c *gin.Context, account *service.Account) {
+	// Handle OpenAI accounts
+	if account.IsOpenAI() {
+		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
+		if account.IsOpenAIPassthroughEnabled() {
+			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
+			return
+		}
+
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			response.Success(c, tkOpenAIAdminDefaultModels(c.Request.Context()))
+			return
+		}
+
+		response.Success(c, tkOpenAIAdminModelsForIDs(sortedModelMappingKeys(mapping)))
+		return
+	}
+
+	// Handle Gemini accounts via runtime model_mapping SSOT (includes Google One defaults).
+	if account.IsGemini() {
+		response.Success(c, tkGeminiAdminAvailableModels(c.Request.Context(), account))
+		return
+	}
+
+	// Handle Antigravity accounts: live servable set (same SSOT as /antigravity/models).
+	if account.Platform == service.PlatformAntigravity {
+		response.Success(c, tkAntigravityAdminDefaultModels(c.Request.Context(), account))
+		return
+	}
+
+	// Handle fifth platform `newapi` accounts.
+	// newapi accounts route OpenAI-compatible payloads through the new-api adaptor
+	// pool, so the model space is whatever the upstream channel exposes. The admin
+	// UI has a dedicated probe (POST /api/v1/admin/channel-types/fetch-upstream-models)
+	// for live model discovery; this endpoint must NOT fall through to the Claude
+	// catalog. We mirror openai's behavior: prefer model_mapping keys when set,
+	// otherwise return an empty list (the UI shows "configure model_mapping" hint).
+	if account.Platform == service.PlatformNewAPI {
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			if tkRespondNewAPIAgentPlanAvailableModelsWhenMappingEmpty(c, account) {
+				return
+			}
+			ids, err := h.adminService.GetAccountModelMappingPresetIDs(
+				c.Request.Context(),
+				service.PlatformNewAPI,
+				account.ChannelType,
+			)
+			if err != nil {
+				response.Error(c, http.StatusInternalServerError, "failed to resolve model mapping preset")
+				return
+			}
+			if len(ids) > 0 {
+				sort.Strings(ids)
+				response.Success(c, tkAdminModelOptionsForIDs(ids))
+				return
+			}
+			response.Success(c, []dto.AccountModelOption{})
+			return
+		}
+		response.Success(c, tkAdminModelOptionsForIDs(sortedModelMappingKeys(mapping)))
+		return
+	}
+
+	if account.IsGrok() {
+		if !accountHasExplicitModelMapping(account) {
+			response.Success(c, tkGrokAdminDefaultModels(c.Request.Context()))
+			return
+		}
+		mapping := account.GetModelMapping()
+		if len(mapping) == 0 {
+			response.Success(c, tkGrokAdminDefaultModels(c.Request.Context()))
+			return
+		}
+		// Deterministic order: pin the grok chat-probe default first, then
+		// alphabetical. Iterating the mapping map directly is non-deterministic
+		// and makes the admin selector (and its test) flaky.
+		ids := make([]string, 0, len(mapping))
+		for requestedModel := range mapping {
+			ids = append(ids, requestedModel)
+		}
+		sort.SliceStable(ids, func(i, j int) bool {
+			if ids[i] == service.GrokDefaultTestModelID {
+				return true
+			}
+			if ids[j] == service.GrokDefaultTestModelID {
+				return false
+			}
+			return ids[i] < ids[j]
+		})
+		response.Success(c, tkGrokAdminModelsForIDs(ids))
+		return
+	}
+
+	if account.IsKiro() || account.IsKiroMirrorStub() {
+		response.Success(c, tkClaudeModelsToAdminOptions(service.KiroAdminTestModels(), nil))
+		return
+	}
+
+	// Handle Claude/Anthropic accounts
+	// For OAuth and Setup-Token accounts: return default models
+	if account.IsOAuth() {
+		response.Success(c, tkClaudeAdminDefaultModels(c.Request.Context()))
+		return
+	}
+
+	// For API Key accounts: return models based on model_mapping
+	mapping := account.GetModelMapping()
+	if len(mapping) == 0 {
+		// No mapping configured, return default models
+		response.Success(c, tkClaudeAdminDefaultModels(c.Request.Context()))
+		return
+	}
+
+	response.Success(c, tkClaudeAdminModelsForIDs(sortedModelMappingKeys(mapping)))
+
 }

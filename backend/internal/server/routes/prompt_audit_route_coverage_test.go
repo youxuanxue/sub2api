@@ -20,7 +20,12 @@ import (
 func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 	actual := map[string]struct{}{}
 	pattern := regexp.MustCompile(`\.Register\(http\.MethodPost,\s*"([^"]+)"`)
-	for _, filename := range []string{"gateway.go", "gateway_tk_openai_compat_handlers.go"} {
+	for _, filename := range []string{
+		"gateway.go",
+		"gateway_tk_openai_compat_handlers.go",
+		"gateway_tk_grok_voice_routes.go",
+		"gateway_tk_openrouter_routes.go",
+	} {
 		routeSource, err := os.ReadFile(filename)
 		require.NoError(t, err)
 		for _, match := range pattern.FindAllStringSubmatch(string(routeSource), -1) {

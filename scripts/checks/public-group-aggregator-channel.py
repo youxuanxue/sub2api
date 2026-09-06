@@ -27,7 +27,7 @@ ADMIN_ACCOUNT_POLICY_OWNERS = (
     REPO_ROOT / "backend/internal/service/admin_account_tk_update.go",
     REPO_ROOT / "backend/internal/service/admin_account_tk_bulk_update.go",
 )
-ROUTE_GO = REPO_ROOT / "backend/internal/server/routes/gateway.go"
+ROUTE_GO = REPO_ROOT / "backend/internal/server/routes/gateway_tk_openrouter_routes.go"
 CONFIG_EXAMPLE = REPO_ROOT / "ops/pricing/examples/openrouter-provider-config.example.json"
 
 REQUIRED_POLICY_MARKERS = (

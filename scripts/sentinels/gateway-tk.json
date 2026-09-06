@@ -496,10 +496,7 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "case 404:",
-        "s.handle404(ctx, account, upstreamMsg, responseBody)",
         "IsAnthropicModelNotFound404",
-        "anthropic_model_not_found_skip_penalty",
         "isAnthropicExtraUsage429",
         "s.apply429FallbackRateLimit(ctx, account, \"no_reset_time\")",
         "TkRecordOpenAI429BurstFallthrough(normalized)",
@@ -510,9 +507,6 @@
         "anthropicCooldownTierLadder",
         "anthropicCooldownTierTTLMinutes",
         "anthropicCooldownTierEscalationsWindowMinutes",
-        "handleAnthropicUpstreamError(",
-        "handleAnthropicUpstreamErrorWithOptions",
-        "tkAnthropicStubHealthFuseEligible",
         "IncrementAnthropicUpstreamErrorCount",
         "IncrementAnthropicCooldownTier(",
         "IncrementAnthropicCooldownTierEscalations",
@@ -522,18 +516,11 @@
         "SetTempUnschedulable(ctx, account.ID, until, reason)",
         ") ResetAnthropicUpstreamErrorCounter(",
         "ResetAnthropicCooldownTier",
-        "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic && !cloudwiseModelBalance402 {",
-        "planGatedModel := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)",
-        "if !cloudwiseModelBalance402 && !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
         "s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)",
-        "case 413:",
-        "anthropic_request_too_large_skip_penalty",
         "s.notifyAccountRecovered(accountID)",
         "s.tkTryHandleUpstreamErrorPrelude(",
-        "s.tkHandleAuth401(",
         "s.tkHandleNonOpenAI403(",
-        "s.tkOpenAI403PrePenaltyGates(",
-        "s.tkTryHandle429Extras("
+        "s.tkOpenAI403PrePenaltyGates("
       ],
       "rationale": "Anthropic model-not-found 404s are CLIENT errors (a model name no account serves — Anthropic's catalog is global, not per-account) and must SKIP the account penalty (slog `anthropic_model_not_found_skip_penalty`, return false → shouldDisable=false, no UpstreamFailoverError wrap) so one bad-model client cannot cool accounts and drain a thin edge pool into 'No available accounts' 429s; the gateway then surfaces a 400 'Unsupported model' to the client (path B, prod P0 2026-06-06 edge us5). An upstream merge that re-adds SetModelRateLimit on this 404 path reintroduces the amplifier. Anthropic 429s without reset metadata must use the configurable short cooldown unless the body is the known third-party/extra-usage rejection, otherwise production can repeatedly hit the same account with no local backoff. Anthropic upstream errors must feed the TK short-window counter (anchored by `anthropicUpstreamErrorWindowMinutes` — intentionally short at 1 minute so transient bursts clear quickly) and mark the account temporarily unschedulable after three hits so a single bad Edge/OAuth account cannot produce repeated upstream 400/403/5xx responses before the scheduler removes it. **Pool-mode policy (2026-05-21 revision of PR #333, anchored by `anthropicCooldownTierLadder`)**: the prior PR #333 carve-out (which let pool_mode accounts early-return before the counter via `anthropic_upstream_error_pool_mode_skipped`) is removed. PR #333's blanket immunity left ops with no mechanical signal that a stub was failing, leaving cc-edges (single-member exclusive group) vulnerable to silently routing all traffic to a dead upstream pool. The replacement is **tiered exponential cooldown**: first cooldown in a 30-min window is 30s (transient jitter shrugged off without the 10-min outage that motivated PR #248's reversal), second is 2 min, third+ is 10 min. The two carve-outs on `HandleUpstreamError` entry (`account.Platform != PlatformAnthropic` on both the pool-mode early-return AND the custom-error-codes allowlist guard) MUST stay so Anthropic 4xx/5xx still enter the dispatch — without them an upstream merge that 'simplifies' the early-returns would silently restore PR #333's broken immunity. `IncrementAnthropicCooldownTier` and `ResetAnthropicCooldownTier` are anchored separately because they are the load-bearing seams for tier escalation; a Redis client refactor that drops them would silently collapse the ladder back to a fixed 30s cooldown. The `ResetAnthropicUpstreamErrorCounter` call MUST be invoked from recovery hotpaths (ClearRateLimit, RecoverAccountState, ClearTempUnschedulable, UpdateSessionWindow allowed status) so a healed account does not carry stale strikes OR stale tier escalation. OpenAI burst 429s (Codex headers present but neither 5h nor 7d window at 100% used+with-reset) must call the TK companion TkRecordOpenAI429BurstFallthrough and return nil so handle429 falls back to the short cooldown, otherwise transient throttle surges turn into multi-day 503 windows (upstream #2258). Upstream merges in this large service file can compile cleanly while dropping any of these protections, so the sentinel anchors all policies in the hotspot file. **G1 (413 / request_too_large)**: `case 413:` short-circuits an upstream request_too_large for Anthropic (slog `anthropic_request_too_large_skip_penalty`) so an oversized request that cleared TokenKey's local body-limit but exceeded Anthropic's own cap fails back to the client without advancing the 3/3 ladder — a client looping 300KB+ sessions must not be able to cool a shared OAuth account. Dropping the case lets request_too_large fall into the default 4xx-5xx branch and silently re-arm the amplifier. **G2 (narrow — downstream failover-exhausted)**: `tkSkipDownstreamFailoverExhaustedPenalty` (slog `anthropic_downstream_failover_exhausted_skip_penalty`) extends the no-available skip to TokenKey's own 'all available accounts exhausted' downstream capacity envelope; it matches ONLY that TokenKey-generated phrase, so raw edge-infra 5xx and genuine provider errors still count and keep the PR #333 route-away cooldown. Removing either hook silently regresses the corresponding non-account amplification exemption. **Recovery notify**: `notifyAccountSchedulingBlockCleared`(ClearRateLimit/RecoverAccountState 的账号真实清除汇聚点)末尾调 `s.notifyAccountRecovered(accountID)` 发飞书恢复绿卡(事件驱动)。删掉该行 → 账号恢复无任何飞书通知,恢复链路断裂。 **G3 (non-authoritative 429)**: 无 anthropic-ratelimit-* 头的 429 是 edge 的 header-less capacity/failover 信封('Upstream rate limit exceeded, please retry later' 等),不是真窗口限流(真窗口限流一定带头);case-429 调 `tkIsAnthropicNonAuthoritative429`(无条件,无开关)不冷却不喂阶梯(slog `anthropic_non_authoritative_429_skip_penalty`),泛化 no-available / failover-exhausted 两个 needle 跳过 —— 删掉它会重新点燃把健康镜像(cc-us7,2026-06-13 23:11 tier-0 30s)冷却的放大器。详见 ratelimit_service_tk_nonauthoritative_429.go。 Kiro invalid-bearer 403 handling must stay wired into handle403 before the generic SetError fallback; the companion helper alone is insufficient if this call site is dropped."
     },
@@ -782,9 +769,7 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "s.tkHandleAuth401(",
-        "s.tkHandleNonOpenAI403(",
-        "s.tkTryHandle429Extras("
+        "s.tkHandleNonOpenAI403("
       ],
       "rationale": "G5/G6 Kiro mirror downstream-failure injection points (call-site anchors). 401/403/502 skip bodies live in ratelimit_service_tk_auth401.go / ratelimit_service_tk_handle403.go / ratelimit_service_tk_handle429_extras.go; these thin call sites in the upstream-shaped file must remain so an upstream merge cannot drop the wiring. Detailed needles are anchored on the companions."
     },
@@ -908,14 +893,14 @@
       "rationale": "classifyIncident MUST map reason kiro_quota_limit to the IMMEDIATE P0 card path (IncidentKindPermanentDisable), NOT auth_error's misleading 认证失败 copy and NOT the default-OFF temporary digest. Quota exhaustion needs human action (wait for reset / upgrade subscription)."
     },
     {
-      "path": "backend/internal/service/ratelimit_service.go",
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
       "must_contain": [
         "s.tkHandleKiroQuotaLimit402(ctx, account, upstreamMsg, responseBody)"
       ],
       "rationale": "HandleUpstreamError case 402 must invoke the Kiro quota-limit companion before the generic Payment required → auth_error path so Kiro 402 reached-the-limit gets the dedicated P0 reason. An upstream merge that drops this call site re-buries the alert under auth_error or skips the matcher entirely."
     },
     {
-      "path": "backend/internal/service/ratelimit_service.go",
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
       "must_contain": [
         "s.tkMaybeHandleKiroEndpointQuotaExhausted(ctx, account, upstreamMsg, responseBody)"
       ],
@@ -2371,10 +2356,8 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "tkIsAnthropicClientInducedBadRequest(responseBody)",
         "s.tkClampOpenAIRateLimitReset(ctx, account.ID",
-        "s.tkClampAnthropicWindowReset(ctx, account.ID",
-        "s.tkTryHandle429Extras("
+        "s.tkClampAnthropicWindowReset(ctx, account.ID"
       ],
       "rationale": "TK#2608: client-induced Anthropic 400 invalid_request_error must not advance the per-account cooldown counter (else an external caller can pause a shared OAuth subscription account). TK#1981: opt-in clamp of long OpenAI 429 resets so released accounts are re-probed by traffic instead of idling. Prod incident 2026-05-31 / 2026-06: a downstream 503 or 429 whose body is our own 'no available accounts' pool-exhaustion signal must fail over WITHOUT handle429 cooldown — that skip body now lives in ratelimit_service_tk_handle429_extras.go; this entry anchors the remaining main-file injections plus the thin s.tkTryHandle429Extras call site."
     },
@@ -3051,7 +3034,7 @@
       "rationale": "Anthropic usage-policy / cyber-safeguard classifier blocks are a distinct risk signal but frequently false positives (claude-code#60366). This classifies them by body, emits a dedicated ops signal, and applies only a short de-prioritization instead of the harsh 3/3 ladder or a permanent disable. Losing it regresses a benign block back into a 10-min account cooldown."
     },
     {
-      "path": "backend/internal/service/ratelimit_service.go",
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
       "must_contain": [
         "tkIsAnthropicUsagePolicyBlock(upstreamMsg, responseBody)"
       ],
@@ -4006,12 +3989,8 @@
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "s.tkTryHandleUpstreamErrorPrelude(",
-        "cloudwiseModelBalance402 := tkIsCloudwiseModelBalance402Response(",
-        "account.Platform != PlatformAnthropic && !cloudwiseModelBalance402",
-        "if !cloudwiseModelBalance402 && !planGatedModel",
         "if len(requestedModel) > 0 && s.tkTryAnthropicModelScopedCooldown(ctx, account, requestedModel[0], result) {",
-        "if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {",
-        "rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)"
+        "if len(requestedModel) > 0 && s.tkTryOpenAICodexModelScopedCooldown(ctx, account, requestedModel[0], resetTime) {"
       ],
       "rationale": "G4 injection point in the upstream-shaped error dispatch. CloudWise model-balance 402 must try the exact-model cooldown before pool/custom early exits, while a failed write or missing model bypasses those exits and reaches the conservative account-level 402 fallback. CloudWise Provider error 424 must likewise enter its bounded model/account breaker before those configurable exits. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRateLimited fallback, and the dispatch must thread requestedModel into handle429. The OpenAI/Codex body path (usage_limit_reached) must likewise try tkTryOpenAICodexModelScopedCooldown BEFORE the whole-account SetRateLimited so a spark per-model sub-limit 429 (account-wide window healthy) is narrowed to the model. An upstream merge that rewrites these paths or drops the requestedModel passthrough would silently restore whole-account amplification or fail-open CloudWise scheduling; this sentinel anchors the calls, fallbacks, and threading."
     },
@@ -4162,7 +4141,7 @@
       "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel and, only when the resolved scheduling platform is anthropic, non-claude-* cross-vendor dirty names to ErrUnsupportedModel before empty-pool classification. The platform guard prevents an empty Gemini/Antigravity pool from misclassifying gemini-* as an Anthropic namespace error and populating the group unsupported-model negative cache; the Anthropic branch still prevents mixed model_unsupported + unschedulable stats or load-batch bare ErrNoAvailableAccounts from surfacing routing 429 for client-fault model names (prod 2026-07-07 user16 key121 model=gpt). CloudWise prefix families (glm/kimi/minimax/deepseek) must pass this ingress check so anthropic-platform dual-stack account #94 can be selected; empty-mapping OAuth stays blocked by tkIsForwardableAnthropicModelName."
     },
     {
-      "path": "backend/internal/service/ratelimit_service.go",
+      "path": "backend/internal/service/ratelimit_service_tk_model_not_found.go",
       "must_contain": [
         "anthropic_model_not_found_skip_penalty"
       ],
@@ -4740,11 +4719,9 @@
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "s.tkTryHandle429Extras(",
         "tkCheckPlatformPoolExhausted",
         "func (s *RateLimitService) handle529(ctx context.Context, account *Account, headers http.Header) bool",
-        "cooldown = anthropicCooldownTierLadder[0]",
-        "retryAfterOwned := s.handle529(ctx, account, headers)"
+        "cooldown = anthropicCooldownTierLadder[0]"
       ],
       "rationale": "Three incident-2026-06-11 guards inside upstream-owned ratelimit_service.go: (a) defense-in-depth skip in case 429 so a request-owned policy 429 never advances the anthropic ladder regardless of which caller reached HandleUpstreamError; (b) the pool-exhausted check hook on the notifyAccountSchedulingBlocked funnel — the only place that can observe the 'last schedulable account just got cooled' transition for the platform-pool P0 Feishu card; (c) handle529 amplifier removal (16:50 UTC全edge全宕): handle529 takes 'headers' to honor upstream Retry-After and writes only the 30s tier-0 floor ('cooldown = anthropicCooldownTierLadder[0]') instead of the legacy flat 10-min SetOverloaded, and case 529 feeds its return as skipCooldownWrite ('retryAfterOwned := s.handle529(...)') so a no-Retry-After 529 does NOT suppress the 3/3 ladder — sustained 529 still escalates while a single provider-wide blip costs only 30s. A future upstream merge reverting any anchor (dropping headers, reinstating a flat-minutes cooldown, or suppressing the ladder unconditionally) re-arms the single-account-edge 10-min lockout PR#730 fixed."
     },
@@ -5377,8 +5354,7 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "selectionModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)",
-        "dispatchBody := tkResponsesForwardDispatchBody(apiKey, executionAccount, request.Body(), failedAccountIDs, h.gatewayService.ReplaceModelInBody)"
+        "selectionModel := service.CanonicalizeOpenAICompatRoutingModel(reqModel)"
       ],
       "rationale": "TK /v1/responses routing: account selection uses the client-requested model (parity with /v1/chat/completions) so tokensea relays whose model_mapping lists Claude wire IDs remain selectable. Per-account forward attempts apply dispatch body rewrite from the authoritative execution account reloaded immediately before dispatch. Pairs with openai_gateway_handler_tk_tokensea_routing.go and openai_gateway_handler_tk_responses_dispatch.go sentinels."
     },
@@ -6892,15 +6868,24 @@
       "rationale": "OpenRouter seller catalog surface: GET /openrouter/v1/models must stay wired to tk_openrouter_provider_config + BuildOpenRouterProviderCatalog. Upstream merges can drop this companion while the route still compiles via a stub handler."
     },
     {
-      "path": "backend/internal/server/routes/gateway.go",
+      "path": "backend/internal/server/routes/gateway_tk_openrouter_routes.go",
       "must_contain": [
         "Group(\"/openrouter/v1\")",
         "OpenRouterProviderModels",
         "OpenRouterProviderImages",
         "OpenRouterProviderVideoSubmit",
-        "OpenRouterProviderVideoFetch"
+        "OpenRouterProviderVideoFetch",
+        "registerTKOpenRouterProviderRoutes("
       ],
-      "rationale": "Route registration for OpenRouter provider catalog + image/video inference surfaces; without this group the onboarding endpoints 404 even when config is present."
+      "rationale": "OpenRouter seller route registration companion: Group(/openrouter/v1) + provider models/images/videos handlers. Thin call registerTKOpenRouterProviderRoutes from gateway.go."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway.go",
+      "must_contain": [
+        "gatewayRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, tkOpenAICompatAudioSpeechHandler(h))",
+        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
+      ],
+      "rationale": "Public OpenAI-compat audio speech routes on /v1 and root must stay wired to tkOpenAICompatAudioSpeechHandler; dropping either registration silently removes the TTS surface while catalog/docs still advertise it."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_openrouter_provider_media.go",
@@ -7490,7 +7475,7 @@
       "rationale": "Native WS ingress acquire 401 must update baseAcquireReq.Headers from the same recover owner so later turns do not keep the rejected token."
     },
     {
-      "path": "backend/internal/service/ratelimit_service.go",
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
       "must_contain": [
         "HandleOpenAIImageCapabilityLoss400(ctx, account, statusCode, responseBody)",
         "s.tkHandleAuth401("
@@ -8886,17 +8871,16 @@
       "rationale": "Registry-owned vt_ status reads must reach VideoFetch before Grok/composite/native platform gates because the model-less GET's temporary platform cannot identify the submit route. Non-vt_ provider request IDs continue through their native status handlers. OpenAI-compat platform gate for POST /audio/speech; non-compat groups must keep 404. Injection into AudioSpeech is the only route into native Token Plan TTS."
     },
     {
-      "path": "backend/internal/server/routes/gateway.go",
+      "path": "backend/internal/server/routes/gateway_tk_openrouter_routes.go",
       "must_contain": [
         "Group(\"/openrouter/v1\")",
         "OpenRouterProviderModels",
         "OpenRouterProviderImages",
         "OpenRouterProviderVideoSubmit",
         "OpenRouterProviderVideoFetch",
-        "gatewayRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, tkOpenAICompatAudioSpeechHandler(h))",
-        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
+        "registerTKOpenRouterProviderRoutes("
       ],
-      "rationale": "Route registration for OpenRouter provider catalog + image/video inference surfaces; without this group the onboarding endpoints 404 even when config is present. Public OpenAI-compat audio speech routes on /v1 and root must stay wired to tkOpenAICompatAudioSpeechHandler; dropping either registration silently removes the TTS surface while catalog/docs still advertise it."
+      "rationale": "OpenRouter seller route registration companion: Group(/openrouter/v1) + provider models/images/videos handlers. Thin call registerTKOpenRouterProviderRoutes from gateway.go."
     },
     {
       "path": "backend/internal/service/ali_token_plan_tts_tk.go",
@@ -8970,6 +8954,73 @@
         "TestAudioSpeech_UnpricedModelRejectedWithoutForward"
       ],
       "rationale": "Handler regression: unpriced TTS returns 400 before forward."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
+      "must_contain": [
+        "case 404:",
+        "s.handle404(ctx, account, upstreamMsg, responseBody)",
+        "handleAnthropicUpstreamError(",
+        "handleAnthropicUpstreamErrorWithOptions",
+        "tkAnthropicStubHealthFuseEligible",
+        "if account.IsPoolMode() && !customErrorCodesEnabled && account.Platform != PlatformAnthropic && !cloudwiseModelBalance402 {",
+        "planGatedModel := isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody)",
+        "if !cloudwiseModelBalance402 && !planGatedModel && !account.ShouldHandleErrorCode(statusCode) && account.Platform != PlatformAnthropic {",
+        "case 413:",
+        "anthropic_request_too_large_skip_penalty",
+        "s.tkHandleAuth401(",
+        "s.tkTryHandle429Extras("
+      ],
+      "rationale": "Anthropic model-not-found 404s are CLIENT errors (a model name no account serves — Anthropic's catalog is global, not per-account) and must SKIP the account penalty (slog `anthropic_model_not_found_skip_penalty`, return false → shouldDisable=false, no UpstreamFailoverError wrap) so one bad-model client cannot cool accounts and drain a thin edge pool into 'No available accounts' 429s; the gateway then surfaces a 400 'Unsupported model' to the client (path B, prod P0 2026-06-06 edge us5). An upstr"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_model_not_found.go",
+      "must_contain": [
+        "anthropic_model_not_found_skip_penalty"
+      ],
+      "rationale": "Anthropic model-not-found 404s are CLIENT errors (a model name no account serves — Anthropic's catalog is global, not per-account) and must SKIP the account penalty (slog `anthropic_model_not_found_skip_penalty`, return false → shouldDisable=false, no UpstreamFailoverError wrap) so one bad-model client cannot cool accounts and drain a thin edge pool into 'No available accounts' 429s; the gateway then surfaces a 400 'Unsupported model' to the client (path B, prod P0 2026-06-06 edge us5). An upstr"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
+      "must_contain": [
+        "s.tkHandleAuth401(",
+        "s.tkTryHandle429Extras("
+      ],
+      "rationale": "G5/G6 Kiro mirror downstream-failure injection points (call-site anchors). 401/403/502 skip bodies live in ratelimit_service_tk_auth401.go / ratelimit_service_tk_handle403.go / ratelimit_service_tk_handle429_extras.go; these thin call sites in the upstream-shaped file must remain so an upstream merge cannot drop the wiring. Detailed needles are anchored on the companions. [retargeted needles → backend/internal/service/ratelimit_service_tk_handle_upstream_error.go]"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
+      "must_contain": [
+        "tkIsAnthropicClientInducedBadRequest(responseBody)",
+        "s.tkTryHandle429Extras("
+      ],
+      "rationale": "TK#2608: client-induced Anthropic 400 invalid_request_error must not advance the per-account cooldown counter (else an external caller can pause a shared OAuth subscription account). TK#1981: opt-in clamp of long OpenAI 429 resets so released accounts are re-probed by traffic instead of idling. Prod incident 2026-05-31 / 2026-06: a downstream 503 or 429 whose body is our own 'no available accounts' pool-exhaustion signal must fail over WITHOUT handle429 cooldown — that skip body now lives in rat"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
+      "must_contain": [
+        "cloudwiseModelBalance402 := tkIsCloudwiseModelBalance402Response(",
+        "account.Platform != PlatformAnthropic && !cloudwiseModelBalance402",
+        "if !cloudwiseModelBalance402 && !planGatedModel",
+        "rateLimitSet := s.handle429(ctx, account, headers, responseBody, requestedModel...)"
+      ],
+      "rationale": "G4 injection point in the upstream-shaped error dispatch. CloudWise model-balance 402 must try the exact-model cooldown before pool/custom early exits, while a failed write or missing model bypasses those exits and reaches the conservative account-level 402 fallback. CloudWise Provider error 424 must likewise enter its bounded model/account breaker before those configurable exits. The Anthropic per-window (5h/7d) branch must try the (account x model class) cooldown BEFORE the account-level SetRa"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_handle_upstream_error.go",
+      "must_contain": [
+        "s.tkTryHandle429Extras(",
+        "retryAfterOwned := s.handle529(ctx, account, headers)"
+      ],
+      "rationale": "Three incident-2026-06-11 guards inside upstream-owned ratelimit_service.go: (a) defense-in-depth skip in case 429 so a request-owned policy 429 never advances the anthropic ladder regardless of which caller reached HandleUpstreamError; (b) the pool-exhausted check hook on the notifyAccountSchedulingBlocked funnel — the only place that can observe the 'last schedulable account just got cooled' transition for the platform-pool P0 Feishu card; (c) handle529 amplifier removal (16:50 UTC全edge全宕): ha"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "s.tkDispatchHandleUpstreamError(",
+        "s.tkTryHandleUpstreamErrorPrelude("
+      ],
+      "rationale": "HandleUpstreamError thin prelude must keep calling tkTryHandleUpstreamErrorPrelude then tkDispatchHandleUpstreamError companion; dropping either re-inlines TK dispatch into the upstream-shaped hotspot."
     }
   ]
 }
