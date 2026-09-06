@@ -2310,6 +2310,157 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		}
 	})
 
+	t.Run("claude model can use explicit newapi mapping in anthropic group", func(t *testing.T) {
+		groupID := int64(4201)
+		model := "claude-fable-5"
+		accounts := []Account{{
+			ID:          420101,
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: 14,
+			Priority:    1,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 5,
+			Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+		}}
+		repo := &mockAccountRepoForPlatform{accounts: accounts, accountsByID: map[int64]*Account{}}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+		groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+			groupID: {ID: groupID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true},
+		}}
+
+		for _, loadBatchEnabled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("load_batch=%t", loadBatchEnabled), func(t *testing.T) {
+				cfg := testConfig()
+				cfg.Gateway.Scheduling.LoadBatchEnabled = loadBatchEnabled
+				svc := &GatewayService{
+					accountRepo: repo,
+					groupRepo:   groupRepo,
+					cache:       &mockGatewayCacheForPlatform{},
+					cfg:         cfg,
+				}
+				if loadBatchEnabled {
+					svc.concurrencyService = NewConcurrencyService(&mockConcurrencyCache{})
+				}
+
+				result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", model, nil, "", 0)
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.Equal(t, int64(420101), result.Account.ID)
+				require.Equal(t, PlatformNewAPI, result.Account.Platform)
+			})
+		}
+	})
+
+	t.Run("claude model can use explicit anthropic mapping in newapi group", func(t *testing.T) {
+		groupID := int64(4202)
+		model := "claude-sonnet-5"
+		accounts := []Account{{
+			ID:          420201,
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeAPIKey,
+			Priority:    1,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 5,
+			Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+		}}
+		repo := &mockAccountRepoForPlatform{accounts: accounts, accountsByID: map[int64]*Account{}}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+		groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+			groupID: {ID: groupID, Platform: PlatformNewAPI, Status: StatusActive, Hydrated: true},
+		}}
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+		svc := &GatewayService{
+			accountRepo:        repo,
+			groupRepo:          groupRepo,
+			cache:              &mockGatewayCacheForPlatform{},
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(&mockConcurrencyCache{}),
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", model, nil, "", 0)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, int64(420201), result.Account.ID)
+		require.Equal(t, PlatformAnthropic, result.Account.Platform)
+	})
+
+	t.Run("non-claude model does not cross anthropic newapi boundary", func(t *testing.T) {
+		groupID := int64(4203)
+		model := "gpt-5.4"
+		accounts := []Account{{
+			ID:          420301,
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: 1,
+			Priority:    1,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 5,
+			Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+		}}
+		repo := &mockAccountRepoForPlatform{accounts: accounts, accountsByID: map[int64]*Account{}}
+		repo.accountsByID[420301] = &repo.accounts[0]
+		groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+			groupID: {ID: groupID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true},
+		}}
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+		svc := &GatewayService{
+			accountRepo:        repo,
+			groupRepo:          groupRepo,
+			cache:              &mockGatewayCacheForPlatform{},
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(&mockConcurrencyCache{}),
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", model, nil, "", 0)
+		require.ErrorIs(t, err, ErrUnsupportedModel)
+		require.Nil(t, result)
+	})
+
+	t.Run("force platform keeps claude scheduling isolated", func(t *testing.T) {
+		groupID := int64(4204)
+		model := "claude-fable-5"
+		accounts := []Account{{
+			ID:          420401,
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: 14,
+			Priority:    1,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 5,
+			Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+		}}
+		repo := &mockAccountRepoForPlatform{accounts: accounts, accountsByID: map[int64]*Account{}}
+		repo.accountsByID[420401] = &repo.accounts[0]
+		groupRepo := &mockGroupRepoForGateway{groups: map[int64]*Group{
+			groupID: {ID: groupID, Platform: PlatformAnthropic, Status: StatusActive, Hydrated: true},
+		}}
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+		svc := &GatewayService{
+			accountRepo:        repo,
+			groupRepo:          groupRepo,
+			cache:              &mockGatewayCacheForPlatform{},
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(&mockConcurrencyCache{}),
+		}
+		forceCtx := context.WithValue(ctx, ctxkey.ForcePlatform, PlatformAnthropic)
+
+		result, err := svc.SelectAccountWithLoadAwareness(forceCtx, &groupID, "", model, nil, "", 0)
+		require.ErrorIs(t, err, ErrNoAvailableAccounts)
+		require.Nil(t, result)
+	})
+
 	t.Run("native Gemini Vertex requirement rejects all non-Vertex candidates", func(t *testing.T) {
 		groupID := int64(42)
 		model := "gemini-3.7-flash"

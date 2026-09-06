@@ -92,17 +92,26 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 		// Gateway.Messages, which supports Anthropic, Antigravity, Gemini and
 		// Kiro. Gemini must stay in this native set so universal keys do not route
 		// Gemini Anthropic-shaped requests into OpenAI/Codex passthrough.
+		// Newapi is included for Claude-series models because direct Anthropic
+		// scheduling admits explicit claude-* model_mapping peers from newapi.
 		// OpenAI-compatible groups are opt-in via messages-dispatch policy.
 		out := []string{PlatformAnthropic, PlatformAntigravity, PlatformGemini, PlatformKiro}
+		if strings.TrimSpace(model) != "" && tkIsForwardableAnthropicModelName(model) {
+			out = append(out, PlatformNewAPI)
+		}
 		if hasMessagesDispatch {
 			out = append(out, OpenAICompatPlatforms()...)
 		}
 		return out
 	case ShapeAnthropicCountTokens:
 		// Direct count_tokens has native/local-estimate coverage for
-		// Anthropic/Antigravity/Gemini/Kiro. OpenAI-compatible count_tokens uses
-		// the messages-dispatch bridge and is filtered per group below.
+		// Anthropic/Antigravity/Gemini/Kiro. Claude-series newapi peers mirror
+		// the direct scheduler's explicit mapping bridge. OpenAI-compatible
+		// count_tokens uses messages-dispatch and is filtered per group below.
 		out := []string{PlatformAnthropic, PlatformAntigravity, PlatformGemini, PlatformKiro}
+		if strings.TrimSpace(model) != "" && tkIsForwardableAnthropicModelName(model) {
+			out = append(out, PlatformNewAPI)
+		}
 		if hasMessagesDispatch {
 			out = append(out, OpenAICompatPlatforms()...)
 		}
