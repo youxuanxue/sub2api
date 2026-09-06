@@ -18,21 +18,21 @@ import (
 
 // OpenAIRecordUsageInput input for recording usage
 type OpenAIRecordUsageInput struct {
-	Result             *OpenAIForwardResult
-	APIKey             *APIKey
-	User               *User
-	Account            *Account
-	Subscription       *UserSubscription
-	InboundEndpoint    string
-	UpstreamEndpoint   string
-	UserAgent          string // 请求的 User-Agent
-	IPAddress          string // 请求的客户端 IP 地址
-	SessionID             string // 客户端显式会话标识（session_id / session-id / X-Session-Id 等），仅用于用量行会话关联
-	CodexInstallationID   string // 出站 installation_id（指纹收敛后）；空表示不适用/未测
-	RequestPayloadHash    string
-	APIKeyService         APIKeyQuotaUpdater
-	QuotaPlatform         string // user×platform quota platform resolved by the handler before async billing.
-	TkHoldRequestID       string // pre-flight balance hold key consumed by usage billing settlement.
+	Result              *OpenAIForwardResult
+	APIKey              *APIKey
+	User                *User
+	Account             *Account
+	Subscription        *UserSubscription
+	InboundEndpoint     string
+	UpstreamEndpoint    string
+	UserAgent           string // 请求的 User-Agent
+	IPAddress           string // 请求的客户端 IP 地址
+	SessionID           string // 客户端显式会话标识（session_id / session-id / X-Session-Id 等），仅用于用量行会话关联
+	CodexInstallationID string // 出站 installation_id（指纹收敛后）；空表示不适用/未测
+	RequestPayloadHash  string
+	APIKeyService       APIKeyQuotaUpdater
+	QuotaPlatform       string // user×platform quota platform resolved by the handler before async billing.
+	TkHoldRequestID     string // pre-flight balance hold key consumed by usage billing settlement.
 	// PricingAt 是请求级定价时刻（请求开始捕获，与利润门的 D 同源）：高峰因子
 	// 按该时刻计算，保证同一请求从准入到扣费不中途变价。零值回退记录时刻
 	//（既有行为），供未装配的路径（图片/异步/cyber 等）沿用。

@@ -1613,7 +1613,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			billingTier,
 			billingMode,
 			freezeUsageLogFloat64(log.AccountStatsCost), // account_stats_cost
-			sessionID, // session_id
+			sessionID,                           // session_id
 			nullString(log.CodexInstallationID), // codex_installation_id
 			createdAt,
 		},
