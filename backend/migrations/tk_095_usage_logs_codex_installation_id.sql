@@ -8,3 +8,4 @@ ALTER TABLE usage_logs
 
 COMMENT ON COLUMN usage_logs.codex_installation_id IS
     'Outbound Codex x-codex-installation-id after fingerprint convergence (device/session/full). NULL when not applicable (fingerprint off, non-Codex, or unmeasured).';
+-- high-risk-anchor: nullable expand-only usage_logs.codex_installation_id (tk_095)
