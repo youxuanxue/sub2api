@@ -8,7 +8,14 @@
         "TkRecordFailureFromErr",
         "TkEvalBodyGuard("
       ],
-      "rationale": "gateway_handler.go has TK injection points across multiple flows: (1) failure taps at the Anthropic /v1/messages + Gemini /v1/messages error paths (TkRecordFailureFromErr), (2) the CatalogPolicy model-list projection on the whitelist path (tkFilterModelIDs), (3) the gemini /v1/models fallback re-point to the CatalogPolicy projection (tkGeminiDefaultModelsList) so the list converges with /pricing instead of returning the raw geminicli.DefaultModels (which still carried advertised_dead gemini-2.0-flash) — an upstream merge could silently revert this one-line branch back to the raw list and un-converge gemini /v1/models, and (4) the pre-flight body-size guard on Messages + CountTokens entries (TkEvalBodyGuard) that fail-fast oversize requests before forward — see edge:us1 production data where opus-4-7 upstream rejects body >= ~940 KB with raw 403. Antigravity default-model projection and 403 enrichment live in TK companions (gateway_handler_tk_model_list.go / gateway_handler_tk_forward_error.go)."
+      "rationale": "gateway_handler.go has TK injection points across multiple flows: (1) failure tap at the Anthropic /v1/messages error path (TkRecordFailureFromErr; Gemini /v1/messages tap lives in gateway_handler_tk_messages_gemini.go after P2 extract), (2) the CatalogPolicy model-list projection moved to gateway_handler_tk_models_catalog.go (tkFilterModelIDs / tkGeminiDefaultModelsList), and (3) the pre-flight body-size guard on Messages + CountTokens entries (TkEvalBodyGuard) that fail-fast oversize requests before forward — see edge:us1 production data where opus-4-7 upstream rejects body >= ~940 KB with raw 403. Antigravity default-model projection and 403 enrichment live in TK companions (gateway_handler_tk_model_list.go / gateway_handler_tk_forward_error.go)."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_messages_gemini.go",
+      "must_contain": [
+        "TkRecordFailureFromErr("
+      ],
+      "rationale": "Gemini /v1/messages forward-failure path records upstream errors via TkRecordFailureFromErr. P2: extracted with the Gemini platform loop from gateway_handler.go; without this tap Gemini model_not_found/5xx stay invisible to availability."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_model_list.go",
@@ -36,10 +43,16 @@
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
       "must_contain": [
         "TkRecordFailureFromErr",
-        "TkEvalBodyGuard(",
+        "TkEvalBodyGuard("
+      ],
+      "rationale": "gemini_v1beta_handler.go TK injection points retained in the upstream-shaped file after P2/P3: (1) failure tap TkRecordFailureFromErr, (2) pre-flight TkEvalBodyGuard. TkEnrichForbiddenMessage for upstream 403 moved to gemini_v1beta_handler_tk_failover.go; filtered Gemini fallback list lives in gemini_v1beta_handler_tk_platform.go."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_failover.go",
+      "must_contain": [
         "TkEnrichForbiddenMessage("
       ],
-      "rationale": "gemini_v1beta_handler.go TK injection points retained in the upstream-shaped file after P3: (1) failure tap TkRecordFailureFromErr, (2) pre-flight TkEvalBodyGuard, (3) TkEnrichForbiddenMessage for upstream 403. The filtered Gemini fallback list moved to gemini_v1beta_handler_tk_platform.go."
+      "rationale": "P2 companion: Gemini v1beta failover exhaustion keeps TkEnrichForbiddenMessage for upstream 403 client-message enrichment."
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_platform.go",
@@ -233,10 +246,18 @@
         "func (s *PricingService) ListModelNamesByProvider",
         "if s != nil && s.useActiveRegistry",
         "pricingData = snapshot.Models",
-        "owner, ok := snapshot.Aliases[candidate]",
         "normalizeOpenAIBillingModel(model)"
       ],
       "rationale": "Provider model listing must read the immutable active registry in production. GetModelPricing must resolve overlay `_aliases` before OpenAI family fallback (else public aliases like gpt-5.6-chat-latest inherit the gpt-5.4 default card), and GPT-5.6 fixture/fallback folds must share normalizeOpenAIBillingModel with BillingService rather than a parallel hardcode in normalizeModelNameForPricing."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_lookup.go",
+      "must_contain": [
+        "owner, ok := snapshot.Aliases[candidate]",
+        "func (s *PricingService) tkGetModelPricing",
+        "func (s *PricingService) tkGetIdentifiedModelPricing"
+      ],
+      "rationale": "GetModelPricing alias resolution (_aliases before OpenAI family fallback) lives in the TK lookup companion. Public aliases like gpt-5.6-chat-latest must not inherit the gpt-5.4 default card."
     },
     {
       "path": "backend/internal/service/pricing_service_test.go",
