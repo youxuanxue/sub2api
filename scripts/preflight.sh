@@ -1008,6 +1008,24 @@ else
     echo "  ok: supplier projection post-release check tests"
 fi
 
+# ---- sub2api: account group-binding post-release check ---------------------
+# The advisory rollout check derives group evidence from live healthy peers;
+# keep its no-self-certification, no-mapping accounting and wrapper exit codes tested.
+echo ""
+echo "=== sub2api: account group-binding post-release check ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required for account group-binding check tests)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest \
+    ops.observability.test_account_group_binding_check \
+    ops.observability.test_check_account_group_bindings >/dev/null 2>&1; then
+    echo "  FAIL: account group-binding post-release check tests"
+    echo "        - run: python3 -m unittest ops.observability.test_account_group_binding_check ops.observability.test_check_account_group_bindings"
+    errors=$((errors + 1))
+else
+    echo "  ok: account group-binding post-release check tests"
+fi
+
 # ---- sub2api: generated model-surface bundle drift -------------------------
 # Rollout consumes the generated bundle without compiling Go. Keep the checked-in
 # artifact byte-identical to the Go owner so it cannot become a second hand-edited

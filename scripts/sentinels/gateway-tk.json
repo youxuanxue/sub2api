@@ -8228,6 +8228,61 @@
       "rationale": "Behavior regressions pin runtime-state exclusion, credential redaction, structural drift, and the media-only capability lifecycle for the post-release checker."
     },
     {
+      "path": "ops/observability/account_group_binding_check.py",
+      "must_contain": [
+        "def evaluate_snapshot(snapshot: dict[str, Any])",
+        "account_ids - {account[\"id\"]}",
+        "healthy_schedulable_explicit_model_mapping_peer_groups",
+        "model_group_peer_mismatch",
+        "\"verdict\": \"review\" if findings else \"aligned\""
+      ],
+      "rationale": "Pure advisory evaluator for account group bindings. It derives candidate groups from other healthy accounts carrying the same explicit model_mapping key, prevents an account from self-certifying its own binding, and keeps new no-peer models inconclusive instead of inventing a second model-to-group policy table."
+    },
+    {
+      "path": "ops/observability/probe-account-group-bindings.sh",
+      "must_contain": [
+        "default_transaction_read_only=on",
+        "a.status = 'active'",
+        "a.schedulable = true",
+        "a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW()",
+        "a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW()",
+        "python3 /tmp/account_group_binding_check.py --snapshot -"
+      ],
+      "rationale": "Remote prod snapshot owner for the group-binding advisory. The SQL mirrors scheduler health gates, returns only account identity, model_mapping keys and group metadata, and runs under a read-only PostgreSQL transaction."
+    },
+    {
+      "path": "ops/observability/check-account-group-bindings.sh",
+      "must_contain": [
+        "0 aligned, 1 review, 2 setup/transport failure",
+        "--script \"$ROOT/ops/observability/probe-account-group-bindings.sh\"",
+        "review) exit 1",
+        "setup_error) exit 2"
+      ],
+      "rationale": "Local rollout entrypoint preserves stable advisory checker semantics while run-probe transports the read-only SQL and pure evaluator to the exact deployed prod instance."
+    },
+    {
+      "path": "ops/observability/test_account_group_binding_check.py",
+      "must_contain": [
+        "test_shared_model_and_group_is_aligned",
+        "test_ungrouped_account_reports_ranked_peer_candidates",
+        "test_disjoint_binding_reports_ranked_peer_evidence",
+        "test_one_peer_group_overlap_allows_intentional_model_subset",
+        "test_account_never_self_certifies_its_group",
+        "test_empty_mapping_is_accounted_for_but_not_compared",
+        "test_inactive_binding_counts_as_no_active_group"
+      ],
+      "rationale": "Behavior tests pin aligned, ungrouped, mismatched, no-peer, no-mapping and inactive-group outcomes without duplicating a production model or group catalog."
+    },
+    {
+      "path": "ops/observability/test_check_account_group_bindings.py",
+      "must_contain": [
+        "test_aligned_is_success",
+        "test_review_is_checker_failure_for_advisory_caller",
+        "test_setup_or_transport_failure_is_distinct"
+      ],
+      "rationale": "Wrapper tests keep review distinct from transport/setup failure so the workflow can surface both while remaining explicitly non-blocking."
+    },
+    {
       "path": ".github/workflows/deploy-stage0.yml",
       "must_contain": [
         "name: Post-deploy supplier projection check (read-only)",
@@ -8235,6 +8290,16 @@
         "--expected-instance-id \"$INSTANCE_ID\""
       ],
       "rationale": "The supplier projection audit runs automatically after the prod smoke/display gates as an advisory post-release check against the exact deployed instance."
+    },
+    {
+      "path": ".github/workflows/deploy-stage0.yml",
+      "must_contain": [
+        "name: Post-deploy account group binding check (read-only)",
+        "continue-on-error: true  # preflight-allow: advisory post-release drift report",
+        "bash ops/observability/check-account-group-bindings.sh",
+        "--expected-instance-id \"$INSTANCE_ID\""
+      ],
+      "rationale": "Every prod deploy runs the healthy-account model_mapping peer audit after smoke. The step is bound to the exact deployed instance and remains advisory for review findings and probe failures."
     },
     {
       "path": "backend/internal/service/supplier_source_account_store.go",

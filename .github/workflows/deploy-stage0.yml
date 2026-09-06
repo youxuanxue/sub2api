@@ -515,6 +515,20 @@ jobs:
             --expected-instance-id "$INSTANCE_ID" \
             --timeout-seconds 180
 
+      - name: Post-deploy account group binding check (read-only)
+        # ADVISORY ONLY: compare each healthy, schedulable account's explicit
+        # model_mapping with peer accounts' established active-group bindings.
+        # A review verdict or probe failure must never block the rollout.
+        continue-on-error: true  # preflight-allow: advisory post-release drift report
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+          bash ops/observability/check-account-group-bindings.sh \
+            --target prod \
+            --expected-instance-id "$INSTANCE_ID" \
+            --timeout-seconds 180
+
       # Same deploy job: reuse the already-approved prod Environment + OIDC.
       # A second job with environment: prod would re-open Required reviewers
       # and start the +5min clock after that gate, not after cutover.
