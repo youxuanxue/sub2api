@@ -332,7 +332,7 @@
         "s.kiroPromptUsage",
         "commitKiroCacheFingerprints",
         "kiroproto.EstimateOutputTokens",
-        "BillingTier:   kiroproto.KiroEstimatedBillingTier",
+        "kiroBillingTier(cacheBillingEnabled)",
         "callErr != nil && !enc.started",
         "visibleTurnText == \"\" && turnThinking == \"\" && len(turnToolUses) == 0",
         "KiroContentFilteredError",
@@ -376,9 +376,12 @@
         "kiroproto.EstimateCacheUsageSplit",
         "kiroproto.CacheSessionKey",
         "commitKiroCacheFingerprints",
-        "IsKiroCacheBillingEnabled"
+        "IsKiroCacheBillingEnabled",
+        "kiroBillingTier",
+        "KiroCacheEstimatedBillingTier",
+        "KiroEstimatedBillingTier"
       ],
-      "rationale": "TK companion that owns Kiro prompt-side billing attribution. EstimateInputTokens remains the total-prompt owner; EstimateCacheUsageSplit optionally moves a matched conversation prefix into cache_read (haircut + min size). Losing this companion silently regresses multi-turn Kiro bills back to full-input pricing or drops the kill-switch path."
+      "rationale": "TK companion that owns Kiro prompt-side billing attribution. EstimateInputTokens remains the total-prompt owner; EstimateCacheUsageSplit optionally moves a matched conversation prefix into cache_read (haircut + min size). kiroBillingTier separates kiro-cache-estimated (default-on, dashboard-observable) from legacy kiro-estimated (flag off / unavailable). Losing this companion silently regresses multi-turn Kiro bills back to full-input pricing or drops the kill-switch path."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
