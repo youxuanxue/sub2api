@@ -173,3 +173,36 @@ func TestDiagnoseModelAvailabilityForPlatform_WrongPlatformFiltersOut(t *testing
 	require.False(t, diag.HasAccountsInPool, "OpenAI route must not see Anthropic accounts in pool")
 	require.False(t, diag.HasModelSupport)
 }
+
+func TestDiagnoseModelAvailabilityForPlatform_ClaudeCrossPlatformPeerMatchesSelection(t *testing.T) {
+	groupID := int64(4201)
+	model := "claude-fable-5"
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID:          420100,
+				Platform:    PlatformAnthropic,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{"model_mapping": map[string]any{"claude-native-only": "claude-native-only"}},
+			},
+			{
+				ID:          420101,
+				Platform:    PlatformNewAPI,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	for i := range repo.accounts {
+		repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+	}
+	svc := &GatewayService{accountRepo: repo, cfg: testConfig()}
+
+	diag := svc.DiagnoseModelAvailabilityForPlatform(context.Background(), &groupID, model, PlatformAnthropic)
+
+	require.True(t, diag.HasAccountsInPool, "Anthropic route should diagnose explicit NewAPI Claude mapping peers")
+	require.True(t, diag.HasModelSupport)
+}
