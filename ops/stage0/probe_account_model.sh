@@ -125,8 +125,8 @@ if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_
   fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
-  messages|count_tokens|chat|responses|embeddings|images) ;;
-  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, or images" ;;
+  messages|count_tokens|chat|responses|embeddings|images|speech) ;;
+  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, images, or speech" ;;
 esac
 
 PROBE_ID="tkprobe-${ACCOUNT_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -309,6 +309,14 @@ elif endpoint == "images":
         "n": 1,
         "size": "1024x1024",
     }
+elif endpoint == "speech":
+    # OpenAI-compat TTS; Ali Token Plan SpeechSynthesizer path.
+    payload = {
+        "model": model,
+        "input": prompt or "你好",
+        "voice": "longanlingxin",
+        "response_format": "mp3",
+    }
 elif endpoint == "messages":
     payload = {
         "model": model,
@@ -353,6 +361,7 @@ case "$ENDPOINT" in
   embeddings) PATH_SUFFIX="/v1/embeddings"; AUTH_HEADER_NAME="Authorization";;
   responses) PATH_SUFFIX="/v1/responses"; AUTH_HEADER_NAME="Authorization";;
   images) PATH_SUFFIX="/v1/images/generations"; AUTH_HEADER_NAME="Authorization";;
+  speech) PATH_SUFFIX="/v1/audio/speech"; AUTH_HEADER_NAME="Authorization";;
 esac
 
 # Direct probe groups default allow_image_generation=false; image endpoints need it on.
