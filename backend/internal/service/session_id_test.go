@@ -80,6 +80,7 @@ func TestExtractClientSessionID_SupportedHeaders(t *testing.T) {
 		value  string
 	}{
 		{"session_id", "session_id", "sess-A"},
+		{"session-id hyphen (Codex)", "session-id", "sess-codex-hyphen"},
 		{"conversation_id", "conversation_id", "conv-B"},
 		{"X-Session-Affinity", openCodeSessionAffinityHeader, "aff-C"},
 		{"X-Session-Id", openCodeSessionIDHeader, "sid-D"},
@@ -99,11 +100,22 @@ func TestExtractClientSessionID_HeaderPrecedence(t *testing.T) {
 	// session_id ranks ahead of conversation_id and the X-* variants.
 	c := newSessionHeaderContext(t, map[string]string{
 		"session_id":                "primary",
+		"session-id":                "codex-hyphen",
 		"conversation_id":           "secondary",
 		openCodeSessionIDHeader:     "tertiary",
 		codeBuddyConversationHeader: "quaternary",
 	})
 	require.Equal(t, "primary", ExtractClientSessionID(c))
+}
+
+func TestExtractClientSessionID_CodexHyphenWhenUnderscoreAbsent(t *testing.T) {
+	// Codex CLI/Desktop only send session-id; without this, usage_logs.session_id
+	// stays NULL and outbound session cardinality cannot be audited.
+	c := newSessionHeaderContext(t, map[string]string{
+		"session-id":      "codex-only-session",
+		"conversation_id": "should-not-win",
+	})
+	require.Equal(t, "codex-only-session", ExtractClientSessionID(c))
 }
 
 func TestExtractClientSessionID_Sanitizes(t *testing.T) {

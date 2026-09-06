@@ -990,3 +990,37 @@ func TestApplyCodexFingerprintClientMetadataRaw_NonObjectBodyUntouched(t *testin
 		assert.Equal(t, []byte(body), out)
 	}
 }
+
+func TestCodexEgressInstallationIDForUsage_DeviceMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	account := newTestOAuthAccount(17, map[string]any{
+		codexFingerprintModeExtraKey: string(codexFingerprintDevice),
+		codexFingerprintSeedExtraKey: testCodexFingerprintSeed,
+	})
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req.Header.Set("session-id", "client-sess-A")
+	c.Request = req
+
+	got := CodexEgressInstallationIDForUsage(c, account)
+	want := resolveDeviceModeInstallationID(account, testCodexFingerprintSeed, "client-sess-A")
+	require.Equal(t, want, got)
+	require.NotEmpty(t, got)
+
+	// Staged IDs from a live attempt win over header re-resolve.
+	staged := resolveCodexFingerprintIDs(account, "other-sess", codexFingerprintDevice)
+	require.NotNil(t, staged)
+	stageCodexFingerprintIDs(c, staged)
+	require.Equal(t, staged.installationID, CodexEgressInstallationIDForUsage(c, account))
+}
+
+func TestCodexEgressInstallationIDForUsage_OffReturnsEmpty(t *testing.T) {
+	account := newTestOAuthAccount(17, map[string]any{
+		codexFingerprintModeExtraKey: string(codexFingerprintOff),
+	})
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request.Header.Set("session-id", "ignored")
+	require.Empty(t, CodexEgressInstallationIDForUsage(c, account))
+}
