@@ -60,7 +60,7 @@ OWNER_FILES = (
 
 GOVERNED_HANDLERS = (
     "backend/internal/handler/gateway_handler_tk_protocol_execute.go",
-    "backend/internal/handler/gateway_handler_chat_completions.go",
+    "backend/internal/handler/gateway_handler_tk_chat_completions_execute.go",
     "backend/internal/handler/gateway_handler_tk_responses_execute.go",
     "backend/internal/handler/openai_gateway_handler.go",
     "backend/internal/handler/openai_chat_completions.go",
@@ -69,7 +69,7 @@ GOVERNED_HANDLERS = (
 
 HANDLER_GEMINI_EXECUTORS = {
     "backend/internal/handler/gateway_handler_tk_protocol_execute.go": ("MessagesToGemini",),
-    "backend/internal/handler/gateway_handler_chat_completions.go": ("ChatToGemini",),
+    "backend/internal/handler/gateway_handler_tk_chat_completions_execute.go": ("ChatToGemini",),
     "backend/internal/handler/gateway_handler_tk_responses_execute.go": ("ResponsesToGemini",),
     "backend/internal/handler/openai_gateway_handler.go": (
         "MessagesToGemini",
@@ -120,7 +120,7 @@ FORWARD_BOUNDARIES = {
     "backend/internal/handler/gateway_handler_tk_protocol_execute.go": (
         r"\bh\.gatewayService\.Forward\s*\(",
     ),
-    "backend/internal/handler/gateway_handler_chat_completions.go": (
+    "backend/internal/handler/gateway_handler_tk_chat_completions_execute.go": (
         r"\.ForwardAsChatCompletions(?:Dispatched)?\s*\(",
     ),
     "backend/internal/handler/gateway_handler_tk_responses_execute.go": (

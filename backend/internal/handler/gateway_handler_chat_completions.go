@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -163,18 +160,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	c.Request = c.Request.WithContext(service.WithThinkingEnabled(
 		c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
 	))
-	canonicalRequest, err := newCanonicalProtocolRequest(
-		protocolrouter.ProtocolChatCompletions,
-		protocolrouter.ResponsesPathNone,
-		reqModel,
-		reqStream,
-		body,
-	)
-	if err != nil {
+	if err := h.tkAttachChatCompletionsProtocolRouting(c, reqModel, reqStream, body); err != nil {
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return
 	}
-	c.Request = c.Request.WithContext(service.WithProtocolRouting(c.Request.Context(), h.protocolRouter, canonicalRequest))
 	TkPrepareParsedRequestSessionInputs(c, apiKey, parsedReq)
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)
@@ -268,14 +257,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
-		if groupPlatform == service.PlatformGemini && account.Platform != service.PlatformGemini {
-			if accountReleaseFunc != nil {
-				accountReleaseFunc()
-			}
-			fs.FailedAccountIDs[account.ID] = struct{}{}
-			continue
-		}
-		if groupPlatform == service.PlatformAntigravity && account.Platform != service.PlatformAntigravity {
+		// TK: platform mismatch skip — see gateway_handler_tk_chat_completions_execute.go
+		if tkChatCompletionsAccountPlatformMismatch(groupPlatform, account) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
@@ -290,82 +273,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		forwardStart := time.Now()
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
-		value, executeErr := service.ExecuteSelectedProtocol(
-			c.Request.Context(),
-			h.protocolRouter,
-			selection,
-			account,
-			h.gatewayService.ValidateProtocolEndpoint,
-			h.gatewayService.LoadProtocolExecutionAccount,
-			service.ProtocolExecutors{
-				NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
-						if h.geminiCompatService == nil {
-							return nil, errors.New("gemini compatibility service is not configured")
-						}
-						return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
-					}
-					if shouldUseAntigravityCompat(account) {
-						if h.antigravityGatewayService == nil {
-							return nil, errors.New("antigravity compatibility service is not configured")
-						}
-						setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-						return h.antigravityGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
-					}
-					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
-				},
-				ChatIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
-					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
-				},
-				ChatToResponses: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
-					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
-				},
-				ChatToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
-				},
-				ChatToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-					forwardBody := request.Body()
-					if channelMapping.Mapped {
-						forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
-					}
-					setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-					return service.ExecuteGeminiProtocolProfile(
-						plan.GeminiProfile(),
-						func() (*service.ForwardResult, error) {
-							return h.antigravityGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
-						},
-						func() (*service.ForwardResult, error) {
-							return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
-						},
-					)
-				},
-			},
-		)
-		err = executeErr
-		if value != nil {
-			result, _ = value.(*service.ForwardResult)
-		}
+		// TK: ProtocolExecutors wiring — see gateway_handler_tk_chat_completions_execute.go
+		result, err = h.executeChatCompletionsSelectedProtocol(c, c.Request.Context(), selection, account, channelMapping, reqModel, parsedReq)
 		tkRecordForwardResponseTail(c, forwardStart)
 
 		if accountReleaseFunc != nil {
@@ -434,44 +343,4 @@ func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int
 			"message": message,
 		},
 	})
-}
-
-// handleCCFailoverExhausted writes a failover-exhausted error in CC format.
-func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
-	if streamStarted {
-		return
-	}
-	if lastErr != nil {
-		copyFailoverRetryAfter(c, lastErr.ResponseHeaders)
-	}
-	if lastErr != nil && lastErr.IsCredentialFailure() {
-		status, message := credentialFailoverClientResponse(lastErr)
-		h.chatCompletionsErrorResponse(c, status, "server_error", message)
-		return
-	}
-	if lastErr != nil && lastErr.IsOpenAICapacityShed() && strings.TrimSpace(lastErr.ClientMessage) != "" {
-		status := lastErr.ClientStatusCode
-		if status <= 0 {
-			status = http.StatusServiceUnavailable
-		}
-		h.chatCompletionsErrorResponse(c, status, "server_error", lastErr.ClientMessage)
-		return
-	}
-	statusCode := http.StatusBadGateway
-	if lastErr != nil && lastErr.StatusCode > 0 {
-		statusCode = lastErr.StatusCode
-	}
-	if lastErr != nil && service.IsOpenAISilentRefusalErrorBody(lastErr.ResponseBody) {
-		service.SetOpsUpstreamError(c, statusCode, service.OpenAISilentRefusalClientMessage(), "")
-		h.chatCompletionsErrorResponse(c, http.StatusBadGateway, "upstream_error", service.OpenAISilentRefusalClientMessage())
-		return
-	}
-	message := service.GatewayFailoverClientMessage(statusCode)
-	if lastErr != nil && lastErr.ClientStatusCode > 0 {
-		statusCode = lastErr.ClientStatusCode
-		if lastErr.ClientMessage != "" {
-			message = lastErr.ClientMessage
-		}
-	}
-	h.chatCompletionsErrorResponse(c, statusCode, "server_error", message)
 }

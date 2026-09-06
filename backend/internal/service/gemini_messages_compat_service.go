@@ -962,52 +962,13 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		respBody := s.readUpstreamErrorBody(resp)
 		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
 		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
-		if s.rateLimitService != nil &&
-			!tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
-			switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
-			case ErrorPolicySkipped:
-				upstreamReqID := resp.Header.Get(requestIDHeader)
-				if upstreamReqID == "" {
-					upstreamReqID = resp.Header.Get("x-goog-request-id")
-				}
-				if failoverErr := s.skippedErrorPolicyFailoverError(c, account, resp.StatusCode, respBody, upstreamReqID); failoverErr != nil {
-					return nil, failoverErr
-				}
-				if account.IsCustomErrorCodesEnabled() {
-					return nil, s.writeGeminiCustomCodeSkippedError(c, account, resp.StatusCode, upstreamReqID, respBody, func() {
-						_ = s.writeClaudeError(c, http.StatusInternalServerError, "api_error", geminiCustomCodeSkippedClientMessage)
-					})
-				}
-				// 池模式：客户端写出与 ErrorPolicyNone 相同（按上游真实状态码映射），仅跳过账号状态标记。
-				return nil, s.writeGeminiMappedError(c, account, resp.StatusCode, upstreamReqID, respBody)
-			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-				upstreamReqID := resp.Header.Get(requestIDHeader)
-				if upstreamReqID == "" {
-					upstreamReqID = resp.Header.Get("x-goog-request-id")
-				}
-				upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
-				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-				upstreamDetail := ""
-				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-					maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
-					if maxBytes <= 0 {
-						maxBytes = 2048
-					}
-					upstreamDetail = truncateString(string(respBody), maxBytes)
-				}
-				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform:           account.Platform,
-					AccountID:          account.ID,
-					AccountName:        account.Name,
-					UpstreamStatusCode: resp.StatusCode,
-					UpstreamRequestID:  upstreamReqID,
-					Kind:               "failover",
-					Message:            upstreamMsg,
-					Detail:             upstreamDetail,
-				})
-				return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
-			}
+		// TK: ErrorPolicy switch — see gemini_messages_compat_service_tk_error_policy.go
+		upstreamReqID := resp.Header.Get(requestIDHeader)
+		if upstreamReqID == "" {
+			upstreamReqID = resp.Header.Get("x-goog-request-id")
+		}
+		if policyErr, handled := s.tkApplyGeminiErrorPolicy(ctx, c, account, resp, respBody, upstreamReqID, false, geminiErrorPolicyClientClaude); handled {
+			return nil, policyErr
 		}
 
 		// ErrorPolicyNone → 原有逻辑
@@ -1021,10 +982,6 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			if semantic != gatewayFailureSemanticUnclassified && classifyGatewayFailover(gatewayFailoverObservation{
 				Profile: gatewayFailoverProfileGoogle, Semantic: semantic, StatusCode: resp.StatusCode,
 			}).RetryNextAccount {
-				upstreamReqID := resp.Header.Get(requestIDHeader)
-				if upstreamReqID == "" {
-					upstreamReqID = resp.Header.Get("x-goog-request-id")
-				}
 				upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 				upstreamDetail := ""
 				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
@@ -1049,10 +1006,6 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 		}
 		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
-			upstreamReqID := resp.Header.Get(requestIDHeader)
-			if upstreamReqID == "" {
-				upstreamReqID = resp.Header.Get("x-goog-request-id")
-			}
 			upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 			upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 			upstreamDetail := ""
@@ -1074,10 +1027,6 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				Detail:             upstreamDetail,
 			})
 			return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
-		}
-		upstreamReqID := resp.Header.Get(requestIDHeader)
-		if upstreamReqID == "" {
-			upstreamReqID = resp.Header.Get("x-goog-request-id")
 		}
 		return nil, s.writeGeminiMappedError(c, account, resp.StatusCode, upstreamReqID, respBody)
 	}
@@ -1496,45 +1445,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 		// 统一错误策略：自定义错误码 + 临时不可调度。内部 Antigravity
 		// relay 空池已在重试循环内分类并计数，不能再落入 pool_mode skipped。
-		if s.rateLimitService != nil &&
-			!tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
-			switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
-			case ErrorPolicySkipped:
-				if failoverErr := s.skippedErrorPolicyFailoverError(c, account, resp.StatusCode, respBody, requestID); failoverErr != nil {
-					return nil, failoverErr
-				}
-				if account.IsCustomErrorCodesEnabled() {
-					return nil, s.writeGeminiCustomCodeSkippedError(c, account, resp.StatusCode, requestID, respBody, func() {
-						_ = s.writeGoogleError(c, http.StatusInternalServerError, geminiCustomCodeSkippedClientMessage)
-					})
-				}
-				// 池模式：客户端写出与 ErrorPolicyNone 相同（状态码/响应体保真），仅跳过账号状态标记。
-				return nil, s.writeGeminiNativeUpstreamError(c, account, resp, respBody, requestID, isOAuth)
-			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-				evBody := unwrapIfNeeded(isOAuth, respBody)
-				upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(evBody))
-				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-				upstreamDetail := ""
-				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-					maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
-					if maxBytes <= 0 {
-						maxBytes = 2048
-					}
-					upstreamDetail = truncateString(string(evBody), maxBytes)
-				}
-				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform:           account.Platform,
-					AccountID:          account.ID,
-					AccountName:        account.Name,
-					UpstreamStatusCode: resp.StatusCode,
-					UpstreamRequestID:  requestID,
-					Kind:               "failover",
-					Message:            upstreamMsg,
-					Detail:             upstreamDetail,
-				})
-				return nil, newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, respBody)
-			}
+		// TK: ErrorPolicy switch — see gemini_messages_compat_service_tk_error_policy.go
+		if policyErr, handled := s.tkApplyGeminiErrorPolicy(ctx, c, account, resp, respBody, requestID, isOAuth, geminiErrorPolicyClientNative); handled {
+			return nil, policyErr
 		}
 
 		// ErrorPolicyNone → 原有逻辑
@@ -1658,45 +1571,6 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}, nil
 }
 
-// checkErrorPolicyInLoop 在重试循环内预检查错误策略。
-// 返回 true 表示策略已匹配（调用者应 break），resp 已重建可直接使用。
-// 返回 false 表示 ErrorPolicyNone，resp 已重建，调用者继续走重试逻辑。
-func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
-	ctx context.Context,
-	account *Account,
-	resp *http.Response,
-	requestedModel string,
-) (matched bool, rebuilt *http.Response) {
-	if resp.StatusCode < 400 {
-		return false, resp
-	}
-	body := s.readUpstreamErrorBody(resp)
-	_ = resp.Body.Close()
-	rebuilt = &http.Response{
-		StatusCode: resp.StatusCode,
-		Header:     resp.Header.Clone(),
-		Body:       io.NopCloser(bytes.NewReader(body)),
-	}
-	if strings.TrimSpace(requestedModel) != "" &&
-		tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, body) {
-		if s.rateLimitService != nil {
-			s.rateLimitService.handleAntigravityRelayCapacity(
-				ctx,
-				account,
-				resp.StatusCode,
-				body,
-				requestedModel,
-			)
-		}
-		return true, rebuilt
-	}
-	if s.rateLimitService == nil {
-		return false, rebuilt
-	}
-	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body)
-	return policy != ErrorPolicyNone, rebuilt
-}
-
 func (s *GeminiMessagesCompatService) shouldRetryGeminiUpstreamError(account *Account, statusCode int) bool {
 	switch statusCode {
 	case 429, 500, 502, 503, 504, 529:
@@ -1722,33 +1596,6 @@ func (s *GeminiMessagesCompatService) shouldFailoverGeminiUpstreamError(statusCo
 		Profile:    gatewayFailoverProfileGoogle,
 		StatusCode: statusCode,
 	}).RetryNextAccount
-}
-
-// skippedErrorPolicyFailoverError 命中 ErrorPolicySkipped（池模式、或自定义错误码未命中）
-// 时构造 failover 错误：可 failover 的状态码返回 UpstreamFailoverError，交给 handler 层换号
-// （池模式账号按 pool_mode_retry_count 先同账号重试）；返回 nil 表示状态码不可 failover，
-// 由调用方决定客户端写出。Skipped 只豁免账号状态标记，不豁免换号，与 OpenAI 网关路径一致。
-func (s *GeminiMessagesCompatService) skippedErrorPolicyFailoverError(c *gin.Context, account *Account, statusCode int, respBody []byte, upstreamRequestID string) *UpstreamFailoverError {
-	if !s.shouldFailoverGeminiUpstreamError(statusCode) {
-		return nil
-	}
-	upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
-	upstreamDetail := s.upstreamErrorDetail(respBody)
-	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		Platform:           account.Platform,
-		AccountID:          account.ID,
-		AccountName:        account.Name,
-		UpstreamStatusCode: statusCode,
-		UpstreamRequestID:  upstreamRequestID,
-		Kind:               "failover",
-		Message:            upstreamMsg,
-		Detail:             upstreamDetail,
-	})
-	return &UpstreamFailoverError{
-		StatusCode:             statusCode,
-		ResponseBody:           respBody,
-		RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode),
-	}
 }
 
 // geminiCustomCodeSkippedClientMessage 自定义错误码未命中时对客户端隐藏上游细节的固定文案，
@@ -3056,50 +2903,6 @@ func asInt(v any) (int, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte) {
-	// 遵守自定义错误码策略：未命中则跳过所有限流处理
-	if !account.ShouldHandleErrorCode(statusCode) {
-		return
-	}
-	if s.rateLimitService != nil && (statusCode == 401 || statusCode == 403 || statusCode == 529) {
-		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, headers, body)
-		return
-	}
-	if statusCode != 429 {
-		return
-	}
-	// 池模式账号不写账号级限流：账号留在池内，由 failover / 同号重试消化 429。
-	// 自定义错误码优先级高于池模式，开启后仍按其命中结果标记。
-	if account.IsPoolMode() && !account.IsCustomErrorCodesEnabled() {
-		return
-	}
-
-	oauthType := account.GeminiOAuthType()
-	tierID := account.GeminiTierID()
-	projectID := strings.TrimSpace(account.GetCredential("project_id"))
-	isCodeAssist := account.IsGeminiCodeAssist()
-
-	// TK: per-model rate limit for Code Assist 429s carrying ErrorInfo.metadata.model
-	// (e.g. MODEL_CAPACITY_EXHAUSTED on a single model). See
-	// gemini_messages_compat_service_tk_model_rate_limit.go for rationale.
-	if s.tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body) {
-		return
-	}
-
-	resetAt := ParseGeminiRateLimitResetTime(body)
-	if resetAt == nil {
-		ra := s.tkGeminiDefaultRateLimitResetAt(ctx, account, oauthType, tierID, projectID, isCodeAssist)
-		_ = s.accountRepo.SetRateLimited(ctx, account.ID, ra)
-		return
-	}
-
-	// 使用解析到的重置时间
-	resetTime := time.Unix(*resetAt, 0)
-	_ = s.accountRepo.SetRateLimited(ctx, account.ID, resetTime)
-	logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d rate limited until %v (oauth_type=%s, tier=%s)",
-		account.ID, resetTime, oauthType, tierID)
 }
 
 // ParseGeminiRateLimitResetTime 解析 Gemini 格式的 429 响应，返回重置时间的 Unix 时间戳
