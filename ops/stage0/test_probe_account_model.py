@@ -97,10 +97,16 @@ class ProbeAccountModelTest(unittest.TestCase):
     def test_probe_script_wires_verdict_module_and_embeddings_endpoint(self) -> None:
         script = _SCRIPT.read_text()
 
-        self.assertIn("messages|count_tokens|chat|responses|embeddings", script)
+        self.assertIn(
+            "messages|count_tokens|chat|responses|embeddings|images|speech",
+            script,
+        )
         self.assertIn('elif endpoint == "embeddings":', script)
         self.assertIn('"input": prompt', script)
         self.assertIn('embeddings) PATH_SUFFIX="/v1/embeddings"', script)
+        self.assertIn('elif endpoint == "speech":', script)
+        self.assertIn('"voice": "longanlingxin"', script)
+        self.assertIn('speech) PATH_SUFFIX="/v1/audio/speech"', script)
         self.assertIn("PROBE_SCRIPT_DIR", script)
         self.assertIn("from probe_account_model_verdict import classify_probe_verdict", script)
         self.assertIn("probe_account_model_verdict.py", script)
