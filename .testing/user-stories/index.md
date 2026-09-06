@@ -44,6 +44,6 @@
 | US-044 | QA S3 Bundle 用户面与单一生命周期 owner | Done | `.testing/user-stories/stories/US-044-qa-lifecycle-single-owner-and-export-contract.md` |
 | US-045 | QA single-owner 迁移边界 | Done | `.testing/user-stories/stories/US-045-qa-phase2-production-integrity.md` |
 | US-046 | 默认 API Key 的诚实能力发现与统一菜单 | Done | `.testing/user-stories/stories/US-046-universal-key-capability-discovery.md` |
-| US-047 | Anthropic 缓冲流失败进入 failover，部分内容诚实标记截断 | InTest | `.testing/user-stories/stories/US-047-anthropic-buffered-stream-failure-contract.md` |
+| US-047 | Anthropic 缓冲流失败进入 failover，部分内容诚实标记截断 | Done | `.testing/user-stories/stories/US-047-anthropic-buffered-stream-failure-contract.md` |
 | US-048 | 运营以供应源安全接入并热更新模型供应账号 | InTest | `.testing/user-stories/stories/US-048-model-supplier-source-management.md` |
 | US-049 | Gateway failover 判定使用全局单一 owner | Done | `.testing/user-stories/stories/US-049-gateway-failover-policy-ssot.md` |
