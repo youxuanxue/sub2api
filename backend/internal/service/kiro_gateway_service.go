@@ -42,6 +42,13 @@ type KiroGatewayService struct {
 	tkPricingCatalog         *PricingCatalogService
 	tkPricingMissingNotifier PricingMissingNotifier
 	tkPricingResolver        *ModelPricingResolver
+	// kiroCacheBillingSetting owns gateway.kiro_cache_billing.enabled.
+	// Injected by ProvideTKKiroCacheBilling (not priced-serving) so the kill
+	// switch survives if priced-serving DI is absent. nil fail-opens to on.
+	kiroCacheBillingSetting *SettingService
+	// kiroCacheStore holds prompt-prefix fingerprints for optional cache_read
+	// billing (gateway.kiro_cache_billing.enabled). Defaults to in-process memory.
+	kiroCacheStore kiroproto.CacheFingerprintStore
 }
 
 // maxClaudeCodeCompletionTurns bounds the number of Kiro model calls inside a
@@ -445,7 +452,32 @@ func NewKiroGatewayService(
 		httpUpstream:        httpUpstream,
 		tlsFPProfileService: tlsFPProfileService,
 		accountRepo:         accountRepo,
+		kiroCacheStore:      kiroproto.NewMemoryCacheFingerprintStore(),
 	}
+}
+
+// SetKiroCacheFingerprintStore replaces the prompt-prefix fingerprint store
+// (typically Redis in production). nil keeps the in-process default.
+func (s *KiroGatewayService) SetKiroCacheFingerprintStore(store kiroproto.CacheFingerprintStore) {
+	if s == nil || store == nil {
+		return
+	}
+	s.kiroCacheStore = store
+}
+
+// SetKiroCacheBillingSetting injects the settings reader used by the
+// gateway.kiro_cache_billing.enabled kill-switch.
+func (s *KiroGatewayService) SetKiroCacheBillingSetting(setting *SettingService) {
+	if s == nil {
+		return
+	}
+	s.kiroCacheBillingSetting = setting
+}
+
+// HasKiroCacheBillingDeps reports whether production cache-billing DI attached
+// both a fingerprint store and a settings reader.
+func (s *KiroGatewayService) HasKiroCacheBillingDeps() bool {
+	return s != nil && s.kiroCacheStore != nil && s.kiroCacheBillingSetting != nil
 }
 
 // kiroDoer adapts httpUpstream.DoWithTLS to the kiroproto.HTTPDoer interface,
@@ -513,14 +545,19 @@ func (s *KiroGatewayService) Forward(
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", model, account.Platform)
 	}
 
+	var rawBody []byte
+	if parsed.Body != nil {
+		rawBody = parsed.Body.Bytes()
+	}
+
 	if req.Stream {
-		result, err := s.forwardStreaming(ctx, c, account, doer, kiroAcct, payload, &req, requestID, model, startTime)
+		result, err := s.forwardStreaming(ctx, c, account, doer, kiroAcct, payload, &req, rawBody, requestID, model, startTime)
 		if err == nil {
 			PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
 		}
 		return result, err
 	}
-	result, err := s.forwardNonStreaming(ctx, c, account, doer, kiroAcct, payload, &req, requestID, model, startTime)
+	result, err := s.forwardNonStreaming(ctx, c, account, doer, kiroAcct, payload, &req, rawBody, requestID, model, startTime)
 	if err == nil {
 		PersistKiroProfileArnIfChanged(ctx, s.accountRepo, account, kiroAcct)
 	}
@@ -537,6 +574,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 	kiroAcct *kiroproto.Account,
 	payload *kiroproto.KiroPayload,
 	req *kiroproto.ClaudeRequest,
+	rawBody []byte,
 	requestID, model string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
@@ -550,7 +588,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		billingToolUses     []kiroproto.KiroToolUse
 		mappedStopReason    string
 	)
-	inputTokens := kiroproto.EstimateInputTokens(req)
+	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, req, payload)
 
 	for turn := 1; turn <= maxClaudeCodeCompletionTurns; turn++ {
 		var (
@@ -688,6 +726,8 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		textBuf, thinkingBuf, false, clientToolUses, inputTokens, outputToks, model, mappedStopReason,
 	)
 	resp.ID = requestID
+	resp.Usage.CacheReadInputTokens = cacheReadTokens
+	resp.Usage.CacheCreationInputTokens = cacheCreationTokens
 
 	if c != nil {
 		c.Header("x-request-id", requestID)
@@ -696,14 +736,16 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		c.JSON(http.StatusOK, resp)
 	}
 
+	s.commitKiroCacheFingerprints(ctx, cacheSessionKey, req, rawBody, cacheBillingEnabled)
+
 	return &ForwardResult{
 		RequestID:     requestID,
-		Usage:         ClaudeUsage{InputTokens: inputTokens, OutputTokens: outputToks},
+		Usage:         kiroClaudeUsage(inputTokens, outputToks, cacheReadTokens, cacheCreationTokens),
 		Model:         model,
 		UpstreamModel: kiroproto.MapModel(model),
 		Stream:        false,
 		Duration:      time.Since(startTime),
-		BillingTier:   kiroproto.KiroEstimatedBillingTier,
+		BillingTier:   kiroBillingTier(cacheBillingEnabled),
 	}, nil
 }
 
@@ -719,6 +761,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	kiroAcct *kiroproto.Account,
 	payload *kiroproto.KiroPayload,
 	req *kiroproto.ClaudeRequest,
+	rawBody []byte,
 	requestID, model string,
 	startTime time.Time,
 ) (*ForwardResult, error) {
@@ -737,6 +780,7 @@ func (s *KiroGatewayService) forwardStreaming(
 	c.Header("X-Accel-Buffering", "no")
 	c.Header("x-request-id", requestID)
 
+	inputTokens, cacheReadTokens, cacheCreationTokens, cacheSessionKey, cacheBillingEnabled := s.kiroPromptUsage(ctx, account, req, payload)
 	enc := &kiroSSEEncoder{
 		w:       w,
 		flusher: flusher,
@@ -746,7 +790,9 @@ func (s *KiroGatewayService) forwardStreaming(
 		// first message_start emitted mid-stream carries the real prompt count
 		// instead of 0 — the prod relay bills off the parsed SSE usage. See the
 		// inputTokens field doc in kiro_sse_encoder.go.
-		inputTokens: kiroproto.EstimateInputTokens(req),
+		inputTokens:         inputTokens,
+		cacheReadTokens:     cacheReadTokens,
+		cacheCreationTokens: cacheCreationTokens,
 	}
 
 	var (
@@ -787,7 +833,8 @@ func (s *KiroGatewayService) forwardStreaming(
 	// message_start is emitted lazily on first client-visible content (see
 	// kiroSSEEncoder ensureBlock / writeToolUse). The transport-private
 	// completion tool is never committed to the Anthropic stream.
-	inputTokens := enc.inputTokens
+	// inputTokens already holds the (possibly cache-split) prompt estimate;
+	// continuation turns may add more via EstimatePayloadInputTokens below.
 	for turn := 1; turn <= maxClaudeCodeCompletionTurns; turn++ {
 		firstTokBeforeTurn := firstTokMs
 		var (
@@ -1027,21 +1074,23 @@ func (s *KiroGatewayService) forwardStreaming(
 	// Repeat the final input total because hidden completion continuations add
 	// prompt tokens after message_start. Relay consumers merge this terminal
 	// usage into the same accumulator used for billing.
-	enc.writeMessageDelta(inputTokens, outputToks, mappedStopReason)
+	enc.writeMessageDelta(inputTokens, outputToks, cacheReadTokens, cacheCreationTokens, mappedStopReason)
 	enc.writeMessageStop()
 	stashThinking := kiroproto.ResolveStashThinking(sigTurnRawAssistant, thinkingBuf, thinkingSigBuf)
 	publishKiroInternalThinkingSideChannel(c, w, nil, stashThinking, thinkingSigBuf)
 	flusher.Flush()
 
+	s.commitKiroCacheFingerprints(ctx, cacheSessionKey, req, rawBody, cacheBillingEnabled)
+
 	return &ForwardResult{
 		RequestID:     requestID,
-		Usage:         ClaudeUsage{InputTokens: inputTokens, OutputTokens: outputToks},
+		Usage:         kiroClaudeUsage(inputTokens, outputToks, cacheReadTokens, cacheCreationTokens),
 		Model:         model,
 		UpstreamModel: kiroproto.MapModel(model),
 		Stream:        true,
 		Duration:      time.Since(startTime),
 		FirstTokenMs:  firstTokMs,
-		BillingTier:   kiroproto.KiroEstimatedBillingTier,
+		BillingTier:   kiroBillingTier(cacheBillingEnabled),
 	}, nil
 }
 

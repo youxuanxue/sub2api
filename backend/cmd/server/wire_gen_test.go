@@ -71,6 +71,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		service.TKUniversalModelsProviderReady{},
 		service.TKGroupUnsupportedModelCacheReady{},
 		service.ProtocolRoutingSSOTReady{},
+		service.TKKiroCacheBillingReady{},
 	)
 
 	cleanup := provideCleanup(

@@ -21,12 +21,19 @@ import (
 //   - cl100k_base encoding (close enough to Anthropic's tokenizer for billing).
 //   - No conservative multiplier: cl100k naturally over-counts CJK text, which
 //     is the operator-safe direction.
-//   - Kiro has no cache semantics: cache token fields stay 0, never fabricated.
+//   - Prompt cache split is on by default (gateway.kiro_cache_billing.enabled;
+//     set "false" to disable) and lives in cache_estimate.go: prefix-fingerprint
+//     cache_read with a 90% haircut and a 1024-token minimum.
 //   - Estimates are tagged with billing_tier="kiro-estimated" by the caller.
 
 // KiroEstimatedBillingTier is the billing_tier label stamped on Kiro usage logs
-// so operators can distinguish estimated billing from upstream-reported billing.
+// when local prompt-cache attribution is disabled (cache fields stay 0).
 const KiroEstimatedBillingTier = "kiro-estimated"
+
+// KiroCacheEstimatedBillingTier is stamped when gateway.kiro_cache_billing is
+// enabled. Dashboard treats only "kiro-estimated" as cache-telemetry-unavailable;
+// this distinct tier lets estimated cache_read participate in prompt-cache rates.
+const KiroCacheEstimatedBillingTier = "kiro-cache-estimated"
 
 var (
 	estCodec     tokenizer.Codec

@@ -49,10 +49,30 @@ func TestKiroSSEEncoder_MessageDeltaCarriesFinalInputTokens(t *testing.T) {
 	enc := &kiroSSEEncoder{w: &buf, model: "claude-sonnet-4-6", msgID: "msg_z", inputTokens: 100}
 
 	enc.writeMessageStart()
-	enc.writeMessageDelta(250, 42, "end_turn")
+	enc.writeMessageDelta(250, 42, 0, 0, "end_turn")
 
 	out := buf.String()
 	if !strings.Contains(out, `"usage":{"input_tokens":250,"output_tokens":42}`) {
 		t.Fatalf("message_delta must carry final input and output usage, got: %s", out)
+	}
+}
+
+func TestKiroSSEEncoder_MessageDeltaCarriesCacheReadTokens(t *testing.T) {
+	var buf bytes.Buffer
+	enc := &kiroSSEEncoder{
+		w:               &buf,
+		model:           "claude-sonnet-4-6",
+		msgID:           "msg_cache",
+		inputTokens:     100,
+		cacheReadTokens: 900,
+	}
+	enc.writeMessageStart()
+	enc.writeMessageDelta(100, 12, 900, 0, "end_turn")
+	out := buf.String()
+	if !strings.Contains(out, `"cache_read_input_tokens":900`) {
+		t.Fatalf("message_start/delta must carry cache_read when set, got: %s", out)
+	}
+	if !strings.Contains(out, `"input_tokens":100`) {
+		t.Fatalf("input_tokens must remain non-cached remainder, got: %s", out)
 	}
 }

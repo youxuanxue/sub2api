@@ -25,6 +25,7 @@ func TestProvideTKCleanupHooks_StopNilSafe(t *testing.T) {
 		service.TKUniversalModelsProviderReady{},
 		service.TKGroupUnsupportedModelCacheReady{},
 		service.ProtocolRoutingSSOTReady{},
+		service.TKKiroCacheBillingReady{},
 	)
 	require.NotPanics(t, func() {
 		hooks.stopSchedulerRateLimitReaper()
