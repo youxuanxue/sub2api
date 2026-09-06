@@ -66,6 +66,8 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-5.6-luna":  {},
 	"gpt-5.6-sol":   {},
 	"gpt-5.6-terra": {},
+	"gpt-6":         {},
+	"gpt-6-astra":   {},
 	// servable-allowlist:end openai
 }
 

@@ -324,6 +324,7 @@
         "s.fallbackPrices[\"claude-fable-5\"]",
         "s.fallbackPrices[\"gemini-3.1-pro\"]",
         "s.fallbackPrices[\"gpt-5.4\"]",
+        "s.fallbackPrices[\"gpt-6-astra\"]",
         "s.fallbackPrices[\"deepseek-v4-pro\"]",
         "s.fallbackPrices[\"glm-5.2\"]"
       ],

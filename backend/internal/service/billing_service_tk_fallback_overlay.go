@@ -143,6 +143,8 @@ func (s *BillingService) tkResolveFallbackOverlayPricing(modelLower string) *Mod
 			return s.fallbackPrices["gpt-5.6-terra"]
 		case "gpt-5.6-luna":
 			return s.fallbackPrices["gpt-5.6-luna"]
+		case "gpt-6-astra":
+			return s.fallbackPrices["gpt-6-astra"]
 		case "gpt-5.5-pro":
 			return s.fallbackPrices["gpt-5.5-pro"]
 		case "gpt-5.5":

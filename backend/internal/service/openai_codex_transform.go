@@ -17,9 +17,12 @@ var codexModelMap = map[string]string{
 	"gpt-5.6-terra":       "gpt-5.6-terra",
 	"gpt-5.6-luna":        "gpt-5.6-luna",
 	"gpt-5.6-chat-latest": "gpt-5.6-sol",
-	"gpt-5.5":             "gpt-5.5",
-	"gpt-5.5-pro":         "gpt-5.5",
-	"codex-auto-review":   "codex-auto-review",
+	// GPT-6 public alias and Astra wire id (Codex entitlement, 2026-09 probe).
+	"gpt-6":             "gpt-6-astra",
+	"gpt-6-astra":       "gpt-6-astra",
+	"gpt-5.5":           "gpt-5.5",
+	"gpt-5.5-pro":       "gpt-5.5",
+	"codex-auto-review": "codex-auto-review",
 	// ChatGPT Codex dropped GPT-5.4 / GPT-5.4 mini (2026-08-31). Official
 	// replacement: bare 5.4 → GPT-5.6 Terra, 5.4 mini → GPT-5.6 Luna.
 	"gpt-5.4":                    "gpt-5.6-terra",
@@ -85,6 +88,9 @@ var codexVersionModelPrefixes = []struct {
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
 	{prefix: "gpt-5.6-chat-latest", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6", target: "gpt-5.6-sol"},
+	// Longer Astra prefix before bare gpt-6.
+	{prefix: "gpt-6-astra", target: "gpt-6-astra"},
+	{prefix: "gpt-6", target: "gpt-6-astra"},
 	{prefix: "gpt-5.3-codex-spark", target: "gpt-5.3-codex-spark"},
 	{prefix: "gpt-5.3-codex", target: "gpt-5.3-codex-spark"},
 	{prefix: "gpt-5-codex", target: "gpt-5.3-codex-spark"},
