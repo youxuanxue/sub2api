@@ -5,7 +5,7 @@ approved_by: xuejiao
 approved_at: 2026-04-22
 authors: [agent]
 created: 2026-04-22
-related_stories: [US-028, US-029, US-030, US-031, US-032]
+related_stories: [US-028, US-029, US-030, US-031]
 ---
 
 # New-User Cold Start
@@ -343,7 +343,7 @@ P1-A（Tour 解锁）属于低风险代码改动，可直接走默认实现路�
 
 ### 11.1 必须先产出（可执行 prototype）
 
-PR 2 的 prototype 阶段以 `PlaygroundPrototype.vue` + Vitest 组件装载为准。早期曾要求同时保留静态 HTML mockup；该 attachment 已删除，避免 prototype 与实现双轨漂移，后续视觉/状态契约以可执行组件测试承接。
+PR 2 的 prototype 阶段以可执行 Vue 组件 + Vitest 为准（早期 `PlaygroundPrototype.vue` 已并入 Studio Chat；独立故事 US-032 已归档删除）。早期曾要求同时保留静态 HTML mockup；该 attachment 已删除，避免 prototype 与实现双轨漂移，后续视觉/状态契约以可执行组件测试承接。
 
 > 不再保留 Figma / 静态 HTML 副本，原因：**离开代码路径的设计副本没有工程链路保证**——人改了副本工程不会知道，工程改了实现副本也不会同步。Vue component + Vitest 可被 git diff、可被 review、可被 CI 跑，符合 OPC 自动化原则。
 
@@ -367,6 +367,6 @@ prototype 必须**至少**呈现以下 4 个画面/状态：
 - 前端 `PlaygroundView.vue` 实装（交互页可与 prototype 组件并存；**参数契约**：默认 `max_tokens=1024`、硬上限 `4096`、超时 `60s`、浏览器内最多保留 50 轮 user/assistant 对、不发送 `tools`）
 - 路由 `/playground` 注册 + sidebar 入口
 - （可选）e2e：Playwright 覆盖主路径；或以运维脚本 `ops/stage0/gateway_smoke.sh` 对生产/测试网关做 **Key 级**烟雾验证（不在日志中打印 Key）
-- follow-up：独立故事文件 `US-032-playground-experience.md` 可在收紧 e2e 门禁时补档
+- follow-up：Playground 体验已并入 `/studio` Chat；e2e 门禁收紧时以 Studio 故事 / Playwright 为准，不再补独立 US-032
 
-**不做可执行 prototype 就实装 Playground = 违反本门禁的原意**；当前仓库已在落地 Playground 前合并 `PlaygroundPrototype.vue` 与 Vitest 状态断言（见 `US-032-playground-prototype-AB.md` Evidence）。
+**不做可执行 prototype 就实装 Playground = 违反本门禁的原意**；当前仓库以 Studio Chat（`ChatStudio.vue` + Vitest）承接该门禁证据。
