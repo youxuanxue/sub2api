@@ -3,13 +3,14 @@ package service
 // TokenKey-owned admin/settings defaults kept outside setting_parse.go so
 // upstream default changes only need a thin call-site rebase.
 const (
-	tkDefaultSiteName                  = "TokenKey"
-	tkDefaultSiteSubtitle              = "AI API Gateway Platform"
-	tkDefaultFallbackModelAnthropic    = "claude-sonnet-4-6"
-	tkDefaultFallbackModelOpenAI       = "gpt-5.4"
-	tkDefaultFallbackModelGemini       = "gemini-2.5-pro"
-	tkDefaultFallbackModelAntigravity  = "gemini-3-flash"
-	tkDefaultStickyRoutingEnabledValue = "true"
+	tkDefaultSiteName                     = "TokenKey"
+	tkDefaultSiteSubtitle                 = "AI API Gateway Platform"
+	tkDefaultFallbackModelAnthropic       = "claude-sonnet-4-6"
+	tkDefaultFallbackModelOpenAI          = "gpt-5.4"
+	tkDefaultFallbackModelGemini          = "gemini-2.5-pro"
+	tkDefaultFallbackModelAntigravity     = "gemini-3-flash"
+	tkDefaultStickyRoutingEnabledValue    = "true"
+	tkDefaultKiroCacheBillingEnabledValue = "true"
 )
 
 func tkMergeDefaultBrandGatewaySettings(defaults map[string]string) {
@@ -20,6 +21,7 @@ func tkMergeDefaultBrandGatewaySettings(defaults map[string]string) {
 	defaults[SettingKeyFallbackModelGemini] = tkDefaultFallbackModelGemini
 	defaults[SettingKeyFallbackModelAntigravity] = tkDefaultFallbackModelAntigravity
 	defaults[SettingKeyStickyRoutingEnabled] = tkDefaultStickyRoutingEnabledValue
+	defaults[SettingKeyKiroCacheBillingEnabled] = tkDefaultKiroCacheBillingEnabledValue
 }
 
 func tkApplyBrandGatewayParsed(settings map[string]string, result *SystemSettings) {

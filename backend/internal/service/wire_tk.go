@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 
@@ -37,6 +38,7 @@ var TKProviderSet = wire.NewSet(
 	ProvideTKAntigravitySaturation,
 	ProvideTKAccountIncidentNotifier,
 	ProvideTKPricingMissingNotifier,
+	ProvideTKKiroCacheBilling,
 )
 
 // tkWireSettingServiceExtras applies TokenKey-only SettingService post-construction
@@ -426,4 +428,20 @@ func ProvideTKGroupUnsupportedModelCache(
 	}
 	registerTkGroupUnsupportedModelCacheFlusher(ch, cache)
 	return TKGroupUnsupportedModelCacheReady{}
+}
+
+// TKKiroCacheBillingReady proves the Kiro prompt-prefix fingerprint store was
+// wired onto KiroGatewayService (Redis in production, memory fallback when nil).
+type TKKiroCacheBillingReady struct{}
+
+// ProvideTKKiroCacheBilling injects the fingerprint store used by optional
+// gateway.kiro_cache_billing.enabled prompt-cache billing.
+func ProvideTKKiroCacheBilling(
+	kiroGw *KiroGatewayService,
+	store kiroproto.CacheFingerprintStore,
+) TKKiroCacheBillingReady {
+	if kiroGw != nil {
+		kiroGw.SetKiroCacheFingerprintStore(store)
+	}
+	return TKKiroCacheBillingReady{}
 }

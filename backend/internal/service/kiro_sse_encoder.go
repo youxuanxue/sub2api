@@ -34,7 +34,9 @@ type kiroSSEEncoder struct {
 	// message_start.usage.input_tokens. Without this the streamed SSE carried
 	// input_tokens=0, and the prod relay (which bills off the parsed SSE usage)
 	// recorded every streamed Kiro request at input=0 → systematic under-billing.
-	inputTokens int
+	inputTokens         int
+	cacheReadTokens     int
+	cacheCreationTokens int
 
 	started     bool          // message_start has been emitted
 	openBlock   kiroBlockKind // currently open content block
@@ -68,10 +70,7 @@ func (e *kiroSSEEncoder) writeMessageStart() {
 			"content":       []any{},
 			"stop_reason":   nil,
 			"stop_sequence": nil,
-			"usage": map[string]any{
-				"input_tokens":  e.inputTokens,
-				"output_tokens": 0,
-			},
+			"usage":         kiroSSEUsageMap(e.inputTokens, 0, e.cacheReadTokens, e.cacheCreationTokens),
 		},
 	})
 }
@@ -164,20 +163,31 @@ func (e *kiroSSEEncoder) closeOpenBlock() {
 	e.blockIndex++
 }
 
-func (e *kiroSSEEncoder) writeMessageDelta(inputTokens, outputTokens int, stopReason string) {
+func (e *kiroSSEEncoder) writeMessageDelta(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int, stopReason string) {
 	e.writeEvent("message_delta", map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{
 			"stop_reason":   stopReason,
 			"stop_sequence": nil,
 		},
-		"usage": map[string]any{
-			"input_tokens":  inputTokens,
-			"output_tokens": outputTokens,
-		},
+		"usage": kiroSSEUsageMap(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens),
 	})
 }
 
 func (e *kiroSSEEncoder) writeMessageStop() {
 	e.writeEvent("message_stop", map[string]any{"type": "message_stop"})
+}
+
+func kiroSSEUsageMap(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int) map[string]any {
+	usage := map[string]any{
+		"input_tokens":  inputTokens,
+		"output_tokens": outputTokens,
+	}
+	if cacheReadTokens > 0 {
+		usage["cache_read_input_tokens"] = cacheReadTokens
+	}
+	if cacheCreationTokens > 0 {
+		usage["cache_creation_input_tokens"] = cacheCreationTokens
+	}
+	return usage
 }

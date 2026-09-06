@@ -49,7 +49,7 @@ func TestKiroSSEEncoder_MessageDeltaCarriesFinalInputTokens(t *testing.T) {
 	enc := &kiroSSEEncoder{w: &buf, model: "claude-sonnet-4-6", msgID: "msg_z", inputTokens: 100}
 
 	enc.writeMessageStart()
-	enc.writeMessageDelta(250, 42, "end_turn")
+	enc.writeMessageDelta(250, 42, 0, 0, "end_turn")
 
 	out := buf.String()
 	if !strings.Contains(out, `"usage":{"input_tokens":250,"output_tokens":42}`) {
