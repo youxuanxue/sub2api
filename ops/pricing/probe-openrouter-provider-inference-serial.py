@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Serial inference smoke for every model in the OpenRouter provider catalog.
 
-Routes each catalog row to chat / image / video based on output_modalities.
-Honors openrouter.stream_required metadata (GLM stream-only models).
+Routes each catalog row to chat / image / video based on output_modalities
+(follow the live catalog — multimodal when listed, skip families absent from
+catalog). Honors openrouter.stream_required metadata (GLM stream-only models).
 
     python3 ops/pricing/probe-openrouter-provider-inference-serial.py --via-ssm
     python3 ops/pricing/probe-openrouter-provider-inference-serial.py --via-ssm --sleep 1.5
