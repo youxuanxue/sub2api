@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -145,6 +146,30 @@ func TestAccountHandlerUpdateMixedChannelConflictSimplifiedResponse(t *testing.T
 	_, hasRequireConfirmation := resp["require_confirmation"]
 	require.False(t, hasDetails)
 	require.False(t, hasRequireConfirmation)
+}
+
+func TestAccountHandlerUpdateReturnsBadRequestForMissingProtocolEndpointIdentity(t *testing.T) {
+	adminSvc := newStubAdminService()
+	adminSvc.updateAccountErr = infraerrors.BadRequest(
+		"INVALID_ACCOUNT_PROTOCOL_ENDPOINT_IDENTITY",
+		"account credentials must include a valid protocol endpoint",
+	)
+	router := setupAccountMixedChannelRouter(adminSvc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/admin/accounts/132",
+		bytes.NewBufferString(`{"credentials":{"model_mapping":{"qwen-audio-3.0-tts-plus":"qwen-audio-3.0-tts-plus"}}}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, float64(http.StatusBadRequest), resp["code"])
+	require.Equal(t, "INVALID_ACCOUNT_PROTOCOL_ENDPOINT_IDENTITY", resp["reason"])
 }
 
 func TestAccountHandlerUpdateMapsUpstreamBillingRateSyncSettings(t *testing.T) {

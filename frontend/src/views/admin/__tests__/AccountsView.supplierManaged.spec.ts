@@ -6,6 +6,7 @@ import AccountsView from '../AccountsView.vue'
 const {
   listAccounts,
   listWithEtag,
+  getById,
   getBatchTodayStats,
   getBatchPassiveUsage,
   getAllProxies,
@@ -22,6 +23,7 @@ const {
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
+  getById: vi.fn(),
   getBatchTodayStats: vi.fn(),
   getBatchPassiveUsage: vi.fn(),
   getAllProxies: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock('@/api/admin', () => ({
     accounts: {
       list: listAccounts,
       listWithEtag,
+      getById,
       getBatchTodayStats,
       getBatchPassiveUsage,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
@@ -112,7 +115,7 @@ const AccountActionMenuStub = {
 
 const EditAccountModalStub = {
   props: ['show', 'account'],
-  template: '<div data-test="edit-modal" :data-show="String(show)" :data-account-id="account?.id ?? 0" />'
+  template: '<div data-test="edit-modal" :data-show="String(show)" :data-account-id="account?.id ?? 0" :data-base-url="account?.credentials?.base_url" />'
 }
 
 const managedAccount = {
@@ -181,6 +184,15 @@ describe('AccountsView supplier-managed accounts', () => {
         pages: 1
       }
     })
+    getById.mockImplementation(async (id: number) => {
+      const account = id === managedAccount.id ? managedAccount : ordinaryAccount
+      return {
+        ...account,
+        credentials: {
+          base_url: id === ordinaryAccount.id ? 'https://token-plan.example.test' : 'https://supplier.example.test'
+        }
+      }
+    })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
     getBatchPassiveUsage.mockResolvedValue({ usage: {} })
     getAllProxies.mockResolvedValue([])
@@ -230,9 +242,24 @@ describe('AccountsView supplier-managed accounts', () => {
     await flushPromises()
 
     const modal = wrapper.get('[data-test="edit-modal"]')
+    expect(getById).toHaveBeenCalledWith(7)
     expect(modal.attributes('data-show')).toBe('true')
     expect(modal.attributes('data-account-id')).toBe('7')
     expect(showError).not.toHaveBeenCalled()
+  })
+
+  it('loads canonical credentials before editing a compact account row', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(ordinaryAccount).not.toHaveProperty('credentials')
+    await wrapper.get('[data-test="account-row-8"]').get('[data-testid="account-edit-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(getById).toHaveBeenCalledWith(8)
+    const modal = wrapper.get('[data-test="edit-modal"]')
+    expect(modal.attributes('data-account-id')).toBe('8')
+    expect(modal.attributes('data-base-url')).toBe('https://token-plan.example.test')
   })
 
   it('allows duplicate of supplier-managed accounts like ordinary accounts', async () => {

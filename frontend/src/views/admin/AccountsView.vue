@@ -1882,8 +1882,25 @@ const cols = computed(() =>
   )
 )
 
-const handleEdit = (a: Account) => {
-  edAcc.value = a
+const accountDetailLoading = new Set<number>()
+const loadAccountDetails = async (account: Pick<Account, 'id'>): Promise<Account | null> => {
+  if (accountDetailLoading.has(account.id)) return null
+  accountDetailLoading.add(account.id)
+  try {
+    return await adminAPI.accounts.getById(account.id)
+  } catch (error) {
+    console.error('Failed to load account details:', error)
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
+    return null
+  } finally {
+    accountDetailLoading.delete(account.id)
+  }
+}
+
+const handleEdit = async (a: Account) => {
+  const account = await loadAccountDetails(a)
+  if (!account) return
+  edAcc.value = account
   showEdit.value = true
 }
 const closeActionMenu = () => {

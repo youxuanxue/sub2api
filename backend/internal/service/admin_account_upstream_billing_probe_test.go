@@ -257,8 +257,11 @@ func TestUpdateAccountInvalidatesProbeSnapshotWhenUpstreamIdentityChanges(t *tes
 		wantEnabled bool
 	}{
 		{
-			name:        "api key",
-			input:       &UpdateAccountInput{Credentials: map[string]any{"api_key": "sk-new"}},
+			name: "api key",
+			input: &UpdateAccountInput{Credentials: map[string]any{
+				"api_key":  "sk-new",
+				"base_url": "https://old.example",
+			}},
 			wantEnabled: true,
 		},
 		{
@@ -269,6 +272,7 @@ func TestUpdateAccountInvalidatesProbeSnapshotWhenUpstreamIdentityChanges(t *tes
 		{
 			name: "header override",
 			input: &UpdateAccountInput{Credentials: map[string]any{
+				"base_url":                   "https://old.example",
 				credKeyHeaderOverrideEnabled: true,
 				credKeyHeaderOverrides:       map[string]any{"x-route": "new"},
 			}},

@@ -11,6 +11,7 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	newapifusion "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -119,6 +120,37 @@ func TestUpdateAccount_EmptyCredentialsSkipsUpdate(t *testing.T) {
 
 	require.Equal(t, "rt-existing", repo.account.Credentials["refresh_token"], "空 credentials 不应触碰已有 token")
 	require.Equal(t, "renamed", repo.account.Name)
+}
+
+func TestUpdateAccount_RejectsMissingProtocolEndpointBeforePersist(t *testing.T) {
+	accountID := int64(132)
+	repo := &updateAccountCredsRepoStub{
+		account: &Account{
+			ID:          accountID,
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeAli,
+			Status:      StatusActive,
+			Credentials: map[string]any{
+				"api_key":  "sk-existing",
+				"base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
+			},
+		},
+	}
+
+	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(
+		context.Background(),
+		accountID,
+		&UpdateAccountInput{Credentials: map[string]any{
+			"model_mapping": map[string]any{"qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus"},
+		}},
+	)
+
+	require.Nil(t, updated)
+	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+	require.Equal(t, "INVALID_ACCOUNT_PROTOCOL_ENDPOINT_IDENTITY", infraerrors.Reason(err))
+	require.ErrorContains(t, err, "governed account has no explicit protocol endpoint identity")
+	require.Zero(t, repo.updateCalls, "invalid endpoint identity must be rejected before persistence")
 }
 
 func TestUpdateAccount_ResolvesNewAPIMoonshotRegionBeforePersist(t *testing.T) {
