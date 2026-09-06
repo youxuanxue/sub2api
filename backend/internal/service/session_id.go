@@ -25,6 +25,10 @@ var clientSessionIDHeaders = append(
 // protocol-agnostic and shared by every gateway handler so all supported protocols
 // record session_id through one seam. Returns "" when no valid identifier is present.
 //
+// Codex clients send `session-id` (hyphen); OpenAI-compatible sticky clients often
+// send `session_id` (underscore). Both are accepted so usage_logs can COUNT DISTINCT
+// sessions for OAuth egress forensics (device/session fingerprint investigations).
+//
 // This value feeds only usage_logs.session_id persistence. It does NOT affect sticky
 // routing, account selection, request_id semantics, or upstream prompt caching, which
 // keep their own (intentionally broader) session-signal resolution.

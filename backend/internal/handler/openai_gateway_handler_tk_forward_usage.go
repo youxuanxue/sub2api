@@ -40,29 +40,31 @@ func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwa
 	requestPayloadHash := service.HashUsageRequestPayload(in.Body)
 	quotaPlatform := service.QuotaPlatform(in.C.Request.Context(), in.APIKey)
 	sessionID := service.ExtractClientSessionID(in.C)
+	codexInstallationID := service.CodexEgressInstallationIDForUsage(in.C, in.Account)
 	tkHoldRequestID := in.Hold.HandOffToSettlement()
 	cyberBlocked := service.GetOpsCyberPolicy(in.C) != nil
 	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(in.C)
 	h.submitOpenAIUsageRecordTask(in.C.Request.Context(), res, func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
-			Result:             res,
-			APIKey:             in.APIKey,
-			User:               in.APIKey.User,
-			Account:            in.Account,
-			Subscription:       in.Subscription,
-			InboundEndpoint:    GetInboundEndpoint(in.C),
-			UpstreamEndpoint:   resolveOpenAIUpstreamEndpoint(in.C, in.Account, res),
-			UserAgent:          userAgent,
-			IPAddress:          clientIP,
-			RequestPayloadHash: requestPayloadHash,
-			APIKeyService:      h.apiKeyService,
-			TkHoldRequestID:    tkHoldRequestID,
-			QuotaPlatform:      quotaPlatform,
-			SessionID:          sessionID,
-			GatewayLatencyMs:   gatewayLatencyMs,
-			ChannelUsageFields: clientRequestedUsageFields(in.C, in.ChannelMapping, in.ReqModel, res.UpstreamModel),
-			PricingAt:          in.PricingAt,
-			CyberBlocked:       cyberBlocked,
+			Result:              res,
+			APIKey:              in.APIKey,
+			User:                in.APIKey.User,
+			Account:             in.Account,
+			Subscription:        in.Subscription,
+			InboundEndpoint:     GetInboundEndpoint(in.C),
+			UpstreamEndpoint:    resolveOpenAIUpstreamEndpoint(in.C, in.Account, res),
+			UserAgent:           userAgent,
+			IPAddress:           clientIP,
+			RequestPayloadHash:  requestPayloadHash,
+			APIKeyService:       h.apiKeyService,
+			TkHoldRequestID:     tkHoldRequestID,
+			QuotaPlatform:       quotaPlatform,
+			SessionID:           sessionID,
+			CodexInstallationID: codexInstallationID,
+			GatewayLatencyMs:    gatewayLatencyMs,
+			ChannelUsageFields:  clientRequestedUsageFields(in.C, in.ChannelMapping, in.ReqModel, res.UpstreamModel),
+			PricingAt:           in.PricingAt,
+			CyberBlocked:        cyberBlocked,
 		}); err != nil {
 			logger.L().With(
 				zap.String("component", in.LogComponent),

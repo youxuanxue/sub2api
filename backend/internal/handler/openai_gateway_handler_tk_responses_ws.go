@@ -187,28 +187,30 @@ func (h *OpenAIGatewayHandler) tkWSAfterTurnSubmitUsage(in tkWSAfterTurnUsageInp
 	tkHoldRequestID := in.TurnHold.HandOffForTurn()
 	quotaPlatform := service.QuotaPlatform(in.C.Request.Context(), in.APIKey)
 	sessionID := service.ExtractClientSessionID(in.C)
+	codexInstallationID := service.CodexEgressInstallationIDForUsage(in.C, in.Account)
 	turnRecordPricingAt := in.TurnPricing.currentOr(in.TurnStart)
 	cyberBlocked := service.GetOpsCyberPolicy(in.C) != nil
 	turnUsageFields := in.TurnMapping.ToUsageFields(in.TurnRequestedModel, in.TurnUpstreamModel)
 	h.submitOpenAIUsageRecordTask(in.Ctx, in.Result, func(taskCtx context.Context) {
 		if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
-			Result:             in.Result,
-			APIKey:             in.APIKey,
-			User:               in.APIKey.User,
-			Account:            in.Account,
-			Subscription:       in.Subscription,
-			InboundEndpoint:    GetInboundEndpoint(in.C),
-			UpstreamEndpoint:   resolveOpenAIUpstreamEndpoint(in.C, in.Account, in.Result),
-			UserAgent:          in.UserAgent,
-			IPAddress:          in.ClientIP,
-			RequestPayloadHash: in.RequestPayloadHash,
-			APIKeyService:      h.apiKeyService,
-			TkHoldRequestID:    tkHoldRequestID,
-			QuotaPlatform:      quotaPlatform,
-			SessionID:          sessionID,
-			ChannelUsageFields: turnUsageFields,
-			PricingAt:          turnRecordPricingAt,
-			CyberBlocked:       cyberBlocked,
+			Result:              in.Result,
+			APIKey:              in.APIKey,
+			User:                in.APIKey.User,
+			Account:             in.Account,
+			Subscription:        in.Subscription,
+			InboundEndpoint:     GetInboundEndpoint(in.C),
+			UpstreamEndpoint:    resolveOpenAIUpstreamEndpoint(in.C, in.Account, in.Result),
+			UserAgent:           in.UserAgent,
+			IPAddress:           in.ClientIP,
+			RequestPayloadHash:  in.RequestPayloadHash,
+			APIKeyService:       h.apiKeyService,
+			TkHoldRequestID:     tkHoldRequestID,
+			QuotaPlatform:       quotaPlatform,
+			SessionID:           sessionID,
+			CodexInstallationID: codexInstallationID,
+			ChannelUsageFields:  turnUsageFields,
+			PricingAt:           turnRecordPricingAt,
+			CyberBlocked:        cyberBlocked,
 		}); err != nil {
 			in.ReqLog.Error("openai.websocket_record_usage_failed",
 				zap.Int64("account_id", in.Account.ID),

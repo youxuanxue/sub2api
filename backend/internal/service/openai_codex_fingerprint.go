@@ -380,6 +380,29 @@ func resolveCodexFingerprintIDsFromRequest(account *Account, clientHeaders http.
 	return resolveCodexFingerprintIDs(account, clientSessionID, mode)
 }
 
+// CodexEgressInstallationIDForUsage returns the outbound installation_id that
+// fingerprint convergence applies (or would apply) for this account+request.
+// Prefer staged IDs from the live attempt when present so usage_logs matches the
+// headers actually sent upstream; otherwise resolve from account+client headers.
+// Empty when fingerprint is off / unavailable — callers persist NULL.
+func CodexEgressInstallationIDForUsage(c *gin.Context, account *Account) string {
+	if ids := stagedCodexFingerprintIDs(c, account); ids != nil {
+		return strings.TrimSpace(ids.installationID)
+	}
+	if account == nil {
+		return ""
+	}
+	var headers http.Header
+	if c != nil && c.Request != nil {
+		headers = c.Request.Header
+	}
+	ids := resolveCodexFingerprintIDsFromRequest(account, headers)
+	if ids == nil {
+		return ""
+	}
+	return strings.TrimSpace(ids.installationID)
+}
+
 // applyCodexFingerprintHeaders 按预计算的收敛 ID 改写出站 HTTP 头中的设备指纹。
 // 在 buildUpstreamRequest 的白名单透传之后、enforceCodexIdentityHeaders 之前调用。
 func applyCodexFingerprintHeaders(h http.Header, ids *codexFingerprintIDs) {

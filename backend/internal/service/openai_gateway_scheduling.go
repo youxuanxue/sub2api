@@ -26,6 +26,7 @@ const (
 
 var explicitOpenAIHeaderSessionNames = []string{
 	"session_id",
+	"session-id", // Codex CLI / Desktop / VS Code hyphen form
 	"conversation_id",
 	openCodeSessionAffinityHeader,
 	openCodeSessionIDHeader,
