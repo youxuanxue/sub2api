@@ -73,7 +73,10 @@ func TestUS048_ManagedAccountBehavesLikeOrdinaryAccountForUpdates(t *testing.T) 
 	updated, err := svc.UpdateAccount(context.Background(), repo.account.ID, &UpdateAccountInput{
 		Name: "renamed-managed", Status: StatusDisabled, Concurrency: &concurrency,
 		Priority: &priority, GroupIDs: &groupIDs, Notes: &notes,
-		Credentials:           map[string]any{"api_key": "rotated"},
+		Credentials: map[string]any{
+			"api_key":  "rotated",
+			"base_url": "https://supplier.example/v1",
+		},
 		SkipMixedChannelCheck: true,
 	})
 	require.NoError(t, err)

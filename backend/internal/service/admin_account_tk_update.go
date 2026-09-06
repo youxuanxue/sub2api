@@ -302,6 +302,14 @@ func (s *adminServiceImpl) tkApplyUpdateAccountTKFields(ctx context.Context, acc
 			return err
 		}
 	}
+	if len(input.Credentials) > 0 || input.ChannelType != nil || input.Type != "" || input.Extra != nil {
+		if _, _, err := BuildProtocolEndpointIdentity(account); err != nil {
+			return infraerrors.BadRequest(
+				"INVALID_ACCOUNT_PROTOCOL_ENDPOINT_IDENTITY",
+				"account credentials must include a valid protocol endpoint",
+			).WithCause(err)
+		}
+	}
 	SeedOfficialSupportedProtocols(account)
 
 	billingSettingsAppliedAtomically := false

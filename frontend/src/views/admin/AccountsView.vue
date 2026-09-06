@@ -1882,8 +1882,28 @@ const cols = computed(() =>
   )
 )
 
-const handleEdit = (a: Account) => {
-  edAcc.value = a
+const accountDetailRequests = new Map<number, Promise<Account | null>>()
+const loadAccountDetails = async (account: Pick<Account, 'id'>): Promise<Account | null> => {
+  const pending = accountDetailRequests.get(account.id)
+  if (pending) return pending
+
+  const request = adminAPI.accounts.getById(account.id)
+    .catch((error) => {
+      console.error('Failed to load account details:', error)
+      appStore.showError(extractApiErrorMessage(error, t('common.error')))
+      return null
+    })
+    .finally(() => accountDetailRequests.delete(account.id))
+  accountDetailRequests.set(account.id, request)
+  return request
+}
+
+let editRequestGeneration = 0
+const handleEdit = async (a: Account) => {
+  const generation = ++editRequestGeneration
+  const account = await loadAccountDetails(a)
+  if (!account || generation !== editRequestGeneration) return
+  edAcc.value = account
   showEdit.value = true
 }
 const closeActionMenu = () => {
