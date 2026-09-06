@@ -61,9 +61,10 @@ func (s *GatewayService) DiagnoseModelAvailabilityForPlatform(
 		return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
 	}
 
-	// hasForcePlatform=false so Anthropic/Gemini also surface mixed-scheduled
-	// Antigravity accounts, matching what selection would consider.
-	accounts, _, err := s.listSchedulableAccounts(ctx, groupID, platform, false)
+	// hasForcePlatform=false so Anthropic/Gemini surface mixed-scheduled
+	// Antigravity accounts, and Claude-series Anthropic/NewAPI requests surface
+	// explicit cross-platform mapping peers, matching what selection considers.
+	accounts, _, err := s.listSchedulableAccountsForModel(ctx, groupID, platform, false, requestedModel)
 	if err != nil {
 		// Conservative fallback: pretend everything is fine so the caller
 		// returns 503 (we don't want to flip to 404 just because a lookup

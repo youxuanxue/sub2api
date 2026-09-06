@@ -113,6 +113,10 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 	if !contains(gemMessages, PlatformGemini) {
 		t.Errorf("gemini /v1/messages should include gemini platform: %v", gemMessages)
 	}
+	claudeMessages := universalCandidatePlatforms(ShapeAnthropicMessages, "", false, "claude-fable-5")
+	if !contains(claudeMessages, PlatformNewAPI) {
+		t.Errorf("claude messages candidates should include explicit newapi mapping peers: %v", claudeMessages)
+	}
 
 	// count_tokens uses the same group-platform split handler as direct keys, so
 	// universal keys may route OpenAI-compatible models to the compat bridge.
@@ -125,6 +129,10 @@ func TestUniversalCandidatePlatforms(t *testing.T) {
 	ctNoDispatch := universalCandidatePlatforms(ShapeAnthropicCountTokens, "", false, "")
 	if contains(ctNoDispatch, PlatformOpenAI) || contains(ctNoDispatch, PlatformNewAPI) || contains(ctNoDispatch, PlatformGrok) {
 		t.Errorf("count_tokens without messages-dispatch should not include openai-compat: %v", ctNoDispatch)
+	}
+	ctClaudeNoDispatch := universalCandidatePlatforms(ShapeAnthropicCountTokens, "", false, "claude-fable-5")
+	if !contains(ctClaudeNoDispatch, PlatformNewAPI) {
+		t.Errorf("claude count_tokens candidates should include explicit newapi mapping peers: %v", ctClaudeNoDispatch)
 	}
 
 	// chat = OpenAI-compat pool (includes grok).

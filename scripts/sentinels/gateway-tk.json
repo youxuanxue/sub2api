@@ -5786,7 +5786,8 @@
         "type groupModelSupportProvider func(",
         "func (s *GatewayService) UniversalGroupSupportsModel(",
         "func (s *GatewayService) UniversalGroupSupportsRequest(",
-        "s.listSchedulableAccounts(ctx, groupID, platform, false)",
+        "s.listSchedulableAccountsForModel(ctx, groupID, platform, false, model)",
+        "s.isClaudeNewAPICrossPlatformAccountAllowed(ctx, acc, platform, model, false)",
         "acc.IsOpenAICompatPoolMember(platform)",
         "universalOpenAICompatAccountSupportsShape",
         "accountSupportsOpenAIRequestCapabilities(account, \"\", \"\", true)",
@@ -7499,7 +7500,8 @@
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
         "accounts = filterAccountsForNativeGeminiVertexRequirement(ctx, accounts)",
-        "filtered = filterAccountsForNativeGeminiVertexRequirement(ctx, filtered)",
+        "accounts = s.postFilterSchedulableAccounts(ctx, platform,",
+        "filtered := s.postFilterSchedulableAccounts(ctx, platform,",
         "!accountSupportsNativeGeminiVertexRequirement(ctx, account)"
       ],
       "rationale": "Load-bearing scheduler wiring for request-scoped account capabilities. Filtering list/snapshot candidates plus direct sticky-account lookups keeps native Gemini Universal group admission and actual account selection on the same exact Vertex predicate across both legacy and load-aware paths."

@@ -59,7 +59,7 @@ func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, grou
 	if s == nil || s.accountRepo == nil || platform == "" {
 		return false, false
 	}
-	accounts, useMixed, err := s.listSchedulableAccounts(ctx, groupID, platform, false)
+	accounts, useMixed, err := s.listSchedulableAccountsForModel(ctx, groupID, platform, false, model)
 	if err != nil {
 		return false, false
 	}
@@ -176,6 +176,9 @@ func (s *GatewayService) universalAccountsSupportRequest(ctx context.Context, ac
 		if shape == ShapeGemini && !s.isAccountSchedulableForModelSelection(ctx, acc, model) {
 			continue
 		}
+		if s.isClaudeNewAPICrossPlatformAccountAllowed(ctx, acc, platform, model, false) {
+			return true
+		}
 		if IsOpenAICompatPlatform(platform) {
 			if !acc.IsOpenAICompatPoolMember(platform) {
 				continue
@@ -187,7 +190,7 @@ func (s *GatewayService) universalAccountsSupportRequest(ctx context.Context, ac
 				return true
 			}
 			continue
-		} else if !s.isAccountAllowedForPlatform(acc, platform, useMixed) {
+		} else if !s.isAccountAllowedForPlatformModel(ctx, acc, platform, useMixed, model) {
 			continue
 		}
 		if s.isModelSupportedByAccountWithContext(ctx, acc, model) {
