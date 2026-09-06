@@ -399,6 +399,34 @@ test('US048 FMGo shows the fixed protocol boundary without account changes', asy
 test('US048 accounts UI marks supplier-managed accounts and allows ordinary edits', async ({ page }) => {
   await installBase(page, async (route, path) => {
     const request = route.request()
+    if (path === '/api/v1/admin/accounts/101' && request.method() === 'GET') {
+      await fulfillSuccess(route, {
+        id: 101,
+        name: '佳杰/VSTECS · 档位 3',
+        platform: 'newapi',
+        type: 'apikey',
+        channel_type: 1,
+        status: 'active',
+        schedulable: true,
+        priority: 130,
+        concurrency: 1,
+        group_ids: [],
+        supported_protocols: ['chat_completions'],
+        credentials: {
+          base_url: 'https://token.vstecscloud.com/v1',
+          model_mapping: { 'deepseek-v4-pro': 'deepseek-v4-pro' },
+          model_pricing_status: { 'deepseek-v4-pro': 'priced' },
+        },
+        credentials_status: { has_api_key: true },
+        extra: {
+          supplier_source_id: 7,
+          supplier_discount_band: 3,
+        },
+        created_at: '2026-08-28T00:00:00Z',
+        updated_at: '2026-08-28T00:00:00Z',
+      })
+      return true
+    }
     if (path === '/api/v1/admin/accounts' && request.method() === 'GET') {
       await fulfillSuccess(route, {
         items: [{
@@ -491,6 +519,109 @@ test('US048 accounts UI marks supplier-managed accounts and allows ordinary edit
   await expect(page.locator('[data-test="source-select-7"]')).toHaveClass(/border-primary-500/)
   await expect(page.locator('[data-test="supplier-name"]')).toHaveValue('佳杰')
   await expect(page.locator('[data-test="supplier-lane"]')).toHaveValue('VSTECS')
+})
+
+test('Admin account edit reloads Token Plan detail and preserves endpoint identity', async ({ page }) => {
+  const baseUrl = 'https://token-plan.cn-beijing.maas.aliyuncs.com'
+  const mapping = { 'qwen-audio-3.0-tts-plus': 'qwen-audio-3.0-tts-plus' }
+  let detailRequests = 0
+  let submitted: Record<string, unknown> | null = null
+
+  const fullAccount = {
+    id: 132,
+    name: 'Ali Token Plan 132',
+    notes: '',
+    platform: 'newapi',
+    type: 'apikey',
+    channel_type: 17,
+    status: 'active',
+    schedulable: true,
+    priority: 1,
+    concurrency: 1,
+    rate_multiplier: 1,
+    group_ids: [],
+    supported_protocols: ['chat_completions'],
+    credentials: {
+      base_url: baseUrl,
+      model_mapping: mapping,
+      model_pricing_status: { 'qwen-audio-3.0-tts-plus': 'priced' },
+    },
+    credentials_status: { has_api_key: true },
+    extra: {},
+    expires_at: null,
+    auto_pause_on_expired: false,
+    created_at: '2026-09-05T00:00:00Z',
+    updated_at: '2026-09-06T00:00:00Z',
+  }
+
+  await installBase(page, async (route, path) => {
+    const request = route.request()
+    if (path === '/api/v1/admin/accounts/132' && request.method() === 'GET') {
+      detailRequests += 1
+      await fulfillSuccess(route, fullAccount)
+      return true
+    }
+    if (path === '/api/v1/admin/accounts/132' && request.method() === 'PUT') {
+      submitted = request.postDataJSON() as Record<string, unknown>
+      await fulfillSuccess(route, fullAccount)
+      return true
+    }
+    if (path === '/api/v1/admin/accounts' && request.method() === 'GET') {
+      const { credentials: _credentials, credentials_status: _credentialsStatus, ...compactAccount } = fullAccount
+      await fulfillSuccess(route, {
+        items: [compactAccount], total: 1, page: 1, page_size: 20, pages: 1,
+      })
+      return true
+    }
+    if (path === '/api/v1/admin/accounts/today-stats/batch' && request.method() === 'POST') {
+      await fulfillSuccess(route, { stats: {} })
+      return true
+    }
+    if (path === '/api/v1/admin/accounts/usage/batch' && request.method() === 'POST') {
+      await fulfillSuccess(route, { usage: {} })
+      return true
+    }
+    if (path === '/api/v1/admin/accounts/upstream-billing-probe/settings' && request.method() === 'GET') {
+      await fulfillSuccess(route, { enabled: true, interval_minutes: 30 })
+      return true
+    }
+    if (path === '/api/v1/admin/proxies/all' && request.method() === 'GET') {
+      await fulfillSuccess(route, [])
+      return true
+    }
+    if (path === '/api/v1/admin/groups/all' && request.method() === 'GET') {
+      await fulfillSuccess(route, [])
+      return true
+    }
+    if (path === '/api/v1/admin/edge-accounts' && request.method() === 'GET') {
+      await fulfillSuccess(route, { platform: '__by_stub__', edges: [], ts: 1 })
+      return true
+    }
+    if (path === '/api/v1/admin/supplier-sources' && request.method() === 'GET') {
+      await fulfillSuccess(route, [])
+      return true
+    }
+    return false
+  })
+
+  await page.goto('/admin/accounts')
+  const row = page.locator('tr[data-row-id="132"]')
+  await row.locator('[data-testid="account-edit-btn"]').click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: '编辑账号' })).toBeVisible()
+  expect(detailRequests).toBe(1)
+  await expect.poll(async () =>
+    dialog.locator('input').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value))
+  ).toContain(baseUrl)
+
+  await dialog.locator('[data-tour="account-form-submit"]').click()
+  await expect(dialog).toHaveCount(0)
+
+  expect(submitted).not.toBeNull()
+  expect(submitted?.channel_type).toBe(17)
+  expect((submitted?.credentials as Record<string, unknown>)?.base_url).toBe(baseUrl)
+  expect((submitted?.credentials as Record<string, unknown>)?.model_mapping).toEqual(mapping)
 })
 
 test('US048 operator copies a source into a new editor and filters the list', async ({ page }) => {
