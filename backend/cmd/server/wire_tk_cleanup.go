@@ -37,6 +37,7 @@ func provideTKCleanupHooks(
 	_ service.TKUniversalModelsProviderReady,
 	_ service.TKGroupUnsupportedModelCacheReady,
 	_ service.ProtocolRoutingSSOTReady,
+	_ service.TKKiroCacheBillingReady,
 ) tkCleanupHooks {
 	return tkCleanupHooks{
 		schedulerRateLimitReaper:  schedulerRateLimitReaper,

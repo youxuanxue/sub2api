@@ -376,7 +376,7 @@ func TestForwardAsChatCompletions_KiroAccountBridgesViaKiroGateway(t *testing.T)
 	require.NotNil(t, result)
 	require.Equal(t, "claude-sonnet-4-5", result.Model)
 	require.False(t, result.Stream)
-	require.Equal(t, "kiro-estimated", result.BillingTier)
+	require.Equal(t, "kiro-cache-estimated", result.BillingTier)
 	require.Positive(t, result.Usage.InputTokens)
 	require.Positive(t, result.Usage.OutputTokens)
 

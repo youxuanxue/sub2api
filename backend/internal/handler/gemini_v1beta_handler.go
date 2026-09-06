@@ -3,12 +3,9 @@ package handler
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -26,10 +23,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
-
-// geminiCLITmpDirRegex 用于从 Gemini CLI 请求体中提取 tmp 目录的哈希值
-// 匹配格式: /Users/xxx/.gemini/tmp/[64位十六进制哈希]
-var geminiCLITmpDirRegex = regexp.MustCompile(`/\.gemini/tmp/([A-Fa-f0-9]{64})`)
 
 // GeminiV1BetaListModels proxies:
 // GET /v1beta/models
@@ -579,19 +572,18 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		clientIP := ip.GetClientIP(c)
 
 		// 保存 Gemini 内容摘要会话（用于 Fallback 匹配）
-		if useDigestFallback && geminiDigestChain != "" && geminiPrefixHash != "" {
-			if err := h.gatewayService.SaveGeminiSession(
-				c.Request.Context(),
-				derefGroupID(apiKey.GroupID),
-				geminiPrefixHash,
-				geminiDigestChain,
-				geminiSessionUUID,
-				account.ID,
-				matchedDigestChain,
-			); err != nil {
-				reqLog.Warn("gemini.digest_session_save_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-			}
-		}
+		// TK: digest session save — see gemini_v1beta_handler_tk_session.go
+		h.tkSaveGeminiDigestSession(
+			c.Request.Context(),
+			reqLog,
+			derefGroupID(apiKey.GroupID),
+			useDigestFallback,
+			geminiDigestChain,
+			geminiPrefixHash,
+			geminiSessionUUID,
+			matchedDigestChain,
+			account.ID,
+		)
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 		requestPayloadHash := service.HashUsageRequestPayload(body)
@@ -657,61 +649,6 @@ func parseGeminiModelAction(rest string) (model string, action string, err error
 	}
 
 	return "", "", &pathParseError{"invalid model action path"}
-}
-
-func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError) {
-	if failoverErr == nil {
-		googleError(c, http.StatusBadGateway, "Upstream request failed")
-		return
-	}
-
-	statusCode := failoverErr.StatusCode
-	responseBody := failoverErr.ResponseBody
-	if failoverErr.ClientStatusCode > 0 {
-		copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
-		message := failoverErr.ClientMessage
-		if message == "" {
-			message = service.GatewayFailoverClientMessage(statusCode)
-		}
-		service.SetOpsUpstreamError(c, statusCode, service.ExtractUpstreamErrorMessage(responseBody), "")
-		googleError(c, failoverErr.ClientStatusCode, message)
-		return
-	}
-
-	// 先检查透传规则
-	if h.errorPassthroughService != nil && len(responseBody) > 0 {
-		if rule := h.errorPassthroughService.MatchRule(service.PlatformGemini, statusCode, responseBody); rule != nil {
-			// 确定响应状态码
-			respCode := statusCode
-			if !rule.PassthroughCode && rule.ResponseCode != nil {
-				respCode = *rule.ResponseCode
-			}
-
-			// 确定响应消息
-			msg := service.ExtractUpstreamErrorMessage(responseBody)
-			if !rule.PassthroughBody && rule.CustomMessage != nil {
-				msg = *rule.CustomMessage
-			}
-
-			if rule.SkipMonitoring {
-				c.Set(service.OpsSkipPassthroughKey, true)
-			}
-
-			googleError(c, respCode, msg)
-			return
-		}
-	}
-
-	// 记录原始上游状态码，以便 ops 错误日志捕获真实的上游错误
-	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
-	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
-
-	// 使用默认的错误映射
-	status, message := mapGeminiUpstreamError(statusCode)
-	if statusCode == http.StatusForbidden {
-		message = service.TkEnrichForbiddenMessage(c, message)
-	}
-	googleError(c, status, message)
 }
 
 func mapGeminiUpstreamError(statusCode int) (int, string) {
@@ -793,58 +730,6 @@ func shouldFallbackGeminiModel(modelName string, res *service.UpstreamHTTPResult
 		return false
 	}
 	return gemini.HasFallbackModel(modelName)
-}
-
-// extractGeminiCLISessionHash 从 Gemini CLI 请求中提取会话标识。
-// 组合 x-gemini-api-privileged-user-id header 和请求体中的 tmp 目录哈希。
-//
-// 会话标识生成策略：
-//  1. 从请求体中提取 tmp 目录哈希（64位十六进制）
-//  2. 从 header 中提取 privileged-user-id（UUID）
-//  3. 组合两者生成 SHA256 哈希作为最终的会话标识
-//
-// 如果找不到 tmp 目录哈希，返回空字符串（不使用粘性会话）。
-//
-// extractGeminiCLISessionHash extracts session identifier from Gemini CLI requests.
-// Combines x-gemini-api-privileged-user-id header with tmp directory hash from request body.
-func extractGeminiCLISessionHash(c *gin.Context, body []byte) string {
-	// 1. 从请求体中提取 tmp 目录哈希
-	match := geminiCLITmpDirRegex.FindSubmatch(body)
-	if len(match) < 2 {
-		return "" // 没有找到 tmp 目录，不使用粘性会话
-	}
-	tmpDirHash := string(match[1])
-
-	// 2. 提取 privileged-user-id
-	privilegedUserID := strings.TrimSpace(c.GetHeader("x-gemini-api-privileged-user-id"))
-
-	// 3. 组合生成最终的 session hash
-	if privilegedUserID != "" {
-		// 组合两个标识符：privileged-user-id + tmp 目录哈希
-		combined := privilegedUserID + ":" + tmpDirHash
-		hash := sha256.Sum256([]byte(combined))
-		return hex.EncodeToString(hash[:])
-	}
-
-	// 如果没有 privileged-user-id，直接使用 tmp 目录哈希
-	return tmpDirHash
-}
-
-// truncateDigestChain 截断摘要链用于日志显示
-func truncateDigestChain(chain string) string {
-	if len(chain) <= 50 {
-		return chain
-	}
-	return chain[:50] + "..."
-}
-
-// safeShortPrefix 返回字符串前 n 个字符；长度不足时返回原字符串。
-// 用于日志展示，避免切片越界。
-func safeShortPrefix(value string, n int) string {
-	if n <= 0 || len(value) <= n {
-		return value
-	}
-	return value[:n]
 }
 
 // derefGroupID 安全解引用 *int64，nil 返回 0

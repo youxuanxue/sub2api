@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -127,6 +128,26 @@ func TestProvideTKPricingMissingNotifier_WiresPricedServingGate(t *testing.T) {
 	require.True(t, geminiCompat.HasPricedServingGateDeps(), "after Provide: gemini compat gate deps (billing+setting) wired")
 	require.True(t, antigravityGw.HasPricedServingGateDeps(), "after Provide: antigravity gate deps (billing+setting) wired")
 	require.True(t, kiroGw.HasPricedServingGateDeps(), "after Provide: kiro gate deps (billing+setting) wired")
+}
+
+// TestProvideTKKiroCacheBilling_WiresStoreAndKillSwitch proves cache-billing DI
+// attaches both the fingerprint store and the settings kill-switch — priced-
+// serving wiring alone must not be the only path for enabled=false rollback.
+func TestProvideTKKiroCacheBilling_WiresStoreAndKillSwitch(t *testing.T) {
+	kiroGw := &service.KiroGatewayService{}
+	require.False(t, kiroGw.HasKiroCacheBillingDeps(), "baseline: bare KiroGatewayService has no cache-billing setting")
+
+	store := kiroproto.NewMemoryCacheFingerprintStore()
+	setting := &service.SettingService{}
+	ready := service.ProvideTKKiroCacheBilling(kiroGw, store, setting)
+	_ = ready
+	require.True(t, kiroGw.HasKiroCacheBillingDeps(), "after Provide: store + kill-switch setting wired")
+}
+
+func TestProvideTKKiroCacheBilling_NilGatewayIsNoOp(t *testing.T) {
+	require.NotPanics(t, func() {
+		_ = service.ProvideTKKiroCacheBilling(nil, nil, nil)
+	})
 }
 
 // TestProvideTKPricingMissingNotifier_NilForwardersAreNoOp verifies the

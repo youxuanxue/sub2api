@@ -710,6 +710,11 @@ const (
 	// 当为 false 时所有分组一律退化为 passthrough（仅透传客户端已送的 sticky 字段，不派生）。
 	// 详见 docs/approved/sticky-routing.md §3.2。
 	SettingKeyStickyRoutingEnabled = "gateway.sticky_routing.enabled"
+	// SettingKeyKiroCacheBillingEnabled (TK) 是否对 Kiro OAuth 流量启用本地前缀指纹
+	// cache_read 计费拆分（默认 true；仅字面量 "false" 关闭）。上游不返回 cache
+	// telemetry；开启后按 Anthropic 价表对匹配前缀按 cache_read 计价（90% haircut，
+	// 最小 1024 tokens）。详见 docs/spec-delta/kiro-cache-billing.md。
+	SettingKeyKiroCacheBillingEnabled = "gateway.kiro_cache_billing.enabled"
 	// SettingKeyStickySlotFullEscapeEnabled 控制 sticky 绑定账号并发槽满时是否先试
 	// 全池再排队（upstream #2859，默认 true）。为 false 时退回今日行为：槽满即在
 	// 原 sticky 账号上排队。详见 docs/approved/sticky-routing.md §11.5。
