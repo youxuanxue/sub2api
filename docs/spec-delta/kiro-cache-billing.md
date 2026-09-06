@@ -31,4 +31,4 @@ go test -tags=unit ./internal/integration/kiro/ -run 'CacheUsage|ResolveCacheTTL
 go test -tags=unit ./internal/service/ -run 'KiroCacheBilling|KiroPromptUsage|KiroSSEEncoder_Message'
 ```
 
-上线后默认生效。异常时将 `gateway.kiro_cache_billing.enabled=false` 即可回滚。
+上线后默认生效（billing_tier=`kiro-cache-estimated`，不再计入 dashboard 的 cache_telemetry_unavailable）。异常时将 `gateway.kiro_cache_billing.enabled=false`（回退 `kiro-estimated`）即可回滚。

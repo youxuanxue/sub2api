@@ -261,7 +261,7 @@ func TestKiroGatewayService_Forward_NonStreaming(t *testing.T) {
 	// and the billing tier marked as estimated.
 	require.Positive(t, result.Usage.InputTokens)
 	require.Positive(t, result.Usage.OutputTokens)
-	require.Equal(t, "kiro-estimated", result.BillingTier)
+	require.Equal(t, "kiro-cache-estimated", result.BillingTier)
 	require.Equal(t, "claude-sonnet-4", result.Model)
 	require.NotEmpty(t, result.RequestID)
 
@@ -1230,7 +1230,7 @@ func TestKiroGatewayService_Forward_Streaming(t *testing.T) {
 	// Estimated usage (Kiro upstream reports credits only).
 	require.Positive(t, result.Usage.InputTokens)
 	require.Positive(t, result.Usage.OutputTokens)
-	require.Equal(t, "kiro-estimated", result.BillingTier)
+	require.Equal(t, "kiro-cache-estimated", result.BillingTier)
 
 	out := rec.Body.String()
 	require.Contains(t, out, "event: message_start")

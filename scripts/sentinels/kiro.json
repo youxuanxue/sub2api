@@ -193,9 +193,21 @@
         "func EstimateInputTokens",
         "func EstimatePayloadInputTokens",
         "func EstimateOutputTokens",
-        "KiroEstimatedBillingTier"
+        "KiroEstimatedBillingTier",
+        "KiroCacheEstimatedBillingTier"
       ],
-      "rationale": "Local cl100k_base token estimation for kiro billing. The Kiro EventStream upstream reports credits only (never tokens), so without this estimator every kiro request bills input=output=cost=0 (100% free). Losing EstimateInputTokens/EstimateOutputTokens silently regresses kiro back to free; losing KiroEstimatedBillingTier drops the billing_tier=\"kiro-estimated\" provenance label operators use to distinguish estimated from upstream-reported billing."
+      "rationale": "Local cl100k_base token estimation for kiro billing. The Kiro EventStream upstream reports credits only (never tokens), so without this estimator every kiro request bills input=output=cost=0 (100% free). Losing EstimateInputTokens/EstimateOutputTokens silently regresses kiro back to free; losing KiroEstimatedBillingTier / KiroCacheEstimatedBillingTier drops the billing_tier provenance labels operators and the dashboard use to distinguish estimated billing and cache-telemetry availability."
+    },
+    {
+      "path": "backend/internal/integration/kiro/cache_estimate.go",
+      "must_contain": [
+        "func EstimateCacheUsageSplit",
+        "func CommitCacheFingerprints",
+        "MinCacheablePrefixTokens",
+        "CacheReadHaircutBPS",
+        "func CacheSessionKey"
+      ],
+      "rationale": "Prefix-fingerprint cache_read attribution for Kiro when upstream reports no Anthropic cache telemetry. Losing the min-size / haircut / session-key gates silently over-discounts or fabricates cross-conversation cache hits."
     },
     {
       "path": "backend/internal/integration/kiro/client.go",
@@ -317,7 +329,8 @@
         "ResetForRetry: func() bool",
         "CallKiroAPIWithDoerContext(ctx",
         "PersistKiroProfileArnIfChanged",
-        "kiroproto.EstimateInputTokens",
+        "s.kiroPromptUsage",
+        "commitKiroCacheFingerprints",
         "kiroproto.EstimateOutputTokens",
         "BillingTier:   kiroproto.KiroEstimatedBillingTier",
         "callErr != nil && !enc.started",
@@ -353,7 +366,19 @@
         "ResolveStashThinking",
         "publishKiroInternalThinkingSideChannel"
       ],
-      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. OnReasoningContent plus thinkingSigBuf accumulate upstream reasoningContentEvent signatures into the internal QA side channel without exposing them on the client wire. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Continuation turns are transport-only wiring: default zero client-visible text; only ordinary client tools, non-completion terminal outcomes, and deduped short blocker questions may pass. shouldExposeClaudeCodeCompletionMessage and completionSignalTextDelta enforce turn>=2 complete silence plus isShortBlockerQuestion gating after continuationTextDelta dedupe. stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. Prompt-side input/cache_read attribution is centralized in kiroPromptUsage (with commitKiroCacheFingerprints after success) so Anthropic-mapped multi-turn traffic can bill cache_read instead of full input. OnReasoningContent plus thinkingSigBuf accumulate upstream reasoningContentEvent signatures into the internal QA side channel without exposing them on the client wire. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Continuation turns are transport-only wiring: default zero client-visible text; only ordinary client tools, non-completion terminal outcomes, and deduped short blocker questions may pass. shouldExposeClaudeCodeCompletionMessage and completionSignalTextDelta enforce turn>=2 complete silence plus isShortBlockerQuestion gating after continuationTextDelta dedupe. stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing.go",
+      "must_contain": [
+        "func (s *KiroGatewayService) kiroPromptUsage",
+        "kiroproto.EstimateInputTokens",
+        "kiroproto.EstimateCacheUsageSplit",
+        "kiroproto.CacheSessionKey",
+        "commitKiroCacheFingerprints",
+        "IsKiroCacheBillingEnabled"
+      ],
+      "rationale": "TK companion that owns Kiro prompt-side billing attribution. EstimateInputTokens remains the total-prompt owner; EstimateCacheUsageSplit optionally moves a matched conversation prefix into cache_read (haircut + min size). Losing this companion silently regresses multi-turn Kiro bills back to full-input pricing or drops the kill-switch path."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",
@@ -420,9 +445,9 @@
         "message_start",
         "content_block_delta",
         "func (e *kiroSSEEncoder) ensureBlock",
-        "writeMessageDelta(inputTokens, outputTokens int, stopReason string)"
+        "writeMessageDelta(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int, stopReason string)"
       ],
-      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). writeMessageDelta carries the final input total as well as output tokens because hidden completion turns occur after message_start and relay billing merges terminal usage. The explicit stopReason argument prevents the encoder from inventing end_turn when upstream actually stopped for a token limit or an unsupported outcome. ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
+      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). writeMessageDelta carries the final input total as well as optional cache_read/cache_creation fields and output tokens because hidden completion turns occur after message_start and relay billing merges terminal usage. The explicit stopReason argument prevents the encoder from inventing end_turn when upstream actually stopped for a token limit or an unsupported outcome. ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",

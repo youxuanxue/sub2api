@@ -6,9 +6,10 @@ import (
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 )
 
-// kiroPromptUsage resolves prompt-side tokens for billing. When the opt-in
-// cache-billing flag is off (default), the full estimate stays in InputTokens.
-// When on, matching conversation prefixes become cache_read (with haircut).
+// kiroPromptUsage resolves prompt-side tokens for billing. When
+// gateway.kiro_cache_billing.enabled is false, the full estimate stays in
+// InputTokens. When enabled (default), matching conversation prefixes become
+// cache_read (with haircut).
 func (s *KiroGatewayService) kiroPromptUsage(
 	ctx context.Context,
 	account *Account,
@@ -55,4 +56,11 @@ func kiroClaudeUsage(input, output, cacheRead, cacheCreation int) ClaudeUsage {
 		CacheReadInputTokens:     cacheRead,
 		CacheCreationInputTokens: cacheCreation,
 	}
+}
+
+func kiroBillingTier(cacheBillingEnabled bool) string {
+	if cacheBillingEnabled {
+		return kiroproto.KiroCacheEstimatedBillingTier
+	}
+	return kiroproto.KiroEstimatedBillingTier
 }

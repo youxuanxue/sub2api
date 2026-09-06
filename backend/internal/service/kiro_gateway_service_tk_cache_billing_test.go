@@ -66,6 +66,15 @@ func TestKiroPromptUsage_FlagOffKeepsFullInput(t *testing.T) {
 	}
 }
 
+func TestKiroBillingTier_SeparatesCacheEstimatedFromLegacy(t *testing.T) {
+	if got := kiroBillingTier(true); got != kiroproto.KiroCacheEstimatedBillingTier {
+		t.Fatalf("enabled tier=%q", got)
+	}
+	if got := kiroBillingTier(false); got != kiroproto.KiroEstimatedBillingTier {
+		t.Fatalf("disabled tier=%q", got)
+	}
+}
+
 func TestKiroPromptUsage_DefaultOnSplitsWhenPrefixed(t *testing.T) {
 	kiroCacheBillingCache.Store((*tkOptOutFlagCacheEntry)(nil))
 	store := kiroproto.NewMemoryCacheFingerprintStore()

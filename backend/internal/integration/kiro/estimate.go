@@ -27,8 +27,13 @@ import (
 //   - Estimates are tagged with billing_tier="kiro-estimated" by the caller.
 
 // KiroEstimatedBillingTier is the billing_tier label stamped on Kiro usage logs
-// so operators can distinguish estimated billing from upstream-reported billing.
+// when local prompt-cache attribution is disabled (cache fields stay 0).
 const KiroEstimatedBillingTier = "kiro-estimated"
+
+// KiroCacheEstimatedBillingTier is stamped when gateway.kiro_cache_billing is
+// enabled. Dashboard treats only "kiro-estimated" as cache-telemetry-unavailable;
+// this distinct tier lets estimated cache_read participate in prompt-cache rates.
+const KiroCacheEstimatedBillingTier = "kiro-cache-estimated"
 
 var (
 	estCodec     tokenizer.Codec

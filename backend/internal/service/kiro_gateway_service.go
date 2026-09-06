@@ -726,7 +726,7 @@ func (s *KiroGatewayService) forwardNonStreaming(
 		UpstreamModel: kiroproto.MapModel(model),
 		Stream:        false,
 		Duration:      time.Since(startTime),
-		BillingTier:   kiroproto.KiroEstimatedBillingTier,
+		BillingTier:   kiroBillingTier(cacheBillingEnabled),
 	}, nil
 }
 
@@ -1071,7 +1071,7 @@ func (s *KiroGatewayService) forwardStreaming(
 		Stream:        true,
 		Duration:      time.Since(startTime),
 		FirstTokenMs:  firstTokMs,
-		BillingTier:   kiroproto.KiroEstimatedBillingTier,
+		BillingTier:   kiroBillingTier(cacheBillingEnabled),
 	}, nil
 }
 
