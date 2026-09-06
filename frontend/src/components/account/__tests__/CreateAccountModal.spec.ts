@@ -196,7 +196,8 @@ describe('CreateAccountModal protocol capabilities', () => {
     const wrapper = mountModal()
     const capabilities = wrapper.get('[data-testid="create-account-supported-protocols"]')
 
-    expect(capabilities.text()).toContain('未检测到可用文本协议')
+    // Mount harness stubs i18n as identity keys (see sibling Gemini OAuth tests).
+    expect(capabilities.text()).toContain('admin.accounts.protocolCapabilityEmpty')
     expect(capabilities.find('input, select, button').exists()).toBe(false)
   })
 })

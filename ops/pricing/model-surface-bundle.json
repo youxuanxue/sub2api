@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "e1b1b72e3566b4cde55e4dec9541fdaa84a7b6ba44b9f608d46257d590252a24",
+  "floor_sha256": "c71c49e3b91ed20455148f8c94b63f7ef62c83f4c651b96a360df17ba420e06d",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -87,6 +87,7 @@
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
         "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
@@ -291,6 +292,7 @@
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
@@ -442,6 +444,7 @@
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
         "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
@@ -453,6 +456,7 @@
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
@@ -463,6 +467,7 @@
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
         "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
@@ -475,6 +480,7 @@
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
+        "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
         "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
