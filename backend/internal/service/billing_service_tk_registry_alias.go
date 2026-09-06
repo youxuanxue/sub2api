@@ -124,7 +124,7 @@ func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 		switch normalized {
 		case "gpt-5.5":
 			return tkRegistryAliasOwnerPricing("gpt-5.5")
-		case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+		case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra",
 			"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2":
 			return tkRegistryAliasOwnerPricing(normalized)
 		case "gpt-5.3-codex", "gpt-5.3-codex-spark":

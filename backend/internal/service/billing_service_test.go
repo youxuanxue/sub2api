@@ -507,6 +507,8 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{name: "openai gpt-5.6 terra", model: "gpt-5.6-terra", expectedInput: 2e-6, expectedOutput: floatPtr(12e-6)},
 		{name: "openai gpt-5.6 luna", model: "gpt-5.6-luna", expectedInput: 2e-7, expectedOutput: floatPtr(1.2e-6)},
 		{name: "openai gpt-5.6 chat-latest bills as sol", model: "gpt-5.6-chat-latest", expectedInput: 5e-6, expectedOutput: floatPtr(3e-5)},
+		{name: "openai gpt-6-astra", model: "gpt-6-astra", expectedInput: 1e-5, expectedOutput: floatPtr(5e-5)},
+		{name: "openai gpt-6 alias bills as astra", model: "gpt-6", expectedInput: 1e-5, expectedOutput: floatPtr(5e-5)},
 		{name: "openai gpt5.3 codex", model: "gpt-5.3-codex", expectedInput: 1.5e-6},
 		{name: "openai gpt5.3 codex spark", model: "gpt-5.3-codex-spark", expectedInput: 1.5e-6},
 		{name: "openai legacy gpt5.1 falls back to gpt5.4", model: "gpt-5.1", expectedInput: 2.5e-6},
