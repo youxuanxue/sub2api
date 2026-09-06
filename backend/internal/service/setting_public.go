@@ -238,10 +238,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
-		SettingKeySignupBonusEnabled,
-		SettingKeySignupBonusBalance,
-		SettingKeyPricingCatalogPublic,
 	}
+	// TK: signup bonus + pricing catalog public keys — see setting_public_tk_signup_pricing.go
+	keys = append(keys, tkPublicSignupPricingSettingKeys()...)
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
 	if err != nil {
@@ -298,16 +297,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		balanceLowNotifyThreshold = v
 	}
 
-	signupBonusEnabled := !isFalseSettingValue(settings[SettingKeySignupBonusEnabled])
-	signupBonusBalance := defaultSignupBonusBalanceUSD
-	if v, err := strconv.ParseFloat(settings[SettingKeySignupBonusBalance], 64); err == nil && v >= 0 {
-		signupBonusBalance = v
-	}
-	if !signupBonusEnabled {
-		signupBonusBalance = 0
-	}
-
-	return &PublicSettings{
+	out := &PublicSettings{
 		RegistrationEnabled:                 settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:                  emailVerifyEnabled,
 		ForceEmailOnThirdPartySignup:        settings[SettingKeyForceEmailOnThirdPartySignup] == "true",
@@ -380,11 +370,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		RiskControlEnabled: settings[SettingKeyRiskControlEnabled] == "true",
 
 		AllowUserViewErrorRequests: settings[SettingKeyAllowUserViewErrorRequests] == "true",
-
-		SignupBonusEnabled:           signupBonusEnabled,
-		SignupBonusBalanceDisplayUSD: signupBonusBalance,
-		PricingCatalogPublic:         !isFalseSettingValue(settings[SettingKeyPricingCatalogPublic]),
-	}, nil
+	}
+	// TK: signup bonus + pricing catalog preview — see setting_public_tk_signup_pricing.go
+	tkApplyPublicSignupPricing(out, tkParsePublicSignupPricing(settings))
+	return out, nil
 }
 
 // channelMonitorIntervalMin / channelMonitorIntervalMax bound the default interval
@@ -620,9 +609,11 @@ type PublicSettingsInjectionPayload struct {
 	AccountQuotaNotifyEnabled   bool    `json:"account_quota_notify_enabled"`
 	BalanceLowNotifyThreshold   float64 `json:"balance_low_notify_threshold"`
 	BalanceLowNotifyRechargeURL string  `json:"balance_low_notify_recharge_url"`
-	PricingCatalogPublic        bool    `json:"pricing_catalog_public"`
-	SignupBonusEnabled          bool    `json:"signup_bonus_enabled"`
-	SignupBonusBalanceUSD       float64 `json:"signup_bonus_balance_usd"`
+	// TK: public signup/pricing preview fields (json tags must stay on this
+	// struct — see setting_public_tk_signup_pricing.go for fill logic).
+	PricingCatalogPublic  bool    `json:"pricing_catalog_public"`
+	SignupBonusEnabled    bool    `json:"signup_bonus_enabled"`
+	SignupBonusBalanceUSD float64 `json:"signup_bonus_balance_usd"`
 
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
@@ -652,7 +643,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		return nil, err
 	}
 
-	return &PublicSettingsInjectionPayload{
+	payload := &PublicSettingsInjectionPayload{
 		RegistrationEnabled:              settings.RegistrationEnabled,
 		EmailVerifyEnabled:               settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: settings.RegistrationEmailSuffixWhitelist,
@@ -709,9 +700,6 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AccountQuotaNotifyEnabled:        settings.AccountQuotaNotifyEnabled,
 		BalanceLowNotifyThreshold:        settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:      settings.BalanceLowNotifyRechargeURL,
-		PricingCatalogPublic:             settings.PricingCatalogPublic,
-		SignupBonusEnabled:               settings.SignupBonusEnabled,
-		SignupBonusBalanceUSD:            settings.SignupBonusBalanceDisplayUSD,
 
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorMode:                   settings.ChannelMonitorMode,
@@ -724,7 +712,10 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
 		AllowUserViewErrorRequests:           settings.AllowUserViewErrorRequests,
-	}, nil
+	}
+	// TK: signup bonus + pricing catalog injection fields — see setting_public_tk_signup_pricing.go
+	tkApplyPublicSignupPricingInjection(payload, settings)
+	return payload, nil
 }
 
 // filterUserVisibleMenuItems filters out admin-only menu items from a raw JSON

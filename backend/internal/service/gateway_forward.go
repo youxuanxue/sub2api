@@ -121,39 +121,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		return s.handleWebSearchEmulation(ctx, c, account, parsed)
 	}
 
-	if account != nil && shouldForwardCloudwiseAnthropicViaChatCompletions(account, parsed) {
-		return s.forwardCloudwiseAnthropicViaChatCompletions(ctx, c, account, parsed)
+	// TK: Cloudwise chat-completions early branch — see gateway_forward_tk_cloudwise.go
+	if result, handled, err := s.tkTryForwardCloudwiseAnthropicViaChatCompletions(ctx, c, account, parsed); handled {
+		return result, err
 	}
 
-	if account != nil && account.IsAnthropicAPIKeyPassthroughEnabled() {
-		passthroughBody := parsed.Body.Bytes()
-		passthroughModel := parsed.Model
-		if passthroughModel != "" {
-			if mappedModel := account.GetMappedModel(passthroughModel); mappedModel != passthroughModel {
-				passthroughBody = s.replaceModelInBody(passthroughBody, mappedModel)
-				logger.LegacyPrintf("service.gateway", "Passthrough model mapping: %s -> %s (account: %s)", parsed.Model, mappedModel, account.Name)
-				passthroughModel = mappedModel
-			}
-		}
-		return s.forwardAnthropicAPIKeyPassthroughWithInput(ctx, c, account, anthropicPassthroughForwardInput{
-			Body:          passthroughBody,
-			Parsed:        parsed,
-			RequestModel:  passthroughModel,
-			OriginalModel: parsed.Model,
-			RequestStream: parsed.Stream,
-			StartTime:     startTime,
-		})
-	}
-
-	if account != nil && account.IsAnthropicOAuthPassthroughEnabled() {
-		return s.forwardAnthropicOAuthPassthroughWithInput(ctx, c, account, anthropicPassthroughForwardInput{
-			Body:          parsed.Body.Bytes(),
-			Parsed:        parsed,
-			RequestModel:  parsed.Model,
-			OriginalModel: parsed.Model,
-			RequestStream: parsed.Stream,
-			StartTime:     startTime,
-		})
+	// TK: Anthropic API-key / OAuth passthrough — see gateway_forward_tk_oauth_passthrough_dispatch.go
+	if result, handled, err := s.tkTryForwardAnthropicPassthrough(ctx, c, account, parsed, startTime); handled {
+		return result, err
 	}
 
 	if account != nil && account.IsBedrock() {
@@ -335,9 +310,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if err := replaceBody(FilterThinkingBlocks(body, reqModel)); err != nil {
 		return nil, err
 	}
-	// TK: ToolSearch dynamic loading can perturb historical signed thinking
-	// blocks; strip those before the first upstream call.
-	if err := replaceBody(TkPrefilterToolSearchHistoricalThinking(body, reqModel)); err != nil {
+	// TK: ToolSearch historical-thinking prefilter — see gateway_forward_tk_toolsearch.go
+	if err := tkApplyToolSearchHistoricalThinkingPrefilter(reqModel, getBody, replaceBody); err != nil {
 		return nil, err
 	}
 	// Chinese LLM thinking.type 协议差异补正（如 MiniMax 只接受 adaptive；Anthropic-SDK

@@ -295,13 +295,9 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 
-	var finalResp *apicompat.AnthropicResponse
-	var usage ClaudeUsage
-	streamCompleted := false
-	// TK: terminal Anthropic `error` events are not modelled by
-	// apicompat.AnthropicStreamEvent; capture them so the fallthrough below can
-	// attribute the failure upstream instead of to the gateway.
-	var upstreamErr *tkAnthropicBufferedUpstreamError
+	// TK: SSE event accumulation + terminal failure contract live in
+	// gateway_forward_as_tk_buffered_stream.go / gateway_anthropic_buffered_error_tk.go.
+	var assembly tkAnthropicBufferedAssembly
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -320,8 +316,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		}
 		observeOpenAIResponsesEvent(c, []byte(payload))
 
-		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
-			upstreamErr = parsed
+		if assembly.noteSSEError([]byte(payload), s.cfg) {
 			break
 		}
 
@@ -329,68 +324,20 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
-
-		// message_start carries the initial response structure and cache usage
-		if event.Type == "message_start" && event.Message != nil {
-			finalResp = event.Message
-			mergeAnthropicUsage(&usage, event.Message.Usage)
-		}
-
-		// message_delta carries final usage and stop_reason
-		if event.Type == "message_delta" {
-			if event.Usage != nil {
-				mergeAnthropicUsage(&usage, *event.Usage)
-			}
-			if event.Delta != nil && event.Delta.StopReason != "" && finalResp != nil {
-				finalResp.StopReason = apicompat.AnthropicStopReasonPtr(event.Delta.StopReason)
-			}
-		}
-		if tkAnthropicBufferedEventCompletesMessage(&event) {
-			streamCompleted = true
+		if assembly.applyEvent(&event) {
 			break
 		}
-		if event.Type == "content_block_start" && event.ContentBlock != nil && finalResp != nil {
-			finalResp.Content = append(finalResp.Content, *event.ContentBlock)
-		}
-		if event.Type == "content_block_delta" && event.Delta != nil && finalResp != nil && event.Index != nil {
-			idx := *event.Index
-			if idx < len(finalResp.Content) {
-				switch event.Delta.Type {
-				case "text_delta":
-					finalResp.Content[idx].Text += event.Delta.Text
-				case "thinking_delta":
-					finalResp.Content[idx].Thinking += event.Delta.Thinking
-				case "input_json_delta":
-					finalResp.Content[idx].Input = appendRawJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
-				}
-			}
-		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_cc buffered: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
-		if upstreamErr == nil {
-			upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_read_error", "Upstream stream read failed before response completion")
-		}
+	finalResp, err := s.tkResolveAnthropicBufferedAssembly(
+		c, account, resp, requestID, mappedModel,
+		&assembly, scanner.Err(),
+		"forward_as_cc buffered: read error",
+	)
+	if err != nil {
+		return nil, err
 	}
-
-	if !streamCompleted && upstreamErr == nil {
-		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
-	}
-	if upstreamErr != nil {
-		if !tkAnthropicBufferedHasUsableContent(finalResp) {
-			return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, upstreamErr)
-		}
-		tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
-	}
-	if finalResp == nil {
-		return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, nil)
-	}
+	usage := assembly.Usage
 
 	// Update usage from accumulated delta
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 {

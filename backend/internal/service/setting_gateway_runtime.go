@@ -840,7 +840,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		}
 		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayForwardingDBTimeout)
 		defer cancel()
-		values, err := s.settingRepo.GetMultiple(dbCtx, []string{
+		values, err := s.settingRepo.GetMultiple(dbCtx, append([]string{
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
 			SettingKeyEnableCCHSigning,
@@ -850,12 +850,10 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyEnableAnthropicCacheTTL1hInjection,
 			SettingKeyRewriteMessageCacheControl,
 			SettingKeyEnableClientDatelineNormalization,
-			SettingKeyAnthropicRequestNormalizeEnabled,
-			SettingKeyAnthropicCanonicalIngressStrictEnabled,
-			SettingKeyAnthropicCanonicalHaikuMimicryEnabled,
-		})
+		}, tkGatewayForwardingExtraSettingKeys()...))
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
+			tkExtras := tkDefaultGatewayForwardingExtras()
 			gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 				fingerprintUnification:           true,
 				metadataPassthrough:              false,
@@ -864,10 +862,12 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				anthropicCacheTTL1hInjection:     false,
 				rewriteMessageCacheControl:       s.defaultRewriteMessageCacheControl(),
 				clientDatelineNormalization:      true,
-				anthropicRequestNormalize:        true,
+				anthropicRequestNormalize:        tkExtras.anthropicRequestNormalize,
+				canonicalIngressStrict:           tkExtras.canonicalIngressStrict,
+				canonicalHaikuMimicry:            tkExtras.canonicalHaikuMimicry,
 				expiresAt:                        time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
-			return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl(), clientDatelineNormalization: true, anthropicRequestNormalize: true}, nil
+			return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl(), clientDatelineNormalization: true, anthropicRequestNormalize: tkExtras.anthropicRequestNormalize}, nil
 		}
 		fp := true
 		if v, ok := values[SettingKeyEnableFingerprintUnification]; ok && v != "" {
@@ -890,9 +890,11 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		if v, ok := values[SettingKeyEnableClientDatelineNormalization]; ok && v != "" {
 			clientDatelineNormalization = v == "true"
 		}
-		anthropicRequestNormalize := !isFalseSettingValue(values[SettingKeyAnthropicRequestNormalizeEnabled])
-		canonicalIngressStrict := values[SettingKeyAnthropicCanonicalIngressStrictEnabled] == "true"
-		canonicalHaikuMimicry := values[SettingKeyAnthropicCanonicalHaikuMimicryEnabled] == "true"
+		// TK: normalize + canonical ingress/mimicry — see setting_gateway_runtime_tk_forwarding_extras.go
+		tkExtras := tkParseGatewayForwardingExtras(values)
+		anthropicRequestNormalize := tkExtras.anthropicRequestNormalize
+		canonicalIngressStrict := tkExtras.canonicalIngressStrict
+		canonicalHaikuMimicry := tkExtras.canonicalHaikuMimicry
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			fingerprintUnification:           fp,
 			metadataPassthrough:              mp,
@@ -926,7 +928,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
 		return r
 	}
-	return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, clientDatelineNormalization: true, anthropicRequestNormalize: true}
+	tkExtras := tkDefaultGatewayForwardingExtras()
+	return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, clientDatelineNormalization: true, anthropicRequestNormalize: tkExtras.anthropicRequestNormalize}
 }
 
 // GetGatewayForwardingSettings returns cached gateway forwarding settings.

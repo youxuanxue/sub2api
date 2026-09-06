@@ -298,7 +298,7 @@
         "normalized := normalizeOpenAIBillingModel(model)",
         "isOpenAIGPT56Model(normalized)"
       ],
-      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. GPT-5.6 cache-creation / long-context policy must key off normalizeOpenAIBillingModel (settlement), never normalizeKnownOpenAICodexModel / entitlement wire remaps — otherwise dated gpt-5.4-* inherit terra cache-write invention. P3: deepseek/glm overlay aliases moved to billing_service_tk_fallback_overlay.go."
+      "rationale": "BillingService pricing hooks: unknown zeroes fail closed, interval/thinking/media fields survive conversion, Imagen keeps flat billing, and compatibility aliases normalize. Production alias matching must resolve an active registry owner instead of using the legacy numeric Go fixture table. Not every registry row is a family alias; dropping the scoped hooks reintroduces price drift while broadening them changes fail-closed behavior for unrelated models. GPT-5.6 cache-creation / long-context policy must key off normalizeOpenAIBillingModel (settlement), never normalizeKnownOpenAICodexModel / entitlement wire remaps — otherwise dated gpt-5.4-* inherit terra cache-write invention. P3: deepseek/glm overlay aliases moved to billing_service_tk_fallback_overlay.go. P3: Fable/Gemini/GPT/DeepSeek/GLM fallback tables moved to billing_service_tk_fallback_tables.go."
     },
     {
       "path": "backend/internal/service/billing_service_tk_fallback_overlay.go",
@@ -307,6 +307,28 @@
         "tkOverlayModelPricing(\"glm-5.2\")"
       ],
       "rationale": "P3 companion: deepseek-v4-flash / glm-5.2 pricing overlay aliases for billing fallback. Dropping them reintroduces price drift for those families."
+    },
+    {
+      "path": "backend/internal/service/billing_service.go",
+      "must_contain": [
+        "s.tkInitFallbackPricingTables()",
+        "if p := s.tkResolveFallbackTableFamilyPricing(modelLower); p != nil {"
+      ],
+      "rationale": "P3: initFallbackPricing / getFallbackPricing must retain thin calls into billing_service_tk_fallback_tables.go after Fable/Gemini/GPT/DeepSeek/GLM table extraction so upstream merges cannot drop extended fallback price cards compile-clean."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_fallback_tables.go",
+      "must_contain": [
+        "func (s *BillingService) tkInitFallbackPricingTables()",
+        "func (s *BillingService) tkResolveFallbackTableFamilyPricing",
+        "s.fallbackPrices[\"claude-fable-5\"]",
+        "s.fallbackPrices[\"gemini-3.1-pro\"]",
+        "s.fallbackPrices[\"gpt-5.4\"]",
+        "s.fallbackPrices[\"gpt-6-astra\"]",
+        "s.fallbackPrices[\"deepseek-v4-pro\"]",
+        "s.fallbackPrices[\"glm-5.2\"]"
+      ],
+      "rationale": "P3 companion: hardcoded fallback price tables for Fable/Gemini/GPT/DeepSeek/GLM/domestic LLM and Fable/Claude-floor/Gemini family matchers. Dropping this file silently removes extended fallback cards while Claude classic + Grok remain, causing under/over-charge on those families when dynamic pricing is unavailable."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias.go",

@@ -663,9 +663,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		if !s.isAccountSchedulableForQuota(acc) {
 			continue
 		}
-		// 窗口费用检查（非粘性会话路径）
-		if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
-			windowDropped = append(windowDropped, acc)
+		// TK: window-cost drop + never-empty recovery — see gateway_scheduling_tk_window_recovery.go
+		if !s.tkAllowOrCollectWindowCost(ctx, acc, &windowDropped) {
 			continue
 		}
 		// RPM 检查（非粘性会话路径）
@@ -674,11 +673,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 		candidates = append(candidates, acc)
 	}
-	if len(candidates) == 0 && len(windowDropped) > 0 {
-		if acc := leastUtilizedAnthropicAccount(windowDropped, time.Now()); acc != nil {
-			candidates = append(candidates, acc)
-		}
-	}
+	candidates = tkRecoverAnthropicCandidatesFromWindowDropped(candidates, windowDropped, time.Now())
 
 	if len(candidates) == 0 {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, platform, accounts, excludedIDs, useMixed)
@@ -1281,14 +1276,6 @@ func (s *GatewayService) tryAcquireAccountSlot(ctx context.Context, accountID in
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
 	}
 	return s.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
-}
-
-func (s *GatewayService) withWindowCostPrefetch(ctx context.Context, accounts []Account) context.Context {
-	return ctx
-}
-
-func (s *GatewayService) isAccountSchedulableForWindowCost(ctx context.Context, account *Account, isSticky bool) bool {
-	return s.isAccountSchedulableForAnthropicWindow(ctx, account, isSticky)
 }
 
 func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
