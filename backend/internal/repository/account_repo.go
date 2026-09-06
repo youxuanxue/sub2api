@@ -2472,6 +2472,22 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 	return nil
 }
 
+// EnsureAccountGroups adds any missing required group IDs without removing existing memberships.
+func (r *accountRepository) EnsureAccountGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	if accountID <= 0 || len(groupIDs) == 0 {
+		return nil
+	}
+	existing, err := r.loadAccountGroupIDs(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	merged := mergeGroupIDs(existing, groupIDs)
+	if len(merged) == len(existing) {
+		return nil
+	}
+	return r.BindGroups(ctx, accountID, merged)
+}
+
 func (r *accountRepository) ListSchedulable(ctx context.Context) ([]service.Account, error) {
 	accounts, err := r.schedulableAccountsQuery(time.Now()).All(ctx)
 	if err != nil {

@@ -1,20 +1,22 @@
 ---
 title: TokenKey Model Supplier Source Management
 status: approved
-approved_by: "xuejiao (operator directives through 2026-09-03)"
+approved_by: "xuejiao (operator directives through 2026-09-06)"
 approved_at: 2026-08-27
-updated: 2026-09-03
+updated: 2026-09-06
 created: 2026-08-27
 owners: [tk-platform]
 scope: "supplier facts, admin API/UI, credential isolation, account projection, probe gate; managed accounts behave like ordinary accounts after create, with sync overwriting projection fields"
 related_stories: ["US-048"]
 revision_note: >
-  2026-09-03: Project writes managed accounts only and never probes;
-  validate remains the sole configured-model probe. Same day: supplier
-  identity SSOT — row unique key is (supplier_name, endpoint,
-  credential_fingerprint, channel_type); DB/API field channel_name
-  renamed to supplier_lane (display label only). Adoption candidates
-  filter by channel_type transport. 2026-09-02: Anthropic
+  2026-09-06: Anthropic channel_type=14 supplier-managed accounts auto-join
+  the anthropic-platform scheduling group named "claude" on create and on Sync
+  ensure (additive; does not remove other groups). 2026-09-03: Project writes
+  managed accounts only and never probes; validate remains the sole
+  configured-model probe. Same day: supplier identity SSOT — row unique key is
+  (supplier_name, endpoint, credential_fingerprint, channel_type); DB/API field
+  channel_name renamed to supplier_lane (display label only). Adoption
+  candidates filter by channel_type transport. 2026-09-02: Anthropic
   channel_type=14 messages-only exception.
 ---
 
@@ -48,11 +50,12 @@ account.priority = source.base_priority + discount_priority
 ## 隔离边界
 
 - 第一版只新增 `model_supplier_sources` 一张表，不增加状态、revision、探测历史、同步任务或审计表。
-- 供应源不依赖账号组仓储，不读取、比较或写入账号组，不取模型账号组并集，不返回账号组 diff。
-  供应投影读取使用专用的无账号组查询，不调用会加载 `AccountGroups`、`GroupIDs` 或 `Groups` 的通用
-  `GetByID`。
-- 新账号通过现有账号创建服务建立，并显式跳过默认组绑定，保持未分组。普通账号创建仍保持原有失败
-  契约。供应源不改变账号网关调度。
+- 供应源投影读取使用专用的无账号组查询，不调用会加载 `AccountGroups`、`GroupIDs` 或 `Groups` 的通用
+  `GetByID`，也不返回账号组 diff。例外：`channel_type=14`（Anthropic Messages）的受管账号在创建与
+  Sync ensure 时**加算**加入 platform=`anthropic`、name=`claude` 的调度分组（缺组则投影失败）；
+  不删除其它已有分组，也不改 OpenAI/其它通道的未分组行为。
+- 新账号通过现有账号创建服务建立，并显式跳过 `newapi-default` 默认组绑定。普通账号创建仍保持原有失败
+  契约。供应源不改变账号网关调度算法本身。
 - 供应源持久化 `channel_type`（Extension Engine 枚举）；Admin 表单必选类型，endpoint 主机仍可作
   兼容提示，但 transport / models 路径 / 受管账号投影以 `channel_type` 为准。默认 OpenAI
   Chat（1）；千帆 BaiduV2（46）规范化 `base_url` 为 `https://qianfan.baidubce.com`；DashScope Ali
@@ -144,7 +147,8 @@ supplier_discount_band
 
 `supplier_source_id + supplier_discount_band` 是受管账号唯一逻辑身份。已有**未托管**普通账号只有在
 endpoint、凭证指纹、**同一 `channel_type` transport**、唯一匹配、单非空档位以及 mapping 子集等窄
-条件全部满足时才可接管；账号组不参与匹配，接管前后保持不变。匹配查询只返回与本源 transport
+条件全部满足时才可接管；账号组不参与匹配身份，接管时保留原有分组；Anthropic（14）投影另按上节
+ensure 加算 `claude`。匹配查询只返回与本源 transport
 兼容的未删除 NewAPI 账号；只有当前 `status=active` 的唯一精确匹配可自动接管，`disabled/error`
 精确匹配返回冲突，不绕过它新建重复账号。其它供应源已托管且 transport 相同的账号一律
 `IdentityConflict`；transport 不同则视为无关身份，不阻挡本源新建投影。
@@ -154,8 +158,8 @@ endpoint、凭证指纹、**同一 `channel_type` transport**、唯一匹配、�
 已有受管身份键，复制账号时剥离这些键以免重复身份。
 
 仅在供应源点击「投影账号」时，通过专用窄写命令覆盖供应源投影字段（名称、凭证含
-`model_mapping`、priority、concurrency、status/schedulable、transport 等），不读取或写入账号组，
-也不携带 `rate_multiplier`。供应投影更新不能回退到通用账号 Update。
+`model_mapping`、priority、concurrency、status/schedulable、transport 等）；Anthropic（14）另 ensure
+`claude` 分组。投影不读取或写入其它账号组变更、不携带 `rate_multiplier`。供应投影更新不能回退到通用账号 Update。
 
 `model_mapping` 所有权：带 `extra.supplier_source_id` 的账号由供应源 Sync 拥有（采购投影的精确
 集合）。`ops/pricing/manage-account-model-mapping-runtime.py` 的 `check-accounts` /

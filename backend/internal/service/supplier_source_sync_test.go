@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -258,6 +259,7 @@ func TestUS048_SupplierSyncStopsBeforeRemovalWhenVerifiedProjectionWriteFails(t 
 		updateErrAt: 1,
 		updateErr:   ErrSupplierProjectionProtocolNotReady,
 	}
+	accounts.managed[0].Name = supplierManagedAccountName(repo.stored, 3)
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
@@ -308,10 +310,11 @@ func TestUS048_SupplierSyncAdditionFailureStopsBeforeRemovalAndRetryConverges(t 
 	}}
 	accounts := &supplierSyncAccountStoreFake{
 		managed: []*Account{supplierSyncManagedAccount(
-			41, 7, 2, 102, map[string]string{"move-model": "move-model"}, true,
+			41, 7, 2, 120, map[string]string{"move-model": "move-model"}, true,
 		)},
 		updateErrAt: 2,
 	}
+	accounts.managed[0].Name = supplierManagedAccountName(repo.stored, 2)
 	probe := &supplierSyncProbeFake{}
 	svc := NewSupplierSourceService(repo, accounts, probe, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 
@@ -747,6 +750,148 @@ func TestUS048_SupplierSyncSameBandRatioChangeDoesNotTouchAccounts(t *testing.T)
 	require.Empty(t, accounts.updated)
 }
 
+func TestUS048_SupplierSyncCrossBandMoveUpdatesDestinationPriority(t *testing.T) {
+	ratio := 0.7 // band 4 → priority 140
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "tokensea", SupplierLane: "anthropic", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{{ClientModelID: "claude", UpstreamModelID: "claude", PurchaseRatio: &ratio}},
+	}}
+	// Stale band-3 account still holding the model at the old formula/priority.
+	accounts := &supplierSyncAccountStoreFake{managed: []*Account{supplierSyncManagedAccount(
+		133, 7, 3, 103, map[string]string{"claude": "claude"}, true,
+	)}}
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 7)
+
+	require.NoError(t, err)
+	require.Empty(t, result.FailedStep)
+	var destination *Account
+	for _, account := range accounts.managed {
+		band, ok := supplierDiscountBandFromAccount(account)
+		require.True(t, ok)
+		if band == 4 {
+			destination = account
+		}
+		if band == 3 {
+			require.Empty(t, supplierModelMapping(account.Credentials))
+			require.False(t, account.Schedulable)
+			require.Equal(t, 130, account.Priority, "cleared band keeps formula priority for its own band")
+		}
+	}
+	require.NotNil(t, destination, "cross-band move must create/update the destination band account")
+	require.Equal(t, 140, destination.Priority)
+	require.Equal(t, map[string]string{"claude": "claude"}, supplierModelMapping(destination.Credentials))
+	require.True(t, destination.Schedulable)
+}
+
+func TestUS048_SupplierSyncBasePriorityChangeWithMappingChangeUpdatesPriority(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "tokensea", SupplierLane: "anthropic", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 200,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "claude", UpstreamModelID: "claude", PurchaseRatio: &ratio},
+			{ClientModelID: "claude-extra", UpstreamModelID: "claude-extra", PurchaseRatio: &ratio},
+		},
+	}}
+	accounts := &supplierSyncAccountStoreFake{managed: []*Account{supplierSyncManagedAccount(
+		133, 7, 3, 130, map[string]string{"claude": "claude"}, true,
+	)}}
+	accounts.managed[0].Name = supplierManagedAccountName(repo.stored, 3)
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 7)
+
+	require.NoError(t, err)
+	require.Empty(t, result.FailedStep)
+	require.Equal(t, 230, accounts.managed[0].Priority,
+		"base_priority bump during a mapping sync must rewrite projected priority")
+	require.Equal(t, map[string]string{
+		"claude": "claude", "claude-extra": "claude-extra",
+	}, supplierModelMapping(accounts.managed[0].Credentials))
+}
+
+// Tokensea regression: source base_priority=110 while projected accounts still sit on
+// the previous base=100 values (120/140/150). Scheduling drift forces the structural
+// path; if that path fails, priority must still have been rewritten by the leading
+// metadata pass — otherwise the admin UI shows source 110 vs accounts 120/140/150.
+func TestUS048_SupplierSyncBasePriorityUpdatesEvenWhenStructuralProjectionFails(t *testing.T) {
+	ratio02, ratio06, ratio08 := 0.3, 0.7, 0.9
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 9, SupplierName: "tokensea", SupplierLane: "anthropic", ChannelType: 14,
+		Endpoint:            "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 110,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "claude-a", UpstreamModelID: "claude-a", PurchaseRatio: &ratio02},
+			{ClientModelID: "claude-b", UpstreamModelID: "claude-b", PurchaseRatio: &ratio06},
+			{ClientModelID: "claude-c", UpstreamModelID: "claude-c", PurchaseRatio: &ratio08},
+		},
+	}}
+	accounts := &supplierSyncAccountStoreFake{
+		managed: []*Account{
+			supplierSyncManagedAccount(133, 9, 2, 120, map[string]string{"claude-a": "claude-a"}, false),
+			supplierSyncManagedAccount(134, 9, 4, 140, map[string]string{"claude-b": "claude-b"}, false),
+			supplierSyncManagedAccount(135, 9, 5, 150, map[string]string{"claude-c": "claude-c"}, false),
+		},
+		updateErrAt: 4, // after 3 metadata-only priority writes, fail the first structural write
+		updateErr:   ErrSupplierProjectionProtocolNotReady,
+	}
+	for _, account := range accounts.managed {
+		band, ok := supplierDiscountBandFromAccount(account)
+		require.True(t, ok)
+		account.Name = supplierManagedAccountName(repo.stored, band)
+		account.ChannelType = 14
+		account.Credentials = supplierManagedCredentials(
+			"https://supplier.example/v1", "secret", supplierModelMapping(account.Credentials), 14,
+		)
+	}
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 9)
+
+	require.ErrorIs(t, err, ErrSupplierProjectionProtocolNotReady)
+	require.NotEmpty(t, result.FailedStep)
+	byID := map[int64]*Account{}
+	for _, account := range accounts.managed {
+		byID[account.ID] = account
+	}
+	require.Equal(t, 130, byID[133].Priority, "band 2 must move from base100 to base110 even when structural sync fails")
+	require.Equal(t, 150, byID[134].Priority, "band 4 must move from base100 to base110 even when structural sync fails")
+	require.Equal(t, 160, byID[135].Priority, "band 5 must move from base100 to base110 even when structural sync fails")
+	metadataWrites := 0
+	for _, update := range accounts.updated {
+		if update.MetadataOnly {
+			metadataWrites++
+			require.Contains(t, []int{130, 150, 160}, update.Priority)
+		}
+	}
+	require.Equal(t, 3, metadataWrites)
+}
+
+func TestUS048_SupplierSyncMetadataOnlyAcceptsJSONNumberDiscountBand(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "tokensea", SupplierLane: "anthropic", ChannelType: 1, Endpoint: "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{{ClientModelID: "claude", UpstreamModelID: "claude", PurchaseRatio: &ratio}},
+	}}
+	account := supplierSyncManagedAccount(133, 7, 3, 102, map[string]string{"claude": "claude"}, true)
+	account.Name = supplierManagedAccountName(repo.stored, 3)
+	account.Extra[SupplierDiscountBandExtraKey] = json.Number("3")
+	account.Extra[SupplierSourceIDExtraKey] = json.Number("7")
+	accounts := &supplierSyncAccountStoreFake{managed: []*Account{account}}
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{failIfCalled: true}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	result, err := svc.Sync(context.Background(), 7)
+
+	require.NoError(t, err)
+	require.Empty(t, result.FailedStep)
+	require.Equal(t, 130, accounts.managed[0].Priority)
+	require.True(t, accounts.updated[0].MetadataOnly)
+}
+
 func TestUS048_SupplierSyncEarlyErrorsAlwaysReportFailedStep(t *testing.T) {
 	ratio := 0.5
 	source := &SupplierSource{
@@ -839,20 +984,23 @@ func (p *supplierSyncProbeFake) ProbeSupplierModel(_ context.Context, input Supp
 }
 
 type supplierSyncAccountStoreFake struct {
-	managed            []*Account
-	matches            []*Account
-	created            []SupplierManagedAccountCreateInput
-	updated            []SupplierManagedAccountUpdateInput
-	concurrencyUpdates []int
-	operations         []string
-	createCalls        int
-	getCalls           int
-	nextID             int64
-	updateErrAt        int
-	updateErr          error
-	getErrAt           int
-	listErr            error
-	matchErr           error
+	managed                  []*Account
+	matches                  []*Account
+	created                  []SupplierManagedAccountCreateInput
+	updated                  []SupplierManagedAccountUpdateInput
+	concurrencyUpdates       []int
+	routingGroupCalls        []int64
+	routingGroupChannelTypes []int
+	routingGroupErr          error
+	operations               []string
+	createCalls              int
+	getCalls                 int
+	nextID                   int64
+	updateErrAt              int
+	updateErr                error
+	getErrAt                 int
+	listErr                  error
+	matchErr                 error
 }
 
 func (f *supplierSyncAccountStoreFake) UpdateManagedAccountConcurrency(
@@ -875,6 +1023,15 @@ func (f *supplierSyncAccountStoreFake) UpdateManagedAccountConcurrency(
 		return cloneSupplierProjectionAccount(account), nil
 	}
 	return nil, ErrAccountNotFound
+}
+
+func (f *supplierSyncAccountStoreFake) EnsureRoutingGroups(_ context.Context, accountID int64, channelType int) error {
+	if f.routingGroupErr != nil {
+		return f.routingGroupErr
+	}
+	f.routingGroupCalls = append(f.routingGroupCalls, accountID)
+	f.routingGroupChannelTypes = append(f.routingGroupChannelTypes, channelType)
+	return nil
 }
 
 func (f *supplierSyncAccountStoreFake) ListManagedAccounts(context.Context, int64) ([]*Account, error) {
@@ -983,6 +1140,63 @@ func syncOperationLabel(input SupplierManagedAccountUpdateInput) string {
 	return "update:band=" + string(rune('0'+input.DiscountBand)) + ":models=" + string(rune('0'+len(input.ModelMapping)))
 }
 
+func TestUS048_SupplierSyncAnthropicEnsuresClaudeRoutingGroup(t *testing.T) {
+	ratio := 0.16
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 14, SupplierName: "tokensea", SupplierLane: "anthropic",
+		ChannelType:         newapiconstant.ChannelTypeAnthropic,
+		Endpoint:            "https://agent.tokensea.ai",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{
+			{ClientModelID: "claude-opus-4-6", UpstreamModelID: "claude-opus-4-6", PurchaseRatio: &ratio},
+		},
+	}}
+	accounts := &supplierSyncAccountStoreFake{managed: []*Account{
+		supplierSyncManagedAccount(136, 14, 1, 110, map[string]string{"claude-opus-4-6": "claude-opus-4-6"}, true),
+		supplierSyncManagedAccount(133, 14, 2, 120, map[string]string{}, false),
+	}}
+	for _, account := range accounts.managed {
+		band, ok := supplierDiscountBandFromAccount(account)
+		require.True(t, ok)
+		account.Name = supplierManagedAccountName(repo.stored, band)
+		account.ChannelType = newapiconstant.ChannelTypeAnthropic
+		account.Credentials = supplierManagedCredentials(
+			"https://agent.tokensea.ai", "secret", supplierModelMapping(account.Credentials),
+			newapiconstant.ChannelTypeAnthropic,
+		)
+	}
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{failIfCalled: true}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	_, err := svc.Sync(context.Background(), 14)
+
+	require.NoError(t, err)
+	require.Equal(t, []int64{136, 133}, accounts.routingGroupCalls)
+	require.Equal(t, []int{
+		newapiconstant.ChannelTypeAnthropic,
+		newapiconstant.ChannelTypeAnthropic,
+	}, accounts.routingGroupChannelTypes)
+}
+
+func TestUS048_SupplierSyncOpenAISkipsClaudeRoutingGroup(t *testing.T) {
+	ratio := 0.5
+	repo := &supplierSourceRepoFake{stored: &SupplierSource{
+		ID: 7, SupplierName: "佳杰", SupplierLane: "stbl-5", ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Endpoint:            "https://supplier.example/v1",
+		EncryptedCredential: "enc:secret", CredentialFingerprint: "fp:secret", BasePriority: 100,
+		Models: []SupplierSourceModel{{ClientModelID: "model", UpstreamModelID: "model", PurchaseRatio: &ratio}},
+	}}
+	accounts := &supplierSyncAccountStoreFake{managed: []*Account{supplierSyncManagedAccount(
+		41, 7, 3, 130, map[string]string{"model": "model"}, true,
+	)}}
+	accounts.managed[0].Name = supplierManagedAccountName(repo.stored, 3)
+	svc := NewSupplierSourceService(repo, accounts, &supplierSyncProbeFake{failIfCalled: true}, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
+
+	_, err := svc.Sync(context.Background(), 7)
+
+	require.NoError(t, err)
+	require.Empty(t, accounts.routingGroupCalls)
+}
+
 func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
 	ratio := 0.5
 	repo := &supplierSourceRepoFake{stored: &SupplierSource{
@@ -994,7 +1208,7 @@ func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
 		},
 	}}
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{{
-		ID: 41, Name: "supplier/佳杰 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		ID: 41, Name: "佳杰/stbl-5 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
 		Credentials: supplierManagedCredentials(
 			"https://supplier.example/v1", "secret",
 			map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"}, 1),
@@ -1008,9 +1222,7 @@ func TestUS048_SupplierSyncAppliesSourceAccountConcurrency(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []int{1000}, accounts.concurrencyUpdates)
-	for _, update := range accounts.updated {
-		require.True(t, update.MetadataOnly, "concurrency-only sync must not use the full projection write")
-	}
+	require.Empty(t, accounts.updated, "concurrency-only sync must not use projection/metadata writes")
 	require.Equal(t, 1000, accounts.managed[0].Concurrency)
 }
 
@@ -1026,7 +1238,7 @@ func TestUS048_SupplierSyncProtocolIdentityDriftRepairsWithoutProbe(t *testing.T
 		}},
 	}}
 	accounts := &supplierSyncAccountStoreFake{managed: []*Account{{
-		ID: 41, Name: "supplier/佳杰 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
+		ID: 41, Name: "佳杰/stbl-5 · 档位 3", Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 1,
 		Credentials: map[string]any{
 			"base_url": "https://supplier.example/v1", "api_key": "secret",
 			"model_mapping": map[string]string{"deepseek-v4-pro": "deepseek-v4-pro"},

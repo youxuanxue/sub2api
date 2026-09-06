@@ -114,6 +114,17 @@ func (s *defaultSupplierSourceAccountStore) UpdateManagedAccountConcurrency(
 	return cloneSupplierProjectionAccount(account), err
 }
 
+func (s *defaultSupplierSourceAccountStore) EnsureRoutingGroups(
+	ctx context.Context,
+	accountID int64,
+	channelType int,
+) error {
+	if s == nil || s.commands == nil {
+		return ErrSupplierProjectionReaderMissing
+	}
+	return s.commands.EnsureSupplierRoutingGroups(ctx, accountID, channelType)
+}
+
 func (s *defaultSupplierSourceAccountStore) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
 	if s == nil || s.reader == nil {
 		return nil, ErrSupplierProjectionReaderMissing
