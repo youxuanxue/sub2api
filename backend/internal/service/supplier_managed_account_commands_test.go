@@ -418,8 +418,12 @@ func (r *supplierManagedCommandsAccountRepoFake) EnsureAccountGroups(_ context.C
 		existing = append([]int64(nil), r.existing.GroupIDs...)
 	}
 	merged := mergeTestGroupIDs(existing, groupIDs)
+	if len(merged) == len(existing) {
+		r.ensuredGroupIDs = merged
+		return r.bindErr
+	}
+	// Append-only semantics: do not rewrite existing memberships via BindGroups.
 	r.ensuredGroupIDs = merged
-	r.boundGroupIDs = append([]int64(nil), merged...)
 	if r.existing != nil && r.existing.ID == accountID {
 		r.existing.GroupIDs = append([]int64(nil), merged...)
 	}

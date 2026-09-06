@@ -279,6 +279,12 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 	if err := s.syncSupplierMetadata(ctx, source, managedByBand, result); err != nil {
 		return result, err
 	}
+	// Anthropic routing group membership is independent of structural projection.
+	// Ensure it before structure so a later protocol/mapping failure cannot leave
+	// a schedulable account outside the claude group (tokensea band-1 regression).
+	if err := s.ensureSupplierRoutingGroups(ctx, source, managedByBand, result); err != nil {
+		return result, err
+	}
 
 	structureChanged := supplierStructureChanged(source, credential, targets, managedByBand)
 	if len(adoptByBand) > 0 {
@@ -290,9 +296,6 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 			workingByBand[band] = cloneSupplierProjectionAccount(account)
 		}
 		if err := s.ensureSupplierManagedConcurrency(ctx, source, targets, workingByBand, result); err != nil {
-			return result, err
-		}
-		if err := s.ensureSupplierRoutingGroups(ctx, source, workingByBand, result); err != nil {
 			return result, err
 		}
 		return result, nil

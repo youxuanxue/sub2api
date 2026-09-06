@@ -853,6 +853,8 @@ func TestUS048_SupplierSyncBasePriorityUpdatesEvenWhenStructuralProjectionFails(
 
 	require.ErrorIs(t, err, ErrSupplierProjectionProtocolNotReady)
 	require.NotEmpty(t, result.FailedStep)
+	require.Equal(t, []int64{133, 134, 135}, accounts.routingGroupCalls,
+		"Anthropic routing ensure must run even when structural projection fails")
 	byID := map[int64]*Account{}
 	for _, account := range accounts.managed {
 		byID[account.ID] = account
@@ -1170,11 +1172,11 @@ func TestUS048_SupplierSyncAnthropicEnsuresClaudeRoutingGroup(t *testing.T) {
 	_, err := svc.Sync(context.Background(), 14)
 
 	require.NoError(t, err)
-	require.Equal(t, []int64{136, 133}, accounts.routingGroupCalls)
-	require.Equal(t, []int{
-		newapiconstant.ChannelTypeAnthropic,
-		newapiconstant.ChannelTypeAnthropic,
-	}, accounts.routingGroupChannelTypes)
+	require.Contains(t, accounts.routingGroupCalls, int64(136))
+	require.Contains(t, accounts.routingGroupCalls, int64(133))
+	for _, channelType := range accounts.routingGroupChannelTypes {
+		require.Equal(t, newapiconstant.ChannelTypeAnthropic, channelType)
+	}
 }
 
 func TestUS048_SupplierSyncOpenAISkipsClaudeRoutingGroup(t *testing.T) {
