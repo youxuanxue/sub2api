@@ -27,14 +27,13 @@ func (s *KiroGatewayService) kiroPromptUsage(
 	if !s.kiroCacheBillingFlagEnabled(ctx) {
 		return inputTokens, 0, 0, "", false
 	}
-	cacheBillingEnabled = true
 	conversationID := ""
 	if payload != nil {
 		conversationID = payload.ConversationState.ConversationID
 	}
 	sessionKey = kiroproto.CacheSessionKey(account.ID, req.Model, conversationID)
 	if sessionKey == "" || s.kiroCacheStore == nil {
-		return inputTokens, 0, 0, "", true
+		return inputTokens, 0, 0, sessionKey, true
 	}
 	split := kiroproto.EstimateCacheUsageSplit(ctx, s.kiroCacheStore, sessionKey, req)
 	return split.InputTokens, split.CacheReadTokens, split.CacheCreationTokens, sessionKey, true
