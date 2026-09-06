@@ -2,15 +2,26 @@
 
 Ops checklist for [OpenRouter provider application](https://openrouter.ai/providers/apply/form) and [provider integration docs](https://openrouter.ai/docs/guides/community/for-providers).
 
+## Product posture
+
+**Goal: multimodal seller** (text chat + image + video when supply is ready).  
+`catalog_excluded_model_ids` is **not** a permanent “text-only” switch — it only hides models that are currently unservable (no healthy pool), unstable, or lacking a seller protocol (e.g. realtime audio has no OR audio surface yet).
+
+**Source of truth for what we offer right now:** `GET /openrouter/v1/models` (and the billing-user alias `GET /v1/models`). Probes and the application form must follow that catalog: if a modality row is absent, treat media inference checks as N/A, not as a hard failure.
+
 ## API endpoints (paste into application form)
 
-| Surface | URL |
-| --- | --- |
-| Models catalog | `https://api.tokenkey.dev/openrouter/v1/models` |
-| Alias models catalog | `https://api.tokenkey.dev/v1/models` (same payload for billing-user seller keys) |
-| Chat inference | `https://api.tokenkey.dev/v1/chat/completions` |
-| Image inference | `https://api.tokenkey.dev/openrouter/v1/images` |
-| Video inference | `https://api.tokenkey.dev/openrouter/v1/videos` (submit + poll `/openrouter/v1/videos/{id}`) |
+Always list catalog + chat. List image/video endpoints as **available protocol surfaces**; which models appear there is determined by the live catalog (rows with output modality `image` / `video`).
+
+| Surface | URL | Notes for the form |
+| --- | --- | --- |
+| Models catalog | `https://api.tokenkey.dev/openrouter/v1/models` | Required; schema 2.4 |
+| Alias models catalog | `https://api.tokenkey.dev/v1/models` | Same payload for billing-user seller keys |
+| Chat inference | `https://api.tokenkey.dev/v1/chat/completions` | Required; public ids `tokenkey/<model>` |
+| Image inference | `https://api.tokenkey.dev/openrouter/v1/images` | Protocol ready; models only if catalog lists `output` image |
+| Video inference | `https://api.tokenkey.dev/openrouter/v1/videos` (+ poll `/openrouter/v1/videos/{id}`) | Protocol ready; models only if catalog lists `output` video |
+
+Do **not** claim audio seller endpoints until an OR audio route exists. Audio-capable internal models stay in `catalog_excluded_model_ids` until then.
 
 Catalog + inference auth: any API key owned by `billing_user_id` (ops bootstrap label: `openrouter`). No separate monitor/inference key split. Ops hygiene: `hygiene-keys` ensures one `openrouter` key and disables legacy `openrouter-inference` / `openrouter-monitor` names.
 
@@ -27,7 +38,7 @@ That example tracks **policy fields** (`billing_user_id`, exclude/stream lists, 
 
 Change OR supply surface by editing user 32’s allowed groups only.
 
-Image / video models that the current seller groups cannot serve are listed in `catalog_excluded_model_ids` (text-only seller catalog for now).
+When a model becomes stably servable under those groups, **remove it from** `catalog_excluded_model_ids` (re-include). Keep excludes only for dead/unstable chat, missing supply, or modalities without a seller protocol.
 
 ```bash
 python3 ops/pricing/manage-openrouter-provider-config.py snapshot
@@ -58,7 +69,13 @@ Required fields in settings:
 
 ## Validation
 
+Probes follow the **live catalog**: media inference is exercised only when
+catalog rows exist for that modality; otherwise picks are N/A (not failures).
+Serial smoke must pass for every currently listed catalog row before claiming
+seller readiness for that surface.
+
 ```bash
+python3 -m unittest ops.pricing.test_probe_openrouter_provider_chain
 python3 ops/pricing/probe-openrouter-provider-chain.py --via-ssm --full-catalog
 python3 ops/pricing/probe-openrouter-provider-inference-serial.py --via-ssm
 TK_OR_PROVIDER_KEY=sk-or-seller python3 ops/pricing/export-openrouter-provider-models.py
