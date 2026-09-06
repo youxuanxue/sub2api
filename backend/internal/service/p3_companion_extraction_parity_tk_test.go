@@ -1,3 +1,5 @@
+//go:build unit
+
 package service
 
 import (
@@ -49,9 +51,9 @@ func TestP3Companion_GatewayForwardingExtrasDefaults(t *testing.T) {
 	require.False(t, d.canonicalHaikuMimicry)
 
 	parsed := tkParseGatewayForwardingExtras(map[string]string{
-		SettingKeyAnthropicRequestNormalizeEnabled:         "false",
-		SettingKeyAnthropicCanonicalIngressStrictEnabled:   "true",
-		SettingKeyAnthropicCanonicalHaikuMimicryEnabled:    "true",
+		SettingKeyAnthropicRequestNormalizeEnabled:       "false",
+		SettingKeyAnthropicCanonicalIngressStrictEnabled: "true",
+		SettingKeyAnthropicCanonicalHaikuMimicryEnabled:  "true",
 	})
 	require.False(t, parsed.anthropicRequestNormalize)
 	require.True(t, parsed.canonicalIngressStrict)
@@ -65,8 +67,8 @@ func TestP3Companion_GatewayForwardingExtrasDefaults(t *testing.T) {
 
 func TestP3Companion_PublicSignupPricingParseApply(t *testing.T) {
 	src := tkParsePublicSignupPricing(map[string]string{
-		SettingKeySignupBonusEnabled:  "true",
-		SettingKeySignupBonusBalance:  "1.25",
+		SettingKeySignupBonusEnabled:   "true",
+		SettingKeySignupBonusBalance:   "1.25",
 		SettingKeyPricingCatalogPublic: "false",
 	})
 	require.True(t, src.SignupBonusEnabled)
