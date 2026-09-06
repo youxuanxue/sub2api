@@ -345,9 +345,3 @@ func setActualUpstreamEndpoint(c *gin.Context, endpoint string) {
 		c.Set(ctxKeyActualUpstreamEndpoint, strings.TrimSpace(endpoint))
 	}
 }
-
-func shouldUseAntigravityCompat(account *service.Account) bool {
-	return account != nil &&
-		account.Platform == service.PlatformAntigravity &&
-		account.Type == service.AccountTypeOAuth
-}
