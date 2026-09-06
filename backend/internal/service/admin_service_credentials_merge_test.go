@@ -122,8 +122,43 @@ func TestUpdateAccount_EmptyCredentialsSkipsUpdate(t *testing.T) {
 	require.Equal(t, "renamed", repo.account.Name)
 }
 
-func TestUpdateAccount_RejectsMissingProtocolEndpointBeforePersist(t *testing.T) {
+func TestUpdateAccount_ModelMappingOnlyPreservesBaseURL(t *testing.T) {
 	accountID := int64(132)
+	baseURL := "https://token-plan.cn-beijing.maas.aliyuncs.com"
+	repo := &updateAccountCredsRepoStub{
+		account: &Account{
+			ID:          accountID,
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeAli,
+			Status:      StatusActive,
+			Credentials: map[string]any{
+				"api_key":  "sk-existing",
+				"base_url": baseURL,
+			},
+		},
+	}
+
+	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(
+		context.Background(),
+		accountID,
+		&UpdateAccountInput{Credentials: map[string]any{
+			"model_mapping": map[string]any{"qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus"},
+		}},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.Equal(t, 1, repo.updateCalls)
+	require.Equal(t, baseURL, repo.account.Credentials["base_url"])
+	require.Equal(t, "sk-existing", repo.account.Credentials["api_key"])
+	mapping, ok := repo.account.Credentials["model_mapping"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "qwen-audio-3.0-tts-plus", mapping["qwen-audio-3.0-tts-plus"])
+}
+
+func TestUpdateAccount_RejectsMissingProtocolEndpointWhenBaseURLCleared(t *testing.T) {
+	accountID := int64(135)
 	repo := &updateAccountCredsRepoStub{
 		account: &Account{
 			ID:          accountID,
@@ -142,6 +177,7 @@ func TestUpdateAccount_RejectsMissingProtocolEndpointBeforePersist(t *testing.T)
 		context.Background(),
 		accountID,
 		&UpdateAccountInput{Credentials: map[string]any{
+			"base_url":      "",
 			"model_mapping": map[string]any{"qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus"},
 		}},
 	)
@@ -149,8 +185,7 @@ func TestUpdateAccount_RejectsMissingProtocolEndpointBeforePersist(t *testing.T)
 	require.Nil(t, updated)
 	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
 	require.Equal(t, "INVALID_ACCOUNT_PROTOCOL_ENDPOINT_IDENTITY", infraerrors.Reason(err))
-	require.ErrorContains(t, err, "governed account has no explicit protocol endpoint identity")
-	require.Zero(t, repo.updateCalls, "invalid endpoint identity must be rejected before persistence")
+	require.Zero(t, repo.updateCalls, "cleared base_url must be rejected before persistence")
 }
 
 func TestUpdateAccount_RejectsTypeChangeWithoutProtocolEndpointBeforePersist(t *testing.T) {

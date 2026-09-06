@@ -28,8 +28,11 @@ automatically ships the registered companions for every script in the table;
 inspect its machine-owned contract before a less familiar path with
 `--script <path> --describe-script`. Use `messages` for
 Anthropic/Kiro, `chat` for OpenAI-compatible chat, `responses` for Codex/OpenAI
-Responses, and `embeddings` for embedding SKUs. Read each script's header for optional
-request-shape parameters; do not copy account-specific commands into this skill.
+Responses, `embeddings` for embedding SKUs, `images` for
+`/v1/images/generations`, and `speech` for OpenAI-compat TTS
+(`POST /v1/audio/speech`, e.g. Ali Token Plan `qwen-audio-3.0-tts-plus`).
+Read each script's header for optional request-shape parameters; do not copy
+account-specific commands into this skill.
 
 ## Interpret the result
 

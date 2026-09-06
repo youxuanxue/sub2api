@@ -98,7 +98,8 @@
 - `backend/internal/service/supplier_managed_account_guard_test.go`::`TestUS048_ManagedAccountDuplicateStripsSupplierIdentity`
 - `backend/internal/service/supplier_managed_account_guard_test.go`::`TestUS048_UnmanagedAccountCannotForgeSupplierManagedExtra`
 - `backend/internal/service/supplier_managed_account_guard_test.go`::`TestUS048_PreserveSupplierManagedExtraKeys`
-- `backend/internal/service/admin_service_credentials_merge_test.go`::`TestUpdateAccount_RejectsMissingProtocolEndpointBeforePersist`
+- `backend/internal/service/admin_service_credentials_merge_test.go`::`TestUpdateAccount_ModelMappingOnlyPreservesBaseURL`
+- `backend/internal/service/admin_service_credentials_merge_test.go`::`TestUpdateAccount_RejectsMissingProtocolEndpointWhenBaseURLCleared`
 - `backend/internal/service/admin_service_credentials_merge_test.go`::`TestUpdateAccount_RejectsTypeChangeWithoutProtocolEndpointBeforePersist`
 - `backend/internal/service/admin_service_credentials_merge_test.go`::`TestUpdateAccount_RejectsIncompleteCustomProtocolEndpointBeforePersist`
 - `backend/internal/handler/admin/account_handler_mixed_channel_test.go`::`TestAccountHandlerUpdateReturnsBadRequestForMissingProtocolEndpointIdentity`
