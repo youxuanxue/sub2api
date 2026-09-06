@@ -87,6 +87,16 @@
       "setup_error"
     ]
   },
+  "probe-account-group-bindings.sh": {
+    "companions": [
+      "ops/observability/account_group_binding_check.py"
+    ],
+    "verdicts": [
+      "aligned",
+      "review",
+      "setup_error"
+    ]
+  },
   "probe_kiro_claude_models.sh": {
     "companions": [
       "ops/stage0/probe_account_model.sh",

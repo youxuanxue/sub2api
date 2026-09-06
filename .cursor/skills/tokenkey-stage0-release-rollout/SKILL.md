@@ -35,6 +35,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
 | **发版后两阶段实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` 同一 `deploy` job：蓝绿脚本在 Caddy reload 成功的真实切流点输出 `cutover_at`；`Check PR hooks immediately` 查该时刻起的 PR observables，workflow 只补足到 `cutover_at + 300s`，再由 `Check traffic and 5xx after 5 minutes` 查累计流量/5xx；两阶段复用 `plan.json` 与已批的 prod Environment |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（canonical：`tokenkey-anthropic-oauth-config`） |
+| **发版后健康账号分组合理性检查（只读 advisory）** | 机械 | `bash ops/observability/check-account-group-bindings.sh --target prod`；从健康、可调度账号的显式 `model_mapping` 与 peer 分组证据派生，不硬编码模型→分组表；`review` / 探针失败均不阻塞 rollout |
 | rollout 摘要（git log / diff stat / sentinel / deletion） | 机械 | `bash scripts/release-rollout-summary.sh --mode release` |
 | prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
 | post-release verdict + Summary | 机械 | `release_post_check.py evaluate --phase immediate|delayed` + `summary` + `gate`（Summary 显式显示缺失/无效证据与 baseline failure；gate 只接受 phase 匹配且 verdict=`green`，agent 禁止另评） |
@@ -73,6 +74,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
    Workflow 步骤名与 Summary 标题必须对齐：`Check PR hooks immediately`、
    `Check traffic and 5xx after 5 minutes`、`### Traffic / 5xx (+5 min)`（含
    completed requests / top paths）。
+6. Prod smoke 后 advisory：`check-account-group-bindings.sh` 只读检查每个健康、可调度且有显式 `model_mapping` 的账号；无 active group 或与同模型 peer 分组完全不相交时输出 `review`，无 peer 的新模型只记 inconclusive。workflow 必须保持 `continue-on-error`。
 
 Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci 字面标记（见 `CLAUDE.md` §9）。
 
@@ -123,6 +125,7 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 | 发版后 Anthropic `snapshot` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 snapshot+check，或 `snapshot --skip-prod` 仅 edge。 |
 | 发版后 Account model_mapping `check-accounts` 报 violation | **不要** rollback 镜像；审 `$JOBDIR/post-release-account-model-mapping-check.json` 的账号/group diff。期望与 forbidden policy 均来自 Go SSOT；确认要覆盖 live 配置时走 `/tokenkey-modelops-planner`：`sync-runtime` 先对单个显式 target 做 dry-run，批准后用 CLI 固定短语写入；账号持久层另走 `apply-accounts --confirm yes-apply-account-model-mapping`。 |
 | 发版后 Account model_mapping `check-accounts` SSM 失败 | 记 yellow；prod/Edge 镜像仍有效。补 OIDC/实例在线后重跑 `python3 ops/pricing/manage-account-model-mapping-runtime.py check-accounts --json`；仅排障 edge 时加 `--include-edges` 或 `--skip-prod`。 |
+| 发版后账号分组检查报 `review` | **不要** rollback。查看 `findings[].code`：`no_active_group` 先审 `candidate_groups`；`model_group_peer_mismatch` 比对同模型 peer 证据。该检查只建议、不写线上，也不把无 peer 的新模型当违规。 |
 
 ## 扩展阅读
 
