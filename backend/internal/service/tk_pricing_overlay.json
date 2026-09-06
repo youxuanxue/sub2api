@@ -10,7 +10,8 @@
     "deepseek-v4-pro-0813": "deepseek-v4-pro",
     "gpt-5.5-pro": "gpt-5.5",
     "gpt-5.6": "gpt-5.6-sol",
-    "gpt-5.6-chat-latest": "gpt-5.6-sol"
+    "gpt-5.6-chat-latest": "gpt-5.6-sol",
+    "gpt-6": "gpt-6-astra"
   },
   "_config": {
     "official_list_base_tax": {
@@ -10074,5 +10075,40 @@
       "/v1/audio/speech"
     ],
     "source": "https://help.aliyun.com/zh/model-studio/qwen-audio-3-0-tts-plus, captured 2026-09-05: Beijing list 1.4 CNY/10k chars ÷ 6.7 USD; Token Plan SpeechSynthesizer probe 200 on 2026-09-05."
+  },
+  "gpt-6-astra": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 1e-05,
+    "input_cost_per_token_priority": 2e-05,
+    "output_cost_per_token": 5e-05,
+    "output_cost_per_token_priority": 0.0001,
+    "cache_creation_input_token_cost": 1.25e-05,
+    "cache_creation_input_token_cost_priority": 2.5e-05,
+    "cache_read_input_token_cost": 1e-06,
+    "cache_read_input_token_cost_priority": 2e-06,
+    "input_cost_per_token_above_272k_tokens": 2e-05,
+    "output_cost_per_token_above_272k_tokens": 7.5e-05,
+    "cache_creation_input_token_cost_above_272k_tokens": 2.5e-05,
+    "cache_read_input_token_cost_above_272k_tokens": 2e-06,
+    "long_context_input_token_threshold": 272000,
+    "long_context_input_cost_multiplier": 2.0,
+    "long_context_output_cost_multiplier": 1.5,
+    "max_input_tokens": 1050000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_service_tier": true,
+    "supported_endpoints": [
+      "/v1/chat/completions",
+      "/v1/responses"
+    ],
+    "supported_modalities": [
+      "text"
+    ],
+    "supported_output_modalities": [
+      "text"
+    ],
+    "source": "GPT-6 Astra commercial rates from Wei-Shaw/sub2api upstream static fallback (billing_service/pricing_service: $10/$50 per MTok standard, priority 2x, cache write $12.5/MTok, cache read $1/MTok, 272k long-context in×2/out×1.5). No flex/batches/regional tiers published in that evidence; omitted intentionally. Captured 2026-09-06."
   }
 }

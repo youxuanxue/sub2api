@@ -31,6 +31,16 @@ func isOpenAIGPT56Model(model string) bool {
 	return false
 }
 
+// isOpenAIGPT6AstraModel reports GPT-6 Astra and dated/provider-prefixed variants.
+// The public "gpt-6" alias routes to Astra; unrelated GPT-6 families stay excluded.
+func isOpenAIGPT6AstraModel(model string) bool {
+	normalized := canonicalizeOpenAIModelAliasSpelling(model)
+	if normalized == "" {
+		normalized = strings.ToLower(lastOpenAIModelSegment(model))
+	}
+	return normalized == "gpt-6" || normalized == "gpt-6-astra" || strings.HasPrefix(normalized, "gpt-6-astra-")
+}
+
 // CanonicalizeOpenAICompatRoutingModel normalizes OpenAI-compat model ids for
 // account selection, channel restriction, and negative-cache keys. Wire spellings
 // such as gpt5.4-mini collapse to gpt-5.4-mini; legacy Codex ids route to the
@@ -158,6 +168,8 @@ func normalizeOpenAIBillingModel(model string) string {
 			return "gpt-5.6-sol"
 		}
 		return ""
+	case isOpenAIGPT6AstraModel(normalized):
+		return "gpt-6-astra"
 	case strings.Contains(normalized, "gpt-5.5-pro"):
 		return "gpt-5.5"
 	case strings.Contains(normalized, "gpt-5.5"):

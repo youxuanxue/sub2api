@@ -175,6 +175,8 @@ func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
 	require.True(t, account.IsModelSupported("gpt-5.3-codex-spark"), "spark itself remains served")
 	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5.3-codex")), "legacy codex id should alias to spark without display")
 	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-5-codex")), "legacy GPT-5 Codex id should alias to spark without display")
+	require.True(t, account.IsModelSupported("gpt-6-astra"), "gpt-6-astra must be on the OpenAI floor")
+	require.True(t, account.IsModelSupported(CanonicalizeOpenAICompatRoutingModel("gpt-6")), "public gpt-6 alias must route onto the floor")
 	require.False(t, account.IsModelSupported("gpt-not-a-real-id-zzz"), "unknown OpenAI ids must stay out of the floor")
 }
 
