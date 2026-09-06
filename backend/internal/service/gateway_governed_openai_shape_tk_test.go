@@ -43,10 +43,10 @@ func TestResolveGovernedOpenAIShapeMode(t *testing.T) {
 			want:    GovernedOpenAIShapeGeminiCompat,
 		},
 		{
-			name:    "antigravity oauth claude falls through to openai shape default",
+			name:    "antigravity oauth claude uses cloud code hop",
 			account: agOAuth,
 			model:   "claude-sonnet-4-6",
-			want:    GovernedOpenAIShapeOpenAI,
+			want:    GovernedOpenAIShapeAntigravityOAuthCloudCode,
 		},
 		{
 			name:    "openai api key stays openai gateway",

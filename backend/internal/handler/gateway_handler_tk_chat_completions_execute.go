@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -62,20 +61,12 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 				if channelMapping.Mapped {
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
-				if service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel) {
-					if h.geminiCompatService == nil {
-						return nil, errors.New("gemini compatibility service is not configured")
-					}
-					return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
-				}
-				if shouldUseAntigravityCompat(account) {
-					if h.antigravityGatewayService == nil {
-						return nil, errors.New("antigravity compatibility service is not configured")
-					}
-					setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
-					return h.antigravityGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
-				}
-				return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
+				return h.tkForwardChatCompletionsByOpenAIShape(
+					executionCtx, c, account, reqModel, forwardBody, parsedReq,
+					func() (*service.ForwardResult, error) {
+						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
+					},
+				)
 			},
 			ChatIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				forwardBody := request.Body()
@@ -83,18 +74,13 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				switch service.ResolveGovernedOpenAIShapeMode(account, reqModel) {
-				case service.GovernedOpenAIShapeGeminiCompat:
-					if h.geminiCompatService == nil {
-						return nil, errors.New("gemini compatibility service is not configured")
-					}
-					return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
-				case service.GovernedOpenAIShapeAntigravityClaudeRelay:
-					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
-				default:
-					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
-					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
-				}
+				return h.tkForwardChatCompletionsByOpenAIShape(
+					executionCtx, c, account, reqModel, forwardBody, parsedReq,
+					func() (*service.ForwardResult, error) {
+						openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
+						return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+					},
+				)
 			},
 			ChatToResponses: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				forwardBody := request.Body()
@@ -102,18 +88,13 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				switch service.ResolveGovernedOpenAIShapeMode(account, reqModel) {
-				case service.GovernedOpenAIShapeGeminiCompat:
-					if h.geminiCompatService == nil {
-						return nil, errors.New("gemini compatibility service is not configured")
-					}
-					return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
-				case service.GovernedOpenAIShapeAntigravityClaudeRelay:
-					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
-				default:
-					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
-					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
-				}
+				return h.tkForwardChatCompletionsByOpenAIShape(
+					executionCtx, c, account, reqModel, forwardBody, parsedReq,
+					func() (*service.ForwardResult, error) {
+						openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
+						return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+					},
+				)
 			},
 			ChatToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				forwardBody := request.Body()

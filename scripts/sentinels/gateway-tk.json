@@ -6352,12 +6352,22 @@
         "func (h *GatewayHandler) tkAttachChatCompletionsProtocolRouting(",
         "service.WithProtocolRouting(",
         "service.ExecuteSelectedProtocol(",
-        "service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel)",
-        "service.ResolveGovernedOpenAIShapeMode(account, reqModel)",
-        "h.geminiCompatService.ForwardAsChatCompletions",
+        "h.tkForwardChatCompletionsByOpenAIShape(",
         "ChatToGemini:"
       ],
-      "rationale": "Gateway /v1/chat/completions governed protocol boundary: WithProtocolRouting attach + ExecuteSelectedProtocol (incl. ChatToGemini / gemini-native branch) must stay co-located in this companion per protocol-routing SSOT. Governed ChatIdentity must ResolveGovernedOpenAIShapeMode so Antigravity edge-relay Gemini hops via geminiCompat instead of OpenAI GetOpenAIProtocolAPIKey. P2: extracted from gateway_handler_chat_completions.go."
+      "rationale": "Gateway /v1/chat/completions governed protocol boundary: WithProtocolRouting attach + ExecuteSelectedProtocol (incl. ChatToGemini / gemini-native branch) must stay co-located in this companion per protocol-routing SSOT. NonGoverned and ChatIdentity both dispatch via tkForwardChatCompletionsByOpenAIShape (ResolveGovernedOpenAIShapeMode SSOT) so Antigravity edge-relay Gemini hops via geminiCompat instead of OpenAI GetOpenAIProtocolAPIKey. P2: extracted from gateway_handler_chat_completions.go."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_openai_shape_forward.go",
+      "must_contain": [
+        "func (h *GatewayHandler) tkForwardChatCompletionsByOpenAIShape(",
+        "func (h *GatewayHandler) tkForwardResponsesByOpenAIShape(",
+        "service.ResolveGovernedOpenAIShapeMode(account, reqModel)",
+        "service.GovernedOpenAIShapeGeminiCompat",
+        "service.GovernedOpenAIShapeAntigravityClaudeRelay",
+        "service.GovernedOpenAIShapeAntigravityOAuthCloudCode"
+      ],
+      "rationale": "Single call-site owner for OpenAI-shape chat/responses special-case hops. Both NonGoverned and governed identity adapters must route through these helpers so AG Gemini/Claude/OAuth branching cannot drift."
     },
     {
       "path": "backend/internal/handler/gateway_handler_chat_completions.go",
@@ -6408,13 +6418,11 @@
     {
       "path": "backend/internal/handler/gateway_handler_tk_responses_execute.go",
       "must_contain": [
-        "service.UsesGeminiNativeOpenAICompat(account.Platform, reqModel)",
-        "service.ResolveGovernedOpenAIShapeMode(account, reqModel)",
-        "h.geminiCompatService.ForwardAsResponses",
+        "h.tkForwardResponsesByOpenAIShape(",
         "groupUsesGeminiCompat = service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)",
         "selectionSessionHash = \"gemini:\" + selectionSessionHash"
       ],
-      "rationale": "Gateway /v1/responses must branch antigravity/gemini text into GeminiMessagesCompatService.ForwardAsResponses instead of the Anthropic converter chain, with the same gemini sticky session hash and platform guards as /v1/chat/completions. Governed ResponsesIdentity must ResolveGovernedOpenAIShapeMode so Antigravity edge-relay Gemini hops via geminiCompat. P3: Responses Gemini/Antigravity branch + sticky hash live in tk_responses_execute companion."
+      "rationale": "Gateway /v1/responses must share OpenAI-shape SSOT via tkForwardResponsesByOpenAIShape, with the same gemini sticky session hash and platform guards as /v1/chat/completions. P3: Responses Gemini/Antigravity branch + sticky hash live in tk_responses_execute companion."
     },
     {
       "path": "backend/internal/service/gateway_governed_openai_shape_tk.go",
@@ -6422,18 +6430,20 @@
         "func ResolveGovernedOpenAIShapeMode(account *Account, model string) GovernedOpenAIShapeMode",
         "GovernedOpenAIShapeGeminiCompat",
         "GovernedOpenAIShapeAntigravityClaudeRelay",
+        "GovernedOpenAIShapeAntigravityOAuthCloudCode",
         "UsesGeminiNativeOpenAICompat(account.Platform, model)"
       ],
-      "rationale": "SSOT for governed ChatIdentity/ResponsesIdentity forwarder selection. Antigravity apikey edge stubs are protocol-governed but must not enter OpenAIGatewayService for Gemini text; dropping this companion reopens api_key not found on prod→edge Gemini chat."
+      "rationale": "SSOT for OpenAI-shape chat/responses special-case forwarder selection (NonGoverned + governed identity). Antigravity apikey edge stubs are protocol-governed but must not enter OpenAIGatewayService for Gemini text; OAuth Claude must stay on Cloud Code. Dropping this companion reopens api_key not found on prod→edge Gemini chat."
     },
     {
       "path": "backend/internal/service/gateway_governed_openai_shape_tk_test.go",
       "must_contain": [
         "TestResolveGovernedOpenAIShapeMode",
         "antigravity edge relay gemini chat uses gemini compat hop",
-        "antigravity edge relay claude chat uses gateway messages relay"
+        "antigravity edge relay claude chat uses gateway messages relay",
+        "antigravity oauth claude uses cloud code hop"
       ],
-      "rationale": "Positive/negative coverage for ResolveGovernedOpenAIShapeMode: AG edge-relay Gemini → geminiCompat, AG edge-relay Claude → gateway messages relay, OpenAI stays OpenAI."
+      "rationale": "Positive/negative coverage for ResolveGovernedOpenAIShapeMode: AG edge-relay Gemini → geminiCompat, AG edge-relay Claude → gateway messages relay, AG OAuth Claude → Cloud Code, OpenAI stays OpenAI."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_fast_policy.go",
