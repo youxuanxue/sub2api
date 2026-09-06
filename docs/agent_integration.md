@@ -1030,7 +1030,7 @@ group MUST set `platform` to exactly one of:
 | `anthropic` | `POST /v1/messages` (native Anthropic), `POST /v1/messages/count_tokens`, `POST /responses`, `GET /responses` (WS), and the `requireGroupAnthropic`-gated `/responses`, `/chat/completions`, `/embeddings`, `/images/generations` | Native Claude account pool. |
 | `gemini` | `GET /v1beta/models`, `GET /v1beta/models/:model`, `POST /v1beta/models/*modelAction` | Gemini-native surface. |
 | `antigravity` | `GET /antigravity/models`, the `/antigravity/v1` and `/antigravity/v1beta` subtrees | Antigravity-native surface; admin endpoints under `/admin/antigravity/*`. |
-| `newapi` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses` and the WS variant) | First-class fifth platform — see next section. |
+| `newapi` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`, `/v1/images/generations`, `POST /v1/audio/speech` where the account mapping + pricing overlay serve TTS) | First-class fifth platform — see next section. |
 | `kiro` | `POST /v1/messages` through the Anthropic-shaped client surface | Kiro-native scheduling pool backed by the vendored CodeWhisperer/EventStream protocol layer. |
 | `grok` | Same OpenAI-compat surface as `openai` (`/v1/chat/completions`, `/v1/messages`, `/v1/responses`, embeddings/images/video where enabled) | First-class Grok/xAI platform. Edge capacity is `type=oauth`; prod edge relay stubs may be `type=apikey` with an edge `base_url`. |
 
@@ -1045,7 +1045,9 @@ all account platforms. Each `data` item contains exactly `id` and
 Per `docs/approved/newapi-as-fifth-platform.md`, `group.platform = "newapi"`
 participates in the **OpenAI-compatible** scheduling pool and answers the
 same three OpenAI-shaped entry points (`/v1/chat/completions`,
-`/v1/messages`, `/v1/responses`) as `openai` groups. Agent-visible
+`/v1/messages`, `/v1/responses`) as `openai` groups, plus media paths the
+account mapping serves (`/v1/images/generations`, and for Ali Token Plan
+TTS `POST /v1/audio/speech`). Agent-visible
 contract:
 
 - A `newapi` group MUST contain at least one `Account.Platform = "newapi"`
@@ -1093,6 +1095,33 @@ adapter registry:
 
 The video registry record TTL defaults to 24h. Polls after expiry or
 after a terminal status (`succeeded` / `failed`) return 404.
+
+### TTS (`POST /v1/audio/speech`) — Ali Token Plan
+
+OpenAI-compat speech synthesis is available when the scheduled `newapi`
+account maps a TTS model (today: `qwen-audio-3.0-tts-plus` on Ali Token
+Plan, `channel_type = 17`) and the pricing overlay has `mode: tts`.
+
+```http
+POST /v1/audio/speech
+Authorization: Bearer <api_key>
+Content-Type: application/json
+
+{
+  "model": "qwen-audio-3.0-tts-plus",
+  "input": "你好，TokenKey",
+  "voice": "longanlingxin",
+  "response_format": "mp3"
+}
+```
+
+- Success: `200` with `Content-Type: audio/mpeg` (raw audio bytes).
+- Omit `voice` → gateway default `longanlingxin` (Ali SpeechSynthesizer).
+- Billing: character-based (`output_cost_per_character`); usage shows
+  `inbound_endpoint=/v1/audio/speech`.
+- Not a Studio media tab (Studio is image/video/chat). The model appears
+  in `GET /v1/models` when `display: true` in the served-models owner.
+- Realtime (`qwen-audio-3.0-realtime-plus`) is **not** on this surface.
 
 ## OpenRouter provider seller surface (TokenKey)
 

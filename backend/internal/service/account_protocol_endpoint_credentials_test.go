@@ -10,6 +10,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestMergeAccountCredentials_AdminPreservesBaseURLWhenOmitted(t *testing.T) {
+	existing := map[string]any{
+		"api_key":  "sk-existing",
+		"base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
+	}
+	incoming := map[string]any{
+		"model_mapping": map[string]any{"qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus"},
+	}
+	merged := MergeAccountCredentials(existing, incoming, newapiconstant.ChannelTypeAli, CredentialMergeAdmin)
+	require.Equal(t, "https://token-plan.cn-beijing.maas.aliyuncs.com", merged["base_url"])
+	require.Equal(t, "sk-existing", merged["api_key"])
+	mapping, ok := merged["model_mapping"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "qwen-audio-3.0-tts-plus", mapping["qwen-audio-3.0-tts-plus"])
+}
+
+func TestMergeAccountCredentials_AdminExplicitEmptyBaseURLClears(t *testing.T) {
+	existing := map[string]any{
+		"api_key":  "sk-existing",
+		"base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
+	}
+	incoming := map[string]any{
+		"base_url": "",
+	}
+	merged := MergeAccountCredentials(existing, incoming, newapiconstant.ChannelTypeAli, CredentialMergeAdmin)
+	require.Equal(t, "", merged["base_url"])
+	require.Equal(t, "sk-existing", merged["api_key"])
+}
+
 func TestMergeAccountCredentials_CRSPreserveAllDropsStaleExclusive(t *testing.T) {
 	existing := supplierManagedCredentials(
 		"https://supplier.example/v1", "supplier-secret",

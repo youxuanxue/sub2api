@@ -157,10 +157,12 @@ func TestAccountHandlerUpdateReturnsBadRequestForMissingProtocolEndpointIdentity
 	router := setupAccountMixedChannelRouter(adminSvc)
 
 	rec := httptest.NewRecorder()
+	// Explicit empty base_url is the real failure mode after Admin merge
+	// preserves omitted base_url on model_mapping-only patches.
 	req := httptest.NewRequest(
 		http.MethodPut,
 		"/api/v1/admin/accounts/132",
-		bytes.NewBufferString(`{"credentials":{"model_mapping":{"qwen-audio-3.0-tts-plus":"qwen-audio-3.0-tts-plus"}}}`),
+		bytes.NewBufferString(`{"credentials":{"base_url":"","model_mapping":{"qwen-audio-3.0-tts-plus":"qwen-audio-3.0-tts-plus"}}}`),
 	)
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rec, req)

@@ -16,15 +16,19 @@ const apiBaseURLsCredentialKey = "api_base_urls"
 type CredentialMergeMode int
 
 const (
-	// CredentialMergeAdmin mirrors MergePreservingSensitiveCreds: non-sensitive
-	// keys are wholly decided by incoming (omit = delete); sensitive keys are
-	// preserved when omitted.
+	// CredentialMergeAdmin mirrors MergePreservingSensitiveCreds for most
+	// non-sensitive keys (omit = delete) and preserves sensitive keys when
+	// omitted. base_url is also preserved when omitted so model_mapping-only
+	// (and similar) admin patches cannot wipe protocol endpoint identity; send
+	// an explicit empty/null base_url to clear.
 	CredentialMergeAdmin CredentialMergeMode = iota
 	// CredentialMergePreserveAll mirrors CRS mergeMap: existing keys survive
 	// unless incoming overwrites them. Protocol identity keys are still never
 	// inherited implicitly (see MergeAccountCredentials).
 	CredentialMergePreserveAll
 )
+
+const baseURLCredentialKey = "base_url"
 
 // MergeAccountCredentials is the SSOT credential merge for every persistence
 // write that combines an existing map with an incoming patch/payload.
@@ -42,6 +46,14 @@ func MergeAccountCredentials(existing, incoming map[string]any, channelType int,
 		merged = mergeMap(existing, incoming)
 	default:
 		merged = MergePreservingSensitiveCreds(existing, incoming)
+		// Admin UI / ops often PATCH only model_mapping. Wiping base_url there
+		// fails the #2024 BuildProtocolEndpointIdentity gate even though the
+		// operator never intended to rotate the upstream host.
+		if incoming != nil && !credentialMapHasKey(incoming, baseURLCredentialKey) {
+			if existingVal, ok := existing[baseURLCredentialKey]; ok {
+				merged[baseURLCredentialKey] = existingVal
+			}
+		}
 	}
 	if incoming == nil || !credentialMapHasKey(incoming, apiBaseURLsCredentialKey) {
 		delete(merged, apiBaseURLsCredentialKey)
