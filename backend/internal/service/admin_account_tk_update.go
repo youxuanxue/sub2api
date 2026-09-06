@@ -302,7 +302,7 @@ func (s *adminServiceImpl) tkApplyUpdateAccountTKFields(ctx context.Context, acc
 			return err
 		}
 	}
-	if len(input.Credentials) > 0 || input.ChannelType != nil {
+	if len(input.Credentials) > 0 || input.ChannelType != nil || input.Type != "" || input.Extra != nil {
 		if _, _, err := BuildProtocolEndpointIdentity(account); err != nil {
 			return infraerrors.BadRequest(
 				"INVALID_ACCOUNT_PROTOCOL_ENDPOINT_IDENTITY",

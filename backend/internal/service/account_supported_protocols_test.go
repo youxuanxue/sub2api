@@ -811,10 +811,11 @@ func TestAdminUpdatePreservesCanonicalSupportedProtocolsAndIgnoresClientValue(t 
 	repo := &upstreamBillingProbeAdminRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{
 		accounts: map[int64]*Account{
 			accountID: {
-				ID:       accountID,
-				Platform: PlatformOpenAI,
-				Type:     AccountTypeAPIKey,
-				Status:   StatusActive,
+				ID:          accountID,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Credentials: map[string]any{"base_url": "https://relay.example.test/v1"},
 				Extra: map[string]any{
 					SupportedProtocolsExtraKey: []string{"messages"},
 					"old_config":               true,

@@ -98,6 +98,10 @@
 - `backend/internal/service/supplier_managed_account_guard_test.go`::`TestUS048_ManagedAccountDuplicateStripsSupplierIdentity`
 - `backend/internal/service/supplier_managed_account_guard_test.go`::`TestUS048_UnmanagedAccountCannotForgeSupplierManagedExtra`
 - `backend/internal/service/supplier_managed_account_guard_test.go`::`TestUS048_PreserveSupplierManagedExtraKeys`
+- `backend/internal/service/admin_service_credentials_merge_test.go`::`TestUpdateAccount_RejectsMissingProtocolEndpointBeforePersist`
+- `backend/internal/service/admin_service_credentials_merge_test.go`::`TestUpdateAccount_RejectsTypeChangeWithoutProtocolEndpointBeforePersist`
+- `backend/internal/service/admin_service_credentials_merge_test.go`::`TestUpdateAccount_RejectsIncompleteCustomProtocolEndpointBeforePersist`
+- `backend/internal/handler/admin/account_handler_mixed_channel_test.go`::`TestAccountHandlerUpdateReturnsBadRequestForMissingProtocolEndpointIdentity`
 - `backend/internal/service/crs_sync_supplier_managed_test.go`::`TestUS048_CRSSyncAllowsSupplierManagedAccountOverwrite`
 - `backend/internal/service/crs_sync_supplier_managed_test.go`::`TestUS048_CRSSyncRejectsReservedSupplierExtraOnNewAccount`
 - `backend/internal/service/supplier_source_probe_test.go`::`TestUS048_SupplierModelMatchKeyNormalizesCaseAndSpaces`
@@ -153,6 +157,9 @@
 - `frontend/src/views/admin/__tests__/SupplierSourcesView.spec.ts`::`selects the supplier source requested by source_id after loading the list`
 - `frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts`::`shows the supplier-managed badge and treats managed rows like ordinary accounts`
 - `frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts`::`opens the account modal for supplier-managed rows`
+- `frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts`::`loads canonical credentials before editing a compact account row`
+- `frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts`::`keeps the latest account selected when detail requests resolve out of order`
+- `frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts`::`keeps the edit modal closed when account detail loading fails`
 - `frontend/src/views/admin/__tests__/AccountsView.supplierManaged.spec.ts`::`allows duplicate of supplier-managed accounts like ordinary accounts`
 - `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`::`shows the supplier-managed hint and submits a normal account update`
 - `frontend/src/components/account/__tests__/SupplierManagedBadge.spec.ts`::`uses marker presence, maps known sources, falls back safely, and refreshes after remount`
@@ -160,6 +167,7 @@
 - `frontend/e2e/us048-supplier-source-management.e2e.ts`::`US048 project-before-validate writes accounts without probing`
 - `frontend/e2e/us048-supplier-source-management.e2e.ts`::`US048 FMGo shows the fixed protocol boundary without account changes`
 - `frontend/e2e/us048-supplier-source-management.e2e.ts`::`US048 accounts UI marks supplier-managed accounts and allows ordinary edits`
+- `frontend/e2e/us048-supplier-source-management.e2e.ts`::`Admin account edit reloads Token Plan detail and preserves endpoint identity`
 
 - Run command:
 

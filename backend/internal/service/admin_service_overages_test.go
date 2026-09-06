@@ -126,10 +126,11 @@ func TestUpdateAccount_EmptyExtraPayloadCanClearQuotaLimits(t *testing.T) {
 	accountID := int64(103)
 	repo := &updateAccountOveragesRepoStub{
 		account: &Account{
-			ID:       accountID,
-			Platform: PlatformAnthropic,
-			Type:     AccountTypeAPIKey,
-			Status:   StatusActive,
+			ID:          accountID,
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Credentials: map[string]any{"base_url": "https://upstream.example"},
 			Extra: map[string]any{
 				"quota_limit":        100.0,
 				"quota_daily_limit":  10.0,
@@ -162,10 +163,11 @@ func TestUpdateAccount_FixedWeeklyResetClearsLegacyRollingUsage(t *testing.T) {
 	accountID := int64(104)
 	repo := &updateAccountOveragesRepoStub{
 		account: &Account{
-			ID:       accountID,
-			Platform: PlatformAnthropic,
-			Type:     AccountTypeAPIKey,
-			Status:   StatusActive,
+			ID:          accountID,
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Credentials: map[string]any{"base_url": "https://upstream.example"},
 			Extra: map[string]any{
 				"quota_weekly_limit": 40.0,
 				"quota_weekly_used":  12.5,

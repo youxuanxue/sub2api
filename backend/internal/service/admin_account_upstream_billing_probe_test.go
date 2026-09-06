@@ -165,10 +165,11 @@ func TestUpdateAccountPreservesManagedUpstreamBillingProbeStateForUnrelatedEdit(
 	accountID := int64(110)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
 		accountID: {
-			ID:       accountID,
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Status:   StatusActive,
+			ID:          accountID,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Credentials: map[string]any{"base_url": "https://upstream.example"},
 			Extra: map[string]any{
 				UpstreamBillingProbeEnabledExtraKey:    true,
 				UpstreamBillingRateSyncEnabledExtraKey: true,
@@ -197,11 +198,12 @@ func TestUpdateAccountPreservesGrokBillingSnapshotForUnrelatedEdit(t *testing.T)
 	}
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
 		accountID: {
-			ID:       accountID,
-			Platform: PlatformGrok,
-			Type:     AccountTypeOAuth,
-			Status:   StatusActive,
-			Extra:    map[string]any{grokBillingExtraKey: billing},
+			ID:          accountID,
+			Platform:    PlatformGrok,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Credentials: map[string]any{"base_url": "https://grok.example/v1"},
+			Extra:       map[string]any{grokBillingExtraKey: billing},
 		},
 	}}
 
@@ -383,11 +385,12 @@ func TestUpdateAccountAcceptsProbeEnabledAndRejectsInjectedSnapshot(t *testing.T
 	accountID := int64(111)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
 		accountID: {
-			ID:       accountID,
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Status:   StatusActive,
-			Extra:    map[string]any{},
+			ID:          accountID,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Credentials: map[string]any{"base_url": "https://upstream.example"},
+			Extra:       map[string]any{},
 		},
 	}}
 
@@ -541,10 +544,11 @@ func TestUpdateAccountExplicitProbeDisableUsesDedicatedExtraUpdate(t *testing.T)
 	accountID := int64(113)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
 		accountID: {
-			ID:       accountID,
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Status:   StatusActive,
+			ID:          accountID,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Credentials: map[string]any{"base_url": "https://upstream.example"},
 			Extra: map[string]any{
 				UpstreamBillingProbeEnabledExtraKey: true,
 				UpstreamBillingProbeExtraKey:        map[string]any{"status": "ok"},
@@ -566,11 +570,12 @@ func TestUpdateAccountExplicitUnchangedProbeEnabledStillUsesDedicatedExtraUpdate
 	accountID := int64(114)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{
 		accountID: {
-			ID:       accountID,
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Status:   StatusActive,
-			Extra:    map[string]any{UpstreamBillingProbeEnabledExtraKey: true},
+			ID:          accountID,
+			Platform:    PlatformOpenAI,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Credentials: map[string]any{"base_url": "https://upstream.example"},
+			Extra:       map[string]any{UpstreamBillingProbeEnabledExtraKey: true},
 		},
 	}}
 

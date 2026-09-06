@@ -262,6 +262,48 @@ describe('AccountsView supplier-managed accounts', () => {
     expect(modal.attributes('data-base-url')).toBe('https://token-plan.example.test')
   })
 
+  it('keeps the latest account selected when detail requests resolve out of order', async () => {
+    let resolveManaged!: (value: unknown) => void
+    let resolveOrdinary!: (value: unknown) => void
+    getById.mockImplementation((id: number) => new Promise<unknown>((resolve) => {
+      if (id === managedAccount.id) resolveManaged = resolve
+      else resolveOrdinary = resolve
+    }))
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="account-row-7"]').get('[data-testid="account-edit-btn"]').trigger('click')
+    await wrapper.get('[data-test="account-row-8"]').get('[data-testid="account-edit-btn"]').trigger('click')
+
+    resolveOrdinary({
+      ...ordinaryAccount,
+      credentials: { base_url: 'https://token-plan.example.test' }
+    })
+    await flushPromises()
+    expect(wrapper.get('[data-test="edit-modal"]').attributes('data-account-id')).toBe('8')
+
+    resolveManaged({
+      ...managedAccount,
+      credentials: { base_url: 'https://supplier.example.test' }
+    })
+    await flushPromises()
+    expect(wrapper.get('[data-test="edit-modal"]').attributes('data-account-id')).toBe('8')
+  })
+
+  it('keeps the edit modal closed when account detail loading fails', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    getById.mockRejectedValueOnce(new Error('detail failed'))
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-test="account-row-8"]').get('[data-testid="account-edit-btn"]').trigger('click')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('detail failed')
+    expect(wrapper.find('[data-test="edit-modal"]').exists()).toBe(false)
+    consoleError.mockRestore()
+  })
+
   it('allows duplicate of supplier-managed accounts like ordinary accounts', async () => {
     const wrapper = mountView()
     await flushPromises()

@@ -153,6 +153,54 @@ func TestUpdateAccount_RejectsMissingProtocolEndpointBeforePersist(t *testing.T)
 	require.Zero(t, repo.updateCalls, "invalid endpoint identity must be rejected before persistence")
 }
 
+func TestUpdateAccount_RejectsTypeChangeWithoutProtocolEndpointBeforePersist(t *testing.T) {
+	accountID := int64(133)
+	repo := &updateAccountCredsRepoStub{
+		account: &Account{
+			ID:          accountID,
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Credentials: map[string]any{"access_token": "at-existing"},
+		},
+	}
+
+	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(
+		context.Background(),
+		accountID,
+		&UpdateAccountInput{Type: AccountTypeAPIKey},
+	)
+
+	require.Nil(t, updated)
+	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+	require.Equal(t, "INVALID_ACCOUNT_PROTOCOL_ENDPOINT_IDENTITY", infraerrors.Reason(err))
+	require.Zero(t, repo.updateCalls, "invalid type transition must be rejected before persistence")
+}
+
+func TestUpdateAccount_RejectsIncompleteCustomProtocolEndpointBeforePersist(t *testing.T) {
+	accountID := int64(134)
+	repo := &updateAccountCredsRepoStub{
+		account: &Account{
+			ID:          accountID,
+			Platform:    PlatformAnthropic,
+			Type:        AccountTypeOAuth,
+			Status:      StatusActive,
+			Credentials: map[string]any{"access_token": "at-existing"},
+		},
+	}
+
+	updated, err := (&adminServiceImpl{accountRepo: repo}).UpdateAccount(
+		context.Background(),
+		accountID,
+		&UpdateAccountInput{Extra: map[string]any{"custom_base_url_enabled": true}},
+	)
+
+	require.Nil(t, updated)
+	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+	require.Equal(t, "INVALID_ACCOUNT_PROTOCOL_ENDPOINT_IDENTITY", infraerrors.Reason(err))
+	require.Zero(t, repo.updateCalls, "incomplete custom endpoint must be rejected before persistence")
+}
+
 func TestUpdateAccount_ResolvesNewAPIMoonshotRegionBeforePersist(t *testing.T) {
 	fail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "wrong region", http.StatusUnauthorized)
