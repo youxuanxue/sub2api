@@ -782,7 +782,7 @@ fi
 # divergences in the Antigravity (cloudcode-pa) client fingerprint that an
 # upstream merge would silently revert: the `/cli/` segment in BuildUserAgent
 # (oauth.go) and the gl-node X-Goog-Api-Client removal on privacy calls
-# (client.go). Aligned to Antigravity CLI (`agy`); see docs/antigravity-fingerprint-changelog.md.
+# (client.go). Aligned to Antigravity CLI (`agy`); see docs/ops/antigravity-fingerprint-changelog.md.
 echo ""
 echo "=== sub2api: antigravity fingerprint sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
