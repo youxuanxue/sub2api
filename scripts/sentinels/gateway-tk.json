@@ -412,9 +412,22 @@
         "SetAnthropicUpstreamErrorCounterCache",
         "GetAnthropicCooldownTierEscalations",
         "AnthropicCooldownTierEscalationsKey",
-        "rateSampleFloor"
+        "rateSampleFloor",
+        "s.tkAttachAlertCardDimensions("
       ],
-      "rationale": "Ops alert evaluator must call the TK companion notification fanout and report Feishu sends in the heartbeat. If an upstream merge restores the old email-only call, P0 Feishu delivery silently stops while alert event creation still works. The anthropic_cooldown_tier_escalation_count metric case is the PR #337 follow-up that turns persistent ladder escalation into Feishu/email alerts; dropping the case (or the cache injection seam / shared canonical key) silently disables the alert while the writer side keeps incrementing the counter. `rateSampleFloor` is the min-sample guard for ratio metrics (success_rate / error_rate / upstream_error_rate): below RateRuleMinSamples SLA-counted requests the metric returns ok=false so a near-empty low-traffic window can't page a false 100% P0 (2026-06-06 us2/us5). If an upstream merge restores the bare `RequestCountSLA <= 0` guard, low-traffic edges silently regress to firing P0 on a 1-request window."
+      "rationale": "Ops alert evaluator must call the TK companion notification fanout and report Feishu sends in the heartbeat. If an upstream merge restores the old email-only call, P0 Feishu delivery silently stops while alert event creation still works. The anthropic_cooldown_tier_escalation_count metric case is the PR #337 follow-up that turns persistent ladder escalation into Feishu/email alerts; dropping the case (or the cache injection seam / shared canonical key) silently disables the alert while the writer side keeps incrementing the counter. `rateSampleFloor` is the min-sample guard for ratio metrics (success_rate / error_rate / upstream_error_rate): below RateRuleMinSamples SLA-counted requests the metric returns ok=false so a near-empty low-traffic window can't page a false 100% P0 (2026-06-06 us2/us5). If an upstream merge restores the bare `RequestCountSLA <= 0` guard, low-traffic edges silently regress to firing P0 on a 1-request window. `s.tkAttachAlertCardDimensions(` is the thin evaluateOnce call site that mounts top_cause / user_visible_* onto firing dimensions; dropping it compiles clean while leaving Feishu cards aggregate-only again."
+    },
+    {
+      "path": "backend/internal/service/ops_alert_evaluator_service_tk_dimensions.go",
+      "must_contain": [
+        "func (s *OpsAlertEvaluatorService) tkAttachAlertCardDimensions(",
+        "computeUserVisibleFailureDimensions",
+        "computeTopCause",
+        "dimensions[\"top_cause\"]",
+        "dimensions[\"top_cause_users\"]",
+        "dimensions[\"top_cause_models\"]"
+      ],
+      "rationale": "TK companion that mounts self-diagnosing P0 card breakdown onto firing dimensions: structured user-visible failure dimensions take priority, otherwise top_cause (+ users/models). evaluateOnce only retains the thin tkAttachAlertCardDimensions call; compute helpers stay in ops_alert_top_cause_tk.go. If an upstream merge drops this companion or the dimension key literals, Feishu cards regress to aggregate percentages with no first-screen cause attribution (us7 2026-06-13)."
     },
     {
       "path": "backend/internal/service/ops_alert_notifications_tk_feishu.go",
@@ -1405,10 +1418,18 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
+        "s.tkTryForwardCloudwiseAnthropicViaChatCompletions("
+      ],
+      "rationale": "Thin Forward call site for CloudWise Anthropic→chat early exit after P3 companion extraction. Dropping this compiles clean but leaves #94 glm/kimi/minimax/deepseek on native /v1/messages. Implementation: gateway_forward_tk_cloudwise.go."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_tk_cloudwise.go",
+      "must_contain": [
+        "func (s *GatewayService) tkTryForwardCloudwiseAnthropicViaChatCompletions(",
         "shouldForwardCloudwiseAnthropicViaChatCompletions(account, parsed)",
         "forwardCloudwiseAnthropicViaChatCompletions(ctx, c, account, parsed)"
       ],
-      "rationale": "GatewayService.Forward must intercept CloudWise non-claude /v1/messages before anthropic APIKey passthrough, otherwise #94 glm/kimi/minimax/deepseek stay on native messages."
+      "rationale": "P3 companion: CloudWise Anthropic chat-completions early-return dispatch. Helpers remain in gateway_cloudwise_anthropic_chat_fallback_tk.go; this wrapper is what Forward thin-calls."
     },
     {
       "path": "backend/internal/service/gateway_failover_policy.go",
@@ -1872,14 +1893,14 @@
       "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
       "must_contain": [
         "shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)",
-        "tkShouldOpenAICodex429BeModelScoped(account, headers, responseBody, reqModel)",
+        "tkOpenAIOAuth429ShouldSkipAccountStorm(account, headers, responseBody, requestedModel...)",
         "s.BlockAccountScheduling(account, time.Time{}, \"upstream_disable\")",
         "openAIOAuth429StormThreshold",
         "noteOpenAIOAuth429ForScheduling",
         "reconcileOpenAIAccountRuntimeBlockWithDB",
         "openai_account_runtime_block_cleared_rate_limit_drift"
       ],
-      "rationale": "OPC companion for upstream OpenAI cooldown scheduling (#2698 / 1e406fed): centralizes HandleUpstreamError + BlockAccountScheduling + OAuth 429 storm guard so openai_gateway_service.go and openai_account_scheduler.go stay thin. HandleUpstreamError MUST receive requestedModel so spark usage_limit_reached 429s hit model_rate_limits (path 2) instead of whole-account SetRateLimited while the account-wide codex window is healthy (prod GPT-pro1 2026-07-06). tkShouldOpenAICodex429BeModelScoped gates noteOpenAIOAuth429ForScheduling so model-scoped spark cooldowns do not whole-account BlockAccountScheduling. Prod 2026-07-28 (GPT-pro3/4): whole-account runtime blocks for OAuth 429 MUST follow notifyAccountSchedulingBlocked only — noteOpenAIOAuth429ForScheduling records storm state but must NOT write unclamped 7d header reset when rateLimitService is present; reconcileOpenAIAccountRuntimeBlockWithDB clears in-memory 429 drift after DB rate_limit_reset_at expires. Pinning shouldDisable capture and upstream_disable block path prevents silent reversion to `_ =` side-effect-only handling. OAuth 429 storm threshold anchors the TK failover guard that limits account switches during burst 429s."
+      "rationale": "OPC companion for upstream OpenAI cooldown scheduling (#2698 / 1e406fed): centralizes HandleUpstreamError + BlockAccountScheduling + OAuth 429 storm guard so openai_gateway_service.go and openai_account_scheduler.go stay thin. HandleUpstreamError MUST receive requestedModel so spark usage_limit_reached 429s hit model_rate_limits. P3: Codex model-scoped 429 early-return is tkOpenAIOAuth429ShouldSkipAccountStorm (openai_account_runtime_block_fastpath_tk_codex_429.go)."
     },
     {
       "path": "backend/internal/service/openai_oauth_passthrough_test.go",
@@ -3529,9 +3550,17 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
-        "TkPrefilterToolSearchHistoricalThinking(body, reqModel)"
+        "tkApplyToolSearchHistoricalThinkingPrefilter(reqModel, getBody, replaceBody)"
       ],
-      "rationale": "Wiring of ToolSearch historical thinking pre-filter and CC prompt-surface normalize into OAuth Forward, API-Key passthrough, count_tokens passthrough, and Bedrock."
+      "rationale": "Thin Forward wiring for ToolSearch historical thinking pre-filter after P3 companion extraction. Passthrough/count_tokens/Bedrock retain their own call sites. Implementation: gateway_forward_tk_toolsearch.go."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_tk_toolsearch.go",
+      "must_contain": [
+        "func tkApplyToolSearchHistoricalThinkingPrefilter(",
+        "TkPrefilterToolSearchHistoricalThinking(getBody(), reqModel)"
+      ],
+      "rationale": "P3 companion: Forward-path ToolSearch historical signed-thinking prefilter thin wrapper over TkPrefilterToolSearchHistoricalThinking. Pure filter stays in gateway_request_tk_toolsearch_thinking.go."
     },
     {
       "rationale": "Wiring of ToolSearch historical thinking pre-filter and CC prompt-surface normalize into OAuth Forward, API-Key passthrough, count_tokens passthrough, and Bedrock.",
@@ -3746,7 +3775,7 @@
     {
       "path": "backend/internal/handler/openai_gateway_handler.go",
       "must_contain": [
-        "h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), \"compact_not_supported\"",
+        "h.tkRespondCompactNotSupported(c, err, legacyCompact, streamStarted)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, err)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, nil)",
         "h.handleStreamingAwareError(c, status, errType, msg, streamStarted)",
@@ -3754,7 +3783,7 @@
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, currentRoutingModel, reqModel, nil)",
         "h.anthropicStreamingAwareError(c, status, errType, msg, streamStarted)"
       ],
-      "rationale": "OpenAI-gateway /v1/responses + openai_messages first-selection failure branches must route through openAICompatFirstAttemptSelectionFailure (429 on empty pool, 404 on mapping gap, 400 on unsupported model, 503 on real scheduler faults). Empty compact pool (ErrNoAvailableCompactAccounts) keeps its compact_not_supported code but joins the 429 no-available family (PR #723, #575 parity). The two call sites pin distinct error writers (handleStreamingAwareError vs anthropicStreamingAwareError)."
+      "rationale": "OpenAI-gateway /v1/responses + openai_messages first-selection failure branches must route through openAICompatFirstAttemptSelectionFailure (429 on empty pool, 404 on mapping gap, 400 on unsupported model, 503 on real scheduler faults). Empty compact pool (ErrNoAvailableCompactAccounts) keeps compact_not_supported via tkRespondCompactNotSupported in openai_gateway_handler_tk_dispatch_select.go but joins the 429 no-available family (PR #723, #575 parity). The two call sites pin distinct error writers (handleStreamingAwareError vs anthropicStreamingAwareError)."
     },
     {
       "path": "backend/internal/handler/openai_images.go",
@@ -5417,7 +5446,10 @@
         "func (h *OpenAIGatewayHandler) tkSelectAccountWithSchedulerDispatchFallback(",
         "func tkOpenAIDispatchSelectionFallbackModel(",
         "func tkOpenAIDispatchSelectionAllowsFallback(",
-        "ErrNoAvailableCompactAccounts"
+        "ErrNoAvailableCompactAccounts",
+        "func (h *OpenAIGatewayHandler) tkRespondCompactNotSupported(",
+        "tkNoAvailableAccounts(c)",
+        "\"compact_not_supported\""
       ],
       "rationale": "TK companion for GPT专线-style messages-dispatch: after native Claude relays empty the pool, selection retries the group opus/sonnet/haiku mapped GPT id. Prod 2026-08-20 user 6 hit routing 429s on claude-opus-4-8 because selection kept the client model name after cloudwise 402 and tokensea 'not implemented'. Dropping this helper silently restores empty-pool 429s. Pairs with Messages/ChatCompletions/CountTokens/Responses injection sentinels."
     },
@@ -6555,9 +6587,20 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
-        "account.IsAnthropicOAuthPassthroughEnabled()"
+        "s.tkTryForwardAnthropicPassthrough("
       ],
-      "rationale": "Load-bearing wiring: OAuth passthrough must early-return in Forward and ForwardCountTokens BEFORE canonical/mimic/fingerprint rewrite, reusing the shared passthrough forward loop with anthropicPassthroughAuthOAuth. An upstream merge that drops either early-return re-enables fingerprint/mimic/canonical for accounts explicitly configured for raw egress."
+      "rationale": "Thin Forward call site for Anthropic API-key/OAuth passthrough early-return after P3 companion extraction. Must stay BEFORE canonical/mimic/fingerprint rewrite. Implementation: gateway_forward_tk_oauth_passthrough_dispatch.go. ForwardCountTokens retains its own early-returns."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_tk_oauth_passthrough_dispatch.go",
+      "must_contain": [
+        "func (s *GatewayService) tkTryForwardAnthropicPassthrough(",
+        "account.IsAnthropicAPIKeyPassthroughEnabled()",
+        "account.IsAnthropicOAuthPassthroughEnabled()",
+        "forwardAnthropicAPIKeyPassthroughWithInput",
+        "forwardAnthropicOAuthPassthroughWithInput"
+      ],
+      "rationale": "P3 companion: Anthropic API-key + OAuth passthrough early-exit dispatch from Forward. Dropping OAuth/API-key branches re-enables fingerprint/mimic/canonical for accounts configured for raw egress."
     },
     {
       "rationale": "Load-bearing wiring: OAuth passthrough must early-return in Forward and ForwardCountTokens BEFORE canonical/mimic/fingerprint rewrite, reusing the shared passthrough forward loop with anthropicPassthroughAuthOAuth. An upstream merge that drops either early-return re-enables fingerprint/mimic/canonical for accounts explicitly configured for raw egress.",
@@ -7590,12 +7633,11 @@
     {
       "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
       "must_contain": [
-        "HandleOpenAIImageCapabilityLoss400(stateCtx, account, statusCode, responseBody)",
-        "cloudwiseModelBalanceMatched := len(canonicalModel) > 0 &&",
-        "cloudwiseProvider424Matched := tkIsCloudwiseProvider424Response(account, statusCode, responseBody)",
-        "!modelTempMatched && !cloudwiseModelBalanceMatched && !cloudwiseProvider424Matched"
+        "s.tkHandleOpenAIImageCapabilityLossFastpath(stateCtx, account, statusCode, responseBody)",
+        "tkCloudwiseSkipPermanentRuntimeBlock(account, statusCode, responseBody, canonicalModel)",
+        "s.BlockAccountScheduling(account, time.Time{}, \"upstream_disable\")"
       ],
-      "rationale": "Gateway error fastpath must cool openai:image_generation on capability-loss 400 without blocking the whole account. The same boundary must recognize CloudWise model-balance 402 and Provider error 424 breaker handling, skipping the generic permanent in-memory block while still returning shouldDisable=true so the current request fails over. A 424 account escalation already writes the bounded shared temp_unschedulable runtime block; losing this guard would overwrite model isolation or the finite account cooldown with an unbounded whole-account block."
+      "rationale": "P3 thin call sites: Gateway error fastpath must cool openai:image_generation on capability-loss 400 (tkHandleOpenAIImageCapabilityLossFastpath) and skip permanent BlockAccountScheduling for CloudWise model-balance 402 / Provider 424 (tkCloudwiseSkipPermanentRuntimeBlock) while still returning shouldDisable=true so the current request fails over. Bodies live in openai_account_runtime_block_fastpath_tk_image_capability.go and openai_account_runtime_block_fastpath_tk_cloudwise.go."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_account_capability_400.go",
@@ -7667,26 +7709,20 @@
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
-        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
-        "if tkAnthropicBufferedEventCompletesMessage(&event) {",
-        "streamCompleted = true\n\t\t\tbreak",
-        "if !tkAnthropicBufferedHasUsableContent(finalResp) {",
-        "s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, upstreamErr)",
-        "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
+        "assembly.noteSSEError([]byte(payload), s.cfg)",
+        "assembly.applyEvent(&event)",
+        "s.tkResolveAnthropicBufferedAssembly("
       ],
-      "rationale": "Anthropic-platform CC buffered path must capture every terminal failure, distinguish message_start-only from usable content, enter account failover before response commit, and preserve+mark partial content. Dropping a hook compiles cleanly but restores empty 200s, direct 502s, or replay of billable partial answers."
+      "rationale": "P3 thin call sites: Anthropic-platform CC buffered path must keep the shared assembly.noteSSEError / applyEvent / tkResolveAnthropicBufferedAssembly hooks. Event-accumulation and post-scan failover/partial-failure live in gateway_forward_as_tk_buffered_stream.go; dropping a hook compiles clean but restores empty 200s, direct 502s, or replay of billable partial answers."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses.go",
       "must_contain": [
-        "if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {",
-        "if tkAnthropicBufferedEventCompletesMessage(&event) {",
-        "streamCompleted = true\n\t\t\tbreak",
-        "if !tkAnthropicBufferedHasUsableContent(finalResp) {",
-        "s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, upstreamErr)",
-        "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)"
+        "assembly.noteSSEError([]byte(payload), s.cfg)",
+        "assembly.applyEvent(&event)",
+        "s.tkResolveAnthropicBufferedAssembly("
       ],
-      "rationale": "Anthropic-platform Responses buffered path shares the same completion, failover-before-write, and partial-truncation contract as Chat Completions."
+      "rationale": "P3 thin call sites: Anthropic-platform Responses buffered path must keep the shared assembly.noteSSEError / applyEvent / tkResolveAnthropicBufferedAssembly hooks. Shares the same completion, failover-before-write, and partial-truncation contract as Chat Completions via gateway_forward_as_tk_buffered_stream.go."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
@@ -8711,9 +8747,12 @@
         "s.tkSanitizeAnthropicForwardBody(",
         "s.tkApplyAnthropicForwardPreSendGuards(",
         "s.tkApplyAnthropicForwardPostMappingGates(",
-        "s.tkTryForwardKiro("
+        "s.tkTryForwardKiro(",
+        "s.tkTryForwardCloudwiseAnthropicViaChatCompletions(",
+        "s.tkTryForwardAnthropicPassthrough(",
+        "tkApplyToolSearchHistoricalThinkingPrefilter("
       ],
-      "rationale": "Thin TK companion call sites in GatewayService.Forward; dropping any silently disables ingress/sanitize/pre-send/post-mapping/Kiro failover hooks. P3: Kiro early path + tkHandleKiroForwardUpstreamError live in gateway_forward_tk_kiro.go; upstream Forward keeps tkTryForwardKiro thin call."
+      "rationale": "Thin TK companion call sites in GatewayService.Forward; dropping any silently disables ingress/sanitize/pre-send/post-mapping/Kiro/Cloudwise/passthrough/ToolSearch hooks. P3: early exits + ToolSearch prefilter live in gateway_forward_tk_{cloudwise,oauth_passthrough_dispatch,toolsearch,kiro}.go."
     },
     {
       "path": "backend/internal/service/gateway_forward_tk_kiro.go",
@@ -8855,9 +8894,11 @@
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
         "if result, handled, err := s.tkTryForwardKiro(ctx, c, account, parsed, startTime); handled {",
-        "reqModel, isClaudeCode, shouldMimicClaudeCode, err = s.tkApplyClaudeOAuthMimicry("
+        "reqModel, isClaudeCode, shouldMimicClaudeCode, err = s.tkApplyClaudeOAuthMimicry(",
+        "if result, handled, err := s.tkTryForwardCloudwiseAnthropicViaChatCompletions(ctx, c, account, parsed); handled {",
+        "if result, handled, err := s.tkTryForwardAnthropicPassthrough(ctx, c, account, parsed, startTime); handled {"
       ],
-      "rationale": "P3: Anthropic Forward must keep Kiro early-return and Claude OAuth mimicry call sites after companion extraction. Dropping either compiles clean but regresses Kiro keepalive forwarding or OAuth non-CC fingerprint mimicry."
+      "rationale": "P3: Anthropic Forward must keep Cloudwise/passthrough/Kiro early-return and Claude OAuth mimicry call sites after companion extraction. Dropping any compiles clean but regresses those paths."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages.go",
@@ -8879,6 +8920,26 @@
         "if p := s.tkResolveFallbackOverlayPricing(modelLower); p != nil {"
       ],
       "rationale": "P3: getFallbackPricing must retain TK overlay hook after companion extraction so DeepSeek/GLM/Codex/CNY fallback pricing cannot silently vanish on upstream merge."
+    },
+    {
+      "path": "backend/internal/service/billing_service.go",
+      "must_contain": [
+        "s.tkInitFallbackPricingTables()",
+        "if p := s.tkResolveFallbackTableFamilyPricing(modelLower); p != nil {"
+      ],
+      "rationale": "P3: billing fallback must retain init/family thin calls into billing_service_tk_fallback_tables.go so Fable/Gemini/GPT/DeepSeek/GLM tables cannot vanish on upstream merge."
+    },
+    {
+      "path": "backend/internal/service/billing_service_tk_fallback_tables.go",
+      "must_contain": [
+        "func (s *BillingService) tkInitFallbackPricingTables()",
+        "func (s *BillingService) tkResolveFallbackTableFamilyPricing",
+        "claude-fable-5",
+        "gemini-3.1-pro",
+        "gpt-5.4",
+        "deepseek-v4-pro"
+      ],
+      "rationale": "P3 companion: extended fallback pricing tables + Fable/Gemini family matchers. Companion deletion would drop those cards while leaving Claude classic/Grok intact."
     },
     {
       "path": "backend/internal/service/gateway_count_tokens.go",
@@ -9126,6 +9187,115 @@
         "s.tkTryHandleUpstreamErrorPrelude("
       ],
       "rationale": "HandleUpstreamError thin prelude must keep calling tkTryHandleUpstreamErrorPrelude then tkDispatchHandleUpstreamError companion; dropping either re-inlines TK dispatch into the upstream-shaped hotspot."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling_tk_window_recovery.go",
+      "must_contain": [
+        "func (s *GatewayService) isAccountSchedulableForWindowCost(",
+        "func (s *GatewayService) tkAllowOrCollectWindowCost(",
+        "func tkRecoverAnthropicCandidatesFromWindowDropped(",
+        "leastUtilizedAnthropicAccount(windowDropped, now)"
+      ],
+      "rationale": "P3 companion: Anthropic window-cost gate + never-empty-pool recovery. Collects non-sticky window rejects and re-admits the least-utilized dropped account when Layer-2 would otherwise empty the pool. Dropping this file silently loses the recovery path even if call sites remain."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "s.tkAllowOrCollectWindowCost(ctx, acc, &windowDropped)",
+        "tkRecoverAnthropicCandidatesFromWindowDropped(candidates, windowDropped, time.Now())"
+      ],
+      "rationale": "P3 thin wiring for Anthropic window-cost drop + never-empty recovery in SelectAccountWithLoadAwareness Layer-2. Upstream merges that restore bare continue-on-window-reject (no collect) or drop the recovery call silently empty the pool under window pressure."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_tk_buffered_stream.go",
+      "must_contain": [
+        "func (a *tkAnthropicBufferedAssembly) noteSSEError(payload []byte, cfg *config.Config) bool",
+        "func (a *tkAnthropicBufferedAssembly) applyEvent(event *apicompat.AnthropicStreamEvent) bool",
+        "func (s *GatewayService) tkResolveAnthropicBufferedAssembly(",
+        "tkParseAnthropicBufferedSSEError(payload, cfg)",
+        "tkAnthropicBufferedEventCompletesMessage(event)",
+        "tkAnthropicBufferedHasUsableContent(finalResp)",
+        "s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, mappedModel, upstreamErr)",
+        "tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)",
+        "tkAnthropicBufferedSyntheticFailure(\"stream_read_error\"",
+        "tkAnthropicBufferedSyntheticFailure(\"stream_incomplete\""
+      ],
+      "rationale": "P3 shared owner for Anthropic SSE buffered assembly loop scaffolding used by ForwardAsChatCompletions and ForwardAsResponses. Terminal parse/failover helpers remain in gateway_anthropic_buffered_error_tk.go; this companion owns duplicated event accumulation and post-scan incomplete/read-error/partial-failure resolution."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath_tk_image_capability.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tkHandleOpenAIImageCapabilityLossFastpath(",
+        "isOpenAIImageCapabilityLoss400(statusCode, responseBody)",
+        "HandleOpenAIImageCapabilityLoss400(stateCtx, account, statusCode, responseBody)"
+      ],
+      "rationale": "P3: capability-loss 400 cools openai:image_generation without whole-account block. Companion owns the HandleOpenAIImageCapabilityLoss400 fastpath body."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath_tk_cloudwise.go",
+      "must_contain": [
+        "func tkCloudwiseSkipPermanentRuntimeBlock(",
+        "tkIsCloudwiseModelBalance402(account, statusCode, responseBody, canonicalModel[0])",
+        "tkIsCloudwiseProvider424Response(account, statusCode, responseBody)",
+        "cloudwiseModelBalanceMatched || cloudwiseProvider424Matched"
+      ],
+      "rationale": "P3: CloudWise model-balance 402 and Provider 424 must skip generic permanent BlockAccountScheduling while HandleUpstreamError still returns shouldDisable for failover."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath_tk_codex_429.go",
+      "must_contain": [
+        "func tkOpenAIOAuth429ShouldSkipAccountStorm(",
+        "tkShouldOpenAICodex429BeModelScoped(account, headers, responseBody, reqModel)"
+      ],
+      "rationale": "P3: Codex OAuth 429 model-scoped gate for noteOpenAIOAuth429ForScheduling. When true, skip account-wide 429 storm / parking so spark/model usage_limit_reached stays on model_rate_limits."
+    },
+    {
+      "path": "backend/internal/service/setting_public_tk_signup_pricing.go",
+      "must_contain": [
+        "func tkPublicSignupPricingSettingKeys()",
+        "func tkParsePublicSignupPricing(",
+        "func tkApplyPublicSignupPricing(",
+        "func tkApplyPublicSignupPricingInjection(",
+        "SettingKeySignupBonusEnabled",
+        "SettingKeyPricingCatalogPublic"
+      ],
+      "rationale": "TK companion owning public signup-bonus + pricing-catalog preview parse/apply for GetPublicSettings and HTML injection. Upstream-shaped setting_public.go only appends keys and calls these helpers; dropping the companion silently zeroes public signup/pricing preview while compiling clean."
+    },
+    {
+      "path": "backend/internal/service/setting_public.go",
+      "must_contain": [
+        "keys = append(keys, tkPublicSignupPricingSettingKeys()...)",
+        "tkApplyPublicSignupPricing(out, tkParsePublicSignupPricing(settings))",
+        "tkApplyPublicSignupPricingInjection(payload, settings)",
+        "json:\"pricing_catalog_public\"",
+        "json:\"signup_bonus_enabled\"",
+        "json:\"signup_bonus_balance_usd\""
+      ],
+      "rationale": "Thin call sites + structural json tags for TK public signup/pricing fields. Parse/apply logic lives in setting_public_tk_signup_pricing.go; json-tagged fields must remain on PublicSettingsInjectionPayload (public API surface). An upstream merge that drops the append/apply hooks silently removes the public preview while keeping the companion compile-clean."
+    },
+    {
+      "path": "backend/internal/service/setting_gateway_runtime_tk_forwarding_extras.go",
+      "must_contain": [
+        "func tkGatewayForwardingExtraSettingKeys()",
+        "func tkParseGatewayForwardingExtras(",
+        "func tkDefaultGatewayForwardingExtras()",
+        "SettingKeyAnthropicCanonicalIngressStrictEnabled",
+        "SettingKeyAnthropicCanonicalHaikuMimicryEnabled",
+        "SettingKeyAnthropicRequestNormalizeEnabled"
+      ],
+      "rationale": "TK companion for gatewayForwardingCache extras (Anthropic request normalize + canonical ingress/mimicry). Getters remain in setting_service_tk_*; this file owns key list + parse/defaults so setting_gateway_runtime.go only appends keys and copies fields. Dropping it strands the cache extras while compile stays green."
+    },
+    {
+      "path": "backend/internal/service/setting_gateway_runtime.go",
+      "must_contain": [
+        "tkGatewayForwardingExtraSettingKeys()...",
+        "tkParseGatewayForwardingExtras(values)",
+        "tkDefaultGatewayForwardingExtras()",
+        "canonicalIngressStrict",
+        "canonicalHaikuMimicry",
+        "anthropicRequestNormalize"
+      ],
+      "rationale": "Thin injection of TK forwarding-cache extras into the shared gatewayForwardingCache loader. Struct fields stay unexported on the shared cache type; parse/defaults live in setting_gateway_runtime_tk_forwarding_extras.go. Upstream merges that drop the append/parse hooks silently revert canonical mimicry + normalize to zero/defaults."
     }
   ]
 }

@@ -298,32 +298,8 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 			}
 
 			dimensions := buildOpsAlertDimensions(scopePlatform, scopeGroupID)
-			// TK: attach a first-screen breakdown so the notification card is
-			// self-diagnosing without an SSH/dashboard drill. Best-effort — never
-			// blocks firing.
-			if extra := s.computeUserVisibleFailureDimensions(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); len(extra) > 0 {
-				if dimensions == nil {
-					dimensions = map[string]any{}
-				}
-				for k, v := range extra {
-					if strings.TrimSpace(v) != "" {
-						dimensions[k] = v
-					}
-				}
-			} else if cause, users, models := s.computeTopCause(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID); cause != "" || users != "" || models != "" {
-				if dimensions == nil {
-					dimensions = map[string]any{}
-				}
-				if cause != "" {
-					dimensions["top_cause"] = cause
-				}
-				if users != "" {
-					dimensions["top_cause_users"] = users
-				}
-				if models != "" {
-					dimensions["top_cause_models"] = models
-				}
-			}
+			// TK: first-screen breakdown — see ops_alert_evaluator_service_tk_dimensions.go
+			dimensions = s.tkAttachAlertCardDimensions(ctx, rule, windowStart, windowEnd, scopePlatform, scopeGroupID, dimensions)
 
 			pageSeverity := effectiveOpsAlertPageSeverity(rule, s.isEdgeNode())
 			firedEvent := &OpsAlertEvent{

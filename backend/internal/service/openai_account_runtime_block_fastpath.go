@@ -82,10 +82,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		}
 		return false
 	}
-	if isOpenAIImageCapabilityLoss400(statusCode, responseBody) {
-		if s != nil && s.rateLimitService != nil {
-			_ = s.rateLimitService.HandleOpenAIImageCapabilityLoss400(stateCtx, account, statusCode, responseBody)
-		}
+	if s.tkHandleOpenAIImageCapabilityLossFastpath(stateCtx, account, statusCode, responseBody) {
 		return false
 	}
 
@@ -130,10 +127,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody, canonicalModel...)
 	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
 		len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
-	cloudwiseModelBalanceMatched := len(canonicalModel) > 0 &&
-		tkIsCloudwiseModelBalance402(account, statusCode, responseBody, canonicalModel[0])
-	cloudwiseProvider424Matched := tkIsCloudwiseProvider424Response(account, statusCode, responseBody)
-	if shouldDisable && !modelTempMatched && !cloudwiseModelBalanceMatched && !cloudwiseProvider424Matched {
+	if shouldDisable && !modelTempMatched && !tkCloudwiseSkipPermanentRuntimeBlock(account, statusCode, responseBody, canonicalModel) {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
 	// Pool-mode retryable upstream errors are already bounded by the request-local
@@ -180,11 +174,7 @@ func (s *OpenAIGatewayService) noteOpenAIOAuth429ForScheduling(ctx context.Conte
 	if account.IsShadow() {
 		return
 	}
-	reqModel := ""
-	if len(requestedModel) > 0 {
-		reqModel = requestedModel[0]
-	}
-	if tkShouldOpenAICodex429BeModelScoped(account, headers, responseBody, reqModel) {
+	if tkOpenAIOAuth429ShouldSkipAccountStorm(account, headers, responseBody, requestedModel...) {
 		return
 	}
 	s.recordOpenAIOAuth429()

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -126,4 +127,21 @@ func (h *OpenAIGatewayHandler) tkSelectAccountForTokenCountWithDispatchFallback(
 		}
 	}
 	return account, effectiveRoutingModel, err
+}
+
+// tkRespondCompactNotSupported handles the first-selection empty compact pool
+// branch for legacy /responses/compact. Returns true when the response was
+// written so the caller should return immediately.
+func (h *OpenAIGatewayHandler) tkRespondCompactNotSupported(
+	c *gin.Context,
+	err error,
+	legacyCompact bool,
+	streamStarted bool,
+) bool {
+	if !legacyCompact || !errors.Is(err, service.ErrNoAvailableCompactAccounts) {
+		return false
+	}
+	markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+	h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "compact_not_supported", "No available OpenAI accounts support /responses/compact", streamStarted)
+	return true
 }

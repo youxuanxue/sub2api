@@ -601,9 +601,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				)...,
 			)
 			if len(failedAccountIDs) == 0 {
-				if legacyCompact && errors.Is(err, service.ErrNoAvailableCompactAccounts) {
-					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-					h.handleStreamingAwareError(c, tkNoAvailableAccounts(c), "compact_not_supported", "No available OpenAI accounts support /responses/compact", streamStarted)
+				// TK: compact_not_supported empty-pool branch — see openai_gateway_handler_tk_dispatch_select.go
+				if h.tkRespondCompactNotSupported(c, err, legacyCompact, streamStarted) {
 					return
 				}
 				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, selectionModel, reqModel, err)
