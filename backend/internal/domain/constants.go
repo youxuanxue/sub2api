@@ -157,6 +157,17 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.7-flash-high":   "gemini-3.7-flash-high",
 	"gemini-3.7-flash-low":    "gemini-3.7-flash-low",
 	"gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
+	// Gemini 3.8 Flash (2026-09-06 live Ultra OAuth on us4): prod
+	// cloudcode-pa still omits 3.8, but paid tiers already forward to
+	// daily-cloudcode-pa where fetchAvailableModels lists
+	// gemini-3.8-flash-{low,medium,high,tiered} and generateContent
+	// succeeds on those wire ids. Bare gemini-3.8-flash 404s upstream;
+	// Google's default thinking level is medium, matching 3.7.
+	"gemini-3.8-flash":        "gemini-3.8-flash-medium",
+	"gemini-3.8-flash-high":   "gemini-3.8-flash-high",
+	"gemini-3.8-flash-low":    "gemini-3.8-flash-low",
+	"gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
+	"gemini-3.8-flash-tiered": "gemini-3.8-flash-tiered",
 	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
 	"gemini-pro-agent": "gemini-pro-agent",
 }

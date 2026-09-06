@@ -131,6 +131,27 @@ func TestDefaultAntigravityModelMapping_Gemini37MediumDefault(t *testing.T) {
 	}
 }
 
+func TestDefaultAntigravityModelMapping_Gemini38MediumDefault(t *testing.T) {
+	t.Parallel()
+
+	// Evidence: 2026-09-06 us4 Ultra OAuth on daily-cloudcode-pa —
+	// fetchAvailableModels lists gemini-3.8-flash-{low,medium,high,tiered};
+	// bare gemini-3.8-flash returns upstream 404.
+	if got := DefaultAntigravityModelMapping["gemini-3.8-flash"]; got != "gemini-3.8-flash-medium" {
+		t.Fatalf("gemini-3.8-flash must map to the live medium wire id, got %q", got)
+	}
+	for _, wire := range []string{
+		"gemini-3.8-flash-low",
+		"gemini-3.8-flash-medium",
+		"gemini-3.8-flash-high",
+		"gemini-3.8-flash-tiered",
+	} {
+		if got := DefaultAntigravityModelMapping[wire]; got != wire {
+			t.Fatalf("%s must be an identity wire mapping, got %q", wire, got)
+		}
+	}
+}
+
 func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
 	t.Parallel()
 

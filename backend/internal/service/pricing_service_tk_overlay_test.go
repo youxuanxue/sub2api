@@ -266,6 +266,7 @@ func TestTKPricingOverlay_FillsGemini35LiteAnd36FlashAtOfficialRates(t *testing.
 		"gemini-3.5-flash-lite": {input: 3e-7, output: 2.5e-6, cache: 3e-8},
 		"gemini-3.6-flash":      {input: 1.5e-6, output: 7.5e-6, cache: 1.5e-7},
 		"gemini-3.7-flash":      {input: 7.5e-7, output: 3.75e-6, cache: 7.5e-8},
+		"gemini-3.8-flash":      {input: 7.5e-7, output: 3.75e-6, cache: 7.5e-8},
 	}
 	for modelID, want := range cases {
 		pricing := data[modelID]

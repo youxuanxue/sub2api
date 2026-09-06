@@ -787,6 +787,14 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 		assert.False(t, isPublicCatalogModelSupported("antigravity", "claude-not-a-real-id-zzz"))
 	})
 
+	t.Run("gemini-3.8-flash is on antigravity catalog after daily-cloudcode live evidence", func(t *testing.T) {
+		// Boundary sample, not an owner copy: 2026-09-06 us4 Ultra OAuth
+		// listed gemini-3.8-flash-* on daily-cloudcode-pa (paid-tier forward target).
+		_, inAG := supportedAntigravityCatalogModels["gemini-3.8-flash"]
+		assert.True(t, inAG)
+		assert.True(t, isPublicCatalogModelSupported("antigravity", "gemini-3.8-flash"))
+	})
+
 	t.Run("grok membership follows supportedGrokCatalogModels (or passes through when empty)", func(t *testing.T) {
 		if len(supportedGrokCatalogModels) == 0 {
 			assert.True(t, isPublicCatalogModelSupported("xai", "grok-anything-unprobed"), "empty (unprobed) set must passthrough")

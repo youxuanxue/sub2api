@@ -871,53 +871,17 @@
         <!-- OAuth Type Selection (only show when oauth-based is selected) -->
         <div v-if="accountCategory === 'oauth-based'" class="mt-4">
           <label class="input-label">{{ t('admin.accounts.oauth.gemini.oauthTypeLabel') }}</label>
+          <p
+            data-testid="gemini-oauth-personal-subscription-hint"
+            class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-200"
+          >
+            {{ t('admin.accounts.gemini.oauthType.personalSubscriptionHint') }}
+          </p>
           <div class="mt-2 grid grid-cols-2 gap-3">
-            <!-- Google One OAuth -->
-            <button
-              type="button"
-              @click="handleSelectGeminiOAuthType('google_one')"
-              :class="[
-                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
-                geminiOAuthType === 'google_one'
-                  ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                  : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-              ]"
-            >
-              <div
-                :class="[
-                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                  geminiOAuthType === 'google_one'
-                    ? 'bg-purple-500 text-white'
-                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
-                ]"
-              >
-                <Icon name="user" size="sm" />
-              </div>
-              <div class="min-w-0">
-                <span class="block text-sm font-medium text-gray-900 dark:text-white">
-                  Google One
-                </span>
-                <span class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.accounts.gemini.oauthType.googleOneDesc') }}
-                </span>
-                <div class="mt-2 flex flex-wrap gap-1">
-                  <span
-                    class="rounded bg-purple-100 px-2 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
-                  >
-                    {{ t('admin.accounts.gemini.oauthType.badges.individuals') }}
-                  </span>
-                  <span
-                    class="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
-                  >
-                    {{ t('admin.accounts.gemini.oauthType.badges.noGcp') }}
-                  </span>
-                </div>
-              </div>
-            </button>
-
             <!-- GCP Code Assist OAuth -->
             <button
               type="button"
+              data-testid="gemini-oauth-type-code-assist"
               @click="handleSelectGeminiOAuthType('code_assist')"
               :class="[
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
@@ -964,6 +928,50 @@
                     class="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
                   >
                     {{ t('admin.accounts.gemini.oauthType.badges.highConcurrency') }}
+                  </span>
+                </div>
+              </div>
+            </button>
+
+            <!-- Google One OAuth (legacy Gemini CLI consumer) -->
+            <button
+              type="button"
+              data-testid="gemini-oauth-type-google-one"
+              @click="handleSelectGeminiOAuthType('google_one')"
+              :class="[
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                geminiOAuthType === 'google_one'
+                  ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                  : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+              ]"
+            >
+              <div
+                :class="[
+                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                  geminiOAuthType === 'google_one'
+                    ? 'bg-purple-500 text-white'
+                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                ]"
+              >
+                <Icon name="user" size="sm" />
+              </div>
+              <div class="min-w-0">
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                  Google One
+                </span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.accounts.gemini.oauthType.googleOneDesc') }}
+                </span>
+                <div class="mt-2 flex flex-wrap gap-1">
+                  <span
+                    class="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                  >
+                    {{ t('admin.accounts.gemini.oauthType.badges.legacy') }}
+                  </span>
+                  <span
+                    class="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600 dark:bg-dark-600 dark:text-gray-300"
+                  >
+                    {{ t('admin.accounts.gemini.oauthType.badges.useAntigravity') }}
                   </span>
                 </div>
               </div>
@@ -4431,7 +4439,7 @@ const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-m
 const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-openai-compact-model-mapping')
 const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-antigravity-model-mapping')
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('create-temp-unsched-rule')
-const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('google_one')
+const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('code_assist')
 const geminiAIStudioOAuthEnabled = ref(false)
 const openAICompactModeOptions = computed(() => [
   { value: 'auto', label: t('admin.accounts.openai.compactModeAuto') },
