@@ -100,8 +100,18 @@ func (h *GatewayHandler) executeResponsesSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				openAIResult, forwardErr := h.openAIGatewayService.ForwardAsResponsesDispatched(executionCtx, c, account, forwardBody)
-				return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				switch service.ResolveGovernedOpenAIShapeMode(account, reqModel) {
+				case service.GovernedOpenAIShapeGeminiCompat:
+					if h.geminiCompatService == nil {
+						return nil, errors.New("gemini compatibility service is not configured")
+					}
+					return h.geminiCompatService.ForwardAsResponses(executionCtx, c, account, forwardBody)
+				case service.GovernedOpenAIShapeAntigravityClaudeRelay:
+					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
+				default:
+					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsResponsesDispatched(executionCtx, c, account, forwardBody)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				}
 			},
 			ResponsesToChat: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				forwardBody := request.Body()
@@ -109,8 +119,18 @@ func (h *GatewayHandler) executeResponsesSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				openAIResult, forwardErr := h.openAIGatewayService.Forward(executionCtx, c, account, forwardBody)
-				return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				switch service.ResolveGovernedOpenAIShapeMode(account, reqModel) {
+				case service.GovernedOpenAIShapeGeminiCompat:
+					if h.geminiCompatService == nil {
+						return nil, errors.New("gemini compatibility service is not configured")
+					}
+					return h.geminiCompatService.ForwardAsResponses(executionCtx, c, account, forwardBody)
+				case service.GovernedOpenAIShapeAntigravityClaudeRelay:
+					return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
+				default:
+					openAIResult, forwardErr := h.openAIGatewayService.Forward(executionCtx, c, account, forwardBody)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				}
 			},
 			ResponsesToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				forwardBody := request.Body()

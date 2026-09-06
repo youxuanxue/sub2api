@@ -83,8 +83,18 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
-				return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				switch service.ResolveGovernedOpenAIShapeMode(account, reqModel) {
+				case service.GovernedOpenAIShapeGeminiCompat:
+					if h.geminiCompatService == nil {
+						return nil, errors.New("gemini compatibility service is not configured")
+					}
+					return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
+				case service.GovernedOpenAIShapeAntigravityClaudeRelay:
+					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
+				default:
+					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				}
 			},
 			ChatToResponses: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				forwardBody := request.Body()
@@ -92,8 +102,18 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
-				return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				switch service.ResolveGovernedOpenAIShapeMode(account, reqModel) {
+				case service.GovernedOpenAIShapeGeminiCompat:
+					if h.geminiCompatService == nil {
+						return nil, errors.New("gemini compatibility service is not configured")
+					}
+					return h.geminiCompatService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody)
+				case service.GovernedOpenAIShapeAntigravityClaudeRelay:
+					return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
+				default:
+					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				}
 			},
 			ChatToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				forwardBody := request.Body()
