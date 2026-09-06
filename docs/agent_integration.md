@@ -1096,7 +1096,11 @@ after a terminal status (`succeeded` / `failed`) return 404.
 
 ## OpenRouter provider seller surface (TokenKey)
 
-TokenKey may expose a seller catalog for OpenRouter onboarding:
+TokenKey may expose a seller catalog for OpenRouter onboarding.
+Product goal is **multimodal** (chat + image + video when supply allows).
+`catalog_excluded_model_ids` only hides currently unservable / unstable /
+protocol-missing models — it is not a permanent text-only policy.
+Live `GET /openrouter/v1/models` is the offer surface.
 
 - `GET /openrouter/v1/models` — any API key owned by `billing_user_id`;
   returns OpenRouter provider **schema 2.4** documents with `tokenkey/<model>`
@@ -1105,10 +1109,12 @@ TokenKey may expose a seller catalog for OpenRouter onboarding:
   (`billing_user_id`, exclude/stream lists). Supply groups are the billing
   user's `user_allowed_groups`. Customer gateway paths outside this seller
   surface are unchanged.
-- Allowlisted OR/monitor keys also receive the same catalog from
-  `GET /v1/models`.
-- Inference keys accept catalog ids on `POST /v1/chat/completions`; TokenKey
+- The same catalog is also returned on `GET /v1/models` for any API key
+  owned by that billing user (no separate monitor/inference key split).
+- Seller keys accept catalog ids on `POST /v1/chat/completions`; TokenKey
   rewrites `tokenkey/<model>` back to internal scheduling ids before routing.
+  Image/video use `/openrouter/v1/images` and `/openrouter/v1/videos` when
+  those modalities appear in the catalog.
 - **Scheme C loop guard**: public groups (`is_exclusive=false`) must not
   bind aggregator upstream accounts (`channel_type` 20/49/53 or
   `openrouter.ai` base URLs). ct20 OpenRouter upstream stays on

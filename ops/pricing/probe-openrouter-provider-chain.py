@@ -167,8 +167,33 @@ def validate_catalog(payload: dict, report: Report, sample_limit: int = 0) -> li
     return data
 
 
+def catalog_output_modality_counts(catalog: list[dict]) -> dict[str, int]:
+    """Count models by presence of non-text output modalities (and text-only)."""
+    counts = {"text_only": 0, "image": 0, "video": 0, "audio": 0, "other": 0}
+    for m in catalog:
+        if not isinstance(m, dict):
+            continue
+        outs = modality_types(m.get("output_modalities"))
+        if outs == {"text"} or outs == set():
+            counts["text_only"] += 1
+        elif "video" in outs:
+            counts["video"] += 1
+        elif "image" in outs:
+            counts["image"] += 1
+        elif "audio" in outs or "speech" in outs or "transcription" in outs:
+            counts["audio"] += 1
+        else:
+            counts["other"] += 1
+    return counts
+
+
 def pick_models(catalog: list[dict]) -> dict[str, str | None]:
-    out: dict[str, str | None] = {"chat": None, "image": None, "imagen": None, "video": None}
+    """Pick one sample per modality family present in the live catalog.
+
+    Absence is not a failure — probes must follow the catalog (multimodal when
+    listed; N/A when excluded / not offered).
+    """
+    out: dict[str, str | None] = {"chat": None, "image": None, "imagen": None, "video": None, "audio": None}
     for m in catalog:
         mid = m.get("id", "")
         outs = modality_types(m.get("output_modalities"))
@@ -182,12 +207,28 @@ def pick_models(catalog: list[dict]) -> dict[str, str | None]:
             out["imagen"] = mid
         if out["video"] is None and "video" in outs:
             out["video"] = mid
+        if out["audio"] is None and (("audio" in outs) or ("speech" in outs) or ("transcription" in outs)):
+            out["audio"] = mid
     if out["chat"] is None:
         for m in catalog:
             if modality_types(m.get("output_modalities")) == {"text"}:
                 out["chat"] = m.get("id")
                 break
+    # Prefer any image row if gemini/imagen-specific picks missed a generic image model.
+    if out["image"] is None and out["imagen"] is None:
+        for m in catalog:
+            if "image" in modality_types(m.get("output_modalities")):
+                out["image"] = m.get("id")
+                break
     return out
+
+
+def add_catalog_pick(report: Report, name: str, value: str | None) -> None:
+    """Pass when present; N/A (still ok) when catalog has no row for that family."""
+    if value:
+        report.add(name, True, value)
+    else:
+        report.add(name, True, "N/A: none in catalog")
 
 
 def run_probe(base_url: str, api_key: str, full_catalog: bool) -> Report:
@@ -216,24 +257,20 @@ def run_probe(base_url: str, api_key: str, full_catalog: bool) -> Report:
         overlap = len(or_ids & alias_ids)
         report.add("catalog.alias_overlap", overlap >= min(len(or_ids), 1), f"overlap={overlap} or={len(or_ids)} alias={len(alias_ids)}")
 
+    modality_counts = catalog_output_modality_counts(catalog)
+    report.add(
+        "catalog.modality_summary",
+        True,
+        json.dumps(modality_counts, sort_keys=True),
+    )
+
     picks = pick_models(catalog)
     report.add("pick.chat_model", picks["chat"] is not None, picks["chat"] or "")
-    # Media rows may be intentionally catalog_excluded (text-only seller surface).
-    report.add(
-        "pick.gemini_image",
-        True,
-        picks["image"] or "skipped: none in catalog",
-    )
-    report.add(
-        "pick.imagen_image",
-        True,
-        picks["imagen"] or "skipped: none in catalog",
-    )
-    report.add(
-        "pick.video_model",
-        True,
-        picks["video"] or "skipped: none in catalog",
-    )
+    # Follow the live catalog: infer media only when rows exist; otherwise N/A.
+    add_catalog_pick(report, "pick.gemini_image", picks["image"])
+    add_catalog_pick(report, "pick.imagen_image", picks["imagen"])
+    add_catalog_pick(report, "pick.video_model", picks["video"])
+    add_catalog_pick(report, "pick.audio_model", picks["audio"])
 
     # Chat inference with public id
     if picks["chat"]:
