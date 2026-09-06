@@ -108,7 +108,7 @@ All captured JSONL bundles were replayed through
 2. Update `scripts/sentinels/cc-system-prompt.json` **and** the Go copies in the
    same commit; keep the banner byte-identical across both files.
 3. Update this record + add a `decision` row to
-   `docs/cc-fingerprint-changelog.md`.
+   `docs/ops/cc-fingerprint-changelog.md`.
 4. `./scripts/preflight.sh` green. No release needed (capture + guard + docs
    only; no runtime/compile artifact changes).
 
@@ -121,7 +121,7 @@ All captured JSONL bundles were replayed through
 - `ops/anthropic/capture_cc_fingerprint.py` (baseline + bundle + diff rows)
 - `ops/anthropic/test_capture_cc_fingerprint.py` (5 new tests)
 - `.cursor/skills/tokenkey-cc-fingerprint-alignment/SKILL.md` (axis docs)
-- `docs/cc-fingerprint-changelog.md` (decision row)
+- `docs/ops/cc-fingerprint-changelog.md` (decision row)
 
 ## Validation
 
