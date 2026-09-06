@@ -412,7 +412,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkUniversalModelsProviderReady := service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService, subscriptionService)
 	tkGroupUnsupportedModelCacheReady := service.ProvideTKGroupUnsupportedModelCache(gatewayService, openAIGatewayService, channelService)
 	cacheFingerprintStore := repository.NewKiroCacheFingerprintStore(redisClient)
-	tkKiroCacheBillingReady := service.ProvideTKKiroCacheBilling(kiroGatewayService, cacheFingerprintStore)
+	tkKiroCacheBillingReady := service.ProvideTKKiroCacheBilling(kiroGatewayService, cacheFingerprintStore, settingService)
 	mainTkCleanupHooks := provideTKCleanupHooks(schedulerRateLimitReaper, anthropicConfigReconciler, holdReconcilerService, tkAccountIncidentNotifier, tkPricingMissingNotifier, tkAuthServiceColdStartReady, tkGatewayPricingAvailabilityReady, tkPricingOverlayRuntimeReady, tkAccountModelMappingRuntimeServingReady, tkGatewayAnthropicSigPreemptReady, tkAnthropicSaturationReady, tkOpenAISaturationReady, tkAntigravitySaturationReady, tkGatewayHandlerModelListReady, tkUniversalModelsProviderReady, tkGroupUnsupportedModelCacheReady, protocolRoutingSSOTReady, tkKiroCacheBillingReady)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
 	telemetryArchiveHealth := service.ProvideTelemetryArchiveHealth(shadow, opsRepository)

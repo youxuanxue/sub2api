@@ -210,6 +210,33 @@
       "rationale": "Prefix-fingerprint cache_read attribution for Kiro when upstream reports no Anthropic cache telemetry. Losing the min-size / haircut / session-key gates silently over-discounts or fabricates cross-conversation cache hits."
     },
     {
+      "path": "backend/internal/repository/kiro_cache_fingerprint_store.go",
+      "must_contain": [
+        "func NewKiroCacheFingerprintStore",
+        "kiro_cache_fp:",
+        "NewMemoryCacheFingerprintStore"
+      ],
+      "rationale": "Production Redis fingerprint store for multi-replica Kiro cache_read billing. Losing NewKiroCacheFingerprintStore or the kiro_cache_fp key prefix silently falls back to per-process memory (or nothing) and multi-instance cache_read attribution collapses to ~0 while billing_tier still looks enabled."
+    },
+    {
+      "path": "backend/internal/service/setting_service_tk_kiro_cache_billing.go",
+      "must_contain": [
+        "func (s *SettingService) IsKiroCacheBillingEnabled",
+        "SettingKeyKiroCacheBillingEnabled",
+        "return true"
+      ],
+      "rationale": "Kill-switch owner for gateway.kiro_cache_billing.enabled (default ON; only literal false disables). Losing fail-open defaults or the getter strands emergency rollback."
+    },
+    {
+      "path": "backend/internal/service/wire_tk.go",
+      "must_contain": [
+        "ProvideTKKiroCacheBilling",
+        "SetKiroCacheFingerprintStore",
+        "SetKiroCacheBillingSetting"
+      ],
+      "rationale": "DI entry that attaches Redis fingerprint store + kill-switch SettingService onto KiroGatewayService. Dropping ProvideTKKiroCacheBilling or the setting setter leaves multi-replica matching dead or makes enabled=false a no-op."
+    },
+    {
       "path": "backend/internal/integration/kiro/client.go",
       "must_contain": [
         "func CallKiroAPIWithDoer",
@@ -377,11 +404,31 @@
         "kiroproto.CacheSessionKey",
         "commitKiroCacheFingerprints",
         "IsKiroCacheBillingEnabled",
+        "kiroCacheBillingFlagEnabled",
+        "kiroCacheBillingSetting",
         "kiroBillingTier",
         "KiroCacheEstimatedBillingTier",
         "KiroEstimatedBillingTier"
       ],
-      "rationale": "TK companion that owns Kiro prompt-side billing attribution. EstimateInputTokens remains the total-prompt owner; EstimateCacheUsageSplit optionally moves a matched conversation prefix into cache_read (haircut + min size). kiroBillingTier separates kiro-cache-estimated (default-on, dashboard-observable) from legacy kiro-estimated (flag off / unavailable). Losing this companion silently regresses multi-turn Kiro bills back to full-input pricing or drops the kill-switch path."
+      "rationale": "TK companion that owns Kiro prompt-side billing attribution. EstimateInputTokens remains the total-prompt owner; EstimateCacheUsageSplit optionally moves a matched conversation prefix into cache_read (haircut + min size). kiroBillingTier follows the kill-switch flag (not session readiness) so kiro-cache-estimated stays dashboard-observable whenever the feature is on. Losing this companion silently regresses multi-turn Kiro bills back to full-input pricing or drops the kill-switch path."
+    },
+    {
+      "path": "backend/cmd/server/wire_assertion_tk_test.go",
+      "must_contain": [
+        "TestProvideTKKiroCacheBilling_WiresStoreAndKillSwitch",
+        "HasKiroCacheBillingDeps"
+      ],
+      "rationale": "Production DI evidence that ProvideTKKiroCacheBilling attaches both fingerprint store and kill-switch settings. Without this, wire regressions can leave cache billing fail-open with no opt-out."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_Forward_CacheBilling_SecondTurnReadsPrefix",
+        "TestKiroGatewayService_Forward_CacheBilling_UpstreamFailureDoesNotCommit",
+        "TestKiroGatewayService_Forward_CacheBilling_FlagOffLegacyTier",
+        "TestKiroPromptUsage_FlagOnWithoutConversationStillMarksEnabled"
+      ],
+      "rationale": "Forward-level AC for cache billing: second-turn cache_read, no commit on upstream failure, and flag-off legacy billing_tier."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_test.go",

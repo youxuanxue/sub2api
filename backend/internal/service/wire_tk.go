@@ -430,18 +430,21 @@ func ProvideTKGroupUnsupportedModelCache(
 	return TKGroupUnsupportedModelCacheReady{}
 }
 
-// TKKiroCacheBillingReady proves the Kiro prompt-prefix fingerprint store was
-// wired onto KiroGatewayService (Redis in production, memory fallback when nil).
+// TKKiroCacheBillingReady proves the Kiro prompt-prefix fingerprint store and
+// kill-switch settings reader were wired onto KiroGatewayService.
 type TKKiroCacheBillingReady struct{}
 
-// ProvideTKKiroCacheBilling injects the fingerprint store used by optional
-// gateway.kiro_cache_billing.enabled prompt-cache billing.
+// ProvideTKKiroCacheBilling injects the fingerprint store (Redis in production,
+// memory when redis is nil) and the settings reader for
+// gateway.kiro_cache_billing.enabled.
 func ProvideTKKiroCacheBilling(
 	kiroGw *KiroGatewayService,
 	store kiroproto.CacheFingerprintStore,
+	setting *SettingService,
 ) TKKiroCacheBillingReady {
 	if kiroGw != nil {
 		kiroGw.SetKiroCacheFingerprintStore(store)
+		kiroGw.SetKiroCacheBillingSetting(setting)
 	}
 	return TKKiroCacheBillingReady{}
 }

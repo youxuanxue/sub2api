@@ -10,29 +10,41 @@ import (
 // gateway.kiro_cache_billing.enabled is false, the full estimate stays in
 // InputTokens. When enabled (default), matching conversation prefixes become
 // cache_read (with haircut).
+//
+// cacheBillingEnabled reflects the kill-switch only (not session readiness) so
+// BillingTier stays kiro-cache-estimated whenever the feature is on — even if
+// conversationId/store cannot split this request.
 func (s *KiroGatewayService) kiroPromptUsage(
 	ctx context.Context,
 	account *Account,
 	req *kiroproto.ClaudeRequest,
 	payload *kiroproto.KiroPayload,
-) (inputTokens, cacheReadTokens, cacheCreationTokens int, sessionKey string, ttlEnabled bool) {
+) (inputTokens, cacheReadTokens, cacheCreationTokens int, sessionKey string, cacheBillingEnabled bool) {
 	inputTokens = kiroproto.EstimateInputTokens(req)
 	if s == nil || req == nil || account == nil {
 		return inputTokens, 0, 0, "", false
 	}
-	if s.tkSettingService != nil && !s.tkSettingService.IsKiroCacheBillingEnabled(ctx) {
+	if !s.kiroCacheBillingFlagEnabled(ctx) {
 		return inputTokens, 0, 0, "", false
 	}
+	cacheBillingEnabled = true
 	conversationID := ""
 	if payload != nil {
 		conversationID = payload.ConversationState.ConversationID
 	}
 	sessionKey = kiroproto.CacheSessionKey(account.ID, req.Model, conversationID)
 	if sessionKey == "" || s.kiroCacheStore == nil {
-		return inputTokens, 0, 0, "", false
+		return inputTokens, 0, 0, "", true
 	}
 	split := kiroproto.EstimateCacheUsageSplit(ctx, s.kiroCacheStore, sessionKey, req)
 	return split.InputTokens, split.CacheReadTokens, split.CacheCreationTokens, sessionKey, true
+}
+
+func (s *KiroGatewayService) kiroCacheBillingFlagEnabled(ctx context.Context) bool {
+	if s == nil || s.kiroCacheBillingSetting == nil {
+		return true
+	}
+	return s.kiroCacheBillingSetting.IsKiroCacheBillingEnabled(ctx)
 }
 
 func (s *KiroGatewayService) commitKiroCacheFingerprints(

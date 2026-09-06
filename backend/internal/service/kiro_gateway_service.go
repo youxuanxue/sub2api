@@ -42,6 +42,10 @@ type KiroGatewayService struct {
 	tkPricingCatalog         *PricingCatalogService
 	tkPricingMissingNotifier PricingMissingNotifier
 	tkPricingResolver        *ModelPricingResolver
+	// kiroCacheBillingSetting owns gateway.kiro_cache_billing.enabled.
+	// Injected by ProvideTKKiroCacheBilling (not priced-serving) so the kill
+	// switch survives if priced-serving DI is absent. nil fail-opens to on.
+	kiroCacheBillingSetting *SettingService
 	// kiroCacheStore holds prompt-prefix fingerprints for optional cache_read
 	// billing (gateway.kiro_cache_billing.enabled). Defaults to in-process memory.
 	kiroCacheStore kiroproto.CacheFingerprintStore
@@ -459,6 +463,21 @@ func (s *KiroGatewayService) SetKiroCacheFingerprintStore(store kiroproto.CacheF
 		return
 	}
 	s.kiroCacheStore = store
+}
+
+// SetKiroCacheBillingSetting injects the settings reader used by the
+// gateway.kiro_cache_billing.enabled kill-switch.
+func (s *KiroGatewayService) SetKiroCacheBillingSetting(setting *SettingService) {
+	if s == nil {
+		return
+	}
+	s.kiroCacheBillingSetting = setting
+}
+
+// HasKiroCacheBillingDeps reports whether production cache-billing DI attached
+// both a fingerprint store and a settings reader.
+func (s *KiroGatewayService) HasKiroCacheBillingDeps() bool {
+	return s != nil && s.kiroCacheStore != nil && s.kiroCacheBillingSetting != nil
 }
 
 // kiroDoer adapts httpUpstream.DoWithTLS to the kiroproto.HTTPDoer interface,
