@@ -2472,6 +2472,44 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 	return nil
 }
 
+// EnsureAccountGroups adds any missing required group IDs without removing or
+// reordering existing memberships. New groups append at max(priority)+1.
+func (r *accountRepository) EnsureAccountGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	if accountID <= 0 || len(groupIDs) == 0 {
+		return nil
+	}
+	entries, err := r.client.AccountGroup.
+		Query().
+		Where(dbaccountgroup.AccountIDEQ(accountID)).
+		Order(dbent.Asc(dbaccountgroup.FieldPriority), dbent.Asc(dbaccountgroup.FieldGroupID)).
+		All(ctx)
+	if err != nil {
+		return err
+	}
+	existing := make(map[int64]struct{}, len(entries))
+	maxPriority := 0
+	for _, entry := range entries {
+		existing[entry.GroupID] = struct{}{}
+		if entry.Priority > maxPriority {
+			maxPriority = entry.Priority
+		}
+	}
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		if _, ok := existing[groupID]; ok {
+			continue
+		}
+		maxPriority++
+		if err := r.AddToGroup(ctx, accountID, groupID, maxPriority); err != nil {
+			return err
+		}
+		existing[groupID] = struct{}{}
+	}
+	return nil
+}
+
 func (r *accountRepository) ListSchedulable(ctx context.Context) ([]service.Account, error) {
 	accounts, err := r.schedulableAccountsQuery(time.Now()).All(ctx)
 	if err != nil {
@@ -3936,6 +3974,7 @@ func (r *accountRepository) loadAccountGroupIDs(ctx context.Context, accountID i
 	entries, err := r.client.AccountGroup.
 		Query().
 		Where(dbaccountgroup.AccountIDEQ(accountID)).
+		Order(dbent.Asc(dbaccountgroup.FieldPriority), dbent.Asc(dbaccountgroup.FieldGroupID)).
 		All(ctx)
 	if err != nil {
 		return nil, err

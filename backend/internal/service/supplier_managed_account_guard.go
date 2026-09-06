@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"maps"
 )
 
@@ -106,14 +107,21 @@ func supplierDiscountBandFromAccount(account *Account) (int, bool) {
 }
 
 func supplierInt64(value any) (int64, bool) {
-	switch typed := value.(type) {
-	case int64:
-		return typed, typed > 0
-	case int:
-		return int64(typed), typed > 0
-	case float64:
-		return int64(typed), typed > 0 && typed == float64(int64(typed))
-	default:
+	// Align with parseExtraInt so jsonb Extra values that arrive as
+	// json.Number or decimal strings still resolve supplier identity keys.
+	parsed := int64(parseExtraInt(value))
+	if parsed <= 0 {
 		return 0, false
 	}
+	switch typed := value.(type) {
+	case float64:
+		if typed != float64(parsed) {
+			return 0, false
+		}
+	case json.Number:
+		if raw, err := typed.Float64(); err == nil && raw != float64(parsed) {
+			return 0, false
+		}
+	}
+	return parsed, true
 }

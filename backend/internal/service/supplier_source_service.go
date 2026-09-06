@@ -70,6 +70,7 @@ type SupplierSourceAccountStore interface {
 	CreateManagedAccount(ctx context.Context, input SupplierManagedAccountCreateInput) (*Account, error)
 	UpdateManagedAccount(ctx context.Context, input SupplierManagedAccountUpdateInput) (*Account, error)
 	UpdateManagedAccountConcurrency(ctx context.Context, accountID, sourceID int64, discountBand, concurrency int) (*Account, error)
+	EnsureRoutingGroups(ctx context.Context, accountID int64, channelType int) error
 	GetAccount(ctx context.Context, accountID int64) (*Account, error)
 }
 
@@ -270,14 +271,26 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 		result.FailedStep = "match_existing_account"
 		return result, err
 	}
+	// Priority/name must converge even when structural projection later fails
+	// (protocol republish, schedulable repair, mapping move, etc.). Otherwise a
+	// base_priority change is stranded behind an unrelated structural error —
+	// accounts keep the old base+band values while the source already shows the
+	// new base (tokensea: source 110 vs accounts still on 100+band).
+	if err := s.syncSupplierMetadata(ctx, source, managedByBand, result); err != nil {
+		return result, err
+	}
+	// Anthropic routing group membership is independent of structural projection.
+	// Ensure it before structure so a later protocol/mapping failure cannot leave
+	// a schedulable account outside the claude group (tokensea band-1 regression).
+	if err := s.ensureSupplierRoutingGroups(ctx, source, managedByBand, result); err != nil {
+		return result, err
+	}
+
 	structureChanged := supplierStructureChanged(source, credential, targets, managedByBand)
 	if len(adoptByBand) > 0 {
 		structureChanged = true
 	}
 	if !structureChanged {
-		if err := s.syncSupplierMetadata(ctx, source, managedByBand, result); err != nil {
-			return result, err
-		}
 		workingByBand := make(map[int]*Account, len(managedByBand))
 		for band, account := range managedByBand {
 			workingByBand[band] = cloneSupplierProjectionAccount(account)
@@ -395,7 +408,61 @@ func (s *SupplierSourceService) Sync(ctx context.Context, sourceID int64) (*Supp
 		}
 		result.Changes = append(result.Changes, supplierAccountChange(before, updated, band, action))
 	}
+	// Structural writes already carry target.Priority, but a final metadata
+	// reconcile covers residual name/priority drift (for example an account that
+	// matched mapping after the addition pass while still holding a stale
+	// priority from a prior base_priority or formula change).
+	if err := s.reconcileSupplierManagedMetadata(ctx, source, result); err != nil {
+		return result, err
+	}
+	if err := s.ensureSupplierRoutingGroups(ctx, source, workingByBand, result); err != nil {
+		return result, err
+	}
 	return result, nil
+}
+
+// reconcileSupplierManagedMetadata re-lists managed accounts and applies the
+// name/priority metadata path. Used after structural projection so priority
+// always converges to base_priority + discount_band*step even when mapping
+// already matched and the removal loop skipped a write.
+func (s *SupplierSourceService) reconcileSupplierManagedMetadata(
+	ctx context.Context,
+	source *SupplierSource,
+	result *SupplierSourceSyncResult,
+) error {
+	managed, err := s.accounts.ListManagedAccounts(ctx, source.ID)
+	if err != nil {
+		result.FailedStep = "reload_managed_accounts"
+		return err
+	}
+	managedByBand, err := supplierAccountsByBand(managed)
+	if err != nil {
+		result.FailedStep = "reindex_managed_accounts"
+		return err
+	}
+	return s.syncSupplierMetadata(ctx, source, managedByBand, result)
+}
+
+func (s *SupplierSourceService) ensureSupplierRoutingGroups(
+	ctx context.Context,
+	source *SupplierSource,
+	accountsByBand map[int]*Account,
+	result *SupplierSourceSyncResult,
+) error {
+	if source == nil || !supplierNeedsAnthropicRoutingGroup(source.ChannelType) {
+		return nil
+	}
+	for _, band := range sortedSupplierAccountBands(accountsByBand) {
+		account := accountsByBand[band]
+		if account == nil {
+			continue
+		}
+		if err := s.accounts.EnsureRoutingGroups(ctx, account.ID, source.ChannelType); err != nil {
+			result.FailedStep = fmt.Sprintf("routing_group_band_%d", band)
+			return err
+		}
+	}
+	return nil
 }
 
 type supplierTargetBand struct {
@@ -549,6 +616,7 @@ func (s *SupplierSourceService) syncSupplierMetadata(
 			result.FailedStep = fmt.Sprintf("metadata_band_%d", band)
 			return updateErr
 		}
+		managedByBand[band] = cloneSupplierProjectionAccount(updated)
 		result.Changes = append(result.Changes, supplierAccountChange(before, updated, band, "updated"))
 	}
 	return nil

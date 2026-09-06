@@ -139,7 +139,10 @@ func TestUS048_SupplierQianfanCreateUsesBaiduV2Transport(t *testing.T) {
 
 func TestUS048_SupplierAnthropicCreateDeclaresMessagesExclusive(t *testing.T) {
 	accounts := &supplierManagedCommandsAccountRepoFake{}
-	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI}}}
+	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{
+		{ID: 1, Name: SupplierAnthropicRoutingGroupName, Platform: PlatformAnthropic},
+		{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI},
+	}}
 	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
 
 	_, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
@@ -156,7 +159,43 @@ func TestUS048_SupplierAnthropicCreateDeclaresMessagesExclusive(t *testing.T) {
 		APIProtocolAnthropic: "https://api.cloudwise.ai/api",
 	}, accounts.created.Credentials[apiBaseURLsCredentialKey])
 	require.False(t, accounts.created.Schedulable)
+	require.Equal(t, 1, accounts.bindCalls)
+	require.Equal(t, []int64{1}, accounts.boundGroupIDs)
+}
+
+func TestUS048_SupplierAnthropicCreateFailsWhenClaudeGroupMissing(t *testing.T) {
+	accounts := &supplierManagedCommandsAccountRepoFake{}
+	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{
+		{ID: 9, Name: PlatformNewAPI + "-default", Platform: PlatformNewAPI},
+	}}
+	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
+
+	_, err := svc.CreateSupplierManagedAccount(context.Background(), SupplierManagedAccountCreateInput{
+		SourceID: 9, DiscountBand: 1, Name: "tokensea/anthropic · 档位 1",
+		Endpoint: "https://agent.tokensea.ai", Credential: "secret",
+		ChannelType: newapiconstant.ChannelTypeAnthropic, Priority: 110,
+	})
+
+	require.ErrorIs(t, err, ErrSupplierSourceInvalidInput)
+	require.Nil(t, accounts.created)
 	require.Zero(t, accounts.bindCalls)
+}
+
+func TestUS048_EnsureSupplierRoutingGroupsMergesClaudeMembership(t *testing.T) {
+	accounts := &supplierManagedCommandsAccountRepoFake{
+		existing: &Account{ID: 136, GroupIDs: []int64{7}},
+	}
+	groups := &supplierManagedCommandsGroupRepoFake{groups: []Group{
+		{ID: 1, Name: SupplierAnthropicRoutingGroupName, Platform: PlatformAnthropic},
+	}}
+	svc := &adminServiceImpl{accountRepo: accounts, groupRepo: groups}
+
+	require.NoError(t, svc.EnsureSupplierRoutingGroups(context.Background(), 136, newapiconstant.ChannelTypeAnthropic))
+	require.Equal(t, 1, accounts.ensureCalls)
+	require.Equal(t, []int64{7, 1}, accounts.ensuredGroupIDs)
+
+	require.NoError(t, svc.EnsureSupplierRoutingGroups(context.Background(), 136, newapiconstant.ChannelTypeOpenAI))
+	require.Equal(t, 1, accounts.ensureCalls, "non-anthropic channel must not touch groups")
 }
 
 func TestUS048_SupplierConfigurationUpdateRequiresPassedProtocolProbe(t *testing.T) {
@@ -279,6 +318,8 @@ type supplierManagedCommandsAccountRepoFake struct {
 	updated                       *Account
 	boundGroupIDs                 []int64
 	bindCalls                     int
+	ensureCalls                   int
+	ensuredGroupIDs               []int64
 	genericUpdateCalls            int
 	projectionUpdateCalls         int
 	projectionProtocolProbePassed bool
@@ -368,6 +409,51 @@ func (r *supplierManagedCommandsAccountRepoFake) BindGroups(_ context.Context, _
 	r.bindCalls++
 	r.boundGroupIDs = append([]int64(nil), groupIDs...)
 	return r.bindErr
+}
+
+func (r *supplierManagedCommandsAccountRepoFake) EnsureAccountGroups(_ context.Context, accountID int64, groupIDs []int64) error {
+	r.ensureCalls++
+	existing := []int64{}
+	if r.existing != nil && r.existing.ID == accountID {
+		existing = append([]int64(nil), r.existing.GroupIDs...)
+	}
+	merged := mergeTestGroupIDs(existing, groupIDs)
+	if len(merged) == len(existing) {
+		r.ensuredGroupIDs = merged
+		return r.bindErr
+	}
+	// Append-only semantics: do not rewrite existing memberships via BindGroups.
+	r.ensuredGroupIDs = merged
+	if r.existing != nil && r.existing.ID == accountID {
+		r.existing.GroupIDs = append([]int64(nil), merged...)
+	}
+	return r.bindErr
+}
+
+func mergeTestGroupIDs(existing, required []int64) []int64 {
+	seen := map[int64]struct{}{}
+	out := make([]int64, 0, len(existing)+len(required))
+	for _, id := range existing {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	for _, id := range required {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func (r *supplierManagedCommandsAccountRepoFake) ListByGroup(context.Context, int64) ([]Account, error) {

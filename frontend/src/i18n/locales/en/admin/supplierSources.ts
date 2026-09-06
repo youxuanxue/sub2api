@@ -27,6 +27,7 @@ export default {
     clientModel: 'TokenKey model ID',
     upstreamModel: 'Upstream model ID',
     purchaseRatio: 'Purchase ratio (optional)',
+    purchaseRatioPriorityHint: 'Account priority = base priority + band×10. Tweaking purchase ratio inside the same band does not change priority; re-project after crossing a band or changing base priority.',
     discountBand: 'Band',
     accountPriority: 'Account priority',
     addModel: 'Add model',

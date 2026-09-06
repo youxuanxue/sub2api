@@ -39,6 +39,7 @@ type SupplierManagedAccountCommands interface {
 	CreateSupplierManagedAccount(ctx context.Context, input SupplierManagedAccountCreateInput) (*Account, error)
 	UpdateSupplierManagedAccount(ctx context.Context, input SupplierManagedAccountUpdateInput) (*Account, error)
 	UpdateSupplierManagedAccountConcurrency(ctx context.Context, accountID, sourceID int64, discountBand, concurrency int) (*Account, error)
+	EnsureSupplierRoutingGroups(ctx context.Context, accountID int64, channelType int) error
 }
 
 type supplierProjectionAccountUpdater interface {
@@ -76,6 +77,10 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 	if err != nil {
 		return nil, err
 	}
+	routingGroupIDs, err := s.supplierAnthropicRoutingGroupIDs(ctx, transport.ChannelType)
+	if err != nil {
+		return nil, err
+	}
 	initialSchedulable := false
 	return s.createAccount(ctx, &CreateAccountInput{
 		Name: input.Name, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
@@ -87,6 +92,7 @@ func (s *adminServiceImpl) CreateSupplierManagedAccount(
 		},
 		Concurrency:          ResolveSupplierSourceAccountConcurrency(input.Concurrency),
 		Priority:             input.Priority,
+		GroupIDs:             routingGroupIDs,
 		SkipDefaultGroupBind: true,
 	}, accountCreateOptions{
 		allowSupplierReservedExtra: true,

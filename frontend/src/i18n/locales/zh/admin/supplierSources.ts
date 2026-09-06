@@ -27,6 +27,7 @@ export default {
     clientModel: 'TokenKey 模型 ID',
     upstreamModel: '上游模型 ID',
     purchaseRatio: '采购比例（可空）',
+    purchaseRatioPriorityHint: '账号 priority = 基础优先级 + 档位×10。同档内微调采购比例不会改变 priority；跨档或改基础优先级后需再投影。',
     discountBand: '档位',
     accountPriority: '账号 priority',
     addModel: '添加模型',

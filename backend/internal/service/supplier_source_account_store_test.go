@@ -146,6 +146,7 @@ type supplierAccountCommandsFake struct {
 	createCalls            int
 	updateCalls            int
 	concurrencyUpdateCalls int
+	ensureRoutingCalls     int
 }
 
 func (f *supplierAccountCommandsFake) CreateSupplierManagedAccount(_ context.Context, input SupplierManagedAccountCreateInput) (*Account, error) {
@@ -167,4 +168,9 @@ func (f *supplierAccountCommandsFake) UpdateSupplierManagedAccountConcurrency(
 ) (*Account, error) {
 	f.concurrencyUpdateCalls++
 	return &Account{ID: accountID, Concurrency: concurrency}, nil
+}
+
+func (f *supplierAccountCommandsFake) EnsureSupplierRoutingGroups(context.Context, int64, int) error {
+	f.ensureRoutingCalls++
+	return nil
 }

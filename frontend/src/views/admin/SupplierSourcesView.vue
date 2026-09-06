@@ -239,6 +239,9 @@
           </label>
 
           <div class="space-y-3">
+            <p class="text-xs text-gray-500" data-test="purchase-ratio-priority-hint">
+              {{ t('admin.supplierSources.purchaseRatioPriorityHint') }}
+            </p>
             <div
               v-for="(model, index) in form.models"
               :key="index"
@@ -264,6 +267,7 @@
                 max="1"
                 step="0.000001"
                 :placeholder="t('admin.supplierSources.purchaseRatio')"
+                :title="t('admin.supplierSources.purchaseRatioPriorityHint')"
                 class="rounded-lg border px-3 py-2"
               />
               <div class="text-xs text-gray-500">

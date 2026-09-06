@@ -2,10 +2,25 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestUS048_SupplierDiscountBandFromAccountAcceptsJSONNumberAndString(t *testing.T) {
+	for _, value := range []any{3, int64(3), float64(3), json.Number("3"), "3"} {
+		account := &Account{Extra: map[string]any{SupplierDiscountBandExtraKey: value}}
+		band, ok := supplierDiscountBandFromAccount(account)
+		require.True(t, ok, "value=%v (%T)", value, value)
+		require.Equal(t, 3, band)
+	}
+	for _, value := range []any{float64(3.5), json.Number("3.5"), "nope", 0, nil} {
+		account := &Account{Extra: map[string]any{SupplierDiscountBandExtraKey: value}}
+		_, ok := supplierDiscountBandFromAccount(account)
+		require.False(t, ok, "value=%v (%T)", value, value)
+	}
+}
 
 func TestUS048_ManagedAccountUsesSupplierSourceIDAsOnlyMarker(t *testing.T) {
 	require.True(t, IsSupplierManagedAccount(&Account{Extra: map[string]any{SupplierSourceIDExtraKey: int64(7)}}))
