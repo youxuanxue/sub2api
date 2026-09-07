@@ -531,8 +531,17 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	if account.IsKiroMirrorStub() {
 		return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}
 	}
-	if protocolGeminiEndpointProfile(account).Valid() {
+	geminiProfile := protocolGeminiEndpointProfile(account)
+	switch geminiProfile {
+	case protocolrouter.GeminiEndpointAntigravityCloudCode,
+		protocolrouter.GeminiEndpointVertexServiceAccount:
 		return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
+	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
+		// Edge stubs also expose OpenAI-shape text hops; continue collecting below.
+	default:
+		if geminiProfile.Valid() {
+			return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
+		}
 	}
 	switch {
 	case account.Type == AccountTypeAPIKey, account.Type == AccountTypeUpstream:
@@ -546,6 +555,9 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	candidates := make([]protocolrouter.Protocol, 0, len(protocolrouter.AllProtocols()))
 	for _, protocol := range protocolrouter.AllProtocols() {
 		if protocol == protocolrouter.ProtocolGeminiGenerateContent {
+			if geminiProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+				candidates = append(candidates, protocol)
+			}
 			continue
 		}
 		if protocol == protocolrouter.ProtocolMessages && tkIsOpenAIEdgeMirrorStub(account) {

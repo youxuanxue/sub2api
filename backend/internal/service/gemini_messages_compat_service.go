@@ -658,6 +658,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			if req.Stream {
 				fullURL += "?alt=sse"
 			}
+			fullURL = protocolExecutionURL(ctx, fullURL)
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
 			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
@@ -1175,6 +1176,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			if useUpstreamStream {
 				fullURL += "?alt=sse"
 			}
+			fullURL = protocolExecutionURL(ctx, fullURL)
 
 			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
 			if err != nil {

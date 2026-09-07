@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -285,6 +286,78 @@ func TestProtocolGeminiVertexPlanBindsExactWireEndpointAndBearer(t *testing.T) {
 				t.Fatalf("x-goog-api-key = %q, want service-account bearer only", got)
 			}
 		})
+	}
+}
+
+func TestProtocolGeminiEdgeRelayPlanBindsExactWireEndpointAndAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, inbound := range protocolrouter.AllProtocols() {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%t", inbound, stream), func(t *testing.T) {
+				body := []byte(fmt.Sprintf(`{"model":"gemini-2.5-flash","stream":%t,"max_tokens":8,"messages":[{"role":"user","content":"hello"}],"input":"hello","contents":[{"role":"user","parts":[{"text":"hello"}]}]}`, stream))
+				responseBody := `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1}}`
+				contentType, action := "application/json", "generateContent"
+				if stream {
+					responseBody = "data: " + responseBody + "\n\n"
+					contentType, action = "text/event-stream", "streamGenerateContent"
+				}
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+				upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{{
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{contentType}},
+					Body: io.NopCloser(strings.NewReader(responseBody)),
+				}}}
+				svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+				account := &Account{
+					ID: 912, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Status: StatusActive, Concurrency: 1,
+					Credentials: map[string]any{
+						"api_key": "edge-key", "base_url": "https://api-us3.tokenkey.dev",
+						"model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash-medium"},
+					},
+				}
+				attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
+				var plan protocolrouter.Plan
+				value, err := protocolTargetTestExecution(t, inbound, body, account, func(ctx context.Context, account *Account, selected protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+					plan = selected
+					account.Credentials["base_url"] = "https://api-us4.tokenkey.dev"
+					switch inbound {
+					case protocolrouter.ProtocolMessages:
+						return svc.Forward(ctx, c, account, request.Body())
+					case protocolrouter.ProtocolChatCompletions:
+						return svc.ForwardAsChatCompletions(ctx, c, account, request.Body())
+					case protocolrouter.ProtocolResponses:
+						return svc.ForwardAsResponses(ctx, c, account, request.Body())
+					default:
+						return svc.ForwardNative(ctx, c, account, request.RequestedModel(), action, stream, request.Body())
+					}
+				})
+				if err != nil {
+					t.Fatalf("ExecuteSelectedProtocol: %v", err)
+				}
+				result, ok := value.(*ForwardResult)
+				if !ok {
+					t.Fatalf("result type = %T", value)
+				}
+				facts, ok := result.ProtocolRouteFacts()
+				if !ok || facts.Endpoint() != plan.Endpoint() {
+					t.Fatalf("route facts = %#v, want endpoint %q", facts, plan.Endpoint())
+				}
+				if len(upstream.requests) != 1 {
+					t.Fatalf("requests = %d, want 1", len(upstream.requests))
+				}
+				req := upstream.requests[0]
+				if got := req.URL.Scheme + "://" + req.URL.Host + req.URL.EscapedPath(); got != plan.Endpoint() {
+					t.Fatalf("wire endpoint = %q, want immutable plan endpoint %q", got, plan.Endpoint())
+				}
+				wantAlt := ""
+				if stream {
+					wantAlt = "sse"
+				}
+				if req.URL.Query().Get("alt") != wantAlt || req.Header.Get("x-goog-api-key") != "edge-key" || req.Header.Get("Authorization") != "" {
+					t.Fatal("wire must preserve stream query and use only edge API-key authentication")
+				}
+			})
+		}
 	}
 }
 

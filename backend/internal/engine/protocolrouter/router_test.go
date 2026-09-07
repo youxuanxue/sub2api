@@ -122,6 +122,7 @@ func TestPlanGeminiIdentityRequiresTypedProfileAndExactEndpoint(t *testing.T) {
 func TestPlanGeminiProfilesUseExactEndpoint(t *testing.T) {
 	for _, profile := range []GeminiEndpointProfile{
 		GeminiEndpointAntigravityCloudCode,
+		GeminiEndpointAntigravityEdgeRelay,
 		GeminiEndpointVertexServiceAccount,
 	} {
 		t.Run(string(profile), func(t *testing.T) {

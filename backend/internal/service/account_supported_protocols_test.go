@@ -672,6 +672,24 @@ func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
 			wantProfile:  protocolrouter.GeminiEndpointVertexServiceAccount,
 			wantEndpoint: "https://us-central1-aiplatform.googleapis.com/v1/projects/project-v/locations/us-central1/publishers/google/models/gemini-2.5-pro:generateContent",
 		},
+		{
+			name: "antigravity edge relay uses public hop model",
+			account: &Account{
+				ID:       85,
+				Platform: PlatformAntigravity,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"api_key":  "secret",
+					"base_url": "https://api-us3.tokenkey.dev",
+					"model_mapping": map[string]any{
+						"client-model": "gemini-3.8-flash-medium",
+					},
+				},
+				Extra: map[string]any{SupportedProtocolsExtraKey: []any{"gemini_generate_content"}},
+			},
+			wantProfile:  protocolrouter.GeminiEndpointAntigravityEdgeRelay,
+			wantEndpoint: "https://api-us3.tokenkey.dev/antigravity/v1beta/models/client-model:generateContent",
+		},
 	}
 
 	for _, tt := range tests {
@@ -693,7 +711,14 @@ func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
 			if snapshot.GeminiProfile() != tt.wantProfile {
 				t.Fatalf("GeminiProfile = %q, want %q", snapshot.GeminiProfile(), tt.wantProfile)
 			}
-			endpoint, err := protocolGeminiExactEndpoint(tt.account, snapshot.ResolvedModel(), snapshot.GeminiProfile(), request.Profile().Stream)
+			exactModel := snapshot.ResolvedModel()
+			if tt.wantProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+				if exactModel != "gemini-3.8-flash-medium" {
+					t.Fatalf("ResolvedModel = %q, want mapped provider model", exactModel)
+				}
+				exactModel = request.RequestedModel()
+			}
+			endpoint, err := protocolGeminiExactEndpoint(tt.account, exactModel, snapshot.GeminiProfile(), request.Profile().Stream)
 			if err != nil {
 				t.Fatalf("protocolGeminiExactEndpoint: %v", err)
 			}

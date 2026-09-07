@@ -270,6 +270,39 @@ func TestBuildProtocolEndpointCapabilityLinkInputSeedsOnlyOfficialProfile(t *tes
 	}
 }
 
+func TestBuildProtocolEndpointIdentityAntigravityEdgeRelayKeepsTextAndGeminiHops(t *testing.T) {
+	account := &Account{
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://api-us3.tokenkey.dev",
+		},
+	}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		t.Fatalf("BuildProtocolEndpointIdentity = governed %t, err %v", governed, err)
+	}
+	if identity.EndpointProfile != string(protocolrouter.GeminiEndpointAntigravityEdgeRelay) {
+		t.Fatalf("EndpointProfile = %q", identity.EndpointProfile)
+	}
+	wantURLs := map[protocolrouter.Protocol]string{
+		protocolrouter.ProtocolMessages:              "https://api-us3.tokenkey.dev/v1/messages",
+		protocolrouter.ProtocolChatCompletions:       "https://api-us3.tokenkey.dev/v1/chat/completions",
+		protocolrouter.ProtocolResponses:             "https://api-us3.tokenkey.dev/v1/responses",
+		protocolrouter.ProtocolGeminiGenerateContent: "https://api-us3.tokenkey.dev/antigravity/v1beta/models/{model}:{action}",
+	}
+	if len(identity.ProtocolEndpoints) != len(wantURLs) {
+		t.Fatalf("ProtocolEndpoints = %#v", identity.ProtocolEndpoints)
+	}
+	for protocol, want := range wantURLs {
+		got, ok := identity.ProtocolEndpoints[protocol]
+		if !ok || got.URL != want {
+			t.Fatalf("%s endpoint = %#v, want %q", protocol, got, want)
+		}
+	}
+}
+
 func cloneMap(input map[string]any) map[string]any {
 	result := make(map[string]any, len(input))
 	for key, value := range input {

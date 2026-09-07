@@ -269,12 +269,54 @@ func TestProbeAccountProtocolCapabilitiesTreatsEdgeRelayEmptyPoolAsEndpointEvide
 		protocolrouter.ProtocolMessages,
 		protocolrouter.ProtocolChatCompletions,
 		protocolrouter.ProtocolResponses,
+		protocolrouter.ProtocolGeminiGenerateContent,
 	}
 	if !reflect.DeepEqual(got.SupportedProtocols(), want) {
 		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)
 	}
 	if got.ProtocolEndpointCapability == nil || !got.ProtocolEndpointCapability.ProbeEvidence.InitialProbeCompleted {
 		t.Fatalf("empty-pool endpoint evidence remained inconclusive: %#v", got.ProtocolEndpointCapability)
+	}
+}
+
+func TestProbeGeminiEdgeRelayUsesPublicModelAndClassifiesWireResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		want   ProtocolProbeVerdict
+	}{
+		{"success", http.StatusOK, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"OK\"}]}}]}\n\n", ProtocolProbePositive},
+		{"unsupported endpoint", http.StatusNotFound, `{"error":{"details":[{"reason":"METHOD_NOT_SUPPORTED"}]}}`, ProtocolProbeEndpointNegative},
+		{"auth failure", http.StatusUnauthorized, `{"error":{"message":"unauthorized"}}`, ProtocolProbeInconclusive},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := &Account{
+				ID: 61, Platform: PlatformAntigravity, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"api_key": "edge-key", "base_url": "https://api-us3.tokenkey.dev",
+					"model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash-medium"},
+				},
+			}
+			upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{{
+				StatusCode: tc.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tc.body)),
+			}}}
+			svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{}}
+			observation, applicable := svc.probeGeminiGenerateContentSupport(context.Background(), account)
+			if !applicable || observation.verdict != tc.want {
+				t.Fatalf("probe = %#v, applicable %t, want %q", observation, applicable, tc.want)
+			}
+			if len(upstream.requests) != 1 {
+				t.Fatalf("requests = %d, want 1", len(upstream.requests))
+			}
+			req := upstream.requests[0]
+			if got, want := req.URL.String(), "https://api-us3.tokenkey.dev/antigravity/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"; got != want {
+				t.Fatalf("probe URL = %q, want public model URL %q", got, want)
+			}
+			if req.Header.Get("x-goog-api-key") != "edge-key" || req.Header.Get("Authorization") != "" {
+				t.Fatal("probe must use only edge API-key authentication")
+			}
+		})
 	}
 }
 
@@ -733,7 +775,7 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			want: []protocolrouter.Protocol{protocolrouter.ProtocolMessages},
 		},
 		{
-			name: "antigravity edge relay probes its configurable text endpoints",
+			name: "antigravity edge relay probes text hops and native gemini",
 			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"api_key": "secret", "base_url": "https://api-us3.tokenkey.dev",
 			}},
@@ -741,6 +783,7 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 				protocolrouter.ProtocolMessages,
 				protocolrouter.ProtocolChatCompletions,
 				protocolrouter.ProtocolResponses,
+				protocolrouter.ProtocolGeminiGenerateContent,
 			},
 		},
 		{

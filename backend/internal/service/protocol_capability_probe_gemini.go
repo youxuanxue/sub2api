@@ -166,23 +166,60 @@ func (s *AccountTestService) probeGeminiGenerateContentSupport(
 			observation.verdict = ProtocolProbeInconclusive
 			return observation, true
 		}
-		proxyURL := ""
-		if account.ProxyID != nil && account.Proxy != nil {
-			proxyURL = account.Proxy.URL()
-		}
-		resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.resolveAccountTestTLSProfile(account))
-		if err != nil {
-			observation.verdict = classifyGeminiProtocolProbe(0, nil, err)
-			return observation, true
-		}
-		if resp == nil {
+		return s.observeGeminiHTTPProbe(account, req, &observation)
+
+	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
+		if s == nil || s.httpUpstream == nil {
 			observation.verdict = ProtocolProbeInconclusive
 			return observation, true
 		}
-		defer func() { _ = resp.Body.Close() }()
-		body, readErr := io.ReadAll(resp.Body)
-		observation.verdict = classifyGeminiProtocolProbe(resp.StatusCode, body, readErr)
-		return observation, true
+		mappedModel, requestModel := resolveGeminiForwardModels(account, model)
+		payload := createGeminiTestPayload(mappedModel, defaultGeminiTextTestPrompt)
+		req, err := s.buildGeminiAPIKeyRequest(ctx, account, requestModel, payload)
+		if err != nil {
+			observation.verdict = ProtocolProbeInconclusive
+			return observation, true
+		}
+		return s.observeGeminiHTTPProbe(account, req, &observation)
 	}
 	return observation, false
+}
+
+func (s *AccountTestService) observeGeminiHTTPProbe(
+	account *Account,
+	req *http.Request,
+	observation *protocolProbeObservation,
+) (protocolProbeObservation, bool) {
+	if observation == nil {
+		observation = &protocolProbeObservation{protocol: protocolrouter.ProtocolGeminiGenerateContent}
+	}
+	proxyURL := ""
+	if account != nil && account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	concurrency := 0
+	accountID := int64(0)
+	if account != nil {
+		concurrency = account.Concurrency
+		accountID = account.ID
+	}
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, accountID, concurrency, s.resolveAccountTestTLSProfile(account))
+	if err != nil {
+		observation.verdict = classifyGeminiProtocolProbe(0, nil, err)
+		return *observation, true
+	}
+	if resp == nil {
+		observation.verdict = ProtocolProbeInconclusive
+		return *observation, true
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr == nil {
+		if capacityVerdict, knownCapacity := protocolProbeRelayCapacityVerdict(account, resp.StatusCode, body); knownCapacity {
+			observation.verdict = capacityVerdict
+			return *observation, true
+		}
+	}
+	observation.verdict = classifyGeminiProtocolProbe(resp.StatusCode, body, readErr)
+	return *observation, true
 }

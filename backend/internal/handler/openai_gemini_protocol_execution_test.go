@@ -18,6 +18,7 @@ func TestExecuteOpenAIGeminiRouteUsesOnlyPlannedProfile(t *testing.T) {
 	}{
 		{name: "antigravity", profile: protocolrouter.GeminiEndpointAntigravityCloudCode, wantAntigravity: 1, wantRequestID: "ag"},
 		{name: "vertex", profile: protocolrouter.GeminiEndpointVertexServiceAccount, wantVertex: 1, wantRequestID: "vertex"},
+		{name: "antigravity edge relay", profile: protocolrouter.GeminiEndpointAntigravityEdgeRelay, wantVertex: 1, wantRequestID: "vertex"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
