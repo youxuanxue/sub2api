@@ -64,7 +64,7 @@ Required fields in settings:
 | --- | --- |
 | Privacy policy | `https://tokenkey.dev/privacy` — must disclose prompt logging + retention + no-training-for-upstream |
 | Terms of service | `https://tokenkey.dev/terms` |
-| Status page | `https://status.tokenkey.dev` — **Better Stack Free**（已上线；CNAME → `statuspage.betteruptime.com`）。Caddy 自建 status vhost 默认关闭。运维说明：`ops/stage0/better-stack-status-page.md` |
+| Status page | `https://status.tokenkey.dev` — **Better Stack Free**（已上线；CNAME → `statuspage.betteruptime.com`）。Caddy 自建 status vhost 已移除。运维说明：`ops/stage0/better-stack-status-page.md` |
 | Monthly invoicing | set `invoicing_contact_email`; complete OR onboarding payout profile manually |
 
 ## Validation
