@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TokenKey Status</title>
+  <style>
+    :root { color-scheme: light dark; --ok:#15803d; --bad:#b91c1c; --muted:#64748b; --bg:#0b1220; --card:#111827; --fg:#e5e7eb; }
+    @media (prefers-color-scheme: light) {
+      :root { --bg:#f8fafc; --card:#ffffff; --fg:#0f172a; }
+    }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--fg); }
+    main { max-width: 42rem; margin: 0 auto; padding: 3rem 1.25rem; }
+    h1 { font-size: 1.75rem; margin: 0 0 .5rem; }
+    p { line-height: 1.55; color: var(--muted); }
+    .card { background: var(--card); border: 1px solid color-mix(in srgb, var(--fg) 12%, transparent); border-radius: 12px; padding: 1.25rem 1.35rem; margin-top: 1.5rem; }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+    .dot { width:.75rem; height:.75rem; border-radius:999px; background:var(--muted); }
+    .dot.ok { background:var(--ok); }
+    .dot.bad { background:var(--bad); }
+    a { color: inherit; }
+    ul { margin:.75rem 0 0; padding-left: 1.1rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>TokenKey Status</h1>
+    <p>Public service status for TokenKey API gateway. Datacenter regions: US, SG.</p>
+    <div class="card">
+      <div class="row">
+        <div>
+          <strong>API gateway</strong>
+          <div id="detail" style="color:var(--muted);font-size:.925rem;margin-top:.25rem">Checking…</div>
+        </div>
+        <div class="dot" id="dot" aria-hidden="true"></div>
+      </div>
+    </div>
+    <div class="card">
+      <strong>Links</strong>
+      <ul>
+        <li><a href="https://tokenkey.dev">tokenkey.dev</a></li>
+        <li><a href="https://tokenkey.dev/privacy">Privacy policy</a></li>
+        <li><a href="https://tokenkey.dev/terms">Terms of service</a></li>
+        <li><a href="/health">Live health JSON</a></li>
+      </ul>
+    </div>
+  </main>
+  <script>
+    (async () => {
+      const dot = document.getElementById('dot');
+      const detail = document.getElementById('detail');
+      try {
+        const res = await fetch('/health', { cache: 'no-store' });
+        const body = await res.json().catch(() => ({}));
+        const ok = res.ok && (body.status === 'ok' || body.status === 'alive' || body.status === 'draining');
+        dot.className = 'dot ' + (ok ? 'ok' : 'bad');
+        detail.textContent = ok
+          ? ('Operational' + (body.status ? ' (' + body.status + ')' : ''))
+          : ('Degraded (HTTP ' + res.status + ')');
+      } catch (err) {
+        dot.className = 'dot bad';
+        detail.textContent = 'Unreachable';
+      }
+    })();
+  </script>
+</body>
+</html>

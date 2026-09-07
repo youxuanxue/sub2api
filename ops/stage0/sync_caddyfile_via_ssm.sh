@@ -143,8 +143,18 @@ fi
 # embeds cleanly in the SSM command array.
 CADDY_B64="$(base64 < "${CADDY_SRC}" | tr -d '\n')"
 RENDER_SCRIPT_B64=""
+STATUS_PAGE_B64=""
+# Legacy self-hosted status HTML is only shipped when STATUS_SITE_DOMAIN is set.
+# Public status.tokenkey.dev is Better Stack Free (CNAME); default is no Caddy status vhost.
+STATUS_SITE_DOMAIN_FOR_SYNC="${STATUS_SITE_DOMAIN:-}"
 if [[ "${KIND}" == prod ]]; then
   RENDER_SCRIPT_B64="$(base64 < "${REPO_ROOT}/deploy/aws/stage0/render-prod-caddyfile.sh" | tr -d '\n')"
+  if [[ -n "${STATUS_SITE_DOMAIN_FOR_SYNC}" ]]; then
+    STATUS_PAGE_SRC="${REPO_ROOT}/deploy/aws/stage0/status-page/index.html"
+    if [[ -f "${STATUS_PAGE_SRC}" ]]; then
+      STATUS_PAGE_B64="$(base64 < "${STATUS_PAGE_SRC}" | tr -d '\n')"
+    fi
+  fi
 fi
 
 ssm_region_args=()
@@ -160,6 +170,8 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 jq -n \
   --arg b64 "${CADDY_B64}" \
   --arg render_b64 "${RENDER_SCRIPT_B64}" \
+  --arg status_page_b64 "${STATUS_PAGE_B64}" \
+  --arg status_site_domain "${STATUS_SITE_DOMAIN_FOR_SYNC}" \
   --arg kind "${KIND}" \
   --arg apply_global_profile "${APPLY_GLOBAL_PROFILE}" \
   --arg global_site_phase "${TARGET_GLOBAL_SITE_PHASE}" \
@@ -170,6 +182,8 @@ jq -n \
     ("APPLY_GLOBAL_PROFILE=" + ($apply_global_profile | @sh)),
     ("TARGET_GLOBAL_SITE_PHASE=" + ($global_site_phase | @sh)),
     ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
+    ("STATUS_PAGE_B64=" + ($status_page_b64 | @sh)),
+    ("SYNC_STATUS_SITE_DOMAIN=" + ($status_site_domain | @sh)),
     "CADDY_DIR=/var/lib/tokenkey/caddy",
     "LIVE=$CADDY_DIR/Caddyfile",
     "ENV_FILE=/var/lib/tokenkey/.env",
@@ -209,6 +223,8 @@ jq -n \
     "  if [ -z \"$site_domain\" ] && case \"$API_DOMAIN\" in api.*) true;; *) false;; esac; then site_domain=\"${API_DOMAIN#api.}\"; fi",
     "  if [ \"$site_domain\" = \"$API_DOMAIN\" ]; then site_domain=; fi",
     "  export SITE_DOMAIN=\"$site_domain\"",
+    "  # Force sync-time value after sourcing .env (empty = Better Stack / no Caddy status vhost).",
+    "  export STATUS_SITE_DOMAIN=\"${SYNC_STATUS_SITE_DOMAIN:-}\"",
     "  bash /tmp/render-prod-caddyfile.sh \"$CADDY_DIR/Caddyfile.template\" \"$CADDY_DIR/Caddyfile.new\"",
     "else",
     "  envsubst '\''$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'\'' < \"$CADDY_DIR/Caddyfile.template\" > \"$CADDY_DIR/Caddyfile.new\"",
@@ -216,6 +232,12 @@ jq -n \
     "if [ \"$KIND\" = prod ] && [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"prod blue/green active upstream preserved: $UPSTREAM\" ;; *) echo \"::error::invalid active-color for prod blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
     "echo === validate rendered config in throwaway caddy container ===",
     "sudo docker run --rm -v \"$CADDY_DIR/Caddyfile.new\":/tmp/Caddyfile:ro caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile",
+    "if [ \"$KIND\" = prod ] && [ -n \"${STATUS_PAGE_B64:-}\" ]; then",
+    "  echo === write status page into existing Caddy data volume ===",
+    "  sudo mkdir -p \"$CADDY_DIR/data/status\"",
+    ("  printf '%s' \"" + $status_page_b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/data/status/index.html\" >/dev/null"),
+    "  echo \"status page bytes=$(wc -c < \"$CADDY_DIR/data/status/index.html\")\"",
+    "fi",
     "echo \"=== apply IN PLACE (cat-truncate keeps inode the bind-mount maps) ===\"",
     "sudo sh -c \"cat '\''$CADDY_DIR/Caddyfile.new'\'' > '\''$LIVE'\''\"",
     "sudo rm -f \"$CADDY_DIR/Caddyfile.new\"",
@@ -223,7 +245,7 @@ jq -n \
     "sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile",
     "echo === verify ===",
     "sudo docker inspect tokenkey-caddy --format '\''caddy state={{.State.Status}} running={{.State.Running}}'\''",
-    "grep -nE '\''lb_try_duration'\'' \"$LIVE\" || true",
+    "grep -nE '\''lb_try_duration|status\\.|root \\* /data/status'\'' \"$LIVE\" || echo \"(no status vhost — Better Stack owns status.tokenkey.dev)\"",
     "trap - ERR",
     "echo === sync done ==="
   ]

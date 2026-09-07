@@ -21,6 +21,7 @@ def _render(
     acme_email: str = "ops@example.com",
     global_site_domain: str = "",
     global_site_phase: str = "disabled",
+    status_site_domain: str | None = None,
 ) -> str:
     env = {
         **os.environ,
@@ -30,6 +31,12 @@ def _render(
         "GLOBAL_SITE_DOMAIN": global_site_domain,
         "GLOBAL_SITE_PHASE": global_site_phase,
     }
+    # None / "" → status vhost disabled (Better Stack owns public status).
+    # Non-empty → emit that hostname as a legacy self-hosted status vhost.
+    if status_site_domain is None:
+        env.pop("STATUS_SITE_DOMAIN", None)
+    else:
+        env["STATUS_SITE_DOMAIN"] = status_site_domain
     with tempfile.NamedTemporaryFile("w+", suffix=".caddy", delete=False) as tmp:
         out_path = pathlib.Path(tmp.name)
     try:
@@ -102,7 +109,10 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         )
 
         self.assertIn("global.tokenkey.dev {", rendered)
-        self.assertNotIn("X-Robots-Tag", rendered)
+        global_block = rendered[
+            rendered.index("global.tokenkey.dev {") : rendered.index("api.tokenkey.dev {")
+        ]
+        self.assertNotIn("X-Robots-Tag", global_block)
         self.assertIn("path /seedance-2-5-official-showcase-8b37bc3e.mp4", rendered)
         self.assertIn("path /api/v1/settings/public", rendered)
         self.assertIn("path /setup/status", rendered)
@@ -130,7 +140,10 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         )
 
         self.assertIn("global.tokenkey.dev {", rendered)
-        self.assertNotIn("X-Robots-Tag", rendered)
+        global_block = rendered[
+            rendered.index("global.tokenkey.dev {") : rendered.index("api.tokenkey.dev {")
+        ]
+        self.assertNotIn("X-Robots-Tag", global_block)
         self.assertIn("redir https://tokenkey.dev{uri} 301", rendered)
 
     def test_enabled_global_phase_requires_an_explicit_hostname(self) -> None:
@@ -171,6 +184,38 @@ class RenderProdCaddyfileTest(unittest.TestCase):
 
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("SITE_DOMAIN must resolve", proc.stderr)
+
+    def test_status_vhost_is_disabled_by_default(self) -> None:
+        rendered = _render(api_domain="api.tokenkey.dev")
+
+        self.assertNotIn("status.tokenkey.dev {", rendered)
+        self.assertNotIn("root * /data/status", rendered)
+        self.assertNotIn("BEGIN_STATUS_VHOST", rendered)
+
+    def test_status_vhost_can_be_disabled_explicitly(self) -> None:
+        rendered = _render(api_domain="api.tokenkey.dev", status_site_domain="")
+
+        self.assertNotIn("status.tokenkey.dev {", rendered)
+        self.assertNotIn("root * /data/status", rendered)
+        self.assertNotIn("BEGIN_STATUS_VHOST", rendered)
+
+    def test_status_vhost_accepts_an_explicit_hostname(self) -> None:
+        rendered = _render(
+            api_domain="api.tokenkey.dev",
+            status_site_domain="status.custom.example",
+            site_domain="tokenkey.dev",
+        )
+
+        self.assertIn("status.custom.example {", rendered)
+        self.assertNotIn("status.tokenkey.dev {", rendered)
+        self.assertIn("root * /data/status", rendered)
+        self.assertEqual(rendered.count("reverse_proxy tokenkey:8080"), 1)
+
+    def test_localhost_does_not_emit_status_vhost(self) -> None:
+        rendered = _render(api_domain="localhost")
+
+        self.assertNotIn("status.", rendered)
+        self.assertNotIn("root * /data/status", rendered)
 
 
 if __name__ == "__main__":

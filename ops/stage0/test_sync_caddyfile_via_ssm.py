@@ -77,6 +77,7 @@ class SyncCaddyfileRenderTest(unittest.TestCase):
         self.assertIn("tokenkey-$ACTIVE_COLOR:8080", joined)
         self.assertIn("Caddyfile.rewritten", joined)
         self.assertIn("render-prod-caddyfile.sh", joined)
+        self.assertIn("data/status/index.html", joined)
         self.assertIn("envsubst '$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'", joined)
 
     def test_prod_candidate_persists_domain_and_phase_before_render(self) -> None:

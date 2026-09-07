@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy — TokenKey</title>
+  <link rel="stylesheet" href="./shared.css" />
+</head>
+<body>
+  <header>
+    <a class="brand" href="./index.html">TokenKey</a>
+    <nav>
+      <a href="./privacy.html" aria-current="page">Privacy</a>
+      <a href="./terms.html">Terms</a>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="zh" aria-pressed="false">中文</button>
+      </div>
+    </nav>
+  </header>
+  <main>
+    <p class="prevail">If the English and Chinese texts differ, the English version controls. 中英文不一致时以英文为准。</p>
+
+    <section class="locale" data-locale="en" lang="en">
+      <h1>Privacy Policy</h1>
+      <p class="meta">Effective date: 2026-09-07 · Applies to tokenkey.dev and related TokenKey API services operated by ORBIT LOGIC PTE. LTD.</p>
+
+      <div class="card">
+        <span class="card-title">Summary</span>
+        <ul>
+          <li>We process prompts and API payloads to provide the gateway, meter usage, debug failures, and prevent abuse.</li>
+          <li>Retention: detailed usage metering <strong>90 days</strong> in operational systems; ops/error logs <strong>30 days</strong>; billing/invoice records for the life of the account plus at least <strong>24 months</strong>, or longer where required by law.</li>
+          <li>We do <strong>not</strong> enable platform-wide full prompt-audit persistence.</li>
+          <li>We do not train or fine-tune any models on your content, and we do not authorize upstream providers to train on your content via our service relationship.</li>
+        </ul>
+      </div>
+
+      <h2>1. Who we are</h2>
+      <p>
+        The TokenKey service (“TokenKey”, “we”, “us”) is operated by
+        <strong>ORBIT LOGIC PTE. LTD.</strong>, a company incorporated in Singapore
+        (UEN available upon request from the Accounting and Corporate Regulatory Authority of Singapore).
+      </p>
+      <p>
+        Registered office:
+        <strong>60 PAYA LEBAR ROAD, #04-16, PAYA LEBAR SQUARE, SINGAPORE 409051</strong>.
+      </p>
+      <p>
+        We operate an AI API gateway at
+        <a href="https://tokenkey.dev">tokenkey.dev</a> and related endpoints such as
+        <a href="https://api.tokenkey.dev">api.tokenkey.dev</a>. Status:
+        <a href="https://status.tokenkey.dev">status.tokenkey.dev</a>.
+      </p>
+      <p>
+        Contact (privacy, support, and billing):
+        <a href="mailto:contact@orbitlogic.dev">contact@orbitlogic.dev</a>
+      </p>
+
+      <h2>2. Information we collect</h2>
+      <ul>
+        <li><strong>Account data</strong> — email, authentication identifiers, profile settings.</li>
+        <li><strong>Billing data</strong> — balances, invoices, payment references via payment providers (we do not store full card numbers on TokenKey servers).</li>
+        <li><strong>API usage metadata</strong> — timestamps, model IDs, token counts, latency, status codes, API key identifiers, client IP / User-Agent where logged for security.</li>
+        <li><strong>Request / prompt content</strong> — processed to fulfill API calls; error paths may retain truncated request-body snippets.</li>
+        <li><strong>Support communications</strong> — messages you send to us.</li>
+        <li><strong>Cookies and similar technologies</strong> — we use session and authentication cookies (and related security/challenge mechanisms such as CAPTCHA providers where enabled) needed to operate the console and protect accounts. We do not use third-party advertising cookies on the TokenKey service.</li>
+      </ul>
+
+      <h2>3. Purposes and legal bases</h2>
+      <p>We process personal data for the following purposes:</p>
+      <ul>
+        <li><strong>Performance of our contract with you</strong> — account administration, routing and delivering API requests, metering, billing, and support.</li>
+        <li><strong>Legitimate interests</strong> — securing the platform, preventing fraud and abuse, troubleshooting, capacity planning, and improving reliability (balanced against your rights).</li>
+        <li><strong>Legal obligations</strong> — tax, accounting, regulatory, and lawful requests where applicable.</li>
+      </ul>
+      <p>Where Singapore’s Personal Data Protection Act (PDPA) or other applicable law requires consent for a specific processing activity, we will seek it or rely on another available exception.</p>
+
+      <h2>4. Prompt logging and processing</h2>
+      <p>
+        To operate the gateway we must process request content (including prompts and parameters) so it can be forwarded to the upstream provider you select and so usage can be metered.
+      </p>
+      <ul>
+        <li>We do <strong>not</strong> run platform-wide full prompt-audit persistence (no long-lived searchable archive of every successful prompt by default).</li>
+        <li>Operational and abuse tooling may record metadata and, when needed, limited truncated body excerpts—especially on errors.</li>
+        <li>Content is not used to train or fine-tune models (see §6).</li>
+      </ul>
+
+      <h2>5. Retention</h2>
+      <table>
+        <thead>
+          <tr><th>Category</th><th>Retention</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Detailed API usage / metering records</td><td>90 days in operational systems</td></tr>
+          <tr><td>Ops / error / security troubleshooting logs</td><td>30 days</td></tr>
+          <tr><td>Truncated error-path request snippets</td><td>≤ 30 days</td></tr>
+          <tr><td>Account profile data</td><td>Life of the account; then deleted or anonymized per §11 unless law requires longer</td></tr>
+          <tr><td>Billing / invoice / top-up records (including aggregates needed for accounting)</td><td>Life of the account + at least 24 months, or longer where required by law (including tax and accounting)</td></tr>
+          <tr><td>Backups</td><td>Limited backup rotation only</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Detailed per-request metering may age out after 90 days while invoice totals and account ledger entries needed for billing disputes and statutory record-keeping are retained on the longer billing schedule above.
+      </p>
+
+      <h2>6. No training on your content</h2>
+      <p>
+        We do <strong>not</strong> use customer prompts, completions, embeddings, or uploaded media to train, fine-tune, or improve any models, and we do not sell your content as training data.
+      </p>
+      <p>
+        Requests are forwarded to third-party model providers solely to generate the response you requested.
+        ORBIT LOGIC PTE. LTD. does not, through the TokenKey service relationship, authorize those providers to use your content for their model training.
+        Upstream providers’ own terms and privacy policies still apply to the models you call.
+      </p>
+
+      <h2>7. How we use information</h2>
+      <ul>
+        <li>Provide, route, meter, and bill the API service</li>
+        <li>Secure the platform, prevent fraud/abuse, and troubleshoot outages</li>
+        <li>Service notices and support</li>
+        <li>Legal compliance</li>
+      </ul>
+
+      <h2>8. Sharing</h2>
+      <ul>
+        <li>Upstream model / infrastructure providers required to fulfill requests</li>
+        <li>Payment, email, DNS, hosting, and similar processors under contract</li>
+        <li>Authorities when required by law, or to protect users and the service</li>
+      </ul>
+      <p>We do not sell personal information.</p>
+
+      <h2>9. International transfers</h2>
+      <p>
+        TokenKey gateway capacity currently operates in the <strong>United States</strong> and <strong>Singapore</strong>.
+        By using the service, you acknowledge that personal data and request content may be transferred to and processed in Singapore, the United States, and the regions of the upstream providers you select,
+        as reasonably necessary to perform our contract with you and operate the gateway.
+      </p>
+
+      <h2>10. Security</h2>
+      <p>
+        We use controls appropriate to an API platform (TLS in transit, access controls, secret hygiene).
+        No method of transmission or storage is perfectly secure.
+      </p>
+
+      <h2>11. Your choices and account closure</h2>
+      <ul>
+        <li>Update account details in the console; rotate or revoke API keys anytime.</li>
+        <li>Request access, correction, or deletion where law allows via <a href="mailto:contact@orbitlogic.dev">contact@orbitlogic.dev</a>.</li>
+        <li>
+          If you close your account (or we close it under the Terms), we delete or anonymize account profile data and other personal data that is no longer needed,
+          subject to the retention periods in §5 and any longer retention required by law or needed to resolve disputes, collect fees, or enforce our agreements.
+        </li>
+      </ul>
+
+      <h2>12. Children</h2>
+      <p>The service is not directed to children under 16 (or the equivalent age where you live).</p>
+
+      <h2>13. Changes</h2>
+      <p>We may update this policy by revising this page and the effective date, with additional notice when appropriate.</p>
+
+      <h2>14. Contact</h2>
+      <p>
+        Privacy, support, and billing:
+        <a href="mailto:contact@orbitlogic.dev">contact@orbitlogic.dev</a><br />
+        Postal: ORBIT LOGIC PTE. LTD., 60 PAYA LEBAR ROAD, #04-16, PAYA LEBAR SQUARE, SINGAPORE 409051
+      </p>
+    </section>
+
+    <section class="locale" data-locale="zh" lang="zh-CN" hidden>
+      <h1>隐私政策</h1>
+      <p class="meta">生效日期：2026-09-07 · 适用于由 ORBIT LOGIC PTE. LTD. 运营的 tokenkey.dev 及相关 TokenKey API 服务</p>
+
+      <div class="card">
+        <span class="card-title">摘要</span>
+        <ul>
+          <li>为提供网关、计量用量、排障与防滥用，我们会处理 prompt 与 API 载荷。</li>
+          <li>保留：明细用量计量在运营系统中 <strong>90 天</strong>；运维/错误日志 <strong>30 天</strong>；账单/发票类记录为账号存续期另加至少 <strong>24 个月</strong>，或在法律要求时更长。</li>
+          <li><strong>不</strong>启用平台级完整 prompt-audit 持久化。</li>
+          <li>不会用你的内容训练或微调任何模型；亦不通过本服务关系授权上游用你的内容训练。</li>
+        </ul>
+      </div>
+
+      <h2>1. 我们是谁</h2>
+      <p>
+        TokenKey 服务（「TokenKey」「我们」）由在新加坡注册的公司
+        <strong>ORBIT LOGIC PTE. LTD.</strong> 运营
+        （企业注册号可向新加坡会计与企业管制局 ACRA 查询或向我们索取）。
+      </p>
+      <p>
+        注册地址：
+        <strong>60 PAYA LEBAR ROAD, #04-16, PAYA LEBAR SQUARE, SINGAPORE 409051</strong>。
+      </p>
+      <p>
+        我们运营 AI API 网关
+        <a href="https://tokenkey.dev">tokenkey.dev</a> 及
+        <a href="https://api.tokenkey.dev">api.tokenkey.dev</a> 等相关端点。状态页：
+        <a href="https://status.tokenkey.dev">status.tokenkey.dev</a>。
+      </p>
+      <p>
+        联系邮箱（隐私、支持与账单）：
+        <a href="mailto:contact@orbitlogic.dev">contact@orbitlogic.dev</a>
+      </p>
+
+      <h2>2. 我们收集的信息</h2>
+      <ul>
+        <li><strong>账号数据</strong> — 邮箱、认证标识、资料设置等</li>
+        <li><strong>账单数据</strong> — 余额、发票、支付凭证（经支付服务商处理；TokenKey 服务器不保存完整银行卡号）</li>
+        <li><strong>API 用量元数据</strong> — 时间戳、模型 ID、token 数、延迟、状态码、API key 标识，以及安全所需的 IP / User-Agent</li>
+        <li><strong>请求 / prompt 内容</strong> — 为完成调用而处理；错误路径可能保留截断的请求体片段</li>
+        <li><strong>支持沟通</strong> — 你发给我们的消息</li>
+        <li><strong>Cookie 与类似技术</strong> — 使用运营控制台与保护账号所需的会话/认证 Cookie（以及在启用时由验证码等安全挑战机制使用的相关技术）。我们不在 TokenKey 服务上使用第三方广告 Cookie。</li>
+      </ul>
+
+      <h2>3. 处理目的与依据</h2>
+      <p>我们基于以下目的处理个人数据：</p>
+      <ul>
+        <li><strong>履行与你的合同</strong> — 账号管理、路由与交付 API 请求、计量、计费与支持</li>
+        <li><strong>合法利益</strong> — 平台安全、防欺诈与滥用、排障、容量规划与可靠性改进（并与你的权利相平衡）</li>
+        <li><strong>法律义务</strong> — 适用的税务、会计、监管及合法要求</li>
+      </ul>
+      <p>若新加坡《个人数据保护法》（PDPA）或其他适用法律就特定处理活动要求同意，我们将征求同意或依赖其他可用例外。</p>
+
+      <h2>4. Prompt 处理与日志</h2>
+      <p>运营网关必须处理请求内容（含 prompt 与参数），以便转发到你选择的上游模型供应商并进行计量。</p>
+      <ul>
+        <li>我们<strong>不</strong>启用平台级完整 prompt-audit 持久化（默认不会把每条成功请求的完整 prompt 做成可长期检索的内容库）。</li>
+        <li>运维与防滥用工具可能记录元数据，并在需要时（尤其是错误场景）保留有限的截断请求体片段。</li>
+        <li>内容不用于训练或微调模型（见第 6 节）。</li>
+      </ul>
+
+      <h2>5. 保留期限</h2>
+      <table>
+        <thead>
+          <tr><th>类别</th><th>保留期限</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>明细 API 用量 / 计量记录</td><td>运营系统中 90 天</td></tr>
+          <tr><td>运维 / 错误 / 安全排障日志</td><td>30 天</td></tr>
+          <tr><td>错误路径截断请求片段</td><td>≤ 30 天</td></tr>
+          <tr><td>账号资料</td><td>账号存续期间；之后按第 11 节删除或匿名化，法律要求更长的除外</td></tr>
+          <tr><td>账单 / 发票 / 充值记录（含会计所需汇总）</td><td>账号存续 + 至少 24 个月，或在法律要求时更长（含税务与会计）</td></tr>
+          <tr><td>备份</td><td>仅随备份轮转淘汰</td></tr>
+        </tbody>
+      </table>
+      <p>
+        逐请求明细计量可能在 90 天后老化清除，但发票总额与账本分录等为账单争议及法定留存所需的记录，按上方更长的账单期限保留。
+      </p>
+
+      <h2>6. 不以你的内容做训练</h2>
+      <p>
+        我们<strong>不会</strong>使用客户 prompt、补全、embedding 或上传媒体来训练、微调或改进任何模型，也不会将你的内容作为训练数据出售。
+      </p>
+      <p>
+        请求仅被转发至第三方模型供应商以生成你请求的响应。
+        ORBIT LOGIC PTE. LTD. 不通过 TokenKey 服务关系授权上游将你的内容用于其模型训练。
+        你所选模型仍适用上游自身的条款与隐私政策。
+      </p>
+
+      <h2>7. 使用目的</h2>
+      <ul>
+        <li>提供、路由、计量与计费</li>
+        <li>安全、防欺诈/滥用与故障排查</li>
+        <li>服务通知与客户支持</li>
+        <li>履行法律义务</li>
+      </ul>
+
+      <h2>8. 共享</h2>
+      <ul>
+        <li>为完成请求所必需的上游模型 / 基础设施供应商</li>
+        <li>支付、邮件、DNS、托管等签约处理方</li>
+        <li>法律要求时，或为保护用户与服务所必需时向主管机关披露</li>
+      </ul>
+      <p>我们不出售个人信息。</p>
+
+      <h2>9. 跨境处理</h2>
+      <p>
+        TokenKey 网关容量当前位于<strong>美国</strong>与<strong>新加坡</strong>。
+        使用本服务即表示你知悉：个人数据与请求内容可能被传输至并在新加坡、美国以及你所选上游供应商所在地区处理，
+        此为履行我们与你的合同及运营网关所合理必要。
+      </p>
+
+      <h2>10. 安全</h2>
+      <p>我们采取与 API 平台相称的控制措施（传输加密、访问控制、密钥卫生等）。任何传输或存储方式都无法保证绝对安全。</p>
+
+      <h2>11. 你的选择与账号关闭</h2>
+      <ul>
+        <li>在控制台更新资料；随时轮换或吊销 API key。</li>
+        <li>在适用法律允许范围内，通过 <a href="mailto:contact@orbitlogic.dev">contact@orbitlogic.dev</a> 申请查阅、更正或删除。</li>
+        <li>
+          若你关闭账号（或我们依据服务条款关闭账号），我们将删除或匿名化不再需要的账号资料及其他个人数据，
+          但仍受第 5 节保留期限约束，以及法律要求或为解决争议、收取费用、执行协议所需的更长保留。
+        </li>
+      </ul>
+
+      <h2>12. 儿童</h2>
+      <p>本服务不面向 16 岁以下儿童（或你所在司法辖区的同等年龄）。</p>
+
+      <h2>13. 变更</h2>
+      <p>我们可能更新本政策：修订本页并更新生效日期；重大变更时将视情况另行通知。</p>
+
+      <h2>14. 联系方式</h2>
+      <p>
+        隐私、支持与账单：
+        <a href="mailto:contact@orbitlogic.dev">contact@orbitlogic.dev</a><br />
+        邮寄：ORBIT LOGIC PTE. LTD., 60 PAYA LEBAR ROAD, #04-16, PAYA LEBAR SQUARE, SINGAPORE 409051
+      </p>
+    </section>
+  </main>
+  <footer>
+    Related: <a href="./terms.html">Terms of Service</a> ·
+    <a href="https://status.tokenkey.dev">Status</a>
+  </footer>
+  <script src="./lang.js"></script>
+</body>
+</html>

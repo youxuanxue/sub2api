@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TokenKey 合规页审核状态</title>
+  <link rel="stylesheet" href="./shared.css" />
+  <style>
+    table { width: 100%; border-collapse: collapse; font-size: .925rem; margin: 1rem 0; }
+    th, td { border: 1px solid var(--line); padding: .55rem .65rem; text-align: left; vertical-align: top; }
+    th { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+    .ok { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="./index.html">TokenKey</a>
+    <nav>
+      <a href="./CONTENT.html" aria-current="page">提纲</a>
+      <a href="./privacy.html">Privacy</a>
+      <a href="./terms.html">Terms</a>
+    </nav>
+  </header>
+  <main>
+    <h1>审核状态（P0 + P1 已落地）</h1>
+    <table>
+      <thead><tr><th>项</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>去 Draft / 生效日</td><td class="ok">2026-09-07</td></tr>
+        <tr><td>主体</td><td class="ok">ORBIT LOGIC PTE. LTD. 运营 TokenKey；责任上限付给该公司</td></tr>
+        <tr><td>注册地址</td><td class="ok">60 PAYA LEBAR ROAD, #04-16, PAYA LEBAR SQUARE, SINGAPORE 409051</td></tr>
+        <tr><td>联系邮箱</td><td class="ok">contact@orbitlogic.dev</td></tr>
+        <tr><td>保留表</td><td class="ok">明细 90 / ops 30 / 账单≥24 月 + 法定更长；区分明细与账务汇总</td></tr>
+        <tr><td>跨境</td><td class="ok">SG/US/upstream；履行合同所必要</td></tr>
+        <tr><td>PDPA 目的依据</td><td class="ok">合同 / 合法利益 / 法律义务</td></tr>
+        <tr><td>Cookie</td><td class="ok">会话与认证；无广告 Cookie</td></tr>
+        <tr><td>账号关闭</td><td class="ok">删除/匿名 + 法定/争议例外</td></tr>
+        <tr><td>ToS 赔偿</td><td class="ok">已加 indemnity</td></tr>
+        <tr><td>出口管制</td><td>按你的要求：不加</td></tr>
+        <tr><td>训练措辞</td><td class="ok">不训练/微调任何模型</td></tr>
+        <tr><td>权威页声明</td><td class="ok">/privacy 与 /terms 为对外权威文本</td></tr>
+      </tbody>
+    </table>
+    <p>上线前请确认 <code>contact@orbitlogic.dev</code> 可收信。下一步：Caddy 挂载静态页。</p>
+  </main>
+</body>
+</html>
