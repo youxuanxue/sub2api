@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -223,6 +224,39 @@ func TestUS048_GetSupplierProbeJobMissingReturnsFailedSnapshot(t *testing.T) {
 	require.Equal(t, "missing-job", result.JobID)
 	require.Equal(t, "job_not_found", result.FailedStep)
 	require.Equal(t, SupplierProbeJobFailed, result.ProbeStatus)
+}
+
+func TestCloneSupplierSourceProbeResultEmptySlicesJSONNotNull(t *testing.T) {
+	// Regression: append(nil, empty...) produced nil slices; encoding/json emits null,
+	// and SupplierSourcesView crashes on discoverResult.*.length → blank discover panel.
+	cloned := cloneSupplierSourceProbeResult(&SupplierSourceProbeResult{
+		SourceID:           15,
+		ProbeStatus:        SupplierProbeJobRunning,
+		UpstreamModels:     []SupplierUpstreamModelEntry{{ID: "gpt-5.4"}},
+		NormalizedModels:   make([]SupplierSourceModel, 0),
+		NormalizedChanges:  make([]SupplierModelNormalizeChange, 0),
+		SuggestedAppends:   make([]SupplierSourceModel, 0),
+		RejectedCandidates: make([]SupplierProbeRejectedCandidate, 0),
+		ConfiguredIssues:   make([]SupplierProbeConfiguredIssue, 0),
+		ProbeResults:       make([]SupplierProbeResult, 0),
+	})
+	require.NotNil(t, cloned.NormalizedChanges)
+	require.NotNil(t, cloned.SuggestedAppends)
+	require.NotNil(t, cloned.RejectedCandidates)
+	require.NotNil(t, cloned.ConfiguredIssues)
+	require.NotNil(t, cloned.ProbeResults)
+	require.NotNil(t, cloned.NormalizedModels)
+
+	raw, err := json.Marshal(cloned)
+	require.NoError(t, err)
+	var decoded map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	for _, key := range []string{
+		"upstream_models", "normalized_models", "normalized_changes",
+		"suggested_appends", "rejected_candidates", "configured_issues", "probe_results",
+	} {
+		require.Equal(t, byte('['), decoded[key][0], "field %s must encode as JSON array, got %s", key, decoded[key])
+	}
 }
 
 func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(t *testing.T) {

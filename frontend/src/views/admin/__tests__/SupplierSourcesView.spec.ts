@@ -431,11 +431,12 @@ describe('SupplierSourcesView', () => {
       probe_done: 0,
       upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
       normalized_models: source.models,
-      normalized_changes: [],
-      suggested_appends: [],
-      rejected_candidates: [],
-      configured_issues: [],
-      probe_results: [],
+      // Reproduce pre-fix backend JSON null empty slices (blank-screen crash).
+      normalized_changes: null as unknown as [],
+      suggested_appends: null as unknown as [],
+      rejected_candidates: null as unknown as [],
+      configured_issues: null as unknown as [],
+      probe_results: null as unknown as [],
       needs_confirmation: false,
     })
     getDiscoverJob

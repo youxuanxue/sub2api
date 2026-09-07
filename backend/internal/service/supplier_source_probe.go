@@ -524,14 +524,46 @@ func cloneSupplierSourceProbeResult(in *SupplierSourceProbeResult) *SupplierSour
 		return emptySupplierSourceProbeResult(0)
 	}
 	out := *in
-	out.UpstreamModels = append([]SupplierUpstreamModelEntry(nil), in.UpstreamModels...)
+	// Always allocate empty (non-nil) slices so JSON encodes [] not null.
+	// Admin discover UI reads .length on these fields; null crashes the panel.
+	out.UpstreamModels = cloneSupplierUpstreamModelEntries(in.UpstreamModels)
 	out.NormalizedModels = cloneSupplierSourceModels(in.NormalizedModels)
-	out.NormalizedChanges = append([]SupplierModelNormalizeChange(nil), in.NormalizedChanges...)
+	out.NormalizedChanges = cloneSupplierModelNormalizeChanges(in.NormalizedChanges)
 	out.SuggestedAppends = cloneSupplierSourceModels(in.SuggestedAppends)
-	out.RejectedCandidates = append([]SupplierProbeRejectedCandidate(nil), in.RejectedCandidates...)
-	out.ConfiguredIssues = append([]SupplierProbeConfiguredIssue(nil), in.ConfiguredIssues...)
-	out.ProbeResults = append([]SupplierProbeResult(nil), in.ProbeResults...)
+	out.RejectedCandidates = cloneSupplierProbeRejectedCandidates(in.RejectedCandidates)
+	out.ConfiguredIssues = cloneSupplierProbeConfiguredIssues(in.ConfiguredIssues)
+	out.ProbeResults = cloneSupplierProbeResults(in.ProbeResults)
 	return &out
+}
+
+func cloneSupplierUpstreamModelEntries(in []SupplierUpstreamModelEntry) []SupplierUpstreamModelEntry {
+	out := make([]SupplierUpstreamModelEntry, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneSupplierModelNormalizeChanges(in []SupplierModelNormalizeChange) []SupplierModelNormalizeChange {
+	out := make([]SupplierModelNormalizeChange, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneSupplierProbeRejectedCandidates(in []SupplierProbeRejectedCandidate) []SupplierProbeRejectedCandidate {
+	out := make([]SupplierProbeRejectedCandidate, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneSupplierProbeConfiguredIssues(in []SupplierProbeConfiguredIssue) []SupplierProbeConfiguredIssue {
+	out := make([]SupplierProbeConfiguredIssue, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneSupplierProbeResults(in []SupplierProbeResult) []SupplierProbeResult {
+	out := make([]SupplierProbeResult, len(in))
+	copy(out, in)
+	return out
 }
 
 func cloneSupplierSourceModels(in []SupplierSourceModel) []SupplierSourceModel {
