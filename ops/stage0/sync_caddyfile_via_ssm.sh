@@ -143,17 +143,22 @@ fi
 # embeds cleanly in the SSM command array.
 CADDY_B64="$(base64 < "${CADDY_SRC}" | tr -d '\n')"
 RENDER_SCRIPT_B64=""
-STATUS_PAGE_B64=""
-# Legacy self-hosted status HTML is only shipped when STATUS_SITE_DOMAIN is set.
-# Public status.tokenkey.dev is Better Stack Free (CNAME); default is no Caddy status vhost.
-STATUS_SITE_DOMAIN_FOR_SYNC="${STATUS_SITE_DOMAIN:-}"
+# Public /privacy /terms HTML is shipped as a gzipped tar via SSM chunks (same
+# pattern as deploy_via_ssm_bluegreen.sh) into the existing Caddy data volume.
+LEGAL_CHUNKS_JSON='[]'
 if [[ "${KIND}" == prod ]]; then
   RENDER_SCRIPT_B64="$(base64 < "${REPO_ROOT}/deploy/aws/stage0/render-prod-caddyfile.sh" | tr -d '\n')"
-  if [[ -n "${STATUS_SITE_DOMAIN_FOR_SYNC}" ]]; then
-    STATUS_PAGE_SRC="${REPO_ROOT}/deploy/aws/stage0/status-page/index.html"
-    if [[ -f "${STATUS_PAGE_SRC}" ]]; then
-      STATUS_PAGE_B64="$(base64 < "${STATUS_PAGE_SRC}" | tr -d '\n')"
-    fi
+  LEGAL_DIR="${REPO_ROOT}/deploy/aws/stage0/legal-page"
+  if [[ -f "${LEGAL_DIR}/privacy.html" && -f "${LEGAL_DIR}/terms.html" ]]; then
+    LEGAL_TAR_B64="$(
+      COPYFILE_DISABLE=1 tar -C "${LEGAL_DIR}" -czf - privacy.html terms.html shared.css lang.js \
+        | base64 | tr -d '\n'
+    )"
+    LEGAL_CHUNKS_JSON="$(
+      printf '%s' "${LEGAL_TAR_B64}" \
+        | fold -w 1000 \
+        | jq -R -s 'split("\n") | map(select(length > 0))'
+    )"
   fi
 fi
 
@@ -170,85 +175,94 @@ stderr_file="${OUTPUT_DIR}/stderr.txt"
 jq -n \
   --arg b64 "${CADDY_B64}" \
   --arg render_b64 "${RENDER_SCRIPT_B64}" \
-  --arg status_page_b64 "${STATUS_PAGE_B64}" \
-  --arg status_site_domain "${STATUS_SITE_DOMAIN_FOR_SYNC}" \
+  --argjson legal_chunks "${LEGAL_CHUNKS_JSON}" \
   --arg kind "${KIND}" \
   --arg apply_global_profile "${APPLY_GLOBAL_PROFILE}" \
   --arg global_site_phase "${TARGET_GLOBAL_SITE_PHASE}" \
   --arg global_site_domain "${TARGET_GLOBAL_SITE_DOMAIN}" '{
-  commands: [
-    "set -euo pipefail",
-    ("KIND=" + ($kind | @sh)),
-    ("APPLY_GLOBAL_PROFILE=" + ($apply_global_profile | @sh)),
-    ("TARGET_GLOBAL_SITE_PHASE=" + ($global_site_phase | @sh)),
-    ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
-    ("STATUS_PAGE_B64=" + ($status_page_b64 | @sh)),
-    ("SYNC_STATUS_SITE_DOMAIN=" + ($status_site_domain | @sh)),
-    "CADDY_DIR=/var/lib/tokenkey/caddy",
-    "LIVE=$CADDY_DIR/Caddyfile",
-    "ENV_FILE=/var/lib/tokenkey/.env",
-    "TS=$(date +%Y%m%d-%H%M%S)",
-    "BACKUP=$CADDY_DIR/Caddyfile.before-$TS",
-    "ENV_BACKUP=$ENV_FILE.before-caddy-sync-$TS",
-    "echo \"=== sync Caddyfile (kind=$KIND backup=$BACKUP) ===\"",
-    "[ -f \"$LIVE\" ] || { echo \"::error::no live Caddyfile at $LIVE — is this a Stage0 host?\"; exit 1; }",
-    "[ -f \"$ENV_FILE\" ] || { echo \"::error::no environment file at $ENV_FILE — is this a Stage0 host?\"; exit 1; }",
-    "sudo cp -a \"$LIVE\" \"$BACKUP\"",
-    "sudo cp -a \"$ENV_FILE\" \"$ENV_BACKUP\"",
-    "rollback() { rc=$?; echo \"::warning::sync failed; restoring previous Caddyfile and environment\"; if [ -f \"$ENV_BACKUP\" ]; then sudo cp -a \"$ENV_BACKUP\" \"$ENV_FILE\"; fi; if [ -f \"$BACKUP\" ]; then sudo sh -c \"cat '\''$BACKUP'\'' > '\''$LIVE'\''\"; sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -5 || true; fi; exit $rc; }",
-    "trap rollback ERR",
-    "echo \"=== derive render vars (same set as boot UserData) ===\"",
-    "if [ \"$APPLY_GLOBAL_PROFILE\" = true ]; then",
-    "  ENV_NEW=$ENV_FILE.new-$TS",
-    "  sudo awk -v phase=\"$TARGET_GLOBAL_SITE_PHASE\" -v domain=\"$TARGET_GLOBAL_SITE_DOMAIN\" '\''BEGIN { phase_seen=0; domain_seen=0 } /^GLOBAL_SITE_PHASE=/ { print \"GLOBAL_SITE_PHASE=\" phase; phase_seen=1; next } /^GLOBAL_SITE_DOMAIN=/ { print \"GLOBAL_SITE_DOMAIN=\" domain; domain_seen=1; next } { print } END { if (!phase_seen) print \"GLOBAL_SITE_PHASE=\" phase; if (!domain_seen) print \"GLOBAL_SITE_DOMAIN=\" domain }'\'' \"$ENV_FILE\" | sudo tee \"$ENV_NEW\" >/dev/null",
-    "  sudo chown --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
-    "  sudo chmod --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
-    "  sudo mv \"$ENV_NEW\" \"$ENV_FILE\"",
-    "  echo \"global homepage phase persisted: $TARGET_GLOBAL_SITE_PHASE\"",
-    "fi",
-    "# API_DOMAIN / ACME_EMAIL are persisted in the host .env at boot.",
-    "set -a; . /var/lib/tokenkey/.env; set +a",
-    "[ -n \"${API_DOMAIN:-}\" ] || { echo \"::error::API_DOMAIN empty in /var/lib/tokenkey/.env\"; exit 1; }",
-    "# MAIN_GATEWAY_ALLOWED_CIDR (edge only) is NOT in .env — it lives only in",
-    "# boot UserData. Recover the live value from the remote_ip line in the",
-    "# current rendered Caddyfile so the allowlist survives the re-render verbatim.",
-    "MAIN_GATEWAY_ALLOWED_CIDR=\"$(sed -n '\''s/^[[:space:]]*remote_ip[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
-    "if [ \"$KIND\" = edge ] && [ -z \"$MAIN_GATEWAY_ALLOWED_CIDR\" ]; then echo \"::error::could not read remote_ip allowlist from live edge Caddyfile $LIVE\"; exit 1; fi",
-    "echo \"render context loaded for kind=$KIND\"",
-    ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
-    "if [ \"$KIND\" = prod ]; then",
-    ("  printf '\''%s'\'' \"" + $render_b64 + "\" | base64 -d > /tmp/render-prod-caddyfile.sh"),
-    "  chmod +x /tmp/render-prod-caddyfile.sh",
-    "  site_domain=\"${SITE_DOMAIN:-}\"",
-    "  if [ -z \"$site_domain\" ] && case \"$API_DOMAIN\" in api.*) true;; *) false;; esac; then site_domain=\"${API_DOMAIN#api.}\"; fi",
-    "  if [ \"$site_domain\" = \"$API_DOMAIN\" ]; then site_domain=; fi",
-    "  export SITE_DOMAIN=\"$site_domain\"",
-    "  # Force sync-time value after sourcing .env (empty = Better Stack / no Caddy status vhost).",
-    "  export STATUS_SITE_DOMAIN=\"${SYNC_STATUS_SITE_DOMAIN:-}\"",
-    "  bash /tmp/render-prod-caddyfile.sh \"$CADDY_DIR/Caddyfile.template\" \"$CADDY_DIR/Caddyfile.new\"",
-    "else",
-    "  envsubst '\''$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'\'' < \"$CADDY_DIR/Caddyfile.template\" > \"$CADDY_DIR/Caddyfile.new\"",
-    "fi",
-    "if [ \"$KIND\" = prod ] && [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"prod blue/green active upstream preserved: $UPSTREAM\" ;; *) echo \"::error::invalid active-color for prod blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
-    "echo === validate rendered config in throwaway caddy container ===",
-    "sudo docker run --rm -v \"$CADDY_DIR/Caddyfile.new\":/tmp/Caddyfile:ro caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile",
-    "if [ \"$KIND\" = prod ] && [ -n \"${STATUS_PAGE_B64:-}\" ]; then",
-    "  echo === write status page into existing Caddy data volume ===",
-    "  sudo mkdir -p \"$CADDY_DIR/data/status\"",
-    ("  printf '%s' \"" + $status_page_b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/data/status/index.html\" >/dev/null"),
-    "  echo \"status page bytes=$(wc -c < \"$CADDY_DIR/data/status/index.html\")\"",
-    "fi",
-    "echo \"=== apply IN PLACE (cat-truncate keeps inode the bind-mount maps) ===\"",
-    "sudo sh -c \"cat '\''$CADDY_DIR/Caddyfile.new'\'' > '\''$LIVE'\''\"",
-    "sudo rm -f \"$CADDY_DIR/Caddyfile.new\"",
-    "echo === hot reload caddy ===",
-    "sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile",
-    "echo === verify ===",
-    "sudo docker inspect tokenkey-caddy --format '\''caddy state={{.State.Status}} running={{.State.Running}}'\''",
-    "grep -nE '\''lb_try_duration|status\\.|root \\* /data/status'\'' \"$LIVE\" || echo \"(no status vhost — Better Stack owns status.tokenkey.dev)\"",
-    "trap - ERR",
-    "echo === sync done ==="
-  ]
+  commands: (
+    [
+      "set -euo pipefail",
+      ("KIND=" + ($kind | @sh)),
+      ("APPLY_GLOBAL_PROFILE=" + ($apply_global_profile | @sh)),
+      ("TARGET_GLOBAL_SITE_PHASE=" + ($global_site_phase | @sh)),
+      ("TARGET_GLOBAL_SITE_DOMAIN=" + ($global_site_domain | @sh)),
+      "CADDY_DIR=/var/lib/tokenkey/caddy",
+      "LIVE=$CADDY_DIR/Caddyfile",
+      "ENV_FILE=/var/lib/tokenkey/.env",
+      "TS=$(date +%Y%m%d-%H%M%S)",
+      "BACKUP=$CADDY_DIR/Caddyfile.before-$TS",
+      "ENV_BACKUP=$ENV_FILE.before-caddy-sync-$TS",
+      "echo \"=== sync Caddyfile (kind=$KIND backup=$BACKUP) ===\"",
+      "[ -f \"$LIVE\" ] || { echo \"::error::no live Caddyfile at $LIVE — is this a Stage0 host?\"; exit 1; }",
+      "[ -f \"$ENV_FILE\" ] || { echo \"::error::no environment file at $ENV_FILE — is this a Stage0 host?\"; exit 1; }",
+      "sudo cp -a \"$LIVE\" \"$BACKUP\"",
+      "sudo cp -a \"$ENV_FILE\" \"$ENV_BACKUP\"",
+      "rollback() { rc=$?; echo \"::warning::sync failed; restoring previous Caddyfile and environment\"; if [ -f \"$ENV_BACKUP\" ]; then sudo cp -a \"$ENV_BACKUP\" \"$ENV_FILE\"; fi; if [ -f \"$BACKUP\" ]; then sudo sh -c \"cat '\''$BACKUP'\'' > '\''$LIVE'\''\"; sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 | tail -5 || true; fi; exit $rc; }",
+      "trap rollback ERR",
+      "echo \"=== derive render vars (same set as boot UserData) ===\"",
+      "if [ \"$APPLY_GLOBAL_PROFILE\" = true ]; then",
+      "  ENV_NEW=$ENV_FILE.new-$TS",
+      "  sudo awk -v phase=\"$TARGET_GLOBAL_SITE_PHASE\" -v domain=\"$TARGET_GLOBAL_SITE_DOMAIN\" '\''BEGIN { phase_seen=0; domain_seen=0 } /^GLOBAL_SITE_PHASE=/ { print \"GLOBAL_SITE_PHASE=\" phase; phase_seen=1; next } /^GLOBAL_SITE_DOMAIN=/ { print \"GLOBAL_SITE_DOMAIN=\" domain; domain_seen=1; next } { print } END { if (!phase_seen) print \"GLOBAL_SITE_PHASE=\" phase; if (!domain_seen) print \"GLOBAL_SITE_DOMAIN=\" domain }'\'' \"$ENV_FILE\" | sudo tee \"$ENV_NEW\" >/dev/null",
+      "  sudo chown --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
+      "  sudo chmod --reference=\"$ENV_FILE\" \"$ENV_NEW\"",
+      "  sudo mv \"$ENV_NEW\" \"$ENV_FILE\"",
+      "  echo \"global homepage phase persisted: $TARGET_GLOBAL_SITE_PHASE\"",
+      "fi",
+      "# API_DOMAIN / ACME_EMAIL are persisted in the host .env at boot.",
+      "set -a; . /var/lib/tokenkey/.env; set +a",
+      "[ -n \"${API_DOMAIN:-}\" ] || { echo \"::error::API_DOMAIN empty in /var/lib/tokenkey/.env\"; exit 1; }",
+      "# MAIN_GATEWAY_ALLOWED_CIDR (edge only) is NOT in .env — it lives only in",
+      "# boot UserData. Recover the live value from the remote_ip line in the",
+      "# current rendered Caddyfile so the allowlist survives the re-render verbatim.",
+      "MAIN_GATEWAY_ALLOWED_CIDR=\"$(sed -n '\''s/^[[:space:]]*remote_ip[[:space:]][[:space:]]*\\(.*\\)$/\\1/p'\'' \"$LIVE\" | head -1)\"",
+      "if [ \"$KIND\" = edge ] && [ -z \"$MAIN_GATEWAY_ALLOWED_CIDR\" ]; then echo \"::error::could not read remote_ip allowlist from live edge Caddyfile $LIVE\"; exit 1; fi",
+      "echo \"render context loaded for kind=$KIND\"",
+      ("printf '\''%s'\'' \"" + $b64 + "\" | base64 -d | sudo tee \"$CADDY_DIR/Caddyfile.template\" >/dev/null"),
+      "if [ \"$KIND\" = prod ]; then",
+      ("  printf '\''%s'\'' \"" + $render_b64 + "\" | base64 -d > /tmp/render-prod-caddyfile.sh"),
+      "  chmod +x /tmp/render-prod-caddyfile.sh",
+      "  site_domain=\"${SITE_DOMAIN:-}\"",
+      "  if [ -z \"$site_domain\" ] && case \"$API_DOMAIN\" in api.*) true;; *) false;; esac; then site_domain=\"${API_DOMAIN#api.}\"; fi",
+      "  if [ \"$site_domain\" = \"$API_DOMAIN\" ]; then site_domain=; fi",
+      "  export SITE_DOMAIN=\"$site_domain\"",
+      "  bash /tmp/render-prod-caddyfile.sh \"$CADDY_DIR/Caddyfile.template\" \"$CADDY_DIR/Caddyfile.new\"",
+      "else",
+      "  envsubst '\''$API_DOMAIN $ACME_EMAIL $MAIN_GATEWAY_ALLOWED_CIDR'\'' < \"$CADDY_DIR/Caddyfile.template\" > \"$CADDY_DIR/Caddyfile.new\"",
+      "fi",
+      "if [ \"$KIND\" = prod ] && [ -r /var/lib/tokenkey/active-color ]; then ACTIVE_COLOR=\"$(sed -n '\''1p'\'' /var/lib/tokenkey/active-color | tr -d '\''[:space:]'\'')\"; case \"$ACTIVE_COLOR\" in blue|green) UPSTREAM=\"tokenkey-$ACTIVE_COLOR:8080\"; sudo awk -v upstream=\"$UPSTREAM\" '\''/^[[:space:]]*reverse_proxy[[:space:]]+/ && $0 ~ /\\{[[:space:]]*$/ { count += 1; if (count == 1) { match($0, /[^[:space:]]/); indent = RSTART > 1 ? substr($0, 1, RSTART - 1) : \"\"; print indent \"reverse_proxy \" upstream \" {\" } else { print }; next } { print } END { if (count != 1) exit 7 }'\'' \"$CADDY_DIR/Caddyfile.new\" | sudo tee \"$CADDY_DIR/Caddyfile.rewritten\" >/dev/null; sudo mv \"$CADDY_DIR/Caddyfile.rewritten\" \"$CADDY_DIR/Caddyfile.new\"; echo \"prod blue/green active upstream preserved: $UPSTREAM\" ;; *) echo \"::error::invalid active-color for prod blue/green Caddy sync: ${ACTIVE_COLOR:-<empty>}\"; exit 1 ;; esac; fi",
+      "echo === validate rendered config in throwaway caddy container ===",
+      "sudo docker run --rm -v \"$CADDY_DIR/Caddyfile.new\":/tmp/Caddyfile:ro caddy:2-alpine caddy validate --config /tmp/Caddyfile --adapter caddyfile"
+    ]
+    + (
+      if ($legal_chunks | length) > 0 then
+        [
+          "echo === write legal pages into existing Caddy data volume ===",
+          "sudo mkdir -p \"$CADDY_DIR/data/legal\"",
+          "rm -f /tmp/tokenkey-legal.tgz.b64"
+        ]
+        + ($legal_chunks | map("printf %s " + (. | @sh) + " >> /tmp/tokenkey-legal.tgz.b64"))
+        + [
+          "base64 -d /tmp/tokenkey-legal.tgz.b64 | sudo tar -xzf - -C \"$CADDY_DIR/data/legal\"",
+          "rm -f /tmp/tokenkey-legal.tgz.b64",
+          "echo \"legal files:\" && ls -1 \"$CADDY_DIR/data/legal\""
+        ]
+      else []
+      end
+    )
+    + [
+      "echo \"=== apply IN PLACE (cat-truncate keeps inode the bind-mount maps) ===\"",
+      "sudo sh -c \"cat '\''$CADDY_DIR/Caddyfile.new'\'' > '\''$LIVE'\''\"",
+      "sudo rm -f \"$CADDY_DIR/Caddyfile.new\"",
+      "echo === hot reload caddy ===",
+      "sudo docker exec tokenkey-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile",
+      "echo === verify ===",
+      "sudo docker inspect tokenkey-caddy --format '\''caddy state={{.State.Status}} running={{.State.Running}}'\''",
+      "grep -nE '\''lb_try_duration|handle /privacy|root \\* /data/legal'\'' \"$LIVE\" || true",
+      "trap - ERR",
+      "echo === sync done ==="
+    ]
+  )
 }' > "${params_file}"
 
 eff_instance_id="${INSTANCE_ID}"

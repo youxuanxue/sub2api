@@ -21,7 +21,6 @@ def _render(
     acme_email: str = "ops@example.com",
     global_site_domain: str = "",
     global_site_phase: str = "disabled",
-    status_site_domain: str | None = None,
 ) -> str:
     env = {
         **os.environ,
@@ -31,12 +30,6 @@ def _render(
         "GLOBAL_SITE_DOMAIN": global_site_domain,
         "GLOBAL_SITE_PHASE": global_site_phase,
     }
-    # None / "" → status vhost disabled (Better Stack owns public status).
-    # Non-empty → emit that hostname as a legacy self-hosted status vhost.
-    if status_site_domain is None:
-        env.pop("STATUS_SITE_DOMAIN", None)
-    else:
-        env["STATUS_SITE_DOMAIN"] = status_site_domain
     with tempfile.NamedTemporaryFile("w+", suffix=".caddy", delete=False) as tmp:
         out_path = pathlib.Path(tmp.name)
     try:
@@ -72,6 +65,16 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("BEGIN_APEX_VHOST", rendered)
         self.assertNotIn("BEGIN_API_FULL_PROXY", rendered)
 
+    def test_apex_serves_public_legal_pages_before_reverse_proxy(self) -> None:
+        rendered = _render(api_domain="api.tokenkey.dev")
+        apex = rendered[rendered.index("tokenkey.dev {") : rendered.index("api.tokenkey.dev {")]
+        self.assertIn("handle /privacy", apex)
+        self.assertIn("handle /terms", apex)
+        self.assertIn("handle_path /legal-assets/*", apex)
+        self.assertIn("root * /data/legal", apex)
+        self.assertLess(apex.index("handle /privacy"), apex.index("import tokenkey_reverse_proxy"))
+        self.assertEqual(rendered.count("reverse_proxy tokenkey:8080"), 1)
+
     def test_localhost_skips_apex_and_uses_full_api_proxy(self) -> None:
         rendered = _render(api_domain="localhost")
         self.assertIn("localhost {", rendered)
@@ -80,6 +83,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("@machine {", rendered)
         self.assertNotIn("redir https://", rendered)
         self.assertNotIn("BEGIN_APEX_VHOST", rendered)
+        self.assertNotIn("handle /privacy", rendered)
 
     def test_edge_api_domain_skips_apex_split(self) -> None:
         rendered = _render(api_domain="api-us4.tokenkey.dev")
@@ -93,6 +97,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertIn("custom.example {", rendered)
         self.assertIn("redir https://custom.example{uri} permanent", rendered)
         self.assertIn("api.custom.example {", rendered)
+        self.assertIn("handle /privacy", rendered)
 
     def test_global_homepage_is_disabled_by_default(self) -> None:
         rendered = _render(api_domain="api.tokenkey.dev")
@@ -170,7 +175,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
             **os.environ,
             "API_DOMAIN": "localhost",
             "ACME_EMAIL": "ops@example.com",
-            "GLOBAL_SITE_DOMAIN": "global.tokenkey.dev",
+            "GLOBAL_SITE_DOMAIN": "global.example",
             "GLOBAL_SITE_PHASE": "candidate",
         }
         with tempfile.NamedTemporaryFile("w+", suffix=".caddy") as tmp:
@@ -185,37 +190,11 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("SITE_DOMAIN must resolve", proc.stderr)
 
-    def test_status_vhost_is_disabled_by_default(self) -> None:
+    def test_no_caddy_status_vhost(self) -> None:
         rendered = _render(api_domain="api.tokenkey.dev")
-
         self.assertNotIn("status.tokenkey.dev {", rendered)
         self.assertNotIn("root * /data/status", rendered)
-        self.assertNotIn("BEGIN_STATUS_VHOST", rendered)
-
-    def test_status_vhost_can_be_disabled_explicitly(self) -> None:
-        rendered = _render(api_domain="api.tokenkey.dev", status_site_domain="")
-
-        self.assertNotIn("status.tokenkey.dev {", rendered)
-        self.assertNotIn("root * /data/status", rendered)
-        self.assertNotIn("BEGIN_STATUS_VHOST", rendered)
-
-    def test_status_vhost_accepts_an_explicit_hostname(self) -> None:
-        rendered = _render(
-            api_domain="api.tokenkey.dev",
-            status_site_domain="status.custom.example",
-            site_domain="tokenkey.dev",
-        )
-
-        self.assertIn("status.custom.example {", rendered)
-        self.assertNotIn("status.tokenkey.dev {", rendered)
-        self.assertIn("root * /data/status", rendered)
-        self.assertEqual(rendered.count("reverse_proxy tokenkey:8080"), 1)
-
-    def test_localhost_does_not_emit_status_vhost(self) -> None:
-        rendered = _render(api_domain="localhost")
-
-        self.assertNotIn("status.", rendered)
-        self.assertNotIn("root * /data/status", rendered)
+        self.assertNotIn("STATUS_SITE_DOMAIN", rendered)
 
 
 if __name__ == "__main__":

@@ -100,6 +100,23 @@
 ${SITE_DOMAIN} {
 	import tokenkey_tls
 	import tokenkey_encode_static
+
+	# Public /privacy /terms (OR compliance). Host files: caddy/data/legal/
+	handle /privacy {
+		root * /data/legal
+		rewrite * /privacy.html
+		file_server
+	}
+	handle /terms {
+		root * /data/legal
+		rewrite * /terms.html
+		file_server
+	}
+	handle_path /legal-assets/* {
+		root * /data/legal
+		file_server
+	}
+
 	import tokenkey_reverse_proxy
 	import tokenkey_limits_log
 }
@@ -166,29 +183,6 @@ ${GLOBAL_SITE_DOMAIN} {
 	import tokenkey_limits_log
 }
 # END_GLOBAL_VHOST
-
-# BEGIN_STATUS_VHOST
-# Legacy optional self-hosted status page. Public status.tokenkey.dev is Better Stack
-# (see ops/stage0/better-stack-status-page.md). Only emitted when STATUS_SITE_DOMAIN is set.
-# Static HTML under Caddy data volume: host /var/lib/tokenkey/caddy/data/status/index.html
-${STATUS_SITE_DOMAIN} {
-	import tokenkey_tls
-
-	handle /health* {
-		import tokenkey_reverse_proxy
-	}
-
-	handle {
-		header Cache-Control "public, max-age=60"
-		header X-Robots-Tag "noindex"
-		root * /data/status
-		rewrite * /index.html
-		file_server
-	}
-
-	import tokenkey_limits_log
-}
-# END_STATUS_VHOST
 
 ${API_DOMAIN} {
 	import tokenkey_tls
