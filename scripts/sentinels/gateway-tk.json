@@ -1484,6 +1484,28 @@
       "rationale": "GatewayService.isModelSupportedByAccount must route tokensea anthropic #93 through Account.IsModelSupported before the claude-* namespace guard. Without this early return, gpt/qwen public SSOT IDs that now pass Anthropic ingress still cannot select #93. Pin the short-circuit so an upstream merge cannot restore the 400-before-selection leak."
     },
     {
+      "path": "backend/internal/handler/gateway_handler_tk_tokensea_plan_test.go",
+      "must_contain": [
+        "TestTokenseaAnthropicMessagesUsesPlannedChat",
+        "h.executeMessagesSelectedProtocol(",
+        "require.Equal(t, protocolrouter.ProtocolChatCompletions, plan.TargetProtocol())",
+        "require.Equal(t, plan.Endpoint(), upstream.request.URL.String())",
+        "require.Equal(t, 3, result.Usage.InputTokens)"
+      ],
+      "rationale": "A mapped GPT model on Anthropic tokensea must remain eligible when Plan can convert Messages to a supported Chat endpoint. Protect real handler execution, planned credentials/endpoint/model and usage, instead of encoding platform-based denial."
+    },
+    {
+      "path": "backend/internal/service/candidate_eligibility_tk_tokensea_test.go",
+      "must_contain": [
+        "TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances",
+        "gateway.gatewayCandidates(",
+        "resolver.Resolve(",
+        "ErrUniversalCapacityUnavailable",
+        "ErrUniversalNoEntitledGroup"
+      ],
+      "rationale": "Universal selection and direct scheduler candidates must agree with Plan for Tokensea GPT requests; disabled capacity stays distinct from absence of any legal protocol route."
+    },
+    {
       "path": "backend/internal/service/account.go",
       "must_contain": [
         "a.IsAnthropicTokenseaRelay() && !tokenseaRelayAccountSupportsRequestedModel(requestedModel)"
