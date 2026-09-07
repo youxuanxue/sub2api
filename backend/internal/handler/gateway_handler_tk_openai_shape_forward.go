@@ -9,9 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// tkForwardChatCompletionsByOpenAIShape dispatches chat/completions through the
-// ResolveGovernedOpenAIShapeMode SSOT. openAIDefault covers the residual arm
-// (NonGoverned → gatewayService; governed identity → openAIGatewayService).
+// A bound Plan already selected the converter. Platform/model compatibility
+// dispatch is only a fallback for requests outside protocol routing.
 func (h *GatewayHandler) tkForwardChatCompletionsByOpenAIShape(
 	executionCtx context.Context,
 	c *gin.Context,
@@ -21,6 +20,9 @@ func (h *GatewayHandler) tkForwardChatCompletionsByOpenAIShape(
 	parsedReq *service.ParsedRequest,
 	openAIDefault func() (*service.ForwardResult, error),
 ) (*service.ForwardResult, error) {
+	if _, planned := service.ProtocolExecutionPlan(executionCtx); planned {
+		return openAIDefault()
+	}
 	switch service.ResolveGovernedOpenAIShapeMode(account, reqModel) {
 	case service.GovernedOpenAIShapeGeminiCompat:
 		if h.geminiCompatService == nil {
@@ -40,8 +42,7 @@ func (h *GatewayHandler) tkForwardChatCompletionsByOpenAIShape(
 	}
 }
 
-// tkForwardResponsesByOpenAIShape dispatches /v1/responses through the same
-// ResolveGovernedOpenAIShapeMode SSOT as chat/completions.
+// Responses shares the same Plan-first boundary as Chat Completions.
 func (h *GatewayHandler) tkForwardResponsesByOpenAIShape(
 	executionCtx context.Context,
 	c *gin.Context,
@@ -51,6 +52,9 @@ func (h *GatewayHandler) tkForwardResponsesByOpenAIShape(
 	parsedReq *service.ParsedRequest,
 	openAIDefault func() (*service.ForwardResult, error),
 ) (*service.ForwardResult, error) {
+	if _, planned := service.ProtocolExecutionPlan(executionCtx); planned {
+		return openAIDefault()
+	}
 	switch service.ResolveGovernedOpenAIShapeMode(account, reqModel) {
 	case service.GovernedOpenAIShapeGeminiCompat:
 		if h.geminiCompatService == nil {

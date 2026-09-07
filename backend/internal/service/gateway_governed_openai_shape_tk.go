@@ -1,14 +1,7 @@
 package service
 
-// GovernedOpenAIShapeMode selects which forwarder OpenAI-shape chat/responses
-// adapters should use. Protocol routing marks Antigravity edge-relay stubs as
-// governed, but their Gemini chat traffic must not enter OpenAIGatewayService
-// (GetOpenAIProtocolAPIKey rejects platform=antigravity).
-//
-// This is the single owner for Gemini-compat / Antigravity apikey relay /
-// Antigravity OAuth Cloud Code branching. NonGoverned and governed identity
-// adapters both call ResolveGovernedOpenAIShapeMode; only the residual
-// OpenAI/default arm differs by path (gatewayService vs openAIGatewayService).
+// GovernedOpenAIShapeMode preserves platform compatibility dispatch only when
+// no protocol Plan is bound. Governed execution uses the Plan's adapter instead.
 type GovernedOpenAIShapeMode int
 
 const (
@@ -25,8 +18,8 @@ const (
 	GovernedOpenAIShapeAntigravityOAuthCloudCode
 )
 
-// ResolveGovernedOpenAIShapeMode is the SSOT for OpenAI-shape chat/responses
-// special-case branching shared by NonGoverned and governed identity adapters.
+// ResolveGovernedOpenAIShapeMode selects the legacy chat/responses forwarder
+// for requests outside protocol routing.
 func ResolveGovernedOpenAIShapeMode(account *Account, model string) GovernedOpenAIShapeMode {
 	if account == nil {
 		return GovernedOpenAIShapeOpenAI

@@ -169,11 +169,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	)
 
 	// 5. Build and send upstream request via the shared CC pipeline
-	targetURL, err := s.rawChatCompletionsURL(account)
-	if err != nil {
-		return nil, err
+	targetURL := protocolExecutionEndpoint(ctx, "")
+	if targetURL == "" {
+		targetURL, err = s.rawChatCompletionsURL(account)
+		if err != nil {
+			return nil, err
+		}
 	}
-	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 	SetActualOpenAIUpstreamEndpoint(c, grokChatRawEndpoint)
 	customUA := account.GetOpenAIUserAgent()
 	if customUA == "" && account.IsGrokOAuth() {
