@@ -113,9 +113,19 @@ func TestIsModelSupportedByAccount_AnthropicTokenseaUsesMapping(t *testing.T) {
 	require.True(t, account.IsAnthropicTokenseaRelay())
 
 	for _, id := range tokenseaRelayCorePublicFloorIDs() {
-		require.True(t, svc.isModelSupportedByAccount(account, id), id)
+		if tkIsForwardableAnthropicModelName(id) {
+			require.True(t, svc.isModelSupportedByAccount(account, id), id)
+			continue
+		}
+		// Shared 92/93 floor still lists GPT ids on account.IsModelSupported, but
+		// scheduler admission must reject them so Claude Code + luna does not bind
+		// anthropic tokensea (93) and 502 through GatewayService Messages.
+		require.True(t, account.IsModelSupported(id), id)
+		require.False(t, svc.isModelSupportedByAccount(account, id), id)
 	}
 	require.True(t, svc.isModelSupportedByAccount(account, "claude-haiku-4-5"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gpt-5.6-luna"),
+		"regression: anthropic tokensea must not admit luna after 1.8.204")
 	require.False(t, svc.isModelSupportedByAccount(account, "gpt-not-in-tokensea-ssot"))
 	require.False(t, svc.isModelSupportedByAccount(account, "gpt"))
 }
@@ -135,7 +145,7 @@ func TestIsModelSupportedByAccount_AnthropicTokenseaEmptyMappingUsesSSOTGate(t *
 
 	for _, id := range tokenseaRelayNonClaudePublicIDs(t) {
 		require.True(t, account.IsModelSupported(id), id)
-		require.True(t, svc.isModelSupportedByAccount(account, id), id)
+		require.False(t, svc.isModelSupportedByAccount(account, id), id)
 	}
 	require.True(t, svc.isModelSupportedByAccount(account, "claude-haiku-4-5"))
 	require.False(t, account.IsModelSupported("gpt-not-in-tokensea-ssot"))

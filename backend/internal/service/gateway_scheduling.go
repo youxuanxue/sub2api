@@ -2210,9 +2210,14 @@ func accountAdmitsRequestedModel(account *Account, requestedModel string, thinki
 	if isCloudwiseRelayAccount(account) {
 		return account.IsModelSupported(requestedModel)
 	}
-	if account.IsAnthropicTokenseaRelay() {
-		return account.IsModelSupported(requestedModel)
-	}
+	// Anthropic-platform tokensea (prod account 93) only executes through
+	// GatewayService Anthropic Messages. Shared 92/93 floor IDs still include
+	// gpt-5.6-luna in IsModelSupported / mapping SSOT, but admitting them here
+	// (1.8.204 candidate-eligibility early-return) made Claude Code
+	// `--model gpt-5.6-luna` bind group claude → 93 → 502 Upstream request
+	// failed. GPT floor traffic belongs on OpenAI-platform tokensea (92) /
+	// openai messages-dispatch accounts; fall through to the Claude namespace
+	// guard below so non-Claude request/mapped names stay ineligible.
 	// OpenAI tokensea leftover model_mapping is a passthrough whitelist in the
 	// block below. Floor IDs such as gpt-5.6-luna must still admit even when
 	// that leftover snapshot omitted them — otherwise Plan returns

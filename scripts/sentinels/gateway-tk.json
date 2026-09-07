@@ -1478,10 +1478,20 @@
     {
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
-        "if account.IsAnthropicTokenseaRelay() {",
-        "return account.IsModelSupported(requestedModel)"
+        "GPT floor traffic belongs on OpenAI-platform tokensea (92)",
+        "fall through to the Claude namespace",
+        "if account.Platform == PlatformAnthropic && account.Type != AccountTypeServiceAccount {",
+        "!tkIsForwardableAnthropicModelName(requestedModel) && !tkIsForwardableAnthropicModelName(mapped)"
       ],
-      "rationale": "GatewayService.isModelSupportedByAccount must route tokensea anthropic #93 through Account.IsModelSupported before the claude-* namespace guard. Without this early return, gpt/qwen public SSOT IDs that now pass Anthropic ingress still cannot select #93. Pin the short-circuit so an upstream merge cannot restore the 400-before-selection leak."
+      "rationale": "1.8.204 candidate-eligibility early-return admitted gpt-5.6-luna onto anthropic tokensea #93, binding Claude Code /v1/messages to group claude and 502ing through GatewayService Anthropic Messages. Scheduler admission must fall through to the Claude namespace guard so GPT floor stays on OpenAI-platform tokensea / openai messages-dispatch. Pin the comment+guard so an upstream merge cannot restore the #93 GPT short-circuit."
+    },
+    {
+      "path": "backend/internal/service/gateway_tokensea_anthropic_relay_test.go",
+      "must_contain": [
+        "regression: anthropic tokensea must not admit luna after 1.8.204",
+        "require.False(t, svc.isModelSupportedByAccount(account, \"gpt-5.6-luna\")"
+      ],
+      "rationale": "Behavior regression for the 1.8.204 #93 GPT admission leak: isModelSupportedByAccount must reject gpt-5.6-luna on anthropic tokensea while Account.IsModelSupported may still list shared floor IDs."
     },
     {
       "path": "backend/internal/service/account.go",
