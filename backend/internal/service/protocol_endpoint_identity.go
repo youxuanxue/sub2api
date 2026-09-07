@@ -175,33 +175,20 @@ func BuildProtocolEndpointIdentity(account *Account) (ProtocolEndpointIdentity, 
 			return ProtocolEndpointIdentity{}, true, fmt.Errorf("unsupported official endpoint profile %q", officialProfile)
 		}
 	} else if geminiProfile := protocolGeminiEndpointProfile(account); geminiProfile.Valid() {
+		// Edge stubs also expose OpenAI-shape text hops; keep those endpoints in
+		// identity alongside native Gemini so CapabilityKey / probe / Plan stay aligned.
+		if geminiProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+			if err := fillCustomTextProtocolEndpoints(account, &identity, baseURL, protocolBaseURLs); err != nil {
+				return ProtocolEndpointIdentity{}, true, err
+			}
+		}
 		endpoint, err := canonicalGeminiIdentityEndpoint(account, geminiProfile)
 		if err != nil {
 			return ProtocolEndpointIdentity{}, true, err
 		}
 		identity.ProtocolEndpoints[protocolrouter.ProtocolGeminiGenerateContent] = endpoint
-	} else {
-		for _, protocol := range []protocolrouter.Protocol{
-			protocolrouter.ProtocolMessages,
-			protocolrouter.ProtocolChatCompletions,
-			protocolrouter.ProtocolResponses,
-		} {
-			configured := strings.TrimSpace(protocolBaseURLs[protocol])
-			if configured == "" {
-				configured = strings.TrimSpace(baseURL)
-			}
-			if configured == "" {
-				continue
-			}
-			endpointURL, err := normalizeProtocolEndpointURL(configured, protocol)
-			if err != nil {
-				return ProtocolEndpointIdentity{}, true, fmt.Errorf("normalize %s endpoint identity: %w", protocol, err)
-			}
-			identity.ProtocolEndpoints[protocol] = ProtocolEndpoint{
-				URL:        endpointURL,
-				APIVersion: protocolAPIVersion(account, protocol),
-			}
-		}
+	} else if err := fillCustomTextProtocolEndpoints(account, &identity, baseURL, protocolBaseURLs); err != nil {
+		return ProtocolEndpointIdentity{}, true, err
 	}
 	if len(identity.ProtocolEndpoints) == 0 {
 		return ProtocolEndpointIdentity{}, true, errors.New("governed account has no explicit protocol endpoint identity")
@@ -210,6 +197,42 @@ func BuildProtocolEndpointIdentity(account *Account) (ProtocolEndpointIdentity, 
 		return ProtocolEndpointIdentity{}, true, err
 	}
 	return identity, true, nil
+}
+
+func fillCustomTextProtocolEndpoints(
+	account *Account,
+	identity *ProtocolEndpointIdentity,
+	baseURL string,
+	protocolBaseURLs map[protocolrouter.Protocol]string,
+) error {
+	if identity == nil {
+		return errors.New("protocol endpoint identity is required")
+	}
+	if identity.ProtocolEndpoints == nil {
+		identity.ProtocolEndpoints = make(map[protocolrouter.Protocol]ProtocolEndpoint)
+	}
+	for _, protocol := range []protocolrouter.Protocol{
+		protocolrouter.ProtocolMessages,
+		protocolrouter.ProtocolChatCompletions,
+		protocolrouter.ProtocolResponses,
+	} {
+		configured := strings.TrimSpace(protocolBaseURLs[protocol])
+		if configured == "" {
+			configured = strings.TrimSpace(baseURL)
+		}
+		if configured == "" {
+			continue
+		}
+		endpointURL, err := normalizeProtocolEndpointURL(configured, protocol)
+		if err != nil {
+			return fmt.Errorf("normalize %s endpoint identity: %w", protocol, err)
+		}
+		identity.ProtocolEndpoints[protocol] = ProtocolEndpoint{
+			URL:        endpointURL,
+			APIVersion: protocolAPIVersion(account, protocol),
+		}
+	}
+	return nil
 }
 
 func protocolEndpointProfile(account *Account) string {
@@ -391,12 +414,14 @@ func canonicalGeminiIdentityEndpoint(account *Account, profile protocolrouter.Ge
 		base.Path = path.Clean(strings.TrimSuffix(base.Path, "/") + "/v1internal:streamGenerateContent")
 		return ProtocolEndpoint{URL: base.String()}, nil
 	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
-		base, err := normalizeEndpointIdentityURL(account.GetGeminiBaseURL(""))
-		if err != nil {
+		baseURL := strings.TrimRight(account.GetGeminiBaseURL(""), "/")
+		if _, err := normalizeEndpointIdentityURL(baseURL); err != nil {
 			return ProtocolEndpoint{}, err
 		}
-		base.Path = path.Clean(strings.TrimSuffix(base.Path, "/") + "/v1beta/models/{model}:{action}")
-		return ProtocolEndpoint{URL: base.String(), APIVersion: "v1beta"}, nil
+		return ProtocolEndpoint{
+			URL:        baseURL + "/v1beta/models/{model}:{action}",
+			APIVersion: "v1beta",
+		}, nil
 	case protocolrouter.GeminiEndpointVertexServiceAccount:
 		projectID := strings.TrimSpace(account.VertexProjectID())
 		if projectID == "" {
