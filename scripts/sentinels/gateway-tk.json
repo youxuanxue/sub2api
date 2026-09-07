@@ -3,6 +3,16 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/gateway_request.go",
+      "must_contain": [
+        "parsed.ThinkingEnabled = gatewayRequestThinkingEnabled(bodyBytes, protocol)",
+        "func gatewayRequestThinkingEnabled(",
+        "OpenAIReasoningEnablesThinking(ExtractChatCompletionsReasoningEffortFromBody(body), body)",
+        "OpenAIReasoningEnablesThinking(ExtractResponsesReasoningEffortFromBody(body), body)"
+      ],
+      "rationale": "Thinking-dependent model admission and readiness share the execution parser's semantic owner before Universal billing binds a group."
+    },
+    {
       "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "resolver.SetCandidateEvaluator(router,",
@@ -78,6 +88,7 @@
       "path": "backend/internal/service/universal_candidate_eligibility.go",
       "must_contain": [
         "protocolrouter.ParseCanonicalRequest",
+        "gatewayRequestThinkingEnabled(body, string(inbound))",
         "group.IsSubscriptionType() != best.group.IsSubscriptionType()",
         "ErrUniversalCapacityUnavailable",
         "!state.Supported || !state.Available"
@@ -113,6 +124,7 @@
       "path": "backend/internal/service/candidate_eligibility_test.go",
       "must_contain": [
         "TestCandidateEligibilityGoogleBackends",
+        "TestCandidateEligibilityThinkingModelReadiness",
         "TestCandidateEligibilityMixedPoolUsesSchedulerMembership",
         "TestCandidateEligibilityNativeAndConverterEqual",
         "TestCandidateEligibilitySaturationPreservesBillingTier",

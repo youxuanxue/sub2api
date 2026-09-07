@@ -197,8 +197,7 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 
 	parsed.MetadataUserID = gjson.Get(jsonStr, "metadata.user_id").String()
 
-	thinkingType := gjson.Get(jsonStr, "thinking.type").String()
-	parsed.ThinkingEnabled = thinkingType == "enabled" || thinkingType == "adaptive"
+	parsed.ThinkingEnabled = gatewayRequestThinkingEnabled(bodyBytes, protocol)
 
 	parsed.OutputEffort = strings.TrimSpace(gjson.Get(jsonStr, "output_config.effort").String())
 	if protocol == domain.PlatformAnthropic {
@@ -1401,6 +1400,21 @@ func OpenAIReasoningEnablesThinking(effort *string, body []byte) bool {
 		return *effort != "low"
 	}
 	return OpenAIBodyHasThinkingEnabled(body)
+}
+
+// gatewayRequestThinkingEnabled is shared by request parsing and pre-billing
+// candidate evaluation because thinking changes model admission and cooldown scope.
+func gatewayRequestThinkingEnabled(body []byte, protocol string) bool {
+	thinkingType := gjson.GetBytes(body, "thinking.type").String()
+	enabled := thinkingType == "enabled" || thinkingType == "adaptive"
+	switch protocol {
+	case "chat_completions":
+		return enabled || OpenAIReasoningEnablesThinking(ExtractChatCompletionsReasoningEffortFromBody(body), body)
+	case "responses":
+		return enabled || OpenAIReasoningEnablesThinking(ExtractResponsesReasoningEffortFromBody(body), body)
+	default:
+		return enabled
+	}
 }
 
 // ApplyThinkingEnabledFallback 补丁已解析出的 effort，仅在 effort 为 nil 且

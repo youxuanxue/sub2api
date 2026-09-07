@@ -175,10 +175,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	if parsedReq == nil {
 		parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
 	}
-	reasoningEffort := service.ExtractResponsesReasoningEffortFromBody(body)
-	if service.OpenAIReasoningEnablesThinking(reasoningEffort, body) {
-		parsedReq.ThinkingEnabled = true
-	}
 	requestCtx = service.WithThinkingEnabled(
 		requestCtx, parsedReq.ThinkingEnabled, h.metadataBridgeEnabled(),
 	)

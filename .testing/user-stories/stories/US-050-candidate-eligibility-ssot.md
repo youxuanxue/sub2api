@@ -28,10 +28,12 @@
 - Antigravity saturation affects only its resolved model; expiry restores base priority.
 - Healthy balance capacity cannot displace a usable subscription due to saturation alone.
 - Request parsing precedes billing-group mutation and restores compressed bytes exactly.
+- Thinking-dependent model admission, cooldown and saturation use the same request state before group choice and during execution.
 
 ## Linked Tests
 
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityGoogleBackends`
+- `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityThinkingModelReadiness`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityCapacityIsNotEntitlement`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityUnknownCapabilityIsNotEntitlement`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityNativeAndConverterEqual`

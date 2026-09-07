@@ -39,6 +39,8 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 	switch shape {
 	case ShapeAnthropicMessages:
 		inbound = protocolrouter.ProtocolMessages
+	case ShapeAnthropicCountTokens:
+		return WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(body, string(protocolrouter.ProtocolMessages)), false)
 	case ShapeOpenAIChat:
 		inbound = protocolrouter.ProtocolChatCompletions
 		if strings.Contains(path, "/responses") {
@@ -69,6 +71,9 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 	request, err := protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
 	if err != nil {
 		return ctx
+	}
+	if shape != ShapeGemini {
+		ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(body, string(inbound)), false)
 	}
 	return WithProtocolRouting(ctx, router, request)
 }

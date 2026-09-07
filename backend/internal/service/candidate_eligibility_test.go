@@ -218,6 +218,61 @@ func TestCandidateEligibilityStateReadFailureKeepsBaseOrder(t *testing.T) {
 	require.False(t, candidateSaturated(counts[1]))
 }
 
+func TestCandidateEligibilityThinkingModelReadiness(t *testing.T) {
+	for _, test := range []struct {
+		name, body, path string
+		shape            UniversalShape
+	}{
+		{"messages", `{"model":"claude-sonnet-4-5","thinking":{"type":"enabled"},"messages":[{"role":"user","content":"hi"}]}`, "/v1/messages", ShapeAnthropicMessages},
+		{"count_tokens", `{"model":"claude-sonnet-4-5","thinking":{"type":"enabled"},"messages":[{"role":"user","content":"hi"}]}`, "/v1/messages/count_tokens", ShapeAnthropicCountTokens},
+		{"chat", `{"model":"claude-sonnet-4-5","reasoning_effort":"high","messages":[{"role":"user","content":"hi"}]}`, "/v1/chat/completions", ShapeOpenAIChat},
+		{"responses", `{"model":"claude-sonnet-4-5","reasoning":{"effort":"high"},"input":"hi"}`, "/v1/responses", ShapeOpenAIChat},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resolver, gateway, accounts, _ := candidateGoogleFixture(t)
+			accounts = []Account{accounts[1], accounts[1]}
+			for i := range accounts {
+				accounts[i].ID = int64(101 + i)
+				accounts[i].GroupIDs = []int64{int64(i + 1)}
+				accounts[i].Credentials = map[string]any{
+					"base_url": "https://api-us4.tokenkey.dev", "api_key": "test-only",
+					"model_mapping": map[string]any{"claude-sonnet-4-5": "claude-sonnet-4-5", "claude-sonnet-4-5-thinking": "claude-sonnet-4-5-thinking"},
+				}
+				attachTestProtocolCapability(&accounts[i], protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
+			}
+			accounts[0].Extra = map[string]any{"model_rate_limits": map[string]any{"claude-sonnet-4-5-thinking": map[string]any{
+				"rate_limit_reset_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+			}}}
+			resolver.lister = &stubSpanLister{groups: []Group{grp(1, PlatformAntigravity, 1, false), grp(2, PlatformAntigravity, 2, false)}}
+			wireCandidateTestResolver(resolver, gateway, accounts)
+			ctx := resolver.WithRequest(context.Background(), test.shape, test.path, "claude-sonnet-4-5", []byte(test.body))
+			_, _, planErr := protocolPlanForAccount(ctx, &accounts[1], "claude-sonnet-4-5")
+			require.NoError(t, planErr)
+			group, err := resolver.Resolve(ctx, universalKey(1), test.shape, "claude-sonnet-4-5", "")
+			require.NoError(t, err)
+			require.Equal(t, int64(2), group.ID, "the thinking model cooldown must apply before billing binds a group")
+
+			accounts[0].Extra = nil
+			gateway.rateLimitService = &RateLimitService{antigravitySaturationCounter: &candidateAntigravityCounter{
+				counts: map[AntigravitySaturationScope]int64{{accounts[0].ID, "claude-sonnet-4-5-thinking"}: edgeMirrorStubSaturationThreshold},
+			}}
+			wireCandidateTestResolver(resolver, gateway, accounts)
+			ctx = resolver.WithRequest(context.Background(), test.shape, test.path, "claude-sonnet-4-5", []byte(test.body))
+			group, err = resolver.Resolve(ctx, universalKey(1), test.shape, "claude-sonnet-4-5", "")
+			require.NoError(t, err)
+			require.Equal(t, int64(2), group.ID, "saturation must use the same thinking model scope")
+
+			gateway.rateLimitService = nil
+			accounts[0].Credentials["model_mapping"] = map[string]any{"claude-sonnet-4-5": "claude-sonnet-4-5"}
+			wireCandidateTestResolver(resolver, gateway, accounts)
+			ctx = resolver.WithRequest(context.Background(), test.shape, test.path, "claude-sonnet-4-5", []byte(test.body))
+			group, err = resolver.Resolve(ctx, universalKey(1), test.shape, "claude-sonnet-4-5", "")
+			require.NoError(t, err)
+			require.Equal(t, int64(2), group.ID, "Plan must reject the account without thinking-model admission")
+		})
+	}
+}
+
 type candidateAntigravityCounter struct {
 	counts map[AntigravitySaturationScope]int64
 }
