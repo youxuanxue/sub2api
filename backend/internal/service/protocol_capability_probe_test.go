@@ -733,7 +733,7 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			want: []protocolrouter.Protocol{protocolrouter.ProtocolMessages},
 		},
 		{
-			name: "antigravity edge relay probes its configurable text endpoints",
+			name: "antigravity edge relay probes text hops and native gemini",
 			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"api_key": "secret", "base_url": "https://api-us3.tokenkey.dev",
 			}},
@@ -741,6 +741,7 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 				protocolrouter.ProtocolMessages,
 				protocolrouter.ProtocolChatCompletions,
 				protocolrouter.ProtocolResponses,
+				protocolrouter.ProtocolGeminiGenerateContent,
 			},
 		},
 		{

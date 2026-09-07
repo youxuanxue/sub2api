@@ -390,6 +390,13 @@ func canonicalGeminiIdentityEndpoint(account *Account, profile protocolrouter.Ge
 		}
 		base.Path = path.Clean(strings.TrimSuffix(base.Path, "/") + "/v1internal:streamGenerateContent")
 		return ProtocolEndpoint{URL: base.String()}, nil
+	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
+		base, err := normalizeEndpointIdentityURL(account.GetGeminiBaseURL(""))
+		if err != nil {
+			return ProtocolEndpoint{}, err
+		}
+		base.Path = path.Clean(strings.TrimSuffix(base.Path, "/") + "/v1beta/models/{model}:{action}")
+		return ProtocolEndpoint{URL: base.String(), APIVersion: "v1beta"}, nil
 	case protocolrouter.GeminiEndpointVertexServiceAccount:
 		projectID := strings.TrimSpace(account.VertexProjectID())
 		if projectID == "" {

@@ -19,12 +19,15 @@ type GeminiEndpointProfile string
 const (
 	GeminiEndpointNone                 GeminiEndpointProfile = ""
 	GeminiEndpointAntigravityCloudCode GeminiEndpointProfile = "antigravity_cloudcode"
+	GeminiEndpointAntigravityEdgeRelay GeminiEndpointProfile = "antigravity_edge_relay"
 	GeminiEndpointVertexServiceAccount GeminiEndpointProfile = "vertex_service_account"
 )
 
 func (p GeminiEndpointProfile) Valid() bool {
 	switch p {
-	case GeminiEndpointAntigravityCloudCode, GeminiEndpointVertexServiceAccount:
+	case GeminiEndpointAntigravityCloudCode,
+		GeminiEndpointAntigravityEdgeRelay,
+		GeminiEndpointVertexServiceAccount:
 		return true
 	default:
 		return false

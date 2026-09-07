@@ -64,6 +64,7 @@ func TestExecuteGeminiProtocolProfileUsesOnlyPlannedProfile(t *testing.T) {
 	}{
 		{name: "antigravity", profile: protocolrouter.GeminiEndpointAntigravityCloudCode, wantAntigravity: 1, wantValue: "ag"},
 		{name: "vertex", profile: protocolrouter.GeminiEndpointVertexServiceAccount, wantVertex: 1, wantValue: "vertex"},
+		{name: "antigravity edge relay", profile: protocolrouter.GeminiEndpointAntigravityEdgeRelay, wantVertex: 1, wantValue: "vertex"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,6 +159,79 @@ func TestProtocolExecutionRouterInvokesGeminiIdentityExecutor(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	if calls != 1 || result.Value != "sent" {
+		t.Fatalf("calls/result = %d/%v", calls, result.Value)
+	}
+}
+
+func TestProtocolExecutionRouterPlansAntigravityEdgeRelayGeminiIdentity(t *testing.T) {
+	router := NewProtocolRouter()
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolGeminiGenerateContent,
+		RequestedModel:  "gemini-3.7-flash",
+		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
+		Body:            []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`),
+	})
+	if err != nil {
+		t.Fatalf("NewCanonicalRequest: %v", err)
+	}
+	account := &Account{
+		ID:       85,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://api-us3.tokenkey.dev",
+			"model_mapping": map[string]any{
+				"gemini-3.7-flash": "gemini-3.7-flash-medium",
+			},
+		},
+		Extra: map[string]any{},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
+	snapshot, err := protocolAccountSnapshotForRequest(account, request)
+	if err != nil {
+		t.Fatalf("protocolAccountSnapshotForRequest: %v", err)
+	}
+	if snapshot.GeminiProfile() != protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+		t.Fatalf("GeminiProfile = %q", snapshot.GeminiProfile())
+	}
+	plan, err := router.Plan(request, snapshot)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	wantEndpoint := "https://api-us3.tokenkey.dev/antigravity/v1beta/models/gemini-3.7-flash:generateContent"
+	if plan.Endpoint() != wantEndpoint {
+		t.Fatalf("Endpoint = %q, want %q", plan.Endpoint(), wantEndpoint)
+	}
+	calls := 0
+	ctx := WithProtocolExecutors(context.Background(), ProtocolExecutors{
+		GeminiIdentity: func(_ context.Context, _ *Account, gotPlan protocolrouter.Plan, _ protocolrouter.CanonicalRequest) (any, error) {
+			calls++
+			value, err := ExecuteGeminiProtocolProfile(
+				gotPlan.GeminiProfile(),
+				func() (any, error) {
+					t.Fatal("cloudcode arm must not run for edge relay")
+					return nil, nil
+				},
+				func() (any, error) {
+					return "native", nil
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
+			return value, nil
+		},
+	})
+	ctx = withProtocolExecutionAccount(ctx, account)
+	ctx = protocolrouter.WithExecutionAccountState(ctx, protocolrouter.ExecutionAccountState{
+		AccountID: snapshot.AccountID(), CapabilityKey: snapshot.CapabilityKey(), CredentialPresent: true,
+	})
+	result, err := router.Execute(ctx, plan, request)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if calls != 1 || result.Value != "native" {
 		t.Fatalf("calls/result = %d/%v", calls, result.Value)
 	}
 }
