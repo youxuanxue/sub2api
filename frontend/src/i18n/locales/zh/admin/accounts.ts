@@ -1,5 +1,13 @@
 export default {
     accounts: {
+      cursor: {
+        connect: '连接 Cursor', reconnect: '重新授权 Cursor', group: '服务组',
+        selectGroup: '选择服务组', noGroups: '暂无 newapi 服务组',
+        pending: '等待 Cursor 授权', open: '打开 Cursor', authorize: '授权 Cursor',
+        authorized: '已授权', modelCount: '{count} 个可用模型', expires: '到期时间：{date}',
+        authorizationFailed: 'Cursor 授权失败，请重新授权', disconnected: '授权已过期或连接中断，请重新授权',
+        startFailed: '无法启动 Cursor 授权，请重试', saveFailed: '账号保存失败，请检查服务组后重试'
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

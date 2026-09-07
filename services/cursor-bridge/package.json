@@ -1,0 +1,11 @@
+{
+  "name": "tokenkey-cursor-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.tk.mjs",
+    "test": "node --test *.test.mjs && npm --prefix upstream test"
+  },
+  "engines": { "node": ">=22.19" },
+  "dependencies": { "gpt-tokenizer": "4.0.0" }
+}

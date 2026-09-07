@@ -62,6 +62,11 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/accounts/bulk-update` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/check-mixed-channel` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/cookie-auth` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/accounts/cursor/authorizations` from `backend/internal/server/routes/admin_tk_cursor_routes.go`
+- `DELETE /api/v1/admin/accounts/cursor/authorizations/:session` from `backend/internal/server/routes/admin_tk_cursor_routes.go`
+- `GET /api/v1/admin/accounts/cursor/authorizations/:session` from `backend/internal/server/routes/admin_tk_cursor_routes.go`
+- `GET /api/v1/admin/accounts/cursor/capabilities` from `backend/internal/server/routes/admin_tk_cursor_routes.go`
+- `POST /api/v1/admin/accounts/cursor/import` from `backend/internal/server/routes/admin_tk_cursor_routes.go`
 - `GET /api/v1/admin/accounts/data` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/data` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/exchange-code` from `backend/internal/server/routes/admin.go`

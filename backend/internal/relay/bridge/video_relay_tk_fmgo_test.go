@@ -14,7 +14,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	newapihelper "github.com/QuantumNous/new-api/relay/helper"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -348,7 +348,7 @@ func TestFMGoTaskAdaptor_FetchTask_HitsVideosPath(t *testing.T) {
 	}))
 	defer srv.Close()
 	a := newFMGoTaskAdaptor()
-	resp, err := a.FetchTask(srv.URL, "k", map[string]any{"task_id": "task-1"}, "")
+	resp, err := a.FetchTask(srv.URL, "k", newAPIVideoPollTask(VideoFetchInput{UpstreamTaskID: "task-1"}), "")
 	if err != nil {
 		t.Fatalf("FetchTask: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestFMGoTaskAdaptor_FetchTask_HitsVideosPath(t *testing.T) {
 func TestFMGoTaskAdaptor_ParseTaskResult_Completed(t *testing.T) {
 	t.Parallel()
 	a := newFMGoTaskAdaptor()
-	info, err := a.ParseTaskResult([]byte(`{"id":"task-1","status":"completed","result":{"url":"https://static.fmgo.top/v.mp4"}}`))
+	info, err := a.ParseTaskResult(nil, nil, []byte(`{"id":"task-1","status":"completed","result":{"url":"https://static.fmgo.top/v.mp4"}}`))
 	if err != nil {
 		t.Fatalf("ParseTaskResult: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestFMGoTaskAdaptor_RejectsLegacy6sOnVideosFamily(t *testing.T) {
 func TestFMGoTaskAdaptor_ParseTaskResult_VideosResultURL(t *testing.T) {
 	t.Parallel()
 	a := newFMGoTaskAdaptor()
-	info, err := a.ParseTaskResult([]byte(`{"id":"task-1","status":"completed","result_url":"https://static.fmgo.top/v.mp4"}`))
+	info, err := a.ParseTaskResult(nil, nil, []byte(`{"id":"task-1","status":"completed","result_url":"https://static.fmgo.top/v.mp4"}`))
 	if err != nil {
 		t.Fatalf("ParseTaskResult: %v", err)
 	}

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	newapidto "github.com/QuantumNous/new-api/dto"
-	newapitypes "github.com/QuantumNous/new-api/types"
+	newapidto "github.com/QuantumNous/new-api/relaykit/dto"
+	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"

@@ -12,9 +12,10 @@ import (
 var ErrProtocolRouteUnavailable = errors.New("protocol route unavailable")
 
 type protocolRoutingContextValue struct {
-	router  *protocolrouter.Router
-	request protocolrouter.CanonicalRequest
-	plans   *protocolPlanCache
+	router             *protocolrouter.Router
+	request            protocolrouter.CanonicalRequest
+	plans              *protocolPlanCache
+	cursorContinuation bool
 }
 
 type protocolPlanCacheKey struct {
@@ -78,9 +79,10 @@ func WithProtocolRouting(
 		return ctx
 	}
 	return context.WithValue(ctx, protocolRoutingContextKey{}, protocolRoutingContextValue{
-		router:  router,
-		request: request,
-		plans:   newProtocolPlanCache(),
+		router:             router,
+		request:            request,
+		plans:              newProtocolPlanCache(),
+		cursorContinuation: cursorContinuationInBody(request.Body()),
 	})
 }
 
@@ -150,6 +152,9 @@ func protocolPlanForAccount(
 	requestedModel string,
 ) (protocolrouter.Plan, bool, error) {
 	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
+	if ok && routing.cursorContinuation && !account.IsCursor() {
+		return protocolrouter.Plan{}, true, fmt.Errorf("%w: Cursor tool continuation requires its original supply", ErrProtocolRouteUnavailable)
+	}
 	if !ok || routing.router == nil || !protocolRoutingGovernsAccount(account) {
 		return protocolrouter.Plan{}, false, nil
 	}

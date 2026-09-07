@@ -1,0 +1,56 @@
+//go:build integration
+
+package repository
+
+import (
+	"context"
+	"fmt"
+	dbent "github.com/Wei-Shaw/sub2api/ent"
+	entgroup "github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
+	"testing"
+	"time"
+)
+
+func TestCursorCreateAndGroupBindShareOuterTransaction(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := testEntClient(t)
+	repo := newAccountRepositoryWithSQL(client, integrationDB, nil, nil)
+	group, err := client.Group.Create().SetName(fmt.Sprintf("cursor-tx-%d", time.Now().UnixNano())).SetPlatform(service.PlatformNewAPI).Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id=$1", group.ID)
+	})
+	for _, commit := range []bool{false, true} {
+		tx, err := client.Tx(ctx)
+		require.NoError(t, err)
+		txCtx := dbent.NewTxContext(ctx, tx)
+		_, err = tx.Group.Query().Where(entgroup.IDEQ(group.ID)).ForUpdate().Only(txCtx)
+		require.NoError(t, err)
+		account := &service.Account{Name: fmt.Sprintf("cursor-account-%d", time.Now().UnixNano()), Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14, Status: service.StatusActive, Extra: map[string]any{service.CursorSourceExtraKey: "cursor"}, Credentials: map[string]any{"api_key": "test-only", "base_url": "http://cursor-bridge:3927", "api_base_urls": map[string]any{"anthropic": "http://cursor-bridge:3927"}, "protocol_endpoints_exclusive": true}}
+		require.NoError(t, repo.Create(txCtx, account))
+		require.NoError(t, repo.BindGroups(txCtx, account.ID, []int64{group.ID}))
+		loaded, err := repo.GetByID(txCtx, account.ID)
+		require.NoError(t, err)
+		require.Equal(t, []int64{group.ID}, loaded.GroupIDs)
+		if commit {
+			require.NoError(t, tx.Commit())
+		} else {
+			require.NoError(t, tx.Rollback())
+		}
+		var count int
+		require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM accounts WHERE id=$1", account.ID).Scan(&count))
+		if commit {
+			require.Equal(t, 1, count)
+		} else {
+			require.Zero(t, count)
+		}
+		t.Cleanup(func() {
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id=$1", account.ID)
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM account_groups WHERE account_id=$1", account.ID)
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id=$1", account.ID)
+		})
+	}
+}

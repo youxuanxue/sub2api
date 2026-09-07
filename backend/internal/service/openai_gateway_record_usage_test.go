@@ -69,6 +69,30 @@ func TestOpenAIGatewayServiceRecordUsage_RejectsNilInput(t *testing.T) {
 	require.Error(t, svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{}))
 }
 
+func TestOpenAIGatewayServiceRecordUsage_LabelsCursorEstimatePolicy(t *testing.T) {
+	for _, cursor := range []bool{false, true} {
+		usageRepo := &openAIRecordUsageLogRepoStub{}
+		billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
+		svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+		account := &Account{ID: 3, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 14}
+		if cursor {
+			account.Extra = map[string]any{CursorSourceExtraKey: "cursor"}
+		}
+		err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+			Result: &OpenAIForwardResult{RequestID: "cursor-policy", Model: "gpt-5.1", Usage: OpenAIUsage{InputTokens: 80, OutputTokens: 40}},
+			APIKey: &APIKey{ID: 2}, User: &User{ID: 1}, Account: account,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, usageRepo.lastLog)
+		if cursor {
+			require.NotNil(t, usageRepo.lastLog.BillingTier)
+			require.Equal(t, "cursor-sdk-estimated", *usageRepo.lastLog.BillingTier)
+		} else {
+			require.Nil(t, usageRepo.lastLog.BillingTier)
+		}
+	}
+}
+
 func TestRecordCyberPolicyUsageLog_BillsRealUpstreamTokens(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}

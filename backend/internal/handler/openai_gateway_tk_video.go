@@ -254,6 +254,8 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		APIKey:           outcome.APIKey,
 		OriginModel:      outcome.OriginModel,
 		UpstreamModel:    outcome.UpstreamModel,
+		PluginState:      outcome.PluginState,
+		TaskData:         outcome.TaskData,
 		BillingRequestID: billingRequestID,
 		CreatedAt:        time.Now(),
 	}
@@ -382,6 +384,14 @@ func (h *OpenAIGatewayHandler) VideoFetch(c *gin.Context) {
 		return
 	}
 
+	if out.PluginState != nil {
+		rec.PluginState = out.PluginState
+		if err := h.videoTaskCache.Save(c.Request.Context(), rec); err != nil {
+			h.errorResponse(c, http.StatusBadGateway, "api_error", "Video task state could not be saved")
+			return
+		}
+	}
+
 	// Pass through the upstream result directly. If the upstream returns a short-
 	// lived video URL, the client receives that URL unchanged. If it returns
 	// inline video bytes, this request is the one-time delivery path; the Studio
@@ -424,6 +434,8 @@ func videoFetchInputFromRecord(rec *service.VideoTaskRecord) bridge.VideoFetchIn
 		ChannelType:    rec.ChannelType,
 		BaseURL:        rec.BaseURL,
 		APIKey:         rec.APIKey,
+		PluginState:    rec.PluginState,
+		TaskData:       rec.TaskData,
 		// Platform + AccountID drive the grok-native poll branch (channel_type=0,
 		// re-resolve a fresh rotating OAuth Bearer). Ignored by the bridge path.
 		Platform:  rec.Platform,

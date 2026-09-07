@@ -72,6 +72,31 @@
     },
     "web_search_price_per_call": 0.01
   },
+  "composer-2.5": {
+    "litellm_provider": "cursor",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000005,
+    "output_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 0.0000002,
+    "source": "Cursor official https://cursor.com/docs/models-and-pricing and https://cursor.com/blog/composer-2-5, captured 2026-09-07: regular (fast=false) input $0.50/M, cache read $0.20/M, output $2.50/M. The bridge explicitly selects regular speed; subscription included usage does not change list pricing."
+  },
+  "composer-2": {
+    "litellm_provider": "cursor",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000005,
+    "output_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 0.0000005,
+    "source": "Cursor official https://cursor.com/blog/composer-2, captured 2026-09-07: regular (fast=false) input $0.50/M, output $2.50/M. TokenKey conservatively prices cache reads at the same input rate pending a verified cache discount; this cache rate is a TokenKey price, not an official Cursor cache quote."
+  },
+  "claude-fable-5-1": {
+    "litellm_provider": "anthropic",
+    "mode": "chat",
+    "input_cost_per_token": 0.00001,
+    "output_cost_per_token": 0.00005,
+    "cache_creation_input_token_cost": 0.0000125,
+    "cache_read_input_token_cost": 0.00000025,
+    "source": "Cursor official third-party API pricing table https://cursor.com/docs/models-and-pricing, captured 2026-09-07: Claude Fable 5.1 input $10/M, cache write $12.50/M, cache read $0.25/M, output $50/M."
+  },
   "ark-code-latest": {
     "litellm_provider": "volcengine",
     "mode": "chat",

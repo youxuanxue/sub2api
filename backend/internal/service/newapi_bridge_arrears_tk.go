@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	newapitypes "github.com/QuantumNous/new-api/types"
+	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/tidwall/gjson"
 )
 

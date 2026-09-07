@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	newapitypes "github.com/QuantumNous/new-api/types"
+	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -297,7 +297,8 @@ func protocolResolvedModelAllowedForTarget(
 	// without this gate, inbound Claude Code + gpt-* / MiniMax / GLM plans
 	// identity messages and execute fail-closes with
 	// "native anthropic messages requires a Claude model".
-	if target == protocolrouter.ProtocolMessages && !tkIsForwardableAnthropicModelName(resolvedModel) {
+	if target == protocolrouter.ProtocolMessages && !tkIsForwardableAnthropicModelName(resolvedModel) &&
+		!cursorMappedModelAllowed(account, requestedModel, resolvedModel) {
 		return false
 	}
 	// Those same relays advertise /v1/responses because the probe treats HTTP 400

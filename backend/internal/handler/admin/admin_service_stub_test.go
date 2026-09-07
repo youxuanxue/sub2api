@@ -9,6 +9,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
+func (s *stubAdminService) SaveCursorAccount(ctx context.Context, create *service.CreateAccountInput, update *service.UpdateAccountInput, accountID int64) (*service.Account, error) {
+	if accountID > 0 {
+		return s.UpdateAccount(ctx, accountID, update)
+	}
+	return s.CreateAccount(ctx, create)
+}
+
 type stubAdminService struct {
 	users                               []service.User
 	apiKeys                             []service.APIKey

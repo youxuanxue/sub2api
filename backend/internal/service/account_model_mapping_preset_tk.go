@@ -131,6 +131,7 @@ func isNewAPIXRTokenAccount(account *Account) bool {
 // whose serving intent is narrower than their shared platform/channel floor.
 func accountModelMappingOverrideAccounts() []*Account {
 	return []*Account{
+		{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 14, Extra: map[string]any{CursorSourceExtraKey: "cursor"}, Credentials: map[string]any{"base_url": "http://cursor-bridge:3927"}},
 		{
 			Platform:    PlatformNewAPI,
 			Type:        AccountTypeAPIKey,
@@ -190,6 +191,9 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 	if account == nil {
 		return nil
 	}
+	if account.IsCursor() {
+		return tkServedModelsManifestPresetIDsForSelector(PlatformNewAPI, 14, "http://cursor-bridge:3927")
+	}
 	if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
 		ids, _ := vertexCapabilityProfileModelMappingIDs(account.VertexCapabilityProfile())
 		return ids
@@ -228,6 +232,9 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	if account == nil {
 		return nil
+	}
+	if account.IsCursor() {
+		return tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "http://cursor-bridge:3927")
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		ids := tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())

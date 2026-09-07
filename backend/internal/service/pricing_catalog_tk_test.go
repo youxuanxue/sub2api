@@ -668,7 +668,7 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	assert.False(t, got["minimax-m2.7"], "unmapped vendor hidden until universal mapping exists")
 }
 
-func TestPublicCatalog_HidesRetiredOpenAIClientFacingIDs(t *testing.T) {
+func TestPublicCatalog_RetiredNativeIDsRequireAnotherDeclaredSupply(t *testing.T) {
 	t.Parallel()
 	// Settlement may still price retired ids; public FilterPublicCatalogToServable
 	// must not advertise them once they leave the OpenAI allowlist.
@@ -695,7 +695,15 @@ func TestPublicCatalog_HidesRetiredOpenAIClientFacingIDs(t *testing.T) {
 		got[m.ModelID] = true
 	}
 	for _, retired := range []string{"gpt-5.2", "gpt-5.2-codex", "gpt-5.2-pro", "gpt-5.4", "gpt-5.4-mini"} {
-		assert.False(t, got[retired], "retired client-facing id %q must not appear on public /pricing", retired)
+		_, native := supportedOpenAICatalogModels[retired]
+		assert.False(t, native, "Cursor must not restore retired IDs to the native OpenAI pool")
+		cursorDeclared := false
+		for _, id := range tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "http://cursor-bridge:3927") {
+			if id == retired {
+				cursorDeclared = true
+			}
+		}
+		assert.Equal(t, cursorDeclared, got[retired], "retired native id %q needs a separate declared supply", retired)
 	}
 	assert.True(t, got["gpt-5.5"], "gpt-5.5 remains public")
 	assert.True(t, got["gpt-5.6-terra"], "terra remains public")

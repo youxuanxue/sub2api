@@ -983,6 +983,7 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	}
 	keys := []string{
 		"model_mapping",
+		service.CursorModelParametersKey,
 		"compact_model_mapping",
 		"api_key",
 		"project_id",
@@ -1075,6 +1076,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"openai_responses_supported",
 		"openai_native_messages_supported",
 		service.SupportedProtocolsExtraKey,
+		service.CursorSourceExtraKey,
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
 		"codex_5h_used_percent",

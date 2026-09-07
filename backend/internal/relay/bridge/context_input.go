@@ -6,7 +6,7 @@ import (
 
 	newapicommon "github.com/QuantumNous/new-api/common"
 	newapiconstant "github.com/QuantumNous/new-api/constant"
-	newapidto "github.com/QuantumNous/new-api/dto"
+	newapidto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/gin-gonic/gin"
 )
 

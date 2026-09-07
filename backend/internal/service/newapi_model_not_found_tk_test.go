@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	newapitypes "github.com/QuantumNous/new-api/types"
+	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

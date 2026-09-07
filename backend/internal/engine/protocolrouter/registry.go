@@ -85,7 +85,7 @@ var routeRegistry = []routeEntry{
 	{inbound: ProtocolChatCompletions, target: ProtocolGeminiGenerateContent, kind: RouteConversion, adapterID: AdapterChatToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesToGemini, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolResponses, kind: RouteIdentity, adapterID: AdapterResponsesIdentity, transport: TransportHTTP, responsesPaths: []ResponsesPathKind{ResponsesPathRoot, ResponsesPathCompact, ResponsesPathInputTokens}, model: permitsResponsesModel, preserves: preservesIdentity, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolChatCompletions, kind: RouteConversion, adapterID: AdapterResponsesToChat, transport: TransportHTTP, model: permitsChatCompletionsModel, preserves: preservesResponsesConversion, endpoint: resolveEndpoint},
-	{inbound: ProtocolResponses, target: ProtocolMessages, kind: RouteConversion, adapterID: AdapterResponsesToMessages, transport: TransportHTTP, model: permitsMessagesModel, preserves: preservesResponsesConversion, endpoint: resolveEndpoint},
+	{inbound: ProtocolResponses, target: ProtocolMessages, kind: RouteConversion, adapterID: AdapterResponsesToMessages, transport: TransportHTTP, model: permitsMessagesModel, preserves: preservesResponsesToMessages, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolGeminiGenerateContent, kind: RouteConversion, adapterID: AdapterResponsesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesToGemini, endpoint: resolveEndpoint},
 	{inbound: ProtocolGeminiGenerateContent, target: ProtocolGeminiGenerateContent, kind: RouteIdentity, adapterID: AdapterGeminiIdentity, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesGeminiIdentity, endpoint: resolveEndpoint},
 }
@@ -200,15 +200,23 @@ func preservesChatToResponses(req CanonicalRequest) bool {
 }
 
 func preservesChatToMessages(req CanonicalRequest) bool {
-	return preservesTextOnlyWithoutTools(req) &&
+	return preservesMessagesToResponsesContent(req) &&
 		req.profile.Continuation == ContinuationNone &&
 		req.profile.Reasoning == ReasoningNone &&
 		req.profile.PromptCache == PromptCacheNone
 }
 
 func preservesResponsesConversion(req CanonicalRequest) bool {
-	return preservesTextOnlyWithoutTools(req) &&
-		req.responsesPath == ResponsesPathRoot &&
+	return preservesTextOnlyWithoutTools(req) && preservesResponsesConversionOptions(req)
+}
+
+func preservesResponsesToMessages(req CanonicalRequest) bool {
+	return preservesMessagesToResponsesContent(req) &&
+		preservesResponsesConversionOptions(req)
+}
+
+func preservesResponsesConversionOptions(req CanonicalRequest) bool {
+	return req.responsesPath == ResponsesPathRoot &&
 		req.profile.Continuation == ContinuationNone &&
 		req.profile.Reasoning == ReasoningNone &&
 		req.profile.PromptCache == PromptCacheNone

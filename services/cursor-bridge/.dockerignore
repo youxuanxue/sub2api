@@ -1,0 +1,4 @@
+**/node_modules
+**/empty-workspace
+**/.cursor
+**/*.test.mjs

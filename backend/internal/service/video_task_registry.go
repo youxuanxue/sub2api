@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -43,18 +44,20 @@ type VideoTaskCache interface {
 // AccountID + ChannelType pin the routing target; APIKey is captured at
 // submit time because account credentials may rotate before the user polls.
 type VideoTaskRecord struct {
-	PublicTaskID   string `json:"public_task_id"`
-	UpstreamTaskID string `json:"upstream_task_id"`
-	AccountID      int64  `json:"account_id"`
-	UserID         int64  `json:"user_id"`
-	GroupID        int64  `json:"group_id"`
-	APIKeyID       int64  `json:"api_key_id"`
-	ChannelType    int    `json:"channel_type"`
-	Platform       string `json:"platform"`
-	BaseURL        string `json:"base_url"`
-	APIKey         string `json:"api_key"`
-	OriginModel    string `json:"origin_model"`
-	UpstreamModel  string `json:"upstream_model"`
+	PublicTaskID   string          `json:"public_task_id"`
+	UpstreamTaskID string          `json:"upstream_task_id"`
+	AccountID      int64           `json:"account_id"`
+	UserID         int64           `json:"user_id"`
+	GroupID        int64           `json:"group_id"`
+	APIKeyID       int64           `json:"api_key_id"`
+	ChannelType    int             `json:"channel_type"`
+	Platform       string          `json:"platform"`
+	BaseURL        string          `json:"base_url"`
+	APIKey         string          `json:"api_key"`
+	OriginModel    string          `json:"origin_model"`
+	UpstreamModel  string          `json:"upstream_model"`
+	PluginState    json.RawMessage `json:"plugin_state,omitempty"`
+	TaskData       json.RawMessage `json:"task_data,omitempty"`
 	// BillingRequestID is the usage-billing request id resolved at submit time
 	// (the same value RecordUsage persists as usage_logs.request_id). It is the
 	// anchor the terminal-failure refund uses to find the original billed row.

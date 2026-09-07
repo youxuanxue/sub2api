@@ -12,7 +12,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	newapichannel "github.com/QuantumNous/new-api/relay/channel"
-	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	newapiservice "github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -29,13 +28,13 @@ import (
 // completions. Identification is channel_type + base_url only — never
 // supplier_source_id.
 type fmgoTaskAdaptor struct {
-	*taskdoubao.TaskAdaptor
+	newapichannel.TaskAdaptor
 	baseURL string
 	family  string
 }
 
 func newFMGoTaskAdaptor() *fmgoTaskAdaptor {
-	return &fmgoTaskAdaptor{TaskAdaptor: &taskdoubao.TaskAdaptor{}}
+	return &fmgoTaskAdaptor{TaskAdaptor: newArkTaskAdaptor()}
 }
 
 func (a *fmgoTaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -53,7 +52,7 @@ func (a *fmgoTaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, 
 }
 
 func (a *fmgoTaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
-	if err := a.TaskAdaptor.BuildRequestHeader(c, req, info); err != nil {
+	if err := setArkTaskRequestHeaders(req, info); err != nil {
 		return err
 	}
 	if !newapiintegration.FMGoUsesVideosDialect(fmgoRelayModel(info, a.family)) {
@@ -75,11 +74,11 @@ func (a *fmgoTaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo,
 	return resp, nil
 }
 
-func (a *fmgoTaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
-	taskID, ok := body["task_id"].(string)
-	if !ok {
+func (a *fmgoTaskAdaptor) FetchTask(baseUrl, key string, task *model.Task, proxy string) (*http.Response, error) {
+	if task == nil || task.GetUpstreamTaskID() == "" {
 		return nil, fmt.Errorf("invalid task_id")
 	}
+	taskID := task.GetUpstreamTaskID()
 	base := newapiintegration.NormalizeFMGoBaseURL(baseUrl)
 	if base == "" {
 		return nil, fmt.Errorf("fmgo video fetch: empty base_url")
@@ -142,7 +141,7 @@ func (a *fmgoTaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.Rel
 	return bytes.NewReader(payload), nil
 }
 
-func (a *fmgoTaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+func (a *fmgoTaskAdaptor) ParseTaskResult(_ *model.Task, _ *http.Response, respBody []byte) (*relaycommon.TaskInfo, error) {
 	info := &relaycommon.TaskInfo{Code: 0}
 	status := strings.ToLower(firstNonEmptyJSONString(respBody, "status", "task.status"))
 	videoURL := firstNonEmptyJSONString(respBody, "result.url", "result_url", "content.video_url")

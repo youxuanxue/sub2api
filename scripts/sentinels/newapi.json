@@ -180,9 +180,15 @@
       "path": "backend/internal/integration/newapi/video_task_resolution.go",
       "must_contain": [
         "NormalizeVideoTaskResolution",
-        "geminitask.SizeToVeoResolution"
+        "max(width, height) >= 3840",
+        "max(width, height) >= 1920"
       ],
-      "rationale": "Shared request-dimension normalizer for tiered video billing and the pinned task adaptors. TaskSubmitReq.size (for example 1920x1080) must resolve to the same canonical resolution before both charging and upstream request construction; separate converters can silently underbill a generated tier."
+      "rationale": "Shared request-dimension normalizer for tiered video billing and task plugins. The new-api upgrade removed the exported Gemini adaptor helper; preserve its 4k/1080p dimension thresholds in this owner, used before both charging and request construction."
+    },
+    {
+      "path": "backend/internal/integration/newapi/video_task_resolution_test.go",
+      "must_contain": ["TestNormalizeVideoTaskResolution"],
+      "rationale": "Verify alias, dimensions and invalid-input behavior after the pinned new-api task-plugin migration."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_test.go",

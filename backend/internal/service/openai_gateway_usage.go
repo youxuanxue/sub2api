@@ -374,6 +374,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:       optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:    result.ImageSizeBreakdown,
 	}
+	if account.IsCursor() {
+		// Cursor SDK may omit parked-tool usage. This policy includes local
+		// estimates and is not an exact provider invoice reconciliation.
+		usageLog.BillingTier = optionalTrimmedStringPtr("cursor-sdk-estimated")
+	}
 	isVideoUsage := isOpenAIVideoUsageResult(result)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount

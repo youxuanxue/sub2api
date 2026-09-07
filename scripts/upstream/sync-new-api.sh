@@ -51,18 +51,14 @@ case "${1:-}" in
   *) echo "ERROR: unknown arg '$1'" >&2; exit 2 ;;
 esac
 
-if [ "${mode}" = "bump" ]; then
-  # Tentative write — will be re-written below as the 40-char canonical
-  # SHA after checkout. Writing first lets the downstream pin-loader use
-  # the new value verbatim (handles short SHA / branch / tag inputs).
-  printf '%s\n' "${new_pin}" > "${PIN_FILE}"
-fi
-
 [ -f "${PIN_FILE}" ] || { echo "ERROR: ${PIN_FILE} missing" >&2; exit 1; }
 PIN="$(tr -d '[:space:]' < "${PIN_FILE}")"
+if [ "${mode}" = "bump" ]; then
+  PIN="${new_pin}"
+fi
 [ -n "${PIN}" ] || { echo "ERROR: ${PIN_FILE} is empty" >&2; exit 1; }
 
-if [ ! -d "${SIBLING_DIR}/.git" ]; then
+if [ ! -e "${SIBLING_DIR}/.git" ] || ! git -C "${SIBLING_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
   if [ "${mode}" = "check" ]; then
     echo "ERROR: sibling clone missing at ${SIBLING_DIR}" >&2
     echo "       run: bash scripts/upstream/sync-new-api.sh" >&2
@@ -85,6 +81,14 @@ if [ "${mode}" = "check" ]; then
 fi
 
 if [ "${current}" != "${PIN}" ]; then
+  if [ -n "$(git -C "${SIBLING_DIR}" status --porcelain)" ]; then
+    echo "ERROR: new-api dependency has local changes; refusing to change its revision" >&2
+    exit 1
+  fi
+  if [ -f "${SIBLING_DIR}/.git" ]; then
+    echo "ERROR: dependency is a worktree; use git-worktree-submodule to switch it to ${PIN}, then rerun" >&2
+    exit 1
+  fi
   echo "Fetching ${PIN} ..."
   git -C "${SIBLING_DIR}" fetch --filter=blob:none origin "${PIN}" || git -C "${SIBLING_DIR}" fetch
   git -C "${SIBLING_DIR}" checkout "${PIN}"

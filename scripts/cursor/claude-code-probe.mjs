@@ -1,0 +1,26 @@
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+const root = fileURLToPath(new URL('../../', import.meta.url));
+const state = resolve(root, '.cache/cursor-dev');
+mkdirSync(resolve(state, 'client-workspace'), { recursive: true });
+writeFileSync(resolve(state, 'client-workspace/fixture.txt'), 'CURSOR_CODE_VERIFIED_4736\n');
+const { key } = JSON.parse(readFileSync(resolve(state, 'gateway-key.json'), 'utf8'));
+const env = { ...process.env, ANTHROPIC_BASE_URL: 'http://127.0.0.1:18097', ANTHROPIC_API_KEY: key, CLAUDE_CONFIG_DIR: resolve(state, 'claude-config'), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+delete env.ANTHROPIC_AUTH_TOKEN;
+delete env.CLAUDECODE;
+const child = spawn('claude', ['-p', 'Use Read to read fixture.txt in the current directory. Return its exact contents, without commentary.', '--model', 'composer-2.5', '--allowedTools', 'Read', '--tools', 'Read', '--max-turns', '3', '--max-budget-usd', '0.30', '--output-format', 'json', '--setting-sources', ''], { cwd: resolve(state, 'client-workspace'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+let stdout = '', stderr = '';
+child.stdout.on('data', chunk => { stdout += chunk; });
+child.stderr.on('data', chunk => { stderr += chunk; });
+const timer = setTimeout(() => child.kill('SIGTERM'), 120_000);
+const code = await new Promise((done, reject) => { child.on('error', reject); child.on('exit', done); });
+clearTimeout(timer);
+let result;
+try { result = JSON.parse(stdout); } catch { result = { result: stdout, error: stderr }; }
+const evidence = { at: new Date().toISOString(), exitCode: code, result };
+writeFileSync(resolve(state, 'evidence/claude-code.json'), JSON.stringify(evidence, null, 2), { mode: 0o600 });
+const passed = code === 0 && !result.is_error && String(result.result).includes('CURSOR_CODE_VERIFIED_4736');
+console.log(JSON.stringify({ status: passed ? 'passed' : 'failed', exitCode: code, result: result.result, usage: result.usage, cost: result.total_cost_usd }));
+if (!passed) process.exitCode = 1;

@@ -30,6 +30,30 @@ func tokenseaNativeMessagesAccount() *Account {
 	return account
 }
 
+func TestNativeMessagesUsageKeepsCacheOutOfUncachedInput(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		body := `{"type":"message","usage":{"input_tokens":100,"cache_read_input_tokens":50,"output_tokens":4}}`
+		if stream {
+			body = "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":100,\"cache_read_input_tokens\":50,\"output_tokens\":0}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":4}}\n\ndata: {\"type\":\"message_stop\"}\n\n"
+		}
+		resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
+		svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
+		var result *OpenAIForwardResult
+		var err error
+		if stream {
+			result, err = svc.streamNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
+		} else {
+			result, err = svc.bufferNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
+		}
+		require.NoError(t, err)
+		require.Equal(t, 150, result.Usage.InputTokens)
+		require.Equal(t, 50, result.Usage.CacheReadInputTokens)
+		require.Equal(t, 4, result.Usage.OutputTokens)
+	}
+}
+
 func TestForwardAsAnthropic_NativeMessagesPassthrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -1,0 +1,27 @@
+services:
+  tokenkey:
+    environment:
+      CURSOR_BRIDGE_URL: http://cursor-bridge:3927
+      CURSOR_BRIDGE_SECRET: ${CURSOR_BRIDGE_SECRET:?Cursor bridge secret is required}
+      CURSOR_RELAY_SECRET: ${CURSOR_RELAY_SECRET:-}
+    depends_on:
+      cursor-bridge:
+        condition: service_healthy
+  cursor-bridge:
+    image: ${CURSOR_BRIDGE_IMAGE:?Set a pinned Cursor bridge image}
+    restart: unless-stopped
+    networks: [tokenkey-network]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+      - /home/node:rw,nosuid,size=128m,uid=1000,gid=1000
+    environment:
+      CURSOR_BRIDGE_SECRET: ${CURSOR_BRIDGE_SECRET:?Cursor bridge secret is required}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 35s
+    mem_limit: 2g

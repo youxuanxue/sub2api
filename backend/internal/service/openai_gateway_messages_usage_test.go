@@ -26,3 +26,11 @@ func TestCopyOpenAIUsageFromResponsesUsageTrustsCanonicalCacheCreationValue(t *t
 	require.Equal(t, 3, got.CacheReadInputTokens)
 	require.Zero(t, got.CacheCreationInputTokens)
 }
+
+func TestNativeAnthropicUsagePreservesDisjointBillingBuckets(t *testing.T) {
+	got := claudeUsageToOpenAIUsage(&ClaudeUsage{InputTokens: 19338, OutputTokens: 91, CacheReadInputTokens: 13344, CacheCreationInputTokens: 20})
+	require.Equal(t, 32702, got.InputTokens)
+	require.Equal(t, 19338, got.InputTokens-got.CacheReadInputTokens-got.CacheCreationInputTokens)
+	require.Equal(t, 91, got.OutputTokens)
+	require.Equal(t, OpenAIUsage{}, claudeUsageToOpenAIUsage(nil))
+}

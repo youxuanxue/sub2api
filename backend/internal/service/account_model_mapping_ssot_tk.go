@@ -130,6 +130,10 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 		return nil, false
 	}
 	if scope == PlatformNewAPI {
+		if account.IsCursor() {
+			ids := NewAPIModelMappingPresetIDsForAccount(account)
+			return identityModelMapping(ids), len(ids) > 0
+		}
 		if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
 			mapping, _ := vertexModelMappingForAccount(account)
 			return mapping, len(mapping) > 0

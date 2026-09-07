@@ -35,6 +35,20 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  cursor-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.20.0'
+      - name: Test Cursor SDK bridge and tenant isolation
+        working-directory: services/cursor-bridge
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm --prefix upstream ci --ignore-scripts --no-audit --no-fund
+          npm test
+
   changes:
     runs-on: ubuntu-latest
     outputs:

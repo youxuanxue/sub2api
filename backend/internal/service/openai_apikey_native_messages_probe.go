@@ -49,13 +49,17 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 		logger.LegacyPrintf("service.openai_probe", "native_messages_skip_no_explicit_baseurl: account_id=%d", accountID)
 		return protocolProbeObservation{}, false
 	}
-	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	normalizedBaseURL, err := validateCursorBridgeBaseURL(account, baseURL, s.validateUpstreamBaseURL)
 	if err != nil {
 		logger.LegacyPrintf("service.openai_probe", "native_messages_invalid_baseurl: account_id=%d base_url=%q err=%v", accountID, baseURL, err)
 		return protocolProbeObservation{}, false
 	}
 
-	probeCtx, cancel := context.WithTimeout(ctx, openaiNativeMessagesProbeTimeout)
+	probeTimeout := openaiNativeMessagesProbeTimeout
+	if account.IsCursor() {
+		probeTimeout = 90 * time.Second
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
 	proxyURL := ""
@@ -84,6 +88,9 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 		}
 		req.Header.Set("Accept", "application/json")
 		req = applyProtocolProbeRequestIdentity(req, account, protocolrouter.ProtocolMessages)
+		if err := prepareCursorUpstreamRequest(req, nil, account); err != nil {
+			return protocolProbeObservation{}, false
+		}
 
 		resp, requestErr := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 		if requestErr != nil {

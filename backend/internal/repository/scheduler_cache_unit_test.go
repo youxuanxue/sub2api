@@ -25,6 +25,23 @@ func newSchedulerCacheUnit(t *testing.T) *schedulerCache {
 	return cache
 }
 
+func TestCursorSchedulingProjectionPreservesEndpointIdentity(t *testing.T) {
+	account := service.Account{Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14,
+		Extra:       map[string]any{service.CursorSourceExtraKey: "cursor"},
+		Credentials: map[string]any{"base_url": "http://cursor-bridge:3927", "api_base_urls": map[string]any{"anthropic": "http://cursor-bridge:3927"}, service.ProtocolEndpointsExclusiveCredentialKey: true, service.CursorModelParametersKey: map[string]any{"composer-2.5": []any{}}},
+	}
+	identity, governed, err := service.BuildProtocolEndpointIdentity(&account)
+	require.NoError(t, err)
+	require.True(t, governed)
+	account.Credentials = filterSchedulerCredentialsForProtocolRouting(account)
+	account.Extra = filterSchedulerExtra(account.Extra)
+	require.True(t, account.IsCursor())
+	require.Contains(t, account.Credentials[service.CursorModelParametersKey], "composer-2.5")
+	projected, _, err := service.BuildProtocolEndpointIdentity(&account)
+	require.NoError(t, err)
+	require.Equal(t, identity.Key(), projected.Key())
+}
+
 func newSchedulerCacheUnitWithRedis(t *testing.T) (*schedulerCache, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)

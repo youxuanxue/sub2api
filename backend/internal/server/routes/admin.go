@@ -386,6 +386,7 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	accounts := admin.Group("/accounts")
+	registerCursorAccountRoutes(accounts, h)
 	{
 		accounts.GET("", h.Admin.Account.List)
 		accounts.GET("/model-mapping-presets", h.Admin.Account.GetModelMappingPresets)

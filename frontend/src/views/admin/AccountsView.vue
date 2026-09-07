@@ -17,6 +17,9 @@
             @create="showCreate = true"
           >
             <template #after>
+              <button v-if="cursorEnabled" class="btn btn-secondary" data-testid="cursor-connect" @click="cursorAccount = null; showCursorConnect = true">
+                <Icon name="externalLink" size="sm" />{{ t('admin.accounts.cursor.connect') }}
+              </button>
               <!-- TK: expand/collapse all edge panels (only shown when the current
                    page has cc-<edge> mirror stubs). -->
               <button
@@ -495,6 +498,9 @@
           </template>
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
+              <button v-if="cursorEnabled && row.extra?.upstream_provider === 'cursor'" class="rounded-lg p-1.5 text-gray-500 hover:text-primary-600" :title="t('admin.accounts.cursor.reconnect')" :aria-label="t('admin.accounts.cursor.reconnect')" @click="reconnectCursor(row)">
+                <Icon name="externalLink" size="sm" />
+              </button>
               <button
                 data-testid="account-edit-btn"
                 @click="handleEdit(row)"
@@ -518,6 +524,7 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
+    <CursorConnectModal v-if="showCursorConnect" :show="showCursorConnect" :groups="groups" :account="cursorAccount" @close="showCursorConnect = false" @saved="reload" />
     <CreateAccountModal v-if="lazyMount('create', showCreate)" :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal v-if="lazyMount('reauth', showReAuth)" :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
@@ -574,6 +581,7 @@ defineOptions({ name: 'AdminAccountsView' })
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import { cursorAPI } from '@/api/admin/cursor.tk'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -587,6 +595,14 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 const CreateAccountModal = defineAsyncComponent(() => import('@/components/account/CreateAccountModal.vue'))
+const CursorConnectModal = defineAsyncComponent(() => import('@/components/account/CursorConnectModal.tk.vue'))
+const cursorEnabled = ref(false)
+const showCursorConnect = ref(false)
+const cursorAccount = ref<Account | null>(null)
+async function reconnectCursor(account: Account) {
+  const detail = await loadAccountDetails(account)
+  if (detail) { cursorAccount.value = detail; showCursorConnect.value = true }
+}
 const EditAccountModal = defineAsyncComponent(() => import('@/components/account/EditAccountModal.vue'))
 const BulkEditAccountModal = defineAsyncComponent(() => import('@/components/account/BulkEditAccountModal.vue'))
 const SyncFromCrsModal = defineAsyncComponent(() => import('@/components/account/SyncFromCrsModal.vue'))
@@ -2666,6 +2682,7 @@ const STALE_THRESHOLD_MS = 30_000
 let hasCompletedInitialMount = false
 
 onMounted(async () => {
+  void cursorAPI.capabilities().then(value => { cursorEnabled.value = value.enabled }).catch(() => undefined)
   lastFetchedAt = Date.now()
   await refreshAccountPage()
   hasCompletedInitialMount = true

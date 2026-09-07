@@ -70,7 +70,7 @@ func inferPlatformFromVendor(vendor string) string {
 		return PlatformOpenAI
 	case "anthropic":
 		return PlatformAnthropic
-	case "newapi":
+	case "newapi", "cursor":
 		return PlatformNewAPI
 	case "zhipu", "bigmodel", "zai":
 		return PlatformNewAPI

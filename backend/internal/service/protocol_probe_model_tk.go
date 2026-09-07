@@ -42,6 +42,14 @@ func protocolProbeModelCandidates(account *Account) []string {
 		candidates = append(candidates, upstream)
 	}
 	sort.Strings(candidates)
+	if account.IsCursor() {
+		for i, model := range candidates {
+			if model == "composer-2.5" {
+				candidates = append([]string{model}, append(candidates[:i], candidates[i+1:]...)...)
+				break
+			}
+		}
+	}
 	if len(candidates) == 0 {
 		candidates = append(candidates, openai.DefaultTestModel)
 		seen[openai.DefaultTestModel] = struct{}{}

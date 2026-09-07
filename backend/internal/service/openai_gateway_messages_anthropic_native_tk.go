@@ -146,7 +146,7 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(ctx context.Context, acc
 	if baseURL == "" {
 		return "", fmt.Errorf("account %d has no anthropic protocol base url", account.ID)
 	}
-	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+	validatedURL, err := validateCursorBridgeBaseURL(account, baseURL, s.validateUpstreamBaseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
@@ -161,6 +161,9 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	apiKey string,
 	targetURL string,
 ) (*http.Request, []byte, error) {
+	if account.IsCursor() && c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
 	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 	// 能力维度 body sanitize：与 Anthropic 平台 passthrough 相同，按 beta
 	// header 决定是否保留 body 中的 beta 能力字段，避免客户端"body 带字段但
@@ -211,6 +214,9 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
+	if err := prepareCursorUpstreamRequest(req, c, account); err != nil {
+		return nil, nil, err
+	}
 
 	return req, body, nil
 }
@@ -562,14 +568,14 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 	}
 }
 
-// claudeUsageToOpenAIUsage 把 Anthropic 格式 usage 映射到 OpenAI 网关统一的
-// 用量结构（字段一一对应）。
+// Anthropic input excludes cache buckets; OpenAI input includes them. RecordUsage
+// subtracts cache once when deriving the uncached billing bucket.
 func claudeUsageToOpenAIUsage(u *ClaudeUsage) OpenAIUsage {
 	if u == nil {
 		return OpenAIUsage{}
 	}
 	return OpenAIUsage{
-		InputTokens:              u.InputTokens,
+		InputTokens:              u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens,
 		OutputTokens:             u.OutputTokens,
 		CacheCreationInputTokens: u.CacheCreationInputTokens,
 		CacheReadInputTokens:     u.CacheReadInputTokens,

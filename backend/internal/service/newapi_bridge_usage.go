@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
-	newapitypes "github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/dto"
+	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/tidwall/gjson"
