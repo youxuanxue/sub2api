@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"log/slog"
 )
 
 // TK — anthropic saturated mirror-stub de-prioritization (score side).
@@ -48,57 +47,20 @@ func (s *GatewayService) HasAnthropicSaturationCounter() bool {
 	return s != nil && s.tkAnthropicSaturationCounter != nil
 }
 
-// computeAnthropicSaturationPenalties fills accountWithLoad.saturationPenalty for
-// each candidate when the feature is enabled. The penalty is non-zero ONLY for
-// anthropic accounts whose live in-window saturation count is at/above
-// anthropicSaturationThreshold (transient blips below threshold are untouched, so
-// current behaviour is preserved). Best-effort: nil receiver/cache, disabled
-// kill-switch, or any Redis error leaves all penalties at 0 (pre-feature
-// scoring). Logs at most once per selection (the set of newly-penalized IDs).
-func (s *GatewayService) computeAnthropicSaturationPenalties(ctx context.Context, candidates []accountWithLoad) {
-	if s == nil || s.tkAnthropicSaturationCounter == nil || len(candidates) == 0 {
+// computeAnthropicSaturationPenalties applies the shared live state to priority.
+func (s *GatewayService) computeAnthropicSaturationPenalties(ctx context.Context, candidates []accountWithLoad, requestedModel ...string) {
+	if s == nil {
 		return
 	}
-	if s.settingService != nil && !s.settingService.IsAnthropicSaturatedStubDeprioritizeEnabled(ctx) {
-		return
+	accounts := make([]*Account, 0, len(candidates))
+	for _, candidate := range candidates {
+		accounts = append(accounts, candidate.account)
 	}
-
-	ids := make([]int64, 0, len(candidates))
+	counts := s.candidateSaturationState().counts(ctx, accounts, firstRequestedModel(requestedModel))
 	for i := range candidates {
-		acc := candidates[i].account
-		if acc != nil && acc.Platform == PlatformAnthropic {
-			ids = append(ids, acc.ID)
-		}
-	}
-	if len(ids) == 0 {
-		return
-	}
-
-	counts, err := s.tkAnthropicSaturationCounter.GetSaturationBatch(ctx, ids)
-	if err != nil {
-		slog.Warn("anthropic_saturation_penalty_read_failed", "error", err)
-		return
-	}
-	if len(counts) == 0 {
-		return
-	}
-
-	var penalized []int64
-	for i := range candidates {
-		acc := candidates[i].account
-		if acc == nil || acc.Platform != PlatformAnthropic {
-			continue
-		}
-		if counts[acc.ID] >= anthropicSaturationThreshold {
+		if candidates[i].account != nil && candidateSaturated(counts[candidates[i].account.ID]) {
 			candidates[i].saturationPenalty = anthropicSaturationPriorityPenalty
-			penalized = append(penalized, acc.ID)
 		}
-	}
-	if len(penalized) > 0 {
-		slog.Debug("anthropic_saturation_penalty_applied",
-			"account_ids", penalized,
-			"penalty", anthropicSaturationPriorityPenalty,
-			"candidate_count", len(candidates))
 	}
 }
 

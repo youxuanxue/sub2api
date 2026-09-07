@@ -3,6 +3,145 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/gateway_request.go",
+      "must_contain": [
+        "parsed.ThinkingEnabled = gatewayRequestThinkingEnabled(bodyBytes, protocol)",
+        "func gatewayRequestThinkingEnabled(",
+        "OpenAIReasoningEnablesThinking(ExtractChatCompletionsReasoningEffortFromBody(body), body)",
+        "OpenAIReasoningEnablesThinking(ExtractResponsesReasoningEffortFromBody(body), body)"
+      ],
+      "rationale": "Thinking-dependent model admission and readiness share the execution parser's semantic owner before Universal billing binds a group."
+    },
+    {
+      "path": "backend/internal/service/wire_tk.go",
+      "must_contain": [
+        "resolver.SetCandidateEvaluator(router,",
+        "return gw.evaluateGroupCandidates(ctx, openai, group, model, shape)"
+      ],
+      "rationale": "Production DI must bind Candidate Eligibility SSOT; shared-filter unit tests alone cannot prove that Universal uses it."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go",
+      "must_contain": [
+        "return openAIRequestEligibilityReason(ctx, account, requestedModel, requireCompact, requiredCapability)",
+        "func openAIRequestEligibilityReason(",
+        "protocolRuntimeAuthorizationReady",
+        "protocolRequestEligibilityReason"
+      ],
+      "rationale": "Legacy and advanced OpenAI scheduling share request compatibility while account status remains a separate gate."
+    },
+    {
+      "path": "backend/internal/service/candidate_eligibility_test.go",
+      "must_contain": [
+        "TestCandidateEligibilityProductionWiring",
+        "ProvideTKUniversalModelsProvider(api, gateway, nil, openai, NewProtocolRouter())",
+        "TestCandidateEligibilityHardGatesPrecedeWindowRecovery"
+      ],
+      "rationale": "Behavior tests pin real late binding and prove window recovery cannot bypass hard quota/RPM gates."
+    },
+    {
+      "path": "backend/internal/service/candidate_eligibility.go",
+      "must_contain": [
+        "func (s *GatewayService) evaluateGroupCandidates(",
+        "protocolPlanForAccount(ctx, account, model)",
+        "s.isClaudeNewAPICrossPlatformAccountAllowed",
+        "account.IsOpenAICompatPoolMember(platform)",
+        "s.gatewayCandidates(",
+        "scheduler.openAICandidates(",
+        "ListAllWithFilters",
+        "result.Supported"
+      ],
+      "rationale": "Scheduler projection owns support versus readiness, mixed-pool membership and configured entitlement."
+    },
+    {
+      "path": "backend/internal/service/candidate_saturation.go",
+      "must_contain": [
+        "type candidateSaturationState struct",
+        "resolveFinalAntigravityModelKey",
+        "reader.GetSaturationBatch(ctx, scopes)",
+        "count >= edgeMirrorStubSaturationThreshold",
+        "IsAnthropicSaturatedStubDeprioritizeEnabled",
+        "IsOpenAISaturatedStubDeprioritizeEnabled"
+      ],
+      "rationale": "One scoped interpretation of counters feeds group choice, scoring and sticky preference, with Redis-owned expiry."
+    },
+    {
+      "path": "backend/internal/service/openai_candidate_eligibility.go",
+      "must_contain": [
+        "func (s *defaultOpenAIAccountScheduler) openAICandidates(",
+        "s.isAccountRequestCompatibleReason",
+        "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false)",
+        "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
+      ],
+      "rationale": "Direct and Universal evaluation share hard gates and window recovery."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "s.gatewayCandidates(ctx, accounts, platform, useMixed, requestedModel, excludedIDs)",
+        "s.gatewayAccountEligible(ctx, account, platform, useMixed, requestedModel, true)",
+        "candidateEffectivePriority(acc, saturationCounts)"
+      ],
+      "rationale": "Generic direct, sticky and legacy paths consume shared gates and bounded preference."
+    },
+    {
+      "path": "backend/internal/service/universal_candidate_eligibility.go",
+      "must_contain": [
+        "protocolrouter.ParseCanonicalRequest",
+        "gatewayRequestThinkingEnabled(body, string(inbound))",
+        "group.IsSubscriptionType() != best.group.IsSubscriptionType()",
+        "ErrUniversalCapacityUnavailable",
+        "!state.Supported || !state.Available"
+      ],
+      "rationale": "Universal preserves subscription priority before soft health and distinguishes capacity from entitlement."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "resolver.WithRequest",
+        "writeUniversalRoutingCapacityError",
+        "apiKey.GroupID = &backing.ID"
+      ],
+      "rationale": "Actual request profile reaches evaluation before a single billing group is bound."
+    },
+    {
+      "path": "backend/internal/handler/protocol_request.go",
+      "must_contain": [
+        "return protocolrouter.ParseCanonicalRequest("
+      ],
+      "rationale": "Execution delegates canonical parsing to the shared owner."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/parse_request.go",
+      "must_contain": [
+        "func ParseCanonicalRequest(",
+        "protocolContinuation(root)",
+        "protocolContentKinds(document)"
+      ],
+      "rationale": "Actual feature extraction is shared with authentication; Universal must not fabricate a text-only Plan."
+    },
+    {
+      "path": "backend/internal/service/candidate_eligibility_test.go",
+      "must_contain": [
+        "TestCandidateEligibilityGoogleBackends",
+        "TestCandidateEligibilityThinkingModelReadiness",
+        "TestCandidateEligibilityMixedPoolUsesSchedulerMembership",
+        "TestCandidateEligibilityNativeAndConverterEqual",
+        "TestCandidateEligibilitySaturationPreservesBillingTier",
+        "TestCandidateEligibilityAntigravitySaturationScopeAndParity",
+        "TestCandidateEligibilityCapacityIsNotEntitlement"
+      ],
+      "rationale": "Behavior regressions for Candidate Eligibility SSOT."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk_test.go",
+      "must_contain": [
+        "TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody",
+        "TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement"
+      ],
+      "rationale": "Middleware regressions for pre-billing parsing and capacity errors."
+    },
+    {
       "path": "backend/internal/repository/integration_registry_only_tk_test.go",
       "must_contain": [
         "func runIntegrationRegistryOnlyIfRequested(m *testing.M)",
@@ -229,16 +368,16 @@
       "path": "backend/internal/service/gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *GatewayService) tkShouldClearStickyForSaturation(",
-        "count < anthropicSaturationThreshold",
+        "!candidateSaturated(count)",
         "anthropic_sticky_cleared_saturated_stub"
       ],
-      "rationale": "Sticky-side completion of the anthropic saturated mirror-stub de-prioritization (prod 2026-06-19). The Layer-2 penalty (gateway_service_tk_saturation_penalty.go) de-prioritizes a saturated stub, but the sticky-honor paths bind a session to a specific stub via shouldClearStickySession, which only inspects IsSchedulable()+model-rate-limit — both stay true for a saturated stub by design — so a session bound to a dead edge keeps selecting it FIRST and pays a wasted failover hop every request (prod 24h: cc-us5 alone 1590 hits, 0 client-facing exhaustion). This helper clears the binding when the bound anthropic stub is SUSTAINEDLY saturated (count >= anthropicSaturationThreshold) so the next selection rebinds to a healthy sibling. PREFERENCE not cooldown: never SetTempUnschedulable / advances the 3/3 ladder (would re-create the 2026-05-31 503 amplifier), reuses the existing clear+fall-through, self-clearing via the 90s counter TTL, shares the IsAnthropicSaturatedStubDeprioritizeEnabled kill-switch. Dropping this file silently reverts sticky-bound sessions to hammering a dead edge for the whole outage."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
-      "rationale": "Load-bearing wiring of the sticky saturated-stub clear: appended to the clearSticky decision in the Layer-1.5 block of SelectAccountWithLoadAwareness (the prod LoadBatchEnabled path). Wired here ONLY because clearing falls through to Layer-2 where computeAnthropicSaturationPenalties de-prioritizes the cleared stub and selection lands on a healthy sibling; the legacy selectAccountForModel* sticky blocks lack that penalty so the hook is intentionally absent there (clearing would re-pick the same stub). If an upstream merge drops this one-line hook the helper in gateway_service_tk_sticky_saturation.go becomes dead and sticky-bound sessions silently revert to selecting a saturated dead-edge stub first. Anchors the hook so merge drift is caught by preflight + the upstream-merge PR shape check.",
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection.",
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
-        "s.tkShouldClearStickyForSaturation(ctx, account, sessionHash)"
+        "s.tkShouldClearStickyForSaturation(ctx, account, sessionHash, requestedModel)"
       ]
     },
     {
@@ -4887,17 +5026,17 @@
         "func (s *GatewayService) computeAnthropicSaturationPenalties(",
         "func (a accountWithLoad) effectivePriority() int",
         "anthropicSaturationPriorityPenalty",
-        "IsAnthropicSaturatedStubDeprioritizeEnabled"
+        "s.candidateSaturationState().counts"
       ],
-      "rationale": "Read side of the anthropic saturated mirror-stub de-prioritization (prod 2026-06-12): a BOUNDED additive priority penalty folded into the load-aware candidate ranking so prod routes AWAY from an edge stub emitting SUSTAINED downstream-capacity 429/502 instead of selecting it first and wasting a failover hop every request for the whole ~47-min upstream-limit window. It is a PREFERENCE not a cooldown — the penalty is a finite ADD (1000) that can never exclude a stub from the candidate set (filterByMinPriority compares values, all-saturated keeps relative order), so amplifier-safety (2026-05-31 503 amplifier) is preserved by construction. Dropping this file silently reverts prod to selecting the dead stub first. The kill-switch read (IsAnthropicSaturatedStubDeprioritizeEnabled) keeps it operator-disableable."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
-        "s.computeAnthropicSaturationPenalties(ctx, available)",
+        "s.computeAnthropicSaturationPenalties(ctx, available, requestedModel)",
         "computeAnthropicKiroMirrorStubPenalties(available, requestedModel)"
       ],
-      "rationale": "Thin injection of the saturation de-prioritization into the upstream-shaped load-aware scheduler: the penalty is computed once on the Layer-2 'available' set, and filterByMinPriority ranks on effectivePriority() (Priority+saturationPenalty) instead of bare Priority. Removing the compute call leaves penalties at 0 (feature inert); reverting filterByMinPriority to bare account.Priority drops the fold-in even if penalties are set. Either silently disables the preference, so both anchors are pinned."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "rationale": "Thin injection of the saturation de-prioritization into the upstream-shaped load-aware scheduler: the penalty is computed once on the Layer-2 'available' set, and filterByMinPriority ranks on effectivePriority() (Priority+saturationPenalty) instead of bare Priority. Removing the compute call leaves penalties at 0 (feature inert); reverting filterByMinPriority to bare account.Priority drops the fold-in even if penalties are set. Either silently disables the preference, so both anchors are pinned.",
@@ -4975,29 +5114,29 @@
       "path": "backend/internal/service/openai_gateway_service_tk_saturation_penalty.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(",
-        "openAIEdgeMirrorStubSaturationThreshold",
+        "candidateSaturated",
         "openAISaturationScorePenalty",
-        "IsOpenAISaturatedStubDeprioritizeEnabled"
+        "s.candidateSaturationState().counts"
       ],
-      "rationale": "Read side of OpenAI edge-mirror stub saturated de-prioritization: at threshold 3 fold score penalty + sticky clear. Prod mirror/relay stubs do not write model_rate_limits — edge OAuth owns quota truth. No temp_unschedulable or per-failover runtime block on downstream-empty path."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(",
-        "count < openAIEdgeMirrorStubSaturationThreshold",
+        "!candidateSaturated(count)",
         "openai_sticky_cleared_saturated_stub"
       ],
-      "rationale": "Sticky-side completion of OpenAI saturated mirror-stub de-prioritization: selectBySessionHash honors sticky bindings that bypass load_balance penalties unless cleared here when the bound openai-us* stub is SUSTAINEDLY saturated. Without this helper sticky sessions keep selecting the dead stub first every request (same failure mode as anthropic cc-us5 2026-06-19). PREFERENCE not cooldown — shares the kill-switch and 90s counter TTL."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
-        "s.service.tkShouldClearOpenAIStickyForSaturation(ctx, account, sessionHash)",
-        "s.service.computeOpenAISaturationPenalties(ctx, candidates)",
+        "s.service.tkShouldClearOpenAIStickyForSaturation(ctx, account, sessionHash, req.RequestedModel)",
+        "s.service.computeOpenAISaturationPenalties(ctx, candidates, req.RequestedModel)",
         "item.saturationScorePenalty"
       ],
-      "rationale": "Scheduler wiring for OpenAI saturated-stub preference: sticky clear hook in selectBySessionHash and saturation penalty fold-in inside buildOpenAIAccountLoadPlan. Either hook dropped silently disables half the feature (sticky keeps dead stub, or load_balance ignores saturation)."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
@@ -5802,15 +5941,15 @@
         "var ErrUniversalNoEntitledGroup",
         "func pickUniversalBackingGroup(",
         "func (r *UniversalRoutingResolver) pickUsableBackingGroup(",
-        "supportProvider  groupModelSupportProvider",
-        "subscriptionGate subscriptionGroupUsability",
+        "groupModelSupportProvider",
+        "subscriptionGroupUsability",
         "universalShapeRequiresImageGenerationEnabled",
         "filterGroupsAllowImageGeneration",
         "supportProvider(ctx, &gid, eligible[i].Platform, model, shape)",
         "else if hint := universalRequestPlatformHint(shape, model); hint != \"\"",
         "收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403)"
       ],
-      "rationale": "Universal Key (全能 Key) per-request resolver: maps a routing_mode=universal key to a concrete backing group from the owner's live entitlement span (GetAvailableGroups, short-TTL cached), filtered by endpoint-shape candidate platforms, with deterministic pick (subscription-held -> sort_order -> id). docs/approved/universal-key-routing.md §4.3. Dropping this file disables universal-key routing entirely (every universal key would fall through with a nil group). Pins the constructor, Resolve entrypoint, the no-entitled-group sentinel error, and the deterministic picker. Load-bearing P0 gate (prod 2026-07-01 user16 universal key #245): when groupServesModel filters eligible to empty AND the model has a platform hint, Resolve must return ErrUniversalNoEntitledGroup (middleware 403) — NOT fall back to a wrong openai-compat group and surface routing-phase 429 No available accounts (routing_capacity_rejection storm). Universal/direct-key parity now depends on the direct-scheduler supportProvider branch running before the GetAvailableModels fallback; losing that branch silently reverts OpenAI passthrough, wildcard, Anthropic alias, and Antigravity default-mapping parity. An upstream merge that restores the old served-empty fallback or drops supportProvider silently re-opens the amplifier; the hint branch plus supportProvider call are the mechanical anchors."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_serving.go",
@@ -5819,17 +5958,14 @@
         "func (s *GatewayService) UniversalGroupSupportsModel(",
         "func (s *GatewayService) UniversalGroupSupportsRequest(",
         "s.listSchedulableAccountsForModel(ctx, groupID, platform, false, model)",
-        "s.isClaudeNewAPICrossPlatformAccountAllowed(ctx, acc, platform, model, false)",
-        "acc.IsOpenAICompatPoolMember(platform)",
+        "s.candidateSupportsRequest(ctx, &accounts[i], platform, useMixed, model, shape)",
         "universalOpenAICompatAccountSupportsShape",
         "accountSupportsOpenAIRequestCapabilities(account, \"\", \"\", true)",
-        "universalOpenAICompatAccountSupportsModel(ctx, s, acc, model, shape)",
         "s.isModelSupportedByAccountWithContext(ctx, account, model)",
-        "s.isModelSupportedByAccountWithContext(ctx, acc, model)",
         "modelInServedSet(model string, served []string, platform string)",
         "normalizeRequestedModelForLookup(platform, model)"
       ],
-      "rationale": "Universal-key routing must use the same account-level model+protocol predicate as the direct schedulers before consulting the lossy group-level served-model union. This pins the provider type, the GatewayService implementation, the OpenAI-compatible pool/member + IsModelSupported path, endpoint-shape capability gates (including video-capable accounts), the native gateway path, and the alias-aware served-set fallback. Dropping any of these can make a universal key choose a different backing group than a direct key for the same model/protocol while existing /v1/models output still looks plausible."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "path": "backend/internal/service/account_wildcard_tk.go",
@@ -5906,9 +6042,9 @@
     {
       "path": "backend/cmd/server/wire_gen.go",
       "must_contain": [
-        "service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService, subscriptionService)"
+        "service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService, subscriptionService, openAIGatewayService, router)"
       ],
-      "rationale": "Generated production DI evidence that the universal-key resolver receives SubscriptionService. Source providers alone do not prove the real server graph retained the subscription-usability fallback."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "path": "backend/internal/service/universal_routing_tk_resolver_test.go",
@@ -6077,11 +6213,10 @@
     {
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
-        "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false)",
-        "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, true)",
-        "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
+        "s.openAICandidates(ctx, accounts, req)",
+        "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, true)"
       ],
-      "rationale": "Advanced-scheduler wiring of the OpenAI window guard (see openai_account_scheduler_tk_window_sched.go): selectByLoadBalance applies it with isSticky=false (drops near-limit accounts from fresh selection) and selectBySessionHash with isSticky=true (keeps a StickyOnly account for its own session, preserving prompt-cache). The never-empty-pool fallback re-admits the coolest dropped account so the guard can never empty a thin pool into a worse no-available-accounts 429 — necessary because codex used% IS the upstream's own limit, unlike the anthropic $-budget twin. Dropping these one-line hooks silently disables the guard on the advanced path; anchors them so merge drift fails preflight + the upstream-merge PR shape check."
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
     {
       "path": "backend/internal/service/openai_gateway_scheduling.go",
@@ -6098,10 +6233,10 @@
       ]
     },
     {
-      "rationale": "Legacy + priority/LRU wiring of the OpenAI window guard across the remaining candidate-filter selection paths: selectAccountWithLoadAwareness Layer-2 (isSticky=false) + Layer-1 sticky (isSticky=true, marks clearSticky so the hit falls through without deleting the binding), selectBestAccount (isSticky=false; used by count_tokens failover + gemini-compat) and tryStickySessionHit (isSticky=true). selectAccountWithLoadAwareness is the DEFAULT prod path (advanced scheduler defaults off), so this is the load-bearing wiring for the reported incident; never-empty-pool fallback present here too. Anchors the hooks so an upstream merge cannot silently drop the guard call and revert the GPT line to window-blind selection.",
+      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection.",
       "path": "backend/internal/service/openai_account_scheduler.go",
       "must_contain": [
-        "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
+        "s.openAICandidates(ctx, accounts, req)"
       ]
     },
     {
@@ -9262,10 +9397,11 @@
       "rationale": "P3 companion: Anthropic window-cost gate + never-empty-pool recovery. Collects non-sticky window rejects and re-admits the least-utilized dropped account when Layer-2 would otherwise empty the pool. Dropping this file silently loses the recovery path even if call sites remain."
     },
     {
-      "path": "backend/internal/service/gateway_scheduling.go",
+      "path": "backend/internal/service/gateway_candidate_eligibility.go",
       "must_contain": [
         "s.tkAllowOrCollectWindowCost(ctx, acc, &windowDropped)",
-        "tkRecoverAnthropicCandidatesFromWindowDropped(candidates, windowDropped, time.Now())"
+        "tkRecoverAnthropicCandidatesFromWindowDropped(candidates, windowDropped, time.Now())",
+        "s.gatewayAccountEligible(ctx, acc, platform, useMixed, requestedModel, false)"
       ],
       "rationale": "P3 thin wiring for Anthropic window-cost drop + never-empty recovery in SelectAccountWithLoadAwareness Layer-2. Upstream merges that restore bare continue-on-window-reject (no collect) or drop the recovery call silently empty the pool under window pressure."
     },

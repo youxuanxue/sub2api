@@ -1,8 +1,10 @@
 # User Stories Index
 
 
+
 | ID     | Title                                            | Status | Path                                                                                  |
 | ------ | ------------------------------------------------ | ------ | ------------------------------------------------------------------------------------- |
+| US-050 | Candidate Eligibility SSOT | Done | `.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md` |
 | US-001 | Channel type bridge dispatch baseline            | Done   | `.testing/user-stories/stories/US-001-channel-type-bridge-dispatch-baseline.md`       |
 | US-002 | OpenAI entrypoints affinity prefetch integration | Done   | `.testing/user-stories/stories/US-002-openai-affinity-entrypoints.md`                 |
 | US-003 | Gateway responses/chat affinity integration      | Done   | `.testing/user-stories/stories/US-003-gateway-responses-chat-affinity-entrypoints.md` |

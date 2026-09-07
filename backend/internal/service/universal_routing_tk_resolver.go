@@ -8,6 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+
 	"golang.org/x/sync/singleflight"
 )
 
@@ -33,9 +36,11 @@ type UniversalRoutingResolver struct {
 	// 经 APIKeyService.SetUniversalAvailableModelsProvider 在 GatewayService 构造后绑定
 	// (避免构造期环)。受 mu 保护。nil = 未接线/降级 → Resolve 退回平台级现状(安全兜底)。
 	// 见 universal_routing_tk_serving.go。
-	modelsProvider   availableModelsProvider
-	supportProvider  groupModelSupportProvider
-	subscriptionGate subscriptionGroupUsability
+	modelsProvider     availableModelsProvider
+	supportProvider    groupModelSupportProvider
+	subscriptionGate   subscriptionGroupUsability
+	candidateEvaluator groupCandidateEvaluator
+	router             *protocolrouter.Router
 }
 
 // subscriptionGroupUsability 判断订阅型后端组此刻能否接请求。
@@ -130,6 +135,11 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 	}
 
 	candidates := universalCandidatePlatforms(shape, forcedPlatform, spanHasMessagesDispatch(span), model)
+	if _, routed := ProtocolRoutingRequest(ctx); routed && forcedPlatform == "" && shape == ShapeOpenAIChat {
+		// Text eligibility is decided by Plan, including valid converters. Catalog
+		// hints are only a degraded fallback and cannot exclude a proven route.
+		candidates = append(candidates, PlatformAnthropic, PlatformGemini, PlatformAntigravity)
+	}
 	if len(candidates) == 0 {
 		return nil, ErrUniversalNoEntitledGroup
 	}
@@ -156,6 +166,14 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 	}
 	if len(eligible) == 0 {
 		return nil, ErrUniversalNoEntitledGroup
+	}
+
+	r.mu.RLock()
+	evaluate := r.candidateEvaluator
+	r.mu.RUnlock()
+	if evaluate != nil && model != "" {
+		ctx = context.WithValue(ctx, ctxkey.UserID, apiKey.UserID)
+		return r.pickCandidateBackingGroup(ctx, apiKey.UserID, eligible, model, shape, evaluate)
 	}
 
 	// 模型服务真值收敛:把 eligible 收敛到“真正服务该模型”的组(见 universal_routing_tk_serving.go)。

@@ -5,34 +5,18 @@ import (
 	"log/slog"
 )
 
-// tkShouldClearOpenAIStickyForSaturation clears a sticky binding when the bound
-// OpenAI-compatible edge-mirror stub is SUSTAINEDLY returning downstream
-// capacity signals, mirroring gateway_service_tk_sticky_saturation.go for the
-// GPT scheduler.
-func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(ctx context.Context, account *Account, sessionHash string) bool {
-	if s == nil || s.tkOpenAISaturationCounter == nil || account == nil {
+// tkShouldClearOpenAIStickyForSaturation releases affinity at the same threshold as account scoring.
+// It does not remove the account from the candidate pool.
+func (s *OpenAIGatewayService) tkShouldClearOpenAIStickyForSaturation(ctx context.Context, account *Account, sessionHash string, requestedModel ...string) bool {
+	if s == nil || account == nil {
 		return false
 	}
-	if !tkIsOpenAICompatEdgeMirrorStub(account) {
+	count := s.candidateSaturationState().counts(ctx, []*Account{account}, firstRequestedModel(requestedModel))[account.ID]
+	if !candidateSaturated(count) {
 		return false
 	}
-	if s.settingService != nil && !s.settingService.IsOpenAISaturatedStubDeprioritizeEnabled(ctx) {
-		return false
-	}
-	counts, err := s.tkOpenAISaturationCounter.GetSaturationBatch(ctx, []int64{account.ID})
-	if err != nil {
-		return false
-	}
-	count := counts[account.ID]
-	if count < openAIEdgeMirrorStubSaturationThreshold {
-		return false
-	}
-	slog.Info("openai_sticky_cleared_saturated_stub",
-		"account_id", account.ID,
-		"recent_count", count,
-		"threshold", openAIEdgeMirrorStubSaturationThreshold,
-		"window_seconds", edgeMirrorStubSaturationWindowSeconds,
-		"session", shortSessionHash(sessionHash),
-	)
+	slog.Info("openai_sticky_cleared_saturated_stub", "account_id", account.ID, "recent_count", count,
+		"threshold", edgeMirrorStubSaturationThreshold, "window_seconds", edgeMirrorStubSaturationWindowSeconds,
+		"session", shortSessionHash(sessionHash))
 	return true
 }

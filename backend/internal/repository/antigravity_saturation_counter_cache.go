@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -10,6 +11,32 @@ import (
 )
 
 const antigravitySaturationCountPrefix = "antigravity_saturation_count:account:"
+
+func (c *antigravitySaturationCounterCache) GetSaturationBatch(ctx context.Context, scopes []service.AntigravitySaturationScope) (map[service.AntigravitySaturationScope]int64, error) {
+	out := make(map[service.AntigravitySaturationScope]int64, len(scopes))
+	if len(scopes) == 0 {
+		return out, nil
+	}
+	keys := make([]string, len(scopes))
+	for i, scope := range scopes {
+		keys[i] = antigravitySaturationKey(scope.AccountID, scope.ModelKey)
+	}
+	values, err := c.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("mget antigravity saturation: %w", err)
+	}
+	for i, value := range values {
+		if value == nil {
+			continue
+		}
+		count, err := strconv.ParseInt(fmt.Sprint(value), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse antigravity saturation: %w", err)
+		}
+		out[scopes[i]] = count
+	}
+	return out, nil
+}
 
 var antigravitySaturationIncrScript = redis.NewScript(`
 	local key = KEYS[1]

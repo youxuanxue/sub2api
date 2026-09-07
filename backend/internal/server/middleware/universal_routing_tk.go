@@ -72,6 +72,29 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 	}
 
 	model := peekUniversalModel(c, shape)
+	if raw, ok := readAndRestoreUniversalBody(c); ok {
+		// Decode with the execution owner's size limits, on a request copy so raw
+		// bytes and Content-Encoding remain intact for downstream handlers.
+		copyRequest := c.Request.Clone(c.Request.Context())
+		copyRequest.Body = io.NopCloser(bytes.NewReader(raw))
+		if body, err := pkghttputil.ReadRequestBodyWithPrealloc(copyRequest); err == nil {
+			if shape == service.ShapeOpenAIChat {
+				body, err = pkghttputil.NormalizeLenientJSONRequestBody(body, 0)
+			}
+			if err == nil {
+				if shape != service.ShapeGemini && shape != service.ShapeOpenAIImagesEdit {
+					var document struct {
+						Model string `json:"model"`
+					}
+					if json.Unmarshal(body, &document) == nil {
+						model = strings.TrimSpace(document.Model)
+					}
+				}
+				ctx := resolver.WithRequest(c.Request.Context(), shape, requestPath, model, body)
+				c.Request = c.Request.WithContext(ctx)
+			}
+		}
+	}
 	reqLog := universalRoutingLogger(c, apiKey, shape, model, forcedPlatform)
 
 	backing, err := resolver.Resolve(c.Request.Context(), apiKey, shape, model, forcedPlatform)
@@ -81,6 +104,9 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
 			reqLog.Warn("universal_routing.no_entitled_group")
 			writeUniversalRoutingError(c, shape, model)
+		} else if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
+			reqLog.Warn("universal_routing.capacity_unavailable")
+			writeUniversalRoutingCapacityError(c, shape)
 		} else {
 			reqLog.Error("universal_routing.resolve_failed", zap.Error(err))
 			writeUniversalRoutingInternalError(c, shape)
@@ -98,6 +124,19 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		zap.String("backing_platform", backing.Platform),
 	)
 	return false
+}
+
+func writeUniversalRoutingCapacityError(c *gin.Context, shape service.UniversalShape) {
+	const status = http.StatusTooManyRequests
+	const message = "No available accounts for this request. Please retry."
+	switch shape {
+	case service.ShapeGemini:
+		GoogleErrorWriter(c, status, message)
+	case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
+		AnthropicErrorWriter(c, status, message)
+	default:
+		c.JSON(status, gin.H{"error": gin.H{"message": message, "type": "rate_limit_error", "code": "no_available_accounts"}})
+	}
 }
 
 func universalRoutingLogger(c *gin.Context, apiKey *service.APIKey, shape service.UniversalShape, model, forcedPlatform string) *zap.Logger {
