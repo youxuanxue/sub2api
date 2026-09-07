@@ -1519,6 +1519,28 @@
       "rationale": "GatewayService.isModelSupportedByAccount must route tokensea anthropic #93 through Account.IsModelSupported before the claude-* namespace guard. Without this early return, gpt/qwen public SSOT IDs that now pass Anthropic ingress still cannot select #93. Pin the short-circuit so an upstream merge cannot restore the 400-before-selection leak."
     },
     {
+      "path": "backend/internal/handler/gateway_handler_tk_tokensea_plan_test.go",
+      "must_contain": [
+        "TestTokenseaAnthropicMessagesUsesPlannedChat",
+        "h.executeMessagesSelectedProtocol(",
+        "require.Equal(t, protocolrouter.ProtocolChatCompletions, plan.TargetProtocol())",
+        "require.Equal(t, plan.Endpoint(), upstream.request.URL.String())",
+        "require.Equal(t, 3, result.Usage.InputTokens)"
+      ],
+      "rationale": "A mapped GPT model on Anthropic tokensea must remain eligible when Plan can convert Messages to a supported Chat endpoint. Protect real handler execution, planned credentials/endpoint/model and usage, instead of encoding platform-based denial."
+    },
+    {
+      "path": "backend/internal/service/candidate_eligibility_tk_tokensea_test.go",
+      "must_contain": [
+        "TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances",
+        "gateway.gatewayCandidates(",
+        "resolver.Resolve(",
+        "ErrUniversalCapacityUnavailable",
+        "ErrUniversalNoEntitledGroup"
+      ],
+      "rationale": "Universal selection and direct scheduler candidates must agree with Plan for Tokensea GPT requests; disabled capacity stays distinct from absence of any legal protocol route."
+    },
+    {
       "path": "backend/internal/service/account.go",
       "must_contain": [
         "a.IsAnthropicTokenseaRelay() && !tokenseaRelayAccountSupportsRequestedModel(requestedModel)"
@@ -6525,19 +6547,70 @@
         "h.tkForwardChatCompletionsByOpenAIShape(",
         "ChatToGemini:"
       ],
-      "rationale": "Gateway /v1/chat/completions governed protocol boundary: WithProtocolRouting attach + ExecuteSelectedProtocol (incl. ChatToGemini / gemini-native branch) must stay co-located in this companion per protocol-routing SSOT. NonGoverned and ChatIdentity both dispatch via tkForwardChatCompletionsByOpenAIShape (ResolveGovernedOpenAIShapeMode SSOT) so Antigravity edge-relay Gemini hops via geminiCompat instead of OpenAI GetOpenAIProtocolAPIKey. P2: extracted from gateway_handler_chat_completions.go."
+      "rationale": "Gateway /v1/chat/completions governed protocol boundary: WithProtocolRouting attach + ExecuteSelectedProtocol (incl. ChatToGemini / gemini-native branch) must stay co-located in this companion per protocol-routing SSOT. Bound adapters must execute the Plan-selected protocol without platform/model redispatch. P2: extracted from gateway_handler_chat_completions.go."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_openai_shape_forward.go",
       "must_contain": [
         "func (h *GatewayHandler) tkForwardChatCompletionsByOpenAIShape(",
         "func (h *GatewayHandler) tkForwardResponsesByOpenAIShape(",
+        "service.ProtocolExecutionPlan(executionCtx)",
         "service.ResolveGovernedOpenAIShapeMode(account, reqModel)",
         "service.GovernedOpenAIShapeGeminiCompat",
         "service.GovernedOpenAIShapeAntigravityClaudeRelay",
         "service.GovernedOpenAIShapeAntigravityOAuthCloudCode"
       ],
-      "rationale": "Single call-site owner for OpenAI-shape chat/responses special-case hops. Both NonGoverned and governed identity adapters must route through these helpers so AG Gemini/Claude/OAuth branching cannot drift."
+      "rationale": "Chat/Responses forwarding must honor a bound protocolrouter.Plan before legacy platform/model dispatch. Redispatching a Chat identity through Gemini compatibility sends a model-less Gemini body to the Chat endpoint."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_planned_openai_shape_test.go",
+      "must_contain": [
+        "TestGatewayPlannedAntigravityOpenAIShapeKeepsPlannedWire",
+        "require.Equal(t, plan.Endpoint(), upstream.request.URL.String())",
+        "require.Equal(t, plan.ResolvedModel(), gjson.GetBytes(upstream.body, \"model\").String())",
+        "require.Equal(t, 3, result.Usage.InputTokens)",
+        "chat_identity_stream",
+        "responses_to_chat_stream",
+        "chat_to_responses",
+        "responses_identity",
+        "chat_to_gemini",
+        "responses_to_gemini"
+      ],
+      "rationale": "Wire-level regression for Antigravity edge account selection: real Plan, handler adapters and transport builders must agree on endpoint, protocol body, mapped model, credentials and usage, including streaming."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service.go",
+      "must_contain": [
+        "if protocolExecutionBound(ctx) {",
+        "strings.TrimSpace(protocolAuthorizationToken(account))"
+      ],
+      "rationale": "Plan-bound API-key execution must consume the existing protocol authorization owner used during capability evaluation. Falling back to the legacy OpenAI-only accessor rejects valid Antigravity edge credentials."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "targetURL := protocolExecutionEndpoint(ctx, \"\")",
+        "targetURL, err = s.rawChatCompletionsURL(account)"
+      ],
+      "rationale": "Raw Chat must consume the Plan endpoint before the legacy URL resolver, which cannot resolve every protocol-governed platform. The planned-wire regression verifies the destination actually sent."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
+      "must_contain": [
+        "resolveCCFallbackTarget(ctx context.Context, account *Account)",
+        "if targetURL = protocolExecutionEndpoint(ctx, \"\"); targetURL != \"\" {",
+        "apiKey, _, err = s.GetAccessToken(ctx, account)"
+      ],
+      "rationale": "Messages/Responses-to-Chat converters must share Plan-bound endpoint and credential consumption; legacy resolver rules apply only without a Plan."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution_test.go",
+      "must_contain": [
+        "TestProtocolPlannedAPIKeyUsesProtocolAuthorizationOwner",
+        "unplanned traffic must retain the legacy credential boundary",
+        "missing planned credential must fail closed"
+      ],
+      "rationale": "Bound API-key credential regression covers accepted protocol credentials, unchanged unplanned behavior, and missing-key rejection."
     },
     {
       "path": "backend/internal/handler/gateway_handler_chat_completions.go",
@@ -6603,7 +6676,7 @@
         "GovernedOpenAIShapeAntigravityOAuthCloudCode",
         "UsesGeminiNativeOpenAICompat(account.Platform, model)"
       ],
-      "rationale": "SSOT for OpenAI-shape chat/responses special-case forwarder selection (NonGoverned + governed identity). Antigravity apikey edge stubs are protocol-governed but must not enter OpenAIGatewayService for Gemini text; OAuth Claude must stay on Cloud Code. Dropping this companion reopens api_key not found on prod→edge Gemini chat."
+      "rationale": "Legacy fallback for OpenAI-shape chat/responses outside bound protocol routing. Bound plans own converter selection; this platform/model classifier must not override their wire protocol. OAuth Claude retains its Cloud Code fallback."
     },
     {
       "path": "backend/internal/service/gateway_governed_openai_shape_tk_test.go",

@@ -117,6 +117,15 @@ Chat attempts: 6 passed and 30 were blocked by Cursor regional policy. Composer
 2.5 passed three-protocol tool continuation, parallel tools, Claude Code Read,
 and gateway billing checks. This is not completed all-model production acceptance.
 
+The [prod egress comparison](validation/2026-09-07-prod-egress.json) used the same
+account via the existing AWS US-East production host. Its US egress was verified:
+Composer 2.5 succeeded, while Claude Sonnet 4.6, GPT 5.4 and Gemini 3.1 Pro still
+returned the same regional restriction. Moving requests to this prod exit did
+not resolve the tested restrictions. Cursor's public region documentation does
+not identify the exact account/organization/provider signals behind the decision.
+This probe changed no production application or account configuration and is not
+a full production deployment or a retest of all thirty blocked models.
+
 Prerequisites: the pinned sibling new-api checkout, Go, Docker, Node >=22.19,
 pnpm, and a Cursor account with SDK access. Run from the TokenKey root:
 

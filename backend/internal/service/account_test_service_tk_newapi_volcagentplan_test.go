@@ -91,7 +91,7 @@ func TestNativeAgentPlanUsesNewAPIKeyCredential(t *testing.T) {
 	require.Equal(t, "agent-plan-key", token)
 	require.Equal(t, "apikey", kind)
 
-	fallbackKey, targetURL, err := svc.resolveCCFallbackTarget(account)
+	fallbackKey, targetURL, err := svc.resolveCCFallbackTarget(context.Background(), account)
 	require.NoError(t, err)
 	require.Equal(t, "agent-plan-key", fallbackKey)
 	require.Equal(t, newapiintegration.VolcEngineAgentPlanBaseURL+"/chat/completions", targetURL)

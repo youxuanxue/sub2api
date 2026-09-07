@@ -54,6 +54,45 @@ func protocolExecutionAccountLoaderForTest(account *Account) ProtocolExecutionAc
 	}
 }
 
+func TestProtocolPlannedAPIKeyUsesProtocolAuthorizationOwner(t *testing.T) {
+	account := &Account{
+		ID: 62, Name: "antigravity-us4", Platform: PlatformAntigravity, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api-us4.tokenkey.dev", "api_key": "edge-test-key",
+			"model_mapping": map[string]any{"gemini-3.8-flash": "gemini-3.8-flash"},
+		},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
+	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+		InboundProtocol: protocolrouter.ProtocolChatCompletions, RequestedModel: "gemini-3.8-flash",
+		Body: []byte(`{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hello"}]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := protocolAccountSnapshotForRequest(account, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &OpenAIGatewayService{}
+	if _, _, err := svc.GetAccessToken(context.Background(), account); err == nil {
+		t.Fatal("unplanned traffic must retain the legacy credential boundary")
+	}
+	ctx := withProtocolExecutionPlan(context.Background(), plan)
+	key, kind, err := svc.GetAccessToken(ctx, account)
+	if err != nil || key != "edge-test-key" || kind != "apikey" {
+		t.Fatalf("planned credential binding: kind=%q err=%v", kind, err)
+	}
+	delete(account.Credentials, "api_key")
+	if key, _, err := svc.GetAccessToken(ctx, account); err == nil || key != "" {
+		t.Fatal("missing planned credential must fail closed")
+	}
+}
+
 func TestExecuteGeminiProtocolProfileUsesOnlyPlannedProfile(t *testing.T) {
 	tests := []struct {
 		name            string

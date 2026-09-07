@@ -266,7 +266,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 				case "thinking_delta":
 					finalResp.Content[idx].Thinking += event.Delta.Thinking
 				case "input_json_delta":
-					finalResp.Content[idx].Input = appendRawJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
+					finalResp.Content[idx].Input = appendAnthropicToolJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
 				}
 			}
 		}
