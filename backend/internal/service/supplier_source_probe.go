@@ -526,44 +526,14 @@ func cloneSupplierSourceProbeResult(in *SupplierSourceProbeResult) *SupplierSour
 	out := *in
 	// Always allocate empty (non-nil) slices so JSON encodes [] not null.
 	// Admin discover UI reads .length on these fields; null crashes the panel.
-	out.UpstreamModels = cloneSupplierUpstreamModelEntries(in.UpstreamModels)
+	out.UpstreamModels = append([]SupplierUpstreamModelEntry{}, in.UpstreamModels...)
 	out.NormalizedModels = cloneSupplierSourceModels(in.NormalizedModels)
-	out.NormalizedChanges = cloneSupplierModelNormalizeChanges(in.NormalizedChanges)
+	out.NormalizedChanges = append([]SupplierModelNormalizeChange{}, in.NormalizedChanges...)
 	out.SuggestedAppends = cloneSupplierSourceModels(in.SuggestedAppends)
-	out.RejectedCandidates = cloneSupplierProbeRejectedCandidates(in.RejectedCandidates)
-	out.ConfiguredIssues = cloneSupplierProbeConfiguredIssues(in.ConfiguredIssues)
-	out.ProbeResults = cloneSupplierProbeResults(in.ProbeResults)
+	out.RejectedCandidates = append([]SupplierProbeRejectedCandidate{}, in.RejectedCandidates...)
+	out.ConfiguredIssues = append([]SupplierProbeConfiguredIssue{}, in.ConfiguredIssues...)
+	out.ProbeResults = append([]SupplierProbeResult{}, in.ProbeResults...)
 	return &out
-}
-
-func cloneSupplierUpstreamModelEntries(in []SupplierUpstreamModelEntry) []SupplierUpstreamModelEntry {
-	out := make([]SupplierUpstreamModelEntry, len(in))
-	copy(out, in)
-	return out
-}
-
-func cloneSupplierModelNormalizeChanges(in []SupplierModelNormalizeChange) []SupplierModelNormalizeChange {
-	out := make([]SupplierModelNormalizeChange, len(in))
-	copy(out, in)
-	return out
-}
-
-func cloneSupplierProbeRejectedCandidates(in []SupplierProbeRejectedCandidate) []SupplierProbeRejectedCandidate {
-	out := make([]SupplierProbeRejectedCandidate, len(in))
-	copy(out, in)
-	return out
-}
-
-func cloneSupplierProbeConfiguredIssues(in []SupplierProbeConfiguredIssue) []SupplierProbeConfiguredIssue {
-	out := make([]SupplierProbeConfiguredIssue, len(in))
-	copy(out, in)
-	return out
-}
-
-func cloneSupplierProbeResults(in []SupplierProbeResult) []SupplierProbeResult {
-	out := make([]SupplierProbeResult, len(in))
-	copy(out, in)
-	return out
 }
 
 func cloneSupplierSourceModels(in []SupplierSourceModel) []SupplierSourceModel {

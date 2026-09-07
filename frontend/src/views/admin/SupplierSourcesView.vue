@@ -393,7 +393,7 @@
             }) }}
           </p>
           <p
-            v-if="discoverResult.probe_status === 'running'"
+            v-if="discovering && discoverResult.probe_status === 'running'"
             data-test="discover-candidate-progress"
             class="text-sm text-amber-700"
           >
@@ -997,9 +997,9 @@ function supplierDiscoverResultFromError(error: unknown): SupplierSourceProbeRes
   const data = (error as { data?: unknown }).data
   if (!data || typeof data !== 'object') return null
   const candidate = data as Partial<SupplierSourceProbeResult>
-  // Accept null arrays (legacy JSON) but reject non-array object values.
-  if (candidate.normalized_models != null && !Array.isArray(candidate.normalized_models)) return null
-  if (candidate.suggested_appends != null && !Array.isArray(candidate.suggested_appends)) return null
+  // Legacy null arrays are valid; absent fields identify an unrelated API error.
+  if (candidate.normalized_models !== null && !Array.isArray(candidate.normalized_models)) return null
+  if (candidate.suggested_appends !== null && !Array.isArray(candidate.suggested_appends)) return null
   return normalizeSupplierProbeResult(candidate)
 }
 
