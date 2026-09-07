@@ -99,10 +99,30 @@
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
       "must_contain": [
         "resolver.WithRequest",
+        "service.TkApplyBareModelAlias(forcedPlatform, parsed)",
+        "c.Set(service.OpsRoutingInternalErrorKey, true)",
         "writeUniversalRoutingCapacityError",
         "apiKey.GroupID = &backing.ID"
       ],
       "rationale": "Actual request profile reaches evaluation before a single billing group is bound."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",
+      "must_contain": [
+        "TestUniversalAliasUsesSameModelForPlanAndHandler",
+        "router.Plan(request, snapshot)",
+        "TestUniversalAliasPreservesUnmatchedAndForcedRequests"
+      ],
+      "rationale": "Universal resolves existing Claude aliases before candidate planning and passes the same normalized body to execution, including compressed requests. Alias misses and forced-platform requests preserve the existing contract."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_universal_routing_test.go",
+      "must_contain": [
+        "TestOpsUniversalRoutingFailureIsPlatformOwned",
+        "middleware.MaybeResolveUniversal(c, key, resolver)",
+        "classifyOpsErrorLog(c, parsed.ErrorType, parsed.Message, parsed.Code, recorder.Code)"
+      ],
+      "rationale": "A pre-selection Universal failure must remain routing/platform-owned across protocol envelopes and must not disappear into client permission failures."
     },
     {
       "path": "backend/internal/handler/protocol_request.go",

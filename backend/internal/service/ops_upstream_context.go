@@ -18,6 +18,9 @@ const (
 	// body size + model stashed at handler entry without a service→handler cycle.
 	OpsModelKey       = "ops_model"
 	OpsRequestBodyKey = "ops_request_body"
+	// OpsRoutingInternalErrorKey records a pre-selection infrastructure failure,
+	// independently of the inbound protocol's error envelope.
+	OpsRoutingInternalErrorKey = "ops_routing_internal_error"
 
 	OpsUpstreamStatusCodeKey   = "ops_upstream_status_code"
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
