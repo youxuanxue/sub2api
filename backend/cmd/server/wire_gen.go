@@ -409,7 +409,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	antigravitySaturationCounterCache := repository.NewAntigravitySaturationCounterCache(redisClient)
 	tkAntigravitySaturationReady := service.ProvideTKAntigravitySaturation(rateLimitService, antigravitySaturationCounterCache)
 	tkGatewayHandlerModelListReady := handler.ProvideTKGatewayHandlerModelList(gatewayHandler, openAIGatewayHandler, modelListFilter, universalCapabilityService)
-	tkUniversalModelsProviderReady := service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService, subscriptionService)
+	tkUniversalModelsProviderReady := service.ProvideTKUniversalModelsProvider(apiKeyService, gatewayService, subscriptionService, openAIGatewayService, router)
 	tkGroupUnsupportedModelCacheReady := service.ProvideTKGroupUnsupportedModelCache(gatewayService, openAIGatewayService, channelService)
 	cacheFingerprintStore := repository.NewKiroCacheFingerprintStore(redisClient)
 	tkKiroCacheBillingReady := service.ProvideTKKiroCacheBilling(kiroGatewayService, cacheFingerprintStore, settingService)

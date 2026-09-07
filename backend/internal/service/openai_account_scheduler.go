@@ -533,7 +533,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, 0, nil
 	}
-	if s.service.tkShouldClearOpenAIStickyForSaturation(ctx, account, sessionHash) {
+	if s.service.tkShouldClearOpenAIStickyForSaturation(ctx, account, sessionHash, req.RequestedModel) {
 		clearBinding()
 		return nil, false, 0, nil
 	}
@@ -957,7 +957,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	plan.loadSkew = calcLoadSkewByMoments(loadRateSum, loadRateSumSquares, len(candidates))
 
 	if !req.UseUpstreamTokenCost {
-		s.service.computeOpenAISaturationPenalties(ctx, candidates)
+		s.service.computeOpenAISaturationPenalties(ctx, candidates, req.RequestedModel)
 	}
 
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)
@@ -1431,92 +1431,13 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, poolPlatform, openAISelectionFilterStats{}.summary(""))
 	}
-	// Local free-tier soft gate on the Grok scheduling path only (not admin probe).
-	accounts = s.filterGrokFreeQuotaAccounts(ctx, accounts)
-	if len(accounts) == 0 {
-		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, req.GroupPlatform, openAISelectionFilterStats{}.summary("grok_free_quota_soft_gate"))
+	filtered, filterStats := s.openAICandidates(ctx, accounts, req)
+	if len(filtered) == 0 && req.RequireCompact && filterStats.reasons["compact_unsupported"] > 0 {
+		return nil, 0, 0, 0, ErrNoAvailableCompactAccounts
 	}
-	// Team+model rate-limit cool: siblings of a 429'd team skip the hot model.
-	if req.schedulePlatform() == PlatformGrok {
-		now := time.Now()
-		filtered := filterGrokTeamModelRateLimitedAccounts(accounts, req.RequestedModel, now)
-		if len(filtered) == 0 && len(accounts) > 0 {
-			return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, req.GroupPlatform, openAISelectionFilterStats{}.summary("grok_team_model_rate_limit"))
-		}
-		if filtered != nil {
-			accounts = filtered
-		}
-		// Per-account model free-usage soft-block (other models stay eligible).
-		modelFiltered := filterGrokModelQuotaBlockedAccounts(accounts, req.RequestedModel, now)
-		if len(modelFiltered) == 0 && len(accounts) > 0 {
-			return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, req.GroupPlatform, openAISelectionFilterStats{}.summary("grok_model_quota_block"))
-		}
-		accounts = modelFiltered
-	}
-
-	// require_privacy_set: 获取分组信息
-	var schedGroup *Group
-	if req.GroupID != nil && s.service.schedulerSnapshot != nil {
-		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID)
-	}
-
-	filterStats := openAISelectionFilterStats{pool: len(accounts)}
-	filtered := make([]*Account, 0, len(accounts))
-	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
-	windowDropped := make([]*Account, 0)
-	for i := range accounts {
-		account := &accounts[i]
-		if req.ExcludedIDs != nil {
-			if _, excluded := req.ExcludedIDs[account.ID]; excluded {
-				filterStats.exclude("excluded")
-				continue
-			}
-		}
-		if !account.IsSchedulable() {
-			filterStats.exclude("not_schedulable")
-			continue
-		}
-		if !account.IsOpenAICompatPoolMember(poolPlatform) || !account.IsOpenAICompatible() {
-			filterStats.exclude("platform_mismatch")
-			continue
-		}
-		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
-			filterStats.exclude("runtime_blocked")
-			continue
-		}
-		// require_privacy_set is a group-scoped eligibility gate. Do not mutate the
-		// shared account: another group may intentionally allow accounts whose
-		// upstream privacy setting has not been confirmed.
-		if schedGroup != nil && schedGroup.RequirePrivacySet && !account.IsPrivacySet() {
-			filterStats.exclude("privacy_not_set")
-			continue
-		}
-		if compatible, reason := s.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
-			filterStats.exclude(reason)
-			continue
-		}
-		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-			filterStats.exclude("transport_incompatible")
-			continue
-		}
-		if !s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false) {
-			windowDropped = append(windowDropped, account)
-			continue
-		}
-		filtered = append(filtered, account)
-		loadReq = append(loadReq, AccountWithConcurrency{
-			ID:             account.ID,
-			MaxConcurrency: account.EffectiveLoadFactor(),
-		})
-	}
-	if len(filtered) == 0 && len(windowDropped) > 0 {
-		if acc := leastUtilizedOpenAIAccount(windowDropped, time.Now()); acc != nil {
-			filtered = append(filtered, acc)
-			loadReq = append(loadReq, AccountWithConcurrency{
-				ID:             acc.ID,
-				MaxConcurrency: acc.EffectiveLoadFactor(),
-			})
-		}
+	loadReq := make([]AccountWithConcurrency, 0, len(filtered))
+	for _, account := range filtered {
+		loadReq = append(loadReq, AccountWithConcurrency{ID: account.ID, MaxConcurrency: account.EffectiveLoadFactor()})
 	}
 	if len(filtered) == 0 {
 		return nil, 0, 0, 0, s.service.tkGroupUnsupportedModelRecordErr(req.GroupID, req.RequestedModel, openAICompatNoCandidateError(req.RequestedModel, req.GroupPlatform, false, accounts, req.ExcludedIDs, &openAICompatNoCandidateEval{
@@ -1847,10 +1768,13 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	}) {
 		return false, "shadow_parent_unhealthy"
 	}
-	if !protocolRuntimeAuthorizationReady(ctx, account) {
-		return false, "authorization_unavailable"
-	}
-	if eligible, reason := protocolRequestEligibilityReason(ctx, account, req.RequestedModel); !eligible {
+	if reason := openAIRequestEligibilityReason(ctx, account, req.RequestedModel, req.RequireCompact, req.RequiredCapability); reason != "" {
+		if reason == openAICompatIneligibleModelUnsupported {
+			return false, "model_not_supported"
+		}
+		if strings.HasPrefix(reason, openAICompatIneligibleNoLegalRoute) {
+			return false, "protocol_route_unavailable"
+		}
 		return false, reason
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&

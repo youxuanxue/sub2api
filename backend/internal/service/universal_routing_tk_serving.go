@@ -63,6 +63,13 @@ func (s *GatewayService) UniversalGroupSupportsRequest(ctx context.Context, grou
 	if err != nil {
 		return false, false
 	}
+	if shape == ShapeGemini {
+		ready := s.gatewayCandidates(ctx, accounts, platform, useMixed, model, nil)
+		accounts = make([]Account, 0, len(ready))
+		for _, account := range ready {
+			accounts = append(accounts, *account)
+		}
+	}
 	// Native Gemini has multiple wire-compatible Google backends. Its resolver
 	// therefore needs current scheduler reachability so an error-only native pool
 	// cannot mask a healthy Vertex group through the Gemini platform hint. Other
@@ -172,28 +179,7 @@ func (s *GatewayService) listErrorAccountsForUniversalEntitlement(ctx context.Co
 
 func (s *GatewayService) universalAccountsSupportRequest(ctx context.Context, accounts []Account, useMixed bool, platform, model string, shape UniversalShape) bool {
 	for i := range accounts {
-		acc := &accounts[i]
-		if shape == ShapeGemini && !s.isAccountSchedulableForModelSelection(ctx, acc, model) {
-			continue
-		}
-		if s.isClaudeNewAPICrossPlatformAccountAllowed(ctx, acc, platform, model, false) {
-			return true
-		}
-		if IsOpenAICompatPlatform(platform) {
-			if !acc.IsOpenAICompatPoolMember(platform) {
-				continue
-			}
-			if !universalOpenAICompatAccountSupportsShape(acc, shape) {
-				continue
-			}
-			if universalOpenAICompatAccountSupportsModel(ctx, s, acc, model, shape) {
-				return true
-			}
-			continue
-		} else if !s.isAccountAllowedForPlatformModel(ctx, acc, platform, useMixed, model) {
-			continue
-		}
-		if s.isModelSupportedByAccountWithContext(ctx, acc, model) {
+		if supported, err := s.candidateSupportsRequest(ctx, &accounts[i], platform, useMixed, model, shape); err == nil && supported {
 			return true
 		}
 	}

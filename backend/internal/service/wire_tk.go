@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -123,10 +124,16 @@ func ProvideTKUniversalModelsProvider(
 	api *APIKeyService,
 	gw *GatewayService,
 	subs *SubscriptionService,
+	openai *OpenAIGatewayService,
+	router *protocolrouter.Router,
 ) TKUniversalModelsProviderReady {
 	if api != nil && gw != nil {
 		api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsRequest)
 		api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)
+		resolver := api.UniversalResolver()
+		resolver.SetCandidateEvaluator(router, func(ctx context.Context, group Group, model string, shape UniversalShape) (GroupCandidateEligibility, error) {
+			return gw.evaluateGroupCandidates(ctx, openai, group, model, shape)
+		})
 	}
 	if api != nil && subs != nil {
 		api.SetUniversalSubscriptionUsability(subs)

@@ -73,6 +73,10 @@ func WithProtocolRouting(
 	router *protocolrouter.Router,
 	request protocolrouter.CanonicalRequest,
 ) context.Context {
+	if routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue); ok &&
+		routing.router == router && routing.request.Digest() == request.Digest() {
+		return ctx
+	}
 	return context.WithValue(ctx, protocolRoutingContextKey{}, protocolRoutingContextValue{
 		router:  router,
 		request: request,

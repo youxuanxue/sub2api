@@ -177,7 +177,7 @@
       "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",
       "must_contain": [
         "func tkIsOpenAICompatEdgeMirrorStub(",
-        "account.Platform == PlatformOpenAI || account.Platform == PlatformGrok",
+        "IsOpenAICompatPlatform(account.Platform)",
         "func tkIsDownstreamRateLimitEnvelope(",
         "upstream rate limit exceeded"
       ],

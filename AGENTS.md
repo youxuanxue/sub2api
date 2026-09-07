@@ -46,3 +46,10 @@ Codex 不自动加载 `.cursor/rules/*.mdc`；需要时按下表路径读取对�
 - 代码审查走三端通用 skill `xj-review`（上面技能索引里）：先跑 `preflight.sh` 取 ground-truth，再按风险分级审；Codex 里描述"review 这个 diff/PR"即触发。
 
 <!-- dev-rules:codex END -->
+## 候选资格 SSOT（Candidate Eligibility SSOT）
+
+协作检索名：`candidate-eligibility-ssot`。选组、选号共用候选事实，职责边界见
+[`docs/approved/candidate-eligibility-ssot.md`](docs/approved/candidate-eligibility-ssot.md)。
+模型映射及 converter 合法性由 `protocolrouter.Plan` 裁决；可用性复用现有调度器共享评估；
+空池降权消费 `candidate_saturation.go`；授权选组和计费绑定仍归 Universal resolver 与认证流程。
+新增入口必须接入这些 owner，禁止复制候选规则或按模型前缀排除合法 converter。

@@ -8,7 +8,7 @@ package service
 //   - increment on downstream-capacity skip path only (never handle429 / ladder)
 //   - at threshold: clear sticky + scheduler preference penalty
 //   - prod mirror/relay stubs never write model_rate_limits — edge OAuth owns quota truth
-//   - self-clearing via window TTL (~90s after last hit)
+//   - self-clearing via window TTL (90s after the first hit in a fixed window)
 //
 // Intentionally NEVER on this path: SetTempUnschedulable, whole-account
 // SetRateLimited, or per-failover in-memory BlockAccountScheduling — those

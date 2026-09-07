@@ -198,13 +198,13 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         openai_eligibility = root / "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go"
         openai_eligibility.write_text(
             "package fixture\n"
-            "func openAICompatEligibilityReason(){ protocolRuntimeAuthorizationReady(); protocolRequestEligibilityReason() }\n",
+            "func openAIRequestEligibilityReason(){ protocolRuntimeAuthorizationReady(); protocolRequestEligibilityReason() }\n",
             encoding="utf-8",
         )
         openai_scheduler = root / "backend/internal/service/openai_account_scheduler.go"
         openai_scheduler.write_text(
             "package fixture\n"
-            "func isAccountRequestCompatibleReason() (bool, string) { if !protocolRuntimeAuthorizationReady() { return false, \"authorization\" }; if eligible, reason := protocolRequestEligibilityReason(); !eligible { return false, reason }; return true, \"\" }\n",
+            "func isAccountRequestCompatibleReason() (bool, string) { if reason := openAIRequestEligibilityReason(); reason != \"\" { return false, reason }; return true, \"\" }\n",
             encoding="utf-8",
         )
         account_handler = root / "backend/internal/handler/admin/account_handler.go"
@@ -887,7 +887,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         root = self.fixture()
         owner = root / "backend/internal/service/openai_account_scheduler.go"
         owner.write_text(
-            owner.read_text(encoding="utf-8").replace('if !protocolRuntimeAuthorizationReady() { return false, "authorization" }; ', ""),
+            owner.read_text(encoding="utf-8").replace('if reason := openAIRequestEligibilityReason(); reason != "" { return false, reason }; ', ""),
             encoding="utf-8",
         )
         self.assertTrue(any("OpenAI scheduler authorization hard gate" in error for error in MODULE.check(root)))
@@ -1064,7 +1064,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         owner = root / "backend/internal/service/openai_account_scheduler.go"
         owner.write_text(
             owner.read_text(encoding="utf-8").replace(
-                "if !protocolRuntimeAuthorizationReady() { return false, \"authorization\" }; if eligible, reason := protocolRequestEligibilityReason(); !eligible { return false, reason }",
+                "if reason := openAIRequestEligibilityReason(); reason != \"\" { return false, reason }",
                 "protocolRuntimeAuthorizationReady(); ProtocolRouteLegal()",
             ),
             encoding="utf-8",

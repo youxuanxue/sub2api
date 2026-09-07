@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -377,6 +378,59 @@ func TestMaybeResolveUniversal_SwapsBackingGroup(t *testing.T) {
 	rest, _ := io.ReadAll(c.Request.Body)
 	if !strings.Contains(string(rest), `"model":"gpt-5"`) {
 		t.Fatalf("body not restored after swap: %q", string(rest))
+	}
+}
+
+func TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody(t *testing.T) {
+	const body = `{"model":"gemini-3.8-flash","tools":[{"type":"function","name":"lookup"}],"input":"hi"}`
+	c, _ := newTestCtx(http.MethodPost, "/v1/responses/compact", body)
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	_, err := writer.Write([]byte(body))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	raw := append([]byte(nil), compressed.Bytes()...)
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	c.Request.Header.Set("Content-Encoding", "gzip")
+	c.Request.ContentLength = int64(len(raw))
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(21, service.PlatformAntigravity)}})
+	key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+	evaluated := false
+	resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(ctx context.Context, group service.Group, model string, shape service.UniversalShape) (service.GroupCandidateEligibility, error) {
+		evaluated = true
+		require.Nil(t, key.GroupID, "candidate evaluation precedes billing binding")
+		request, ok := service.ProtocolRoutingRequest(ctx)
+		require.True(t, ok)
+		require.Equal(t, protocolrouter.ProtocolResponses, request.InboundProtocol())
+		require.Equal(t, protocolrouter.ResponsesPathCompact, request.ResponsesPath())
+		require.True(t, request.Profile().Tools)
+		require.Equal(t, []byte(body), request.Body())
+		return service.GroupCandidateEligibility{Supported: true, Available: true}, nil
+	})
+	require.False(t, MaybeResolveUniversal(c, key, resolver))
+	require.True(t, evaluated)
+	require.Equal(t, int64(21), *key.GroupID)
+	restored, err := io.ReadAll(c.Request.Body)
+	require.NoError(t, err)
+	require.Equal(t, raw, restored)
+	require.Equal(t, "gzip", c.Request.Header.Get("Content-Encoding"))
+	require.Equal(t, int64(len(raw)), c.Request.ContentLength)
+}
+
+func TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/messages", "/v1beta/models/gemini-3.8-flash:generateContent"} {
+		t.Run(path, func(t *testing.T) {
+			c, recorder := newTestCtx(http.MethodPost, path, `{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}]}`)
+			c.Params = gin.Params{{Key: "modelAction", Value: "gemini-3.8-flash:generateContent"}}
+			resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(21, service.PlatformAntigravity)}})
+			resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(context.Context, service.Group, string, service.UniversalShape) (service.GroupCandidateEligibility, error) {
+				return service.GroupCandidateEligibility{Supported: true}, nil
+			})
+			key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+			require.True(t, MaybeResolveUniversal(c, key, resolver))
+			require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+			require.Nil(t, key.GroupID)
+		})
 	}
 }
 

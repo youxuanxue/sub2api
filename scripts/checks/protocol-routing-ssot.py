@@ -13,6 +13,7 @@ OWNER_FILES = (
     "backend/internal/engine/protocolrouter/protocol.go",
     "backend/internal/engine/protocolrouter/account.go",
     "backend/internal/engine/protocolrouter/router.go",
+    "backend/internal/engine/protocolrouter/parse_request.go",
     "backend/internal/engine/protocolrouter/registry.go",
     "backend/internal/engine/protocolrouter/router_test.go",
     "backend/internal/engine/protocolrouter/policy_contract_test.go",
@@ -861,10 +862,9 @@ def check(root: Path) -> list[str]:
         bodies = function_bodies(source, "isAccountRequestCompatibleReason")
         if not bodies or not all(
             re.search(
-                r"if\s*!\s*protocolRuntimeAuthorizationReady\s*\([^;]*?\)\s*\{[\s\S]*?return\s+false\b",
+                r"if\s+reason\s*:=\s*openAIRequestEligibilityReason\s*\([^;]*?\)\s*;[^{}]*\{[\s\S]*?return\s+false\b",
                 body,
             )
-            and contains_identifier(body, "protocolRequestEligibilityReason")
             for body in bodies
         ):
             errors.append("OpenAI scheduler authorization hard gate is not composed with protocol legality")
@@ -872,7 +872,7 @@ def check(root: Path) -> list[str]:
     openai_eligibility = root / "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go"
     if openai_eligibility.is_file():
         source = strip_go_comments_and_literals(openai_eligibility.read_text(encoding="utf-8"))
-        bodies = function_bodies(source, "openAICompatEligibilityReason")
+        bodies = function_bodies(source, "openAIRequestEligibilityReason")
         if not bodies or not all(
             contains_identifier(body, "protocolRuntimeAuthorizationReady")
             and contains_identifier(body, "protocolRequestEligibilityReason")

@@ -84,6 +84,12 @@ func openAICompatEligibilityReason(
 				openAICompatIneligibleQuotaAutoPause, reason.window, reason.threshold, reason.utilization)
 		}
 	}
+	return openAIRequestEligibilityReason(ctx, account, requestedModel, requireCompact, requiredCapability)
+}
+
+// openAIRequestEligibilityReason owns request support for both scheduler modes.
+// Account state and pool admission are evaluated separately from compatibility.
+func openAIRequestEligibilityReason(ctx context.Context, account *Account, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) string {
 	if !protocolRuntimeAuthorizationReady(ctx, account) {
 		return openAICompatIneligibleAuthorization
 	}
