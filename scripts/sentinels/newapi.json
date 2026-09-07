@@ -1202,6 +1202,8 @@
       "must_contain": [
         "func protocolProbeModelCandidates(account *Account) []string",
         "func selectProtocolProbeModel(account *Account) string",
+        "tkIsAntigravityEdgeRelayStub(account)",
+        "upstream = strings.TrimSpace(requested)",
         "const protocolProbeMaxModels = 6",
         "func protocolProbeShouldTryNextModel(",
         "func protocolRoutingAccountHasNoTextModels(account *Account) bool",
@@ -1330,16 +1332,25 @@
       "rationale": "Provider-specific Gemini probes reuse production Antigravity and Vertex auth/transport owners, and EdgeRelay probes the public Gemini hop via buildGeminiAPIKeyRequest. Empty-pool capacity on edge stubs must count as positive endpoint evidence (same as text hops). A positive 2xx must carry a recognized Gemini response envelope; only structured unsupported-method 404/405 removes a prior capability."
     },
     {
+      "path": "backend/internal/service/protocol_capability_probe_test.go",
+      "must_contain": [
+        "func TestProbeGeminiEdgeRelayUsesPublicModelAndClassifiesWireResponse(t *testing.T)",
+        "func TestProbeAccountProtocolCapabilitiesTreatsEdgeRelayEmptyPoolAsEndpointEvidence(t *testing.T)"
+      ],
+      "rationale": "Edge Gemini probes must send the public model with edge API-key auth, classify success/unsupported/auth responses, and retain positive endpoint evidence when the edge pool is empty."
+    },
+    {
       "path": "backend/internal/service/protocol_execution_target_test.go",
       "must_contain": [
         "func TestProtocolGeminiAntigravityPlanBindsExactWireEndpointAndBearer(t *testing.T)",
         "func TestProtocolGeminiVertexPlanBindsExactWireEndpointAndBearer(t *testing.T)",
+        "func TestProtocolGeminiEdgeRelayPlanBindsExactWireEndpointAndAPIKey(t *testing.T)",
         "want immutable plan endpoint",
         "want Antigravity bearer",
         "want Vertex bearer",
         "account.Credentials[\"location\"] = \"europe-west1\""
       ],
-      "rationale": "Behavioral wire contracts prove both Gemini profiles keep the immutable planner host/path even if mutable account inputs change after selection, preserve required stream query semantics, bind only the correct bearer credential, and exercise streaming plus non-streaming response paths."
+      "rationale": "Behavioral wire contracts prove all three Gemini profiles keep the immutable planner host/path even if mutable account inputs change after selection, preserve required stream query semantics, bind the correct bearer or edge API-key credential, and exercise streaming plus non-streaming response paths."
     },
     {
       "path": "backend/internal/handler/openai_gemini_protocol_execution.go",

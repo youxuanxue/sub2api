@@ -23,10 +23,17 @@ func protocolProbeModelCandidates(account *Account) []string {
 	mapping := account.GetModelMapping()
 	candidates := make([]string, 0, len(mapping))
 	seen := make(map[string]struct{}, len(mapping)+2)
-	for _, upstream := range mapping {
+	for requested, upstream := range mapping {
 		upstream = strings.TrimSpace(upstream)
 		if upstream == "" || strings.Contains(upstream, "*") || protocolProbeModelIsNonText(upstream) {
 			continue
+		}
+		// Edge hops accept public mapping keys and resolve provider IDs themselves.
+		if tkIsAntigravityEdgeRelayStub(account) {
+			upstream = strings.TrimSpace(requested)
+			if upstream == "" || strings.Contains(upstream, "*") || protocolProbeModelIsNonText(upstream) {
+				continue
+			}
 		}
 		if _, ok := seen[upstream]; ok {
 			continue
