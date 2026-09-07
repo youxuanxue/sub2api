@@ -134,6 +134,30 @@
       "rationale": "Behavior regressions for Candidate Eligibility SSOT."
     },
     {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "fmt.Errorf(\"%w: protocol endpoint capability is invalid or conflicted\", protocolrouter.ErrNoLegalRoute)",
+        "fmt.Errorf(\"%w: account endpoint identity does not match linked capability\", protocolrouter.ErrNoLegalRoute)"
+      ],
+      "rationale": "Loaded unusable capability evidence rejects a candidate through the shared Plan error contract, without failing Universal group evaluation."
+    },
+    {
+      "path": "backend/internal/service/protocol_routing_context.go",
+      "must_contain": [
+        "return protocolrouter.Plan{}, true, fmt.Errorf(\"%w: %w\", ErrProtocolRouteUnavailable, err)"
+      ],
+      "rationale": "Preserve typed candidate rejection through the protocol planning boundary."
+    },
+    {
+      "path": "backend/internal/service/candidate_eligibility_test.go",
+      "must_contain": [
+        "TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer",
+        "TestCandidateEligibilityInvalidCapabilityIsCandidateRejection",
+        "TestCandidateEligibilityUnknownCapabilityIsNotEntitlement"
+      ],
+      "rationale": "Pin Gemini and converter candidate rejection, direct scheduler parity, capacity versus unsupported routing, and unknown capability failures."
+    },
+    {
       "path": "backend/internal/server/middleware/universal_routing_tk_test.go",
       "must_contain": [
         "TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody",
