@@ -269,6 +269,7 @@ func TestProbeAccountProtocolCapabilitiesTreatsEdgeRelayEmptyPoolAsEndpointEvide
 		protocolrouter.ProtocolMessages,
 		protocolrouter.ProtocolChatCompletions,
 		protocolrouter.ProtocolResponses,
+		protocolrouter.ProtocolGeminiGenerateContent,
 	}
 	if !reflect.DeepEqual(got.SupportedProtocols(), want) {
 		t.Fatalf("supported protocols = %v, want %v", got.SupportedProtocols(), want)

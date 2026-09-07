@@ -214,6 +214,12 @@ func (s *AccountTestService) observeGeminiHTTPProbe(
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, readErr := io.ReadAll(resp.Body)
+	if readErr == nil {
+		if capacityVerdict, knownCapacity := protocolProbeRelayCapacityVerdict(account, resp.StatusCode, body); knownCapacity {
+			observation.verdict = capacityVerdict
+			return *observation, true
+		}
+	}
 	observation.verdict = classifyGeminiProtocolProbe(resp.StatusCode, body, readErr)
 	return *observation, true
 }
