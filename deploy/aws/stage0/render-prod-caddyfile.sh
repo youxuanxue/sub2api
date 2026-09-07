@@ -9,6 +9,9 @@
 #   GLOBAL_SITE_DOMAIN  optional overseas homepage host, e.g. global.tokenkey.dev
 #   GLOBAL_SITE_PHASE   disabled (default), candidate (302), or live (301)
 #
+# Public status.tokenkey.dev is Better Stack Free (not a Caddy vhost).
+# Public /privacy and /terms are static files under the apex vhost (/data/legal).
+#
 # Usage:
 #   API_DOMAIN=api.tokenkey.dev ACME_EMAIL=ops@example.com \
 #     bash deploy/aws/stage0/render-prod-caddyfile.sh template out
@@ -89,12 +92,13 @@ if [[ -z "${site_domain}" ]]; then
 else
   rendered="${tmp}"
   phase_tmp="$(mktemp)"
-  trap 'rm -f "${tmp}" "${phase_tmp}"' EXIT
+  opt_tmp="$(mktemp)"
+  trap 'rm -f "${tmp}" "${phase_tmp}" "${opt_tmp}"' EXIT
   sed '/^# BEGIN_API_FULL_PROXY$/,/^# END_API_FULL_PROXY$/d' "${rendered}" > "${phase_tmp}"
+  cur="${phase_tmp}"
   if [[ -z "${global_site_domain}" ]]; then
-    sed '/^# BEGIN_GLOBAL_VHOST$/,/^# END_GLOBAL_VHOST$/d' "${phase_tmp}" \
-      | strip_render_markers > "${output}"
-  else
-    strip_render_markers < "${phase_tmp}" > "${output}"
+    sed '/^# BEGIN_GLOBAL_VHOST$/,/^# END_GLOBAL_VHOST$/d' "${cur}" > "${opt_tmp}"
+    cur="${opt_tmp}"
   fi
+  strip_render_markers < "${cur}" > "${output}"
 fi

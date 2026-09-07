@@ -100,6 +100,23 @@
 ${SITE_DOMAIN} {
 	import tokenkey_tls
 	import tokenkey_encode_static
+
+	# Public /privacy /terms (OR compliance). Host files: caddy/data/legal/
+	handle /privacy {
+		root * /data/legal
+		rewrite * /privacy.html
+		file_server
+	}
+	handle /terms {
+		root * /data/legal
+		rewrite * /terms.html
+		file_server
+	}
+	handle_path /legal-assets/* {
+		root * /data/legal
+		file_server
+	}
+
 	import tokenkey_reverse_proxy
 	import tokenkey_limits_log
 }

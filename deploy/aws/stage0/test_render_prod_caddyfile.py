@@ -65,6 +65,16 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("BEGIN_APEX_VHOST", rendered)
         self.assertNotIn("BEGIN_API_FULL_PROXY", rendered)
 
+    def test_apex_serves_public_legal_pages_before_reverse_proxy(self) -> None:
+        rendered = _render(api_domain="api.tokenkey.dev")
+        apex = rendered[rendered.index("tokenkey.dev {") : rendered.index("api.tokenkey.dev {")]
+        self.assertIn("handle /privacy", apex)
+        self.assertIn("handle /terms", apex)
+        self.assertIn("handle_path /legal-assets/*", apex)
+        self.assertIn("root * /data/legal", apex)
+        self.assertLess(apex.index("handle /privacy"), apex.index("import tokenkey_reverse_proxy"))
+        self.assertEqual(rendered.count("reverse_proxy tokenkey:8080"), 1)
+
     def test_localhost_skips_apex_and_uses_full_api_proxy(self) -> None:
         rendered = _render(api_domain="localhost")
         self.assertIn("localhost {", rendered)
@@ -73,6 +83,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertNotIn("@machine {", rendered)
         self.assertNotIn("redir https://", rendered)
         self.assertNotIn("BEGIN_APEX_VHOST", rendered)
+        self.assertNotIn("handle /privacy", rendered)
 
     def test_edge_api_domain_skips_apex_split(self) -> None:
         rendered = _render(api_domain="api-us4.tokenkey.dev")
@@ -86,6 +97,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         self.assertIn("custom.example {", rendered)
         self.assertIn("redir https://custom.example{uri} permanent", rendered)
         self.assertIn("api.custom.example {", rendered)
+        self.assertIn("handle /privacy", rendered)
 
     def test_global_homepage_is_disabled_by_default(self) -> None:
         rendered = _render(api_domain="api.tokenkey.dev")
@@ -102,7 +114,10 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         )
 
         self.assertIn("global.tokenkey.dev {", rendered)
-        self.assertNotIn("X-Robots-Tag", rendered)
+        global_block = rendered[
+            rendered.index("global.tokenkey.dev {") : rendered.index("api.tokenkey.dev {")
+        ]
+        self.assertNotIn("X-Robots-Tag", global_block)
         self.assertIn("path /seedance-2-5-official-showcase-8b37bc3e.mp4", rendered)
         self.assertIn("path /api/v1/settings/public", rendered)
         self.assertIn("path /setup/status", rendered)
@@ -130,7 +145,10 @@ class RenderProdCaddyfileTest(unittest.TestCase):
         )
 
         self.assertIn("global.tokenkey.dev {", rendered)
-        self.assertNotIn("X-Robots-Tag", rendered)
+        global_block = rendered[
+            rendered.index("global.tokenkey.dev {") : rendered.index("api.tokenkey.dev {")
+        ]
+        self.assertNotIn("X-Robots-Tag", global_block)
         self.assertIn("redir https://tokenkey.dev{uri} 301", rendered)
 
     def test_enabled_global_phase_requires_an_explicit_hostname(self) -> None:
@@ -157,7 +175,7 @@ class RenderProdCaddyfileTest(unittest.TestCase):
             **os.environ,
             "API_DOMAIN": "localhost",
             "ACME_EMAIL": "ops@example.com",
-            "GLOBAL_SITE_DOMAIN": "global.tokenkey.dev",
+            "GLOBAL_SITE_DOMAIN": "global.example",
             "GLOBAL_SITE_PHASE": "candidate",
         }
         with tempfile.NamedTemporaryFile("w+", suffix=".caddy") as tmp:
@@ -171,6 +189,12 @@ class RenderProdCaddyfileTest(unittest.TestCase):
 
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("SITE_DOMAIN must resolve", proc.stderr)
+
+    def test_no_caddy_status_vhost(self) -> None:
+        rendered = _render(api_domain="api.tokenkey.dev")
+        self.assertNotIn("status.tokenkey.dev {", rendered)
+        self.assertNotIn("root * /data/status", rendered)
+        self.assertNotIn("STATUS_SITE_DOMAIN", rendered)
 
 
 if __name__ == "__main__":
