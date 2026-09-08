@@ -143,6 +143,45 @@ func TestCandidateEligibilityNativeAndConverterEqual(t *testing.T) {
 	}
 }
 
+func TestCandidateEligibilityUngovernedModelDenial(t *testing.T) {
+	for _, test := range []struct {
+		name, platform, model, path string
+		shape                       UniversalShape
+	}{
+		{"anthropic_count_tokens", PlatformAnthropic, "claude-opus-5", "/v1/messages/count_tokens", ShapeAnthropicCountTokens},
+		{"openai_count_tokens", PlatformOpenAI, "gpt-5.4", "/v1/messages/count_tokens", ShapeAnthropicCountTokens},
+		{"gemini_native", PlatformGemini, "gemini-3.8-flash", "/v1beta/models/gemini-3.8-flash:generateContent", ShapeGemini},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			group := grp(1, test.platform, 1, false)
+			group.AllowMessagesDispatch = true
+			for _, supported := range []bool{false, true} {
+				model := "other-model"
+				if supported {
+					model = test.model
+				}
+				account := Account{ID: 101, GroupIDs: []int64{1}, Platform: test.platform,
+					Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: false,
+					Credentials: map[string]any{"api_key": "test-only", "model_mapping": map[string]any{model: model}}}
+				resolver := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{group}})
+				wireCandidateTestResolver(resolver, &GatewayService{}, []Account{account})
+				body := []byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, test.model))
+				ctx := resolver.WithRequest(context.Background(), test.shape, test.path, test.model, body)
+				_, governed, err := protocolPlanForAccount(ctx, &account, test.model)
+				require.False(t, governed)
+				require.NoError(t, err)
+				selected, err := resolver.Resolve(ctx, universalKey(1), test.shape, test.model, "")
+				require.Nil(t, selected)
+				if supported {
+					require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+				} else {
+					require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
+				}
+			}
+		})
+	}
+}
+
 func TestCandidateEligibilityUnknownCapabilityIsNotEntitlement(t *testing.T) {
 	resolver, gateway, accounts, request := candidateGoogleFixture(t)
 	for i := range accounts {

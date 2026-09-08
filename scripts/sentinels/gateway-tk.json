@@ -66,6 +66,8 @@
         "protocolPlanForAccount(ctx, account, model)",
         "s.isClaudeNewAPICrossPlatformAccountAllowed",
         "account.IsOpenAICompatPoolMember(platform)",
+        "!accountAdmitsRequestedModelWithContext(ctx, account, model)",
+        "return false, ErrUniversalUnsupportedModel",
         "s.gatewayCandidates(",
         "scheduler.openAICandidates(",
         "ListAllWithFilters",
@@ -171,7 +173,8 @@
         "TestCandidateEligibilityAntigravitySaturationScopeAndParity",
         "TestCandidateEligibilityCapacityIsNotEntitlement",
         "TestCandidateEligibilityKnownRouteRejectionIsNotInternal",
-        "TestCandidateEligibilityErrorPrecedence"
+        "TestCandidateEligibilityErrorPrecedence",
+        "TestCandidateEligibilityUngovernedModelDenial"
       ],
       "rationale": "Behavior regressions for Candidate Eligibility SSOT."
     },

@@ -50,11 +50,21 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 			return false, err
 		}
 	}
+	var supported bool
 	if IsOpenAICompatPlatform(platform) {
-		return universalOpenAICompatAccountSupportsShape(account, shape) &&
-			universalOpenAICompatAccountSupportsModel(ctx, s, account, model, shape), nil
+		if !universalOpenAICompatAccountSupportsShape(account, shape) {
+			return false, nil
+		}
+		supported = universalOpenAICompatAccountSupportsModel(ctx, s, account, model, shape)
+	} else {
+		supported = s.isModelSupportedByAccountWithContext(ctx, account, model)
 	}
-	return s.isModelSupportedByAccountWithContext(ctx, account, model), nil
+	// Native/media owners retain admission. Only an explicit model-policy
+	// refusal can classify their rejection as a client unsupported-model error.
+	if !supported && model != "" && !accountAdmitsRequestedModelWithContext(ctx, account, model) {
+		return false, ErrUniversalUnsupportedModel
+	}
+	return supported, nil
 }
 
 // evaluateGroupCandidates is a read-only projection of existing scheduler
