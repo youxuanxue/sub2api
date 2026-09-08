@@ -191,6 +191,80 @@ function validateOK(src: SupplierSource) {
   }
 }
 
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  for (const outcome of ['completed', 'poll-error']) {
+    test(`US048 discover null arrays ${outcome} at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize(viewport)
+      const pageErrors: string[] = []
+      page.on('pageerror', error => pageErrors.push(error.message))
+      const src = source()
+      const snapshot = {
+        ...discoverOK(src),
+        job_id: 'null-array-job',
+        probe_status: 'running',
+        probe_total: 2,
+        upstream_models: [{ id: 'glm-5.1' }],
+        normalized_models: null,
+        normalized_changes: null,
+        suggested_appends: null,
+        rejected_candidates: null,
+        configured_issues: null,
+        probe_results: null,
+      }
+      let polls = 0
+      await installBase(page, async (route, path) => {
+        if (path === '/api/v1/admin/supplier-sources') {
+          await fulfillSuccess(route, [src])
+          return true
+        }
+        if (path === '/api/v1/admin/supplier-sources/discover-channel-scoped-defaults') {
+          await fulfillSuccess(route, { channel_types: [] })
+          return true
+        }
+        if (path === '/api/v1/admin/supplier-sources/7/discover') {
+          await fulfillSuccess(route, snapshot)
+          return true
+        }
+        if (path === '/api/v1/admin/supplier-sources/7/discover/jobs/null-array-job') {
+          polls++
+          if (polls === 2 && outcome === 'poll-error') {
+            await fulfillError(route, 503, 'temporarily unavailable', { retry_after: 30 })
+          } else {
+            await fulfillSuccess(route, {
+              ...snapshot,
+              probe_done: polls,
+              probe_status: polls === 2 ? 'completed' : 'running',
+              suggested_appends: [{ client_model_id: 'glm-5.1', upstream_model_id: 'glm-5.1', purchase_ratio: 1 }],
+            })
+          }
+          return true
+        }
+        return false
+      })
+
+      await page.goto('/admin/supplier-sources')
+      await page.locator('[data-test="source-select-7"]').click()
+      await page.locator('[data-test="discover-source"]').click()
+      await expect(page.locator('[data-test="discover-summary"]')).toBeVisible()
+      await expect(page.locator('[data-test="discover-result"]')).toContainText('glm-5.1')
+      if (outcome === 'poll-error') {
+        await expect(page.locator('[data-test="sync-error"]')).toContainText('temporarily unavailable')
+        await expect(page.locator('[data-test="discover-result"]')).toContainText('glm-5.1')
+        await expect(page.locator('[data-test="discover-needs-save"]')).toHaveCount(0)
+        await expect(page.locator('[data-test="discover-candidate-progress"]')).toHaveCount(0)
+        await expect(page.locator('[data-test="discover-result"]')).not.toContainText('已写入上方草稿')
+      } else {
+        await expect(page.locator('[data-test="discover-needs-save"]')).toBeVisible()
+        await expect(page.locator('[data-test="client-model-id"]')).toHaveValue('glm-5.1')
+        await expect(page.locator('[data-test="sync-error"]')).toHaveCount(0)
+      }
+      expect(polls).toBe(2)
+      expect(pageErrors).toEqual([])
+      await page.locator('[data-test="discover-result"]').scrollIntoViewIfNeeded()
+    })
+  }
+}
+
 test('US048 project-before-validate writes accounts without probing', async ({ page }) => {
   let sources: SupplierSource[] = []
   let submitted: Record<string, unknown> | null = null

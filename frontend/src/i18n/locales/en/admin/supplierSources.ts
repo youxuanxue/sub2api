@@ -47,7 +47,7 @@ export default {
     discoverCandidateProgress: 'Candidate probing in progress: {done}/{total}',
     discoverEmpty: 'Upstream list processed: no normalization needed and no probe-passed suggestions.',
     normalizedChanges: 'Normalized changes',
-    suggestedAppends: 'Suggested appends (probe passed; drafted above)',
+    suggestedAppends: 'Suggested appends (probe passed)',
     rejectedCandidates: 'Not suggested',
     configuredIssues: 'Configured models missing from upstream list',
     globalPriorityPreview: 'Global priority preview',

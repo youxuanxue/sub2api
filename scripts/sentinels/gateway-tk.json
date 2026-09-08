@@ -3,6 +3,26 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/supplier_source_probe.go",
+      "must_contain": [
+        "func cloneSupplierSourceProbeResult(",
+        "out.UpstreamModels = append([]SupplierUpstreamModelEntry{}, in.UpstreamModels...)",
+        "out.NormalizedChanges = append([]SupplierModelNormalizeChange{}, in.NormalizedChanges...)",
+        "out.RejectedCandidates = append([]SupplierProbeRejectedCandidate{}, in.RejectedCandidates...)",
+        "out.ConfiguredIssues = append([]SupplierProbeConfiguredIssue{}, in.ConfiguredIssues...)",
+        "out.ProbeResults = append([]SupplierProbeResult{}, in.ProbeResults...)"
+      ],
+      "rationale": "The shared async discovery snapshot clone preserves non-null JSON arrays across start and polling responses."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_probe_test.go",
+      "must_contain": [
+        "TestCloneSupplierSourceProbeResultEmptySlicesJSONNotNull",
+        "json.Marshal(cloned)"
+      ],
+      "rationale": "Protect the wire-shape regression alongside the clone owner so an upstream merge cannot drop both silently."
+    },
+    {
       "path": "backend/internal/service/gateway_request.go",
       "must_contain": [
         "parsed.ThinkingEnabled = gatewayRequestThinkingEnabled(bodyBytes, protocol)",
