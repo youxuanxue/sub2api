@@ -629,7 +629,9 @@
 
               <!-- More Actions Menu Trigger -->
               <button
-                @click="openActionMenu(row, $event)"
+                type="button"
+                data-testid="user-more-btn"
+                @click.stop="openActionMenu(row, $event)"
                 class="action-menu-trigger flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white"
                 :class="{ 'bg-gray-100 text-gray-900 dark:bg-dark-700 dark:text-white': activeMenuId === row.id }"
               >
