@@ -185,9 +185,9 @@ install -d -m 0755 /var/lib/tokenkey/logs
 # --- 2c. public media assets (lazy sync from S3) ------------------------
 MEDIA_PUBLIC_DIR="/var/lib/tokenkey/app/public"
 if [ ! -f "${MEDIA_PUBLIC_DIR}/seedance-2-5-official-showcase-8b37bc3e.mp4" ]; then
-  aws s3 cp s3://tokenkey-prod-media-682751977094/public/seedance-2-5-official-showcase-8b37bc3e.mp4 "${MEDIA_PUBLIC_DIR}/seedance-2-5-official-showcase-8b37bc3e.mp4" || true
-  aws s3 cp s3://tokenkey-prod-media-682751977094/public/seedance-2-5-official-poster-db3ff793.jpg "${MEDIA_PUBLIC_DIR}/seedance-2-5-official-poster-db3ff793.jpg" || true
-  chown -R 1000:1000 "${MEDIA_PUBLIC_DIR}" 2>/dev/null || true
+  aws s3 cp s3://tokenkey-prod-media-682751977094/public/seedance-2-5-official-showcase-8b37bc3e.mp4 "${MEDIA_PUBLIC_DIR}/seedance-2-5-official-showcase-8b37bc3e.mp4" || true  # preflight-allow: swallow
+  aws s3 cp s3://tokenkey-prod-media-682751977094/public/seedance-2-5-official-poster-db3ff793.jpg "${MEDIA_PUBLIC_DIR}/seedance-2-5-official-poster-db3ff793.jpg" || true  # preflight-allow: swallow
+  chown -R 1000:1000 "${MEDIA_PUBLIC_DIR}" 2>/dev/null || true  # preflight-allow: swallow
 fi
 cd /var/lib/tokenkey
 
