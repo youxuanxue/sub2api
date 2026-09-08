@@ -80,6 +80,56 @@ func TestGatewayRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
 	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
 }
 
+// china / newapi Token Plan traffic settles on the OpenAI-compat RecordUsage
+// path; BillingModelSourceRequested must not keep the legacy price card after
+// account model_mapping remaps the request.
+func TestOpenAIRecordUsage_TokenPlanLegacyAliasBillsServedModel(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	subRepo := &openAIRecordUsageSubRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+	account := aliTokenPlanAccountForBillingTest(t)
+
+	expectedCost, err := svc.billingService.CalculateCost("qwen3.7-plus", UsageTokens{
+		InputTokens:  1000,
+		OutputTokens: 500,
+	}, 1.1)
+	require.NoError(t, err)
+	legacyCost, err := svc.billingService.CalculateCost("qwen-plus", UsageTokens{
+		InputTokens:  1000,
+		OutputTokens: 500,
+	}, 1.1)
+	require.NoError(t, err)
+	require.NotEqual(t, expectedCost.ActualCost, legacyCost.ActualCost,
+		"test must distinguish legacy vs served price cards")
+
+	err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:     "tokenplan-openai-legacy-billing",
+			Model:         "qwen-plus",
+			BillingModel:  "qwen-plus",
+			UpstreamModel: "qwen3.7-plus",
+			Usage: OpenAIUsage{
+				InputTokens:  1000,
+				OutputTokens: 500,
+			},
+			Duration: time.Second,
+		},
+		APIKey:  &APIKey{ID: 10, Group: &Group{ID: 1, RateMultiplier: 1.1}},
+		User:    &User{ID: 20},
+		Account: account,
+		ChannelUsageFields: ChannelUsageFields{
+			OriginalModel:      "qwen-plus",
+			ChannelMappedModel: "qwen-plus",
+			BillingModelSource: BillingModelSourceRequested,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.InDelta(t, expectedCost.ActualCost, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
+}
+
 func aliTokenPlanAccountForBillingTest(t *testing.T) *Account {
 	t.Helper()
 	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{
