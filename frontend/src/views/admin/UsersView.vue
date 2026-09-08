@@ -1505,6 +1505,10 @@ const refreshCurrentPageSecondaryData = () => {
 // Action Menu State — position via floatingPanel SSOT (not clientX/clientY).
 const activeMenuId = ref<number | null>(null)
 const menuPosition = ref<Record<string, string> | null>(null)
+// Same class of bug as AccountsView: capture-phase nested scroll on open can
+// tear the menu down before paint. Suppress close for a short grace window.
+const ACTION_MENU_SCROLL_CLOSE_GRACE_MS = 400
+let suppressActionMenuScrollCloseUntil = 0
 
 const openActionMenu = (user: AdminUser, e: MouseEvent) => {
   if (activeMenuId.value === user.id) {
@@ -1525,6 +1529,7 @@ const openActionMenu = (user: AdminUser, e: MouseEvent) => {
       )
     )
     activeMenuId.value = user.id
+    suppressActionMenuScrollCloseUntil = Date.now() + ACTION_MENU_SCROLL_CLOSE_GRACE_MS
   }
 }
 
@@ -1871,8 +1876,9 @@ const handleWithdrawFromHistory = () => {
   }
 }
 
-// 滚动时关闭菜单
+// 滚动时关闭菜单（打开瞬间的嵌套微滚动除外）
 const handleScroll = () => {
+  if (Date.now() < suppressActionMenuScrollCloseUntil) return
   closeActionMenu()
 }
 
