@@ -90,6 +90,7 @@ func tkIsRecoverableUsageWindowMessage(haystack string) bool {
 	for _, marker := range []string{
 		"weekly usage quota",
 		"exceeded the weekly",
+		"1-week quota",
 		"5-hour",
 		"7-day",
 	} {

@@ -3,6 +3,24 @@
   "rationale": "Load-bearing files and symbols that anchor TokenKey's fifth platform `newapi`. The fifth-platform integration was silently regressed multiple times by upstream merges before this guard existed. If any sentinel below is missing, the platform either silently disappears from the UI/scheduling pool or fails at runtime. This file is the single source of truth read by both `scripts/preflight.sh` (newapi sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (newapi sentinels check, on `merge/upstream-*` PRs). Adding a new load-bearing surface for newapi MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
+      "path": "backend/internal/service/pricing_catalog_lifecycle_tk.go",
+      "must_contain": [
+        "catalogModelWithdrawals",
+        "isCatalogModelRecommended",
+        "tkIsDeprecatedAnthropicModel(id)",
+        "tkIsDeprecatedOpenAIModel(id)",
+        "https://www.aliyun.com/notice/118345",
+        "https://cloud.baidu.com/doc/qianfan/s/zmh4stou3",
+        "https://developers.openai.com/api/docs/deprecations"
+      ],
+      "rationale": "Official recommendation withdrawals remain effective even if empirical probes succeed. This presentation owner must not be folded into request or billing gates."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
+      "must_contain": ["isCatalogModelRecommended(modelID)"],
+      "rationale": "Public pricing must consume the same lifecycle decision as account display presets and user menus."
+    },
+    {
       "path": "backend/internal/domain/constants.go",
       "must_contain": [
         "PlatformNewAPI"
@@ -43,14 +61,17 @@
         "tkTryHandleNewAPIUsageWindow429",
         "applyNewAPIUsageWindowSnapshot",
         "buildNewAPIUpstreamQuota",
-        "newAPIWeeklyUtilExtraKey"
+        "newAPIWeeklyUtilExtraKey",
+        "tkParseNewAPIUsageWindowResponse",
+        "parseRetryAfterResetTime(headers, reference)",
+        "(*progress).UtilizationUnknown = false"
       ],
       "rationale": "NewAPI Agent Plan weekly/5h/7d prose 429s must cool until the parsed reset and persist Extra so admin usage windows show exhaustion instead of a permanent 'unsupported' chip. Dropping this companion recreates the account-88 weekly-quota UI blind spot."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, responseBody)"
+        "account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, headers, responseBody)"
       ],
       "rationale": "handle429 NewAPI branch must call tkTryHandleNewAPIUsageWindow429 after OpenAI-shaped resets_at parse fails. Without this injection, weekly/5h/7d prose 429s fall through to the short fallback cooldown and never persist Extra — recreating the account-88 operator blind spot even if newapi_usage_window_tk.go still compiles."
     },
@@ -424,9 +445,11 @@
     {
       "path": "backend/internal/service/me_pricing_catalog_tk.go",
       "must_contain": [
+        "isCatalogModelRecommended(m.ModelID)",
         "MePricingAccountSource",
         "fillAccountFallback",
         "NewAPIModelDisplayIDsForAccount(a)",
+        "isTkCuratedNewAPIModelListed(displayID) && !isTkCuratedNewAPIModelDisplayed(displayID)",
         "parseWhitelistFromCredentials",
         "buildAccountFallbackEntry"
       ],
@@ -1002,8 +1025,18 @@
       "rationale": "Agent Plan admin model discovery uses the account-aware manifest preset helper instead of channel-wide defaults."
     },
     {
+      "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan_test.go",
+      "must_contain": [
+        "TestNewAPIAvailableModelPresetIDs_AgentPlan",
+        "withdrawal must preserve API compatibility",
+        "withdrawn Agent Plan models must not be recommended"
+      ],
+      "rationale": "Agent Plan capability membership survives recommendation withdrawal; admin display consumes the manifest lifecycle projection."
+    },
+    {
       "path": "backend/internal/service/tk_served_models_manifest_tk.go",
       "must_contain": [
+        "e.Display && isCatalogModelRecommended(modelID)",
         "tkServedModelsManifestPresetIDsForSelector",
         "tkServedModelsManifestDisplayPresetIDsForSelector",
         "tkServedModelsManifestSchemaVersion = 3",
@@ -1013,6 +1046,7 @@
         "newAPIQianfanModelMappingPresetIDs",
         "newAPIXRTokenModelMappingPresetIDs",
         "newAPIAliTokenPlanModelMappingPresetIDs",
+        "newAPIAliTokenPlanModelAliases",
         "newAPIQianfanTokenPlanModelMappingPresetIDs",
         "IsAliTokenPlanBaseURL",
         "IsQianfanTokenPlanBaseURL"

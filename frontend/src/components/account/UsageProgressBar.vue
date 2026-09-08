@@ -1,32 +1,9 @@
 <template>
   <div>
-    <!-- Window stats row (above progress bar) -->
-    <div
-      v-if="windowStats && (windowStats.requests > 0 || windowStats.tokens > 0)"
-      class="mb-0.5 flex items-center"
-    >
-      <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
-        <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-          {{ formatRequests }} req
-        </span>
-        <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-          {{ formatTokens }}
-        </span>
-        <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
-          A ${{ formatAccountCost }}
-        </span>
-        <span
-          v-if="windowStats?.user_cost != null"
-          class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
-          :title="t('usage.userBilled')"
-        >
-          U ${{ formatUserCost }}
-        </span>
-      </div>
-    </div>
+    <UsageStatsRow :label="windowStatsLabel || label" :stats="windowStats" />
 
     <!-- Progress bar row -->
-    <div class="flex items-center gap-1">
+    <div v-if="!utilizationUnknown" class="flex flex-wrap items-center gap-1" data-testid="usage-quota-row">
       <!-- Label badge (fixed width for alignment) -->
       <span
         :class="['w-[32px] shrink-0 rounded px-1 text-center text-[10px] font-medium', labelClass]"
@@ -60,14 +37,16 @@ import { computed, ref, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import type { WindowStats } from '@/types'
-import { formatCompactNumber } from '@/utils/format'
+import UsageStatsRow from './UsageStatsRow.vue'
 
 const props = defineProps<{
   label: string
   utilization: number // Percentage (0-100+)
+  utilizationUnknown?: boolean
   resetsAt?: string | null
   color: 'indigo' | 'emerald' | 'purple' | 'amber'
   windowStats?: WindowStats | null
+  windowStatsLabel?: string
   showNowWhenIdle?: boolean
   remainingCapacity?: boolean
 }>()
@@ -195,27 +174,6 @@ const formatResetTime = computed(() => {
   } else {
     return `${diffMins}m`
   }
-})
-
-// Window stats formatters
-const formatRequests = computed(() => {
-  if (!props.windowStats) return ''
-  return formatCompactNumber(props.windowStats.requests, { allowBillions: false })
-})
-
-const formatTokens = computed(() => {
-  if (!props.windowStats) return ''
-  return formatCompactNumber(props.windowStats.tokens)
-})
-
-const formatAccountCost = computed(() => {
-  if (!props.windowStats) return '0.00'
-  return props.windowStats.cost.toFixed(2)
-})
-
-const formatUserCost = computed(() => {
-  if (!props.windowStats || props.windowStats.user_cost == null) return '0.00'
-  return props.windowStats.user_cost.toFixed(2)
 })
 
 </script>

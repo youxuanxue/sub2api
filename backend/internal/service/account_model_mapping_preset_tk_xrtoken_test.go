@@ -52,10 +52,12 @@ func TestXRTokenAccountPresetMergesSharedAndScopedModels(t *testing.T) {
 		}
 	}
 
-	// display projection follows the same scope (all five rows are display=true)
-	if disp := NewAPIModelDisplayIDsForAccount(account); len(disp) != len(want) {
-		t.Fatalf("display ids = %v (%d), want %d entries", disp, len(disp), len(want))
-	}
+	display := NewAPIModelDisplayIDsForAccount(account)
+	require.ElementsMatch(t, tkServedModelsManifestDisplayPresetIDsForSelector(
+		account.Platform, account.ChannelType, account.GetBaseURL(),
+	), display)
+	require.Contains(t, got, "doubao-seedance-1-5-pro-251215", "withdrawal must preserve reseller compatibility")
+	require.NotContains(t, display, "doubao-seedance-1-5-pro-251215", "resellers must not advertise withdrawn SKUs")
 }
 
 // The base XRToken's own SDK docs hand out carries a trailing /v1. An admin who

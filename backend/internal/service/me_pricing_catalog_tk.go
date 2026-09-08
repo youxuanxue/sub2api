@@ -38,6 +38,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -714,6 +715,19 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	// block and the thinking premium — i.e. exactly the variant disclosure this
 	// change exists to guarantee, dropped for the ids most likely to carry it.
 	for _, m := range bestByModel {
+		if !isCatalogModelRecommended(m.ModelID) {
+			continue
+		}
+		// Channel rows and account fallbacks share the manifest display gate.
+		if targetGroup.Platform == PlatformNewAPI {
+			displayID := m.ModelID
+			if _, tail, prefixed := strings.Cut(displayID, "/"); prefixed {
+				displayID = tail
+			}
+			if isTkCuratedNewAPIModelListed(displayID) && !isTkCuratedNewAPIModelDisplayed(displayID) {
+				continue
+			}
+		}
 		if meta, ok := lookupMePricingCatalogModel(m.ModelID, metaByID); ok {
 			m.ContextWindow = meta.ContextWindow
 			m.MaxOutputTokens = meta.MaxOutputTokens

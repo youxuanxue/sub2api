@@ -305,7 +305,7 @@ func addGrokQuotaWindow(info *UpstreamQuotaInfo, key, label, unit string, window
 }
 
 func progressToQuotaDimension(key, label, window string, progress *UsageProgress) *UpstreamQuotaDimension {
-	if progress == nil {
+	if progress == nil || progress.UtilizationUnknown {
 		return nil
 	}
 	if progress.ResetsAt == nil && progress.LimitRequests <= 0 && progress.UsedRequests <= 0 && progress.Utilization <= 0 {

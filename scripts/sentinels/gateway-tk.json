@@ -2963,7 +2963,12 @@
         "openAICloudwiseRelayAccountModelMappingFloor(",
         "func antigravityAccountModelMappingFloor(",
         "func grokAccountModelMappingFloor(",
-        "isNewAPIXRTokenAccount"
+        "isNewAPIXRTokenAccount",
+        "newAPIAliTokenPlanModelAliases()",
+        "newAPIQianfanTokenPlanModelAliases()",
+        "func reconciledAccountModelMapping(",
+        "keysByScope[scope]",
+        "prefixesByScope[scope]"
       ],
       "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from CatalogPolicy projections, platform compatibility owners, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops owner-declared compatibility aliases. ModelSurfaceBundleForOps emits the deterministic checksummed release projection once; rollout tools consume that artifact instead of compiling this package. Tokensea relay scopes (openai_tokensea_relay / anthropic_tokensea_relay) and CloudWise relay scope (openai_cloudwise_relay) must stay wired so prod relay accounts keep probe-curated floors. The isNewAPIXRTokenAccount branch routes ch54 XRToken accounts through its base_url-scoped five-model manifest projection instead of the generic channel-type fallback; otherwise apply-accounts would lose the three shared rows indexed under ch45 or leak XRToken-only rows into plain ch54 accounts."
     },
@@ -3126,6 +3131,14 @@
         "\"compatible_extra_keys\"",
         "\"resolved_targets\"",
         "--activation-floor-sha256",
+        "diff = _mapping_diff(scope, got, want, floor)",
+        "lines.extend(_activation_setting_guard_sql(plan))",
+        "activation_runtime_md5",
+        "observed_account_properties",
+        "AND jsonb_build_object({_ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL}) = ",
+        "targeted activation cannot skip selected accounts: ",
+        "activation accepted a selected account it cannot manage",
+        "runtime mapping changed before scoped activation write",
         "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE",
         "def _command_with_bundle(",
         "forbidden_model_mapping_keys",
@@ -3133,7 +3146,7 @@
         "\"account_bulk_changed\"",
         "\"group_changed\"",
         "def _is_supplier_managed_account(",
-        "'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)",
+        "\"supplier_source_id_present\": \"COALESCE(a.extra ? 'supplier_source_id', false)\"",
         "if _is_supplier_managed_account(row):"
       ],
       "must_not_contain": [
@@ -3204,6 +3217,10 @@
         "def _resolved_prod_instance_id(",
         "def cmd_activate(",
         "post_activation_gate",
+        "targeted_verification",
+        "targeted activation plan changed since dry-run",
+        "targeted activation read-back still reports mapping changes",
+        "override_only=override_only",
         "anthropic_tokensea_relay",
         "openai_tokensea_relay",
         "openai_cloudwise_relay"
@@ -3450,7 +3467,9 @@
         "TestXRTokenAccountPresetMergesSharedAndScopedModels",
         "TestXRTokenAccountPresetAcceptsV1SuffixedBase",
         "TestPlainArkCh54AccountDoesNotInheritXRTokenSharedModels",
-        "TestAccountModelMappingFloorForOpsIncludesXRTokenOverride"
+        "TestAccountModelMappingFloorForOpsIncludesXRTokenOverride",
+        "withdrawal must preserve reseller compatibility",
+        "resellers must not advertise withdrawn SKUs"
       ],
       "rationale": "Manifest preset/display projection for XRToken account 96 (ch54): asserts the ch54-scoped ids and the ch45-indexed shared ids merge into one menu, that the documented '.../v1' base is accepted, and that a plain official-Ark ch54 account does NOT inherit the XRToken shared list. Prevents an upstream merge from dropping the merge step and silently shrinking the served Seedance set. The floor test proves modelops activate actually has an XRToken delta to apply (all five SKUs) and that every exported target is identity — the vendor prefix must never be stored as a mapping target."
     },
@@ -3460,6 +3479,7 @@
         "TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount",
         "TestNewAPIModelMappingPresetIDsForQianfanTokenPlanAccount",
         "TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides",
+        "TestTokenPlanReconciliationRemovesAliSharedFamiliesOnly",
         "PAYG-only ch17 floor ids must not leak into Token Plan override",
         "wan2.7-image"
       ],

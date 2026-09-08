@@ -14,10 +14,6 @@
           "base_url": "https://qianfan.baidubce.com"
         },
         {
-          "channel_type": 17,
-          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
-        },
-        {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
@@ -380,10 +376,6 @@
           "base_url": "https://qianfan.baidubce.com"
         },
         {
-          "channel_type": 17,
-          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
-        },
-        {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
@@ -520,10 +512,6 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
-        },
-        {
-          "channel_type": 17,
-          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         },
         {
           "channel_type": 46,

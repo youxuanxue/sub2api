@@ -702,6 +702,27 @@ func TestPublicCatalog_HidesRetiredOpenAIClientFacingIDs(t *testing.T) {
 	assert.True(t, got["gpt-5.6-luna"], "luna remains public")
 }
 
+func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) {
+	t.Parallel()
+	s := &PricingCatalogService{}
+	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(`{"gpt-5.5":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}}`), time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC), true
+	})
+	full := s.BuildPublicCatalog(context.Background())
+	require.NotNil(t, full)
+	public := FilterPublicCatalogToServable(full)
+	require.NotNil(t, public)
+	visible := make(map[string]bool, len(public.Data))
+	for _, model := range public.Data {
+		visible[model.ModelID] = true
+	}
+	for legacy, replacement := range newAPIAliTokenPlanModelAliases() {
+		assert.True(t, s.IsModelPriced(legacy, PlatformNewAPI), "legacy %s retains settlement pricing", legacy)
+		assert.False(t, visible[legacy], "legacy %s must not be advertised", legacy)
+		assert.True(t, visible[replacement], "replacement %s remains public", replacement)
+	}
+}
+
 func firstMapKeyForTest(t *testing.T, m map[string]struct{}) string {
 	t.Helper()
 	require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")
@@ -951,7 +972,7 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 		{ModelID: "gemini-3.5-flash", Vendor: "vertex_ai-language-models"},               // antigravity-exclusive, mirror-vendored
 		{ModelID: "gemini-3-pro-image", Vendor: "antigravity"},                           // antigravity-exclusive, overlay-injected
 		{ModelID: "gemini-2.5-flash", Vendor: "vertex_ai-language-models"},               // DUAL-listed (gemini + antigravity)
-		{ModelID: "imagen-4.0-generate-001", Vendor: "vertex_ai"},                        // gemini allowlist
+		{ModelID: "imagen-4.0-generate-001", Vendor: "vertex_ai"},                        // empirically served but withdrawn from recommendations
 		{ModelID: "gemini-9-experimental-unlisted", Vendor: "vertex_ai-language-models"}, // in NO allowlist -> dropped
 	}}
 	out := FilterPublicCatalogToServable(in)
@@ -973,9 +994,9 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	m, ok = byID["gemini-2.5-flash"]
 	require.True(t, ok, "dual-listed gemini survives")
 	assert.Equal(t, "vertex_ai-language-models", m.Vendor, "dual-listed keeps gemini vendor")
-	// plain gemini-allowlist model: survives, untouched
+	// A successful empirical probe cannot override an official withdrawal.
 	_, ok = byID["imagen-4.0-generate-001"]
-	assert.True(t, ok)
+	assert.False(t, ok)
 	// vertex_ai model in NO allowlist: still dropped (the gemini gate stays strict)
 	_, ok = byID["gemini-9-experimental-unlisted"]
 	assert.False(t, ok, "vertex_ai model in no allowlist is still dropped")

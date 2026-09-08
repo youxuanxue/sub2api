@@ -451,6 +451,63 @@ class ModelActivationTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "omitted account_model_mapping fields"):
             MODEL_OPS._BUNDLE.load_bundle(missing_policy_path)
 
+    def test_targeted_activation_limits_writes_and_verifies_convergence(self) -> None:
+        gate = {
+            "status": "violation", "runtime_setting_targets": ["prod"],
+            "resolved_targets": [{"target": "prod", "instance_id": "i-0123456789abcdef0"}],
+        }
+        for remaining, expected_rc in [(0, 0), (1, 2)]:
+            with self.subTest(remaining=remaining):
+                responses = [
+                    (1, gate),
+                    (0, {"plan_sha256": "a" * 64, "account_change_count": 1, "group_change_count": 0}),
+                    (0, {"changed_ids": [129]}),
+                    (1, gate),
+                    (0, {"account_change_count": remaining, "group_change_count": 0}),
+                ]
+                args = argparse.Namespace(
+                    bundle=self.target_path, current_bundle=self.current_path,
+                    probe_evidence=self.probe_path, pricing_evidence=self.pricing_path,
+                    prod_instance_id=None, account_ids="129,130,132,137",
+                    expected_plan_sha256="a" * 64,
+                    confirm=MODEL_OPS.ACTIVATION_CONFIRM, format="json",
+                )
+                context = self.build_context()
+                for row in context["delta"]["activated"]:
+                    row["scope"] = "account_override:newapi:17:https://plan.example.test"
+                with mock.patch.object(MODEL_OPS, "build_activation_context", return_value=context), \
+                        mock.patch.object(MODEL_OPS, "_run_json_command", side_effect=responses) as run, \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(MODEL_OPS.cmd_activate(args), expected_rc)
+                commands = [call.args[0] for call in run.call_args_list]
+                for index in (1, 2, 4):
+                    self.assertIn("129,130,132,137", commands[index])
+                    self.assertIn("--activation-floor-sha256", commands[index])
+                self.assertIn("--expected-plan-sha256", commands[2])
+                self.assertIn("--dry-run", commands[4])
+
+    def test_targeted_activation_rejects_unreviewed_or_changed_plan(self) -> None:
+        for digest in (None, "b" * 64):
+            args = argparse.Namespace(
+                bundle=self.target_path, current_bundle=self.current_path,
+                probe_evidence=self.probe_path, pricing_evidence=self.pricing_path,
+                prod_instance_id=None, account_ids="129", expected_plan_sha256=digest,
+                confirm=MODEL_OPS.ACTIVATION_CONFIRM, format="json",
+            )
+            responses = [
+                (1, {"runtime_setting_targets": [], "resolved_targets": [
+                    {"target": "prod", "instance_id": "i-0123456789abcdef0"},
+                ]}),
+                (0, {"plan_sha256": "a" * 64}),
+            ]
+            with mock.patch.object(MODEL_OPS, "build_activation_context", return_value=self.build_context()), \
+                    mock.patch.object(MODEL_OPS, "_run_json_command", side_effect=responses) as run, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(MODEL_OPS.cmd_activate(args), 2)
+            for call in run.call_args_list:
+                command = call.args[0]
+                self.assertTrue(command[2] == "release-gate" or "--dry-run" in command)
+
 
 if __name__ == "__main__":
     unittest.main()

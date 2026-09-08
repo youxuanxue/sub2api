@@ -76,6 +76,13 @@ The evidence envelope and 24-hour freshness contract live in
 `docs/approved/model-surface-activation-contract.md`. Generic deploy and rollback never
 write live mappings and do not depend on mapping convergence.
 
+For a reviewed subset, `activate --account-ids` restricts writes to those accounts
+and leaves groups untouched. Its dry-run supplies the required
+`--expected-plan-sha256`; apply uses the same digest and verifies convergence.
+Unrelated runtime platform/channel replacements can remain when every affected
+scope and selected account uses an immutable property override. Their observed
+value is guarded inside the account-write transaction.
+
 ## Catalog/menu refresh
 
 The public pricing catalog and per-user menu consume one empirical projection. The refresh

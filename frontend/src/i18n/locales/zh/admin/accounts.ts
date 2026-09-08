@@ -455,6 +455,7 @@ export default {
         }
       },
       usageWindow: {
+        rollingStats: '近 {window}',
         statsTitle: '5小时窗口用量统计',
         statsTitleDaily: '每日用量统计',
         geminiProDaily: 'Pro',

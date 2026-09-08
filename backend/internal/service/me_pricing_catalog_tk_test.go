@@ -834,6 +834,66 @@ func TestBuildForUser_ChannelAndAccount_CatalogPriceWins(t *testing.T) {
 	assert.InDelta(t, 0.0025, *byID[openAIIDs[1]].YourPrice.InputPer1K, 1e-9, "account-only row uses catalog price × 1.0 rate")
 }
 
+func TestBuildForUser_ChannelAndAccountHideLegacyTokenPlanAliases(t *testing.T) {
+	group := mkGroupForMe(50, "Ali", PlatformNewAPI, 1)
+	models := []SupportedModel{}
+	whitelist := []string{}
+	replacements := map[string]bool{}
+	for legacy, replacement := range newAPIAliTokenPlanModelAliases() {
+		for _, id := range []string{legacy, "alibaba/" + legacy, replacement} {
+			models = append(models, mkSupportedModel(id, PlatformNewAPI, mkPricing(0.001, 0.002, 0)))
+			whitelist = append(whitelist, id)
+		}
+		replacements[replacement] = true
+	}
+	channel := mkChannelWithModel(100, "legacy-channel",
+		[]AvailableGroupRef{{ID: 50, Platform: PlatformNewAPI}}, models)
+	account := mkAccountWithWhitelist(12, "ali", PlatformNewAPI, newapiconstant.ChannelTypeAli, whitelist)
+	svc := newServiceWithAccounts(
+		&fakeKeyAccess{groups: []Group{group}, keys: []APIKey{mkKeyForMe(1, 7, "ali-key", ptrI(50))}},
+		&fakeChannelLister{channels: []AvailableChannel{channel}},
+		&fakeCatalogProvider{resp: &PublicCatalogResponse{}},
+		&fakeAccountSource{accounts: []Account{account}},
+	)
+	resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+	require.NoError(t, err)
+	require.Len(t, resp.Models, len(replacements))
+	for _, model := range resp.Models {
+		require.True(t, replacements[model.ModelID], "legacy channel or account row leaked: %s", model.ModelID)
+	}
+}
+
+func TestBuildForUser_AnnouncedWithdrawalsHiddenAcrossSources(t *testing.T) {
+	for platform, current := range map[string]string{
+		PlatformNewAPI: "glm-5.2", PlatformOpenAI: "gpt-5.5",
+		PlatformAnthropic: "claude-sonnet-4-5", PlatformGemini: "gemini-2.5-pro",
+		PlatformAntigravity: "gemini-3.1-flash-image",
+	} {
+		t.Run(platform, func(t *testing.T) {
+			models := []SupportedModel{mkSupportedModel(current, platform, mkPricing(0.001, 0.002, 0))}
+			whitelist := []string{current}
+			for id := range catalogWithdrawnModelIDs {
+				for _, name := range []string{id, "vendor/" + id} {
+					models = append(models, mkSupportedModel(name, platform, mkPricing(0.001, 0.002, 0)))
+					whitelist = append(whitelist, name)
+				}
+			}
+			group := mkGroupForMe(50, platform, platform, 1)
+			channel := mkChannelWithModel(100, "historical-channel", []AvailableGroupRef{{ID: 50, Platform: platform}}, models)
+			account := mkAccountWithWhitelist(12, platform, platform, newapiconstant.ChannelTypeAli, whitelist)
+			svc := newServiceWithAccounts(
+				&fakeKeyAccess{groups: []Group{group}, keys: []APIKey{mkKeyForMe(1, 7, "key", ptrI(50))}},
+				&fakeChannelLister{channels: []AvailableChannel{channel}},
+				&fakeCatalogProvider{resp: &PublicCatalogResponse{}},
+				&fakeAccountSource{accounts: []Account{account}},
+			)
+			resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})
+			require.NoError(t, err)
+			require.Equal(t, []string{current}, modelIDsOf(resp.Models))
+		})
+	}
+}
+
 func TestBuildForUser_ChannelGLM52UsesCatalogOfficialPrice(t *testing.T) {
 	gNewapi := mkGroupForMe(50, "zhipu", "newapi", 1.0)
 	k1 := mkKeyForMe(1, 7, "zhipu-key", ptrI(50))
@@ -1271,7 +1331,7 @@ func modelIDsOf(models []MePricingModel) []string {
 
 func firstNPlatformModelIDsForMePricingTest(t *testing.T, platform string, n int) []string {
 	t.Helper()
-	ids := supportedCatalogModelIDsForPlatform(platform)
+	ids := recommendedModelIDsForTest(supportedCatalogModelIDsForPlatform(platform))
 	sort.Strings(ids)
 	require.GreaterOrEqual(t, len(ids), n, "platform %s SSOT must have enough ids for this test", platform)
 	return append([]string{}, ids[:n]...)
@@ -1375,7 +1435,7 @@ func TestBuildForUser_AnthropicUnrestricted_ListsServableModels(t *testing.T) {
 	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
 	require.NoError(t, err)
 
-	want := supportedCatalogModelIDsForPlatform(PlatformAnthropic)
+	want := recommendedModelIDsForTest(supportedCatalogModelIDsForPlatform(PlatformAnthropic))
 	sort.Strings(want)
 	assert.Equal(t, want, modelIDsOf(resp.Models),
 		"menu must equal the empirically-servable Claude set (same source as public catalog)")
@@ -1479,7 +1539,7 @@ func TestBuildForUser_GeminiUnrestricted_ListsServableModels(t *testing.T) {
 	resp, err := svc.BuildForUser(context.Background(), 16, MePricingCatalogOptions{})
 	require.NoError(t, err)
 
-	want := supportedCatalogModelIDsForPlatform(PlatformGemini)
+	want := recommendedModelIDsForTest(supportedCatalogModelIDsForPlatform(PlatformGemini))
 	require.NotEmpty(t, want, "gemini served set must be non-empty")
 	sort.Strings(want)
 	assert.Equal(t, want, modelIDsOf(resp.Models),
@@ -1497,7 +1557,7 @@ func TestBuildForUser_GeminiUnrestricted_ListsServableModels(t *testing.T) {
 func TestBuildForUser_AntigravityMapped_ListsPricedReprobedGeminiModels(t *testing.T) {
 	gAG := mkGroupForMe(56, "antigravity", "antigravity", 1.0)
 	k1 := mkKeyForMe(1, 16, "ag-key", ptrI(56))
-	antigravityIDs := supportedCatalogModelIDsForPlatform(PlatformAntigravity)
+	antigravityIDs := recommendedModelIDsForTest(supportedCatalogModelIDsForPlatform(PlatformAntigravity))
 	sort.Strings(antigravityIDs)
 	visibleGemini := firstNIDsWithPrefixForMePricingTest(t, antigravityIDs, "gemini-", 2)
 	antigravitySet := stringSet(antigravityIDs)

@@ -770,6 +770,8 @@ validate independent evidence, plan prod mapping, and explicitly activate a mode
 - `--probe-evidence` (required): fresh independent model_activation_probe JSON
 - `--pricing-evidence` (required): fresh independent model_activation_pricing JSON
 - `--prod-instance-id`: pin the full prod activation chain to this EC2 instance id
+- `--account-ids`: limit activation to these comma-separated prod account IDs; groups are untouched
+- `--expected-plan-sha256`: required for confirmed targeted activation; digest from its dry-run
 - `--confirm`: write confirmation phrase: yes-activate-model-surface
 - `--format` (choices: `text`, `json`; default: `text`):
 
