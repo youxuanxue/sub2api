@@ -1030,6 +1030,25 @@
       "rationale": "Guards NVIDIA namespace translation, manifest coverage, bundle export and isolation from other ch1 providers."
     },
     {
+      "path": "backend/internal/service/sticky_session_context.go",
+      "must_contain": [
+        "applyStickyToNewAPIBridge",
+        "isNewAPINVIDIABuildAccount(account)",
+        "sjson.DeleteBytes(body, \"prompt_cache_key\")",
+        "DeriveStickyKey(stickyReq, stickyBody)"
+      ],
+      "rationale": "NVIDIA rejects prompt_cache_key on the wire; preserve local affinity while omitting both generated and client-supplied keys from its bridge body."
+    },
+    {
+      "path": "backend/internal/service/sticky_session_nvidia_tk_test.go",
+      "must_contain": [
+        "TestNVIDIABuildChatDispatchOmitsPromptCacheKey",
+        "TestNVIDIABuildStickyBodyCompatibility",
+        "TestNVIDIABuildStickyCompatibilityLeavesOtherChannelsUnchanged"
+      ],
+      "rationale": "Protects NVIDIA chat dispatch and model mapping, sticky modes, request payload preservation, and isolation from other providers."
+    },
+    {
       "path": "backend/internal/service/account_model_mapping_preset_tk.go",
       "must_contain": [
         "accountModelMappingOverrideAccounts",
