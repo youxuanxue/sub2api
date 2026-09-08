@@ -155,7 +155,7 @@ func protocolPlanForAccount(
 	}
 	snapshot, err := protocolAccountSnapshotForRequestWithThinking(account, routing.request, thinkingEnabledFromCtx(ctx))
 	if err != nil {
-		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err)
+		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %w", ErrProtocolRouteUnavailable, err)
 	}
 	key := protocolPlanCacheKey{accountID: snapshot.AccountID()}
 	plan, err := routing.plans.getOrPlan(key, func() (protocolrouter.Plan, error) {

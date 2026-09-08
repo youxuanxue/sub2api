@@ -155,6 +155,107 @@ func TestCandidateEligibilityUnknownCapabilityIsNotEntitlement(t *testing.T) {
 	require.NotErrorIs(t, err, ErrUniversalNoEntitledGroup)
 }
 
+func TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer(t *testing.T) {
+	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite"} {
+		t.Run(model, func(t *testing.T) {
+			resolver, gateway, accounts, _ := candidateGoogleFixture(t)
+			invalid := accounts[1]
+			invalid.ID = 61
+			invalid.Schedulable = false
+			attachTestProtocolCapability(&invalid)
+			invalid.ProtocolEndpointCapability.ProbeEvidence = ProtocolProbeEvidence{}
+			chatOnly := *protocolRoutingOpenAIAccount(113, "chat_completions")
+			chatOnly.Platform = PlatformNewAPI
+			chatOnly.GroupIDs = []int64{19}
+			chatOnly.Credentials["model_mapping"] = map[string]any{
+				"gemini-3-flash-preview":        "gemini-3-flash-preview",
+				"gemini-3.1-flash-lite-preview": "gemini-3.1-flash-lite-preview",
+			}
+			attachTestProtocolCapability(&chatOnly, protocolrouter.ProtocolChatCompletions)
+			resolver.lister = &stubSpanLister{groups: []Group{
+				grp(16, PlatformNewAPI, 1, false), grp(21, PlatformAntigravity, 2, false), grp(19, PlatformNewAPI, 3, false),
+			}}
+			accounts = append(accounts, invalid, chatOnly)
+			wireCandidateTestResolver(resolver, gateway, accounts)
+			ctx := resolver.WithRequest(context.Background(), ShapeGemini,
+				"/v1beta/models/"+model+":generateContent", model,
+				[]byte(`{"contents":[{"role":"user","parts":[{"text":"OK"}]}]}`))
+			for i := range accounts[:2] {
+				_, governed, err := protocolPlanForAccount(ctx, &accounts[i], model)
+				require.True(t, governed)
+				require.ErrorIs(t, err, protocolrouter.ErrModelNotAllowed)
+			}
+			_, governed, err := protocolPlanForAccount(ctx, &chatOnly, model)
+			require.True(t, governed)
+			require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute)
+			group, err := resolver.Resolve(ctx, universalKey(334), ShapeGemini, model, "")
+			require.Nil(t, group)
+			require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+		})
+	}
+}
+
+func TestCandidateEligibilityInvalidCapabilityIsCandidateRejection(t *testing.T) {
+	for _, invalid := range []struct {
+		name   string
+		mutate func(*ProtocolEndpointCapability)
+	}{
+		{"empty_protocols", func(c *ProtocolEndpointCapability) { c.SupportedProtocols = nil }},
+		{"unverified", func(c *ProtocolEndpointCapability) { c.ProbeEvidence = ProtocolProbeEvidence{} }},
+		{"identity_conflict", func(c *ProtocolEndpointCapability) { c.IdentityConflict = true }},
+		{"evidence_conflict", func(c *ProtocolEndpointCapability) { c.ProbeEvidence.IdentityConflict = true }},
+		{"invalid_revision", func(c *ProtocolEndpointCapability) { c.Revision = 0 }},
+		{"empty_key", func(c *ProtocolEndpointCapability) { c.CapabilityKey = "" }},
+		{"identity_mismatch", func(c *ProtocolEndpointCapability) { c.CapabilityKey = "different-endpoint" }},
+	} {
+		for _, shape := range []UniversalShape{ShapeGemini, ShapeOpenAIChat} {
+			for _, state := range []string{"available", "disabled", "cooling", "unsupported"} {
+				t.Run(fmt.Sprintf("%s/%v/%s", invalid.name, shape, state), func(t *testing.T) {
+					resolver, gateway, accounts, request := candidateGoogleFixture(t)
+					model := request.RequestedModel()
+					invalid.mutate(accounts[1].ProtocolEndpointCapability)
+					switch state {
+					case "disabled":
+						accounts[0].Schedulable = false
+					case "cooling":
+						until := time.Now().Add(time.Hour)
+						accounts[0].RateLimitResetAt = &until
+					case "unsupported":
+						accounts[0].Credentials["model_mapping"] = map[string]any{"other": "other"}
+					}
+					wireCandidateTestResolver(resolver, gateway, accounts)
+					path, body := "/v1/chat/completions", request.Body()
+					if shape == ShapeGemini {
+						path = "/v1beta/models/" + model + ":generateContent"
+						body = []byte(`{"contents":[{"role":"user","parts":[{"text":"OK"}]}]}`)
+					}
+					ctx := resolver.WithRequest(context.Background(), shape, path, model, body)
+					_, governed, err := protocolPlanForAccount(ctx, &accounts[1], model)
+					require.True(t, governed)
+					require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute)
+					require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
+					require.Empty(t, gateway.gatewayCandidates(ctx, accounts[1:], PlatformAntigravity, false, model, nil))
+					group, err := resolver.Resolve(ctx, universalKey(1), shape, model, "")
+					switch state {
+					case "available":
+						require.NoError(t, err)
+						require.Equal(t, int64(16), group.ID)
+						plan, _, err := protocolPlanForAccount(ctx, &accounts[0], model)
+						require.NoError(t, err)
+						require.Equal(t, protocolrouter.ProtocolGeminiGenerateContent, plan.TargetProtocol())
+					case "unsupported":
+						require.Nil(t, group)
+						require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+					default:
+						require.Nil(t, group)
+						require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestCandidateEligibilitySaturationPreservesBillingTier(t *testing.T) {
 	for _, test := range []struct {
 		name              string
