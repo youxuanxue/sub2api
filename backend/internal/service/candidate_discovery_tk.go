@@ -110,7 +110,7 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 	accountSet := make(map[int64]Account)
 	for _, model := range models {
 		capability := UniversalCapability{ID: model}
-		var policyConflict error
+		var supportFailure error
 		seenRoute := make(map[string]bool)
 		seenProtocol := make(map[UniversalProtocol]bool)
 		seenModality := make(map[UniversalModality]bool)
@@ -139,7 +139,7 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 					candidate, err := request.evaluatePath(requestCtx, &accounts[i], &groups[j])
 					if err != nil {
 						if !candidateIgnorableSupportError(err) {
-							failure = err
+							failure = fmt.Errorf("account %d group %d: %w", accounts[i].ID, groups[j].ID, err)
 						}
 						continue
 					}
@@ -170,10 +170,12 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 			}
 			if selected == nil {
 				if failure != nil {
-					if !errors.Is(failure, ErrCandidatePolicyConflict) {
+					if !errors.Is(failure, ErrCandidatePolicyConflict) && !errors.Is(failure, ErrProtocolCapabilityUnknown) {
 						return nil, nil, fmt.Errorf("discover %s: %w", model, failure)
 					}
-					policyConflict = failure
+					// An unverified protocol must not hide a verified route for
+					// the same model. Preserve the error if every shape fails.
+					supportFailure = failure
 				}
 				continue
 			}
@@ -194,8 +196,8 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 		if len(capability.Routes) > 0 {
 			capability.SelectedGroup = capability.Routes[0].Group
 			out = append(out, capability)
-		} else if policyConflict != nil {
-			return nil, nil, fmt.Errorf("discover %s: %w", model, policyConflict)
+		} else if supportFailure != nil {
+			return nil, nil, fmt.Errorf("discover %s: %w", model, supportFailure)
 		}
 	}
 	supportedAccounts := make([]Account, 0, len(accountSet))
