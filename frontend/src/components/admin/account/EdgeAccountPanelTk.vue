@@ -205,7 +205,7 @@
     <EdgeAccountActionMenuTk
       :show="!!menuAccount"
       :account="menuAccount"
-      :position="menuPosition"
+      :menu-style="menuStyle"
       @close="closeMenu"
       @query-usage="onQueryUsage"
       @clear-rate-limit="onClearRateLimit"
@@ -227,6 +227,7 @@ import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.
 import EdgeAccountActionMenuTk from '@/components/admin/account/EdgeAccountActionMenuTk.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import { formatDateOnly } from '@/utils/format'
+import { anchoredMenuStyle, getAnchoredMenuPosition } from '@/utils/floatingPanel'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 import type { Account, AccountUsageInfo, AccountPlatform, AccountType } from '@/types'
@@ -306,17 +307,22 @@ function usageOverrideFor(acct: EdgeAccountSummary): AccountUsageInfo | null {
 
 // --- per-account action menu (Teleported; positioned at the click) ---
 const menuAccount = ref<EdgeAccountSummary | null>(null)
-const menuPosition = ref<{ top: number; left: number } | null>(null)
+const menuStyle = ref<Record<string, string> | null>(null)
 function openMenu(acct: EdgeAccountSummary, event: MouseEvent) {
   const btn = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  // Right-align a 224px (w-56) menu under the trigger, clamped to the viewport.
-  const left = Math.max(8, Math.min(btn.right - 224, window.innerWidth - 232))
   menuAccount.value = acct
-  menuPosition.value = { top: btn.bottom + 4, left }
+  menuStyle.value = anchoredMenuStyle(
+    getAnchoredMenuPosition(
+      btn,
+      { width: 224, height: 200 },
+      window.innerWidth,
+      window.innerHeight
+    )
+  )
 }
 function closeMenu() {
   menuAccount.value = null
-  menuPosition.value = null
+  menuStyle.value = null
 }
 
 // --- write ops (whitelisted, status-class; credentials never touched here) ---
