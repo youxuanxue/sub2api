@@ -92,9 +92,14 @@ try {
     let key = keys.items?.find(key => key.name === 'Cursor local verification');
     if (!key) key = await api(`/admin/users/${user.id}/api-keys`, 'POST', { name: 'Cursor local verification', group_id: group.id, expires_in_days: 2, quota: 5 });
     writeFileSync(resolve(state, 'gateway-key.json'), JSON.stringify({ key: key.key, id: key.id, groupId: group.id }), { mode: 0o600 });
-    const manifest = JSON.parse(readFileSync(resolve(root, 'backend/internal/service/tk_served_models.json'), 'utf8'));
-    const all = Object.entries(manifest.entries).filter(([, entry]) => entry.scopes?.some(scope => scope.channel_type === 14 && scope.base_url === 'http://cursor-bridge:3927')).map(([id]) => id);
-    const models = action === 'chat-all' ? all : [process.env.CURSOR_E2E_MODEL || 'composer-2.5'];
+    let models = [process.env.CURSOR_E2E_MODEL || 'composer-2.5'];
+    if (action === 'chat-all') {
+      const accounts = await api(`/admin/accounts?group_id=${group.id}&page=1&page_size=100`);
+      if (accounts.total > accounts.items?.length) throw new Error('Cursor acceptance account listing is incomplete');
+      const imported = accounts.items?.filter(account => account.extra?.upstream_provider === 'cursor') || [];
+      models = [...new Set(imported.flatMap(account => Object.keys(account.credentials?.cursor_wire_models || {})))].sort();
+      if (!models.length) throw new Error('No authenticated native Cursor catalog; authorize and import an account before chat-all');
+    }
     const results = [];
     for (const model of models) {
       await page.goto(`${base}/studio?mode=chat`);
