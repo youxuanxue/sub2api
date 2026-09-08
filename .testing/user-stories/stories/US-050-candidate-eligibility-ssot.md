@@ -40,14 +40,19 @@
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityMixedPoolUsesSchedulerMembership`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilitySaturationPreservesBillingTier`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityAntigravitySaturationScopeAndParity`
+- `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityProductionWiring`
+- `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityHardGatesPrecedeWindowRecovery`
+- `backend/internal/service/candidate_eligibility_tk_tokensea_test.go`::`TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances`
 - `backend/internal/repository/antigravity_saturation_counter_cache_test.go`::`TestAntigravitySaturationCounterCache_FixedWindow`
 - `backend/internal/server/middleware/universal_routing_tk_test.go`::`TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody`
 - `backend/internal/server/middleware/universal_routing_tk_test.go`::`TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement`
 - Run:
 
 ```bash
-cd backend && go test -tags unit ./internal/service ./internal/server/middleware ./internal/repository ./internal/handler ./internal/engine/protocolrouter
+(cd backend && go test -tags unit ./internal/service ./internal/server/middleware ./internal/repository ./internal/handler ./internal/engine/protocolrouter ./internal/server)
 python3 scripts/sentinels/check-gateway-tk.py --quiet
+python3 scripts/checks/protocol-routing-ssot.py
+python3 -m unittest discover -s scripts/checks -p 'test_protocol_routing_ssot.py'
 python3 .testing/user-stories/verify_quality.py
 ```
 
@@ -57,7 +62,10 @@ python3 .testing/user-stories/verify_quality.py
 
 ## Evidence
 
-- Full service, middleware, repository, handler, protocolrouter and server unit packages: PASS.
-- Production DI regression and Wire regeneration: PASS.
-- Protocol SSOT checker self-tests: 81 passed.
-- golangci-lint: 0 issues.
+Implementation acceptance recorded for the original SSOT change:
+
+- Service, middleware, repository, handler, protocolrouter and server unit packages passed.
+- Production DI regression, Wire regeneration, protocol checker self-tests and lint passed.
+
+These are historical acceptance results, not a freshness claim for later revisions;
+rerun the commands above for the tree being reviewed. Production verification is separate.
