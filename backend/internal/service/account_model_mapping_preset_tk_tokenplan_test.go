@@ -25,7 +25,10 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	require.Contains(t, want, "qwen3.6-flash")
 	require.NotContains(t, want, "deepseek-v4-flash-0731")
 	require.NotContains(t, want, "deepseek-v4-pro")
-	require.NotContains(t, want, "qwen-plus", "PAYG-only ch17 floor ids must not leak into Token Plan override")
+	// PAYG-only ch17 floor ids must not leak into Token Plan override.
+	for _, legacy := range []string{"qwen-plus", "qwen-max", "qwen-turbo"} {
+		require.Contains(t, want, legacy, "legacy DashScope aliases must be routable on Token Plan")
+	}
 
 	got := NewAPIModelMappingPresetIDsForAccount(account)
 	require.Equal(t, want, got)
@@ -50,6 +53,9 @@ func TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount(t *testing.T) {
 	paygMapping, ok := accountModelMappingForAccount(context.Background(), payg, nil, nil, nil)
 	require.True(t, ok)
 	require.Contains(t, paygMapping, "qwen3-8b")
+	require.Equal(t, "qwen3.7-plus", mapping["qwen-plus"])
+	require.Equal(t, "qwen3.8-max", mapping["qwen-max"])
+	require.Equal(t, "qwen3.8-flash", mapping["qwen-turbo"])
 	for alias, target := range newAPIAliTokenPlanModelAliases() {
 		require.Equal(t, target, mapping[alias])
 		require.Equal(t, alias, paygMapping[alias], "hiding legacy names must not retarget or remove PAYG support")

@@ -817,15 +817,14 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite {
 		billingModel = s.compositeBillableModel(ctx, apiKey, billingModel, concreteBillingModel)
 	}
-	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
-	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
-	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
-
-	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
 	if input.OriginalModel != "" {
 		requestedModel = input.OriginalModel
 	}
+	billingModel = settleBillingOnAccountServedModel(account, requestedModel, billingModel)
+	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
+	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
+	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
 
 	// 计算费用
 	cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt, opts)

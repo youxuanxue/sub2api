@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "fd83da352782db635038a1bb2f32c4dd4afca533bacc5b29fec8d73d8f9185da",
+  "floor_sha256": "4b149f3a0c20507d5ae22e07980d546d15decaae1b6a4b34f6d4d75b772c095f",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -355,6 +355,9 @@
         "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
         "model_mapping": {
           "qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus",
+          "qwen-max": "qwen3.8-max",
+          "qwen-plus": "qwen3.7-plus",
+          "qwen-turbo": "qwen3.8-flash",
           "qwen3-235b-a22b": "qwen3.7-plus",
           "qwen3-32b": "qwen3.7-plus",
           "qwen3-8b": "qwen3.6-flash",

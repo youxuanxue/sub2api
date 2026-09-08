@@ -78,7 +78,7 @@ func loadTkServedModelsManifest() {
 				continue
 			}
 			out[modelID] = struct{}{}
-			displayAllowed := e.Display && isCatalogModelRecommended(modelID)
+			displayAllowed := e.Display && isCatalogModelRecommended(modelID) && !isTkCuratedNewAPIModelLegacyTokenPlanAlias(modelID)
 			if displayAllowed {
 				display[modelID] = struct{}{}
 			}
@@ -238,10 +238,14 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 	return ids
 }
 
-// Ali Token Plan migration intent; shared by presets, runtime floors and the
-// generated activation bundle. PAYG aliases retain their original targets.
+// Ali Token Plan migration intent; shared by presets, runtime floors, the
+// generated activation bundle, and billing settlement (settleBillingOnAccountServedModel).
+// PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
 	return map[string]string{
+		"qwen-plus":       "qwen3.7-plus",
+		"qwen-max":        "qwen3.8-max",
+		"qwen-turbo":      "qwen3.8-flash",
 		"qwen3-32b":       "qwen3.7-plus",
 		"qwen3-235b-a22b": "qwen3.7-plus",
 		"qwen3-8b":        "qwen3.6-flash",
@@ -358,6 +362,19 @@ func isTkCuratedNewAPIModelDisplayed(modelID string) bool {
 	loadTkServedModelsManifest()
 	_, ok := tkServedModelsManifestDisplayIDs[modelID]
 	return ok
+}
+
+func isTkCuratedNewAPIModelLegacyTokenPlanAlias(modelID string) bool {
+	if modelID == "" {
+		return false
+	}
+	if _, ok := newAPIAliTokenPlanModelAliases()[modelID]; ok {
+		return true
+	}
+	if _, ok := newAPIQianfanTokenPlanModelAliases()[modelID]; ok {
+		return true
+	}
+	return false
 }
 
 // isTkCuratedNewAPICatalogRowListed is the shared SSOT gate for newapi long-tail
