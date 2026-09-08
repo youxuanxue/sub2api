@@ -4438,9 +4438,23 @@
         "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
         "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, streamStarted, reqLog)",
         "h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog)",
-        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog)"
+        "platform := service.QuotaPlatform(c.Request.Context(), apiKey)",
+        "if platform == service.PlatformAnthropic && h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog)",
+        "TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, platform, parsedReq.Model, len(body))"
       ],
-      "rationale": "Handler half of unsupported-model + deprecated-model fixes on /v1/messages and count_tokens: tkWriteDeprecatedAnthropicModelAtIngress rejects sunset ids before scheduling (#1257); select-account failures call tkWriteDeprecatedAnthropicModelIfApplicable BEFORE tkWriteUnsupportedModelIfApplicable, mapping ErrDeprecatedAnthropicModel to the Anthropic-shape migration 400 (client-owned) instead of routing 429 when the Forward-path gate never ran."
+      "rationale": "Handler half of unsupported-model + deprecated-model fixes on /v1/messages and count_tokens: sunset ids are rejected before scheduling (#1257). Shared count_tokens ingress resolves the actual target platform for namespace and body-size checks; only Anthropic targets reject non-Claude names, so Antigravity Gemini can reach the existing local estimator. Selection failures retain the deprecated-model migration 400 before generic unsupported-model handling."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_count_tokens_ingress_test.go",
+      "must_contain": [
+        "func TestGatewayCountTokensIngressPlatformGuards(",
+        "h.CountTokens(c)",
+        "universal_antigravity_backing_group",
+        "require.JSONEq(t, `{\"input_tokens\":4}`, rec.Body.String())",
+        "require.Nil(t, upstream.request)",
+        "require.Empty(t, usage.logs)"
+      ],
+      "rationale": "Full count_tokens handler regression crosses ingress and selection to the Antigravity local estimator for direct and resolved universal keys. Namespace/body guards follow the actual platform, unknown models remain rejected, and local estimates neither call upstream nor create usage records."
     },
     {
       "path": "backend/internal/service/gateway_scheduling.go",
@@ -4453,9 +4467,22 @@
       "path": "backend/internal/handler/gateway_handler_responses.go",
       "must_contain": [
         "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
-        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog)"
+        "platform := service.QuotaPlatform(requestCtx, apiKey)",
+        "TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, platform, reqModel, len(body))",
+        "if platform == service.PlatformAnthropic && h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog)"
       ],
-      "rationale": "/v1/responses Anthropic ingress must reject retired model IDs and cross-vendor dirty names before selection (#1257 + cross-vendor 400 gate)."
+      "rationale": "Shared /v1/responses ingress must resolve its actual platform before body-size and namespace checks. Only Anthropic targets reject non-Claude names; an unconditional namespace gate blocks Antigravity Gemini before selection. Retired-model policy remains enforced."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_responses_ingress_test.go",
+      "must_contain": [
+        "func TestGatewayResponsesIngressAntigravityGemini(",
+        "func TestGatewayResponsesIngressPlatformGuards(",
+        "h.Responses(c)",
+        "response.completed",
+        "usage.logs[0].UpstreamModel"
+      ],
+      "rationale": "Full Responses handler regression must cross ingress, account selection, protocol execution and usage recording for Antigravity Gemini, including streaming and buffered Responses/Chat/native-Gemini targets. Guard tests retain Anthropic rejection, unsupported-model rejection, actual-platform body limits and resolved/forced platform precedence; executor-only tests cannot catch ingress rejection."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_unsupported_model.go",
