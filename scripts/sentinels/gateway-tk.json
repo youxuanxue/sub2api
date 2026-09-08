@@ -3463,7 +3463,9 @@
         "TestXRTokenAccountPresetMergesSharedAndScopedModels",
         "TestXRTokenAccountPresetAcceptsV1SuffixedBase",
         "TestPlainArkCh54AccountDoesNotInheritXRTokenSharedModels",
-        "TestAccountModelMappingFloorForOpsIncludesXRTokenOverride"
+        "TestAccountModelMappingFloorForOpsIncludesXRTokenOverride",
+        "withdrawal must preserve reseller compatibility",
+        "resellers must not advertise withdrawn SKUs"
       ],
       "rationale": "Manifest preset/display projection for XRToken account 96 (ch54): asserts the ch54-scoped ids and the ch45-indexed shared ids merge into one menu, that the documented '.../v1' base is accepted, and that a plain official-Ark ch54 account does NOT inherit the XRToken shared list. Prevents an upstream merge from dropping the merge step and silently shrinking the served Seedance set. The floor test proves modelops activate actually has an XRToken delta to apply (all five SKUs) and that every exported target is identity — the vendor prefix must never be stored as a mapping target."
     },

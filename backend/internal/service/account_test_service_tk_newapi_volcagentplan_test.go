@@ -47,7 +47,11 @@ func TestNewAPIAvailableModelPresetIDs_AgentPlan(t *testing.T) {
 	require.Equal(t, tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL()), got)
 	require.Contains(t, got, newapiintegration.VolcEngineAgentPlanDefaultTestModel)
 	display := NewAPIModelDisplayIDsForAccount(account)
-	require.ElementsMatch(t, got, display, "all verified Agent Plan models are displayable")
+	require.ElementsMatch(t, tkServedModelsManifestDisplayPresetIDsForSelector(
+		account.Platform, account.ChannelType, account.GetBaseURL(),
+	), display)
+	require.Contains(t, got, "minimax-m2.7", "withdrawal must preserve API compatibility")
+	require.NotContains(t, display, "minimax-m2.7", "withdrawn Agent Plan models must not be recommended")
 	require.Contains(t, display, "minimax-m3")
 }
 

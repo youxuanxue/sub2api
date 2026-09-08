@@ -1025,6 +1025,15 @@
       "rationale": "Agent Plan admin model discovery uses the account-aware manifest preset helper instead of channel-wide defaults."
     },
     {
+      "path": "backend/internal/service/account_test_service_tk_newapi_volcagentplan_test.go",
+      "must_contain": [
+        "TestNewAPIAvailableModelPresetIDs_AgentPlan",
+        "withdrawal must preserve API compatibility",
+        "withdrawn Agent Plan models must not be recommended"
+      ],
+      "rationale": "Agent Plan capability membership survives recommendation withdrawal; admin display consumes the manifest lifecycle projection."
+    },
+    {
       "path": "backend/internal/service/tk_served_models_manifest_tk.go",
       "must_contain": [
         "e.Display && isCatalogModelRecommended(modelID)",
