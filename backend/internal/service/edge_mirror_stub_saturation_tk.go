@@ -1,11 +1,13 @@
 package service
 
-// SSOT — prod edge-mirror stub downstream-empty de-prioritization.
+// Shared constants for prod edge-mirror downstream-empty preference.
 //
-// Both Anthropic (cc-us* → edge OAuth) and OpenAI (openai-us* → api-us*.tokenkey.dev)
-// share the same counter window, saturation threshold, and preference model:
+// Anthropic, OpenAI-compatible and Antigravity relays share these constants.
+// candidate_saturation.go owns counter scope and interpretation for group choice,
+// account scoring and sticky eviction. Antigravity counters use account plus
+// resolved upstream model; the other counters retain account scope.
 //
-//   - increment on downstream-capacity skip path only (never handle429 / ladder)
+//   - increment on classified downstream-capacity skip paths, without advancing the cooldown ladder
 //   - at threshold: clear sticky + scheduler preference penalty
 //   - prod mirror/relay stubs never write model_rate_limits — edge OAuth owns quota truth
 //   - self-clearing via window TTL (90s after the first hit in a fixed window)
@@ -21,18 +23,16 @@ const (
 	// stub; sustained downstream-empty (≥3 in 90s) triggers preference only.
 	edgeMirrorStubSaturationThreshold int64 = 3
 
-	// anthropicSaturationPriorityPenalty is added to effectivePriority in the
-	// Anthropic load-aware scheduler (priorities are small ints ~0..100).
+	// anthropicSaturationPriorityPenalty is the shared additive priority penalty
+	// in the generic gateway's legacy and load-aware selectors.
 	anthropicSaturationPriorityPenalty = 1000
 
 	// openAISaturationScorePenalty is subtracted from weighted LB score (~0..5).
 	openAISaturationScorePenalty = 50.0
 )
 
-// Legacy aliases keep anthropic/openai call sites and sentinels stable.
+// Compatibility aliases still used by platform-specific writers and tests.
 const (
-	anthropicSaturationWindowSeconds           = edgeMirrorStubSaturationWindowSeconds
-	anthropicSaturationThreshold               = edgeMirrorStubSaturationThreshold
-	anthropicEdgeMirrorStubSaturationThreshold = edgeMirrorStubSaturationThreshold
-	openAIEdgeMirrorStubSaturationThreshold    = edgeMirrorStubSaturationThreshold
+	anthropicSaturationThreshold            = edgeMirrorStubSaturationThreshold
+	openAIEdgeMirrorStubSaturationThreshold = edgeMirrorStubSaturationThreshold
 )

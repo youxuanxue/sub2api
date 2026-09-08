@@ -43,6 +43,10 @@ pnpm lint:check && pnpm typecheck # Lint + type check
 
 Backend `backend/` (Go: `handler` → `service` → `repository` → `ent`), frontend `frontend/` (Vue 3 + pnpm), deploy `deploy/`. Sibling `new-api/` clone required at `../../new-api` (see §4). Key paths: `backend/internal/{handler,service,integration/newapi,relay/bridge}`, `frontend/src/{views,composables,api}`, `deploy/docker-compose*.yml`.
 
+Candidate eligibility (`candidate-eligibility-ssot`): owner boundaries for Universal group
+choice and direct account selection are in
+[`docs/approved/candidate-eligibility-ssot.md`](docs/approved/candidate-eligibility-ssot.md).
+
 ## Hard Rules
 
 ### 1. PostgreSQL Only
