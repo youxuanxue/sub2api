@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -86,6 +87,7 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 	var best *candidate
 	var evaluationErr error
 	supported := false
+	unsupportedModel := false
 	for _, group := range eligible {
 		if universalShapeRequiresImageGenerationEnabled(shape) && !group.AllowImageGeneration {
 			continue
@@ -95,7 +97,13 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 		}
 		state, err := evaluate(ctx, group, model, shape)
 		if err != nil {
-			evaluationErr = err
+			if errors.Is(err, ErrUniversalUnsupportedModel) {
+				unsupportedModel = true
+				continue
+			}
+			if evaluationErr == nil {
+				evaluationErr = err
+			}
 			continue
 		}
 		supported = supported || state.Supported
@@ -129,6 +137,12 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 	}
 	if evaluationErr != nil {
 		return nil, evaluationErr
+	}
+	if unsupportedModel {
+		// A model-bearing request with no supported candidate is a client model
+		// miss, not an internal resolver failure. Candidate-local protocol errors
+		// have already been filtered by evaluateGroupCandidates.
+		return nil, fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
 	}
 	return nil, ErrUniversalNoEntitledGroup
 }

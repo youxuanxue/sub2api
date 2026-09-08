@@ -14,6 +14,29 @@ type recordingAdapter struct {
 	err       error
 }
 
+func TestPlanDistinguishesModelPolicyFromRouteAndInternalErrors(t *testing.T) {
+	request := testRequest(t, ProtocolChatCompletions, RequestProfile{})
+	account := testAccount(t, ProtocolChatCompletions)
+	router := New(allTestAdapters())
+	account.modelPolicyDenied = true
+	_, err := router.Plan(request, account)
+	if !errors.Is(err, ErrModelPolicyDenied) || !errors.Is(err, ErrModelNotAllowed) {
+		t.Fatalf("explicit model rejection = %v", err)
+	}
+	account.modelPolicyDenied = false
+	account.modelAllowed[ProtocolChatCompletions] = false
+	_, err = router.Plan(request, account)
+	if !errors.Is(err, ErrNoLegalRoute) || errors.Is(err, ErrModelPolicyDenied) {
+		t.Fatalf("target policy rejection = %v", err)
+	}
+	for _, broken := range []*Router{nil, {registryErr: errors.New("invalid registry")}} {
+		_, err = broken.Plan(request, account)
+		if !errors.Is(err, ErrRouterUnavailable) || errors.Is(err, ErrNoLegalRoute) {
+			t.Fatalf("internal router error = %v", err)
+		}
+	}
+}
+
 func (a *recordingAdapter) Execute(_ context.Context, execution Execution) (Result, error) {
 	a.calls++
 	a.execution = execution

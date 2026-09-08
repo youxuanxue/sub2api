@@ -169,17 +169,20 @@
         "TestCandidateEligibilityNativeAndConverterEqual",
         "TestCandidateEligibilitySaturationPreservesBillingTier",
         "TestCandidateEligibilityAntigravitySaturationScopeAndParity",
-        "TestCandidateEligibilityCapacityIsNotEntitlement"
+        "TestCandidateEligibilityCapacityIsNotEntitlement",
+        "TestCandidateEligibilityKnownRouteRejectionIsNotInternal",
+        "TestCandidateEligibilityErrorPrecedence"
       ],
       "rationale": "Behavior regressions for Candidate Eligibility SSOT."
     },
     {
       "path": "backend/internal/service/account_supported_protocols.go",
       "must_contain": [
-        "fmt.Errorf(\"%w: protocol endpoint capability is invalid or conflicted\", protocolrouter.ErrNoLegalRoute)",
-        "fmt.Errorf(\"%w: account endpoint identity does not match linked capability\", protocolrouter.ErrNoLegalRoute)"
+        "fmt.Errorf(\"%w: %w: protocol endpoint capability is invalid or conflicted\", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)",
+        "fmt.Errorf(\"%w: %w: account endpoint identity does not match linked capability\", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)",
+        "ModelPolicyDenied:"
       ],
-      "rationale": "Loaded unusable capability evidence rejects a candidate through the shared Plan error contract, without failing Universal group evaluation."
+      "rationale": "Unknown capability is distinct from a proven route rejection and cannot justify a client unsupported-model error. Healthy peers remain eligible. Account model policy is projected into the Plan snapshot."
     },
     {
       "path": "backend/internal/service/protocol_routing_context.go",
@@ -201,9 +204,24 @@
       "path": "backend/internal/server/middleware/universal_routing_tk_test.go",
       "must_contain": [
         "TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody",
-        "TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement"
+        "TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement",
+        "TestMaybeResolveUniversal_UnsupportedModelIs400"
       ],
       "rationale": "Middleware regressions for pre-billing parsing and capacity errors."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_test.go",
+      "must_contain": [
+        "TestClassifyOpsUniversalUnsupportedModelIsClientRequest"
+      ],
+      "rationale": "Universal explicit model denial must remain a client request error excluded from platform SLA, without becoming an auth or internal incident."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/router_test.go",
+      "must_contain": [
+        "TestPlanDistinguishesModelPolicyFromRouteAndInternalErrors"
+      ],
+      "rationale": "The Plan owner must distinguish explicit model denial, target route rejection and internal router failure; Universal consumes these facts without re-evaluating model policy."
     },
     {
       "path": "backend/internal/repository/integration_registry_only_tk_test.go",

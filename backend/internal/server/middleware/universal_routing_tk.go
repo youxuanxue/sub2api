@@ -115,7 +115,10 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 	if err != nil {
 		// 区分“真没有被授权的组”(403,业务语义) 与跨度加载失败等内部错误(500,可重试):
 		// 后者不该被伪装成“该模型不在你的套餐内”。
-		if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
+		if errors.Is(err, service.ErrUniversalUnsupportedModel) {
+			reqLog.Warn("universal_routing.unsupported_model")
+			writeUniversalRoutingUnsupportedModelError(c, shape, model)
+		} else if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
 			reqLog.Warn("universal_routing.no_entitled_group")
 			writeUniversalRoutingError(c, shape, model)
 		} else if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
@@ -138,6 +141,26 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		zap.String("backing_platform", backing.Platform),
 	)
 	return false
+}
+
+func writeUniversalRoutingUnsupportedModelError(c *gin.Context, shape service.UniversalShape, model string) {
+	const status = http.StatusBadRequest
+	message := service.TkUnsupportedModelMessage(model)
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonUnsupportedModel)
+	switch shape {
+	case service.ShapeGemini:
+		GoogleErrorWriter(c, status, message)
+	case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
+		c.JSON(status, gin.H{"type": "error", "error": gin.H{
+			"type": "invalid_request_error", "message": message,
+		}})
+	default:
+		c.JSON(status, gin.H{"error": gin.H{
+			"message": message,
+			"type":    "invalid_request_error",
+			"code":    "unsupported_model",
+		}})
+	}
 }
 
 func writeUniversalRoutingCapacityError(c *gin.Context, shape service.UniversalShape) {

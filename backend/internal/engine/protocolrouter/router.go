@@ -9,6 +9,8 @@ import (
 var (
 	ErrNoLegalRoute      = errors.New("no legal protocol route")
 	ErrModelNotAllowed   = errors.New("model is not allowed by account policy")
+	ErrModelPolicyDenied = errors.New("requested model is denied by account mapping policy")
+	ErrRouterUnavailable = errors.New("protocol router is unavailable")
 	ErrStalePlan         = errors.New("stale protocol route plan")
 	ErrMissingCredential = errors.New("missing account credential")
 )
@@ -67,10 +69,13 @@ func (p Plan) GeminiProfile() GeminiEndpointProfile { return p.geminiProfile }
 
 func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, error) {
 	if r == nil {
-		return Plan{}, fmt.Errorf("%w: router is nil", ErrNoLegalRoute)
+		return Plan{}, fmt.Errorf("%w: router is nil", ErrRouterUnavailable)
 	}
 	if r.registryErr != nil {
-		return Plan{}, fmt.Errorf("%w: %v", ErrNoLegalRoute, r.registryErr)
+		return Plan{}, fmt.Errorf("%w: %v", ErrRouterUnavailable, r.registryErr)
+	}
+	if account.modelPolicyDenied {
+		return Plan{}, fmt.Errorf("%w: %w: %w", ErrNoLegalRoute, ErrModelNotAllowed, ErrModelPolicyDenied)
 	}
 	supportedTargetSeen := false
 	modelPermittedSeen := false

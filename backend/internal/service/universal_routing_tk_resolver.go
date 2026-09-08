@@ -64,6 +64,11 @@ type spanCacheEntry struct {
 // middleware 据此按入口协议（anthropic/google/openai）写出对应形状的错误。
 var ErrUniversalNoEntitledGroup = errors.New("universal key: no entitled backing group for this request")
 
+// ErrUniversalUnsupportedModel means the request reached an authorized candidate
+// span, but no candidate admits the requested model. This is a client request
+// error, not transient routing capacity or an internal resolver failure.
+var ErrUniversalUnsupportedModel = errors.New("universal key: unsupported model")
+
 const (
 	defaultUniversalSpanTTL = 30 * time.Second
 	// 缓存超过该条目数时,写路径清扫已过期条目(界定内存,避免无界增长)。

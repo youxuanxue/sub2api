@@ -71,6 +71,7 @@ const (
 	OpsClientBusinessLimitedReasonLocalFeatureGate        = "local_feature_gate"
 	OpsClientBusinessLimitedReasonLocalPolicyDenied       = "local_policy_denied"
 	OpsClientBusinessLimitedReasonLocalModelConfiguration = "local_model_configuration"
+	OpsClientBusinessLimitedReasonUnsupportedModel        = "unsupported_model"
 
 	// TK aliases kept after upstream renamed policy-denied → business-limited.
 	OpsClientPolicyDeniedKey                          = OpsClientBusinessLimitedKey

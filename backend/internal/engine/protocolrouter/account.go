@@ -49,6 +49,7 @@ type AccountSnapshotInput struct {
 	OfficialProfile    OfficialEndpointProfile
 	GeminiProfile      GeminiEndpointProfile
 	ModelAllowed       map[Protocol]bool
+	ModelPolicyDenied  bool
 	Transports         []TransportID
 }
 
@@ -63,6 +64,7 @@ type AccountSnapshot struct {
 	officialProfile    OfficialEndpointProfile
 	geminiProfile      GeminiEndpointProfile
 	modelAllowed       map[Protocol]bool
+	modelPolicyDenied  bool
 	transports         map[TransportID]struct{}
 }
 
@@ -131,6 +133,7 @@ func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
 		officialProfile:    input.OfficialProfile,
 		geminiProfile:      input.GeminiProfile,
 		modelAllowed:       modelAllowed,
+		modelPolicyDenied:  input.ModelPolicyDenied,
 		transports:         transports,
 	}, nil
 }

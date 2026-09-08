@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -415,6 +416,43 @@ func TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody(t *t
 	require.Equal(t, raw, restored)
 	require.Equal(t, "gzip", c.Request.Header.Get("Content-Encoding"))
 	require.Equal(t, int64(len(raw)), c.Request.ContentLength)
+}
+
+func TestMaybeResolveUniversal_UnsupportedModelIs400(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1beta/models/model-does-not-exist:generateContent", "/v1beta/models/model-does-not-exist:streamGenerateContent"} {
+		t.Run(path, func(t *testing.T) {
+			c, recorder := newTestCtx(http.MethodPost, path, `{"model":"model-does-not-exist","messages":[{"role":"user","content":"hi"}]}`)
+			c.Params = gin.Params{{Key: "modelAction", Value: "model-does-not-exist:generateContent"}}
+			resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(21, service.PlatformAntigravity)}})
+			resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(context.Context, service.Group, string, service.UniversalShape) (service.GroupCandidateEligibility, error) {
+				return service.GroupCandidateEligibility{}, service.ErrUniversalUnsupportedModel
+			})
+			key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+			require.True(t, MaybeResolveUniversal(c, key, resolver))
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			require.Contains(t, recorder.Body.String(), "Unsupported model")
+			require.Contains(t, recorder.Body.String(), "model-does-not-exist")
+			var response map[string]any
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			detail := response["error"].(map[string]any)
+			switch {
+			case strings.HasPrefix(path, "/v1beta/"):
+				require.Equal(t, float64(400), detail["code"])
+				require.Equal(t, "INVALID_ARGUMENT", detail["status"])
+			case strings.HasPrefix(path, "/v1/messages"):
+				require.Equal(t, "error", response["type"])
+				require.Equal(t, "invalid_request_error", detail["type"])
+			default:
+				require.Equal(t, "invalid_request_error", detail["type"])
+				require.Equal(t, "unsupported_model", detail["code"])
+			}
+			require.True(t, service.HasOpsClientBusinessLimited(c))
+			reason, exists := c.Get(service.OpsClientBusinessLimitedReasonKey)
+			require.True(t, exists)
+			require.Equal(t, service.OpsClientBusinessLimitedReasonUnsupportedModel, reason)
+			require.Nil(t, key.GroupID)
+		})
+	}
 }
 
 func TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement(t *testing.T) {

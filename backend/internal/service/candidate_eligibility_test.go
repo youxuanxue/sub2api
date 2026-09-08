@@ -119,7 +119,7 @@ func TestCandidateEligibilityCapacityIsNotEntitlement(t *testing.T) {
 	}
 	wireCandidateTestResolver(resolver, gateway, accounts)
 	_, err = resolveCandidateTest(resolver, request, "")
-	require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+	require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
 }
 
 func TestCandidateEligibilityNativeAndConverterEqual(t *testing.T) {
@@ -153,6 +153,44 @@ func TestCandidateEligibilityUnknownCapabilityIsNotEntitlement(t *testing.T) {
 	_, err := resolveCandidateTest(resolver, request, "")
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrUniversalNoEntitledGroup)
+	require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
+}
+
+func TestCandidateEligibilityKnownRouteRejectionIsNotInternal(t *testing.T) {
+	resolver, gateway, _, _ := candidateGoogleFixture(t)
+	account := protocolRoutingOpenAIAccount(113, "chat_completions")
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4"}
+	ctx := resolver.WithRequest(context.Background(), ShapeOpenAIChat, "/v1/responses/compact", "gpt-5.4",
+		[]byte(`{"model":"gpt-5.4","input":"hi","previous_response_id":"resp_1"}`))
+	_, governed, err := protocolPlanForAccount(ctx, account, "gpt-5.4")
+	require.True(t, governed)
+	require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute)
+	require.NotErrorIs(t, err, protocolrouter.ErrModelPolicyDenied)
+	ok, err := gateway.candidateSupportsRequest(ctx, account, PlatformOpenAI, false, "gpt-5.4", ShapeOpenAIChat)
+	require.False(t, ok)
+	require.NoError(t, err)
+}
+
+func TestCandidateEligibilityErrorPrecedence(t *testing.T) {
+	internal := errors.New("repository unavailable")
+	for _, peerErr := range []error{ErrProtocolCapabilityUnknown, internal} {
+		for _, reverse := range []bool{false, true} {
+			resolver := NewUniversalRoutingResolver(&stubSpanLister{})
+			groups := []Group{grp(1, PlatformNewAPI, 1, false), grp(2, PlatformNewAPI, 2, false)}
+			if reverse {
+				groups[0], groups[1] = groups[1], groups[0]
+			}
+			_, err := resolver.pickCandidateBackingGroup(context.Background(), 1, groups, "bad-model", ShapeOpenAIChat,
+				func(_ context.Context, group Group, _ string, _ UniversalShape) (GroupCandidateEligibility, error) {
+					if group.ID == 1 {
+						return GroupCandidateEligibility{}, ErrUniversalUnsupportedModel
+					}
+					return GroupCandidateEligibility{}, peerErr
+				})
+			require.ErrorIs(t, err, peerErr)
+			require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
+		}
+	}
 }
 
 func TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer(t *testing.T) {
@@ -190,7 +228,7 @@ func TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer(t *testing.T
 			require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute)
 			group, err := resolver.Resolve(ctx, universalKey(334), ShapeGemini, model, "")
 			require.Nil(t, group)
-			require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+			require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
 		})
 	}
 }
@@ -245,7 +283,7 @@ func TestCandidateEligibilityInvalidCapabilityIsCandidateRejection(t *testing.T)
 						require.Equal(t, protocolrouter.ProtocolGeminiGenerateContent, plan.TargetProtocol())
 					case "unsupported":
 						require.Nil(t, group)
-						require.ErrorIs(t, err, ErrUniversalNoEntitledGroup)
+						require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
 					default:
 						require.Nil(t, group)
 						require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
@@ -299,6 +337,12 @@ func TestCandidateEligibilityMixedPoolUsesSchedulerMembership(t *testing.T) {
 	group, err := resolveCandidateTest(resolver, request, "")
 	require.NoError(t, err)
 	require.Equal(t, int64(10), group.ID)
+	accounts[0].Extra["mixed_scheduling"] = false
+	wireCandidateTestResolver(resolver, gateway, accounts)
+	group, err = resolveCandidateTest(resolver, request, "")
+	require.Nil(t, group)
+	require.ErrorIs(t, err, ErrUniversalNoEntitledGroup,
+		"a legal Plan cannot admit an account outside scheduler pool membership")
 }
 
 func TestCandidateEligibilityRequestFeaturesAndPath(t *testing.T) {
