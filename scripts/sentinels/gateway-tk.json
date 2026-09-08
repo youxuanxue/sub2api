@@ -4453,9 +4453,22 @@
       "path": "backend/internal/handler/gateway_handler_responses.go",
       "must_contain": [
         "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
-        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog)"
+        "platform := service.QuotaPlatform(requestCtx, apiKey)",
+        "TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, platform, reqModel, len(body))",
+        "if platform == service.PlatformAnthropic && h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog)"
       ],
-      "rationale": "/v1/responses Anthropic ingress must reject retired model IDs and cross-vendor dirty names before selection (#1257 + cross-vendor 400 gate)."
+      "rationale": "Shared /v1/responses ingress must resolve its actual platform before body-size and namespace checks. Only Anthropic targets reject non-Claude names; an unconditional namespace gate blocks Antigravity Gemini before selection. Retired-model policy remains enforced."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_responses_ingress_test.go",
+      "must_contain": [
+        "func TestGatewayResponsesIngressAntigravityGemini(",
+        "func TestGatewayResponsesIngressPlatformGuards(",
+        "h.Responses(c)",
+        "response.completed",
+        "usage.logs[0].UpstreamModel"
+      ],
+      "rationale": "Full Responses handler regression must cross ingress, account selection, protocol execution and usage recording for Antigravity Gemini, including streaming and buffered Responses/Chat/native-Gemini targets. Guard tests retain Anthropic rejection, unsupported-model rejection, actual-platform body limits and resolved/forced platform precedence; executor-only tests cannot catch ingress rejection."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_unsupported_model.go",
