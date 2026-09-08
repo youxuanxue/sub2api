@@ -378,7 +378,9 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.get('[data-test="discover-needs-save"]').text()).toContain(
       'admin.supplierSources.discoverNeedsSave',
     )
-    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.get('[data-test="discover-suggested-drafted"]').text()).toContain(
+      'admin.supplierSources.suggestedAppendsDrafted',
+    )
     const upstreamInputs = wrapper.findAll('[data-test="upstream-model-id"]')
     expect(upstreamInputs).toHaveLength(2)
     expect((upstreamInputs[0].element as HTMLInputElement).value).toBe('deepseek-v4-pro')
@@ -414,7 +416,7 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
 
     expect(sync).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.get('[data-test="discover-suggested-drafted"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="discover-needs-save"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(2)
     expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeDefined()
@@ -486,11 +488,17 @@ describe('SupplierSourcesView', () => {
 
     expect(wrapper.get('[data-test="discover-candidate-progress"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="discover-suggested-drafted"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(1)
     expect(sync).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
     expect(getDiscoverJob).toHaveBeenCalledWith(7, 'job-async-1')
+    // Mid-probe: draft suggestions into the form immediately (not only after completed).
+    expect(wrapper.get('[data-test="discover-suggested-drafted"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="discover-needs-save"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(2)
     expect(wrapper.find('[data-test="append-suggested"]').exists()).toBe(false)
 
     await vi.advanceTimersByTimeAsync(1000)
@@ -550,8 +558,9 @@ describe('SupplierSourcesView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="sync-error"]').text()).toContain('temporarily unavailable')
-    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
-    expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="discover-suggested-drafted"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="upstream-model-id"]')).toHaveLength(2)
+    expect(wrapper.get('[data-test="discover-needs-save"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="discover-candidate-progress"]').exists()).toBe(false)
     expect(sync).not.toHaveBeenCalled()
     vi.useRealTimers()

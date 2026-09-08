@@ -48,6 +48,7 @@ export default {
     discoverEmpty: '上游列表已处理：当前配置无需规整，也没有探测通过的建议追加。',
     normalizedChanges: '规整变更',
     suggestedAppends: '建议追加（探测通过）',
+    suggestedAppendsDrafted: '已将 {count} 条探测通过的建议追加写入上方模型列表草稿（未保存），可编辑后点保存。',
     rejectedCandidates: '未建议追加',
     configuredIssues: '配置项未匹配上游列表',
     globalPriorityPreview: '全局 priority 预览',
