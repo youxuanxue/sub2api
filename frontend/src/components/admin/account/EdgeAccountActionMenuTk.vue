@@ -1,11 +1,11 @@
 <template>
   <Teleport to="body">
-    <div v-if="show && position && account">
+    <div v-if="show && menuStyle && account">
       <!-- Backdrop: click anywhere outside to close -->
       <div class="fixed inset-0 z-[9998]" @click="emit('close')"></div>
       <div
         class="fixed z-[9999] w-56 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800"
-        :style="{ top: position.top + 'px', left: position.left + 'px' }"
+        :style="menuStyle ?? undefined"
         @click.stop
       >
         <div class="py-1">
@@ -68,7 +68,7 @@ import { PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 const props = defineProps<{
   show: boolean
   account: EdgeAccountSummary | null
-  position: { top: number; left: number } | null
+  menuStyle: Record<string, string> | null
 }>()
 
 const emit = defineEmits<{
