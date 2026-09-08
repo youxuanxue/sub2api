@@ -509,6 +509,24 @@ func TestOverrideFilesNeverReceiveImmutableCacheHeaders(t *testing.T) {
 	})
 }
 
+func TestOverrideFilesServedEvenWhenNotInDistFS(t *testing.T) {
+	t.Parallel()
+
+	overrideDir := t.TempDir()
+	cleanPath := "seedance-2-5-official-showcase-8b37bc3e.mp4"
+	filePath := filepath.Join(overrideDir, cleanPath)
+	require.NoError(t, os.WriteFile(filePath, []byte("fake-mp4-data"), 0o644))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/"+cleanPath, nil)
+
+	server := &FrontendServer{overrideDir: overrideDir}
+	assert.True(t, server.tryServeOverride(c, cleanPath))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "fake-mp4-data", w.Body.String())
+}
+
 func TestFrontendServer_Middleware(t *testing.T) {
 	t.Run("skips_api_routes", func(t *testing.T) {
 		provider := &mockSettingsProvider{

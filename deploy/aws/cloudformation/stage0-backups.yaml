@@ -171,7 +171,9 @@ Resources:
             Action:
               - 's3:PutObject'
               - 's3:GetObject'
-            Resource: !Sub '${MediaBucket.Arn}/media/*'
+            Resource:
+              - !Sub '${MediaBucket.Arn}/media/*'
+              - !Sub '${MediaBucket.Arn}/public/*'
 
   # NOTE - the .env SECRETS off-box (SSM SecureString, a DIFFERENT blast radius than this
   # dump bucket so the decryption keys are not co-located with the ciphertext) needs an

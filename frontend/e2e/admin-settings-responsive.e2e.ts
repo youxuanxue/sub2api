@@ -23,7 +23,7 @@ async function dismissOnboarding(page: Page): Promise<void> {
   }
 }
 
-test.describe('PR #1468 upstream settings integration', () => {
+test.describe('Admin settings responsive layout integration', () => {
   test('gateway keeps TokenKey controls while exposing upstream usage settings', async ({ page }) => {
     await login(page)
     await page.goto('/admin/settings')
@@ -40,7 +40,7 @@ test.describe('PR #1468 upstream settings integration', () => {
     await expect(page.getByTestId('openai-advanced-scheduler-weights')).toBeVisible()
 
     await page.screenshot({
-      path: 'e2e/artifacts/pr1468-settings-gateway-desktop.png',
+      path: 'e2e/artifacts/admin-settings-gateway-desktop.png',
       fullPage: true,
     })
   })
@@ -92,7 +92,7 @@ test.describe('PR #1468 upstream settings integration', () => {
     await expect(alipayHandoff).toBeInViewport()
 
     await page.screenshot({
-      path: 'e2e/artifacts/pr1468-settings-payment-mobile.png',
+      path: 'e2e/artifacts/admin-settings-payment-mobile.png',
     })
   })
 })
