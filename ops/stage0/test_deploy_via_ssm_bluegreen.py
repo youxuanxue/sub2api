@@ -304,7 +304,7 @@ def _run_systemd_start(
         )
 
 
-def _run_cutover_path(remote: str, function_name: str) -> subprocess.CompletedProcess[str]:
+def _run_cutover_path(remote: str, function_name: str, stage: str = "deploy") -> subprocess.CompletedProcess[str]:
     function = _extract_shell_function(remote, function_name)
     common = """
 log() { :; }
@@ -322,6 +322,7 @@ observe_routed_health() { printf 'observe:%s\n' "$1"; }
 drain_container() { printf 'drain:%s\n' "$1"; }
 admit_edge_candidate() { :; }
 assert_active_route_consistent() { :; }
+write_prepared_receipt() { printf 'prepared:%s:%s\n' "$1" "$2"; }
 TARGET_CONTAINER=""
 CUTOVER_COMMITTED=0
 DEPLOY_PROFILE=prod
@@ -348,7 +349,7 @@ deploy_target_color
 """
     return subprocess.run(
         ["bash"],
-        input=function + common + setup,
+        input="set -euo pipefail\nSTAGE=" + shlex.quote(stage) + "\n" + function + common + setup,
         capture_output=True,
         text=True,
         check=False,
@@ -431,6 +432,113 @@ TELEMETRY_ARCHIVE_ENABLED=""
 
 
 class BlueGreenRenderTest(unittest.TestCase):
+    def test_prepare_stops_before_route_switch_and_drain(self) -> None:
+        proc, params, remote = _render(env_extra={"STAGE0_BLUEGREEN_STAGE": "prepare"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("STAGE='prepare'", params["commands"][-1])
+        result = _run_cutover_path(remote, "deploy_target_color", "prepare")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("prepared:blue:green", result.stdout)
+        self.assertNotIn("commit:", result.stdout)
+        self.assertNotIn("drain:", result.stdout)
+
+    def test_stages_require_valid_approval_and_existing_prod_layout(self) -> None:
+        for env, instance in (
+            ({"STAGE0_BLUEGREEN_STAGE": "invalid"}, _PROD_IID),
+            ({"STAGE0_BLUEGREEN_STAGE": "promote"}, _PROD_IID),
+            ({"STAGE0_BLUEGREEN_STAGE": "prepare"}, _EDGE_IID),
+        ):
+            with self.subTest(env=env, instance=instance):
+                proc, _, _ = _render(instance, env_extra=env)
+                self.assertNotEqual(proc.returncode, 0)
+        _, _, remote = _render()
+        function = _extract_shell_function(remote, "run_bluegreen_stage")
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt = pathlib.Path(tmp) / "receipt.json"
+            for stage, exists in (("prepare", False), ("prepare", True), ("deploy", True)):
+                if exists:
+                    receipt.write_text("{}")
+                script = f"""set -euo pipefail
+{function}
+STAGE={stage}
+PREPARED_FILE={shlex.quote(str(receipt))}
+die() {{ echo "$*"; exit 1; }}
+read_active_color() {{ :; }}
+ensure_profile_environment() {{ echo MUTATION; }}
+deploy_target_color() {{ echo MUTATION; }}
+ensure_legacy_cutover() {{ echo MUTATION; }}
+run_bluegreen_stage
+"""
+                result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("MUTATION", result.stdout)
+
+    def test_promote_reuses_validated_container_without_starting_one(self) -> None:
+        _, _, remote = _render()
+        function = _extract_shell_function(remote, "promote_prepared_color")
+        for validation_fails in (False, True):
+            with self.subTest(validation_fails=validation_fails):
+                script = f"""set -euo pipefail
+{function}
+ROOT=/unused
+PREPARED_FILE=/unused/receipt
+read_active_color() {{ echo blue; }}
+other_color() {{ echo green; }}
+assert_active_route_consistent() {{ :; }}
+validate_prepared_receipt() {{ echo validate; return {1 if validation_fails else 0}; }}
+wait_healthy() {{ echo healthy; }}
+wait_ready() {{ echo ready; }}
+backup_env() {{ :; }}
+env_set() {{ echo env-set; }}
+container_image() {{ echo repo:1.8.99; }}
+commit_cutover() {{ echo cutover; }}
+sudo() {{ echo "sudo:$*"; }}
+observe_routed_health() {{ :; }}
+install_bluegreen_systemd_unit() {{ :; }}
+drain_container() {{ echo drain; }}
+log() {{ :; }}
+promote_prepared_color
+"""
+                result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, not validation_fails, result.stderr)
+                self.assertEqual("cutover" in result.stdout, not validation_fails)
+                self.assertNotIn("pull", result.stdout)
+                self.assertNotIn("up -d", result.stdout)
+                if not validation_fails:
+                    self.assertEqual(result.stdout.count("validate"), 2)
+                    self.assertLess(result.stdout.index("cutover"), result.stdout.index("drain"))
+
+    def test_prepared_receipt_rejects_approval_and_runtime_drift(self) -> None:
+        import hashlib
+
+        _, _, remote = _render()
+        function = _extract_shell_function(remote, "validate_prepared_receipt")
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt = pathlib.Path(tmp) / "receipt.json"
+            snapshot = {"tag": "1.8.99", "target_container": "tested-id image start 0", "env_sha": "original"}
+            receipt.write_text(json.dumps({**snapshot, "prepared_at": "2026-09-08T00:00:00Z"}))
+            approved = hashlib.sha256(receipt.read_bytes()).hexdigest()
+            for mutation in ("none", "approval", "container", "env", "missing"):
+                with self.subTest(mutation=mutation):
+                    current = dict(snapshot)
+                    if mutation == "container":
+                        current["target_container"] = "replacement-id image start 0"
+                    if mutation == "env":
+                        current["env_sha"] = "changed"
+                    script = f"""set -euo pipefail
+{function}
+TAG=1.8.99
+PREPARED_FILE={shlex.quote(str(receipt) + ('.missing' if mutation == 'missing' else ''))}
+APPROVED_RECEIPT={approved if mutation != 'approval' else '0' * 64}
+sudo() {{ command "$@"; }}
+die() {{ echo "$*"; exit 1; }}
+staged_snapshot() {{ printf '%s\\n' {shlex.quote(json.dumps(current))}; }}
+container_image() {{ echo repo:1.8.99; }}
+validate_prepared_receipt blue green
+"""
+                    result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+                    self.assertEqual(result.returncode == 0, mutation == "none", result.stdout + result.stderr)
+
     def test_renders_lightsail_edge_profile_without_prod_defaults(self) -> None:
         proc, params, remote = _render(_EDGE_IID, env_extra={"EDGE_ID": "us2"})
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
