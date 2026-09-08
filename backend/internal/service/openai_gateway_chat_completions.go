@@ -179,13 +179,14 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// Forward that shape as-is, only rewriting `model`
 	// to the resolved upstream model. The downstream codex OAuth transform will
 	// still normalize store/stream/instructions/etc.
+	requestModel := antigravityRelayRequestModel(account, originalModel, upstreamModel)
 	var (
 		responsesReq  *apicompat.ResponsesRequest
 		responsesBody []byte
 		err           error
 	)
 	if isResponsesShape {
-		responsesBody, err = sjson.SetBytes(body, "model", upstreamModel)
+		responsesBody, err = sjson.SetBytes(body, "model", requestModel)
 		if err != nil {
 			return nil, fmt.Errorf("rewrite model in responses-shape body: %w", err)
 		}
@@ -206,7 +207,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		// Minimal stub populated from the raw body so downstream billing
 		// propagation (ServiceTier, ReasoningEffort) keeps working.
 		responsesReq = &apicompat.ResponsesRequest{
-			Model:       upstreamModel,
+			Model:       requestModel,
 			ServiceTier: normalizedServiceTier,
 		}
 		if effort := gjson.GetBytes(responsesBody, "reasoning.effort").String(); effort != "" {
@@ -219,7 +220,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		if err != nil {
 			return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 		}
-		responsesReq.Model = upstreamModel
+		responsesReq.Model = requestModel
 		normalizeResponsesRequestServiceTier(responsesReq)
 		responsesBody, err = json.Marshal(responsesReq)
 		if err != nil {

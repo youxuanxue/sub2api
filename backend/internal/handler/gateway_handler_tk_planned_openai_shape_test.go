@@ -144,7 +144,7 @@ func TestGatewayPlannedAntigravityOpenAIShapeKeepsPlannedWire(t *testing.T) {
 			} else {
 				require.Equal(t, "Bearer edge-test-key", upstream.request.Header.Get("Authorization"))
 				require.Empty(t, upstream.request.Header.Get("x-goog-api-key"))
-				require.Equal(t, plan.ResolvedModel(), gjson.GetBytes(upstream.body, "model").String())
+				require.Equal(t, model, gjson.GetBytes(upstream.body, "model").String())
 				require.False(t, gjson.GetBytes(upstream.body, "contents").Exists())
 				if tc.target == protocolrouter.ProtocolChatCompletions {
 					require.True(t, gjson.GetBytes(upstream.body, "messages").IsArray())
@@ -153,6 +153,7 @@ func TestGatewayPlannedAntigravityOpenAIShapeKeepsPlannedWire(t *testing.T) {
 				}
 			}
 			require.Contains(t, recorder.Body.String(), "OK")
+			require.Equal(t, upstreamModel, result.UpstreamModel)
 			require.Equal(t, 3, result.Usage.InputTokens)
 			require.Equal(t, 2, result.Usage.OutputTokens)
 		})

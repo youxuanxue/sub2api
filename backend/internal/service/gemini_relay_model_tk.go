@@ -12,12 +12,17 @@ func resolveGeminiForwardModels(account *Account, requestedModel string) (mapped
 		mappedModel = account.GetMappedModel(requestedModel)
 	}
 
-	requestModel = mappedModel
+	return mappedModel, antigravityRelayRequestModel(account, requestedModel, mappedModel)
+}
+
+// Edge relays admit public model IDs and resolve provider-only IDs themselves.
+// Keep the provider model separate for route facts and usage attribution.
+func antigravityRelayRequestModel(account *Account, requestedModel, mappedModel string) string {
 	if account != nil &&
 		account.Platform == PlatformAntigravity &&
 		account.Type == AccountTypeAPIKey &&
 		strings.TrimSpace(account.GetCredential("base_url")) != "" {
-		requestModel = requestedModel
+		return requestedModel
 	}
-	return mappedModel, requestModel
+	return mappedModel
 }

@@ -892,13 +892,12 @@ def _collect_apply_plan(
         missing_ids = None
 
     if activation_floor_sha256 and runtime_present:
-        # Property overrides precede runtime platform/channel replacements. Require
-        # every selected account to use exactly that immutable bundle mapping.
+        # Unrelated runtime scopes can stay. Every selected account must still
+        # resolve to exactly the immutable bundle mapping, including its scope.
         compiled_floor = _load_bundle()["account_model_mapping"]
         for row in selected_rows:
             wanted, scope = _desired_mapping_for_account(row, floor)
-            if (not scope.startswith("account_override:")
-                    or (wanted, scope) != _desired_mapping_for_account(row, compiled_floor)):
+            if (wanted, scope) != _desired_mapping_for_account(row, compiled_floor):
                 raise RuntimeError(f"activation bundle is shadowed by {SETTING_KEY} for account {row.get('id')}")
 
     account_changes: list[dict[str, Any]] = []
@@ -2378,6 +2377,27 @@ def cmd_selftest(_args) -> int:
             assert "shadowed" in str(e)
         else:
             raise AssertionError("runtime-shadowed generic channel activation accepted")
+        for unshadowed_row in (
+            {"id": 999, "platform": "antigravity", "type": "apikey", "model_mapping": {}},
+            {"id": 999, "platform": "newapi", "type": "service_account", "channel_type": 41,
+             "vertex_capability_profile": "core-pro", "model_mapping": {}},
+            {"id": 999, "platform": "newapi", "type": "service_account", "channel_type": 41,
+             "model_mapping": {}},
+        ):
+            snapshot["accounts"] = [unshadowed_row]
+            unshadowed = _collect_apply_plan("prod", "test-region", "i-test", "a" * 64, [999])
+            assert unshadowed["changed_ids"] == [999]
+            assert unshadowed["group_changes"] == []
+            assert unshadowed["activation_runtime_md5"] == hashlib.md5(runtime_raw.encode()).hexdigest()
+            assert unshadowed["account_changes"][0]["desired_model_mapping"] == _desired_mapping_for_account(unshadowed_row, scoped_floor)[0]
+        snapshot["accounts"] = [{"id": 999, "platform": "antigravity", "model_mapping": {}}]
+        snapshot["runtime_setting"] = canonical_json({"platforms": {"antigravity": {"runtime-model": "runtime-target"}}})
+        try:
+            _collect_apply_plan("prod", "test-region", "i-test", "a" * 64, [999])
+        except RuntimeError as e:
+            assert "shadowed" in str(e)
+        else:
+            raise AssertionError("runtime-shadowed platform activation accepted")
     with tempfile.TemporaryDirectory() as profile_temp_dir:
         profile_path = Path(profile_temp_dir) / "vertex-profiles.json"
         profile_path.write_text(json.dumps({"assignments": [{

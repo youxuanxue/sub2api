@@ -473,8 +473,6 @@ class ModelActivationTest(unittest.TestCase):
                     confirm=MODEL_OPS.ACTIVATION_CONFIRM, format="json",
                 )
                 context = self.build_context()
-                for row in context["delta"]["activated"]:
-                    row["scope"] = "account_override:newapi:17:https://plan.example.test"
                 with mock.patch.object(MODEL_OPS, "build_activation_context", return_value=context), \
                         mock.patch.object(MODEL_OPS, "_run_json_command", side_effect=responses) as run, \
                         contextlib.redirect_stdout(io.StringIO()):
@@ -485,6 +483,23 @@ class ModelActivationTest(unittest.TestCase):
                     self.assertIn("--activation-floor-sha256", commands[index])
                 self.assertIn("--expected-plan-sha256", commands[2])
                 self.assertIn("--dry-run", commands[4])
+
+    def test_targeted_activation_propagates_selected_runtime_shadow(self) -> None:
+        args = argparse.Namespace(
+            bundle=self.target_path, current_bundle=self.current_path,
+            probe_evidence=self.probe_path, pricing_evidence=self.pricing_path,
+            prod_instance_id=None, account_ids="47", expected_plan_sha256="a" * 64,
+            confirm=MODEL_OPS.ACTIVATION_CONFIRM, format="json",
+        )
+        gate = {"runtime_setting_targets": ["prod"], "resolved_targets": [
+            {"target": "prod", "instance_id": "i-0123456789abcdef0"}]}
+        with mock.patch.object(MODEL_OPS, "build_activation_context", return_value=self.build_context()), \
+                mock.patch.object(MODEL_OPS, "_run_json_command", side_effect=[
+                    (1, gate), MODEL_OPS.ActivationError("runtime shadows selected account 47")]) as run, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(MODEL_OPS.cmd_activate(args), 2)
+        self.assertEqual(run.call_count, 2)
+        self.assertIn("--dry-run", run.call_args.args[0])
 
     def test_targeted_activation_rejects_unreviewed_or_changed_plan(self) -> None:
         for digest in (None, "b" * 64):
