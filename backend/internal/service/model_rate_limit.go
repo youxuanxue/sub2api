@@ -86,7 +86,12 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 	case PlatformAntigravity:
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
 	case PlatformGemini:
-		modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
+		if IsUniversalKeyRouting(ctx) || CandidateRequestFromContext(ctx) != nil {
+			// Match Gemini forwarding without consulting the billing group's mapping.
+			modelKey, _ = resolveGeminiForwardModels(a, requestedModel)
+		} else {
+			modelKey = resolveFinalGeminiModelKey(ctx, requestedModel)
+		}
 	}
 	modelKey = strings.TrimSpace(modelKey)
 	if modelKey == "" {

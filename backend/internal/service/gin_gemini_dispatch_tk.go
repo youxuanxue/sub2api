@@ -18,10 +18,16 @@ import "github.com/gin-gonic/gin"
 const TKGeminiDispatchGroupContextKey = "tk_gemini_dispatch_group"
 
 // tkGroupFromGinContext 从 gin.Context 拉出 handler 提前 c.Set 的 *Group。
-// 拿不到 / 类型不对 / nil context 一律返回 nil（caller 端做 nil-safe
+// Universal 不使用计费组的模型映射。拿不到 / 类型不对 / nil context 返回 nil（caller 端做 nil-safe
 // 处理 —— TKResolveGeminiDispatchModel 自身也接受 nil receiver）。
 func tkGroupFromGinContext(c *gin.Context) *Group {
 	if c == nil {
+		return nil
+	}
+	if getAPIKeyFromContext(c).IsUniversal() {
+		return nil
+	}
+	if c.Request != nil && (IsUniversalKeyRouting(c.Request.Context()) || CandidateRequestFromContext(c.Request.Context()) != nil) {
 		return nil
 	}
 	v, ok := c.Get(TKGeminiDispatchGroupContextKey)

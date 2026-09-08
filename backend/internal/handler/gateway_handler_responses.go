@@ -281,7 +281,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
 		// TK: platform mismatch skip — see gateway_handler_tk_responses_execute.go
-		if tkResponsesAccountPlatformMismatch(groupPlatform, account) {
+		if service.CandidateRequestFromContext(c.Request.Context()) == nil && tkResponsesAccountPlatformMismatch(groupPlatform, account) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}

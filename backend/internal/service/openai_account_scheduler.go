@@ -2196,6 +2196,16 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	if selected, handled, err := selectCandidateFromContext(ctx, candidateSelectOptions{
+		excluded: excludedIDs, transport: requiredTransport, capability: requiredCapability,
+		imageCapability: requiredImageCapability, video: requiredVideoSupport, compact: requireCompact, acquire: true,
+	}); handled {
+		decision := OpenAIAccountScheduleDecision{Layer: "candidate"}
+		if request := CandidateRequestFromContext(ctx); request != nil {
+			decision.StickyPreviousHit = request.continuationAccountID > 0
+		}
+		return selected, decision, err
+	}
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	// 分组利润控制：唯一文本调度入口的防御性装门。handler 文本

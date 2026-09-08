@@ -43,9 +43,17 @@ pnpm lint:check && pnpm typecheck # Lint + type check
 
 Backend `backend/` (Go: `handler` → `service` → `repository` → `ent`), frontend `frontend/` (Vue 3 + pnpm), deploy `deploy/`. Sibling `new-api/` clone required at `../../new-api` (see §4). Key paths: `backend/internal/{handler,service,integration/newapi,relay/bridge}`, `frontend/src/{views,composables,api}`, `deploy/docker-compose*.yml`.
 
-Candidate eligibility (`candidate-eligibility-ssot`): owner boundaries for Universal group
-choice and direct account selection are in
+Candidate eligibility and scheduling (`candidate-eligibility-ssot`): approved
+authorization-scoped scheduling policy, implementation and acceptance boundaries are in
 [`docs/approved/candidate-eligibility-ssot.md`](docs/approved/candidate-eligibility-ssot.md).
+Production owners in `backend/internal/service/`: `candidate_request_tk.go`
+(request/Plan/billing binding), `candidate_selection_tk.go` (account selection,
+capacity and retries), `candidate_billing_tk.go` (legal billing origin),
+`candidate_identity_tk.go` / `candidate_ws_identity_tk.go` (affinity/continuation),
+and `candidate_discovery_tk.go` (shared support projection). Execution consumes
+the actual account and Plan, never the billing group's platform. Existing
+capability, availability, saturation and supplier credential-fault owners remain
+shared. US-050 records test coverage and release gaps; implementation is not deployment.
 
 ## Hard Rules
 

@@ -733,12 +733,38 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 // 订阅模式：检查缓存用量未超过限额（Group限额从参数传入）
 // platform 为请求的目标平台（如 "anthropic"），传空串 "" 时跳过 user × platform quota 检查。
 func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+	if s.cfg.RunMode == config.RunModeSimple {
+		return nil
+	}
+	if err := s.checkBillingMonetaryEligibility(ctx, user, apiKey, group, subscription, platform, candidateBalanceReservationCovers(ctx, user, apiKey)); err != nil {
+		return err
+	}
+	return s.checkRPM(ctx, user, group)
+}
+
+// CheckCandidateBillingEligibility revalidates a selected accounting origin
+// before reservation or forwarding. It does not increment request counters;
+// the regular handler admission performs that once after candidate binding.
+func (s *BillingCacheService) CheckCandidateBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription) error {
+	return s.checkBillingMonetaryEligibility(ctx, user, apiKey, group, subscription, QuotaPlatform(ctx, apiKey), candidateBalanceReservationCovers(ctx, user, apiKey))
+}
+
+func candidateBalanceReservationCovers(ctx context.Context, user *User, apiKey *APIKey) bool {
+	candidate := CandidateRequestFromContext(ctx)
+	return candidate != nil && candidate.balanceReserved && candidate.key != nil && apiKey != nil && user != nil &&
+		candidate.key.ID == apiKey.ID && candidate.key.UserID == user.ID && apiKey.UserID == user.ID
+}
+
+func (s *BillingCacheService) checkBillingMonetaryEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string, balanceReserved bool) error {
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil
 	}
 	if s.circuitBreaker != nil && !s.circuitBreaker.Allow() {
 		return ErrBillingServiceUnavailable
+	}
+	if apiKey != nil && (apiKey.IsQuotaExhausted() || apiKey.Status == StatusAPIKeyQuotaExhausted) {
+		return ErrAPIKeyQuotaExhausted
 	}
 
 	// 判断计费模式
@@ -748,14 +774,14 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		if err := s.checkSubscriptionEligibility(ctx, user.ID, group, subscription); err != nil {
 			return err
 		}
-	} else {
+	} else if !balanceReserved {
 		if err := s.checkBalanceEligibility(ctx, user.ID); err != nil {
 			return err
 		}
 	}
 
 	// user × platform quota 仅在 standard（余额）模式生效；订阅模式豁免
-	if !isSubscriptionMode {
+	if !isSubscriptionMode && (apiKey == nil || !apiKey.IsUniversal()) && !IsUniversalKeyRouting(ctx) {
 		if err := s.checkUserPlatformQuotaEligibility(ctx, user.ID, platform); err != nil {
 			return err
 		}
@@ -766,11 +792,6 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		if err := s.checkAPIKeyRateLimits(ctx, apiKey); err != nil {
 			return err
 		}
-	}
-
-	// RPM 限流：级联回落（Override → Group → User），放在最后以避免为注定失败的请求增加计数。
-	if err := s.checkRPM(ctx, user, group); err != nil {
-		return err
 	}
 
 	return nil

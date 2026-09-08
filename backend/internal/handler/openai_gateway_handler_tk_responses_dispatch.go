@@ -6,7 +6,7 @@ import (
 )
 
 // tkApplyResponsesDispatchModelMapping applies the group-level messages-dispatch
-// model mapping (opus_mapped_model 等) to a /v1/responses forward body, mirroring
+// model mapping for Direct keys (opus_mapped_model 等) to a /v1/responses forward body, mirroring
 // what the /v1/messages and /v1/chat/completions handlers already do via
 // resolveOpenAIMessagesDispatchMappedModel.
 //

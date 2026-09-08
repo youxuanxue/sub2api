@@ -60,6 +60,12 @@ type UniversalCapabilityService struct {
 	candidates   universalCapabilityCandidates
 	supports     universalCapabilitySupports
 	fallback     universalCapabilityFallback
+	resolver     *UniversalRoutingResolver
+	modelFilter  *ModelListFilter
+}
+
+func (s *UniversalCapabilityService) CandidateSchedulingEnabled() bool {
+	return s != nil && s.resolver.CandidateSchedulingEnabled()
 }
 
 func NewUniversalCapabilityService(
@@ -70,7 +76,7 @@ func NewUniversalCapabilityService(
 	if apiKeys == nil || gateway == nil {
 		return newUniversalCapabilityService(apiKeys, nil, nil, nil)
 	}
-	return newUniversalCapabilityService(
+	service := newUniversalCapabilityService(
 		apiKeys,
 		func(ctx context.Context, groupID int64, platform string) ([]string, bool, error) {
 			ids, passthrough, err := gateway.GetAvailableModelsForDiscovery(ctx, groupID, platform)
@@ -87,6 +93,8 @@ func NewUniversalCapabilityService(
 			return filter.ServableClientFacingIDsStrict(ctx, platform)
 		},
 	)
+	service.resolver, service.modelFilter = apiKeys.UniversalResolver(), filter
+	return service
 }
 
 func newUniversalCapabilityService(
@@ -128,11 +136,17 @@ var universalCapabilityShapes = []universalCapabilityShape{
 // The resolver is used only against an in-memory entitlement snapshot, so metadata
 // discovery never locks the request key to one backing group.
 func (s *UniversalCapabilityService) List(ctx context.Context, apiKey *APIKey, protocol UniversalProtocol) ([]UniversalCapability, error) {
-	if s == nil || s.entitlements == nil || s.candidates == nil {
+	if s == nil || s.entitlements == nil {
 		return nil, ErrUniversalCapabilityUnavailable
 	}
 	if apiKey == nil {
 		return nil, fmt.Errorf("%w: api key is nil", ErrUniversalCapabilityUnavailable)
+	}
+	if s.CandidateSchedulingEnabled() {
+		return s.listCandidateCapabilities(ctx, apiKey, protocol)
+	}
+	if s.candidates == nil {
+		return nil, ErrUniversalCapabilityUnavailable
 	}
 	ctx = withUniversalCapabilityAccountCache(ctx)
 	ctx = withModelAvailabilityRequestCache(ctx)

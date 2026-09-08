@@ -54,6 +54,11 @@ func (s *RateLimitService) tkTryHandleUpstreamErrorPrelude(
 	if s.tkTryCloudwiseProvider424Cooldown(ctx, account, statusCode, responseBody, requestedModel) {
 		return true, true
 	}
+	if tkIsConfirmedSupplierCredentialAuthError(statusCode, responseBody) &&
+		s.tkTryHandleSupplierCredentialFailure(ctx, account, "auth_error", buildForbiddenErrorMessage(
+			"Authentication failed:", "", responseBody, "invalid upstream credentials")) {
+		return true, true
+	}
 
 	// Account-standing prepaid/balance exhaustion (tokensea 用户额度不足, 402
 	// Insufficient Balance, Anthropic credit balance, …) is the same SSOT as

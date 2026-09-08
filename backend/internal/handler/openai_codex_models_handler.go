@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -33,7 +34,22 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 	discoveryAPIKeyID := apiKey.ID
-	apiKey, allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey(c.Request.Context(), apiKey)
+	var allowedModelIDs map[string]struct{}
+	var candidateAccounts []service.Account
+	var err error
+	source, candidateMode := h.tkCapabilities.(candidateCodexDiscoverySource)
+	candidateMode = candidateMode && source.CandidateSchedulingEnabled()
+	if candidateMode {
+		var capabilities []service.UniversalCapability
+		capabilities, candidateAccounts, err = source.DiscoverCandidates(c.Request.Context(), apiKey, service.UniversalProtocolCodex)
+		ids := directCustomCapabilityIDs(apiKey, capabilityModelIDs(capabilities, service.UniversalModalityChat))
+		allowedModelIDs = make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			allowedModelIDs[id] = struct{}{}
+		}
+	} else {
+		apiKey, allowedModelIDs, err = h.resolveCodexDiscoveryAPIKey(c.Request.Context(), apiKey)
+	}
 	if err != nil {
 		status := http.StatusInternalServerError
 		message := "Codex model discovery unavailable"
@@ -54,11 +70,11 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 	c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
-	if apiKey.Group == nil {
+	if !candidateMode && apiKey.Group == nil {
 		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key group is required")
 		return
 	}
-	if apiKey.Group.Platform != service.PlatformOpenAI && apiKey.Group.Platform != service.PlatformComposite {
+	if !candidateMode && apiKey.Group.Platform != service.PlatformOpenAI && apiKey.Group.Platform != service.PlatformComposite {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Codex models manifest is only available for OpenAI and Composite groups")
 		return
 	}
@@ -72,7 +88,12 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	var lastUpstreamErr error
 
 	for {
-		account, err := h.gatewayService.SelectAccountForModelWithExclusions(c.Request.Context(), apiKey.GroupID, "", "", failedAccountIDs)
+		var account *service.Account
+		if candidateMode {
+			account, err = selectCodexDiscoveryAccount(candidateAccounts, failedAccountIDs)
+		} else {
+			account, err = h.gatewayService.SelectAccountForModelWithExclusions(c.Request.Context(), apiKey.GroupID, "", "", failedAccountIDs)
+		}
 		if err != nil {
 			if c.Request.Context().Err() != nil {
 				return
@@ -118,7 +139,11 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		}
 		body := manifest.Body
 		if allowedModelIDs != nil {
-			body, err = filterCodexModelsManifest(body, allowedModelIDs)
+			if candidateMode {
+				body, err = projectCandidateCodexManifest(body, allowedModelIDs)
+			} else {
+				body, err = filterCodexModelsManifest(body, allowedModelIDs)
+			}
 			if err != nil {
 				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Codex models manifest could not be filtered")
 				return
@@ -127,6 +152,71 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		c.Data(http.StatusOK, "application/json", body)
 		return
 	}
+}
+
+type candidateCodexDiscoverySource interface {
+	CandidateSchedulingEnabled() bool
+	DiscoverCandidates(context.Context, *service.APIKey, service.UniversalProtocol) ([]service.UniversalCapability, []service.Account, error)
+}
+
+func selectCodexDiscoveryAccount(accounts []service.Account, excluded map[int64]struct{}) (*service.Account, error) {
+	for i := range accounts {
+		if _, failed := excluded[accounts[i].ID]; failed || !accounts[i].IsSchedulable() {
+			continue
+		}
+		return &accounts[i], nil
+	}
+	return nil, service.ErrNoAvailableAccounts
+}
+
+// Preserve upstream manifest metadata. Accounts may expose disjoint models, so
+// supported peers absent from this manifest use the same slug-only schema as
+// the existing OpenAI model-list adapter.
+func projectCandidateCodexManifest(body []byte, allowed map[string]struct{}) ([]byte, error) {
+	filtered, err := filterCodexModelsManifest(body, allowed)
+	if err != nil {
+		return nil, err
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(filtered, &envelope); err != nil {
+		return nil, err
+	}
+	var models []json.RawMessage
+	if err := json.Unmarshal(envelope["models"], &models); err != nil {
+		return nil, err
+	}
+	missing := make(map[string]struct{}, len(allowed))
+	for id := range allowed {
+		missing[id] = struct{}{}
+	}
+	for _, model := range models {
+		var identity struct {
+			Slug string `json:"slug"`
+		}
+		if err := json.Unmarshal(model, &identity); err != nil {
+			return nil, err
+		}
+		delete(missing, identity.Slug)
+	}
+	ids := make([]string, 0, len(missing))
+	for id := range missing {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		model, err := json.Marshal(struct {
+			Slug string `json:"slug"`
+		}{Slug: id})
+		if err != nil {
+			return nil, err
+		}
+		models = append(models, model)
+	}
+	envelope["models"], err = json.Marshal(models)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(envelope)
 }
 
 func (h *OpenAIGatewayHandler) resolveCodexDiscoveryAPIKey(ctx context.Context, apiKey *service.APIKey) (*service.APIKey, map[string]struct{}, error) {

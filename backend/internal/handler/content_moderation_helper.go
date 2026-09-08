@@ -49,6 +49,9 @@ func clientRequestedModel(c *gin.Context, fallback string) string {
 }
 
 func clientRequestedUsageFields(c *gin.Context, mapping service.ChannelMappingResult, fallbackModel, upstreamModel string) service.ChannelUsageFields {
+	if c != nil && c.Request != nil {
+		mapping = service.CandidateChannelMapping(c.Request.Context(), mapping)
+	}
 	return mapping.ToUsageFields(clientRequestedModel(c, fallbackModel), upstreamModel)
 }
 

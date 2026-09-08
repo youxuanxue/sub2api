@@ -23,7 +23,7 @@ func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel 
 }
 
 func resolveOpenAIMessagesDispatchMappedModelForContext(c *gin.Context, apiKey *service.APIKey, requestedModel string) string {
-	if apiKey == nil || apiKey.Group == nil {
+	if apiKey == nil || apiKey.IsUniversal() || apiKey.Group == nil {
 		return ""
 	}
 	// composite 解析到 grok/CN 目标时调度级映射不适用（Group 级映射的 gpt-5.x
@@ -42,6 +42,9 @@ func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedM
 }
 
 func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
+	if c != nil && c.Request != nil && service.CandidateRequestFromContext(c.Request.Context()) != nil {
+		return true
+	}
 	if apiKey == nil || apiKey.Group == nil {
 		return true
 	}

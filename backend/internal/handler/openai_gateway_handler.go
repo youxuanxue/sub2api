@@ -32,6 +32,7 @@ import (
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
 	gatewayService             *service.OpenAIGatewayService
+	nativeGatewayService       *service.GatewayService
 	billingCacheService        *service.BillingCacheService
 	apiKeyService              *service.APIKeyService
 	usageRecordWorkerPool      *service.UsageRecordWorkerPool
@@ -196,6 +197,9 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 }
 
 func openAICompatibleRequestPlatform(ctx context.Context, apiKey *service.APIKey) string {
+	if platform, ok := service.CandidateExecutionPlatform(ctx); ok {
+		return platform
+	}
 	if platform, ok := service.ResolvedTargetPlatformFromContext(ctx); ok {
 		// 保留 grok 与国产供应商原值，其他归一为 openai（与调度器精确匹配语义一致）。
 		return service.NormalizeOpenAICompatiblePlatform(platform)
@@ -688,6 +692,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				}
 			}()
 			prepareResponsesBody := func(executionAccount *service.Account, request protocolrouter.CanonicalRequest) []byte {
+				if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+					forwardBody := request.Body()
+					if len(failedAccountIDs) > 0 {
+						forwardBody = service.TkStripEncryptedReasoningForFailover(forwardBody)
+					}
+					return h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, executionAccount, &passthroughFailoverState)
+				}
 				dispatchBody := tkResponsesForwardDispatchBody(apiKey, executionAccount, request.Body(), failedAccountIDs, h.gatewayService.ReplaceModelInBody)
 				return h.deriveOpenAIForwardAttemptBody(reqLog, dispatchBody, executionAccount, &passthroughFailoverState)
 			}
@@ -698,7 +709,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				account,
 				h.gatewayService.ValidateProtocolEndpoint,
 				h.gatewayService.LoadProtocolExecutionAccount,
-				service.ProtocolExecutors{
+				h.candidateProtocolExecutors(c, service.ProtocolExecutors{
 					NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						return h.gatewayService.Forward(executionCtx, c, account, prepareResponsesBody(account, request))
 					},
@@ -733,7 +744,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 							},
 						)
 					},
-				},
+				}),
 			)
 			if value == nil {
 				return nil, executeErr
@@ -1282,7 +1293,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
 
-		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
+		defaultMappedModel := service.CandidateEffectiveModel(c.Request.Context(), strings.TrimSpace(effectiveMappedModel))
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
@@ -1292,8 +1303,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}()
 			prepareMessagesBody := func(request protocolrouter.CanonicalRequest) []byte {
 				forwardBody := request.Body()
-				if channelMappingMsg.Mapped {
-					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMappingMsg.MappedModel)
+				mapping := service.CandidateForwardMapping(c.Request.Context(), channelMappingMsg)
+				if mapping.Mapped {
+					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, mapping.MappedModel)
 				}
 				return forwardBody
 			}
@@ -1304,7 +1316,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				account,
 				h.gatewayService.ValidateProtocolEndpoint,
 				h.gatewayService.LoadProtocolExecutionAccount,
-				service.ProtocolExecutors{
+				h.candidateProtocolExecutors(c, service.ProtocolExecutors{
 					NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						return h.gatewayService.ForwardAsAnthropic(executionCtx, c, account, prepareMessagesBody(request), promptCacheKey, defaultMappedModel)
 					},
@@ -1339,7 +1351,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							},
 						)
 					},
-				},
+				}),
 			)
 			if value == nil {
 				return nil, executeErr
@@ -1928,9 +1940,34 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 	ctx = service.WithProtocolRouting(ctx, h.protocolRouter, canonicalRequest)
 	c.Request = c.Request.WithContext(ctx)
+	if resolver := h.apiKeyService.UniversalResolver(); resolver.CandidateSchedulingEnabled() {
+		if err := h.tkRefreshWSAPIKey(ctx, c, apiKey, &subject); err != nil {
+			closeOpenAIWSAdmissionError(wsConn, err)
+			return
+		}
+		if event := gjson.GetBytes(firstMessage, "type").String(); event != "response.create" {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "first message must be response.create")
+			return
+		}
+		initialSession := h.gatewayService.GenerateSessionHashWithFallback(c, firstMessage, openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, nil))
+		forcedPlatform, _ := ctx.Value(ctxkey.ForcePlatform).(string)
+		nextCtx, candidate, admissionErr := resolver.PrepareCandidateWebSocket(ctx, apiKey, c.Request.URL.Path, reqModel, firstMessage, initialSession, forcedPlatform)
+		if admissionErr != nil {
+			reqLog.Warn("candidate.websocket_admission_failed", zap.Error(admissionErr))
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "request is not authorized or currently available")
+			return
+		}
+		ctx = nextCtx
+		c.Request = c.Request.WithContext(ctx)
+		candidate.SetBindingObserver(func(next context.Context, group *service.Group, subscription *service.UserSubscription) {
+			ctx = next
+			c.Request = c.Request.WithContext(next)
+			c.Set(string(middleware2.ContextKeySubscription), subscription)
+		})
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	ctx = c.Request.Context()
-	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
+	if service.CandidateRequestFromContext(ctx) == nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 		platform, ok := service.ResolvedTargetPlatformFromContext(ctx)
 		if !ok || !isResponsesWebSocketCompositePlatform(platform) {
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Responses WebSocket API only supports OpenAI-compatible models for composite groups")
@@ -2299,7 +2336,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			zap.Int("candidate_count", scheduleDecision.CandidateCount),
 		)
 
-		maxReasoningEffort, reasoningEffortMappings, _ := openAIReasoningEffortPolicyForRequest(c, apiKey)
 		var requestPayloadHash string
 		var turnStartsMu sync.Mutex
 		turnStarts := make(map[int]time.Time, 4)
@@ -2323,15 +2359,17 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		var turnChannelMapping atomic.Pointer[openAIWSTurnChannelMappingSnapshot]
 		turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: 1, mapping: channelMappingWS})
 		// turn 级定价：BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号；
-		// passthrough 没有 BeforeTurn 时，AfterTurn 回退到 TurnStarted 的所属 turn 时刻。
+		// Legacy passthrough 没有 BeforeTurn 时，AfterTurn 回退到所属 turn 的开始时刻。
 		var turnPricing openAIWSTurnPricing
 		hooks := &service.OpenAIWSIngressHooks{
-			ClientLifecycleContext:  clientLifecycleCtx,
-			InitialRequestModel:     reqModel,
-			InitialTurnStartedAt:    firstTurnStartedAt,
-			MaxReasoningEffort:      maxReasoningEffort,
-			ReasoningEffortMappings: reasoningEffortMappings,
-			TurnStarted:             recordTurnStart,
+			ClientLifecycleContext: clientLifecycleCtx,
+			InitialRequestModel:    reqModel,
+			InitialTurnStartedAt:   firstTurnStartedAt,
+			CurrentReasoningEffortPolicy: func() (string, []service.ReasoningEffortMapping) {
+				maximum, mappings, _ := openAIReasoningEffortPolicyForRequest(c, apiKey)
+				return maximum, mappings
+			},
+			TurnStarted: recordTurnStart,
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
 				c.Set(securityAuditWSTurnContextKey, turn)
 				service.BeginOpsStreamTurn(c, turn)
@@ -2348,6 +2386,22 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				if model == "" {
 					model = reqModel
+				}
+				if candidate := service.CandidateRequestFromContext(ctx); candidate != nil {
+					if err := h.tkRefreshWSAPIKey(ctx, c, apiKey, &subject); err != nil {
+						return err
+					}
+					if err := candidate.RevalidateTurn(ctx, account.ID, model, payload); err != nil {
+						return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "request is no longer authorized or available", err)
+					}
+					freshAccount, err := candidate.ValidateWebSocketExecution(account)
+					if err != nil {
+						return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account configuration changed, please reconnect", err)
+					}
+					accountMaxConcurrency = freshAccount.Concurrency
+					if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, service.CandidateSubscription(ctx, nil), service.QuotaPlatform(ctx, apiKey)); err != nil {
+						return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing check failed", err)
+					}
 				}
 				if decision := h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload, "subsequent_turn"); decision != nil && !decision.AllowNextStage {
 					writeSecurityAuditWSError(ctx, wsConn, decision)
@@ -2367,15 +2421,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				setOpsRequestContext(c, model, true)
 				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, model)
+				mapping = service.CandidateChannelMapping(ctx, mapping)
 				mappedModelUnchanged := false
 				if previous := turnChannelMapping.Load(); previous != nil && previous.turn < turn {
 					mappedModelUnchanged = strings.TrimSpace(previous.mapping.MappedModel) == strings.TrimSpace(mapping.MappedModel)
 				}
-				if turn > 1 && !mappedModelUnchanged && !account.IsModelSupported(model) && !account.IsModelSupported(mapping.MappedModel) {
+				if service.CandidateRequestFromContext(ctx) == nil && turn > 1 && !mappedModelUnchanged && !account.IsModelSupported(model) && !account.IsModelSupported(mapping.MappedModel) {
 					return "", newOpenAIWSUnsupportedModelSwitchError(mapping.MappedModel)
 				}
 				turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping})
-				return mapping.MappedModel, nil
+				return service.CandidateEffectiveModel(ctx, mapping.MappedModel), nil
 			},
 			BeforeTurn: func(turn int) error {
 				return h.tkWSBeforeTurn(ctx, tkWSBeforeTurnInput{
@@ -2469,7 +2524,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// 说明该会话链不属于本次调度到的账号，原样转发会触发上游会话链鉴权失败（“鉴权失败，请检查 API Key”）。
 		// 故剥离首包里的 previous_response_id，改用首包内 input 重建上下文；带 function_call_output 的
 		// 工具续链无法重建，保持原样。仅作用于首轮首包，后续 turn 的续链由 WS 转发层既有逻辑处理。
-		if previousResponseID != "" && !scheduleDecision.StickyPreviousHit && previousResponseCanMove {
+		if service.CandidateRequestFromContext(ctx) == nil && previousResponseID != "" && !scheduleDecision.StickyPreviousHit && previousResponseCanMove {
 			wsFirstMessage = service.RemovePreviousResponseIDFromBody(wsFirstMessage)
 			reqLog.Debug("openai.websocket_previous_response_id_stripped_cross_group",
 				zap.Int64("account_id", account.ID),

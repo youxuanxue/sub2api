@@ -34,6 +34,9 @@ func (h *GatewayHandler) tkHandleMessagesPromptTooLongFallback(
 	fallbackUsed bool,
 	streamStarted bool,
 ) (newAPIKey *service.APIKey, retry bool, handled bool) {
+	if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+		fallbackUsed = true
+	}
 	var promptTooLongErr *service.PromptTooLongError
 	if !errors.As(err, &promptTooLongErr) {
 		return nil, false, false

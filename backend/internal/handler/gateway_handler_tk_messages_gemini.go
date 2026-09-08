@@ -302,6 +302,8 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 		// ForceCacheBilling 提前拍成标量，避免 worker 闭包保活 failover 状态里的响应体。
 		forceCacheBilling := fs.ForceCacheBilling
+		billingAPIKey, billingSubscription := snapshotCandidateBilling(c.Request.Context(), apiKey, subscription)
+		usageFields := clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
 		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
@@ -309,10 +311,10 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,
 				QuotaPlatform:      quotaPlatform,
-				APIKey:             apiKey,
-				User:               apiKey.User,
+				APIKey:             billingAPIKey,
+				User:               billingAPIKey.User,
 				Account:            account,
-				Subscription:       subscription,
+				Subscription:       billingSubscription,
 				PricingAt:          pricingAt,
 				InboundEndpoint:    inboundEndpoint,
 				UpstreamEndpoint:   upstreamEndpoint,
@@ -323,7 +325,7 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 				ForceCacheBilling:  forceCacheBilling,
 				APIKeyService:      h.apiKeyService,
 				GatewayLatencyMs:   gatewayLatencyMs,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
+				ChannelUsageFields: usageFields,
 			}); err != nil {
 				logger.L().With(
 					zap.String("component", "handler.gateway.messages"),

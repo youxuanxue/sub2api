@@ -49,7 +49,7 @@ func newAdminServiceForBalanceLedgerTests(t *testing.T) (service.AdminService, s
 		nil, nil, nil, nil, nil, nil, // settings/subscription/privacy/runtime/availability helpers
 		nil,      // affiliate service
 		nil, nil, // composite route repo/resolver
-		nil, // channel cache invalidator
+		nil, nil, // channel cache invalidator and account recovery
 	)
 	return adminSvc, userRepo
 }

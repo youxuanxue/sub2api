@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -1185,36 +1186,32 @@ func TestResolveChannelMappingAndRestrict_NoMapping(t *testing.T) {
 
 func TestBuildCache_DBError(t *testing.T) {
 	callCount := 0
+	dbErr := errors.New("database down")
 	repo := &mockChannelRepository{
 		listAllFn: func(_ context.Context) ([]Channel, error) {
 			callCount++
-			return nil, errors.New("database down")
+			return nil, dbErr
 		},
 	}
 	svc := newTestChannelService(repo)
 
 	// First call should fail
 	_, err := svc.GetChannelForGroup(context.Background(), 10)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "database down")
+	require.ErrorIs(t, err, dbErr)
 	require.Equal(t, 1, callCount)
 
-	// Second call within error-TTL should use error cache, but still return error
-	// Because buildCache stores error-TTL cache and returns error, the cached value
-	// is still within TTL and loadCache returns it (which is an empty cache).
-	// Actually, re-reading the code: buildCache returns nil, err, and the error cache
-	// only serves as a "don't retry immediately" mechanism. The singleflight.Do
-	// returns the error. On next call within error-TTL, the cache has an empty but
-	// valid entry, so loadCache returns it (with empty maps). GetChannelForGroup
-	// will find nothing and return nil, nil.
+	// A cached failure must remain distinguishable from a successful empty lookup.
 	result, err := svc.GetChannelForGroup(context.Background(), 10)
-	require.NoError(t, err)
+	require.ErrorIs(t, err, dbErr)
+	require.Contains(t, err.Error(), "list all channels")
 	require.Nil(t, result)
 	// Should NOT have hit DB again (error-TTL cache is active)
 	require.Equal(t, 1, callCount)
 }
 
 func TestBuildCache_GroupPlatformError(t *testing.T) {
+	platformErr := errors.New("group platforms failed")
+	platformCalls := 0
 	ch := Channel{
 		ID:       1,
 		Status:   StatusActive,
@@ -1228,20 +1225,84 @@ func TestBuildCache_GroupPlatformError(t *testing.T) {
 			return []Channel{ch}, nil
 		},
 		getGroupPlatformsFn: func(_ context.Context, _ []int64) (map[int64]string, error) {
-			return nil, errors.New("group platforms failed")
+			platformCalls++
+			return nil, platformErr
 		},
 	}
 	svc := newTestChannelService(repo)
 
 	// Should fail-close: error propagated when group platforms cannot be loaded
 	result, err := svc.GetChannelForGroup(context.Background(), 10)
-	require.Error(t, err)
+	require.ErrorIs(t, err, platformErr)
 	require.Nil(t, result)
 
-	// Within error-TTL, second call should hit cache (empty) and return nil, nil
+	// Partial channel data must not become a successful snapshot on the next read.
 	result2, err2 := svc.GetChannelForGroup(context.Background(), 10)
-	require.NoError(t, err2)
+	require.ErrorIs(t, err2, platformErr)
+	require.Contains(t, err2.Error(), "get group platforms")
 	require.Nil(t, result2)
+	require.Equal(t, 1, platformCalls)
+}
+
+func TestBuildCache_QueryFailureRecovers(t *testing.T) {
+	for _, stage := range []string{"channels", "group platforms"} {
+		t.Run(stage, func(t *testing.T) {
+			dbErr := errors.New("database unavailable")
+			failing := true
+			listCalls := 0
+			ch := Channel{
+				ID: 1, Status: StatusActive, GroupIDs: []int64{10},
+				ModelPricing: []ChannelModelPricing{
+					{Platform: "anthropic", Models: []string{"claude-opus-4"}, InputPrice: testPtrFloat64(15e-6)},
+				},
+			}
+			repo := &mockChannelRepository{
+				listAllFn: func(context.Context) ([]Channel, error) {
+					listCalls++
+					if failing && stage == "channels" {
+						return nil, dbErr
+					}
+					return []Channel{ch}, nil
+				},
+				getGroupPlatformsFn: func(context.Context, []int64) (map[int64]string, error) {
+					if failing && stage == "group platforms" {
+						return nil, dbErr
+					}
+					return map[int64]string{10: "anthropic"}, nil
+				},
+			}
+			svc := newTestChannelService(repo)
+			_, err := svc.GetChannelForGroup(context.Background(), 10)
+			require.ErrorIs(t, err, dbErr)
+
+			failing = false
+			// Recovery in the database does not turn an unexpired failure into "no channel".
+			_, err = svc.GetChannelForGroup(context.Background(), 10)
+			require.ErrorIs(t, err, dbErr)
+			require.Equal(t, 1, listCalls)
+			snapshot := *svc.cache.Load().(*channelCache)
+			snapshot.loadedAt = snapshot.loadedAt.Add(-channelErrorTTL)
+			svc.cache.Store(&snapshot)
+
+			loaded, err := svc.GetChannelForGroup(context.Background(), 10)
+			require.NoError(t, err)
+			require.NotNil(t, loaded)
+			require.Equal(t, ch.ID, loaded.ID)
+			pricing := svc.GetChannelModelPricing(context.Background(), 10, "claude-opus-4")
+			require.NotNil(t, pricing)
+			require.Equal(t, 15e-6, *pricing.InputPrice)
+			require.Equal(t, 2, listCalls)
+
+			// A recovered snapshot uses the normal TTL, and absent groups are successful lookups.
+			snapshot = *svc.cache.Load().(*channelCache)
+			snapshot.loadedAt = time.Now().Add(-2 * channelErrorTTL)
+			svc.cache.Store(&snapshot)
+			missing, err := svc.GetChannelForGroup(context.Background(), 999)
+			require.NoError(t, err)
+			require.Nil(t, missing)
+			require.Equal(t, 2, listCalls)
+		})
+	}
 }
 
 func TestBuildCache_MultipleGroupsSameChannel(t *testing.T) {

@@ -246,13 +246,13 @@ func TestOpenAIWSStateStore_RedisOpsUseShortTimeout(t *testing.T) {
 
 	accountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_timeout_probe")
 	require.NoError(t, getErr)
-	require.Equal(t, int64(11), accountID, "本地缓存命中应优先返回已绑定账号")
+	require.Equal(t, int64(123), accountID, "失败的绑定不得创建本地成功记录，应读取已持久化的账号")
 
 	require.NoError(t, store.DeleteResponseAccount(ctx, groupID, "resp_timeout_probe"))
 
 	require.True(t, probe.setHasDeadline, "SetSessionAccountID 应携带独立超时上下文")
 	require.True(t, probe.deleteHasDeadline, "DeleteSessionAccountID 应携带独立超时上下文")
-	require.False(t, probe.getHasDeadline, "GetSessionAccountID 本用例应由本地缓存命中，不触发 Redis 读取")
+	require.True(t, probe.getHasDeadline, "绑定失败后的读取仍须携带独立超时上下文")
 	require.Greater(t, probe.setDeadlineDelta, 2*time.Second)
 	require.LessOrEqual(t, probe.setDeadlineDelta, 3*time.Second)
 	require.Greater(t, probe.delDeadlineDelta, 2*time.Second)

@@ -74,7 +74,7 @@ func (s *OpenAIGatewayService) BeginOpenAIWSIngressSessionPreemption(
 		return ctx, func() {}, false
 	}
 	if preemptedPrevious {
-		if stateStore := s.getOpenAIWSStateStore(); stateStore != nil {
+		if stateStore := s.getCandidateWSStateStore(ctx); stateStore != nil {
 			stateStore.DeleteSessionTurnState(preemptGroupID, preemptSessionHash)
 			stateStore.DeleteSessionConn(preemptGroupID, preemptSessionHash)
 		}
@@ -148,6 +148,7 @@ func (s *OpenAIGatewayService) beginOpenAIWSSessionPreemptContext(
 	if !ok {
 		return ctx, func() {}, false, false
 	}
+	key.groupID, key.sessionHash = CandidateAffinityCacheScope(ctx, key.groupID, key.sessionHash)
 
 	preemptCtx, cancel := context.WithCancelCause(ctx)
 	ownerToken := uuid.NewString()

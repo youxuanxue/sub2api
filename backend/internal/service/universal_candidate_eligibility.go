@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -63,12 +64,13 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 		return ctx
 	}
 	var flags struct {
-		Stream bool `json:"stream"`
+		Stream bool   `json:"stream"`
+		Type   string `json:"type"`
 	}
 	if json.Unmarshal(body, &flags) != nil {
 		return ctx
 	}
-	stream := flags.Stream || strings.Contains(path, ":streamGenerateContent")
+	stream := flags.Stream || flags.Type == "response.create" || strings.Contains(path, ":streamGenerateContent")
 	request, err := protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
 	if err != nil {
 		return ctx
@@ -92,7 +94,12 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 		if universalShapeRequiresImageGenerationEnabled(shape) && !group.AllowImageGeneration {
 			continue
 		}
-		if !r.subscriptionGroupUsable(ctx, userID, &group) {
+		usable, err := r.subscriptionGroupUsable(ctx, userID, &group)
+		if err != nil {
+			evaluationErr = err
+			continue
+		}
+		if !usable {
 			continue
 		}
 		state, err := evaluate(ctx, group, model, shape)
@@ -104,6 +111,7 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 			if evaluationErr == nil {
 				evaluationErr = err
 			}
+			slog.WarnContext(ctx, "universal_routing.candidate_evaluation_failed", "user_id", userID, "group_id", group.ID, "error", err)
 			continue
 		}
 		supported = supported || state.Supported
@@ -132,11 +140,11 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 	if best != nil {
 		return &best.group, nil
 	}
+	if evaluationErr != nil && (!supported || !errors.Is(evaluationErr, protocolrouter.ErrNoLegalRoute)) {
+		return nil, evaluationErr
+	}
 	if supported {
 		return nil, ErrUniversalCapacityUnavailable
-	}
-	if evaluationErr != nil {
-		return nil, evaluationErr
 	}
 	if unsupportedModel {
 		// A model-bearing request with no supported candidate is a client model

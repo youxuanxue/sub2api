@@ -375,6 +375,8 @@ func TestMaybeResolveUniversal_SwapsBackingGroup(t *testing.T) {
 	if apiKey.GroupID == nil || *apiKey.GroupID != 20 || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformOpenAI {
 		t.Fatalf("expected swap to openai group 20, got groupID=%v group=%v", apiKey.GroupID, apiKey.Group)
 	}
+	require.True(t, apiKey.IsUniversal(), "billing-group binding must preserve the key's model-mapping policy")
+	require.True(t, service.IsUniversalKeyRouting(c.Request.Context()), "scheduler must retain Universal identity after binding")
 	// Body must still be readable by the handler.
 	rest, _ := io.ReadAll(c.Request.Body)
 	if !strings.Contains(string(rest), `"model":"gpt-5"`) {
@@ -400,6 +402,7 @@ func TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody(t *t
 	resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(ctx context.Context, group service.Group, model string, shape service.UniversalShape) (service.GroupCandidateEligibility, error) {
 		evaluated = true
 		require.Nil(t, key.GroupID, "candidate evaluation precedes billing binding")
+		require.True(t, service.IsUniversalKeyRouting(ctx), "candidate cooldown checks must already use Universal mapping")
 		request, ok := service.ProtocolRoutingRequest(ctx)
 		require.True(t, ok)
 		require.Equal(t, protocolrouter.ProtocolResponses, request.InboundProtocol())
@@ -517,11 +520,77 @@ type unusableSubscriptionGate struct {
 	ids map[int64]bool
 }
 
-func (g unusableSubscriptionGate) SubscriptionGroupUsable(_ context.Context, _ int64, group *service.Group) bool {
+func (g unusableSubscriptionGate) SubscriptionGroupUsable(_ context.Context, _ int64, group *service.Group) (bool, error) {
 	if group == nil {
-		return true
+		return true, nil
 	}
-	return !g.ids[group.ID]
+	return !g.ids[group.ID], nil
+}
+
+func TestAuthMiddleware_SubscriptionReadFailureBalanceChecks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name       string
+		balance    float64
+		quota      float64
+		quotaUsed  float64
+		wantStatus int
+	}{
+		{name: "funded", balance: 10, wantStatus: http.StatusOK},
+		{name: "empty_wallet", wantStatus: http.StatusForbidden},
+		{name: "key_quota_exhausted", balance: 10, quota: 1, quotaUsed: 1, wantStatus: http.StatusTooManyRequests},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user := &service.User{ID: 31, Role: service.RoleUser, Status: service.StatusActive, Balance: tc.balance, Concurrency: 3}
+			apiKey := &service.APIKey{ID: 100, UserID: user.ID, Key: "fallback-test", Status: service.StatusActive,
+				RoutingMode: service.RoutingModeUniversal, User: user, Quota: tc.quota, QuotaUsed: tc.quotaUsed}
+			apiKeyRepo := &stubApiKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+				clone := *apiKey
+				return &clone, nil
+			}}
+			userRepo := &stubUserRepo{getByID: func(context.Context, int64) (*service.User, error) { return user, nil }}
+			subGroup := activeGroup(22, service.PlatformOpenAI)
+			subGroup.SubscriptionType = service.SubscriptionTypeSubscription
+			subGroup.Hydrated = true
+			balanceGroup := activeGroup(2, service.PlatformOpenAI)
+			balanceGroup.Hydrated = true
+			groupRepo := &universalGroupRepoStub{active: []service.Group{subGroup, balanceGroup}}
+			subRepo := &stubUserSubscriptionRepo{
+				listActiveByUserID: func(context.Context, int64) ([]service.UserSubscription, error) {
+					return []service.UserSubscription{{GroupID: 22}}, nil
+				},
+				getActive: func(context.Context, int64, int64) (*service.UserSubscription, error) {
+					return nil, errors.New("subscription read failed")
+				},
+			}
+			cfg := &config.Config{RunMode: config.RunModeStandard}
+			apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, subRepo, nil, nil, cfg)
+			subscriptionService := service.NewSubscriptionService(groupRepo, subRepo, nil, nil, cfg)
+			t.Cleanup(subscriptionService.Stop)
+			apiKeyService.UniversalResolver().SetSubscriptionUsability(subscriptionService)
+			apiKeyService.UniversalResolver().SetCandidateEvaluator(nil, func(_ context.Context, g service.Group, _ string, _ service.UniversalShape) (service.GroupCandidateEligibility, error) {
+				require.Equal(t, int64(2), g.ID)
+				return service.GroupCandidateEligibility{Supported: true, Available: true}, nil
+			})
+			router := gin.New()
+			router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, nil, cfg)))
+			reached := false
+			router.POST("/v1/responses", func(c *gin.Context) {
+				reached = true
+				key, ok := GetAPIKeyFromContext(c)
+				require.True(t, ok)
+				require.Equal(t, int64(2), key.Group.ID)
+				require.False(t, key.Group.IsSubscriptionType())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5","input":"hello"}`))
+			req.Header.Set("x-api-key", apiKey.Key)
+			router.ServeHTTP(w, req)
+			require.Equal(t, tc.wantStatus, w.Code, w.Body.String())
+			require.Equal(t, tc.wantStatus == http.StatusOK, reached)
+		})
+	}
 }
 
 // R-002 regression: a span-load/internal failure must surface as 500 (retryable),
