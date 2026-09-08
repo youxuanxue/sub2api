@@ -44,8 +44,13 @@
     },
     {
       "path": "backend/internal/service/candidate_request_tk.go",
-      "must_contain": ["type CandidateRequest struct", "func (r *CandidateRequest) pathContext(", "ResolveCandidateContinuation(ctx, key, eligible, previous)", "CheckCandidateBillingEligibility", "r.onBind(selected.ctx, selected.group, subscription)"],
+      "must_contain": ["type CandidateRequest struct", "func (r *CandidateRequest) pathContext(", "ResolveCandidateContinuation(ctx, key, eligible, previous)", "CheckCandidateBillingEligibility", "r.onBind(selected.ctx, selected.group, subscription)", "r.peekGroupRPM(ctx, billing, r.key.User, group)", "r.checkRPM(ctx, billing, r.key.User, selected.group)", "r.rpm = candidateRPMAdmission{}", "IsExplicitImageGenerationIntent(\"\", model, request.Body())"],
       "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution."
+    },
+    {
+      "path": "backend/internal/service/candidate_rpm_tk.go",
+      "must_contain": ["func (r *CandidateRequest) peekGroupRPM(", "func (r *CandidateRequest) checkRPM(", "r.rpm.groups[group.ID] = err", "billing.checkRPMCounters(ctx, user, nil, false)"],
+      "rationale": "Candidate origins retain RPM limits through retries without counting one request repeatedly; each WebSocket turn starts fresh admission."
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
@@ -185,7 +190,7 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk_test.go",
-      "must_contain": ["TestGlobalCandidateAccountPriorityIgnoresGroupTopology", "TestGlobalCandidateDeduplicatesMembershipBeforeSelection", "TestGlobalCandidateReadyPeerAndSlotRace", "TestGlobalCandidateWaitRechecksAuthorizationAndPlan", "TestGlobalCandidateNormalizedOccupancyAndTopologyTies", "TestGlobalCandidateModelGrantsCannotBeBorrowed", "TestGlobalCandidateWindowRecoveryAndStickyAdmission", "TestGlobalCandidateNativeConverterParityAndGoogleFailover"],
+      "must_contain": ["TestGlobalCandidateAccountPriorityIgnoresGroupTopology", "TestGlobalCandidateDeduplicatesMembershipBeforeSelection", "TestGlobalCandidateReadyPeerAndSlotRace", "TestGlobalCandidateWaitRechecksAuthorizationAndPlan", "TestGlobalCandidateNormalizedOccupancyAndTopologyTies", "TestGlobalCandidateModelGrantsCannotBeBorrowed", "TestGlobalCandidateWindowRecoveryAndStickyAdmission", "TestGlobalCandidateNativeConverterParityAndGoogleFailover", "TestCandidateResponsesImagePermissionPrecedesBillingOrigin"],
       "rationale": "Executable regressions cover production selection, topology, duplicate membership, capacity races and wait revalidation."
     },
     {
@@ -200,7 +205,7 @@
     },
     {
       "path": "backend/internal/service/candidate_billing_tk_test.go",
-      "must_contain": ["TestCandidateBillingOriginQueryFailureIsNeverTariffEquality", "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold", "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota", "TestCandidateBillingSelectedOriginReachesHoldAndSettlement", "TestCandidateBillingOriginUsesSettlementServedModel"],
+      "must_contain": ["TestCandidateBillingOriginQueryFailureIsNeverTariffEquality", "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold", "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota", "TestCandidateBillingSelectedOriginReachesHoldAndSettlement", "TestCandidateBillingOriginUsesSettlementServedModel", "TestCandidateRebindingEnforcesDestinationRPM", "TestCandidateRPMUsesAvailableOriginAndResetsEachTurn"],
       "rationale": "Billing regressions preserve configuration errors, reservation rollback and group-independent Universal quota behavior."
     },
     {

@@ -468,3 +468,65 @@ func TestCandidateBillingSelectedOriginReachesHoldAndSettlement(t *testing.T) {
 		})
 	}
 }
+
+func TestCandidateRebindingEnforcesDestinationRPM(t *testing.T) {
+	groups := []Group{grp(10, PlatformOpenAI, 1, false), grp(20, PlatformOpenAI, 2, false)}
+	groups[0].RPMLimit, groups[1].RPMLimit = 10, 1
+	r, _, key := globalCandidateFixture(groups, []Account{globalCandidateAccount(1, 1, 10), globalCandidateAccount(2, 2, 20)})
+	key.User.RPMLimit = 10
+	rpm := &userRPMCacheStub{userGroupCounts: []int{1, 2}}
+	billing := NewBillingCacheService(&balanceEligibilityCacheStub{balance: 10}, nil, nil, nil, rpm, nil, &config.Config{}, nil)
+	t.Cleanup(billing.Stop)
+	r.candidateGateway.billingCacheService = billing
+	ctx, state := prepareGlobalCandidate(t, r, key)
+	require.NoError(t, billing.CheckBillingEligibility(ctx, key.User, key, key.Group, nil, ""))
+	for range 2 {
+		selected, err := state.selectAccount(ctx, candidateSelectOptions{acquire: true})
+		require.NoError(t, err)
+		selected.ReleaseFunc()
+	}
+	selected, err := state.selectAccount(ctx, candidateSelectOptions{acquire: true, excluded: map[int64]struct{}{1: {}}})
+	if selected != nil && selected.ReleaseFunc != nil {
+		selected.ReleaseFunc()
+	}
+	require.ErrorIs(t, err, ErrGroupRPMExceeded)
+	require.Nil(t, selected)
+	require.EqualValues(t, 1, atomic.LoadInt32(&rpm.userCalls), "reselection must not count the user request again")
+	require.EqualValues(t, 2, atomic.LoadInt32(&rpm.userGroupCalls), "each attempted origin is counted once")
+	require.Equal(t, int64(10), *key.GroupID)
+}
+
+type candidateRPMCache struct {
+	userRPMCacheStub
+	counts map[int64]int
+}
+
+func (c *candidateRPMCache) GetUserGroupRPM(_ context.Context, _, groupID int64) (int, error) {
+	return c.counts[groupID], nil
+}
+
+func TestCandidateRPMUsesAvailableOriginAndResetsEachTurn(t *testing.T) {
+	groups := []Group{grp(10, PlatformOpenAI, 1, false), grp(20, PlatformOpenAI, 2, false)}
+	groups[0].RPMLimit, groups[1].RPMLimit = 1, 10
+	groups[0].RateMultiplier, groups[1].RateMultiplier = .1, 1
+	r, _, key := globalCandidateFixture(groups, []Account{globalCandidateAccount(1, 1, 10, 20)})
+	key.User.RPMLimit = 10
+	rpm := &candidateRPMCache{counts: map[int64]int{10: 1}}
+	billing := NewBillingCacheService(&balanceEligibilityCacheStub{balance: 10}, nil, nil, nil, rpm, nil, &config.Config{}, nil)
+	t.Cleanup(billing.Stop)
+	r.candidateGateway.billingCacheService = billing
+	ctx, state := prepareGlobalCandidate(t, r, key)
+	require.Equal(t, int64(20), *key.GroupID, "the cheaper exhausted origin cannot hide a usable path")
+	require.Zero(t, atomic.LoadInt32(&rpm.userGroupCalls), "candidate projection does not consume RPM")
+	for range 2 {
+		require.NoError(t, billing.CheckBillingEligibility(ctx, key.User, key, key.Group, nil, ""))
+	}
+	require.EqualValues(t, 1, atomic.LoadInt32(&rpm.userCalls))
+	require.EqualValues(t, 1, atomic.LoadInt32(&rpm.userGroupCalls))
+	rpm.counts[10] = 0
+	require.NoError(t, state.RevalidateTurn(ctx, 1, "gpt-5.4", []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"next"}]}`)))
+	require.Equal(t, int64(10), *key.GroupID)
+	require.NoError(t, billing.CheckBillingEligibility(ctx, key.User, key, key.Group, nil, ""))
+	require.EqualValues(t, 2, atomic.LoadInt32(&rpm.userCalls))
+	require.EqualValues(t, 2, atomic.LoadInt32(&rpm.userGroupCalls))
+}
