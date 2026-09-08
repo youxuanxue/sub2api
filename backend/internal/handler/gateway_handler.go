@@ -1605,10 +1605,11 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 
+	platform := service.QuotaPlatform(c.Request.Context(), apiKey)
 	if h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog) {
 		return
 	}
-	if h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog) {
+	if platform == service.PlatformAnthropic && h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog) {
 		return
 	}
 
@@ -1616,7 +1617,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsedReq.Stream, false)))
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
-	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, parsedReq.Model, len(body)); reject {
+	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, platform, parsedReq.Model, len(body)); reject {
 		h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
 		return
 	}

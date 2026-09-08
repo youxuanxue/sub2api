@@ -30,7 +30,7 @@ func (r *responsesIngressUsageRepo) Create(_ context.Context, usage *service.Usa
 	return true, nil
 }
 
-func newResponsesIngressHarness(t *testing.T, groupPlatform string, target protocolrouter.Protocol, cfg *config.Config) (*GatewayHandler, *service.Group, *responsesIngressUsageRepo, *plannedOpenAIShapeUpstream) {
+func newAntigravityIngressHarness(t *testing.T, groupPlatform string, target protocolrouter.Protocol, cfg *config.Config) (*GatewayHandler, *service.Group, *responsesIngressUsageRepo, *plannedOpenAIShapeUpstream) {
 	t.Helper()
 	group := &service.Group{ID: 21, Platform: groupPlatform, Status: service.StatusActive, Hydrated: true, RateMultiplier: 1}
 	account := service.Account{
@@ -68,7 +68,7 @@ func TestGatewayResponsesIngressAntigravityGemini(t *testing.T) {
 				const model = "gemini-3.8-flash"
 				const mappedModel = "gemini-3.8-flash-medium"
 				cfg := &config.Config{RunMode: config.RunModeSimple}
-				h, group, usage, upstream := newResponsesIngressHarness(t, service.PlatformAntigravity, target, cfg)
+				h, group, usage, upstream := newAntigravityIngressHarness(t, service.PlatformAntigravity, target, cfg)
 				body := fmt.Sprintf(`{"model":%q,"input":"Reply OK only.","max_output_tokens":1024,"stream":%t}`, model, stream)
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)
@@ -124,7 +124,7 @@ func TestGatewayResponsesIngressPlatformGuards(t *testing.T) {
 				}
 				cfg := &config.Config{RunMode: config.RunModeSimple}
 				cfg.Gateway.UpstreamBodyGuards = []config.UpstreamBodyGuardConfig{{Platform: tc.guardPlatform, RejectBytes: 1}}
-				h, group, usage, upstream := newResponsesIngressHarness(t, tc.groupPlatform, protocolrouter.ProtocolResponses, cfg)
+				h, group, usage, upstream := newAntigravityIngressHarness(t, tc.groupPlatform, protocolrouter.ProtocolResponses, cfg)
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)
 				body := fmt.Sprintf(`{"model":%q,"input":"Reply OK only.","stream":%t}`, model, stream)
