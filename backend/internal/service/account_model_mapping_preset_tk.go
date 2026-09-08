@@ -70,7 +70,7 @@ func NewAPIModelMappingPresetOverrideIDsForChannelType(channelType int) ([]strin
 func NewAPIModelDisplayIDsForChannelType(channelType int) []string {
 	var ids []string
 	if channelType == newapiconstant.ChannelTypeVertexAi {
-		ids = supportedCatalogModelIDsForPlatform(PlatformGemini)
+		ids = vertexModelDisplayIDs()
 	} else {
 		ids = tkServedModelsManifestDisplayPresetIDsByChannelType(channelType)
 	}

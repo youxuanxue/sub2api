@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/stretchr/testify/require"
 )
@@ -79,6 +80,8 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 		require.False(t, tkIsEffectivelyUnpriced(entry))
 		require.True(t, isPublicCatalogModelSupported("gemini", model))
 		require.True(t, isPublicCatalogModelSupported(PlatformAntigravity, model))
+		require.Equal(t, "gemini", presentationVendorForServable(model, "gemini"))
+		require.Contains(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), model)
 	}
 	// The restored compatibility spelling must not change the user's price.
 	preview, wire := pricing["gemini-3-flash-preview"], pricing["gemini-3-flash"]
@@ -86,6 +89,21 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 	require.Equal(t, preview.InputCostPerToken, wire.InputCostPerToken)
 	require.Equal(t, preview.OutputCostPerToken, wire.OutputCostPerToken)
 	require.Equal(t, preview.CacheReadInputTokenCost, wire.CacheReadInputTokenCost)
+}
+
+func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T) {
+	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
+	require.NoError(t, err)
+	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite"} {
+		require.Equal(t, model, floor.NewAPIChannelTypes["41"][model])
+		for profile, mapping := range floor.VertexCapabilityProfiles {
+			require.Equal(t, model, mapping[model], "profile %s", profile)
+		}
+		require.NotEmpty(t, floor.Platforms[PlatformAntigravity][model])
+		require.NotContains(t, floor.Platforms[PlatformGemini], model,
+			"Vertex evidence must not introduce an unverified native Gemini activation requirement")
+		require.NotContains(t, AccountModelMappingPresetIDs(context.Background(), PlatformGemini, 0, nil), model)
+	}
 }
 
 func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T) {

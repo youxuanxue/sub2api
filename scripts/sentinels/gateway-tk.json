@@ -7877,11 +7877,28 @@
         "func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T)",
         "func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T)",
         "func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T)",
+        "func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T)",
         "AccountModelMappingFloorForOps(context.Background(), \"\")",
         "protocolPlanForAccount(ctx, &accounts[i], model)",
         "ErrUniversalCapacityUnavailable"
       ],
       "rationale": "Restored Gemini compatibility must survive both prod's generated mapping floor and edge's empty-mapping defaults. These regressions exercise the actual Plan and resolver for native and converted requests, global Vertex endpoints, Antigravity fallback, capacity classification and alias price parity without maintaining a second model catalog."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_vertex_tk.go",
+      "must_contain": [
+        "func vertexModelDisplayIDs() []string",
+        "stringSet(vertexSharedModelMappingPresetIDs())",
+        "range vertexCapabilityProfileExtraIDs"
+      ],
+      "rationale": "Vertex public discovery derives from the verified profile union, independently of the native Gemini floor. Sharing a native catalog as the Vertex display owner adds unverified activation scopes."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_preset_tk.go",
+      "must_contain": [
+        "ids = vertexModelDisplayIDs()"
+      ],
+      "rationale": "Keep the Vertex display consumer attached to its capability-floor union; native Gemini defaults remain platform-local."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
