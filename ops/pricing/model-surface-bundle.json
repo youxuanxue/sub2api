@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "e8f1e465a7cb237e01dc75c563d9e62051519af3518b174e80ac00bbba19734c",
+  "floor_sha256": "6b0338f2fc3e012525402cc2f83ab9ab999e85802cba2a814712f5af7bbe10b9",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -47,9 +47,11 @@
         "gemini-2.5-flash-thinking": "gemini-2.5-flash-thinking",
         "gemini-3-flash": "gemini-3-flash",
         "gemini-3-flash-agent": "gemini-3-flash-agent",
+        "gemini-3-flash-preview": "gemini-3-flash",
         "gemini-3-pro-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.1-pro": "gemini-pro-agent",
         "gemini-3.1-pro-low": "gemini-3.1-pro-low",
         "gemini-3.5-flash": "gemini-3.5-flash-low",
@@ -85,6 +87,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -290,6 +294,8 @@
       "41": {
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -442,6 +448,8 @@
       "core-imagen-ultra": {
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -454,6 +462,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -465,6 +475,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -478,6 +490,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -499,7 +513,6 @@
       "anthropic_tokensea_relay": [],
       "antigravity": [
         "gemini-2.5-flash-image-preview",
-        "gemini-3-flash-preview",
         "gemini-3-pro-high",
         "gemini-3-pro-image-preview",
         "gemini-3-pro-low",
