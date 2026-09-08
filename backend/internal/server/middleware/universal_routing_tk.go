@@ -82,6 +82,20 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 				body, err = pkghttputil.NormalizeLenientJSONRequestBody(body, 0)
 			}
 			if err == nil {
+				if shape == service.ShapeAnthropicMessages || shape == service.ShapeAnthropicCountTokens {
+					parsed, parseErr := service.ParseGatewayRequest(service.NewRequestBodyRef(body), service.PlatformAnthropic)
+					if parseErr == nil {
+						if normalized, resolved := service.TkApplyBareModelAlias(forcedPlatform, parsed); resolved != "" {
+							body = normalized
+							// Planning and the handler must consume the same alias rewrite,
+							// including when the client sent a compressed request.
+							c.Request.Body = io.NopCloser(bytes.NewReader(body))
+							c.Request.ContentLength = int64(len(body))
+							c.Request.Header.Del("Content-Encoding")
+							c.Request.Header.Del("Content-Length")
+						}
+					}
+				}
 				if shape != service.ShapeGemini && shape != service.ShapeOpenAIImagesEdit {
 					var document struct {
 						Model string `json:"model"`
@@ -356,11 +370,15 @@ func writeUniversalRoutingError(c *gin.Context, shape service.UniversalShape, mo
 func writeUniversalRoutingInternalError(c *gin.Context, shape service.UniversalShape) {
 	const status = http.StatusInternalServerError
 	const msg = "Failed to resolve a backing platform for this request. Please retry."
+	c.Set(service.OpsRoutingInternalErrorKey, true)
 	switch shape {
 	case service.ShapeGemini:
 		GoogleErrorWriter(c, status, msg)
 	case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
-		AnthropicErrorWriter(c, status, msg)
+		c.JSON(status, gin.H{
+			"type":  "error",
+			"error": gin.H{"type": "api_error", "code": "universal_routing_internal_error", "message": msg},
+		})
 	default:
 		c.JSON(status, gin.H{
 			"error": gin.H{
