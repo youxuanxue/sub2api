@@ -4,37 +4,16 @@ import (
 	"context"
 )
 
-// TK — anthropic saturated mirror-stub de-prioritization (score side).
-//
-// See ratelimit_service_tk_saturation.go for the increment side and the prod
-// problem statement. This file is the READ side: a BOUNDED preference term added
-// to the existing load-aware candidate ranking so prod's account selection
-// routes AWAY from an anthropic stub that is emitting SUSTAINED downstream-
-// capacity 429/502 ("No available accounts" / "all available accounts
-// exhausted"). It is a routing PREFERENCE, NOT a cooldown:
-//
-//   - de-prioritize  — a saturated stub's effective priority is bumped into a
-//     worse bucket (filterByMinPriority picks the smallest), so it sorts AFTER
-//     any non-saturated stub.
-//   - last-resort / never-unschedulable — the penalty is a bounded additive
-//     constant; the stub stays in the candidate set (and the Layer-3 fallback
-//     queue), so if it is the only/highest candidate it is still selected. The
-//     feature NEVER calls SetTempUnschedulable / SetRateLimited / advances the
-//     3/3 ladder.
-//   - self-clearing — the penalty is recomputed per selection from the LIVE
-//     Redis count, which has a short TTL; when the edge recovers, the count
-//     expires and the preference evaporates with no clear-on-200 hook.
-//   - all-saturated safety — if every candidate is saturated, all get the SAME
-//     additive penalty, so their RELATIVE order is preserved and selection still
-//     returns a stub. Safe by construction: the penalty is a bounded ADD, never
-//     a sentinel/exclusion value.
-
-// Penalty magnitude: edge_mirror_stub_saturation_tk.go (SSOT).
+// Generic gateway load-aware scoring consumes candidate_saturation.go, including
+// mixed pools and model-scoped Antigravity relays. The bounded additive penalty
+// keeps saturated last resorts selectable and preserves all-saturated order.
+// Constants live in edge_mirror_stub_saturation_tk.go; counter scope, settings and
+// read-failure behavior belong to the shared state owner.
 
 // SetAnthropicSaturationCounter wires the Redis-backed saturation counter into
 // GatewayService post-construction (mirrors SetAnthropicSigPreemptCache). Nil-
-// safe: when unset, computeAnthropicSaturationPenalties is a no-op and selection
-// is identical to pre-feature behaviour.
+// safe: when unset, Anthropic counts are absent; other wired platform counters
+// still participate through candidateSaturationState.
 func (s *GatewayService) SetAnthropicSaturationCounter(cache AnthropicSaturationCounterCache) {
 	if s != nil {
 		s.tkAnthropicSaturationCounter = cache

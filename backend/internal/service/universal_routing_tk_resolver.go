@@ -16,14 +16,15 @@ import (
 
 // UniversalRoutingResolver 解析“全能 Key”每个请求应落到的后端组。
 //
-// 流程（见 docs/approved/universal-key-routing.md）：
+// 流程（授权/计费见 docs/approved/universal-key-routing.md，候选规则见
+// docs/approved/candidate-eligibility-ssot.md）：
 //  1. 取 key 主人的权限跨度（GetAvailableGroups，带短 TTL 缓存，热路径命中 0 次 DB）；
 //  2. 按入口端点形状（+ /antigravity 的 forcedPlatform）得到候选平台集合；
-//  3. 跨度 ∩ 候选平台 → 候选后端组；用模型平台提示偏向、再按确定规则挑一个
-//     （可用的持订阅优先 → group.sort_order → id；订阅到期/额度满则改走余额组）。
+//  3. 在授权候选中用共享 evaluator 分别判断请求支持与当前容量，再按可用订阅优先、
+//     同计费层健康容量优先、group.sort_order/id 选组。合法 converter 不受平台 hint 排除。
 //
 // 解析成功后，调用方（middleware.MaybeResolveUniversal）把请求“伪装”成绑定该后端组的
-// 普通 key（替换 apiKey.Group/GroupID），下游调度/计费/转发零改动。
+// 普通 key（替换 apiKey.Group/GroupID）；下游调度重新检查实时状态，计费使用已绑定组。
 type UniversalRoutingResolver struct {
 	lister availableGroupsLister
 	ttl    time.Duration
@@ -32,10 +33,9 @@ type UniversalRoutingResolver struct {
 	mu    sync.RWMutex
 	cache map[int64]*spanCacheEntry
 
-	// modelsProvider 是「组可服务模型集」真值源(GatewayService.GetAvailableModels),
-	// 经 APIKeyService.SetUniversalAvailableModelsProvider 在 GatewayService 构造后绑定
-	// (避免构造期环)。受 mu 保护。nil = 未接线/降级 → Resolve 退回平台级现状(安全兜底)。
-	// 见 universal_routing_tk_serving.go。
+	// modelsProvider/supportProvider serve the compatibility path when no candidate
+	// evaluator is wired. Production model-bearing requests use candidateEvaluator;
+	// its errors do not fall back to these providers. All fields are guarded by mu.
 	modelsProvider     availableModelsProvider
 	supportProvider    groupModelSupportProvider
 	subscriptionGate   subscriptionGroupUsability
@@ -123,8 +123,8 @@ func (r *UniversalRoutingResolver) providerSnapshot() (availableModelsProvider, 
 	return modelsProvider, supportProvider
 }
 
-// Resolve 返回该请求应落到的后端组。shape 为入口端点形状，model 为请求模型名（可空，
-// 仅作平台偏好提示），forcedPlatform 非空时（如 /antigravity）只在该平台内解析。
+// Resolve 返回该请求应落到的后端组。shape 为入口端点形状，model 为请求模型名（可空）。
+// 先调用 WithRequest 传入实际请求；forcedPlatform 非空时只在该平台内解析。
 func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, shape UniversalShape, model, forcedPlatform string) (*Group, error) {
 	if r == nil || apiKey == nil {
 		return nil, ErrUniversalNoEntitledGroup
@@ -176,16 +176,9 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 		return r.pickCandidateBackingGroup(ctx, apiKey.UserID, eligible, model, shape, evaluate)
 	}
 
-	// 模型服务真值收敛:把 eligible 收敛到“真正服务该模型”的组(见 universal_routing_tk_serving.go)。
-	// 仅当有模型名 + provider 已接线时执行;收敛后非空则用收敛集(deepseek/qwen/imagen/veo/
-	// seedance 等落到声明了该模型的对的组)。
-	//
-	// 收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403),不再盲选错组后在下游
-	// 打成 routing-phase 429(P0 routing_capacity_rejection 风暴; prod 2026-07-01 user16
-	// universal key 245 压测 kimi-2.6 / deepseek-v3-2-251201 / claude@chat 等)。对齐
-	// docs/approved/universal-key-routing.md §4.3「模型不在任何被授权组 → 干脆报错」。
-	// hint 为空(未知 channel 模型)仍退回 eligible,由下游诚实拒绝 —— provider 未接线时整体
-	// 也保持旧平台级行为(见 TestResolve_NilProviderFallsBackToPlatformLevel)。
+	// Compatibility path for model-less or evaluator-less callers, including
+	// capability discovery's separately constructed resolver. Provider filtering
+	// and platform hints here are not the production candidate eligibility gate.
 	if model != "" {
 		if modelsProvider, supportProvider := r.providerSnapshot(); modelsProvider != nil || supportProvider != nil {
 			served := make([]Group, 0, len(eligible))

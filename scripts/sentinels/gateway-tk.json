@@ -5139,7 +5139,7 @@
         "anthropicSaturationPriorityPenalty = 1000",
         "openAISaturationScorePenalty = 50.0"
       ],
-      "rationale": "SSOT for prod edge-mirror stub downstream-empty de-prioritization: shared 90s window + threshold 3, scheduler penalties, mirror model/class write at threshold. Never temp_unschedulable or whole-account block on this path."
+      "rationale": "Shared window, threshold and bounded scheduler penalty constants for downstream-empty feedback. candidate_saturation.go owns scoped interpretation. Threshold crossing changes preference and sticky affinity only; it never writes model/class cooldown, temp_unschedulable or whole-account blocks."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_saturation.go",
@@ -5502,10 +5502,10 @@
       "must_contain": [
         "return nativePlatformHintMatchesGroup(g.Platform, model)"
       ],
-      "rationale": "TK fix (1.8.74 prod smoke): OpenAI passthrough empty mapping must not make UniversalGroupSupportsModel claim foreign-hint models (gemini/claude/newapi) on the openai-compat pool — that misroutes universal /v1/messages to Codex. Pins the passthrough branch foreign-hint rejection alongside mapped-account IsModelSupported fallback."
+      "rationale": "The evaluator-less compatibility path retains native platform hints for catalog fallback. Production candidate admission delegates governed text to Plan before reaching this fallback; this anchor must not be interpreted as a ban on legal cross-platform converters."
     },
     {
-      "rationale": "TK fix (1.8.74 prod smoke): OpenAI passthrough empty mapping must not make UniversalGroupSupportsModel claim foreign-hint models (gemini/claude/newapi) on the openai-compat pool — that misroutes universal /v1/messages to Codex. Pins the passthrough branch foreign-hint rejection alongside mapped-account IsModelSupported fallback.",
+      "rationale": "Non-governed OpenAI passthrough retains its account model-support fallback. Governed text returns through protocolRequestEligibilityReason before this branch; platform hints cannot override a legal Plan.",
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
         "account.IsOpenAIPassthroughEnabled()"
@@ -6033,7 +6033,8 @@
         "filterGroupsAllowImageGeneration",
         "supportProvider(ctx, &gid, eligible[i].Platform, model, shape)",
         "else if hint := universalRequestPlatformHint(shape, model); hint != \"\"",
-        "收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403)"
+        "return r.pickCandidateBackingGroup(ctx, apiKey.UserID, eligible, model, shape, evaluate)",
+        "candidates = append(candidates, PlatformAnthropic, PlatformGemini, PlatformAntigravity)"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
@@ -7868,7 +7869,19 @@
         "func (a *Account) IsNewAPIVertexServiceAccount() bool",
         "a.ChannelType == newapiconstant.ChannelTypeVertexAi"
       ],
-      "rationale": "Vertex native Gemini ownership has two load-bearing facts: global-only Gemini ids must use the publisher-global endpoint, and only newapi ch41 service-account rows may acquire Vertex tokens or claim native Gemini routing. Dropping either silently turns a valid Vertex route into a 404 or broadens Google credential behavior to unrelated newapi vendors."
+      "rationale": "Vertex native Gemini ownership has two load-bearing facts: global-only Gemini ids must use the publisher-global endpoint, and only newapi ch41 service-account rows may acquire Vertex tokens or claim native Gemini routing. Dropping either silently turns a valid Vertex route into a 404 or broadens Google credential behavior to unrelated newapi vendors. Model admission and alias boundaries are covered by candidate_gemini_model_admission_test.go."
+    },
+    {
+      "path": "backend/internal/service/candidate_gemini_model_admission_test.go",
+      "must_contain": [
+        "func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T)",
+        "func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T)",
+        "func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T)",
+        "AccountModelMappingFloorForOps(context.Background(), \"\")",
+        "protocolPlanForAccount(ctx, &accounts[i], model)",
+        "ErrUniversalCapacityUnavailable"
+      ],
+      "rationale": "Restored Gemini compatibility must survive both prod's generated mapping floor and edge's empty-mapping defaults. These regressions exercise the actual Plan and resolver for native and converted requests, global Vertex endpoints, Antigravity fallback, capacity classification and alias price parity without maintaining a second model catalog."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",
