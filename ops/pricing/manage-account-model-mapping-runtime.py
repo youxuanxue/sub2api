@@ -495,21 +495,8 @@ def _mapping_policy_violations_for_scope(
     mapping: dict[str, str],
     floor: dict[str, Any],
 ) -> list[str]:
-    reasons: list[str] = []
-
-    forbidden_by_scope = floor.get("forbidden_model_mapping_keys") or {}
-    forbidden = set(forbidden_by_scope.get(scope) or [])
-    forbidden_keys = sorted(k for k in mapping if k in forbidden)
-    if forbidden_keys:
-        reasons.append("contains forbidden model_mapping keys from bundle: " + ", ".join(forbidden_keys))
-
-    forbidden_prefix_by_scope = floor.get("forbidden_model_mapping_prefixes") or {}
-    prefixes = [str(p) for p in (forbidden_prefix_by_scope.get(scope) or []) if str(p)]
-    prefixed = sorted(k for k in mapping if any(k.startswith(p) for p in prefixes))
-    if prefixed:
-        reasons.append("contains forbidden model_mapping prefixes from bundle: " + ", ".join(prefixed))
-
-    return reasons
+    forbidden = _forbidden_mapping_entries(scope, mapping, floor)
+    return ["contains forbidden model_mapping entries from bundle: " + ", ".join(forbidden)] if forbidden else []
 
 
 def _forbidden_mapping_entries(
@@ -519,10 +506,13 @@ def _forbidden_mapping_entries(
 ) -> list[str]:
     if scope.startswith("newapi_channel_type:") or scope.startswith("newapi_vertex_profile:"):
         scope = "newapi"
+    scopes = [scope]
+    if scope.startswith("account_override:"):
+        scopes.append(scope.split(":", 2)[1])
     forbidden_by_scope = floor.get("forbidden_model_mapping_keys") or {}
-    forbidden = set(forbidden_by_scope.get(scope) or [])
+    forbidden = {key for policy_scope in scopes for key in forbidden_by_scope.get(policy_scope) or []}
     forbidden_prefix_by_scope = floor.get("forbidden_model_mapping_prefixes") or {}
-    prefixes = [str(p) for p in (forbidden_prefix_by_scope.get(scope) or []) if str(p)]
+    prefixes = [str(p) for policy_scope in scopes for p in forbidden_prefix_by_scope.get(policy_scope) or [] if str(p)]
     return sorted(
         key for key in mapping
         if key in forbidden or any(key.startswith(prefix) for prefix in prefixes)
@@ -530,7 +520,7 @@ def _forbidden_mapping_entries(
 
 
 def _mapping_policy_violations(row: dict[str, Any], floor: dict[str, Any]) -> list[str]:
-    scope = _account_scope(row)
+    _, scope = _desired_mapping_for_account(row, floor)
     mm, err = _model_mapping(row)
     if err:
         return [f"{err} (scope={scope})"]
@@ -680,7 +670,7 @@ def _account_plan(
         }
         reason = f"{err}; will replace with SSOT (scope={scope}, desired_count={len(want)})"
     else:
-        diff = _mapping_diff(_account_scope(row), got, want, floor)
+        diff = _mapping_diff(scope, got, want, floor)
         if not _has_mapping_diff(diff):
             return None
         reason = _format_mapping_diff_reason(scope, diff)
@@ -867,7 +857,8 @@ def _collect_apply_plan(
 ) -> dict[str, Any]:
     bundle = _run_check_sql_json(region, instance_id, label)
     runtime_raw = bundle.get("runtime_setting")
-    if activation_floor_sha256 and runtime_raw is not None and str(runtime_raw).strip():
+    runtime_present = runtime_raw is not None and str(runtime_raw).strip() != ""
+    if activation_floor_sha256 and runtime_present and account_ids is None:
         raise RuntimeError(
             f"activation bundle {activation_floor_sha256} is shadowed by {SETTING_KEY} on {label}"
         )
@@ -889,6 +880,16 @@ def _collect_apply_plan(
         selected_rows = all_rows
         found_ids = None
         missing_ids = None
+
+    if activation_floor_sha256 and runtime_present:
+        # Property overrides precede runtime platform/channel replacements. Require
+        # every selected account to use exactly that immutable bundle mapping.
+        compiled_floor = _load_bundle()["account_model_mapping"]
+        for row in selected_rows:
+            wanted, scope = _desired_mapping_for_account(row, floor)
+            if (not scope.startswith("account_override:")
+                    or (wanted, scope) != _desired_mapping_for_account(row, compiled_floor)):
+                raise RuntimeError(f"activation bundle is shadowed by {SETTING_KEY} for account {row.get('id')}")
 
     account_changes: list[dict[str, Any]] = []
     already_compliant_ids: list[int] = []
@@ -939,6 +940,8 @@ def _collect_apply_plan(
     }
     if activation_floor_sha256:
         result["activation_floor_sha256"] = activation_floor_sha256
+        if runtime_present:
+            result["activation_runtime_md5"] = hashlib.md5(str(runtime_raw).encode("utf-8")).hexdigest()
     if account_ids is not None:
         result["targeted"] = True
         result["requested_ids"] = account_ids
@@ -1018,6 +1021,8 @@ def _compute_plan_sha256(plan: dict[str, Any]) -> str:
         ],
         "group_changes": [],
     }
+    if plan.get("activation_runtime_md5"):
+        digest_input["activation_runtime_md5"] = plan["activation_runtime_md5"]
     raw = canonical_json(digest_input)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -1033,6 +1038,7 @@ def _render_targeted_apply_sql(plan: dict[str, Any]) -> str:
     if not changes:
         return ""
     lines = ["BEGIN;", "SET LOCAL statement_timeout = '30s';"]
+    lines.extend(_activation_setting_guard_sql(plan))
     changed_ids: list[int] = []
     for change in sorted(changes, key=lambda c: int(c.get("id") or 0)):
         account_id = int(change["id"])
@@ -1268,19 +1274,32 @@ def cmd_assign_vertex_profiles(args) -> int:
     return 0
 
 
-def _render_apply_sql(plan: dict[str, Any]) -> str:
-    lines = [
-        "BEGIN;",
-        "SET LOCAL statement_timeout = '30s';",
-    ]
+def _activation_setting_guard_sql(plan: dict[str, Any]) -> list[str]:
     if plan.get("activation_floor_sha256"):
-        lines.extend([
+        runtime_md5 = plan.get("activation_runtime_md5")
+        if runtime_md5:
+            if not re.fullmatch(r"[0-9a-f]{32}", runtime_md5):
+                raise ValueError("invalid activation runtime fingerprint")
+            return [
+                "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE;",
+                "DO $tk_model_activation$ BEGIN "
+                f"IF (SELECT md5(value) FROM settings WHERE key = '{SETTING_KEY}') IS DISTINCT FROM '{runtime_md5}' THEN "
+                "RAISE EXCEPTION 'runtime mapping changed before scoped activation write'; "
+                "END IF; END $tk_model_activation$;",
+            ]
+        return [
             "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE;",
             "DO $tk_model_activation$ BEGIN "
             f"IF EXISTS (SELECT 1 FROM settings WHERE key = '{SETTING_KEY}') THEN "
             f"RAISE EXCEPTION '{SETTING_KEY} appeared before activation write'; "
             "END IF; END $tk_model_activation$;",
-        ])
+        ]
+    return []
+
+
+def _render_apply_sql(plan: dict[str, Any]) -> str:
+    lines = ["BEGIN;", "SET LOCAL statement_timeout = '30s';"]
+    lines.extend(_activation_setting_guard_sql(plan))
 
     by_mapping: dict[str, dict[str, Any]] = {}
     for change in plan.get("account_changes") or []:
@@ -2261,6 +2280,53 @@ def cmd_selftest(_args) -> int:
     assert "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE" in guarded_sql
     assert f"{SETTING_KEY} appeared before activation write" in guarded_sql
     assert guarded_sql.index("LOCK TABLE settings") < guarded_sql.index("UPDATE accounts")
+    targeted_guarded_sql = _render_targeted_apply_sql({
+        "activation_floor_sha256": "a" * 64,
+        "account_changes": [{**plan, "observed_model_mapping": {}}],
+    })
+    assert f"{SETTING_KEY} appeared before activation write" in targeted_guarded_sql
+    assert targeted_guarded_sql.index("LOCK TABLE settings") < targeted_guarded_sql.index("UPDATE accounts")
+    override = floor["account_overrides"][0]
+    override_scope = _BUNDLE.account_override_scope(override)
+    scoped_floor = copy.deepcopy(floor)
+    scoped_floor["forbidden_model_mapping_prefixes"][override_scope] = ["retired-"]
+    scoped_floor["forbidden_model_mapping_keys"]["newapi"] = ["platform-forbidden"]
+    scoped_row = {
+        **override, "id": 999,
+        "model_mapping": {**override["model_mapping"], "retired-alias": "agent-plan-model",
+                          "platform-forbidden": "agent-plan-model", "compatible-extra": "agent-plan-model"},
+    }
+    scoped_plan = _account_plan(scoped_row, scoped_floor)
+    assert scoped_plan["diff"]["forbidden_keys"] == ["platform-forbidden", "retired-alias"]
+    assert "compatible-extra" in scoped_plan["desired_model_mapping"]
+    assert _mapping_policy_violations(scoped_row, scoped_floor)
+    assert _account_plan({**scoped_row, "model_mapping": scoped_plan["desired_model_mapping"]}, scoped_floor) is None
+    payg_plan = _account_plan({**scoped_row, "base_url": "https://payg.example.test"}, scoped_floor)
+    assert payg_plan["diff"]["forbidden_keys"] == ["platform-forbidden"]
+    assert "retired-alias" in payg_plan["desired_model_mapping"]
+    from unittest.mock import patch
+
+    runtime_raw = canonical_json({"newapi_channel_types": {"45": {"runtime-model": "runtime-target"}}})
+    source_bundle = {"floor_sha256": "a" * 64, "account_model_mapping": scoped_floor}
+    snapshot = {"runtime_setting": runtime_raw, "accounts": [scoped_row], "antigravity_groups": []}
+    with patch.dict(globals(), {
+        "_load_bundle": lambda: source_bundle,
+        "_run_check_sql_json": lambda *_args: snapshot,
+    }):
+        activation_plan = _collect_apply_plan("prod", "test-region", "i-test", "a" * 64, [999])
+        assert activation_plan["account_changes"][0]["desired_model_mapping"] == scoped_plan["desired_model_mapping"]
+        activation_sql = _render_targeted_apply_sql(activation_plan)
+        assert "runtime mapping changed before scoped activation write" in activation_sql
+        assert activation_plan["activation_runtime_md5"] in activation_sql
+        changed_runtime_plan = {**activation_plan, "activation_runtime_md5": "b" * 32}
+        assert _compute_plan_sha256(changed_runtime_plan) != _compute_plan_sha256(activation_plan)
+        snapshot["accounts"] = [{**scoped_row, "base_url": "https://payg.example.test"}]
+        try:
+            _collect_apply_plan("prod", "test-region", "i-test", "a" * 64, [999])
+        except RuntimeError as e:
+            assert "shadowed" in str(e)
+        else:
+            raise AssertionError("runtime-shadowed generic channel activation accepted")
     with tempfile.TemporaryDirectory() as profile_temp_dir:
         profile_path = Path(profile_temp_dir) / "vertex-profiles.json"
         profile_path.write_text(json.dumps({"assignments": [{

@@ -281,9 +281,22 @@
     {
       "path": "frontend/src/components/account/usage-cells/TodayStatsBadges.vue",
       "must_contain": [
-        "formatCompactNumber(props.stats.requests",
-        "formatCompactNumber(props.stats.tokens)",
-        "props.stats.cost.toFixed(2)",
+        "UsageStatsRow",
+        "common.today"
+      ],
+      "rationale": "All account cells project today's statistics through the shared labeled stats row."
+    },
+    {
+      "path": "frontend/src/components/account/UsageProgressBar.vue",
+      "must_contain": ["UsageStatsRow", "!utilizationUnknown", "windowStatsLabel || label"],
+      "rationale": "Local statistics and unknown upstream quotas must remain separate in all usage windows."
+    },
+    {
+      "path": "frontend/src/components/account/UsageStatsRow.vue",
+      "must_contain": [
+        "formatCompactNumber(stats.requests",
+        "formatCompactNumber(stats.tokens)",
+        "stats.cost.toFixed(2)",
         "stats.user_cost != null",
         "usage.accountBilled",
         "usage.userBilled"

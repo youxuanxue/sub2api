@@ -257,7 +257,7 @@ func applyPreloadedCodexWindowStats(usage *UsageInfo, preloaded *localWindowStat
 	}
 	if preloaded.sevenDay != nil {
 		if usage.SevenDay == nil {
-			usage.SevenDay = &UsageProgress{Utilization: 0}
+			usage.SevenDay = &UsageProgress{UtilizationUnknown: true}
 		}
 		usage.SevenDay.WindowStats = windowStatsFromAccountStats(preloaded.sevenDay)
 	}

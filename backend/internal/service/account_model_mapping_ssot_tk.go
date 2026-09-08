@@ -11,6 +11,7 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -146,14 +147,22 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			if len(ids) == 0 {
 				return nil, false
 			}
-			return identityModelMapping(ids), true
+			mapping := identityModelMapping(ids)
+			for alias, target := range newAPIAliTokenPlanModelAliases() {
+				mapping[alias] = target
+			}
+			return mapping, true
 		}
 		if isNewAPIQianfanTokenPlanAccount(account) {
 			ids := NewAPIModelMappingPresetIDsForAccount(account)
 			if len(ids) == 0 {
 				return nil, false
 			}
-			return identityModelMapping(ids), true
+			mapping := identityModelMapping(ids)
+			for alias, target := range newAPIQianfanTokenPlanModelAliases() {
+				mapping[alias] = target
+			}
+			return mapping, true
 		}
 		if isNewAPIQianfanAccount(account) {
 			ids := NewAPIModelMappingPresetIDsForAccount(account)
@@ -184,7 +193,9 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 				return cloneStringMap(mapping), true
 			}
 		}
-		ids := NewAPIModelDisplayIDsForChannelType(account.ChannelType)
+		// Provisioning consumes manifest membership, independently of public
+		// recommendation withdrawals. Hidden IDs keep their original identities.
+		ids := tkServedModelsManifestPresetIDsByChannelType(account.ChannelType)
 		if len(ids) == 0 {
 			return nil, false
 		}
@@ -377,6 +388,9 @@ func accountModelMappingForbiddenKeysByScope() map[string][]string {
 func accountModelMappingForbiddenPrefixesByScope() map[string][]string {
 	return map[string][]string{
 		PlatformAntigravity: {"gpt-oss-"},
+		"account_override:" + normalizeAccountModelMappingOverrideScope(
+			PlatformNewAPI, newapiconstant.ChannelTypeAli, newapiintegration.AliTokenPlanBaseURL,
+		): {"deepseek-", "glm-"},
 	}
 }
 
@@ -742,9 +756,20 @@ func accountRawModelMapping(account *Account) map[string]string {
 
 func reconciledAccountModelMapping(account *Account, required map[string]string) map[string]string {
 	current := accountRawModelMapping(account)
-	scope := accountModelMappingScopeForAccount(account)
-	forbiddenKeys := stringSet(accountModelMappingForbiddenKeysByScope()[scope])
-	forbiddenPrefixes := accountModelMappingForbiddenPrefixesByScope()[scope]
+	scopes := []string{accountModelMappingScopeForAccount(account)}
+	if account != nil {
+		scopes = append(scopes, "account_override:"+normalizeAccountModelMappingOverrideScope(
+			account.Platform, account.ChannelType, account.GetBaseURL(),
+		))
+	}
+	keysByScope := accountModelMappingForbiddenKeysByScope()
+	prefixesByScope := accountModelMappingForbiddenPrefixesByScope()
+	var keys, forbiddenPrefixes []string
+	for _, scope := range scopes {
+		keys = append(keys, keysByScope[scope]...)
+		forbiddenPrefixes = append(forbiddenPrefixes, prefixesByScope[scope]...)
+	}
+	forbiddenKeys := stringSet(keys)
 	out := make(map[string]string, len(current)+len(required))
 	for key, target := range current {
 		if _, forbidden := forbiddenKeys[key]; forbidden {

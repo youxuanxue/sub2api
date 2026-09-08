@@ -236,6 +236,9 @@ var supportedGrokCatalogModels = map[string]struct{}{
 // azure_openai and vertex_ai-style provider strings map consistently with the
 // availability decoration path.
 func isPublicCatalogModelSupported(vendor, modelID string) bool {
+	if !isCatalogModelRecommended(modelID) {
+		return false
+	}
 	// Fifth-platform newapi long-tail: only manifest-listed models may appear on
 	// /pricing when their manifest display bit is true. Unlisted newapi long-tail
 	// residue is excluded from BuildPublicCatalog overlay fill and from

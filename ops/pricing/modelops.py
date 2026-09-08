@@ -844,6 +844,8 @@ def _mapping_manager_command(
     *,
     prod_instance_id: str | None = None,
     activation_floor_sha256: str | None = None,
+    account_ids: str | None = None,
+    expected_plan_sha256: str | None = None,
 ) -> list[str]:
     command = ["python3", str(MAPPING_MANAGER_PATH.relative_to(REPO_ROOT)), action]
     if action == "apply-accounts-dry-run":
@@ -862,6 +864,12 @@ def _mapping_manager_command(
         if action not in {"apply-accounts-dry-run", "apply-accounts"}:
             raise ValueError("activation floor guard is only valid for account apply")
         command.extend(["--activation-floor-sha256", activation_floor_sha256])
+    if account_ids is not None:
+        if action not in {"apply-accounts-dry-run", "apply-accounts"}:
+            raise ValueError("account selection is only valid for account apply")
+        command.extend(["--account-ids", account_ids])
+    if expected_plan_sha256:
+        command.extend(["--expected-plan-sha256", expected_plan_sha256])
     command.extend(["--bundle", str(bundle_path.expanduser().resolve())])
     return command
 
@@ -890,9 +898,9 @@ def _run_json_command(command: list[str], allowed_returncodes: set[int]) -> tupl
     return proc.returncode, data
 
 
-def _require_unshadowed_activation_bundle(gate: dict[str, Any]) -> None:
+def _require_unshadowed_activation_bundle(gate: dict[str, Any], *, override_only: bool = False) -> None:
     targets = gate.get("runtime_setting_targets") or []
-    if targets:
+    if targets and not override_only:
         raise ActivationError(
             "target bundle is shadowed by tk_account_model_mapping_runtime on: "
             + ", ".join(str(target) for target in targets)
@@ -913,7 +921,7 @@ def _resolved_prod_instance_id(gate: dict[str, Any]) -> str:
     return instance_id
 
 
-def _activation_confirm_command(args: argparse.Namespace) -> str:
+def _activation_confirm_command(args: argparse.Namespace, plan_sha256: str | None = None) -> str:
     command = [
         "python3", "ops/pricing/modelops.py", "activate",
         "--bundle", str(args.bundle),
@@ -923,6 +931,10 @@ def _activation_confirm_command(args: argparse.Namespace) -> str:
     ]
     if args.prod_instance_id:
         command.extend(["--prod-instance-id", args.prod_instance_id])
+    if getattr(args, "account_ids", None) is not None:
+        command.extend(["--account-ids", args.account_ids])
+        if plan_sha256:
+            command.extend(["--expected-plan-sha256", plan_sha256])
     command.extend(["--confirm", ACTIVATION_CONFIRM])
     return " ".join(shlex.quote(part) for part in command)
 
@@ -952,18 +964,31 @@ def cmd_activate(args: argparse.Namespace) -> int:
         print(f"ERROR: activate requires --confirm {ACTIVATION_CONFIRM}", file=sys.stderr)
         return 2
     try:
+        account_ids = getattr(args, "account_ids", None)
+        expected_plan_sha256 = getattr(args, "expected_plan_sha256", None)
+        if expected_plan_sha256 and account_ids is None:
+            raise ActivationError("--expected-plan-sha256 requires --account-ids")
+        if account_ids is not None and args.confirm is not None and not expected_plan_sha256:
+            raise ActivationError("targeted activation requires the dry-run --expected-plan-sha256")
         context = build_activation_context(
             bundle_path=args.bundle,
             current_bundle_path=args.current_bundle,
             probe_evidence_path=args.probe_evidence,
             pricing_evidence_path=args.pricing_evidence,
         )
+        delta = context["delta"]
+        changed_scopes = [row["scope"] for field in (
+            "activated", "removed_required", "forbidden_keys_added", "forbidden_prefixes_added",
+        ) for row in delta[field]]
+        override_only = (account_ids is not None and bool(changed_scopes)
+                         and all(scope.startswith("account_override:") for scope in changed_scopes)
+                         and not delta["antigravity_group_scopes_changed"])
         _, pre_gate = _run_json_command(
             _mapping_manager_command(
                 "release-gate", args.bundle, prod_instance_id=args.prod_instance_id),
             {0, 1},
         )
-        _require_unshadowed_activation_bundle(pre_gate)
+        _require_unshadowed_activation_bundle(pre_gate, override_only=override_only)
         prod_instance_id = _resolved_prod_instance_id(pre_gate)
         _, mapping_plan = _run_json_command(
             _mapping_manager_command(
@@ -971,6 +996,7 @@ def cmd_activate(args: argparse.Namespace) -> int:
                 args.bundle,
                 prod_instance_id=prod_instance_id,
                 activation_floor_sha256=context["target_floor_sha256"],
+                account_ids=account_ids,
             ),
             {0},
         )
@@ -980,8 +1006,10 @@ def cmd_activate(args: argparse.Namespace) -> int:
             "mapping_plan": mapping_plan,
             "pre_activation_gate": pre_gate,
         }
+        if expected_plan_sha256 and mapping_plan.get("plan_sha256") != expected_plan_sha256:
+            raise ActivationError("targeted activation plan changed since dry-run")
         if args.confirm is None:
-            result["confirm_command"] = _activation_confirm_command(args)
+            result["confirm_command"] = _activation_confirm_command(args, mapping_plan.get("plan_sha256"))
         else:
             _, applied = _run_json_command(
                 _mapping_manager_command(
@@ -989,17 +1017,32 @@ def cmd_activate(args: argparse.Namespace) -> int:
                     args.bundle,
                     prod_instance_id=prod_instance_id,
                     activation_floor_sha256=context["target_floor_sha256"],
+                    account_ids=account_ids,
+                    expected_plan_sha256=expected_plan_sha256,
                 ),
                 {0},
             )
             _, post_gate = _run_json_command(
                 _mapping_manager_command(
                     "release-gate", args.bundle, prod_instance_id=prod_instance_id),
-                {0},
+                {0, 1} if account_ids is not None else {0},
             )
-            _require_unshadowed_activation_bundle(post_gate)
+            _require_unshadowed_activation_bundle(post_gate, override_only=override_only)
             result["mapping_apply"] = applied
             result["post_activation_gate"] = post_gate
+            if account_ids is not None:
+                _, verified = _run_json_command(
+                    _mapping_manager_command(
+                        "apply-accounts-dry-run", args.bundle,
+                        prod_instance_id=prod_instance_id,
+                        activation_floor_sha256=context["target_floor_sha256"],
+                        account_ids=account_ids,
+                    ),
+                    {0},
+                )
+                if verified.get("account_change_count") != 0 or verified.get("group_change_count") != 0:
+                    raise ActivationError("targeted activation read-back still reports mapping changes")
+                result["targeted_verification"] = verified
     except ActivationError as e:
         if args.format == "json":
             print(json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False, indent=2))
@@ -1239,6 +1282,8 @@ def build_parser() -> argparse.ArgumentParser:
                           help="fresh independent model_activation_pricing JSON")
     activate.add_argument("--prod-instance-id",
                           help="pin the full prod activation chain to this EC2 instance id")
+    activate.add_argument("--account-ids", help="limit activation to these comma-separated prod account IDs; groups are untouched")
+    activate.add_argument("--expected-plan-sha256", help="required for confirmed targeted activation; digest from its dry-run")
     activate.add_argument("--confirm", help=f"write confirmation phrase: {ACTIVATION_CONFIRM}")
     activate.add_argument("--format", choices=("text", "json"), default="text")
     activate.set_defaults(func=cmd_activate)
