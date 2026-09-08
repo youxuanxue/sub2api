@@ -60,14 +60,17 @@ func TestMessagesReportedUsageAndStreaming(t *testing.T) {
 		require.NoError(t, resp.Body.Close())
 	}
 }
-func TestMessagesRejectsUnverifiedSystemBeforeUpstream(t *testing.T) {
+func TestMessagesAcceptsAndPropagatesSystemPrompt(t *testing.T) {
 	for _, system := range []string{`"Follow the caller's instructions"`, `[{"type":"text","text":"Follow the caller's instructions"}]`} {
-		resp, err := Messages(t.Context(), "test-token", []byte(`{"model":"composer-2.5","system":`+system+`,"messages":[{"role":"user","content":"hello"}]}`), nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
-			t.Fatal("unverified system instructions must not reach inference")
-			return nil, nil
-		})
+		resp, err := Messages(t.Context(), "test-token", []byte(`{"model":"composer-2.5","system":`+system+`,"messages":[{"role":"user","content":"hello"}]}`), nil, "composer-2.5", messagesTestTransport(t,
+			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "world"}}},
+			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: 15, OutputTokens: 2}}},
+		))
 		require.NoError(t, err)
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Contains(t, string(raw), `"text":"world"`)
 		require.NoError(t, resp.Body.Close())
 	}
 }

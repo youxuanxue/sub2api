@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -19,8 +20,9 @@ type messagesInput struct {
 	Stream   bool            `json:"stream"`
 	System   json.RawMessage `json:"system"`
 	Messages []struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
+		Role       string          `json:"role"`
+		Content    json.RawMessage `json:"content"`
+		ToolCallID string          `json:"tool_call_id"`
 	} `json:"messages"`
 	Tools []struct {
 		Name        string         `json:"name"`
@@ -77,9 +79,6 @@ func parseMessages(body []byte, parameters []Parameter, wireModel string) (Agent
 	if err != nil {
 		return input, false, err
 	}
-	if strings.TrimSpace(input.System) != "" {
-		return input, false, errors.New("cursor system instruction compatibility is not verified; requests with system instructions are unavailable")
-	}
 	for _, tool := range raw.Tools {
 		input.Tools = append(input.Tools, AgentTool{Name: tool.Name, Description: tool.Description, Schema: tool.Schema})
 	}
@@ -91,6 +90,36 @@ func parseMessages(body []byte, parameters []Parameter, wireModel string) (Agent
 		return input, false, errors.New("cursor supports tool_choice auto or none")
 	}
 	for _, message := range raw.Messages {
+		if message.Role == "system" {
+			var text string
+			if json.Unmarshal(message.Content, &text) == nil {
+				if input.System != "" {
+					input.System += "\n\n"
+				}
+				input.System += text
+			} else {
+				var blocks []messageBlock
+				if json.Unmarshal(message.Content, &blocks) == nil {
+					for _, b := range blocks {
+						if b.Type == "text" && b.Text != "" {
+							if input.System != "" {
+								input.System += "\n\n"
+							}
+							input.System += b.Text
+						}
+					}
+				}
+			}
+			continue
+		}
+		if message.Role == "tool" {
+			var text string
+			if json.Unmarshal(message.Content, &text) != nil {
+				text = string(message.Content)
+			}
+			input.Messages = append(input.Messages, AgentMessage{Role: "tool", ToolCallID: message.ToolCallID, Text: text})
+			continue
+		}
 		if message.Role != "user" && message.Role != "assistant" {
 			return input, false, errors.New("invalid Cursor message role")
 		}
@@ -277,6 +306,7 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		}
 		output.mu.Unlock()
 		if runErr != nil {
+			slog.Error("cursor_messages_run_agent_failed", "err", runErr)
 			if !started {
 				status := http.StatusBadGateway
 				var upstream *Error

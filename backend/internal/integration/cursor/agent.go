@@ -148,6 +148,18 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 			return nil, nil, err
 		}
 	}
+	if strings.TrimSpace(input.System) != "" {
+		firstUserPrepared := false
+		var preparedMessages []AgentMessage
+		for _, m := range input.Messages {
+			if m.Role == "user" && !firstUserPrepared {
+				firstUserPrepared = true
+				m.Text = strings.TrimSpace(input.System) + "\n\n" + m.Text
+			}
+			preparedMessages = append(preparedMessages, m)
+		}
+		input.Messages = preparedMessages
+	}
 	active := len(input.Messages) - 1
 	if input.Messages[active].Role != "user" {
 		active = -1
