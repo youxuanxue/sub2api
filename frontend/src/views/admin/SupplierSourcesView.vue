@@ -238,7 +238,7 @@
             <textarea v-model="form.notes" data-test="notes" class="mt-1 w-full rounded-lg border px-3 py-2" />
           </label>
 
-          <div class="space-y-3">
+          <div ref="modelsEditorEl" data-test="models-editor" class="space-y-3">
             <p class="text-xs text-gray-500" data-test="purchase-ratio-priority-hint">
               {{ t('admin.supplierSources.purchaseRatioPriorityHint') }}
             </p>
@@ -251,13 +251,15 @@
                 v-model.trim="model.client_model_id"
                 data-test="client-model-id"
                 :placeholder="t('admin.supplierSources.clientModel')"
-                class="rounded-lg border px-3 py-2"
+                :disabled="discovering"
+                class="rounded-lg border px-3 py-2 disabled:opacity-60"
               />
               <input
                 v-model.trim="model.upstream_model_id"
                 data-test="upstream-model-id"
                 :placeholder="t('admin.supplierSources.upstreamModel')"
-                class="rounded-lg border px-3 py-2"
+                :disabled="discovering"
+                class="rounded-lg border px-3 py-2 disabled:opacity-60"
               />
               <input
                 v-model.number="model.purchase_ratio"
@@ -268,7 +270,8 @@
                 step="0.000001"
                 :placeholder="t('admin.supplierSources.purchaseRatio')"
                 :title="t('admin.supplierSources.purchaseRatioPriorityHint')"
-                class="rounded-lg border px-3 py-2"
+                :disabled="discovering"
+                class="rounded-lg border px-3 py-2 disabled:opacity-60"
               />
               <div class="text-xs text-gray-500">
                 <div :data-test="`model-band-${index}`">
@@ -280,14 +283,19 @@
               </div>
               <button
                 type="button"
-                class="text-sm text-red-600"
-                :disabled="form.models.length === 1"
+                class="text-sm text-red-600 disabled:opacity-50"
+                :disabled="form.models.length === 1 || discovering"
                 @click="removeModel(index)"
               >
                 {{ t('admin.supplierSources.removeModel') }}
               </button>
             </div>
-            <button type="button" class="text-sm text-primary-600" @click="addModel">
+            <button
+              type="button"
+              class="text-sm text-primary-600 disabled:opacity-50"
+              :disabled="discovering"
+              @click="addModel"
+            >
               {{ t('admin.supplierSources.addModel') }}
             </button>
           </div>
@@ -417,17 +425,15 @@
               </li>
             </ul>
           </div>
-          <div v-if="discoverResult.suggested_appends.length">
-            <h3 class="text-sm font-medium">{{ t('admin.supplierSources.suggestedAppends') }}</h3>
-            <ul class="mt-2 space-y-1 text-sm">
-              <li
-                v-for="model in discoverResult.suggested_appends"
-                :key="`suggest-${model.upstream_model_id}`"
-              >
-                {{ model.upstream_model_id }} · ratio {{ model.purchase_ratio ?? '—' }}
-              </li>
-            </ul>
-          </div>
+          <p
+            v-if="discoverResult.suggested_appends.length"
+            data-test="discover-suggested-drafted"
+            class="text-sm text-amber-700"
+          >
+            {{ t('admin.supplierSources.suggestedAppendsDrafted', {
+              count: discoverResult.suggested_appends.length,
+            }) }}
+          </p>
           <div v-if="discoverResult.configured_issues.length">
             <h3 class="text-sm font-medium">{{ t('admin.supplierSources.configuredIssues') }}</h3>
             <ul class="mt-2 space-y-1 text-sm">
@@ -593,11 +599,13 @@ const selected = ref<SupplierSource | null>(null)
 const copiedFrom = ref<SupplierSource | null>(null)
 const listQuery = ref('')
 const editorEl = ref<HTMLElement | null>(null)
+const modelsEditorEl = ref<HTMLElement | null>(null)
 const priorityPreview = ref<SupplierPriorityPreview | null>(null)
 const syncResult = ref<SupplierSourceSyncResult | null>(null)
 const discoverResult = ref<SupplierSourceProbeResult | null>(null)
 const validateResult = ref<SupplierSourceValidateResult | null>(null)
 const discoverNeedsSave = ref(false)
+const discoverDraftScrolled = ref(false)
 const syncError = ref('')
 const saveError = ref('')
 
@@ -720,6 +728,7 @@ function resetForm(): void {
   discoverResult.value = null
   validateResult.value = null
   discoverNeedsSave.value = false
+  discoverDraftScrolled.value = false
   syncError.value = ''
   saveError.value = ''
   syncDiscoverChannelScopedForSource(null)
@@ -743,6 +752,7 @@ function selectSource(source: SupplierSource): void {
   discoverResult.value = null
   validateResult.value = null
   discoverNeedsSave.value = false
+  discoverDraftScrolled.value = false
   syncError.value = ''
   saveError.value = ''
   syncDiscoverChannelScopedForSource(source)
@@ -784,6 +794,7 @@ function copySelected(): void {
   discoverResult.value = null
   validateResult.value = null
   discoverNeedsSave.value = false
+  discoverDraftScrolled.value = false
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
@@ -943,6 +954,30 @@ function applyDiscoverToForm(result: SupplierSourceProbeResult): void {
   form.models = drafted.length > 0 ? drafted : [emptyModel()]
 }
 
+function shouldDraftDiscover(result: SupplierSourceProbeResult): boolean {
+  return result.needs_confirmation
+    || result.normalized_changes.length > 0
+    || result.suggested_appends.length > 0
+}
+
+function draftDiscoverIntoForm(result: SupplierSourceProbeResult): void {
+  if (!shouldDraftDiscover(result)) return
+  const beforeCount = form.models.filter(model => model.client_model_id.trim()).length
+  applyDiscoverToForm(result)
+  discoverNeedsSave.value = true
+  const afterCount = form.models.filter(model => model.client_model_id.trim()).length
+  // Scroll once when drafts first appear — not on every mid-probe append (avoids viewport thrash).
+  if (afterCount > beforeCount && !discoverDraftScrolled.value) {
+    discoverDraftScrolled.value = true
+    void nextTick(() => {
+      const el = modelsEditorEl.value
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      }
+    })
+  }
+}
+
 async function discoverSelected(): Promise<void> {
   if (!selected.value || blocksDiscoverValidateProject.value) return
   discovering.value = true
@@ -950,6 +985,7 @@ async function discoverSelected(): Promise<void> {
   discoverResult.value = null
   validateResult.value = null
   discoverNeedsSave.value = false
+  discoverDraftScrolled.value = false
   syncError.value = ''
   try {
     const started = await adminAPI.supplierSources.discover(
@@ -958,24 +994,12 @@ async function discoverSelected(): Promise<void> {
     )
     const discovered = await waitDiscoverJob(selected.value.id, started)
     discoverResult.value = discovered
-    const shouldDraft = discovered.needs_confirmation
-      || discovered.normalized_changes.length > 0
-      || discovered.suggested_appends.length > 0
-    if (shouldDraft) {
-      applyDiscoverToForm(discovered)
-      discoverNeedsSave.value = true
-    }
+    draftDiscoverIntoForm(discovered)
   } catch (error) {
     const discovered = supplierDiscoverResultFromError(error)
     if (discovered) {
       discoverResult.value = discovered
-      const shouldDraft = discovered.needs_confirmation
-        || discovered.normalized_changes.length > 0
-        || discovered.suggested_appends.length > 0
-      if (shouldDraft) {
-        applyDiscoverToForm(discovered)
-        discoverNeedsSave.value = true
-      }
+      draftDiscoverIntoForm(discovered)
     }
     syncError.value = error instanceof Error ? error.message : String(error)
   } finally {
@@ -1049,6 +1073,7 @@ async function waitDiscoverJob(
 ): Promise<SupplierSourceProbeResult> {
   let current = normalizeSupplierProbeResult(started)
   discoverResult.value = current
+  draftDiscoverIntoForm(current)
   const jobID = current.job_id
   if (!jobID || current.probe_status !== 'running') {
     return current
@@ -1060,6 +1085,9 @@ async function waitDiscoverJob(
       await adminAPI.supplierSources.getDiscoverJob(sourceID, jobID),
     )
     discoverResult.value = current
+    // Live-draft probe-passed suggestions into the mapping form while the job runs,
+    // so operators are not stuck reading a growing text-only list at the bottom.
+    draftDiscoverIntoForm(current)
     if (current.probe_status === 'completed') {
       return current
     }
