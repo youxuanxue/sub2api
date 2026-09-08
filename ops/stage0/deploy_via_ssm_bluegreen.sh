@@ -26,6 +26,8 @@
 # container/image/configuration fingerprint without changing Caddy. Promote the
 # same tested container only after human review, with STAGE0_BLUEGREEN_STAGE=promote
 # and STAGE0_BLUEGREEN_APPROVED_RECEIPT=<receipt_sha256 from prepare>.
+# Replacing a failed private candidate uses prepare plus
+# STAGE0_BLUEGREEN_REPLACE_RECEIPT=<current receipt_sha256>; it never promotes.
 
 set -euo pipefail
 
@@ -37,6 +39,7 @@ EXECUTION_TIMEOUT_SECONDS="${STAGE0_SSM_EXECUTION_TIMEOUT_SECONDS:-$TIMEOUT_SECO
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 STAGE="${STAGE0_BLUEGREEN_STAGE:-deploy}"
 APPROVED_RECEIPT="${STAGE0_BLUEGREEN_APPROVED_RECEIPT:-}"
+REPLACE_RECEIPT="${STAGE0_BLUEGREEN_REPLACE_RECEIPT:-}"
 
 case "${STAGE}" in
   deploy|prepare|promote) ;;
@@ -44,6 +47,10 @@ case "${STAGE}" in
 esac
 if [[ "${STAGE}" = promote && ! "${APPROVED_RECEIPT}" =~ ^[a-f0-9]{64}$ ]]; then
   echo "promote requires STAGE0_BLUEGREEN_APPROVED_RECEIPT from the reviewed prepare" >&2
+  exit 1
+fi
+if [[ -n "${REPLACE_RECEIPT}" ]] && { [[ "${STAGE}" != prepare ]] || [[ ! "${REPLACE_RECEIPT}" =~ ^[a-f0-9]{64}$ ]]; }; then
+  echo "STAGE0_BLUEGREEN_REPLACE_RECEIPT requires prepare and a valid receipt SHA256" >&2
   exit 1
 fi
 
@@ -116,6 +123,7 @@ CADDY_DIR="${ROOT}/caddy"
 LIVE_CADDY="${CADDY_DIR}/Caddyfile"
 STAGE="${STAGE:-deploy}"
 APPROVED_RECEIPT="${APPROVED_RECEIPT:-}"
+REPLACE_RECEIPT="${REPLACE_RECEIPT:-}"
 PREPARED_FILE="${ROOT}/bluegreen-prepared.json"
 
 # Serialize host mutations across local invocations and workflow dispatches.
@@ -1020,14 +1028,28 @@ write_prepared_receipt() {
 }
 
 validate_prepared_receipt() {
-  local active="$1" target="$2" saved current receipt_sha
+  local active="$1" target="$2" expected="${3:-${APPROVED_RECEIPT}}" saved current receipt_sha
   [[ -f "${PREPARED_FILE}" ]] || die "no prepared candidate to promote"
   receipt_sha="$(sudo sha256sum "${PREPARED_FILE}" | awk '{print $1}')"
-  [[ "${receipt_sha}" = "${APPROVED_RECEIPT}" ]] || die "prepared receipt does not match approval"
+  [[ "${receipt_sha}" = "${expected}" ]] || die "prepared receipt does not match expected fingerprint"
   saved="$(sudo cat "${PREPARED_FILE}" | jq -Sc 'del(.prepared_at)')"
   current="$(staged_snapshot "${active}" "${target}" | jq -Sc .)"
   [[ "${current}" = "${saved}" ]] || die "prepared container, image, environment or route changed; repeat validation"
   [[ "$(container_image "tokenkey-${target}")" = *":${TAG}" ]] || die "prepared image tag mismatch"
+}
+
+validate_candidate_replacement() {
+  local active target previous_tag
+  [[ "${REPLACE_RECEIPT:-}" =~ ^[a-f0-9]{64}$ ]] || die "candidate already prepared; replacement requires its receipt fingerprint"
+  active="$(read_active_color)"
+  [[ "${active}" =~ ^(blue|green)$ ]] || die "replacement requires an existing active color"
+  target="$(other_color "${active}")"
+  assert_active_route_consistent "${active}"
+  previous_tag="$(sudo jq -er '.tag' "${PREPARED_FILE}")"
+  ( TAG="${previous_tag}"; validate_prepared_receipt "${active}" "${target}" "${REPLACE_RECEIPT}" )
+  # Keep the pending receipt until the new candidate atomically replaces it.
+  # A failed preparation must not enable the automatic deploy path.
+  sudo cp -p "${PREPARED_FILE}" "${ROOT}/bluegreen-replaced-${REPLACE_RECEIPT}.json"
 }
 
 promote_prepared_color() {
@@ -1055,8 +1077,12 @@ run_bluegreen_stage() {
   case "${STAGE}" in
     promote) promote_prepared_color ;;
     prepare)
-      [[ ! -e "${PREPARED_FILE}" ]] || die "candidate already prepared; inspect the existing receipt"
       [[ "$(read_active_color)" =~ ^(blue|green)$ ]] || die "prepare refuses legacy migration"
+      if [[ -e "${PREPARED_FILE}" ]]; then
+        validate_candidate_replacement
+      else
+        [[ -z "${REPLACE_RECEIPT:-}" ]] || die "replacement receipt specified but no prepared candidate exists"
+      fi
       ensure_profile_environment
       deploy_target_color
       ;;
@@ -1137,6 +1163,7 @@ jq -n \
   --arg tag "${TAG}" \
   --arg stage "${STAGE}" \
   --arg approved_receipt "${APPROVED_RECEIPT}" \
+  --arg replace_receipt "${REPLACE_RECEIPT}" \
   --arg deploy_profile "${DEPLOY_PROFILE}" \
   --arg execution_timeout "${EXECUTION_TIMEOUT_SECONDS}" \
   --arg qa_enabled "${QA_BUNDLE_ENABLED-}" \
@@ -1187,6 +1214,7 @@ jq -n \
       "TAG=" + ($tag|@sh)
       + " STAGE=" + ($stage|@sh)
       + " APPROVED_RECEIPT=" + ($approved_receipt|@sh)
+      + " REPLACE_RECEIPT=" + ($replace_receipt|@sh)
       + " DEPLOY_PROFILE=" + ($deploy_profile|@sh)
       + " QA_BUNDLE_ENABLED=" + ($qa_enabled|@sh)
       + " QA_BUNDLE_ENABLED_SET=" + ($qa_enabled_set|tostring)

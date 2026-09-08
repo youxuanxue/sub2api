@@ -446,6 +446,8 @@ class BlueGreenRenderTest(unittest.TestCase):
         for env, instance in (
             ({"STAGE0_BLUEGREEN_STAGE": "invalid"}, _PROD_IID),
             ({"STAGE0_BLUEGREEN_STAGE": "promote"}, _PROD_IID),
+            ({"STAGE0_BLUEGREEN_REPLACE_RECEIPT": "f" * 64}, _PROD_IID),
+            ({"STAGE0_BLUEGREEN_STAGE": "prepare", "STAGE0_BLUEGREEN_REPLACE_RECEIPT": "invalid"}, _PROD_IID),
             ({"STAGE0_BLUEGREEN_STAGE": "prepare"}, _EDGE_IID),
         ):
             with self.subTest(env=env, instance=instance):
@@ -472,6 +474,42 @@ run_bluegreen_stage
                 result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("MUTATION", result.stdout)
+
+    def test_replacement_validates_old_tag_and_preserves_pending_guard(self) -> None:
+        proc, params, remote = _render(env_extra={
+            "STAGE0_BLUEGREEN_STAGE": "prepare",
+            "STAGE0_BLUEGREEN_REPLACE_RECEIPT": "f" * 64,
+        })
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("REPLACE_RECEIPT='" + "f" * 64 + "'", params["commands"][-1])
+        function = _extract_shell_function(remote, "validate_candidate_replacement")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps({"tag": "1.8.98"}))
+            for invalid in (False, True):
+                script = f"""set -euo pipefail
+{function}
+ROOT={shlex.quote(tmp)}
+PREPARED_FILE={shlex.quote(str(receipt))}
+REPLACE_RECEIPT={'f' * 64}
+TAG=1.8.99
+read_active_color() {{ echo blue; }}
+other_color() {{ echo green; }}
+assert_active_route_consistent() {{ :; }}
+validate_prepared_receipt() {{ echo "validate:$TAG:$*"; return {1 if invalid else 0}; }}
+sudo() {{ command "$@"; }}
+die() {{ echo "$*"; exit 1; }}
+validate_candidate_replacement
+echo "next-tag:$TAG"
+"""
+                result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, not invalid, result.stderr)
+                self.assertIn("validate:1.8.98:blue green " + "f" * 64, result.stdout)
+                self.assertTrue(receipt.exists())
+                if not invalid:
+                    self.assertIn("next-tag:1.8.99", result.stdout)
+                    self.assertEqual((root / ("bluegreen-replaced-" + "f" * 64 + ".json")).read_bytes(), receipt.read_bytes())
 
     def test_promote_reuses_validated_container_without_starting_one(self) -> None:
         _, _, remote = _render()
