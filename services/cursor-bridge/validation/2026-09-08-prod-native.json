@@ -1,0 +1,558 @@
+{
+  "recordedAt": "2026-09-08T00:38:49.700Z",
+  "scope": "Local TokenKey UI and gateway with actual Cursor Bridge running in an isolated container on prod via SSM. Not a production gateway rollout.",
+  "awsRegion": "us-east-1",
+  "sdkVersion": "1.0.31",
+  "nodeVersion": "24.20.0",
+  "architecture": "arm64",
+  "proxyEnvironmentVariables": [],
+  "productionVersionUnchanged": "1.8.204",
+  "newapiCommit": "7bbe85bcb09546e0b89572bf97198fc94889be3d",
+  "sidecarCommit": "9ab86e3bc0ca368df585edcc096ec172263d222d",
+  "catalogSHA256": "3246f586a02596b5399de608531aaf57ec203932128779a2a526f00fc663950b",
+  "testedHarnessSHA256": "9eb17e181074409ef45e97543d6aff736c3d16799384084a8373b32c56ac9a9a",
+  "directSDK": [
+    {
+      "model": "composer-2.5",
+      "atUTC": "2026-09-07T23:32:07.664Z",
+      "atAsiaShanghai": "2026-09-08 07:32:07",
+      "status": "passed",
+      "elapsedMs": 4282,
+      "egressCountry": "US",
+      "egressLocation": "IAD",
+      "proxyEnvPresent": [],
+      "establishedTCPPeersHex": [
+        "010011AC:88FC",
+        "3E78C0B8:01BB",
+        "010011AC:DA46",
+        "607C1068:01BB",
+        "2564C720:01BB",
+        "BF2CE122:01BB",
+        "61770434:01BB",
+        "6327E236:01BB",
+        "BAF8DA2C:01BB",
+        "24DBE622:01BB"
+      ]
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "atUTC": "2026-09-07T23:32:11.958Z",
+      "atAsiaShanghai": "2026-09-08 07:32:11",
+      "status": "passed",
+      "elapsedMs": 3975,
+      "egressCountry": "US",
+      "egressLocation": "IAD",
+      "proxyEnvPresent": [],
+      "establishedTCPPeersHex": [
+        "010011AC:DA46",
+        "841DDD2C:01BB",
+        "010011AC:DA54",
+        "607B1068:01BB",
+        "B9D7EB03:01BB",
+        "D084C0B8:01BB",
+        "2564C720:01BB",
+        "3E78C0B8:01BB",
+        "61770434:01BB",
+        "6327E236:01BB"
+      ]
+    },
+    {
+      "model": "gpt-5.4",
+      "atUTC": "2026-09-07T23:32:15.928Z",
+      "atAsiaShanghai": "2026-09-08 07:32:15",
+      "status": "passed",
+      "elapsedMs": 4513,
+      "egressCountry": "US",
+      "egressLocation": "IAD",
+      "proxyEnvPresent": [],
+      "establishedTCPPeersHex": [
+        "607C1068:01BB",
+        "010011AC:DA54",
+        "BAF8DA2C:01BB",
+        "010011AC:DA62",
+        "B31EE922:01BB",
+        "24DBE622:01BB",
+        "D084C0B8:01BB",
+        "841DDD2C:01BB",
+        "3E78C0B8:01BB",
+        "2564C720:01BB"
+      ]
+    },
+    {
+      "model": "gemini-3.1-pro",
+      "atUTC": "2026-09-07T23:32:20.456Z",
+      "atAsiaShanghai": "2026-09-08 07:32:20",
+      "status": "passed",
+      "elapsedMs": 6015,
+      "egressCountry": "US",
+      "egressLocation": "IAD",
+      "proxyEnvPresent": [],
+      "establishedTCPPeersHex": [
+        "61770434:01BB",
+        "607B1068:01BB",
+        "010011AC:8FF4",
+        "010011AC:DA62",
+        "BF2CE122:01BB",
+        "6327E236:01BB",
+        "BAF8DA2C:01BB",
+        "24DBE622:01BB",
+        "841DDD2C:01BB",
+        "D084C0B8:01BB",
+        "3E78C0B8:01BB"
+      ]
+    }
+  ],
+  "contemporaneousLocalControl": {
+    "model": "claude-sonnet-4-6",
+    "status": "blocked_region",
+    "request_id": "47723273-3ad9-4094-a962-958a436f548d",
+    "upstream_status_code": 502,
+    "upstream_error_message": "Model not available This model provider is not supported in your region. Visit https://cursor.com/docs/account/regions for more information."
+  },
+  "chat": {
+    "atUTC": "2026-09-08T00:31:56.156Z",
+    "denominator": 36,
+    "http200OnFirstCompleteRun": 36,
+    "firstPassExactMarker": 34,
+    "passedAfterTargetedUIRetry": 36,
+    "blockedRegion": 0,
+    "results": [
+      {
+        "model": "kimi-k2.7-code",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 3519,
+        "requestId": "b6304d90-9e9e-4a9f-8d3a-d02174efd4f9",
+        "attempts": 1
+      },
+      {
+        "model": "kimi-k3",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1969,
+        "requestId": "a13d1676-22ae-4f61-8a05-1761ac274bc0",
+        "attempts": 1
+      },
+      {
+        "model": "glm-5.2",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1115,
+        "requestId": "da171973-f41a-4368-8e94-1c7a16fec1b0",
+        "attempts": 1
+      },
+      {
+        "model": "grok-4.6",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 3000,
+        "requestId": "295acb48-7ad6-4fc7-a817-f12246ced58f",
+        "attempts": 1
+      },
+      {
+        "model": "composer-2.5",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1778,
+        "requestId": "02368898-ad9a-4a9d-9f20-7df9ee20e188",
+        "attempts": 1
+      },
+      {
+        "model": "claude-opus-5",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1936,
+        "requestId": "6abcc995-b16f-47f0-a8e1-b1b1794d88c5",
+        "attempts": 1
+      },
+      {
+        "model": "claude-opus-4-8",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1395,
+        "requestId": "97910757-0aeb-4dfe-a2f0-f007c655eed4",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.6-sol",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1984,
+        "requestId": "edf078e1-ae0b-4e4d-9a65-06c171862186",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.5",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 2256,
+        "requestId": "156f3a39-96d0-4c49-981d-b4f28de25792",
+        "attempts": 1
+      },
+      {
+        "model": "claude-fable-5-1",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 4475,
+        "requestId": "10091b0c-80ae-4621-888d-816580da594e",
+        "attempts": 1
+      },
+      {
+        "model": "claude-fable-5",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 5837,
+        "requestId": "10679f7c-b931-46dc-8660-719945edbccc",
+        "attempts": 1
+      },
+      {
+        "model": "gemini-3.8-flash",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 8779,
+        "requestId": "cba2a381-ff14-4df7-b73d-427a24174afb",
+        "attempts": 1
+      },
+      {
+        "model": "gemini-3.7-flash",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 4859,
+        "requestId": "ace3cffa-ac55-4123-a857-20d0e4ce71f1",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.6-terra",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1914,
+        "requestId": "965aceee-f7df-4648-8d30-6301c822eb3a",
+        "attempts": 1
+      },
+      {
+        "model": "claude-sonnet-5",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 2572,
+        "requestId": "55839b6f-7372-4ff1-9c8a-7240d7f69402",
+        "attempts": 1
+      },
+      {
+        "model": "claude-sonnet-4-6",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1739,
+        "requestId": "fe90f691-5b45-4215-8e29-8e7ad142d078",
+        "attempts": 1
+      },
+      {
+        "model": "composer-2",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 2765,
+        "requestId": "1cd88996-ac2c-424f-8d15-ac3762241b56",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.3-codex",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 3044,
+        "requestId": "a8990ea8-2dd9-4ce6-8c0f-80355806765f",
+        "attempts": 1
+      },
+      {
+        "model": "claude-opus-4-7",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 3220,
+        "requestId": "8a13fbfb-5781-4c23-a0da-d6a163efd5f2",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.4",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1997,
+        "requestId": "460fcb38-187a-4eb1-876f-385d7491d8a1",
+        "attempts": 1
+      },
+      {
+        "model": "claude-opus-4-6",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 2213,
+        "requestId": "9c4085a2-4fe2-48d9-a4a9-fa21317d70f6",
+        "attempts": 1
+      },
+      {
+        "model": "claude-opus-4-5",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 3957,
+        "requestId": "92bab23f-7aad-463c-a92b-12ea6903f123",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.2",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1907,
+        "requestId": "4e3d15f1-bb9b-43b1-9b1f-e3992b6c1f2d",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.6-luna",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1962,
+        "requestId": "2c33e14b-9df5-4760-b539-2c7abc6c69b9",
+        "attempts": 1
+      },
+      {
+        "model": "gemini-3.6-flash",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 4677,
+        "requestId": "2355c719-3c58-4419-85a3-f9a0e9048e34",
+        "attempts": 1
+      },
+      {
+        "model": "gemini-3.1-pro",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 5652,
+        "requestId": "f0f5f9b3-85c2-44f4-9f33-fd52b28fff05",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.4-mini",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1992,
+        "requestId": "d83081b4-a218-43e8-b563-bc59e7f27a6f",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.4-nano",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 2145,
+        "requestId": "c9061f65-3366-4070-b904-1caf7b8b1191",
+        "attempts": 1
+      },
+      {
+        "model": "claude-haiku-4-5",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 3394,
+        "requestId": "9a7b8a19-0ce7-467e-aa8d-41a4197dcb5b",
+        "attempts": 2
+      },
+      {
+        "model": "claude-sonnet-4-5",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 6924,
+        "requestId": "ee540e85-15d1-484f-baa3-3d59141e609a",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5.1",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 3672,
+        "requestId": "2b3e3240-b247-4a34-9dc8-b9ce4508f8ca",
+        "attempts": 1
+      },
+      {
+        "model": "gemini-3-flash",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 5935,
+        "requestId": "7e06205e-506d-49e6-b4c4-353be7f44a69",
+        "attempts": 1
+      },
+      {
+        "model": "gemini-3.5-flash",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 6826,
+        "requestId": "2e37d3ea-9ed3-461c-9cb7-8e6052d153d0",
+        "attempts": 1
+      },
+      {
+        "model": "claude-sonnet-4",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 2311,
+        "requestId": "5c44dc88-794c-4214-b8bb-9e24c432d43a",
+        "attempts": 1
+      },
+      {
+        "model": "gpt-5-mini",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 12681,
+        "requestId": "f6c44360-730f-4530-9a4e-3186e5e1ccdc",
+        "attempts": 1
+      },
+      {
+        "model": "gemini-2.5-flash",
+        "status": "passed",
+        "httpStatus": 200,
+        "elapsedMs": 1276,
+        "requestId": "169242a6-12f4-42d2-a205-11a052e0104d",
+        "attempts": 2
+      }
+    ],
+    "retries": "Two models translated OK into Chinese. Both passed after explicitly requesting untranslated ASCII OK; all original attempts returned HTTP 200."
+  },
+  "tools": [
+    {
+      "model": "composer-2.5",
+      "protocols": [
+        {
+          "protocol": "messages",
+          "status": "passed",
+          "turns": 2
+        },
+        {
+          "protocol": "chat",
+          "status": "passed",
+          "turns": 2
+        },
+        {
+          "protocol": "responses",
+          "status": "passed",
+          "turns": 2
+        }
+      ],
+      "billing": {
+        "status": "passed",
+        "acceptedTurns": 6,
+        "replayRejectedWithoutCharge": true,
+        "actualCost": 0.030730999999999994
+      }
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "protocols": [
+        {
+          "protocol": "messages",
+          "status": "passed",
+          "turns": 2
+        },
+        {
+          "protocol": "chat",
+          "status": "passed",
+          "turns": 2
+        },
+        {
+          "protocol": "responses",
+          "status": "passed",
+          "turns": 2
+        }
+      ],
+      "billing": {
+        "status": "passed",
+        "acceptedTurns": 6,
+        "replayRejectedWithoutCharge": true,
+        "actualCost": 0.17978804999999998
+      }
+    },
+    {
+      "model": "gpt-5.4",
+      "protocols": [
+        {
+          "protocol": "messages",
+          "status": "passed",
+          "turns": 2
+        },
+        {
+          "protocol": "chat",
+          "status": "passed",
+          "turns": 2
+        },
+        {
+          "protocol": "responses",
+          "status": "passed",
+          "turns": 2
+        }
+      ],
+      "billing": {
+        "status": "passed",
+        "acceptedTurns": 6,
+        "replayRejectedWithoutCharge": true,
+        "actualCost": 0.143704
+      }
+    },
+    {
+      "model": "gemini-3.1-pro",
+      "protocols": [
+        {
+          "protocol": "messages",
+          "status": "passed",
+          "turns": 2
+        },
+        {
+          "protocol": "chat",
+          "status": "passed",
+          "turns": 2
+        },
+        {
+          "protocol": "responses",
+          "status": "passed",
+          "turns": 2
+        }
+      ],
+      "billing": {
+        "status": "passed",
+        "acceptedTurns": 6,
+        "replayRejectedWithoutCharge": true,
+        "actualCost": 0.059254
+      }
+    }
+  ],
+  "parallelTools": {
+    "status": "passed",
+    "model": "composer-2.5",
+    "tools": [
+      "read_left",
+      "read_right"
+    ]
+  },
+  "claudeCodeRead": {
+    "status": "passed",
+    "model": "composer-2.5",
+    "exitCode": 0,
+    "costUSD": 0.081693
+  },
+  "mobileChat": {
+    "status": "passed",
+    "viewport": "390x844",
+    "model": "composer-2.5"
+  },
+  "initialFailures": [
+    "An earlier mixed run hit the four-session limit after 28 UI passes because completed tool sessions were retained for replay. Embedded mode now releases completed sessions immediately; duplicate results still return 409. The four-session limit was not raised.",
+    "The first GPT Messages tool probe did not return the expected marker. A diagnostic repeat and subsequent complete three-protocol run passed. One abandoned run remained before container cleanup; unfinished runs retain their bounded timeout."
+  ],
+  "cleanup": {
+    "status": "passed",
+    "probeContainersRemoved": true,
+    "portsClosed": [
+      13930,
+      13931
+    ],
+    "temporaryRuntimeAndSDKStateRemoved": true,
+    "probeNodeImageRemoved": true,
+    "ssmSessionsTerminated": true,
+    "productionApplicationsHealthy": true
+  },
+  "limitations": [
+    "Evidence applies to this Cursor account, frozen 36-model catalog, and tested US execution environment at this time; it does not guarantee other accounts or future policy.",
+    "The earlier laptop application-proxy test did not prove native prod behavior. Native prod and contemporaneous local results differ; the precise laptop transport bypass remains unproven.",
+    "Billing is the TokenKey cursor-sdk-estimated policy, not reconciliation with the Cursor invoice.",
+    "No production gateway deployment, production account import, group change, or pricing change occurred."
+  ]
+}

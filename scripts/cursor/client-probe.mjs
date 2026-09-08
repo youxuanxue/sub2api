@@ -55,6 +55,7 @@ try {
         messages.push({ role: 'assistant', content: first.content }, { role: 'user', content: calls.map(call => ({ type: 'tool_result', tool_use_id: call.id, content: execute(call.name, call.input) })) });
         const stream = anthropic.messages.stream({ model, max_tokens: 256, tools, messages });
         const final = await stream.finalMessage();
+        writeFileSync(resolve(state, 'evidence/client-messages-final.json'), JSON.stringify(final, null, 2));
         text = final.content.filter(block => block.type === 'text').map(block => block.text).join('');
         turns.push(first.usage, final.usage);
         await assert.rejects(anthropic.messages.create({ model, max_tokens: 256, tools, messages }), error => error.status === 409);
@@ -67,6 +68,7 @@ try {
         assert.equal(message.tool_calls?.length, 1);
         messages.push(message, ...message.tool_calls.map(call => ({ role: 'tool', tool_call_id: call.id, content: execute(call.function.name, JSON.parse(call.function.arguments)) })));
         const final = await openai.chat.completions.create({ model, max_tokens: 256, tools, messages });
+        writeFileSync(resolve(state, 'evidence/client-chat-final.json'), JSON.stringify(final, null, 2));
         text = final.choices[0].message.content;
         turns.push(first.usage, final.usage);
       } else {
@@ -77,6 +79,7 @@ try {
         assert.equal(calls.length, 1);
         input.push(...first.output, ...calls.map(call => ({ type: 'function_call_output', call_id: call.call_id, output: execute(call.name, JSON.parse(call.arguments)) })));
         const final = await openai.responses.create({ model, max_output_tokens: 256, tools, input });
+        writeFileSync(resolve(state, 'evidence/client-responses-final.json'), JSON.stringify(final, null, 2));
         text = final.output_text;
         turns.push(first.usage, final.usage);
       }

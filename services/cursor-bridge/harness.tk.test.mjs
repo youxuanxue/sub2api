@@ -58,6 +58,32 @@ test('trusted catalog parameters reach the SDK without implicit fast mode', () =
   assert.throws(() => cursorSdkModelSelection('gpt-5.5', { cursor_model: selection }), { status: 400 });
 });
 
+test('completed tool runs release the only capacity slot while replays remain rejected', async () => {
+  const bridge = new CursorHarnessMessagesBridge({ rejectReplay: true, maxActiveSessions: 1, maxSessionsPerCredential: 1, parallelCollectMs: 0,
+    agentFactory: async options => ({ close() {}, async send() {
+      return { status: 'running', async *stream() {
+        await options.local.customTools.lookup.execute({});
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'OK' }] } };
+        this.status = 'finished';
+      }, async wait() { return { status: 'finished' }; }, async cancel() {} };
+    } })
+  });
+  const body = { model: 'composer-2.5', messages: [{ role: 'user', content: 'Use lookup' }], tools: [{ name: 'lookup', input_schema: { type: 'object' } }] };
+  try {
+    for (let turn = 0; turn < 3; turn++) {
+      const first = await bridge.handle(body, 'key');
+      await assert.rejects(bridge.handle(body, 'key'), { status: 429 });
+      const tool = first.content.find(block => block.type === 'tool_use');
+      const continuation = { ...body, messages: [{ role: 'user', content: [{ type: 'tool_result', tool_use_id: tool.id, content: 'OK' }] }] };
+      const final = await bridge.handle(continuation, 'key');
+      assert.equal(final.content[0].text, 'OK');
+      assert.equal(bridge.status().liveSessions, 0);
+      assert.equal(bridge.status().drainSessions, 0);
+      await assert.rejects(bridge.handle(continuation, 'key'), { status: 409 });
+    }
+  } finally { await bridge.shutdown(); }
+});
+
 test('each HTTP turn bills only new usage and duplicate tool results fail closed', async () => {
   const bridge = new CursorHarnessMessagesBridge({ incrementalUsage: true, rejectReplay: true, parallelCollectMs: 1,
     agentFactory: async options => ({ close() {}, async send() {

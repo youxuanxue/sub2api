@@ -1144,6 +1144,8 @@ export class CursorHarnessMessagesBridge {
   }
 
   async #closeSession(session, error, options = {}) {
+    // TokenKey rejects replay, so completed runs must release capacity immediately.
+    if (this.rejectReplay) options = { ...options, retainReplay: false };
     if (session.closed) {
       if (session.retainedForReplay && !options.retainReplay) this.#forgetSession(session);
       return;

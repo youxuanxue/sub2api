@@ -25,6 +25,8 @@ TokenKey patches:
 - Supply a TokenKey parked-turn estimate when the SDK reports no new usage;
   cumulative deltas deduct prior emissions and retain non-negative bucket floors.
 - Remove credential-bearing proxy URLs from diagnostic output.
+- Release completed tool sessions immediately when replay is rejected, so replay
+  retention cannot consume active capacity or delay draining.
 
 Upgrade the source and SDK independently; rerun both upstream and TokenKey tests
 and real-account inference/tool checks before changing the deployment pin.

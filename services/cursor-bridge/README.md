@@ -110,21 +110,41 @@ is explicitly a conservative TokenKey rate, not a separately published Cursor
 cache price. Account subscriptions and Cursor's included pools do not establish
 zero marginal cost or unlimited access to every model.
 
-## Local verification
+## Verification
 
 The sanitized [2026-09-07 report](validation/2026-09-07.json) records 36 real UI
 Chat attempts: 6 passed and 30 were blocked by Cursor regional policy. Composer
 2.5 passed three-protocol tool continuation, parallel tools, Claude Code Read,
-and gateway billing checks. This is not completed all-model production acceptance.
+and gateway billing checks. These are historical local results.
 
 The [prod egress comparison](validation/2026-09-07-prod-egress.json) used the same
 account via the existing AWS US-East production host. Its US egress was verified:
 Composer 2.5 succeeded, while Claude Sonnet 4.6, GPT 5.4 and Gemini 3.1 Pro still
-returned the same regional restriction. Moving requests to this prod exit did
-not resolve the tested restrictions. Cursor's public region documentation does
-not identify the exact account/organization/provider signals behind the decision.
-This probe changed no production application or account configuration and is not
-a full production deployment or a retest of all thirty blocked models.
+returned the same regional restriction. The SDK still ran on the laptop through
+an application proxy, so this did not establish native prod behavior.
+
+The [2026-09-08 native prod verification](validation/2026-09-08-prod-native.json)
+supersedes that deployment conclusion. SDK 1.0.31 ran directly in an isolated
+ARM64 container on prod, without proxy variables. The same key served Composer,
+Claude, GPT and Gemini. The actual Bridge then served the frozen 36-model catalog
+through local TokenKey UI/gateway over SSM: all 36 returned HTTP 200. Two translated
+the initial `OK` prompt; both passed an explicit no-translation UI retry.
+Composer 2.5, Claude Sonnet 4.6, GPT 5.4 and Gemini 3.1 Pro passed tool continuation
+on all three protocols, with 24 accepted turns matching the TokenKey ledger.
+Parallel tools and Claude Code Read also passed. This verifies TokenKey's billing
+policy, not the Cursor subscription invoice.
+
+This run also exposed completed tool sessions occupying active capacity during
+replay retention. Embedded mode now releases them immediately while continuing
+to reject duplicate results with 409. The same four-slot test limit was retained.
+The initial strict GPT tool probe needed a retry; the report preserves that result.
+
+Deploy the Bridge itself on the tested supported egress. A browser IP check or
+HTTP proxy flag alone does not establish every SDK request's network path. The
+successful result applies to this account and tested environment, not all accounts
+or future provider policy. No production gateway deployment, account import,
+group change or pricing change was performed; temporary probe resources were
+removed after verification.
 
 Prerequisites: the pinned sibling new-api checkout, Go, Docker, Node >=22.19,
 pnpm, and a Cursor account with SDK access. Run from the TokenKey root:

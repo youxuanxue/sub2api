@@ -94,7 +94,7 @@ try {
     writeFileSync(resolve(state, 'gateway-key.json'), JSON.stringify({ key: key.key, id: key.id, groupId: group.id }), { mode: 0o600 });
     const manifest = JSON.parse(readFileSync(resolve(root, 'backend/internal/service/tk_served_models.json'), 'utf8'));
     const all = Object.entries(manifest.entries).filter(([, entry]) => entry.scopes?.some(scope => scope.channel_type === 14 && scope.base_url === 'http://cursor-bridge:3927')).map(([id]) => id);
-    const models = action === 'chat-all' ? all : ['composer-2.5'];
+    const models = action === 'chat-all' ? all : [process.env.CURSOR_E2E_MODEL || 'composer-2.5'];
     const results = [];
     for (const model of models) {
       await page.goto(`${base}/studio?mode=chat`);
@@ -109,7 +109,7 @@ try {
       }
       await page.locator('#chat-model').selectOption(model);
       await page.locator('#chat-max').fill('64');
-      await page.locator('textarea').first().fill('Reply exactly OK.');
+      await page.locator('textarea').first().fill('Reply with exactly the two ASCII letters OK. Do not translate them into another language. Do not add punctuation.');
       const start = Date.now();
       const [response] = await Promise.all([
         page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/chat/completions'), { timeout: 100_000 }),
