@@ -161,6 +161,9 @@ func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context, body []byte) 
 	if c == nil {
 		return ""
 	}
+	if session, ok := CandidateSessionHash(c.Request.Context()); ok {
+		return session
+	}
 
 	sessionID := explicitOpenAIRequestSessionID(c, body)
 	if sessionID == "" && len(body) > 0 {
@@ -252,6 +255,12 @@ func (s *OpenAIGatewayService) SelectAccountForModel(ctx context.Context, groupI
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 // SelectAccountForModelWithExclusions 选择支持指定模型的账号，同时排除指定的账号。
 func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	if selected, handled, err := selectCandidateFromContext(ctx, candidateSelectOptions{excluded: excludedIDs}); handled {
+		if err != nil {
+			return nil, err
+		}
+		return selected.Account, nil
+	}
 	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, 0, "", false, true)
 }
 
@@ -266,6 +275,12 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 	requiredCapability OpenAIEndpointCapability,
 	platform string,
 ) (*Account, error) {
+	if selected, handled, err := selectCandidateFromContext(ctx, candidateSelectOptions{capability: requiredCapability}); handled {
+		if err != nil {
+			return nil, err
+		}
+		return selected.Account, nil
+	}
 	ctx = WithOpenAIProfitControlSuppressed(ctx)
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	return s.selectAccountForModelWithExclusions(
@@ -293,6 +308,9 @@ func (s *OpenAIGatewayService) SelectProtocolAccountForTokenCount(
 	requiredCapability OpenAIEndpointCapability,
 	platform string,
 ) (*AccountSelectionResult, error) {
+	if selected, handled, err := selectCandidateFromContext(ctx, candidateSelectOptions{capability: requiredCapability}); handled {
+		return selected, err
+	}
 	account, err := s.SelectAccountForTokenCount(
 		ctx,
 		groupID,

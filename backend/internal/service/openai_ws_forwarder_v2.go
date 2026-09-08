@@ -110,7 +110,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		)
 	}
 
-	stateStore := s.getOpenAIWSStateStore()
+	stateStore := s.getCandidateWSStateStore(ctx)
 	groupID := getOpenAIGroupIDFromContext(c)
 	sessionHash := s.GenerateSessionHash(c, nil)
 	if sessionHash == "" {

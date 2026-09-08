@@ -69,6 +69,10 @@ func (h *GatewayHandler) tkResolveCCOnlyFallback(
 	writeForbidden func(),
 	writeBillingError func(status int, code, message string),
 ) (fallbackAPIKey *service.APIKey, handled bool) {
+	if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+		writeForbidden()
+		return nil, true
+	}
 	const ccOnlyForbiddenLog = "gateway.cc_only_fallback"
 
 	if apiKey == nil || apiKey.Group == nil || apiKey.Group.FallbackGroupID == nil || *apiKey.Group.FallbackGroupID <= 0 {

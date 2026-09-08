@@ -139,3 +139,22 @@ func TestUS201_AnthropicStickyAccountKind(t *testing.T) {
 	require.Equal(t, StickyAccountAnthropicAPIKey, anthropicStickyAccountKind(&Account{Type: AccountTypeAPIKey}))
 	require.Equal(t, StickyAccountAnthropicOAuth, anthropicStickyAccountKind(&Account{Type: AccountTypeOAuth}))
 }
+
+func TestCandidateStickyInjection_UniversalIgnoresBillingOrigin(t *testing.T) {
+	ctx := WithUniversalKeyRouting(context.Background())
+	first := newGinCtxWithAPIKey(t, &APIKey{ID: 42, Group: &Group{ID: 1, StickyRoutingMode: string(group.StickyRoutingModeOff)}}, nil)
+	second := newGinCtxWithAPIKey(t, &APIKey{ID: 42, Group: &Group{ID: 11}}, nil)
+	req1 := buildStickyInjectionRequestFromGin(ctx, first, nil, "gpt-5.4", StickyAccountOpenAIOAuth, false)
+	req2 := buildStickyInjectionRequestFromGin(ctx, second, nil, "gpt-5.4", StickyAccountOpenAIOAuth, false)
+	require.Zero(t, req1.GroupID)
+	require.Zero(t, req2.GroupID)
+	require.Equal(t, StickyModeAuto, req1.Strategy.Mode)
+	body := []byte(`{"instructions":"stable system","input":[{"role":"user","content":"hello"}]}`)
+	key1 := DeriveStickyKey(req1, body)
+	key2 := DeriveStickyKey(req2, body)
+	require.NotEmpty(t, key1.Value)
+	require.Equal(t, key1, key2)
+	direct := buildStickyInjectionRequestFromGin(context.Background(), first, nil, "gpt-5.4", StickyAccountOpenAIOAuth, false)
+	require.Equal(t, int64(1), direct.GroupID)
+	require.Equal(t, StickyModeOff, direct.Strategy.Mode)
+}

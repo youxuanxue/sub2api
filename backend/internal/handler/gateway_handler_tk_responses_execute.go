@@ -65,6 +65,7 @@ func (h *GatewayHandler) executeResponsesSelectedProtocol(
 	reqModel string,
 	parsedReq *service.ParsedRequest,
 ) (*service.ForwardResult, error) {
+	channelMapping = service.CandidateForwardMapping(requestCtx, channelMapping)
 	value, executeErr := service.ExecuteSelectedProtocol(
 		requestCtx,
 		h.protocolRouter,

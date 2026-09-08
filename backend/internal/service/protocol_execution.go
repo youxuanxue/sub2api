@@ -353,6 +353,14 @@ func ExecuteSelectedProtocol(
 	loadAccount ProtocolExecutionAccountLoader,
 	executors ProtocolExecutors,
 ) (any, error) {
+	if candidate := CandidateRequestFromContext(ctx); candidate != nil && candidate.current != nil {
+		if account == nil || candidate.current.account.ID != account.ID {
+			return nil, protocolrouter.ErrStalePlan
+		}
+		if routing := candidate.current.ctx.Value(protocolRoutingContextKey{}); routing != nil {
+			ctx = context.WithValue(ctx, protocolRoutingContextKey{}, routing)
+		}
+	}
 	request, canonical := protocolRoutingCanonicalRequest(ctx)
 	_, routed := ProtocolRoutingRequest(ctx)
 	plan, planned := ProtocolPlanFromSelection(selection)

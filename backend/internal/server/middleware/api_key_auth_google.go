@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -81,6 +82,8 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			return
 		}
 
+		apiKey = requestLocalCandidateKey(c, apiKey)
+
 		// 同 api_key_auth.go：早退中断前也写入 Ops 回退 key，便于错误日志展示
 		// user/group/platform。
 		SetOpsFallbackAPIKey(c, apiKey)
@@ -122,8 +125,8 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 
 		MaybeRewriteOpenRouterProviderChatBody(c, apiKey, settingService)
 
-		// 全能 Key：在分组/订阅校验之前解析后端组并就地替换（见 universal_routing_tk.go）。
-		// /v1beta 形状为 gemini，解析到 gemini/antigravity 后端组；失败时已写出 Google 形状错误。
+		// Google ingress uses the same authorized candidates and billing binding;
+		// failures retain the Google error envelope.
 		if MaybeResolveUniversal(c, apiKey, universalResolver) {
 			return
 		}
@@ -163,13 +166,25 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		}
 
 		skipBilling := skipsBillingEnforcement(c.Request.Method, c.Request.URL.Path)
+		if !skipBilling {
+			var keyErr error
+			switch apiKey.Status {
+			case service.StatusAPIKeyQuotaExhausted:
+				keyErr = service.ErrAPIKeyQuotaExhausted
+			case service.StatusAPIKeyExpired:
+				keyErr = service.ErrAPIKeyExpired
+			default:
+				keyErr = apiKeyService.CheckAPIKeyQuotaAndExpiry(apiKey)
+			}
+			if keyErr != nil {
+				abortWithGoogleError(c, infraerrors.Code(keyErr), clientFacingAppErrorMessage(keyErr))
+				return
+			}
+		}
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
-		if !skipBilling && isSubscriptionType && subscriptionService != nil {
-			subscription, err := subscriptionService.GetActiveSubscription(
-				c.Request.Context(),
-				apiKey.User.ID,
-				apiKey.Group.ID,
-			)
+		hasCandidate := service.CandidateRequestFromContext(c.Request.Context()) != nil
+		if !skipBilling && !hasCandidate && isSubscriptionType && subscriptionService != nil {
+			subscription, err := subscriptionService.GetActiveSubscription(c.Request.Context(), apiKey.User.ID, apiKey.Group.ID)
 			if err != nil {
 				abortWithGoogleError(c, 403, "No active subscription found for this group")
 				return
@@ -202,7 +217,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				maintenanceCopy := *subscription
 				subscriptionService.DoWindowMaintenance(&maintenanceCopy)
 			}
-		} else if !skipBilling {
+		} else if !skipBilling && !hasCandidate {
 			if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
 				abortWithGoogleError(c, 403, "Insufficient account balance")
 				return

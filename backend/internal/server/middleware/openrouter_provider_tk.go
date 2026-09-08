@@ -25,8 +25,8 @@ func MaybeRewriteOpenRouterProviderChatBody(c *gin.Context, apiKey *service.APIK
 		return
 	}
 
-	raw, ok := readAndRestoreUniversalBody(c)
-	if !ok || len(raw) == 0 {
+	raw, readErr := readAndRestoreUniversalBody(c)
+	if readErr != nil || len(raw) == 0 {
 		return
 	}
 	peekBytes := universalPeekBytes(c, raw)

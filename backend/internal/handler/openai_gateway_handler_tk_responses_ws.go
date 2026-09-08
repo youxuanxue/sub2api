@@ -2,9 +2,11 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	coderws "github.com/coder/websocket"
@@ -12,11 +14,47 @@ import (
 	"go.uber.org/zap"
 )
 
+func (h *OpenAIGatewayHandler) tkRefreshWSAPIKey(ctx context.Context, c *gin.Context, apiKey *service.APIKey, subject *middleware2.AuthSubject) error {
+	fresh, err := h.apiKeyService.GetByID(ctx, apiKey.ID)
+	if err != nil {
+		return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to check current authorization", err)
+	}
+	if fresh == nil || fresh.ID != apiKey.ID || fresh.UserID != apiKey.UserID || !fresh.IsActive() || fresh.IsExpired() || fresh.IsQuotaExhausted() ||
+		fresh.User == nil || fresh.User.ID != fresh.UserID || !fresh.User.IsActive() || fresh.IsUniversal() != apiKey.IsUniversal() {
+		return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "API key is no longer authorized", nil)
+	}
+	if len(fresh.IPWhitelist) > 0 || len(fresh.IPBlacklist) > 0 {
+		trustForwarded := h.cfg != nil && h.cfg.TrustForwardedIPForAPIKeyACL()
+		allowed, _ := ip.CheckIPRestrictionWithCompiledRules(ip.GetSecurityClientIP(c, trustForwarded), fresh.CompiledIPWhitelist, fresh.CompiledIPBlacklist)
+		if !allowed {
+			return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "API key is no longer authorized", nil)
+		}
+	}
+	*apiKey = *fresh
+	subject.Concurrency = fresh.User.Concurrency
+	h.apiKeyService.UniversalResolver().Invalidate(fresh.UserID)
+	if candidate := service.CandidateRequestFromContext(ctx); candidate != nil {
+		if err := candidate.RefreshWebSocketAuthorization(ctx); err != nil {
+			return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "request is no longer authorized or available", err)
+		}
+	}
+	return nil
+}
+
+func closeOpenAIWSAdmissionError(conn *coderws.Conn, err error) {
+	var closeErr *service.OpenAIWSClientCloseError
+	if errors.As(err, &closeErr) {
+		closeOpenAIClientWS(conn, closeErr.StatusCode(), closeErr.Reason())
+		return
+	}
+	closeOpenAIClientWS(conn, coderws.StatusPolicyViolation, "request is not authorized or currently available")
+}
+
 // openAIWSTurnPricing 持有 WebSocket 连接内「当前 turn」的计费定价时刻。
 // 由 BeforeTurn 在每个 turn 开始时冻结，AfterTurn 的用量提交读取它；turn 在
 // 连接内串行推进，互斥锁只为跨用量提交 goroutine 的读取安全。
 //
-// ws_v2 passthrough ingress 没有 BeforeTurn，因此本值会保持零；AfterTurn 必须
+// Legacy ws_v2 passthrough ingress 没有 BeforeTurn，因此本值会保持零；AfterTurn 必须
 // 以 TurnStarted 已记录的所属 turn 开始时刻为回退，而不是用建连或记录时刻。
 // 这样每个 passthrough turn 都按自己的开始时刻计价，但不改变其仅在建连时执行
 // 准入门、没有 turn 级利润复核的既有行为。
@@ -169,6 +207,8 @@ func (h *OpenAIGatewayHandler) tkWSAfterTurnSubmitUsage(in tkWSAfterTurnUsageInp
 	if in.Result == nil {
 		return
 	}
+	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
+	in.TurnMapping = service.CandidateChannelMapping(in.C.Request.Context(), in.TurnMapping)
 	in.Result.BillingModel = openAIWSTurnBillingModel(in.Result, in.TurnMapping, in.TurnRequestedModel, in.TurnUpstreamModel)
 	in.ReqLog.Debug("openai.websocket_turn_billing",
 		zap.Int("turn", in.Turn),
@@ -191,6 +231,8 @@ func (h *OpenAIGatewayHandler) tkWSAfterTurnSubmitUsage(in tkWSAfterTurnUsageInp
 	turnRecordPricingAt := in.TurnPricing.currentOr(in.TurnStart)
 	cyberBlocked := service.GetOpsCyberPolicy(in.C) != nil
 	turnUsageFields := in.TurnMapping.ToUsageFields(in.TurnRequestedModel, in.TurnUpstreamModel)
+	inboundEndpoint := GetInboundEndpoint(in.C)
+	upstreamEndpoint := resolveOpenAIUpstreamEndpoint(in.C, in.Account, in.Result)
 	h.submitOpenAIUsageRecordTask(in.Ctx, in.Result, func(taskCtx context.Context) {
 		if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 			Result:              in.Result,
@@ -198,8 +240,8 @@ func (h *OpenAIGatewayHandler) tkWSAfterTurnSubmitUsage(in tkWSAfterTurnUsageInp
 			User:                in.APIKey.User,
 			Account:             in.Account,
 			Subscription:        in.Subscription,
-			InboundEndpoint:     GetInboundEndpoint(in.C),
-			UpstreamEndpoint:    resolveOpenAIUpstreamEndpoint(in.C, in.Account, in.Result),
+			InboundEndpoint:     inboundEndpoint,
+			UpstreamEndpoint:    upstreamEndpoint,
 			UserAgent:           in.UserAgent,
 			IPAddress:           in.ClientIP,
 			RequestPayloadHash:  in.RequestPayloadHash,

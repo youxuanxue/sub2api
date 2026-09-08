@@ -8,6 +8,27 @@ import (
 // openAICandidates is the shared candidate filter; scoring and acquisition stay
 // in the OpenAI selector, while Universal only observes its result.
 func (s *defaultOpenAIAccountScheduler) openAICandidates(ctx context.Context, accounts []Account, req OpenAIAccountScheduleRequest) ([]*Account, openAISelectionFilterStats) {
+	eligible, stats := s.openAICandidatesBeforeWindow(ctx, accounts, req)
+	filtered := make([]*Account, 0, len(eligible))
+	var dropped []*Account
+	for _, account := range eligible {
+		if !s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false) {
+			dropped = append(dropped, account)
+		} else {
+			filtered = append(filtered, account)
+		}
+	}
+	if len(filtered) == 0 && len(dropped) > 0 {
+		if account := leastUtilizedOpenAIAccount(dropped, time.Now()); account != nil {
+			filtered = append(filtered, account)
+		}
+	}
+	return filtered, stats
+}
+
+// The global candidate owner applies window recovery after union and payment
+// admission; the legacy selector applies it to its own pool above.
+func (s *defaultOpenAIAccountScheduler) openAICandidatesBeforeWindow(ctx context.Context, accounts []Account, req OpenAIAccountScheduleRequest) ([]*Account, openAISelectionFilterStats) {
 	poolPlatform := req.schedulePlatform()
 	accounts = s.filterGrokFreeQuotaAccounts(ctx, accounts)
 	if poolPlatform == PlatformGrok {
@@ -22,7 +43,6 @@ func (s *defaultOpenAIAccountScheduler) openAICandidates(ctx context.Context, ac
 
 	filterStats := openAISelectionFilterStats{pool: len(accounts)}
 	filtered := make([]*Account, 0, len(accounts))
-	windowDropped := make([]*Account, 0)
 	for i := range accounts {
 		account := &accounts[i]
 		if req.ExcludedIDs != nil {
@@ -62,16 +82,7 @@ func (s *defaultOpenAIAccountScheduler) openAICandidates(ctx context.Context, ac
 			filterStats.exclude("compact_unsupported")
 			continue
 		}
-		if !s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false) {
-			windowDropped = append(windowDropped, account)
-			continue
-		}
 		filtered = append(filtered, account)
-	}
-	if len(filtered) == 0 && len(windowDropped) > 0 {
-		if acc := leastUtilizedOpenAIAccount(windowDropped, time.Now()); acc != nil {
-			filtered = append(filtered, acc)
-		}
 	}
 	return filtered, filterStats
 }

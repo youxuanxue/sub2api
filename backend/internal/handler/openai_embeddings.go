@@ -194,7 +194,9 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		forwardStart := time.Now()
 
 		forwardBody := body
-		if channelMapping.Mapped {
+		if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+			forwardBody = h.gatewayService.ReplaceModelInBody(body, service.CandidateEffectiveModel(c.Request.Context(), reqModel))
+		} else if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()
@@ -264,14 +266,16 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
+		billingAPIKey, billingSubscription := snapshotCandidateBilling(c.Request.Context(), apiKey, subscription)
+		usageFields := clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel)
 
 		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
+				APIKey:             billingAPIKey,
+				User:               billingAPIKey.User,
 				Account:            account,
-				Subscription:       subscription,
+				Subscription:       billingSubscription,
 				InboundEndpoint:    inboundEndpoint,
 				UpstreamEndpoint:   upstreamEndpoint,
 				UserAgent:          userAgent,
@@ -279,7 +283,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				APIKeyService:      h.apiKeyService,
 				QuotaPlatform:      quotaPlatform,
 				SessionID:          sessionID,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
+				ChannelUsageFields: usageFields,
 				PricingAt:          pricingAt,
 			}); err != nil {
 				logger.L().With(

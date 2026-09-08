@@ -447,12 +447,12 @@ type stubSubscriptionGate struct {
 	calls    []int64
 }
 
-func (s *stubSubscriptionGate) SubscriptionGroupUsable(_ context.Context, _ int64, group *Group) bool {
+func (s *stubSubscriptionGate) SubscriptionGroupUsable(_ context.Context, _ int64, group *Group) (bool, error) {
 	if group == nil {
-		return true
+		return true, nil
 	}
 	s.calls = append(s.calls, group.ID)
-	return !s.unusable[group.ID]
+	return !s.unusable[group.ID], nil
 }
 
 func TestResolve_UnusableSubscriptionFallsBackToStandardExclusive(t *testing.T) {

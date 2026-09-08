@@ -288,6 +288,10 @@ func (h *ConcurrencyHelper) TryAcquireAccountSlot(ctx context.Context, accountID
 	if !result.Acquired {
 		return nil, false, nil
 	}
+	if err := service.RecheckCandidateAccountSlot(ctx, accountID); err != nil {
+		result.ReleaseFunc()
+		return nil, false, err
+	}
 	return result.ReleaseFunc, true, nil
 }
 
@@ -401,7 +405,14 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 		if slotType == "user" {
 			return h.concurrencyService.AcquireUserSlot(ctx, id, maxConcurrency)
 		}
-		return h.concurrencyService.AcquireAccountSlot(ctx, id, maxConcurrency)
+		result, err := h.concurrencyService.AcquireAccountSlot(ctx, id, maxConcurrency)
+		if err == nil && result.Acquired {
+			if err := service.RecheckCandidateAccountSlot(ctx, id); err != nil {
+				result.ReleaseFunc()
+				return nil, err
+			}
+		}
+		return result, err
 	}
 
 	if tryImmediate {

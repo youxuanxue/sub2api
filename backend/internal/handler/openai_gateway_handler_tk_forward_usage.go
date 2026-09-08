@@ -35,6 +35,8 @@ func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwa
 	if res == nil {
 		return
 	}
+	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
+	in.ChannelMapping = service.CandidateChannelMapping(in.C.Request.Context(), in.ChannelMapping)
 	userAgent := in.C.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(in.C)
 	requestPayloadHash := service.HashUsageRequestPayload(in.Body)
@@ -44,6 +46,9 @@ func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwa
 	tkHoldRequestID := in.Hold.HandOffToSettlement()
 	cyberBlocked := service.GetOpsCyberPolicy(in.C) != nil
 	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(in.C)
+	usageFields := clientRequestedUsageFields(in.C, in.ChannelMapping, in.ReqModel, res.UpstreamModel)
+	inboundEndpoint := GetInboundEndpoint(in.C)
+	upstreamEndpoint := resolveOpenAIUpstreamEndpoint(in.C, in.Account, res)
 	h.submitOpenAIUsageRecordTask(in.C.Request.Context(), res, func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result:              res,
@@ -51,8 +56,8 @@ func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwa
 			User:                in.APIKey.User,
 			Account:             in.Account,
 			Subscription:        in.Subscription,
-			InboundEndpoint:     GetInboundEndpoint(in.C),
-			UpstreamEndpoint:    resolveOpenAIUpstreamEndpoint(in.C, in.Account, res),
+			InboundEndpoint:     inboundEndpoint,
+			UpstreamEndpoint:    upstreamEndpoint,
 			UserAgent:           userAgent,
 			IPAddress:           clientIP,
 			RequestPayloadHash:  requestPayloadHash,
@@ -62,7 +67,7 @@ func (h *OpenAIGatewayHandler) tkSubmitHTTPForwardUsage(res *service.OpenAIForwa
 			SessionID:           sessionID,
 			CodexInstallationID: codexInstallationID,
 			GatewayLatencyMs:    gatewayLatencyMs,
-			ChannelUsageFields:  clientRequestedUsageFields(in.C, in.ChannelMapping, in.ReqModel, res.UpstreamModel),
+			ChannelUsageFields:  usageFields,
 			PricingAt:           in.PricingAt,
 			CyberBlocked:        cyberBlocked,
 		}); err != nil {
@@ -93,6 +98,8 @@ type tkOpenAISimpleUsageSubmitInput struct {
 }
 
 func (h *OpenAIGatewayHandler) tkSubmitOpenAISimpleForwardUsage(in tkOpenAISimpleUsageSubmitInput) {
+	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
+	in.ChannelMapping = service.CandidateChannelMapping(in.C.Request.Context(), in.ChannelMapping)
 	userAgent := in.C.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(in.C)
 	quotaPlatform := service.QuotaPlatform(in.C.Request.Context(), in.APIKey)
@@ -102,6 +109,9 @@ func (h *OpenAIGatewayHandler) tkSubmitOpenAISimpleForwardUsage(in tkOpenAISimpl
 	if in.Result != nil {
 		upstreamModelForUsage = in.Result.UpstreamModel
 	}
+	usageFields := clientRequestedUsageFields(in.C, in.ChannelMapping, in.ReqModel, upstreamModelForUsage)
+	inboundEndpoint := GetInboundEndpoint(in.C)
+	upstreamEndpoint := GetUpstreamEndpoint(in.C, in.Account.Platform)
 	h.submitOpenAIUsageRecordTask(in.C.Request.Context(), in.Result, func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result:             in.Result,
@@ -109,15 +119,15 @@ func (h *OpenAIGatewayHandler) tkSubmitOpenAISimpleForwardUsage(in tkOpenAISimpl
 			User:               in.APIKey.User,
 			Account:            in.Account,
 			Subscription:       in.Subscription,
-			InboundEndpoint:    GetInboundEndpoint(in.C),
-			UpstreamEndpoint:   GetUpstreamEndpoint(in.C, in.Account.Platform),
+			InboundEndpoint:    inboundEndpoint,
+			UpstreamEndpoint:   upstreamEndpoint,
 			UserAgent:          userAgent,
 			IPAddress:          clientIP,
 			APIKeyService:      h.apiKeyService,
 			TkHoldRequestID:    tkHoldRequestID,
 			QuotaPlatform:      quotaPlatform,
 			GatewayLatencyMs:   gatewayLatencyMs,
-			ChannelUsageFields: in.ChannelMapping.ToUsageFields(in.ReqModel, upstreamModelForUsage),
+			ChannelUsageFields: usageFields,
 		}); err != nil {
 			logger.L().With(
 				zap.String("component", in.LogComponent),

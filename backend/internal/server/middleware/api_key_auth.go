@@ -34,11 +34,15 @@ func skipsBillingEnforcement(method, path string) bool {
 		return false
 	}
 	switch path {
-	case apipath.Models, "/v1/usage", apipath.GeminiModels, "/antigravity/models", "/antigravity/v1/models", "/antigravity/v1/usage", "/antigravity/v1beta/models":
+	case apipath.Models, "/models", "/backend-api/codex/models", "/v1/usage", apipath.GeminiModels, "/antigravity/models", "/antigravity/v1/models", "/antigravity/v1/usage", "/antigravity/v1beta/models":
 		return true
-	default:
-		return false
 	}
+	for _, prefix := range []string{apipath.GeminiModels + "/", "/antigravity/v1beta/models/"} {
+		if model, ok := strings.CutPrefix(path, prefix); ok && service.IsSafeGeminiModelPathSegment(model) {
+			return true
+		}
+	}
+	return false
 }
 
 // apiKeyAuthWithSubscription API Key认证中间件（支持订阅验证）
@@ -137,6 +141,8 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			return
 		}
 
+		apiKey = requestLocalCandidateKey(c, apiKey)
+
 		// apiKey 已加载（含 User/Group）。即便后续因分组停用/Key 停用/用户停用/
 		// IP 限制等早退中断，也让 Ops 错误日志能回退取到 user/group/platform。
 		SetOpsFallbackAPIKey(c, apiKey)
@@ -185,10 +191,8 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// before universal routing peeks model and before handler servable checks.
 		MaybeRewriteOpenRouterProviderChatBody(c, apiKey, settingService)
 
-		// 全能 Key（routing_mode=universal）：在分组/订阅/余额校验之前，把请求按入口端点 +
-		// 模型解析到一个后端组并就地替换为“绑定该组的普通 key”。这样下面所有现成的分组可用性 /
-		// 权限 / 订阅 / 余额判定、以及后续调度、计费、转发，都正确作用在该后端组上，零改动。
-		// 解析失败时已写出协议正确的错误并 Abort。见 universal_routing_tk.go。
+		// Build one authorized candidate state before billing. The request-local
+		// key follows its selected billing origin while execution follows the account.
 		if MaybeResolveUniversal(c, apiKey, universalResolver) {
 			return
 		}
@@ -204,6 +208,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
 		// skipBilling: read-only metadata endpoints only need authentication.
 		skipBilling := skipsBillingEnforcement(c.Request.Method, c.Request.URL.Path)
+		deferCandidateBilling := deferUniversalWebSocketBilling(c, apiKey)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
@@ -226,9 +231,13 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		var subscription *service.UserSubscription
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+		candidateRequest := service.CandidateRequestFromContext(c.Request.Context())
+		if candidateRequest != nil {
+			subscription = service.CandidateSubscription(c.Request.Context(), nil)
+		}
 
 		// 倍率自省不需要订阅数据；/v1/usage 仍保留原有订阅读取行为。
-		if isSubscriptionType && subscriptionService != nil && !billingInfoRequest {
+		if isSubscriptionType && subscriptionService != nil && !billingInfoRequest && !deferCandidateBilling && candidateRequest == nil {
 			sub, subErr := subscriptionService.GetActiveSubscription(
 				c.Request.Context(),
 				apiKey.User.ID,
@@ -268,8 +277,9 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				return
 			}
 
-			// 订阅模式：验证订阅限额
-			if subscription != nil {
+			// Candidate admission already verified its selected payment path.
+			// Legacy requests retain the subscription/balance checks below.
+			if !deferCandidateBilling && candidateRequest == nil && subscription != nil {
 				needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 				if needsMaintenance {
 					refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(c.Request.Context(), subscription)
@@ -292,7 +302,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 					AbortWithError(c, status, code, clientFacingAppErrorMessage(validateErr))
 					return
 				}
-			} else {
+			} else if !deferCandidateBilling && candidateRequest == nil {
 				// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查
 				if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
 					AbortWithError(c, 403, "INSUFFICIENT_BALANCE", "Insufficient account balance")

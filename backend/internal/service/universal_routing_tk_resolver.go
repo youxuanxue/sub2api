@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,17 +37,20 @@ type UniversalRoutingResolver struct {
 	// modelsProvider/supportProvider serve the compatibility path when no candidate
 	// evaluator is wired. Production model-bearing requests use candidateEvaluator;
 	// its errors do not fall back to these providers. All fields are guarded by mu.
-	modelsProvider     availableModelsProvider
-	supportProvider    groupModelSupportProvider
-	subscriptionGate   subscriptionGroupUsability
-	candidateEvaluator groupCandidateEvaluator
-	router             *protocolrouter.Router
+	modelsProvider         availableModelsProvider
+	supportProvider        groupModelSupportProvider
+	subscriptionGate       subscriptionGroupUsability
+	candidateEvaluator     groupCandidateEvaluator
+	router                 *protocolrouter.Router
+	candidateGateway       *GatewayService
+	candidateOpenAI        *OpenAIGatewayService
+	candidateSubscriptions *SubscriptionService
 }
 
 // subscriptionGroupUsability 判断订阅型后端组此刻能否接请求。
 // 到期、停用、日/周/月额度满都算不可用，解析器随后改走余额专属组。
 type subscriptionGroupUsability interface {
-	SubscriptionGroupUsable(ctx context.Context, userID int64, group *Group) bool
+	SubscriptionGroupUsable(ctx context.Context, userID int64, group *Group) (bool, error)
 }
 
 // availableGroupsLister 由 *APIKeyService 满足，给出某用户当前有权绑定的全部分组
@@ -133,6 +137,9 @@ func (r *UniversalRoutingResolver) providerSnapshot() (availableModelsProvider, 
 func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, shape UniversalShape, model, forcedPlatform string) (*Group, error) {
 	if r == nil || apiKey == nil {
 		return nil, ErrUniversalNoEntitledGroup
+	}
+	if apiKey.IsUniversal() {
+		ctx = WithUniversalKeyRouting(ctx)
 	}
 	span, err := r.span(ctx, apiKey.UserID)
 	if err != nil {
@@ -257,12 +264,16 @@ func (r *UniversalRoutingResolver) Resolve(ctx context.Context, apiKey *APIKey, 
 }
 
 func (r *UniversalRoutingResolver) pickUsableBackingGroup(ctx context.Context, userID int64, eligible []Group) (*Group, error) {
+	var evaluationErr error
 	for len(eligible) > 0 {
 		picked := pickUniversalBackingGroup(eligible)
 		if picked == nil {
 			break
 		}
-		if r.subscriptionGroupUsable(ctx, userID, picked) {
+		usable, err := r.subscriptionGroupUsable(ctx, userID, picked)
+		if err != nil {
+			evaluationErr = err
+		} else if usable {
 			return picked, nil
 		}
 		filtered := eligible[:0]
@@ -273,20 +284,27 @@ func (r *UniversalRoutingResolver) pickUsableBackingGroup(ctx context.Context, u
 		}
 		eligible = filtered
 	}
+	if evaluationErr != nil {
+		return nil, evaluationErr
+	}
 	return nil, ErrUniversalNoEntitledGroup
 }
 
-func (r *UniversalRoutingResolver) subscriptionGroupUsable(ctx context.Context, userID int64, group *Group) bool {
+func (r *UniversalRoutingResolver) subscriptionGroupUsable(ctx context.Context, userID int64, group *Group) (bool, error) {
 	if group == nil || !group.IsSubscriptionType() {
-		return group != nil
+		return group != nil, nil
 	}
 	r.mu.RLock()
 	gate := r.subscriptionGate
 	r.mu.RUnlock()
 	if gate == nil {
-		return true
+		return true, nil
 	}
-	return gate.SubscriptionGroupUsable(ctx, userID, group)
+	usable, err := gate.SubscriptionGroupUsable(ctx, userID, group)
+	if err != nil {
+		slog.WarnContext(ctx, "universal_routing.subscription_evaluation_failed", "user_id", userID, "group_id", group.ID, "error", err)
+	}
+	return usable, err
 }
 
 func universalShapeRequiresImageGenerationEnabled(shape UniversalShape) bool {

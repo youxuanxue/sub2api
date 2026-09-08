@@ -10,6 +10,8 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+const userGroupRateLoadTimeout = 3 * time.Second
+
 type userGroupRateResolver struct {
 	repo         UserGroupRateRepository
 	cache        *gocache.Cache
@@ -71,7 +73,10 @@ func (r *userGroupRateResolver) Resolve(ctx context.Context, userID, groupID int
 		}
 
 		userGroupRateCacheLoadTotal.Add(1)
-		userRate, repoErr := r.repo.GetByUserAndGroup(ctx, userID, groupID)
+		// A canceled leader must not cancel the shared read for other callers.
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), userGroupRateLoadTimeout)
+		defer cancel()
+		userRate, repoErr := r.repo.GetByUserAndGroup(loadCtx, userID, groupID)
 		if repoErr != nil {
 			return nil, repoErr
 		}
@@ -90,14 +95,14 @@ func (r *userGroupRateResolver) Resolve(ctx context.Context, userID, groupID int
 	}
 	if err != nil {
 		userGroupRateCacheFallbackTotal.Add(1)
-		logger.LegacyPrintf(r.logComponent, "get user group rate failed, fallback to group default: user=%d group=%d err=%v", userID, groupID, err)
-		return groupDefaultMultiplier
+		logger.LegacyPrintf(r.logComponent, "get user group rate failed, fallback to multiplier 1: user=%d group=%d err=%v", userID, groupID, err)
+		return 1
 	}
 
 	multiplier, ok := value.(float64)
 	if !ok {
 		userGroupRateCacheFallbackTotal.Add(1)
-		return groupDefaultMultiplier
+		return 1
 	}
 	return multiplier
 }

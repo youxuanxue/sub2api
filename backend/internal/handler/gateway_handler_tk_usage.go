@@ -77,6 +77,7 @@ func (h *GatewayHandler) tkSubmitClaudeGatewayForwardUsage(in tkClaudeGatewayFor
 	if in.Result == nil {
 		return
 	}
+	in.APIKey, in.Subscription = snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)
 	userAgent := in.C.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(in.C)
 	requestPayloadHash := service.HashUsageRequestPayload(in.Body)

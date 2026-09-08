@@ -32,14 +32,15 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	if apiKey.IsUniversal() && apiKey.Group == nil {
+	if useCandidateModelDiscovery(h.tkCapabilities, apiKey) {
 		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolGemini)
 		if err != nil {
 			requestLogger(c, "gateway.gemini_models", zap.String("protocol", string(service.UniversalProtocolGemini))).Warn("capability_discovery_failed", zap.Error(err))
 			googleError(c, http.StatusInternalServerError, "Model discovery unavailable")
 			return
 		}
-		c.JSON(http.StatusOK, geminiModelsForCapabilityIDs(capabilityModelIDs(capabilities, service.UniversalModalityChat)))
+		ids := directCustomCapabilityIDs(apiKey, capabilityModelIDs(capabilities, service.UniversalModalityChat))
+		c.JSON(http.StatusOK, geminiModelsForCapabilityIDs(ids))
 		return
 	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini/antigravity 分组
@@ -89,14 +90,6 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini/antigravity 分组
-	// TK: platform allow — see gemini_v1beta_handler_tk_platform.go
-	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
-		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
-		return
-	}
-
 	modelName := strings.TrimSpace(c.Param("model"))
 	if modelName == "" {
 		googleError(c, http.StatusBadRequest, "Missing model in URL")
@@ -106,6 +99,27 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	// 见 service/upstream_path_guard.go。
 	if !service.IsSafeGeminiModelPathSegment(modelName) {
 		googleError(c, http.StatusBadRequest, "Invalid model in URL")
+		return
+	}
+	if useCandidateModelDiscovery(h.tkCapabilities, apiKey) {
+		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolGemini)
+		if err != nil {
+			requestLogger(c, "gateway.gemini_model", zap.String("model", modelName)).Warn("capability_discovery_failed", zap.Error(err))
+			googleError(c, http.StatusInternalServerError, "Model discovery unavailable")
+			return
+		}
+		for _, model := range geminiModelsForCapabilityIDs(capabilityModelIDs(capabilities, service.UniversalModalityChat)).Models {
+			if model.Name == "models/"+modelName {
+				c.JSON(http.StatusOK, model)
+				return
+			}
+		}
+		googleError(c, http.StatusNotFound, "Model not found")
+		return
+	}
+	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
+	if !hasForcePlatform && !geminiV1BetaGroupPlatformAllowed(apiKey) {
+		googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 		return
 	}
 	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {
@@ -374,7 +388,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	cleanedForUnknownBinding := false
 
 	fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
-	if apiKey.IsUniversal() && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformNewAPI {
+	if service.CandidateRequestFromContext(c.Request.Context()) == nil && apiKey.IsUniversal() && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformNewAPI {
 		ctx := service.WithNativeGeminiVertexAccountRequirement(c.Request.Context())
 		c.Request = c.Request.WithContext(ctx)
 	}
@@ -416,7 +430,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 		}
 		account := selection.Account
-		if apiKey.IsUniversal() && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformNewAPI && !account.IsNewAPIVertexServiceAccount() {
+		if service.CandidateRequestFromContext(c.Request.Context()) == nil && apiKey.IsUniversal() && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformNewAPI && !account.IsNewAPIVertexServiceAccount() {
 			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
 			}
@@ -591,16 +605,18 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 		// ForceCacheBilling 提前拍成标量，避免 worker 闭包保活 failover 状态里的响应体。
 		forceCacheBilling := fs.ForceCacheBilling
+		billingAPIKey, billingSubscription := snapshotCandidateBilling(c.Request.Context(), apiKey, subscription)
+		usageFields := clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsageWithLongContext(ctx, &service.RecordUsageLongContextInput{
 				Result:                result,
 				QuotaPlatform:         quotaPlatform,
-				APIKey:                apiKey,
-				User:                  apiKey.User,
+				APIKey:                billingAPIKey,
+				User:                  billingAPIKey.User,
 				Account:               account,
-				Subscription:          subscription,
+				Subscription:          billingSubscription,
 				PricingAt:             pricingAt,
 				InboundEndpoint:       inboundEndpoint,
 				UpstreamEndpoint:      upstreamEndpoint,
@@ -612,7 +628,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				ForceCacheBilling:     forceCacheBilling,
 				APIKeyService:         h.apiKeyService,
 				SessionID:             sessionID,
-				ChannelUsageFields:    clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
+				ChannelUsageFields:    usageFields,
 			}); err != nil {
 				logger.L().With(
 					zap.String("component", "handler.gemini_v1beta.models"),

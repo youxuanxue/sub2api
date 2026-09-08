@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,10 +17,14 @@ type userGroupRateResolverRepoStub struct {
 	rate  *float64
 	err   error
 	calls int
+	get   func(context.Context) (*float64, error)
 }
 
 func (s *userGroupRateResolverRepoStub) GetByUserAndGroup(ctx context.Context, userID, groupID int64) (*float64, error) {
 	s.calls++
+	if s.get != nil {
+		return s.get(ctx)
+	}
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -80,4 +86,60 @@ func TestGatewayServiceGetUserGroupRateMultiplier_FallbacksAndUsesExistingResolv
 	got := svc.getUserGroupRateMultiplier(context.Background(), 101, 202, 1.2)
 	require.Equal(t, rate, got)
 	require.Equal(t, 1, repo.calls)
+}
+
+func TestUserGroupRateResolverResolve_QueryFailureUsesOneAndRecovers(t *testing.T) {
+	for _, groupDefault := range []float64{0.25, 1.6} {
+		repo := &userGroupRateResolverRepoStub{err: errors.New("database unavailable")}
+		resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
+		require.Equal(t, 1.0, resolver.Resolve(context.Background(), 101, 202, groupDefault))
+		_, cached := resolver.cache.Get("101:202")
+		require.False(t, cached, "a transient fallback must not replace the user's rate")
+
+		rate := 0.6
+		repo.err, repo.rate = nil, &rate
+		require.Equal(t, rate, resolver.Resolve(context.Background(), 101, 202, groupDefault))
+		require.Equal(t, 2, repo.calls)
+	}
+}
+
+func TestUserGroupRateResolverResolve_NoOverrideUsesGroupDefault(t *testing.T) {
+	repo := &userGroupRateResolverRepoStub{}
+	resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
+	require.Equal(t, 0.25, resolver.Resolve(context.Background(), 101, 202, 0.25))
+	require.Equal(t, 0.25, resolver.Resolve(context.Background(), 101, 202, 0.25))
+	require.Equal(t, 1, repo.calls)
+}
+
+func TestUserGroupRateResolverResolve_CanceledLeaderDoesNotCancelSharedRead(t *testing.T) {
+	resetGatewayHotpathStatsForTest()
+	started := make(chan context.Context, 1)
+	unblock := make(chan struct{})
+	var release sync.Once
+	defer release.Do(func() { close(unblock) })
+	rate := 0.25
+	repo := &userGroupRateResolverRepoStub{get: func(ctx context.Context) (*float64, error) {
+		started <- ctx
+		<-unblock
+		return &rate, ctx.Err()
+	}}
+	resolver := newUserGroupRateResolver(repo, nil, time.Minute, nil, "service.test")
+	caller, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	results := make(chan float64, 2)
+	go func() { results <- resolver.Resolve(caller, 101, 202, 1.6) }()
+	queryCtx := <-started
+	go func() { results <- resolver.Resolve(context.Background(), 101, 202, 1.6) }()
+	require.Eventually(t, func() bool {
+		return userGroupRateCacheMissTotal.Load() == 2
+	}, time.Second, time.Millisecond)
+	cancel()
+	release.Do(func() { close(unblock) })
+	for range 2 {
+		require.Equal(t, rate, <-results)
+	}
+	require.Equal(t, 1, repo.calls)
+	deadline, bounded := queryCtx.Deadline()
+	require.True(t, bounded, "detached queries must still have a time limit")
+	require.WithinDuration(t, time.Now(), deadline, 4*time.Second)
 }

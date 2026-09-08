@@ -85,6 +85,9 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 // 后扣运行在 worker 池的 background ctx 上没有 ForcePlatform，因此后扣平台由 handler
 // 预先算定、经 RecordUsageInput.QuotaPlatform 传入，不要在后扣链路用 worker ctx 调用本函数。
 func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
+	if (apiKey != nil && apiKey.IsUniversal()) || IsUniversalKeyRouting(ctx) {
+		return ""
+	}
 	if ctx != nil {
 		if fp, ok := ctx.Value(ctxkey.ForcePlatform).(string); ok && fp != "" {
 			return fp
@@ -318,6 +321,13 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog, p *postUsageBillingParams, deps *billingDeps, repo UsageBillingRepository) (bool, error) {
 	if p == nil || deps == nil {
 		return false, nil
+	}
+	if p.APIKey != nil && p.APIKey.IsUniversal() {
+		// Async callers may still supply a legacy group-derived fallback. The
+		// immutable key mode is authoritative even without the request context.
+		copy := *p
+		copy.Platform = ""
+		p = &copy
 	}
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)

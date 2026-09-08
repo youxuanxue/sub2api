@@ -604,7 +604,7 @@ func TestOpenAIGatewayServiceRecordUsage_IncludesEndpointMetadata(t *testing.T) 
 	require.Equal(t, "/v1/responses", *usageRepo.lastLog.UpstreamEndpoint)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_FallsBackToGroupDefaultRateOnResolverError(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_FallsBackToOneOnResolverError(t *testing.T) {
 	groupID := int64(12)
 	groupRate := 1.6
 	usage := OpenAIUsage{InputTokens: 10, OutputTokens: 5, CacheReadInputTokens: 2}
@@ -617,7 +617,7 @@ func TestOpenAIGatewayServiceRecordUsage_FallsBackToGroupDefaultRateOnResolverEr
 
 	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
 		Result: &OpenAIForwardResult{
-			RequestID: "resp_group_default_on_error",
+			RequestID: "resp_rate_fallback_on_error",
 			Usage:     usage,
 			Model:     "gpt-5.1",
 			Duration:  time.Second,
@@ -637,9 +637,9 @@ func TestOpenAIGatewayServiceRecordUsage_FallsBackToGroupDefaultRateOnResolverEr
 	require.NoError(t, err)
 	require.Equal(t, 1, rateRepo.calls)
 	require.NotNil(t, usageRepo.lastLog)
-	require.Equal(t, groupRate, usageRepo.lastLog.RateMultiplier)
+	require.Equal(t, 1.0, usageRepo.lastLog.RateMultiplier)
 
-	expected := expectedOpenAICost(t, svc, "gpt-5.1", usage, groupRate)
+	expected := expectedOpenAICost(t, svc, "gpt-5.1", usage, 1.0)
 	require.InDelta(t, expected.ActualCost, userRepo.lastAmount, 1e-12)
 }
 

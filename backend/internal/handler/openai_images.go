@@ -255,7 +255,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardImages(requestCtx, c, account, body, parsed, channelMapping.MappedModel)
+			return h.gatewayService.ForwardImages(requestCtx, c, account, body, parsed, service.CandidateEffectiveModel(requestCtx, channelMapping.MappedModel))
 		}()
 		tkRecordForwardResponseTail(c, forwardStart)
 		if result != nil && result.FirstTokenMs != nil {
@@ -393,15 +393,17 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			upstreamModel = result.UpstreamModel
 		}
 		tkHoldRequestID := hold.HandOffToSettlement()
+		billingAPIKey, billingSubscription := snapshotCandidateBilling(c.Request.Context(), apiKey, subscription)
+		usageFields := clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel)
 		sessionID := service.ExtractClientSessionID(c)
 		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
-				APIKey:             apiKey,
-				User:               apiKey.User,
+				APIKey:             billingAPIKey,
+				User:               billingAPIKey.User,
 				Account:            account,
-				Subscription:       subscription,
+				Subscription:       billingSubscription,
 				InboundEndpoint:    inboundEndpoint,
 				UpstreamEndpoint:   upstreamEndpoint,
 				UserAgent:          userAgent,
@@ -412,7 +414,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				QuotaPlatform:      quotaPlatform,
 				SessionID:          sessionID,
 				GatewayLatencyMs:   gatewayLatencyMs,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
+				ChannelUsageFields: usageFields,
 			}); err != nil {
 				logger.L().With(
 					zap.String("component", "handler.openai_gateway.images"),

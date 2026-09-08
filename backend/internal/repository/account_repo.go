@@ -4150,6 +4150,9 @@ func supplierAccountEntityToService(m *dbent.Account) *service.Account {
 		ChannelType: m.ChannelType,
 		Concurrency: m.Concurrency,
 	}
+	if m.ErrorMessage != nil {
+		account.ErrorMessage = *m.ErrorMessage
+	}
 	if m.ProtocolEndpointCapabilityID != nil {
 		account.ProtocolEndpointCapabilityID = m.ProtocolEndpointCapabilityID
 	}
