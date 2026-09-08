@@ -171,6 +171,7 @@ fi
 
 # --- 2b. data directory layout ------------------------------------------
 install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app
+install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/public
 install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_blobs
 install -d -m 0755 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_dlq
 install -d -m 0700 /var/lib/tokenkey/postgres
@@ -180,6 +181,14 @@ install -d -m 0755 /var/lib/tokenkey/caddy
 install -d -m 0755 /var/lib/tokenkey/caddy/data
 install -d -m 0755 /var/lib/tokenkey/caddy/config
 install -d -m 0755 /var/lib/tokenkey/logs
+
+# --- 2c. public media assets (lazy sync from S3) ------------------------
+MEDIA_PUBLIC_DIR="/var/lib/tokenkey/app/public"
+if [ ! -f "${MEDIA_PUBLIC_DIR}/seedance-2-5-official-showcase-8b37bc3e.mp4" ]; then
+  aws s3 cp s3://tokenkey-prod-media-682751977094/public/seedance-2-5-official-showcase-8b37bc3e.mp4 "${MEDIA_PUBLIC_DIR}/seedance-2-5-official-showcase-8b37bc3e.mp4" || true
+  aws s3 cp s3://tokenkey-prod-media-682751977094/public/seedance-2-5-official-poster-db3ff793.jpg "${MEDIA_PUBLIC_DIR}/seedance-2-5-official-poster-db3ff793.jpg" || true
+  chown -R 1000:1000 "${MEDIA_PUBLIC_DIR}" 2>/dev/null || true
+fi
 cd /var/lib/tokenkey
 
 # --- 3. docker-compose + Caddy from SSM ---------------------------------
