@@ -158,6 +158,9 @@
         "func isTkCuratedNewAPIModelDisplayed(",
         "func tkServedModelsManifestDisplayPresetIDsByChannelType(",
         "func tkServedModelsManifestDisplayPresetIDsForSelector(",
+        "e.Display && isCatalogModelRecommended(modelID)",
+        "func newAPIAliTokenPlanModelAliases()",
+        "func newAPIQianfanTokenPlanModelAliases()",
         "func isTkCuratedNewAPICatalogRowDisplayed(",
         "func isNewAPILongTailCatalogVendor("
       ],
@@ -448,6 +451,8 @@
         "\"display\"",
         "https://ark.cn-beijing.volces.com/api/plan/v3",
         "https://qianfan.baidubce.com",
+        "https://token-plan.cn-beijing.maas.aliyuncs.com",
+        "https://qianfan.baidubce.com/v2/tokenplan/personal",
         "https://api.xrtoken.net"
       ],
       "rationale": "The schema-v3 served-models manifest is the declarative owner for curated newapi model membership, channel/property scopes, optional price-owner aliases, and display intent. Runtime projections and the generated account-mapping bundle consume this file directly."
