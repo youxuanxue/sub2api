@@ -38,6 +38,26 @@
       "rationale": "Chat and Responses conversions share the same Cursor authentication and catalog owner."
     },
     {
+      "path": "backend/internal/service/supplier_source_probe.go",
+      "must_contain": [
+        "func cloneSupplierSourceProbeResult(",
+        "out.UpstreamModels = append([]SupplierUpstreamModelEntry{}, in.UpstreamModels...)",
+        "out.NormalizedChanges = append([]SupplierModelNormalizeChange{}, in.NormalizedChanges...)",
+        "out.RejectedCandidates = append([]SupplierProbeRejectedCandidate{}, in.RejectedCandidates...)",
+        "out.ConfiguredIssues = append([]SupplierProbeConfiguredIssue{}, in.ConfiguredIssues...)",
+        "out.ProbeResults = append([]SupplierProbeResult{}, in.ProbeResults...)"
+      ],
+      "rationale": "The shared async discovery snapshot clone preserves non-null JSON arrays across start and polling responses."
+    },
+    {
+      "path": "backend/internal/service/supplier_source_probe_test.go",
+      "must_contain": [
+        "TestCloneSupplierSourceProbeResultEmptySlicesJSONNotNull",
+        "json.Marshal(cloned)"
+      ],
+      "rationale": "Protect the wire-shape regression alongside the clone owner so an upstream merge cannot drop both silently."
+    },
+    {
       "path": "backend/internal/service/gateway_request.go",
       "must_contain": [
         "parsed.ThinkingEnabled = gatewayRequestThinkingEnabled(bodyBytes, protocol)",
@@ -134,10 +154,30 @@
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
       "must_contain": [
         "resolver.WithRequest",
+        "service.TkApplyBareModelAlias(forcedPlatform, parsed)",
+        "c.Set(service.OpsRoutingInternalErrorKey, true)",
         "writeUniversalRoutingCapacityError",
         "apiKey.GroupID = &backing.ID"
       ],
       "rationale": "Actual request profile reaches evaluation before a single billing group is bound."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",
+      "must_contain": [
+        "TestUniversalAliasUsesSameModelForPlanAndHandler",
+        "router.Plan(request, snapshot)",
+        "TestUniversalAliasPreservesUnmatchedAndForcedRequests"
+      ],
+      "rationale": "Universal resolves existing Claude aliases before candidate planning and passes the same normalized body to execution, including compressed requests. Alias misses and forced-platform requests preserve the existing contract."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_universal_routing_test.go",
+      "must_contain": [
+        "TestOpsUniversalRoutingFailureIsPlatformOwned",
+        "middleware.MaybeResolveUniversal(c, key, resolver)",
+        "classifyOpsErrorLog(c, parsed.ErrorType, parsed.Message, parsed.Code, recorder.Code)"
+      ],
+      "rationale": "A pre-selection Universal failure must remain routing/platform-owned across protocol envelopes and must not disappear into client permission failures."
     },
     {
       "path": "backend/internal/handler/protocol_request.go",
@@ -167,6 +207,30 @@
         "TestCandidateEligibilityCapacityIsNotEntitlement"
       ],
       "rationale": "Behavior regressions for Candidate Eligibility SSOT."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": [
+        "fmt.Errorf(\"%w: protocol endpoint capability is invalid or conflicted\", protocolrouter.ErrNoLegalRoute)",
+        "fmt.Errorf(\"%w: account endpoint identity does not match linked capability\", protocolrouter.ErrNoLegalRoute)"
+      ],
+      "rationale": "Loaded unusable capability evidence rejects a candidate through the shared Plan error contract, without failing Universal group evaluation."
+    },
+    {
+      "path": "backend/internal/service/protocol_routing_context.go",
+      "must_contain": [
+        "return protocolrouter.Plan{}, true, fmt.Errorf(\"%w: %w\", ErrProtocolRouteUnavailable, err)"
+      ],
+      "rationale": "Preserve typed candidate rejection through the protocol planning boundary."
+    },
+    {
+      "path": "backend/internal/service/candidate_eligibility_test.go",
+      "must_contain": [
+        "TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer",
+        "TestCandidateEligibilityInvalidCapabilityIsCandidateRejection",
+        "TestCandidateEligibilityUnknownCapabilityIsNotEntitlement"
+      ],
+      "rationale": "Pin Gemini and converter candidate rejection, direct scheduler parity, capacity versus unsupported routing, and unknown capability failures."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_test.go",

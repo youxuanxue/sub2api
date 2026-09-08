@@ -2318,6 +2318,9 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 		}
 	}
 	phase = tkOpsClassifyFinalClientValidationPhase(phase, effectiveUpstreamError, routingCapacityLimited, errType, message, code, status)
+	if c != nil && c.GetBool(service.OpsRoutingInternalErrorKey) && !effectiveUpstreamError {
+		phase = "routing"
+	}
 	errorOwner = classifyOpsErrorOwner(phase, message)
 	errorSource = classifyOpsErrorSource(phase, message)
 	localClientAuthError := !effectiveUpstreamError && phase == "auth" && isOpsClientAuthError(code, msg)

@@ -431,11 +431,12 @@ describe('SupplierSourcesView', () => {
       probe_done: 0,
       upstream_models: [{ id: 'deepseek-v4-pro', type: 'chat' }, { id: 'glm-5.1', type: 'chat' }],
       normalized_models: source.models,
-      normalized_changes: [],
-      suggested_appends: [],
-      rejected_candidates: [],
-      configured_issues: [],
-      probe_results: [],
+      // Reproduce pre-fix backend JSON null empty slices (blank-screen crash).
+      normalized_changes: null as unknown as [],
+      suggested_appends: null as unknown as [],
+      rejected_candidates: null as unknown as [],
+      configured_issues: null as unknown as [],
+      probe_results: null as unknown as [],
       needs_confirmation: false,
     })
     getDiscoverJob
@@ -503,6 +504,59 @@ describe('SupplierSourcesView', () => {
     vi.useRealTimers()
   })
 
+  it('does not fabricate discovery results from an unrelated API error', async () => {
+    list.mockResolvedValueOnce([source])
+    discover.mockRejectedValueOnce(Object.assign(new Error('temporarily unavailable'), {
+      data: { retry_after: 30 },
+    }))
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="sync-error"]').text()).toContain('temporarily unavailable')
+    expect(wrapper.find('[data-test="discover-result"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
+  })
+
+  it('preserves the last discovery snapshot when polling returns an unrelated API error', async () => {
+    vi.useFakeTimers()
+    list.mockResolvedValueOnce([source])
+    discover.mockResolvedValueOnce({
+      source_id: 7,
+      job_id: 'job-poll-error',
+      probe_status: 'running',
+      probe_total: 2,
+      probe_done: 1,
+      upstream_models: [{ id: 'glm-5.1', type: 'chat' }],
+      normalized_models: source.models,
+      normalized_changes: [],
+      suggested_appends: [{ client_model_id: 'glm-5.1', upstream_model_id: 'glm-5.1', purchase_ratio: 1 }],
+      rejected_candidates: [],
+      configured_issues: [],
+      probe_results: [],
+      needs_confirmation: false,
+    })
+    getDiscoverJob.mockRejectedValueOnce(Object.assign(new Error('temporarily unavailable'), {
+      data: { retry_after: 30 },
+    }))
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    await wrapper.get('[data-test="discover-source"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="sync-error"]').text()).toContain('temporarily unavailable')
+    expect(wrapper.get('[data-test="discover-result"]').text()).toContain('glm-5.1')
+    expect(wrapper.find('[data-test="discover-needs-save"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="discover-candidate-progress"]').exists()).toBe(false)
+    expect(sync).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
   it('shows probe failure message and failed_step outside the sync-result block', async () => {
     list.mockResolvedValueOnce([source])
     discover.mockRejectedValueOnce(Object.assign(
@@ -515,9 +569,9 @@ describe('SupplierSourcesView', () => {
           probe_total: 0,
           probe_done: 0,
           upstream_models: [],
-          normalized_models: [],
+          normalized_models: null,
           normalized_changes: [],
-          suggested_appends: [],
+          suggested_appends: null,
           rejected_candidates: [],
           configured_issues: [],
           probe_results: [],

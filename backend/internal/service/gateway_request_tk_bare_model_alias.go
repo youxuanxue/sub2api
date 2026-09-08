@@ -27,8 +27,9 @@ import (
 // "claude-3-5-haiku-20241022" (versioned ⇒ natural miss; the deprecated-model
 // interceptor keeps owning it), unknown families, substrings — is returned
 // byte-identical with zero rewrites. The rewrite
-// happens at the handler throat BEFORE channel mapping / session hash /
-// scheduling / usage recording, so every downstream consumer (including the
+// happens before Universal candidate evaluation, or at the direct-key handler
+// throat BEFORE channel mapping / session hash / scheduling / usage recording,
+// so every downstream consumer (including the
 // originalModel billing key) sees only the resolved full id.
 
 // tkBareAliasFamilyPattern recognizes ids of the shape `claude-<family>(-<num>)+`:
@@ -136,8 +137,8 @@ func tkResolveBareModelAlias(model string, aliases map[string]string) (string, b
 	return resolved, ok
 }
 
-// TkApplyBareModelAlias is the handler-throat entry point (Messages and
-// CountTokens, right after the request model is parsed and before channel
+// TkApplyBareModelAlias is shared by Universal ingress and the direct-key
+// handler (Messages and CountTokens, before candidate evaluation / channel
 // mapping / session hash / scheduling). Gate: anthropic path only — platform
 // empty (no force-platform, no group) or PlatformAnthropic. On a hit it
 // surgically rewrites ONLY the body's model field (sjson), refreshes parsed

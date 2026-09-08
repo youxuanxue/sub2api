@@ -524,13 +524,15 @@ func cloneSupplierSourceProbeResult(in *SupplierSourceProbeResult) *SupplierSour
 		return emptySupplierSourceProbeResult(0)
 	}
 	out := *in
-	out.UpstreamModels = append([]SupplierUpstreamModelEntry(nil), in.UpstreamModels...)
+	// Always allocate empty (non-nil) slices so JSON encodes [] not null.
+	// Admin discover UI reads .length on these fields; null crashes the panel.
+	out.UpstreamModels = append([]SupplierUpstreamModelEntry{}, in.UpstreamModels...)
 	out.NormalizedModels = cloneSupplierSourceModels(in.NormalizedModels)
-	out.NormalizedChanges = append([]SupplierModelNormalizeChange(nil), in.NormalizedChanges...)
+	out.NormalizedChanges = append([]SupplierModelNormalizeChange{}, in.NormalizedChanges...)
 	out.SuggestedAppends = cloneSupplierSourceModels(in.SuggestedAppends)
-	out.RejectedCandidates = append([]SupplierProbeRejectedCandidate(nil), in.RejectedCandidates...)
-	out.ConfiguredIssues = append([]SupplierProbeConfiguredIssue(nil), in.ConfiguredIssues...)
-	out.ProbeResults = append([]SupplierProbeResult(nil), in.ProbeResults...)
+	out.RejectedCandidates = append([]SupplierProbeRejectedCandidate{}, in.RejectedCandidates...)
+	out.ConfiguredIssues = append([]SupplierProbeConfiguredIssue{}, in.ConfiguredIssues...)
+	out.ProbeResults = append([]SupplierProbeResult{}, in.ProbeResults...)
 	return &out
 }
 

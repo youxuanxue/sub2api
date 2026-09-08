@@ -393,7 +393,7 @@
             }) }}
           </p>
           <p
-            v-if="discoverResult.probe_status === 'running'"
+            v-if="discovering && discoverResult.probe_status === 'running'"
             data-test="discover-candidate-progress"
             class="text-sm text-amber-700"
           >
@@ -997,7 +997,15 @@ function supplierDiscoverResultFromError(error: unknown): SupplierSourceProbeRes
   const data = (error as { data?: unknown }).data
   if (!data || typeof data !== 'object') return null
   const candidate = data as Partial<SupplierSourceProbeResult>
-  if (!Array.isArray(candidate.normalized_models) || !Array.isArray(candidate.suggested_appends)) return null
+  // Legacy null arrays are valid; absent fields identify an unrelated API error.
+  if (candidate.normalized_models !== null && !Array.isArray(candidate.normalized_models)) return null
+  if (candidate.suggested_appends !== null && !Array.isArray(candidate.suggested_appends)) return null
+  return normalizeSupplierProbeResult(candidate)
+}
+
+function normalizeSupplierProbeResult(
+  candidate: Partial<SupplierSourceProbeResult> | SupplierSourceProbeResult,
+): SupplierSourceProbeResult {
   return {
     source_id: typeof candidate.source_id === 'number' ? candidate.source_id : 0,
     job_id: typeof candidate.job_id === 'string' ? candidate.job_id : undefined,
@@ -1009,10 +1017,11 @@ function supplierDiscoverResultFromError(error: unknown): SupplierSourceProbeRes
       : 'failed',
     probe_total: typeof candidate.probe_total === 'number' ? candidate.probe_total : 0,
     probe_done: typeof candidate.probe_done === 'number' ? candidate.probe_done : 0,
+    // Backend historically cloned empty slices to nil → JSON null; never crash on .length.
     upstream_models: Array.isArray(candidate.upstream_models) ? candidate.upstream_models : [],
-    normalized_models: candidate.normalized_models,
+    normalized_models: Array.isArray(candidate.normalized_models) ? candidate.normalized_models : [],
     normalized_changes: Array.isArray(candidate.normalized_changes) ? candidate.normalized_changes : [],
-    suggested_appends: candidate.suggested_appends,
+    suggested_appends: Array.isArray(candidate.suggested_appends) ? candidate.suggested_appends : [],
     rejected_candidates: Array.isArray(candidate.rejected_candidates) ? candidate.rejected_candidates : [],
     configured_issues: Array.isArray(candidate.configured_issues) ? candidate.configured_issues : [],
     probe_results: Array.isArray(candidate.probe_results) ? candidate.probe_results : [],
@@ -1038,7 +1047,7 @@ async function waitDiscoverJob(
   sourceID: number,
   started: SupplierSourceProbeResult,
 ): Promise<SupplierSourceProbeResult> {
-  let current = started
+  let current = normalizeSupplierProbeResult(started)
   discoverResult.value = current
   const jobID = current.job_id
   if (!jobID || current.probe_status !== 'running') {
@@ -1047,7 +1056,9 @@ async function waitDiscoverJob(
   const deadline = Date.now() + 15 * 60 * 1000
   while (Date.now() < deadline) {
     await new Promise(resolve => window.setTimeout(resolve, 1000))
-    current = await adminAPI.supplierSources.getDiscoverJob(sourceID, jobID)
+    current = normalizeSupplierProbeResult(
+      await adminAPI.supplierSources.getDiscoverJob(sourceID, jobID),
+    )
     discoverResult.value = current
     if (current.probe_status === 'completed') {
       return current

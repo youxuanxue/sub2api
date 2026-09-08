@@ -222,14 +222,15 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	}
 	if capability.CapabilityKey == "" || capability.Revision <= 0 ||
 		!protocolCapabilityHasVerifiedRoutingEvidence(capability) {
-		return protocolrouter.AccountSnapshot{}, errors.New("protocol endpoint capability is invalid or conflicted")
+		// Loaded but unusable evidence rejects this candidate, not the whole pool.
+		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: protocol endpoint capability is invalid or conflicted", protocolrouter.ErrNoLegalRoute)
 	}
 	identity, governed, err := BuildProtocolEndpointIdentity(account)
 	if err != nil {
 		return protocolrouter.AccountSnapshot{}, err
 	}
 	if !governed || identity.Key() != capability.CapabilityKey {
-		return protocolrouter.AccountSnapshot{}, errors.New("account endpoint identity does not match linked capability")
+		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: account endpoint identity does not match linked capability", protocolrouter.ErrNoLegalRoute)
 	}
 	protocols := routingSupportedProtocols(account)
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
