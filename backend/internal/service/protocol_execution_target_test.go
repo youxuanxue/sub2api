@@ -397,6 +397,59 @@ func TestProtocolExecutionPlanOverridesLegacyChatRouting(t *testing.T) {
 	}
 }
 
+func TestProtocolChatIdentityAntigravityRelayPreservesPublicModelForHop(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const publicModel = "gemini-3.6-flash"
+	const providerModel = "gemini-3.6-flash-tiered"
+	body := []byte(`{"model":"gemini-3.6-flash","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	upstream := &protocolTargetHTTPUpstream{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_relay","object":"chat.completion","model":"gemini-3.6-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`,
+		)),
+	}}}
+	svc := protocolTargetTestService(upstream)
+	account := &Account{
+		ID: 62, Platform: PlatformAntigravity, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "relay-key", "base_url": "https://api-us4.tokenkey.dev",
+			"model_mapping": map[string]any{publicModel: providerModel},
+		},
+		Extra: map[string]any{},
+	}
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolGeminiGenerateContent)
+	value, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
+		ctx context.Context, account *Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest,
+	) (any, error) {
+		if plan.AdapterID() != protocolrouter.AdapterChatIdentity || plan.ResolvedModel() != providerModel {
+			t.Fatalf("unexpected plan: adapter=%s model=%s", plan.AdapterID(), plan.ResolvedModel())
+		}
+		return svc.ForwardAsChatCompletionsDispatched(ctx, c, account, request.Body(), "", "")
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSelectedProtocol: %v", err)
+	}
+	if len(upstream.requests) != 1 {
+		t.Fatalf("upstream requests = %d, want 1", len(upstream.requests))
+	}
+	if got := upstream.requests[0].URL.String(); got != "https://api-us4.tokenkey.dev/v1/chat/completions" {
+		t.Fatalf("edge endpoint = %q", got)
+	}
+	if got := gjson.GetBytes(readProtocolTargetRequestBody(t, upstream.requests[0]), "model").String(); got != publicModel {
+		t.Fatalf("edge received %q, want public model %q", got, publicModel)
+	}
+	result, ok := value.(*OpenAIForwardResult)
+	if !ok || result == nil {
+		t.Fatalf("result type = %T, want *OpenAIForwardResult", value)
+	}
+	if result.UpstreamModel != providerModel || result.Model != publicModel {
+		t.Fatalf("usage models = %q/%q", result.Model, result.UpstreamModel)
+	}
+}
+
 func TestProtocolExecutionPlanOverridesLegacyMessagesRouting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"claude-client","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)

@@ -516,9 +516,25 @@
         "func resolveGeminiForwardModels(account *Account, requestedModel string) (mappedModel, requestModel string)",
         "account.Platform == PlatformAntigravity",
         "strings.TrimSpace(account.GetCredential(\"base_url\")) != \"\"",
-        "requestModel = requestedModel"
+        "func antigravityRelayRequestModel(",
+        "return requestedModel"
       ],
       "rationale": "Antigravity API-key accounts with a base URL are prod-to-edge relays. The relay hop must keep the public model key so the edge can apply its own canonical mapping; sending the prod-mapped wire target makes edge scheduling reject hidden targets such as gemini-3.6-flash-tiered before upstream. This companion owns that distinction while preserving mappedModel for provider attribution and every non-relay account."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "antigravityRelayRequestModel(account, originalModel, upstreamModel)",
+        "ReplaceModelInBody(body, requestModel)"
+      ],
+      "rationale": "Protocol ChatIdentity on an Antigravity relay must reuse the public model hop rule while preserving the plan-resolved provider model for billing. Native Gemini converter coverage alone does not exercise this raw chat path."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution_target_test.go",
+      "must_contain": [
+        "TestProtocolChatIdentityAntigravityRelayPreservesPublicModelForHop"
+      ],
+      "rationale": "The real protocol planner and raw chat transport must keep the public relay request model, the planned endpoint, and the provider model in usage attribution."
     },
     {
       "path": "backend/internal/service/gemini_relay_model_tk_test.go",
