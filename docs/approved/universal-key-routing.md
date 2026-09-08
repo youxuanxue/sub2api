@@ -1,7 +1,7 @@
 ---
 title: Universal Key — 一把钥匙通全平台/全模型/全模态
 status: approved
-approved_by: xuejiao (对话审批 2026-06-19)
+approved_by: feng (对话审批 2026-06-19)
 approved_at: 2026-06-19
 authors: [agent]
 created: 2026-06-19
