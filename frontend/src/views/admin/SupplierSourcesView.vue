@@ -605,6 +605,7 @@ const syncResult = ref<SupplierSourceSyncResult | null>(null)
 const discoverResult = ref<SupplierSourceProbeResult | null>(null)
 const validateResult = ref<SupplierSourceValidateResult | null>(null)
 const discoverNeedsSave = ref(false)
+const discoverDraftScrolled = ref(false)
 const syncError = ref('')
 const saveError = ref('')
 
@@ -727,6 +728,7 @@ function resetForm(): void {
   discoverResult.value = null
   validateResult.value = null
   discoverNeedsSave.value = false
+  discoverDraftScrolled.value = false
   syncError.value = ''
   saveError.value = ''
   syncDiscoverChannelScopedForSource(null)
@@ -750,6 +752,7 @@ function selectSource(source: SupplierSource): void {
   discoverResult.value = null
   validateResult.value = null
   discoverNeedsSave.value = false
+  discoverDraftScrolled.value = false
   syncError.value = ''
   saveError.value = ''
   syncDiscoverChannelScopedForSource(source)
@@ -791,6 +794,7 @@ function copySelected(): void {
   discoverResult.value = null
   validateResult.value = null
   discoverNeedsSave.value = false
+  discoverDraftScrolled.value = false
   syncError.value = ''
   saveError.value = ''
   Object.assign(form, {
@@ -962,7 +966,9 @@ function draftDiscoverIntoForm(result: SupplierSourceProbeResult): void {
   applyDiscoverToForm(result)
   discoverNeedsSave.value = true
   const afterCount = form.models.filter(model => model.client_model_id.trim()).length
-  if (afterCount > beforeCount) {
+  // Scroll once when drafts first appear — not on every mid-probe append (avoids viewport thrash).
+  if (afterCount > beforeCount && !discoverDraftScrolled.value) {
+    discoverDraftScrolled.value = true
     void nextTick(() => {
       const el = modelsEditorEl.value
       if (el && typeof el.scrollIntoView === 'function') {
@@ -979,6 +985,7 @@ async function discoverSelected(): Promise<void> {
   discoverResult.value = null
   validateResult.value = null
   discoverNeedsSave.value = false
+  discoverDraftScrolled.value = false
   syncError.value = ''
   try {
     const started = await adminAPI.supplierSources.discover(
