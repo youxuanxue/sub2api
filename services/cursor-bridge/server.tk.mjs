@@ -10,6 +10,9 @@ const secret = process.env.CURSOR_BRIDGE_SECRET;
 if (!secret || Buffer.byteLength(secret) < 32) throw new Error('CURSOR_BRIDGE_SECRET must contain at least 32 bytes');
 if (process.env.CURSOR_AGENT_STATE_DIR) throw new Error('Persistent run recovery is not enabled for TokenKey');
 process.env.CURSOR_AGENT_ALLOW_ENV_KEY = '0';
+// CLI and container entrypoints share the initial single-account capacity.
+process.env.CURSOR_AGENT_MAX_ACTIVE_SESSIONS ||= '4';
+process.env.CURSOR_AGENT_MAX_SESSIONS_PER_CREDENTIAL ||= '4';
 const { server, setRequestGuard, setMessageValidator, setUsageEstimator, setSdkStore, Cursor, JsonlLocalAgentStore } = await import('./upstream/server.mjs');
 // Always override the SDK's persistent home store, including text-only runs.
 const storeDirectory = mkdtempSync(join(tmpdir(), 'tokenkey-cursor-'));

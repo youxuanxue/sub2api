@@ -54,6 +54,29 @@ implementation and verification evidence to be reviewed.
   Abort disconnected requests; expired or lost continuations return an explicit
   failure and never replay client tools.
 
+## Rollout isolation
+
+The 2026-09-08 instruction to reduce rollout impact authorizes these safeguards:
+
+- The optional Bridge cannot be a gateway startup dependency. Its deployment
+  stays internal and has explicit memory, CPU and process limits, protected by
+  `scripts/checks/test_cursor_deployment.py` in preflight.
+- CLI and Docker share the production entrypoint's bounded session defaults.
+  Suspended runs count toward capacity; continuation and draining retain the
+  existing harness owner. These limits do not claim production load capacity.
+- Cursor credential expiry remains a hard account runtime gate independently
+  of optional auto-pause. Invalid SDK credentials cannot become authorized.
+  Reauthorization preserves persisted pause state because the existing account
+  model does not distinguish an operator pause from expiry auto-pause.
+- Shared protocol and cache-billing fixes remain enabled. Regression coverage
+  must exercise existing supplies with Cursor unconfigured, real tool wire
+  conversion, and disjoint cache buckets through the billing command. Rates,
+  historical rows and the approved Cursor estimate policy remain unchanged.
+- Validate existing newapi text/media adapters and video terminal/refund paths
+  before enabling Cursor. Gateway rollout and Cursor admission are separate;
+  an all-model Chat result does not prove sustained load or distributed Edge
+  operation. Real-account region checks remain specific to account and egress.
+
 ## Validation
 
 Run the original bridge tests before local patches, then exercise authorization

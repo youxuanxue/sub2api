@@ -3293,6 +3293,16 @@ else
     echo "  ok: frontend security workflows share the bounded, fail-closed audit owner"
 fi
 
+# ---- sub2api: optional Cursor deployment isolation --------------------------
+echo ""
+echo "=== sub2api: Cursor deployment isolation ==="
+if ! python3 -m unittest scripts.checks.test_cursor_deployment; then
+    echo "  FAIL: Cursor deployment must not block gateway startup or exhaust host resources"
+    errors=$((errors + 1))
+else
+    echo "  ok: optional Cursor supply has independent startup and bounded resources"
+fi
+
 # ---- sub2api: Node version alignment -----------------------------------------
 # CI frontend jobs must build/test on the same Node major as the release
 # Dockerfile (ARG NODE_IMAGE). Drift → CI validates on a different runtime

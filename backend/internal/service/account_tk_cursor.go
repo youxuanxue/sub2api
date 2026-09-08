@@ -54,8 +54,8 @@ func (s *adminServiceImpl) SaveCursorAccount(ctx context.Context, create *Create
 	} else if update != nil && update.GroupIDs != nil {
 		groupIDs = *update.GroupIDs
 	}
-	if len(groupIDs) == 0 {
-		return nil, errors.New("cursor requires a dedicated service group")
+	if len(groupIDs) != 1 {
+		return nil, errors.New("cursor requires exactly one dedicated service group")
 	}
 	groups, err := tx.Group.Query().Where(entgroup.IDIn(groupIDs...)).Order(dbent.Asc(entgroup.FieldID)).ForUpdate().All(opCtx)
 	if err != nil {
@@ -83,25 +83,15 @@ func (s *adminServiceImpl) SaveCursorAccount(ctx context.Context, create *Create
 		}
 	}
 	var account *Account
-	restoreExpired := false
 	if accountID > 0 {
-		previous, loadErr := s.accountRepo.GetByID(opCtx, accountID)
-		if loadErr != nil {
-			return nil, loadErr
-		}
-		restoreExpired = previous.AutoPauseOnExpired && previous.ExpiresAt != nil && previous.ExpiresAt.Before(time.Now()) && previous.Status == StatusActive
+		// Expiry and an operator pause share schedulable=false. Replacing a key
+		// cannot establish why the account was paused, so preserve that state.
 		account, err = s.UpdateAccount(opCtx, accountID, update)
 	} else {
 		account, err = s.CreateAccount(opCtx, create)
 	}
 	if err != nil {
 		return nil, err
-	}
-	if restoreExpired {
-		if err = tx.Account.UpdateOneID(accountID).SetSchedulable(true).Exec(opCtx); err != nil {
-			return nil, err
-		}
-		account.Schedulable = true
 	}
 	if _, err = tx.Group.Update().Where(entgroup.IDIn(groupIDs...)).SetAllowMessagesDispatch(true).Save(opCtx); err != nil {
 		return nil, err
@@ -121,8 +111,8 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client *
 	if strings.TrimSpace(input.Name) == "" || len(input.Name) > 100 {
 		return nil, errors.New("cursor account name is required (maximum 100 characters)")
 	}
-	if len(input.GroupIDs) == 0 {
-		return nil, errors.New("select a Cursor service group")
+	if len(input.GroupIDs) != 1 {
+		return nil, errors.New("select exactly one Cursor service group")
 	}
 	for _, id := range input.GroupIDs {
 		group, err := admin.GetGroup(ctx, id)

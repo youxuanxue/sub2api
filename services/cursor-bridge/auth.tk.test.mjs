@@ -18,8 +18,8 @@ function fixture(t, options) {
   t.after(() => authorizations.close());
   return {
     authorizations, get options() { return loginOptions; },
-    async finish() {
-      finish({ apiKey: 'secret-user-key', email: 'test@example.invalid', apiKeyExpiresAtMs: Date.now() + 3_600_000 });
+    async finish(credentials = { apiKey: 'secret-user-key', email: 'test@example.invalid', apiKeyExpiresAtMs: Date.now() + 3_600_000 }) {
+      finish(credentials);
       await new Promise(resolve => setImmediate(resolve));
     },
   };
@@ -81,6 +81,23 @@ test('authorization session cap and key TTL validation reject before minting', a
   await assert.rejects(f.authorizations.start('admin:1', { keyTtlMs: 0 }), { status: 400 });
   await f.authorizations.start('admin:1');
   await assert.rejects(f.authorizations.start('admin:2'), { status: 429 });
+});
+
+test('invalid and expired SDK credentials never become authorized', async t => {
+  for (const credentials of [
+    { apiKey: 'expired-test-key', apiKeyExpiresAtMs: Date.now() - 1 },
+    { apiKey: 'missing-expiry-test-key' },
+    { apiKey: '', apiKeyExpiresAtMs: Date.now() + 60_000 },
+  ]) {
+    const f = fixture(t);
+    const session = await f.authorizations.start('admin:1');
+    await f.finish(credentials);
+    const status = f.authorizations.status(session.id, 'admin:1');
+    assert.equal(status.state, 'failed');
+    assert.equal(status.models, undefined);
+    assert.equal(status.key_expires_at, undefined);
+    assert.throws(() => f.authorizations.claim(session.id, 'admin:1'), { status: 409 });
+  }
 });
 
 test('internal HTTP authentication is independent of the Cursor API key', async t => {

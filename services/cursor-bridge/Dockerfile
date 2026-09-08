@@ -9,9 +9,7 @@ COPY upstream ./upstream
 COPY *.mjs package.json VENDORED_FROM.md ./
 ENV CURSOR_AGENT_SIDECAR_HOST=0.0.0.0 \
     CURSOR_AGENT_SIDECAR_PORT=3927 \
-    CURSOR_AGENT_WORKSPACE=/tmp/cursor-workspace \
-    CURSOR_AGENT_MAX_ACTIVE_SESSIONS=32 \
-    CURSOR_AGENT_MAX_SESSIONS_PER_CREDENTIAL=4
+    CURSOR_AGENT_WORKSPACE=/tmp/cursor-workspace
 USER node
 EXPOSE 3927
 HEALTHCHECK --interval=30s --timeout=3s CMD node -e "fetch('http://127.0.0.1:3927/health').then(async r=>{if(!r.ok || !(await r.json()).accepting)process.exit(1)}).catch(()=>process.exit(1))"

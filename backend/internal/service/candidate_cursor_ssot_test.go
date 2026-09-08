@@ -57,6 +57,11 @@ func TestCursorCandidateRuntimeAndCapabilityGates(t *testing.T) {
 	}{
 		{"healthy", func(*Account) {}, nil},
 		{"expired", func(a *Account) { past := time.Now().Add(-time.Hour); a.ExpiresAt = &past; a.AutoPauseOnExpired = true }, ErrUniversalCapacityUnavailable},
+		{"expired_auto_pause_off", func(a *Account) {
+			past := time.Now().Add(-time.Hour)
+			a.ExpiresAt = &past
+			a.AutoPauseOnExpired = false
+		}, ErrUniversalCapacityUnavailable},
 		{"disabled", func(a *Account) { a.Schedulable = false }, ErrUniversalCapacityUnavailable},
 		{"cooldown", func(a *Account) { until := time.Now().Add(time.Hour); a.RateLimitResetAt = &until }, ErrUniversalCapacityUnavailable},
 		{"no_credential", func(a *Account) { delete(a.Credentials, "api_key") }, ErrUniversalCapacityUnavailable},

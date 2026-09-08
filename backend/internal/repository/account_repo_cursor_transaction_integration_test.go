@@ -54,3 +54,44 @@ func TestCursorCreateAndGroupBindShareOuterTransaction(t *testing.T) {
 		})
 	}
 }
+
+func TestCursorReconnectPreservesPersistedPause(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client := testEntClient(t)
+	repo := newAccountRepositoryWithSQL(client, integrationDB, nil, nil)
+	groups := newGroupRepositoryWithSQL(client, integrationDB)
+	admin := service.NewAdminService(nil, groups, repo, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	group, err := client.Group.Create().SetName(fmt.Sprintf("cursor-renew-%d", time.Now().UnixNano())).SetPlatform(service.PlatformNewAPI).Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id=$1", group.ID)
+	})
+	for _, paused := range []bool{false, true} {
+		past := time.Now().Add(-time.Hour)
+		account := &service.Account{Name: fmt.Sprintf("cursor-renew-%d", time.Now().UnixNano()),
+			Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14,
+			Status: service.StatusActive, Schedulable: !paused, AutoPauseOnExpired: true, ExpiresAt: &past,
+			Extra:       map[string]any{service.CursorSourceExtraKey: "cursor"},
+			Credentials: map[string]any{"api_key": "test-only", "base_url": "http://cursor-bridge:3927", "api_base_urls": map[string]any{"anthropic": "http://cursor-bridge:3927"}, "protocol_endpoints_exclusive": true}}
+		require.NoError(t, repo.Create(ctx, account))
+		ids := []int64{group.ID}
+		require.NoError(t, repo.BindGroups(ctx, account.ID, ids))
+		future := time.Now().Add(time.Hour).Unix()
+		updated, err := admin.SaveCursorAccount(ctx, nil, &service.UpdateAccountInput{ExpiresAt: &future, GroupIDs: &ids}, account.ID)
+		require.NoError(t, err)
+		require.Equal(t, !paused, updated.Schedulable)
+		require.Equal(t, !paused, updated.IsSchedulable())
+		loaded, err := repo.GetByID(ctx, account.ID)
+		require.NoError(t, err)
+		require.Equal(t, !paused, loaded.Schedulable)
+		require.Equal(t, future, loaded.ExpiresAt.Unix())
+		// Free the dedicated group before exercising the other pause state.
+		require.NoError(t, repo.BindGroups(ctx, account.ID, nil))
+		t.Cleanup(func() {
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id=$1", account.ID)
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id=$1", account.ID)
+		})
+	}
+}

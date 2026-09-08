@@ -70,6 +70,10 @@ export class CursorAuthorizations {
       },
     })).then(async credentials => {
       if (session.controller.signal.aborted) return;
+      if (typeof credentials?.apiKey !== 'string' || !credentials.apiKey.trim() ||
+          !Number.isFinite(credentials.apiKeyExpiresAtMs) || credentials.apiKeyExpiresAtMs <= this.now()) {
+        throw failure(502, 'Cursor returned an expired or invalid credential');
+      }
       session.credentials = credentials;
       const models = await this.cursor.models.list({ apiKey: credentials.apiKey });
       if (session.controller.signal.aborted) return;

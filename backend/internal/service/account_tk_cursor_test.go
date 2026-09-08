@@ -34,7 +34,7 @@ func (s *cursorAdminStub) SaveCursorAccount(_ context.Context, c *CreateAccountI
 }
 
 func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T) {
-	for _, scenario := range []string{"create", "reconnect", "save_failure", "expired", "wrong_group", "wrong_account"} {
+	for _, scenario := range []string{"create", "reconnect", "save_failure", "expired", "wrong_group", "multiple_groups", "wrong_account"} {
 		t.Run(scenario, func(t *testing.T) {
 			admin := &cursorAdminStub{group: &Group{Name: "Cursor", Platform: PlatformNewAPI}}
 			input := CursorAccountInput{SessionID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Name: "Cursor", GroupIDs: []int64{2}}
@@ -57,6 +57,9 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 			}
 			if scenario == "wrong_group" {
 				admin.group.Platform = PlatformOpenAI
+			}
+			if scenario == "multiple_groups" {
+				input.GroupIDs = []int64{2, 3}
 			}
 			claims, settlements := 0, 0
 			settledSuccess := false
@@ -87,7 +90,7 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 			} else {
 				require.Error(t, err)
 			}
-			if scenario == "wrong_group" || scenario == "wrong_account" {
+			if scenario == "wrong_group" || scenario == "wrong_account" || scenario == "multiple_groups" {
 				require.Zero(t, claims)
 				require.Zero(t, settlements)
 				return

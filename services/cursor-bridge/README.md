@@ -51,7 +51,9 @@ Build from this directory (never from the vendored direct entrypoint):
 docker build -t tokenkey-cursor-bridge:review services/cursor-bridge
 ```
 
-Publish and pin the reviewed image digest using the normal release workflow.
+Build and publish a separate Bridge image and pin its reviewed digest. The
+TokenKey release workflow publishes the gateway image; it does not publish or
+enable this optional Bridge.
 `deploy/aws/stage0/docker-compose.cursor.yml` is an optional overlay for the
 existing Stage0 compose stack. Supply these values through its private environment:
 
@@ -61,14 +63,23 @@ existing Stage0 compose stack. Supply these values through its private environme
 | `CURSOR_BRIDGE_URL` | Backend: exact internal origin, normally `http://cursor-bridge:3927` |
 | `CURSOR_BRIDGE_SECRET` | Backend and bridge: same random secret, at least 32 bytes |
 | `CURSOR_RELAY_SECRET` | Prod and enabled Edge: same independent secret, at least 32 bytes, when relaying |
-| `CURSOR_AGENT_MAX_ACTIVE_SESSIONS` | Bridge: default 32, includes suspended tool runs |
+| `CURSOR_AGENT_MAX_ACTIVE_SESSIONS` | Bridge: default 4, includes suspended tool runs |
 | `CURSOR_AGENT_MAX_SESSIONS_PER_CREDENTIAL` | Bridge: default 4 |
 
 The overlay exposes no bridge port. It uses the existing private network, a
-non-root process, read-only filesystem, tmpfs, 2 GiB memory limit, log rotation
+non-root process, read-only filesystem, tmpfs, 2 GiB memory limit, one CPU,
+256-process limit, log rotation
 and a 35-second stop grace period. `/health` is public on the private network;
 all other routes require internal authentication and a trusted owner. Backend
 requests must match the configured bridge URL before a secret is attached.
+Gateway startup has no dependency on Bridge health. Start or replace the Bridge
+independently; keep Cursor admission disabled until its health and account probe
+succeed. A failed Bridge must not prevent the remaining gateway supplies from
+starting. The deployment contract and mutation tests run in preflight.
+
+The production entrypoint owns the session defaults for both CLI and Docker.
+These limits bound resource consumption; they are not a measured throughput
+promise. Check host headroom and latency before increasing them.
 
 Initial topology is one account, one bridge instance and a dedicated group on
 one enabled Edge (or a single backend directly connected to the bridge). Do not
@@ -77,6 +88,11 @@ bridge, or configure cross-family model remapping. Tool sessions are bound to
 the original user/API key/account and credential. Prod-to-Edge forwarding signs
 the originating identity; ordinary client headers cannot impersonate it.
 Live distributed Prod-to-Edge deployment has not been verified by the local tests.
+Authorization import accepts exactly one service group. Key expiry remains a
+runtime hard gate even if account auto-pause is disabled. Reauthorization
+preserves the persisted scheduling state: an already paused account requires
+the existing resume action after its credential is replaced. Renew an active
+account before expiry to avoid that interruption, after draining its tool runs.
 
 Runs have a 15-minute deadline and suspended calls expire. A restart invalidates
 continuations; stale, foreign or replayed tool results fail explicitly. No tool
@@ -92,6 +108,13 @@ rollback. Do not remove an active bridge while expecting tool continuations to
 survive. Production deployment is a separate reviewed operation.
 
 ## Usage and pricing
+
+The shared Anthropic-to-OpenAI usage conversion now preserves ordinary input,
+cache-read and cache-write buckets separately through settlement. Existing
+Messages supplies can consequently charge ordinary input previously lost by
+double cache subtraction. Rates and historical rows are not rewritten. The
+rollout regression exercises both buffered and streamed responses through the
+real billing command, for ordinary supplies and Cursor.
 
 The bridge reports per-HTTP-turn deltas from the SDK's cumulative usage. Some
 SDK runs report no usage while waiting for client tools. Those turns estimate

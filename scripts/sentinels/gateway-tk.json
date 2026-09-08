@@ -3,6 +3,16 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/account.go",
+      "must_contain": ["(a.AutoPauseOnExpired || a.IsCursor())"],
+      "rationale": "Cursor SDK credential expiry remains a hard runtime gate even when optional account auto-pause is disabled."
+    },
+    {
+      "path": "backend/internal/service/cursor_rollout_regression_test.go",
+      "must_contain": ["TestCursorExpiryCannotBeDisabledAndRenewalPreservesPause", "TestNativeMessagesCacheUsageReachesBillingOnce", "TestMessagesToolConversionsKeepExistingSupplyAndWire"],
+      "rationale": "Guard existing supply conversion, cache settlement and Cursor credential expiry through the real owners."
+    },
+    {
       "path": "backend/internal/service/account_supported_protocols.go",
       "must_contain": ["return cursorMappedModelAllowed(account, requestedModel, resolvedModel)"],
       "rationale": "Every Cursor model family must satisfy the transport catalog contract before the shared planner admits a candidate."
