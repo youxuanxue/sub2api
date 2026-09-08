@@ -156,7 +156,7 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 			t.Fatalf("raw owner declares model_id %q more than once", modelID)
 		}
 		out.listedIDs[modelID] = struct{}{}
-		displayAllowed := entry.Display && isCatalogModelRecommended(modelID)
+		displayAllowed := entry.Display && isCatalogModelRecommended(modelID) && !isTkCuratedNewAPIModelLegacyTokenPlanAlias(modelID)
 		if displayAllowed {
 			out.displayIDs[modelID] = struct{}{}
 		}

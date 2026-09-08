@@ -222,16 +222,16 @@ func TestMePricingCatalog_TiersFromPublicCatalog(t *testing.T) {
 
 	maxTok := func(v int) *int { return &v }
 	catalogModel := PublicCatalogModel{
-		ModelID:      "qwen-plus",
+		ModelID:      "qwen3.7-plus",
 		Vendor:       "dashscope",
 		Capabilities: []string{},
 		Pricing: PublicCatalogPricing{
 			Currency:          "USD",
-			InputPer1KTokens:  0.0001194,
-			OutputPer1KTokens: 0.0002985,
+			InputPer1KTokens:  0.0002985,
+			OutputPer1KTokens: 0.0011940,
 			Tiers: []PublicCatalogTier{
-				{MinTokens: 0, MaxTokens: maxTok(128000), InputPer1KTokens: 0.0001194, OutputPer1KTokens: 0.0002985, CacheReadPer1K: 0.0001194},
-				{MinTokens: 128000, MaxTokens: nil, InputPer1KTokens: 0.0007164, OutputPer1KTokens: 0.0071642},
+				{MinTokens: 0, MaxTokens: maxTok(256000), InputPer1KTokens: 0.0002985, OutputPer1KTokens: 0.0011940, CacheReadPer1K: 0.0002985},
+				{MinTokens: 256000, MaxTokens: nil, InputPer1KTokens: 0.0011940, OutputPer1KTokens: 0.0071642},
 			},
 		},
 	}
@@ -241,7 +241,7 @@ func TestMePricingCatalog_TiersFromPublicCatalog(t *testing.T) {
 		&fakeChannelLister{channels: []AvailableChannel{
 			mkChannelWithModel(100, "ch1",
 				[]AvailableGroupRef{{ID: 10, Name: "Pro", Platform: "newapi", RateMultiplier: 1.5}},
-				[]SupportedModel{mkSupportedModel("qwen-plus", "newapi", mkPricing(0.0000001194, 0.0000002985, 0))},
+				[]SupportedModel{mkSupportedModel("qwen3.7-plus", "newapi", mkPricing(0.0000002985, 0.0000011940, 0))},
 			),
 		}},
 		&fakeCatalogProvider{resp: &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{catalogModel}}},
@@ -256,15 +256,15 @@ func TestMePricingCatalog_TiersFromPublicCatalog(t *testing.T) {
 	// tier 1: bounded, verbatim (no ×1.5 scaling — official list price).
 	assert.Equal(t, 0, tiers[0].MinTokens)
 	require.NotNil(t, tiers[0].MaxTokens)
-	assert.Equal(t, 128000, *tiers[0].MaxTokens)
+	assert.Equal(t, 256000, *tiers[0].MaxTokens)
 	require.NotNil(t, tiers[0].InputPer1K)
-	assert.InDelta(t, 0.0001194, *tiers[0].InputPer1K, 1e-12, "verbatim from catalog, not scaled by 1.5")
+	assert.InDelta(t, 0.0002985, *tiers[0].InputPer1K, 1e-12, "verbatim from catalog, not scaled by 1.5")
 	require.NotNil(t, tiers[0].CacheReadPer1K)
-	assert.InDelta(t, 0.0001194, *tiers[0].CacheReadPer1K, 1e-12)
+	assert.InDelta(t, 0.0002985, *tiers[0].CacheReadPer1K, 1e-12)
 
 	// top tier: open-ended, costlier; no cache-read → pointer stays nil.
 	assert.Nil(t, tiers[1].MaxTokens)
-	assert.InDelta(t, 0.0007164, *tiers[1].InputPer1K, 1e-12)
+	assert.InDelta(t, 0.0011940, *tiers[1].InputPer1K, 1e-12)
 	assert.Nil(t, tiers[1].CacheReadPer1K)
 }
 
