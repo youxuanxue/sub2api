@@ -97,6 +97,23 @@ class ReleaseRolloutSummaryTest(unittest.TestCase):
         # HEAD_REF is "HEAD" in local mode; should appear in Range line
         self.assertIn("`HEAD`", out)
 
+    def test_many_tags_preserve_latest_release_and_local_ranges(self) -> None:
+        # Exceed pipe capacity so an early-closing consumer exposes SIGPIPE.
+        commit = _git(self.repo, "rev-parse", "HEAD").strip()
+        subprocess.run(
+            ["git", "update-ref", "--stdin"],
+            cwd=self.repo, env=_clean_env(),
+            input="".join(
+                f"create refs/tags/v2.0.{index} {commit}\n"
+                for index in range(8192)
+            ),
+            capture_output=True, text=True, check=True,
+        )
+        release = self._run("--mode", "release")
+        self.assertIn("`v2.0.8190` → `v2.0.8191` (0 commits)", release)
+        local = self._run("--mode", "local")
+        self.assertIn("`v2.0.8191` → `HEAD` (0 commits)", local)
+
     def test_deterministic(self) -> None:
         a = self._run("--mode", "release")
         b = self._run("--mode", "release")

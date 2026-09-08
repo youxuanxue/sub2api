@@ -134,6 +134,12 @@ func accountModelMappingOverrideAccounts() []*Account {
 		{
 			Platform:    PlatformNewAPI,
 			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeOpenAI,
+			Credentials: map[string]any{"base_url": newapiintegration.NVIDIABuildBaseURL},
+		},
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
 			ChannelType: newapiconstant.ChannelTypeVolcEngine,
 			Credentials: map[string]any{
 				"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
@@ -190,6 +196,9 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 	if account == nil {
 		return nil
 	}
+	if isNewAPINVIDIABuildAccount(account) {
+		return tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
+	}
 	if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
 		ids, _ := vertexCapabilityProfileModelMappingIDs(account.VertexCapabilityProfile())
 		return ids
@@ -228,6 +237,9 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	if account == nil {
 		return nil
+	}
+	if isNewAPINVIDIABuildAccount(account) {
+		return tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		ids := tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())

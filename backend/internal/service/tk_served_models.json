@@ -6,6 +6,10 @@
       "channel_type": 43,
       "scopes": [
         {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
+        {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
         },
@@ -23,6 +27,10 @@
       "display": true,
       "channel_type": 43,
       "scopes": [
+        {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
@@ -85,6 +93,10 @@
       "display": true,
       "channel_type": 25,
       "scopes": [
+        {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
@@ -510,6 +522,10 @@
       "display": true,
       "scopes": [
         {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
+        {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
         },
@@ -740,6 +756,10 @@
       "display": true,
       "price_owner": "deepseek-v4-pro",
       "scopes": [
+        {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
