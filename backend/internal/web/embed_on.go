@@ -103,6 +103,11 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 			cleanPath = "index.html"
 		}
 
+		// Try local override first (allows local files in data/public to serve before dist / SPA fallback)
+		if s.tryServeOverride(c, cleanPath) {
+			return
+		}
+
 		// Static asset URLs are content-hashed. A missing asset means the client is
 		// running a stale entry/chunk reference, not a SPA route.
 		if isStaticAssetPath(cleanPath) && !s.fileExists(cleanPath) {
@@ -113,11 +118,6 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		// For index.html or SPA routes, serve with injected settings
 		if cleanPath == "index.html" || !s.fileExists(cleanPath) {
 			s.serveIndexHTML(c)
-			return
-		}
-
-		// Try local override first
-		if s.tryServeOverride(c, cleanPath) {
 			return
 		}
 
@@ -332,12 +332,13 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 			cleanPath = "index.html"
 		}
 
+		// Try local override first
+		if tryServeOverrideFile(c, overrideDir, cleanPath) {
+			return
+		}
+
 		if file, err := distFS.Open(cleanPath); err == nil {
 			_ = file.Close()
-			// Try local override first
-			if tryServeOverrideFile(c, overrideDir, cleanPath) {
-				return
-			}
 			applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
 			fileServer.ServeHTTP(c.Writer, c.Request)
 			c.Abort()

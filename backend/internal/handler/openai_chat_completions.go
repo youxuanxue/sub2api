@@ -265,8 +265,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			}()
 			prepareBody := func(executionAccount *service.Account, request protocolrouter.CanonicalRequest) []byte {
 				forwardBody := request.Body()
-				if channelMapping.Mapped {
-					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
+				mapping := service.CandidateForwardMapping(c.Request.Context(), channelMapping)
+				if mapping.Mapped {
+					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, mapping.MappedModel)
 				}
 				logOpenAIStudioChatImageRequestAudit(c, apiKey, subject.UserID, executionAccount, request.Body(), forwardBody)
 				return forwardBody
@@ -278,7 +279,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				account,
 				h.gatewayService.ValidateProtocolEndpoint,
 				h.gatewayService.LoadProtocolExecutionAccount,
-				service.ProtocolExecutors{
+				h.candidateProtocolExecutors(c, service.ProtocolExecutors{
 					NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						return h.gatewayService.ForwardAsChatCompletionsDispatched(executionCtx, c, account, prepareBody(account, request), promptCacheKey, dispatchMappedModel)
 					},
@@ -313,7 +314,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 							},
 						)
 					},
-				},
+				}),
 			)
 			if value == nil {
 				return nil, executeErr

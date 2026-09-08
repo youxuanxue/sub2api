@@ -7,6 +7,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func (h *OpenAIWSIngressHooks) applyReasoningEffortPolicy(body []byte) []byte {
+	if h == nil {
+		return body
+	}
+	maximum, mappings := h.MaxReasoningEffort, h.ReasoningEffortMappings
+	if h.CurrentReasoningEffortPolicy != nil {
+		maximum, mappings = h.CurrentReasoningEffortPolicy()
+	}
+	if rewritten, changed := ApplyOpenAIReasoningEffortPolicy(body, maximum, mappings); changed {
+		return rewritten
+	}
+	return body
+}
+
 // tkPrepareWSIngressClientPayload applies TokenKey normalization before model
 // mapping on inbound WS v2 response.create frames.
 func (s *OpenAIGatewayService) tkPrepareWSIngressClientPayload(
@@ -15,11 +29,7 @@ func (s *OpenAIGatewayService) tkPrepareWSIngressClientPayload(
 	normalized []byte,
 	hooks *OpenAIWSIngressHooks,
 ) ([]byte, error) {
-	if hooks != nil && (hooks.MaxReasoningEffort != "" || len(hooks.ReasoningEffortMappings) > 0) {
-		if capped, changed := ApplyOpenAIReasoningEffortPolicy(normalized, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings); changed {
-			normalized = capped
-		}
-	}
+	normalized = hooks.applyReasoningEffortPolicy(normalized)
 	if compatibilityBody, compatibilityChanged, compatibilityErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(normalized, account); compatibilityErr != nil {
 		return nil, compatibilityErr
 	} else if compatibilityChanged {

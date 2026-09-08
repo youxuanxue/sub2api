@@ -21,6 +21,9 @@ import (
 
 // getGroupPlatform extracts the group platform from the API Key stored in context.
 func getGroupPlatform(c *gin.Context) string {
+	if platform, ok := service.CandidateExecutionPlatform(c.Request.Context()); ok {
+		return platform
+	}
 	apiKey, ok := middleware.GetAPIKeyFromContext(c)
 	if !ok || apiKey.Group == nil {
 		return ""
@@ -38,6 +41,10 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 		resolver = service.NewCompositeRouteResolver(nil)
 	}
 	return func(c *gin.Context) {
+		if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+			c.Next()
+			return
+		}
 		apiKey, ok := middleware.GetAPIKeyFromContext(c)
 		if !ok || apiKey == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
 			c.Next()
@@ -148,6 +155,10 @@ func compositeGeminiTargetPlatformMiddleware(resolver *service.CompositeRouteRes
 		resolver = service.NewCompositeRouteResolver(nil)
 	}
 	return func(c *gin.Context) {
+		if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+			c.Next()
+			return
+		}
 		apiKey, ok := middleware.GetAPIKeyFromContext(c)
 		if ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 			model := compositeGeminiModelFromParams(c)
@@ -210,25 +221,5 @@ func resetRequestBody(c *gin.Context, body []byte) {
 }
 
 func compositeRouteEndpointForPath(path string) string {
-	switch {
-	case strings.Contains(path, "/messages/count_tokens"):
-		return service.CompositeRouteEndpointCountTokens
-	case strings.Contains(path, "/messages"):
-		return service.CompositeRouteEndpointMessages
-	case strings.Contains(path, "/responses"),
-		strings.Contains(path, "/alpha/search"),
-		strings.Contains(path, "/realtime/calls"),
-		strings.HasSuffix(strings.TrimRight(path, "/"), "/live"):
-		return service.CompositeRouteEndpointResponses
-	case strings.Contains(path, "/chat/completions"):
-		return service.CompositeRouteEndpointChatCompletions
-	case strings.Contains(path, "/embeddings"):
-		return service.CompositeRouteEndpointEmbeddings
-	case strings.Contains(path, "/images/"):
-		return service.CompositeRouteEndpointImages
-	case strings.Contains(path, "/v1beta/"):
-		return service.CompositeRouteEndpointGemini
-	default:
-		return service.CompositeRouteEndpointAny
-	}
+	return service.CompositeRouteEndpointForPath(path)
 }

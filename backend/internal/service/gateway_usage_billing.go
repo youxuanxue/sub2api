@@ -85,6 +85,9 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 // 后扣运行在 worker 池的 background ctx 上没有 ForcePlatform，因此后扣平台由 handler
 // 预先算定、经 RecordUsageInput.QuotaPlatform 传入，不要在后扣链路用 worker ctx 调用本函数。
 func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
+	if (apiKey != nil && apiKey.IsUniversal()) || IsUniversalKeyRouting(ctx) {
+		return ""
+	}
 	if ctx != nil {
 		if fp, ok := ctx.Value(ctxkey.ForcePlatform).(string); ok && fp != "" {
 			return fp
@@ -318,6 +321,13 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog, p *postUsageBillingParams, deps *billingDeps, repo UsageBillingRepository) (bool, error) {
 	if p == nil || deps == nil {
 		return false, nil
+	}
+	if p.APIKey != nil && p.APIKey.IsUniversal() {
+		// Async callers may still supply a legacy group-derived fallback. The
+		// immutable key mode is authoritative even without the request context.
+		copy := *p
+		copy.Platform = ""
+		p = &copy
 	}
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
@@ -817,15 +827,14 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite {
 		billingModel = s.compositeBillableModel(ctx, apiKey, billingModel, concreteBillingModel)
 	}
-	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
-	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
-	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
-
-	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
 	if input.OriginalModel != "" {
 		requestedModel = input.OriginalModel
 	}
+	billingModel = settleBillingOnAccountServedModel(account, requestedModel, billingModel)
+	// 通用兜底（与 OpenAI 路径的 usageBillingModelCandidates 语义对齐）：
+	// 选定模型查不到任何价格时回退到实际转发的具体模型。已定价流量不受影响。
+	billingModel = s.billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)
 
 	// 计算费用
 	cost, err := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt, opts)

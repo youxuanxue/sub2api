@@ -13,7 +13,7 @@ import (
 // responses / messages / embeddings / images / video — the balance-billed
 // overdraft surface; Anthropic-native traffic is predominantly subscription,
 // which does not touch balance). Estimates a request reserve, deducts it
-// atomically before forward, and releases at request end. Explicit output
+// atomically before forward, and releases on failure or during settlement. Explicit output
 // ceilings can be reserved as upper bounds; omitted token ceilings use the
 // handler's low default reserve to protect UX. See usage_billing_hold_tk.go
 // for the concurrency argument and billing_service_tk_hold.go for the pricing
@@ -50,14 +50,15 @@ func tkReserveBalanceHold(ctx context.Context, repo UsageBillingRepository, requ
 	return true, false, nil
 }
 
-// tkReleaseBalanceHold refunds a reservation; idempotent and best-effort (the
-// hold reconciler is the backstop for any release that does not run).
-func tkReleaseBalanceHold(ctx context.Context, repo UsageBillingRepository, requestID string) {
+// tkReleaseBalanceHold refunds a reservation idempotently. Rebinding requires
+// a successful release; request-end cleanup can rely on the hold reconciler.
+func tkReleaseBalanceHold(ctx context.Context, repo UsageBillingRepository, requestID string) error {
 	applier, ok := repo.(UsageBillingHoldApplier)
 	if !ok || requestID == "" {
-		return
+		return nil
 	}
-	_, _ = applier.ReleaseBalanceHold(ctx, requestID)
+	_, err := applier.ReleaseBalanceHold(ctx, requestID)
+	return err
 }
 
 // tkHoldRateMultiplier resolves the SAME user×group rate multiplier the billing
@@ -270,10 +271,16 @@ func (s *OpenAIGatewayService) tkEstimateVideoHoldAmount(ctx context.Context, mo
 // TkReleaseHold refunds a reservation at request end. Detaches from the
 // request context (which may already be cancelled) so the refund still runs.
 func (s *OpenAIGatewayService) TkReleaseHold(ctx context.Context, requestID string) {
+	_ = s.TkReleaseHoldChecked(ctx, requestID)
+}
+
+// TkReleaseHoldChecked is used before candidate rebinding. A failed release
+// must not let an idempotent reserve reuse the old source's hold amount.
+func (s *OpenAIGatewayService) TkReleaseHoldChecked(ctx context.Context, requestID string) error {
 	if s == nil || requestID == "" {
-		return
+		return nil
 	}
 	relCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	tkReleaseBalanceHold(relCtx, s.usageBillingRepo, requestID)
+	return tkReleaseBalanceHold(relCtx, s.usageBillingRepo, requestID)
 }

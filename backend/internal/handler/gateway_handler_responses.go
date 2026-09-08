@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -15,10 +14,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Responses handles OpenAI Responses API endpoint for Anthropic platform groups.
-// POST /v1/responses
-// This converts Responses API requests to Anthropic format, forwards to Anthropic
-// upstream, and converts responses back to Responses format.
+// Responses handles POST /v1/responses for groups served by GatewayService.
+// Account selection and protocolrouter choose the upstream protocol.
 func (h *GatewayHandler) Responses(c *gin.Context) {
 	streamStarted := false
 
@@ -95,10 +92,11 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		requestCtx = service.WithOpenAIImageGenerationIntent(requestCtx)
 	}
 	c.Request = c.Request.WithContext(requestCtx)
+	platform := service.QuotaPlatform(requestCtx, apiKey)
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
 	if h.cfg != nil {
-		if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, reqModel, len(body)); reject {
+		if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, platform, reqModel, len(body)); reject {
 			h.responsesErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
 			return
 		}
@@ -107,7 +105,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	if h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog) {
 		return
 	}
-	if h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog) {
+	if platform == service.PlatformAnthropic && h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog) {
 		return
 	}
 
@@ -283,7 +281,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
 		// TK: platform mismatch skip — see gateway_handler_tk_responses_execute.go
-		if tkResponsesAccountPlatformMismatch(groupPlatform, account) {
+		if service.CandidateRequestFromContext(c.Request.Context()) == nil && tkResponsesAccountPlatformMismatch(groupPlatform, account) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}

@@ -35,7 +35,7 @@ func resolveStickyStrategyFromGin(ctx context.Context, c *gin.Context, settingSe
 	mode := StickyModeAuto
 	if c != nil {
 		if v, ok := c.Get("api_key"); ok {
-			if ak, ok := v.(*APIKey); ok && ak != nil && ak.Group != nil {
+			if ak, ok := v.(*APIKey); ok && ak != nil && ak.Group != nil && !IsUniversalKeyRouting(ctx) {
 				if m := strings.TrimSpace(string(ak.Group.StickyRoutingMode)); m != "" {
 					mode = StickyMode(m)
 				}
@@ -190,7 +190,7 @@ func buildStickyInjectionRequestFromGin(
 	}
 	if c != nil {
 		if v, ok := c.Get("api_key"); ok {
-			if ak, ok := v.(*APIKey); ok && ak != nil && ak.Group != nil {
+			if ak, ok := v.(*APIKey); ok && ak != nil && ak.Group != nil && !IsUniversalKeyRouting(ctx) {
 				req.GroupID = ak.Group.ID
 			}
 		}

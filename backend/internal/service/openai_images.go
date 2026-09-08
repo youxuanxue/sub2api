@@ -28,6 +28,7 @@ import (
 )
 
 const (
+	DefaultOpenAIImagesModel        = "gpt-image-2"
 	openAIImagesGenerationsEndpoint = "/v1/images/generations"
 	openAIImagesEditsEndpoint       = "/v1/images/edits"
 
@@ -215,7 +216,7 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	}
 
 	applyOpenAIImagesDefaults(req)
-	if err := validateOpenAIImagesModel(req.Model); err != nil {
+	if err := validateOpenAIImagesModel(CandidateEffectiveModel(c.Request.Context(), req.Model)); err != nil {
 		return nil, err
 	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
@@ -451,7 +452,7 @@ func applyOpenAIImagesDefaults(req *OpenAIImagesRequest) {
 		req.Model = strings.TrimSpace(req.Model)
 		return
 	}
-	req.Model = "gpt-image-2"
+	req.Model = DefaultOpenAIImagesModel
 }
 
 func isOpenAIImageGenerationModel(model string) bool {

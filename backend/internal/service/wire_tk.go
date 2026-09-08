@@ -131,6 +131,7 @@ func ProvideTKUniversalModelsProvider(
 		api.SetUniversalModelSupportProvider(gw.UniversalGroupSupportsRequest)
 		api.SetUniversalAvailableModelsProvider(gw.GetAvailableModels)
 		resolver := api.UniversalResolver()
+		resolver.candidateGateway, resolver.candidateOpenAI, resolver.candidateSubscriptions = gw, openai, subs
 		resolver.SetCandidateEvaluator(router, func(ctx context.Context, group Group, model string, shape UniversalShape) (GroupCandidateEligibility, error) {
 			return gw.evaluateGroupCandidates(ctx, openai, group, model, shape)
 		})

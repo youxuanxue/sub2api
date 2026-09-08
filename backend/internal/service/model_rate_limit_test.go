@@ -273,6 +273,38 @@ func TestIsModelRateLimited_GeminiDispatchMappingAffectsModelKey(t *testing.T) {
 	}
 }
 
+func TestIsModelRateLimited_UniversalGeminiUsesAccountMapping(t *testing.T) {
+	const requested = "claude-opus-4-7"
+	group := &Group{
+		ID: 8, Platform: PlatformGemini, Status: StatusActive, Hydrated: true,
+		MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{OpusMappedModel: "gemini-3.1-pro-preview"},
+	}
+	directCtx := context.WithValue(context.Background(), ctxkey.Group, group)
+	resolver := NewUniversalRoutingResolver(nil)
+	universalCtx := resolver.WithRequest(WithUniversalKeyRouting(directCtx), ShapeAnthropicMessages, "/v1/messages", requested, nil)
+	for _, accountType := range []string{AccountTypeAPIKey, AccountTypeServiceAccount, AccountTypeOAuth} {
+		for _, cooledModel := range []string{"gemini-3.1-pro-preview", "gemini-3-flash", requested} {
+			t.Run(accountType+"/"+cooledModel, func(t *testing.T) {
+				account := &Account{
+					Platform: PlatformGemini, Type: accountType,
+					Credentials: map[string]any{"model_mapping": map[string]any{requested: "gemini-3-flash"}},
+					Extra: map[string]any{modelRateLimitsKey: map[string]any{
+						cooledModel: map[string]any{"rate_limit_reset_at": time.Now().Add(10 * time.Minute).Format(time.RFC3339)},
+					}},
+				}
+				wantModel := "gemini-3-flash"
+				if accountType == AccountTypeOAuth {
+					wantModel = requested
+				}
+				require.Equal(t, cooledModel == wantModel, account.isModelRateLimitedWithContext(universalCtx, requested))
+				require.Equal(t, cooledModel == wantModel, account.GetModelRateLimitRemainingTimeWithContext(universalCtx, requested) > 0)
+				require.Equal(t, cooledModel == "gemini-3.1-pro-preview", account.isModelRateLimitedWithContext(directCtx, requested), "Direct retains its existing group dispatch policy")
+			})
+		}
+	}
+	require.Same(t, group, universalCtx.Value(ctxkey.Group), "billing and authorization keep the group context")
+}
+
 func TestIsModelRateLimited_OpenAIImageGenerationIntentBlocksTextModelImageTool(t *testing.T) {
 	future := time.Now().Add(10 * time.Minute).Format(time.RFC3339)
 	account := &Account{

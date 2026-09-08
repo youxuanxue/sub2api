@@ -204,6 +204,19 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
 		billingModel = input.OriginalModel
 	}
+	requestedForBilling := input.OriginalModel
+	if requestedForBilling == "" {
+		requestedForBilling = result.Model
+	}
+	billingAccount := account
+	if account.IsShadow() {
+		var resolveErr error
+		billingAccount, resolveErr = resolveCredentialAccount(ctx, s.accountRepo, account)
+		if resolveErr != nil {
+			return resolveErr
+		}
+	}
+	billingModel = settleBillingOnAccountServedModel(billingAccount, requestedForBilling, billingModel)
 	billingModels := usageBillingModelCandidates(
 		billingModel,
 		result.BillingModel,
@@ -216,13 +229,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	serviceTier := ""
 	if result.ServiceTier != nil {
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
-	}
-	billingAccount := account
-	if account.IsShadow() {
-		billingAccount, err = resolveCredentialAccount(ctx, s.accountRepo, account)
-		if err != nil {
-			return err
-		}
 	}
 	longContextBillingGate := openAILongContextBillingGate(billingAccount)
 	cost, err = s.calculateOpenAIRecordUsageCost(

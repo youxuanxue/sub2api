@@ -164,6 +164,14 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 		return
 	}
 	account := selection.Account
+	var streamStarted bool
+	accountRelease, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+	if slotResult != openAISlotAcquireOK {
+		return
+	}
+	if accountRelease != nil {
+		defer accountRelease()
+	}
 	// Platform-aware video gate: the newapi/openai path requires a channel_type
 	// whose value maps to a new-api TaskAdaptor; grok (channel_type=0 native
 	// OAuth) qualifies via its native arm. See engine.IsVideoSupportedForAccount.
@@ -208,7 +216,11 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 
 	TkSetBridgeGinAuth(c, subject.UserID, groupName)
 	writerSizeBeforeForward := c.Writer.Size()
-	outcome, err := h.gatewayService.ForwardAsVideoSubmitDispatched(c.Request.Context(), c, account, publicTaskID, body)
+	forwardBody := body
+	if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+		forwardBody = h.gatewayService.ReplaceModelInBody(body, service.CandidateEffectiveModel(c.Request.Context(), reqModel))
+	}
+	outcome, err := h.gatewayService.ForwardAsVideoSubmitDispatched(c.Request.Context(), c, account, publicTaskID, forwardBody)
 	tkRecordForwardResponseTail(c, forwardStart)
 
 	if err != nil {
@@ -281,7 +293,11 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 	// Per-second video billing is recorded at submit rather than fetch. The
 	// account-resolved duration above is also what the pre-flight hold reserved.
 	tkHoldRequestID := hold.HandOffToSettlement()
+	billingAPIKey, billingSubscription := snapshotCandidateBilling(c.Request.Context(), apiKey, subscription)
 	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
+	usageFields := clientRequestedUsageFields(c, service.ChannelMappingResult{}, reqModel, outcome.UpstreamModel)
+	inboundEndpoint := GetInboundEndpoint(c)
+	upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 	h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result: &service.OpenAIForwardResult{
@@ -296,17 +312,18 @@ func (h *OpenAIGatewayHandler) VideoSubmit(c *gin.Context) {
 				VideoHasInputImage:   videoBilling.HasInputImage,
 				VideoCount:           1,
 			},
-			APIKey:           apiKey,
-			User:             apiKey.User,
-			Account:          account,
-			Subscription:     subscription,
-			InboundEndpoint:  GetInboundEndpoint(c),
-			UpstreamEndpoint: GetUpstreamEndpoint(c, account.Platform),
-			UserAgent:        userAgent,
-			IPAddress:        clientIP,
-			APIKeyService:    h.apiKeyService,
-			TkHoldRequestID:  tkHoldRequestID,
-			GatewayLatencyMs: gatewayLatencyMs,
+			APIKey:             billingAPIKey,
+			User:               billingAPIKey.User,
+			Account:            account,
+			Subscription:       billingSubscription,
+			InboundEndpoint:    inboundEndpoint,
+			UpstreamEndpoint:   upstreamEndpoint,
+			UserAgent:          userAgent,
+			IPAddress:          clientIP,
+			APIKeyService:      h.apiKeyService,
+			TkHoldRequestID:    tkHoldRequestID,
+			GatewayLatencyMs:   gatewayLatencyMs,
+			ChannelUsageFields: usageFields,
 		}); err != nil {
 			logger.L().With(
 				zap.String("component", "handler.openai_gateway.video_submit"),

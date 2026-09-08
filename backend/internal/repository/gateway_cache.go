@@ -42,6 +42,7 @@ func buildOpenAIResponsesSessionWindowKey(groupID int64, sessionHash string) str
 }
 
 func (c *gatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
+	groupID, sessionHash = service.CandidateAffinityCacheScope(ctx, groupID, sessionHash)
 	key := buildSessionKey(groupID, sessionHash)
 	accountID, err := c.rdb.Get(ctx, key).Int64()
 	if err != nil {
@@ -54,11 +55,13 @@ func (c *gatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, s
 }
 
 func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
+	groupID, sessionHash = service.CandidateAffinityCacheScope(ctx, groupID, sessionHash)
 	key := buildSessionKey(groupID, sessionHash)
 	return c.rdb.Set(ctx, key, accountID, ttl).Err()
 }
 
 func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, sessionHash string, ttl time.Duration) error {
+	groupID, sessionHash = service.CandidateAffinityCacheScope(ctx, groupID, sessionHash)
 	key := buildSessionKey(groupID, sessionHash)
 	return c.rdb.Expire(ctx, key, ttl).Err()
 }
@@ -71,6 +74,7 @@ func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, ses
 // Called when the bound account becomes unavailable (e.g., error status, disabled,
 // or unschedulable), allowing subsequent requests to select a new available account.
 func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64, sessionHash string) error {
+	groupID, sessionHash = service.CandidateAffinityCacheScope(ctx, groupID, sessionHash)
 	key := buildSessionKey(groupID, sessionHash)
 	return c.rdb.Del(ctx, key).Err()
 }
@@ -78,6 +82,7 @@ func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64
 // SetKiroSessionRecoveryExclusion records the failed account and clears the
 // sticky binding in one Redis transaction. Other sessions remain unaffected.
 func (c *gatewayCache) SetKiroSessionRecoveryExclusion(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
+	groupID, sessionHash = service.CandidateAffinityCacheScope(ctx, groupID, sessionHash)
 	_, err := c.rdb.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
 		pipe.Set(ctx, buildKiroSessionRecoveryKey(groupID, sessionHash), accountID, ttl)
 		pipe.Del(ctx, buildSessionKey(groupID, sessionHash))
@@ -88,6 +93,7 @@ func (c *gatewayCache) SetKiroSessionRecoveryExclusion(ctx context.Context, grou
 
 // ConsumeKiroSessionRecoveryExclusion atomically reads and removes the marker.
 func (c *gatewayCache) ConsumeKiroSessionRecoveryExclusion(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
+	groupID, sessionHash = service.CandidateAffinityCacheScope(ctx, groupID, sessionHash)
 	accountID, err := c.rdb.GetDel(ctx, buildKiroSessionRecoveryKey(groupID, sessionHash)).Int64()
 	if errors.Is(err, redis.Nil) {
 		return 0, nil

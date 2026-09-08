@@ -11,7 +11,7 @@ async function login(page: Page): Promise<void> {
   await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 30_000 })
 }
 
-test.describe('PR #1459 UI acceptance', () => {
+test.describe('Quickstart and catalog UI layout acceptance', () => {
   test('quickstart: no decorative top border on key section', async ({ page }) => {
     await login(page)
     await page.goto('/quickstart')

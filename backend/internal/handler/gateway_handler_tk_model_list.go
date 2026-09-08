@@ -41,10 +41,27 @@ func (h *OpenAIGatewayHandler) SetUniversalCapabilityService(capabilities *servi
 	}
 }
 
-// tryServeUniversalModels serves /v1/models for universal keys with no group.
+func candidateDiscoveryEnabled(source apiKeyCapabilitySource) bool {
+	owner, ok := source.(interface{ CandidateSchedulingEnabled() bool })
+	return ok && owner.CandidateSchedulingEnabled()
+}
+
+func useCandidateModelDiscovery(source apiKeyCapabilitySource, key *service.APIKey) bool {
+	return key != nil && (candidateDiscoveryEnabled(source) || (key.IsUniversal() && key.Group == nil))
+}
+
+func directCustomCapabilityIDs(key *service.APIKey, ids []string) []string {
+	if key != nil && !key.IsUniversal() && key.Group != nil && key.Group.CustomModelsListEnabled() {
+		return filterModelsByCustomList(ids, nil, key.Group.ModelsListConfig.Models)
+	}
+	return ids
+}
+
+// tryServeUniversalModels projects authorized support for candidate-enabled
+// keys, retaining the legacy Universal adapter when the new owner is absent.
 // Returns true when the request was handled (success or error response written).
 func (h *GatewayHandler) tryServeUniversalModels(c *gin.Context, apiKey *service.APIKey, groupID *int64) bool {
-	if apiKey == nil || !apiKey.IsUniversal() || groupID != nil {
+	if !useCandidateModelDiscovery(h.tkCapabilities, apiKey) {
 		return false
 	}
 	protocol := service.UniversalProtocolOpenAI
@@ -61,7 +78,19 @@ func (h *GatewayHandler) tryServeUniversalModels(c *gin.Context, apiKey *service
 		}
 		return true
 	}
-	ids := capabilityModelIDs(capabilities, "")
+	ids := directCustomCapabilityIDs(apiKey, capabilityModelIDs(capabilities, ""))
+	if !apiKey.IsUniversal() && apiKey.Group != nil && !isAnthropicModelsRequest(c) {
+		platform := apiKey.Group.Platform
+		if forcedPlatform, ok := middleware2.GetForcePlatformFromContext(c); ok && forcedPlatform != "" {
+			platform = forcedPlatform
+		}
+		if apiKey.Group.CustomModelsListEnabled() {
+			writeCustomModelsList(c, platform, ids)
+		} else {
+			writeModelsList(c, platform, ids)
+		}
+		return true
+	}
 	if protocol == service.UniversalProtocolAnthropic {
 		c.JSON(http.StatusOK, gin.H{"object": "list", "data": claude.ModelsForIDs(ids)})
 	} else {
@@ -71,14 +100,14 @@ func (h *GatewayHandler) tryServeUniversalModels(c *gin.Context, apiKey *service
 }
 
 func (h *GatewayHandler) serveAntigravityModels(c *gin.Context) {
-	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.IsUniversal() && apiKey.Group == nil {
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && useCandidateModelDiscovery(h.tkCapabilities, apiKey) {
 		capabilities, err := h.universalCapabilities(c.Request.Context(), apiKey, service.UniversalProtocolAntigravity)
 		if err != nil {
 			requestLogger(c, "gateway.antigravity_models", zap.String("protocol", string(service.UniversalProtocolAntigravity))).Warn("capability_discovery_failed", zap.Error(err))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Model discovery unavailable"}})
 			return
 		}
-		models := antigravityModelsForCapabilityIDs(capabilityModelIDs(capabilities, ""))
+		models := antigravityModelsForCapabilityIDs(directCustomCapabilityIDs(apiKey, capabilityModelIDs(capabilities, "")))
 		c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
 		return
 	}

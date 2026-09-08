@@ -3,94 +3,589 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
-      "path": "backend/internal/service/account.go",
-      "must_contain": ["(a.AutoPauseOnExpired || a.IsCursor())"],
-      "rationale": "Cursor OAuth credential expiry remains a hard runtime gate even when optional account auto-pause is disabled."
-    },
-    {
       "path": "backend/internal/service/cursor_rollout_regression_test.go",
-      "must_contain": ["TestCursorExpiryCannotBeDisabledAndRenewalPreservesPause", "TestNativeMessagesCacheUsageReachesBillingOnce", "TestMessagesToolConversionsKeepExistingSupplyAndWire"],
+      "must_contain": [
+        "TestCursorExpiryCannotBeDisabledAndRenewalPreservesPause",
+        "TestNativeMessagesCacheUsageReachesBillingOnce",
+        "TestMessagesToolConversionsKeepExistingSupplyAndWire"
+      ],
       "rationale": "Guard existing supply conversion, cache settlement and Cursor credential expiry through the real owners."
     },
     {
-      "path": "backend/internal/service/account_supported_protocols.go",
-      "must_contain": ["return target == protocolrouter.ProtocolMessages && cursorMappedModelAllowed(account, requestedModel, resolvedModel)"],
-      "rationale": "Every Cursor model family must satisfy the transport catalog contract before the shared planner admits a candidate."
-    },
-    {
       "path": "backend/internal/service/gateway_tk_cursor.go",
-      "must_contain": ["func executeCursorMessages", "cursorbridge.Messages", "HTTPUpstreamProfileCursor", "CursorWireModelsKey"],
+      "must_contain": [
+        "func executeCursorMessages",
+        "cursorbridge.Messages",
+        "HTTPUpstreamProfileCursor",
+        "CursorWireModelsKey"
+      ],
       "rationale": "Cursor executes natively using the account catalog and HTTP/2 transport; all protocol call sites share one adapter."
     },
     {
       "path": "backend/internal/service/candidate_cursor_ssot_test.go",
-      "must_contain": ["TestCursorCandidateCatalogAdmissionMatchesTransport", "TestCursorCandidateRuntimeAndCapabilityGates", "TestCursorCandidateUsesSharedUniversalOrdering", "TestCursorToolHistoryUsesOrdinaryCandidateRouting"],
+      "must_contain": [
+        "TestCursorCandidateCatalogAdmissionMatchesTransport",
+        "TestCursorCandidateRuntimeAndCapabilityGates",
+        "TestCursorCandidateUsesSharedUniversalOrdering",
+        "TestCursorToolHistoryUsesOrdinaryCandidateRouting"
+      ],
       "rationale": "Exercise real Plan, Universal selection and scheduler filters for Cursor, including metadata/history false positives and candidate-local rejection."
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
-      "must_contain": ["preservesResponsesToMessages", "preservesChatToMessages"],
+      "must_contain": [
+        "preservesResponsesToMessages",
+        "preservesChatToMessages"
+      ],
       "rationale": "Tool-capable Messages conversions remain owned by the protocol registry, never a Cursor handler fallback."
     },
     {
       "path": "backend/internal/engine/protocolrouter/policy_contract_test.go",
-      "must_contain": ["TestPolicyContractToolsToMessagesStayWithinConversionFeatures"],
+      "must_contain": [
+        "TestPolicyContractToolsToMessagesStayWithinConversionFeatures"
+      ],
       "rationale": "Guard supported tool conversions together with fail-closed continuation, reasoning and media boundaries."
     },
     {
-      "path": "backend/internal/server/routes/admin.go",
-      "must_contain": ["registerCursorAccountRoutes"],
-      "rationale": "The browser authorization owner must remain registered behind existing administrator middleware."
-    },
-    {
-      "path": "backend/internal/service/openai_gateway_usage.go",
-      "must_contain": ["account.IsCursor()", "optionalTrimmedStringPtr(cursorBillingTier(result.BillingTier))"],
-      "rationale": "Cursor usage provenance comes from the native outcome or relayed terminal usage, with only known labels admitted by the shared accounting owner."
-    },
-    {
-      "path": "backend/internal/service/openai_gateway_record_usage_test.go",
-      "must_contain": ["TestOpenAIGatewayServiceRecordUsage_LabelsCursorEstimatePolicy"],
-      "rationale": "Exercise the shared accounting owner and keep the estimate label scoped to Cursor."
-    },
-    {
-      "path": "backend/internal/repository/scheduler_cache.go",
-      "must_contain": ["service.CursorModelParametersKey", "service.CursorWireModelsKey", "service.CursorSourceExtraKey"],
-      "rationale": "Cursor source identity and variant selection must survive the scheduler projection or verified accounts become unroutable."
-    },
-    {
       "path": "backend/internal/repository/scheduler_cache_unit_test.go",
-      "must_contain": ["TestCursorSchedulingProjectionPreservesEndpointIdentity"],
+      "must_contain": [
+        "TestCursorSchedulingProjectionPreservesEndpointIdentity"
+      ],
       "rationale": "Exercise the production projection and compare its endpoint identity with the full account."
     },
     {
-      "path": "backend/internal/service/openai_gateway_messages_native.go",
-      "must_contain": ["prepareCursorUpstreamRequest", "executeCursorMessages", "cursorResponseOutcome"],
-      "rationale": "Native Messages executes Cursor in Go and propagates the request outcome into shared accounting."
-    },
-    {
-      "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
-      "must_contain": ["prepareCursorUpstreamRequest", "executeCursorMessages", "cursorResponseOutcome"],
-      "rationale": "Chat and Responses conversions share the same Cursor authentication and catalog owner."
-    },
-    {
-      "path": "backend/internal/service/wire.go",
-      "must_contain": ["func ProvideCursorOAuthClient", "cursor.NewClient", "WithHTTPUpstreamRedirectsDisabled"],
-      "rationale": "Cursor authorization reuses Redis and shared HTTP transport through dependency injection."
-    },
-    {
       "path": "backend/internal/service/openai_apikey_native_messages_probe.go",
-      "must_contain": ["executeCursorMessages"],
+      "must_contain": [
+        "executeCursorMessages"
+      ],
       "rationale": "Cursor protocol probes must execute the same native adapter used by production requests."
     },
     {
       "path": "backend/internal/repository/http_upstream_test.go",
-      "must_contain": ["TestCursorHTTP2IsIndependentOfOpenAIFallback"],
+      "must_contain": [
+        "TestCursorHTTP2IsIndependentOfOpenAIFallback"
+      ],
       "rationale": "Cursor bidirectional streaming must remain HTTP/2 regardless of OpenAI settings or proxy fallback state."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_usage_test.go",
-      "must_contain": ["TestCursorRelayedUsagePreservesBillingProvenance"],
+      "must_contain": [
+        "TestCursorRelayedUsagePreservesBillingProvenance"
+      ],
       "rationale": "Messages JSON and SSE relay must preserve the source of terminal Cursor usage across Edge and Prod."
+    },
+    {
+      "path": "backend/internal/handler/candidate_protocol_execute_tk.go",
+      "must_contain": [
+        "func (h *OpenAIGatewayHandler) candidateProtocolExecutors(",
+        "return h.forwardCandidateNative(ctx, c, account, request)",
+        "h.nativeGatewayService.ForwardAsResponses"
+      ],
+      "rationale": "A cross-platform retry must retain the actual account's native credential and execution owner after ingress chose the OpenAI handler."
+    },
+    {
+      "path": "backend/internal/handler/wire_protocol_ssot_tk.go",
+      "must_contain": [
+        "h.nativeGatewayService = nativeGatewayService"
+      ],
+      "rationale": "Native retry transport must be available in production Wire construction, not only in tests."
+    },
+    {
+      "path": "backend/internal/service/openai_images.go",
+      "must_contain": [
+        "validateOpenAIImagesModel(CandidateEffectiveModel(c.Request.Context(), req.Model))",
+        "req.Model = DefaultOpenAIImagesModel"
+      ],
+      "rationale": "Images validate the authorized effective model while preserving client attribution and sharing omitted-model defaults with candidate admission."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "model = service.DefaultOpenAIImagesModel"
+      ],
+      "rationale": "Model-optional image requests must enter the same candidate policy instead of falling back to group-order scheduling."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_video.go",
+      "must_contain": [
+        "h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection",
+        "defer accountRelease()",
+        "service.CandidateEffectiveModel(c.Request.Context(), reqModel)"
+      ],
+      "rationale": "Video submission consumes the selected model and releases acquired capacity on every synchronous terminal path."
+    },
+    {
+      "path": "backend/internal/service/candidate_ws_authorization_tk.go",
+      "must_contain": [
+        "func (r *CandidateRequest) ValidateWebSocketExecution(",
+        "protocolPlansRoutingEquivalent(connectedPlan, *r.current.plan)"
+      ],
+      "rationale": "Subsequent WebSocket turns cannot silently execute new authorization with old protocol mappings or credentials."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "candidate.ValidateWebSocketExecution(account)"
+      ],
+      "rationale": "The production per-turn handler validates the connected account against refreshed candidate execution state."
+    },
+    {
+      "path": "backend/internal/handler/candidate_media_tk_test.go",
+      "must_contain": [
+        "TestUS050_CandidateMediaUsesSelectedModelAndReleasesSlot",
+        "TestUS050_CandidateStoredVideoKeepsSubmissionRouteAcrossOrigins"
+      ],
+      "rationale": "Real handler regressions protect selected media models, no-spend video rejection and slot release."
+    },
+    {
+      "path": "backend/internal/service/candidate_request_tk.go",
+      "must_contain": [
+        "type CandidateRequest struct",
+        "func (r *CandidateRequest) pathContext(",
+        "ResolveCandidateContinuation(ctx, key, eligible, previous)",
+        "CheckCandidateBillingEligibility",
+        "r.onBind(selected.ctx, selected.group, subscription)"
+      ],
+      "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_tk.go",
+      "must_contain": [
+        "list.ListCandidateAccounts(ctx, ids)",
+        "r.evaluatePath(ctx, account, group)",
+        "selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins",
+        "pool = recoverCandidateWindowPool(pool)",
+        "candidateOccupancy(a.account, loads) < candidateOccupancy(b.account, loads)",
+        "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)",
+        "r.recheck(path, options)",
+        "gw.candidateSaturationState().counts(ctx, accounts, r.model)"
+      ],
+      "must_not_contain": [
+        "lessUniversalBacking(",
+        ".SortOrder"
+      ],
+      "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_candidates.go",
+      "must_contain": [
+        "ListCandidateAccounts("
+      ],
+      "rationale": "Authorization-scoped account union has a production repository owner; deleting it must not silently restore repeated group-pool scheduling."
+    },
+    {
+      "path": "backend/internal/service/gateway_scheduling.go",
+      "must_contain": [
+        "selectCandidateFromContext(ctx, candidateSelectOptions{excluded: excludedIDs, acquire: true})"
+      ],
+      "rationale": "Generic production slot acquisition consumes CandidateRequest instead of choosing a billing-group pool."
+    },
+    {
+      "path": "backend/internal/service/openai_account_scheduler.go",
+      "must_contain": [
+        "selectCandidateFromContext(ctx, candidateSelectOptions{"
+      ],
+      "rationale": "The OpenAI scheduler must hand real capacity acquisition to the common candidate selector."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_scheduling.go",
+      "must_contain": [
+        "selectCandidateFromContext(ctx, candidateSelectOptions{capability: requiredCapability})"
+      ],
+      "rationale": "OpenAI capability-specific selectors must retain authorization-scoped candidate handoff."
+    },
+    {
+      "path": "backend/internal/service/candidate_billing_tk.go",
+      "must_contain": [
+        "func selectCandidateBillingOrigin(",
+        "ErrCandidatePolicyConflict",
+        "channels.lookupGroupChannel(ctx, group.ID)",
+        "candidateBillingRate(ctx, userID, group",
+        "resolveCredentialAccount(ctx, accounts, account)",
+        "settleBillingOnAccountServedModel(billingAccount, model, policy.billingModel)"
+      ],
+      "rationale": "Only equivalent legal origins of the same account/payment tier compare effective rates; failed configuration reads cannot establish tariff equality."
+    },
+    {
+      "path": "backend/internal/server/middleware/candidate_request_tk.go",
+      "must_contain": [
+        "func requestLocalCandidateKey(",
+        "func deferUniversalWebSocketBilling(",
+        "state.SetBindingObserver("
+      ],
+      "rationale": "Authentication clones the key, defers only Universal WebSocket payment and keeps Gin subscription/group state synchronized with selection."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth.go",
+      "must_contain": [
+        "requestLocalCandidateKey(c, apiKey)",
+        "deferUniversalWebSocketBilling(c, apiKey)",
+        "service.CandidateSubscription(c.Request.Context(), nil)"
+      ],
+      "rationale": "Normal authentication must consume request-local candidate identity and admitted subscription state; WebSocket handshake cannot reject subscription-only users for an empty wallet."
+    },
+    {
+      "path": "backend/internal/server/middleware/api_key_auth_google.go",
+      "must_contain": [
+        "requestLocalCandidateKey(c, apiKey)",
+        "hasCandidate := service.CandidateRequestFromContext(c.Request.Context()) != nil",
+        "CheckAPIKeyQuotaAndExpiry"
+      ],
+      "rationale": "Google authentication shares candidate binding while preserving Key expiry and quota enforcement."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_composite_middleware.go",
+      "must_contain": [
+        "service.CandidateExecutionPlatform(c.Request.Context())",
+        "service.CandidateRequestFromContext(c.Request.Context())"
+      ],
+      "rationale": "Handler dispatch follows the actual selected account, and an admitted canonical request must not receive legacy composite rewriting again."
+    },
+    {
+      "path": "backend/internal/handler/gateway_helper.go",
+      "must_contain": [
+        "service.RecheckCandidateAccountSlot(ctx, accountID)",
+        "service.RecheckCandidateAccountSlot(ctx, id)"
+      ],
+      "rationale": "Both handler wait consumers recheck authorization, Plan and payment after obtaining capacity."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_hold.go",
+      "must_contain": [
+        "service.SetCandidateBillingHook(c.Request.Context(), refresh)"
+      ],
+      "rationale": "Candidate reselection must refresh the actual reservation lifecycle, not just replace group fields."
+    },
+    {
+      "path": "backend/internal/handler/candidate_billing_snapshot_tk.go",
+      "must_contain": [
+        "func snapshotCandidateBilling("
+      ],
+      "rationale": "Asynchronous usage writes retain the completed turn's billing origin even after the next turn rebinds the request key."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_responses_ws.go",
+      "must_contain": [
+        "candidate.RefreshWebSocketAuthorization(ctx)",
+        "snapshotCandidateBilling(in.C.Request.Context(), in.APIKey, in.Subscription)"
+      ],
+      "rationale": "Each WebSocket turn refreshes authorization and settles from its own billing snapshot."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "CurrentReasoningEffortPolicy: func()"
+      ],
+      "rationale": "The production socket resolves reasoning policy from the admitted turn's current billing origin."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_ingress_tk.go",
+      "must_contain": [
+        "func (h *OpenAIWSIngressHooks) applyReasoningEffortPolicy(",
+        "h.CurrentReasoningEffortPolicy()",
+        "hooks.applyReasoningEffortPolicy(normalized)"
+      ],
+      "rationale": "WebSocket reasoning policy has one owner shared by both forwarding modes."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+      "must_contain": [
+        "payload = hooks.applyReasoningEffortPolicy(payload)"
+      ],
+      "rationale": "Passthrough applies the current turn's reasoning policy after its authorization callback."
+    },
+    {
+      "path": "backend/internal/service/candidate_identity_tk.go",
+      "must_contain": [
+        "func CandidateAffinityCacheScope(",
+        "func (s *OpenAIGatewayService) ResolveCandidateContinuation(",
+        "lookup(0, candidateResponseID(apiKey.UserID, previousResponseID))",
+        "lookup(group.ID, previousResponseID)"
+      ],
+      "rationale": "Soft affinity excludes billing groups; hard continuation validates owner/account pairs in one namespace with bounded authorized legacy reads."
+    },
+    {
+      "path": "backend/internal/repository/gateway_cache.go",
+      "must_contain": [
+        "service.CandidateAffinityCacheScope(ctx, groupID, sessionHash)"
+      ],
+      "rationale": "Production Redis keys must consume the new tenant/key affinity scope, not only test doubles."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_state_store.go",
+      "must_contain": [
+        "s.bindHTTPResponseOwner(ctx, groupID, responseID, userID, apiKeyID, ttl)",
+        "s.bindHTTPResponseOwner(ctx, 0, indexedID, userID, apiKeyID, ttl)",
+        "s.bindResponseAccount(ctx, 0, candidateResponseID(identity.userID, responseID), accountID, ttl)"
+      ],
+      "rationale": "Hard Responses state keeps old group records and the new owner index for rolling compatibility and account lookup across billing origins."
+    },
+    {
+      "path": "backend/internal/service/candidate_ws_identity_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) getCandidateWSStateStore(",
+        "CandidateAffinityCacheScope(s.ctx, groupID, sessionHash)",
+        "candidateResponseID(s.identity.userID, responseID)"
+      ],
+      "rationale": "Process-local WebSocket turn/connection state shares the tenant/key scope while hard response connections remain tenant-scoped."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_v2.go",
+      "must_contain": [
+        "stateStore := s.getCandidateWSStateStore(ctx)"
+      ],
+      "rationale": "The production WebSocket forwarder must use the new identity wrapper."
+    },
+    {
+      "path": "backend/internal/service/candidate_discovery_tk.go",
+      "must_contain": [
+        "func (s *UniversalCapabilityService) DiscoverCandidates(",
+        "request.evaluatePath(requestCtx",
+        "selectCandidateBillingOrigin(requestCtx",
+        "candidateDiscoveryRequest(model, spec)"
+      ],
+      "rationale": "Metadata projects representative complete support paths and rejects conflicting origins using the same billing owner as inference."
+    },
+    {
+      "path": "backend/internal/service/universal_capability_tk.go",
+      "must_contain": [
+        "return s.listCandidateCapabilities(ctx, apiKey, protocol)"
+      ],
+      "rationale": "Production capability discovery must use CandidateRequest support projection instead of the legacy group resolver."
+    },
+    {
+      "path": "backend/internal/service/supplier_credential_fault.go",
+      "must_contain": [
+        "NewSupplierCredentialFingerprinter(s.cfg)",
+        "store.UpdateSupplierCredentialFault(stateCtx, peer, errorMessage)",
+        "func (s *RateLimitService) RecoverSupplierCredentialPeers("
+      ],
+      "rationale": "Confirmed supplier credential failures share normalized identity across protocol projections; recovery clears only this owner's marked state."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_supplier_fault.go",
+      "must_contain": [
+        "ListSupplierCredentialFaultAccounts(",
+        "UpdateSupplierCredentialFault(",
+        "a.extra->'supplier_source_id' = $7::jsonb"
+      ],
+      "rationale": "Supplier runtime updates retain supplier/snapshot guards and atomic outbox behavior without rewriting independent account controls."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_upstream_error_prelude.go",
+      "must_contain": [
+        "tkIsConfirmedSupplierCredentialAuthError(statusCode, responseBody)",
+        "s.tkTryHandleSupplierCredentialFailure(ctx, account"
+      ],
+      "rationale": "The real upstream failure path invokes credential sharing only for confirmed credential-level auth errors."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_tk_test.go",
+      "must_contain": [
+        "TestGlobalCandidateAccountPriorityIgnoresGroupTopology",
+        "TestGlobalCandidateDeduplicatesMembershipBeforeSelection",
+        "TestGlobalCandidateReadyPeerAndSlotRace",
+        "TestGlobalCandidateWaitRechecksAuthorizationAndPlan",
+        "TestGlobalCandidateNormalizedOccupancyAndTopologyTies",
+        "TestGlobalCandidateModelGrantsCannotBeBorrowed",
+        "TestGlobalCandidateWindowRecoveryAndStickyAdmission",
+        "TestGlobalCandidateNativeConverterParityAndGoogleFailover"
+      ],
+      "rationale": "Executable regressions cover production selection, topology, duplicate membership, capacity races and wait revalidation."
+    },
+    {
+      "path": "backend/internal/server/middleware/candidate_request_tk_test.go",
+      "must_contain": [
+        "TestUS050_HTTPAuthCarriesActualCandidateAndRebindsBillingContext",
+        "TestUS050_UniversalWebSocketDefersPaymentButEnforcesKeyLimits",
+        "TestUS050_GoogleAuthUsesCandidateActualAccount"
+      ],
+      "rationale": "Actual authentication handoffs exercise Direct/Universal binding, mismatched billing labels and deferred WebSocket payment."
+    },
+    {
+      "path": "backend/internal/handler/candidate_websocket_tk_test.go",
+      "must_contain": [
+        "TestCandidateWebSocket_FirstFrameAndEachTurnUseAuthorizedPlan",
+        "TestCandidateWebSocket_ZeroWalletUsesActiveSubscription",
+        "TestCandidateWebSocket_RechecksKeyAndEntitlementBeforeNextFrame",
+        "TestCandidateWebSocket_PassthroughReacquiresSlotsForEachTurn",
+        "TestCandidateWebSocket_ReasoningPolicyFollowsEachTurnBillingOrigin"
+      ],
+      "rationale": "Socket integration pins first-frame admission, recurring authorization, subscription-only clients and per-turn slots."
+    },
+    {
+      "path": "backend/internal/service/candidate_billing_tk_test.go",
+      "must_contain": [
+        "TestCandidateBillingOriginQueryFailureIsNeverTariffEquality",
+        "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold",
+        "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota",
+        "TestCandidateBillingSelectedOriginReachesHoldAndSettlement",
+        "TestCandidateBillingOriginUsesSettlementServedModel"
+      ],
+      "rationale": "Billing regressions preserve configuration errors, reservation rollback and group-independent Universal quota behavior."
+    },
+    {
+      "path": "backend/internal/repository/gateway_cache_candidate_identity_test.go",
+      "must_contain": [
+        "TestGatewayCache_CandidateAffinityFollowsAccountAcrossBillingOrigins",
+        "TestGatewayCache_CandidateHardStatePersistsAndExpiresWithoutExtendingOwnership",
+        "TestGatewayCache_CandidateIdentityPreservesSubmittedMediaBindings"
+      ],
+      "rationale": "Real cache namespaces, hard-state expiry and existing media records remain covered beyond group-agnostic mocks."
+    },
+    {
+      "path": "backend/internal/service/supplier_credential_fault_test.go",
+      "must_contain": [
+        "TestUS050_SupplierCredentialFaultSharesAcrossProtocolProjections",
+        "TestUS050_SupplierCredentialRecoveryPreservesPeerModelLimitsAndManualPause",
+        "TestUS050_SupplierCredentialFailureFromRotatedCredentialDoesNotBlockPeers"
+      ],
+      "rationale": "Credential sharing must preserve model limits/manual pauses and ignore stale errors from rotated credentials."
+    },
+    {
+      "path": "backend/internal/handler/candidate_discovery_tk_test.go",
+      "must_contain": [
+        "TestUS050_DirectDiscoveryUsesSupportProjectionAndKeepsClientSchemas",
+        "TestUS050_CodexDiscoveryUsesActualAccountsAndPreservesManifest"
+      ],
+      "rationale": "Model-list adapters preserve native schemas and use actual candidate accounts despite unrelated billing-platform labels."
+    },
+    {
+      "path": "backend/internal/service/channel_service.go",
+      "must_contain": [
+        "return nil, cached.loadErr",
+        "s.storeErrorCache(err)",
+        "errorCache.loadErr = err"
+      ],
+      "rationale": "Channel query failures must remain errors throughout the retry backoff, never masquerade as successful missing configuration."
+    },
+    {
+      "path": "backend/internal/service/channel_service_test.go",
+      "must_contain": [
+        "TestBuildCache_DBError",
+        "TestBuildCache_GroupPlatformError",
+        "TestBuildCache_QueryFailureRecovers"
+      ],
+      "rationale": "Protect repeated channel/platform errors, bounded query retries, and restoration of configured pricing after recovery."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "type universalBodyReplay struct",
+        "writeUniversalBodyReadError(c, shape, readErr)",
+        "return body.raw, body.readErr"
+      ],
+      "rationale": "Pre-reading must preserve terminal body errors and reject incomplete input before Universal candidate lookup or billing binding."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_body_tk_test.go",
+      "must_contain": [
+        "TestMaybeResolveUniversal_RejectsIncompleteBody",
+        "TestUniversalBodyPeek_PreservesCompletePayload",
+        "TestUniversalBodyPeek_PreservesFailureForDirectConsumer"
+      ],
+      "rationale": "Protect size/I/O failures after valid JSON prefixes, repeated preprocessing and unchanged complete compressed bodies."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_messages_dispatch.go",
+      "must_contain": [
+        "apiKey.IsUniversal()"
+      ],
+      "rationale": "Universal text, selection and count-token paths must skip billing-group model mappings while Direct retains the shared resolver."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_tk_default_mapped_model.go",
+      "must_contain": [
+        "apiKey.IsUniversal()"
+      ],
+      "rationale": "Default-model and explicit fallback handling must not reintroduce group mappings for Universal keys."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
+      "must_contain": [
+        "defaultModel := resolveOpenAIForwardDefaultMappedModel(apiKey, \"\")"
+      ],
+      "rationale": "Image selection fallback consumes the routing-mode-aware default model owner."
+    },
+    {
+      "path": "backend/internal/service/gin_gemini_dispatch_tk.go",
+      "must_contain": [
+        "getAPIKeyFromContext(c).IsUniversal()",
+        "IsUniversalKeyRouting(c.Request.Context())"
+      ],
+      "rationale": "Gemini Messages forwarding must ignore group model dispatch for Universal without mutating shared group configuration."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "ctx = service.WithUniversalKeyRouting(ctx)",
+        "resolver.PrepareCandidateIngress(c, apiKey, shape, requestPath, model, decodedBody, forcedPlatform)"
+      ],
+      "rationale": "Request routing identity must survive billing-group binding so downstream cooldown checks retain Universal mapping semantics."
+    },
+    {
+      "path": "backend/internal/service/candidate_request_tk.go",
+      "must_contain": [
+        "ctx = WithUniversalKeyRouting(ctx)"
+      ],
+      "rationale": "Pre-billing candidate evaluation uses the same Universal mapping policy as forwarding, including non-text requests."
+    },
+    {
+      "path": "backend/internal/service/universal_routing_tk_resolver.go",
+      "must_contain": [
+        "ctx = WithUniversalKeyRouting(ctx)"
+      ],
+      "rationale": "Resolver callers without a parsed request must also preserve Universal cooldown semantics."
+    },
+    {
+      "path": "backend/internal/handler/universal_group_model_mapping_test.go",
+      "must_contain": [
+        "TestGroupModelMappingRoutingMode",
+        "TestUniversalGroupDefaultModelCannotReenterThroughFallback"
+      ],
+      "rationale": "Protect Direct compatibility and Universal isolation across body rewriting and fallback model consumption."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_test.go",
+      "must_contain": [
+        "TestGeminiMessagesCompatServiceForward_UniversalKeepsAccountMapping"
+      ],
+      "rationale": "Actual Gemini upstream forwarding retains account mappings after Universal skips group mappings."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk_test.go",
+      "must_contain": [
+        "service.IsUniversalKeyRouting(c.Request.Context())",
+        "service.IsUniversalKeyRouting(ctx)"
+      ],
+      "rationale": "Regression covers Universal request identity both before and after billing binding."
+    },
+    {
+      "path": "backend/internal/service/user_group_rate_resolver.go",
+      "must_contain": [
+        "context.WithTimeout(context.WithoutCancel(ctx), userGroupRateLoadTimeout)",
+        "r.repo.GetByUserAndGroup(loadCtx, userID, groupID)",
+        "fallback to multiplier 1"
+      ],
+      "rationale": "Shared billing-rate reads must survive leader cancellation and use the approved base multiplier 1 on real query failure without caching the fallback."
+    },
+    {
+      "path": "backend/internal/service/user_group_rate_resolver_test.go",
+      "must_contain": [
+        "TestUserGroupRateResolverResolve_CanceledLeaderDoesNotCancelSharedRead",
+        "TestUserGroupRateResolverResolve_QueryFailureUsesOneAndRecovers",
+        "TestUserGroupRateResolverResolve_NoOverrideUsesGroupDefault"
+      ],
+      "rationale": "Protect cancellation isolation, fallback recovery and absent-override semantics alongside the shared rate owner."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_record_usage_test.go",
+      "must_contain": [
+        "TestOpenAIGatewayServiceRecordUsage_FallsBackToOneOnResolverError",
+        "require.Equal(t, 1.0, usageRepo.lastLog.RateMultiplier)",
+        "TestOpenAIGatewayServiceRecordUsage_LabelsCursorEstimatePolicy"
+      ],
+      "rationale": "The approved query-failure rate must reach actual usage settlement, not only a standalone resolver test."
     },
     {
       "path": "backend/internal/service/supplier_source_probe.go",
@@ -125,10 +620,11 @@
     {
       "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
+        "resolver.candidateGateway, resolver.candidateOpenAI, resolver.candidateSubscriptions = gw, openai, subs",
         "resolver.SetCandidateEvaluator(router,",
         "return gw.evaluateGroupCandidates(ctx, openai, group, model, shape)"
       ],
-      "rationale": "Production DI must bind Candidate Eligibility SSOT; shared-filter unit tests alone cannot prove that Universal uses it."
+      "rationale": "Production DI enables the common account selector and retains the legacy evaluator adapter; shared-filter unit tests alone cannot prove real handoff."
     },
     {
       "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason.go",
@@ -163,7 +659,7 @@
         "ListAllWithFilters",
         "result.Supported"
       ],
-      "rationale": "Scheduler projection owns support versus readiness, mixed-pool membership and configured entitlement."
+      "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Production account selection is separately anchored."
     },
     {
       "path": "backend/internal/service/candidate_saturation.go",
@@ -175,7 +671,7 @@
         "IsAnthropicSaturatedStubDeprioritizeEnabled",
         "IsOpenAISaturatedStubDeprioritizeEnabled"
       ],
-      "rationale": "One scoped interpretation of counters feeds group choice, scoring and sticky preference, with Redis-owned expiry."
+      "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry."
     },
     {
       "path": "backend/internal/service/openai_candidate_eligibility.go",
@@ -183,9 +679,10 @@
         "func (s *defaultOpenAIAccountScheduler) openAICandidates(",
         "s.isAccountRequestCompatibleReason",
         "s.service.isAccountSchedulableForOpenAIWindow(ctx, account, false)",
-        "leastUtilizedOpenAIAccount(windowDropped, time.Now())"
+        "leastUtilizedOpenAIAccount(dropped, time.Now())",
+        "func (s *defaultOpenAIAccountScheduler) openAICandidatesBeforeWindow("
       ],
-      "rationale": "Direct and Universal evaluation share hard gates and window recovery."
+      "rationale": "The global selector consumes shared pre-window hard gates; only the legacy selector performs its own local recovery."
     },
     {
       "path": "backend/internal/service/gateway_scheduling.go",
@@ -205,7 +702,7 @@
         "ErrUniversalCapacityUnavailable",
         "!state.Supported || !state.Available"
       ],
-      "rationale": "Universal preserves subscription priority before soft health and distinguishes capacity from entitlement."
+      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -216,7 +713,7 @@
         "writeUniversalRoutingCapacityError",
         "apiKey.GroupID = &backing.ID"
       ],
-      "rationale": "Actual request profile reaches evaluation before a single billing group is bound."
+      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",
@@ -727,14 +1224,17 @@
       "must_contain": [
         "resolveFinalGeminiModelKey",
         "TKResolveGeminiDispatchModel",
+        "IsUniversalKeyRouting(ctx)",
+        "resolveGeminiForwardModels(a, requestedModel)",
         "PlatformGemini"
       ],
-      "rationale": "Scheduling must read model_rate_limits through the same Gemini group-level Claude→Gemini mapping used by forwarding; otherwise writes use gemini-* keys while subsequent /v1/messages reads probe claude-* keys."
+      "rationale": "Cooldown reads must match forwarding: Direct retains group dispatch while Universal uses actual account mappings independently of its billing group."
     },
     {
       "path": "backend/internal/service/model_rate_limit_test.go",
       "must_contain": [
-        "TestIsModelRateLimited_GeminiDispatchMappingAffectsModelKey"
+        "TestIsModelRateLimited_GeminiDispatchMappingAffectsModelKey",
+        "TestIsModelRateLimited_UniversalGeminiUsesAccountMapping"
       ],
       "rationale": "Focused regression proving Gemini dispatch mapping affects model-level rate-limit reads."
     },
@@ -3566,16 +4066,35 @@
       "path": "backend/internal/service/openai_gateway_usage.go",
       "must_contain": [
         "isOpenAIVideoUsageResult(result)",
-        "tkTryCalculateOpenAIVideoUsageCost"
+        "tkTryCalculateOpenAIVideoUsageCost",
+        "settleBillingOnAccountServedModel(billingAccount, requestedForBilling, billingModel)"
       ],
-      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path."
+      "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path. Account model_mapping remaps (Token Plan legacy aliases) must settle on the served model after BillingModelSource overrides, not the client legacy price card."
     },
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
       "must_contain": [
+        "settleBillingOnAccountServedModel(account, requestedModel, billingModel)",
         "billableModelWithFallback(ctx, apiKey, billingModel, result.UpstreamModel, result.Model)"
       ],
-      "rationale": "Anthropic/generic RecordUsage funnel must keep the TK unpriced-alias fallback: a selected billing model with no registry price falls back to the concretely forwarded model instead of silently settling $0. (Per-account .qianfan remap removed: shared ids intentionally use one global user price regardless of serving account; provider-cost differences stay in profit reporting, and customer-scoped channel_model_pricing is not a serving-account substitute — see docs/approved/pricing-serving-single-source-of-truth.md §1.1.)"
+      "rationale": "Anthropic/generic RecordUsage funnel must keep the TK unpriced-alias fallback: a selected billing model with no registry price falls back to the concretely forwarded model instead of silently settling $0. (Per-account .qianfan remap removed: shared ids intentionally use one global user price regardless of serving account; provider-cost differences stay in profit reporting, and customer-scoped channel_model_pricing is not a serving-account substitute — see docs/approved/pricing-serving-single-source-of-truth.md §1.1.) settleBillingOnAccountServedModel must run before that fallback so account remaps bill the served model card."
+    },
+    {
+      "path": "backend/internal/service/tk_billing_served_model_tk.go",
+      "must_contain": [
+        "func settleBillingOnAccountServedModel(account *Account, requestedModel, billingModel string) string",
+        "account.GetMappedModel(requestedModel)"
+      ],
+      "rationale": "Billing SSOT for account model_mapping remaps: serving and settlement share GetMappedModel / accountModelMappingForAccount. Do not reintroduce a second alias table in billing."
+    },
+    {
+      "path": "backend/internal/service/tk_billing_served_model_tk_test.go",
+      "must_contain": [
+        "TestSettleBillingOnAccountServedModel_UsesAccountMappingSSOT",
+        "TestGatewayRecordUsage_TokenPlanLegacyAliasBillsServedModel",
+        "TestOpenAIRecordUsage_TokenPlanLegacyAliasBillsServedModel"
+      ],
+      "rationale": "Focused regressions for served-model settlement: unit SSOT, Anthropic/generic RecordUsage, and the OpenAI-compat china/newapi Token Plan path under BillingModelSourceRequested."
     },
     {
       "path": "backend/internal/service/billing_service_tk_qianfan.go",
@@ -4528,9 +5047,23 @@
         "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
         "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, streamStarted, reqLog)",
         "h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog)",
-        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog)"
+        "platform := service.QuotaPlatform(c.Request.Context(), apiKey)",
+        "if platform == service.PlatformAnthropic && h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog)",
+        "TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, platform, parsedReq.Model, len(body))"
       ],
-      "rationale": "Handler half of unsupported-model + deprecated-model fixes on /v1/messages and count_tokens: tkWriteDeprecatedAnthropicModelAtIngress rejects sunset ids before scheduling (#1257); select-account failures call tkWriteDeprecatedAnthropicModelIfApplicable BEFORE tkWriteUnsupportedModelIfApplicable, mapping ErrDeprecatedAnthropicModel to the Anthropic-shape migration 400 (client-owned) instead of routing 429 when the Forward-path gate never ran."
+      "rationale": "Handler half of unsupported-model + deprecated-model fixes on /v1/messages and count_tokens: sunset ids are rejected before scheduling (#1257). Shared count_tokens ingress resolves the actual target platform for namespace and body-size checks; only Anthropic targets reject non-Claude names, so Antigravity Gemini can reach the existing local estimator. Selection failures retain the deprecated-model migration 400 before generic unsupported-model handling."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_count_tokens_ingress_test.go",
+      "must_contain": [
+        "func TestGatewayCountTokensIngressPlatformGuards(",
+        "h.CountTokens(c)",
+        "universal_antigravity_backing_group",
+        "require.JSONEq(t, `{\"input_tokens\":4}`, rec.Body.String())",
+        "require.Nil(t, upstream.request)",
+        "require.Empty(t, usage.logs)"
+      ],
+      "rationale": "Full count_tokens handler regression crosses ingress and selection to the Antigravity local estimator for direct and resolved universal keys. Namespace/body guards follow the actual platform, unknown models remain rejected, and local estimates neither call upstream nor create usage records."
     },
     {
       "path": "backend/internal/service/gateway_scheduling.go",
@@ -4543,9 +5076,22 @@
       "path": "backend/internal/handler/gateway_handler_responses.go",
       "must_contain": [
         "h.tkWriteDeprecatedAnthropicModelAtIngress(c, reqModel, reqLog)",
-        "h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog)"
+        "platform := service.QuotaPlatform(requestCtx, apiKey)",
+        "TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, platform, reqModel, len(body))",
+        "if platform == service.PlatformAnthropic && h.tkWriteUnsupportedAnthropicModelAtIngress(c, reqModel, reqStream, reqLog)"
       ],
-      "rationale": "/v1/responses Anthropic ingress must reject retired model IDs and cross-vendor dirty names before selection (#1257 + cross-vendor 400 gate)."
+      "rationale": "Shared /v1/responses ingress must resolve its actual platform before body-size and namespace checks. Only Anthropic targets reject non-Claude names; an unconditional namespace gate blocks Antigravity Gemini before selection. Retired-model policy remains enforced."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_responses_ingress_test.go",
+      "must_contain": [
+        "func TestGatewayResponsesIngressAntigravityGemini(",
+        "func TestGatewayResponsesIngressPlatformGuards(",
+        "h.Responses(c)",
+        "response.completed",
+        "usage.logs[0].UpstreamModel"
+      ],
+      "rationale": "Full Responses handler regression must cross ingress, account selection, protocol execution and usage recording for Antigravity Gemini, including streaming and buffered Responses/Chat/native-Gemini targets. Guard tests retain Anthropic rejection, unsupported-model rejection, actual-platform body limits and resolved/forced platform precedence; executor-only tests cannot catch ingress rejection."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_unsupported_model.go",
@@ -6371,7 +6917,7 @@
         "func MaybeResolveUniversal(",
         "apiKey.Group = backing",
         "apiKey.GroupID = &backing.ID",
-        "c.Request.Body = io.NopCloser(bytes.NewReader(raw))",
+        "c.Request.Body = &universalBodyReplay{",
         "isTokenKeyVideoTaskRead"
       ],
       "rationale": "Universal Key auth-time glue: peeks the model (restoring the EXACT original body + headers so the handler is byte-identical), resolves the backing group, and presents the request as a normal key bound to that group (swap apiKey.Group/GroupID). It deliberately does NOT set ForcePlatform (so anthropic+antigravity mixed scheduling and other per-group semantics are preserved) and only READS ForcePlatform to constrain candidates on /antigravity. Registry-owned vt_ video polls are the exception: isTokenKeyVideoTaskRead must bypass fresh model-less group resolution so VideoFetch can consume the submit-time pinned route. Removing the body-restore line corrupts every universal-key request body; removing the swap or poll bypass disables the corresponding feature."
@@ -7932,7 +8478,8 @@
     {
       "path": "backend/internal/handler/openai_codex_models_handler.go",
       "must_contain": [
-        "allowedModelIDs, err := h.resolveCodexDiscoveryAPIKey",
+        "source.DiscoverCandidates(c.Request.Context(), apiKey, service.UniversalProtocolCodex)",
+        "selectCodexDiscoveryAccount(candidateAccounts, failedAccountIDs)",
         "if allowedModelIDs != nil && len(allowedModelIDs) == 0",
         "func filterCodexModelsManifest(",
         "envelope[\"models\"] = encodedModels"

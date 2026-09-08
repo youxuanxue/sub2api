@@ -254,7 +254,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
 		// TK: platform mismatch skip — see gateway_handler_tk_chat_completions_execute.go
-		if tkChatCompletionsAccountPlatformMismatch(groupPlatform, account) {
+		if service.CandidateRequestFromContext(c.Request.Context()) == nil && tkChatCompletionsAccountPlatformMismatch(groupPlatform, account) {
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}

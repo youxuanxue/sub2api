@@ -156,7 +156,9 @@ func TestSubscriptionGroupUsable_WeeklyLimitExceeded(t *testing.T) {
 	svc.now = func() time.Time { return now }
 	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription, WeeklyLimitUSD: &limit}
 
-	require.False(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+	usable, err := svc.SubscriptionGroupUsable(context.Background(), 31, group)
+	require.NoError(t, err)
+	require.False(t, usable)
 }
 
 func TestSubscriptionGroupUsable_Expired(t *testing.T) {
@@ -173,14 +175,18 @@ func TestSubscriptionGroupUsable_Expired(t *testing.T) {
 	svc.now = func() time.Time { return now }
 	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription}
 
-	require.False(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+	usable, err := svc.SubscriptionGroupUsable(context.Background(), 31, group)
+	require.NoError(t, err)
+	require.False(t, usable)
 }
 
 func TestSubscriptionGroupUsable_MissingSubscription(t *testing.T) {
 	svc := NewSubscriptionService(groupRepoNoop{}, usableSubRepoStub{err: ErrSubscriptionNotFound}, nil, nil, nil)
 	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription}
 
-	require.False(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+	usable, err := svc.SubscriptionGroupUsable(context.Background(), 31, group)
+	require.NoError(t, err)
+	require.False(t, usable)
 }
 
 func TestSubscriptionGroupUsable_ActiveUnderLimit(t *testing.T) {
@@ -201,17 +207,22 @@ func TestSubscriptionGroupUsable_ActiveUnderLimit(t *testing.T) {
 	svc.now = func() time.Time { return now }
 	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription, WeeklyLimitUSD: &limit}
 
-	require.True(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+	usable, err := svc.SubscriptionGroupUsable(context.Background(), 31, group)
+	require.NoError(t, err)
+	require.True(t, usable)
 }
 
-func TestSubscriptionGroupUsable_LookupInfraErrorKeepsSubscription(t *testing.T) {
-	svc := NewSubscriptionService(groupRepoNoop{}, usableSubRepoStub{err: errors.New("db unavailable")}, nil, nil, nil)
+func TestSubscriptionGroupUsable_LookupInfraErrorPreserved(t *testing.T) {
+	lookupErr := errors.New("db unavailable")
+	svc := NewSubscriptionService(groupRepoNoop{}, usableSubRepoStub{err: lookupErr}, nil, nil, nil)
 	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription}
 
-	require.True(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+	usable, err := svc.SubscriptionGroupUsable(context.Background(), 31, group)
+	require.ErrorIs(t, err, lookupErr)
+	require.False(t, usable)
 }
 
-func TestSubscriptionGroupUsable_MaintenanceInfraErrorKeepsSubscription(t *testing.T) {
+func TestSubscriptionGroupUsable_MaintenanceInfraErrorPreserved(t *testing.T) {
 	startsAt := time.Date(2026, 7, 24, 4, 31, 4, 81236000, time.UTC)
 	lateAnchor := time.Date(2026, 8, 18, 6, 22, 6, 0, time.UTC)
 	now := time.Date(2026, 8, 21, 7, 39, 34, 0, time.UTC)
@@ -230,7 +241,9 @@ func TestSubscriptionGroupUsable_MaintenanceInfraErrorKeepsSubscription(t *testi
 	svc.now = func() time.Time { return now }
 	group := &Group{ID: 22, SubscriptionType: SubscriptionTypeSubscription, WeeklyLimitUSD: &limit}
 
-	require.True(t, svc.SubscriptionGroupUsable(context.Background(), 31, group))
+	usable, err := svc.SubscriptionGroupUsable(context.Background(), 31, group)
+	require.EqualError(t, err, "reset failed")
+	require.False(t, usable)
 }
 
 type failingWeeklyResetRepo struct {

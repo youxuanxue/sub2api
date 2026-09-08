@@ -993,27 +993,33 @@ func (s *SubscriptionService) CheckUsageLimits(ctx context.Context, sub *UserSub
 
 // SubscriptionGroupUsable 判断用户此刻能否用该订阅组接请求。
 // 到期、停用、找不到有效订阅、日/周/月额度满都返回 false，全能 key 可改走余额组。
-// 读订阅或窗口维护的基础设施错误返回 true，让鉴权中间件按原路径 403/500，避免误扣钱包。
-func (s *SubscriptionService) SubscriptionGroupUsable(ctx context.Context, userID int64, group *Group) bool {
+// 取数或窗口维护错误单独返回，由 resolver 尝试其他已授权路径并保留故障原因。
+func (s *SubscriptionService) SubscriptionGroupUsable(ctx context.Context, userID int64, group *Group) (bool, error) {
 	if s == nil || group == nil || !group.IsSubscriptionType() {
-		return group != nil && !group.IsSubscriptionType()
+		return group != nil && !group.IsSubscriptionType(), nil
 	}
 	sub, err := s.GetActiveSubscription(ctx, userID, group.ID)
 	if err != nil {
-		return !subscriptionBusinessUnusable(err)
+		if subscriptionBusinessUnusable(err) {
+			return false, nil
+		}
+		return false, err
 	}
 	if sub == nil {
-		return false
+		return false, nil
 	}
 	needsMaintenance, err := s.ValidateAndCheckLimits(sub, group)
 	if needsMaintenance {
 		refreshed, merr := s.EnsureWindowMaintenance(ctx, sub)
 		if merr != nil {
-			return true
+			return false, merr
 		}
 		_, err = s.ValidateAndCheckLimits(refreshed, group)
 	}
-	return err == nil
+	if subscriptionBusinessUnusable(err) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func subscriptionBusinessUnusable(err error) bool {

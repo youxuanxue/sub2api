@@ -156,10 +156,7 @@ func (h *OpenAIGatewayHandler) ImageGenerations(c *gin.Context) {
 				)...,
 			)
 			if len(failedAccountIDs) == 0 {
-				defaultModel := ""
-				if apiKey.Group != nil {
-					defaultModel = apiKey.Group.DefaultMappedModel
-				}
+				defaultModel := resolveOpenAIForwardDefaultMappedModel(apiKey, "")
 				if defaultModel != "" && defaultModel != reqModel {
 					selectionModel = defaultModel
 					reqLog.Info("openai_images_generations.fallback_to_default_model",

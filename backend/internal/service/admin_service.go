@@ -675,6 +675,7 @@ type adminServiceImpl struct {
 	userSubRepo          UserSubscriptionRepository
 	privacyClientFactory PrivacyClientFactory
 	runtimeBlocker       AccountRuntimeBlocker
+	rateLimitService     *RateLimitService
 	availability         *PricingAvailabilityService
 	affiliateService     adminRechargeAffiliateAccruer
 	compositeRouteRepo   CompositeModelRouteRepository
@@ -722,12 +723,14 @@ func NewAdminService(
 	compositeRouteRepo CompositeModelRouteRepository,
 	compositeResolver *CompositeRouteResolver,
 	channelCacheInvalidator ChannelCacheInvalidator,
+	rateLimitService *RateLimitService,
 ) AdminService {
 	return &adminServiceImpl{
 		userRepo:             userRepo,
 		groupRepo:            groupRepo,
 		groupDuplicateRepo:   groupRepo,
 		accountRepo:          accountRepo,
+		rateLimitService:     rateLimitService,
 		accountDuplicateRepo: accountRepo,
 		accountBillingRepo:   accountRepo,
 		proxyRepo:            proxyRepo,

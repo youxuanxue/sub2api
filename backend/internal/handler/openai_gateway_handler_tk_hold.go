@@ -72,10 +72,12 @@ type tkHoldHandle struct {
 // cleanup. Once handed off to settlement it is a no-op: the settlement
 // transaction (or, after a crash, the reconciler) owns the refund.
 func (hh *tkHoldHandle) ReleaseUnlessSettling() {
-	if hh == nil || hh.settling {
+	if hh == nil || hh.settling || hh.requestID == "" {
 		return
 	}
 	hh.h.gatewayService.TkReleaseHold(hh.ctx, hh.requestID)
+	hh.requestID = ""
+	service.SetCandidateBalanceReserved(hh.ctx, false)
 }
 
 // HandOffToSettlement transfers refund ownership to the usage-record task and
@@ -87,6 +89,7 @@ func (hh *tkHoldHandle) HandOffToSettlement() string {
 		return ""
 	}
 	hh.settling = true
+	service.SetCandidateBalanceReserved(hh.ctx, false)
 	return hh.requestID
 }
 
@@ -94,14 +97,12 @@ func (hh *tkHoldHandle) HandOffToSettlement() string {
 // (no balance to overdraw), resolves the usage-billing request id (plus an
 // optional suffix for sub-request holds, e.g. WS turns), runs the
 // route-specific reserve, and wraps the handle. Returns:
-//   - hold != nil → reserved; caller MUST defer hold.ReleaseUnlessSettling().
+//   - hold != nil → lifecycle handle; caller MUST defer hold.ReleaseUnlessSettling().
+//     Candidate subscription paths retain a dormant handle for balance fallback.
 //   - reject == true → balance insufficient; caller returns its 403 and stops.
-//   - both zero → not gated (subscription / no hold capability / unpriced).
+//   - both zero → no lifecycle handle is required.
 func (h *OpenAIGatewayHandler) tkApplyHold(c *gin.Context, apiKey *service.APIKey, requestIDSuffix string, reserve func(requestID string) (held bool, reject bool)) (hold *tkHoldHandle, reject bool) {
 	if h == nil || h.gatewayService == nil || apiKey == nil || apiKey.User == nil {
-		return nil, false
-	}
-	if subscription, _ := middleware2.GetSubscriptionFromContext(c); subscription != nil {
 		return nil, false
 	}
 	requestID := service.TkResolveUsageBillingRequestID(c.Request.Context())
@@ -109,6 +110,22 @@ func (h *OpenAIGatewayHandler) tkApplyHold(c *gin.Context, apiKey *service.APIKe
 		return nil, false
 	}
 	requestID += requestIDSuffix
+	if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+		// Keep a dormant handle for an initial subscription path: reselection
+		// can switch to balance before the request reaches its upstream.
+		handle := &tkHoldHandle{h: h, ctx: c.Request.Context()}
+		refresh := func() error {
+			return handle.rebind(requestID, service.CandidateSubscription(c.Request.Context(), nil) != nil, reserve)
+		}
+		if err := refresh(); err != nil {
+			return nil, true
+		}
+		service.SetCandidateBillingHook(c.Request.Context(), refresh)
+		return handle, false
+	}
+	if subscription, _ := middleware2.GetSubscriptionFromContext(c); subscription != nil {
+		return nil, false
+	}
 	held, rej := reserve(requestID)
 	if rej {
 		return nil, true
@@ -117,6 +134,31 @@ func (h *OpenAIGatewayHandler) tkApplyHold(c *gin.Context, apiKey *service.APIKe
 		return &tkHoldHandle{h: h, ctx: c.Request.Context(), requestID: requestID}, false
 	}
 	return nil, false
+}
+
+func (hh *tkHoldHandle) rebind(requestID string, subscription bool, reserve func(string) (bool, bool)) error {
+	if hh.settling {
+		return service.ErrUsageBillingRequestConflict
+	}
+	if hh.requestID != "" {
+		if err := hh.h.gatewayService.TkReleaseHoldChecked(hh.ctx, hh.requestID); err != nil {
+			return service.ErrBillingServiceUnavailable.WithCause(err)
+		}
+		hh.requestID = ""
+	}
+	service.SetCandidateBalanceReserved(hh.ctx, false)
+	if subscription {
+		return nil
+	}
+	held, rejected := reserve(requestID)
+	if rejected {
+		return service.ErrInsufficientBalance
+	}
+	if held {
+		hh.requestID = requestID
+		service.SetCandidateBalanceReserved(hh.ctx, true)
+	}
+	return nil
 }
 
 // tkApplyBalanceHold reserves a pre-flight token hold for the output-bearing

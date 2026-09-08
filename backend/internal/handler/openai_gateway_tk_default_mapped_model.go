@@ -7,6 +7,9 @@ import (
 )
 
 func resolveOpenAIForwardDefaultMappedModel(apiKey *service.APIKey, fallbackModel string) string {
+	if apiKey.IsUniversal() {
+		return ""
+	}
 	if fallbackModel = strings.TrimSpace(fallbackModel); fallbackModel != "" {
 		return fallbackModel
 	}

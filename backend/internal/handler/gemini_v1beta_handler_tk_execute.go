@@ -43,6 +43,7 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 	sessionGroupID int64,
 	sessionKey string,
 ) (*service.ForwardResult, error) {
+	modelName = service.CandidateEffectiveModel(requestCtx, modelName)
 	forwardNonGoverned := func(executionCtx context.Context, executionAccount *service.Account, request protocolrouter.CanonicalRequest) (any, error) {
 		forwardBody := request.Body()
 		if executionAccount.Platform == service.PlatformAntigravity && executionAccount.Type != service.AccountTypeAPIKey {

@@ -149,6 +149,9 @@ func (s *RateLimitService) tkTryHandleStandingBilling(ctx context.Context, accou
 		return false
 	}
 	errorMsg := tkStandingBillingErrorMsg(statusCode, responseBody)
+	if s.tkTryHandleSupplierCredentialFailure(ctx, account, tkStandingBillingIncidentReason, errorMsg) {
+		return true
+	}
 	s.notifyAccountSchedulingBlocked(account, time.Time{}, tkStandingBillingIncidentReason, errorMsg)
 	if s.accountRepo == nil {
 		return true

@@ -282,6 +282,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	// 计算粘性会话hash
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	if candidateSession, ok := service.CandidateSessionHash(c.Request.Context()); ok {
+		sessionHash = candidateSession
+	}
 
 	// 获取平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则使用分组平台
 	// [DEBUG-STICKY] 打印会话 hash 生成结果
@@ -296,11 +299,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		platform = forcePlatform
 	} else if resolvedPlatform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {
 		platform = resolvedPlatform
+	} else if candidatePlatform, ok := service.CandidateExecutionPlatform(c.Request.Context()); ok {
+		platform = candidatePlatform
 	} else if apiKey.Group != nil {
 		platform = apiKey.Group.Platform
 	}
 	sessionKey := sessionHash
-	if platform == service.PlatformGemini && sessionHash != "" {
+	if service.CandidateRequestFromContext(c.Request.Context()) == nil && platform == service.PlatformGemini && sessionHash != "" {
 		sessionKey = "gemini:" + sessionHash
 	}
 
@@ -584,6 +589,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 提交 usage 记录。成功路径与"流中断但 Forward 已观测到 usage 的部分结果"
 			// 错误路径共用：后者若不入账，上游已计量的请求会完全漏记漏计费（#5148）。
 			submitForwardUsage := func(result *service.ForwardResult) {
+				currentAPIKey, currentSubscription := snapshotCandidateBilling(c.Request.Context(), currentAPIKey, currentSubscription)
 				// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 				userAgent := c.GetHeader("User-Agent")
 				clientIP := ip.GetClientIP(c)
@@ -610,6 +616,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				quotaPlatform := service.QuotaPlatform(c.Request.Context(), currentAPIKey)
 				sessionID := service.ExtractClientSessionID(c)
 				gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
+				usageFields := clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel)
 				h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 					if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 						Result:             result,
@@ -628,7 +635,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						ForceCacheBilling:  forceCacheBilling,
 						APIKeyService:      h.apiKeyService,
 						GatewayLatencyMs:   gatewayLatencyMs,
-						ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
+						ChannelUsageFields: usageFields,
 					}); err != nil {
 						logger.L().With(
 							zap.String("component", "handler.gateway.messages"),
@@ -1605,10 +1612,11 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		return
 	}
 
+	platform := service.QuotaPlatform(c.Request.Context(), apiKey)
 	if h.tkWriteDeprecatedAnthropicModelAtIngress(c, parsedReq.Model, reqLog) {
 		return
 	}
-	if h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog) {
+	if platform == service.PlatformAnthropic && h.tkWriteUnsupportedAnthropicModelAtIngress(c, parsedReq.Model, false, reqLog) {
 		return
 	}
 
@@ -1616,7 +1624,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsedReq.Stream, false)))
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
-	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, domain.PlatformAnthropic, parsedReq.Model, len(body)); reject {
+	if reject, msg := TkEvalBodyGuard(reqLog, h.cfg.Gateway.UpstreamBodyGuards, platform, parsedReq.Model, len(body)); reject {
 		h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", msg)
 		return
 	}

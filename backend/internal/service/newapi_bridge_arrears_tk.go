@@ -196,6 +196,9 @@ func tkHandleBridgeArrearsPenalty(ctx context.Context, rls *RateLimitService, ac
 	if detail != "" {
 		errorMsg = fmt.Sprintf("Account arrears (%d): %s", apiErr.StatusCode, detail)
 	}
+	if rls.tkTryHandleSupplierCredentialFailure(ctx, account, tkBridgeArrearsIncidentReason, errorMsg) {
+		return true
+	}
 
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()

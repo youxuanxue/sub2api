@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -19,22 +20,25 @@ import (
 	"go.uber.org/zap"
 )
 
-// 压缩请求体超过该大小时,跳过“解码取模型”以界定额外解码内存(取模型仅作平台偏好提示)。
+// The lightweight peek is bounded; candidate preparation decodes through the
+// execution owner's body-size limits before planning a request.
 const universalPeekMaxCompressedBytes = 256 << 10
 
-// MaybeResolveUniversal 在认证流程内部、分组/订阅校验之前，把“全能 Key”按请求的入口端点 +
-// 模型解析到一个后端组，并把请求“伪装”成绑定该后端组的普通 key（替换 apiKey.Group/GroupID）。
-// 之后现成的分组可用性/权限/订阅/余额校验、调度、计费、转发全部作用在该后端组上，零改动。
-//
-// 返回值 handled：
-//   - true  表示已写出协议正确的错误并 Abort，调用方应 return；
-//   - false 表示“继续正常认证”（已成功替换为后端组，或本请求无需解析 / 非全能 key）。
-//
-// 不主动设置 ctxkey.ForcePlatform：替换后端组本身就让下游按该组平台派生（保留如 anthropic+
-// antigravity 混合调度等“普通组 key”语义）。仅“读取”已有的 ForcePlatform（如 /antigravity 路由）
-// 把候选限制在该平台内，从不覆盖显式 force。
+// MaybeResolveUniversal retains its historical entry name while preparing the
+// shared candidate state for both Direct and Universal inference requests.
+// The selected group is a billing origin; execution follows the actual account.
+// Explicit ForcePlatform restrictions remain authorization constraints.
+// A true return means a protocol-shaped error was written and the request aborted.
 func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *service.UniversalRoutingResolver) bool {
-	if resolver == nil || apiKey == nil || !apiKey.IsUniversal() {
+	if resolver == nil || apiKey == nil || (!apiKey.IsUniversal() && !resolver.CandidateSchedulingEnabled()) {
+		return false
+	}
+	ctx := service.WithCandidateIdentity(c.Request.Context(), apiKey.UserID, apiKey.ID)
+	if apiKey.IsUniversal() {
+		ctx = service.WithUniversalKeyRouting(ctx)
+	}
+	c.Request = c.Request.WithContext(ctx)
+	if deferUniversalWebSocketBilling(c, apiKey) {
 		return false
 	}
 
@@ -71,47 +75,75 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		}
 	}
 
+	raw, readErr := readAndRestoreUniversalBody(c)
+	if readErr != nil {
+		writeUniversalBodyReadError(c, shape, readErr)
+		return true
+	}
 	model := peekUniversalModel(c, shape)
-	if raw, ok := readAndRestoreUniversalBody(c); ok {
+	decodedBody := raw
+	if raw != nil {
 		// Decode with the execution owner's size limits, on a request copy so raw
 		// bytes and Content-Encoding remain intact for downstream handlers.
 		copyRequest := c.Request.Clone(c.Request.Context())
 		copyRequest.Body = io.NopCloser(bytes.NewReader(raw))
-		if body, err := pkghttputil.ReadRequestBodyWithPrealloc(copyRequest); err == nil {
-			if shape == service.ShapeOpenAIChat {
-				body, err = pkghttputil.NormalizeLenientJSONRequestBody(body, 0)
-			}
-			if err == nil {
-				if shape == service.ShapeAnthropicMessages || shape == service.ShapeAnthropicCountTokens {
-					parsed, parseErr := service.ParseGatewayRequest(service.NewRequestBodyRef(body), service.PlatformAnthropic)
-					if parseErr == nil {
-						if normalized, resolved := service.TkApplyBareModelAlias(forcedPlatform, parsed); resolved != "" {
-							body = normalized
-							// Planning and the handler must consume the same alias rewrite,
-							// including when the client sent a compressed request.
-							c.Request.Body = io.NopCloser(bytes.NewReader(body))
-							c.Request.ContentLength = int64(len(body))
-							c.Request.Header.Del("Content-Encoding")
-							c.Request.Header.Del("Content-Length")
-						}
-					}
-				}
-				if shape != service.ShapeGemini && shape != service.ShapeOpenAIImagesEdit {
-					var document struct {
-						Model string `json:"model"`
-					}
-					if json.Unmarshal(body, &document) == nil {
-						model = strings.TrimSpace(document.Model)
-					}
-				}
-				ctx := resolver.WithRequest(c.Request.Context(), shape, requestPath, model, body)
-				c.Request = c.Request.WithContext(ctx)
+		body, decodeErr := pkghttputil.ReadRequestBodyWithPrealloc(copyRequest)
+		if decodeErr != nil {
+			writeUniversalBodyReadError(c, shape, decodeErr)
+			return true
+		}
+		if shape == service.ShapeOpenAIChat {
+			body, decodeErr = pkghttputil.NormalizeLenientJSONRequestBody(body, 0)
+			if decodeErr != nil {
+				writeUniversalBodyReadError(c, shape, decodeErr)
+				return true
 			}
 		}
+		if shape == service.ShapeAnthropicMessages || shape == service.ShapeAnthropicCountTokens {
+			parsed, parseErr := service.ParseGatewayRequest(service.NewRequestBodyRef(body), service.PlatformAnthropic)
+			if parseErr == nil {
+				if normalized, resolved := service.TkApplyBareModelAlias(forcedPlatform, parsed); resolved != "" {
+					body = normalized
+					// Planning and forwarding consume the same alias rewrite, including
+					// compressed requests. This is independent of group model policy.
+					c.Request.Body = io.NopCloser(bytes.NewReader(body))
+					c.Request.ContentLength = int64(len(body))
+					c.Request.Header.Del("Content-Encoding")
+					c.Request.Header.Del("Content-Length")
+				}
+			}
+		}
+		if shape != service.ShapeGemini && shape != service.ShapeOpenAIImagesEdit {
+			var document struct {
+				Model string `json:"model"`
+			}
+			if json.Unmarshal(body, &document) == nil {
+				model = strings.TrimSpace(document.Model)
+			}
+		}
+		ctx := resolver.WithRequest(c.Request.Context(), shape, requestPath, model, body)
+		c.Request = c.Request.WithContext(ctx)
+		decodedBody = body
 	}
 	reqLog := universalRoutingLogger(c, apiKey, shape, model, forcedPlatform)
 
-	backing, err := resolver.Resolve(c.Request.Context(), apiKey, shape, model, forcedPlatform)
+	var backing *service.Group
+	var err error
+	if model == "" && (shape == service.ShapeOpenAIImages || shape == service.ShapeOpenAIImagesEdit) {
+		model = service.DefaultOpenAIImagesModel
+	}
+	if resolver.CandidateSchedulingEnabled() && model != "" {
+		var candidate *service.CandidateRequest
+		candidate, err = resolver.PrepareCandidateIngress(c, apiKey, shape, requestPath, model, decodedBody, forcedPlatform)
+		if err == nil && candidate != nil {
+			observeCandidateBinding(c, candidate)
+			backing = apiKey.Group
+		}
+	} else if apiKey.IsUniversal() {
+		backing, err = resolver.Resolve(c.Request.Context(), apiKey, shape, model, forcedPlatform)
+	} else {
+		return false
+	}
 	if err != nil {
 		// 区分“真没有被授权的组”(403,业务语义) 与跨度加载失败等内部错误(500,可重试):
 		// 后者不该被伪装成“该模型不在你的套餐内”。
@@ -124,6 +156,8 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		} else if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
 			reqLog.Warn("universal_routing.capacity_unavailable")
 			writeUniversalRoutingCapacityError(c, shape)
+		} else if status := infraerrors.Code(err); status >= 400 && status < 500 {
+			writeCandidateBillingError(c, shape, err)
 		} else {
 			reqLog.Error("universal_routing.resolve_failed", zap.Error(err))
 			writeUniversalRoutingInternalError(c, shape)
@@ -131,8 +165,11 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		c.Abort()
 		return true
 	}
+	if backing == nil {
+		return false
+	}
 
-	// 伪装成绑定该后端组的普通 key。apiKey 是每请求新建的结构（snapshotToAPIKey），就地替换安全。
+	// apiKey 是每请求新建的结构（snapshotToAPIKey），替换组但保留 RoutingMode。
 	apiKey.Group = backing
 	apiKey.GroupID = &backing.ID
 	reqLog.Info("universal_routing.resolved",
@@ -222,17 +259,9 @@ func universalShapeLabel(shape service.UniversalShape) string {
 	}
 }
 
-// peekUniversalModel 取请求模型名（仅作平台偏好提示）。body 类端点读 body 后“原样还原”
-// （连同原始头），让后续 handler 的 body 读取行为字节级不受影响；gemini 取 URL。
-//
-// video：POST 提交（submit）是 JSON body，必须读出模型名 —— 候选平台 [openai, newapi]
-// 跨多个后端组（如 google-vertex ch41 / volcengine ch45 才支持视频，而 deepseek ch43 /
-// Qwen ch17 不支持）。不取模型则 resolver 退回“按 sort_order/id 确定性挑组”，会把视频
-// 请求落到一个非视频渠道的组，selected account 的 channel_type 在 handler 视频门
-// （engine.IsVideoSupportedForAccount）处被拒，表现为“全局视频 400”。读模型后既能经
-// 「组已服务模型集」收敛到对的组、又能让平台 hint（veo→gemini、seedance→newapi）偏向。
-// GET 轮询（poll）无 body、无模型：poll 用 VideoTaskCache 里 submit 时固定的上游路由，
-// 不重新选号，故 model="" 安全（任一 openai-compat 组即满足路由层的平台门）。
+// peekUniversalModel reads the endpoint's model without consuming its body.
+// Gemini names come from the URL; image edits may use multipart fields.
+// Submitted video tasks retain their registry-owned route when polled.
 func peekUniversalModel(c *gin.Context, shape service.UniversalShape) string {
 	switch shape {
 	case service.ShapeGemini:
@@ -256,19 +285,19 @@ func peekUniversalModel(c *gin.Context, shape service.UniversalShape) string {
 // 关键：还原的是“原始字节 + 原始头”，绝不改动 Content-Encoding/Length，使 handler 后续
 // 调用 ReadRequestBodyWithPrealloc 的行为与本中间件未运行时完全一致。
 func peekModelFromJSONBody(c *gin.Context) string {
-	raw, ok := readAndRestoreUniversalBody(c)
-	if !ok {
+	raw, err := readAndRestoreUniversalBody(c)
+	if err != nil {
 		return ""
 	}
 	return extractModelFromJSONBytes(c, raw)
 }
 
 // peekImageEditModel reads the model field for /v1/images/edits. Unlike generic
-// JSON endpoints, image edits are commonly multipart; only the small "model"
-// form field is copied, while upload parts are skipped by the multipart reader.
+// JSON endpoints, image edits are commonly multipart. The complete bounded raw
+// body is buffered; only the small "model" field is extracted from that buffer.
 func peekImageEditModel(c *gin.Context) string {
-	raw, ok := readAndRestoreUniversalBody(c)
-	if !ok {
+	raw, err := readAndRestoreUniversalBody(c)
+	if err != nil {
 		return ""
 	}
 	if model := extractModelFromJSONBytes(c, raw); model != "" {
@@ -281,16 +310,63 @@ func peekImageEditModel(c *gin.Context) string {
 	return extractMultipartModelField(c.GetHeader("Content-Type"), peekBytes)
 }
 
-func readAndRestoreUniversalBody(c *gin.Context) ([]byte, bool) {
+// universalBodyReplay retains both complete bytes and a terminal read failure.
+// A later peek must not turn a failed source into a successful truncated body.
+type universalBodyReplay struct {
+	raw     []byte
+	reader  *bytes.Reader
+	readErr error
+	source  io.Closer
+}
+
+func (b *universalBodyReplay) Read(p []byte) (int, error) {
+	if b.readErr != nil {
+		return 0, b.readErr
+	}
+	return b.reader.Read(p)
+}
+
+func (b *universalBodyReplay) Close() error { return b.source.Close() }
+
+func readAndRestoreUniversalBody(c *gin.Context) ([]byte, error) {
 	if c.Request == nil || c.Request.Body == nil {
-		return nil, false
+		return nil, nil
 	}
-	raw, err := io.ReadAll(c.Request.Body) // 受上游 bodyLimit(MaxBytesReader) 约束
-	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	if body, ok := c.Request.Body.(*universalBodyReplay); ok {
+		body.reader.Reset(body.raw)
+		return body.raw, body.readErr
+	}
+	source := c.Request.Body
+	raw, err := io.ReadAll(source) // Bounded by the ingress MaxBytesReader.
 	if err != nil {
-		return nil, false
+		raw = nil
 	}
-	return raw, true
+	c.Request.Body = &universalBodyReplay{raw: raw, reader: bytes.NewReader(raw), readErr: err, source: source}
+	return raw, err
+}
+
+func writeUniversalBodyReadError(c *gin.Context, shape service.UniversalShape, err error) {
+	status, message := http.StatusBadRequest, "Failed to read request body"
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		status, message = http.StatusRequestEntityTooLarge, "Request body too large"
+	} else if IsClientClosedRequestError(c, err) {
+		status, message = StatusClientClosedRequest, "context canceled"
+		service.MarkOpsClientClosedRequest(c)
+	}
+	switch shape {
+	case service.ShapeGemini:
+		GoogleErrorWriter(c, status, message)
+	case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
+		errorType := "invalid_request_error"
+		if status == http.StatusRequestEntityTooLarge {
+			errorType = "request_too_large"
+		}
+		c.JSON(status, gin.H{"type": "error", "error": gin.H{"type": errorType, "message": message}})
+	default:
+		c.JSON(status, gin.H{"error": gin.H{"message": message, "type": "invalid_request_error"}})
+	}
+	c.Abort()
 }
 
 func extractModelFromJSONBytes(c *gin.Context, raw []byte) string {
@@ -308,8 +384,8 @@ func extractModelFromJSONBytes(c *gin.Context, raw []byte) string {
 func universalPeekBytes(c *gin.Context, raw []byte) []byte {
 	peekBytes := raw
 	if enc := strings.ToLower(strings.TrimSpace(c.GetHeader("Content-Encoding"))); enc != "" && enc != "identity" {
-		// 仅对较小的压缩体解码取模型,界定额外解码内存(模型名是平台偏好提示,
-		// 大体跳过只是退回确定性挑组,不影响功能)。原始体已还原,不受影响。
+		// This bounded peek leaves the complete raw replay intact. Candidate
+		// preparation uses the execution decoder for the authoritative payload.
 		if len(raw) > universalPeekMaxCompressedBytes {
 			return nil
 		}
@@ -392,7 +468,7 @@ func writeUniversalRoutingError(c *gin.Context, shape service.UniversalShape, mo
 // 区别于 writeUniversalRoutingError(403),避免把可重试的服务端错误伪装成“不在你的套餐内”。
 func writeUniversalRoutingInternalError(c *gin.Context, shape service.UniversalShape) {
 	const status = http.StatusInternalServerError
-	const msg = "Failed to resolve a backing platform for this request. Please retry."
+	const msg = "Failed to prepare authorized candidates for this request. Please retry."
 	c.Set(service.OpsRoutingInternalErrorKey, true)
 	switch shape {
 	case service.ShapeGemini:

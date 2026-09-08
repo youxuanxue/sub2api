@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -105,6 +106,19 @@ func NewOpenAIWSStateStore(cache GatewayCache) OpenAIWSStateStore {
 }
 
 func (s *defaultOpenAIWSStateStore) BindHTTPResponseOwner(ctx context.Context, groupID int64, responseID string, userID, apiKeyID int64, ttl time.Duration) error {
+	if err := s.bindHTTPResponseOwner(ctx, groupID, responseID, userID, apiKeyID, ttl); err != nil {
+		return err
+	}
+	if normalizeOpenAIWSResponseID(responseID) == "" || userID <= 0 || apiKeyID <= 0 {
+		return nil
+	}
+	// Keep the old group record for rolling rollback and add an owner index for
+	// billing-origin-independent continuation. Both HTTP and WS use this path.
+	indexedID := candidateResponseID(userID, responseID)
+	return s.bindHTTPResponseOwner(ctx, 0, indexedID, userID, apiKeyID, ttl)
+}
+
+func (s *defaultOpenAIWSStateStore) bindHTTPResponseOwner(ctx context.Context, groupID int64, responseID string, userID, apiKeyID int64, ttl time.Duration) error {
 	id := normalizeOpenAIWSResponseID(responseID)
 	if id == "" || userID <= 0 || apiKeyID <= 0 {
 		return nil
@@ -112,6 +126,16 @@ func (s *defaultOpenAIWSStateStore) BindHTTPResponseOwner(ctx context.Context, g
 	ttl = normalizeOpenAIWSTTL(ttl)
 	s.maybeCleanup()
 
+	if s.cache != nil {
+		cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
+		defer cancel()
+		if err := s.cache.SetSessionAccountID(cacheCtx, groupID, openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerUserPrefix, id), userID, ttl); err != nil {
+			return err
+		}
+		if err := s.cache.SetSessionAccountID(cacheCtx, groupID, openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerKeyPrefix, id), apiKeyID, ttl); err != nil {
+			return err
+		}
+	}
 	mapKey := openAIWSResponseAccountMapKey(groupID, id)
 	s.responseOwnerMu.Lock()
 	ensureBindingCapacity(s.responseOwners, mapKey, openAIWSStateStoreMaxEntriesPerMap)
@@ -120,18 +144,20 @@ func (s *defaultOpenAIWSStateStore) BindHTTPResponseOwner(ctx context.Context, g
 	}
 	s.responseOwnerMu.Unlock()
 
-	if s.cache == nil {
-		return nil
-	}
-	cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
-	defer cancel()
-	if err := s.cache.SetSessionAccountID(cacheCtx, groupID, openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerUserPrefix, id), userID, ttl); err != nil {
-		return err
-	}
-	return s.cache.SetSessionAccountID(cacheCtx, groupID, openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerKeyPrefix, id), apiKeyID, ttl)
+	return nil
 }
 
 func (s *defaultOpenAIWSStateStore) GetHTTPResponseOwner(ctx context.Context, groupID int64, responseID string) (int64, int64, bool, error) {
+	if identity, ok := candidateIdentityFromContext(ctx); ok && normalizeOpenAIWSResponseID(responseID) != "" {
+		userID, keyID, found, err := s.getHTTPResponseOwner(ctx, 0, candidateResponseID(identity.userID, responseID))
+		if err != nil || found {
+			return userID, keyID, found, err
+		}
+	}
+	return s.getHTTPResponseOwner(ctx, groupID, responseID)
+}
+
+func (s *defaultOpenAIWSStateStore) getHTTPResponseOwner(ctx context.Context, groupID int64, responseID string) (int64, int64, bool, error) {
 	id := normalizeOpenAIWSResponseID(responseID)
 	if id == "" {
 		return 0, 0, false, nil
@@ -153,24 +179,39 @@ func (s *defaultOpenAIWSStateStore) GetHTTPResponseOwner(ctx context.Context, gr
 	cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
 	defer cancel()
 	userID, err := s.cache.GetSessionAccountID(cacheCtx, groupID, openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerUserPrefix, id))
+	if errors.Is(err, ErrStickySessionNotFound) {
+		return 0, 0, false, nil
+	}
 	if err != nil || userID <= 0 {
 		return 0, 0, false, err
 	}
 	apiKeyID, err := s.cache.GetSessionAccountID(cacheCtx, groupID, openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerKeyPrefix, id))
+	if errors.Is(err, ErrStickySessionNotFound) {
+		return 0, 0, false, nil
+	}
 	if err != nil || apiKeyID <= 0 {
 		return 0, 0, false, err
 	}
 
-	s.responseOwnerMu.Lock()
-	ensureBindingCapacity(s.responseOwners, mapKey, openAIWSStateStoreMaxEntriesPerMap)
-	s.responseOwners[mapKey] = openAIHTTPResponseOwnerBinding{
-		userID: userID, apiKeyID: apiKeyID, expiresAt: now.Add(time.Minute),
-	}
-	s.responseOwnerMu.Unlock()
 	return userID, apiKeyID, true, nil
 }
 
 func (s *defaultOpenAIWSStateStore) BindResponseAccount(ctx context.Context, groupID int64, responseID string, accountID int64, ttl time.Duration) error {
+	if err := s.bindResponseAccount(ctx, groupID, responseID, accountID, ttl); err != nil {
+		return err
+	}
+	if identity, ok := candidateIdentityFromContext(ctx); ok && accountID > 0 && normalizeOpenAIWSResponseID(responseID) != "" {
+		// Bind from this request's selected account. A shared legacy group record
+		// may already belong to another upstream returning the same response ID.
+		if err := s.bindResponseAccount(ctx, 0, candidateResponseID(identity.userID, responseID), accountID, ttl); err != nil {
+			return err
+		}
+		return s.BindHTTPResponseOwner(ctx, groupID, responseID, identity.userID, identity.keyID, ttl)
+	}
+	return nil
+}
+
+func (s *defaultOpenAIWSStateStore) bindResponseAccount(ctx context.Context, groupID int64, responseID string, accountID int64, ttl time.Duration) error {
 	id := normalizeOpenAIWSResponseID(responseID)
 	if id == "" || accountID <= 0 {
 		return nil
@@ -178,6 +219,13 @@ func (s *defaultOpenAIWSStateStore) BindResponseAccount(ctx context.Context, gro
 	ttl = normalizeOpenAIWSTTL(ttl)
 	s.maybeCleanup()
 
+	if s.cache != nil {
+		cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
+		defer cancel()
+		if err := s.cache.SetSessionAccountID(cacheCtx, groupID, openAIWSResponseAccountCacheKey(id), accountID, ttl); err != nil {
+			return err
+		}
+	}
 	expiresAt := time.Now().Add(ttl)
 	mapKey := openAIWSResponseAccountMapKey(groupID, id)
 	s.responseToAccountMu.Lock()
@@ -185,13 +233,7 @@ func (s *defaultOpenAIWSStateStore) BindResponseAccount(ctx context.Context, gro
 	s.responseToAccount[mapKey] = openAIWSAccountBinding{accountID: accountID, expiresAt: expiresAt}
 	s.responseToAccountMu.Unlock()
 
-	if s.cache == nil {
-		return nil
-	}
-	cacheKey := openAIWSResponseAccountCacheKey(id)
-	cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
-	defer cancel()
-	return s.cache.SetSessionAccountID(cacheCtx, groupID, cacheKey, accountID, ttl)
+	return nil
 }
 
 func cleanupExpiredHTTPResponseOwnerBindings(bindings map[string]openAIHTTPResponseOwnerBinding, now time.Time, maxScan int) {
@@ -211,6 +253,16 @@ func cleanupExpiredHTTPResponseOwnerBindings(bindings map[string]openAIHTTPRespo
 }
 
 func (s *defaultOpenAIWSStateStore) GetResponseAccount(ctx context.Context, groupID int64, responseID string) (int64, error) {
+	if identity, ok := candidateIdentityFromContext(ctx); ok && normalizeOpenAIWSResponseID(responseID) != "" {
+		accountID, err := s.getResponseAccount(ctx, 0, candidateResponseID(identity.userID, responseID))
+		if err != nil || accountID > 0 {
+			return accountID, err
+		}
+	}
+	return s.getResponseAccount(ctx, groupID, responseID)
+}
+
+func (s *defaultOpenAIWSStateStore) getResponseAccount(ctx context.Context, groupID int64, responseID string) (int64, error) {
 	id := normalizeOpenAIWSResponseID(responseID)
 	if id == "" {
 		return 0, nil
@@ -237,14 +289,23 @@ func (s *defaultOpenAIWSStateStore) GetResponseAccount(ctx context.Context, grou
 	cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
 	defer cancel()
 	accountID, err := s.cache.GetSessionAccountID(cacheCtx, groupID, cacheKey)
-	if err != nil || accountID <= 0 {
-		// 缓存读取失败不阻断主流程，按未命中降级。
+	if errors.Is(err, ErrStickySessionNotFound) {
 		return 0, nil
 	}
-	return accountID, nil
+	return accountID, err
 }
 
 func (s *defaultOpenAIWSStateStore) DeleteResponseAccount(ctx context.Context, groupID int64, responseID string) error {
+	if err := s.deleteResponseAccount(ctx, groupID, responseID); err != nil {
+		return err
+	}
+	if identity, ok := candidateIdentityFromContext(ctx); ok && normalizeOpenAIWSResponseID(responseID) != "" {
+		return s.deleteResponseAccount(ctx, 0, candidateResponseID(identity.userID, responseID))
+	}
+	return nil
+}
+
+func (s *defaultOpenAIWSStateStore) deleteResponseAccount(ctx context.Context, groupID int64, responseID string) error {
 	id := normalizeOpenAIWSResponseID(responseID)
 	if id == "" {
 		return nil

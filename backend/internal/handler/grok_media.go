@@ -670,6 +670,13 @@ func recordGrokMediaUsage(
 		OriginalModel:      clientRequestedModel(c, requestModel),
 		ChannelMappedModel: requestModel,
 	}
+	if service.CandidateRequestFromContext(c.Request.Context()) != nil {
+		upstreamModel := ""
+		if result != nil {
+			upstreamModel = result.UpstreamModel
+		}
+		channelUsageFields = clientRequestedUsageFields(c, service.ChannelMappingResult{}, requestModel, upstreamModel)
+	}
 	// Async video: force durable task request id and release claim if billing fails.
 	videoTaskID := ""
 	if result != nil && result.VideoCount > 0 {
@@ -682,14 +689,15 @@ func recordGrokMediaUsage(
 			payloadForHash = []byte(videoTaskID)
 		}
 	}
+	billingAPIKey, billingSubscription := snapshotCandidateBilling(c.Request.Context(), apiKey, subscription)
+	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 	h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
-		gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(c)
 		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 			Result:             result,
-			APIKey:             apiKey,
-			User:               apiKey.User,
+			APIKey:             billingAPIKey,
+			User:               billingAPIKey.User,
 			Account:            account,
-			Subscription:       subscription,
+			Subscription:       billingSubscription,
 			InboundEndpoint:    inboundEndpoint,
 			UpstreamEndpoint:   upstreamEndpoint,
 			UserAgent:          userAgent,

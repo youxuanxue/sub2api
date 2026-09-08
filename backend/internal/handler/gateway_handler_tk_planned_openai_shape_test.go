@@ -43,8 +43,12 @@ func (u *plannedOpenAIShapeUpstream) Do(request *http.Request, _ string, _ int64
 	response := `{"id":"chatcmpl-edge","object":"chat.completion","model":"gemini-3.8-flash","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`
 	contentType := "application/json"
 	switch {
-	case strings.Contains(request.URL.Path, ":generateContent"):
+	case strings.Contains(request.URL.Path, ":generateContent"), strings.Contains(request.URL.Path, ":streamGenerateContent"):
 		response = `{"candidates":[{"content":{"role":"model","parts":[{"text":"OK"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2,"totalTokenCount":5}}`
+		if strings.Contains(request.URL.Path, ":streamGenerateContent") {
+			contentType = "text/event-stream"
+			response = "data: " + response + "\n\n"
+		}
 	case strings.HasSuffix(request.URL.Path, "/responses"):
 		response = `{"id":"resp-edge","object":"response","status":"completed","model":"gemini-3.8-flash","output":[{"type":"message","id":"msg-edge","role":"assistant","status":"completed","content":[{"type":"output_text","text":"OK"}]}],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`
 		if gjson.GetBytes(body, "stream").Bool() {
@@ -55,7 +59,7 @@ func (u *plannedOpenAIShapeUpstream) Do(request *http.Request, _ string, _ int64
 		contentType = "text/event-stream"
 		response = "data: " + `{"id":"chatcmpl-edge","object":"chat.completion.chunk","model":"gemini-3.8-flash","choices":[{"index":0,"delta":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}` + "\n\ndata: [DONE]\n\n"
 	}
-	if !strings.Contains(request.URL.Path, ":generateContent") && gjson.GetBytes(body, "model").String() == "" {
+	if !strings.Contains(request.URL.Path, ":generateContent") && !strings.Contains(request.URL.Path, ":streamGenerateContent") && gjson.GetBytes(body, "model").String() == "" {
 		code = http.StatusBadRequest
 		response = `{"error":{"message":"model is required","type":"invalid_request_error"}}`
 	}

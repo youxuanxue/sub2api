@@ -668,6 +668,32 @@ func TestGeminiMessagesCompatServiceForward_GroupDispatchCapacityUsesFinalMapped
 	require.Contains(t, httpStub.lastReq.URL.String(), "/models/gemini-3-flash:")
 }
 
+func TestGeminiMessagesCompatServiceForward_UniversalKeepsAccountMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	group := &Group{ID: 5, Platform: PlatformGemini, MessagesDispatchModelConfig: OpenAIMessagesDispatchModelConfig{SonnetMappedModel: "gemini-2.5-pro"}}
+	c.Set("api_key", &APIKey{RoutingMode: RoutingModeUniversal, Group: group, GroupID: &group.ID})
+	c.Set(TKGeminiDispatchGroupContextKey, group)
+	httpStub := &geminiCompatHTTPUpstreamStub{response: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"candidates":[{"content":{"role":"model","parts":[{"text":"OK"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}}`)),
+	}}
+	svc := &GeminiMessagesCompatService{httpUpstream: httpStub, cfg: &config.Config{}}
+	account := &Account{ID: 85, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "test-key", "base_url": "https://generativelanguage.googleapis.com",
+		"model_mapping": map[string]any{"claude-sonnet-4-5": "gemini-3-flash"},
+	}}
+	body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hello"}]}`)
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, httpStub.lastReq.URL.Path, "/models/gemini-3-flash:")
+	require.NotContains(t, httpStub.lastReq.URL.Path, "gemini-2.5-pro")
+	require.Equal(t, "gemini-2.5-pro", group.MessagesDispatchModelConfig.SonnetMappedModel)
+}
+
 func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpstreamModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
