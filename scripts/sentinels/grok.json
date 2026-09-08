@@ -3,6 +3,24 @@
   "rationale": "Load-bearing files and symbols that anchor TokenKey's seventh platform `grok` (xAI / SuperGrok Heavy OAuth). Unlike kiro, xAI speaks the OpenAI-compatible wire protocol, so grok is an OpenAICompatPool member and REUSES the OpenAI-compat routing/scheduling/forward/billing path; the only grok-specific code is the OAuth refresh, the two forward seams that make the OAuth branch forward like the apikey branch (plain Bearer + api.x.ai base_url, NOT the ChatGPT/Codex branch), and the Heavy-403 honesty guard. If any sentinel below is missing, the platform either silently disappears from scheduling/UI or mis-forwards/mis-bills at runtime. Single source of truth read by both `scripts/preflight.sh` and `.github/workflows/upstream-merge-pr-shape.yml`. Adding a new load-bearing surface for grok MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "line = applyGrokRawChatCompletionsUsageSSELine(account, line)",
+        "respBody = applyGrokRawChatCompletionsUsage(account, respBody)"
+      ],
+      "rationale": "Both raw Chat response paths must include independent xAI reasoning tokens in client completion usage, matching billing across relays."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_cc_usage.go",
+      "must_contain": ["xai.IncludeIndependentReasoningTokens", "account.Platform != PlatformGrok"],
+      "rationale": "Client normalization reuses the billing arithmetic owner and stays scoped to Grok."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_grok_cc_usage_test.go",
+      "must_contain": ["TestForwardAsRawChatCompletions_GrokReasoningUsage", "TestApplyGrokRawChatCompletionsUsage_PreservesOtherPayloads"],
+      "rationale": "Regression coverage exercises streaming, buffered, already-inclusive relay responses and non-Grok preservation."
+    },
+    {
       "path": "backend/internal/pkg/xai/billing.go",
       "must_contain": [
         "CLIClientVersion = \"",

@@ -3,6 +3,21 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": ["adapterID: AdapterMessagesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesMessagesToGemini"],
+      "rationale": "Messages function tools must reach the existing Gemini converter instead of the generic text-only gate."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/gemini_messages_tools.go",
+      "must_contain": ["func preservesMessagesToGemini(", "req.profile.Continuation != ContinuationNone", "req.profile.PromptCache != PromptCacheNone"],
+      "rationale": "Gemini tool admission stays bounded by the converter's supported semantics."
+    },
+    {
+      "path": "backend/internal/service/protocol_gemini_tools_tk_test.go",
+      "must_contain": ["TestProtocolGeminiMessagesToolsPlansAndConvertsVertex", "group.AllowMessagesDispatch = false"],
+      "rationale": "Plan, schema conversion and the group dispatch authorization must remain aligned for Gemini Messages tools."
+    },
+    {
       "path": "backend/internal/handler/candidate_protocol_execute_tk.go",
       "must_contain": ["func (h *OpenAIGatewayHandler) candidateProtocolExecutors(", "return h.forwardCandidateNative(ctx, c, account, request)", "h.nativeGatewayService.ForwardAsResponses"],
       "rationale": "A cross-platform retry must retain the actual account's native credential and execution owner after ingress chose the OpenAI handler."
