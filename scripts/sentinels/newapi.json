@@ -1601,9 +1601,19 @@
         "state.CapabilityKey != plan.capabilityKey",
         "plan.requestDigest != request.digest",
         "ErrStalePlan",
-        "ErrModelNotAllowed"
+        "ErrModelNotAllowed",
+        "if account.modelPolicyDenied",
+        "ErrModelPolicyDenied",
+        "ErrRouterUnavailable"
       ],
       "rationale": "Execute verifies request digest and capability-key identity only. Capability revision is probe CAS, not a send-time referee; route-fact staleness is owned by ExecuteSelectedProtocol replan plus protocolPlansRoutingEquivalent. Model-policy rejection must stay a distinct Plan error so schedulers do not rename no-route as unsupported, or unsupported as no-route."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/router_test.go",
+      "must_contain": [
+        "TestPlanDistinguishesModelPolicyFromRouteAndInternalErrors"
+      ],
+      "rationale": "The Plan owner must distinguish explicit model denial, target route rejection and internal router failure; Universal consumes these facts without re-evaluating model policy."
     },
     {
       "path": "backend/internal/integration/newapi/discover_filter_tk.go",
