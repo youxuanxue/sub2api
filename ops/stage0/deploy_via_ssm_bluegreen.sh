@@ -21,6 +21,13 @@
 # Failure after Caddy reload deliberately does not auto-rollback: the target is
 # already the live color, and an automated flip-flop would be riskier than a
 # deliberate redeploy of the previous tag.
+#
+# STAGE0_BLUEGREEN_STAGE=prepare starts the inactive prod color and records its
+# container/image/configuration fingerprint without changing Caddy. Promote the
+# same tested container only after human review, with STAGE0_BLUEGREEN_STAGE=promote
+# and STAGE0_BLUEGREEN_APPROVED_RECEIPT=<receipt_sha256 from prepare>.
+# Replacing a failed private candidate uses prepare plus
+# STAGE0_BLUEGREEN_REPLACE_RECEIPT=<current receipt_sha256>; it never promotes.
 
 set -euo pipefail
 
@@ -30,6 +37,22 @@ COMMENT="${3:-${SSM_COMMENT:-deploy-stage0-bluegreen}}"
 TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-1200}"
 EXECUTION_TIMEOUT_SECONDS="${STAGE0_SSM_EXECUTION_TIMEOUT_SECONDS:-$TIMEOUT_SECONDS}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
+STAGE="${STAGE0_BLUEGREEN_STAGE:-deploy}"
+APPROVED_RECEIPT="${STAGE0_BLUEGREEN_APPROVED_RECEIPT:-}"
+REPLACE_RECEIPT="${STAGE0_BLUEGREEN_REPLACE_RECEIPT:-}"
+
+case "${STAGE}" in
+  deploy|prepare|promote) ;;
+  *) echo "invalid STAGE0_BLUEGREEN_STAGE: ${STAGE}" >&2; exit 1 ;;
+esac
+if [[ "${STAGE}" = promote && ! "${APPROVED_RECEIPT}" =~ ^[a-f0-9]{64}$ ]]; then
+  echo "promote requires STAGE0_BLUEGREEN_APPROVED_RECEIPT from the reviewed prepare" >&2
+  exit 1
+fi
+if [[ -n "${REPLACE_RECEIPT}" ]] && { [[ "${STAGE}" != prepare ]] || [[ ! "${REPLACE_RECEIPT}" =~ ^[a-f0-9]{64}$ ]]; }; then
+  echo "STAGE0_BLUEGREEN_REPLACE_RECEIPT requires prepare and a valid receipt SHA256" >&2
+  exit 1
+fi
 
 if [[ -z "${TAG}" ]]; then
   echo "stage0_deploy_via_ssm_bluegreen: tag is required" >&2
@@ -47,6 +70,10 @@ case "${INSTANCE_ID}" in
     exit 1
     ;;
 esac
+if [[ "${STAGE}" != deploy && "${DEPLOY_PROFILE}" != prod ]]; then
+  echo "staged blue/green preparation is prod-only" >&2
+  exit 1
+fi
 if [[ ! "${TIMEOUT_SECONDS}" =~ ^[0-9]+$ || ! "${EXECUTION_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] \
   || (( TIMEOUT_SECONDS <= 0 || EXECUTION_TIMEOUT_SECONDS <= 0 )); then
   echo "stage0_deploy_via_ssm_bluegreen: timeout values must be positive integers" >&2
@@ -94,6 +121,14 @@ BG_COMPOSE="${ROOT}/docker-compose.bluegreen.yml"
 ACTIVE_FILE="${ROOT}/active-color"
 CADDY_DIR="${ROOT}/caddy"
 LIVE_CADDY="${CADDY_DIR}/Caddyfile"
+STAGE="${STAGE:-deploy}"
+APPROVED_RECEIPT="${APPROVED_RECEIPT:-}"
+REPLACE_RECEIPT="${REPLACE_RECEIPT:-}"
+PREPARED_FILE="${ROOT}/bluegreen-prepared.json"
+
+# Serialize host mutations across local invocations and workflow dispatches.
+exec 9>"${ROOT}/bluegreen-deploy.lock"
+flock -n 9 || { echo "another blue/green operation holds the host lock" >&2; exit 1; }
 
 TARGET_CONTAINER=""
 CUTOVER_COMMITTED=0
@@ -935,7 +970,7 @@ deploy_target_color() {
     log "set TELEMETRY_ARCHIVE_ENABLED=${TELEMETRY_ARCHIVE_ENABLED}"
   fi
   env_set "TOKENKEY_IMAGE_$(printf '%s' "${target}" | tr '[:lower:]' '[:upper:]')" "${new_img}"
-  env_set TOKENKEY_IMAGE "${new_img}"
+  if [[ "${STAGE:-deploy}" != prepare ]]; then env_set TOKENKEY_IMAGE "${new_img}"; fi
   write_bluegreen_compose
 
   admit_edge_candidate "${active_container}"
@@ -943,6 +978,13 @@ deploy_target_color() {
   compose_bg up -d --no-deps --force-recreate "${target_container}"
   wait_healthy "${target_container}"
   wait_ready "${target_container}"
+
+  if [[ "${STAGE:-deploy}" = prepare ]]; then
+    assert_active_route_consistent "${active}"
+    write_prepared_receipt "${active}" "${target}"
+    TARGET_CONTAINER=""
+    return 0
+  fi
 
   commit_cutover "${target}"
   observe_routed_health "${target}"
@@ -953,6 +995,105 @@ deploy_target_color() {
   log "stopped previous color ${active_container}"
 
   TARGET_CONTAINER=""
+}
+
+staged_snapshot() {
+  local active="$1" target="$2"
+  local active_fingerprint target_fingerprint target_image caddy_sha compose_sha env_sha
+  active_fingerprint="$(sudo docker inspect "tokenkey-${active}" --format '{{.Id}} {{.Image}} {{.State.StartedAt}} {{.RestartCount}}')" || return 1
+  target_fingerprint="$(sudo docker inspect "tokenkey-${target}" --format '{{.Id}} {{.Image}} {{.State.StartedAt}} {{.RestartCount}}')" || return 1
+  target_image="$(container_image "tokenkey-${target}")"
+  [[ -n "${active_fingerprint}" && -n "${target_fingerprint}" && "${target_image}" = *":${TAG}" ]] || return 1
+  caddy_sha="$(sudo sha256sum "${LIVE_CADDY}" | awk '{print $1}')" || return 1
+  compose_sha="$(sudo sha256sum "${BG_COMPOSE}" | awk '{print $1}')" || return 1
+  env_sha="$(sudo sha256sum "${ENV_FILE}" | awk '{print $1}')" || return 1
+  [[ "${caddy_sha}" =~ ^[a-f0-9]{64}$ && "${compose_sha}" =~ ^[a-f0-9]{64}$ && "${env_sha}" =~ ^[a-f0-9]{64}$ ]] || return 1
+  jq -n --arg tag "${TAG}" --arg active "${active}" --arg target "${target}" \
+    --arg active_container "${active_fingerprint}" --arg target_container "${target_fingerprint}" \
+    --arg target_image "${target_image}" --arg caddy_sha "${caddy_sha}" \
+    --arg compose_sha "${compose_sha}" --arg env_sha "${env_sha}" \
+    '{tag:$tag,active:$active,target:$target,active_container:$active_container,
+      target_container:$target_container,target_image:$target_image,
+      caddy_sha:$caddy_sha,compose_sha:$compose_sha,env_sha:$env_sha}'
+}
+
+write_prepared_receipt() {
+  local active="$1" target="$2" receipt_tmp="${PREPARED_FILE}.$$"
+  staged_snapshot "${active}" "${target}" \
+    | jq --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {prepared_at:$at}' \
+    | sudo tee "${receipt_tmp}" >/dev/null
+  sudo chmod 0600 "${receipt_tmp}"
+  sudo mv "${receipt_tmp}" "${PREPARED_FILE}"
+  echo "tk_stage0_prepared: receipt_sha256=$(sudo sha256sum "${PREPARED_FILE}" | awk '{print $1}')"
+}
+
+validate_prepared_receipt() {
+  local active="$1" target="$2" expected="${3:-${APPROVED_RECEIPT}}" saved current receipt_sha
+  [[ -f "${PREPARED_FILE}" ]] || die "no prepared candidate to promote"
+  receipt_sha="$(sudo sha256sum "${PREPARED_FILE}" | awk '{print $1}')"
+  [[ "${receipt_sha}" = "${expected}" ]] || die "prepared receipt does not match expected fingerprint"
+  saved="$(sudo cat "${PREPARED_FILE}" | jq -Sc 'del(.prepared_at)')"
+  current="$(staged_snapshot "${active}" "${target}" | jq -Sc .)"
+  [[ "${current}" = "${saved}" ]] || die "prepared container, image, environment or route changed; repeat validation"
+  [[ "$(container_image "tokenkey-${target}")" = *":${TAG}" ]] || die "prepared image tag mismatch"
+}
+
+validate_candidate_replacement() {
+  local active target previous_tag
+  [[ "${REPLACE_RECEIPT:-}" =~ ^[a-f0-9]{64}$ ]] || die "candidate already prepared; replacement requires its receipt fingerprint"
+  active="$(read_active_color)"
+  [[ "${active}" =~ ^(blue|green)$ ]] || die "replacement requires an existing active color"
+  target="$(other_color "${active}")"
+  assert_active_route_consistent "${active}"
+  previous_tag="$(sudo jq -er '.tag' "${PREPARED_FILE}")"
+  ( TAG="${previous_tag}"; validate_prepared_receipt "${active}" "${target}" "${REPLACE_RECEIPT}" )
+  # Keep the pending receipt until the new candidate atomically replaces it.
+  # A failed preparation must not enable the automatic deploy path.
+  sudo cp -p "${PREPARED_FILE}" "${ROOT}/bluegreen-replaced-${REPLACE_RECEIPT}.json"
+}
+
+promote_prepared_color() {
+  local active target
+  active="$(read_active_color)"
+  [[ "${active}" =~ ^(blue|green)$ ]] || die "staged promote requires an existing active color"
+  target="$(other_color "${active}")"
+  assert_active_route_consistent "${active}"
+  validate_prepared_receipt "${active}" "${target}"
+  wait_healthy "tokenkey-${target}"
+  wait_ready "tokenkey-${target}"
+  validate_prepared_receipt "${active}" "${target}"
+  backup_env "promote-${target}"
+  env_set TOKENKEY_IMAGE "$(container_image "tokenkey-${target}")"
+  commit_cutover "${target}"
+  sudo mv "${PREPARED_FILE}" "${ROOT}/bluegreen-last-promoted.json"
+  observe_routed_health "${target}"
+  install_bluegreen_systemd_unit
+  drain_container "tokenkey-${active}"
+  sudo docker stop -t 30 "tokenkey-${active}" >/dev/null
+  log "promoted reviewed candidate ${target}; stopped previous color ${active}"
+}
+
+run_bluegreen_stage() {
+  case "${STAGE}" in
+    promote) promote_prepared_color ;;
+    prepare)
+      [[ "$(read_active_color)" =~ ^(blue|green)$ ]] || die "prepare refuses legacy migration"
+      if [[ -e "${PREPARED_FILE}" ]]; then
+        validate_candidate_replacement
+      else
+        [[ -z "${REPLACE_RECEIPT:-}" ]] || die "replacement receipt specified but no prepared candidate exists"
+      fi
+      ensure_profile_environment
+      deploy_target_color
+      ;;
+    deploy)
+      [[ ! -e "${PREPARED_FILE}" ]] || die "prepared candidate awaits review; use explicit promote"
+      ensure_profile_environment
+      ensure_legacy_cutover
+      if [[ "${LEGACY_MIGRATED}" = 0 ]]; then deploy_target_color; fi
+      ;;
+    *) die "invalid blue/green stage" ;;
+  esac
 }
 
 prune_images() {
@@ -968,9 +1109,11 @@ prune_images() {
 }
 
 log "=== blue/green deploy tag=${TAG} ==="
-ensure_profile_environment
-ensure_legacy_cutover
-if [[ "${LEGACY_MIGRATED}" = 0 ]]; then deploy_target_color; fi
+run_bluegreen_stage
+if [[ "${STAGE}" = prepare ]]; then
+  log "candidate prepared; public traffic remains on $(read_active_color); explicit approval required before promote"
+  exit 0
+fi
 prune_images
 log "=== blue/green deploy done ==="
 compose_bg ps
@@ -1018,6 +1161,9 @@ fi
 
 jq -n \
   --arg tag "${TAG}" \
+  --arg stage "${STAGE}" \
+  --arg approved_receipt "${APPROVED_RECEIPT}" \
+  --arg replace_receipt "${REPLACE_RECEIPT}" \
   --arg deploy_profile "${DEPLOY_PROFILE}" \
   --arg execution_timeout "${EXECUTION_TIMEOUT_SECONDS}" \
   --arg qa_enabled "${QA_BUNDLE_ENABLED-}" \
@@ -1066,6 +1212,9 @@ jq -n \
     "chmod 700 /tmp/tokenkey-bluegreen-deploy.sh",
     (
       "TAG=" + ($tag|@sh)
+      + " STAGE=" + ($stage|@sh)
+      + " APPROVED_RECEIPT=" + ($approved_receipt|@sh)
+      + " REPLACE_RECEIPT=" + ($replace_receipt|@sh)
       + " DEPLOY_PROFILE=" + ($deploy_profile|@sh)
       + " QA_BUNDLE_ENABLED=" + ($qa_enabled|@sh)
       + " QA_BUNDLE_ENABLED_SET=" + ($qa_enabled_set|tostring)
@@ -1161,6 +1310,15 @@ echo
 if [[ "${status}" != "Success" ]]; then
   echo "::error::ssm command status=${status}" >&2
   exit 1
+fi
+
+if [[ "${STAGE}" = prepare ]]; then
+  if ! grep -Eq '^tk_stage0_prepared: receipt_sha256=[a-f0-9]{64}$' "${stdout_file}"; then
+    echo "::error::prepare succeeded without a durable receipt marker" >&2
+    exit 1
+  fi
+  echo "stage0_deploy_via_ssm_bluegreen: candidate prepared; no cutover performed"
+  exit 0
 fi
 
 cutover_cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
