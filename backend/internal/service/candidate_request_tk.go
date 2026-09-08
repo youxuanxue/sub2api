@@ -32,6 +32,7 @@ type CandidateRequest struct {
 	billingHook           func() error
 	balanceReserved       bool
 	selectionOptions      candidateSelectOptions
+	rpm                   candidateRPMAdmission
 }
 
 type candidateRequestContextKey struct{}
@@ -202,6 +203,7 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 		}
 	}
 	r.current, r.billingHook = nil, nil
+	r.rpm = candidateRPMAdmission{}
 	r.continuationAccountID = accountID
 	r.model, r.body = model, append([]byte(nil), body...)
 	ctx = r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
@@ -213,6 +215,11 @@ func (r *CandidateRequest) bind(ctx context.Context, selected *candidateExecutio
 	subscription, err := r.admit(ctx, selected.group)
 	if err != nil {
 		return err
+	}
+	if billing := r.resolver.candidateGateway.billingCacheService; billing != nil && r.rpm.started {
+		if err := r.checkRPM(ctx, billing, r.key.User, selected.group); err != nil {
+			return err
+		}
 	}
 	changed := r.current != nil && (r.current.group.ID != selected.group.ID || r.current.account.ID != selected.account.ID)
 	previous, previousSubscription := r.current, r.subscription
@@ -272,6 +279,9 @@ func (r *CandidateRequest) admit(ctx context.Context, group *Group) (*UserSubscr
 		prospective.Group = group
 		prospective.GroupID = &group.ID
 		if err := billing.CheckCandidateBillingEligibility(ctx, r.key.User, &prospective, group, subscription); err != nil {
+			return nil, err
+		}
+		if err := r.peekGroupRPM(ctx, billing, r.key.User, group); err != nil {
 			return nil, err
 		}
 	}
@@ -356,6 +366,10 @@ func candidatePathAllowsEndpoint(ctx context.Context, account *Account, group *G
 		return false
 	}
 	if universalShapeRequiresImageGenerationEnabled(shape) && !group.AllowImageGeneration {
+		return false
+	}
+	if request, ok := ProtocolRoutingRequest(ctx); ok && !group.AllowImageGeneration &&
+		IsExplicitImageGenerationIntent("", model, request.Body()) {
 		return false
 	}
 	if shape == ShapeAnthropicMessages || shape == ShapeAnthropicCountTokens {
