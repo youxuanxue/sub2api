@@ -3234,7 +3234,7 @@
         "targeted_verification",
         "targeted activation plan changed since dry-run",
         "targeted activation read-back still reports mapping changes",
-        "override_only=override_only",
+        "targeted_accounts=targeted_accounts",
         "anthropic_tokensea_relay",
         "openai_tokensea_relay",
         "openai_cloudwise_relay"

@@ -138,9 +138,11 @@ per-account mapping and selector/ownership compare-and-swap, leaves groups
 untouched, and requires a zero-diff read-back of the selected accounts. Selected
 accounts that cannot be managed (including Supplier Sync ownership) block
 activation rather than being counted as successfully skipped. Global gate findings outside that
-selection remain visible without expanding the write. When every bundle delta
-and selected account uses an immutable property override, runtime platform/channel
-replacements cannot shadow it. In that case activation retains the runtime
-setting, binds its observed fingerprint into the reviewed plan, and rechecks it
-under the same settings-table lock inside the transaction. Generic platform/channel
-activation retains the no-runtime-replacement guard.
+selection remain visible without expanding the write. For targeted activation
+without group-scope changes, the mapping manager compares every selected account's
+effective mapping and scope with the immutable bundle. Unrelated runtime
+platform/channel replacements may remain when those results are identical.
+Activation binds the observed runtime fingerprint into the reviewed plan and
+rechecks it under the same settings-table lock inside the transaction. A runtime
+replacement that changes a selected account's mapping still blocks activation;
+untargeted activation retains the no-runtime-replacement guard.
