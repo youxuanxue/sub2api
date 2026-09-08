@@ -1418,6 +1418,19 @@ func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
 	}
 }
 
+func TestClassifyOpsUniversalUnsupportedModelIsClientRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, errType := range []string{"invalid_request_error", "api_error"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonUnsupportedModel)
+		phase, limited, owner, source := classifyOpsErrorLog(c, errType, "Unsupported model: bad-model", "unsupported_model", http.StatusBadRequest)
+		require.Equal(t, "request", phase)
+		require.True(t, limited)
+		require.Equal(t, "client", owner)
+		require.Equal(t, "client_request", source)
+	}
+}
+
 func TestClassifyOpsUnmarkedNoAvailableTextStillCountsForSLA(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

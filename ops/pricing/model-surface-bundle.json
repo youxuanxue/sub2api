@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "55612b400946ff91e11fff78a6f6cf031a25b1fca04be6b5ec558f4593ba9419",
+  "floor_sha256": "10c02f2e85fdab03627eaea902e6817cadf514fde805e7e3268f3f4a827b0b79",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -47,9 +47,11 @@
         "gemini-2.5-flash-thinking": "gemini-2.5-flash-thinking",
         "gemini-3-flash": "gemini-3-flash",
         "gemini-3-flash-agent": "gemini-3-flash-agent",
+        "gemini-3-flash-preview": "gemini-3-flash",
         "gemini-3-pro-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.1-pro": "gemini-pro-agent",
         "gemini-3.1-pro-low": "gemini-3.1-pro-low",
         "gemini-3.5-flash": "gemini-3.5-flash-low",
@@ -290,6 +292,8 @@
       "41": {
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -381,10 +385,10 @@
         "channel_type": 17,
         "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
         "model_mapping": {
-          "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
-          "deepseek-v4-pro": "deepseek-v4-pro",
-          "glm-5.2": "glm-5.2",
           "qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus",
+          "qwen3-235b-a22b": "qwen3.7-plus",
+          "qwen3-32b": "qwen3.7-plus",
+          "qwen3-8b": "qwen3.6-flash",
           "qwen3.6-flash": "qwen3.6-flash",
           "qwen3.7-max": "qwen3.7-max",
           "qwen3.7-plus": "qwen3.7-plus",
@@ -462,6 +466,8 @@
           "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
           "deepseek-v4-pro": "deepseek-v4-pro",
           "deepseek-v4-pro-0813": "deepseek-v4-pro-0813",
+          "glm-4.5-air": "glm-5.2",
+          "glm-4.7": "glm-5.2",
           "glm-5.1": "glm-5.1",
           "glm-5.2": "glm-5.2",
           "glm-5.3-flash": "glm-5.3-flash",
@@ -485,6 +491,8 @@
       "core-imagen-ultra": {
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -497,6 +505,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -508,6 +518,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -521,6 +533,8 @@
         "gemini-2.5-flash": "gemini-2.5-flash",
         "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
         "gemini-2.5-pro": "gemini-2.5-pro",
+        "gemini-3-flash-preview": "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
@@ -542,7 +556,6 @@
       "anthropic_tokensea_relay": [],
       "antigravity": [
         "gemini-2.5-flash-image-preview",
-        "gemini-3-flash-preview",
         "gemini-3-pro-high",
         "gemini-3-pro-image-preview",
         "gemini-3-pro-low",
@@ -584,6 +597,10 @@
       ]
     },
     "forbidden_model_mapping_prefixes": {
+      "account_override:newapi:17:https://token-plan.cn-beijing.maas.aliyuncs.com": [
+        "deepseek-",
+        "glm-"
+      ],
       "antigravity": [
         "gpt-oss-"
       ]

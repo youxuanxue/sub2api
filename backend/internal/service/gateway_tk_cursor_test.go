@@ -18,12 +18,15 @@ import (
 )
 
 func TestCursorToolContinuationCannotFailoverToAnotherSupply(t *testing.T) {
-	for _, body := range []string{
-		`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_bf_local_test","content":"ok"}]}]}`,
-		`{"messages":[{"role":"tool","tool_call_id":"toolu_bf_local_test","content":"ok"}]}`,
-		`{"input":[{"type":"function_call_output","call_id":"toolu_bf_local_test","output":"ok"}]}`,
+	for _, test := range []struct {
+		protocol protocolrouter.Protocol
+		body     string
+	}{
+		{protocolrouter.ProtocolMessages, `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_bf_local_test","content":"ok"}]}]}`},
+		{protocolrouter.ProtocolChatCompletions, `{"messages":[{"role":"tool","tool_call_id":"toolu_bf_local_test","content":"ok"}]}`},
+		{protocolrouter.ProtocolResponses, `{"input":[{"type":"function_call_output","call_id":"toolu_bf_local_test","output":"ok"}]}`},
 	} {
-		request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{InboundProtocol: protocolrouter.ProtocolChatCompletions, RequestedModel: "composer-2.5", Profile: protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText}, Body: []byte(body)})
+		request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{InboundProtocol: test.protocol, RequestedModel: "composer-2.5", Profile: protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText}, Body: []byte(test.body)})
 		require.NoError(t, err)
 		ctx := WithProtocolRouting(context.Background(), protocolRoutingTestRouter(), request)
 		ordinary := cursorTestAccount()
@@ -32,7 +35,6 @@ func TestCursorToolContinuationCannotFailoverToAnotherSupply(t *testing.T) {
 		require.True(t, governed)
 		require.ErrorContains(t, err, "original supply")
 	}
-	require.False(t, cursorContinuationInBody([]byte(`{"messages":[{"role":"tool","tool_call_id":"call_other","content":"toolu_bf_local_text"}]}`)))
 }
 
 func cursorTestAccount() *Account {

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	cursorbridge "github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -25,27 +26,44 @@ const cursorRelayOwnerHeader = "X-TokenKey-Cursor-Owner"
 const cursorRelayTimeHeader = "X-TokenKey-Cursor-Time"
 const cursorRelaySignatureHeader = "X-TokenKey-Cursor-Signature"
 
-func cursorContinuationInBody(body []byte) bool {
-	found := false
-	var visit func(gjson.Result)
-	visit = func(value gjson.Result) {
-		if found {
-			return
-		}
-		if value.IsObject() {
-			for _, key := range []string{"tool_use_id", "tool_call_id", "call_id"} {
-				if strings.HasPrefix(value.Get(key).String(), "toolu_bf_") {
-					found = true
-					return
+func cursorContinuationInRequest(request protocolrouter.CanonicalRequest) bool {
+	body := gjson.ParseBytes(request.Body())
+	items := body.Get("messages").Array()
+	if request.InboundProtocol() == protocolrouter.ProtocolResponses {
+		items = body.Get("input").Array()
+	}
+	// Only the current tool-result turn resumes a parked run. Prior results and
+	// fields inside tool arguments or metadata do not constrain a new request.
+	for i := len(items) - 1; i >= 0; i-- {
+		item := items[i]
+		switch request.InboundProtocol() {
+		case protocolrouter.ProtocolMessages:
+			if item.Get("role").String() != "user" {
+				continue
+			}
+			for _, block := range item.Get("content").Array() {
+				if block.Get("type").String() == "tool_result" && strings.HasPrefix(block.Get("tool_use_id").String(), "toolu_bf_") {
+					return true
 				}
 			}
-		}
-		if value.IsArray() || value.IsObject() {
-			value.ForEach(func(_, child gjson.Result) bool { visit(child); return !found })
+			return false
+		case protocolrouter.ProtocolChatCompletions:
+			if item.Get("role").String() != "tool" {
+				return false
+			}
+			if strings.HasPrefix(item.Get("tool_call_id").String(), "toolu_bf_") {
+				return true
+			}
+		case protocolrouter.ProtocolResponses:
+			if item.Get("type").String() != "function_call_output" {
+				return false
+			}
+			if strings.HasPrefix(item.Get("call_id").String(), "toolu_bf_") {
+				return true
+			}
 		}
 	}
-	visit(gjson.ParseBytes(body))
-	return found
+	return false
 }
 
 func validateCursorBridgeBaseURL(account *Account, raw string, fallback func(string) (string, error)) (string, error) {

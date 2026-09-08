@@ -155,7 +155,7 @@ describe('AccountActionMenu — 供应源托管账号', () => {
 })
 
 describe('AccountActionMenu — anchored positioning', () => {
-  it('aligns the menu to the trigger rect instead of the pointer position fallback', async () => {
+  it('pins the menu to the trigger with right/top (not left=right-estimatedWidth)', async () => {
     const anchor = document.createElement('button')
     document.body.appendChild(anchor)
     vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue({
@@ -175,6 +175,10 @@ describe('AccountActionMenu — anchored positioning', () => {
     window.requestAnimationFrame = ((cb: (time: number) => void) => window.setTimeout(() => cb(Date.now()), 0)) as typeof window.requestAnimationFrame
     window.cancelAnimationFrame = ((handle: number) => window.clearTimeout(handle)) as typeof window.cancelAnimationFrame
 
+    // Normal measured size; pin with CSS `right` so width estimate cannot drift left.
+    const widthSpy = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(208)
+    const heightSpy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(200)
+
     const wrapper = mountMenu(
       makeAccount({ status: 'active' }),
       {
@@ -187,10 +191,13 @@ describe('AccountActionMenu — anchored positioning', () => {
       await new Promise(resolve => window.setTimeout(resolve, 0))
       await flushPromises()
 
-      const style = wrapper.get('.action-menu-content').attributes('style')
-      expect(style).toContain('left: 352px')
+      const style = wrapper.get('.action-menu-content').attributes('style') || ''
+      expect(style).toContain(`right: ${window.innerWidth - 560}px`)
       expect(style).toContain('top: 108px')
+      expect(style).toContain('left: auto')
     } finally {
+      widthSpy.mockRestore()
+      heightSpy.mockRestore()
       wrapper.unmount()
       anchor.remove()
       window.requestAnimationFrame = originalRaf

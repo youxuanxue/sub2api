@@ -3,6 +3,31 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/account_supported_protocols.go",
+      "must_contain": ["return cursorMappedModelAllowed(account, requestedModel, resolvedModel)"],
+      "rationale": "Every Cursor model family must satisfy the transport catalog contract before the shared planner admits a candidate."
+    },
+    {
+      "path": "backend/internal/service/protocol_routing_context.go",
+      "must_contain": ["cursorContinuationInRequest(request)", "ErrProtocolRouteUnavailable, protocolrouter.ErrNoLegalRoute"],
+      "rationale": "Current Cursor tool results constrain supply through the existing candidate-local route error contract."
+    },
+    {
+      "path": "backend/internal/service/candidate_cursor_ssot_test.go",
+      "must_contain": ["TestCursorCandidateCatalogAdmissionMatchesTransport", "TestCursorCandidateRuntimeAndCapabilityGates", "TestCursorCandidateUsesSharedUniversalOrdering", "TestCursorContinuationOnlyReadsCurrentProtocolToolResults"],
+      "rationale": "Exercise real Plan, Universal selection and scheduler filters for Cursor, including metadata/history false positives and candidate-local rejection."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": ["preservesResponsesToMessages", "preservesChatToMessages"],
+      "rationale": "Tool-capable Messages conversions remain owned by the protocol registry, never a Cursor handler fallback."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/policy_contract_test.go",
+      "must_contain": ["TestPolicyContractToolsToMessagesStayWithinConversionFeatures"],
+      "rationale": "Guard supported tool conversions together with fail-closed continuation, reasoning and media boundaries."
+    },
+    {
       "path": "backend/internal/server/routes/admin.go",
       "must_contain": ["registerCursorAccountRoutes"],
       "rationale": "The browser authorization owner must remain registered behind existing administrator middleware."
@@ -101,6 +126,8 @@
         "protocolPlanForAccount(ctx, account, model)",
         "s.isClaudeNewAPICrossPlatformAccountAllowed",
         "account.IsOpenAICompatPoolMember(platform)",
+        "!accountAdmitsRequestedModelWithContext(ctx, account, model)",
+        "return false, ErrUniversalUnsupportedModel",
         "s.gatewayCandidates(",
         "scheduler.openAICandidates(",
         "ListAllWithFilters",
@@ -204,17 +231,21 @@
         "TestCandidateEligibilityNativeAndConverterEqual",
         "TestCandidateEligibilitySaturationPreservesBillingTier",
         "TestCandidateEligibilityAntigravitySaturationScopeAndParity",
-        "TestCandidateEligibilityCapacityIsNotEntitlement"
+        "TestCandidateEligibilityCapacityIsNotEntitlement",
+        "TestCandidateEligibilityKnownRouteRejectionIsNotInternal",
+        "TestCandidateEligibilityErrorPrecedence",
+        "TestCandidateEligibilityUngovernedModelDenial"
       ],
       "rationale": "Behavior regressions for Candidate Eligibility SSOT."
     },
     {
       "path": "backend/internal/service/account_supported_protocols.go",
       "must_contain": [
-        "fmt.Errorf(\"%w: protocol endpoint capability is invalid or conflicted\", protocolrouter.ErrNoLegalRoute)",
-        "fmt.Errorf(\"%w: account endpoint identity does not match linked capability\", protocolrouter.ErrNoLegalRoute)"
+        "fmt.Errorf(\"%w: %w: protocol endpoint capability is invalid or conflicted\", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)",
+        "fmt.Errorf(\"%w: %w: account endpoint identity does not match linked capability\", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)",
+        "ModelPolicyDenied:"
       ],
-      "rationale": "Loaded unusable capability evidence rejects a candidate through the shared Plan error contract, without failing Universal group evaluation."
+      "rationale": "Unknown capability is distinct from a proven route rejection and cannot justify a client unsupported-model error. Healthy peers remain eligible. Account model policy is projected into the Plan snapshot."
     },
     {
       "path": "backend/internal/service/protocol_routing_context.go",
@@ -236,9 +267,17 @@
       "path": "backend/internal/server/middleware/universal_routing_tk_test.go",
       "must_contain": [
         "TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody",
-        "TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement"
+        "TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement",
+        "TestMaybeResolveUniversal_UnsupportedModelIs400"
       ],
       "rationale": "Middleware regressions for pre-billing parsing and capacity errors."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_test.go",
+      "must_contain": [
+        "TestClassifyOpsUniversalUnsupportedModelIsClientRequest"
+      ],
+      "rationale": "Universal explicit model denial must remain a client request error excluded from platform SLA, without becoming an auth or internal incident."
     },
     {
       "path": "backend/internal/repository/integration_registry_only_tk_test.go",
@@ -2998,7 +3037,12 @@
         "openAICloudwiseRelayAccountModelMappingFloor(",
         "func antigravityAccountModelMappingFloor(",
         "func grokAccountModelMappingFloor(",
-        "isNewAPIXRTokenAccount"
+        "isNewAPIXRTokenAccount",
+        "newAPIAliTokenPlanModelAliases()",
+        "newAPIQianfanTokenPlanModelAliases()",
+        "func reconciledAccountModelMapping(",
+        "keysByScope[scope]",
+        "prefixesByScope[scope]"
       ],
       "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from CatalogPolicy projections, platform compatibility owners, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops owner-declared compatibility aliases. ModelSurfaceBundleForOps emits the deterministic checksummed release projection once; rollout tools consume that artifact instead of compiling this package. Tokensea relay scopes (openai_tokensea_relay / anthropic_tokensea_relay) and CloudWise relay scope (openai_cloudwise_relay) must stay wired so prod relay accounts keep probe-curated floors. The isNewAPIXRTokenAccount branch routes ch54 XRToken accounts through its base_url-scoped five-model manifest projection instead of the generic channel-type fallback; otherwise apply-accounts would lose the three shared rows indexed under ch45 or leak XRToken-only rows into plain ch54 accounts."
     },
@@ -3161,6 +3205,14 @@
         "\"compatible_extra_keys\"",
         "\"resolved_targets\"",
         "--activation-floor-sha256",
+        "diff = _mapping_diff(scope, got, want, floor)",
+        "lines.extend(_activation_setting_guard_sql(plan))",
+        "activation_runtime_md5",
+        "observed_account_properties",
+        "AND jsonb_build_object({_ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL}) = ",
+        "targeted activation cannot skip selected accounts: ",
+        "activation accepted a selected account it cannot manage",
+        "runtime mapping changed before scoped activation write",
         "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE",
         "def _command_with_bundle(",
         "forbidden_model_mapping_keys",
@@ -3168,7 +3220,7 @@
         "\"account_bulk_changed\"",
         "\"group_changed\"",
         "def _is_supplier_managed_account(",
-        "'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)",
+        "\"supplier_source_id_present\": \"COALESCE(a.extra ? 'supplier_source_id', false)\"",
         "if _is_supplier_managed_account(row):"
       ],
       "must_not_contain": [
@@ -3239,6 +3291,10 @@
         "def _resolved_prod_instance_id(",
         "def cmd_activate(",
         "post_activation_gate",
+        "targeted_verification",
+        "targeted activation plan changed since dry-run",
+        "targeted activation read-back still reports mapping changes",
+        "override_only=override_only",
         "anthropic_tokensea_relay",
         "openai_tokensea_relay",
         "openai_cloudwise_relay"
@@ -3485,7 +3541,9 @@
         "TestXRTokenAccountPresetMergesSharedAndScopedModels",
         "TestXRTokenAccountPresetAcceptsV1SuffixedBase",
         "TestPlainArkCh54AccountDoesNotInheritXRTokenSharedModels",
-        "TestAccountModelMappingFloorForOpsIncludesXRTokenOverride"
+        "TestAccountModelMappingFloorForOpsIncludesXRTokenOverride",
+        "withdrawal must preserve reseller compatibility",
+        "resellers must not advertise withdrawn SKUs"
       ],
       "rationale": "Manifest preset/display projection for XRToken account 96 (ch54): asserts the ch54-scoped ids and the ch45-indexed shared ids merge into one menu, that the documented '.../v1' base is accepted, and that a plain official-Ark ch54 account does NOT inherit the XRToken shared list. Prevents an upstream merge from dropping the merge step and silently shrinking the served Seedance set. The floor test proves modelops activate actually has an XRToken delta to apply (all five SKUs) and that every exported target is identity — the vendor prefix must never be stored as a mapping target."
     },
@@ -3495,6 +3553,7 @@
         "TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount",
         "TestNewAPIModelMappingPresetIDsForQianfanTokenPlanAccount",
         "TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides",
+        "TestTokenPlanReconciliationRemovesAliSharedFamiliesOnly",
         "PAYG-only ch17 floor ids must not leak into Token Plan override",
         "wan2.7-image"
       ],
@@ -5174,7 +5233,7 @@
         "anthropicSaturationPriorityPenalty = 1000",
         "openAISaturationScorePenalty = 50.0"
       ],
-      "rationale": "SSOT for prod edge-mirror stub downstream-empty de-prioritization: shared 90s window + threshold 3, scheduler penalties, mirror model/class write at threshold. Never temp_unschedulable or whole-account block on this path."
+      "rationale": "Shared window, threshold and bounded scheduler penalty constants for downstream-empty feedback. candidate_saturation.go owns scoped interpretation. Threshold crossing changes preference and sticky affinity only; it never writes model/class cooldown, temp_unschedulable or whole-account blocks."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_saturation.go",
@@ -5537,10 +5596,10 @@
       "must_contain": [
         "return nativePlatformHintMatchesGroup(g.Platform, model)"
       ],
-      "rationale": "TK fix (1.8.74 prod smoke): OpenAI passthrough empty mapping must not make UniversalGroupSupportsModel claim foreign-hint models (gemini/claude/newapi) on the openai-compat pool — that misroutes universal /v1/messages to Codex. Pins the passthrough branch foreign-hint rejection alongside mapped-account IsModelSupported fallback."
+      "rationale": "The evaluator-less compatibility path retains native platform hints for catalog fallback. Production candidate admission delegates governed text to Plan before reaching this fallback; this anchor must not be interpreted as a ban on legal cross-platform converters."
     },
     {
-      "rationale": "TK fix (1.8.74 prod smoke): OpenAI passthrough empty mapping must not make UniversalGroupSupportsModel claim foreign-hint models (gemini/claude/newapi) on the openai-compat pool — that misroutes universal /v1/messages to Codex. Pins the passthrough branch foreign-hint rejection alongside mapped-account IsModelSupported fallback.",
+      "rationale": "Non-governed OpenAI passthrough retains its account model-support fallback. Governed text returns through protocolRequestEligibilityReason before this branch; platform hints cannot override a legal Plan.",
       "path": "backend/internal/service/gateway_scheduling.go",
       "must_contain": [
         "account.IsOpenAIPassthroughEnabled()"
@@ -6068,7 +6127,8 @@
         "filterGroupsAllowImageGeneration",
         "supportProvider(ctx, &gid, eligible[i].Platform, model, shape)",
         "else if hint := universalRequestPlatformHint(shape, model); hint != \"\"",
-        "收敛为空且模型有平台 hint → ErrUniversalNoEntitledGroup(403)"
+        "return r.pickCandidateBackingGroup(ctx, apiKey.UserID, eligible, model, shape, evaluate)",
+        "candidates = append(candidates, PlatformAnthropic, PlatformGemini, PlatformAntigravity)"
       ],
       "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
     },
@@ -7903,7 +7963,36 @@
         "func (a *Account) IsNewAPIVertexServiceAccount() bool",
         "a.ChannelType == newapiconstant.ChannelTypeVertexAi"
       ],
-      "rationale": "Vertex native Gemini ownership has two load-bearing facts: global-only Gemini ids must use the publisher-global endpoint, and only newapi ch41 service-account rows may acquire Vertex tokens or claim native Gemini routing. Dropping either silently turns a valid Vertex route into a 404 or broadens Google credential behavior to unrelated newapi vendors."
+      "rationale": "Vertex native Gemini ownership has two load-bearing facts: global-only Gemini ids must use the publisher-global endpoint, and only newapi ch41 service-account rows may acquire Vertex tokens or claim native Gemini routing. Dropping either silently turns a valid Vertex route into a 404 or broadens Google credential behavior to unrelated newapi vendors. Model admission and alias boundaries are covered by candidate_gemini_model_admission_test.go."
+    },
+    {
+      "path": "backend/internal/service/candidate_gemini_model_admission_test.go",
+      "must_contain": [
+        "func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T)",
+        "func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T)",
+        "func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T)",
+        "func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T)",
+        "AccountModelMappingFloorForOps(context.Background(), \"\")",
+        "protocolPlanForAccount(ctx, &accounts[i], model)",
+        "ErrUniversalCapacityUnavailable"
+      ],
+      "rationale": "Restored Gemini compatibility must survive both prod's generated mapping floor and edge's empty-mapping defaults. These regressions exercise the actual Plan and resolver for native and converted requests, global Vertex endpoints, Antigravity fallback, capacity classification and alias price parity without maintaining a second model catalog."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_vertex_tk.go",
+      "must_contain": [
+        "func vertexModelDisplayIDs() []string",
+        "stringSet(vertexSharedModelMappingPresetIDs())",
+        "range vertexCapabilityProfileExtraIDs"
+      ],
+      "rationale": "Vertex public discovery derives from the verified profile union, independently of the native Gemini floor. Sharing a native catalog as the Vertex display owner adds unverified activation scopes."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_preset_tk.go",
+      "must_contain": [
+        "ids = vertexModelDisplayIDs()"
+      ],
+      "rationale": "Keep the Vertex display consumer attached to its capability-floor union; native Gemini defaults remain platform-local."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",

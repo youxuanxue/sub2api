@@ -43,6 +43,10 @@ pnpm lint:check && pnpm typecheck # Lint + type check
 
 Backend `backend/` (Go: `handler` → `service` → `repository` → `ent`), frontend `frontend/` (Vue 3 + pnpm), deploy `deploy/`. Sibling `new-api/` clone required at `../../new-api` (see §4). Key paths: `backend/internal/{handler,service,integration/newapi,relay/bridge}`, `frontend/src/{views,composables,api}`, `deploy/docker-compose*.yml`.
 
+Candidate eligibility (`candidate-eligibility-ssot`): owner boundaries for Universal group
+choice and direct account selection are in
+[`docs/approved/candidate-eligibility-ssot.md`](docs/approved/candidate-eligibility-ssot.md).
+
 ## Hard Rules
 
 ### 1. PostgreSQL Only
@@ -207,6 +211,19 @@ section only records sub2api-specific choices.
 - **`scripts/preflight.sh` is a thin wrapper** delegating generic checks to `dev-rules/templates/preflight.sh`. Sub2api-specific checks only: **newapi compat-pool drift** (`IsOpenAICompatPoolMember` / `OpenAICompatPlatforms`) and **sentinel registry** (`scripts/sentinels/newapi.json` + `check-newapi.py`; new hotspot files need anchors or `sentinel-registry-reviewed` — see `docs/approved/newapi-as-fifth-platform.md` §12). Append new checks to `scripts/preflight.sh`, never the dev-rules template.
 - **CI must check out submodules** (`actions/checkout@v6` with `submodules: recursive`).
 - **Editing rules:** edit `dev-rules/rules/*.mdc`, `dev-rules/sync.sh --local`, commit submodule first + push, then parent (`dev-rules` pointer + `.cursor/rules/`).
+
+## Catalog Recommendation SSOT
+
+- `backend/internal/service/pricing_catalog_lifecycle_tk.go` owns official withdrawal facts and the shared `isCatalogModelRecommended` presentation gate. Public pricing, every user-menu source and NewAPI manifest display projections consume it. Existing native deprecation owners are reused.
+- Recommendation withdrawals apply immediately after a reviewed announcement, including IDs still callable through another endpoint. They do not declare fleet-wide shutdown and must not change billing, empirical capability sets or account mappings. Exact snapshots do not retire an entire stable family alias.
+- Manifest membership owns NewAPI provisioning; `display` intent plus the lifecycle gate owns recommendations. Refresh/probe success cannot override a withdrawal. Preserve the sentinel and pricing/menu/provisioning regression tests when moving these owners.
+
+## Account Usage SSOT
+
+- NewAPI 可恢复配额窗口的解析、Extra 快照和用量投影归 `backend/internal/service/newapi_usage_window_tk.go`；冷却/到期资格继续消费现有 `SetRateLimited` / `Account.IsSchedulable`，不改手动暂停状态。
+- 本地窗口由 `buildLocalWindowUsageFromStats` 提供；`UsageProgress.utilization_unknown` 区分未观测配额与已知 0%。过期耗尽快照回到未知。
+- 今日和窗口统计统一由 `frontend/src/components/account/UsageStatsRow.vue` 展示；`TodayStatsBadges` 只接今日标签，`UsageProgressBar` 负责已知配额进度，`UpstreamQuotaSummary` 仅补充未重复的配额维度。
+- Ali Token Plan 迁移别名归 `newAPIAliTokenPlanModelAliases`，预设、账号 floor 与生成 bundle 同源；通用 Ali PAYG 不消费这些别名。
 
 ## Studio SSOT（`/studio` Image / Video / BakeOff）
 

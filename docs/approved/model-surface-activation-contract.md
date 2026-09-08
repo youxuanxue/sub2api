@@ -126,9 +126,21 @@ and runs the prod release gate read-only. With
 `--confirm yes-activate-model-surface`, it repeats the plan, applies only to prod,
 then requires the post-apply release gate to pass. Edge diagnostic/apply commands
 remain available directly in the mapping manager but are outside activation. A
-live `tk_account_model_mapping_runtime` setting would shadow the immutable target
-artifact, so activation rejects it before any write; fold the scope into the
-target bundle or clear the runtime setting first. The first prod gate resolves
+live `tk_account_model_mapping_runtime` setting that shadows the immutable target
+artifact blocks activation; fold the scope into the target bundle or clear the
+runtime setting first. The first prod gate resolves
 one instance and every dry-run/apply/post-gate command stays pinned to it. The
 activation apply also locks the live settings table and rechecks that the runtime
 replacement is absent inside the account-write transaction.
+
+Targeted activation (`--account-ids`) uses the reviewed dry-run plan digest and
+per-account mapping and selector/ownership compare-and-swap, leaves groups
+untouched, and requires a zero-diff read-back of the selected accounts. Selected
+accounts that cannot be managed (including Supplier Sync ownership) block
+activation rather than being counted as successfully skipped. Global gate findings outside that
+selection remain visible without expanding the write. When every bundle delta
+and selected account uses an immutable property override, runtime platform/channel
+replacements cannot shadow it. In that case activation retains the runtime
+setting, binds its observed fingerprint into the reviewed plan, and rechecks it
+under the same settings-table lock inside the transaction. Generic platform/channel
+activation retains the no-runtime-replacement guard.

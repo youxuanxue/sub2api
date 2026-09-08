@@ -72,11 +72,13 @@ import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import { anchoredMenuStyle, getAnchoredMenuPosition } from '@/utils/floatingPanel'
 
 const props = defineProps<{
   show: boolean
   account: Account | null
-  position: { top: number; left: number } | null
+  /** Trigger rect snapshot used when `anchor` is disconnected (row recycle). */
+  position: { top: number; left: number; right?: number; bottom?: number; width?: number } | null
   anchor?: HTMLElement | null
 }>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'set-tier', 'create-spark-shadow'])
@@ -89,12 +91,12 @@ const canDuplicate = computed(() => {
 
 const DEFAULT_MENU_WIDTH = 208
 const DEFAULT_MENU_HEIGHT = 240
-const VIEWPORT_PADDING = 8
 const contentRef = ref<HTMLElement | null>(null)
-const menuStyle = ref<Record<string, string>>({ top: '0px', left: '0px' })
+const menuStyle = ref<Record<string, string>>(
+  anchoredMenuStyle({ top: 0, bottom: null, left: 0, right: null })
+)
 let positionRaf = 0
 
-const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max))
 type AnimationFrameHandler = (time: number) => void
 const requestPositionFrame = (callback: AnimationFrameHandler) => {
   if (typeof window.requestAnimationFrame === 'function') {
@@ -115,35 +117,35 @@ const resolveMenuSize = () => ({
   height: contentRef.value?.offsetHeight || DEFAULT_MENU_HEIGHT
 })
 
+const resolveTriggerRect = (): Pick<DOMRect, 'top' | 'right' | 'bottom' | 'left' | 'width'> | null => {
+  if (props.anchor?.isConnected) {
+    return props.anchor.getBoundingClientRect()
+  }
+  if (props.position) {
+    const width = props.position.width ?? DEFAULT_MENU_WIDTH
+    return {
+      top: props.position.top,
+      left: props.position.left,
+      right: props.position.right ?? props.position.left + width,
+      bottom: props.position.bottom ?? props.position.top,
+      width
+    }
+  }
+  return null
+}
+
 const updateMenuPosition = () => {
   if (!props.show) return
-  const { width, height } = resolveMenuSize()
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-
-  let left = props.position?.left ?? VIEWPORT_PADDING
-  let top = props.position?.top ?? VIEWPORT_PADDING
-
-  if (props.anchor?.isConnected) {
-    const rect = props.anchor.getBoundingClientRect()
-    if (viewportWidth < 768) {
-      left = rect.left + rect.width / 2 - width / 2
-    } else {
-      left = rect.right - width
-    }
-    top = rect.bottom + 4
-
-    if (top + height > viewportHeight - VIEWPORT_PADDING) {
-      top = rect.top - height - 4
-    }
-  }
-
-  const maxLeft = Math.max(VIEWPORT_PADDING, viewportWidth - width - VIEWPORT_PADDING)
-  const maxTop = Math.max(VIEWPORT_PADDING, viewportHeight - height - VIEWPORT_PADDING)
-  menuStyle.value = {
-    left: `${clamp(left, VIEWPORT_PADDING, maxLeft)}px`,
-    top: `${clamp(top, VIEWPORT_PADDING, maxTop)}px`
-  }
+  const trigger = resolveTriggerRect()
+  if (!trigger) return
+  menuStyle.value = anchoredMenuStyle(
+    getAnchoredMenuPosition(
+      trigger,
+      resolveMenuSize(),
+      window.innerWidth,
+      window.innerHeight
+    )
+  )
 }
 
 const schedulePositionUpdate = () => {
@@ -228,7 +230,7 @@ watch(
 )
 
 watch(
-  () => [props.anchor, props.position?.top, props.position?.left, props.account?.id],
+  () => [props.anchor, props.position?.top, props.position?.left, props.position?.right, props.position?.bottom, props.account?.id],
   schedulePositionUpdate,
   { flush: 'post' }
 )

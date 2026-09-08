@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 )
@@ -16,8 +17,9 @@ import (
 // public Claude surface additionally projects Kiro IDs through
 // supportedClaudeCatalogModels because the public catalog has no Kiro vendor.
 //
-// ops/pricing/refresh-servable-allowlist.py rewrites only the marker-delimited
-// anthropic/openai/gemini blocks. Keep those anchors intact. Antigravity and Grok
+// ops/pricing/refresh-servable-allowlist.py rewrites the marker-delimited
+// anthropic/openai blocks; Gemini markers remain its read-only scope baseline.
+// Vertex evidence updates capability floors through modelops activation. Antigravity and Grok
 // remain reviewed projections because their specialized probes are not automatic
 // splice inputs. Point-in-time account, fleet and probe evidence belongs in the
 // evidence ledger or Git history, not beside these load-bearing sets.
@@ -151,7 +153,8 @@ var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 
 // CloudWise relay model families: openai_cloudwise_relay_tk.go (openAICloudwiseRelayAllowedModelPrefixes).
 
-// supportedGeminiCatalogModels is the reviewed Gemini/Vertex catalog projection.
+// supportedGeminiCatalogModels is the native Gemini catalog projection.
+// Public Google rows additionally consume the Vertex capability-floor union.
 // An empty set preserves the existing passthrough/canonical fallback.
 var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin gemini
@@ -184,9 +187,11 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	"gemini-2.5-flash-thinking":      {},
 	"gemini-3-flash":                 {},
 	"gemini-3-flash-agent":           {},
+	"gemini-3-flash-preview":         {},
 	"gemini-3-pro-image":             {},
 	"gemini-3.1-flash-image":         {},
 	"gemini-3.1-flash-image-preview": {},
+	"gemini-3.1-flash-lite":          {},
 	"gemini-3.1-pro-low":             {},
 	"gemini-3.5-flash":               {},
 	"gemini-3.5-flash-extra-low":     {},
@@ -231,6 +236,9 @@ var supportedGrokCatalogModels = map[string]struct{}{
 // azure_openai and vertex_ai-style provider strings map consistently with the
 // availability decoration path.
 func isPublicCatalogModelSupported(vendor, modelID string) bool {
+	if !isCatalogModelRecommended(modelID) {
+		return false
+	}
 	for _, id := range tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "http://cursor-bridge:3927") {
 		if modelID == id {
 			return true
@@ -258,7 +266,7 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 			return true
 		}
 		_, ok := supportedGeminiCatalogModels[modelID]
-		return ok
+		return ok || slices.Contains(vertexModelDisplayIDs(), modelID)
 	case PlatformAntigravity:
 		// Empty set => not yet probed => passthrough (no regression). Populated
 		// here from empirical probes (Gemini + PR #1265 live Claude subset;
@@ -316,27 +324,18 @@ func FilterPublicCatalogToServable(resp *PublicCatalogResponse) *PublicCatalogRe
 	return &out
 }
 
-// presentationVendorForServable re-tags antigravity-served wire ids that the
-// upstream price mirror carries under a gemini/vertex vendor. The mirror routes
-// names like gemini-3.5-flash / gemini-3-pro-image / gemini-*-image to the
-// PlatformGemini gate, whose allowlist (the constrained Vertex 7-key set) lacks
-// them — so the public catalog silently drops them even though antigravity serves
-// them and the overlay/source prices them (#1029/#1030 follow-up: same class as
-// the gpt-5.6 display gap, on a different surface). A model that is in the
-// antigravity allowlist but NOT the gemini allowlist is antigravity-EXCLUSIVE:
-// re-attribute it to the antigravity vendor so it passes the antigravity gate and
-// displays under the correct (antigravity-served) vendor. Dual-listed ids (e.g.
-// gemini-2.5-flash, in BOTH sets) are genuinely Vertex-served too and keep the
-// gemini vendor. Presentation-only by construction (the caller copies rows by
-// value), so IsModelPriced / the Your-Menu metadata join are untouched.
-// ("public catalog" = the catalog behind GET /api/v1/public/pricing; the UI labels
-// that view 「所有分组 / All groups」 since #1037 — symbol names stay publicCatalog.)
+// presentationVendorForServable attributes Google rows exclusively served by
+// Antigravity to that vendor. Native Gemini or Vertex membership preserves the
+// original vendor. The caller copies rows, so billing metadata is untouched.
 func presentationVendorForServable(modelID, vendor string) string {
 	if _, ag := supportedAntigravityCatalogModels[modelID]; !ag {
 		return vendor
 	}
 	if _, gem := supportedGeminiCatalogModels[modelID]; gem {
-		return vendor // dual-listed: genuinely Vertex-served, keep gemini vendor
+		return vendor
+	}
+	if slices.Contains(vertexModelDisplayIDs(), modelID) {
+		return vendor
 	}
 	if inferPlatformFromVendor(vendor) == PlatformGemini {
 		return PlatformAntigravity

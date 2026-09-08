@@ -1,6 +1,46 @@
 package protocolrouter
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
+
+func TestPolicyContractToolsToMessagesStayWithinConversionFeatures(t *testing.T) {
+	router := New(allTestAdapters())
+	for _, inbound := range []Protocol{ProtocolChatCompletions, ProtocolResponses} {
+		for _, test := range []struct {
+			name    string
+			profile RequestProfile
+			allowed bool
+		}{
+			{"function_tools", RequestProfile{Tools: true, ToolChoice: ToolChoiceAuto, ContentKinds: ContentText}, true},
+			{"images", RequestProfile{Tools: true, ContentKinds: ContentText | ContentImage}, true},
+			{"continuation", RequestProfile{Tools: true, Continuation: ContinuationPreviousResponse}, false},
+			{"reasoning", RequestProfile{Tools: true, Reasoning: ReasoningEffort}, false},
+			{"audio", RequestProfile{Tools: true, ContentKinds: ContentAudio}, false},
+		} {
+			t.Run(string(inbound)+"/"+test.name, func(t *testing.T) {
+				plan, err := router.Plan(testRequest(t, inbound, test.profile), testAccount(t, ProtocolMessages))
+				if !test.allowed {
+					if !errors.Is(err, ErrNoLegalRoute) {
+						t.Fatalf("Plan error = %v, want ErrNoLegalRoute", err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := AdapterChatToMessages
+				if inbound == ProtocolResponses {
+					want = AdapterResponsesToMessages
+				}
+				if plan.TargetProtocol() != ProtocolMessages || plan.AdapterID() != want {
+					t.Fatalf("Plan target/adapter = %s/%s, want messages/%s", plan.TargetProtocol(), plan.AdapterID(), want)
+				}
+			})
+		}
+	}
+}
 
 func TestPolicyContractProtocolIdentifiers(t *testing.T) {
 	got := AllProtocols()

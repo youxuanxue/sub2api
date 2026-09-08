@@ -127,6 +127,10 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-2.5-flash-image":    "gemini-3.1-flash-image",
 	"gemini-2.5-flash-thinking": "gemini-2.5-flash-thinking",
 	"gemini-3-flash":            "gemini-3-flash",
+	// 2026-09-08 native us4 probes: preview is not a wire ID (404), while
+	// gemini-3-flash and gemini-3.1-flash-lite return text and metered usage.
+	"gemini-3-flash-preview": "gemini-3-flash",
+	"gemini-3.1-flash-lite":  "gemini-3.1-flash-lite",
 	// Gemini 3.1 白名单。gemini-3.1-pro-high 在上游 deprecatedModelIds 中，直接请求返回 400
 	// （2026-06-15 实测）→ 只保留非弃用 wire id gemini-pro-agent。
 	"gemini-3.1-pro":     AntigravityGemini31ProAgentModel,
@@ -177,7 +181,6 @@ var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{
 	// in persisted antigravity account mappings. Keep them in this deadlist, not
 	// in DefaultAntigravityModelMapping or canonical account mappings.
 	"gemini-2.5-flash-image-preview": {},
-	"gemini-3-flash-preview":         {},
 	"gemini-3-pro-high":              {},
 	"gemini-3-pro-image-preview":     {},
 	"gemini-3-pro-low":               {},

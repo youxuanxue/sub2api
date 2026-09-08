@@ -79,7 +79,8 @@ func loadTkServedModelsManifest() {
 				continue
 			}
 			out[modelID] = struct{}{}
-			if e.Display {
+			displayAllowed := e.Display && isCatalogModelRecommended(modelID)
+			if displayAllowed {
 				display[modelID] = struct{}{}
 			}
 			for _, scope := range manifestEntryScopeKeys(e) {
@@ -87,7 +88,7 @@ func loadTkServedModelsManifest() {
 					byScope[scope] = make(map[string]struct{})
 				}
 				byScope[scope][modelID] = struct{}{}
-				if e.Display {
+				if displayAllowed {
 					if displayByScope[scope] == nil {
 						displayByScope[scope] = make(map[string]struct{})
 					}
@@ -101,7 +102,7 @@ func loadTkServedModelsManifest() {
 				byChannel[e.ChannelType] = make(map[string]struct{})
 			}
 			byChannel[e.ChannelType][modelID] = struct{}{}
-			if e.Display {
+			if displayAllowed {
 				if displayByChannel[e.ChannelType] == nil {
 					displayByChannel[e.ChannelType] = make(map[string]struct{})
 				}
@@ -226,11 +227,26 @@ func newAPIQianfanModelDisplayPresetIDs() []string {
 }
 
 func newAPIAliTokenPlanModelMappingPresetIDs() []string {
-	return tkServedModelsManifestPresetIDsForSelector(
+	ids := tkServedModelsManifestPresetIDsForSelector(
 		PlatformNewAPI,
 		newapiconstant.ChannelTypeAli,
 		newapiintegration.AliTokenPlanBaseURL,
 	)
+	for alias := range newAPIAliTokenPlanModelAliases() {
+		ids = append(ids, alias)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// Ali Token Plan migration intent; shared by presets, runtime floors and the
+// generated activation bundle. PAYG aliases retain their original targets.
+func newAPIAliTokenPlanModelAliases() map[string]string {
+	return map[string]string{
+		"qwen3-32b":       "qwen3.7-plus",
+		"qwen3-235b-a22b": "qwen3.7-plus",
+		"qwen3-8b":        "qwen3.6-flash",
+	}
 }
 
 func newAPIAliTokenPlanModelDisplayPresetIDs() []string {
@@ -242,11 +258,23 @@ func newAPIAliTokenPlanModelDisplayPresetIDs() []string {
 }
 
 func newAPIQianfanTokenPlanModelMappingPresetIDs() []string {
-	return tkServedModelsManifestPresetIDsForSelector(
+	ids := tkServedModelsManifestPresetIDsForSelector(
 		PlatformNewAPI,
 		newapiconstant.ChannelTypeBaiduV2,
 		newapiintegration.QianfanTokenPlanBaseURL,
 	)
+	for alias := range newAPIQianfanTokenPlanModelAliases() {
+		ids = append(ids, alias)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func newAPIQianfanTokenPlanModelAliases() map[string]string {
+	return map[string]string{
+		"glm-4.5-air": "glm-5.2",
+		"glm-4.7":     "glm-5.2",
+	}
 }
 
 func newAPIQianfanTokenPlanModelDisplayPresetIDs() []string {

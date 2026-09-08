@@ -146,12 +146,13 @@ type WindowStats struct {
 
 // UsageProgress 使用量进度
 type UsageProgress struct {
-	Utilization      float64      `json:"utilization"`            // 使用率百分比 (0-100+，100表示100%)
-	ResetsAt         *time.Time   `json:"resets_at"`              // 重置时间
-	RemainingSeconds int          `json:"remaining_seconds"`      // 距重置剩余秒数
-	WindowStats      *WindowStats `json:"window_stats,omitempty"` // 窗口期统计（从窗口开始到当前的使用量）
-	UsedRequests     int64        `json:"used_requests,omitempty"`
-	LimitRequests    int64        `json:"limit_requests,omitempty"`
+	UtilizationUnknown bool         `json:"utilization_unknown,omitempty"` // Local statistics without an observed upstream quota.
+	Utilization        float64      `json:"utilization"`                   // 使用率百分比 (0-100+，100表示100%)
+	ResetsAt           *time.Time   `json:"resets_at"`                     // 重置时间
+	RemainingSeconds   int          `json:"remaining_seconds"`             // 距重置剩余秒数
+	WindowStats        *WindowStats `json:"window_stats,omitempty"`        // 窗口期统计（从窗口开始到当前的使用量）
+	UsedRequests       int64        `json:"used_requests,omitempty"`
+	LimitRequests      int64        `json:"limit_requests,omitempty"`
 }
 
 // AntigravityModelQuota Antigravity 单个模型的配额信息
@@ -815,14 +816,14 @@ func buildLocalWindowUsageFromStats(now time.Time, fiveHourStats, sevenDayStats 
 	}
 	if fiveHourStats != nil {
 		usage.FiveHour = &UsageProgress{
-			Utilization: 0,
-			WindowStats: windowStatsFromAccountStats(fiveHourStats),
+			UtilizationUnknown: true,
+			WindowStats:        windowStatsFromAccountStats(fiveHourStats),
 		}
 	}
 	if sevenDayStats != nil {
 		usage.SevenDay = &UsageProgress{
-			Utilization: 0,
-			WindowStats: windowStatsFromAccountStats(sevenDayStats),
+			UtilizationUnknown: true,
+			WindowStats:        windowStatsFromAccountStats(sevenDayStats),
 		}
 	}
 	return usage
@@ -956,7 +957,7 @@ func (s *AccountUsageService) attachOpenAICodexWindowStats(ctx context.Context, 
 	}
 	if stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, codexWindowStatsStart(usage.SevenDay, 7*24*time.Hour, now)); err == nil {
 		if usage.SevenDay == nil {
-			usage.SevenDay = &UsageProgress{Utilization: 0}
+			usage.SevenDay = &UsageProgress{UtilizationUnknown: true}
 		}
 		usage.SevenDay.WindowStats = windowStatsFromAccountStats(stats)
 	}

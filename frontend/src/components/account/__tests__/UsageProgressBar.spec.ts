@@ -13,6 +13,39 @@ vi.mock('vue-i18n', async () => {
 })
 
 describe('UsageProgressBar', () => {
+  it('keeps labeled local statistics without inventing a quota or reset', async () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '7d', windowStatsLabel: 'Last 7d', utilization: 0,
+        utilizationUnknown: true, showNowWhenIdle: true, color: 'emerald',
+        windowStats: { requests: 123, tokens: 456, cost: 7.89, user_cost: 1.23 }
+      }
+    })
+    expect(wrapper.get('[data-testid="usage-stats-row"]').text()).toContain('Last 7d')
+    expect(wrapper.text()).toContain('123 req')
+    expect(wrapper.text()).toContain('456 tok')
+    expect(wrapper.text()).toContain('A $7.89')
+    expect(wrapper.text()).toContain('U $1.23')
+    expect(wrapper.find('[data-testid="usage-quota-row"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('usage.resetNow')
+
+    await wrapper.setProps({ utilizationUnknown: false, utilization: 100, resetsAt: '2026-03-20T00:00:00Z' })
+    expect(wrapper.get('[data-testid="usage-quota-row"]').text()).toContain('100%')
+    expect(wrapper.findAll('[data-testid="usage-stats-row"]')).toHaveLength(1)
+  })
+
+  it('shows measured zero quota and zero local activity distinctly', () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '5h', utilization: 0, color: 'indigo',
+        windowStats: { requests: 0, tokens: 0, cost: 0 }
+      }
+    })
+    expect(wrapper.get('[data-testid="usage-quota-row"]').text()).toContain('0%')
+    expect(wrapper.get('[data-testid="usage-stats-row"]').text()).toContain('0 req')
+    expect(wrapper.text()).not.toContain('U $')
+  })
+
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-17T00:00:00Z'))

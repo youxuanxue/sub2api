@@ -15,8 +15,9 @@ This authorizes implementation; merge and production deployment remain separate.
 The Chinese collaboration name is recorded in project AGENTS.md. Use
 `candidate-eligibility-ssot` as the stable search term.
 
-This contract supersedes the model-hint preference and support/readiness
-conflation in universal-key-routing.md for evaluated requests. It does not
+This contract owns evaluated-request candidate selection;
+[universal-key-routing.md](universal-key-routing.md) owns key authorization and
+billing binding. It does not
 replace the protocol-routing SSOT, endpoint authorization, or billing owners.
 
 ## Owners
@@ -70,12 +71,14 @@ unavailable or saturated.
 
 ## Validation
 
-Acceptance criteria and test mapping: US-050-candidate-eligibility-ssot.
+Acceptance criteria and runnable test commands:
+[US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md).
 Focused tests cover real resolver and scheduler filters, native/converter
 equality, mixed pools, saturation scope/TTL, unknown capability, billing-tier
 priority, and pre-billing request parsing with raw compressed-body restoration.
-Gateway sentinels protect owners, consumer call sites and regression tests;
-the protocol-routing checker protects the delegation to the existing Plan gate.
+Gateway sentinels protect owners, production evaluator delegation, Plan admission
+and regression tests. The protocol-routing checker protects the underlying
+planning/cache and execution boundaries.
 
 This is a backend/API change with no new UI surface, schema or live configuration.
 Local unit and middleware integration tests are required; production verification

@@ -156,18 +156,19 @@ func loadTkServedModelsOwnerProjectionForTest(t *testing.T) tkServedModelsOwnerP
 			t.Fatalf("raw owner declares model_id %q more than once", modelID)
 		}
 		out.listedIDs[modelID] = struct{}{}
-		if entry.Display {
+		displayAllowed := entry.Display && isCatalogModelRecommended(modelID)
+		if displayAllowed {
 			out.displayIDs[modelID] = struct{}{}
 		}
 		for _, scope := range manifestScopeKeysForTest(entry) {
 			out.IDsByScope[scope] = append(out.IDsByScope[scope], modelID)
-			if entry.Display {
+			if displayAllowed {
 				out.displayIDsByScope[scope] = append(out.displayIDsByScope[scope], modelID)
 			}
 		}
 		if entry.ChannelType > 0 {
 			out.IDsByChannel[entry.ChannelType] = append(out.IDsByChannel[entry.ChannelType], modelID)
-			if entry.Display {
+			if displayAllowed {
 				out.displayIDsByChannel[entry.ChannelType] = append(out.displayIDsByChannel[entry.ChannelType], modelID)
 			}
 		}

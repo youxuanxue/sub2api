@@ -82,7 +82,7 @@ func WithProtocolRouting(
 		router:             router,
 		request:            request,
 		plans:              newProtocolPlanCache(),
-		cursorContinuation: cursorContinuationInBody(request.Body()),
+		cursorContinuation: cursorContinuationInRequest(request),
 	})
 }
 
@@ -153,7 +153,7 @@ func protocolPlanForAccount(
 ) (protocolrouter.Plan, bool, error) {
 	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
 	if ok && routing.cursorContinuation && !account.IsCursor() {
-		return protocolrouter.Plan{}, true, fmt.Errorf("%w: Cursor tool continuation requires its original supply", ErrProtocolRouteUnavailable)
+		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %w: Cursor tool continuation requires its original supply", ErrProtocolRouteUnavailable, protocolrouter.ErrNoLegalRoute)
 	}
 	if !ok || routing.router == nil || !protocolRoutingGovernsAccount(account) {
 		return protocolrouter.Plan{}, false, nil

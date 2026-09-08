@@ -38,6 +38,12 @@ implementation and verification evidence to be reviewed.
 - Messages is the bridge protocol. Permit explicitly mapped Cursor model IDs in
   both routing and transport without broadening official Anthropic acceptance.
   Chat and Responses use existing protocol conversion owners, including tools.
+- Candidate eligibility follows `candidate-eligibility-ssot.md`: Universal and
+  direct selectors share Plan and runtime filters. Cursor has no group-ordering,
+  availability or billing bypass. All model families require saved SDK variant
+  parameters before Plan can admit them. Public recommendations still follow
+  the shared model lifecycle owner; the complete SDK mapping is retained for
+  explicit requests and full-catalog validation.
 - Preserve model IDs and explicit variant parameters from the authenticated SDK
   catalog. Never silently substitute a model. The full non-Auto model catalog is
   the delivery validation denominator, including all returned model families.

@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,21 +41,21 @@ const (
 )
 
 var newAPIUsageWindowResetAtRE = regexp.MustCompile(`(?i)it will reset at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4}(?:\s+\S+)?)`)
+var newAPIUsageWindowShortResetAtRE = regexp.MustCompile(`(?i)(?:it|the quota) will reset at\s+(\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC\b`)
 
 type newAPIUsageWindowHit struct {
 	Window  string // "weekly" | "5h" | "7d"
 	ResetAt time.Time
 }
 
-// tkParseNewAPIUsageWindowHit extracts a recoverable usage-window exhaustion
-// (weekly / 5h / 7d) and its explicit reset timestamp from upstream text.
-func tkParseNewAPIUsageWindowHit(haystack string) *newAPIUsageWindowHit {
+// tkParseNewAPIUsageWindowResponse extracts quota exhaustion and its reset
+// from the upstream message and standard HTTP retry headers.
+func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now time.Time) *newAPIUsageWindowHit {
 	haystack = strings.ToLower(strings.TrimSpace(haystack))
 	if haystack == "" || !tkIsRecoverableUsageWindowMessage(haystack) {
 		return nil
 	}
-	resetAt, ok := tkParseNewAPIUsageWindowResetAt(haystack)
-	if !ok {
+	if !strings.Contains(haystack, "exhausted") && !strings.Contains(haystack, "exceeded") {
 		return nil
 	}
 	window := "weekly"
@@ -64,6 +66,35 @@ func tkParseNewAPIUsageWindowHit(haystack string) *newAPIUsageWindowHit {
 		window = "7d"
 	case strings.Contains(haystack, "weekly"):
 		window = "weekly"
+	}
+	// Date anchors relative Retry-After and yearless timestamps to the provider clock.
+	reference := now
+	if date, err := http.ParseTime(headers.Get("Date")); err == nil {
+		reference = date
+	}
+	resetAt, ok := tkParseNewAPIUsageWindowResetAt(haystack)
+	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) {
+		resetAt, ok = *retryAt, true
+	}
+	if !ok {
+		if m := newAPIUsageWindowShortResetAtRE.FindStringSubmatch(haystack); len(m) == 2 {
+			// A yearless reset must be within this quota window. In particular an
+			// expired September reset must not become a year-long cooldown.
+			maxWindow := 7 * 24 * time.Hour
+			if window == "5h" {
+				maxWindow = 5 * time.Hour
+			}
+			for _, year := range []int{reference.UTC().Year(), reference.UTC().Year() + 1} {
+				candidate, err := time.Parse("2006-01-02 15:04:05", strconv.Itoa(year)+"-"+m[1])
+				if err == nil && candidate.After(reference) && candidate.Sub(reference) <= maxWindow && candidate.After(now) {
+					resetAt, ok = candidate, true
+					break
+				}
+			}
+		}
+	}
+	if !ok {
+		return nil
 	}
 	return &newAPIUsageWindowHit{Window: window, ResetAt: resetAt}
 }
@@ -96,12 +127,15 @@ func tkParseNewAPIUsageWindowResetAt(haystack string) (time.Time, bool) {
 // reset and persists a 100% Extra snapshot for admin usage. Returns true when
 // the 429 was a recoverable usage-window hit (caller must not fall through to
 // the short fallback cooldown).
-func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, account *Account, responseBody []byte) bool {
+func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) bool {
 	if s == nil || account == nil || account.Platform != PlatformNewAPI || s.accountRepo == nil {
 		return false
 	}
 	msg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
-	hit := tkParseNewAPIUsageWindowHit(msg + "\n" + string(responseBody))
+	if msg == "" {
+		msg = string(responseBody)
+	}
+	hit := tkParseNewAPIUsageWindowResponse(msg, headers, time.Now())
 	if hit == nil {
 		return false
 	}
@@ -190,6 +224,7 @@ func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 			*progress = &UsageProgress{}
 		}
 		(*progress).Utilization = utilization
+		(*progress).UtilizationUnknown = false
 		if resetAt != nil {
 			(*progress).ResetsAt = resetAt
 			remaining := int(time.Until(*resetAt).Seconds())

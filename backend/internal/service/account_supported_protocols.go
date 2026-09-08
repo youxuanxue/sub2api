@@ -15,6 +15,8 @@ import (
 
 const SupportedProtocolsExtraKey = "supported_protocols"
 
+var ErrProtocolCapabilityUnknown = errors.New("protocol endpoint capability is unknown")
+
 // ProtocolEndpointsExclusiveCredentialKey marks that credentials.api_base_urls
 // is the exclusive protocol-endpoint declaration for identity / probe routing.
 // When set, bare base_url must not fan out into undeclared protocols. This is
@@ -218,19 +220,18 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	}
 	capability := account.ProtocolEndpointCapability
 	if capability == nil || account.ProtocolEndpointCapabilityID == nil || capability.ID != *account.ProtocolEndpointCapabilityID {
-		return protocolrouter.AccountSnapshot{}, errors.New("governed account is missing protocol endpoint capability link")
+		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: governed account is missing protocol endpoint capability link", ErrProtocolCapabilityUnknown)
 	}
 	if capability.CapabilityKey == "" || capability.Revision <= 0 ||
 		!protocolCapabilityHasVerifiedRoutingEvidence(capability) {
-		// Loaded but unusable evidence rejects this candidate, not the whole pool.
-		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: protocol endpoint capability is invalid or conflicted", protocolrouter.ErrNoLegalRoute)
+		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: %w: protocol endpoint capability is invalid or conflicted", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)
 	}
 	identity, governed, err := BuildProtocolEndpointIdentity(account)
 	if err != nil {
 		return protocolrouter.AccountSnapshot{}, err
 	}
 	if !governed || identity.Key() != capability.CapabilityKey {
-		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: account endpoint identity does not match linked capability", protocolrouter.ErrNoLegalRoute)
+		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: %w: account endpoint identity does not match linked capability", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)
 	}
 	protocols := routingSupportedProtocols(account)
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
@@ -269,6 +270,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		OfficialProfile:    officialProfile,
 		GeminiProfile:      geminiProfile,
 		ModelAllowed:       modelAllowed,
+		ModelPolicyDenied:  !accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled),
 		Transports:         []protocolrouter.TransportID{protocolrouter.TransportHTTP},
 	})
 }
@@ -287,6 +289,9 @@ func protocolResolvedModelAllowedForTarget(
 	if !accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled) {
 		return false
 	}
+	if account.IsCursor() {
+		return cursorMappedModelAllowed(account, requestedModel, resolvedModel)
+	}
 	switch profile {
 	case protocolrouter.OfficialEndpointOpenAICodex:
 		return target == protocolrouter.ProtocolResponses && isOpenAIOAuthServableModel(resolvedModel)
@@ -298,8 +303,7 @@ func protocolResolvedModelAllowedForTarget(
 	// without this gate, inbound Claude Code + gpt-* / MiniMax / GLM plans
 	// identity messages and execute fail-closes with
 	// "native anthropic messages requires a Claude model".
-	if target == protocolrouter.ProtocolMessages && !tkIsForwardableAnthropicModelName(resolvedModel) &&
-		!cursorMappedModelAllowed(account, requestedModel, resolvedModel) {
+	if target == protocolrouter.ProtocolMessages && !tkIsForwardableAnthropicModelName(resolvedModel) {
 		return false
 	}
 	// Those same relays advertise /v1/responses because the probe treats HTTP 400

@@ -37,17 +37,34 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 		switch {
 		case err == nil:
 			return true, nil
-		case errors.Is(err, protocolrouter.ErrModelNotAllowed), errors.Is(err, protocolrouter.ErrNoLegalRoute):
+		case errors.Is(err, protocolrouter.ErrModelPolicyDenied):
+			return false, ErrUniversalUnsupportedModel
+		case errors.Is(err, ErrProtocolCapabilityUnknown):
+			// Missing or conflicted capability evidence is an unknown candidate
+			// state. It must not be reported as either model rejection or lack of
+			// entitlement.
+			return false, err
+		case errors.Is(err, protocolrouter.ErrNoLegalRoute):
 			return false, nil
 		default:
 			return false, err
 		}
 	}
+	var supported bool
 	if IsOpenAICompatPlatform(platform) {
-		return universalOpenAICompatAccountSupportsShape(account, shape) &&
-			universalOpenAICompatAccountSupportsModel(ctx, s, account, model, shape), nil
+		if !universalOpenAICompatAccountSupportsShape(account, shape) {
+			return false, nil
+		}
+		supported = universalOpenAICompatAccountSupportsModel(ctx, s, account, model, shape)
+	} else {
+		supported = s.isModelSupportedByAccountWithContext(ctx, account, model)
 	}
-	return s.isModelSupportedByAccountWithContext(ctx, account, model), nil
+	// Native/media owners retain admission. Only an explicit model-policy
+	// refusal can classify their rejection as a client unsupported-model error.
+	if !supported && model != "" && !accountAdmitsRequestedModelWithContext(ctx, account, model) {
+		return false, ErrUniversalUnsupportedModel
+	}
+	return supported, nil
 }
 
 // evaluateGroupCandidates is a read-only projection of existing scheduler
@@ -75,11 +92,18 @@ func (s *GatewayService) evaluateGroupCandidates(ctx context.Context, openai *Op
 		return result, err
 	}
 	var supportErr error
+	unsupportedModel := false
 	supported := make([]Account, 0, len(accounts))
 	for i := range accounts {
 		ok, err := s.candidateSupportsRequest(ctx, &accounts[i], group.Platform, mixed, model, shape)
 		if err != nil {
-			supportErr = err
+			if errors.Is(err, ErrUniversalUnsupportedModel) {
+				unsupportedModel = true
+				continue
+			}
+			if supportErr == nil {
+				supportErr = err
+			}
 			continue
 		}
 		if ok {
@@ -144,7 +168,13 @@ func (s *GatewayService) evaluateGroupCandidates(ctx context.Context, openai *Op
 	for i := range all {
 		ok, err := s.candidateSupportsRequest(ctx, &all[i], group.Platform, mixed, model, shape)
 		if err != nil {
-			supportErr = err
+			if errors.Is(err, ErrUniversalUnsupportedModel) {
+				unsupportedModel = true
+				continue
+			}
+			if supportErr == nil {
+				supportErr = err
+			}
 			continue
 		}
 		if ok {
@@ -152,5 +182,11 @@ func (s *GatewayService) evaluateGroupCandidates(ctx context.Context, openai *Op
 			return result, nil
 		}
 	}
-	return result, supportErr
+	if supportErr != nil {
+		return result, supportErr
+	}
+	if unsupportedModel {
+		return result, ErrUniversalUnsupportedModel
+	}
+	return result, nil
 }
