@@ -346,3 +346,29 @@ func TestGlobalCandidateNativeConverterParityAndGoogleFailover(t *testing.T) {
 	require.Greater(t, wins[protocolrouter.ProtocolChatCompletions], 20)
 	require.Greater(t, wins[protocolrouter.ProtocolMessages], 20)
 }
+
+func TestCandidateResponsesImagePermissionPrecedesBillingOrigin(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		groups := []Group{grp(10, PlatformOpenAI, 1, false), grp(20, PlatformOpenAI, 2, false)}
+		groups[0].AllowImageGeneration = false
+		groups[0].RateMultiplier, groups[1].RateMultiplier = .1, 1
+		account := globalCandidateAccount(1, 1, 10, 20)
+		attachTestProtocolCapability(&account, protocolrouter.ProtocolResponses)
+		r, _, key := globalCandidateFixture(groups, []Account{account})
+		body := []byte(`{"model":"gpt-5.4","input":"hello","tools":[{"type":"namespace","name":"image_gen","tools":[]}]}`)
+		if explicit {
+			body = []byte(`{"model":"gpt-5.4","input":"draw a tree","tools":[{"type":"image_generation"}]}`)
+		}
+		ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/responses", "gpt-5.4", body, "", "")
+		require.NoError(t, err)
+		want := int64(10)
+		if explicit {
+			want = 20
+		}
+		require.Equal(t, want, *key.GroupID)
+		selected, err := state.selectAccount(ctx, candidateSelectOptions{acquire: true})
+		require.NoError(t, err)
+		require.Equal(t, want, *key.GroupID)
+		selected.ReleaseFunc()
+	}
+}

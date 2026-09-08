@@ -807,6 +807,13 @@ func (s *BillingCacheService) checkBillingMonetaryEligibility(ctx context.Contex
 // 与旧版"级联互斥"设计不同，新版确保 user.rpm_limit 作为全局天花板不会被 group 或 override 覆盖。
 // Redis 故障一律 fail-open（打 warning，不阻塞业务）。
 func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *Group) error {
+	if candidate := CandidateRequestFromContext(ctx); candidate != nil {
+		return candidate.checkRPM(ctx, s, user, group)
+	}
+	return s.checkRPMCounters(ctx, user, group, false)
+}
+
+func (s *BillingCacheService) checkRPMCounters(ctx context.Context, user *User, group *Group, peek bool) error {
 	if s == nil || s.userRPMCache == nil || user == nil {
 		return nil
 	}
@@ -833,7 +840,7 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 		if override != nil {
 			// override=0 → 该用户在该分组免检（但 user 级仍会在下面检查）。
 			if *override > 0 {
-				count, incErr := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
+				count, incErr := s.candidateGroupRPMCount(ctx, user.ID, group.ID, peek)
 				if incErr != nil {
 					logger.LegacyPrintf(
 						"service.billing_cache",
@@ -848,7 +855,7 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 			// override 命中后跳过 group.rpm_limit（override 替代 group），但不 return——继续检查 user 级。
 		} else if group.RPMLimit > 0 {
 			// 无 override，检查 group.rpm_limit。
-			count, err := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
+			count, err := s.candidateGroupRPMCount(ctx, user.ID, group.ID, peek)
 			if err != nil {
 				logger.LegacyPrintf(
 					"service.billing_cache",
