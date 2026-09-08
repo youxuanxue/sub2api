@@ -88,9 +88,10 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 
 	// 3. Rewrite model in body (no protocol conversion)
+	requestModel := antigravityRelayRequestModel(account, originalModel, upstreamModel)
 	upstreamBody := body
-	if upstreamModel != originalModel {
-		upstreamBody = ReplaceModelInBody(body, upstreamModel)
+	if requestModel != originalModel {
+		upstreamBody = ReplaceModelInBody(body, requestModel)
 	}
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
 		upstreamBody = normalizedBody

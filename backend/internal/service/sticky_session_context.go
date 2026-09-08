@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/sjson"
 )
 
 // stickyGlobalEnabledProvider abstracts SettingService for tests.
@@ -50,7 +51,7 @@ func resolveStickyStrategyFromGin(ctx context.Context, c *gin.Context, settingSe
 //
 // Returns the (possibly mutated) body. When the strategy disallows
 // injection or no sticky key can be derived, the original body is returned
-// untouched.
+// untouched, except for NVIDIA's unsupported prompt_cache_key field.
 //
 // upstreamModel is optional; when empty, body.model is read for derivation
 // context.
@@ -62,17 +63,27 @@ func applyStickyToNewAPIBridge(
 	body []byte,
 	upstreamModel string,
 ) []byte {
+	stickyBody := body
+	nvidiaBuild := isNewAPINVIDIABuildAccount(account)
+	if nvidiaBuild {
+		// Retain the original key for affinity, but never send it to NVIDIA.
+		if cleaned, err := sjson.DeleteBytes(body, "prompt_cache_key"); err == nil {
+			body = cleaned
+		}
+	}
 	model := strings.TrimSpace(upstreamModel)
 	stickyReq := buildStickyInjectionRequestFromGin(ctx, c, settingService, model, StickyAccountNewAPI, false)
 	if !stickyReq.Strategy.AllowsInjection() {
 		return body
 	}
-	key := DeriveStickyKey(stickyReq, body)
+	key := DeriveStickyKey(stickyReq, stickyBody)
 	if key.Value == "" {
 		return body
 	}
-	if injected, mut, err := InjectOpenAIChatCompletionsBody(body, key, stickyReq.Strategy); err == nil && mut {
-		body = injected
+	if !nvidiaBuild {
+		if injected, mut, err := InjectOpenAIChatCompletionsBody(body, key, stickyReq.Strategy); err == nil && mut {
+			body = injected
+		}
 	}
 	if c != nil && c.Request != nil {
 		_ = InjectXSessionIDHeader(c.Request.Header, key, stickyReq.Strategy)

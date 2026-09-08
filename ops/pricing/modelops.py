@@ -898,9 +898,9 @@ def _run_json_command(command: list[str], allowed_returncodes: set[int]) -> tupl
     return proc.returncode, data
 
 
-def _require_unshadowed_activation_bundle(gate: dict[str, Any], *, override_only: bool = False) -> None:
+def _require_unshadowed_activation_bundle(gate: dict[str, Any], *, targeted_accounts: bool = False) -> None:
     targets = gate.get("runtime_setting_targets") or []
-    if targets and not override_only:
+    if targets and not targeted_accounts:
         raise ActivationError(
             "target bundle is shadowed by tk_account_model_mapping_runtime on: "
             + ", ".join(str(target) for target in targets)
@@ -977,18 +977,15 @@ def cmd_activate(args: argparse.Namespace) -> int:
             pricing_evidence_path=args.pricing_evidence,
         )
         delta = context["delta"]
-        changed_scopes = [row["scope"] for field in (
-            "activated", "removed_required", "forbidden_keys_added", "forbidden_prefixes_added",
-        ) for row in delta[field]]
-        override_only = (account_ids is not None and bool(changed_scopes)
-                         and all(scope.startswith("account_override:") for scope in changed_scopes)
-                         and not delta["antigravity_group_scopes_changed"])
+        # The mapping manager checks effective versus compiled mappings for every
+        # selected account and pins the runtime snapshot in its transactional CAS.
+        targeted_accounts = account_ids is not None and not delta["antigravity_group_scopes_changed"]
         _, pre_gate = _run_json_command(
             _mapping_manager_command(
                 "release-gate", args.bundle, prod_instance_id=args.prod_instance_id),
             {0, 1},
         )
-        _require_unshadowed_activation_bundle(pre_gate, override_only=override_only)
+        _require_unshadowed_activation_bundle(pre_gate, targeted_accounts=targeted_accounts)
         prod_instance_id = _resolved_prod_instance_id(pre_gate)
         _, mapping_plan = _run_json_command(
             _mapping_manager_command(
@@ -1027,7 +1024,7 @@ def cmd_activate(args: argparse.Namespace) -> int:
                     "release-gate", args.bundle, prod_instance_id=prod_instance_id),
                 {0, 1} if account_ids is not None else {0},
             )
-            _require_unshadowed_activation_bundle(post_gate, override_only=override_only)
+            _require_unshadowed_activation_bundle(post_gate, targeted_accounts=targeted_accounts)
             result["mapping_apply"] = applied
             result["post_activation_gate"] = post_gate
             if account_ids is not None:

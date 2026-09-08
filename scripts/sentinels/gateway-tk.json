@@ -586,9 +586,48 @@
         "func resolveGeminiForwardModels(account *Account, requestedModel string) (mappedModel, requestModel string)",
         "account.Platform == PlatformAntigravity",
         "strings.TrimSpace(account.GetCredential(\"base_url\")) != \"\"",
-        "requestModel = requestedModel"
+        "func antigravityRelayRequestModel(",
+        "return requestedModel"
       ],
       "rationale": "Antigravity API-key accounts with a base URL are prod-to-edge relays. The relay hop must keep the public model key so the edge can apply its own canonical mapping; sending the prod-mapped wire target makes edge scheduling reject hidden targets such as gemini-3.6-flash-tiered before upstream. This companion owns that distinction while preserving mappedModel for provider attribution and every non-relay account."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "antigravityRelayRequestModel(account, originalModel, upstreamModel)",
+        "ReplaceModelInBody(body, requestModel)"
+      ],
+      "rationale": "Protocol ChatIdentity on an Antigravity relay must reuse the public model hop rule while preserving the plan-resolved provider model for billing. Native Gemini converter coverage alone does not exercise this raw chat path."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions.go",
+      "must_contain": [
+        "antigravityRelayRequestModel(account, originalModel, upstreamModel)",
+        "responsesReq.Model = requestModel"
+      ],
+      "rationale": "Chat-to-Responses relays keep the public request model while provider attribution retains the resolved model."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "antigravityRelayRequestModel(account, requestedModel, upstreamModel)",
+        "markPatchSet(\"model\", relayRequestModel)"
+      ],
+      "rationale": "Responses identity relays must preserve the public model accepted by edge scheduling."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_chat_fallback.go",
+      "must_contain": [
+        "chatReq.Model = antigravityRelayRequestModel(account, originalModel, upstreamModel)"
+      ],
+      "rationale": "Responses-to-chat relays share the same public request model rule as chat identity."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution_target_test.go",
+      "must_contain": [
+        "TestProtocolChatIdentityAntigravityRelayPreservesPublicModelForHop"
+      ],
+      "rationale": "The real protocol planner and raw chat transport must keep the public relay request model, the planned endpoint, and the provider model in usage attribution."
     },
     {
       "path": "backend/internal/service/gemini_relay_model_tk_test.go",
@@ -3304,7 +3343,7 @@
         "targeted_verification",
         "targeted activation plan changed since dry-run",
         "targeted activation read-back still reports mapping changes",
-        "override_only=override_only",
+        "targeted_accounts=targeted_accounts",
         "anthropic_tokensea_relay",
         "openai_tokensea_relay",
         "openai_cloudwise_relay"
@@ -6701,7 +6740,8 @@
       "must_contain": [
         "TestGatewayPlannedAntigravityOpenAIShapeKeepsPlannedWire",
         "require.Equal(t, plan.Endpoint(), upstream.request.URL.String())",
-        "require.Equal(t, plan.ResolvedModel(), gjson.GetBytes(upstream.body, \"model\").String())",
+        "require.Equal(t, model, gjson.GetBytes(upstream.body, \"model\").String())",
+        "require.Equal(t, upstreamModel, result.UpstreamModel)",
         "require.Equal(t, 3, result.Usage.InputTokens)",
         "chat_identity_stream",
         "responses_to_chat_stream",
