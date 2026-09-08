@@ -507,7 +507,12 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                 <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
-              <button @click="openMenu(row, $event)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white">
+              <button
+                type="button"
+                data-testid="account-more-btn"
+                @click.stop="openMenu(row, $event)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white"
+              >
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
                 <span class="text-xs">{{ t('common.more') }}</span>
               </button>
@@ -771,7 +776,13 @@ const lazyMount = (key: string, show: boolean): boolean => {
   return everOpened.has(key)
 }
 const togglingSchedulable = ref<number | null>(null)
-const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null, anchor:HTMLElement|null}>({ show: false, acc: null, pos: null, anchor: null })
+const menu = reactive<{
+  show: boolean
+  acc: Account | null
+  /** Coarse trigger snapshot when the live anchor node is recycled (e.g. table refresh). */
+  pos: { top: number; left: number; right: number; bottom: number; width: number } | null
+  anchor: HTMLElement | null
+}>({ show: false, acc: null, pos: null, anchor: null })
 const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
@@ -1906,66 +1917,57 @@ const handleEdit = async (a: Account) => {
   edAcc.value = account
   showEdit.value = true
 }
+// Opening the row "更多" menu can micro-scroll the fluid DataTable overflow
+// wrapper (focus / sticky-col / actions-expand measure). handleScroll listens
+// on window with capture:true, so that nested scroll used to tear the menu
+// down in the same click — operators saw "更多不弹窗".
+const ACTION_MENU_SCROLL_CLOSE_GRACE_MS = 400
+let suppressActionMenuScrollCloseUntil = 0
+
 const closeActionMenu = () => {
   menu.show = false
   menu.anchor = null
+  menu.pos = null
 }
 const openMenu = (a: Account, e: MouseEvent) => {
   // Safety net when a menu action opens a modal but a ghost click hits the row
   // "more" trigger before the deferred menu close runs.
   if (isAnyModalOpen.value) return
 
-  menu.acc = a
+  const target = e.currentTarget as HTMLElement | null
+  // Toggle: same trigger while open → close (backdrop already covers most cases).
+  if (menu.show && menu.acc?.id === a.id && menu.anchor === target) {
+    closeActionMenu()
+    return
+  }
 
-  const target = e.currentTarget as HTMLElement
+  menu.acc = a
+  // Positioning SSOT lives in AccountActionMenu → getAnchoredMenuPosition.
+  // Parent only supplies the live trigger node (plus a full rect snapshot fallback
+  // for when auto-refresh recycles the row DOM and disconnects the anchor).
   if (target) {
     const rect = target.getBoundingClientRect()
-    const menuWidth = 208
-    const menuHeight = 240
-    const padding = 8
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
     menu.anchor = target
-
-    let left: number
-    let top: number
-
-    if (viewportWidth < 768) {
-      // 居中显示,水平位置
-      left = Math.max(padding, Math.min(
-        rect.left + rect.width / 2 - menuWidth / 2,
-        viewportWidth - menuWidth - padding
-      ))
-
-      // 优先显示在按钮下方
-      top = rect.bottom + 4
-
-      // 如果下方空间不够,显示在上方
-      if (top + menuHeight > viewportHeight - padding) {
-        top = rect.top - menuHeight - 4
-        // 如果上方也不够,就贴在视口顶部
-        if (top < padding) {
-          top = padding
-        }
-      }
-    } else {
-      left = Math.max(padding, Math.min(
-        rect.right - menuWidth,
-        viewportWidth - menuWidth - padding
-      ))
-      top = rect.bottom + 4
-      if (top + menuHeight > viewportHeight - padding) {
-        top = Math.max(padding, Math.min(rect.top - menuHeight - 4, viewportHeight - menuHeight - padding))
-      }
+    menu.pos = {
+      top: rect.top,
+      left: rect.left,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width
     }
-
-    menu.pos = { top, left }
   } else {
     menu.anchor = null
-    menu.pos = { top: e.clientY, left: e.clientX - 200 }
+    menu.pos = {
+      top: e.clientY,
+      left: e.clientX,
+      right: e.clientX,
+      bottom: e.clientY,
+      width: 0
+    }
   }
 
   menu.show = true
+  suppressActionMenuScrollCloseUntil = Date.now() + ACTION_MENU_SCROLL_CLOSE_GRACE_MS
 }
 const toggleSelectAllVisible = (event: Event) => {
   const target = event.target as HTMLInputElement
@@ -2641,8 +2643,11 @@ const proxyExpiryText = (p?: AccountProxy | null): string => {
 
 // 表格滚动时关闭行操作菜单，并让顶部工具菜单继续贴紧触发按钮。
 const handleScroll = () => {
+  if (Date.now() < suppressActionMenuScrollCloseUntil) {
+    if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
+    return
+  }
   closeActionMenu()
-  menu.show = false
   if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
 }
 

@@ -629,7 +629,9 @@
 
               <!-- More Actions Menu Trigger -->
               <button
-                @click="openActionMenu(row, $event)"
+                type="button"
+                data-testid="user-more-btn"
+                @click.stop="openActionMenu(row, $event)"
                 class="action-menu-trigger flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white"
                 :class="{ 'bg-gray-100 text-gray-900 dark:bg-dark-700 dark:text-white': activeMenuId === row.id }"
               >
@@ -668,7 +670,7 @@
       <div
         v-if="activeMenuId !== null && menuPosition"
         class="action-menu-content fixed z-[9999] w-48 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800 dark:ring-white/10"
-        :style="{ top: menuPosition.top + 'px', left: menuPosition.left + 'px' }"
+        :style="menuPosition"
       >
         <div class="py-1">
           <template v-for="user in users" :key="user.id">
@@ -793,6 +795,7 @@ import { useAppStore } from '@/stores/app'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { formatDateTime } from '@/utils/format'
+import { anchoredMenuStyle, getAnchoredMenuPosition } from '@/utils/floatingPanel'
 import { normalizePlatformUsage } from '@/utils/publicPlatforms'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -1501,9 +1504,13 @@ const refreshCurrentPageSecondaryData = () => {
   void loadUsersSecondaryData(userIds, undefined, seq)
 }
 
-// Action Menu State
+// Action Menu State — position via floatingPanel SSOT (not clientX/clientY).
 const activeMenuId = ref<number | null>(null)
-const menuPosition = ref<{ top: number; left: number } | null>(null)
+const menuPosition = ref<Record<string, string> | null>(null)
+// Same class of bug as AccountsView: capture-phase nested scroll on open can
+// tear the menu down before paint. Suppress close for a short grace window.
+const ACTION_MENU_SCROLL_CLOSE_GRACE_MS = 400
+let suppressActionMenuScrollCloseUntil = 0
 
 const openActionMenu = (user: AdminUser, e: MouseEvent) => {
   if (activeMenuId.value === user.id) {
@@ -1515,46 +1522,16 @@ const openActionMenu = (user: AdminUser, e: MouseEvent) => {
       return
     }
 
-    const rect = target.getBoundingClientRect()
-    const menuWidth = 200
-    const menuHeight = 240
-    const padding = 8
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-
-    let left, top
-
-    if (viewportWidth < 768) {
-      // 居中显示,水平位置
-      left = Math.max(padding, Math.min(
-        rect.left + rect.width / 2 - menuWidth / 2,
-        viewportWidth - menuWidth - padding
-      ))
-
-      // 优先显示在按钮下方
-      top = rect.bottom + 4
-
-      // 如果下方空间不够,显示在上方
-      if (top + menuHeight > viewportHeight - padding) {
-        top = rect.top - menuHeight - 4
-        // 如果上方也不够,就贴在视口顶部
-        if (top < padding) {
-          top = padding
-        }
-      }
-    } else {
-      left = Math.max(padding, Math.min(
-        e.clientX - menuWidth,
-        viewportWidth - menuWidth - padding
-      ))
-      top = e.clientY
-      if (top + menuHeight > viewportHeight - padding) {
-        top = viewportHeight - menuHeight - padding
-      }
-    }
-
-    menuPosition.value = { top, left }
+    menuPosition.value = anchoredMenuStyle(
+      getAnchoredMenuPosition(
+        target.getBoundingClientRect(),
+        { width: 192, height: 240 },
+        window.innerWidth,
+        window.innerHeight
+      )
+    )
     activeMenuId.value = user.id
+    suppressActionMenuScrollCloseUntil = Date.now() + ACTION_MENU_SCROLL_CLOSE_GRACE_MS
   }
 }
 
@@ -1901,8 +1878,9 @@ const handleWithdrawFromHistory = () => {
   }
 }
 
-// 滚动时关闭菜单
+// 滚动时关闭菜单（打开瞬间的嵌套微滚动除外）
 const handleScroll = () => {
+  if (Date.now() < suppressActionMenuScrollCloseUntil) return
   closeActionMenu()
 }
 
