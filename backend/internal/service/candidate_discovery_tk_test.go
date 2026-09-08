@@ -157,3 +157,28 @@ func TestUS050_CandidateDiscoveryPropagatesPricingReadFailure(t *testing.T) {
 	_, err := svc.List(context.Background(), key, UniversalProtocolOpenAI)
 	require.ErrorIs(t, err, failure)
 }
+
+func TestCandidateDiscoveryKeepsVerifiedRouteWhenOtherProtocolIsUnknown(t *testing.T) {
+	group := grpNoImage(10, PlatformOpenAI, 0, false)
+	healthy := globalCandidateAccount(1, 1, 10)
+	unknown := globalCandidateAccount(2, 1, 10)
+	unknown.Credentials[openAIEndpointCapabilitiesCredentialKey] = []string{"chat_completions"}
+	unknown.ProtocolEndpointCapability.SupportedProtocols = nil
+	unknown.Schedulable = false
+	svc, key := candidateDiscoveryFixture([]Group{group}, []Account{healthy, unknown})
+	models, accounts, err := svc.DiscoverCandidates(context.Background(), key, UniversalProtocolAll)
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	require.Contains(t, models[0].Protocols, UniversalProtocolOpenAI)
+	require.Len(t, accounts, 1)
+	require.Equal(t, healthy.ID, accounts[0].ID)
+}
+
+func TestCandidateDiscoveryPropagatesUnknownWhenNoVerifiedRouteExists(t *testing.T) {
+	unknown := globalCandidateAccount(1, 1, 10)
+	unknown.Credentials[openAIEndpointCapabilitiesCredentialKey] = []string{"chat_completions"}
+	unknown.ProtocolEndpointCapability.SupportedProtocols = nil
+	svc, key := candidateDiscoveryFixture([]Group{grpNoImage(10, PlatformOpenAI, 0, false)}, []Account{unknown})
+	_, _, err := svc.DiscoverCandidates(context.Background(), key, UniversalProtocolAll)
+	require.ErrorIs(t, err, ErrProtocolCapabilityUnknown)
+}
