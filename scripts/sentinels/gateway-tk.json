@@ -217,13 +217,6 @@
       "rationale": "Universal explicit model denial must remain a client request error excluded from platform SLA, without becoming an auth or internal incident."
     },
     {
-      "path": "backend/internal/engine/protocolrouter/router_test.go",
-      "must_contain": [
-        "TestPlanDistinguishesModelPolicyFromRouteAndInternalErrors"
-      ],
-      "rationale": "The Plan owner must distinguish explicit model denial, target route rejection and internal router failure; Universal consumes these facts without re-evaluating model policy."
-    },
-    {
       "path": "backend/internal/repository/integration_registry_only_tk_test.go",
       "must_contain": [
         "func runIntegrationRegistryOnlyIfRequested(m *testing.M)",
