@@ -33,7 +33,7 @@ func TestNVIDIABuildMappingScope(t *testing.T) {
 	for _, target := range mapping {
 		require.Contains(t, target, "/", "NVIDIA requires a provider namespace")
 	}
-	for _, base := range []string{"https://api.openai.com", "https://integrate.api.nvidia.com.evil.example", newapiintegration.NVIDIABuildBaseURL + "/v1"} {
+	for _, base := range []string{"https://api.openai.com", "https://integrate.api.nvidia.com.evil.example", "http://integrate.api.nvidia.com", newapiintegration.NVIDIABuildBaseURL + "/v1"} {
 		other := *account
 		other.Credentials = map[string]any{"base_url": base}
 		require.False(t, isNewAPINVIDIABuildAccount(&other))
@@ -46,8 +46,21 @@ func TestNVIDIABuildMappingScope(t *testing.T) {
 	other = *account
 	other.ChannelType = newapiconstant.ChannelTypeDeepSeek
 	require.False(t, isNewAPINVIDIABuildAccount(&other))
-	account.Credentials["base_url"] = newapiintegration.NVIDIABuildBaseURL + "/"
-	require.Equal(t, ids, NewAPIModelMappingPresetIDsForAccount(account))
+	for _, base := range []string{
+		newapiintegration.NVIDIABuildBaseURL + "/",
+		"HTTPS://INTEGRATE.API.NVIDIA.COM",
+		" https://Integrate.Api.Nvidia.Com/ ",
+	} {
+		t.Run(base, func(t *testing.T) {
+			variant := *account
+			variant.Credentials = map[string]any{"base_url": base}
+			require.Equal(t, ids, NewAPIModelMappingPresetIDsForAccount(&variant))
+			require.Equal(t, displayIDs, NewAPIModelDisplayIDsForAccount(&variant))
+			variantMapping, ok := accountModelMappingForAccount(context.Background(), &variant, nil, nil, nil)
+			require.True(t, ok)
+			require.Equal(t, mapping, variantMapping)
+		})
+	}
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
 	found := false

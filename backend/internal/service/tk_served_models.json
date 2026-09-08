@@ -522,6 +522,10 @@
       "display": true,
       "scopes": [
         {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
+        {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
         },
@@ -752,6 +756,10 @@
       "display": true,
       "price_owner": "deepseek-v4-pro",
       "scopes": [
+        {
+          "channel_type": 1,
+          "base_url": "https://integrate.api.nvidia.com"
+        },
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"

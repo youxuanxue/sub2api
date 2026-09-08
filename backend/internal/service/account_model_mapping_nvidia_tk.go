@@ -4,9 +4,11 @@ import newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newap
 
 // Targets are NVIDIA API spellings; serving intent remains in the manifest.
 var nvidiaBuildModelTargets = map[string]string{
-	"kimi-k3":           "moonshotai/kimi-k3",
-	"deepseek-v4-flash": "deepseek-ai/deepseek-v4-flash-0731",
-	"deepseek-v4-pro":   "deepseek-ai/deepseek-v4-pro-0813",
+	"kimi-k3":                "moonshotai/kimi-k3",
+	"deepseek-v4-flash":      "deepseek-ai/deepseek-v4-flash-0731",
+	"deepseek-v4-pro":        "deepseek-ai/deepseek-v4-pro-0813",
+	"deepseek-v4-flash-0731": "deepseek-ai/deepseek-v4-flash-0731",
+	"deepseek-v4-pro-0813":   "deepseek-ai/deepseek-v4-pro-0813",
 }
 
 func isNewAPINVIDIABuildAccount(account *Account) bool {

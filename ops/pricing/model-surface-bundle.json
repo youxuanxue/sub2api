@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "8e8240dcf544de9641f0a77fdf97f38b81fac4bb2f966cb9a81591da510948f7",
+  "floor_sha256": "fd83da352782db635038a1bb2f32c4dd4afca533bacc5b29fec8d73d8f9185da",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -343,7 +343,9 @@
         "base_url": "https://integrate.api.nvidia.com",
         "model_mapping": {
           "deepseek-v4-flash": "deepseek-ai/deepseek-v4-flash-0731",
+          "deepseek-v4-flash-0731": "deepseek-ai/deepseek-v4-flash-0731",
           "deepseek-v4-pro": "deepseek-ai/deepseek-v4-pro-0813",
+          "deepseek-v4-pro-0813": "deepseek-ai/deepseek-v4-pro-0813",
           "kimi-k3": "moonshotai/kimi-k3"
         }
       },

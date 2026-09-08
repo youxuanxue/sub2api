@@ -10,5 +10,5 @@ const NVIDIABuildBaseURL = "https://integrate.api.nvidia.com"
 
 func IsNVIDIABuildBaseURL(channelType int, base string) bool {
 	return channelType == newapiconstant.ChannelTypeOpenAI &&
-		strings.TrimRight(strings.TrimSpace(base), "/") == NVIDIABuildBaseURL
+		strings.EqualFold(strings.TrimRight(strings.TrimSpace(base), "/"), NVIDIABuildBaseURL)
 }
