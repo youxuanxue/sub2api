@@ -290,7 +290,7 @@ func protocolResolvedModelAllowedForTarget(
 		return false
 	}
 	if account.IsCursor() {
-		return cursorMappedModelAllowed(account, requestedModel, resolvedModel)
+		return target == protocolrouter.ProtocolMessages && cursorMappedModelAllowed(account, requestedModel, resolvedModel)
 	}
 	switch profile {
 	case protocolrouter.OfficialEndpointOpenAICodex:

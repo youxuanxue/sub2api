@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "35e7bb701439e69fd7ec0fde9b75ede61321fc64f7546aefd9127ad4ce8ea05d",
+  "floor_sha256": "769a3dc727f938334b7e06cdfbe032465ca3ad34b86dcda8da05fcd95653cd76",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -352,7 +352,7 @@
       {
         "platform": "newapi",
         "channel_type": 14,
-        "base_url": "http://cursor-bridge:3927",
+        "base_url": "https://agentn.global.api5.cursor.sh",
         "model_mapping": {
           "claude-fable-5": "claude-fable-5",
           "claude-fable-5-1": "claude-fable-5-1",
@@ -387,6 +387,7 @@
           "gpt-5.6-luna": "gpt-5.6-luna",
           "gpt-5.6-sol": "gpt-5.6-sol",
           "gpt-5.6-terra": "gpt-5.6-terra",
+          "grok-4.5": "grok-4.5",
           "grok-4.6": "grok-4.6",
           "kimi-k2.7-code": "kimi-k2.7-code",
           "kimi-k3": "kimi-k3"

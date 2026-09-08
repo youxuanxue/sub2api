@@ -10,6 +10,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -19,6 +20,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
+
+func ProvideCursorOAuthClient(rdb *redis.Client, upstream HTTPUpstream) *cursor.Client {
+	return cursor.NewClient(rdb, func(req *http.Request) (*http.Response, error) {
+		req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
+		return upstream.Do(req, "", 0, 0)
+	})
+}
 
 func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, cfg *config.Config, redisClient *redis.Client) *GrokOAuthService {
 	svc := NewGrokOAuthService(proxyRepo, oauthClient, cfg)
@@ -1003,6 +1011,7 @@ var ProviderSet = wire.NewSet(
 	NewOAuthService,
 	ProvideOpenAIOAuthService,
 	ProvideGrokOAuthService,
+	ProvideCursorOAuthClient,
 	NewGeminiOAuthService,
 	NewGeminiQuotaService,
 	NewCompositeTokenCacheInvalidator,

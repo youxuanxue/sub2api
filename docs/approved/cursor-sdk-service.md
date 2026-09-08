@@ -1,93 +1,109 @@
 ---
-title: Cursor SDK Model Service
+title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08)"
 created: 2026-09-07
 ---
 
-# Cursor SDK Model Service
+# Cursor Stateless OAuth Model Service
 
-## Scope and approval
+## Approved architecture
 
-The user approved the reviewed Cursor integration architecture and requested
-implementation after a successful official SDK browser login and Composer 2.5
-inference on an Ultra subscription. This authorizes implementation and bounded
-real-account verification. Production rollout and merge require the completed
-implementation and verification evidence to be reviewed.
+The user's 2026-09-08 instruction supersedes the SDK sidecar architecture.
+TokenKey remains a standalone Go gateway. Cursor inference uses the authenticated
+CLI AgentService protocol directly, with connections, protobuf blobs and output
+buffers limited to one request. There is no inference session store, SDK worker,
+local tool execution, Bridge secret or cross-request connection affinity.
+
+Cursor is the supply source and service group; accounts remain
+`platform=newapi`, `type=apikey`, channel type 14. Model family, supply and public
+protocol remain separate dimensions. The new-api upgrade in this PR is retained.
+The native adapter follows the MIT protocol subset from can1357/oh-my-pi
+`a8b0d6cc18a69e90f2bfa0da496bb537fce9319d`, checked against Cursor CLI
+`2026.09.02-c22c1a3`; attribution is in
+`backend/internal/integration/cursor/agentpb/VENDORED_FROM.md`.
 
 ## Owners and contracts
 
-- Upgrade the pinned new-api dependency before Cursor routing changes. Resolve
-  its RelayKit module from the same checkout and retain existing channel behavior.
-- Cursor is a supply source and service group. Accounts remain `platform=newapi`,
-  `type=apikey`. Persist the source identity in existing account metadata and carry
-  it through existing edge mirror synchronization; no new platform or account DB.
-- Reuse Sunnyender-org/new-api PR #6869 sidecar at
-  `9ab86e3bc0ca368df585edcc096ec172263d222d`, including tests and AGPL attribution.
-  The sidecar owns official SDK runs and callback continuation. TokenKey owns
-  users, groups, credentials, routing, pricing and billing.
-- Browser authorization is the default. An administrator starts a bounded SDK
-  login, opens the official authorization URL, and saves the resulting expiring
-  user API key through the existing account creation/update service. Credential
-  values never appear in browser responses, URLs, logs or public model listings.
-  Cancellation, expiration and owner mismatch fail closed.
-- The bridge is internal, authenticates TokenKey with a separate shared secret,
-  and requires a trusted user/key/account owner for inference. Client-supplied
-  owner headers are overwritten. Tool continuation cannot change owner/account.
-  Initial deployment uses one bridge and one account on one enabled edge.
-- Messages is the bridge protocol. Permit explicitly mapped Cursor model IDs in
-  both routing and transport without broadening official Anthropic acceptance.
-  Chat and Responses use existing protocol conversion owners, including tools.
-- Candidate eligibility follows `candidate-eligibility-ssot.md`: Universal and
-  direct selectors share Plan and runtime filters. Cursor has no group-ordering,
-  availability or billing bypass. All model families require saved SDK variant
-  parameters before Plan can admit them. Public recommendations still follow
-  the shared model lifecycle owner; the complete SDK mapping is retained for
-  explicit requests and full-catalog validation.
-- Preserve model IDs and explicit variant parameters from the authenticated SDK
-  catalog. Never silently substitute a model. The full non-Auto model catalog is
-  the delivery validation denominator, including all returned model families.
-- Normalize incremental usage at the bridge and use existing TokenKey accounting.
-  Missing SDK bill-query permission does not invalidate successful inference.
-  Do not count a cumulative run snapshot again after a tool turn was billed.
-- Bound request size, active/suspended runs, authorization sessions and TTLs.
-  Abort disconnected requests; expired or lost continuations return an explicit
-  failure and never replay client tools.
+- Browser authorization uses the official CLI PKCE login and poll endpoints.
+  Short-lived, administrator-bound sessions use the existing Redis deployment.
+  Compare-and-set claims preserve expiry and prevent poll/cancel/import races.
+  No credential appears in public authorization responses.
+- Imported access tokens have a hard expiry gate. A returned refresh JWT is not
+  treated as an API key or as proof of a working refresh endpoint. Reauthorize
+  in the browser when needed; replacing credentials preserves operator pauses.
+- Account creation/update, group binding and probes use existing owners.
+  A dedicated Cursor group may contain multiple Cursor accounts.
+- The authenticated catalog supplies exact base IDs, default regular-speed
+  parameters and legacy wire slugs. Imported catalog entries do not bypass
+  pricing, activation, candidate eligibility or protocol capability gates.
+  A missing wire slug prevents direct native candidate admission.
+- The integration package adapts native Cursor frames to Messages once.
+  Chat and Responses continue through the existing protocol registry and
+  converters. Cursor has no separate selection or conversion fallback.
+- Every request supplies its complete history. Tools are returned to the client
+  for execution, and the native call is canceled at handoff. A later request
+  reconstructs history on a fresh connection. Native filesystem/shell callbacks
+  are rejected.
+- Inference uses account-aware HTTP transport and proxy settings, requires
+  HTTP/2, rejects redirects, and never falls back to HTTP/1 for Cursor.
+  Request cancellation and body closure release the producer and connection.
 
-## Rollout isolation
+## Billing
 
-The 2026-09-08 instruction to reduce rollout impact authorizes these safeguards:
+The user approved estimated charging for successful tool handoffs on 2026-09-08.
 
-- The optional Bridge cannot be a gateway startup dependency. Its deployment
-  stays internal and has explicit memory, CPU and process limits, protected by
-  `scripts/checks/test_cursor_deployment.py` in preflight.
-- CLI and Docker share the production entrypoint's bounded session defaults.
-  Suspended runs count toward capacity; continuation and draining retain the
-  existing harness owner. These limits do not claim production load capacity.
-- Cursor credential expiry remains a hard account runtime gate independently
-  of optional auto-pause. Invalid SDK credentials cannot become authorized.
-  Reauthorization preserves persisted pause state because the existing account
-  model does not distinguish an operator pause from expiry auto-pause.
-- Shared protocol and cache-billing fixes remain enabled. Regression coverage
-  must exercise existing supplies with Cursor unconfigured, real tool wire
-  conversion, and disjoint cache buckets through the billing command. Rates,
-  historical rows and the approved Cursor estimate policy remain unchanged.
-- Validate existing newapi text/media adapters and video terminal/refund paths
-  before enabling Cursor. Gateway rollout and Cursor admission are separate;
-  an all-model Chat result does not prove sustained load or distributed Edge
-  operation. Real-account region checks remain specific to account and egress.
+Complete upstream input/output/cache usage wins and is tagged
+`cursor-oauth-reported`. When a successful tool handoff has no terminal usage,
+estimate this request's input/output with the same pure tokenizer as Kiro and
+tag it `cursor-oauth-estimated`. Settle once through the existing accounting
+owner. Never add estimated tokens to reported tokens or reconcile separate runs.
+The optional terminal Messages usage field `tk_billing_tier` carries provenance
+through Edge relays. The shared usage parser preserves it; accounting accepts
+only the two Cursor labels and only for Cursor accounts.
 
-## Validation
+Kiro's prefix-based cache estimate is a separate policy, not evidence of Cursor
+cache hits. Cursor's missing-usage estimate starts with zero cache buckets, which
+can cost more than an actual cache-discounted request. Antigravity normally reads
+upstream usageMetadata and is not evidence that all OAuth supplies estimate usage.
 
-Run the original bridge tests before local patches, then exercise authorization
-ownership/expiry, internal authentication, model/variant selection, tenant/tool
-continuation isolation, incremental usage, cancellation and error behavior.
-Run existing new-api compatibility tests and backend/frontend checks after the
-upgrade. Verify account authorization and full-model Chat through real TokenKey
-UI with Playwright. Verify tools through real agent/client requests. Report
-blocked and untested models without removing them from the frozen catalog.
+## Acceptance and open issue
 
-The direct SDK baseline used `@cursor/sdk@1.0.31`, Composer 2.5 with `fast=false`:
-response `OK.`, 6112 ms, raw input/output/cache-read tokens 3313/29/416.
-`getUsage()` returned `feature_unavailable`; the dashboard showed the matching
-request as Included. This baseline does not establish gateway/tool correctness.
+Current authenticated CLI catalog contains six fixed models: Composer 2.5,
+Grok 4.6, Grok 4.5, Kimi K3, Kimi K2.7 Code and GLM 5.2. Direct native text probes
+passed for all six before production wiring. This does not prove that the older
+SDK catalog's Claude/GPT/Gemini models are callable from the same account/egress.
+
+The prototype passed a real tool call and continuation over a new connection.
+Focused regression tests cover shared candidate ordering, credential expiry,
+atomic imports, cache billing, streaming truncation and consumer cancellation.
+These tests do not replace TokenKey UI or coding-client acceptance.
+
+**System instruction compatibility is unresolved.** Current Composer probes did
+not follow a marker supplied through request-context rules, non-file rules,
+system_prompt_spec append or root system history. Diagnostic probes observed a
+context callback but no marker in the returned prompt blobs. They are diagnostic
+observations, not passing system-instruction acceptance tests. Do not publish
+this work as a complete programming-client service until that gap is resolved.
+Placing instructions into user content is a proposed compatibility compromise,
+not an approved or implemented contract.
+The public adapter currently rejects nonempty system instructions before calling
+upstream, so unsupported semantics cannot silently reach clients. Native system
+paths remain diagnostic code, and opt-in live tests fail when the marker is lost.
+
+Current boundary checks also reject image/thinking content blocks and forced
+tool choice. Native `max_tokens` enforcement and reasoning-history replay remain
+unverified; bounded response memory is not a substitute for a generation limit.
+
+The backend unit suite passed before the final guard changes, followed by focused
+Cursor, relay billing and transport regressions. Frontend lint, type checking and
+207 critical tests passed. The corrected Playwright login check observes the
+real accounts page and Cursor entry, not merely its URL. This is not evidence of
+completed official OAuth authorization, all-model Chat or programming-client
+acceptance; the local database still contains the historical SDK test account.
+
+Before release, verify browser authorization/import and all returned fixed models
+through the real TokenKey Chat UI with Playwright; verify tool round trips through
+real coding clients and the supported protocol routes. Publish current evidence,
+not the removed SDK Bridge's historical report. Complete full tests and preflight,
+review and push PR #2036. This approval does not authorize merging or deployment.

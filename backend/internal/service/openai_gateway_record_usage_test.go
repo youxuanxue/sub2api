@@ -79,14 +79,14 @@ func TestOpenAIGatewayServiceRecordUsage_LabelsCursorEstimatePolicy(t *testing.T
 			account.Extra = map[string]any{CursorSourceExtraKey: "cursor"}
 		}
 		err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
-			Result: &OpenAIForwardResult{RequestID: "cursor-policy", Model: "gpt-5.1", Usage: OpenAIUsage{InputTokens: 80, OutputTokens: 40}},
+			Result: &OpenAIForwardResult{RequestID: "cursor-policy", Model: "gpt-5.1", BillingTier: "cursor-oauth-estimated", Usage: OpenAIUsage{InputTokens: 80, OutputTokens: 40}},
 			APIKey: &APIKey{ID: 2}, User: &User{ID: 1}, Account: account,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, usageRepo.lastLog)
 		if cursor {
 			require.NotNil(t, usageRepo.lastLog.BillingTier)
-			require.Equal(t, "cursor-sdk-estimated", *usageRepo.lastLog.BillingTier)
+			require.Equal(t, "cursor-oauth-estimated", *usageRepo.lastLog.BillingTier)
 		} else {
 			require.Nil(t, usageRepo.lastLog.BillingTier)
 		}

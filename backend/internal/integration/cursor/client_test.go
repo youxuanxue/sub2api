@@ -2,59 +2,87 @@ package cursor
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
-	"github.com/stretchr/testify/require"
+	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
-func TestClientAuthorizationOwnerAndErrors(t *testing.T) {
-	secret := strings.Repeat("s", 32)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, secret, r.Header.Get(SecretHeader))
-		require.Equal(t, "admin:7", r.Header.Get(TenantHeader))
-		if r.Method == http.MethodGet {
-			w.WriteHeader(403)
-			_, _ = w.Write([]byte("secret-user-key"))
-			return
+func TestAuthorizationSharedStoreAndSingleUse(t *testing.T) {
+	ctx := context.Background()
+	server := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer func() { _ = rdb.Close() }()
+	token := "header." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("{\"exp\":%d}", time.Now().Add(time.Hour).Unix()))) + ".signature"
+	pending := true
+	do := func(req *http.Request) (*http.Response, error) {
+		require.Equal(t, "api2.cursor.sh", req.URL.Host)
+		response := `{"models":[{"name":"composer-2.5","variants":[{"parameterValues":[],"isDefaultNonMaxConfig":true,"legacySlug":"composer-2.5"}]}]}`
+		if req.URL.Path == "/auth/poll" {
+			if pending {
+				return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}, nil
+			}
+			response = fmt.Sprintf(`{"accessToken":%q,"refreshToken":"private-refresh"}`, token)
 		}
-		_ = json.NewEncoder(w).Encode(Authorization{ID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", State: "pending"})
-	}))
-	defer server.Close()
-	client, err := NewClient(server.URL, secret)
-	require.NoError(t, err)
-	auth, err := client.Start(context.Background(), "admin:7")
-	require.NoError(t, err)
-	_, err = client.Status(context.Background(), "admin:7", auth.ID)
-	require.ErrorContains(t, err, "HTTP 403")
-	require.NotContains(t, err.Error(), "secret-user-key")
-	_, err = client.Status(context.Background(), "admin:7", "../../escape")
-	require.Error(t, err)
-}
-
-func TestClientRejectsRedirectAndUnsafeConfig(t *testing.T) {
-	for _, url := range []string{"", "file:///tmp/socket", "https://user:pass@host", "https://host?key=x"} {
-		_, err := NewClient(url, strings.Repeat("s", 32))
-		require.Error(t, err)
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(response))}, nil
 	}
-	_, err := NewClient("http://127.0.0.1", "short")
-	require.Error(t, err)
-	redirected := false
-	dest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { redirected = true }))
-	defer dest.Close()
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, dest.URL, http.StatusTemporaryRedirect)
-	}))
-	defer src.Close()
-	client, err := NewClient(src.URL, strings.Repeat("s", 32))
+	first, second := NewClient(rdb, do), NewClient(rdb, do)
+	session, err := first.Start(ctx, "admin:1")
 	require.NoError(t, err)
-	_, err = client.Start(context.Background(), "admin:1")
-	require.ErrorContains(t, err, "307")
-	require.False(t, redirected)
+	_, err = second.Status(ctx, "admin:2", session.ID)
+	require.Error(t, err)
+	status, err := second.Status(ctx, "admin:1", session.ID)
+	require.NoError(t, err)
+	require.Equal(t, "pending", status.State)
+	pending = false
+	status, err = second.Status(ctx, "admin:1", session.ID)
+	require.NoError(t, err)
+	require.Equal(t, "authorized", status.State)
+	raw, err := json.Marshal(status)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), token)
+	require.NotContains(t, string(raw), "private-refresh")
+	claim, err := first.Claim(ctx, "admin:1", session.ID)
+	require.NoError(t, err)
+	require.Equal(t, token, claim.APIKey)
+	_, err = second.Claim(ctx, "admin:1", session.ID)
+	require.Error(t, err)
+	require.Error(t, second.Cancel(ctx, "admin:1", session.ID))
+	require.Error(t, second.Settle(ctx, "admin:1", session.ID, "wrong", false))
+	require.NoError(t, first.Settle(ctx, "admin:1", session.ID, claim.Claim, false))
+	claim, err = second.Claim(ctx, "admin:1", session.ID)
+	require.NoError(t, err)
+	require.NoError(t, second.Settle(ctx, "admin:1", session.ID, claim.Claim, true))
+	_, err = first.Claim(ctx, "admin:1", session.ID)
+	require.Error(t, err)
 }
-
+func TestAuthorizationCancellationCannotBeResurrectedAndTTLDoesNotSlide(t *testing.T) {
+	ctx := context.Background()
+	server := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer func() { _ = rdb.Close() }()
+	client := NewClient(rdb, http.DefaultClient.Do)
+	auth, err := client.Start(ctx, "admin:1")
+	require.NoError(t, err)
+	session, old, err := client.load(ctx, "admin:1", auth.ID)
+	require.NoError(t, err)
+	server.FastForward(time.Minute)
+	require.NoError(t, client.replace(ctx, auth.ID, old, &session))
+	key, err := authKey(auth.ID)
+	require.NoError(t, err)
+	require.Equal(t, authorizationTTL-time.Minute, server.TTL(key))
+	require.NoError(t, client.Cancel(ctx, "admin:1", auth.ID))
+	require.Error(t, client.replace(ctx, auth.ID, old, &session))
+	require.False(t, server.Exists(key))
+}
 func TestDefaultParametersDisablesFastOnlyForExistingVariant(t *testing.T) {
 	fast := []Parameter{{ID: "effort", Value: "high"}, {ID: "fast", Value: "true"}}
 	regular := []Parameter{{ID: "fast", Value: "false"}, {ID: "effort", Value: "high"}}

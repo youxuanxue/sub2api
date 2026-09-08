@@ -29,7 +29,7 @@ func TestCursorCreateAndGroupBindShareOuterTransaction(t *testing.T) {
 		txCtx := dbent.NewTxContext(ctx, tx)
 		_, err = tx.Group.Query().Where(entgroup.IDEQ(group.ID)).ForUpdate().Only(txCtx)
 		require.NoError(t, err)
-		account := &service.Account{Name: fmt.Sprintf("cursor-account-%d", time.Now().UnixNano()), Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14, Status: service.StatusActive, Extra: map[string]any{service.CursorSourceExtraKey: "cursor"}, Credentials: map[string]any{"api_key": "test-only", "base_url": "http://cursor-bridge:3927", "api_base_urls": map[string]any{"anthropic": "http://cursor-bridge:3927"}, "protocol_endpoints_exclusive": true}}
+		account := &service.Account{Name: fmt.Sprintf("cursor-account-%d", time.Now().UnixNano()), Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14, Status: service.StatusActive, Extra: map[string]any{service.CursorSourceExtraKey: "cursor"}, Credentials: map[string]any{"api_key": "test-only", "base_url": "https://agentn.global.api5.cursor.sh", "api_base_urls": map[string]any{"anthropic": "https://agentn.global.api5.cursor.sh"}, "protocol_endpoints_exclusive": true}}
 		require.NoError(t, repo.Create(txCtx, account))
 		require.NoError(t, repo.BindGroups(txCtx, account.ID, []int64{group.ID}))
 		loaded, err := repo.GetByID(txCtx, account.ID)
@@ -74,7 +74,7 @@ func TestCursorReconnectPreservesPersistedPause(t *testing.T) {
 			Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14,
 			Status: service.StatusActive, Schedulable: !paused, AutoPauseOnExpired: true, ExpiresAt: &past,
 			Extra:       map[string]any{service.CursorSourceExtraKey: "cursor"},
-			Credentials: map[string]any{"api_key": "test-only", "base_url": "http://cursor-bridge:3927", "api_base_urls": map[string]any{"anthropic": "http://cursor-bridge:3927"}, "protocol_endpoints_exclusive": true}}
+			Credentials: map[string]any{"api_key": "test-only", "base_url": "https://agentn.global.api5.cursor.sh", "api_base_urls": map[string]any{"anthropic": "https://agentn.global.api5.cursor.sh"}, "protocol_endpoints_exclusive": true}}
 		require.NoError(t, repo.Create(ctx, account))
 		ids := []int64{group.ID}
 		require.NoError(t, repo.BindGroups(ctx, account.ID, ids))

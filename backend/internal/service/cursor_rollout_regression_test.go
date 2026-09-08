@@ -43,9 +43,9 @@ func TestNativeMessagesCacheUsageReachesBillingOnce(t *testing.T) {
 				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 				billingRepo := &openAIRecordUsageBillingRepoStub{}
 				svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
-				body := `{"type":"message","usage":{"input_tokens":100,"cache_read_input_tokens":900,"cache_creation_input_tokens":20,"output_tokens":4}}`
+				body := `{"type":"message","usage":{"input_tokens":100,"cache_read_input_tokens":900,"cache_creation_input_tokens":20,"output_tokens":4,"tk_billing_tier":"cursor-oauth-reported"}}`
 				if stream {
-					body = "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":100,\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"output_tokens\":0}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":4}}\n\ndata: {\"type\":\"message_stop\"}\n\n"
+					body = "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":100,\"cache_read_input_tokens\":900,\"cache_creation_input_tokens\":20,\"output_tokens\":0}}}\n\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":4,\"tk_billing_tier\":\"cursor-oauth-reported\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n"
 				}
 				c, _ := gin.CreateTestContext(httptest.NewRecorder())
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
@@ -60,6 +60,7 @@ func TestNativeMessagesCacheUsageReachesBillingOnce(t *testing.T) {
 				}
 				require.NoError(t, err)
 				result.RequestID = "cache-billing-regression"
+				require.Equal(t, "cursor-oauth-reported", result.BillingTier, "the Messages relay must carry provenance without an in-process Cursor body")
 				account := cursorTestAccount()
 				if !cursor {
 					delete(account.Extra, CursorSourceExtraKey)
@@ -81,9 +82,7 @@ func TestNativeMessagesCacheUsageReachesBillingOnce(t *testing.T) {
 }
 
 func TestMessagesToolConversionsKeepExistingSupplyAndWire(t *testing.T) {
-	// An unconfigured optional bridge must not affect existing Messages supplies.
-	t.Setenv("CURSOR_BRIDGE_URL", "")
-	t.Setenv("CURSOR_BRIDGE_SECRET", "")
+	// Cursor's native adapter must not affect existing Messages supplies.
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		t.Run(string(inbound), func(t *testing.T) {
 			body := []byte(`{"model":"client-model","messages":[{"role":"user","content":"Use lookup"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object","properties":{"query":{"type":"string"}}}}}],"tool_choice":"required"}`)

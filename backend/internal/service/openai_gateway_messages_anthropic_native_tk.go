@@ -39,7 +39,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	account *Account,
 	body []byte,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, forwardErr error) {
 	startTime := time.Now()
 
 	originalModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
@@ -92,6 +92,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, clientStream)
+	if account.IsCursor() {
+		upstreamCtx = ctx
+	}
 	upstreamReq, _, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, body, apiKey, targetURL)
 	releaseUpstreamCtx()
 	if err != nil {
@@ -99,12 +102,18 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	}
 
 	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	var resp *http.Response
+	if account.IsCursor() && !isEdgeMirrorStub(account, edgeIDPattern) {
+		resp, err = executeCursorMessages(upstreamReq, account, s.httpUpstream)
+	} else {
+		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	}
 	hwka.stop()
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	defer func() { cursorResponseOutcome(account, resp, result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -146,7 +155,7 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(ctx context.Context, acc
 	if baseURL == "" {
 		return "", fmt.Errorf("account %d has no anthropic protocol base url", account.ID)
 	}
-	validatedURL, err := validateCursorBridgeBaseURL(account, baseURL, s.validateUpstreamBaseURL)
+	validatedURL, err := validateCursorBaseURL(account, baseURL, s.validateUpstreamBaseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
@@ -283,6 +292,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 	return &OpenAIForwardResult{
 		RequestID:        resp.Header.Get("x-request-id"),
 		Usage:            claudeUsageToOpenAIUsage(usage),
+		BillingTier:      usage.BillingTier,
 		Model:            originalModel,
 		BillingModel:     billingModel,
 		UpstreamModel:    upstreamModel,
@@ -556,6 +566,7 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 	return &OpenAIForwardResult{
 		RequestID:        resp.Header.Get("x-request-id"),
 		Usage:            claudeUsageToOpenAIUsage(usage),
+		BillingTier:      usage.BillingTier,
 		Model:            originalModel,
 		BillingModel:     billingModel,
 		UpstreamModel:    upstreamModel,

@@ -17,6 +17,7 @@ func cursorCandidateAccount(model string) *Account {
 	a.Status, a.Schedulable, a.GroupIDs = StatusActive, true, []int64{1}
 	a.Credentials["model_mapping"] = map[string]any{model: model}
 	a.Credentials[CursorModelParametersKey] = map[string]any{model: nil}
+	a.Credentials[CursorWireModelsKey] = map[string]any{model: model}
 	attachTestProtocolCapability(a, protocolrouter.ProtocolMessages)
 	return a
 }
@@ -115,7 +116,7 @@ func TestCursorCandidateUsesSharedUniversalOrdering(t *testing.T) {
 	}
 }
 
-func TestCursorContinuationOnlyReadsCurrentProtocolToolResults(t *testing.T) {
+func TestCursorToolHistoryUsesOrdinaryCandidateRouting(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		protocol     protocolrouter.Protocol
@@ -142,14 +143,7 @@ func TestCursorContinuationOnlyReadsCurrentProtocolToolResults(t *testing.T) {
 			ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
 			a := protocolRoutingOpenAIAccount(10, "chat_completions", "responses")
 			_, _, err = protocolPlanForAccount(ctx, a, "gpt-5.4")
-			if test.continuation {
-				require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute, "reject this candidate without converting supply mismatch into an internal error")
-				supported, supportErr := (&GatewayService{}).candidateSupportsRequest(ctx, a, PlatformOpenAI, false, "gpt-5.4", ShapeOpenAIChat)
-				require.NoError(t, supportErr)
-				require.False(t, supported)
-			} else {
-				require.NoError(t, err, "ordinary content and completed tool history must not pin a new turn to Cursor")
-			}
+			require.NoError(t, err, "complete caller history does not pin a request to a parked Cursor run")
 		})
 	}
 }

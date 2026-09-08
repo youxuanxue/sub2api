@@ -49,7 +49,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 		logger.LegacyPrintf("service.openai_probe", "native_messages_skip_no_explicit_baseurl: account_id=%d", accountID)
 		return protocolProbeObservation{}, false
 	}
-	normalizedBaseURL, err := validateCursorBridgeBaseURL(account, baseURL, s.validateUpstreamBaseURL)
+	normalizedBaseURL, err := validateCursorBaseURL(account, baseURL, s.validateUpstreamBaseURL)
 	if err != nil {
 		logger.LegacyPrintf("service.openai_probe", "native_messages_invalid_baseurl: account_id=%d base_url=%q err=%v", accountID, baseURL, err)
 		return protocolProbeObservation{}, false
@@ -92,7 +92,12 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 			return protocolProbeObservation{}, false
 		}
 
-		resp, requestErr := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		var resp *http.Response
+		if account.IsCursor() && !isEdgeMirrorStub(account, edgeIDPattern) {
+			resp, requestErr = executeCursorMessages(req, account, s.httpUpstream)
+		} else {
+			resp, requestErr = s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		}
 		if requestErr != nil {
 			logger.LegacyPrintf("service.openai_probe", "native_messages_request_failed: account_id=%d url=%s err=%v", accountID, probeURL, requestErr)
 			return protocolProbeObservation{}, false

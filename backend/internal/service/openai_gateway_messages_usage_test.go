@@ -3,11 +3,28 @@
 package service
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCursorRelayedUsagePreservesBillingProvenance(t *testing.T) {
+	for _, tier := range []string{"cursor-oauth-reported", "cursor-oauth-estimated"} {
+		t.Run(tier, func(t *testing.T) {
+			body := fmt.Sprintf(`{"usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":3,"tk_billing_tier":%q}}`, tier)
+			buffered := parseClaudeUsageFromResponseBody([]byte(body))
+			require.Equal(t, tier, cursorBillingTier(buffered.BillingTier))
+			var streamed ClaudeUsage
+			parseSSEUsagePassthrough(`{"type":"message_start","message":{"usage":{"input_tokens":0,"output_tokens":0}}}`, &streamed)
+			parseSSEUsagePassthrough(fmt.Sprintf(`{"type":"message_delta","usage":{"input_tokens":10,"output_tokens":2,"cache_read_input_tokens":3,"tk_billing_tier":%q}}`, tier), &streamed)
+			require.Equal(t, *buffered, streamed)
+			require.Equal(t, 13, claudeUsageToOpenAIUsage(&streamed).InputTokens)
+		})
+	}
+	require.Empty(t, cursorBillingTier("untrusted-tier"))
+}
 
 func TestCopyOpenAIUsageFromResponsesUsageTrustsCanonicalCacheCreationValue(t *testing.T) {
 	usage := &apicompat.ResponsesUsage{

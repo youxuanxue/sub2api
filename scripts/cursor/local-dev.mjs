@@ -17,9 +17,6 @@ if (!existsSync(envFile)) {
     AUTO_SETUP: 'true', ADMIN_EMAIL: 'admin@cursor.local', ADMIN_PASSWORD: secret(),
     JWT_SECRET: secret(), TOTP_ENCRYPTION_KEY: secret(),
     SERVER_HOST: '127.0.0.1', SERVER_PORT: '18097', SERVER_MODE: 'release', DATA_DIR: resolve(state, 'app'),
-    CURSOR_BRIDGE_URL: 'http://127.0.0.1:3927', CURSOR_BRIDGE_SECRET: secret(),
-    CURSOR_AGENT_SIDECAR_HOST: '127.0.0.1', CURSOR_AGENT_SIDECAR_PORT: '3927',
-    CURSOR_AGENT_WORKSPACE: resolve(state, 'workspace'), CURSOR_AGENT_MAX_ACTIVE_SESSIONS: '4',
     VITE_DEV_PROXY_TARGET: 'http://127.0.0.1:18097', VITE_DEV_PORT: '15179'
   }, null, 2), { mode: 0o600 });
 }
@@ -49,16 +46,15 @@ if (action === 'prepare') {
   run('docker', ['compose', '-f', 'deploy/cursor/local.compose.yml', 'up', '-d', '--wait']);
   run('go', ['build', '-o', resolve(state, 'tokenkey'), './cmd/server'], resolve(root, 'backend'));
 } else if (action === 'start') {
-  await launch('bridge', 'node', ['server.tk.mjs'], resolve(root, 'services/cursor-bridge'), `${env.CURSOR_BRIDGE_URL}/health`);
   await launch('backend', resolve(state, 'tokenkey'), [], resolve(root, 'backend'), 'http://127.0.0.1:18097/health');
   await launch('frontend', 'pnpm', ['dev', '--host', '127.0.0.1', '--strictPort'], resolve(root, 'frontend'), 'http://127.0.0.1:15179');
 } else if (action === 'stop') {
-  for (const name of ['frontend', 'backend', 'bridge']) {
+  for (const name of ['frontend', 'backend']) {
     const file = resolve(state, `${name}.pid`);
     if (!existsSync(file)) continue;
     const pid = Number(readFileSync(file, 'utf8'));
     const result = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
-    const expected = name === 'backend' ? resolve(state, 'tokenkey') : name === 'bridge' ? 'server.tk.mjs' : 'pnpm';
+    const expected = name === 'backend' ? resolve(state, 'tokenkey') : 'pnpm';
     if (result.stdout.includes(expected)) {
       try { process.kill(-pid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
       for (let attempt = 0; attempt < 80; attempt++) {

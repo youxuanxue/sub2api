@@ -5,7 +5,7 @@
     {
       "path": "backend/internal/service/account.go",
       "must_contain": ["(a.AutoPauseOnExpired || a.IsCursor())"],
-      "rationale": "Cursor SDK credential expiry remains a hard runtime gate even when optional account auto-pause is disabled."
+      "rationale": "Cursor OAuth credential expiry remains a hard runtime gate even when optional account auto-pause is disabled."
     },
     {
       "path": "backend/internal/service/cursor_rollout_regression_test.go",
@@ -14,17 +14,17 @@
     },
     {
       "path": "backend/internal/service/account_supported_protocols.go",
-      "must_contain": ["return cursorMappedModelAllowed(account, requestedModel, resolvedModel)"],
+      "must_contain": ["return target == protocolrouter.ProtocolMessages && cursorMappedModelAllowed(account, requestedModel, resolvedModel)"],
       "rationale": "Every Cursor model family must satisfy the transport catalog contract before the shared planner admits a candidate."
     },
     {
-      "path": "backend/internal/service/protocol_routing_context.go",
-      "must_contain": ["cursorContinuationInRequest(request)", "ErrProtocolRouteUnavailable, protocolrouter.ErrNoLegalRoute"],
-      "rationale": "Current Cursor tool results constrain supply through the existing candidate-local route error contract."
+      "path": "backend/internal/service/gateway_tk_cursor.go",
+      "must_contain": ["func executeCursorMessages", "cursorbridge.Messages", "HTTPUpstreamProfileCursor", "CursorWireModelsKey"],
+      "rationale": "Cursor executes natively using the account catalog and HTTP/2 transport; all protocol call sites share one adapter."
     },
     {
       "path": "backend/internal/service/candidate_cursor_ssot_test.go",
-      "must_contain": ["TestCursorCandidateCatalogAdmissionMatchesTransport", "TestCursorCandidateRuntimeAndCapabilityGates", "TestCursorCandidateUsesSharedUniversalOrdering", "TestCursorContinuationOnlyReadsCurrentProtocolToolResults"],
+      "must_contain": ["TestCursorCandidateCatalogAdmissionMatchesTransport", "TestCursorCandidateRuntimeAndCapabilityGates", "TestCursorCandidateUsesSharedUniversalOrdering", "TestCursorToolHistoryUsesOrdinaryCandidateRouting"],
       "rationale": "Exercise real Plan, Universal selection and scheduler filters for Cursor, including metadata/history false positives and candidate-local rejection."
     },
     {
@@ -44,8 +44,8 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_usage.go",
-      "must_contain": ["account.IsCursor()", "cursor-sdk-estimated"],
-      "rationale": "Cursor's parked-tool fallback must retain an explicit estimated billing identity."
+      "must_contain": ["account.IsCursor()", "optionalTrimmedStringPtr(cursorBillingTier(result.BillingTier))"],
+      "rationale": "Cursor usage provenance comes from the native outcome or relayed terminal usage, with only known labels admitted by the shared accounting owner."
     },
     {
       "path": "backend/internal/service/openai_gateway_record_usage_test.go",
@@ -54,7 +54,7 @@
     },
     {
       "path": "backend/internal/repository/scheduler_cache.go",
-      "must_contain": ["service.CursorModelParametersKey", "service.CursorSourceExtraKey"],
+      "must_contain": ["service.CursorModelParametersKey", "service.CursorWireModelsKey", "service.CursorSourceExtraKey"],
       "rationale": "Cursor source identity and variant selection must survive the scheduler projection or verified accounts become unroutable."
     },
     {
@@ -64,13 +64,33 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
-      "must_contain": ["prepareCursorUpstreamRequest"],
-      "rationale": "Native Messages must authenticate the bridge with the trusted tenant identity."
+      "must_contain": ["prepareCursorUpstreamRequest", "executeCursorMessages", "cursorResponseOutcome"],
+      "rationale": "Native Messages executes Cursor in Go and propagates the request outcome into shared accounting."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
-      "must_contain": ["prepareCursorUpstreamRequest"],
+      "must_contain": ["prepareCursorUpstreamRequest", "executeCursorMessages", "cursorResponseOutcome"],
       "rationale": "Chat and Responses conversions share the same Cursor authentication and catalog owner."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": ["func ProvideCursorOAuthClient", "cursor.NewClient", "WithHTTPUpstreamRedirectsDisabled"],
+      "rationale": "Cursor authorization reuses Redis and shared HTTP transport through dependency injection."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_native_messages_probe.go",
+      "must_contain": ["executeCursorMessages"],
+      "rationale": "Cursor protocol probes must execute the same native adapter used by production requests."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream_test.go",
+      "must_contain": ["TestCursorHTTP2IsIndependentOfOpenAIFallback"],
+      "rationale": "Cursor bidirectional streaming must remain HTTP/2 regardless of OpenAI settings or proxy fallback state."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_usage_test.go",
+      "must_contain": ["TestCursorRelayedUsagePreservesBillingProvenance"],
+      "rationale": "Messages JSON and SSE relay must preserve the source of terminal Cursor usage across Edge and Prod."
     },
     {
       "path": "backend/internal/service/supplier_source_probe.go",

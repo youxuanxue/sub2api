@@ -14,15 +14,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func cursorAdminClient(c *gin.Context) (*cursorbridge.Client, string, bool) {
+func (h *AccountHandler) cursorAdminClient(c *gin.Context) (*cursorbridge.Client, string, bool) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok || subject.UserID <= 0 {
 		response.Error(c, http.StatusUnauthorized, "Administrator identity required")
 		return nil, "", false
 	}
-	client, err := cursorbridge.FromEnv()
-	if err != nil {
-		response.Error(c, http.StatusServiceUnavailable, "Cursor bridge is not configured")
+	client := h.cursorOAuth
+	if !client.Enabled() {
+		response.Error(c, http.StatusServiceUnavailable, "Cursor authorization is unavailable")
 		return nil, "", false
 	}
 	return client, "admin:" + strconv.FormatInt(subject.UserID, 10), true
@@ -42,11 +42,10 @@ func cursorAdminError(c *gin.Context, err error) {
 }
 
 func (h *AccountHandler) CursorCapabilities(c *gin.Context) {
-	_, err := cursorbridge.FromEnv()
-	response.Success(c, gin.H{"enabled": err == nil})
+	response.Success(c, gin.H{"enabled": h.cursorOAuth.Enabled()})
 }
 func (h *AccountHandler) StartCursorAuthorization(c *gin.Context) {
-	client, owner, ok := cursorAdminClient(c)
+	client, owner, ok := h.cursorAdminClient(c)
 	if !ok {
 		return
 	}
@@ -58,7 +57,7 @@ func (h *AccountHandler) StartCursorAuthorization(c *gin.Context) {
 	response.Success(c, result)
 }
 func (h *AccountHandler) GetCursorAuthorization(c *gin.Context) {
-	client, owner, ok := cursorAdminClient(c)
+	client, owner, ok := h.cursorAdminClient(c)
 	if !ok {
 		return
 	}
@@ -70,7 +69,7 @@ func (h *AccountHandler) GetCursorAuthorization(c *gin.Context) {
 	response.Success(c, result)
 }
 func (h *AccountHandler) CancelCursorAuthorization(c *gin.Context) {
-	client, owner, ok := cursorAdminClient(c)
+	client, owner, ok := h.cursorAdminClient(c)
 	if !ok {
 		return
 	}
@@ -81,7 +80,7 @@ func (h *AccountHandler) CancelCursorAuthorization(c *gin.Context) {
 	response.Success(c, gin.H{"cancelled": true})
 }
 func (h *AccountHandler) ImportCursorAccount(c *gin.Context) {
-	client, owner, ok := cursorAdminClient(c)
+	client, owner, ok := h.cursorAdminClient(c)
 	if !ok {
 		return
 	}

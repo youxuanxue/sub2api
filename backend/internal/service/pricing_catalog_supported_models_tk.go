@@ -239,7 +239,7 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 	if !isCatalogModelRecommended(modelID) {
 		return false
 	}
-	for _, id := range tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "http://cursor-bridge:3927") {
+	for _, id := range tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh") {
 		if modelID == id {
 			return true
 		}

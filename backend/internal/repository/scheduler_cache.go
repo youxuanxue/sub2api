@@ -984,6 +984,7 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	keys := []string{
 		"model_mapping",
 		service.CursorModelParametersKey,
+		service.CursorWireModelsKey,
 		"compact_model_mapping",
 		"api_key",
 		"project_id",

@@ -688,6 +688,7 @@ func parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
 	case "message_start":
 		msgUsage := parsed.Get("message.usage")
 		if msgUsage.Exists() {
+			usage.BillingTier = msgUsage.Get("tk_billing_tier").String()
 			usage.InputTokens = int(msgUsage.Get("input_tokens").Int())
 			usage.CacheCreationInputTokens = int(msgUsage.Get("cache_creation_input_tokens").Int())
 			usage.CacheReadInputTokens = int(msgUsage.Get("cache_read_input_tokens").Int())
@@ -703,6 +704,9 @@ func parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
 	case "message_delta":
 		deltaUsage := parsed.Get("usage")
 		if deltaUsage.Exists() {
+			if tier := deltaUsage.Get("tk_billing_tier"); tier.Exists() {
+				usage.BillingTier = tier.String()
+			}
 			if v := deltaUsage.Get("input_tokens").Int(); v > 0 {
 				usage.InputTokens = int(v)
 			}
@@ -762,6 +766,7 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 	}
 
 	usage.InputTokens = int(usageNode.Get("input_tokens").Int())
+	usage.BillingTier = usageNode.Get("tk_billing_tier").String()
 	usage.OutputTokens = int(usageNode.Get("output_tokens").Int())
 	usage.CacheCreationInputTokens = int(usageNode.Get("cache_creation_input_tokens").Int())
 	usage.CacheReadInputTokens = int(usageNode.Get("cache_read_input_tokens").Int())

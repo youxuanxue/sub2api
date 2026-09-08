@@ -1,31 +1,28 @@
-// Package cursor implements the authenticated internal Cursor SDK bridge contract.
+// Package cursor implements Cursor CLI authorization and stateless model calls.
 package cursor
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
-	"net/url"
-	"os"
-	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
-const SecretHeader = "X-TokenKey-Bridge-Secret"
-const TenantHeader = "X-Cursor-Agent-Tenant"
-const DefaultBaseURL = "http://cursor-bridge:3927"
+const DefaultBaseURL = AgentBaseURL
+const authorizationTTL = 10 * time.Minute
 
 type Parameter struct {
 	ID    string `json:"id"`
 	Value string `json:"value"`
 }
 type Variant struct {
-	Params    []Parameter `json:"params"`
-	IsDefault bool        `json:"isDefault,omitempty"`
+	Params     []Parameter `json:"params"`
+	IsDefault  bool        `json:"isDefault,omitempty"`
+	LegacySlug string      `json:"legacySlug,omitempty"`
 }
 type Model struct {
 	ID          string    `json:"id"`
@@ -44,8 +41,8 @@ type Authorization struct {
 }
 type CredentialClaim struct {
 	Authorization
-	APIKey string `json:"api_key"`
-	Claim  string `json:"claim"`
+	APIKey string `json:"-"`
+	Claim  string `json:"-"`
 }
 type Error struct {
 	Status  int
@@ -54,123 +51,178 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
+// Only short-lived authorization state is shared. No inference state is stored.
+type authorizationSession struct {
+	Authorization
+	Owner       string
+	Login       OAuthLogin
+	AccessToken string
+	Claim       string
+}
 type Client struct {
-	baseURL string
-	secret  string
-	http    *http.Client
+	rdb *redis.Client
+	do  func(*http.Request) (*http.Response, error)
 }
 
-func FromEnv() (*Client, error) {
-	return NewClient(os.Getenv("CURSOR_BRIDGE_URL"), os.Getenv("CURSOR_BRIDGE_SECRET"))
+func NewClient(rdb *redis.Client, do func(*http.Request) (*http.Response, error)) *Client {
+	return &Client{rdb: rdb, do: do}
 }
-
-func NewClient(baseURL, secret string) (*Client, error) {
-	u, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return nil, errors.New("cursor bridge URL is not configured correctly")
+func (c *Client) Enabled() bool   { return c != nil && c.rdb != nil && c.do != nil }
+func (c *Client) BaseURL() string { return AgentBaseURL }
+func authKey(id string) (string, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed.String() != id {
+		return "", errors.New("invalid Cursor authorization session")
 	}
-	if len(secret) < 32 {
-		return nil, errors.New("cursor bridge secret must contain at least 32 bytes")
+	return "oauth:cursor:" + id, nil
+}
+func (c *Client) load(ctx context.Context, owner, id string) (authorizationSession, string, error) {
+	var session authorizationSession
+	if !c.Enabled() {
+		return session, "", errors.New("cursor authorization store unavailable")
 	}
-	return &Client{baseURL: strings.TrimRight(u.String(), "/"), secret: secret, http: &http.Client{
-		Timeout:       30 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}}, nil
+	key, err := authKey(id)
+	if err != nil {
+		return session, "", err
+	}
+	raw, err := c.rdb.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return session, "", &Error{404, "Cursor authorization expired or not found"}
+	}
+	if err != nil {
+		return session, "", errors.New("cursor authorization store unavailable")
+	}
+	if json.Unmarshal([]byte(raw), &session) != nil {
+		return session, "", errors.New("invalid Cursor authorization state")
+	}
+	if owner == "" || session.Owner != owner {
+		return authorizationSession{}, "", &Error{404, "Cursor authorization not found"}
+	}
+	if !session.ExpiresAt.After(time.Now()) {
+		return session, "", &Error{410, "Cursor authorization expired"}
+	}
+	return session, raw, nil
 }
 
-func (c *Client) BaseURL() string { return c.baseURL }
-func (c *Client) SetHeaders(header http.Header, owner string) {
-	header.Set(SecretHeader, c.secret)
-	header.Set(TenantHeader, owner)
-}
+// Compare-and-set preserves TTL and prevents poll/cancel/import races from
+// resurrecting a session or claiming a credential twice.
+var replaceAuthorization = redis.NewScript(`
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+if ARGV[2] == '' then redis.call('DEL', KEYS[1])
+else redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL') end
+return 1`)
 
-func (c *Client) request(ctx context.Context, method, path, owner string, input, output any) error {
-	if owner == "" {
-		return errors.New("cursor bridge owner is required")
+func (c *Client) replace(ctx context.Context, id, old string, next *authorizationSession) error {
+	key, err := authKey(id)
+	if err != nil {
+		return err
 	}
-	var body io.Reader
-	if input != nil {
-		encoded, err := json.Marshal(input)
+	var raw []byte
+	if next != nil {
+		raw, err = json.Marshal(next)
 		if err != nil {
 			return err
 		}
-		body = bytes.NewReader(encoded)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	ok, err := replaceAuthorization.Run(ctx, c.rdb, []string{key}, old, string(raw)).Int()
 	if err != nil {
-		return err
+		return errors.New("cursor authorization store unavailable")
 	}
-	c.SetHeaders(req.Header, owner)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("cursor bridge request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
-	if err != nil || len(data) > 2<<20 {
-		return errors.New("cursor bridge response could not be read")
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Never propagate an untrusted response body that could contain a key.
-		return &Error{Status: resp.StatusCode, Message: fmt.Sprintf("Cursor bridge returned HTTP %d", resp.StatusCode)}
-	}
-	if output == nil {
-		return nil
-	}
-	if err := json.Unmarshal(data, output); err != nil {
-		return errors.New("invalid Cursor bridge response")
+	if ok != 1 {
+		return &Error{409, "Cursor authorization changed; retry"}
 	}
 	return nil
 }
-
-func authPath(id string) (string, error) {
-	if len(id) != 36 {
-		return "", errors.New("invalid authorization session")
-	}
-	for _, ch := range id {
-		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && ch != '-' {
-			return "", errors.New("invalid authorization session")
-		}
-	}
-	return "/internal/auth/" + id, nil
-}
 func (c *Client) Start(ctx context.Context, owner string) (Authorization, error) {
-	var result Authorization
-	err := c.request(ctx, http.MethodPost, "/internal/auth", owner, map[string]string{"name": "TokenKey Cursor"}, &result)
-	return result, err
+	if !c.Enabled() || owner == "" {
+		return Authorization{}, errors.New("cursor authorization unavailable")
+	}
+	login, err := NewOAuthLogin()
+	if err != nil {
+		return Authorization{}, err
+	}
+	session := authorizationSession{Owner: owner, Login: login, Authorization: Authorization{
+		ID: login.ID, State: "pending", URL: login.URL, ExpiresAt: time.Now().UTC().Add(authorizationTTL),
+	}}
+	raw, err := json.Marshal(session)
+	if err != nil {
+		return Authorization{}, err
+	}
+	key, err := authKey(login.ID)
+	if err != nil {
+		return Authorization{}, err
+	}
+	if ok, err := c.rdb.SetNX(ctx, key, raw, authorizationTTL).Result(); err != nil || !ok {
+		return Authorization{}, errors.New("cursor authorization store unavailable")
+	}
+	return session.Authorization, nil
 }
 func (c *Client) Status(ctx context.Context, owner, id string) (Authorization, error) {
-	var result Authorization
-	path, err := authPath(id)
+	session, old, err := c.load(ctx, owner, id)
 	if err != nil {
-		return result, err
+		return Authorization{}, err
 	}
-	err = c.request(ctx, http.MethodGet, path, owner, nil, &result)
-	return result, err
+	if session.State != "pending" {
+		return session.Authorization, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	credentials, err := PollOAuth(ctx, session.Login, c.do)
+	if err != nil {
+		return Authorization{}, err
+	}
+	if credentials == nil {
+		return session.Authorization, nil
+	}
+	models, err := OAuthModels(ctx, credentials.AccessToken, c.do)
+	if err != nil {
+		return Authorization{}, err
+	}
+	session.State, session.Models = "authorized", models
+	session.KeyExpiresAt, session.AccessToken = credentials.ExpiresAt, credentials.AccessToken
+	session.Login = OAuthLogin{}
+	if err := c.replace(ctx, id, old, &session); err != nil {
+		return Authorization{}, err
+	}
+	return session.Authorization, nil
 }
 func (c *Client) Cancel(ctx context.Context, owner, id string) error {
-	path, err := authPath(id)
+	session, old, err := c.load(ctx, owner, id)
 	if err != nil {
 		return err
 	}
-	return c.request(ctx, http.MethodDelete, path, owner, nil, nil)
+	if session.Claim != "" {
+		return &Error{409, "Cursor account import is in progress"}
+	}
+	return c.replace(ctx, id, old, nil)
 }
 func (c *Client) Claim(ctx context.Context, owner, id string) (CredentialClaim, error) {
-	var result CredentialClaim
-	path, err := authPath(id)
+	session, old, err := c.load(ctx, owner, id)
 	if err != nil {
-		return result, err
+		return CredentialClaim{}, err
 	}
-	err = c.request(ctx, http.MethodPost, path+"/claim", owner, nil, &result)
-	return result, err
+	if session.State != "authorized" || session.Claim != "" || !session.KeyExpiresAt.After(time.Now()) {
+		return CredentialClaim{}, &Error{409, "Cursor authorization is not available for import"}
+	}
+	session.Claim = uuid.NewString()
+	if err := c.replace(ctx, id, old, &session); err != nil {
+		return CredentialClaim{}, err
+	}
+	return CredentialClaim{Authorization: session.Authorization, APIKey: session.AccessToken, Claim: session.Claim}, nil
 }
 func (c *Client) Settle(ctx context.Context, owner, id, claim string, success bool) error {
-	path, err := authPath(id)
+	session, old, err := c.load(ctx, owner, id)
 	if err != nil {
 		return err
 	}
-	return c.request(ctx, http.MethodPost, path+"/settle", owner, map[string]any{"claim": claim, "success": success}, nil)
+	if claim == "" || session.Claim != claim {
+		return &Error{409, "Invalid Cursor import claim"}
+	}
+	if success {
+		return c.replace(ctx, id, old, nil)
+	}
+	session.Claim = ""
+	return c.replace(ctx, id, old, &session)
 }
 
 // DefaultParameters retains the catalog's default variant with regular speed

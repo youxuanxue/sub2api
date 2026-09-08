@@ -4,11 +4,7 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +35,7 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 			admin := &cursorAdminStub{group: &Group{Name: "Cursor", Platform: PlatformNewAPI}}
 			input := CursorAccountInput{SessionID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Name: "Cursor", GroupIDs: []int64{2}}
 			claim := cursorbridge.CredentialClaim{APIKey: "private-test-key", Claim: "claim-test", Authorization: cursorbridge.Authorization{
-				KeyExpiresAt: time.Now().Add(time.Hour), Models: []cursorbridge.Model{{ID: "auto"}, {ID: "composer-2.5", Variants: []cursorbridge.Variant{{IsDefault: true, Params: []cursorbridge.Parameter{{ID: "fast", Value: "true"}}}, {Params: []cursorbridge.Parameter{{ID: "fast", Value: "false"}}}}}},
+				KeyExpiresAt: time.Now().Add(time.Hour), Models: []cursorbridge.Model{{ID: "auto"}, {ID: "composer-2.5", Variants: []cursorbridge.Variant{{IsDefault: true, Params: []cursorbridge.Parameter{{ID: "fast", Value: "true"}}}, {LegacySlug: "composer-2.5", Params: []cursorbridge.Parameter{{ID: "fast", Value: "false"}}}}}},
 			}}
 			if scenario == "reconnect" || scenario == "wrong_account" {
 				input.AccountID = 42
@@ -61,29 +57,8 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 			if scenario == "multiple_groups" {
 				input.GroupIDs = []int64{2, 3}
 			}
-			claims, settlements := 0, 0
-			settledSuccess := false
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "admin:7", r.Header.Get(cursorbridge.TenantHeader))
-				if strings.HasSuffix(r.URL.Path, "/claim") {
-					claims++
-					_ = json.NewEncoder(w).Encode(claim)
-				} else {
-					settlements++
-					var body struct {
-						Success bool   `json:"success"`
-						Claim   string `json:"claim"`
-					}
-					require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-					require.Equal(t, claim.Claim, body.Claim)
-					settledSuccess = body.Success
-					w.WriteHeader(http.StatusNoContent)
-				}
-			}))
-			defer server.Close()
-			client, err := cursorbridge.NewClient(server.URL, strings.Repeat("s", 32))
-			require.NoError(t, err)
-			_, err = ImportCursorAccount(context.Background(), admin, client, "admin:7", input)
+			client := &cursorClaimStub{claim: claim}
+			_, err := ImportCursorAccount(context.Background(), admin, client, "admin:7", input)
 			success := scenario == "create" || scenario == "reconnect"
 			if success {
 				require.NoError(t, err)
@@ -91,13 +66,13 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 				require.Error(t, err)
 			}
 			if scenario == "wrong_group" || scenario == "wrong_account" || scenario == "multiple_groups" {
-				require.Zero(t, claims)
-				require.Zero(t, settlements)
+				require.Zero(t, client.claims)
+				require.Zero(t, client.settlements)
 				return
 			}
-			require.Equal(t, 1, claims)
-			require.Equal(t, 1, settlements)
-			require.Equal(t, success, settledSuccess)
+			require.Equal(t, 1, client.claims)
+			require.Equal(t, 1, client.settlements)
+			require.Equal(t, success, client.success)
 			if scenario == "create" {
 				require.Equal(t, PlatformNewAPI, admin.created.Platform)
 				require.Equal(t, AccountTypeAPIKey, admin.created.Type)
@@ -112,4 +87,23 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 			}
 		})
 	}
+}
+
+type cursorClaimStub struct {
+	claim               cursorbridge.CredentialClaim
+	claims, settlements int
+	success             bool
+}
+
+func (s *cursorClaimStub) Claim(context.Context, string, string) (cursorbridge.CredentialClaim, error) {
+	s.claims++
+	return s.claim, nil
+}
+func (s *cursorClaimStub) Settle(_ context.Context, _, _, claim string, success bool) error {
+	if claim != s.claim.Claim {
+		return errors.New("wrong claim")
+	}
+	s.settlements++
+	s.success = success
+	return nil
 }

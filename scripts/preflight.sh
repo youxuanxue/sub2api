@@ -3293,14 +3293,14 @@ else
     echo "  ok: frontend security workflows share the bounded, fail-closed audit owner"
 fi
 
-# ---- sub2api: optional Cursor deployment isolation --------------------------
+# ---- sub2api: stateless Cursor deployment ----------------------------------
 echo ""
 echo "=== sub2api: Cursor deployment isolation ==="
 if ! python3 -m unittest scripts.checks.test_cursor_deployment; then
-    echo "  FAIL: Cursor deployment must not block gateway startup or exhaust host resources"
+    echo "  FAIL: Cursor must not introduce a separate runtime or bridge credentials"
     errors=$((errors + 1))
 else
-    echo "  ok: optional Cursor supply has independent startup and bounded resources"
+    echo "  ok: Cursor uses the existing Go gateway runtime"
 fi
 
 # ---- sub2api: Node version alignment -----------------------------------------

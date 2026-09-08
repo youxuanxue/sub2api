@@ -85,7 +85,7 @@
         },
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -107,7 +107,7 @@
         },
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -401,7 +401,7 @@
         },
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -814,12 +814,21 @@
         }
       ]
     },
+    "grok-4.5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
     "grok-4.6": {
       "display": true,
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -828,7 +837,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -837,7 +846,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -846,7 +855,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -855,7 +864,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -864,7 +873,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -873,7 +882,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -882,7 +891,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -891,7 +900,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -900,7 +909,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -909,7 +918,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -918,7 +927,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -927,7 +936,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -936,7 +945,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -945,7 +954,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -954,7 +963,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -963,7 +972,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -972,7 +981,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -981,7 +990,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -990,7 +999,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -999,7 +1008,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1008,7 +1017,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1017,7 +1026,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1026,7 +1035,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1035,7 +1044,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1044,7 +1053,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1053,7 +1062,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1062,7 +1071,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1071,7 +1080,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1080,7 +1089,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1089,7 +1098,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1098,7 +1107,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -1107,7 +1116,7 @@
       "scopes": [
         {
           "channel_type": 14,
-          "base_url": "http://cursor-bridge:3927"
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     }

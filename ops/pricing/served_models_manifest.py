@@ -17,7 +17,7 @@ SCHEMA_VERSION = 3
 ENTRY_FIELDS = {"channel_type", "scopes", "price_owner", "display"}
 SCOPE_FIELDS = {"channel_type", "base_url"}
 ALLOWED_SCOPES = {
-    (14, "http://cursor-bridge:3927"),
+    (14, "https://agentn.global.api5.cursor.sh"),
     (1, "https://integrate.api.nvidia.com"),
     (17, "https://token-plan.cn-beijing.maas.aliyuncs.com"),
     (45, "https://ark.cn-beijing.volces.com/api/plan/v3"),

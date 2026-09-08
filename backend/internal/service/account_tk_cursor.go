@@ -17,6 +17,7 @@ import (
 
 const CursorSourceExtraKey = "upstream_provider"
 const CursorModelParametersKey = "cursor_model_parameters"
+const CursorWireModelsKey = "cursor_wire_models"
 
 func (a *Account) IsCursor() bool {
 	return a != nil && a.Platform == PlatformNewAPI && a.Type == AccountTypeAPIKey &&
@@ -77,8 +78,8 @@ func (s *adminServiceImpl) SaveCursorAccount(ctx context.Context, create *Create
 			return nil, listErr
 		}
 		for _, candidate := range accounts {
-			if candidate.ID != accountID {
-				return nil, errors.New("cursor requires a dedicated group with one account for tool continuation")
+			if candidate.ID != accountID && !candidate.IsCursor() {
+				return nil, errors.New("cursor requires a dedicated service group")
 			}
 		}
 	}
@@ -107,7 +108,12 @@ func (s *adminServiceImpl) SaveCursorAccount(ctx context.Context, create *Create
 	return account, nil
 }
 
-func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client *cursorbridge.Client, owner string, input CursorAccountInput) (*Account, error) {
+type cursorAuthorizationClient interface {
+	Claim(context.Context, string, string) (cursorbridge.CredentialClaim, error)
+	Settle(context.Context, string, string, string, bool) error
+}
+
+func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client cursorAuthorizationClient, owner string, input CursorAccountInput) (*Account, error) {
 	if strings.TrimSpace(input.Name) == "" || len(input.Name) > 100 {
 		return nil, errors.New("cursor account name is required (maximum 100 characters)")
 	}
@@ -156,6 +162,7 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client *
 	}
 	mapping := make(map[string]any)
 	parameters := make(map[string]any)
+	wireModels := make(map[string]any)
 	for _, model := range claim.Models {
 		if model.ID == "" || model.ID == "default" || model.ID == "auto" {
 			continue
@@ -168,6 +175,11 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client *
 		}
 		mapping[model.ID] = model.ID
 		parameters[model.ID] = selected
+		wireModel, err := cursorbridge.AgentVariantWireModel(model, selected)
+		if err != nil {
+			return nil, err
+		}
+		wireModels[model.ID] = wireModel
 	}
 	if len(mapping) == 0 {
 		return nil, errors.New("cursor account has no fixed models")
@@ -181,7 +193,8 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client *
 	credentials["api_key"] = claim.APIKey
 	credentials["model_mapping"] = mapping
 	credentials[CursorModelParametersKey] = parameters
-	applyExclusiveSupplierProtocolEndpoints(credentials, client.BaseURL(), newapiconstant.ChannelTypeAnthropic)
+	credentials[CursorWireModelsKey] = wireModels
+	applyExclusiveSupplierProtocolEndpoints(credentials, cursorbridge.AgentBaseURL, newapiconstant.ChannelTypeAnthropic)
 	extra[CursorSourceExtraKey] = "cursor"
 	expires := claim.KeyExpiresAt.Unix()
 	pause := true

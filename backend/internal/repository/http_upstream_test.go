@@ -24,6 +24,32 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+func TestCursorHTTP2IsIndependentOfOpenAIFallback(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("openai_enabled_%t", enabled), func(t *testing.T) {
+			svc, ok := NewHTTPUpstream(&config.Config{Gateway: config.GatewayConfig{
+				OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
+					Enabled: enabled, AllowProxyFallbackToHTTP1: true,
+					FallbackErrorThreshold: 1,
+				},
+			}}).(*httpUpstreamService)
+			require.True(t, ok)
+			for _, proxy := range []string{"", "http://proxy.example:8080", "https://proxy.example:8443", "socks5://proxy.example:1080"} {
+				var parsed *url.URL
+				if proxy != "" {
+					var err error
+					parsed, err = url.Parse(proxy)
+					require.NoError(t, err)
+				}
+				svc.recordOpenAIHTTP2Failure(service.HTTPUpstreamProfileCursor, upstreamProtocolModeOpenAIH2, proxy, errors.New("http2: protocol error"))
+				require.False(t, svc.isOpenAIHTTP2FallbackActive(proxy), "Cursor must not change another provider's fallback state")
+				svc.openAIHTTP2Fallbacks.Store(proxy, &openAIHTTP2FallbackState{fallbackUntil: time.Now().Add(time.Minute)})
+				require.Equal(t, upstreamProtocolModeOpenAIH2, svc.resolveProtocolMode(service.HTTPUpstreamProfileCursor, proxy, parsed))
+			}
+		})
+	}
+}
+
 func TestHTTPUpstreamDoCanDisableRedirectsPerRequest(t *testing.T) {
 	var redirectedCalls atomic.Int64
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

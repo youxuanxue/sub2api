@@ -698,7 +698,7 @@ func TestPublicCatalog_RetiredNativeIDsRequireAnotherDeclaredSupply(t *testing.T
 		_, native := supportedOpenAICatalogModels[retired]
 		assert.False(t, native, "Cursor must not restore retired IDs to the native OpenAI pool")
 		cursorDeclared := false
-		for _, id := range tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "http://cursor-bridge:3927") {
+		for _, id := range tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh") {
 			if id == retired {
 				cursorDeclared = true
 			}
