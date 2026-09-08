@@ -135,6 +135,12 @@ func accountModelMappingOverrideAccounts() []*Account {
 		{
 			Platform:    PlatformNewAPI,
 			Type:        AccountTypeAPIKey,
+			ChannelType: newapiconstant.ChannelTypeOpenAI,
+			Credentials: map[string]any{"base_url": newapiintegration.NVIDIABuildBaseURL},
+		},
+		{
+			Platform:    PlatformNewAPI,
+			Type:        AccountTypeAPIKey,
 			ChannelType: newapiconstant.ChannelTypeVolcEngine,
 			Credentials: map[string]any{
 				"base_url": newapiintegration.VolcEngineAgentPlanBaseURL,
@@ -194,6 +200,9 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 	if account.IsCursor() {
 		return tkServedModelsManifestPresetIDsForSelector(PlatformNewAPI, 14, "http://cursor-bridge:3927")
 	}
+	if isNewAPINVIDIABuildAccount(account) {
+		return tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
+	}
 	if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
 		ids, _ := vertexCapabilityProfileModelMappingIDs(account.VertexCapabilityProfile())
 		return ids
@@ -235,6 +244,9 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 	}
 	if account.IsCursor() {
 		return tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "http://cursor-bridge:3927")
+	}
+	if isNewAPINVIDIABuildAccount(account) {
+		return tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		ids := tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())

@@ -135,6 +135,10 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			ids := NewAPIModelMappingPresetIDsForAccount(account)
 			return identityModelMapping(ids), len(ids) > 0
 		}
+		if isNewAPINVIDIABuildAccount(account) {
+			mapping := nvidiaBuildModelMapping(account)
+			return mapping, len(mapping) > 0
+		}
 		if account.ChannelType == newapiconstant.ChannelTypeVertexAi {
 			mapping, _ := vertexModelMappingForAccount(account)
 			return mapping, len(mapping) > 0

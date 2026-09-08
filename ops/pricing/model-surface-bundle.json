@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "10c02f2e85fdab03627eaea902e6817cadf514fde805e7e3268f3f4a827b0b79",
+  "floor_sha256": "35e7bb701439e69fd7ec0fde9b75ede61321fc64f7546aefd9127ad4ce8ea05d",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -337,6 +337,18 @@
       }
     },
     "account_overrides": [
+      {
+        "platform": "newapi",
+        "channel_type": 1,
+        "base_url": "https://integrate.api.nvidia.com",
+        "model_mapping": {
+          "deepseek-v4-flash": "deepseek-ai/deepseek-v4-flash-0731",
+          "deepseek-v4-flash-0731": "deepseek-ai/deepseek-v4-flash-0731",
+          "deepseek-v4-pro": "deepseek-ai/deepseek-v4-pro-0813",
+          "deepseek-v4-pro-0813": "deepseek-ai/deepseek-v4-pro-0813",
+          "kimi-k3": "moonshotai/kimi-k3"
+        }
+      },
       {
         "platform": "newapi",
         "channel_type": 14,

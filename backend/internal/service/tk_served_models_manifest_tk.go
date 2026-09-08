@@ -169,7 +169,8 @@ func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
 
 func manifestScopeKey(scope tkServedModelsManifestScope) string {
 	isCursor := scope.ChannelType == newapiconstant.ChannelTypeAnthropic && scope.BaseURL == cursorbridge.DefaultBaseURL
-	if !isCursor && !newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
+	if !isCursor && !newapiintegration.IsNVIDIABuildBaseURL(scope.ChannelType, scope.BaseURL) &&
+		!newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsAliTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&

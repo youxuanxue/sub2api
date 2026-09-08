@@ -91,7 +91,7 @@ case "$MODE" in
     # release mode wants the diff between the two most recent v* tags
     # (previous → latest). HEAD points to the just-cut latest tag.
     TAG_LIST=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)  # preflight-allow: swallow
-    LATEST=$(printf '%s\n' "$TAG_LIST" | head -1)
+    LATEST=$(printf '%s\n' "$TAG_LIST" | sed -n '1p')
     PREVIOUS=$(printf '%s\n' "$TAG_LIST" | sed -n '2p')
     if [ -z "$LATEST" ]; then
       echo "[release-rollout-summary] ERROR: no v* tag found; pass --base / --head explicitly" >&2
@@ -102,7 +102,7 @@ case "$MODE" in
     ;;
   local)
     # local mode: BASE = latest v* tag, HEAD = working tree HEAD.
-    BASE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)  # preflight-allow: swallow
+    BASE=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '1p' || true)  # preflight-allow: swallow
     if [ -z "$BASE" ]; then
       echo "[release-rollout-summary] ERROR: no v* tag found; pass --base explicitly" >&2
       exit 1
