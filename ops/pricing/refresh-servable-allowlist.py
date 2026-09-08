@@ -33,6 +33,9 @@ Subcommands:
 
 Positive traffic or a real successful probe can add a model. Absence of traffic
 and transient probe failures cannot remove one.
+Gemini batches probe Vertex, so their results remain evidence only. Vertex public
+display derives from its capability floors; these results cannot edit the native
+Gemini catalog or authorize a native Gemini account mapping.
 """
 from __future__ import annotations
 
@@ -575,7 +578,10 @@ def project_allowlists(
     servable: dict[str, set[str]],
     ledger: dict | None = None,
 ) -> tuple[str, dict[str, list[str]]]:
-    """Pure catalog projection: current + positive - reviewed structural removals."""
+    """Native projection: current + positive - reviewed structural removals.
+
+    Vertex-tagged Gemini results cannot edit the native Gemini scope.
+    """
     ledger = ledger or {"probe_candidates": [], "watchlist": [], "skiplist": [], "structurally_gone": []}
     validate_results_against_reprobe_ledger(servable, ledger)
     platforms = ("anthropic", "openai", "gemini")
@@ -592,6 +598,12 @@ def project_allowlists(
     final: dict[str, list[str]] = {}
     for platform in platforms:
         current_order = _allowlist_members_for_platform(text, platform)
+        if platform == "gemini":
+            # Gemini batches run on Vertex ch41. Its public union is derived in
+            # Go from capability floors, changed through modelops activation.
+            # Neither success nor retirement on Vertex attests native Gemini.
+            final[platform] = current_order
+            continue
         current_models = set(current_order)
         positive_models = dedup(positive[platform])
         removed_models = {model for owner, model in gone if owner == platform}
@@ -970,7 +982,7 @@ def selftest() -> int:
 
     # parse: gemini/grok rows land in their buckets; non-servable/auth dropped.
     # Grok remains hand-maintained in pricing_catalog_supported_models_tk.go, so
-    # write_allowlists still rewrites only anthropic/openai/gemini.
+    # write_allowlists rewrites only anthropic/openai; Vertex stays evidence-only.
     tsv = (
         "anthropic\tclaude-opus-4-8\t200\tservable\n"
         "openai\tgpt-4o\t400\tunsupported\nopenai\t*\t000\tauth_error\n"
@@ -1045,6 +1057,19 @@ def selftest() -> int:
         "openai": ["gpt-current", "gpt-retired", "gpt-timeout"],
         "gemini": ["gemini-current"],
     }, no_op_projection
+    vertex_text, vertex_projection = project_allowlists(
+        projection_sample,
+        parse_results("gemini\tvertex-only-new\t200\tservable\n"),
+        {
+            "watchlist": [],
+            "skiplist": [],
+            "structurally_gone": [
+                {"platform": "gemini", "model": "gemini-current", "reason": "Vertex retirement"}
+            ],
+        },
+    )
+    assert vertex_text == projection_sample, "Vertex evidence must not rewrite the native Gemini floor"
+    assert vertex_projection["gemini"] == ["gemini-current"], vertex_projection
     base_alias_sample = projection_sample.replace(
         '\t"gpt-current": {},\n',
         '\t"gpt-current": {},\n\t"gpt-5.5": {},\n',

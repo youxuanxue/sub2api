@@ -22,6 +22,9 @@ const (
 var vertexSharedModelMappingIDs = []string{
 	"gemini-2.5-flash",
 	"gemini-2.5-flash-lite",
+	// 2026-09-08 global generation probes passed across all Vertex profiles.
+	"gemini-3-flash-preview",
+	"gemini-3.1-flash-lite",
 	"gemini-3.5-flash-lite",
 	"gemini-3.6-flash",
 	"gemini-3.7-flash",
@@ -59,6 +62,23 @@ func (a *Account) VertexCapabilityProfile() string {
 
 func vertexSharedModelMappingPresetIDs() []string {
 	return append([]string(nil), vertexSharedModelMappingIDs...)
+}
+
+// Public Vertex discovery is the union of the verified capability floors.
+// It must not expand the independent native Gemini account floor.
+func vertexModelDisplayIDs() []string {
+	ids := stringSet(vertexSharedModelMappingPresetIDs())
+	for _, extra := range vertexCapabilityProfileExtraIDs {
+		for _, id := range extra {
+			ids[id] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func vertexCapabilityProfileModelMappingIDs(profile string) ([]string, bool) {
