@@ -762,30 +762,27 @@ func firstQianfanManifestDisplayIDForTest(t *testing.T) string {
 // duplicating their model lists here — populating or refreshing an allowlist
 // there must not require a matching edit in this test.
 func TestIsPublicCatalogModelSupported(t *testing.T) {
-	anySSOTKey := func(t *testing.T, m map[string]struct{}) string {
+	assertMembership := func(t *testing.T, vendor string, m map[string]struct{}) {
 		t.Helper()
 		require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")
-		for k := range m {
-			return k
+		for id := range m {
+			assert.Equal(t, isCatalogModelRecommended(id), isPublicCatalogModelSupported(vendor, id),
+				"catalog membership and lifecycle compose for %s/%s", vendor, id)
 		}
-		return ""
 	}
 
 	t.Run("anthropic membership follows supportedAnthropicCatalogModels", func(t *testing.T) {
-		id := anySSOTKey(t, supportedAnthropicCatalogModels)
-		assert.True(t, isPublicCatalogModelSupported("anthropic", id))
+		assertMembership(t, "anthropic", supportedAnthropicCatalogModels)
 		assert.False(t, isPublicCatalogModelSupported("anthropic", "claude-not-a-real-id-zzz"))
 	})
 
 	t.Run("openai membership follows supportedOpenAICatalogModels", func(t *testing.T) {
-		id := anySSOTKey(t, supportedOpenAICatalogModels)
-		assert.True(t, isPublicCatalogModelSupported("openai", id))
+		assertMembership(t, "openai", supportedOpenAICatalogModels)
 		assert.False(t, isPublicCatalogModelSupported("openai", "gpt-not-a-real-id-zzz"))
 	})
 
 	t.Run("azure_openai vendor infers the openai platform gate", func(t *testing.T) {
-		id := anySSOTKey(t, supportedOpenAICatalogModels)
-		assert.True(t, isPublicCatalogModelSupported("azure_openai", id), "azure_openai must gate through the same openai allowlist")
+		assertMembership(t, "azure_openai", supportedOpenAICatalogModels)
 	})
 
 	t.Run("gemini membership follows supportedGeminiCatalogModels (or passes through when empty)", func(t *testing.T) {
@@ -793,8 +790,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 			assert.True(t, isPublicCatalogModelSupported("vertex_ai-language-models", "anything-unprobed"), "empty (unprobed) set must passthrough")
 			return
 		}
-		id := anySSOTKey(t, supportedGeminiCatalogModels)
-		assert.True(t, isPublicCatalogModelSupported("vertex_ai-language-models", id))
+		assertMembership(t, "vertex_ai-language-models", supportedGeminiCatalogModels)
 		assert.False(t, isPublicCatalogModelSupported("vertex_ai-language-models", "gemini-not-a-real-id-zzz"))
 	})
 
@@ -803,8 +799,7 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 			assert.True(t, isPublicCatalogModelSupported("antigravity", "anything-unprobed"), "empty (unprobed) set must passthrough")
 			return
 		}
-		id := anySSOTKey(t, supportedAntigravityCatalogModels)
-		assert.True(t, isPublicCatalogModelSupported("antigravity", id))
+		assertMembership(t, "antigravity", supportedAntigravityCatalogModels)
 		assert.False(t, isPublicCatalogModelSupported("antigravity", "claude-not-a-real-id-zzz"))
 	})
 
@@ -821,26 +816,24 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 			assert.True(t, isPublicCatalogModelSupported("xai", "grok-anything-unprobed"), "empty (unprobed) set must passthrough")
 			return
 		}
-		id := anySSOTKey(t, supportedGrokCatalogModels)
-		assert.True(t, isPublicCatalogModelSupported("xai", id))
+		assertMembership(t, "xai", supportedGrokCatalogModels)
 		assert.False(t, isPublicCatalogModelSupported("xai", "grok-not-a-real-id-zzz"))
 		// openrouter-style "x-ai" alias must resolve to the same grok gate as "xai".
-		assert.Equal(t, isPublicCatalogModelSupported("xai", id), isPublicCatalogModelSupported("x-ai", id))
+		assertMembership(t, "x-ai", supportedGrokCatalogModels)
 	})
 
-	t.Run("dual-listed antigravity+gemini ids pass under either vendor tag", func(t *testing.T) {
-		dual := ""
+	t.Run("dual-listed antigravity+gemini ids share lifecycle under either vendor tag", func(t *testing.T) {
+		dual := make(map[string]struct{})
 		for id := range supportedAntigravityCatalogModels {
 			if _, ok := supportedGeminiCatalogModels[id]; ok {
-				dual = id
-				break
+				dual[id] = struct{}{}
 			}
 		}
-		if dual == "" {
+		if len(dual) == 0 {
 			t.Skip("no dual-listed id in the current SSOT snapshot")
 		}
-		assert.True(t, isPublicCatalogModelSupported("antigravity", dual))
-		assert.True(t, isPublicCatalogModelSupported("vertex_ai-language-models", dual))
+		assertMembership(t, "antigravity", dual)
+		assertMembership(t, "vertex_ai-language-models", dual)
 	})
 
 	t.Run("newapi long-tail vendor requires manifest display=true", func(t *testing.T) {

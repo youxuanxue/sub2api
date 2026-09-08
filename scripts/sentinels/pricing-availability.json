@@ -190,9 +190,10 @@
         "TestIsPublicCatalogModelSupported",
         "TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay",
         "withdrawn VolcEngine GLM SKU pruned from storefront",
-        "TestSupportedCatalogModelIDsForPlatform"
+        "TestSupportedCatalogModelIDsForPlatform",
+        "catalog membership and lifecycle compose for %s/%s"
       ],
-      "rationale": "Regression coverage for the public-catalog support filter: asserts retired/unservable claude+gpt rows are pruned, servable ones kept, curated newapi display=false rows are hidden, and unknown/unmapped vendors stay hidden until a universal mapping exists. TestSupportedCatalogModelIDsForPlatform (table-driven, covering anthropic/openai/antigravity/grok) and TestIsPublicCatalogModelSupported assert supportedCatalogModelIDsForPlatform / isPublicCatalogModelSupported against the live supported*CatalogModels maps by reference (any-key-from-map + explicit not-in-map probes) rather than duplicating each map's literal model list — so an SSOT allowlist refresh never requires a matching test edit, while an upstream merge that drops the filter functions or the test file itself still trips this sentinel. Pinned so an upstream merge that rewrites the catalog test file cannot silently drop the filter's regression guard. (This file also matches the *_tk_*.go hotspot via its _tk_test.go suffix, so the registry-update gate requires it to be tracked in a sentinel registry; pricing-availability is its correct domain.)"
+      "rationale": "Public catalog regressions consume every owner entry plus lifecycle recommendations and explicit unknown-model negatives. Random map sampling must not assume that retained account/catalog membership overrides an official recommendation withdrawal. The platform ID projection remains independent of display filtering, and no test maintains a parallel model list."
     },
     {
       "path": "backend/internal/service/pricing_tk_base_tax.go",
