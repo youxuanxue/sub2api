@@ -3134,6 +3134,10 @@
         "diff = _mapping_diff(scope, got, want, floor)",
         "lines.extend(_activation_setting_guard_sql(plan))",
         "activation_runtime_md5",
+        "observed_account_properties",
+        "AND jsonb_build_object({_ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL}) = ",
+        "targeted activation cannot skip selected accounts: ",
+        "activation accepted a selected account it cannot manage",
         "runtime mapping changed before scoped activation write",
         "LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE",
         "def _command_with_bundle(",
@@ -3142,7 +3146,7 @@
         "\"account_bulk_changed\"",
         "\"group_changed\"",
         "def _is_supplier_managed_account(",
-        "'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)",
+        "\"supplier_source_id_present\": \"COALESCE(a.extra ? 'supplier_source_id', false)\"",
         "if _is_supplier_managed_account(row):"
       ],
       "must_not_contain": [

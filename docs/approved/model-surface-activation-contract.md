@@ -134,8 +134,10 @@ activation apply also locks the live settings table and rechecks that the runtim
 replacement is absent inside the account-write transaction.
 
 Targeted activation (`--account-ids`) uses the reviewed dry-run plan digest and
-per-account mapping compare-and-swap, leaves groups untouched, and requires a
-zero-diff read-back of the selected accounts. Global gate findings outside that
+per-account mapping and selector/ownership compare-and-swap, leaves groups
+untouched, and requires a zero-diff read-back of the selected accounts. Selected
+accounts that cannot be managed (including Supplier Sync ownership) block
+activation rather than being counted as successfully skipped. Global gate findings outside that
 selection remain visible without expanding the write. When every bundle delta
 and selected account uses an immutable property override, runtime platform/channel
 replacements cannot shadow it. In that case activation retains the runtime

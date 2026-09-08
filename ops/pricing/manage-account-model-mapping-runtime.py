@@ -103,23 +103,30 @@ DEFAULT_BUNDLE_PATH = _BUNDLE.DEFAULT_BUNDLE_PATH
 BUNDLE_SCHEMA_VERSION = _BUNDLE.SCHEMA_VERSION
 DEFAULT_RUNTIME_TARGET = "all-deployable-and-prod"
 
-ACCOUNT_MODEL_MAPPING_CHECK_SQL = """
+_ACCOUNT_MAPPING_PROPERTIES_SQL = {
+    "name": "a.name",
+    "platform": "a.platform",
+    "type": "a.type",
+    "channel_type": "a.channel_type",
+    "mirror_platform": "a.credentials->>'mirror_platform'",
+    "base_url": "a.credentials->>'base_url'",
+    "auth_mode": "a.credentials->>'auth_mode'",
+    "vertex_capability_profile": "a.credentials->>'vertex_capability_profile'",
+    "supplier_source_id_present": "COALESCE(a.extra ? 'supplier_source_id', false)",
+}
+_ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL = ", ".join(
+    f"'{key}', {expression}" for key, expression in _ACCOUNT_MAPPING_PROPERTIES_SQL.items()
+)
+
+ACCOUNT_MODEL_MAPPING_CHECK_SQL = f"""
 SELECT jsonb_build_object(
   'accounts', COALESCE((
     SELECT jsonb_agg(jsonb_build_object(
       'id', a.id,
-      'name', a.name,
-      'platform', a.platform,
-      'type', a.type,
-      'channel_type', a.channel_type,
+      {_ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL},
       'status', a.status,
       'schedulable', a.schedulable,
-      'model_mapping', a.credentials->'model_mapping',
-      'mirror_platform', a.credentials->>'mirror_platform',
-      'base_url', a.credentials->>'base_url',
-      'auth_mode', a.credentials->>'auth_mode',
-      'vertex_capability_profile', a.credentials->>'vertex_capability_profile',
-      'supplier_source_id_present', COALESCE(a.extra ? 'supplier_source_id', false)
+      'model_mapping', a.credentials->'model_mapping'
     ) ORDER BY a.platform, a.id)
     FROM accounts a
     WHERE a.deleted_at IS NULL
@@ -143,7 +150,10 @@ SELECT jsonb_build_object(
 )::text;
 """.strip()
 
-SELF_CHECK_EXEMPT: dict[str, str] = {}
+SELF_CHECK_EXEMPT: dict[str, str] = {
+    "_ACCOUNT_MAPPING_PROPERTIES_SQL": "Expression map consumed by ACCOUNT_MODEL_MAPPING_CHECK_SQL and targeted CAS; not a standalone statement.",
+    "_ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL": "jsonb_build_object arguments executed inside ACCOUNT_MODEL_MAPPING_CHECK_SQL and targeted CAS.",
+}
 
 
 def iter_self_check_sql() -> list[tuple[str, str]]:
@@ -843,7 +853,7 @@ def _canonicalize_observed_mapping(row: dict[str, Any]) -> Any:
     if isinstance(raw, dict):
         if not raw:
             return {}
-        return dict(sorted((str(k), str(v)) for k, v in raw.items()))
+        return copy.deepcopy(dict(sorted(raw.items())))
     # Preserve non-dict JSON values (string, array, number) for accurate CAS
     return raw
 
@@ -899,6 +909,9 @@ def _collect_apply_plan(
         if plan and plan.get("desired_model_mapping"):
             plan["target"] = label
             plan["observed_model_mapping"] = _canonicalize_observed_mapping(row)
+            plan["observed_account_properties"] = {
+                key: row.get(key) for key in _ACCOUNT_MAPPING_PROPERTIES_SQL
+            }
             account_changes.append(plan)
         elif account_ids is not None:
             # Supplier Sync owns mapping; floor apply must not rewrite these rows.
@@ -911,6 +924,12 @@ def _collect_apply_plan(
                 already_compliant_ids.append(int(row.get("id") or 0))
             else:
                 skipped_ids.append(int(row.get("id") or 0))
+
+    if activation_floor_sha256 and skipped_ids:
+        raise RuntimeError(
+            "targeted activation cannot skip selected accounts: "
+            + ",".join(str(account_id) for account_id in skipped_ids)
+        )
 
     # Targeted mode: group_changes always empty.
     group_changes: list[dict[str, Any]] = []
@@ -1014,6 +1033,7 @@ def _compute_plan_sha256(plan: dict[str, Any]) -> str:
             {
                 "id": int(c.get("id") or 0),
                 "observed_model_mapping": c.get("observed_model_mapping"),
+                "observed_account_properties": c.get("observed_account_properties"),
                 "desired_model_mapping": c.get("desired_model_mapping"),
                 "diff": c.get("diff"),
             }
@@ -1030,8 +1050,8 @@ def _compute_plan_sha256(plan: dict[str, Any]) -> str:
 def _render_targeted_apply_sql(plan: dict[str, Any]) -> str:
     """Render per-account CAS updates within a transaction for targeted apply.
 
-    Each account row uses COALESCE(credentials->'model_mapping', 'null'::jsonb) = observed
-    as a CAS guard. PL/pgSQL checks ROW_COUNT=1 per row. One merged outbox event.
+    Compare both the mapping and its selector/ownership properties. PL/pgSQL
+    checks ROW_COUNT=1 per row. One merged outbox event.
     Rollback on any miss.
     """
     changes = plan.get("account_changes") or []
@@ -1050,16 +1070,22 @@ def _render_targeted_apply_sql(plan: dict[str, Any]) -> str:
         # CAS: observed model_mapping (None canonicalized to JSON null literal)
         observed_json = canonical_json(observed) if observed is not None else "null"
         observed_b64 = base64.b64encode(observed_json.encode("utf-8")).decode("ascii")
+        properties = change["observed_account_properties"]
+        if set(properties) != set(_ACCOUNT_MAPPING_PROPERTIES_SQL):
+            raise ValueError("targeted apply requires all observed account mapping properties")
+        properties_b64 = _json_b64(properties)
         lines.extend([
             f"DO $tk_targeted_{account_id}$ DECLARE changed bigint; BEGIN ",
-            "UPDATE accounts SET credentials = COALESCE(credentials, '{}'::jsonb) "
+            "UPDATE accounts a SET credentials = COALESCE(credentials, '{}'::jsonb) "
             f"|| convert_from(decode('{payload_b64}', 'base64'), 'UTF8')::jsonb, "
             "updated_at = NOW() "
             f"WHERE id = {account_id} AND deleted_at IS NULL AND status = 'active' "
+            f"AND jsonb_build_object({_ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL}) = "
+            f"convert_from(decode('{properties_b64}', 'base64'), 'UTF8')::jsonb "
             f"AND COALESCE(credentials->'model_mapping','null'::jsonb) = "
             f"convert_from(decode('{observed_b64}', 'base64'), 'UTF8')::jsonb; ",
             "GET DIAGNOSTICS changed = ROW_COUNT; "
-            f"IF changed <> 1 THEN RAISE EXCEPTION 'account {account_id} CAS failed: observed model_mapping changed'; "
+            f"IF changed <> 1 THEN RAISE EXCEPTION 'account {account_id} CAS failed: mapping or account properties changed'; "
             f"END IF; END $tk_targeted_{account_id}$;",
         ])
     # One merged outbox event for all changed accounts. Encode the payload like
@@ -2282,7 +2308,8 @@ def cmd_selftest(_args) -> int:
     assert guarded_sql.index("LOCK TABLE settings") < guarded_sql.index("UPDATE accounts")
     targeted_guarded_sql = _render_targeted_apply_sql({
         "activation_floor_sha256": "a" * 64,
-        "account_changes": [{**plan, "observed_model_mapping": {}}],
+        "account_changes": [{**plan, "observed_model_mapping": {},
+                             "observed_account_properties": dict.fromkeys(_ACCOUNT_MAPPING_PROPERTIES_SQL)}],
     })
     assert f"{SETTING_KEY} appeared before activation write" in targeted_guarded_sql
     assert targeted_guarded_sql.index("LOCK TABLE settings") < targeted_guarded_sql.index("UPDATE accounts")
@@ -2320,6 +2347,30 @@ def cmd_selftest(_args) -> int:
         assert activation_plan["activation_runtime_md5"] in activation_sql
         changed_runtime_plan = {**activation_plan, "activation_runtime_md5": "b" * 32}
         assert _compute_plan_sha256(changed_runtime_plan) != _compute_plan_sha256(activation_plan)
+        for property_name in _ACCOUNT_MAPPING_PROPERTIES_SQL:
+            changed_properties_plan = copy.deepcopy(activation_plan)
+            changed_properties_plan["account_changes"][0]["observed_account_properties"][property_name] = "changed"
+            assert _compute_plan_sha256(changed_properties_plan) != _compute_plan_sha256(activation_plan)
+        assert f"AND jsonb_build_object({_ACCOUNT_MAPPING_PROPERTIES_PAIRS_SQL}) = " in activation_sql
+        properties = activation_plan["account_changes"][0]["observed_account_properties"]
+        assert properties["base_url"] == scoped_row["base_url"]
+        assert _json_b64(properties) in activation_sql
+
+        for skipped_row in (
+            {**scoped_row, "supplier_source_id_present": True},
+            {"id": 999, "platform": "newapi", "channel_type": 999999},
+        ):
+            snapshot["runtime_setting"] = None
+            snapshot["accounts"] = [skipped_row]
+            # Routine reconciliation still respects the external mapping owner.
+            assert _collect_apply_plan("prod", "test-region", "i-test", account_ids=[999])["skipped_ids"] == [999]
+            try:
+                _collect_apply_plan("prod", "test-region", "i-test", "a" * 64, [999])
+            except RuntimeError as e:
+                assert "cannot skip selected accounts: 999" in str(e)
+            else:
+                raise AssertionError("activation accepted a selected account it cannot manage")
+        snapshot["runtime_setting"] = runtime_raw
         snapshot["accounts"] = [{**scoped_row, "base_url": "https://payg.example.test"}]
         try:
             _collect_apply_plan("prod", "test-region", "i-test", "a" * 64, [999])
@@ -2821,11 +2872,13 @@ def cmd_selftest(_args) -> int:
         "account_changes": [
             {
                 "id": 20,
+                "observed_account_properties": dict.fromkeys(_ACCOUNT_MAPPING_PROPERTIES_SQL),
                 "observed_model_mapping": {"old-key": "old-val"},
                 "desired_model_mapping": {"new-key": "new-val"},
             },
             {
                 "id": 30,
+                "observed_account_properties": dict.fromkeys(_ACCOUNT_MAPPING_PROPERTIES_SQL),
                 "observed_model_mapping": None,  # absent/null
                 "desired_model_mapping": {"grok": "grok-4.3", "grok-latest": "grok-4.3"},
             },
@@ -2863,6 +2916,7 @@ def cmd_selftest(_args) -> int:
         "account_changes": [
             {
                 "id": 50,
+                "observed_account_properties": dict.fromkeys(_ACCOUNT_MAPPING_PROPERTIES_SQL),
                 "observed_model_mapping": {},
                 "desired_model_mapping": {"new-model": "new-model"},
             },
@@ -2883,12 +2937,17 @@ def cmd_selftest(_args) -> int:
     assert empty_obj_b64 in block_50
     assert null_b64 not in block_50, "{} observed must not encode as null"
 
-    # --- _canonicalize_observed_mapping: {} preserved, non-dict coerced ---
+    # Observed JSON types must match storage even when repairing malformed mappings.
     assert _canonicalize_observed_mapping({"model_mapping": {}}) == {}
     assert _canonicalize_observed_mapping({"model_mapping": None}) is None
     assert _canonicalize_observed_mapping({}) is None  # absent key
     assert _canonicalize_observed_mapping({"model_mapping": "not-a-dict"}) == "not-a-dict"
     assert _canonicalize_observed_mapping({"model_mapping": {"b": "2", "a": "1"}}) == {"a": "1", "b": "2"}
+    malformed_mapping = {"number": 42, "null": None, "array": ["target"], "boolean": False}
+    observed_mapping = _canonicalize_observed_mapping({"model_mapping": malformed_mapping})
+    assert observed_mapping == malformed_mapping
+    observed_mapping["array"].append("changed")
+    assert malformed_mapping["array"] == ["target"]
 
     # --- Empty string --account-ids rejection ---
     try:
