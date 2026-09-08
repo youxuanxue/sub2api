@@ -48,6 +48,7 @@ export default {
     discoverEmpty: 'Upstream list processed: no normalization needed and no probe-passed suggestions.',
     normalizedChanges: 'Normalized changes',
     suggestedAppends: 'Suggested appends (probe passed)',
+    suggestedAppendsDrafted: '{count} probe-passed suggestion(s) drafted into the model list above (unsaved). Edit, then save.',
     rejectedCandidates: 'Not suggested',
     configuredIssues: 'Configured models missing from upstream list',
     globalPriorityPreview: 'Global priority preview',
