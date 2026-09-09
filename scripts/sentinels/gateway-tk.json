@@ -172,6 +172,31 @@
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": ["apicompat.ValidateChatToAnthropic(&chat)", "req.profile.PromptCache == PromptCacheKey"],
+      "rationale": "Messages candidates admit preserved Chat tools and cache placement while rejecting unsupported semantics."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": ["apicompat.ChatCompletionsToAnthropicRequest(&ccReq)"],
+      "rationale": "Native Chat-to-Messages execution must retain cache breakpoints and tool controls."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
+      "must_contain": ["apicompat.ChatCompletionsToAnthropicRequest(&ccReq)"],
+      "rationale": "NewAPI Messages accounts share the same cache-preserving converter."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_failover_tk.go",
+      "must_contain": ["Semantic:   tkBridgeFailureSemantic(apiErr)", "RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault"],
+      "rationale": "Recognized supplier 500 outages reach the shared failover policy without credential penalties."
+    },
+    {
+      "path": "backend/internal/handler/candidate_chat_messages_tk_test.go",
+      "must_contain": ["TestCandidateChatMessagesToolsPriorityAndSupplierFailover", "PrepareCandidateIngress", "row.CacheReadTokens"],
+      "rationale": "Real handler tests cover Messages account priority, supplier failover, tool responses and single settlement."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
       "must_contain": ["adapterID: AdapterChatToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesChatToGemini"],
       "rationale": "Standard Chat function tools must reach the Gemini converter through Plan."
     },
@@ -2363,9 +2388,18 @@
       "must_contain": [
         "Wei-Shaw/sub2api#1311",
         "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
+        "beginAnthropicClientHeaderWaitKeepalive(c, clientStream)",
         "openAICompatSSEFrameParser"
       ],
-      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+      "rationale": "Non-stream /v1/messages must gate downstream keepalive on clientStream, even when the Responses upstream is always streamed, and override Content-Type after WriteFilteredHeaders so buffered JSON is not mixed with SSE. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_buffered_keepalive_tk_test.go",
+      "must_contain": [
+        "TestForwardAsAnthropic_BufferedHeaderWaitPreservesJSON",
+        "json.Unmarshal(rec.Body.Bytes(), &response)"
+      ],
+      "rationale": "Slow Responses headers must not commit SSE to a buffered Messages client. Regression covers omitted and false stream flags, successful JSON and JSON errors after a keepalive interval."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_tk.go",
@@ -4906,10 +4940,22 @@
     {
       "path": "backend/internal/handler/openai_embeddings.go",
       "must_contain": [
+        "TkSetBridgeGinAuth(c, subject.UserID, groupName)",
+        "h.gatewayService.ForwardAsEmbeddingsDispatched(c.Request.Context(), c, account, forwardBody, \"\")",
+        "TkTryWriteNewAPIRelayErrorJSON(c, err, false, writerSizeBeforeForward)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, err)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, nil)"
       ],
-      "rationale": "The primary /v1/embeddings production regression path must remain wired to the shared first-selection failure contract for both explicit errors and nil selections."
+      "rationale": "The primary /v1/embeddings handler must use the selected account's adaptor dispatch and preserve NewAPI errors; bypassing it sends ali credentials to the native OpenAI fallback. Keep the shared first-selection failure contract. Regression: openai_embeddings_dispatch_tk_test.go exercises Direct/Universal, DashScope/native, payload, errors and usage."
+    },
+    {
+      "path": "backend/internal/handler/openai_embeddings_dispatch_tk_test.go",
+      "must_contain": [
+        "TestEmbeddings_DispatchesSelectedAccountProtocol",
+        "h.Embeddings(c)",
+        "/compatible-mode/v1/embeddings"
+      ],
+      "rationale": "Execute the real embeddings handler through account selection and upstream HTTP so adapter call-site loss cannot leave all service-only tests green."
     },
     {
       "path": "backend/internal/handler/openai_alpha_search.go",

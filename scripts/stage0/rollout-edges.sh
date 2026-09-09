@@ -26,6 +26,7 @@
 #   --tag X.Y.Z      image tag (no leading v). Required.
 #   --skip a[,b]     edges to exclude from the deployable matrix (e.g. canary).
 #   --edges "a b c"  explicit edge list; overrides the matrix + --skip.
+#   --ref REF        Git ref of deployment automation (image still uses --tag).
 #   --parallel N     batch size (default 1). N>1 dispatches a batch before
 #                    watching/verifying it; fail-stop applies before next batch.
 #
@@ -44,12 +45,14 @@ TAG=""
 SKIP=""
 EDGES=""
 PARALLEL=1
+WORKFLOW_REF=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --tag) TAG="${2:-}"; shift 2 ;;
     --skip) SKIP="${2:-}"; shift 2 ;;
     --edges) EDGES="${2:-}"; shift 2 ;;
     --parallel) PARALLEL="${2:-}"; shift 2 ;;
+    --ref) WORKFLOW_REF="${2:?--ref requires a Git ref}"; shift 2 ;;
     -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "rollout-edges: unknown arg: $1" >&2; exit 1 ;;
   esac
@@ -180,8 +183,10 @@ dispatch_edge() {
   local EDGE="$1" T0 DISPATCH_OUT RUN_ID
   echo "rollout-edges: dispatching edge=$EDGE" >&2
   T0="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local dispatch_args=(--edge-id "$EDGE" --operation upgrade --tag "$TAG" --smoke-phase infra)
+  if [ -n "$WORKFLOW_REF" ]; then dispatch_args+=(--ref "$WORKFLOW_REF"); fi
   if ! DISPATCH_OUT="$(bash scripts/stage0/dispatch-edge-deploy.sh \
-        --edge-id "$EDGE" --operation upgrade --tag "$TAG" --smoke-phase infra 2>&1)"; then
+        "${dispatch_args[@]}" 2>&1)"; then
     printf '%s\n' "$DISPATCH_OUT" >&2
     echo "rollout-edges: edge=$EDGE run_id=unknown result=fail (dispatch)" >&2
     return 2

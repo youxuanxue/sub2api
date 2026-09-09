@@ -161,6 +161,68 @@ function source(overrides: Partial<SupplierSource> = {}): SupplierSource {
   }
 }
 
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`Supplier mapping ratio sort preserves row edits at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    let src = source({
+      supplier_name: 'ali',
+      supplier_lane: 'default',
+      channel_type: 17,
+      endpoint: 'https://dashscope.aliyuncs.com',
+      models: [
+        { client_model_id: 'text-embedding-v4', upstream_model_id: 'text-embedding-v4', purchase_ratio: 1 },
+        { client_model_id: 'qwen-plus', upstream_model_id: 'qwen-plus', purchase_ratio: 0.7 },
+        { client_model_id: 'qwen-flash', upstream_model_id: 'qwen-flash', purchase_ratio: 0.3 },
+        { client_model_id: 'glm-4.7', upstream_model_id: 'glm-4.7', purchase_ratio: null },
+      ],
+    })
+    let saved: SupplierModel[] | undefined
+    await installBase(page, async (route, path) => {
+      if (path === '/api/v1/admin/supplier-sources') {
+        await fulfillSuccess(route, [src])
+        return true
+      }
+      if (path === '/api/v1/admin/supplier-sources/discover-channel-scoped-defaults') {
+        await fulfillSuccess(route, { channel_types: [] })
+        return true
+      }
+      if (path === '/api/v1/admin/supplier-sources/7' && route.request().method() === 'PUT') {
+        const input = route.request().postDataJSON()
+        saved = input.models
+        src = { ...src, ...input }
+        await fulfillSuccess(route, src)
+        return true
+      }
+      return false
+    })
+    await page.goto('/admin/supplier-sources?source_id=7')
+    const modelIDs = () => page.locator('[data-test="client-model-id"]').evaluateAll(
+      nodes => nodes.map(node => (node as HTMLInputElement).value),
+    )
+    await expect.poll(modelIDs).toEqual(['qwen-flash', 'qwen-plus', 'text-embedding-v4', 'glm-4.7'])
+    await expect(page.locator('[data-test="save-source"]')).toBeDisabled()
+    await expect(page.locator('[data-test="sync-source"]')).toBeEnabled()
+    await page.locator('[data-test="models-editor"]').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: test.info().outputPath('ratio-sort.png'), fullPage: true })
+
+    const rows = page.locator('[data-test="model-mapping-row"]')
+    await rows.nth(0).locator('[data-test="purchase-ratio"]').fill('0.9')
+    await expect.poll(modelIDs).toEqual(['qwen-plus', 'qwen-flash', 'text-embedding-v4', 'glm-4.7'])
+    await rows.nth(1).locator('[data-test="upstream-model-id"]').fill('qwen-flash-latest')
+    await rows.nth(0).getByRole('button').click()
+    await expect.poll(modelIDs).toEqual(['qwen-flash', 'text-embedding-v4', 'glm-4.7'])
+    await page.locator('[data-test="save-source"]').click()
+    await expect(page.locator('[data-test="save-source"]')).toBeDisabled()
+    expect(saved).toEqual([
+      { client_model_id: 'text-embedding-v4', upstream_model_id: 'text-embedding-v4', purchase_ratio: 1 },
+      { client_model_id: 'qwen-flash', upstream_model_id: 'qwen-flash-latest', purchase_ratio: 0.9 },
+      { client_model_id: 'glm-4.7', upstream_model_id: 'glm-4.7', purchase_ratio: null },
+    ])
+    await page.locator('[data-test="copy-source"]').click()
+    await expect.poll(modelIDs).toEqual(['qwen-flash', 'text-embedding-v4', 'glm-4.7'])
+  })
+}
+
 /** Discover is read-only; return a completed, no-confirm payload. */
 function discoverOK(src: SupplierSource) {
   return {

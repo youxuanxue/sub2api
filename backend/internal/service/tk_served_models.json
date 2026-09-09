@@ -405,6 +405,24 @@
         }
       ]
     },
+    "glm-5.3": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
+    "doubao-seed-2.1-turbo": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
     "glm-5.2-fast-preview": {
       "display": true,
       "channel_type": 17
@@ -567,7 +585,7 @@
       ]
     },
     "bge-large-en": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -576,7 +594,7 @@
       ]
     },
     "bge-large-zh": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -693,7 +711,7 @@
       ]
     },
     "qwen3-embedding-0.6b": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -702,7 +720,7 @@
       ]
     },
     "qwen3-embedding-4b": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -711,13 +729,37 @@
       ]
     },
     "qwen3-embedding-8b": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
         }
       ]
+    },
+    "text-embedding-v1": {
+      "display": true,
+      "channel_type": 17
+    },
+    "text-embedding-v2": {
+      "display": true,
+      "channel_type": 17
+    },
+    "text-embedding-v3": {
+      "display": true,
+      "channel_type": 17
+    },
+    "text-embedding-v4": {
+      "display": true,
+      "channel_type": 17
+    },
+    "qwen3.7-text-embedding": {
+      "display": true,
+      "channel_type": 17
+    },
+    "qwen3.7-text-embedding-flash": {
+      "display": true,
+      "channel_type": 17
     },
     "qwen3.5-122b-a10b": {
       "display": true,
@@ -781,6 +823,10 @@
     "glm-5.3-flash": {
       "display": true,
       "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        },
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"

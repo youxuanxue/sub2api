@@ -354,7 +354,7 @@ func TestForwardResultFromOpenAIPreservesRouteBillingFacts(t *testing.T) {
 	tier := "priority"
 	got := ForwardResultFromOpenAI(&OpenAIForwardResult{
 		RequestID:                     "req_1",
-		Usage:                         OpenAIUsage{InputTokens: 7, OutputTokens: 3, CacheCreationInputTokens: 2, CacheReadInputTokens: 5, ImageOutputTokens: 11},
+		Usage:                         OpenAIUsage{InputTokens: 14, OutputTokens: 3, CacheCreationInputTokens: 2, CacheReadInputTokens: 5, ImageOutputTokens: 11},
 		Model:                         "client-model",
 		UpstreamModel:                 "wire-model",
 		UpstreamResponseModel:         "wire-response-model",
@@ -399,7 +399,7 @@ func TestOpenAIForwardResultFromForwardPreservesRouteBillingFacts(t *testing.T) 
 	if got == nil || got.RequestID != "req_gemini" || got.Model != "client-model" || got.UpstreamModel != "wire-model" {
 		t.Fatalf("converted result identity = %#v", got)
 	}
-	if got.Usage.InputTokens != 13 || got.Usage.OutputTokens != 8 || got.Usage.CacheCreationInputTokens != 3 ||
+	if got.Usage.InputTokens != 21 || got.Usage.OutputTokens != 8 || got.Usage.CacheCreationInputTokens != 3 ||
 		got.Usage.CacheReadInputTokens != 5 || got.Usage.ImageOutputTokens != 21 {
 		t.Fatalf("converted usage = %#v", got.Usage)
 	}

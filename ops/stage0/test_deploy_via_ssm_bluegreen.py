@@ -432,6 +432,49 @@ TELEMETRY_ARCHIVE_ENABLED=""
 
 
 class BlueGreenRenderTest(unittest.TestCase):
+    def test_drain_requires_verified_zero_before_stopping(self) -> None:
+        proc, _, remote = _render()
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        function = _extract_shell_function(remote, "drain_container")
+        cases = (
+            ([3, 3, 3, 3, 2, 1, 0], "healthy", True),
+            ([3, 3, 3, 3, 3, 3, 3], "healthy", False),
+            (["bad"] * 7, "healthy", False),
+            ([{"draining": False, "in_flight": 0}] * 7, "healthy", False),
+            ([{"draining": True, "in_flight": "0"}] * 7, "healthy", False),
+            ([0], "unhealthy", False),
+        )
+        for values, health, should_stop in cases:
+            with self.subTest(values=values, health=health), tempfile.TemporaryDirectory() as tmp:
+                root = pathlib.Path(tmp)
+                samples = [json.dumps({"draining": True, "in_flight": v}) if isinstance(v, int)
+                           else json.dumps(v) if isinstance(v, dict) else v for v in values]
+                (root / "samples").write_text("\n".join(samples) + "\n")
+                script = f"""set -euo pipefail
+{function}
+cd {shlex.quote(tmp)}
+log() {{ :; }}
+die() {{ echo "$*"; return 1; }}
+container_health() {{ echo {shlex.quote(health)}; }}
+seq() {{ command seq 1 {len(values)}; }}
+sleep() {{ :; }}
+sudo() {{
+  case "$*" in
+    'docker kill -s USR1 old') : ;;
+    'docker exec old '* )
+      head -1 samples
+      sed '1d' samples > next
+      mv next samples ;;
+    *) echo "unexpected command: $*" >&2; return 1 ;;
+  esac
+}}
+drain_container old
+echo STOP_ALLOWED
+"""
+                result = subprocess.run(["bash"], input=script, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, should_stop, msg=result.stdout + result.stderr)
+                self.assertEqual("STOP_ALLOWED" in result.stdout, should_stop)
+
     def test_prepare_stops_before_route_switch_and_drain(self) -> None:
         proc, params, remote = _render(env_extra={"STAGE0_BLUEGREEN_STAGE": "prepare"})
         self.assertEqual(proc.returncode, 0, proc.stderr)

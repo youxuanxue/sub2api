@@ -152,7 +152,7 @@ func googleGatewayFailoverStatus(statusCode int) bool {
 func newAPIBridgeFailoverStatus(statusCode int) bool {
 	switch statusCode {
 	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusTooManyRequests,
-		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
 		return true
 	default:
 		return false

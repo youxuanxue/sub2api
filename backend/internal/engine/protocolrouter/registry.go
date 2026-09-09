@@ -1,9 +1,12 @@
 package protocolrouter
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
 
 type RouteKind string
@@ -200,10 +203,12 @@ func preservesChatToResponses(req CanonicalRequest) bool {
 }
 
 func preservesChatToMessages(req CanonicalRequest) bool {
-	return preservesMessagesToResponsesContent(req) &&
-		req.profile.Continuation == ContinuationNone &&
-		req.profile.Reasoning == ReasoningNone &&
-		req.profile.PromptCache == PromptCacheNone
+	if req.profile.ContentKinds != ContentText || req.profile.Continuation != ContinuationNone ||
+		req.profile.Reasoning != ReasoningNone || req.profile.PromptCache == PromptCacheKey {
+		return false
+	}
+	var chat apicompat.ChatCompletionsRequest
+	return json.Unmarshal(req.body, &chat) == nil && apicompat.ValidateChatToAnthropic(&chat) == nil
 }
 
 func preservesResponsesConversion(req CanonicalRequest) bool {

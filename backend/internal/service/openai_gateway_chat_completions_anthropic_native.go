@@ -56,16 +56,11 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
-	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
+	// 2. Use the shared Messages converter, including cache placement.
+	anthropicReq, err := apicompat.ChatCompletionsToAnthropicRequest(&ccReq)
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
-		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
-	}
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
-	if err != nil {
-		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
-		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
 	}
 
 	// 3. Model mapping（OpenAI 网关统一入口的映射语义）
@@ -260,7 +255,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 				case "thinking_delta":
 					finalResp.Content[idx].Thinking += event.Delta.Thinking
 				case "input_json_delta":
-					finalResp.Content[idx].Input = appendAnthropicToolJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
+					finalResp.Content[idx].Input = appendRawJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
 				}
 			}
 		}

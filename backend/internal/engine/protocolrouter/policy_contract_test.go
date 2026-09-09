@@ -14,7 +14,7 @@ func TestPolicyContractToolsToMessagesStayWithinConversionFeatures(t *testing.T)
 			allowed bool
 		}{
 			{"function_tools", RequestProfile{Tools: true, ToolChoice: ToolChoiceAuto, ContentKinds: ContentText}, true},
-			{"images", RequestProfile{Tools: true, ContentKinds: ContentText | ContentImage}, true},
+			{"images", RequestProfile{Tools: true, ContentKinds: ContentText | ContentImage}, inbound == ProtocolResponses},
 			{"continuation", RequestProfile{Tools: true, Continuation: ContinuationPreviousResponse}, false},
 			{"reasoning", RequestProfile{Tools: true, Reasoning: ReasoningEffort}, false},
 			{"audio", RequestProfile{Tools: true, ContentKinds: ContentAudio}, false},

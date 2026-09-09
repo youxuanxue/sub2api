@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "d6047c3ea5bb30ff49e341ed781276d773d42f2da205070c5807f9d66d26bd77",
+  "floor_sha256": "81ea55fdb9ee030e01586c32504211b81376691bc9ec051f77a1e02d42e15ca9",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -272,8 +272,14 @@
         "qwen3.7-max-2026-06-08": "qwen3.7-max-2026-06-08",
         "qwen3.7-max-preview": "qwen3.7-max-preview",
         "qwen3.7-plus": "qwen3.7-plus",
+        "qwen3.7-text-embedding": "qwen3.7-text-embedding",
+        "qwen3.7-text-embedding-flash": "qwen3.7-text-embedding-flash",
         "qwen3.8-2.4t-a95b": "qwen3.8-2.4t-a95b",
-        "qwen3.8-max": "qwen3.8-max"
+        "qwen3.8-max": "qwen3.8-max",
+        "text-embedding-v1": "text-embedding-v1",
+        "text-embedding-v2": "text-embedding-v2",
+        "text-embedding-v3": "text-embedding-v3",
+        "text-embedding-v4": "text-embedding-v4"
       },
       "25": {
         "kimi-k2.5": "kimi-k2.5",
@@ -426,8 +432,11 @@
           "doubao-seed-2.0-lite": "doubao-seed-2.0-lite",
           "doubao-seed-2.0-mini": "doubao-seed-2.0-mini",
           "doubao-seed-2.0-pro": "doubao-seed-2.0-pro",
+          "doubao-seed-2.1-turbo": "doubao-seed-2.1-turbo",
           "doubao-seed-evolving": "doubao-seed-evolving",
           "glm-5.2": "glm-5.2",
+          "glm-5.3": "glm-5.3",
+          "glm-5.3-flash": "glm-5.3-flash",
           "kimi-k2.6": "kimi-k2.6",
           "kimi-k2.7-code": "kimi-k2.7-code",
           "kimi-k3": "kimi-k3",

@@ -181,6 +181,44 @@ describe('SupplierSourcesView', () => {
     expect(wrapper.get('[data-test="model-priority-0"]').text()).toContain('160')
   })
 
+  it('sorts mapping rows by ratio without changing saved order or editing and removing the wrong model', async () => {
+    const models = [
+      { client_model_id: 'high', upstream_model_id: 'high', purchase_ratio: 0.8 },
+      { client_model_id: 'low', upstream_model_id: 'low', purchase_ratio: 0.2 },
+      { client_model_id: 'equal', upstream_model_id: 'equal', purchase_ratio: 0.2 },
+      { client_model_id: 'blank', upstream_model_id: 'blank', purchase_ratio: null },
+      { client_model_id: 'full', upstream_model_id: 'full', purchase_ratio: 1 },
+    ]
+    list.mockResolvedValueOnce([{ ...source, models }])
+    const wrapper = mount(SupplierSourcesView)
+    await flushPromises()
+    await wrapper.get('[data-test="source-select-7"]').trigger('click')
+    const displayedModels = () => wrapper.findAll<HTMLInputElement>('[data-test="client-model-id"]')
+      .map(input => input.element.value)
+
+    expect(displayedModels()).toEqual(['low', 'equal', 'high', 'blank', 'full'])
+    expect(wrapper.get('[data-test="save-source"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-test="sync-source"]').attributes('disabled')).toBeUndefined()
+
+    const lowRow = wrapper.findAll('[data-test="model-mapping-row"]')[0]
+    await lowRow.get('[data-test="purchase-ratio"]').setValue('0.9')
+    await lowRow.get('[data-test="upstream-model-id"]').setValue('low-upstream')
+    expect(displayedModels()).toEqual(['equal', 'high', 'low', 'blank', 'full'])
+    await wrapper.findAll('[data-test="model-mapping-row"]')[0].get('button').trigger('click')
+    expect(displayedModels()).toEqual(['high', 'low', 'blank', 'full'])
+
+    const savedModels = [models[0], { ...models[1], upstream_model_id: 'low-upstream', purchase_ratio: 0.9 }, models[3], models[4]]
+    update.mockResolvedValueOnce({ ...source, models: savedModels })
+    await wrapper.get('[data-test="save-source"]').trigger('submit')
+    await flushPromises()
+    expect(update).toHaveBeenCalledWith(7, expect.objectContaining({ models: savedModels }))
+    expect(models.map(model => model.client_model_id)).toEqual(['high', 'low', 'equal', 'blank', 'full'])
+    expect(models[1].purchase_ratio).toBe(0.2)
+
+    await wrapper.get('[data-test="copy-source"]').trigger('click')
+    expect(displayedModels()).toEqual(['high', 'low', 'blank', 'full'])
+  })
+
   it('selects the supplier source requested by source_id after loading the list', async () => {
     routeQuery.source_id = '7'
     list.mockResolvedValueOnce([

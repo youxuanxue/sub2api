@@ -7,10 +7,8 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -18,15 +16,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
-
-// Anthropic's input:{} announces a tool block; it is not a streamed argument
-// fragment. All TK Messages conversions share this assembly rule.
-func appendAnthropicToolJSON(existing json.RawMessage, fragment string) json.RawMessage {
-	if fragment != "" && strings.TrimSpace(string(existing)) == "{}" {
-		existing = nil
-	}
-	return appendRawJSON(existing, fragment)
-}
 
 // tkAnthropicBufferedAssembly accumulates one Anthropic Messages response from
 // a forced-SSE upstream while capturing TK terminal failure state.
@@ -82,7 +71,7 @@ func (a *tkAnthropicBufferedAssembly) applyEvent(event *apicompat.AnthropicStrea
 			case "thinking_delta":
 				a.FinalResp.Content[idx].Thinking += event.Delta.Thinking
 			case "input_json_delta":
-				a.FinalResp.Content[idx].Input = appendAnthropicToolJSON(a.FinalResp.Content[idx].Input, event.Delta.PartialJSON)
+				a.FinalResp.Content[idx].Input = appendRawJSON(a.FinalResp.Content[idx].Input, event.Delta.PartialJSON)
 			}
 		}
 	}

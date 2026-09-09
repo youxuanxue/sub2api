@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -237,7 +238,10 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointEmbeddings) {
-		return s.ForwardAsEmbeddings(ctx, c, account, body, defaultMappedModel)
+		if account != nil && account.Platform == PlatformNewAPI {
+			return nil, fmt.Errorf("newapi embeddings adaptor unavailable for account %d", account.ID)
+		}
+		return s.ForwardEmbeddings(ctx, c, account, body, defaultMappedModel)
 	}
 	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")

@@ -13,12 +13,12 @@ import (
 func TestCursorToolJSONDropsAnthropicStartPlaceholder(t *testing.T) {
 	args := json.RawMessage(`{}`)
 	for _, part := range []string{`{"path":`, `"fixture.txt"}`} {
-		args = appendAnthropicToolJSON(args, part)
+		args = appendRawJSON(args, part)
 	}
 	var parsed map[string]string
 	require.NoError(t, json.Unmarshal(args, &parsed))
 	require.Equal(t, "fixture.txt", parsed["path"])
-	require.JSONEq(t, `{}`, string(appendAnthropicToolJSON(json.RawMessage(`{}`), "")))
+	require.JSONEq(t, `{}`, string(appendRawJSON(json.RawMessage(`{}`), "")))
 }
 
 func TestAnthropicBufferedAssemblyIgnoresInvalidContentIndex(t *testing.T) {

@@ -1,12 +1,33 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
+	"github.com/stretchr/testify/require"
 )
+
+func TestEmbeddingsDispatch_NewAPINeverFallsBackToOpenAI(t *testing.T) {
+	for _, scenario := range []string{"disabled_bridge", "missing_channel"} {
+		t.Run(scenario, func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{}
+			svc := &OpenAIGatewayService{httpUpstream: upstream}
+			account := &Account{ID: 110, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeAli, Credentials: map[string]any{"api_key": "ali-test-key", "base_url": "https://dashscope.aliyuncs.com"}}
+			if scenario == "disabled_bridge" {
+				svc.settingService = &SettingService{settingRepo: &bridgeToggleSettingRepo{values: map[string]string{SettingKeyNewAPIBridgeEnabled: "off"}}}
+			} else {
+				account.ChannelType = 0
+			}
+			result, err := svc.ForwardAsEmbeddingsDispatched(context.Background(), nil, account, []byte(`{"model":"text-embedding-v4","input":"hello"}`), "")
+			require.ErrorContains(t, err, "embeddings adaptor unavailable")
+			require.Nil(t, result)
+			require.Nil(t, upstream.lastReq, "NewAPI credentials must never reach the native OpenAI transport")
+		})
+	}
+}
 
 func TestOpenAIShouldDispatchToNewAPIBridge(t *testing.T) {
 	svc := &OpenAIGatewayService{}
