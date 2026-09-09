@@ -3,6 +3,31 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
+      "path": "frontend/src/components/catalog/CatalogAudioPrice.tk.vue",
+      "must_contain": ["catalogAudioPrice(props.mode, props.perCharacter, props.perInputSecond)", "formatCatalogMediaPrice(price.value)", "t(price.unit)"],
+      "rationale": "Shared audio price rendering keeps character and duration units consistent across both catalog views."
+    },
+    {
+      "path": "frontend/src/views/ModelMarketplaceCatalog.vue",
+      "must_contain": ["<CatalogAudioPrice", ":per-input-second=\"model.pricing.input_cost_per_second\""],
+      "rationale": "Marketplace cards must consume the shared audio price component and the registry input-second rate."
+    },
+    {
+      "path": "frontend/src/views/PricingView.vue",
+      "must_contain": ["<CatalogAudioPrice", "perInputSecond: m.your_price.per_input_second ?? null"],
+      "rationale": "Personalized pricing keeps the duration rate instead of displaying an audio model as token-priced or free."
+    },
+    {
+      "path": "frontend/src/composables/useTkPricingExport.ts",
+      "must_contain": ["price_per_character_USD", "price_per_input_second_USD", "unitUsd(p.output_cost_per_character)", "unitUsd(p.input_cost_per_second)"],
+      "rationale": "CSV export must carry both audio price units and their values."
+    },
+    {
+      "path": "frontend/src/utils/studioMediaCatalog.tk.ts",
+      "must_contain": ["if (billingMode !== 'image' && billingMode !== 'video') return undefined"],
+      "rationale": "Audio catalog entries must not become unusable image/video Studio choices."
+    },
+    {
       "path": "frontend/src/constants/clientIntegrations.tk.ts",
       "must_contain": [
         "export const TK_CLIENT_CATALOG",
