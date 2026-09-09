@@ -34,8 +34,8 @@
 ### 开发工具
 
 ```bash
-# golangci-lint（CI 用 v2.9，本地建议装同一版以免版本差异带来的噪音）
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9
+# golangci-lint（CI 用 v2.13，本地建议装同一版以免版本差异带来的噪音）
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13
 
 # pnpm (前端包管理)
 npm install -g pnpm
@@ -203,7 +203,7 @@ go test -tags=integration ./...
 **解决**：
 ```bash
 cd backend
-go generate ./ent  # 重新生成 ent 代码
+go generate ./ent  # 重新生成 ent 代码（json.RawMessage 字段会生成为同类型的 jsontext.Value，属预期）
 git add ent/       # 生成的文件也要提交
 ```
 

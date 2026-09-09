@@ -267,6 +267,7 @@ type MePricingPrice struct {
 // MePricingPeakValley mirrors PublicCatalogPeakValley (the single source) in the
 // me-pricing DTO's naming. Prices are the PEAK side, per 1k tokens, USD.
 type MePricingPeakValley struct {
+	WeekdaysOnly   bool     `json:"weekdays_only,omitempty"`
 	Timezone       string   `json:"timezone"`
 	Windows        []string `json:"windows"`
 	PeakMultiplier float64  `json:"peak_multiplier"`
@@ -283,6 +284,7 @@ func mePricingPeakValleyFromCatalog(pv *PublicCatalogPeakValley) *MePricingPeakV
 		return nil
 	}
 	out := MePricingPeakValley{
+		WeekdaysOnly:   pv.WeekdaysOnly,
 		Timezone:       pv.Timezone,
 		PeakMultiplier: pv.PeakMultiplier,
 		InputPer1K:     pv.InputPer1KTokens,

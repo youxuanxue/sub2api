@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia } from 'pinia'
 
 import GroupBadge from '../GroupBadge.vue'
 
@@ -28,7 +29,7 @@ function mountBadge(props: Record<string, unknown>) {
       subscriptionType: 'standard',
       ...props,
     },
-    global: { plugins: [i18n] },
+    global: { plugins: [createPinia(), i18n] },
   })
 }
 

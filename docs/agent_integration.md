@@ -27,6 +27,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/accounts/:id/clear-error` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/clear-rate-limit` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/duplicate` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/accounts/:id/grok-media-eligibility` from `backend/internal/server/routes/admin.go`
+- `PUT /api/v1/admin/accounts/:id/grok-media-eligibility` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/accounts/:id/models` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/models/sync-upstream` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/accounts/:id/ollama-cloud-usage` from `backend/internal/server/routes/admin.go`
@@ -229,7 +231,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `PUT /api/v1/admin/groups/:id/composite-routes/:route_id` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/groups/:id/composite-routes/preview` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/groups/:id/duplicate` from `backend/internal/server/routes/admin.go`
-- `GET /api/v1/admin/groups/:id/models-list-candidates` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/groups/:id/model-allowlist-candidates` from `backend/internal/server/routes/admin.go`
 - `DELETE /api/v1/admin/groups/:id/rate-multipliers` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/groups/:id/rate-multipliers` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/groups/:id/rate-multipliers` from `backend/internal/server/routes/admin.go`
@@ -317,6 +319,16 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/payment/providers` from `backend/internal/server/routes/payment.go`
 - `DELETE /api/v1/admin/payment/providers/:id` from `backend/internal/server/routes/payment.go`
 - `PUT /api/v1/admin/payment/providers/:id` from `backend/internal/server/routes/payment.go`
+- `GET /api/v1/admin/plugins` from `backend/internal/server/routes/admin.go`
+- `DELETE /api/v1/admin/plugins/:id` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/plugins/:id` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/plugins/:id/config` from `backend/internal/server/routes/admin.go`
+- `PUT /api/v1/admin/plugins/:id/config` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/plugins/:id/disable` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/plugins/:id/enable` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/plugins/:id/test` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/plugins/:id/ui-session` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/plugins/upload` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/promo-codes` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/promo-codes` from `backend/internal/server/routes/admin.go`
 - `DELETE /api/v1/admin/promo-codes/:id` from `backend/internal/server/routes/admin.go`
@@ -381,6 +393,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/admin/settings/email-templates/:event/:locale` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/settings/email-templates/:event/:locale` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/settings/email-templates/:event/:locale/restore-official` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/settings/openai-images-oauth-unavailable-cooldown` from `backend/internal/server/routes/admin.go`
+- `PUT /api/v1/admin/settings/openai-images-oauth-unavailable-cooldown` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/settings/overload-cooldown` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/settings/overload-cooldown` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/settings/panel-rate-limit` from `backend/internal/server/routes/admin.go`
@@ -577,6 +591,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/payment/webhook/easypay` from `backend/internal/server/routes/payment.go`
 - `POST /api/v1/payment/webhook/stripe` from `backend/internal/server/routes/payment.go`
 - `POST /api/v1/payment/webhook/wxpay` from `backend/internal/server/routes/payment.go`
+- `GET /api/v1/plugin-ui/:token/*path` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/public/pricing` from `backend/internal/server/routes/public_tk_routes.go`
 - `POST /api/v1/redeem` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/redeem/history` from `backend/internal/server/routes/user.go`

@@ -171,7 +171,7 @@ func TestUS049_AdaptersDelegateWithoutBehaviorDrift(t *testing.T) {
 	require.True(t, (&AntigravityGatewayService{}).shouldFailoverUpstreamError(http.StatusForbidden))
 
 	contextWindow := []byte(`{"error":{"message":"input exceeds the context window"}}`)
-	require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(502, "", contextWindow))
+	require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(nil, 502, "", contextWindow))
 	require.False(t, openAIStreamErrorEventShouldFailover([]byte(`{"type":"error","error":{"message":"unknown client error"}}`), "unknown client error"))
 	require.True(t, openAIStreamFailedEventShouldFailover([]byte(`{"type":"response.failed"}`), ""))
 
@@ -192,5 +192,5 @@ func TestUS049_AdaptersDelegateWithoutBehaviorDrift(t *testing.T) {
 		Profile: gatewayFailoverProfileGoogle, Semantic: googleSemantic, StatusCode: http.StatusBadRequest,
 	}).RetryNextAccount)
 
-	require.True(t, (&OpenAIGatewayService{}).shouldFailoverLiveCreateError(errors.New("transport failed")))
+	require.True(t, (&OpenAIGatewayService{}).shouldFailoverLiveCreateError(nil, errors.New("transport failed")))
 }

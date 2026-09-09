@@ -3,6 +3,36 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/upstream_response_model.go",
+      "must_contain": ["observeOpenAIResponsesEvent(o.c, payload)", "o.ObserveServiceTier(tier, terminal)", "response.service_tier"],
+      "rationale": "Merging response observation must preserve both TokenKey event evidence and upstream processing-tier evidence; dropping the latter silently changes public API billing reconciliation."
+    },
+    {
+      "path": "backend/internal/service/upstream_response_model_test.go",
+      "must_contain": ["TestUpstreamResponseModelObserverServiceTierTerminalEventWins", "TestUpstreamResponseModelObserverServiceTierUntypedPayloads"],
+      "rationale": "Keep regressions for terminal processing tier precedence and ambiguous intermediate echoes."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward_tk_upstream_headers.go",
+      "must_contain": ["isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey)", "applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"],
+      "rationale": "HTTP forwarding must namespace sessions and embedded metadata by credential as WS does; failover must not reuse another upstream account's identity."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
+      "must_contain": ["isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), clientSessionID)", "isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), clientConversationID)", "applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"],
+      "rationale": "Passthrough and agent-identity requests retain credential-scoped session and conversation identity before fingerprint projection."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_account_identity_test.go",
+      "must_contain": ["TestCodexAccountIdentitySourceResolvesShadowAndOverwritesFailoverContext", "TestBuildOpenAIWSHeadersNamespacesCodexIdentityByOAuthAccount", "TestBuildUpstreamRequestNamespacesCodexIdentityByOAuthAccount"],
+      "rationale": "Protect shadow credential resolution, account failover isolation and HTTP/WS parity."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
+      "must_contain": ["loadOpenAIAccountRuntimeBlockEntry(value)", "currentEntry, valid := loadOpenAIAccountRuntimeBlockEntry(current)", "currentEntry.Until.Equal(snapshot.until)"],
+      "rationale": "Runtime block snapshots and conditional clearing must read the structured entry format without treating active blocks as corrupt legacy timestamps."
+    },
+    {
       "path": "backend/internal/engine/protocolrouter/registry.go",
       "must_contain": ["adapterID: AdapterChatToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesChatToGemini"],
       "rationale": "Standard Chat function tools must reach the Gemini converter through Plan."
@@ -185,7 +215,7 @@
     },
     {
       "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
-      "must_contain": ["payload = hooks.applyReasoningEffortPolicy(payload)"],
+      "must_contain": ["policyPayload, policyErr := hooks.applyReasoningEffortPolicy(payload)", "payload = policyPayload", "NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, policyErr.Error(), policyErr)"],
       "rationale": "Passthrough applies the current turn's reasoning policy after its authorization callback."
     },
     {
@@ -2233,7 +2263,8 @@
         "resolved.BasePricing.CacheCreationPricePerToken = *chPricing.CacheWritePrice",
         "func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, supportsCacheBreakdown bool) *ModelPricing",
         "Wei-Shaw/sub2api#2363",
-        "out.CacheReadPricePerToken = *iv.CacheReadPrice"
+        "out.CacheReadPricePerToken = *iv.CacheReadPrice",
+        "out.CacheCreation1hPrice = *iv.CacheWrite1hPrice"
       ],
       "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107) AND the interval overlay helper used by GetIntervalPricing (upstream #2363). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback. The overlay helper signature, #2363 reference, and the cache_read interval-overlay line are pinned so the symmetric in-range path cannot regress to the original empty-ModelPricing construction."
     },
@@ -2243,7 +2274,8 @@
         "TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied",
         "TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero",
         "TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved",
-        "TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat"
+        "TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat",
+        "TestGetIntervalPricing_CacheWriteDurationOverrides"
       ],
       "rationale": "Focused regressions for upstream #2107 (out-of-range path) and upstream #2363 (in-range path). The four tests jointly assert that channel flat defaults survive every interval lookup outcome (no intervals, no match, match overlapping interval, match disjoint from flat defaults) and that interval values take precedence in-range when both are set. Dropping any of these lets the symmetric pricing-dimension drop bugs return without unit-CI noticing."
     },
@@ -5029,18 +5061,24 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
-        "if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {",
-        "return nil, err"
+        "return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{"
       ],
-      "rationale": "Canonical Anthropic transport wiring must propagate context cancellation to the handler before writing the generic 502 JSON body. The handler owns final 499 classification; retaining this branch prevents client disconnects from becoming provider-owned upstream errors."
+      "rationale": "Canonical Anthropic transport must use the shared transport-error owner to return caller cancellation without writing 502. The handler owns final 499 classification."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
-        "if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {",
-        "return nil, err"
+        "return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{"
       ],
-      "rationale": "Anthropic API-key and OAuth passthrough return before the canonical Forward loop, so their shared transport-error branch must independently propagate caller cancellation without writing 502. Omitting this anchor makes client-cancel semantics depend on account passthrough configuration."
+      "rationale": "Anthropic API-key and OAuth passthrough bypass the canonical Forward loop and must use the same transport-error owner so cancellation semantics do not depend on account configuration."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_transport_error.go",
+      "must_contain": [
+        "errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)",
+        "return err"
+      ],
+      "rationale": "The shared transport-error owner must preserve caller cancellation without account eviction or a 502 response; both production call sites and the Forward cancellation regression are separately anchored."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
@@ -6300,7 +6338,7 @@
     {
       "path": "backend/internal/handler/ops_error_logger.go",
       "must_contain": [
-        "clientRequestRejected := hasOpsClientRequestRejected(c)",
+        "clientRequestRejected := ingressRejected || hasOpsClientRequestRejected(c) ||",
         "if clientRequestRejected && !effectiveUpstreamError && !routingCapacityLimited {"
       ],
       "rationale": "Injection point in classifyOpsErrorLog that owns a LOCAL pre-forward client request rejection (unservable model 400) to the client (phase=request -> owner=client) regardless of the response envelope. effectiveUpstreamError excludes local model-configuration failures from stale upstream evidence before this branch runs. An upstream merge that rewrites the phase-override ladder must keep this line or the /responses unservable-model 400 silently regresses to owner=platform and re-pollutes the gateway error rate."
@@ -7324,7 +7362,8 @@
     {
       "path": "backend/internal/service/openai_gateway_chat_completions.go",
       "must_contain": [
-        "account.IsOpenAIOAuthLike() && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)"
+        "!isResponsesShape && (account.UsesOpenAICodexProtocol() || account.IsOpenAIApiKey()) && shouldAutoInjectPromptCacheKeyForCompat(upstreamModel)",
+        "promptCacheKey = isolateOpenAISessionID(getAPIKeyIDFromContext(c), promptCacheKey)"
       ],
       "rationale": "Auto-inject prompt cache key for OAuth-like compat in ForwardAsChatCompletions: when an OAuth/setup_token account has no explicit prompt cache key but the model supports it, a deterministic key is derived so the session gets continuation benefits automatically. Losing this predicate disables auto-injection, degrading first-turn latency and breaking implicit session caching for compat entry OAuth accounts."
     },
@@ -7597,7 +7636,7 @@
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
-        "apiKeyAuthSnapshotVersion = 20",
+        "apiKeyAuthSnapshotVersion = 24",
         "apiKey.Group.StickyRoutingMode",
         "apiKey.Group.MessagesCompactionEnabled",
         "apiKey.Group.MessagesCompactionInputTokensThreshold",
@@ -7842,7 +7881,7 @@
       "path": "backend/internal/server/routes/gateway.go",
       "must_contain": [
         "gatewayRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, tkOpenAICompatAudioSpeechHandler(h))",
-        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
+        "rootRoutes.Register(http.MethodPost, \"/audio/speech\", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))"
       ],
       "rationale": "Public OpenAI-compat audio speech routes on /v1 and root must stay wired to tkOpenAICompatAudioSpeechHandler; dropping either registration silently removes the TTS surface while catalog/docs still advertise it."
     },
@@ -8122,7 +8161,7 @@
       "must_contain": [
         "partitionmaintenance.OpsCleanupOptions",
         "if !s.snapshotEffective().Enabled {",
-        "policy := resolveDataLifecyclePolicy(s.cfg, effective)",
+        "policy := resolveDataLifecyclePolicy(s.cfg, effective.OpsCleanupConfig)",
         "s.dashboardRepo.CleanupUsageLogs(ctx, now.AddDate(0, 0, -policy.usageLogRetentionDays))",
         "s.dashboardRepo.CleanupUsageBillingDedup(ctx, now.AddDate(0, 0, -policy.billingDedupRetentionDays))",
         "{policy.errorLogRetentionDays, \"ops_error_logs\"",
@@ -9416,7 +9455,7 @@
       "must_contain": [
         "if mirroredTokenCostAtMultOne != nil {",
         "func accountStatsTokenCostFromBreakdown(",
-        "return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, billingAt)"
+        "return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, billingAt, reasoningEffort)"
       ],
       "rationale": "Account-stats pricing priority 3 must treat a successfully mirrored user token cost, including an authoritative zero, as stronger than the LiteLLM fallback. Dropping the non-nil check or breakdown conversion silently makes account_stats_cost diverge from user TotalCost for channel overrides and peak-valley pricing while ordinary user billing remains correct."
     },

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 )
 
 type candidateAccountLister interface {
@@ -157,6 +158,16 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 func (r *CandidateRequest) evaluatePath(ctx context.Context, account *Account, group *Group) (*candidateExecutionPath, error) {
 	if !group.IsActive() || !candidateAccountInGroup(account, group.ID) || (r.forcePlatform != "" && account.Platform != r.forcePlatform) {
 		return nil, nil
+	}
+	if !group.ModelAllowlist.Allows(r.model) {
+		return nil, nil
+	}
+	if group.ModelAllowlistEnabled() {
+		for _, model := range requestmodel.FromBodyCandidates(r.path, r.contentType, r.body) {
+			if !group.ModelAllowlist.Allows(model) {
+				return nil, nil
+			}
+		}
 	}
 	pathCtx, model, channel, err := r.pathContext(ctx, group)
 	if err != nil {

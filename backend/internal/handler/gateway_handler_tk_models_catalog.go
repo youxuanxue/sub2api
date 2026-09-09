@@ -32,15 +32,30 @@ func (h *GatewayHandler) tkServeModels(c *gin.Context) {
 	if h.tryServeUniversalModels(c, apiKey, groupID) {
 		return
 	}
+	if apiKey != nil && !apiKey.IsUniversal() && apiKey.Group != nil &&
+		platform == service.PlatformOpenAI && apiKey.Group.Platform == service.PlatformOpenAI &&
+		apiKey.Group.CodexModelsManifestConfig.Enabled {
+		h.pinnedOpenAIModels(c, apiKey.Group)
+		return
+	}
 
 	// Get available models from account configurations, filtered to the
 	// selected group platform so cross-platform model_mapping entries on
 	// sibling accounts in the same group don't leak through.
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
+		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+			fallbackModels := defaultModelIDsForPlatform(service.PlatformComposite)
+			availableModels = modelListingSource(platform, availableModels, fallbackModels)
+			if apiKey.Group.CustomModelsListEnabled() {
+				availableModels = filterModelsByCustomList(availableModels, fallbackModels, apiKey.Group.ModelsListConfig.Models)
+			}
+			writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(availableModels))
+			return
+		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 			availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(service.PlatformComposite), apiKey.Group.ModelsListConfig.Models)
-			writeCustomModelsList(c, service.PlatformComposite, availableModels)
+			writeModelsList(c, service.PlatformComposite, availableModels)
 			return
 		}
 		if len(availableModels) > 0 {
@@ -56,10 +71,19 @@ func (h *GatewayHandler) tkServeModels(c *gin.Context) {
 	// TK: CatalogPolicy projection — priced and not structurally-gone.
 	// Transient unreachable stays visible. Nil-safe fail-open.
 	availableModels = h.tkFilterModelIDs(c.Request.Context(), platform, availableModels)
+	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+		fallbackModels := h.servableIDs(c.Request.Context(), platform)
+		availableModels = modelListingSource(platform, availableModels, fallbackModels)
+		if apiKey.Group.CustomModelsListEnabled() {
+			availableModels = filterModelsByCustomList(availableModels, fallbackModels, apiKey.Group.ModelsListConfig.Models)
+		}
+		writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(availableModels))
+		return
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := h.servableIDs(c.Request.Context(), platform)
-		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
-		writeCustomModelsList(c, platform, availableModels)
+		availableModels = filterModelsByCustomList(modelListingSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
+		writeModelsList(c, platform, availableModels)
 		return
 	}
 

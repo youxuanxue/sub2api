@@ -93,12 +93,12 @@ describe('channel-monitor-v2 design system structure', () => {
     expect(src).toMatch(/max-h-\[min\(40vh/)
   })
 
-  it('admin ChannelMonitorView V2 tab chrome uses project tabs', () => {
+  it('admin ChannelMonitorView delegates its table chrome to the shared layout', () => {
     const src = read('views/admin/ChannelMonitorView.vue')
-    expect(src).toContain('page-header')
-    expect(src).toContain('page-title')
-    expect(src).toContain('class="tabs')
-    expect(src).toContain('tab-active')
-    expect(src).toContain('MonitorSettingsPanel')
+    expect(src).toContain('<TablePageLayout>')
+    expect(src).toContain('<template #filters>')
+    expect(src).toContain('<MonitorFiltersBar')
+    expect(src).toContain('<template #table>')
+    expect(src).toContain('<template #pagination>')
   })
 })

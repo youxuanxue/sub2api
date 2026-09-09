@@ -9,6 +9,7 @@ const {
   getStats,
   getDashboardModels,
   getDashboardSnapshotV2,
+  listMyErrorRequests,
   list,
   getAvailable,
   showError,
@@ -20,6 +21,7 @@ const {
   getStats: vi.fn(),
   getDashboardModels: vi.fn(),
   getDashboardSnapshotV2: vi.fn(),
+  listMyErrorRequests: vi.fn(),
   list: vi.fn(),
   getAvailable: vi.fn(),
   showError: vi.fn(),
@@ -48,12 +50,18 @@ const messages: Record<string, string> = {
   'admin.usage.allGroups': 'All groups',
   'admin.usage.allModels': 'All models',
   'usage.allApiKeys': 'All API Keys',
+  'usage.errors.allKeys': 'All API Keys',
+  'usage.tabs.usage': 'Usage records',
+  'usage.tabs.errors': 'Error records',
   'usage.apiKeyFilter': 'API Key',
   'usage.model': 'Model',
   'usage.type': 'Type',
   'usage.ws': 'WS',
   'usage.stream': 'Stream',
   'usage.sync': 'Sync',
+  'usage.compactionFilter': 'Request Kind',
+  'usage.allCompactionTypes': 'All Requests',
+  'usage.compactionOnly': 'Compaction Only',
   'usage.exporting': 'Exporting',
   'usage.exportCsv': 'Export CSV',
   'usage.failedToLoad': 'Failed to load',
@@ -71,6 +79,7 @@ vi.mock('@/api', () => ({
     getStats,
     getDashboardModels,
     getDashboardSnapshotV2,
+    listMyErrorRequests,
   },
   keysAPI: {
     list,
@@ -81,7 +90,10 @@ vi.mock('@/api', () => ({
 }))
 
 vi.mock('@/stores/app', () => ({
-  useAppStore: () => ({ showError, showWarning, showSuccess, showInfo }),
+  useAppStore: () => ({
+    showError, showWarning, showSuccess, showInfo,
+    cachedPublicSettings: { allow_user_view_error_requests: true },
+  }),
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -143,6 +155,7 @@ const usageLog = {
   billing_mode: 'token',
   request_type: 'sync',
   stream: false,
+  native_compaction_v2: false,
 }
 
 function mountUsageView(options?: {
@@ -186,6 +199,7 @@ describe('user UsageView', () => {
     getStats.mockReset()
     getDashboardModels.mockReset()
     getDashboardSnapshotV2.mockReset()
+    listMyErrorRequests.mockReset()
     list.mockReset()
     getAvailable.mockReset()
     showError.mockReset()
@@ -221,7 +235,8 @@ describe('user UsageView', () => {
       trend: [],
       groups: [],
     })
-    list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }] })
+    listMyErrorRequests.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
+    list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }], total: 1, page: 1, page_size: 100, pages: 1 })
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
 
@@ -238,6 +253,7 @@ describe('user UsageView', () => {
       include_group_stats: true,
       timezone: expect.any(String),
     }))
+    expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
   })
@@ -268,6 +284,7 @@ describe('user UsageView', () => {
   it('exports csv with current filters and without admin-only fields', async () => {
     const wrapper = mountUsageView()
     await flushPromises()
+    ;(wrapper.vm as any).filters.native_compaction_v2 = true
 
     let exportedBlob: Blob | null = null
     let csvContent = ''

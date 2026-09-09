@@ -138,8 +138,8 @@ describe('DataTable', () => {
     const exposed = (wrapper.vm as any).virtualizer
     const instance = exposed?.value ?? exposed
     // getItemKey must resolve to the row's stable key (id), not the positional index.
-    expect(instance.options.getItemKey(0)).toBe(100)
-    expect(instance.options.getItemKey(5)).toBe(105)
+    expect(instance.options.getItemKey(0)).toBe('100')
+    expect(instance.options.getItemKey(5)).toBe('105')
   })
 
   it('clears stale row and element caches when pagination replaces the row ID set', async () => {
@@ -158,7 +158,7 @@ describe('DataTable', () => {
 
     const exposed = (wrapper.vm as any).virtualizer
     const instance = exposed?.value ?? exposed
-    const firstPageIDs = firstPage.map(row => row.id)
+    const firstPageIDs = firstPage.map(row => String(row.id))
     ;(instance as any).itemSizeCache = new Map(firstPageIDs.map(id => [id, 156]))
     instance.elementsCache.clear()
     for (const id of firstPageIDs) {
@@ -169,7 +169,7 @@ describe('DataTable', () => {
     await wrapper.setProps({ data: secondPage })
     await wrapper.vm.$nextTick()
 
-    const sizeCache = (instance as any).itemSizeCache as Map<number, number>
+    const sizeCache = (instance as any).itemSizeCache as Map<string, number>
     expect(sizeCache.size).toBeLessThanOrEqual(secondPage.length)
     expect(instance.elementsCache.size).toBeLessThanOrEqual(secondPage.length)
     expect(firstPageIDs.some(id => sizeCache.has(id))).toBe(false)
@@ -269,13 +269,13 @@ describe('DataTable', () => {
 
     const exposed = (wrapper.vm as any).virtualizer
     const instance = exposed?.value ?? exposed
-    ;(instance as any).itemSizeCache = new Map(data.map(row => [row.id, 156]))
+    ;(instance as any).itemSizeCache = new Map(data.map(row => [String(row.id), 156]))
     const measureSpy = vi.spyOn(instance, 'measure')
 
     await wrapper.setProps({ data: [...data].reverse() })
     await wrapper.vm.$nextTick()
 
-    const sizeCache = (instance as any).itemSizeCache as Map<number, number>
+    const sizeCache = (instance as any).itemSizeCache as Map<string, number>
     expect(measureSpy).not.toHaveBeenCalled()
     expect(sizeCache.size).toBe(100)
   })

@@ -1,4 +1,5 @@
 -- Per-user access control for public (non-exclusive) groups.
+-- bluegreen-safe-destructive-ok: additive boolean defaults false, preserving existing public group access and old writers.
 --
 -- Public groups have always been bindable by every user. When this flag is
 -- enabled for a user, the public groups they may bind are narrowed to the ones

@@ -184,7 +184,7 @@
     </div>
 
     <!-- Footer -->
-    <template v-if="!backendModeEnabled" #footer>
+    <template v-if="!backendModeEnabled && publicSettingsLoaded && registrationEnabled" #footer>
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.dontHaveAccount') }}
         <router-link
@@ -254,6 +254,7 @@ const publicSettingsLoaded = ref<boolean>(false)
 
 // Public settings
 const publicSettings = ref<PublicSettings | null>(null)
+const registrationEnabled = computed(() => publicSettings.value?.registration_enabled === true)
 const linuxdoOAuthEnabled = ref<boolean>(false)
 const dingtalkOAuthEnabled = ref<boolean>(false)
 const wechatOAuthEnabled = ref<boolean>(false)

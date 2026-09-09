@@ -123,9 +123,9 @@ type tkCodexStreamFailureInput struct {
 	codex                    *tkCodexFailureStreamState
 	ctx                      context.Context
 	upstreamRequestID        string
+	canonicalModel           string
 	respHeader               http.Header
 	usage                    *OpenAIUsage
-	firstTokenMs             **int
 	clientOutputStarted      bool
 	dataBytes                []byte
 	eventType                string
@@ -176,6 +176,9 @@ func (in tkCodexStreamFailureInput) handleFailureEvent(
 	}
 	if outputStarted && !out.cyberHit {
 		in.codex.onOutputStartedFailureSideEffects(in.s, in.c, in.account, in.eventType, in.dataBytes, out.failedMessage, in.respHeader)
+		if in.eventType == "response.failed" || !in.codex.enabled {
+			in.s.recordOpenAIStreamUpstreamError(in.c, in.account, in.passthrough, in.upstreamRequestID, "stream_failed", in.dataBytes, out.failedMessage)
+		}
 	}
 	considerFailover := !outputStarted || (!in.failoverOnlyBeforeOutput && in.eventType == "response.failed")
 	if considerFailover {
@@ -187,9 +190,11 @@ func (in tkCodexStreamFailureInput) handleFailureEvent(
 				shouldFailover = openAIStreamFailedEventShouldFailover(in.dataBytes, out.failedMessage)
 			}
 		}
-		if !openAIStreamFailoverBlockedByClientOutput(*in.firstTokenMs) && shouldFailover {
+		// TTFT may count an empty reasoning event before any bytes are committed.
+		// Retry eligibility follows actual output, independently of the metric mode.
+		if !outputStarted && shouldFailover {
 			out.sawFailedEvent = true
-			out.streamEarlyErr = in.s.newOpenAIStreamFailoverError(in.c, in.account, in.passthrough, in.upstreamRequestID, in.dataBytes, out.failedMessage, in.respHeader)
+			out.streamEarlyErr = in.s.newOpenAIStreamFailoverErrorWithModel(in.c, in.account, in.passthrough, in.upstreamRequestID, in.dataBytes, out.failedMessage, in.canonicalModel, in.respHeader)
 			return out, true
 		}
 		if !out.cyberHit && !in.codex.sawBareError {

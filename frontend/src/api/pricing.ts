@@ -38,6 +38,7 @@ export interface PublicPricing {
 }
 
 export interface PublicPricingPeakValley {
+	weekdays_only?: boolean
   timezone: string
   windows: string[]
   peak_multiplier: number

@@ -15,6 +15,20 @@ assert _spec and _spec.loader
 _spec.loader.exec_module(prd)
 
 
+class TypeAliasTest(unittest.TestCase):
+    def test_resolves_shared_platform_union(self) -> None:
+        source = "export type AccountPlatform = GroupPlatform\nexport type GroupPlatform = 'openai' | 'minimax'\n"
+        self.assertEqual(prd.parse_ts_union(source, "AccountPlatform", "types.ts"), (["openai", "minimax"], 1))
+
+    def test_rejects_circular_or_missing_alias(self) -> None:
+        for source in (
+            "export type A = B\nexport type B = A\n",
+            "export type A = Missing\n",
+        ):
+            with self.subTest(source=source), self.assertRaises(prd.ParseFailure):
+                prd.parse_ts_union(source, "A", "types.ts")
+
+
 PLATFORMS = ["anthropic", "gemini", "openai", "antigravity", "newapi", "kiro", "grok"]
 QUOTA_PLATFORMS = ["anthropic", "openai", "gemini", "antigravity", "grok"]
 ACCOUNT_TYPES = ["oauth", "setup-token", "apikey", "upstream", "bedrock", "service_account"]

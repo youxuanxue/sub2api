@@ -45,7 +45,7 @@ func TestCandidateBillingOriginQueryFailureIsNeverTariffEquality(t *testing.T) {
 		calls++
 		return nil, dbErr
 	}}
-	channels := NewChannelService(repo, nil, nil, nil)
+	channels := NewChannelService(repo, nil, nil, nil, nil)
 	groups := []Group{{ID: 1, RateMultiplier: .1}, {ID: 2, RateMultiplier: .2}}
 	for range 2 {
 		selected, err := selectCandidateBillingOrigin(context.Background(), 7, &Account{ID: 115}, groups, "claude-fable-5", ShapeAnthropicMessages, channels, nil, nil)
@@ -121,7 +121,7 @@ func TestCandidateBillingOriginMatchesChannelWildcardWithoutPricingMetadata(t *t
 		getGroupPlatformsFn: func(context.Context, []int64) (map[int64]string, error) {
 			return map[int64]string{1: PlatformOpenAI}, nil
 		},
-	}, nil, nil, nil)
+	}, nil, nil, nil, nil)
 	groups := []Group{{ID: 1, RateMultiplier: 1}, {ID: 2, RateMultiplier: .1,
 		ModelPricing: []ChannelModelPricing{{ID: 200, Models: []string{"gpt-5"}, BillingMode: BillingModeToken, InputPrice: &price}},
 	}}

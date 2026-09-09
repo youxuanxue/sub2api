@@ -78,7 +78,7 @@ func newAvailableChannelService(channels []Channel, groupRepo GroupRepository) *
 	repo := &mockChannelRepository{
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return channels, nil },
 	}
-	return NewChannelService(repo, groupRepo, nil, nil)
+	return NewChannelService(repo, groupRepo, nil, nil, nil)
 }
 
 func TestListAvailable_EmptyActiveGroups_NoGroupsAttached(t *testing.T) {
@@ -137,7 +137,7 @@ func TestListAvailable_ListAllErrorPropagates(t *testing.T) {
 		listAllFn: func(ctx context.Context) ([]Channel, error) { return nil, sentinel },
 	}
 	groupRepo := &stubGroupRepoForAvailable{}
-	svc := NewChannelService(repo, groupRepo, nil, nil)
+	svc := NewChannelService(repo, groupRepo, nil, nil, nil)
 	out, err := svc.ListAvailable(context.Background())
 	require.Nil(t, out)
 	require.ErrorIs(t, err, sentinel)
@@ -166,7 +166,7 @@ func TestListAvailable_CacheHitSkipsListAll(t *testing.T) {
 			return []Channel{{ID: 1, Name: "cached-channel", Status: StatusActive}}, nil
 		},
 	}
-	svc := NewChannelService(repo, &stubGroupRepoForAvailable{}, nil, nil)
+	svc := NewChannelService(repo, &stubGroupRepoForAvailable{}, nil, nil, nil)
 
 	out1, err := svc.ListAvailable(context.Background())
 	require.NoError(t, err)
@@ -187,7 +187,7 @@ func TestListAvailable_InvalidateCacheForcesRebuild(t *testing.T) {
 			return []Channel{{ID: 1, Name: "cached-channel", Status: StatusActive}}, nil
 		},
 	}
-	svc := NewChannelService(repo, &stubGroupRepoForAvailable{}, nil, nil)
+	svc := NewChannelService(repo, &stubGroupRepoForAvailable{}, nil, nil, nil)
 
 	_, err := svc.ListAvailable(context.Background())
 	require.NoError(t, err)
@@ -300,7 +300,7 @@ func TestFillGlobalPricingFallback_NilPricing(t *testing.T) {
 	models := []SupportedModel{
 		{Name: "claude-opus-4-5", Platform: "anthropic"},
 	}
-	svc.fillGlobalPricingFallback(models)
+	fillGlobalPricingFallback(svc.pricingService, models)
 	require.NotNil(t, models[0].Pricing)
 	require.NotNil(t, models[0].Pricing.InputPrice)
 	require.InDelta(t, 5e-6, *models[0].Pricing.InputPrice, 1e-12)
@@ -326,7 +326,7 @@ func TestFillGlobalPricingFallback_EmptyPricingFillsFromLiteLLM(t *testing.T) {
 			},
 		},
 	}
-	svc.fillGlobalPricingFallback(models)
+	fillGlobalPricingFallback(svc.pricingService, models)
 	require.NotNil(t, models[0].Pricing)
 	require.Equal(t, BillingModeImage, models[0].Pricing.BillingMode)
 	require.NotNil(t, models[0].Pricing.ImageOutputPrice)
@@ -347,7 +347,7 @@ func TestFillGlobalPricingFallback_KeepsExistingPrice(t *testing.T) {
 	models := []SupportedModel{
 		{Name: "served-model", Platform: "anthropic", Pricing: existing},
 	}
-	svc.fillGlobalPricingFallback(models)
+	fillGlobalPricingFallback(svc.pricingService, models)
 	require.Same(t, existing, models[0].Pricing)
 }
 

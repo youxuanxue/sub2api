@@ -9,6 +9,7 @@ const brandingSource = readFileSync(resolve(dir, '../../../utils/branding.ts'), 
 const sidebarSource = readFileSync(resolve(dir, '../AppSidebar.vue'), 'utf8')
 const keyUsageViewSource = readFileSync(resolve(dir, '../../../views/KeyUsageView.vue'), 'utf8')
 const homeLandingSource = readFileSync(resolve(dir, '../../../components/home/HomeTkLanding.tk.vue'), 'utf8')
+const homeShellSource = readFileSync(resolve(dir, '../../../features/home/useHomeShell.tk.ts'), 'utf8')
 
 describe('site_logo sanitization', () => {
   it('resolveSiteLogo is the single sanitizing fallback', () => {
@@ -29,7 +30,8 @@ describe('site_logo sanitization', () => {
   })
 
   it('HomeTkLanding resolves site logos through resolveSiteLogo', () => {
-    expect(homeLandingSource).toContain("import { resolveSiteLogo } from '@/utils/branding'")
-    expect(homeLandingSource).toContain('resolveSiteLogo(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo')
+    expect(homeLandingSource).toContain('= useHomeShell()')
+    expect(homeShellSource).toContain("import { resolveSiteLogo } from '@/utils/branding'")
+    expect(homeShellSource).toContain('resolveSiteLogo(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo')
   })
 })

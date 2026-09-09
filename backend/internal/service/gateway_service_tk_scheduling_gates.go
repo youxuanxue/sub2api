@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -108,6 +109,17 @@ func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int6
 	}
 	_, err := s.rpmCache.IncrementRPM(ctx, accountID)
 	return err
+}
+
+// ReleaseAccountSession releases the slot after forwarding fails; successful sessions expire when idle.
+func (s *GatewayService) ReleaseAccountSession(ctx context.Context, account *Account, sessionID string) {
+	if s == nil || s.sessionLimitCache == nil || account == nil || sessionID == "" ||
+		!account.IsAnthropicOAuthOrSetupToken() || account.GetMaxSessions() <= 0 {
+		return
+	}
+	if err := s.sessionLimitCache.UnregisterSession(ctx, account.ID, sessionID); err != nil {
+		slog.Debug("session_limit.release_failed", "account_id", account.ID, "error", err)
+	}
 }
 
 // checkAndRegisterSession 检查并注册会话，用于会话数量限制

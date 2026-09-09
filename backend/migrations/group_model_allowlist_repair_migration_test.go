@@ -1,27 +1,83 @@
+//go:build integration
+
 package migrations
 
 import (
-	"strings"
+	"context"
+	"database/sql"
 	"testing"
 
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
 func TestGroupModelAllowlistRepairMigration(t *testing.T) {
-	content, err := FS.ReadFile("236_group_model_allowlist_repair.sql")
+	ctx := context.Background()
+	container, err := postgres.Run(ctx, "postgres:16-alpine",
+		postgres.WithDatabase("allowlist_repair"), postgres.WithUsername("postgres"),
+		postgres.WithPassword("postgres"), postgres.BasicWaitStrategies())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, container.Terminate(ctx)) })
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+	db, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	sql := strings.Join(strings.Fields(string(content)), " ")
-
-	// 三种残留状态都要收敛到 model_allowlist。
-	require.Contains(t, sql, "ALTER TABLE groups RENAME COLUMN models_list_config TO model_allowlist")
-	require.Contains(t, sql, "ADD COLUMN IF NOT EXISTS model_allowlist JSONB NOT NULL DEFAULT '{}'::jsonb")
-	require.Contains(t, sql, "SET model_allowlist = models_list_config")
-	require.Contains(t, sql, "ALTER TABLE groups ALTER COLUMN model_allowlist SET NOT NULL")
-	require.Contains(t, sql, "COMMENT ON COLUMN groups.model_allowlist")
-
-	// 235 用 table_schema = 'public' 判定列是否存在，而 ALTER TABLE 走的是 search_path；
-	// 修复迁移必须用 regclass 解析，两者才不会在非 public schema 上分叉。
-	require.NotContains(t, sql, "table_schema = 'public'")
-	require.Contains(t, sql, "attrelid = 'groups'::regclass")
+	const listing = `{"enabled":true,"models":["listing-only"]}`
+	const policy = `{"enabled":true,"models":["admitted-model"]}`
+	for _, schema := range []string{"public", "tenant"} {
+		for _, state := range []struct {
+			name       string
+			columns    string
+			values     string
+			wantList   string
+			wantPolicy string
+		}{
+			{"fresh", "", "", `{}`, `{}`},
+			{"legacy_only", ", models_list_config jsonb", ", '" + listing + "'", listing, `{}`},
+			{"policy_only", ", model_allowlist jsonb", ", '" + policy + "'", `{}`, policy},
+			{"both", ", models_list_config jsonb, model_allowlist jsonb", ", '" + listing + "', '" + policy + "'", listing, policy},
+			{"null_policy", ", models_list_config jsonb, model_allowlist jsonb", ", '" + listing + "', NULL", listing, `{}`},
+		} {
+			t.Run(schema+"/"+state.name, func(t *testing.T) {
+				tx, err := db.BeginTx(ctx, nil)
+				require.NoError(t, err)
+				defer func() { _ = tx.Rollback() }()
+				exec := func(query string) {
+					t.Helper()
+					_, err := tx.ExecContext(ctx, query)
+					require.NoError(t, err)
+				}
+				if schema == "tenant" {
+					exec("CREATE SCHEMA tenant")
+					// An unrelated public table must not affect search_path resolution.
+					exec("CREATE TABLE public.groups (id bigint PRIMARY KEY)")
+				}
+				exec("SET LOCAL search_path TO " + schema)
+				exec("CREATE TABLE groups (id bigint PRIMARY KEY" + state.columns + ")")
+				exec("INSERT INTO groups VALUES (1" + state.values + ")")
+				for range 2 {
+					for _, name := range []string{"235_group_model_allowlist.sql", "236_group_model_allowlist_repair.sql"} {
+						migration, err := FS.ReadFile(name)
+						require.NoError(t, err)
+						exec(string(migration))
+					}
+				}
+				var gotList, gotPolicy string
+				require.NoError(t, tx.QueryRowContext(ctx, "SELECT models_list_config, model_allowlist FROM groups WHERE id=1").Scan(&gotList, &gotPolicy))
+				require.JSONEq(t, state.wantList, gotList)
+				require.JSONEq(t, state.wantPolicy, gotPolicy)
+				exec(`UPDATE groups SET models_list_config = '{"models":["old-writer"]}' WHERE id=1`)
+				require.NoError(t, tx.QueryRowContext(ctx, "SELECT model_allowlist FROM groups WHERE id=1").Scan(&gotPolicy))
+				require.JSONEq(t, state.wantPolicy, gotPolicy)
+				exec("INSERT INTO groups (id) VALUES (2)")
+				require.NoError(t, tx.QueryRowContext(ctx, "SELECT model_allowlist FROM groups WHERE id=2").Scan(&gotPolicy))
+				require.JSONEq(t, `{}`, gotPolicy)
+				_, err = tx.ExecContext(ctx, "UPDATE groups SET model_allowlist=NULL WHERE id=2")
+				require.ErrorContains(t, err, "not-null constraint")
+			})
+		}
+	}
 }

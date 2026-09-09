@@ -347,7 +347,7 @@ func tkShouldOpenAICodex429BeModelScoped(account *Account, headers http.Header, 
 	if calculateOpenAI429ResetTime(headers) != nil {
 		return false
 	}
-	if parseOpenAIRateLimitResetTime(responseBody) == nil {
+	if parseOpenAIRateLimitResetTime(responseBody) == nil && !isCodexBengalfoxActiveLimit(headers) {
 		return false
 	}
 	scopeKey := strings.TrimSpace(account.GetMappedModel(requestedModel))

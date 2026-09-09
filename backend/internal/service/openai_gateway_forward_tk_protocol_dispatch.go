@@ -47,7 +47,7 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 		return result, outBody, true, err
 	}
 	if account.IsOpenAIApiKey() {
-		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(outBody); normalizeErr != nil {
+		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(outBody, false); normalizeErr != nil {
 			return nil, outBody, true, normalizeErr
 		} else if changed {
 			outBody = normalized
@@ -71,13 +71,12 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 		return false
 	}
 	if account.IsCNProvider() {
-		// CN 的显式协议配置优先于异步探针 Extra；adaptive 仅 DeepSeek 有原生
-		// Responses，Kimi/GLM 回退 Chat Completions。
+		// Explicit protocol configuration takes precedence over asynchronous probes.
 		switch account.GetAPIProtocol() {
 		case APIProtocolChatCompletions:
 			return true
 		case APIProtocolAdaptive:
-			return account.Platform != PlatformDeepseek
+			return !account.SupportsNativeCNResponses()
 		case APIProtocolResponses, APIProtocolAnthropic:
 			return false
 		default:

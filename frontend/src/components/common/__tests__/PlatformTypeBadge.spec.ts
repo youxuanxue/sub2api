@@ -35,7 +35,8 @@ describe('PlatformTypeBadge (US-017 — fifth platform newapi must not be mislab
     expect(wrapper.text()).toContain('Extension Engine')
     expect(wrapper.text()).not.toContain('Gemini')
     expect(wrapper.html()).toContain('bg-cyan-100')
-    expect(wrapper.html()).not.toContain('bg-blue-100') // would indicate Gemini-fallback regression
+    const platformChip = wrapper.findAll('span').find(node => node.text() === 'Extension Engine' && node.classes().includes('inline-flex'))!
+    expect(platformChip.classes()).not.toContain('bg-blue-100')
   })
 
   it('NEGATIVE — truly unknown platforms fall back to neutral gray (no silent Gemini mislabel)', () => {

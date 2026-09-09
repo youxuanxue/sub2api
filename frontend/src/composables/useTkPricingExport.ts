@@ -105,7 +105,8 @@ export function formatTiers(tiers: PublicPricingTier[] | undefined): string {
 /** Peak windows as one cell, e.g. "09:00-12:00; 14:00-18:00". */
 function formatPeakWindows(pv: PublicPricingPeakValley | undefined): string {
   if (!pv || !pv.windows || pv.windows.length === 0) return ''
-  return pv.windows.filter(Boolean).join('; ')
+  const windows = pv.windows.filter(Boolean).join('; ')
+  return pv.weekdays_only ? `Weekdays: ${windows}` : windows
 }
 
 /** RFC-4180 escaping: quote when the cell holds a comma, quote, or newline. */

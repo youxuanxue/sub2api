@@ -882,6 +882,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
             timezone: m.pricing.peak_valley.timezone,
             windows: m.pricing.peak_valley.windows,
             peakMultiplier: m.pricing.peak_valley.peak_multiplier,
+			weekdaysOnly: m.pricing.peak_valley.weekdays_only,
             inputPer1K: m.pricing.peak_valley.input_per_1k_tokens,
             outputPer1K: m.pricing.peak_valley.output_per_1k_tokens,
             cacheReadPer1K: m.pricing.peak_valley.cache_read_per_1k ?? null
@@ -922,6 +923,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
           timezone: m.your_price.peak_valley.timezone,
           windows: m.your_price.peak_valley.windows,
           peakMultiplier: m.your_price.peak_valley.peak_multiplier,
+		  weekdaysOnly: m.your_price.peak_valley.weekdays_only,
           inputPer1K: m.your_price.peak_valley.input_per_1k,
           outputPer1K: m.your_price.peak_valley.output_per_1k,
           cacheReadPer1K: m.your_price.peak_valley.cache_read_per_1k ?? null

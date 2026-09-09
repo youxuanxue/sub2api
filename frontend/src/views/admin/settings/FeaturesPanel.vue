@@ -171,6 +171,20 @@
       </div>
     </div>
 
+    <div class="border-b border-gray-100 px-6 py-5 dark:border-dark-700">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t('admin.settings.features.pluginManagement.enabled') }}
+          </label>
+          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.settings.features.pluginManagement.enabledHint') }}
+          </p>
+        </div>
+        <Toggle v-model="form.plugin_management_enabled" />
+      </div>
+    </div>
+
     <!-- Affiliate (邀请返利) feature card -->
     <div class="card">
       <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">

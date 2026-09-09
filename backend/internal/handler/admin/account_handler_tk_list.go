@@ -102,11 +102,15 @@ func (h *AccountHandler) tkBuildAccountListRow(
 	// for single-account detail/edit fetches.
 	accountDTO := dto.AccountFromService(acc)
 	if lite {
-		accountDTO = dto.AccountFromServiceShallow(acc)
+		accountDTO = h.accountListResponseFromService(acc)
+		if h.isSimpleMode() {
+			accountDTO.GroupIDs = filterSimpleModeGroupIDs(accountDTO.GroupIDs, simpleModeCompositeServiceGroupIDs(acc))
+		}
 	}
 	accountDTO = h.enrichAccountResponse(accountDTO)
 	item := AccountWithConcurrency{
 		Account:            accountDTO,
+		simpleMode:         h.isSimpleMode() && !lite,
 		CurrentConcurrency: concurrencyCounts[acc.ID],
 		SchedulerScore:     schedulerScores[acc.ID],
 		SchedulerScores:    schedulerGroupScores[acc.ID],

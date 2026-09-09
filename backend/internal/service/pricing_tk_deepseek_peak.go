@@ -20,6 +20,7 @@ type tkDeepSeekPeakValleyWindow struct {
 // off-peak (谷时) list prices and billing applies PeakMultiplier during windows.
 type tkDeepSeekPeakValleyPolicy struct {
 	Timezone       string                       `json:"timezone"`
+	WeekdaysOnly   bool                         `json:"weekdays_only,omitempty"`
 	PeakMultiplier float64                      `json:"peak_multiplier"`
 	Windows        []tkDeepSeekPeakValleyWindow `json:"windows"`
 	ModelContains  []string                     `json:"model_contains"`
@@ -72,7 +73,7 @@ func loadTkDeepSeekPeakValleyPolicy() *tkDeepSeekPeakValleyPolicy {
 }
 
 func tkDeepSeekPeakValleyAppliesWithPolicy(policy *tkDeepSeekPeakValleyPolicy, model string, pricingSource string) bool {
-	if pricingSource == PricingSourceChannel {
+	if pricingSource == PricingSourceChannel || pricingSource == PricingSourceGroup {
 		return false
 	}
 	if policy == nil {
@@ -104,6 +105,9 @@ func tkDeepSeekPeakMultiplierAtWithPolicy(policy *tkDeepSeekPeakValleyPolicy, no
 		}
 	}
 	t := now.In(loc)
+	if policy.WeekdaysOnly && (t.Weekday() == time.Saturday || t.Weekday() == time.Sunday) {
+		return 1
+	}
 	cur := t.Hour()*60 + t.Minute()
 	for _, w := range policy.Windows {
 		start, ok1 := parseMinutes(w.Start)

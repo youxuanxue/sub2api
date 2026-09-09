@@ -47,7 +47,8 @@ const en: LocaleOverlay = {
       "tieredCaption": "Price varies by context length (input + cache tokens)",
       "offPeak": "Off-peak",
       "peak": "Peak",
-      "peakCaption": "Peak {windows} ({tz}) bills at {mult}× the off-peak price"
+      "peakCaption": "Peak {windows} ({tz}) bills at {mult}× the off-peak price",
+      "weekdayPeakCaption": "Weekday peak {windows} ({tz}) bills at {mult}×; weekends use off-peak prices"
     },
     "video": {
       "withAudio": "with audio",
@@ -1005,7 +1006,8 @@ const zh: LocaleOverlay = {
       "tieredCaption": "按上下文长度分档计价（输入 + 缓存 token 合计）",
       "offPeak": "谷时",
       "peak": "高峰",
-      "peakCaption": "高峰 {windows}（{tz}）按谷时价 ×{mult} 计费"
+      "peakCaption": "高峰 {windows}（{tz}）按谷时价 ×{mult} 计费",
+      "weekdayPeakCaption": "工作日高峰 {windows}（{tz}）按谷时价 ×{mult} 计费，周末全天谷时价"
     },
     "video": {
       "withAudio": "有声",

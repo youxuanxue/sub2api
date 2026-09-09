@@ -14,7 +14,7 @@ const BRAND_SURFACES = [
   'src/components/modelPlaza/PlazaNavBar.vue',
   'src/views/public/LegalDocumentView.vue',
   'src/views/KeyUsageView.vue',
-  'src/components/home/HomeTkLanding.tk.vue',
+  'src/features/home/useHomeShell.tk.ts',
 ] as const
 
 const UPSTREAM_LOGO_FALLBACK = /(?:\|\|\s*['"]\/logo\.svg['"]|href=["']\/logo\.svg["'])/

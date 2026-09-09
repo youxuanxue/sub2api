@@ -57,24 +57,25 @@ func candidateBillingAccountID(account *Account) int64 {
 }
 
 type candidateBillingPolicy struct {
-	mappedModel      string
-	billingModel     string
-	responsePricing  bool
-	pricing          *ChannelModelPricing
-	fallbackPricing  []*ChannelModelPricing
-	responseCards    []ChannelModelPricing
-	longContext      bool
-	compaction       openAICompatMessagesCompactionPolicy
-	reasoningBody    string
-	reasoningMaximum string
-	reasoningMapping []ReasoningEffortMapping
-	mcpXML           bool
-	channelFeatures  map[string]any
-	imagePrices      [3]*float64
-	videoPrices      [][3]*float64
-	searchPrice      *float64
-	webSearchPrice   *float64
-	audioPrices      [3]*float64
+	mappedModel        string
+	billingModel       string
+	responsePricing    bool
+	pricing            *ChannelModelPricing
+	fallbackPricing    []*ChannelModelPricing
+	responseCards      []ChannelModelPricing
+	longContext        bool
+	compaction         openAICompatMessagesCompactionPolicy
+	reasoningBody      string
+	reasoningMaximum   string
+	reasoningOverLimit string
+	reasoningMapping   []ReasoningEffortMapping
+	mcpXML             bool
+	channelFeatures    map[string]any
+	imagePrices        [3]*float64
+	videoPrices        [][3]*float64
+	searchPrice        *float64
+	webSearchPrice     *float64
+	audioPrices        [3]*float64
 }
 
 func candidateBillingPolicyForOrigin(ctx context.Context, account, billingAccount *Account, group *Group, model string, shape UniversalShape, channels *ChannelService) (candidateBillingPolicy, error) {
@@ -172,10 +173,14 @@ func candidateBillingPolicyForOrigin(ctx context.Context, account, billingAccoun
 	}
 	if account != nil && account.Platform == PlatformOpenAI && (shape == ShapeOpenAIChat || shape == ShapeAnthropicMessages || shape == ShapeAnthropicCountTokens) {
 		if request, ok := ProtocolRoutingRequest(ctx); ok {
-			body, _ := ApplyOpenAIReasoningEffortPolicy(request.Body(), group.MaxReasoningEffort, group.ReasoningEffortMappings)
+			body, _, err := ApplyOpenAIReasoningEffortPolicy(request.Body(), group.MaxReasoningEffort, group.ReasoningEffortMappings, group.MaxReasoningEffortOverLimit)
+			if err != nil {
+				return policy, err
+			}
 			policy.reasoningBody = string(body)
 		} else {
 			policy.reasoningMaximum = NormalizeMaxReasoningEffort(group.MaxReasoningEffort)
+			policy.reasoningOverLimit = NormalizeMaxReasoningEffortOverLimit(group.MaxReasoningEffortOverLimit)
 			if len(group.ReasoningEffortMappings) > 0 {
 				policy.reasoningMapping = group.ReasoningEffortMappings
 			}

@@ -511,8 +511,8 @@ describe('CreateAccountModal — Grok relay stub', () => {
     await nextTick()
 
     await wrapper.find('input[data-tour="account-form-name"]').setValue('grok-us4')
-    const baseUrlInput = wrapper.find('input[placeholder="https://api-us4.tokenkey.dev"]')
-    const apiKeyInput = wrapper.find('input[placeholder="tk-edge-..."]')
+    const baseUrlInput = wrapper.find('input[placeholder="https://api.x.ai/v1"]')
+    const apiKeyInput = wrapper.find('input[placeholder="xai-..."]')
     expect(baseUrlInput.exists()).toBe(true)
     expect(apiKeyInput.exists()).toBe(true)
     await baseUrlInput.setValue('https://api-us4.tokenkey.dev')
@@ -551,7 +551,8 @@ describe('CreateAccountModal — Grok relay stub', () => {
     await nextTick()
 
     await wrapper.find('input[data-tour="account-form-name"]').setValue('grok-us4')
-    await wrapper.find('input[placeholder="tk-edge-..."]').setValue('edge-tokenkey-key')
+    await wrapper.find('input[placeholder="xai-..."]').setValue('edge-tokenkey-key')
+    await wrapper.find('input[placeholder="https://api.x.ai/v1"]').setValue('')
 
     await wrapper.find('form#create-account-form').trigger('submit.prevent')
     await flushPromises()

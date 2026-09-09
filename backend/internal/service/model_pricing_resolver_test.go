@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -95,6 +96,22 @@ func TestGetIntervalPricing_MatchesInterval(t *testing.T) {
 	result2 := r.GetIntervalPricing(resolved, 200000)
 	require.NotNil(t, result2)
 	require.InDelta(t, 3e-6, result2.InputPricePerToken, 1e-12)
+}
+
+func TestGetIntervalPricing_CacheWriteDurationOverrides(t *testing.T) {
+	for _, oneHour := range []float64{0, 20e-6} {
+		t.Run(fmt.Sprint(oneHour), func(t *testing.T) {
+			base := &ModelPricing{CacheCreation5mPrice: 5e-6, CacheCreation1hPrice: 10e-6}
+			resolved := &ResolvedPricing{BasePricing: base, Intervals: []PricingInterval{{
+				CacheWritePrice: testPtrFloat64(7e-6), CacheWrite1hPrice: &oneHour,
+			}}}
+			pricing := (&ModelPricingResolver{}).GetIntervalPricing(resolved, 1)
+			require.True(t, pricing.SupportsCacheBreakdown)
+			require.Equal(t, oneHour, pricing.CacheCreation1hPrice)
+			require.Equal(t, 7e-6, pricing.CacheCreation5mPrice)
+			require.Equal(t, 10e-6, base.CacheCreation1hPrice)
+		})
+	}
 }
 
 func TestGetIntervalPricing_NoMatch_FallsBackToBase(t *testing.T) {
@@ -230,7 +247,7 @@ func newResolverWithChannel(t *testing.T, pricing []ChannelModelPricing) *ModelP
 			return map[int64]string{groupID: "anthropic"}, nil
 		},
 	}
-	cs := NewChannelService(repo, nil, nil, nil)
+	cs := NewChannelService(repo, nil, nil, nil, nil)
 	bs := newTestBillingServiceForResolver()
 	return NewModelPricingResolver(cs, bs)
 }
@@ -702,7 +719,7 @@ func TestResolve_WithChannelOverride_CacheError(t *testing.T) {
 			return nil, errors.New("database unavailable")
 		},
 	}
-	cs := NewChannelService(repo, nil, nil, nil)
+	cs := NewChannelService(repo, nil, nil, nil, nil)
 	bs := newTestBillingServiceForResolver()
 	r := NewModelPricingResolver(cs, bs)
 

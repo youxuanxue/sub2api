@@ -1,3 +1,4 @@
+-- bluegreen-safe-destructive-ok: additive boolean defaults false; existing billing and old writers remain valid.
 ALTER TABLE groups
     ADD COLUMN IF NOT EXISTS free_openai_fast BOOLEAN NOT NULL DEFAULT FALSE;
 

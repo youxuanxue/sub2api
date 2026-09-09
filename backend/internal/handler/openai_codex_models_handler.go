@@ -21,9 +21,10 @@ import (
 // Codex CLI and the Codex desktop app refresh their model picker from
 // GET {base_url}/models?client_version=... (custom provider mode) or
 // GET /backend-api/codex/models (chatgpt_base_url mode). Both routes land
-// here. ChatGPT manifests are proxied verbatim; custom API key manifests receive
-// provider-compatibility normalization and use a short-lived, asynchronously
-// revalidated cache to tolerate canceled client requests.
+// here. Pinned discovery takes precedence over local account model mappings;
+// when disabled, groups with explicit mappings are generated locally;
+// otherwise ChatGPT manifests are proxied verbatim and custom API key manifests
+// receive provider-compatibility normalization plus short-lived caching.
 func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	if c.Request.Context().Err() != nil {
 		return
@@ -79,6 +80,64 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 
+	// Validate client caches only after all local authorization projections.
+	ifNoneMatch := ""
+	// 固定账号分支：开启后只用选定账号拉取 manifest，不经过调度器；
+	// 全部不可用/全部失败时按 FallbackToScheduler 决定回退调度器或返回错误。
+	if !apiKey.IsUniversal() && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformOpenAI &&
+		apiKey.Group.CodexModelsManifestConfig.Enabled {
+		pinnedManifest, pinnedAccount, pinnedErr := h.gatewayService.FetchPinnedCodexModelsManifest(
+			c.Request.Context(),
+			apiKey.Group,
+			c.Query("client_version"),
+		)
+		if pinnedErr != nil {
+			if c.Request.Context().Err() != nil {
+				return
+			}
+			if !apiKey.Group.CodexModelsManifestConfig.FallbackToScheduler {
+				if errors.Is(pinnedErr, service.ErrNoPinnedCodexModelsAccounts) {
+					h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available pinned OpenAI accounts")
+					return
+				}
+				h.errorResponse(c, infraerrors.Code(pinnedErr), "upstream_error", infraerrors.Message(pinnedErr))
+				return
+			}
+			// 回退开启：跌入下方调度器循环。
+		} else {
+			// 让 ops 错误日志携带实际拉取成功的首个固定账号。
+			setOpsSelectedAccountFrom(c, pinnedAccount)
+			if err := h.gatewayService.MergeGroupConfiguredCodexModels(c.Request.Context(), apiKey.Group, pinnedManifest, ifNoneMatch); err != nil {
+				h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to build Codex models manifest")
+				return
+			}
+			if c.Request.Context().Err() != nil {
+				return
+			}
+			h.writeProjectedCodexModelsResponse(c, pinnedManifest, allowedModelIDs, candidateMode)
+			return
+		}
+	}
+
+	if !candidateMode && apiKey.Group != nil && !apiKey.Group.CodexModelsManifestConfig.Enabled {
+		configuredManifest, configured, err := h.gatewayService.BuildGroupConfiguredCodexModelsManifest(
+			c.Request.Context(),
+			apiKey.Group,
+			ifNoneMatch,
+		)
+		if err != nil {
+			if c.Request.Context().Err() != nil {
+				return
+			}
+			h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to build Codex models manifest")
+			return
+		}
+		if configured {
+			h.writeProjectedCodexModelsResponse(c, configuredManifest, allowedModelIDs, candidateMode)
+			return
+		}
+	}
+
 	maxAccountSwitches := h.maxAccountSwitches
 	if maxAccountSwitches <= 0 {
 		maxAccountSwitches = 3
@@ -108,10 +167,6 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		// 让 ops 错误日志携带实际选中的上游账号，便于定位失效账号（#4544）。
 		setOpsSelectedAccountFrom(c, account)
 
-		ifNoneMatch := c.GetHeader("If-None-Match")
-		if allowedModelIDs != nil {
-			ifNoneMatch = ""
-		}
 		manifest, err := h.gatewayService.FetchCodexModelsManifest(c.Request.Context(), account, c.Query("client_version"), ifNoneMatch)
 		if err != nil {
 			if c.Request.Context().Err() != nil {
@@ -126,32 +181,44 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 			h.errorResponse(c, infraerrors.Code(err), "upstream_error", infraerrors.Message(err))
 			return
 		}
+		if err := h.gatewayService.CompleteAPIKeyCodexModelsManifestForClient(manifest, account); err != nil {
+			h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to complete Codex models manifest")
+			return
+		}
+		if err := service.ApplyPinnedCodexModelsMapping(manifest, account, apiKey.Group); err != nil {
+			h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to apply model mappings")
+			return
+		}
+		if err := h.gatewayService.MergeGroupConfiguredCodexModels(c.Request.Context(), apiKey.Group, manifest, ifNoneMatch); err != nil {
+			h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to build Codex models manifest")
+			return
+		}
 		if c.Request.Context().Err() != nil {
 			return
 		}
 
-		if allowedModelIDs == nil && manifest.ETag != "" {
-			c.Header("ETag", manifest.ETag)
-		}
-		if manifest.NotModified {
-			c.Status(http.StatusNotModified)
-			return
-		}
-		body := manifest.Body
-		if allowedModelIDs != nil {
-			if candidateMode {
-				body, err = projectCandidateCodexManifest(body, allowedModelIDs)
-			} else {
-				body, err = filterCodexModelsManifest(body, allowedModelIDs)
-			}
-			if err != nil {
-				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Codex models manifest could not be filtered")
-				return
-			}
-		}
-		c.Data(http.StatusOK, "application/json", body)
+		h.writeProjectedCodexModelsResponse(c, manifest, allowedModelIDs, candidateMode)
 		return
 	}
+}
+
+func (h *OpenAIGatewayHandler) writeProjectedCodexModelsResponse(c *gin.Context, manifest *service.OpenAIModelsResponse, allowed map[string]struct{}, candidateMode bool) {
+	response := *manifest
+	if allowed != nil {
+		var err error
+		if candidateMode {
+			response.Body, err = projectCandidateCodexManifest(response.Body, allowed)
+		} else {
+			response.Body, err = filterCodexModelsManifest(response.Body, allowed)
+		}
+		if err != nil {
+			h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Codex models manifest could not be filtered")
+			return
+		}
+		response.ETag = service.CodexModelsManifestETag(response.Body)
+	}
+	response.NotModified = service.CodexModelsManifestETagMatches(c.GetHeader("If-None-Match"), response.ETag)
+	writeOpenAIModelsResponse(c, &response)
 }
 
 type candidateCodexDiscoverySource interface {

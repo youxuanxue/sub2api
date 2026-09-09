@@ -1,3 +1,4 @@
+-- bluegreen-safe-destructive-ok: additive boolean defaults false; existing groups and old writers retain their policy.
 ALTER TABLE groups
     ADD COLUMN IF NOT EXISTS force_openai_fast BOOLEAN NOT NULL DEFAULT FALSE;
 

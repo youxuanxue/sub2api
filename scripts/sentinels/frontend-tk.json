@@ -3,6 +3,16 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": ["v-for=\"option in codexImageToolOptions\"", "switch (codexImageToolMode.value)", "delete newExtra.codex_image_generation_bridge_enabled"],
+      "rationale": "One Codex image policy control owns inherited, enabled, disabled and blocked states and migrates the legacy key on save."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+      "must_contain": ["persists the single Codex image control in %s mode"],
+      "rationale": "Keep the four-mode save regression and duplicate-control assertion."
+    },
+    {
       "path": "frontend/src/constants/clientIntegrations.tk.ts",
       "must_contain": [
         "export const TK_CLIENT_CATALOG",
@@ -1660,7 +1670,7 @@
       "must_contain": [
         "useTkAccountUsageBatch",
         ":usage-override=\"accountUsageOverrideFor(row)\"",
-        "const refreshAccountRowMetrics = () => {",
+        "const refreshAccountRowMetrics = (refreshTodayStats = true) => {",
         "refreshTodayStatsBatch().catch(",
         "refreshUsageBatch(rows).catch(",
         "refreshAccountRowMetrics()"

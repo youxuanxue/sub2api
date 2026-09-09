@@ -182,6 +182,19 @@
           </nav>
         </div>
 
+        <div v-if="showCodexCatalog" data-testid="codex-model-catalog" class="flex flex-wrap items-center gap-3 border-b border-gray-200 pb-3 dark:border-dark-700">
+          <code class="min-w-0 flex-1 break-all text-xs">{{ codexCatalogPath }}</code>
+          <button type="button" data-testid="codex-model-catalog-fetch" class="btn btn-secondary" :disabled="manifestState === 'loading' || !apiKey" @click="loadCodexCatalog">
+            <Icon name="refresh" size="sm" :class="{ 'animate-spin': manifestState === 'loading' }" />
+            {{ t(manifestState === 'error' ? 'keys.useKeyModal.codexModelCatalog.retry' : 'keys.useKeyModal.codexModelCatalog.fetch') }}
+          </button>
+          <button v-if="manifestState === 'ready'" type="button" class="btn btn-secondary" @click="manifest.download">
+            <Icon name="download" size="sm" />
+            {{ t('keys.useKeyModal.codexModelCatalog.download') }}
+          </button>
+          <p v-if="manifestState === 'error'" role="alert" class="w-full text-sm text-red-600">{{ t('keys.useKeyModal.codexModelCatalog.errorDescription') }}</p>
+        </div>
+
         <!-- Code Blocks (Stacked for multi-file platforms) -->
         <div class="space-y-4">
           <div
@@ -252,6 +265,8 @@ import { ref, computed, h, watch, toRef, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
+import { useCodexModelManifest } from '@/composables/useCodexModelManifest'
+import { findCodexCatalogModel, formatCodexReasoningEffortTomlLine, selectCodexConfigReasoningEffort } from '@/utils/codexCatalogConfig'
 import {
   useTkUseKey,
   capabilityLabel,
@@ -337,6 +352,17 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
+const manifest = useCodexModelManifest(toRef(props, 'baseUrl'), toRef(props, 'apiKey'))
+const manifestState = manifest.state
+const codexModels = computed<UseKeyServableModel[] | null>(() => manifest.models.value?.map(model => ({
+  id: model.slug, capabilities: [], protocols: ['codex'],
+})) ?? null)
+const showCodexCatalog = computed(() => hasGuideContext.value && ['codex', 'codex-ws'].includes(activeClientTab.value))
+const codexCatalogPath = computed(() => activeTab.value === 'windows' ? '%userprofile%\\.codex\\codex-models.json' : '~/.codex/codex-models.json')
+async function loadCodexCatalog() {
+  const preferred = selectedModel.value
+  if (await manifest.load()) tk.setModel('openai', preferred)
+}
 const expandedFileIndex = ref<number | null>(null)
 const keyRevealed = ref(false)
 const selectedClientEntry = computed(() =>
@@ -408,11 +434,8 @@ const activeFlavor = computed<UseKeyFlavor | null>(() => {
 const activeDiscoveryProtocol = computed<UseKeyDiscoveryProtocol | null>(() => {
   const flavor = activeFlavor.value
   if (!flavor) return null
-  if (props.routingMode === 'universal') {
-    const tab = activeClientTab.value
-    if (tab === 'codex' || tab === 'codex-ws' || selectedClientEntry.value?.guideId === 'codex') {
-      return 'codex'
-    }
+  if (showCodexCatalog.value) {
+    return 'codex'
   }
   return flavor
 })
@@ -422,6 +445,7 @@ const tk = useTkUseKey({
   apiKey: toRef(props, 'apiKey'),
   platform: toRef(props, 'platform'),
   routingMode: toRef(props, 'routingMode'),
+  codexModels,
   claudeCodeOnly: toRef(props, 'claudeCodeOnly'),
   baseRoot,
 })
@@ -718,6 +742,7 @@ const clientTabs = computed((): TabConfig[] => {
     case 'gemini':
       return [
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         ...rawProtoTabs(),
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
@@ -728,6 +753,7 @@ const clientTabs = computed((): TabConfig[] => {
         tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })
       }
       tabs.push({ id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon })
+      tabs.push({ id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon })
       tabs.push(...rawProtoTabs()) // gemini-flavor raw calls (/antigravity/v1beta)
       tabs.push({ id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon })
       return tabs
@@ -756,6 +782,7 @@ const clientTabs = computed((): TabConfig[] => {
       }
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         ...rawProtoTabs(),
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
@@ -970,6 +997,12 @@ const currentFiles = computed((): FileConfig[] => {
       : [generatePython(flavor, baseRoot, apiKey, model, isAntigravity)]
   }
 
+  if (showCodexCatalog.value) {
+    return activeClientTab.value === 'codex-ws'
+      ? generateOpenAIWsFiles(apiBase, apiKey, model)
+      : generateOpenAIFiles(apiBase, apiKey, model)
+  }
+
   switch (platformForFiles()) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
@@ -1154,8 +1187,8 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string, model: string): Fi
   const configContent = `model_provider = "OpenAI"
 model = "${model}"
 review_model = "${model}"
-model_reasoning_effort = "xhigh"
-disable_response_storage = true
+${formatCodexReasoningEffortTomlLine(selectCodexConfigReasoningEffort(findCodexCatalogModel(manifest.content.value, model)))}disable_response_storage = true
+model_catalog_json = ${JSON.stringify(codexCatalogPath.value)}
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
@@ -1194,8 +1227,8 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string, model: string): 
   const configContent = `model_provider = "OpenAI"
 model = "${model}"
 review_model = "${model}"
-model_reasoning_effort = "xhigh"
-disable_response_storage = true
+${formatCodexReasoningEffortTomlLine(selectCodexConfigReasoningEffort(findCodexCatalogModel(manifest.content.value, model)))}disable_response_storage = true
+model_catalog_json = ${JSON.stringify(codexCatalogPath.value)}
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 

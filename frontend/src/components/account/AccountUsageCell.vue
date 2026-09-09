@@ -1,5 +1,11 @@
 <template>
-  <component v-if="activeCell" :is="activeCell" v-bind="props" />
+  <component
+    v-if="activeCell"
+    :is="activeCell"
+    v-bind="props"
+    @account-updated="emit('account-updated', $event)"
+    @updated="emit('account-updated', { ...account, ollama_cloud_usage: $event })"
+  />
   <div v-else class="text-xs text-gray-400">-</div>
 </template>
 
@@ -18,6 +24,9 @@ import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import GrokUsageCell from './usage-cells/GrokUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
+import CNProviderUsageCell from './usage-cells/CNProviderUsageCell.vue'
+import type { Account } from '@/types'
+import { isCNProviderPlatform } from './credentialsBuilder'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 import {
   PLATFORM_ANTHROPIC,
@@ -29,6 +38,7 @@ import {
 } from '@/constants/gatewayPlatforms'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
+const emit = defineEmits<{ 'account-updated': [account: Account] }>()
 
 const activeCell = computed(() => {
   const { account } = props
@@ -36,6 +46,9 @@ const activeCell = computed(() => {
   if (account.ollama_cloud_usage?.eligible) {
     return OllamaCloudUsageCell
   }
+
+  if (isCNProviderPlatform(account.platform)) return CNProviderUsageCell
+  if (account.platform === PLATFORM_GROK && account.type === 'oauth') return GrokUsageCell
 
   if (!showUsageWindowsForAccount(account)) {
     return PlainUsageCell

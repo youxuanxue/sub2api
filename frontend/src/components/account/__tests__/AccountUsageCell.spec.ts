@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
+import { clearAccountUsageCache } from '../usage-cells/useAccountUsageFetch'
 import type { Account, AccountUsageInfo } from '@/types'
 
 const { getUsage } = vi.hoisted(() => ({
@@ -57,8 +58,43 @@ function makeAccount(overrides: Partial<Account>): Account {
   }
 }
 
+function makeOllamaUsage(accountId: number, overrides: Partial<NonNullable<Account['ollama_cloud_usage']>> = {}) {
+  return {
+    account_id: accountId,
+    eligible: true,
+    configured: true,
+    auto_refresh_enabled: true,
+    encryption_key_configured: true,
+    snapshot: {
+      status: 'ok' as const,
+      last_attempt_at: '2026-07-23T00:00:00Z',
+      next_refresh_at: '2026-07-23T01:00:00Z',
+      data: {
+        five_hour: { used_percent: 12 },
+        seven_day: { used_percent: 34 }
+      }
+    },
+    ...overrides,
+  }
+}
+
+// CN 平台 Ollama Cloud 用例共用的子组件 stub：按 data-test 断言渲染与否
+const cnUsageCellStubs = {
+  OllamaCloudUsageCell: {
+    props: ['account'],
+    template: '<div data-test="embedded-ollama">ollama</div>'
+  },
+  CNProviderQuotaCell: {
+    template: '<div data-test="cn-quota-cell" />'
+  },
+  CNProviderBalanceCell: {
+    template: '<div data-test="cn-balance-cell" />'
+  }
+}
+
 describe('AccountUsageCell', () => {
   beforeEach(() => {
+    clearAccountUsageCache()
     getUsage.mockReset()
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -121,6 +157,92 @@ describe('AccountUsageCell', () => {
     const updatedAccount = wrapper.emitted<Account[]>('account-updated')?.[0]?.[0]
     expect(updatedAccount?.id).toBe(9001)
     expect(updatedAccount?.ollama_cloud_usage?.auto_refresh_enabled).toBe(false)
+  })
+
+  it.each(['kimi', 'zhipu', 'deepseek', 'minimax'] as const)(
+    '%s apikey 账号 Ollama Cloud eligible 时渲染 Ollama 用量单元格并跳过 CN 子单元格',
+    async (platform) => {
+      const wrapper = mount(AccountUsageCell, {
+        props: {
+          account: makeAccount({
+            id: 9002,
+            platform,
+            type: 'apikey',
+            credentials: { account_mode: 'coding' },
+            ollama_cloud_usage: makeOllamaUsage(9002)
+          })
+        },
+        global: {
+          stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+        }
+      })
+
+      await flushPromises()
+
+      expect(wrapper.find('[data-test="embedded-ollama"]').exists()).toBe(true)
+      expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
+      expect(wrapper.find('div[title="admin.accounts.cnProviders.noBalanceEndpoint"]').exists()).toBe(false)
+      expect(getUsage).not.toHaveBeenCalled()
+    }
+  )
+
+  it('CN 平台 Ollama Cloud eligible 账号的用量更新经 account-updated 透传', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9003,
+          platform: 'kimi',
+          type: 'apikey',
+          credentials: { account_mode: 'coding' },
+          ollama_cloud_usage: makeOllamaUsage(9003)
+        })
+      },
+      global: {
+        stubs: {
+          ...cnUsageCellStubs,
+          OllamaCloudUsageCell: {
+            props: ['account'],
+            emits: ['updated'],
+            template: '<button data-test="embedded-ollama" @click="$emit(\'updated\', { ...account.ollama_cloud_usage, auto_refresh_enabled: false })" />'
+          },
+          UsageProgressBar: true,
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await wrapper.get('[data-test="embedded-ollama"]').trigger('click')
+
+    const updatedAccount = wrapper.emitted<Account[]>('account-updated')?.[0]?.[0]
+    expect(updatedAccount?.id).toBe(9003)
+    expect(updatedAccount?.ollama_cloud_usage?.auto_refresh_enabled).toBe(false)
+  })
+
+  it.each([
+    { name: '无 ollama_cloud_usage', usage: undefined },
+    { name: 'eligible=false', usage: makeOllamaUsage(9004, { eligible: false }) }
+  ])('普通 kimi apikey 账号（$name）仍渲染 CN 子单元格', async ({ usage }) => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9004,
+          platform: 'kimi',
+          type: 'apikey',
+          credentials: { account_mode: 'coding' },
+          ollama_cloud_usage: usage
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="embedded-ollama"]').exists()).toBe(false)
   })
 
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
@@ -322,6 +444,84 @@ describe('AccountUsageCell', () => {
     // 单一数据源：始终使用被动 /usage API 返回值，忽略行内 codex 快照
     expect(wrapper.text()).toContain('5h|18|900')
     expect(wrapper.text()).toContain('7d|36|900')
+  })
+
+  it('仅为 OpenAI OAuth 7d 窗口计算预计总费用', async () => {
+    getUsage.mockResolvedValue({
+      five_hour: {
+        utilization: 25,
+        resets_at: null,
+        remaining_seconds: 0,
+        window_stats: { requests: 1, tokens: 100, cost: 2 }
+      },
+      seven_day: {
+        utilization: 40,
+        resets_at: null,
+        remaining_seconds: 0,
+        window_stats: { requests: 2, tokens: 200, cost: 12 }
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ id: 6752, platform: 'openai', type: 'oauth' })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'estimatedTotalCost'],
+            template: '<div class="usage-bar">{{ label }}|{{ estimatedTotalCost ?? "none" }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('5h|none')
+    expect(wrapper.text()).toContain('7d|30')
+  })
+
+  it.each([
+    { id: 6801, utilization: 0, cost: 12 },
+    { id: 6802, utilization: -1, cost: 12 },
+    { id: 6803, utilization: Number.NaN, cost: 12 },
+    { id: 6804, utilization: 40, cost: 0 },
+    { id: 6805, utilization: 40, cost: Number.POSITIVE_INFINITY }
+  ])('OpenAI OAuth 7d 输入无效时不显示预计总费用 (%o)', async ({ id, utilization, cost }) => {
+    getUsage.mockResolvedValue({
+      seven_day: {
+        utilization,
+        resets_at: null,
+        remaining_seconds: 0,
+        window_stats: { requests: 1, tokens: 100, cost }
+      }
+    })
+
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id,
+          platform: 'openai',
+          type: 'oauth'
+        })
+      },
+      global: {
+        stubs: {
+          UsageProgressBar: {
+            props: ['label', 'estimatedTotalCost'],
+            template: '<div class="usage-bar">{{ label }}|{{ estimatedTotalCost ?? "none" }}</div>'
+          },
+          AccountQuotaInfo: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('7d|none')
+    expect(wrapper.text()).not.toMatch(/Infinity|NaN/)
   })
 
   it('OpenAI OAuth 有现成快照时，手动刷新信号会触发 usage 重拉', async () => {
@@ -766,7 +966,7 @@ describe('AccountUsageCell', () => {
     expect(getUsage).not.toHaveBeenCalled()
   })
 
-  it('Grok 平台复用 5h/7d usage 窗口展示本地统计', async () => {
+  it.each(['apikey', 'oauth'] as const)('Grok %s 复用 5h/7d usage 窗口展示本地统计', async (type) => {
     getUsage.mockResolvedValue({
       source: 'passive',
       five_hour: {
@@ -822,7 +1022,7 @@ describe('AccountUsageCell', () => {
         account: makeAccount({
           id: 2014,
           platform: 'grok',
-          type: 'apikey',
+          type,
           extra: {}
         })
       },
@@ -1191,7 +1391,7 @@ describe('AccountUsageCell', () => {
 	expect(wrapper.text()).toContain('5h|0|200')
   })
 
-  it('OpenAI 重置响应更新账号行时不会额外拉取 usage', async () => {
+  it('OpenAI 重置响应更新账号行后重新拉取 usage', async () => {
     getUsage.mockResolvedValue({
       five_hour: {
         utilization: 0,
@@ -1232,7 +1432,7 @@ describe('AccountUsageCell', () => {
     await wrapper.setProps({ account: updatedAccount as Account })
     await flushPromises()
 
-    expect(getUsage).toHaveBeenCalledTimes(1)
+    expect(getUsage).toHaveBeenCalledTimes(2)
   })
 
   it('OpenAI OAuth 已限额时显示 /usage API 返回的限额数据', async () => {
@@ -1363,7 +1563,7 @@ describe('AccountUsageCell', () => {
     })
 
     await flushPromises()
-    expect(getUsage).toHaveBeenCalledWith(3861)
+    expect(getUsage).toHaveBeenCalledWith(3861, 'passive')
     expect(wrapper.text()).not.toContain('4 req')
     expect(wrapper.text()).not.toContain('admin.accounts.usageWindow.grokRequests|')
   })

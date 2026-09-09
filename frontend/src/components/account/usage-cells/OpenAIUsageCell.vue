@@ -16,6 +16,7 @@
       <UsageProgressBar
         v-if="hasOpenAIUsageFallback && usageInfo?.seven_day"
         label="7d"
+        :estimated-total-cost="sevenDayEstimatedTotalCost"
         :utilization="usageInfo.seven_day.utilization"
         :utilization-unknown="usageInfo.seven_day.utilization_unknown"
         :window-stats-label="account.platform === 'newapi' ? t('admin.accounts.usageWindow.rollingStats', { window: '7d' }) : undefined"
@@ -42,7 +43,7 @@
         </div>
       </div>
       <div v-else-if="!hasOpenAIUsageFallback" class="text-xs text-gray-400">-</div>
-      <OpenAIQuotaResetCell v-if="hasOpenAIUsageFallback || !loading" :account="account">
+      <OpenAIQuotaResetCell v-if="hasOpenAIUsageFallback || !loading" :account="account" @account-updated="emit('account-updated', $event)">
         <template #pre-actions>
           <button
             type="button"
@@ -75,6 +76,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import type { Account } from '@/types'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import OpenAIQuotaResetCell from '../OpenAIQuotaResetCell.vue'
 import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
@@ -86,6 +88,7 @@ import {
 import { useAccountUsageFetch } from './useAccountUsageFetch'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
+const emit = defineEmits<{ 'account-updated': [account: Account] }>()
 
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
@@ -106,6 +109,16 @@ const { loading, activeQueryLoading, usageInfo, loadActiveUsage } = useAccountUs
 
 const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
+})
+
+const sevenDayEstimatedTotalCost = computed(() => {
+  if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return null
+  const utilization = usageInfo.value?.seven_day?.utilization
+  const cost = usageInfo.value?.seven_day?.window_stats?.cost
+  if (typeof utilization !== 'number' || typeof cost !== 'number' ||
+      !Number.isFinite(utilization) || !Number.isFinite(cost) || utilization <= 0 || cost <= 0) return null
+  const estimate = cost * 100 / utilization
+  return Number.isFinite(estimate) ? estimate : null
 })
 
 /** Upstream codex % missing/stale but local rolling window stats show activity — don't show「现在」. */

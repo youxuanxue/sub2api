@@ -141,14 +141,15 @@
             ]"
             @click="column.sortable && handleSort(column.key)"
           >
-            <slot
-              :name="`header-${column.key}`"
-              :column="column"
-              :sort-key="sortKey"
-              :sort-order="sortOrder"
-            >
               <div :class="['flex items-center space-x-1', getHeaderContentAlignmentClass(column)]">
+                <slot
+                  :name="`header-${column.key}`"
+                  :column="column"
+                  :sort-key="sortKey"
+                  :sort-order="sortOrder"
+                >
                 <span>{{ column.label }}</span>
+                </slot>
                 <span
                   v-if="column.sortable"
                   class="inline-flex h-5 w-4 flex-col items-center justify-center"
@@ -172,7 +173,6 @@
                   </svg>
                 </span>
               </div>
-            </slot>
           </th>
         </tr>
       </thead>
@@ -884,10 +884,33 @@ const measureElement = (el: any) => {
   }
 }
 
-// TK: when expansion changes, inserting/removing a detail item shifts every
-// subsequent virtual index, so the index-keyed measurement cache is stale.
-// measure() clears it and forces a fresh pass, keeping the padding math correct
-// (without this, total-size drift can blank or mis-offset the table).
+type RowIdentityToken = string | number | object | symbol
+
+const rowIdentityKeys = computed<RowIdentityToken[]>(() =>
+  (sortedData.value ?? []).map((row) => {
+    const stableKey = resolveStableRowKey(row)
+    if (stableKey !== undefined) return stableKey
+    return row !== null && typeof row === 'object' ? row : Symbol('unstable-row')
+  })
+)
+
+const hasSameRowIdentitySet = (current: RowIdentityToken[], previous: RowIdentityToken[]) => {
+  if (current.length !== previous.length) return false
+  const currentKeys = new Set(current)
+  const previousKeys = new Set(previous)
+  if (currentKeys.size !== current.length || previousKeys.size !== previous.length) return false
+  return [...currentKeys].every(key => previousKeys.has(key))
+}
+
+watch(rowIdentityKeys, (current, previous) => {
+  if (hasSameRowIdentitySet(current, previous)) return
+  // Release detached rows and stale sizes on page/filter changes; sorting the
+  // same rows keeps their measurements, including TK detail rows.
+  rowVirtualizer.value.measureElement(null)
+  rowVirtualizer.value.measure()
+}, { flush: 'post' })
+
+// Recompute offsets after inserting or removing expanded detail rows.
 watch(
   () => (props.expandedKeys ? Array.from(props.expandedKeys).sort().join(',') : ''),
   async () => {

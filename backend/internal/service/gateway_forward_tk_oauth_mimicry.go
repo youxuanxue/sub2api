@@ -63,6 +63,7 @@ func (s *GatewayService) tkApplyClaudeOAuthMimicry(
 	if shouldRewriteSystemForNonCCMimicry(newReqModel, canonicalHaikuMimicry) {
 		systemRaw, _ := parsed.SystemValue()
 		systemPromptInjectionEnabled, systemPrompt, systemPromptBlocks := s.claudeOAuthSystemPromptInjectionSettings(ctx)
+		systemPromptBlocks = claudeOAuthSystemPromptBlocksForModel(newReqModel, systemPromptBlocks)
 		if systemPromptInjectionEnabled {
 			if err := replaceBody(rewriteSystemForNonClaudeCodeWithPromptBlocks(body, systemRaw, systemPrompt, systemPromptBlocks)); err != nil {
 				return newReqModel, isClaudeCode, shouldMimicClaudeCode, err
