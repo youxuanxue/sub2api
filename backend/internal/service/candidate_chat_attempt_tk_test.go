@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -173,4 +174,46 @@ func TestCandidateChatAttemptCancelsRealHTTPBeforeHeadersOrAfterEmpty200(t *test
 		a.close()
 		server.Close()
 	}
+}
+
+func TestCandidateChatNonStreamingExtendedBudget(t *testing.T) {
+	a := globalCandidateAccount(1, 1, 10)
+	a.Platform, a.ChannelType = PlatformNewAPI, 1
+	attachTestProtocolCapability(&a, protocolrouter.ProtocolChatCompletions)
+	r, _, key := globalCandidateFixture([]Group{grp(10, PlatformNewAPI, 1, false)}, []Account{a})
+
+	bodyNonStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":false}`)
+	bodyStream := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+
+	// Default config (NewAPIChatFirstOutputTimeout=0/60, ResponseHeaderTimeout=600):
+	// Non-streaming should use ResponseHeaderTimeout budget (3 * 600s = 1800s deadline),
+	// streaming should use 1m default budget (3 * 60s = 180s deadline).
+	cfg := &config.Config{}
+	cfg.Gateway.NewAPIChatFirstOutputTimeout = 60
+	cfg.Gateway.ResponseHeaderTimeout = 600
+	r.candidateOpenAI.cfg = cfg
+
+	// Non-streaming test
+	ctxNS, stateNS := prepareGlobalCandidate(t, r, key)
+	ctxNS = withProtocolExecutionPlan(ctxNS, *stateNS.current.plan)
+	cNS, _ := gin.CreateTestContext(httptest.NewRecorder())
+	cNS.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(bodyNonStream))).WithContext(ctxNS)
+
+	_, finishNS, errNS := r.candidateOpenAI.beginCandidateChatAttempt(ctxNS, cNS, &a, bodyNonStream)
+	require.NoError(t, errNS)
+	require.NotNil(t, finishNS)
+	require.True(t, stateNS.chatDeadline.After(time.Now().Add(25*time.Minute)), "non-streaming attempt should receive 3 * 10m budget")
+	_, _ = finishNS(nil, nil)
+
+	// Streaming test
+	ctxS, stateS := prepareGlobalCandidate(t, r, key)
+	ctxS = withProtocolExecutionPlan(ctxS, *stateS.current.plan)
+	cS, _ := gin.CreateTestContext(httptest.NewRecorder())
+	cS.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(bodyStream))).WithContext(ctxS)
+
+	_, finishS, errS := r.candidateOpenAI.beginCandidateChatAttempt(ctxS, cS, &a, bodyStream)
+	require.NoError(t, errS)
+	require.NotNil(t, finishS)
+	require.True(t, stateS.chatDeadline.Before(time.Now().Add(5*time.Minute)), "streaming attempt should receive 3 * 1m default budget")
+	_, _ = finishS(nil, nil)
 }

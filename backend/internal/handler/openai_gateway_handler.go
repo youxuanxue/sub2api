@@ -991,7 +991,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
-					wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)
+					wroteFallback = h.ensureForwardErrorResponseForError(c, err, streamStarted)
 				}
 				fields := []zap.Field{
 					zap.Int64("account_id", account.ID),
@@ -3610,11 +3610,19 @@ func (h *OpenAIGatewayHandler) ensureOpenAIStreamReadErrorResponse(c *gin.Contex
 
 // ensureForwardErrorResponse 在 Forward 返回错误但尚未写响应时补写统一错误响应。
 func (h *OpenAIGatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool {
+	return h.ensureForwardErrorResponseForError(c, nil, streamStarted)
+}
+
+func (h *OpenAIGatewayHandler) ensureForwardErrorResponseForError(c *gin.Context, err error, streamStarted bool) bool {
 	if c == nil || c.Writer == nil {
 		return false
 	}
-	if c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled) {
-		failoverClientGone(c)
+	// A canceled inbound request means the caller has already gone away. Writing a
+	// generic 502 here only corrupts access/ops semantics; there is no client left
+	// to receive it. Keep the established 499 classification used by failover and
+	// concurrency cancellation paths.
+	if isClientClosedRequest(c, err) {
+		markClientClosedForwardRequest(c)
 		return false
 	}
 	if service.HasOpsClientPolicyDenied(c) {
@@ -3654,6 +3662,9 @@ func shouldLogOpenAIForwardFailureAsWarn(c *gin.Context, wroteFallback bool) boo
 	}
 	if c == nil || c.Writer == nil {
 		return false
+	}
+	if service.HasOpsClientClosedRequest(c) || c.Writer.Status() == statusClientClosedRequest {
+		return true
 	}
 	return c.Writer.Written()
 }

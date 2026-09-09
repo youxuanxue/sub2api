@@ -207,9 +207,17 @@ func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c 
 	if !candidateChatReplayable(r, account, ctx, body) {
 		return ctx, nil, nil
 	}
+	stream := gjson.GetBytes(body, "stream").Bool()
 	timeout := time.Minute
 	if s.cfg != nil && s.cfg.Gateway.NewAPIChatFirstOutputTimeout > 0 {
 		timeout = time.Duration(s.cfg.Gateway.NewAPIChatFirstOutputTimeout) * time.Second
+	}
+	if !stream && (s.cfg == nil || s.cfg.Gateway.NewAPIChatFirstOutputTimeout <= 0 || s.cfg.Gateway.NewAPIChatFirstOutputTimeout == 60) {
+		if s.cfg != nil && s.cfg.Gateway.ResponseHeaderTimeout > 0 {
+			timeout = time.Duration(s.cfg.Gateway.ResponseHeaderTimeout) * time.Second
+		} else {
+			timeout = 5 * time.Minute
+		}
 	}
 	if r.chatDeadline.IsZero() {
 		r.chatDeadline = time.Now().Add(candidateChatMaxAttempts * timeout)
@@ -219,7 +227,7 @@ func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c 
 	}
 	r.chatAttempts++
 	timeout = min(timeout, time.Until(r.chatDeadline))
-	a := newCandidateChatAttempt(ctx, c.Writer, gjson.GetBytes(body, "stream").Bool(), timeout)
+	a := newCandidateChatAttempt(ctx, c.Writer, stream, timeout)
 	request := c.Request
 	ctx = context.WithValue(a.ctx, candidateChatAttemptKey{}, a)
 	c.Request = c.Request.WithContext(ctx)
