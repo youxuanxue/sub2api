@@ -60,10 +60,7 @@ func TestBuildClaudeSystemPrompt_ClaudeCodePreservesPromptWithKiroIdentityOverri
 	require.Contains(t, got, "You are Claude, Anthropic's assistant")
 	require.Contains(t, got, "Do not identify as Kiro")
 	require.Contains(t, got, "You are Claude Code, Anthropic's official CLI for Claude.")
-	require.Contains(t, got, "<sub2api-claude-code-todo-guard>")
-	require.Contains(t, got, "requested implementation and verification are complete")
-	require.Contains(t, got, "continue using tools")
-	require.Equal(t, 1, strings.Count(got, "<sub2api-claude-code-todo-guard>"))
+	require.NotContains(t, got, claudepkg.ClaudeCodeCompletionGuardMarker)
 }
 
 func TestBuildClaudeSystemPrompt_NonClaudeCodeDoesNotAddCompletionGuard(t *testing.T) {
@@ -71,72 +68,23 @@ func TestBuildClaudeSystemPrompt_NonClaudeCodeDoesNotAddCompletionGuard(t *testi
 	require.NotContains(t, got, "<sub2api-claude-code-todo-guard>")
 }
 
-func TestUS041_ClaudeToKiro_CompletionGuardAppearsOnceInSystemPriming(t *testing.T) {
-	basePrompt := strings.Join([]string{
-		"You are Claude Code, Anthropic's official CLI for Claude.",
-		"You are an interactive agent that helps users with software engineering tasks.",
-		"# doing tasks",
-		"# using your tools",
-	}, "\n")
-
-	for _, tt := range []struct {
-		name   string
-		system string
-	}{
-		{name: "guard absent", system: basePrompt},
-		{name: "guard already present", system: basePrompt + "\n\n" + claudepkg.ClaudeCodeCompletionGuardText},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			payload := ClaudeToKiro(&ClaudeRequest{
-				Model:     "claude-opus-5",
-				MaxTokens: 1024,
-				System:    tt.system,
-				Messages: []ClaudeMessage{
-					{Role: "user", Content: "implement and verify the requested change"},
-				},
-			}, false)
-
-			require.NotNil(t, payload)
-			require.True(t, payload.ClaudeCodeCompletionProtocol)
-			require.NotEmpty(t, payload.ConversationState.History)
-			require.NotNil(t, payload.ConversationState.History[0].UserInputMessage)
-			require.Contains(t, payload.ConversationState.History[0].UserInputMessage.Content, claudepkg.ClaudeCodeCompletionGuardMarker)
-
-			var wireText strings.Builder
-			for _, message := range payload.ConversationState.History {
-				if message.UserInputMessage != nil {
-					wireText.WriteString(message.UserInputMessage.Content)
-				}
-			}
-			wireText.WriteString(payload.ConversationState.CurrentMessage.UserInputMessage.Content)
-			require.Equal(t, 1, strings.Count(wireText.String(), claudepkg.ClaudeCodeCompletionGuardMarker))
-
-			ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
-			require.NotNil(t, ctx)
-			completionTools := 0
-			for _, tool := range ctx.Tools {
-				if tool.ToolSpecification.Name == claudepkg.ClaudeCodeCompletionToolName {
-					completionTools++
-				}
-			}
-			require.Equal(t, 1, completionTools)
-		})
-	}
-}
-
-func TestClaudeToKiro_NonClaudeCodeDoesNotEnableCompletionProtocol(t *testing.T) {
-	payload := ClaudeToKiro(&ClaudeRequest{
-		Model:    "claude-sonnet-4-5",
-		System:   "You are a concise support assistant.",
-		Messages: []ClaudeMessage{{Role: "user", Content: "hello"}},
-	}, false)
-
-	require.False(t, payload.ClaudeCodeCompletionProtocol)
-	ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
-	if ctx == nil {
-		return
-	}
-	for _, tool := range ctx.Tools {
-		require.NotEqual(t, claudepkg.ClaudeCodeCompletionToolName, tool.ToolSpecification.Name)
+// The gateway must preserve client intent, without injecting business completion
+// instructions or tools. Client-supplied instructions remain client-owned.
+func TestClaudeToKiro_NoPrivateCompletionProtocol(t *testing.T) {
+	base := "You are Claude Code, Anthropic's official CLI for Claude.\n# doing tasks\n# using your tools"
+	for _, system := range []string{base, base + "\n" + claudepkg.ClaudeCodeCompletionGuardText, "You are a concise support assistant."} {
+		payload := ClaudeToKiro(&ClaudeRequest{
+			Model: "claude-opus-5", System: system,
+			Messages: []ClaudeMessage{{Role: "user", Content: "Answer only YES or NO. Do not call tools."}},
+			Tools:    []ClaudeTool{{Name: "Read", Description: "Read a file", InputSchema: map[string]interface{}{"type": "object"}}},
+		}, false)
+		current := payload.ConversationState.CurrentMessage.UserInputMessage
+		require.Equal(t, "Answer only YES or NO. Do not call tools.", current.Content)
+		require.NotNil(t, current.UserInputMessageContext)
+		require.Len(t, current.UserInputMessageContext.Tools, 1)
+		require.NotEqual(t, claudepkg.ClaudeCodeCompletionToolName, current.UserInputMessageContext.Tools[0].ToolSpecification.Name)
+		priming := payload.ConversationState.History[0].UserInputMessage.Content
+		require.Equal(t, strings.Count(system, claudepkg.ClaudeCodeCompletionGuardMarker), strings.Count(priming, claudepkg.ClaudeCodeCompletionGuardMarker))
+		require.NotContains(t, priming, "Continue the same task now")
 	}
 }
