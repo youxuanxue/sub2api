@@ -7595,6 +7595,22 @@
       "rationale": "GetByKeyForAuth hydrates the service Group from the Ent projection. Sticky routing and messages compaction fields are selected by SQL but are silently lost unless groupEntityToService maps them, causing cached gateway requests to observe zero values."
     },
     {
+      "path": "backend/internal/repository/api_key_repo.go",
+      "must_contain": [
+        "Where(apikey.IDEQ(id)).\n\t\tWithUser(func(q *dbent.UserQuery) {\n\t\t\tq.WithAllowedGroups("
+      ],
+      "rationale": "Per-turn WebSocket authorization refresh reads GetByID. Its user projection must hydrate current exclusive-group grants, as the opening authentication query does, or authorized direct keys disconnect on their second turn."
+    },
+    {
+      "path": "backend/internal/repository/api_key_repo_ws_authorization_tk_integration_test.go",
+      "must_contain": [
+        "TestGetByID_RefreshesExclusiveGroupAuthorization",
+        "True(refreshed.User.CanBindGroup",
+        "False(revoked.User.CanBindGroup"
+      ],
+      "rationale": "Keep the real repository regression for retained and revoked exclusive-group grants so a projection regression cannot pass only mocked WebSocket authorization tests."
+    },
+    {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
         "apiKeyAuthSnapshotVersion = 20",
