@@ -472,10 +472,16 @@
     {
       "path": "backend/internal/relay/bridge/context_input.go",
       "must_contain": [
+        "BoundedChatAttempt bool",
         "VertexKeyType",
         "ContextKeyChannelOtherSetting"
       ],
       "rationale": "VertexAI (channel_type 41) service-account passthrough: the newapi bridge sets new-api's ChannelOtherSettings.VertexKeyType (via ContextKeyChannelOtherSetting) and the region gin key so the Vertex adaptor authenticates via JWT. Without it ch41 reverts to api_key mode and fails; this is also the only path by which the GCP trial credit is spendable (Gemini Developer API ch24 prepay does not accept Cloud Billing credits)."
+    },
+    {
+      "path": "backend/internal/relay/bridge/dispatch.go",
+      "must_contain": ["request.WithContext(relaycommon.WithUpstreamRequestContext(ctx))", "relayInfo.DisablePing = in.BoundedChatAttempt"],
+      "rationale": "Bounded Chat attempts must reach the actual NewAPI transport and suppress concurrent pings before output; unrelated dispatches retain their existing lifecycle."
     },
     {
       "path": "backend/internal/service/newapi_bridge_usage.go",

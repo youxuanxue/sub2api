@@ -386,6 +386,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 	cleanedForUnknownBinding := false
+	cleanThoughtSignatures := false
 
 	fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
 	if service.CandidateRequestFromContext(c.Request.Context()) == nil && apiKey.IsUniversal() && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformNewAPI {
@@ -452,6 +453,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				zap.Bool("clean_thought_signature", true),
 			)
 			body = service.CleanGeminiNativeThoughtSignatures(body)
+			cleanThoughtSignatures = true
 			sessionBoundAccountID = account.ID
 		} else if sessionKey != "" && sessionBoundAccountID == 0 && !cleanedForUnknownBinding && bytes.Contains(body, []byte(`"thoughtSignature"`)) {
 			// 无缓存绑定但请求里已有 thoughtSignature：常见于缓存丢失/TTL 过期后，客户端继续携带旧签名。
@@ -460,6 +462,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				zap.Bool("clean_thought_signature", true),
 			)
 			body = service.CleanGeminiNativeThoughtSignatures(body)
+			cleanThoughtSignatures = true
 			cleanedForUnknownBinding = true
 			sessionBoundAccountID = account.ID
 		} else if sessionBoundAccountID == 0 {
@@ -551,7 +554,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		sessionGroupID := derefGroupID(apiKey.GroupID)
 		// TK: ProtocolExecutors wiring — see gemini_v1beta_handler_tk_execute.go
 		result, err = h.executeGeminiV1BetaSelectedProtocol(
-			c, requestCtx, selection, account, modelName, action, stream, hasBoundSession, sessionGroupID, sessionKey,
+			c, requestCtx, selection, account, modelName, action, stream, hasBoundSession, sessionGroupID, sessionKey, cleanThoughtSignatures,
 		)
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
