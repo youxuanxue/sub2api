@@ -4531,10 +4531,22 @@
     {
       "path": "backend/internal/handler/openai_embeddings.go",
       "must_contain": [
+        "TkSetBridgeGinAuth(c, subject.UserID, groupName)",
+        "h.gatewayService.ForwardAsEmbeddingsDispatched(c.Request.Context(), c, account, forwardBody, \"\")",
+        "TkTryWriteNewAPIRelayErrorJSON(c, err, false, writerSizeBeforeForward)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, err)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, nil)"
       ],
-      "rationale": "The primary /v1/embeddings production regression path must remain wired to the shared first-selection failure contract for both explicit errors and nil selections."
+      "rationale": "The primary /v1/embeddings handler must use the selected account's adaptor dispatch and preserve NewAPI errors; bypassing it sends ali credentials to the native OpenAI fallback. Keep the shared first-selection failure contract. Regression: openai_embeddings_dispatch_tk_test.go exercises Direct/Universal, DashScope/native, payload, errors and usage."
+    },
+    {
+      "path": "backend/internal/handler/openai_embeddings_dispatch_tk_test.go",
+      "must_contain": [
+        "TestEmbeddings_DispatchesSelectedAccountProtocol",
+        "h.Embeddings(c)",
+        "/compatible-mode/v1/embeddings"
+      ],
+      "rationale": "Execute the real embeddings handler through account selection and upstream HTTP so adapter call-site loss cannot leave all service-only tests green."
     },
     {
       "path": "backend/internal/handler/openai_alpha_search.go",
