@@ -9706,6 +9706,72 @@
     "supports_reasoning": false,
     "supports_vision": true
   },
+  "text-embedding-v1": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 1.0447761194029851e-07,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 2048,
+    "output_vector_size": 1536,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0007/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "text-embedding-v2": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 1.0447761194029851e-07,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 2048,
+    "output_vector_size": 1536,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0007/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "text-embedding-v3": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 7.462686567164179e-08,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 8192,
+    "output_vector_size": 1024,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "text-embedding-v4": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 7.462686567164179e-08,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 8192,
+    "output_vector_size": 1024,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "qwen3.7-text-embedding": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 7.462686567164179e-08,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 128000,
+    "output_vector_size": 1024,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "qwen3.7-text-embedding-flash": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 1.8656716417910448e-08,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 128000,
+    "output_vector_size": 1024,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.000125/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
   "qwen3-embedding-0.6b": {
     "litellm_provider": "dashscope",
     "mode": "embedding",
