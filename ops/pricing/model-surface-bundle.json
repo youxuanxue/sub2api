@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "4b149f3a0c20507d5ae22e07980d546d15decaae1b6a4b34f6d4d75b772c095f",
+  "floor_sha256": "e98e26999b54f9a62d914b2e8c1aa0c5883bfe3ddcc90bd4c66f450bc11067ca",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -382,8 +382,11 @@
           "doubao-seed-2.0-lite": "doubao-seed-2.0-lite",
           "doubao-seed-2.0-mini": "doubao-seed-2.0-mini",
           "doubao-seed-2.0-pro": "doubao-seed-2.0-pro",
+          "doubao-seed-2.1-turbo": "doubao-seed-2.1-turbo",
           "doubao-seed-evolving": "doubao-seed-evolving",
           "glm-5.2": "glm-5.2",
+          "glm-5.3": "glm-5.3",
+          "glm-5.3-flash": "glm-5.3-flash",
           "kimi-k2.6": "kimi-k2.6",
           "kimi-k2.7-code": "kimi-k2.7-code",
           "kimi-k3": "kimi-k3",
