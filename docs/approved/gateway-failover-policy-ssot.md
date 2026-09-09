@@ -41,7 +41,7 @@ handler 消费的 `UpstreamFailoverError.ShouldRetryNextAccount` 也必须调用
 | Generic | `401, 402, 403, 424, 429, 529, >=500` |
 | OpenAI / Grok | Generic 加 `405` |
 | Google | `401, 403, 429, 529, >=500` |
-| NewAPI bridge | `401, 402, 429, 502, 503, 504` |
+| NewAPI bridge | `401, 402, 429, 502, 503, 504, 529` |
 | OpenAI passthrough | 账号配置命中；所有账号 `429/529`；API key 账号 `500/502/503/504/520..524` |
 
 `shared fault` 由全局 policy 判定为停止换号，即使 transport status 是 5xx；`account fault` 和 `transient fault` 由全局 policy 判定为允许换号，即使 transport status 是 4xx。OpenAI 内容策略、context window、capability-scope 401 和 Grok entitlement/content policy 保持 terminal。OpenAI access-state、request-body-too-large account mismatch、容量/处理瞬时错误，Google project compatibility 400、Grok runtime compatibility，以及 NewAPI arrears 保持 failover。
