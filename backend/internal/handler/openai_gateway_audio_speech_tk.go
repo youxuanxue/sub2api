@@ -249,7 +249,7 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 				return
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(reqModel), false, nil)
-			wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
+			wroteFallback := h.ensureForwardErrorResponseForError(c, err, streamStarted)
 			reqLog.Warn("openai_audio_speech.forward_failed",
 				zap.Int64("account_id", account.ID),
 				zap.Bool("fallback_error_response_written", wroteFallback),
