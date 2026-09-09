@@ -32,6 +32,23 @@ func TestChatCompletionsToResponses_BasicText(t *testing.T) {
 	assert.Equal(t, "user", items[0].Role)
 }
 
+func TestChatCompletionsToResponses_DeveloperInstructions(t *testing.T) {
+	resp, err := ChatCompletionsToResponses(&ChatCompletionsRequest{
+		Model: "gemini-3.8-flash",
+		Messages: []ChatMessage{
+			{Role: "developer", Content: json.RawMessage(`"Only report public weather."`)},
+			{Role: "user", Content: json.RawMessage(`"Paris?"`)},
+		},
+	})
+	require.NoError(t, err)
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 2)
+	require.Equal(t, "developer", items[0].Role)
+	require.Contains(t, string(items[0].Content), "Only report public weather.")
+	require.Equal(t, "user", items[1].Role)
+}
+
 func TestUsageConversionsPreserveCacheWriteTokens(t *testing.T) {
 	var responsesUsage ResponsesUsage
 	require.NoError(t, json.Unmarshal([]byte(`{

@@ -147,7 +147,9 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 	if err != nil {
 		// 区分“真没有被授权的组”(403,业务语义) 与跨度加载失败等内部错误(500,可重试):
 		// 后者不该被伪装成“该模型不在你的套餐内”。
-		if errors.Is(err, service.ErrUniversalUnsupportedModel) {
+		if errors.Is(err, service.ErrCandidateContinuationUnavailable) {
+			writeCandidateContinuationError(c, shape)
+		} else if errors.Is(err, service.ErrUniversalUnsupportedModel) {
 			reqLog.Warn("universal_routing.unsupported_model")
 			writeUniversalRoutingUnsupportedModelError(c, shape, model)
 		} else if errors.Is(err, service.ErrUniversalNoEntitledGroup) {
