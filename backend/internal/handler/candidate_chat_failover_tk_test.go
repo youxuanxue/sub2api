@@ -138,7 +138,9 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 					body = strings.Replace(body, `"stream":true`, `"stream":false`, 1)
 				}
 				router := gin.New()
+				handlerDone := make(chan struct{})
 				router.POST("/v1/chat/completions", func(c *gin.Context) {
+					defer close(handlerDone)
 					c.Set(string(middleware.ContextKeyAPIKey), key)
 					c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7, Concurrency: 2})
 					_, err := keyService.UniversalResolver().PrepareCandidateIngress(c, key, service.ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", []byte(body), "")
@@ -156,6 +158,11 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				response, err := io.ReadAll(res.Body)
 				_ = res.Body.Close()
 				require.NoError(t, err)
+				select {
+				case <-handlerDone:
+				case <-time.After(time.Second):
+					t.Fatal("handler did not finish after response")
+				}
 				if scenario == "exhausted" {
 					require.GreaterOrEqual(t, res.StatusCode, 500, string(response))
 					mu.Lock()

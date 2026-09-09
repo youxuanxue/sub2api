@@ -47,7 +47,7 @@
 
 31. AC-031 (regression): Given Direct or Universal discovery through OpenAI, Anthropic, Gemini, Antigravity or Codex When projecting capabilities Then use the same complete support paths and billing-policy equivalence as candidate selection, preserve protocol response formats and Direct custom lists, and do not bind payment or let a conflicting path hide a legal peer.
 
-32. AC-032 (regression): Given Direct and Universal requests When an ordinary NewAPI account accumulates three attributable failures in a fixed 90-second window Then apply the existing +1000 priority penalty for the resolved upstream model; large configured capacity and soft affinity cannot rescue it, hard continuation remains fixed, and counter outages preserve configured priority.
+32. AC-032 (regression): Given Direct and Universal requests on any account platform When an account accumulates three attributable failures in a fixed 90-second window Then apply the existing +1000 priority penalty for the resolved upstream model; native paths without a Plan use their forwarding model resolver, large configured capacity and soft affinity cannot rescue it, hard continuation remains fixed, and counter outages preserve configured priority. Caller cancellation and dedicated fault handling do not add this penalty; a shared observation does not also trigger the legacy OpenAI health breaker.
 33. AC-033 (integration): Given replayable NewAPI Chat When the upstream hangs before headers or after empty stream output Then cancel the actual connection, release its slot and try another account, returning complete output and one successful usage record; at most three attempts are allowed.
 34. AC-034 (negative): Given content or function-tool output before an upstream truncation When finishing the attempt Then never replay or synthesize successful completion, and retain known partial usage; caller cancellation and hard continuations cannot enter pre-output failover.
 
@@ -131,6 +131,8 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 - `backend/internal/server/middleware/candidate_request_tk_test.go`::`TestUS050_DefaultImageModelUsesCandidateAdmission`
 - `backend/internal/service/candidate_selection_tk_test.go`::`TestGlobalCandidateCapacityIsOnlyAnAdmissionLimit`
 - `backend/internal/service/candidate_failure_tk_test.go`::`TestCandidateFailurePriorityDirectUniversalAndModelIsolation`
+- `backend/internal/service/candidate_failure_tk_test.go`::`TestCandidateFailureNativeExecutionUsesForwardModel`
+- `backend/internal/service/candidate_failure_tk_test.go`::`TestCandidateTransportFailureAttribution`
 - `backend/internal/service/candidate_chat_attempt_tk_test.go`::`TestCandidateChatBudgetAndReplayBoundaries`
 - `backend/internal/handler/candidate_chat_failover_tk_test.go`::`TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce`
 - `backend/internal/service/candidate_selection_tk_test.go`::`TestGlobalCandidateModelGrantsCannotBeBorrowed`

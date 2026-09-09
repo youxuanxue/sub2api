@@ -1366,7 +1366,7 @@
         "RouteFacts",
         "ExecuteSelectedProtocol",
         "protocolPlansRoutingEquivalent",
-        "if router == nil && canonical && !routed && !planned {"
+        "if !protocolRoutingGovernsAccount(account) || (router == nil && canonical && !routed && !planned) {"
       ],
       "rationale": "Protocol routing is the single execution boundary for governed text channels. Every registered inbound→target pair, including Gemini, has a concrete adapter and immutable route facts; send-time freshness is authoritative reload plus protocolPlansRoutingEquivalent, not a revision token. The service execution owner alone dispatches the plan-derived Gemini endpoint profile, while transports bind the selected endpoint and preserve transport-derived query semantics. The nil-router legacy branch remains only as a compatibility boundary for explicitly non-routed callers; production candidate images always inject the router and use readiness for traffic admission. Router-enabled requests without a selected plan remain fail-closed."
     },

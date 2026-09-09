@@ -99,13 +99,84 @@
     },
     {
       "path": "backend/internal/service/candidate_failure_tk.go",
-      "must_contain": ["path.plan.ResolvedModel()", "CandidateFailureScope{account.ID, plan.ResolvedModel()}", "candidateFailureAttributable", "counter.IncrementCandidateFailure"],
-      "rationale": "Ordinary NewAPI account feedback must use the actual resolved model and exclude non-attributable failures."
+      "must_contain": ["plan.ResolvedModel()", "candidateFailureScope(path.account, plan, path.model)", "resolveGeminiForwardModels(account, model)", "ResolveBedrockModelID(account, model)", "kiroproto.MapModel(model)", "candidateFailureAttributable", "counter.IncrementCandidateFailure", "candidateTransportFailure", "errors.As(err, &observed)"],
+      "must_not_contain": ["PlatformNewAPI"],
+      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, and observed errors cannot count twice."
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
-      "must_contain": ["candidate.observeFailure(ctx, freshAccount, plan, err)", "return protocolrouter.Result{Value: value}, err"],
+      "must_contain": ["err = candidate.observeFailure(ctx, freshAccount, plan, err)", "err = candidate.observeFailure(ctx, account, protocolrouter.Plan{}, err)", "return protocolrouter.Result{Value: value}, err"],
       "rationale": "The execution boundary must actually record feedback and preserve known partial results on errors."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_health_breaker.go",
+      "must_contain": ["var observed *candidateObservedFailure", "errors.As(err, &observed)"],
+      "rationale": "The legacy account-wide breaker must not duplicate shared candidate model-scoped failure observations."
+    },
+    {
+      "path": "backend/internal/service/candidate_failure_tk_test.go",
+      "must_contain": ["TestCandidateFailurePriorityDirectUniversalAndModelIsolation", "TestCandidateFailureNativeExecutionUsesForwardModel", "TestCandidateTransportFailureAttribution", "ExecuteSelectedProtocol", "classifyOpenAIAPIKeyHealthFailure(observed)"],
+      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution and legacy breaker deduplication across platforms and key modes."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Sanitized Anthropic transport errors must retain candidate failure attribution."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Anthropic passthrough transport failures feed the shared counter without exposing raw transport details."
+    },
+    {
+      "path": "backend/internal/service/gateway_bedrock.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Bedrock transport failures retain attribution on native execution without a Plan."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Messages-to-Chat transport failures retain candidate attribution."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Messages-to-Responses transport failures retain candidate attribution."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_v1_forward.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "OpenAI v1 transport failures retain candidate attribution after sanitization."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx, s.writeClaudeError", "candidateTransportFailure(ctx, s.writeGoogleError"],
+      "rationale": "Gemini Messages and native execution preserve terminal transport attribution after their existing retries."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Gemini Chat preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Gemini Responses preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Antigravity Messages preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Antigravity native Gemini preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": ["candidateTransportFailure(c.Request.Context(),"],
+      "rationale": "Antigravity compatibility transports preserve terminal failure attribution."
     },
     {
       "path": "backend/internal/service/candidate_chat_attempt_tk.go",

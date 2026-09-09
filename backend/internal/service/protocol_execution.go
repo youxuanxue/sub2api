@@ -361,17 +361,15 @@ func ExecuteSelectedProtocol(
 	request, canonical := protocolRoutingCanonicalRequest(ctx)
 	_, routed := ProtocolRoutingRequest(ctx)
 	plan, planned := ProtocolPlanFromSelection(selection)
-	if !protocolRoutingGovernsAccount(account) {
+	if !protocolRoutingGovernsAccount(account) || (router == nil && canonical && !routed && !planned) {
 		if executors.NonGoverned == nil {
 			return nil, ErrProtocolExecutorMissing
 		}
-		return executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
-	}
-	if router == nil && canonical && !routed && !planned {
-		if executors.NonGoverned == nil {
-			return nil, ErrProtocolExecutorMissing
+		value, err := executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
+		if candidate := CandidateRequestFromContext(ctx); candidate != nil {
+			err = candidate.observeFailure(ctx, account, protocolrouter.Plan{}, err)
 		}
-		return executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
+		return value, err
 	}
 	if !routed || !planned || router == nil {
 		return nil, fmt.Errorf("%w: governed account requires canonical request, router, and selected plan", ErrProtocolRouteUnavailable)
@@ -431,7 +429,7 @@ func ExecuteSelectedProtocol(
 	})
 	result, err := router.Execute(executionCtx, plan, request)
 	if candidate := CandidateRequestFromContext(ctx); candidate != nil {
-		candidate.observeFailure(ctx, freshAccount, plan, err)
+		err = candidate.observeFailure(ctx, freshAccount, plan, err)
 	}
 	if err != nil {
 		if errors.Is(err, protocolrouter.ErrStalePlan) || errors.Is(err, protocolrouter.ErrMissingCredential) {

@@ -221,7 +221,7 @@ func (s *GatewayService) executeBedrockUpstream(
 					"message": "Upstream request failed",
 				},
 			})
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+			return nil, candidateTransportFailure(ctx, fmt.Errorf("upstream request failed: %s", safeErr), err)
 		}
 
 		if resp.StatusCode >= 400 && resp.StatusCode != 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {

@@ -140,13 +140,21 @@ execution and billing checks on every reselection.
 
 ## Approved failure recovery supplement (2026-09-09)
 
-Ordinary NewAPI failures use the existing Redis counter infrastructure, scoped
-to account and the actual Plan's resolved upstream model. Counter reads fail
+Attributable failures on every account platform use the existing Redis counter
+infrastructure, scoped to account and the actual Plan's resolved upstream model.
+Native Gemini, Kiro and Bedrock paths without a Plan reuse their forwarding model
+resolvers for the same read/write scope. This all-platform extension was approved
+in the follow-up conversation on 2026-09-09. Counter reads fail
 open to configured priority; fixed-window expiry restores preference without
 configuration writes. Existing credential, explicit quota and provider cooldown
 owners remain authoritative. Caller cancellation, invalid input, policy refusal
 and request-scoped failures do not create this account penalty. Multiple feedback
 owners combine by maximum count, never by adding duplicate penalties.
+One completed execution records at most one failure, including a native execution
+without a protocol Plan. Shared observations bypass the legacy OpenAI account-wide
+health breaker; explicit quota and credential handling remain intact. Transport
+errors retain sanitized output and are attributed only while the caller is alive;
+caller cancellation/deadline and local validation cannot become transport penalties.
 
 A replayable NewAPI Chat request may immediately try another eligible account
 on its first pre-output failure; it does not wait for three cross-request failures.

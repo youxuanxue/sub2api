@@ -180,7 +180,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		}
 		recordCCUpstreamRequestError(c, account, upstreamURL, "request_error", safeErr)
 		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		return nil, candidateTransportFailure(ctx, fmt.Errorf("upstream request failed: %s", safeErr), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
