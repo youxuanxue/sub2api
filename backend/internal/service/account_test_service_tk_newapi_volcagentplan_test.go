@@ -45,7 +45,12 @@ func TestNewAPIAvailableModelPresetIDs_AgentPlan(t *testing.T) {
 	}
 	got := NewAPIAvailableModelPresetIDs(account)
 	require.NotEmpty(t, got)
-	require.Equal(t, tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL()), got)
+	want := slices.Clone(tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL()))
+	for alias, target := range newAPIVolcEngineAgentPlanModelAliases() {
+		want = append(want, alias, target)
+	}
+	slices.Sort(want)
+	require.Equal(t, slices.Compact(want), got)
 	require.Contains(t, got, newapiintegration.VolcEngineAgentPlanDefaultTestModel)
 	display := NewAPIModelDisplayIDsForAccount(account)
 	require.ElementsMatch(t, tkServedModelsManifestDisplayPresetIDsForSelector(
