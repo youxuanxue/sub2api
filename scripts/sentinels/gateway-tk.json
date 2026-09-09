@@ -10171,6 +10171,36 @@
         "anthropicRequestNormalize"
       ],
       "rationale": "Thin injection of TK forwarding-cache extras into the shared gatewayForwardingCache loader. Struct fields stay unexported on the shared cache type; parse/defaults live in setting_gateway_runtime_tk_forwarding_extras.go. Upstream merges that drop the append/parse hooks silently revert canonical mimicry + normalize to zero/defaults."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": ["cleanThoughtSignatures = true", "sessionGroupID, sessionKey, cleanThoughtSignatures"],
+      "rationale": "Native Gemini binding-loss and account-switch signature repair must reach the execution transport, whose canonical request predates handler body cleanup. Losing the flag silently forwards the rejected signature again."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
+      "must_contain": ["if cleanThoughtSignatures", "forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)"],
+      "rationale": "Apply signature repair to the validated canonical request's transport copy without replacing the immutable route plan."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": ["!signatureRetried && attempt < geminiMaxRetries", "s.tkRepairGeminiNativeSignature(c, account, resp, body)", "signatureRetried = true"],
+      "rationale": "Native Gemini and Vertex must recover rejected history signatures at most once within the existing retry budget, including sessions whose sticky binding already exists."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_signature_retry_tk.go",
+      "must_contain": ["func (s *GeminiMessagesCompatService) tkRepairGeminiNativeSignature", "hasSignatureToRepair", "CleanGeminiNativeThoughtSignatures(body)"],
+      "rationale": "Shared native signature recovery must require an upstream thought-signature 400 and history that can actually be repaired, preserving ordinary errors and emitting ops evidence."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute_test.go",
+      "must_contain": ["TestGeminiSelectedProtocolRepairsTransportSignature", "upstream.body", "request.Digest()"],
+      "rationale": "Exercise actual native, planned edge, and Vertex forwarding to prove repaired wire signatures and immutable canonical history."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_signature_retry_tk_test.go",
+      "must_contain": ["TestGeminiForwardNativeRepairsRejectedSignatureOnce", "persistent_error_stops", "already_repaired", "unrelated_400"],
+      "rationale": "Regression coverage must retain successful recovery, bounded failure, and ordinary-error/no-op preservation."
     }
   ]
 }
