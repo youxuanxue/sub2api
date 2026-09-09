@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
-	cursorbridge "github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
@@ -168,7 +168,7 @@ func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
 }
 
 func manifestScopeKey(scope tkServedModelsManifestScope) string {
-	isCursor := scope.ChannelType == newapiconstant.ChannelTypeAnthropic && scope.BaseURL == cursorbridge.DefaultBaseURL
+	isCursor := scope.ChannelType == newapiconstant.ChannelTypeAnthropic && scope.BaseURL == cursor.AgentBaseURL
 	if !isCursor && !newapiintegration.IsNVIDIABuildBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&

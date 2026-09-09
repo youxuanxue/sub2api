@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -158,14 +157,9 @@ func TestAgentUsagePresenceOnNativeWire(t *testing.T) {
 // Opt-in direct protocol integration probe. It runs no CLI or SDK and never logs
 // credentials. This is not a TokenKey UI or end-to-end acceptance test.
 func TestAgentLive(t *testing.T) {
-	if os.Getenv("TOKENKEY_CURSOR_LIVE_PROBE") != "1" {
-		t.Skip("real-account probe requires explicit opt-in")
-	}
+	token := liveOAuthToken(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	credential, err := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w").Output()
-	require.NoError(t, err)
-	token := strings.TrimSpace(string(credential))
 	transport := &http.Transport{ForceAttemptHTTP2: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -211,14 +205,9 @@ func TestAgentLive(t *testing.T) {
 }
 
 func TestAgentLiveCatalog(t *testing.T) {
-	if os.Getenv("TOKENKEY_CURSOR_LIVE_CATALOG") != "1" {
-		t.Skip("real catalog probe requires explicit opt-in")
-	}
+	token := liveOAuthToken(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	credential, err := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w").Output()
-	require.NoError(t, err)
-	token := strings.TrimSpace(string(credential))
 	transport := &http.Transport{ForceAttemptHTTP2: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

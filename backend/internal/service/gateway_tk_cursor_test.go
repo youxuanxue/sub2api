@@ -1,7 +1,7 @@
 package service
 
 import (
-	cursorbridge "github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -12,10 +12,10 @@ import (
 func cursorTestAccount() *Account {
 	return &Account{ID: 42, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: 14,
 		Extra: map[string]any{CursorSourceExtraKey: "cursor"}, Credentials: map[string]any{
-			"base_url": cursorbridge.AgentBaseURL, "api_key": "cursor-user-key",
+			"base_url": cursor.AgentBaseURL, "api_key": "cursor-user-key",
 			"model_mapping":          map[string]any{"composer-2.5": "composer-2.5", "gpt-5.5": "gpt-5.5"},
 			CursorWireModelsKey:      map[string]any{"composer-2.5": "composer-2.5", "gpt-5.5": "gpt-5.5"},
-			CursorModelParametersKey: map[string]any{"composer-2.5": []cursorbridge.Parameter{{ID: "fast", Value: "false"}}, "gpt-5.5": nil},
+			CursorModelParametersKey: map[string]any{"composer-2.5": []cursor.Parameter{{ID: "fast", Value: "false"}}, "gpt-5.5": nil},
 		}}
 }
 func cursorTestContext() *gin.Context {
@@ -32,7 +32,7 @@ func TestCursorNativeEndpointRejectsCredentialRedirection(t *testing.T) {
 		require.NoError(t, err)
 		require.Error(t, prepareCursorUpstreamRequest(req, cursorTestContext(), account))
 	}
-	req, err := http.NewRequest(http.MethodPost, cursorbridge.AgentBaseURL+"/v1/messages", nil)
+	req, err := http.NewRequest(http.MethodPost, cursor.AgentBaseURL+"/v1/messages", nil)
 	require.NoError(t, err)
 	require.NoError(t, prepareCursorUpstreamRequest(req, cursorTestContext(), account))
 }

@@ -61,7 +61,7 @@
       "must_contain": [
         "func executeCursorMessages",
         "func (s *OpenAIGatewayService) doNativeMessagesRequest",
-        "cursorbridge.Messages",
+        "cursor.Messages",
         "HTTPUpstreamProfileCursor",
         "CursorWireModelsKey"
       ],

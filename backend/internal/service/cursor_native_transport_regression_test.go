@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
-	cursorbridge "github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -27,7 +27,7 @@ type cursorNativeTestUpstream struct {
 }
 
 func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-	if req.URL.String() != cursorbridge.AgentBaseURL+"/agent.v1.AgentService/Run" || HTTPUpstreamProfileFromContext(req.Context()) != HTTPUpstreamProfileCursor {
+	if req.URL.String() != cursor.AgentBaseURL+"/agent.v1.AgentService/Run" || HTTPUpstreamProfileFromContext(req.Context()) != HTTPUpstreamProfileCursor {
 		return nil, fmt.Errorf("request bypassed Cursor native transport")
 	}
 	var header [5]byte
@@ -116,13 +116,13 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					require.Equal(t, "mcp__tokenkey__lookup", upstream.run.GetMcpTools().GetMcpTools()[0].GetName())
 					require.NotNil(t, result)
 					if outcome == "reported" {
-						require.Equal(t, cursorbridge.ReportedBillingTier, result.BillingTier)
+						require.Equal(t, cursor.ReportedBillingTier, result.BillingTier)
 						require.Equal(t, 20, result.Usage.InputTokens, "OpenAI input includes fresh and cached buckets")
 						require.Equal(t, 7, result.Usage.CacheReadInputTokens)
 						require.Equal(t, 3, result.Usage.OutputTokens, "unsupported output limits do not truncate or cap settlement")
 						require.Contains(t, recorder.Body.String(), "NATIVE_OK")
 					} else {
-						require.Equal(t, cursorbridge.EstimatedBillingTier, result.BillingTier)
+						require.Equal(t, cursor.EstimatedBillingTier, result.BillingTier)
 						require.Positive(t, result.Usage.OutputTokens)
 						require.Contains(t, recorder.Body.String(), "call_native")
 					}

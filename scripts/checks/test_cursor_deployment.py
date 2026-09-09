@@ -9,6 +9,16 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def retired_contract_errors(sources):
+    retired = ("cursor_sdk_messages", "cursor-sdk-service.md")
+    return [
+        f"{path}: retired Cursor contract {marker}"
+        for path, content in sources.items()
+        for marker in retired
+        if marker in content
+    ]
+
+
 def deployment_errors(services):
     errors = []
     for name, service in services.items():
@@ -24,6 +34,21 @@ def deployment_errors(services):
 
 
 class CursorDeploymentTest(unittest.TestCase):
+    def test_current_docs_do_not_advertise_retired_cursor_contracts(self):
+        paths = [ROOT / "CLAUDE.md", *(ROOT / "docs").rglob("*.md")]
+        sources = {str(path.relative_to(ROOT)): path.read_text() for path in paths}
+        self.assertEqual([], retired_contract_errors(sources))
+
+    def test_retired_contract_references_are_rejected(self):
+        current = "Use cursor_oauth_messages; see cursor-oauth-service.md"
+        self.assertEqual([], retired_contract_errors({"design.md": current}))
+        for before, after in [
+            ("cursor_oauth_messages", "cursor_sdk_messages"),
+            ("cursor-oauth-service.md", "cursor-sdk-service.md"),
+        ]:
+            with self.subTest(retired=after):
+                self.assertTrue(retired_contract_errors({"design.md": current.replace(before, after)}))
+
     def test_release_services_have_no_cursor_runtime_dependency(self):
         for path in sorted((ROOT / "deploy/aws/stage0").glob("docker-compose*.yml")):
             with self.subTest(path=path.name):

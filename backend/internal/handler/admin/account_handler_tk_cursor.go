@@ -7,14 +7,14 @@ import (
 	"strconv"
 	"time"
 
-	cursorbridge "github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
-func (h *AccountHandler) cursorAdminClient(c *gin.Context) (*cursorbridge.Client, string, bool) {
+func (h *AccountHandler) cursorAdminClient(c *gin.Context) (*cursor.Client, string, bool) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok || subject.UserID <= 0 {
 		response.Error(c, http.StatusUnauthorized, "Administrator identity required")
@@ -29,7 +29,7 @@ func (h *AccountHandler) cursorAdminClient(c *gin.Context) (*cursorbridge.Client
 }
 func cursorAdminError(c *gin.Context, err error) {
 	status := http.StatusBadRequest
-	var upstream *cursorbridge.Error
+	var upstream *cursor.Error
 	if errors.As(err, &upstream) {
 		switch upstream.Status {
 		case 404, 409, 410, 429:

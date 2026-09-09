@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	cursorbridge "github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,8 +34,8 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 		t.Run(scenario, func(t *testing.T) {
 			admin := &cursorAdminStub{group: &Group{Name: "Cursor", Platform: PlatformNewAPI}}
 			input := CursorAccountInput{SessionID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Name: "Cursor", GroupIDs: []int64{2}}
-			claim := cursorbridge.CredentialClaim{APIKey: "private-test-key", Claim: "claim-test", Authorization: cursorbridge.Authorization{
-				KeyExpiresAt: time.Now().Add(time.Hour), Models: []cursorbridge.Model{{ID: "auto"}, {ID: "composer-2.5", Variants: []cursorbridge.Variant{{IsDefault: true, Params: []cursorbridge.Parameter{{ID: "fast", Value: "true"}}}, {LegacySlug: "composer-2.5", Params: []cursorbridge.Parameter{{ID: "fast", Value: "false"}}}}}},
+			claim := cursor.CredentialClaim{APIKey: "private-test-key", Claim: "claim-test", Authorization: cursor.Authorization{
+				KeyExpiresAt: time.Now().Add(time.Hour), Models: []cursor.Model{{ID: "auto"}, {ID: "composer-2.5", Variants: []cursor.Variant{{IsDefault: true, Params: []cursor.Parameter{{ID: "fast", Value: "true"}}}, {LegacySlug: "composer-2.5", Params: []cursor.Parameter{{ID: "fast", Value: "false"}}}}}},
 			}}
 			if scenario == "reconnect" || scenario == "wrong_account" {
 				input.AccountID = 42
@@ -90,12 +90,12 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 }
 
 type cursorClaimStub struct {
-	claim               cursorbridge.CredentialClaim
+	claim               cursor.CredentialClaim
 	claims, settlements int
 	success             bool
 }
 
-func (s *cursorClaimStub) Claim(context.Context, string, string) (cursorbridge.CredentialClaim, error) {
+func (s *cursorClaimStub) Claim(context.Context, string, string) (cursor.CredentialClaim, error) {
 	s.claims++
 	return s.claim, nil
 }

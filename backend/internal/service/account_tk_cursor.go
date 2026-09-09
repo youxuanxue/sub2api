@@ -12,7 +12,7 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	entgroup "github.com/Wei-Shaw/sub2api/ent/group"
-	cursorbridge "github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 )
 
 const CursorSourceExtraKey = "upstream_provider"
@@ -109,7 +109,7 @@ func (s *adminServiceImpl) SaveCursorAccount(ctx context.Context, create *Create
 }
 
 type cursorAuthorizationClient interface {
-	Claim(context.Context, string, string) (cursorbridge.CredentialClaim, error)
+	Claim(context.Context, string, string) (cursor.CredentialClaim, error)
 	Settle(context.Context, string, string, string, bool) error
 }
 
@@ -167,7 +167,7 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client c
 		if model.ID == "" || model.ID == "default" || model.ID == "auto" {
 			continue
 		}
-		selected := cursorbridge.DefaultParameters(model)
+		selected := cursor.DefaultParameters(model)
 		for _, parameter := range selected {
 			if parameter.ID == "fast" && parameter.Value == "true" {
 				return nil, errors.New("cursor catalog does not offer a regular-speed variant for " + model.ID)
@@ -175,7 +175,7 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client c
 		}
 		mapping[model.ID] = model.ID
 		parameters[model.ID] = selected
-		wireModel, err := cursorbridge.AgentVariantWireModel(model, selected)
+		wireModel, err := cursor.AgentVariantWireModel(model, selected)
 		if err != nil {
 			return nil, err
 		}
@@ -194,7 +194,7 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client c
 	credentials["model_mapping"] = mapping
 	credentials[CursorModelParametersKey] = parameters
 	credentials[CursorWireModelsKey] = wireModels
-	applyExclusiveSupplierProtocolEndpoints(credentials, cursorbridge.AgentBaseURL, newapiconstant.ChannelTypeAnthropic)
+	applyExclusiveSupplierProtocolEndpoints(credentials, cursor.AgentBaseURL, newapiconstant.ChannelTypeAnthropic)
 	extra[CursorSourceExtraKey] = "cursor"
 	expires := claim.KeyExpiresAt.Unix()
 	pause := true

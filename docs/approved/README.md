@@ -64,6 +64,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md) | Direct/Universal model mapping boundary and continuation migration impact |
 | [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
+| [`cursor-oauth-service.md`](cursor-oauth-service.md) | Cursor native OAuth, credential renewal and billing |
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
 | [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |

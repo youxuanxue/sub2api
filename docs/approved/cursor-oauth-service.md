@@ -9,8 +9,7 @@ created: 2026-09-07
 
 ## Approved architecture
 
-The user's 2026-09-08 instruction supersedes the SDK sidecar architecture.
-TokenKey remains a standalone Go gateway. Cursor inference uses the authenticated
+TokenKey is a standalone Go gateway. Cursor inference uses the authenticated
 CLI AgentService protocol directly, with connections, protobuf blobs and output
 buffers limited to one request. There is no inference session store, SDK worker,
 local tool execution, Bridge secret or cross-request connection affinity.
@@ -104,73 +103,49 @@ The shared omission owner is a transport compatibility rule, not a candidate
 eligibility or billing policy. Its call sites and behavioral tests are protected
 by `scripts/sentinels/gateway-tk.json`.
 
-## Acceptance
+## System and feature boundaries
 
-Current authenticated CLI catalog contains six fixed models: Composer 2.5,
-Grok 4.6, Grok 4.5, Kimi K3, Kimi K2.7 Code and GLM 5.2. Direct native text probes
-passed for all six before production wiring. This does not prove that the older
-SDK catalog's Claude/GPT/Gemini models are callable from the same account/egress.
+The approved compatibility path prepends system text to the first user message
+on every full-history reconstruction, including tool continuation. Subsequent
+user messages and the caller's history are preserved. This does not guarantee
+native system priority or resistance to conflicting user instructions. Native
+rule/system fields are supplemental; the user-message path is authoritative.
 
-The prototype passed a real tool call and continuation over a new connection.
-Focused regression tests cover shared candidate ordering, credential expiry,
-atomic imports, cache billing, streaming truncation and consumer cancellation.
-These tests do not replace TokenKey UI or coding-client acceptance.
+Image/thinking content blocks and forced tool choice are rejected.
+Reasoning-history replay is unverified. The authenticated account catalog is
+the model source; availability must still pass the shared serving gates above.
 
-**System-to-user compatibility was approved on 2026-09-09.** Earlier Composer probes did
-not follow a marker supplied through request-context rules, non-file rules,
-system_prompt_spec append or root system history. Diagnostic probes observed a
-context callback but no marker in the returned prompt blobs. They are diagnostic
-observations, not passing system-instruction acceptance tests. The accepted
-compatibility path prepends system text to the first user message on every full
-history reconstruction, including tool continuation. It preserves subsequent user
-messages and does not modify the caller's history. This is user-message content,
-not a guarantee of native system priority or resistance to conflicting user
-instructions. Existing native rule/system fields remain supplemental.
-Tests decode the actual outgoing protobuf and cover first requests, multiple
-turns, tool continuation and rejection of malformed system/tool content. They do
-not establish model obedience. Real coding-client acceptance is recorded below.
+## Validation and maintenance
 
-Current boundary checks also reject image/thinking content blocks and forced
-tool choice. Reasoning-history replay remains unverified; bounded response
-memory is not a substitute for a generation limit.
+`backend/internal/integration/cursor/` owns native protocol and authorization
+tests. Service tests cover actual protocol dispatch, settlement, expiry and
+background renewal; repository integration tests cover atomic imports and
+credential updates. `scripts/checks/test_cursor_deployment.py` rejects obsolete
+runtime dependencies and retired integration contracts through preflight.
 
-On 2026-09-09, official browser authorization and TokenKey UI import replaced the
-historical local account. Playwright verified the authenticated catalog's complete
-model set through TokenKey Chat, plus mobile Composer Chat and desktop/mobile
-authorization screens. Messages, Chat and Responses SDK clients completed tool
-handoff and fresh-history continuation; Messages replay and parallel tool results
-also passed. The billing audit matched each accepted request to one usage row,
-including estimated and reported provenance, cache buckets and price calculation.
-Claude Code read a local fixture through its Read tool and returned its exact
-contents. These checks used the isolated local stack, not production or edge.
+| Local entry | Purpose |
+| --- | --- |
+| `node scripts/cursor/local-dev.mjs prepare\|start\|stop` | Isolated PostgreSQL/Redis and Go/frontend processes; requires Docker, Go and installed frontend dependencies |
+| `node frontend/e2e/cursor-live.tk.mjs authorize\|chat\|chat-all` | Real Playwright UI authorization/import and model calls; run against that local stack |
+| `node scripts/cursor/client-probe.mjs tools\|parallel\|text` | Client protocol/tool checks; requires the local gateway key from UI Chat and OpenAI/Anthropic SDKs installed under `.cache/cursor-dev/clients` |
+| `node scripts/cursor/billing-audit.mjs tools\|parallel\|text` | Match the corresponding local client probe to persisted usage and prices |
+| `node scripts/cursor/claude-code-probe.mjs` | Local Claude Code Read tool acceptance; requires the local gateway key and installed CLI |
 
-Fresh evidence is under `.cache/cursor-dev/evidence/`: `authorization.json`,
-`chat-all.json`, `client-tools.json`, `client-parallel.json`, `billing-tools.json`,
-`billing-parallel.json`, `claude-code.json` and desktop/mobile screenshots.
-Protocol-route regressions cover real adapter dispatch, streamed and buffered
-conversion, tool handoff estimates and refusal to settle incomplete native runs.
-Literal CLI wire fixtures guard token event numbering and optional usage presence.
+Direct live Go probes consume an explicitly supplied JSON file containing
+`access_token` via `TOKENKEY_CURSOR_CREDENTIALS_FILE`; keep it outside version
+control. Select `-run '^TestAgentLive$'` for text/tool continuation,
+`-run '^TestAgentLiveCatalog$'` for the authenticated catalog, or
+`-run '^TestOAuthRefreshLiveChainAndInference$'` for chained renewal and inference.
+These probes contact the real provider and are not UI e2e tests. Local artifacts
+under `.cache/cursor-dev/` are evidence from a particular run, not runtime config
+or a source of model availability.
 
-On 2026-09-09, the user requested automatic expiry renewal following the existing
-OAuth providers and a real test. The installed Cursor Desktop uses
-`https://api2.cursor.sh/oauth/token` with `grant_type=refresh_token` and public
-client ID `KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB`. A CLI login access token was accepted,
-its expiry advanced, and two successive renewals completed. The renewed token
-loaded the six fixed models and completed a real Composer request. This verifies
-renewal before expiry, not recovery of an already-expired or revoked token.
-The opt-in `TestOAuthRefreshLiveChainAndInference` reproduces that chain without
-logging credentials. Background and database tests cover eligibility, expiry
-publication, operator pause preservation and concurrent reauthorization.
-The real background service also renewed isolated local account 1 through the
-shared Redis lock and repository: expiry advanced from 2026-11-08T01:15:17Z to
-2026-11-08T06:02:01Z, and the scheduler cache received the new credential. The
-test-only refresh window was widened to include this still-valid token; deployed
-defaults were unchanged. A subsequent Playwright Studio Chat request returned
-HTTP 200 and `CURSOR_REFRESH_OK` using Composer. Sanitized UI evidence is
-`/tmp/cursor2036-refresh-ui.png`. Persistence conflicts skip stale results;
-database failures after accepted renewal stop retries for that provider cycle.
+At PR #2036 commit `c22f5c8d0`, isolated live acceptance passed official browser
+authorization, UI model calls, tool continuation, billing reconciliation and
+chained renewal. The real background service updated PostgreSQL expiry and Redis
+credentials, followed by a successful Playwright Composer call. This proves
+renewal before expiry, not recovery of already-expired or revoked credentials.
+Production deployment status belongs to release records, not this design.
 
-Output limits follow the approved compatibility contract above; these short
-successful probes do not establish native generation-limit enforcement.
 Complete full tests and preflight, review and push PR #2036. This approval does not
 authorize merging or deployment.

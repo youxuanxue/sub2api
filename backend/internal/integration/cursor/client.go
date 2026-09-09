@@ -12,7 +12,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const DefaultBaseURL = AgentBaseURL
 const authorizationTTL = 10 * time.Minute
 
 type Parameter struct {
@@ -67,8 +66,7 @@ type Client struct {
 func NewClient(rdb *redis.Client, do func(*http.Request) (*http.Response, error)) *Client {
 	return &Client{rdb: rdb, do: do}
 }
-func (c *Client) Enabled() bool   { return c != nil && c.rdb != nil && c.do != nil }
-func (c *Client) BaseURL() string { return AgentBaseURL }
+func (c *Client) Enabled() bool { return c != nil && c.rdb != nil && c.do != nil }
 func authKey(id string) (string, error) {
 	parsed, err := uuid.Parse(id)
 	if err != nil || parsed.String() != id {

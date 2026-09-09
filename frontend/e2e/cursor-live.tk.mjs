@@ -46,10 +46,14 @@ try {
   } else if (action === 'authorize') {
     await page.goto(`${base}/admin/accounts`);
     const accounts = await api('/admin/accounts?page=1&page_size=100');
-    const existing = accounts.items?.find(account => account.name === 'Cursor SDK local verification' && account.extra?.upstream_provider === 'cursor');
+    if (accounts.total > accounts.items?.length) throw new Error('Local authorization account listing is incomplete');
+    const cursorAccounts = accounts.items?.filter(account => account.extra?.upstream_provider === 'cursor') || [];
+    if (cursorAccounts.length > 1) throw new Error('Local authorization requires at most one existing Cursor account');
+    const existing = cursorAccounts[0];
+    if (existing && !existing.group_ids?.includes(group.id)) throw new Error('Existing local Cursor account belongs to another group');
     if (existing) await page.getByRole('button', { name: '重新授权 Cursor', exact: true }).first().click();
     else await page.getByTestId('cursor-connect').click();
-    await page.locator('#cursor-account-name').fill('Cursor SDK local verification');
+    await page.locator('#cursor-account-name').fill('Cursor OAuth local verification');
     await page.locator('#cursor-service-group').selectOption(String(group.id));
     const started = page.waitForResponse(response => response.url().endsWith('/cursor/authorizations') && response.request().method() === 'POST');
     await page.getByRole('button', { name: '授权 Cursor', exact: true }).click();

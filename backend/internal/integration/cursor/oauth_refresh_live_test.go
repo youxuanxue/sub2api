@@ -12,10 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOAuthRefreshLiveChainAndInference(t *testing.T) {
-	path := os.Getenv("TOKENKEY_CURSOR_REFRESH_EVIDENCE_FILE")
+func liveOAuthToken(t *testing.T) string {
+	t.Helper()
+	path := os.Getenv("TOKENKEY_CURSOR_CREDENTIALS_FILE")
 	if path == "" {
-		t.Skip("opt-in real Cursor renewal verification")
+		t.Skip("real Cursor probe requires an explicit credentials file")
 	}
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -24,12 +25,16 @@ func TestOAuthRefreshLiveChainAndInference(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(raw, &input))
 	require.NotEmpty(t, input.AccessToken)
+	return input.AccessToken
+}
+
+func TestOAuthRefreshLiveChainAndInference(t *testing.T) {
+	token := liveOAuthToken(t)
 	transport := &http.Transport{Proxy: http.ProxyFromEnvironment, ForceAttemptHTTP2: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
-	token := input.AccessToken
 	for round := 1; round <= 2; round++ {
 		result, err := RefreshOAuth(ctx, token, client.Do)
 		require.NoError(t, err)

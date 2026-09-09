@@ -304,9 +304,10 @@ AND the required adapter and transport exist
 
 On a non-`OfficialEndpointAnthropic` identity, native `messages` is legal only
 when the resolved upstream model is in the Claude family (`claude-*`), except
-for the explicitly approved `cursor_sdk_messages` endpoint profile in
-`cursor-sdk-service.md`. That profile admits an explicitly mapped SDK catalog
-model only when its saved variant parameters exist, for every model family.
+for the `cursor_oauth_messages` endpoint profile described in
+[`cursor-oauth-service.md`](cursor-oauth-service.md). That profile admits an
+explicitly mapped authenticated catalog model only when its saved variant
+parameters exist and, for a native account, its saved wire model is present.
 It still requires the same linked capability, Plan and Execute gates. Dual-stack
 OpenAI relays that advertise `messages` plus `chat_completions` and/or
 `responses` therefore convert inbound Claude Code `/v1/messages` for GPT and

@@ -46,7 +46,7 @@ Unsupported output limits (`upstream-output-limits-ssot`):
 Cursor and ChatGPT/Codex transports. Call at dispatch boundaries, never during
 candidate admission. Native limit policies for other supplies remain with their
 existing adapters. Contract and acceptance:
-[`docs/approved/cursor-sdk-service.md`](docs/approved/cursor-sdk-service.md#output-limit-compatibility).
+[`docs/approved/cursor-oauth-service.md`](docs/approved/cursor-oauth-service.md#output-limit-compatibility).
 
 Backend `backend/` (Go: `handler` → `service` → `repository` → `ent`), frontend `frontend/` (Vue 3 + pnpm), deploy `deploy/`. Sibling `new-api/` clone required at `../../new-api` (see §4). Key paths: `backend/internal/{handler,service,integration/newapi,relay/bridge}`, `frontend/src/{views,composables,api}`, `deploy/docker-compose*.yml`.
 

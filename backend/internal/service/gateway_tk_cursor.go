@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	cursorbridge "github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -16,13 +16,13 @@ func validateCursorBaseURL(account *Account, raw string, fallback func(string) (
 	if !account.IsCursor() || isEdgeMirrorStub(account, edgeIDPattern) {
 		return fallback(raw)
 	}
-	if strings.TrimRight(strings.TrimSpace(raw), "/") != cursorbridge.AgentBaseURL {
+	if strings.TrimRight(strings.TrimSpace(raw), "/") != cursor.AgentBaseURL {
 		return "", errors.New("cursor account requires browser reauthorization for the native endpoint")
 	}
-	return cursorbridge.AgentBaseURL, nil
+	return cursor.AgentBaseURL, nil
 }
 
-func cursorModelParameters(account *Account, model string) ([]cursorbridge.Parameter, bool) {
+func cursorModelParameters(account *Account, model string) ([]cursor.Parameter, bool) {
 	if !account.IsCursor() {
 		return nil, false
 	}
@@ -38,7 +38,7 @@ func cursorModelParameters(account *Account, model string) ([]cursorbridge.Param
 	if err != nil {
 		return nil, false
 	}
-	var params []cursorbridge.Parameter
+	var params []cursor.Parameter
 	if json.Unmarshal(raw, &params) != nil {
 		return nil, false
 	}
@@ -60,7 +60,7 @@ func prepareCursorUpstreamRequest(req *http.Request, _ *gin.Context, account *Ac
 	if !account.IsCursor() || isEdgeMirrorStub(account, edgeIDPattern) {
 		return nil
 	}
-	if req.URL.String() != cursorbridge.AgentBaseURL+"/v1/messages" {
+	if req.URL.String() != cursor.AgentBaseURL+"/v1/messages" {
 		return errors.New("invalid Cursor native endpoint")
 	}
 	return nil
@@ -102,7 +102,7 @@ func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUps
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	return cursorbridge.Messages(req.Context(), account.GetCredential("api_key"), body, parameters, wireModel, func(native *http.Request) (*http.Response, error) {
+	return cursor.Messages(req.Context(), account.GetCredential("api_key"), body, parameters, wireModel, func(native *http.Request) (*http.Response, error) {
 		ctx := WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(native.Context(), HTTPUpstreamProfileCursor))
 		return upstream.Do(native.WithContext(ctx), proxyURL, account.ID, account.Concurrency)
 	})
@@ -112,7 +112,7 @@ func cursorResponseOutcome(account *Account, resp *http.Response, result *OpenAI
 	if !account.IsCursor() || resp == nil {
 		return
 	}
-	if body, ok := resp.Body.(*cursorbridge.MessagesBody); ok {
+	if body, ok := resp.Body.(*cursor.MessagesBody); ok {
 		tier, nativeErr := body.Outcome()
 		if result != nil {
 			result.BillingTier = tier
@@ -125,7 +125,7 @@ func cursorResponseOutcome(account *Account, resp *http.Response, result *OpenAI
 
 func cursorBillingTier(tier string) string {
 	switch tier {
-	case cursorbridge.ReportedBillingTier, cursorbridge.EstimatedBillingTier:
+	case cursor.ReportedBillingTier, cursor.EstimatedBillingTier:
 		return tier
 	default:
 		return ""
