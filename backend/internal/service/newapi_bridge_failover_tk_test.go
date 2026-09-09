@@ -104,6 +104,25 @@ func TestBridgeWrapRelayErrorAfterPenalty_AccountLevelReturnsFailover(t *testing
 	require.False(t, errors.As(err, &relayErr))
 }
 
+func TestBridgeWrapRelayErrorAfterPenalty_OverloadRetriesWithoutAccountPenalty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	svc, repo, blocker, incidents := newBridgePenaltyTestService()
+	err := bridgeWrapRelayErrorAfterPenalty(context.Background(), svc, c, newNewAPIBridgeAccount(),
+		upstreamBridgeError(529, "Service temporarily overloaded"))
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, 529, failover.StatusCode)
+	require.True(t, failover.ShouldRetryNextAccount())
+	require.False(t, c.Writer.Written(), "the next account must retain ownership of the response")
+	require.False(t, candidateFailureAttributable(err), "overload must not increment the account failure counter")
+	require.Zero(t, repo.setErrorCalls)
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Empty(t, blocker.reasons)
+	require.Empty(t, incidents.reasons)
+}
+
 func TestBridgeWrapRelayErrorAfterPenalty_ArrearsReturnsFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
