@@ -113,7 +113,7 @@ func TestAgentRequiresTerminalUsage(t *testing.T) {
 func TestAgentUsagePreservesCacheBuckets(t *testing.T) {
 	var stream bytes.Buffer
 	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{
-		TurnEnded: &pb.TurnEndedUpdate{InputTokens: 11, OutputTokens: 3, CacheReadTokens: 7, CacheWriteTokens: 2}}}))
+		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(11), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}}}))
 	result, err := RunAgent(context.Background(), "test-credential", AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}},
 		func(req *http.Request) (*http.Response, error) {
 			require.Equal(t, "mcp_tool_call", req.Header.Get("X-Cursor-Agent-Allowed-Tools"))
@@ -121,6 +121,38 @@ func TestAgentUsagePreservesCacheBuckets(t *testing.T) {
 		}, nil)
 	require.NoError(t, err)
 	require.Equal(t, &AgentUsage{Input: 11, Output: 3, CacheRead: 7, CacheWrite: 2}, result.Usage)
+}
+
+func TestAgentUsagePresenceOnNativeWire(t *testing.T) {
+	// Literal CLI wire fixtures keep this check independent of our proto encoder.
+	var update pb.InteractionUpdate
+	require.NoError(t, proto.Unmarshal([]byte{0x42, 0x02, 0x08, 0x07}, &update))
+	require.EqualValues(t, 7, update.GetTokenDelta().GetTokens())
+	update.Reset()
+	require.NoError(t, proto.Unmarshal([]byte{0x32, 0x02, 0x0a, 0x00}, &update))
+	require.Nil(t, update.TokenDelta, "field 6 is user_message_appended")
+	for _, tc := range []struct {
+		name  string
+		wire  []byte
+		valid bool
+	}{
+		{"missing", []byte{0x72, 0x00}, false},
+		{"missing_cache", []byte{0x72, 0x04, 0x08, 0x0b, 0x10, 0x03}, false},
+		{"explicit_zero", []byte{0x72, 0x08, 0x08, 0x00, 0x10, 0x00, 0x18, 0x00, 0x20, 0x00}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var terminal pb.InteractionUpdate
+			require.NoError(t, proto.Unmarshal(tc.wire, &terminal))
+			result, err := RunAgent(t.Context(), "test-token", AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}}, messagesTestTransport(t, &pb.AgentServerMessage{InteractionUpdate: &terminal}), nil)
+			if tc.valid {
+				require.NoError(t, err)
+				require.Equal(t, &AgentUsage{}, result.Usage)
+			} else {
+				require.ErrorContains(t, err, "incomplete terminal usage")
+				require.Nil(t, result.Usage)
+			}
+		})
+	}
 }
 
 // Opt-in direct protocol integration probe. It runs no CLI or SDK and never logs

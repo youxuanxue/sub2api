@@ -40,7 +40,7 @@ func TestMessagesReportedUsageAndStreaming(t *testing.T) {
 		require.NoError(t, err)
 		resp, err := Messages(context.Background(), "test-token", body, nil, "composer-2.5", messagesTestTransport(t,
 			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "OK"}}},
-			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: 10, OutputTokens: 2, CacheReadTokens: 30, CacheWriteTokens: 5}}},
+			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(10), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(30), CacheWriteTokens: proto.Int64(5)}}},
 		))
 		require.NoError(t, err)
 		require.Equal(t, 200, resp.StatusCode)
@@ -65,7 +65,7 @@ func TestMessagesAcceptsAndPropagatesSystemPrompt(t *testing.T) {
 	for _, system := range []string{`"Follow the caller's instructions"`, `[{"type":"text","text":"Follow the caller's instructions"}]`} {
 		respond := messagesTestTransport(t,
 			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "world"}}},
-			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: 15, OutputTokens: 2}}},
+			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(15), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)}}},
 		)
 		resp, err := Messages(t.Context(), "test-token", []byte(`{"model":"composer-2.5","system":`+system+`,"messages":[{"role":"user","content":"hello"}]}`), nil, "composer-2.5", func(req *http.Request) (*http.Response, error) {
 			_, frame, err := readAgentFrame(req.Body)
@@ -127,6 +127,34 @@ func TestMessagesToolHandoffEstimatesOnlyMissingUsage(t *testing.T) {
 	require.Zero(t, message.Usage.CacheWrite)
 	require.Equal(t, "tool_use", message.Stop)
 	require.NoError(t, resp.Body.Close())
+}
+
+func TestMessagesIncompleteUsageCannotSettleAsReported(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		body, err := json.Marshal(map[string]any{"model": "composer-2.5", "stream": stream, "messages": []map[string]any{{"role": "user", "content": "hello"}}})
+		require.NoError(t, err)
+		resp, err := Messages(t.Context(), "test-token", body, nil, "composer-2.5", messagesTestTransport(t,
+			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "partial"}}},
+			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{}}},
+		))
+		require.NoError(t, err)
+		raw, readErr := io.ReadAll(resp.Body)
+		require.NotContains(t, string(raw), "cursor-oauth-reported")
+		require.NotContains(t, string(raw), "cursor-oauth-estimated")
+		require.NotContains(t, string(raw), "event: message_stop")
+		if stream {
+			require.ErrorContains(t, readErr, "incomplete terminal usage")
+			output, ok := resp.Body.(*MessagesBody)
+			require.True(t, ok)
+			tier, outcomeErr := output.Outcome()
+			require.Empty(t, tier)
+			require.Error(t, outcomeErr)
+		} else {
+			require.NoError(t, readErr)
+			require.Equal(t, http.StatusBadGateway, resp.StatusCode)
+		}
+		require.NoError(t, resp.Body.Close())
+	}
 }
 func TestMessagesTruncationIsNotSuccessfulCompletion(t *testing.T) {
 	for _, stream := range []bool{false, true} {

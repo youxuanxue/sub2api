@@ -66,7 +66,18 @@ func prepareCursorUpstreamRequest(req *http.Request, _ *gin.Context, account *Ac
 	return nil
 }
 
-// The three native Messages call sites (including probing) share this adapter.
+// Native Messages, converted Chat/Responses and probes share this transport.
+func (s *OpenAIGatewayService) doNativeMessagesRequest(req *http.Request, account *Account) (*http.Response, error) {
+	if account.IsCursor() && !isEdgeMirrorStub(account, edgeIDPattern) {
+		return executeCursorMessages(req, account, s.httpUpstream)
+	}
+	proxyURL := ""
+	if account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	return s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+}
+
 func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUpstream) (*http.Response, error) {
 	if req.Body == nil {
 		return nil, errors.New("missing Cursor request body")

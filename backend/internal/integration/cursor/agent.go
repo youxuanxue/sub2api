@@ -554,11 +554,17 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 				}
 			}
 			if usage := update.TurnEnded; usage != nil {
-				if usage.InputTokens < 0 || usage.OutputTokens < 0 || usage.CacheReadTokens < 0 || usage.CacheWriteTokens < 0 {
+				if usage.GetInputTokens() < 0 || usage.GetOutputTokens() < 0 || usage.GetCacheReadTokens() < 0 || usage.GetCacheWriteTokens() < 0 || usage.GetReasoningTokens() < 0 {
 					return result, errors.New("invalid Cursor usage")
 				}
-				result.Usage = &AgentUsage{Input: usage.InputTokens, Output: usage.OutputTokens,
-					CacheRead: usage.CacheReadTokens, CacheWrite: usage.CacheWriteTokens, Reasoning: usage.ReasoningTokens}
+				if usage.InputTokens == nil || usage.OutputTokens == nil || usage.CacheReadTokens == nil || usage.CacheWriteTokens == nil {
+					if result.ToolHandoff {
+						return result, nil
+					}
+					return result, errors.New("cursor returned incomplete terminal usage")
+				}
+				result.Usage = &AgentUsage{Input: usage.GetInputTokens(), Output: usage.GetOutputTokens(),
+					CacheRead: usage.GetCacheReadTokens(), CacheWrite: usage.GetCacheWriteTokens(), Reasoning: usage.GetReasoningTokens()}
 				return result, nil
 			}
 		}

@@ -40,7 +40,10 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   A missing wire slug prevents direct native candidate admission.
 - The integration package adapts native Cursor frames to Messages once.
   Chat and Responses continue through the existing protocol registry and
-  converters. Cursor has no separate selection or conversion fallback.
+  converters. All converted and native Messages sends use
+  `doNativeMessagesRequest`; native completion errors and billing provenance
+  also reach the Chat/Responses settlement result. Cursor has no separate
+  selection or conversion fallback.
 - Every request supplies its complete history. Tools are returned to the client
   for execution, and the native call is canceled at handoff. A later request
   reconstructs history on a fresh connection. Native filesystem/shell callbacks
@@ -61,6 +64,9 @@ owner. Never add estimated tokens to reported tokens or reconcile separate runs.
 The optional terminal Messages usage field `tk_billing_tier` carries provenance
 through Edge relays. The shared usage parser preserves it; accounting accepts
 only the two Cursor labels and only for Cursor accounts.
+The native optional fields retain presence: missing input, output or cache
+buckets are not reported zeros. A normal completion with incomplete usage fails;
+a successful tool handoff uses the approved estimate. Negative usage is rejected.
 
 Kiro's prefix-based cache estimate is a separate policy, not evidence of Cursor
 cache hits. Cursor's missing-usage estimate starts with zero cache buckets, which
@@ -98,15 +104,24 @@ Current boundary checks also reject image/thinking content blocks and forced
 tool choice. Native `max_tokens` enforcement and reasoning-history replay remain
 unverified; bounded response memory is not a substitute for a generation limit.
 
-The backend unit suite passed before the final guard changes, followed by focused
-Cursor, relay billing and transport regressions. Frontend lint, type checking and
-207 critical tests passed. The corrected Playwright login check observes the
-real accounts page and Cursor entry, not merely its URL. This is not evidence of
-completed official OAuth authorization, all-model Chat or programming-client
-acceptance; the local database still contains the historical SDK test account.
+On 2026-09-09, official browser authorization and TokenKey UI import replaced the
+historical local account. Playwright verified the authenticated catalog's complete
+model set through TokenKey Chat, plus mobile Composer Chat and desktop/mobile
+authorization screens. Messages, Chat and Responses SDK clients completed tool
+handoff and fresh-history continuation; Messages replay and parallel tool results
+also passed. The billing audit matched each accepted request to one usage row,
+including estimated and reported provenance, cache buckets and price calculation.
+Claude Code read a local fixture through its Read tool and returned its exact
+contents. These checks used the isolated local stack, not production or edge.
 
-Before release, verify browser authorization/import and all returned fixed models
-through the real TokenKey Chat UI with Playwright; verify tool round trips through
-real coding clients and the supported protocol routes. Publish current evidence,
-not the removed SDK Bridge's historical report. Complete full tests and preflight,
-review and push PR #2036. This approval does not authorize merging or deployment.
+Fresh evidence is under `.cache/cursor-dev/evidence/`: `authorization.json`,
+`chat-all.json`, `client-tools.json`, `client-parallel.json`, `billing-tools.json`,
+`billing-parallel.json`, `claude-code.json` and desktop/mobile screenshots.
+Protocol-route regressions cover real adapter dispatch, streamed and buffered
+conversion, tool handoff estimates and refusal to settle incomplete native runs.
+Literal CLI wire fixtures guard token event numbering and optional usage presence.
+
+The generation limit remains a release blocker pending an explicit compatibility
+decision; these short successful probes do not establish `max_tokens` enforcement.
+Complete full tests and preflight, review and push PR #2036. This approval does not
+authorize merging or deployment.

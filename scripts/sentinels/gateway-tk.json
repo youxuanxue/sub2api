@@ -9,12 +9,12 @@
     },
     {
       "path": "backend/internal/integration/cursor/agent_test.go",
-      "must_contain": ["TestAgentSystemCompatibilityPreservesHistory"],
+      "must_contain": ["TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire"],
       "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history."
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",
-      "must_contain": ["TestMessagesAcceptsAndPropagatesSystemPrompt", "TestMessagesSystemAndToolRolesValidateTextContent"],
+      "must_contain": ["TestMessagesAcceptsAndPropagatesSystemPrompt", "TestMessagesSystemAndToolRolesValidateTextContent", "TestMessagesIncompleteUsageCannotSettleAsReported"],
       "rationale": "The public adapter must emit the approved system text and reject malformed content before upstream execution."
     },
     {
@@ -30,11 +30,27 @@
       "path": "backend/internal/service/gateway_tk_cursor.go",
       "must_contain": [
         "func executeCursorMessages",
+        "func (s *OpenAIGatewayService) doNativeMessagesRequest",
         "cursorbridge.Messages",
         "HTTPUpstreamProfileCursor",
         "CursorWireModelsKey"
       ],
       "rationale": "Cursor executes natively using the account catalog and HTTP/2 transport; all protocol call sites share one adapter."
+    },
+    {
+      "path": "backend/internal/service/cursor_native_transport_regression_test.go",
+      "must_contain": ["TestCursorProtocolRoutesUseNativeTransportAndSettlement"],
+      "rationale": "All public protocol routes must reach native Cursor transport and preserve reported, estimated and failed-run settlement."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
+      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, result, &forwardErr)"],
+      "rationale": "Chat conversion must execute the native supply adapter and retain its terminal billing outcome."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
+      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, result, &forwardErr)"],
+      "rationale": "Responses conversion must execute the native supply adapter and retain its terminal billing outcome."
     },
     {
       "path": "backend/internal/service/candidate_cursor_ssot_test.go",

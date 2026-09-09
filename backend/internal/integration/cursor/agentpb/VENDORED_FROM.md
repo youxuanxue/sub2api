@@ -9,6 +9,9 @@ Wire fields were cross-checked against locally installed Cursor Agent
 `2026.09.02-c22c1a3`. This subset includes the current `TurnEndedUpdate` usage,
 request context completeness flags, prefetched blobs, and protobuf Value MCP
 arguments. No CLI code, SDK runtime, filesystem tools or session cache is shipped.
+`InteractionUpdate.token_delta` is field 8; field 6 is the unconsumed user-message
+event. Terminal usage fields are optional, so absent buckets must not be treated
+as reported zeros. Literal wire regression fixtures preserve these distinctions.
 
 Regenerate from the backend directory with protoc 33.0 and protoc-gen-go 1.36.10:
 

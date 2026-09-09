@@ -127,16 +127,16 @@ message InteractionUpdate {
   ToolCallStartedUpdate tool_call_started = 2;
   ToolCallStartedUpdate tool_call_completed = 3;
   TextDeltaUpdate thinking_delta = 4;
-  TokenDeltaUpdate token_delta = 6;
+  TokenDeltaUpdate token_delta = 8;
   TurnEndedUpdate turn_ended = 14;
 }
 message TextDeltaUpdate { string text = 1; }
 message ToolCallStartedUpdate { string call_id = 1; ToolCall tool_call = 2; string model_call_id = 3; }
 message TokenDeltaUpdate { int32 tokens = 1; }
 message TurnEndedUpdate {
-  int64 input_tokens = 1;
-  int64 output_tokens = 2;
-  int64 cache_read_tokens = 3;
-  int64 cache_write_tokens = 4;
-  int64 reasoning_tokens = 5;
+  optional int64 input_tokens = 1;
+  optional int64 output_tokens = 2;
+  optional int64 cache_read_tokens = 3;
+  optional int64 cache_write_tokens = 4;
+  optional int64 reasoning_tokens = 5;
 }

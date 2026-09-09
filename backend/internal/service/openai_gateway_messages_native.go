@@ -155,17 +155,8 @@ func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest(
 		return nil, err
 	}
 
-	proxyURL := ""
-	if account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
 	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, stream)
-	var resp *http.Response
-	if account.IsCursor() && !isEdgeMirrorStub(account, edgeIDPattern) {
-		resp, err = executeCursorMessages(upstreamReq, account, s.httpUpstream)
-	} else {
-		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
-	}
+	resp, err := s.doNativeMessagesRequest(upstreamReq, account)
 	hwka.stop()
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
