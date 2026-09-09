@@ -151,7 +151,7 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		return nil, candidateTransportFailure(ctx, fmt.Errorf("upstream request failed: %s", safeErr), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

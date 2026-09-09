@@ -384,7 +384,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					"message": "Upstream request failed",
 				},
 			})
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+			return nil, candidateTransportFailure(ctx, fmt.Errorf("upstream request failed: %s", safeErr), err)
 		}
 
 		// 优先检测thinking block签名错误（400）并重试一次

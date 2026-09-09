@@ -137,7 +137,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		if c.Request.Context().Err() != nil {
 			return nil, s.writeClaudeError(c, http.StatusBadGateway, "client_disconnected", "Client disconnected before upstream response")
 		}
-		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries")
+		return nil, candidateTransportFailure(ctx, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries"), err)
 	}
 	resp := result.resp
 	defer func() { _ = resp.Body.Close() }()

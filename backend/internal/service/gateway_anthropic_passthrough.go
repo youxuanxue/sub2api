@@ -146,7 +146,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 					"message": "Upstream request failed",
 				},
 			})
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+			return nil, candidateTransportFailure(ctx, fmt.Errorf("upstream request failed: %s", safeErr), err)
 		}
 
 		if resp.StatusCode == http.StatusBadRequest {

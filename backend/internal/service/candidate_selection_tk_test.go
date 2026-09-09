@@ -228,7 +228,7 @@ func TestGlobalCandidateDirectCompositeAliasPrecedesPlan(t *testing.T) {
 	require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
 }
 
-func TestGlobalCandidateNormalizedOccupancyAndTopologyTies(t *testing.T) {
+func TestGlobalCandidateCapacityIsOnlyAnAdmissionLimit(t *testing.T) {
 	for _, split := range []bool{false, true} {
 		groups := []Group{grp(10, PlatformAnthropic, -100, false)}
 		accounts := []Account{globalCandidateAccount(1, 1, 10), globalCandidateAccount(2, 1, 10)}
@@ -242,11 +242,7 @@ func TestGlobalCandidateNormalizedOccupancyAndTopologyTies(t *testing.T) {
 		loads := map[int64]*AccountLoadInfo{1: {CurrentConcurrency: 10}, 2: {CurrentConcurrency: 2}}
 		r.candidateGateway.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{loadMap: loads})
 		ctx, state := prepareGlobalCandidate(t, r, key)
-		result, err := state.selectAccount(ctx, candidateSelectOptions{acquire: true})
-		require.NoError(t, err)
-		require.Equal(t, int64(1), result.Account.ID, "10/100 is less occupied than 2/10")
-		result.ReleaseFunc()
-		loads[2].CurrentConcurrency = 1
+		// Both accounts have room. A larger configured capacity grants no preference.
 		wins := map[int64]int{}
 		for range 128 {
 			result, err := state.selectAccount(ctx, candidateSelectOptions{acquire: true})

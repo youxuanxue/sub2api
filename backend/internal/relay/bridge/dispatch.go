@@ -73,8 +73,13 @@ func installBodyStorage(c *gin.Context, body []byte) error {
 }
 
 // DispatchChatCompletions runs the New API adaptor for OpenAI Chat Completions.
-func DispatchChatCompletions(_ context.Context, c *gin.Context, in ChannelContextInput, body []byte) (*DispatchOutcome, *types.NewAPIError) {
+func DispatchChatCompletions(ctx context.Context, c *gin.Context, in ChannelContextInput, body []byte) (*DispatchOutcome, *types.NewAPIError) {
 	ensureNewAPIDeps()
+	if in.BoundedChatAttempt {
+		request := c.Request
+		c.Request = request.WithContext(relaycommon.WithUpstreamRequestContext(ctx))
+		defer func() { c.Request = request }()
+	}
 	if err := installBodyStorage(c, body); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 	}
@@ -96,6 +101,7 @@ func DispatchChatCompletions(_ context.Context, c *gin.Context, in ChannelContex
 	}
 
 	start := time.Now()
+	relayInfo.DisablePing = in.BoundedChatAttempt
 	usage, apiErr := RunOpenAITextRelay(c, relayInfo)
 	dur := time.Since(start)
 	if apiErr != nil {
