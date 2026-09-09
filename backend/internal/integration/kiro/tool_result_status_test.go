@@ -47,25 +47,29 @@ func TestClaudeToKiro_PreservesToolResultFailure(t *testing.T) {
 					PrepareClaudeCodeCompletionContinuation(payload, "I received the result.")
 				}
 				current := payload.ConversationState.CurrentMessage.UserInputMessage
-				if phase == "active" {
-					require.NotNil(t, current.UserInputMessageContext)
-					results := current.UserInputMessageContext.ToolResults
+				if phase != "orphan" {
+					var results []KiroToolResult
+					if phase == "active" {
+						require.NotNil(t, current.UserInputMessageContext)
+						results = current.UserInputMessageContext.ToolResults
+					} else {
+						for _, message := range payload.ConversationState.History {
+							if user := message.UserInputMessage; user != nil && user.UserInputMessageContext != nil {
+								results = append(results, user.UserInputMessageContext.ToolResults...)
+							}
+						}
+					}
 					require.Len(t, results, 1)
 					require.Equal(t, tc.status, results[0].Status)
 					require.Equal(t, "toolu_fixture", results[0].ToolUseID)
-					require.Equal(t, "fixture result", results[0].Content[0].Text)
+					wantText := "fixture result"
+					if tc.status == "error" {
+						wantText = "[Tool execution failed]\n" + wantText
+					}
+					require.Equal(t, wantText, results[0].Content[0].Text)
 					return
 				}
-				var resultText string
-				if phase == "orphan" {
-					resultText = current.Content
-				} else {
-					for _, message := range payload.ConversationState.History {
-						if message.UserInputMessage != nil {
-							resultText += message.UserInputMessage.Content + "\n"
-						}
-					}
-				}
+				resultText := current.Content
 				require.Contains(t, resultText, "fixture result")
 				if tc.status == "error" {
 					require.Contains(t, resultText, "[Tool execution failed]")

@@ -109,7 +109,7 @@ func PrepareClaudeCodeCompletionContinuation(payload *KiroPayload, assistantText
 	history = append(history, KiroHistoryMessage{
 		AssistantResponseMessage: &KiroAssistantResponseMessage{Content: assistantText},
 	})
-	payload.ConversationState.History = sanitizeKiroHistory(history, nil)
+	payload.ConversationState.History = history
 
 	next := KiroUserInputMessage{
 		Content: claudeCodeCompletionContinuationPrompt,
@@ -121,5 +121,6 @@ func PrepareClaudeCodeCompletionContinuation(payload *KiroPayload, assistantText
 	}
 	payload.ConversationState.CurrentMessage.UserInputMessage = next
 	payload.ConversationState.AgentContinuationId = uuid.New().String()
+	normalizeKiroToolHistory(payload)
 	truncatePayloadToLimit(payload, true)
 }
