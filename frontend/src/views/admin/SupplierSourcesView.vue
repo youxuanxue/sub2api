@@ -243,8 +243,9 @@
               {{ t('admin.supplierSources.purchaseRatioPriorityHint') }}
             </p>
             <div
-              v-for="(model, index) in form.models"
+              v-for="{ model, index } in sortedModels"
               :key="index"
+              data-test="model-mapping-row"
               class="grid gap-3 rounded-lg border border-gray-200 p-3 lg:grid-cols-[1fr_1fr_160px_150px_auto]"
             >
               <input
@@ -682,6 +683,16 @@ const form = reactive<SupplierSourceInput>({
   models: [emptyModel()],
   notes: '',
 })
+
+const sortedModels = computed(() => form.models
+  .map((model, index) => ({
+    model,
+    index,
+    ratio: typeof model.purchase_ratio === 'number' && Number.isFinite(model.purchase_ratio)
+      ? model.purchase_ratio
+      : 1,
+  }))
+  .sort((a, b) => a.ratio - b.ratio))
 
 function applyChannelTypeDefaultEndpoint(channelType: number): void {
   const selected = channelTypes.value.find(item => item.channel_type === channelType)
