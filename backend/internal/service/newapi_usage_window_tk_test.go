@@ -223,3 +223,88 @@ func TestHandle429_NewAPIWeeklyUsesResetNotFallback(t *testing.T) {
 	require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIWeeklyUtilExtraKey])
 	require.Equal(t, float64(resetAt.Unix()), repo.lastExtraUpdates[newAPIWeeklyResetExtraKey])
 }
+
+func TestTkParseNewAPIUsageWindowHit_QianfanMonthlyDefaultResetCST(t *testing.T) {
+	refTime := time.Date(2026, 9, 9, 13, 15, 0, 0, time.UTC)
+	hit := tkParseNewAPIUsageWindowResponse(
+		"Token Plan Person monthly quota limit exceeded",
+		nil, refTime,
+	)
+	require.NotNil(t, hit)
+	require.Equal(t, "monthly", hit.Window)
+	require.Equal(t, 2026, hit.ResetAt.Year())
+	require.Equal(t, time.October, hit.ResetAt.Month())
+	require.Equal(t, 1, hit.ResetAt.Day())
+	require.Equal(t, 0, hit.ResetAt.Hour())
+	require.Equal(t, 0, hit.ResetAt.Minute())
+	require.Equal(t, 0, hit.ResetAt.Second())
+	_, offset := hit.ResetAt.Zone()
+	require.Equal(t, 8*3600, offset)
+}
+
+func TestTkTryHandleNewAPIUsageWindow429_QianfanMonthlyPersistsExtraAndCoolsUntilNextMonth(t *testing.T) {
+	body, err := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"code":    "token_quota_exceeded",
+			"message": "Token Plan Person monthly quota limit exceeded",
+			"type":    "quota_exceeded",
+		},
+	})
+	require.NoError(t, err)
+
+	repo := &rateLimitAccountRepoStub{
+		accountOnGet: &Account{ID: 130, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Extra: map[string]any{}},
+	}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{ID: 130, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Extra: map[string]any{}}
+
+	require.True(t, svc.tkTryHandleNewAPIUsageWindow429(context.Background(), account, nil, body))
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+	require.True(t, repo.lastRateLimitedResetAt.After(time.Now()))
+	require.NotNil(t, repo.lastExtraUpdates)
+	require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIMonthlyUtilExtraKey])
+	require.Equal(t, float64(repo.lastRateLimitedResetAt.Unix()), repo.lastExtraUpdates[newAPIMonthlyResetExtraKey])
+	require.Equal(t, 1.0, account.Extra[newAPIMonthlyUtilExtraKey])
+	require.Equal(t, float64(repo.lastRateLimitedResetAt.Unix()), account.Extra[newAPIMonthlyResetExtraKey])
+}
+
+func TestApplyNewAPIUsageWindowSnapshot_SurfacesMonthlyOnThirtyDay(t *testing.T) {
+	resetAt := time.Now().Add(20 * 24 * time.Hour).UTC()
+	account := &Account{
+		ID:       130,
+		Platform: PlatformNewAPI,
+		Extra: map[string]any{
+			newAPIMonthlyUtilExtraKey:  1.0,
+			newAPIMonthlyResetExtraKey: float64(resetAt.Unix()),
+		},
+	}
+	usage := &UsageInfo{
+		Source: "passive",
+		ThirtyDay: &UsageProgress{
+			Utilization: 0,
+			WindowStats: &WindowStats{Requests: 5000, Cost: 120.5},
+		},
+	}
+	applyNewAPIUsageWindowSnapshot(account, usage)
+
+	require.Equal(t, 100.0, usage.ThirtyDay.Utilization)
+	require.NotNil(t, usage.ThirtyDay.ResetsAt)
+	require.WithinDuration(t, resetAt, *usage.ThirtyDay.ResetsAt, time.Second)
+	require.Equal(t, int64(5000), usage.ThirtyDay.WindowStats.Requests)
+	require.NotNil(t, usage.UpstreamQuota)
+	require.Equal(t, "degraded", usage.UpstreamQuota.State)
+	require.Equal(t, "rate_limited", usage.UpstreamQuota.ErrorCode)
+	require.NotEmpty(t, usage.UpstreamQuota.Dimensions)
+
+	found := false
+	for _, dim := range usage.UpstreamQuota.Dimensions {
+		if dim.Key == newAPIUpstreamMonthlyKey {
+			found = true
+			require.Equal(t, "Monthly", dim.Label)
+			require.Equal(t, "monthly", dim.Window)
+			require.Equal(t, 100.0, *dim.Utilization)
+			break
+		}
+	}
+	require.True(t, found, "dimension newapi_monthly must be present")
+}
