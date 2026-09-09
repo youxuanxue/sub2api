@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility and review-fix push approval, 2026-09-09)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push and shared unsupported-output-limit compatibility approval, 2026-09-09)"
 created: 2026-09-07
 ---
 
@@ -73,7 +73,32 @@ cache hits. Cursor's missing-usage estimate starts with zero cache buckets, whic
 can cost more than an actual cache-discounted request. Antigravity normally reads
 upstream usageMetadata and is not evidence that all OAuth supplies estimate usage.
 
-## Acceptance and open issue
+## Output limit compatibility
+
+The user approved this compatibility contract on 2026-09-09. Native Cursor and
+ChatGPT/Codex OAuth transports omit unsupported top-level `max_tokens`,
+`max_output_tokens` and `max_completion_tokens`. They do not promise a generation
+or spending cap. TokenKey does not truncate output locally or expand estimated
+billing to simulate enforcement; the existing usage and settlement owners remain
+authoritative.
+
+`backend/internal/service/upstream_output_limits_tk.go` owns the field list and
+map/raw JSON omission. Cursor uses it at the native Messages boundary, including
+converted Chat/Responses and probes. Codex uses it in the shared OAuth transform
+and HTTP passthrough/WebSocket compatibility normalization, including setup
+tokens using the same transport. Subsequent alias normalization must not restore
+a removed limit. Only top-level generation fields are omitted; tool schemas and
+input content are preserved.
+
+Other supplies retain their native policies: Kiro sends `inferenceConfig.maxTokens`;
+Antigravity sends `generationConfig.maxOutputTokens` with its existing thinking
+budget and model bounds; OpenAI API keys retain their existing Responses limits.
+Sending these fields is not proof that every upstream model enforces them.
+The shared omission owner is a transport compatibility rule, not a candidate
+eligibility or billing policy. Its call sites and behavioral tests are protected
+by `scripts/sentinels/gateway-tk.json`.
+
+## Acceptance
 
 Current authenticated CLI catalog contains six fixed models: Composer 2.5,
 Grok 4.6, Grok 4.5, Kimi K3, Kimi K2.7 Code and GLM 5.2. Direct native text probes
@@ -97,12 +122,11 @@ not a guarantee of native system priority or resistance to conflicting user
 instructions. Existing native rule/system fields remain supplemental.
 Tests decode the actual outgoing protobuf and cover first requests, multiple
 turns, tool continuation and rejection of malformed system/tool content. They do
-not establish model obedience. Real coding-client acceptance is still required
-before presenting this as a complete programming-client service.
+not establish model obedience. Real coding-client acceptance is recorded below.
 
 Current boundary checks also reject image/thinking content blocks and forced
-tool choice. Native `max_tokens` enforcement and reasoning-history replay remain
-unverified; bounded response memory is not a substitute for a generation limit.
+tool choice. Reasoning-history replay remains unverified; bounded response
+memory is not a substitute for a generation limit.
 
 On 2026-09-09, official browser authorization and TokenKey UI import replaced the
 historical local account. Playwright verified the authenticated catalog's complete
@@ -121,7 +145,7 @@ Protocol-route regressions cover real adapter dispatch, streamed and buffered
 conversion, tool handoff estimates and refusal to settle incomplete native runs.
 Literal CLI wire fixtures guard token event numbering and optional usage presence.
 
-The generation limit remains a release blocker pending an explicit compatibility
-decision; these short successful probes do not establish `max_tokens` enforcement.
+Output limits follow the approved compatibility contract above; these short
+successful probes do not establish native generation-limit enforcement.
 Complete full tests and preflight, review and push PR #2036. This approval does not
 authorize merging or deployment.

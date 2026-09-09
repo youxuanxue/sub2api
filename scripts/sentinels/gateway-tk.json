@@ -10453,6 +10453,74 @@
         "anthropicRequestNormalize"
       ],
       "rationale": "Thin injection of TK forwarding-cache extras into the shared gatewayForwardingCache loader. Struct fields stay unexported on the shared cache type; parse/defaults live in setting_gateway_runtime_tk_forwarding_extras.go. Upstream merges that drop the append/parse hooks silently revert canonical mimicry + normalize to zero/defaults."
+    },
+    {
+      "path": "backend/internal/service/upstream_output_limits_tk.go",
+      "must_contain": [
+        "func omitUnsupportedOutputLimits(",
+        "func omitUnsupportedOutputLimitsJSON(",
+        "unsupportedOutputLimitFields"
+      ],
+      "rationale": "Single owner for unsupported generation-limit aliases on native Cursor and Codex transports; preserve other supplies' native limits."
+    },
+    {
+      "path": "backend/internal/service/gateway_tk_cursor.go",
+      "must_contain": [
+        "omitUnsupportedOutputLimitsJSON(body)"
+      ],
+      "rationale": "Cursor native, converted and probe dispatch share the approved output-limit compatibility owner."
+    },
+    {
+      "path": "backend/internal/service/openai_codex_transform.go",
+      "must_contain": [
+        "omitUnsupportedOutputLimits(reqBody)"
+      ],
+      "rationale": "Codex converted protocols must use the shared generation-limit omission owner."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_request_body.go",
+      "must_contain": [
+        "omitUnsupportedOutputLimitsJSON(normalized)"
+      ],
+      "rationale": "Codex passthrough HTTP and WebSocket frames must omit the same unsupported output limits as converted requests."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_forward.go",
+      "must_contain": [
+        "account.Platform == PlatformOpenAI && !account.UsesOpenAICodexProtocol()"
+      ],
+      "rationale": "Legacy max_tokens normalization must not reintroduce Codex output limits after the shared transform removes them."
+    },
+    {
+      "path": "backend/internal/service/upstream_output_limits_tk_test.go",
+      "must_contain": [
+        "func TestUnsupportedOutputLimitsPreserveNestedData(",
+        "func TestOutputLimitsAcrossCodexHTTPAndWebSocket(",
+        "func TestOutputLimitsCompatibilityLeavesOtherSuppliesUntouched("
+      ],
+      "rationale": "Semantic regressions cover alias omission, raw JSON precision, native-limit preservation and real HTTP/WS ingress call sites."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
+      "must_contain": [
+        "normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account)"
+      ],
+      "rationale": "Raw HTTP passthrough must consume the shared Codex compatibility policy."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_ingress_tk.go",
+      "must_contain": [
+        "normalizeOpenAIResponsesWebSocketCompatibilityBody(normalized, account)"
+      ],
+      "rationale": "Each converted WebSocket turn must consume the shared Codex compatibility policy."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+      "must_contain": [
+        "normalizeOpenAIResponsesWebSocketCompatibilityBody(firstClientMessage, account)",
+        "normalizeOpenAIResponsesWebSocketCompatibilityBody(payload, account)"
+      ],
+      "rationale": "Both the first and subsequent passthrough WebSocket frames must consume the shared Codex compatibility policy."
     }
   ]
 }

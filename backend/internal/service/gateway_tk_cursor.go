@@ -87,6 +87,10 @@ func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUps
 	if err != nil || len(body) > 16<<20 {
 		return nil, errors.New("invalid Cursor request size")
 	}
+	body, _, err = omitUnsupportedOutputLimitsJSON(body)
+	if err != nil {
+		return nil, err
+	}
 	model := gjson.GetBytes(body, "model").String()
 	parameters, known := cursorModelParameters(account, model)
 	all, _ := account.Credentials[CursorWireModelsKey].(map[string]any)

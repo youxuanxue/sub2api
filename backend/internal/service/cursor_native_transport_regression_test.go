@@ -52,12 +52,12 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 			for _, outcome := range []string{"reported", "handoff", "incomplete"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", inbound, stream, outcome), func(t *testing.T) {
 					const model = "composer-2.5"
-					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":256,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
+					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
 					path := protocolrouter.ResponsesPathNone
 					if inbound == protocolrouter.ProtocolChatCompletions {
-						body = []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"messages":[{"role":"user","content":"lookup"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`, model, stream))
+						body = []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_completion_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`, model, stream))
 					} else if inbound == protocolrouter.ProtocolResponses {
-						body = []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"input":"lookup","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}`, model, stream))
+						body = []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_output_tokens":1,"input":"lookup","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}`, model, stream))
 						path = protocolrouter.ResponsesPathRoot
 					}
 					request, err := protocolrouter.ParseCanonicalRequest(inbound, path, model, stream, body)
@@ -119,6 +119,7 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						require.Equal(t, cursorbridge.ReportedBillingTier, result.BillingTier)
 						require.Equal(t, 20, result.Usage.InputTokens, "OpenAI input includes fresh and cached buckets")
 						require.Equal(t, 7, result.Usage.CacheReadInputTokens)
+						require.Equal(t, 3, result.Usage.OutputTokens, "unsupported output limits do not truncate or cap settlement")
 						require.Contains(t, recorder.Body.String(), "NATIVE_OK")
 					} else {
 						require.Equal(t, cursorbridge.EstimatedBillingTier, result.BillingTier)
