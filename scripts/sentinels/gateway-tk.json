@@ -3,6 +3,36 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/integration/cursor/oauth_refresh.go",
+      "must_contain": ["func RefreshOAuth", "ShouldLogout", "RefreshToken: wire.AccessToken"],
+      "rationale": "Cursor renewal follows the verified Desktop token grant and rejects explicit logout without exposing credentials."
+    },
+    {
+      "path": "backend/internal/service/wire.go",
+      "must_contain": ["svc.SetCursorRefreshUpstream(upstream)"],
+      "rationale": "The production background refresher must register native Cursor accounts before starting."
+    },
+    {
+      "path": "backend/internal/service/account_credentials_persistence.go",
+      "must_contain": ["persistCursorOAuthCredentials(ctx, repo, account, credentials)"],
+      "rationale": "Cursor credentials and scheduling expiry must use conditional atomic persistence."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": ["cursorOAuthAccountSQL"],
+      "rationale": "Cursor browser tokens remain refresh candidates despite the newapi/apikey representation."
+    },
+    {
+      "path": "backend/internal/service/cursor_token_refresher_tk_test.go",
+      "must_contain": ["TestCursorBackgroundRefreshUsesSharedAPIAndPreservesPause", "TestCursorRefreshCannotOverwriteReauthorization", "TestCursorSharedRefreshStopsAfterPersistenceConflictOrFailure", "TestCursorRefreshExcludesOrdinaryAPIKeysAndEdgeMirrors"],
+      "rationale": "Protect actual refresh execution, operator state and supplier boundaries."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_cursor_refresh_integration_test.go",
+      "must_contain": ["TestCursorRefreshCandidateAndAtomicExpiry"],
+      "rationale": "PostgreSQL regression covers candidate admission, atomic expiry publication and stale refresh rejection."
+    },
+    {
       "path": "backend/internal/integration/cursor/agent.go",
       "must_contain": ["func buildAgentRun", "firstUserPrepared", "input.Messages = preparedMessages"],
       "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes."

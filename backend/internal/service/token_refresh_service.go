@@ -987,6 +987,9 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 
 		// 不可重试错误（invalid_grant/invalid_client 等）直接标记 error 状态并返回
 		if isNonRetryableRefreshError(err) {
+			if account.IsCursor() {
+				return s.recordCursorRefreshFailure(ctx, account, err, nil)
+			}
 			errorMsg := "Token refresh failed (non-retryable): " + logredact.RedactText(err.Error())
 			isGrokOAuth := account.IsGrokOAuth()
 			if !isGrokOAuth {
@@ -1086,6 +1089,9 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 
 	// 设置临时不可调度 10 分钟（不标记 error，保持 status=active 让下个刷新周期能继续尝试）
 	until := time.Now().Add(tokenRefreshTempUnschedDuration)
+	if account.IsCursor() {
+		return s.recordCursorRefreshFailure(ctx, account, lastErr, &until)
+	}
 	reason := "token refresh retry exhausted"
 	if lastErr != nil {
 		reason += ": " + logredact.RedactText(lastErr.Error())

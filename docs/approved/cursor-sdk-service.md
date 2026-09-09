@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push and shared unsupported-output-limit compatibility approval, 2026-09-09)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09)"
 created: 2026-09-07
 ---
 
@@ -29,9 +29,15 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   Short-lived, administrator-bound sessions use the existing Redis deployment.
   Compare-and-set claims preserve expiry and prevent poll/cancel/import races.
   No credential appears in public authorization responses.
-- Imported access tokens have a hard expiry gate. A returned refresh JWT is not
-  treated as an API key or as proof of a working refresh endpoint. Reauthorize
-  in the browser when needed; replacing credentials preserves operator pauses.
+- Imported access tokens have a hard expiry gate. The shared background OAuth
+  refresh service renews native Cursor accounts before expiry using the verified
+  Desktop `POST /oauth/token` contract. The current access token is the renewal
+  grant; the returned access token is also the next grant, matching Desktop.
+  The initial login refresh JWT is not treated as a user API key. Renewal uses
+  the account proxy, rejects redirects, and shares locking, retries and cache
+  publication with other providers. Credential/expiry writes and failure state
+  changes match the attempted credential version and proxy. Operator pauses
+  survive renewal; revoked credentials still require browser reauthorization.
 - Account creation/update, group binding and probes use existing owners.
   A dedicated Cursor group may contain multiple Cursor accounts.
 - The authenticated catalog supplies exact base IDs, default regular-speed
@@ -144,6 +150,25 @@ Fresh evidence is under `.cache/cursor-dev/evidence/`: `authorization.json`,
 Protocol-route regressions cover real adapter dispatch, streamed and buffered
 conversion, tool handoff estimates and refusal to settle incomplete native runs.
 Literal CLI wire fixtures guard token event numbering and optional usage presence.
+
+On 2026-09-09, the user requested automatic expiry renewal following the existing
+OAuth providers and a real test. The installed Cursor Desktop uses
+`https://api2.cursor.sh/oauth/token` with `grant_type=refresh_token` and public
+client ID `KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB`. A CLI login access token was accepted,
+its expiry advanced, and two successive renewals completed. The renewed token
+loaded the six fixed models and completed a real Composer request. This verifies
+renewal before expiry, not recovery of an already-expired or revoked token.
+The opt-in `TestOAuthRefreshLiveChainAndInference` reproduces that chain without
+logging credentials. Background and database tests cover eligibility, expiry
+publication, operator pause preservation and concurrent reauthorization.
+The real background service also renewed isolated local account 1 through the
+shared Redis lock and repository: expiry advanced from 2026-11-08T01:15:17Z to
+2026-11-08T06:02:01Z, and the scheduler cache received the new credential. The
+test-only refresh window was widened to include this still-valid token; deployed
+defaults were unchanged. A subsequent Playwright Studio Chat request returned
+HTTP 200 and `CURSOR_REFRESH_OK` using Composer. Sanitized UI evidence is
+`/tmp/cursor2036-refresh-ui.png`. Persistence conflicts skip stale results;
+database failures after accepted renewal stop retries for that provider cycle.
 
 Output limits follow the approved compatibility contract above; these short
 successful probes do not establish native generation-limit enforcement.

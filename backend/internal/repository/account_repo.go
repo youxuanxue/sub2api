@@ -1792,14 +1792,9 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	// NOT (a AND b) 在 PG 三值逻辑下会把 a 或 b 为 NULL 的行（即绝大多数
 	// 健康账号：temp_unschedulable_until=NULL）也排除，导致后台 token
 	// 刷新工作器漏掉所有正常账号 → access_token 到期后请求开始 401。
-	// TK: 平台过滤改为参数化 `= ANY($1)`，绑定值来自单一真值源
-	// engine.OAuthRefreshPlatforms()（= AllSchedulingPlatforms() 去掉仅用 api key
-	// 的 newapi）。SQL 里不再留任何平台字面量，杜绝 R-001 那类「上游重写本方法时
-	// 把名单重置回上游四平台、静默漏掉 TK 第六/七平台 kiro/grok」的回归——掉平台
-	// 必须改 engine 真值源（TK 持有、sentinel 锚定），且后台刷新器注册集会被
-	// token_refresh_service_candidates_test.go 断言覆盖该名单。kiro/grok 的
-	// OAuth access_token 短寿命（grok 默认 1h）且网关端只读 credentials 不做按需
-	// 刷新，后台刷新是其唯一续期路径，漏掉即 ~1h 后 401 掉出池且无自愈。
+	// Platform scope comes from the registered refreshers. Cursor retains its
+	// newapi/apikey account representation; only its explicit provider marker
+	// admits it alongside OAuth rows, never ordinary API keys.
 	query := `
 		SELECT id
 		FROM accounts
@@ -1813,15 +1808,15 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	}
 	if options.IncludeSetupToken {
 		query += `
-			AND type IN ('oauth', 'setup-token')`
+			AND (type IN ('oauth', 'setup-token') OR ` + cursorOAuthAccountSQL + `)`
 	} else {
 		query += `
-			AND type = 'oauth'`
+			AND (type = 'oauth' OR ` + cursorOAuthAccountSQL + `)`
 	}
 	if options.RequireRefreshToken {
 		query += `
-			AND credentials ? 'refresh_token'
-			AND btrim(credentials->>'refresh_token') <> ''`
+			AND ((credentials ? 'refresh_token' AND btrim(credentials->>'refresh_token') <> '')
+				OR (` + cursorOAuthAccountSQL + ` AND btrim(credentials->>'api_key') <> ''))`
 	}
 	if options.ExcludeRetryCooldown {
 		query += `

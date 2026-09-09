@@ -367,6 +367,14 @@ func (api *OAuthRefreshAPI) refresh(
 			// post-refresh cache publication cannot restore that stale snapshot.
 			freshAccount = durableAccount
 		} else if updateErr := persistAccountCredentials(ctx, api.accountRepo, freshAccount, newCredentials); updateErr != nil {
+			if freshAccount.IsCursor() {
+				if errors.Is(updateErr, errRefreshSkipped) {
+					return nil, errRefreshSkipped
+				}
+				return nil, &providerCycleContainmentRefreshError{
+					err: fmt.Errorf("cursor OAuth refresh succeeded but credential persistence failed: %w", updateErr),
+				}
+			}
 			slog.Error("oauth_refresh_update_failed",
 				"account_id", freshAccount.ID,
 				"error", updateErr,
