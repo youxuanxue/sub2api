@@ -14,8 +14,8 @@
     },
     {
       "path": "frontend/src/composables/__tests__/useCursorAuthorization.tk.spec.ts",
-      "must_contain": ["reuses the import idempotency key", "ignores a stale poll"],
-      "rationale": "Lifecycle tests cover late polling and safe import retry."
+      "must_contain": ["reuses the import idempotency key", "allows correcting a rejected import", "ignores a stale poll"],
+      "rationale": "Lifecycle tests cover late polling, identical-payload retries and changed-payload corrections after a rejected import."
     },
     {
       "path": "frontend/src/constants/clientIntegrations.tk.ts",

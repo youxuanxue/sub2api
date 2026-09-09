@@ -7,13 +7,14 @@ export function useCursorAuthorization(t: (key: string) => string) {
   const error = ref('')
   let generation = 0
   let timer: ReturnType<typeof setTimeout> | undefined
-  let importKey = ''
+  const importKeys = new Map<string, string>()
 
   async function cancel() {
     generation++
     clearTimeout(timer)
     const id = session.value?.id
     session.value = null
+    importKeys.clear()
     busy.value = false
     if (id) await cursorAPI.cancel(id).catch(() => undefined)
   }
@@ -50,7 +51,6 @@ export function useCursorAuthorization(t: (key: string) => string) {
         throw new Error('Invalid authorization URL')
       }
       session.value = next
-      importKey = crypto.randomUUID()
       timer = setTimeout(() => void poll(current), 1500)
     } catch {
       if (current === generation) error.value = t('admin.accounts.cursor.startFailed')
@@ -64,8 +64,13 @@ export function useCursorAuthorization(t: (key: string) => string) {
     busy.value = true
     error.value = ''
     try {
-      await cursorAPI.save({ session_id: session.value.id, name, group_ids: groupIds, account_id: accountId }, importKey)
+      const input = { session_id: session.value.id, name, group_ids: groupIds, account_id: accountId }
+      const fingerprint = JSON.stringify(input)
+      const key = importKeys.get(fingerprint) || crypto.randomUUID()
+      importKeys.set(fingerprint, key)
+      await cursorAPI.save(input, key)
       session.value = null
+      importKeys.clear()
       return true
     } catch {
       error.value = t('admin.accounts.cursor.saveFailed')

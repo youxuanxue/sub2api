@@ -46,6 +46,31 @@ describe('Cursor authorization lifecycle', () => {
     expect(vi.mocked(cursorAPI.save).mock.calls[0][1]).toBe(vi.mocked(cursorAPI.save).mock.calls[1][1])
     expect(auth.session.value).toBeNull()
   })
+  it.each([
+    { name: 'Corrected name', groupIds: [2], accountId: 7 },
+    { name: 'Cursor', groupIds: [3], accountId: 7 },
+    { name: 'Cursor', groupIds: [2], accountId: 8 }
+  ])('allows correcting a rejected import: $name/$groupIds/$accountId', async corrected => {
+    vi.mocked(cursorAPI.status).mockResolvedValue({ ...pending, state: 'authorized' })
+    const fingerprints = new Map<string, string>()
+    vi.mocked(cursorAPI.save).mockImplementation(async (input, key) => {
+      const fingerprint = JSON.stringify(input)
+      if (fingerprints.has(key) && fingerprints.get(key) !== fingerprint) {
+        throw new Error('IDEMPOTENCY_KEY_CONFLICT')
+      }
+      fingerprints.set(key, fingerprint)
+      if (input.name === 'Cursor' && input.group_ids[0] === 2 && input.account_id === 7) {
+        throw new Error('Invalid import selection')
+      }
+      return { id: input.account_id!, name: input.name }
+    })
+    const auth = setup()
+    await auth.start()
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(await auth.save('Cursor', [2], 7)).toBe(false)
+    expect(await auth.save(corrected.name, corrected.groupIds, corrected.accountId)).toBe(true)
+    expect(auth.session.value).toBeNull()
+  })
   it('rejects and cancels an authorization link from an unexpected origin', async () => {
     vi.mocked(cursorAPI.start).mockResolvedValue({ ...pending, authorization_url: 'https://example.com/login' })
     const auth = setup()

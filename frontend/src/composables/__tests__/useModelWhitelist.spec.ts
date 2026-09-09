@@ -1,58 +1,61 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/api/admin/accounts', () => ({
-  getAntigravityDefaultModelMapping: vi.fn()
+  getAntigravityDefaultModelMapping: vi.fn(),
+  getModelMappingPresets: vi.fn()
 }))
 
 import { buildModelMappingObject, getModelsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { apiBackedPlatforms } from '../useServableModels'
 
 describe('useModelWhitelist', () => {
-  it('openai 模型列表包含 GPT-5.4 官方快照', () => {
-    const models = getModelsByPlatform('openai')
-
-    expect(models).toContain('gpt-5.4')
-    expect(models).toContain('gpt-5.4-mini')
-    expect(models).toContain('gpt-5.4-2026-03-05')
-    expect(models).toContain('codex-auto-review')
-    expect(models).toContain('gpt-5.6')
+  beforeEach(() => {
+    vi.resetModules()
   })
 
-  it('openai 模型列表不再暴露已下线的 ChatGPT 登录 Codex 模型', () => {
-    const models = getModelsByPlatform('openai')
+  it.each(apiBackedPlatforms)('%s uses the backend model list and preserves its order', async platform => {
+    const { getModelMappingPresets } = await import('@/api/admin/accounts')
+    const { useServableModels } = await import('../useServableModels')
+    const { getModelsByPlatform } = await import('../useModelWhitelist')
+    const models = ['test-model-z', 'test-model-a']
+    vi.mocked(getModelMappingPresets).mockResolvedValue(models)
 
-    expect(models).not.toContain('gpt-5')
-    expect(models).not.toContain('gpt-5.1')
-    expect(models).not.toContain('gpt-5.1-codex')
-    expect(models).not.toContain('gpt-5.1-codex-max')
-    expect(models).not.toContain('gpt-5.1-codex-mini')
-    expect(models).not.toContain('gpt-5.2-codex')
+    expect(getModelsByPlatform(platform)).toEqual([])
+    await useServableModels().ensureLoaded(platform)
+
+    expect(getModelMappingPresets).toHaveBeenCalledWith(platform)
+    expect(getModelsByPlatform(platform)).toEqual(models)
   })
 
-  it('antigravity 模型列表包含图片模型兼容项', () => {
-    const models = getModelsByPlatform('antigravity')
+  it.each([['claude', 'anthropic'], ['xai', 'grok']])('%s reads the %s backend cache', async (alias, platform) => {
+    const { getModelMappingPresets } = await import('@/api/admin/accounts')
+    const { useServableModels } = await import('../useServableModels')
+    const { getModelsByPlatform } = await import('../useModelWhitelist')
+    const models = ['test-model']
+    vi.mocked(getModelMappingPresets).mockResolvedValue(models)
 
-    expect(models).toContain('gemini-2.5-flash-image')
-    expect(models).toContain('gemini-3.1-flash-image')
-    expect(models).toContain('gemini-3-pro-image')
+    await useServableModels().ensureLoaded(alias)
+
+    expect(getModelMappingPresets).toHaveBeenCalledWith(platform)
+    expect(getModelsByPlatform(alias)).toEqual(models)
+    expect(getModelsByPlatform(alias)).toBe(getModelsByPlatform(platform))
   })
 
-  it('Claude 模型列表包含新发布的 Claude 模型', () => {
-    expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
-    expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-8')
+  it('does not restore a static list when the backend catalog fails', async () => {
+    const { getModelMappingPresets } = await import('@/api/admin/accounts')
+    const { useServableModels } = await import('../useServableModels')
+    const { getModelsByPlatform } = await import('../useModelWhitelist')
+    vi.mocked(getModelMappingPresets).mockRejectedValue(new Error('catalog unavailable'))
+
+    const { ensureLoaded, error } = useServableModels()
+    await ensureLoaded('openai')
+
+    expect(getModelsByPlatform('openai')).toEqual([])
+    expect(error.value).toContain('catalog unavailable')
   })
 
-  it('xAI 模型列表包含 Grok 4.5 官方模型和别名', () => {
-    const models = getModelsByPlatform('grok')
-
-    expect(models).toContain('grok-4.6')
-    expect(models).toContain('grok-4.6-latest')
-    expect(models).toContain('grok-4.5')
-    expect(models).toContain('grok-4.5-latest')
-    expect(models).toContain('grok-build-latest')
-    expect(models).toContain('grok-imagine-image-2.0')
-    expect(models).toContain('grok-imagine-video-1.5')
+  it('keeps static lists for providers without a backend catalog', () => {
+    expect(getModelsByPlatform('qwen')).toContain('qwen3-8b')
   })
 
   it('combined 模式支持 Grok 4.5 官方别名映射', () => {
@@ -74,39 +77,10 @@ describe('useModelWhitelist', () => {
     })
   })
 
-  it('grok 模型列表包含 Composer 默认项和兼容别名', () => {
-    const models = getModelsByPlatform('grok')
-
-    expect(models).toContain('grok-composer-2.5-fast')
-    expect(models).not.toContain('grok-composer')
-    expect(models).toContain('composer-2.5')
-  })
-
-  it('gemini 模型列表包含原生生图模型', () => {
-    const models = getModelsByPlatform('gemini')
-
-    expect(models).toContain('gemini-2.5-flash-image')
-    expect(models).toContain('gemini-3.1-flash-image')
-    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.0-flash'))
-    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
-  })
-
-  it('antigravity 模型列表会把新的 Gemini 图片模型排在前面', () => {
-    const models = getModelsByPlatform('antigravity')
-
-    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
-    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash-lite'))
-  })
-
-  it('antigravity 模型列表包含 Gemini 3.1 Pro 通用别名', () => {
-    const models = getModelsByPlatform('antigravity')
-
-    expect(models).toContain('gemini-3.1-pro')
-  })
-
-  it('whitelist 模式会忽略通配符条目', () => {
-    const mapping = buildModelMappingObject('whitelist', ['claude-*', 'gemini-3.1-flash-image'], [])
+  it('whitelist 模式保留末尾通配符，拒绝中间通配符', () => {
+    const mapping = buildModelMappingObject('whitelist', ['claude-*', 'cla*ude-*', 'gemini-3.1-flash-image'], [])
     expect(mapping).toEqual({
+      'claude-*': 'claude-*',
       'gemini-3.1-flash-image': 'gemini-3.1-flash-image'
     })
   })
@@ -139,6 +113,7 @@ describe('useModelWhitelist', () => {
 
     expect(mapping).toEqual({
       'gpt-5.4': 'gpt-5.4-mini',
+      'claude-*': 'claude-*',
       'gpt-latest': 'gpt-5.4'
     })
   })
