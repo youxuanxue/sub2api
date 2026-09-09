@@ -53,6 +53,12 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 			body = normalizedBody
 		}
 		reqStream = gjson.GetBytes(body, "stream").Bool()
+		if !isOpenAIResponsesCompactPath(c) {
+			body, _, err = applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+			if err != nil {
+				return body, reqStream, err
+			}
+		}
 
 		stageCodexFingerprintIDs(c, nil)
 		// 指纹收敛：与非透传路径同门控（仅 OAuth、legacy compact 形态跳过）。

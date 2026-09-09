@@ -198,6 +198,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 ) (*http.Response, error) {
 	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	if attempt, _ := ctx.Value(candidateChatAttemptKey{}).(*candidateChatAttempt); attempt != nil {
+		upstreamCtx = ctx
+	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
 	if err != nil {

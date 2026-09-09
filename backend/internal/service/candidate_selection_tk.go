@@ -262,20 +262,18 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			}
 		}
 		counts := gw.candidateSaturationState().counts(ctx, accounts, r.model)
-		// Randomize only the input tie order; deterministic priorities and load
-		// dominate it. Membership and group ordering never contribute a vote.
+		r.mergeFailureCounts(ctx, pool, counts)
+		// Configured capacity is an admission limit, not evidence of quality.
+		// Membership and group ordering never contribute a vote.
 		sort.Slice(pool, func(i, j int) bool { return pool[i].account.ID < pool[j].account.ID })
 		rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
 		sort.SliceStable(pool, func(i, j int) bool {
 			a, b := pool[i], pool[j]
-			if a.sticky != b.sticky {
-				return a.sticky
-			}
 			pa, pb := candidateEffectivePriority(a.account, counts), candidateEffectivePriority(b.account, counts)
 			if pa != pb {
 				return pa < pb
 			}
-			return candidateOccupancy(a.account, loads) < candidateOccupancy(b.account, loads)
+			return a.sticky && !b.sticky
 		})
 		var waiting []*candidateExecutionPath
 		for _, path := range pool {
@@ -461,13 +459,6 @@ func RecheckCandidateAccountSlot(ctx context.Context, accountID int64) error {
 		_ = gw.cache.SetSessionAccountID(ctx, 0, r.session, accountID, time.Hour)
 	}
 	return nil
-}
-
-func candidateOccupancy(account *Account, loads map[int64]*AccountLoadInfo) float64 {
-	if load := loads[account.ID]; load != nil && account.Concurrency > 0 {
-		return float64(load.CurrentConcurrency) / float64(account.Concurrency)
-	}
-	return 0
 }
 
 func candidateFull(account *Account, loads map[int64]*AccountLoadInfo) bool {

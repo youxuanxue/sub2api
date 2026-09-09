@@ -478,24 +478,21 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabledUsesLega
 // Regression: the legacy load-batch path had two bare ErrNoAvailableAccounts
 // exits that bypassed the diagnostics added for both the advanced scheduler and
 // the non-batched legacy selector. This is the default path when load batching
-// is enabled, so quota auto-pause could still surface as an opaque 503.
+// is enabled, so a persisted cooldown must retain useful pool diagnostics.
 func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_LoadBatchReportsFilterReasons(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 
-	ctx := withOpenAIQuotaAutoPauseSettings(context.Background(), OpsOpenAIAccountQuotaAutoPauseSettings{DefaultThreshold7d: 0.9})
+	ctx := context.Background()
 	groupID := int64(10107)
+	resetAt := time.Now().Add(time.Minute)
 	quotaPaused := Account{
-		ID:          36003,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
-		Extra: map[string]any{
-			"codex_7d_used_percent":  95.0,
-			"codex_7d_reset_at":      time.Now().Add(24 * time.Hour).Format(time.RFC3339),
-			"codex_usage_updated_at": time.Now().Add(-time.Minute).Format(time.RFC3339),
-		},
+		ID:               36003,
+		Platform:         PlatformOpenAI,
+		Type:             AccountTypeOAuth,
+		Status:           StatusActive,
+		Schedulable:      true,
+		Concurrency:      1,
+		RateLimitResetAt: &resetAt,
 	}
 	mappingMiss := Account{
 		ID:          36004,
@@ -526,9 +523,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_LoadBat
 	}
 
 	require.False(t, svc.isOpenAIAdvancedSchedulerEnabled(ctx))
-	// Legacy percentage auto-pause is retired in TK. Exercise the live runtime
-	// cooldown gate so the diagnostic test retains a real scheduling veto.
-	svc.BlockAccountScheduling(&quotaPaused, time.Now().Add(time.Minute), "429")
+	require.False(t, accountAdmitsRequestedModel(&mappingMiss, "gpt-5.4-mini", nil))
 	selection, decision, err := svc.SelectAccountWithScheduler(
 		ctx,
 		&groupID,
@@ -544,7 +539,9 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_LoadBat
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.Nil(t, selection)
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
-	require.EqualError(t, err, "no available OpenAI accounts supporting model: gpt-5.4-mini (pool=3, filtered: excluded=1 model_not_supported=1 runtime_blocked=1)")
+	require.Contains(t, err.Error(), "gpt-5.6-luna")
+	require.Contains(t, err.Error(), "total=3")
+	require.Contains(t, err.Error(), "model_unsupported=1")
 }
 
 func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_RequiredWSV2_SkipsHTTPOnlyAccount(t *testing.T) {

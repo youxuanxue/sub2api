@@ -180,7 +180,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		if c.Request.Context().Err() != nil {
 			return nil, s.writeGoogleError(c, http.StatusBadGateway, "Client disconnected before upstream response")
 		}
-		return nil, s.writeGoogleError(c, http.StatusBadGateway, "Upstream request failed after retries")
+		return nil, candidateTransportFailure(ctx, s.writeGoogleError(c, http.StatusBadGateway, "Upstream request failed after retries"), err)
 	}
 	resp := result.resp
 	defer func() {

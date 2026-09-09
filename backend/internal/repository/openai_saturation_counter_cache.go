@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strconv"
 
@@ -25,6 +26,40 @@ var openaiSaturationIncrScript = redis.NewScript(`
 
 type openaiSaturationCounterCache struct {
 	rdb *redis.Client
+}
+
+func candidateFailureKey(scope service.CandidateFailureScope) string {
+	return fmt.Sprintf("candidate_failure:account:%d:model:%x", scope.AccountID, sha256.Sum256([]byte(scope.Model)))
+}
+
+func (c *openaiSaturationCounterCache) IncrementCandidateFailure(ctx context.Context, scope service.CandidateFailureScope, windowSeconds int) (int64, error) {
+	if scope.AccountID <= 0 || scope.Model == "" || windowSeconds <= 0 {
+		return 0, fmt.Errorf("invalid candidate failure scope or window")
+	}
+	return openaiSaturationIncrScript.Run(ctx, c.rdb, []string{candidateFailureKey(scope)}, windowSeconds).Int64()
+}
+
+func (c *openaiSaturationCounterCache) GetCandidateFailures(ctx context.Context, scopes []service.CandidateFailureScope) (map[service.CandidateFailureScope]int64, error) {
+	out := make(map[service.CandidateFailureScope]int64, len(scopes))
+	if len(scopes) == 0 {
+		return out, nil
+	}
+	keys := make([]string, len(scopes))
+	for i, scope := range scopes {
+		keys[i] = candidateFailureKey(scope)
+	}
+	values, err := c.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, err
+	}
+	for i, value := range values {
+		if str, ok := value.(string); ok {
+			if n, err := strconv.ParseInt(str, 10, 64); err == nil && n > 0 {
+				out[scopes[i]] = n
+			}
+		}
+	}
+	return out, nil
 }
 
 func NewOpenAISaturationCounterCache(rdb *redis.Client) service.OpenAISaturationCounterCache {

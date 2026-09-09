@@ -350,7 +350,7 @@ func tkShouldOpenAICodex429BeModelScoped(account *Account, headers http.Header, 
 	if parseOpenAIRateLimitResetTime(responseBody) == nil && !isCodexBengalfoxActiveLimit(headers) {
 		return false
 	}
-	scopeKey := strings.TrimSpace(account.GetMappedModel(requestedModel))
+	scopeKey := strings.TrimSpace(requestedModel)
 	if scopeKey == "" || !tkIsOpenAICodexMeteredModel(scopeKey) {
 		return false
 	}
@@ -387,11 +387,9 @@ func (s *RateLimitService) tkTryOpenAICodexModelScopedCooldown(
 	if account.Platform != PlatformOpenAI || !account.IsOAuth() {
 		return false
 	}
-	// Canonical scope key = the mapped model the scheduler will look up
-	// (modelRateLimitKeysForRequest uses GetMappedModel). Applying GetMappedModel
-	// here is idempotent for already-mapped inputs (callers pass either the raw
-	// requested or the mapped model), so write-key and read-key always agree.
-	scopeKey := strings.TrimSpace(account.GetMappedModel(requestedModel))
+	// Error handlers receive the executed canonical model. Mapping it again can
+	// follow a second alias or wildcard and cool a different model.
+	scopeKey := strings.TrimSpace(requestedModel)
 	if scopeKey == "" || !tkIsOpenAICodexMeteredModel(scopeKey) {
 		return false
 	}

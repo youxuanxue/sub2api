@@ -570,21 +570,19 @@ func TestOpenAIGatewayServiceRecordUsage_TimePricingUsesExplicitPricingAt(t *tes
 	require.InDelta(t, 0.8, usageRepo.lastLog.RateMultiplier, 1e-12)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_DeepSeekAccountStatsUsesRequestPricingAtAndUpstreamModel(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_DeepSeekAccountStatsMirrorsCustomerPricingWithUpstreamAttribution(t *testing.T) {
 	for _, model := range []struct {
-		name        string
-		offPeakCost float64
+		name string
 	}{
-		{"deepseek-v4-flash", 1000*2.2e-7 + 500*6.6e-7 + 1000*7e-9},
-		{"deepseek-v4-pro", 1000*6.6e-7 + 500*1.98e-6 + 1000*2.2e-8},
+		{"deepseek-v4-flash"},
+		{"deepseek-v4-pro"},
 	} {
 		for _, slot := range []struct {
-			name       string
-			pricingAt  time.Time
-			multiplier float64
+			name      string
+			pricingAt time.Time
 		}{
-			{"peak", time.Date(2026, time.August, 24, 2, 0, 0, 0, time.UTC), 2},
-			{"off_peak", time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC), 1},
+			{"peak", time.Date(2026, time.August, 24, 2, 0, 0, 0, time.UTC)},
+			{"off_peak", time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)},
 		} {
 			t.Run(model.name+"/"+slot.name, func(t *testing.T) {
 				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
@@ -631,8 +629,8 @@ func TestOpenAIGatewayServiceRecordUsage_DeepSeekAccountStatsUsesRequestPricingA
 				require.Equal(t, 1, userRepo.deductCalls)
 				require.InDelta(t, customerTotal*0.8, userRepo.lastAmount, 1e-12)
 				require.NotNil(t, log.AccountStatsCost)
-				require.InDelta(t, model.offPeakCost*slot.multiplier, *log.AccountStatsCost, 1e-12,
-					"account cost must use the upstream model and historical PricingAt")
+				require.InDelta(t, customerTotal, *log.AccountStatsCost, 1e-12,
+					"account statistics mirror settled token pricing before the group multiplier")
 			})
 		}
 	}

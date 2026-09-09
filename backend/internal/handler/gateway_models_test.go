@@ -302,7 +302,7 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		{
 			name:     "unmapped accounts alone retain default response shape",
 			accounts: accounts[:1],
-			want:     openai.DefaultModelIDs(),
+			want:     service.ServableClientFacingIDs(context.Background(), service.PlatformOpenAI, nil, nil),
 		},
 		{
 			name:     "custom list can select defaults and aliases",

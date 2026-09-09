@@ -430,6 +430,23 @@ func TestCodexSpark429_GeneralWindowHealthy_ModelScoped(t *testing.T) {
 		"model-scoped spark cooldown must NOT cool the whole account")
 }
 
+func TestCodexSpark429_ExecutedModelIsNotMappedTwice(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1001, AccountTypeOAuth)
+	account.Credentials = map[string]any{"model_mapping": map[string]any{
+		"customer-model": codexSparkModel,
+		codexSparkModel:  "gpt-5.6-sol",
+	}}
+	executedModel := account.GetMappedModel("customer-model")
+	headers := codexGeneralWindowHeaders(4, 1)
+	require.True(t, tkShouldOpenAICodex429BeModelScoped(account, headers, codexUsageLimitBody, executedModel))
+	svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, codexUsageLimitBody, executedModel)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Zero(t, repo.setRateLimitedCalls)
+}
+
 func TestCodexSpark429_GeneralWindowNearCapNotExhausted_ModelScoped(t *testing.T) {
 	// Account-wide 7d window near its cap (97%) but NOT exhausted (<100%): the
 	// binding limit on this spark request is still the spark sub-window, so it is

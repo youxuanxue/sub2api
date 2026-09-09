@@ -787,7 +787,8 @@ func TestFetchUpstreamSupportedModelsDoesNotExposeUpstreamBody(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "response exceeds 8 bytes")
+	require.Contains(t, err.Error(), "HTTP 502")
+	require.NotContains(t, err.Error(), "SECRET_TOKEN")
 }
 
 func TestMatchModelsDevProviderFallsBackToOpenAIProviderWithoutAPIField(t *testing.T) {

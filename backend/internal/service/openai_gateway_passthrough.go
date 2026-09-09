@@ -940,7 +940,7 @@ func openAIStreamAddedEventStartsClientOutput(payload []byte, eventType string) 
 	case "response.output_item.added":
 		item := gjson.GetBytes(payload, "item")
 		if !item.Exists() || !item.IsObject() {
-			return true
+			return false
 		}
 		switch strings.TrimSpace(item.Get("type").String()) {
 		case "reasoning":
@@ -1673,7 +1673,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if !codexState.sawBareError || codexState.sawResponseFailed || failureDelivered {
 			return
 		}
-		codexState.finalizeBareErrorAtStreamEnd(s, c, account, resp.Header, failedMessage)
+		codexState.finalizeBareErrorAtStreamEnd(s, c, account, resp.Header, failedMessage, mappedModel)
 		if clientDisconnected {
 			return
 		}

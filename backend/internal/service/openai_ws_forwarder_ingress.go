@@ -133,6 +133,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
 				return fmt.Errorf("websocket ingress requires ws_v2 transport, got=%s", wsDecision.Transport)
 			}
+			if s.shouldBridgeOpenAIWSPassthroughFirstMessage(account, firstClientMessage) {
+				forceHTTPBridge = true
+				break
+			}
 			// Candidate admission reacquires capacity before each passthrough turn.
 			// Legacy passthrough retains its connection-only admission behavior.
 			return s.proxyResponsesWebSocketV2Passthrough(
@@ -670,6 +674,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					}
 					if !retrySafe {
 						retryPayload = nil
+					}
+					if retrySafe && account.Platform == PlatformGrok && !bridgeReplayRetentionAllowed {
+						retryPayload, err = sjson.SetBytes(retryPayload, "store", false)
+						if err != nil {
+							return fmt.Errorf("preserve websocket failover retention: %w", err)
+						}
 					}
 					return newOpenAIWSCurrentTurnFailoverError(bridgeErr, retryPayload)
 				}

@@ -47,7 +47,8 @@ func (s *OpenAIGatewayService) tkTryRouteOpenAIForwardProtocol(
 		return result, outBody, true, err
 	}
 	if account.IsOpenAIApiKey() {
-		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(outBody, false); normalizeErr != nil {
+		responsesLite := c != nil && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))
+		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(outBody, responsesLite); normalizeErr != nil {
 			return nil, outBody, true, normalizeErr
 		} else if changed {
 			outBody = normalized

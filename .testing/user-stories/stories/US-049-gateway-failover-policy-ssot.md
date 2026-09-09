@@ -24,7 +24,7 @@
 - semantic 先于 status，shared 503 不 failover，account fault 400 会 failover。
 - `response.failed` 未知结构默认 failover，通用 SSE `error` 未知结构默认 terminal。
 - OAuth passthrough 普通 500 terminal；API key passthrough 500 failover；账号自定义 pool retry 可覆盖未列出的 status。
-- NewAPI bridge 普通 500 terminal，而 502/503/504 failover；arrears semantic 可让 400/403 failover。
+- NewAPI bridge 普通 500 terminal，而 502/503/504/529 failover；arrears semantic 可让 400/403 failover。
 - Grok body classifier 不再输出 failover 布尔字段。
 - 所有 handler 对 `UpstreamFailoverError` 的最终 retry/stop 判定都经过全局 owner；legacy 空 scope 仍 retry，未知 scope fail closed。
 

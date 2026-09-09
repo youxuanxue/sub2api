@@ -404,7 +404,7 @@ func TestDefaultNormalizeAndValidateRuntimeLogConfig(t *testing.T) {
 			},
 		},
 	})
-	if defaults.Level != "debug" || defaults.StacktraceLevel != "fatal" || defaults.RetentionDays != 14 {
+	if defaults.Level != "debug" || defaults.StacktraceLevel != "fatal" || defaults.RetentionDays != 7 {
 		t.Fatalf("unexpected defaults: %+v", defaults)
 	}
 	if defaults.PersistAccessLogs {
@@ -424,7 +424,7 @@ func TestDefaultNormalizeAndValidateRuntimeLogConfig(t *testing.T) {
 	if cfg.Level != "debug" || cfg.StacktraceLevel != "fatal" {
 		t.Fatalf("normalize level/stacktrace failed: %+v", cfg)
 	}
-	if cfg.SamplingInitial != 50 || cfg.SamplingNext != 20 || cfg.RetentionDays != 14 {
+	if cfg.SamplingInitial != 50 || cfg.SamplingNext != 20 || cfg.RetentionDays != 7 {
 		t.Fatalf("normalize numeric defaults failed: %+v", cfg)
 	}
 	if err := validateOpsRuntimeLogConfig(cfg); err != nil {

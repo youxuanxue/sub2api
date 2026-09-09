@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   addCustomModelAllowlistItem,
-  createModelAllowlistState,
   type ModelAllowlistAddError,
 } from "../groupModelAllowlist";
 

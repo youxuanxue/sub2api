@@ -136,7 +136,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 				continue
 			}
 			setOpsUpstreamError(c, 0, safeErr, "")
-			return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
+			return nil, candidateTransportFailure(ctx, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr), err)
 		}
 
 		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {

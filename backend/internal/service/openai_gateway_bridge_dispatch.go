@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"strings"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
@@ -48,7 +50,14 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	body []byte,
 	promptCacheKey string,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, resultErr error) {
+	ctx, finishAttempt, beginErr := s.beginCandidateChatAttempt(ctx, c, account, body)
+	if beginErr != nil {
+		return nil, beginErr
+	}
+	if finishAttempt != nil {
+		defer func() { result, resultErr = finishAttempt(result, resultErr) }()
+	}
 	if target, planned := protocolExecutionTarget(ctx); planned && target != protocolrouter.ProtocolChatCompletions {
 		return s.ForwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 	}
@@ -74,8 +83,17 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
+	in.BoundedChatAttempt = finishAttempt != nil
 	out, apiErr := dispatchNewAPIChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
+		if attempt, _ := ctx.Value(candidateChatAttemptKey{}).(*candidateChatAttempt); attempt != nil {
+			if cause := context.Cause(attempt.ctx); cause != nil {
+				return nil, cause
+			}
+			if !attempt.started && (apiErr.GetErrorCode() == newapitypes.ErrorCodeDoRequestFailed || apiErr.GetErrorCode() == newapitypes.ErrorCodeReadResponseBodyFailed) {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Scope: GatewayFailureScopeAccount, Reason: "upstream_transport_failure"}
+			}
+		}
 		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointChatCompletions),
@@ -220,7 +238,10 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointEmbeddings) {
-		return s.ForwardAsEmbeddings(ctx, c, account, body, defaultMappedModel)
+		if account != nil && account.Platform == PlatformNewAPI {
+			return nil, fmt.Errorf("newapi embeddings adaptor unavailable for account %d", account.ID)
+		}
+		return s.ForwardEmbeddings(ctx, c, account, body, defaultMappedModel)
 	}
 	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")

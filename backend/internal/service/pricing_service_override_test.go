@@ -37,7 +37,7 @@ func newPricingServiceWithOverride(t *testing.T, overrideJSON string) *PricingSe
 // override 的旗舰用例：显式 threshold=0 压住 above 折算，把目录条目的阶梯关成标准价。
 func TestPricingOverride_ExplicitZeroThresholdDisablesCatalogLadder(t *testing.T) {
 	svc := newPricingServiceWithOverride(t, `{"gpt-5.5": {"long_context_input_token_threshold": 0}}`)
-	data, err := svc.parsePricingData([]byte(gpt55OverrideCatalogJSON))
+	data, err := svc.parsePricingSensorData([]byte(gpt55OverrideCatalogJSON))
 	require.NoError(t, err)
 
 	patched := data["gpt-5.5"]
@@ -61,7 +61,7 @@ func TestPricingOverride_ExplicitZeroThresholdDisablesCatalogLadder(t *testing.T
 
 func TestPricingOverride_FieldLevelMergeKeepsOtherFields(t *testing.T) {
 	svc := newPricingServiceWithOverride(t, `{"gpt-5.4": {"input_cost_per_token": 3e-06}}`)
-	data, err := svc.parsePricingData([]byte(gpt55OverrideCatalogJSON))
+	data, err := svc.parsePricingSensorData([]byte(gpt55OverrideCatalogJSON))
 	require.NoError(t, err)
 
 	patched := data["gpt-5.4"]
@@ -78,7 +78,7 @@ func TestPricingOverride_NullFieldValueRemovesField(t *testing.T) {
 		"input_cost_per_token_above_272k_tokens": null,
 		"output_cost_per_token_above_272k_tokens": null,
 		"cache_read_input_token_cost_above_272k_tokens": null}}`)
-	data, err := svc.parsePricingData([]byte(gpt55OverrideCatalogJSON))
+	data, err := svc.parsePricingSensorData([]byte(gpt55OverrideCatalogJSON))
 	require.NoError(t, err)
 	require.Zero(t, data["gpt-5.5"].LongContextInputTokenThreshold, "above 字段删除后不再折算阶梯")
 	require.InDelta(t, 5e-6, data["gpt-5.5"].InputCostPerToken, 1e-12)
@@ -111,18 +111,27 @@ func TestPricingOverride_LoadPipelineAddsNewModelAndPatchesFallbackOnly(t *testi
 	svc.cfg.Pricing.OverrideFile = overridePath
 	require.NoError(t, svc.loadPricingData(catalogPath))
 
-	patched := svc.pricingData["fallback-only-model"]
+	for _, model := range []string{"remote-model", "fallback-only-model", "override-new-model"} {
+		require.NotContains(t, svc.pricingData, model, "external documents cannot add runtime pricing")
+	}
+	body, err := os.ReadFile(catalogPath)
+	require.NoError(t, err)
+	sensorData, err := svc.parsePricingSensorData(body)
+	require.NoError(t, err)
+	sensorData = svc.mergeFallbackPricingData(sensorData)
+	sensorData = svc.mergeOverrideOnlyModels(sensorData)
+	patched := sensorData["fallback-only-model"]
 	require.NotNil(t, patched)
 	require.InDelta(t, 9e-6, patched.InputCostPerToken, 1e-12)
 	require.InDelta(t, 8e-6, patched.OutputCostPerToken, 1e-12, "回退条目的其余字段必须保留")
 	require.InDelta(t, 4e-7, patched.CacheReadInputTokenCost, 1e-12)
 
-	added := svc.pricingData["override-new-model"]
+	added := sensorData["override-new-model"]
 	require.NotNil(t, added)
 	require.InDelta(t, 5e-6, added.InputCostPerToken, 1e-12)
 	require.InDelta(t, 1e-5, added.OutputCostPerToken, 1e-12)
 
-	require.InDelta(t, 1e-6, svc.pricingData["remote-model"].InputCostPerToken, 1e-12)
+	require.InDelta(t, 1e-6, sensorData["remote-model"].InputCostPerToken, 1e-12)
 }
 
 // 拼错模型名（或纯补丁落在不存在的模型上）会被有效性过滤丢弃，必须有哨兵 WARN。
@@ -150,7 +159,7 @@ func TestPricingOverride_IneffectiveEntryWarns(t *testing.T) {
 
 func TestPricingOverride_NonObjectEntryKeepsCatalogEntry(t *testing.T) {
 	svc := newPricingServiceWithOverride(t, `{"gpt-5.5": "oops"}`)
-	data, err := svc.parsePricingData([]byte(gpt55OverrideCatalogJSON))
+	data, err := svc.parsePricingSensorData([]byte(gpt55OverrideCatalogJSON))
 	require.NoError(t, err)
 	require.Equal(t, 272000, data["gpt-5.5"].LongContextInputTokenThreshold, "非法补丁忽略，目录条目原样保留")
 	require.InDelta(t, 5e-6, data["gpt-5.5"].InputCostPerToken, 1e-12)
@@ -160,14 +169,14 @@ func TestPricingOverride_MissingOrInvalidFileIsIgnored(t *testing.T) {
 	t.Run("missing file", func(t *testing.T) {
 		svc := &PricingService{cfg: &config.Config{}}
 		svc.cfg.Pricing.OverrideFile = filepath.Join(t.TempDir(), "absent.json")
-		data, err := svc.parsePricingData([]byte(gpt55OverrideCatalogJSON))
+		data, err := svc.parsePricingSensorData([]byte(gpt55OverrideCatalogJSON))
 		require.NoError(t, err)
 		require.Equal(t, 272000, data["gpt-5.5"].LongContextInputTokenThreshold)
 	})
 
 	t.Run("invalid json", func(t *testing.T) {
 		svc := newPricingServiceWithOverride(t, `{invalid`)
-		data, err := svc.parsePricingData([]byte(gpt55OverrideCatalogJSON))
+		data, err := svc.parsePricingSensorData([]byte(gpt55OverrideCatalogJSON))
 		require.NoError(t, err)
 		require.Equal(t, 272000, data["gpt-5.5"].LongContextInputTokenThreshold)
 	})
@@ -183,7 +192,7 @@ func TestPricingOverride_DisablesGPT55LadderOnDefaultCatalog(t *testing.T) {
 		"gpt-5.5": {"long_context_input_token_threshold": 0},
 		"gpt-5.5-2026-04-23": {"long_context_input_token_threshold": 0}
 	}`)
-	data, err := svc.parsePricingData(body)
+	data, err := svc.parsePricingSensorData(body)
 	require.NoError(t, err)
 	svc.pricingData = data
 	billing := NewBillingService(&config.Config{}, svc)

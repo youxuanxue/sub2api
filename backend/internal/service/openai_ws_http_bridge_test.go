@@ -1802,6 +1802,7 @@ func TestOpenAIWSHTTPBridgeAcceptsFirstFrameAboveLegacy16MiB(t *testing.T) {
 		Extra: map[string]any{
 			"openai_apikey_responses_websockets_v2_enabled": true,
 			"openai_apikey_responses_websockets_v2_mode":    OpenAIWSIngressModePassthrough,
+			"use_responses_api":                             true,
 		},
 		Concurrency: 1,
 		Status:      StatusActive,

@@ -195,7 +195,7 @@ func TestHandleUpstreamError_AnthropicFableCreditsRequiredFallsBackToRequestedMo
 	require.True(t, repo.lastModelRateLimitReset.After(startedAt))
 }
 
-func TestHandleUpstreamError_AnthropicNonFableCreditsRequiredKeepsLegacyBehavior(t *testing.T) {
+func TestHandleUpstreamError_AnthropicNonFableCreditsRequiredPreservesRequestOwnedPolicy(t *testing.T) {
 	resetAt := time.Now().Add(2 * time.Hour).Truncate(time.Second)
 	headers := http.Header{}
 	headers.Set("anthropic-ratelimit-unified-reset", strconv.FormatInt(resetAt.Unix(), 10))
@@ -208,8 +208,8 @@ func TestHandleUpstreamError_AnthropicNonFableCreditsRequiredKeepsLegacyBehavior
 	svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, body, "claude-opus-5")
 
 	require.Zero(t, repo.modelRateLimitCalls)
-	require.Equal(t, 1, repo.rateLimitCalls)
-	require.Equal(t, resetAt, repo.lastRateLimitReset)
+	require.Zero(t, repo.rateLimitCalls, "request-owned credit policy must not penalize the account")
+	require.Zero(t, repo.sessionWindowCalls)
 }
 
 func TestHandleUpstreamError_AnthropicSharedWindowStillWinsWithFableCreditsRequired(t *testing.T) {

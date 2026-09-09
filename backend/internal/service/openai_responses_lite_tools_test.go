@@ -349,8 +349,8 @@ func TestNormalizeOpenAIResponsesLiteToolsPayload_ForcesParallelToolCallsFalse(t
 	}{
 		{name: "missing", body: `{"model":"gpt-5.6-terra"}`, changed: true},
 		{name: "true", body: `{"model":"gpt-5.6-terra","parallel_tool_calls":true}`, changed: true},
-		{name: "null", body: `{"model":"gpt-5.6-terra","parallel_tool_calls":null}`, changed: true},
-		{name: "already false", body: `{"model":"gpt-5.6-terra","parallel_tool_calls":false}`, changed: false},
+		{name: "already false without reasoning context", body: `{"model":"gpt-5.6-terra","parallel_tool_calls":false}`, changed: true},
+		{name: "already normalized", body: `{"model":"gpt-5.6-terra","parallel_tool_calls":false,"reasoning":{"context":"all_turns"}}`, changed: false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			updated, changed, err := normalizeOpenAIResponsesLiteToolsPayload([]byte(tt.body))
@@ -486,7 +486,7 @@ func TestOpenAIGatewayServiceForward_PinsParallelToolCallsForToollessResponsesLi
 		credentials map[string]any
 	}{
 		{name: "oauth", accountType: AccountTypeOAuth, credentials: map[string]any{"access_token": "oauth-token", "chatgpt_account_id": "chatgpt-account"}},
-		{name: "apikey", accountType: AccountTypeAPIKey, credentials: map[string]any{"api_key": "sk-test"}},
+		{name: "apikey", accountType: AccountTypeAPIKey, credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.example.com"}},
 	}
 	parallelCases := []struct {
 		name  string
@@ -570,7 +570,7 @@ func TestOpenAIGatewayServiceForward_DisablesParallelToolCallsForResponsesLiteAP
 			account := &Account{
 				ID: 503, Name: "responses-lite-api-key", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Concurrency: 1, Status: StatusActive, Schedulable: true, RateMultiplier: f64p(1),
-				Credentials: map[string]any{"api_key": "sk-test"},
+				Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://api.example.com"},
 				Extra:       map[string]any{"openai_passthrough": passthrough},
 			}
 			body := []byte(`{

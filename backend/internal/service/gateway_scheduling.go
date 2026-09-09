@@ -2038,6 +2038,7 @@ type selectionFailureStats struct {
 	PlatformFiltered        int
 	ModelUnsupported        int
 	ModelRateLimited        int
+	ChannelRestricted       int
 	RuntimeBlocked          int
 	ProfitThreshold         int
 	ProfitInvalidRate       int
@@ -2118,6 +2119,8 @@ func (s *GatewayService) collectSelectionFailureStats(
 		case "model_unsupported":
 			stats.ModelUnsupported++
 			stats.SampleMappingIDs = appendSelectionFailureSampleID(stats.SampleMappingIDs, acc.ID)
+		case "channel_restricted":
+			stats.ChannelRestricted++
 		case "model_rate_limited":
 			stats.ModelRateLimited++
 			remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(time.Second)
@@ -2162,6 +2165,10 @@ func (s *GatewayService) diagnoseSelectionFailure(
 	}
 	if !s.isAccountSchedulableForSelection(acc) {
 		return selectionFailureDiagnosis{Category: "unschedulable", Detail: "generic_unschedulable"}
+	}
+	if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && group != nil &&
+		s.isStickyAccountUpstreamRestricted(ctx, &group.ID, acc, requestedModel) {
+		return selectionFailureDiagnosis{Category: "channel_restricted", Detail: "channel pricing restriction"}
 	}
 	if !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel) {
 		remaining := acc.GetRateLimitRemainingTimeWithContext(ctx, requestedModel).Truncate(time.Second)
@@ -2212,7 +2219,7 @@ func appendSelectionFailureRateSample(samples []string, accountID int64, remaini
 
 func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 	return fmt.Sprintf(
-		"total=%d eligible=%d excluded=%d unschedulable=%d platform_filtered=%d model_unsupported=%d model_rate_limited=%d runtime_blocked=%d profit_threshold=%d profit_invalid_account_rate=%d",
+		"total=%d eligible=%d excluded=%d unschedulable=%d platform_filtered=%d model_unsupported=%d model_rate_limited=%d runtime_blocked=%d profit_threshold=%d profit_invalid_account_rate=%d channel_restricted=%d",
 		stats.Total,
 		stats.Eligible,
 		stats.Excluded,
@@ -2223,6 +2230,7 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 		stats.RuntimeBlocked,
 		stats.ProfitThreshold,
 		stats.ProfitInvalidRate,
+		stats.ChannelRestricted,
 	)
 }
 

@@ -3,6 +3,56 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/openai_gateway_forward_tk_codex_oauth_body.go",
+      "must_contain": ["!isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"],
+      "rationale": "Native OAuth request metadata is scoped to credential identity while compact bodies retain the client contract."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough_tk.go",
+      "must_contain": ["applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"],
+      "rationale": "Passthrough must use the same credential identity owner as native HTTP and WS."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_http_bridge.go",
+      "must_contain": ["applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"],
+      "rationale": "WS HTTP bridging must retain credential-scoped metadata after body preparation."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_tk.go",
+      "must_contain": ["generateSessionUUID(isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey))"],
+      "rationale": "Messages conversion cannot share upstream session identity across different OAuth credential accounts."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+      "must_contain": ["hooks.BeforeTurn(turnNo)"],
+      "rationale": "WS follow-up turns re-enter authorization and billing validation before forwarding."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_ingress.go",
+      "must_contain": ["s.shouldBridgeOpenAIWSPassthroughFirstMessage(account, firstClientMessage)"],
+      "rationale": "Passthrough transport selection must preserve the existing oversized first-request HTTP bridge."
+    },
+    {
+      "path": "backend/internal/service/ops_service.go",
+      "must_contain": ["s.systemLogSink.SetPersistAccessLogs(runtimeConfig.PersistAccessLogs)", "if keepBody && detail != \"\""],
+      "rationale": "Persisted access-log policy must refresh at runtime; queued details follow the same bounded and redacted retention as request and response bodies."
+    },
+    {
+      "path": "backend/internal/service/pricing_service.go",
+      "must_contain": ["data = s.mergeFallbackPricingData(data)", "applyTKPricingOverlay(data)"],
+      "rationale": "External pricing layers are sensors; final runtime ownership remains with the TokenKey pricing registry."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_model_cooldown_test.go",
+      "must_contain": ["TestCodexSpark429_ExecutedModelIsNotMappedTwice"],
+      "rationale": "Chained aliases must not redirect a cooldown away from the executed model."
+    },
+    {
+      "path": "backend/internal/service/openai_visible_ttft_test.go",
+      "must_contain": ["TestOpenAIResponsesFailoverUsesOutputIndependentlyOfTTFT"],
+      "rationale": "Native and passthrough failure handling must distinguish buffered empty reasoning from committed progress under both TTFT modes."
+    },
+    {
       "path": "backend/internal/service/upstream_response_model.go",
       "must_contain": ["observeOpenAIResponsesEvent(o.c, payload)", "o.ObserveServiceTier(tier, terminal)", "response.service_tier"],
       "rationale": "Merging response observation must preserve both TokenKey event evidence and upstream processing-tier evidence; dropping the latter silently changes public API billing reconciliation."
@@ -128,14 +178,105 @@
       "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution."
     },
     {
+      "path": "backend/internal/service/candidate_failure_tk.go",
+      "must_contain": ["plan.ResolvedModel()", "candidateFailureScope(path.account, plan, path.model)", "resolveGeminiForwardModels(account, model)", "ResolveBedrockModelID(account, model)", "kiroproto.MapModel(model)", "candidateFailureAttributable", "counter.IncrementCandidateFailure", "candidateTransportFailure", "errors.As(err, &observed)"],
+      "must_not_contain": ["PlatformNewAPI"],
+      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, and observed errors cannot count twice."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": ["err = candidate.observeFailure(ctx, freshAccount, plan, err)", "err = candidate.observeFailure(ctx, account, protocolrouter.Plan{}, err)", "return protocolrouter.Result{Value: value}, err"],
+      "rationale": "The execution boundary must actually record feedback and preserve known partial results on errors."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_health_breaker.go",
+      "must_contain": ["var observed *candidateObservedFailure", "errors.As(err, &observed)"],
+      "rationale": "The legacy account-wide breaker must not duplicate shared candidate model-scoped failure observations."
+    },
+    {
+      "path": "backend/internal/service/candidate_failure_tk_test.go",
+      "must_contain": ["TestCandidateFailurePriorityDirectUniversalAndModelIsolation", "TestCandidateFailureNativeExecutionUsesForwardModel", "TestCandidateTransportFailureAttribution", "ExecuteSelectedProtocol", "classifyOpenAIAPIKeyHealthFailure(observed)"],
+      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution and legacy breaker deduplication across platforms and key modes."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": ["s.handleUpstreamTransportError(ctx, c, account, err,"],
+      "rationale": "Sanitized Anthropic transport errors must retain candidate failure attribution."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": ["s.handleUpstreamTransportError(ctx, c, account, err,"],
+      "rationale": "Anthropic passthrough transport failures feed the shared counter without exposing raw transport details."
+    },
+    {
+      "path": "backend/internal/service/gateway_bedrock.go",
+      "must_contain": ["s.handleUpstreamTransportError(ctx, c, account, err,"],
+      "rationale": "Bedrock transport failures retain attribution on native execution without a Plan."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Messages-to-Chat transport failures retain candidate attribution."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": ["s.handleUpstreamTransportError(ctx, c, account, err,"],
+      "rationale": "Messages-to-Responses transport failures retain candidate attribution."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_v1_forward.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "OpenAI v1 transport failures retain candidate attribution after sanitization."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx, s.writeClaudeError", "candidateTransportFailure(ctx, s.writeGoogleError"],
+      "rationale": "Gemini Messages and native execution preserve terminal transport attribution after their existing retries."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Gemini Chat preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Gemini Responses preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Antigravity Messages preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Antigravity native Gemini preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": ["candidateTransportFailure(c.Request.Context(),"],
+      "rationale": "Antigravity compatibility transports preserve terminal failure attribution."
+    },
+    {
+      "path": "backend/internal/service/candidate_chat_attempt_tk.go",
+      "must_contain": ["candidateChatMaxAttempts = 3", "candidateChatReplayable", "r.continuationAccountID > 0", "a.abortBeforeOutput(errCandidateChatFirstOutput)", "errCandidateChatIncomplete"],
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output."
+    },
+    {
+      "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
+      "must_contain": ["TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce", "partial_tool", "exhausted", "failed upstream not canceled"],
+      "rationale": "Real handler and upstream HTTP tests protect cancellation, failover, partial metering and bounded attempts for both key modes."
+    },
+    {
       "path": "backend/internal/service/candidate_rpm_tk.go",
       "must_contain": ["func (r *CandidateRequest) peekGroupRPM(", "func (r *CandidateRequest) checkRPM(", "r.rpm.groups[group.ID] = err", "billing.checkRPMCounters(ctx, user, nil, false)"],
       "rationale": "Candidate origins retain RPM limits through retries without counting one request repeatedly; each WebSocket turn starts fresh admission."
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins", "pool = recoverCandidateWindowPool(pool)", "candidateOccupancy(a.account, loads) < candidateOccupancy(b.account, loads)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
-      "must_not_contain": ["lessUniversalBacking(", ".SortOrder"],
+      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins", "pool = recoverCandidateWindowPool(pool)", "r.mergeFailureCounts(ctx, pool, counts)", "candidateEffectivePriority(a.account, counts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
+      "must_not_contain": ["lessUniversalBacking(", ".SortOrder", "candidateOccupancy("],
       "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
     },
     {
@@ -270,7 +411,7 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk_test.go",
-      "must_contain": ["TestGlobalCandidateAccountPriorityIgnoresGroupTopology", "TestGlobalCandidateDeduplicatesMembershipBeforeSelection", "TestGlobalCandidateReadyPeerAndSlotRace", "TestGlobalCandidateWaitRechecksAuthorizationAndPlan", "TestGlobalCandidateNormalizedOccupancyAndTopologyTies", "TestGlobalCandidateModelGrantsCannotBeBorrowed", "TestGlobalCandidateWindowRecoveryAndStickyAdmission", "TestGlobalCandidateNativeConverterParityAndGoogleFailover", "TestCandidateResponsesImagePermissionPrecedesBillingOrigin"],
+      "must_contain": ["TestGlobalCandidateAccountPriorityIgnoresGroupTopology", "TestGlobalCandidateDeduplicatesMembershipBeforeSelection", "TestGlobalCandidateReadyPeerAndSlotRace", "TestGlobalCandidateWaitRechecksAuthorizationAndPlan", "TestGlobalCandidateCapacityIsOnlyAnAdmissionLimit", "TestGlobalCandidateModelGrantsCannotBeBorrowed", "TestGlobalCandidateWindowRecoveryAndStickyAdmission", "TestGlobalCandidateNativeConverterParityAndGoogleFailover", "TestCandidateResponsesImagePermissionPrecedesBillingOrigin"],
       "rationale": "Executable regressions cover production selection, topology, duplicate membership, capacity races and wait revalidation."
     },
     {
@@ -1849,6 +1990,8 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
+        "s.beginCandidateChatAttempt(ctx, c, account, body)",
+        "in.BoundedChatAttempt = finishAttempt != nil",
         "rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)",
         "rewriteNewAPIBridgeBodyModel(account, body, \"\")",
         "applyNewAPIAliFixedSamplingShape"
@@ -1916,9 +2059,18 @@
       "must_contain": [
         "Wei-Shaw/sub2api#1311",
         "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
+        "beginAnthropicClientHeaderWaitKeepalive(c, clientStream)",
         "openAICompatSSEFrameParser"
       ],
-      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+      "rationale": "Non-stream /v1/messages must gate downstream keepalive on clientStream, even when the Responses upstream is always streamed, and override Content-Type after WriteFilteredHeaders so buffered JSON is not mixed with SSE. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_buffered_keepalive_tk_test.go",
+      "must_contain": [
+        "TestForwardAsAnthropic_BufferedHeaderWaitPreservesJSON",
+        "json.Unmarshal(rec.Body.Bytes(), &response)"
+      ],
+      "rationale": "Slow Responses headers must not commit SSE to a buffered Messages client. Regression covers omitted and false stream flags, successful JSON and JSON errors after a keepalive interval."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_tk.go",
@@ -4461,10 +4613,22 @@
     {
       "path": "backend/internal/handler/openai_embeddings.go",
       "must_contain": [
+        "TkSetBridgeGinAuth(c, subject.UserID, groupName)",
+        "h.gatewayService.ForwardAsEmbeddingsDispatched(c.Request.Context(), c, account, forwardBody, \"\")",
+        "TkTryWriteNewAPIRelayErrorJSON(c, err, false, writerSizeBeforeForward)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, err)",
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, reqModel, reqModel, nil)"
       ],
-      "rationale": "The primary /v1/embeddings production regression path must remain wired to the shared first-selection failure contract for both explicit errors and nil selections."
+      "rationale": "The primary /v1/embeddings handler must use the selected account's adaptor dispatch and preserve NewAPI errors; bypassing it sends ali credentials to the native OpenAI fallback. Keep the shared first-selection failure contract. Regression: openai_embeddings_dispatch_tk_test.go exercises Direct/Universal, DashScope/native, payload, errors and usage."
+    },
+    {
+      "path": "backend/internal/handler/openai_embeddings_dispatch_tk_test.go",
+      "must_contain": [
+        "TestEmbeddings_DispatchesSelectedAccountProtocol",
+        "h.Embeddings(c)",
+        "/compatible-mode/v1/embeddings"
+      ],
+      "rationale": "Execute the real embeddings handler through account selection and upstream HTTP so adapter call-site loss cannot leave all service-only tests green."
     },
     {
       "path": "backend/internal/handler/openai_alpha_search.go",
@@ -6895,12 +7059,14 @@
     {
       "path": "backend/internal/service/openai_gateway_codex_stream_tk.go",
       "must_contain": [
-        "openAIStreamFailoverBlockedByClientOutput(*in.firstTokenMs)"
+        "openAIStreamClientOutputStarted(in.c, in.clientOutputStarted)",
+        "if !outputStarted && shouldFailover {",
+        "in.canonicalModel"
       ],
-      "rationale": "PR #1001: OpenAI Responses stream failover on response.failed must gate only on real first-token timing (firstTokenMs), not structural SSE events like response.output_item.added. Companion-extracted from openai_gateway_response_handling.go and openai_gateway_passthrough.go."
+      "rationale": "Retry eligibility follows committed client output, independently of configurable TTFT metrics. Empty reasoning and buffered structural events may still retry; emitted content must not. Terminal cooldowns retain the executed canonical model."
     },
     {
-      "rationale": "PR #1001: OpenAI Responses stream failover on response.failed must gate only on real first-token timing (firstTokenMs), not structural SSE events like response.output_item.added. server_is_overloaded must stay in the transient/capacity classifier so pre-token capacity failures fail over instead of forwarding to the client. Upstream merges of openai_gateway_service.go can silently restore clientOutputStarted gating and drop the overload markers while older happy-path tests still pass.",
+      "rationale": "OpenAI Responses failures may fail over while output remains buffered, independently of TTFT measurement. Once real output is committed, the current stream must terminate without replay. Preserve the transient overload classifier and canonical-model cooldown attribution across native and passthrough paths.",
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
         "server_is_overloaded"
@@ -6911,9 +7077,9 @@
       "must_contain": [
         "TestOpenAIStreamingResponseFailedAfterOutputItemAddedStillFailovers",
         "TestOpenAIStreamingResponseFailedAfterRealTokenDoesNotFailover",
-        "TestOpenAIStreamFailoverBlockedByClientOutput_UsesFirstTokenOnly"
+        "TestOpenAIStreamFailureUsesCommittedOutput"
       ],
-      "rationale": "PR #1001 regression anchors: structural output_item.added before response.failed must still fail over; real output_text.delta before response.failed must not; helper openAIStreamFailoverBlockedByClientOutput must remain firstTokenMs-only. Without pinning these tests, an upstream merge conflict can drop the focused cases and reintroduce the prod 1.8.42 failover_eligible-without-failover_candidate pattern."
+      "rationale": "Regression anchors: structural output_item.added before response.failed may fail over; committed output_text.delta must not. Both native and passthrough failure handling use actual output rather than first-token metric configuration."
     },
     {
       "path": "backend/internal/service/openai_ws_forwarder_v2.go",
@@ -7632,6 +7798,22 @@
         "g.MessagesCompactionInputTokensThreshold"
       ],
       "rationale": "GetByKeyForAuth hydrates the service Group from the Ent projection. Sticky routing and messages compaction fields are selected by SQL but are silently lost unless groupEntityToService maps them, causing cached gateway requests to observe zero values."
+    },
+    {
+      "path": "backend/internal/repository/api_key_repo.go",
+      "must_contain": [
+        "Where(apikey.IDEQ(id)).\n\t\tWithUser(func(q *dbent.UserQuery) {\n\t\t\tq.WithAllowedGroups("
+      ],
+      "rationale": "Per-turn WebSocket authorization refresh reads GetByID. Its user projection must hydrate current exclusive-group grants, as the opening authentication query does, or authorized direct keys disconnect on their second turn."
+    },
+    {
+      "path": "backend/internal/repository/api_key_repo_ws_authorization_tk_integration_test.go",
+      "must_contain": [
+        "TestGetByID_RefreshesExclusiveGroupAuthorization",
+        "True(refreshed.User.CanBindGroup",
+        "False(revoked.User.CanBindGroup"
+      ],
+      "rationale": "Keep the real repository regression for retained and revoked exclusive-group grants so a projection regression cannot pass only mocked WebSocket authorization tests."
     },
     {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
@@ -10210,6 +10392,51 @@
         "anthropicRequestNormalize"
       ],
       "rationale": "Thin injection of TK forwarding-cache extras into the shared gatewayForwardingCache loader. Struct fields stay unexported on the shared cache type; parse/defaults live in setting_gateway_runtime_tk_forwarding_extras.go. Upstream merges that drop the append/parse hooks silently revert canonical mimicry + normalize to zero/defaults."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": ["cleanThoughtSignatures = true", "sessionGroupID, sessionKey, cleanThoughtSignatures"],
+      "rationale": "Native Gemini binding-loss and account-switch signature repair must reach the execution transport, whose canonical request predates handler body cleanup. Losing the flag silently forwards the rejected signature again."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
+      "must_contain": ["if cleanThoughtSignatures", "forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)"],
+      "rationale": "Apply signature repair to the validated canonical request's transport copy without replacing the immutable route plan."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": ["!signatureRetried && attempt < geminiMaxRetries", "s.tkRepairGeminiNativeSignature(c, account, resp, body)", "signatureRetried = true", "body = tkNormalizeGeminiFunctionResponseImages(body)"],
+      "rationale": "Native Gemini and Vertex must recover rejected history signatures at most once within the existing retry budget, including sessions whose sticky binding already exists."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_function_response_tk.go",
+      "must_contain": ["func tkNormalizeGeminiFunctionResponseImages", "responseCount != 1", "functionResponse.parts", "json.RawMessage"],
+      "rationale": "Vertex Gemini 3 rejects CLI image parts beside tool responses. Preserve unambiguous tool ownership and exact payload values when nesting images into multimodal function responses."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_function_response_tk_test.go",
+      "must_contain": ["TestGeminiForwardNativeNormalizesVertexToolImages", "TestGeminiFunctionResponseImagesPreserveToolResult", "multiple_tools", "count_tokens"],
+      "rationale": "Protect actual Vertex transport normalization, payload preservation, and no-op handling for ambiguous or unrelated requests."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_signature_cleaner_test.go",
+      "must_contain": ["TestCleanGeminiNativeThoughtSignatures_PreservesToolData", "9007199254740993", "business-value"],
+      "rationale": "Native signature repair must preserve opaque tool data, same-named business fields, and exact numeric values."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_signature_retry_tk.go",
+      "must_contain": ["func (s *GeminiMessagesCompatService) tkRepairGeminiNativeSignature", "hasSignatureToRepair", "CleanGeminiNativeThoughtSignatures(body)"],
+      "rationale": "Shared native signature recovery must require an upstream thought-signature 400 and history that can actually be repaired, preserving ordinary errors and emitting ops evidence."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute_test.go",
+      "must_contain": ["TestGeminiSelectedProtocolRepairsTransportSignature", "upstream.body", "request.Digest()"],
+      "rationale": "Exercise actual native, planned edge, and Vertex forwarding to prove repaired wire signatures and immutable canonical history."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_signature_retry_tk_test.go",
+      "must_contain": ["TestGeminiForwardNativeRepairsRejectedSignatureOnce", "persistent_error_stops", "already_repaired", "unrelated_400"],
+      "rationale": "Regression coverage must retain successful recovery, bounded failure, and ordinary-error/no-op preservation."
     }
   ]
 }

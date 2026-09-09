@@ -2067,6 +2067,14 @@
     ],
     "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; tiered by input tokens, USD=¥/M÷6.7). Whole-request input-tier via overlay intervals; per-tier cache-hit price."
   },
+  "doubao-seed-2.1-turbo": {
+    "litellm_provider": "volcengine",
+    "mode": "chat",
+    "input_cost_per_token": 4.4776119402985074e-07,
+    "output_cost_per_token": 2.2388059701492537e-06,
+    "cache_read_input_token_cost": 8.955223880597015e-08,
+    "source": "VolcEngine Ark official model pricing https://www.volcengine.com/docs/82379/1544106, captured 2026-09-09 (document updated 2026-09-04): doubao-seed-2.1-turbo online inference standard list input CNY 3/Mtok, output CNY 15/Mtok, cache-hit CNY 0.60/Mtok for input [0, 256]K; CNY/USD=6.7. Excludes priority and batch inference prices. Pre-tax official list rates; the existing official_list_base_tax policy applies at resolution/catalog time. Agent Plan serving is scoped to /api/plan/v3."
+  },
   "doubao-seed-evolving": {
     "litellm_provider": "volcengine",
     "mode": "chat",
@@ -9698,6 +9706,72 @@
     ],
     "supports_reasoning": false,
     "supports_vision": true
+  },
+  "text-embedding-v1": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 1.0447761194029851e-07,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 2048,
+    "output_vector_size": 1536,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0007/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "text-embedding-v2": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 1.0447761194029851e-07,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 2048,
+    "output_vector_size": 1536,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0007/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "text-embedding-v3": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 7.462686567164179e-08,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 8192,
+    "output_vector_size": 1024,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "text-embedding-v4": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 7.462686567164179e-08,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 8192,
+    "output_vector_size": 1024,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "qwen3.7-text-embedding": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 7.462686567164179e-08,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 128000,
+    "output_vector_size": 1024,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
+  },
+  "qwen3.7-text-embedding-flash": {
+    "litellm_provider": "dashscope",
+    "mode": "embedding",
+    "input_cost_per_token": 1.8656716417910448e-08,
+    "output_cost_per_token": 0,
+    "max_input_tokens": 128000,
+    "output_vector_size": 1024,
+    "supported_endpoints": ["/v1/embeddings"],
+    "supports_vision": false,
+    "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.000125/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
   },
   "qwen3-embedding-0.6b": {
     "litellm_provider": "dashscope",

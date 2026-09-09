@@ -214,6 +214,15 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 	}
 	normalizeOpsAdvancedSettings(advanced)
 
+	if s.systemLogSink != nil {
+		runtimeConfig := defaultOpsRuntimeLogConfig(s.cfg)
+		if raw, ok := values[SettingKeyOpsRuntimeLogConfig]; ok {
+			if err := json.Unmarshal([]byte(raw), runtimeConfig); err != nil {
+				runtimeConfig = defaultOpsRuntimeLogConfig(s.cfg)
+			}
+		}
+		s.systemLogSink.SetPersistAccessLogs(runtimeConfig.PersistAccessLogs)
+	}
 	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: monitoringEnabled, advanced: *advanced})
 	s.syncSystemLogSinkEnabled()
 	return nil
@@ -642,7 +651,7 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 		out.Message = msg
 
 		detail := strings.TrimSpace(out.Detail)
-		if detail != "" {
+		if keepBody && detail != "" {
 			sanitizedDetail, _ := sanitizeErrorBodyForStorage(detail, OpsErrorLogQueueBodyMaxBytes)
 			out.Detail = sanitizedDetail
 		} else {
@@ -650,7 +659,7 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 		}
 
 		out.UpstreamRequestBody = strings.TrimSpace(out.UpstreamRequestBody)
-		if out.UpstreamRequestBody != "" {
+		if keepBody && out.UpstreamRequestBody != "" {
 			sanitizedBody, truncated, _ := sanitizeAndTrimJSONPayload([]byte(out.UpstreamRequestBody), 10*1024)
 			if sanitizedBody != "" {
 				out.UpstreamRequestBody = sanitizedBody
@@ -658,10 +667,13 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 			} else {
 				out.UpstreamRequestBody = ""
 			}
+		} else {
+			out.UpstreamRequestBody = ""
+			out.RequestBodyTruncated = false
 		}
 
 		// Drop fully-empty events (can happen if only status code was known).
-		if out.UpstreamStatusCode == 0 && out.Message == "" && out.Detail == "" {
+		if out.UpstreamStatusCode == 0 && out.Message == "" && detail == "" && strings.TrimSpace(ev.UpstreamResponseBody) == "" && strings.TrimSpace(ev.UpstreamRequestBody) == "" {
 			continue
 		}
 

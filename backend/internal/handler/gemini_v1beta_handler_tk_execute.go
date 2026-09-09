@@ -42,10 +42,14 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 	hasBoundSession bool,
 	sessionGroupID int64,
 	sessionKey string,
+	cleanThoughtSignatures bool,
 ) (*service.ForwardResult, error) {
 	modelName = service.CandidateEffectiveModel(requestCtx, modelName)
 	forwardNonGoverned := func(executionCtx context.Context, executionAccount *service.Account, request protocolrouter.CanonicalRequest) (any, error) {
 		forwardBody := request.Body()
+		if cleanThoughtSignatures {
+			forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)
+		}
 		if executionAccount.Platform == service.PlatformAntigravity && executionAccount.Type != service.AccountTypeAPIKey {
 			return h.antigravityGatewayService.ForwardGemini(
 				executionCtx,
@@ -75,6 +79,10 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 			GeminiIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 				forwardBody := request.Body()
+				// Repair only the transport copy after the immutable plan is validated.
+				if cleanThoughtSignatures {
+					forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)
+				}
 				return service.ExecuteGeminiProtocolProfile(
 					plan.GeminiProfile(),
 					func() (*service.ForwardResult, error) {

@@ -195,13 +195,13 @@ func TestApplyModelSpecificPricingPolicy_EnforcesOpenAIFastRatios(t *testing.T) 
 		require.InDelta(t, 12.5e-6, got.CacheCreationPricePerTokenPriority, 1e-12)
 	})
 
-	t.Run("gpt-5.5-pro has no mandated fast tier", func(t *testing.T) {
+	t.Run("gpt-5.5-pro uses its declared gpt-5.5 price owner", func(t *testing.T) {
 		got := svc.applyModelSpecificPricingPolicy("gpt-5.5-pro", &ModelPricing{
 			InputPricePerToken:         30e-6,
 			InputPricePerTokenPriority: 60e-6,
 			OutputPricePerToken:        180e-6,
 		})
-		require.InDelta(t, 60e-6, got.InputPricePerTokenPriority, 1e-12)
+		require.InDelta(t, 75e-6, got.InputPricePerTokenPriority, 1e-12)
 	})
 
 	t.Run("unrelated models untouched", func(t *testing.T) {

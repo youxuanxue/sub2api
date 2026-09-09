@@ -377,7 +377,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			// EOF dispatches the final SSE event even without a trailing blank line.
 			completeGuardedEvent(true)
 		}
-		codexState.finalizeBareErrorAtStreamEnd(s, c, account, resp.Header, failedMessage)
+		codexState.finalizeBareErrorAtStreamEnd(s, c, account, resp.Header, failedMessage, mappedModel)
 		if codexState.enabled && codexState.sawBareError && !codexState.sawResponseFailed && !clientDisconnected {
 			applyAttemptResponseHeaders()
 			if _, err := writePendingString(buildOpenAIResponseFailedSSE(responseID, originalModel, codexState.bareErrorPayload, failedMessage)); err != nil {

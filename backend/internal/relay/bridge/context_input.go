@@ -13,10 +13,12 @@ import (
 // ChannelContextInput carries New API relay context keys derived from a Sub2API account.
 // Zero values are skipped where appropriate.
 type ChannelContextInput struct {
-	ChannelType int
-	ChannelID   int
-	BaseURL     string
-	APIKey      string
+	// BoundedChatAttempt enables caller-owned cancellation and suppresses concurrent pings.
+	BoundedChatAttempt bool
+	ChannelType        int
+	ChannelID          int
+	BaseURL            string
+	APIKey             string
 	// ModelMappingJSON is optional JSON object for New API model_mapping (same as New API Gin key "model_mapping").
 	ModelMappingJSON string
 	// Organization is optional OpenAI Organization header value; New API relay handlers read

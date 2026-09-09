@@ -1244,10 +1244,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 }
 
-func openAIStreamFailoverBlockedByClientOutput(firstTokenMs *int) bool {
-	return firstTokenMs != nil
-}
-
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
 	// A governed request executes the immutable endpoint selected by
 	// protocolrouter. Legacy/non-governed traffic may resolve an explicit

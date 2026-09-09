@@ -159,11 +159,12 @@ func TestGPT6AstraDedicatedFallbacksUseOfficialRates(t *testing.T) {
 }
 
 func TestPricingServiceBareGPT6AliasUsesAstra(t *testing.T) {
-	astraPricing := &LiteLLMModelPricing{InputCostPerToken: 123e-6, OutputCostPerToken: 456e-6}
-	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{"gpt-6-astra": astraPricing}}
+	pricingSvc := &PricingService{useActiveRegistry: true}
+	astraPricing := pricingSvc.GetModelPricing("gpt-6-astra")
+	require.NotNil(t, astraPricing)
 	for _, model := range []string{"gpt-6", "openai/gpt-6"} {
 		pricing := pricingSvc.GetModelPricing(model)
-		require.Same(t, astraPricing, pricing)
+		require.Equal(t, astraPricing, pricing)
 	}
 }
 
@@ -399,8 +400,8 @@ func assertGPT56FallbackPricing(t *testing.T, pricing *ModelPricing, input, cach
 	require.InDelta(t, cached, pricing.CacheReadPricePerToken, 1e-12)
 	require.InDelta(t, cacheWrite, pricing.CacheCreationPricePerToken, 1e-12)
 	require.InDelta(t, output, pricing.OutputPricePerToken, 1e-12)
-	// 静态兜底只兜基础价；阶梯由目录数据（above_272k 折算或显式字段）驱动。
-	require.Zero(t, pricing.LongContextInputThreshold)
+	// TokenKey's complete registry owns the fallback ladder as well as base rates.
+	require.Equal(t, 272000, pricing.LongContextInputThreshold)
 }
 
 func TestParsePricingData_ProviderImageEvidenceCannotEnterRuntime(t *testing.T) {
@@ -474,7 +475,7 @@ func TestPricingService_FallbackProviderFileCannotAddRuntimeOwners(t *testing.T)
 
 	svc := &PricingService{cfg: &config.Config{}}
 	svc.cfg.Pricing.FallbackFile = fallbackFile
-	remoteData, err := svc.parsePricingData([]byte(`{
+	merged, _, err := svc.buildPricingData([]byte(`{
 		"remote-model": {
 			"input_cost_per_token": 0.000002,
 			"litellm_provider": "test",
@@ -483,7 +484,6 @@ func TestPricingService_FallbackProviderFileCannotAddRuntimeOwners(t *testing.T)
 	}`))
 	require.NoError(t, err)
 
-	merged := svc.mergeFallbackPricingData(remoteData)
 	require.NotContains(t, merged, "remote-model")
 	require.NotContains(t, merged, "gemini-3.1-flash-lite-image")
 	require.NotNil(t, merged["gpt-5.5"], "active registry remains the exact runtime owner map")

@@ -39,6 +39,7 @@ func TestUS049_GlobalGatewayFailoverPolicyMatrix(t *testing.T) {
 		{"newapi bad gateway", gatewayFailoverProfileNewAPIBridge, 502, true},
 		{"newapi unavailable", gatewayFailoverProfileNewAPIBridge, 503, true},
 		{"newapi gateway timeout", gatewayFailoverProfileNewAPIBridge, 504, true},
+		{"newapi overloaded", gatewayFailoverProfileNewAPIBridge, 529, true},
 		{"newapi generic server remains terminal", gatewayFailoverProfileNewAPIBridge, 500, false},
 		{"newapi forbidden without standing signal", gatewayFailoverProfileNewAPIBridge, 403, false},
 	}

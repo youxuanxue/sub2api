@@ -328,7 +328,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 			}
 		}
 		setAnthropicStreamModel(c, originalModel)
-		hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, isStream)
+		hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		hwka.stop()
 		if err != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -34,6 +35,8 @@ type CandidateRequest struct {
 	balanceReserved       bool
 	selectionOptions      candidateSelectOptions
 	rpm                   candidateRPMAdmission
+	chatAttempts          int
+	chatDeadline          time.Time
 }
 
 type candidateRequestContextKey struct{}

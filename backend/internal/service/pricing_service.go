@@ -944,7 +944,7 @@ func (s *PricingService) mergeOverrideOnlyModels(data map[string]*LiteLLMModelPr
 	// 复用主解析路径（含 above_XXXk 折算与有效性过滤）；applyPricingOverrides
 	// 对已存在条目做的自我修补是幂等的，不会二次改值。
 	if body, err := json.Marshal(leftover); err == nil {
-		if parsed, err := s.parsePricingData(body); err == nil {
+		if parsed, err := s.parsePricingSensorData(body); err == nil {
 			maps.Copy(data, parsed)
 		}
 	}
@@ -967,12 +967,16 @@ func (s *PricingService) mergeOverrideOnlyModels(data map[string]*LiteLLMModelPr
 // 合并的数据、不会领先，下一轮定时比对因此会再次重建。
 func (s *PricingService) buildPricingData(body []byte) (map[string]*LiteLLMModelPricing, string, error) {
 	fingerprint := s.customPricingFilesFingerprint()
-	data, err := s.parsePricingData(body)
+	data, err := s.parsePricingSensorData(body)
 	if err != nil {
 		return nil, "", err
 	}
 	data = s.mergeFallbackPricingData(data)
 	data = s.mergeOverrideOnlyModels(data)
+	applyTKPricingOverlay(data)
+	if len(data) == 0 {
+		return nil, "", fmt.Errorf("complete pricing registry has no valid owners")
+	}
 	return data, fingerprint, nil
 }
 
@@ -1022,7 +1026,7 @@ func (s *PricingService) mergeFallbackPricingData(data map[string]*LiteLLMModelP
 		logger.LegacyPrintf("service.pricing", "[Pricing] Fallback merge skipped: %v", err)
 		return data
 	}
-	fallbackData, err := s.parsePricingData(fallbackBody)
+	fallbackData, err := s.parsePricingSensorData(fallbackBody)
 	if err != nil {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Fallback merge parse skipped: %v", err)
 		return data

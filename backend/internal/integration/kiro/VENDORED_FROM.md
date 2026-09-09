@@ -37,8 +37,8 @@ to `go.mod`.
 
 ## Change log vs. upstream
 
-The vendored `.go` files are byte-for-byte upstream **except** for the
-mechanical, scoped edits below. Translation/transport logic is unchanged.
+The following describes the initial import adaptations. Later TokenKey behavior
+changes are tracked in git and guarded by `scripts/sentinels/kiro.json`.
 
 1. **Package rename.** `package proxy` / `package auth` → `package kiro` across
    all files.
@@ -89,7 +89,10 @@ mechanical, scoped edits below. Translation/transport logic is unchanged.
    PR inject TokenKey's TLS/proxy-aware doer. (REST functions still use the
    built-in client; a doer seam there can be added at first need.)
 
-No other upstream logic was touched.
+`tool_history.go` owns current conversation normalization: retain valid tool
+call/result pairs across history, preserve failure status in the result block,
+and repair only unpaired results. Both translators and private completion
+continuations use it. Do not restore upstream's blanket history narration.
 
 ## Re-vendor procedure
 

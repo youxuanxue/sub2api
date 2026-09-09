@@ -115,6 +115,8 @@ func TestSelectAccountWithLoadAwareness_UpstreamRestrictionRejectsWhenAllAccount
 	result, err := f.svc.SelectAccountWithLoadAwareness(f.ctx, &f.groupID, "", "claude-fable-5-1", nil, "", 0)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
 	require.ErrorContains(t, err, "channel pricing restriction")
+	require.ErrorContains(t, err, "eligible=0")
+	require.ErrorContains(t, err, "channel_restricted=2")
 	require.Nil(t, result)
 	require.Equal(t, 0, f.concurrencyCache.acquireAccountCalls, "没有合规候选时不应尝试占用任何账号槽位")
 }

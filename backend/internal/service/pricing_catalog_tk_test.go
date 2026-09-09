@@ -9,6 +9,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -146,6 +147,67 @@ func TestPublicCatalog_SurfacesEmbeddingBillingMode(t *testing.T) {
 	assert.Equal(t, "wenxin", row.Vendor)
 	assert.Equal(t, "embedding", row.Pricing.BillingMode)
 	assert.Greater(t, row.Pricing.InputPer1KTokens, 0.0)
+}
+
+func TestPublicCatalog_EmbeddingsFollowDashScopeDisplayIntent(t *testing.T) {
+	t.Parallel()
+	catalog := &PricingCatalogService{}
+	catalog.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return []byte(litellmFixtureJSON), time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC), true
+	})
+	full := catalog.BuildPublicCatalog(context.Background())
+	require.NotNil(t, full)
+	public := FilterPublicCatalogToServable(full)
+	require.NotNil(t, public)
+
+	var manifest tkServedModelsManifestFile
+	require.NoError(t, json.Unmarshal(tkServedModelsManifestRaw, &manifest))
+	registry := loadTKPricingOverlay()
+	want := make(map[string]bool)
+	for id, intent := range manifest.Entries {
+		price := registry[id]
+		if price == nil || price.Mode != "embedding" {
+			continue
+		}
+		// Hiding a card must not remove the model's settlement or account path.
+		require.True(t, catalog.IsModelPriced(id, PlatformNewAPI), id)
+		if intent.Display {
+			require.Equal(t, newapiconstant.ChannelTypeAli, intent.ChannelType, id)
+			want[id] = true
+		}
+	}
+	require.NotEmpty(t, want)
+	got := make(map[string]bool)
+	for _, model := range public.Data {
+		if model.Pricing.BillingMode != "embedding" {
+			continue
+		}
+		got[model.ModelID] = true
+		assert.Equal(t, "dashscope", model.Vendor)
+		assert.Greater(t, model.Pricing.InputPer1KTokens, 0.0)
+		assert.Zero(t, model.Pricing.OutputPer1KTokens)
+		assert.NotContains(t, model.Capabilities, "vision")
+	}
+	assert.Equal(t, want, got, "public vector cards must contain only the selected DashScope text models")
+
+	// Native Gemini/Vertex floors and unreviewed multimodal rows may still be
+	// priced or callable, but must not expand the public vector selection.
+	for id, price := range registry {
+		if price.Mode == "embedding" && !want[id] {
+			assert.NotContains(t, got, id)
+		}
+	}
+}
+
+func TestPublicCatalog_EmbeddingFilterDoesNotMutateSettlementCatalog(t *testing.T) {
+	t.Parallel()
+	full := &PublicCatalogResponse{Data: []PublicCatalogModel{
+		{ModelID: "gemini-embedding-001", Vendor: "vertex_ai-embedding-models", Pricing: PublicCatalogPricing{BillingMode: "embedding"}},
+		{ModelID: "multimodal-embedding-v1", Vendor: "dashscope", Pricing: PublicCatalogPricing{BillingMode: "embedding"}},
+	}}
+	public := FilterPublicCatalogToServable(full)
+	assert.Empty(t, public.Data)
+	assert.Len(t, full.Data, 2, "presentation filtering must preserve the caller's full pricing catalog")
 }
 
 func TestPublicCatalog_ChatRowsWithImageCostsStayTokenCatalogRows(t *testing.T) {

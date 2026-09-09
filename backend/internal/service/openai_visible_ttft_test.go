@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +120,49 @@ func TestOpenAIResponsesTTFTDefaultsToSemanticOutput(t *testing.T) {
 			require.NotNil(t, result.firstTokenMs)
 			require.Less(t, *result.firstTokenMs, 100)
 		})
+	}
+}
+
+func TestOpenAIResponsesFailoverUsesOutputIndependentlyOfTTFT(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		for _, mode := range []string{OpenAITTFTModeSemantic, OpenAITTFTModeVisible} {
+			for _, output := range []bool{false, true} {
+				t.Run(fmt.Sprintf("passthrough=%t/mode=%s/output=%t", passthrough, mode, output), func(t *testing.T) {
+					previous := gatewayForwardingCache.Load()
+					if previous == nil {
+						previous = &cachedGatewayForwardingSettings{}
+					}
+					gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{openAITTFTMode: mode, expiresAt: time.Now().Add(time.Minute).UnixNano()})
+					defer gatewayForwardingCache.Store(previous)
+					event := `{"type":"response.output_item.added","item":{"type":"reasoning","id":"rs_1","summary":[]}}`
+					if output {
+						event = `{"type":"response.reasoning_summary_text.delta","delta":"Working"}`
+					}
+					body := "data: " + event + "\n\ndata: " + `{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"Please retry later"}}}` + "\n\n"
+					recorder := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(recorder)
+					c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+					resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
+					svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+					account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+					var err error
+					if passthrough {
+						_, err = svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+					} else {
+						_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+					}
+					require.Error(t, err)
+					var failover *UpstreamFailoverError
+					if output {
+						require.False(t, errors.As(err, &failover))
+						require.Contains(t, recorder.Body.String(), "Working")
+					} else {
+						require.ErrorAs(t, err, &failover)
+						require.Empty(t, recorder.Body.String())
+					}
+				})
+			}
+		}
 	}
 }
 

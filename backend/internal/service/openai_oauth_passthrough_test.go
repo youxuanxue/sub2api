@@ -133,12 +133,12 @@ func TestOpenAIGatewayService_ResponsesUnknownModelDoesNotFallbackToGPT54(t *tes
 	require.True(t, rec.Code >= http.StatusBadRequest)
 }
 
-func TestOpenAIGatewayService_OAuthResponsesPromotesSystemMessageWithoutDuplication(t *testing.T) {
+func TestOpenAIGatewayService_OAuthResponsesPreservesSystemTextForJSONMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	const systemPrompt = "Unique system prefix for Responses token accounting."
+	const systemPrompt = "Return JSON with a unique prefix for Responses token accounting."
 	const existingInstructions = "Existing instructions."
-	body := []byte(`{"model":"gpt-5.4","stream":false,"instructions":"` + existingInstructions + `","input":[{"role":"system","content":"` + systemPrompt + `"},{"role":"user","content":"hello"}]}`)
+	body := []byte(`{"model":"gpt-5.4","stream":false,"text":{"format":{"type":"json_object"}},"instructions":"` + existingInstructions + `","input":[{"role":"system","content":"` + systemPrompt + `"},{"role":"user","content":"hello"}]}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -166,9 +166,12 @@ func TestOpenAIGatewayService_OAuthResponsesPromotesSystemMessageWithoutDuplicat
 	require.Nil(t, result)
 	require.NotEmpty(t, upstream.lastBody)
 	require.Equal(t, systemPrompt+"\n\n"+existingInstructions, gjson.GetBytes(upstream.lastBody, "instructions").String())
-	require.Equal(t, int64(1), gjson.GetBytes(upstream.lastBody, "input.#").Int())
-	require.Equal(t, "user", gjson.GetBytes(upstream.lastBody, "input.0.role").String())
-	require.Equal(t, 1, strings.Count(string(upstream.lastBody), systemPrompt))
+	// Responses JSON mode requires the prompt in input as well as instructions.
+	require.Equal(t, "json_object", gjson.GetBytes(upstream.lastBody, "text.format.type").String())
+	require.Equal(t, int64(2), gjson.GetBytes(upstream.lastBody, "input.#").Int())
+	require.Equal(t, "developer", gjson.GetBytes(upstream.lastBody, "input.0.role").String())
+	require.Equal(t, "user", gjson.GetBytes(upstream.lastBody, "input.1.role").String())
+	require.Equal(t, 2, strings.Count(string(upstream.lastBody), systemPrompt))
 }
 
 func TestOpenAIGatewayService_NativeResponsesBodyModificationPreservesHTMLChars(t *testing.T) {

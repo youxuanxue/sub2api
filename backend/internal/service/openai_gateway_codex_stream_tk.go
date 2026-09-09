@@ -90,12 +90,13 @@ func (st *tkCodexFailureStreamState) onOutputStartedFailureSideEffects(
 	dataBytes []byte,
 	failedMessage string,
 	respHeader http.Header,
+	canonicalModel string,
 ) {
 	if st.enabled && eventType == "error" {
 		st.bareErrorAccountSideEffectsPending = true
 		return
 	}
-	s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, respHeader)
+	s.handleOpenAIStreamTerminalAccountSideEffects(c, account, dataBytes, failedMessage, respHeader, canonicalModel)
 	st.bareErrorAccountSideEffectsPending = false
 }
 
@@ -109,9 +110,10 @@ func (st *tkCodexFailureStreamState) finalizeBareErrorAtStreamEnd(
 	account *Account,
 	respHeader http.Header,
 	failedMessage string,
+	canonicalModel string,
 ) {
 	if st.enabled && st.sawBareError && !st.sawResponseFailed && st.bareErrorAccountSideEffectsPending {
-		s.handleOpenAIStreamTerminalAccountSideEffects(c, account, st.bareErrorPayload, failedMessage, respHeader)
+		s.handleOpenAIStreamTerminalAccountSideEffects(c, account, st.bareErrorPayload, failedMessage, respHeader, canonicalModel)
 		st.bareErrorAccountSideEffectsPending = false
 	}
 }
@@ -175,7 +177,7 @@ func (in tkCodexStreamFailureInput) handleFailureEvent(
 		}
 	}
 	if outputStarted && !out.cyberHit {
-		in.codex.onOutputStartedFailureSideEffects(in.s, in.c, in.account, in.eventType, in.dataBytes, out.failedMessage, in.respHeader)
+		in.codex.onOutputStartedFailureSideEffects(in.s, in.c, in.account, in.eventType, in.dataBytes, out.failedMessage, in.respHeader, in.canonicalModel)
 		if in.eventType == "response.failed" || !in.codex.enabled {
 			in.s.recordOpenAIStreamUpstreamError(in.c, in.account, in.passthrough, in.upstreamRequestID, "stream_failed", in.dataBytes, out.failedMessage)
 		}
