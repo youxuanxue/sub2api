@@ -83,13 +83,38 @@
       "rationale": "All public protocol routes must reach native Cursor transport and preserve reported, estimated and failed-run settlement."
     },
     {
+      "path": "backend/internal/pkg/apicompat/types.go",
+      "must_contain": ["tk_billing_tier,omitempty"],
+      "rationale": "Messages usage decoded from an Edge response must retain billing provenance through typed conversion."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": ["dst.BillingTier = src.BillingTier"],
+      "rationale": "The shared usage merger must retain the terminal Messages billing provenance."
+    },
+    {
+      "path": "backend/internal/service/cursor_relay_billing_regression_test.go",
+      "must_contain": ["TestCursorRelayConversionsRetainBillingProvenance"],
+      "rationale": "Exercise Chat and Responses, streaming and buffered, from Edge wire usage through durable settlement, including rejection of unknown billing labels."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_tk_buffered_stream.go",
+      "must_contain": ["idx >= 0 && idx < len(a.FinalResp.Content)"],
+      "rationale": "Untrusted Messages content indices cannot panic the shared buffered assembly."
+    },
+    {
+      "path": "backend/internal/service/gateway_cursor_tool_json_test.go",
+      "must_contain": ["TestAnthropicBufferedAssemblyIgnoresInvalidContentIndex"],
+      "rationale": "Malformed lower and upper content indices must leave existing buffered content intact."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
-      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, result, &forwardErr)"],
+      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, result, &forwardErr)", "BillingTier:      usage.BillingTier"],
       "rationale": "Chat conversion must execute the native supply adapter and retain its terminal billing outcome."
     },
     {
       "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
-      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, result, &forwardErr)"],
+      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, result, &forwardErr)", "BillingTier:      usage.BillingTier"],
       "rationale": "Responses conversion must execute the native supply adapter and retain its terminal billing outcome."
     },
     {

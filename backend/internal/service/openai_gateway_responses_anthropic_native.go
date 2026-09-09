@@ -313,6 +313,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 	return &OpenAIForwardResult{
 		RequestID:        requestID,
 		Usage:            claudeUsageToOpenAIUsage(&usage),
+		BillingTier:      usage.BillingTier,
 		Model:            originalModel,
 		BillingModel:     billingModel,
 		UpstreamModel:    upstreamModel,
@@ -366,6 +367,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 		return &OpenAIForwardResult{
 			RequestID:        requestID,
 			Usage:            claudeUsageToOpenAIUsage(&usage),
+			BillingTier:      usage.BillingTier,
 			Model:            originalModel,
 			BillingModel:     billingModel,
 			UpstreamModel:    upstreamModel,

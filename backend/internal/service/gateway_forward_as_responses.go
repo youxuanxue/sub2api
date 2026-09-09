@@ -300,6 +300,9 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if dst == nil {
 		return
 	}
+	if src.BillingTier != "" {
+		dst.BillingTier = src.BillingTier
+	}
 	if src.InputTokens > 0 {
 		dst.InputTokens = src.InputTokens
 	}
