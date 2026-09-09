@@ -4,6 +4,36 @@
   "sentinels": [
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": ["adapterID: AdapterChatToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesChatToGemini"],
+      "rationale": "Standard Chat function tools must reach the Gemini converter through Plan."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/gemini_chat_tools.go",
+      "must_contain": ["func preservesChatToGemini(", "req.profile.Continuation != ContinuationNone", "!calls[message.ToolCallID]"],
+      "rationale": "Chat tool conversion must retain unsupported-semantics and tool-history guards."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": ["errors.Is(err, service.ErrCandidateContinuationUnavailable)", "writeCandidateContinuationError(c, shape)"],
+      "rationale": "Unavailable continuation is a client error, not a retryable internal failure."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_forwarder_ingress.go",
+      "must_contain": ["s.loadOpenAIWSBridgeReplay(ctx, account.ID, currentBridgePayload.previousResponseID)", "bridgeReplayRetentionAllowed = false", "s.saveOpenAIWSBridgeReplay(ctx, account.ID, responseID, bridgeAccountFailoverInput)"],
+      "rationale": "Grok reconnect must restore owned history and preserve store:false across the chain."
+    },
+    {
+      "path": "backend/internal/service/openai_ws_bridge_replay_tk_test.go",
+      "must_contain": ["TestGrokWSBridgeReconnectAcrossGatewayInstances", "TestGrokWSBridgeStoreFalseChainIsNotPersisted", "TestGrokWSBridgeMissingHistoryNeverBecomesFreshRequest"],
+      "rationale": "Protect reconnect, no-storage and fail-closed regression coverage."
+    },
+    {
+      "path": "backend/internal/service/protocol_gemini_tools_tk_test.go",
+      "must_contain": ["TestProtocolGeminiChatToolsPlansExecutesAndReturnsToolUsage", "ExecuteSelectedProtocol("],
+      "rationale": "Converter tests must also cover route admission and actual planned execution."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
       "must_contain": ["adapterID: AdapterMessagesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesMessagesToGemini"],
       "rationale": "Messages function tools must reach the existing Gemini converter instead of the generic text-only gate."
     },

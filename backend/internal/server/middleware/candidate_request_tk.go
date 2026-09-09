@@ -54,6 +54,18 @@ func observeCandidateBinding(c *gin.Context, state *service.CandidateRequest) {
 	})
 }
 
+func writeCandidateContinuationError(c *gin.Context, shape service.UniversalShape) {
+	const message = "previous_response_id is not available for this user"
+	switch shape {
+	case service.ShapeGemini:
+		GoogleErrorWriter(c, http.StatusBadRequest, message)
+	case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
+		AnthropicErrorWriter(c, http.StatusBadRequest, message)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": message}})
+	}
+}
+
 func writeCandidateBillingError(c *gin.Context, shape service.UniversalShape, err error) {
 	status, message := infraerrors.Code(err), infraerrors.Message(err)
 	switch shape {

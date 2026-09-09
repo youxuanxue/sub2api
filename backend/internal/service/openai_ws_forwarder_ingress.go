@@ -497,7 +497,21 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		bridgeReplayInputExists := false
 		var bridgeAccountFailoverInput []json.RawMessage
 		bridgeAccountFailoverInputExists := false
+		lastBridgeResponseID := ""
+		bridgeReplayRetentionAllowed := true
 		for turn := 1; ; turn++ {
+			if account.Platform == PlatformGrok && currentBridgePayload.previousResponseID != "" && currentBridgePayload.previousResponseID != lastBridgeResponseID {
+				replay, replayErr := s.loadOpenAIWSBridgeReplay(ctx, account.ID, currentBridgePayload.previousResponseID)
+				if replayErr != nil {
+					if errors.Is(replayErr, ErrCandidateContinuationUnavailable) {
+						return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "previous_response_id is unavailable; replay the complete conversation without it", replayErr)
+					}
+					return NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to read continuation state", replayErr)
+				}
+				bridgeReplayInput, bridgeReplayInputExists = replay, true
+				bridgeAccountFailoverInput, bridgeAccountFailoverInputExists = cloneOpenAIWSRawMessages(replay), true
+				bridgeReplayRetentionAllowed = true
+			}
 			if hooks != nil && hooks.BeforeTurn != nil {
 				if err := hooks.BeforeTurn(turn); err != nil {
 					return err
@@ -511,6 +525,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			toolOutputCoverage := AnalyzeToolCallOutputContextCoverageBytes(currentBridgePayload.payloadRaw)
 			needsBridgeReplay := currentBridgePayload.previousResponseID != "" ||
 				(toolOutputCoverage.HasFunctionCallOutput && !toolOutputCoverage.ContextCoversAllCallIDs)
+			if !needsBridgeReplay {
+				bridgeReplayRetentionAllowed = true
+			}
+			if s.isOpenAIWSStoreDisabledInRequestRaw(currentBridgePayload.payloadRaw, account) {
+				bridgeReplayRetentionAllowed = false
+			}
 			turnReplayInput, turnReplayInputExists, replayInputErr := buildOpenAIWSReplayInputSequence(
 				bridgeReplayInput,
 				bridgeReplayInputExists,
@@ -562,6 +582,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					return fmt.Errorf("resolve Grok websocket cache identity: %w", err)
 				}
 			}
+			var completedMessage []byte
 			result, bridgeErr := s.proxyOpenAIWSHTTPBridgeTurn(
 				ctx,
 				c,
@@ -575,7 +596,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				currentBridgePayload.imageInputSize,
 				grokCacheIdentity,
 				turn,
-				writeClientMessage,
+				func(message []byte) error {
+					// Publish continuation state before the client can reconnect.
+					if account.Platform == PlatformGrok && gjson.GetBytes(message, "type").String() == "response.completed" {
+						completedMessage = append([]byte(nil), message...)
+						return nil
+					}
+					return writeClientMessage(message)
+				},
 			)
 			if bridgeErr != nil && isOpenAIWSSessionPreempted(ctx) {
 				return errOpenAIWSSessionPreempted
@@ -620,6 +648,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				)
 				bridgeAccountFailoverInputExists = true
 			}
+			if account.Platform == PlatformGrok {
+				bridgeReplayInput = cloneOpenAIWSRawMessages(bridgeAccountFailoverInput)
+				bridgeReplayInputExists = bridgeAccountFailoverInputExists
+			}
 			if bridgeTurnState := strings.TrimSpace(result.ResponseHeaders.Get(openAIWSTurnStateHeader)); bridgeTurnState != "" {
 				turnState = bridgeTurnState
 				if stateStore != nil && sessionHash != "" {
@@ -627,9 +659,18 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 			}
 			responseID := strings.TrimSpace(result.RequestID)
+			lastBridgeResponseID = responseID
+			if account.Platform == PlatformGrok && responseID != "" && bridgeReplayRetentionAllowed {
+				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, s.saveOpenAIWSBridgeReplay(ctx, account.ID, responseID, bridgeAccountFailoverInput))
+			}
 			if responseID != "" && stateStore != nil {
 				ttl := s.openAIWSResponseStickyTTL()
 				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
+			}
+			if len(completedMessage) > 0 {
+				if err := writeClientMessage(completedMessage); err != nil {
+					return err
+				}
 			}
 			nextClientMessage, readErr := readClientMessage()
 			if readErr != nil {
