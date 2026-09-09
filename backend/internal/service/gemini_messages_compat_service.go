@@ -1136,6 +1136,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
 
 	mappedModel, requestModel := resolveGeminiForwardModels(account, originalModel)
+	if account.Type == AccountTypeServiceAccount && (strings.HasPrefix(mappedModel, "gemini-3.") || strings.HasPrefix(mappedModel, "gemini-3-")) && action != "countTokens" {
+		body = tkNormalizeGeminiFunctionResponseImages(body)
+	}
 	if err := s.tkPrepareGeminiNativeForward(ctx, c, account, originalModel, action); err != nil {
 		return nil, err
 	}

@@ -38,7 +38,7 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				const model = "gemini-3.8-flash"
-				body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"lookup","args":{"id":"123"}},"thoughtSignature":"old-account-signature"}]},{"role":"user","parts":[{"functionResponse":{"name":"lookup","response":{"result":"OK"}}}]}]}`)
+				body := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"lookup","args":{"id":"123"}},"thoughtSignature":"old-account-signature"}]},{"role":"user","parts":[{"functionResponse":{"name":"lookup","response":{"result":"OK"}}},{"inlineData":{"mimeType":"image/png","data":"test-image"}}]}]}`)
 				account := &service.Account{ID: 47, Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
 					Status: service.StatusActive, Schedulable: true, Concurrency: 10, GroupIDs: []int64{10},
 					Credentials: map[string]any{"api_key": "test-key", "base_url": "https://api-us4.tokenkey.dev", "model_mapping": map[string]any{model: model}}}
@@ -92,6 +92,11 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 				require.Equal(t, want, gjson.GetBytes(upstream.body, "contents.0.parts.0.thoughtSignature").String())
 				require.Equal(t, "123", gjson.GetBytes(upstream.body, "contents.0.parts.0.functionCall.args.id").String())
 				require.Equal(t, "OK", gjson.GetBytes(upstream.body, "contents.1.parts.0.functionResponse.response.result").String())
+				imagePath := "contents.1.parts.1.inlineData.data"
+				if transport == "planned_vertex" {
+					imagePath = "contents.1.parts.0.functionResponse.parts.0.inlineData.data"
+				}
+				require.Equal(t, "test-image", gjson.GetBytes(upstream.body, imagePath).String())
 				require.Equal(t, body, request.Body(), "transport repair must not mutate canonical history")
 				if governed {
 					require.Equal(t, request.Digest(), selection.ProtocolPlan.RequestDigest())
