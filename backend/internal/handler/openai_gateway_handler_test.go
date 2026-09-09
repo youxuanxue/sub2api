@@ -254,6 +254,39 @@ func TestOpenAIEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testin
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
+func TestOpenAIEnsureForwardErrorResponse_ClientCanceledWrites499WithoutBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(ctx)
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureForwardErrorResponse(c, false)
+
+	require.False(t, wrote)
+	require.Equal(t, statusClientClosedRequest, c.Writer.Status())
+	require.Empty(t, w.Body.String())
+	require.True(t, service.HasOpsClientClosedRequest(c))
+}
+
+func TestOpenAIEnsureForwardErrorResponse_WrappedForwardCancellationWrites499(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	forwardErr := fmt.Errorf("upstream call failed: %w", context.Canceled)
+
+	h := &OpenAIGatewayHandler{}
+	wrote := h.ensureForwardErrorResponseForError(c, forwardErr, false)
+
+	require.False(t, wrote)
+	require.Equal(t, statusClientClosedRequest, c.Writer.Status())
+	require.Empty(t, w.Body.String())
+	require.True(t, service.HasOpsClientClosedRequest(c))
+}
+
 // Writer 已写后 ensureForwardErrorResponse 必须仍然把错误信息以 SSE
 // 形式追加给客户端（streamStarted 强制 true）。
 // 这是 case B 修复：旧实现遇到 Writer.Written 直接 return false，
