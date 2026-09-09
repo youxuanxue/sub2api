@@ -15,6 +15,10 @@ func TestResolveBillingServiceTier(t *testing.T) {
 		downgraded bool
 	}{
 		{name: "openai priority served as default", requested: "priority", observed: "default", billing: "default", downgraded: true},
+		{name: "ultrafast served as default", requested: "ultrafast", observed: "default", billing: "default", downgraded: true},
+		{name: "ultrafast served as flex", requested: "ultrafast", observed: "flex", billing: "flex", downgraded: true},
+		{name: "ultrafast honoured", requested: "ultrafast", observed: "ultrafast", billing: "ultrafast"},
+		{name: "ultrafast response never raises standard", requested: "default", observed: "ultrafast", billing: "default"},
 		{name: "anthropic fast served as standard", requested: "fast", observed: "standard", billing: "standard", downgraded: true},
 		{name: "priority honoured", requested: "priority", observed: "priority", billing: "priority"},
 		{name: "no declaration keeps request", requested: "priority", observed: "", billing: "priority"},
@@ -35,6 +39,21 @@ func TestResolveBillingServiceTier(t *testing.T) {
 }
 
 func TestApplyServiceTierBillingResolutionOnlyRewritesDowngrades(t *testing.T) {
+	t.Run("ultrafast downgrade follows credential authority", func(t *testing.T) {
+		for _, accountType := range []string{AccountTypeAPIKey, AccountTypeOAuth, AccountTypeSetupToken} {
+			requested := "ultrafast"
+			result := &OpenAIForwardResult{ServiceTier: &requested, UpstreamResponseServiceTier: "default"}
+			resolution := ApplyOpenAIServiceTierBillingResolution(&Account{Platform: PlatformOpenAI, Type: accountType}, result)
+			if accountType == AccountTypeAPIKey {
+				require.True(t, resolution.Downgraded)
+				require.Equal(t, "default", *result.ServiceTier)
+			} else {
+				require.False(t, resolution.Downgraded)
+				require.Equal(t, "ultrafast", *result.ServiceTier)
+			}
+		}
+	})
+
 	t.Run("codex exception only covers OpenAI default", func(t *testing.T) {
 		require.True(t, codexOAuthResponseTierIsNonAuthoritative("default"))
 		require.False(t, codexOAuthResponseTierIsNonAuthoritative("standard"))

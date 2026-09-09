@@ -98,6 +98,38 @@ func TestCandidateBillingOriginRejectsUnequalApplicablePolicies(t *testing.T) {
 	}
 }
 
+func TestCandidateBillingOriginComparesFreeFastSettlementPolicy(t *testing.T) {
+	for _, subscription := range []string{SubscriptionTypeStandard, SubscriptionTypeSubscription} {
+		t.Run(subscription, func(t *testing.T) {
+			groups := []Group{
+				{ID: 1, Platform: PlatformOpenAI, RateMultiplier: 1, SubscriptionType: subscription, FreeOpenAIFast: true},
+				{ID: 2, Platform: PlatformOpenAI, RateMultiplier: .9, SubscriptionType: subscription},
+			}
+			account := &Account{ID: 115, Platform: PlatformOpenAI}
+			for _, origins := range [][]Group{groups, {groups[1], groups[0]}} {
+				selected, err := selectCandidateBillingOrigin(context.Background(), 7, account, origins, "gpt-5", ShapeOpenAIChat, nil, nil, nil)
+				require.Nil(t, selected)
+				require.ErrorIs(t, err, ErrCandidatePolicyConflict, "Fast and Standard tariffs cannot be compared using only group multipliers")
+			}
+			groups[1].FreeOpenAIFast = true
+			selected, err := selectCandidateBillingOrigin(context.Background(), 7, account, groups, "gpt-5", ShapeOpenAIChat, nil, nil, nil)
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+		})
+	}
+}
+
+func TestCandidateBillingOriginIgnoresInapplicableFreeFastPolicy(t *testing.T) {
+	groups := []Group{
+		{ID: 1, Platform: PlatformOpenAI, RateMultiplier: 1, FreeOpenAIFast: true},
+		{ID: 2, Platform: PlatformOpenAI, RateMultiplier: .9},
+	}
+	account := &Account{ID: 115, Platform: PlatformAnthropic}
+	selected, err := selectCandidateBillingOrigin(context.Background(), 7, account, groups, "claude-fable-5", ShapeAnthropicMessages, nil, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), selected.ID)
+}
+
 func TestCandidateBillingOriginUsesEffectiveAccountCompactionAndApplicablePrice(t *testing.T) {
 	enabled, threshold := true, 180000
 	price := .01

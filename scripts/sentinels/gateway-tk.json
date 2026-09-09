@@ -3,6 +3,16 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/service_tier_billing.go",
+      "must_contain": ["OpenAIFastTierUltrafast", "account.IsOpenAIOAuthLike() && codexOAuthResponseTierIsNonAuthoritative(observed)", "return ResolveBillingServiceTier(requested, observed)"],
+      "rationale": "Public API service-tier downgrades include Ultrafast, while the private Codex default echo cannot override the outbound paid tier."
+    },
+    {
+      "path": "backend/internal/service/service_tier_billing_test.go",
+      "must_contain": ["ultrafast served as default", "ultrafast downgrade follows credential authority", "TestApplyServiceTierBillingResolutionOnlyRewritesDowngrades"],
+      "rationale": "Regression coverage must distinguish API-key downgrades from OAuth and SetupToken default echoes."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_forward_tk_codex_oauth_body.go",
       "must_contain": ["!isCompactRequest && applyCodexAccountIdentityClientMetadataMap(decoded, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))"],
       "rationale": "Native OAuth request metadata is scoped to credential identity while compact bodies retain the client contract."
@@ -326,8 +336,8 @@
     },
     {
       "path": "backend/internal/service/candidate_billing_tk.go",
-      "must_contain": ["func selectCandidateBillingOrigin(", "ErrCandidatePolicyConflict", "channels.lookupGroupChannel(ctx, group.ID)", "candidateBillingRate(ctx, userID, group", "resolveCredentialAccount(ctx, accounts, account)", "settleBillingOnAccountServedModel(billingAccount, model, policy.billingModel)"],
-      "rationale": "Only equivalent legal origins of the same account/payment tier compare effective rates; failed configuration reads cannot establish tariff equality."
+      "must_contain": ["func selectCandidateBillingOrigin(", "ErrCandidatePolicyConflict", "channels.lookupGroupChannel(ctx, group.ID)", "candidateBillingRate(ctx, userID, group", "resolveCredentialAccount(ctx, accounts, account)", "settleBillingOnAccountServedModel(billingAccount, model, policy.billingModel)", "policy.freeOpenAIFast = groupBillsOpenAIFastAtStandard(&APIKey{Group: group}, billingAccount, \"priority\")"],
+      "rationale": "Only equivalent legal origins of the same account/payment tier compare effective rates; failed configuration reads cannot establish tariff equality. Free Fast uses settlement's credential/platform gates before comparing multipliers."
     },
     {
       "path": "backend/internal/server/middleware/candidate_request_tk.go",
@@ -451,7 +461,7 @@
     },
     {
       "path": "backend/internal/service/candidate_billing_tk_test.go",
-      "must_contain": ["TestCandidateBillingOriginQueryFailureIsNeverTariffEquality", "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold", "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota", "TestCandidateBillingSelectedOriginReachesHoldAndSettlement", "TestCandidateBillingOriginUsesSettlementServedModel", "TestCandidateRebindingEnforcesDestinationRPM", "TestCandidateRPMUsesAvailableOriginAndResetsEachTurn"],
+      "must_contain": ["TestCandidateBillingOriginQueryFailureIsNeverTariffEquality", "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold", "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota", "TestCandidateBillingSelectedOriginReachesHoldAndSettlement", "TestCandidateBillingOriginUsesSettlementServedModel", "TestCandidateRebindingEnforcesDestinationRPM", "TestCandidateRPMUsesAvailableOriginAndResetsEachTurn", "TestCandidateBillingOriginComparesFreeFastSettlementPolicy", "TestCandidateBillingOriginIgnoresInapplicableFreeFastPolicy"],
       "rationale": "Billing regressions preserve configuration errors, reservation rollback and group-independent Universal quota behavior."
     },
     {

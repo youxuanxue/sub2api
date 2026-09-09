@@ -64,6 +64,7 @@ type candidateBillingPolicy struct {
 	fallbackPricing    []*ChannelModelPricing
 	responseCards      []ChannelModelPricing
 	longContext        bool
+	freeOpenAIFast     bool
 	compaction         openAICompatMessagesCompactionPolicy
 	reasoningBody      string
 	reasoningMaximum   string
@@ -145,6 +146,9 @@ func candidateBillingPolicyForOrigin(ctx context.Context, account, billingAccoun
 	}
 	image := shape == ShapeOpenAIImages || shape == ShapeOpenAIImagesEdit || antigravity.IsImageModel(model)
 	policy.longContext = group.LongContextPricingEnabled
+	// Compare the Fast tariff using settlement's credential/platform gates.
+	// A multiplier alone cannot order Standard and Priority billing policies.
+	policy.freeOpenAIFast = groupBillsOpenAIFastAtStandard(&APIKey{Group: group}, billingAccount, "priority")
 	switch {
 	case image:
 		policy.imagePrices = [3]*float64{group.ImagePrice1K, group.ImagePrice2K, group.ImagePrice4K}
