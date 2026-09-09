@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
@@ -74,6 +75,16 @@ func TestNewAPIModelMappingPresetIDs_AgentPlanUsesPropertiesNotAccountID(t *test
 	require.Equal(t, NewAPIModelMappingPresetIDsForAccount(agentPlan), NewAPIModelMappingPresetIDsForAccount(otherID))
 	require.NotEqual(t, NewAPIModelMappingPresetIDsForAccount(agentPlan), NewAPIModelMappingPresetIDsForAccount(payAsYouGo))
 	require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(payAsYouGo), "doubao-seed-2.0-pro")
+
+	owner := loadTkServedModelsOwnerProjectionForTest(t)
+	planIDs := NewAPIModelMappingPresetIDsForAccount(agentPlan)
+	payAsYouGoIDs := NewAPIModelMappingPresetIDsForAccount(payAsYouGo)
+	for _, modelID := range owner.IDsByScope["newapi:45:"+newapiintegration.VolcEngineAgentPlanBaseURL] {
+		require.Contains(t, planIDs, modelID)
+		if !slices.Contains(owner.IDsByChannel[45], modelID) {
+			require.NotContains(t, payAsYouGoIDs, modelID, "plan-only models must not leak into pay-as-you-go presets")
+		}
+	}
 }
 
 func TestNativeAgentPlanUsesNewAPIKeyCredential(t *testing.T) {

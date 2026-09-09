@@ -393,6 +393,24 @@
         }
       ]
     },
+    "glm-5.3": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
+    "doubao-seed-2.1-turbo": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
     "glm-5.2-fast-preview": {
       "display": true,
       "channel_type": 17
@@ -769,6 +787,10 @@
     "glm-5.3-flash": {
       "display": true,
       "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        },
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
