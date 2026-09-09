@@ -194,7 +194,7 @@ func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
 }
 
 func ProtocolAccountSnapshot(account *Account, requestedModel string) (protocolrouter.AccountSnapshot, error) {
-	return protocolAccountSnapshot(account, requestedModel, false, false, nil)
+	return protocolAccountSnapshot(account, requestedModel, false, false, nil, nil)
 }
 
 func protocolAccountSnapshotForRequest(account *Account, request protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
@@ -207,10 +207,10 @@ func protocolAccountSnapshotForRequestWithThinking(
 	thinkingEnabled *bool,
 ) (protocolrouter.AccountSnapshot, error) {
 	requireCompact := request.InboundProtocol() == protocolrouter.ProtocolResponses && request.ResponsesPath() == protocolrouter.ResponsesPathCompact
-	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream, thinkingEnabled)
+	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream, thinkingEnabled, &request)
 }
 
-func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool, thinkingEnabled *bool) (protocolrouter.AccountSnapshot, error) {
+func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool, thinkingEnabled *bool, request *protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
 	if account == nil {
 		return protocolrouter.AccountSnapshot{}, errors.New("account is required")
 	}
@@ -259,6 +259,11 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		return protocolrouter.AccountSnapshot{}, err
 	}
 	protocols = retainResolvedNewAPIExactProtocols(account, protocols, exactEndpoints)
+	if !protocolRequestParametersSupported(account, resolvedModel, request) {
+		// Keep stored capability evidence intact. Plan rejects this request's
+		// unsupported paths before selection, billing admission or transport.
+		protocols = nil
+	}
 	return protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
 		AccountID:          account.ID,
 		CapabilityKey:      capability.CapabilityKey,
