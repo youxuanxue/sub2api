@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash scripts/stage0/dispatch-edge-deploy.sh \
-#     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase infra|full|edge-native-oauth|main-via-edge]
+#     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase infra|full|edge-native-oauth|main-via-edge] [--ref REF]
 #
 # Resolves platform via scripts/stage0/resolve-edge-deploy-route.py and calls
 # gh workflow run on deploy-edge-lightsail-stage0.yml (EC2 edge path removed 2026-06-07).
@@ -16,6 +16,7 @@ EDGE_ID=""
 OPERATION=""
 TAG=""
 SMOKE_PHASE=""
+WORKFLOW_REF=""
 
 usage() {
   sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
@@ -28,6 +29,7 @@ while [[ $# -gt 0 ]]; do
     --operation) OPERATION="${2:-}"; shift 2 ;;
     --tag) TAG="${2:-}"; shift 2 ;;
     --smoke-phase) SMOKE_PHASE="${2:-}"; shift 2 ;;
+    --ref) WORKFLOW_REF="${2:?--ref requires a Git ref}"; shift 2 ;;
     -h|--help) usage ;;
     *)
       echo "dispatch-edge-deploy: unknown argument: $1" >&2
@@ -86,6 +88,9 @@ GH_ARGS=(
 if [[ -n "${TAG}" ]]; then
   GH_ARGS+=(-f "tag=${TAG}")
 fi
+if [[ -n "${WORKFLOW_REF}" ]]; then
+  GH_ARGS+=(--ref "${WORKFLOW_REF}")
+fi
 
 resolve_smoke_phase() {
   if [[ -n "${SMOKE_PHASE}" ]]; then
@@ -111,5 +116,5 @@ if [[ -n "${PHASE}" ]]; then
   GH_ARGS+=(-f "smoke_phase=${PHASE}")
 fi
 
-echo "dispatch-edge-deploy: platform=${PLATFORM} workflow=${WORKFLOW} edge=${EDGE_ID} op=${OPERATION} tag=${TAG:-none} smoke_phase=${PHASE:-auto-skip}"
+echo "dispatch-edge-deploy: platform=${PLATFORM} workflow=${WORKFLOW} edge=${EDGE_ID} op=${OPERATION} tag=${TAG:-none} smoke_phase=${PHASE:-auto-skip} ref=${WORKFLOW_REF:-default}"
 gh "${GH_ARGS[@]}"

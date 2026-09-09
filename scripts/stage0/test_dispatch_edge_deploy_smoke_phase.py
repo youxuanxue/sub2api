@@ -81,6 +81,13 @@ class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
         self.assertIn("smoke_phase=infra", proc.stdout)
         self.assertIn("smoke_phase=infra", self._gh_args())
 
+    def test_workflow_ref_does_not_replace_image_tag(self) -> None:
+        proc = self._run("--edge-id", "uk1", "--operation", "upgrade", "--tag", "1.2.3",
+                         "--ref", "chore/drain-fix")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("--ref chore/drain-fix", self._gh_args())
+        self.assertIn("tag=1.2.3", self._gh_args())
+
     def test_smoke_defaults_smoke_phase_full(self) -> None:
         proc = self._run("--edge-id", "uk1", "--operation", "smoke")
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
