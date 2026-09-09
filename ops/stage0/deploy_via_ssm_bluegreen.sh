@@ -15,7 +15,7 @@
 #      target; existing streams on the old color continue through Caddy's
 #      graceful reload path.
 #   3. Send SIGUSR1 to the old color and wait for in-flight streams to drain
-#      (bounded/plateaued), then stop/remove the old color.
+#      completely, then stop/remove the old color. A drain timeout preserves it.
 #
 # Failure before Caddy reload leaves the old color untouched and serving.
 # Failure after Caddy reload deliberately does not auto-rollback: the target is
@@ -438,35 +438,25 @@ admit_edge_candidate() {
 }
 
 drain_container() {
-  local container="$1" status body n d prev=-1 stall=0 i
+  local container="$1" status body n d i
   status="$(container_health "${container}")"
   log "pre-drain ${container}: health=${status}"
   if [[ "${status}" != healthy ]]; then
-    log "pre-drain skipped for ${container}: not healthy"
-    return 0
+    die "cannot verify drain for ${container}: health=${status}; preserving old container"
+    return 1
   fi
 
-  sudo docker kill -s USR1 "${container}" >/dev/null 2>&1 || true
-  for i in $(seq 1 15); do
+  sudo docker kill -s USR1 "${container}" >/dev/null
+  for i in $(seq 1 120); do
     body="$(sudo docker exec "${container}" wget -q -T 3 -O - http://localhost:8080/health/inflight 2>/dev/null || true)"
-    n="$(printf '%s' "${body}" | sed -n 's/.*"in_flight":\([0-9]*\).*/\1/p')"
-    if printf '%s' "${body}" | grep -q '"draining":true'; then d=true; else d=false; fi
-    log "pre-drain ${container}: draining=${d} in_flight=${n:-?} try=${i}/15"
-    [[ "${d}" = true && "${n:-1}" = 0 ]] && break
-    if [[ -n "${n}" ]]; then
-      if [[ "${prev}" -ge 0 && "${n}" -ge "${prev}" ]]; then
-        stall=$((stall + 1))
-      else
-        stall=0
-      fi
-      prev="${n}"
-      if [[ "${stall}" -ge 3 ]]; then
-        log "pre-drain ${container}: in_flight plateaued at ${n}; stop waiting"
-        break
-      fi
-    fi
-    sleep 2
+    n="$(printf '%s' "${body}" | jq -er '.in_flight | select(type == "number" and . >= 0 and . == floor)' 2>/dev/null || true)"
+    d="$(printf '%s' "${body}" | jq -r '.draining == true' 2>/dev/null || true)"
+    log "pre-drain ${container}: draining=${d:-unknown} in_flight=${n:-?} try=${i}/120"
+    [[ "${d}" = true && "${n}" = 0 ]] && return 0
+    sleep 5
   done
+  die "drain not complete for ${container}; preserving old container and stopping rollout"
+  return 1
 }
 
 write_bluegreen_compose() {
@@ -935,7 +925,7 @@ ensure_legacy_cutover() {
   install_bluegreen_systemd_unit
 
   drain_container tokenkey
-  sudo docker stop -t 30 tokenkey >/dev/null
+  sudo docker stop -t 180 tokenkey >/dev/null
   sudo docker rm -f tokenkey >/dev/null 2>&1 || true
   log "legacy tokenkey container removed after cutover to blue"
 
@@ -991,7 +981,7 @@ deploy_target_color() {
   install_bluegreen_systemd_unit
 
   drain_container "${active_container}"
-  sudo docker stop -t 30 "${active_container}" >/dev/null
+  sudo docker stop -t 180 "${active_container}" >/dev/null
   log "stopped previous color ${active_container}"
 
   TARGET_CONTAINER=""
@@ -1069,7 +1059,7 @@ promote_prepared_color() {
   observe_routed_health "${target}"
   install_bluegreen_systemd_unit
   drain_container "tokenkey-${active}"
-  sudo docker stop -t 30 "tokenkey-${active}" >/dev/null
+  sudo docker stop -t 180 "tokenkey-${active}" >/dev/null
   log "promoted reviewed candidate ${target}; stopped previous color ${active}"
 }
 

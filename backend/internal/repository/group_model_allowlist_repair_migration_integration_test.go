@@ -13,14 +13,13 @@ import (
 
 const groupModelAllowlistRepairMigration = "236_group_model_allowlist_repair.sql"
 
-// 236 是可重放的修复迁移：235 的重命名一旦被记账就不会重跑，数据库若回到旧结构
-// （手工改回列名、按旧结构部分恢复）应用仍能启动，但所有关联 groups 的查询都会
-// 报 column groups.model_allowlist does not exist（issue #6780）。
-func TestMigration236RenamesLegacyModelsListConfigColumn(t *testing.T) {
+// The repair keeps listing preferences separate from request admission and
+// preserves the legacy column for a concurrently running older instance.
+func TestMigration236PreservesLegacyListingWithoutPromotingAuthorization(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
 
-	_, err := tx.ExecContext(ctx, "ALTER TABLE groups RENAME COLUMN model_allowlist TO models_list_config")
+	_, err := tx.ExecContext(ctx, "ALTER TABLE groups DROP COLUMN model_allowlist")
 	require.NoError(t, err)
 
 	var groupID int64
@@ -32,29 +31,27 @@ RETURNING id
 
 	applyGroupModelAllowlistRepair(ctx, t, tx)
 
-	// 重命名保留原数据，且新列恢复 NOT NULL DEFAULT '{}' 的形状。
-	var allowlist string
+	var allowlist, listing string
 	require.NoError(t, tx.QueryRowContext(ctx,
 		"SELECT model_allowlist::text FROM groups WHERE id = $1", groupID).Scan(&allowlist))
-	require.JSONEq(t, `{"enabled":true,"models":["claude-sonnet-5"]}`, allowlist)
+	require.JSONEq(t, `{}`, allowlist)
+	require.NoError(t, tx.QueryRowContext(ctx,
+		"SELECT models_list_config::text FROM groups WHERE id = $1", groupID).Scan(&listing))
+	require.JSONEq(t, `{"enabled":true,"models":["claude-sonnet-5"]}`, listing)
 	requireModelAllowlistColumnShape(ctx, t, tx)
 
 	// 可重放：重复执行不报错也不改变结果。
 	applyGroupModelAllowlistRepair(ctx, t, tx)
 	require.NoError(t, tx.QueryRowContext(ctx,
 		"SELECT model_allowlist::text FROM groups WHERE id = $1", groupID).Scan(&allowlist))
-	require.JSONEq(t, `{"enabled":true,"models":["claude-sonnet-5"]}`, allowlist)
+	require.JSONEq(t, `{}`, allowlist)
 }
 
-func TestMigration236BackfillsWhenBothColumnsExist(t *testing.T) {
+func TestMigration236KeepsListingAndAuthorizationIndependent(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
 
-	_, err := tx.ExecContext(ctx,
-		"ALTER TABLE groups ADD COLUMN models_list_config JSONB NOT NULL DEFAULT '{}'::jsonb")
-	require.NoError(t, err)
-
-	// 新列仍是默认空值：旧列里的配置应该被补回来。
+	// A listing-only preference must not enable a request admission restriction.
 	var staleID int64
 	require.NoError(t, tx.QueryRowContext(ctx, `
 INSERT INTO groups (name, platform, rate_multiplier, status, model_allowlist, models_list_config)
@@ -75,7 +72,7 @@ RETURNING id
 	var backfilled, kept string
 	require.NoError(t, tx.QueryRowContext(ctx,
 		"SELECT model_allowlist::text FROM groups WHERE id = $1", staleID).Scan(&backfilled))
-	require.JSONEq(t, `{"enabled":true,"models":["legacy-model"]}`, backfilled)
+	require.JSONEq(t, `{}`, backfilled)
 	require.NoError(t, tx.QueryRowContext(ctx,
 		"SELECT model_allowlist::text FROM groups WHERE id = $1", currentID).Scan(&kept))
 	require.JSONEq(t, `{"enabled":true,"models":["current-model"]}`, kept)

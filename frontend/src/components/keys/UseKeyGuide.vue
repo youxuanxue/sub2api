@@ -183,7 +183,7 @@
         </div>
 
         <div v-if="showCodexCatalog" data-testid="codex-model-catalog" class="flex flex-wrap items-center gap-3 border-b border-gray-200 pb-3 dark:border-dark-700">
-          <code class="min-w-0 flex-1 break-all text-xs">{{ codexCatalogPath }}</code>
+          <code class="min-w-0 basis-full break-all text-xs sm:flex-1">{{ codexCatalogPath }}</code>
           <button type="button" data-testid="codex-model-catalog-fetch" class="btn btn-secondary" :disabled="manifestState === 'loading' || !apiKey" @click="loadCodexCatalog">
             <Icon name="refresh" size="sm" :class="{ 'animate-spin': manifestState === 'loading' }" />
             {{ t(manifestState === 'error' ? 'keys.useKeyModal.codexModelCatalog.retry' : 'keys.useKeyModal.codexModelCatalog.fetch') }}

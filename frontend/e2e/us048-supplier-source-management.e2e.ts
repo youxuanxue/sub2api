@@ -139,6 +139,10 @@ async function installBase(page: Page, handleApi: ApiRouteHandler): Promise<void
       await fulfillSuccess(route, [])
       return
     }
+    if (path === '/api/v1/admin/supplier-sources/discover-channel-scoped-defaults' && request.method() === 'GET') {
+      await fulfillSuccess(route, { channel_types: [] })
+      return
+    }
     if (await handleApi(route, path)) return
     throw new Error(`unexpected API request: ${request.method()} ${path}`)
   })
@@ -308,19 +312,19 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
       await page.locator('[data-test="source-select-7"]').click()
       await page.locator('[data-test="discover-source"]').click()
       await expect(page.locator('[data-test="discover-summary"]')).toBeVisible()
-      await expect(page.locator('[data-test="discover-result"]')).toContainText('glm-5.1')
+      await expect(page.locator('[data-test="client-model-id"]')).toHaveValue('glm-5.1')
       if (outcome === 'poll-error') {
         await expect(page.locator('[data-test="sync-error"]')).toContainText('temporarily unavailable')
-        await expect(page.locator('[data-test="discover-result"]')).toContainText('glm-5.1')
-        await expect(page.locator('[data-test="discover-needs-save"]')).toHaveCount(0)
+        await expect(page.locator('[data-test="client-model-id"]')).toHaveValue('glm-5.1')
+        await expect(page.locator('[data-test="discover-needs-save"]')).toBeVisible()
         await expect(page.locator('[data-test="discover-candidate-progress"]')).toHaveCount(0)
-        await expect(page.locator('[data-test="discover-result"]')).not.toContainText('已写入上方草稿')
       } else {
         await expect(page.locator('[data-test="discover-needs-save"]')).toBeVisible()
         await expect(page.locator('[data-test="client-model-id"]')).toHaveValue('glm-5.1')
         await expect(page.locator('[data-test="sync-error"]')).toHaveCount(0)
       }
-      expect(polls).toBe(2)
+      await expect.poll(() => polls).toBe(2)
+      await expect(page.locator('[data-test="discover-candidate-progress"]')).toHaveCount(0)
       expect(pageErrors).toEqual([])
       await page.locator('[data-test="discover-result"]').scrollIntoViewIfNeeded()
     })

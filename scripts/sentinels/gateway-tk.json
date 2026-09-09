@@ -44,7 +44,7 @@
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_model_cooldown_test.go",
-      "must_contain": ["TestCodexSpark429_ExecutedModelIsNotMappedTwice"],
+      "must_contain": ["TestCodexSpark429_ExecutedModelIsNotMappedTwice", "TestCodexSparkStreamTerminalKeepsExecutedModelAfterOutput"],
       "rationale": "Chained aliases must not redirect a cooldown away from the executed model."
     },
     {
@@ -81,6 +81,31 @@
       "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
       "must_contain": ["loadOpenAIAccountRuntimeBlockEntry(value)", "currentEntry, valid := loadOpenAIAccountRuntimeBlockEntry(current)", "currentEntry.Until.Equal(snapshot.until)"],
       "rationale": "Runtime block snapshots and conditional clearing must read the structured entry format without treating active blocks as corrupt legacy timestamps."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": ["apicompat.ValidateChatToAnthropic(&chat)", "req.profile.PromptCache == PromptCacheKey"],
+      "rationale": "Messages candidates admit preserved Chat tools and cache placement while rejecting unsupported semantics."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": ["apicompat.ChatCompletionsToAnthropicRequest(&ccReq)"],
+      "rationale": "Native Chat-to-Messages execution must retain cache breakpoints and tool controls."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
+      "must_contain": ["apicompat.ChatCompletionsToAnthropicRequest(&ccReq)"],
+      "rationale": "NewAPI Messages accounts share the same cache-preserving converter."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_failover_tk.go",
+      "must_contain": ["Semantic:   tkBridgeFailureSemantic(apiErr)", "RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault"],
+      "rationale": "Recognized supplier 500 outages reach the shared failover policy without credential penalties."
+    },
+    {
+      "path": "backend/internal/handler/candidate_chat_messages_tk_test.go",
+      "must_contain": ["TestCandidateChatMessagesToolsPriorityAndSupplierFailover", "PrepareCandidateIngress", "row.CacheReadTokens"],
+      "rationale": "Real handler tests cover Messages account priority, supplier failover, tool responses and single settlement."
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",

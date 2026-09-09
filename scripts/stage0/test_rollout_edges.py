@@ -34,13 +34,16 @@ class RolloutEdgesTest(unittest.TestCase):
                 """\
                 #!/usr/bin/env bash
                 edge=""
+                ref=""
                 while [ "$#" -gt 0 ]; do
                   case "$1" in
                     --edge-id) edge="$2"; shift 2 ;;
+                    --ref) ref="$2"; shift 2 ;;
                     *) shift ;;
                   esac
                 done
                 echo "dispatch $edge" >> events.log
+                if [ -n "$ref" ]; then echo "ref $edge $ref" >> events.log; fi
                 case "$edge" in
                   a) run=101 ;;
                   b) run=102 ;;
@@ -125,6 +128,14 @@ class RolloutEdgesTest(unittest.TestCase):
         self.assertIn("dispatch b", events)
         self.assertNotIn("dispatch c", events)
         self.assertIn("b:102", proc.stderr)
+
+    def test_workflow_ref_reaches_every_edge(self) -> None:
+        self._write_fake_gh()
+        proc = self._run("--tag", "1.2.3", "--edges", "a b", "--ref", "chore/drain-fix")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        events = self.events.read_text().splitlines()
+        self.assertIn("ref a chore/drain-fix", events)
+        self.assertIn("ref b chore/drain-fix", events)
 
     def test_rejects_bad_parallel(self) -> None:
         self._write_fake_gh()
