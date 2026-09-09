@@ -4,6 +4,31 @@
   "sentinels": [
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": ["apicompat.ValidateChatToAnthropic(&chat)", "req.profile.PromptCache == PromptCacheKey"],
+      "rationale": "Messages candidates admit preserved Chat tools and cache placement while rejecting unsupported semantics."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": ["apicompat.ChatCompletionsToAnthropicRequest(&ccReq)"],
+      "rationale": "Native Chat-to-Messages execution must retain cache breakpoints and tool controls."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
+      "must_contain": ["apicompat.ChatCompletionsToAnthropicRequest(&ccReq)"],
+      "rationale": "NewAPI Messages accounts share the same cache-preserving converter."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_failover_tk.go",
+      "must_contain": ["Semantic:   tkBridgeFailureSemantic(apiErr)", "RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault"],
+      "rationale": "Recognized supplier 500 outages reach the shared failover policy without credential penalties."
+    },
+    {
+      "path": "backend/internal/handler/candidate_chat_messages_tk_test.go",
+      "must_contain": ["TestCandidateChatMessagesToolsPriorityAndSupplierFailover", "PrepareCandidateIngress", "row.CacheReadTokens"],
+      "rationale": "Real handler tests cover Messages account priority, supplier failover, tool responses and single settlement."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
       "must_contain": ["adapterID: AdapterChatToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesChatToGemini"],
       "rationale": "Standard Chat function tools must reach the Gemini converter through Plan."
     },

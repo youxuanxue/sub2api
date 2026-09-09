@@ -515,7 +515,7 @@ func ForwardResultFromOpenAI(result *OpenAIForwardResult) *ForwardResult {
 	return &ForwardResult{
 		RequestID: result.RequestID,
 		Usage: ClaudeUsage{
-			InputTokens:              result.Usage.InputTokens,
+			InputTokens:              max(0, result.Usage.InputTokens-result.Usage.CacheReadInputTokens-result.Usage.CacheCreationInputTokens),
 			OutputTokens:             result.Usage.OutputTokens,
 			CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
 			CacheReadInputTokens:     result.Usage.CacheReadInputTokens,
@@ -555,14 +555,8 @@ func OpenAIForwardResultFromForward(result *ForwardResult) *OpenAIForwardResult 
 		imageSizeBreakdown[size] = count
 	}
 	return &OpenAIForwardResult{
-		RequestID: result.RequestID,
-		Usage: OpenAIUsage{
-			InputTokens:              result.Usage.InputTokens,
-			OutputTokens:             result.Usage.OutputTokens,
-			CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
-			CacheReadInputTokens:     result.Usage.CacheReadInputTokens,
-			ImageOutputTokens:        result.Usage.ImageOutputTokens,
-		},
+		RequestID:                     result.RequestID,
+		Usage:                         claudeUsageToOpenAIUsage(&result.Usage),
 		Model:                         result.Model,
 		BillingModel:                  result.Model,
 		UpstreamModel:                 result.UpstreamModel,

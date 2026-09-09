@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"net/http"
+	"strings"
+	"unicode/utf8"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -18,15 +20,45 @@ func tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr *newapitypes.NewAPIError)
 	if apiErr == nil {
 		return false
 	}
-	semantic := gatewayFailureSemanticUnclassified
-	if tkIsBridgeUpstreamArrears(apiErr) {
-		semantic = gatewayFailureSemanticAccountFault
-	}
 	return classifyGatewayFailover(gatewayFailoverObservation{
 		Profile:    gatewayFailoverProfileNewAPIBridge,
-		Semantic:   semantic,
+		Semantic:   tkBridgeFailureSemantic(apiErr),
 		StatusCode: apiErr.StatusCode,
 	}).RetryNextAccount
+}
+
+func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSemantic {
+	if tkIsBridgeUpstreamArrears(apiErr) {
+		return gatewayFailureSemanticAccountFault
+	}
+	if apiErr != nil && apiErr.StatusCode == http.StatusInternalServerError {
+		if upstream, ok := tkBridgeUpstreamOpenAIError(apiErr); ok {
+			message := strings.ToLower(strings.TrimSpace(tkBridgeDecodeSupplierMessage(upstream.Message)))
+			message, _, _ = strings.Cut(message, " (request id:")
+			// These envelopes describe the supplier's own unavailable upstream,
+			// not invalid client input or evidence that our credential is revoked.
+			switch message {
+			case "upstream access forbidden, please contact administrator", "没有可用账号，请稍后重试":
+				return gatewayFailureSemanticTransientFault
+			}
+		}
+	}
+	return gatewayFailureSemanticUnclassified
+}
+
+// Some relays encode UTF-8 error bytes as Latin-1 characters in their JSON.
+func tkBridgeDecodeSupplierMessage(message string) string {
+	decoded := make([]byte, 0, len(message))
+	for _, r := range message {
+		if r > 255 {
+			return message
+		}
+		decoded = append(decoded, byte(r))
+	}
+	if utf8.Valid(decoded) {
+		return string(decoded)
+	}
+	return message
 }
 
 func tkNewAPIBridgeUpstreamFailoverError(c *gin.Context, apiErr *newapitypes.NewAPIError) *UpstreamFailoverError {
@@ -39,10 +71,15 @@ func tkNewAPIBridgeUpstreamFailoverError(c *gin.Context, apiErr *newapitypes.New
 			TkRecordBridgeUpstreamError(c, statusCode, apiErr)
 		}
 	}
+	semantic := tkBridgeFailureSemantic(apiErr)
+	if semantic == gatewayFailureSemanticUnclassified {
+		semantic = gatewayFailureSemanticAccountFault
+	}
 	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
-		StatusCode:   statusCode,
-		ResponseBody: body,
-	}, gatewayFailoverProfileNewAPIBridge, gatewayFailureSemanticAccountFault)
+		StatusCode:             statusCode,
+		ResponseBody:           body,
+		RequestScopedTransient: semantic == gatewayFailureSemanticTransientFault,
+	}, gatewayFailoverProfileNewAPIBridge, semantic)
 }
 
 func bridgeWrapRelayErrorAfterPenalty(

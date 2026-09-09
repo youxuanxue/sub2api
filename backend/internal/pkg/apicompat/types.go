@@ -705,6 +705,8 @@ type ChatStreamOptions struct {
 
 // ChatMessage is a single message in the Chat Completions conversation.
 type ChatMessage struct {
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+
 	Role             string          `json:"role"` // "system" | "user" | "assistant" | "tool" | "function"
 	Content          json.RawMessage `json:"content,omitempty"`
 	ReasoningContent string          `json:"reasoning_content,omitempty"`
@@ -719,6 +721,8 @@ type ChatMessage struct {
 
 // ChatContentPart is a typed content part in a multi-modal message.
 type ChatContentPart struct {
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+
 	Type     string        `json:"type"` // "text" | "image_url" | "file"
 	Text     string        `json:"text,omitempty"`
 	ImageURL *ChatImageURL `json:"image_url,omitempty"`
@@ -750,6 +754,8 @@ type ChatTool struct {
 	ToDate                   string   `json:"to_date,omitempty"`
 	EnableImageUnderstanding *bool    `json:"enable_image_understanding,omitempty"`
 	EnableVideoUnderstanding *bool    `json:"enable_video_understanding,omitempty"`
+
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 // ChatFunction describes a function tool definition.
