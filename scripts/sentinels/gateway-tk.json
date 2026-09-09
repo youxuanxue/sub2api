@@ -98,14 +98,34 @@
       "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution."
     },
     {
+      "path": "backend/internal/service/candidate_failure_tk.go",
+      "must_contain": ["path.plan.ResolvedModel()", "CandidateFailureScope{account.ID, plan.ResolvedModel()}", "candidateFailureAttributable", "counter.IncrementCandidateFailure"],
+      "rationale": "Ordinary NewAPI account feedback must use the actual resolved model and exclude non-attributable failures."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": ["candidate.observeFailure(ctx, freshAccount, plan, err)", "return protocolrouter.Result{Value: value}, err"],
+      "rationale": "The execution boundary must actually record feedback and preserve known partial results on errors."
+    },
+    {
+      "path": "backend/internal/service/candidate_chat_attempt_tk.go",
+      "must_contain": ["candidateChatMaxAttempts = 3", "candidateChatReplayable", "r.continuationAccountID > 0", "a.abortBeforeOutput(errCandidateChatFirstOutput)", "errCandidateChatIncomplete"],
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output."
+    },
+    {
+      "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
+      "must_contain": ["TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce", "partial_tool", "exhausted", "failed upstream not canceled"],
+      "rationale": "Real handler and upstream HTTP tests protect cancellation, failover, partial metering and bounded attempts for both key modes."
+    },
+    {
       "path": "backend/internal/service/candidate_rpm_tk.go",
       "must_contain": ["func (r *CandidateRequest) peekGroupRPM(", "func (r *CandidateRequest) checkRPM(", "r.rpm.groups[group.ID] = err", "billing.checkRPMCounters(ctx, user, nil, false)"],
       "rationale": "Candidate origins retain RPM limits through retries without counting one request repeatedly; each WebSocket turn starts fresh admission."
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins", "pool = recoverCandidateWindowPool(pool)", "candidateOccupancy(a.account, loads) < candidateOccupancy(b.account, loads)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
-      "must_not_contain": ["lessUniversalBacking(", ".SortOrder"],
+      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins", "pool = recoverCandidateWindowPool(pool)", "r.mergeFailureCounts(ctx, pool, counts)", "candidateEffectivePriority(a.account, counts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
+      "must_not_contain": ["lessUniversalBacking(", ".SortOrder", "candidateOccupancy("],
       "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
     },
     {
@@ -240,7 +260,7 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk_test.go",
-      "must_contain": ["TestGlobalCandidateAccountPriorityIgnoresGroupTopology", "TestGlobalCandidateDeduplicatesMembershipBeforeSelection", "TestGlobalCandidateReadyPeerAndSlotRace", "TestGlobalCandidateWaitRechecksAuthorizationAndPlan", "TestGlobalCandidateNormalizedOccupancyAndTopologyTies", "TestGlobalCandidateModelGrantsCannotBeBorrowed", "TestGlobalCandidateWindowRecoveryAndStickyAdmission", "TestGlobalCandidateNativeConverterParityAndGoogleFailover", "TestCandidateResponsesImagePermissionPrecedesBillingOrigin"],
+      "must_contain": ["TestGlobalCandidateAccountPriorityIgnoresGroupTopology", "TestGlobalCandidateDeduplicatesMembershipBeforeSelection", "TestGlobalCandidateReadyPeerAndSlotRace", "TestGlobalCandidateWaitRechecksAuthorizationAndPlan", "TestGlobalCandidateCapacityIsOnlyAnAdmissionLimit", "TestGlobalCandidateModelGrantsCannotBeBorrowed", "TestGlobalCandidateWindowRecoveryAndStickyAdmission", "TestGlobalCandidateNativeConverterParityAndGoogleFailover", "TestCandidateResponsesImagePermissionPrecedesBillingOrigin"],
       "rationale": "Executable regressions cover production selection, topology, duplicate membership, capacity races and wait revalidation."
     },
     {
@@ -1819,6 +1839,8 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
+        "s.beginCandidateChatAttempt(ctx, c, account, body)",
+        "in.BoundedChatAttempt = finishAttempt != nil",
         "rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)",
         "rewriteNewAPIBridgeBodyModel(account, body, \"\")",
         "applyNewAPIAliFixedSamplingShape"

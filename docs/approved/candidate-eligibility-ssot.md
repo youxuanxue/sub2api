@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07 and 2026-09-08)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08 and 2026-09-09)"
 created: 2026-09-07
 ---
 
@@ -94,15 +94,19 @@ for this task; local implementation and tests are not deployment evidence.
    origins. Additional memberships do not multiply selection probability,
    concurrency capacity or retry allowance. Different effective request
    policies are not equivalent candidates and must not be silently merged.
-6. Account priority, scoped saturation, session affinity and live load remain
+6. Account priority, scoped failure feedback, session affinity and live load remain
    scheduling inputs. Compare them over the admitted candidate set, not by
    comparing separately normalized scores from individual group pools. Legal
    converters carry no group/platform-hint penalty. Existing quota, credential,
    capability and cooldown owners continue to decide hard eligibility.
-   Preserve required execution affinity; prefer a still-eligible existing
-   session's account for ordinary affinity. For new sessions, select among
-   accounts able to accept work now by lower account priority, then lower
-   capacity-normalized live occupancy, randomly breaking equivalent ties.
+   Preserve required execution affinity. Among accounts able to accept work now,
+   compare lower effective priority first, then ordinary session affinity,
+   randomly breaking equivalent ties. Effective priority is configured priority
+   plus the existing temporary penalty (three attributable failures in a fixed
+   90-second window add 1000). Ordinary affinity cannot defeat that penalty.
+   Configured concurrency only caps admission; normalized occupancy is not a
+   quality signal and does not rank ready accounts. This simplification was
+   explicitly approved in the 2026-09-09 conversation.
    A full preferred account must not force waiting while a lower-priority
    eligible account can accept the request. If all eligible accounts are busy,
    waiting remains bounded by the existing wait policy. Shared, bounded
@@ -133,6 +137,33 @@ a separate group-failover scheduling policy. Legacy fallback-group pointers must
 converge on the same candidate owner; a pointer alone does not enlarge the
 Direct bound-group scope or Universal effective authorized scope. Preserve
 execution and billing checks on every reselection.
+
+## Approved failure recovery supplement (2026-09-09)
+
+Ordinary NewAPI failures use the existing Redis counter infrastructure, scoped
+to account and the actual Plan's resolved upstream model. Counter reads fail
+open to configured priority; fixed-window expiry restores preference without
+configuration writes. Existing credential, explicit quota and provider cooldown
+owners remain authoritative. Caller cancellation, invalid input, policy refusal
+and request-scoped failures do not create this account penalty. Multiple feedback
+owners combine by maximum count, never by adding duplicate penalties.
+
+A replayable NewAPI Chat request may immediately try another eligible account
+on its first pre-output failure; it does not wait for three cross-request failures.
+The first useful output timeout defaults to 60 seconds
+(`gateway.newapi_chat_first_output_timeout`, zero also means 60), with no more
+than three attempts/two switches and a shared budget of three times that timeout.
+Headers, heartbeats, empty deltas and usage-only frames do not stop this timer.
+Actual content, reasoning, refusal or function-tool output commits the response
+and stops pre-output retry. Started output is never replayed. Hard continuation,
+WebSocket, server-side tools and non-text modalities retain their existing owners.
+Partial output keeps known usage and cannot acquire a synthetic successful end
+marker after an interrupted upstream. NewAPI transport cancellation is opt-in
+so unrelated relay callers preserve their lifecycle.
+
+These are implementation and local test changes, not production acceptance.
+Production cutover remains forbidden until the user reviews the prepared
+candidate and explicitly authorizes switching traffic.
 
 Group configuration must be classified by responsibility during implementation:
 authorization/endpoint restrictions remain gates, prices and subscriptions stay

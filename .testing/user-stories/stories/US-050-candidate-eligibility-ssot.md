@@ -32,7 +32,7 @@
 17. AC-017 (integration): Given the same account and execution policy with authorized balance origins sharing the applicable tariff but differing in effective multiplier When attributing billing Then select the lowest eligible effective multiplier and use its origin for admission, holds and final charges without ranking different accounts by price; Direct scope cannot borrow another group's discount.
 18. AC-018 (negative): Given origins with different tariffs, compaction policies or subscription entitlements When evaluating equivalence Then do not merge them or apply the lowest-multiplier comparison as if they were equivalent.
 19. AC-019 (regression): Given an existing session whose authorized account allows sticky-only traffic When evaluating before billing Then admit that session while rejecting a new session from the same sticky-only account; changing billing origin preserves the session binding without merging users or keys.
-20. AC-020 (integration): Given preferred and lower-priority eligible accounts When the preferred account is full or loses a slot race Then use an available peer before waiting; among ready peers use account priority, normalized occupancy and random equivalent ties, preserving required affinity and the existing bounded saturation policy.
+20. AC-020 (integration): Given preferred and lower-priority eligible accounts When the preferred account is full or loses a slot race Then use an available peer before waiting; among ready peers use effective priority, soft affinity and random equivalent ties, preserving required affinity; configured concurrency only caps admission.
 21. AC-021 (regression): Given a soft-sticky namespace cutover When old soft bindings expire Then new bindings may cold-start once, while existing Responses ownership and submitted media task routes remain valid and later group-origin changes do not reset stable session state.
 22. AC-022 (regression): Given a shared user-rate query When its first caller cancels Then other callers still receive the loaded rate within the query's finite timeout; a real query failure uses base multiplier 1 without caching that fallback, and a successful absent override still uses the group default.
 23. AC-023 (regression): Given native Messages or a legal conversion through account 115/group 1 When checking endpoint permission Then the actual Plan and explicit permission semantics decide admission, without blanket native denial or a billing-platform exemption; Direct and Universal remain equivalent for the same effective request and scope.
@@ -46,6 +46,10 @@
 30. AC-030 (regression): Given supplier-managed projections sharing an endpoint and credential across protocols When a confirmed credential-wide failure occurs or clears Then all projections observe that state; model limits retain the actual upstream model, protocol Plans stay separate, and configured concurrency is not merged merely because credentials match.
 
 31. AC-031 (regression): Given Direct or Universal discovery through OpenAI, Anthropic, Gemini, Antigravity or Codex When projecting capabilities Then use the same complete support paths and billing-policy equivalence as candidate selection, preserve protocol response formats and Direct custom lists, and do not bind payment or let a conflicting path hide a legal peer.
+
+32. AC-032 (regression): Given Direct and Universal requests When an ordinary NewAPI account accumulates three attributable failures in a fixed 90-second window Then apply the existing +1000 priority penalty for the resolved upstream model; large configured capacity and soft affinity cannot rescue it, hard continuation remains fixed, and counter outages preserve configured priority.
+33. AC-033 (integration): Given replayable NewAPI Chat When the upstream hangs before headers or after empty stream output Then cancel the actual connection, release its slot and try another account, returning complete output and one successful usage record; at most three attempts are allowed.
+34. AC-034 (negative): Given content or function-tool output before an upstream truncation When finishing the attempt Then never replay or synthesize successful completion, and retain known partial usage; caller cancellation and hard continuations cannot enter pre-output failover.
 
 The Direct/Universal mapping boundary is approved in
 `docs/approved/candidate-request-policy-convergence.md`. Mapping isolation, global
@@ -125,7 +129,10 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 - `backend/internal/handler/candidate_media_tk_test.go`::`TestUS050_CandidateMediaUsesSelectedModelAndReleasesSlot`
 - `backend/internal/handler/candidate_media_tk_test.go`::`TestUS050_CandidateStoredVideoKeepsSubmissionRouteAcrossOrigins`
 - `backend/internal/server/middleware/candidate_request_tk_test.go`::`TestUS050_DefaultImageModelUsesCandidateAdmission`
-- `backend/internal/service/candidate_selection_tk_test.go`::`TestGlobalCandidateNormalizedOccupancyAndTopologyTies`
+- `backend/internal/service/candidate_selection_tk_test.go`::`TestGlobalCandidateCapacityIsOnlyAnAdmissionLimit`
+- `backend/internal/service/candidate_failure_tk_test.go`::`TestCandidateFailurePriorityDirectUniversalAndModelIsolation`
+- `backend/internal/service/candidate_chat_attempt_tk_test.go`::`TestCandidateChatBudgetAndReplayBoundaries`
+- `backend/internal/handler/candidate_chat_failover_tk_test.go`::`TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce`
 - `backend/internal/service/candidate_selection_tk_test.go`::`TestGlobalCandidateModelGrantsCannotBeBorrowed`
 - `backend/internal/service/candidate_selection_tk_test.go`::`TestGlobalCandidateWindowRecoveryAndStickyAdmission`
 - `backend/internal/service/candidate_selection_tk_test.go`::`TestGlobalCandidateNativeConverterParityAndGoogleFailover`
@@ -171,15 +178,17 @@ They are backend integration/unit tests, not UI E2E or live supplier probes.
 | Criteria | Current evidence | Remaining acceptance work |
 | --- | --- | --- |
 | AC-001/003/004/016/023 | Shared capability regressions, actual-account HTTP/Gemini admission, native account 115 retry, global Vertex/Antigravity failover and equal-priority native/converter competition | Live supplier verification is outside this task. |
-| AC-008/009/010 | Real selectors cover conflicting group order, renamed/renumbered split groups, duplicate membership, normalized occupancy and random ties | Random outcomes are tested for both eligible peers with wide distribution bounds, not a fixed global RNG seed. |
+| AC-008/009/010 | Real selectors cover conflicting group order, renamed/renumbered split groups, duplicate membership, capacity admission and random ties | Random outcomes are tested for both eligible peers with wide distribution bounds, not a fixed global RNG seed. |
 | AC-011/012 | Explicit A/X versus B/Y no-borrowing; Direct/Universal HTTP handoff, model isolation and billing-scope checks | No local acceptance gap. |
 | AC-013/017/018/027 | Minimum-origin admission, real hold estimation and final settlement are connected; rollback, delayed snapshots and quota checks also covered | Live price/cost comparison remains a release prerequisite. |
 | AC-014/021/026 | Authorization/Plan rechecks after waits, namespace-aware owner tests, stored-media key preservation, actual task polling across key/origin changes with a controlled upstream and real socket turn tests | Production rolling upgrade/rollback has not been exercised. |
-| AC-019/020 | Global selectors cover sticky-only old/new session admission, normalized occupancy, random ties, priority and slot races | No local acceptance gap. |
+| AC-019/020 | Global selectors cover sticky-only old/new session admission, capacity admission, random ties, priority and slot races | No local acceptance gap. |
 | AC-029 | Full candidate selection covers split/duplicate membership, normal versus reserve accounts, and hard gates after global recovery | No local acceptance gap. |
 | AC-030/031 | Supplier credential sharing/recovery and real repository guards; discovery supports actual accounts and native response schemas | No production configuration writes or live supplier verification were performed. |
 
-The local suite and required checks pass. Keep the story in InTest until the
+| AC-032/033/034 | Direct/Universal handler tests cover real transport cancellation, failover, attempt cap, partial text/tool output and usage preservation; scoped counter and replay boundary tests cover exclusions | Production comparison and original Kimi task completion remain pending. No traffic switch is authorized. |
+
+Keep the story in InTest until the
 remaining production acceptance evidence above is available; these are validation
 boundaries, not pending implementation or architectural decisions.
 - Run:
