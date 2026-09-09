@@ -33,7 +33,7 @@ func (c *candidateChatSlotCache) ReleaseAccountSlot(_ context.Context, id int64,
 func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, mode := range []string{service.RoutingModeDirect, service.RoutingModeUniversal} {
-		for _, scenario := range []string{"no_headers", "empty_200", "buffered", "disconnect", "partial_content", "partial_tool", "exhausted"} {
+		for _, scenario := range []string{"no_headers", "empty_200", "buffered", "disconnect", "partial_content", "partial_tool", "exhausted", "overloaded", "overloaded_buffered", "overloaded_exhausted"} {
 			t.Run(mode+"/"+scenario, func(t *testing.T) {
 				var mu sync.Mutex
 				var hits []string
@@ -45,12 +45,22 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 					mu.Lock()
 					hits = append(hits, auth)
 					mu.Unlock()
-					if scenario == "exhausted" {
-						w.WriteHeader(http.StatusBadGateway)
+					if strings.HasSuffix(scenario, "exhausted") {
+						status := http.StatusBadGateway
+						if scenario == "overloaded_exhausted" {
+							status = 529
+						}
+						w.WriteHeader(status)
 						_, _ = io.WriteString(w, `{"error":{"message":"upstream unavailable","type":"server_error"}}`)
 						return
 					}
 					if auth == "Bearer bad" {
+						if strings.HasPrefix(scenario, "overloaded") {
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(529)
+							_, _ = io.WriteString(w, `{"error":{"message":"Service temporarily overloaded","type":"server_error"}}`)
+							return
+						}
 						if scenario == "disconnect" {
 							conn, _, err := w.(http.Hijacker).Hijack()
 							if err != nil {
@@ -81,7 +91,7 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 						}
 						return
 					}
-					if scenario == "buffered" {
+					if strings.HasSuffix(scenario, "buffered") {
 						w.Header().Set("Content-Type", "application/json")
 						_, _ = io.WriteString(w, `{"id":"chat-recovered","object":"chat.completion","model":"gpt-5.4","choices":[{"index":0,"message":{"role":"assistant","content":"recovered"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
 					} else {
@@ -95,7 +105,7 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				userRepo, groupRepo, subRepo := candidateWSUserRepo{state: state}, candidateWSGroupRepo{state: state}, candidateWSSubscriptionRepo{state: state}
 				accounts := []service.Account{}
 				credentials := []string{"bad", "good"}
-				if scenario == "exhausted" {
+				if strings.HasSuffix(scenario, "exhausted") {
 					credentials = []string{"bad", "good", "third", "fourth"}
 				}
 				for i, credential := range credentials {
@@ -134,7 +144,7 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				}
 				h := &OpenAIGatewayHandler{gatewayService: openai, nativeGatewayService: gateway, billingCacheService: billingCache, apiKeyService: keyService, concurrencyHelper: NewConcurrencyHelper(concurrency, SSEPingFormatNone, time.Second), cfg: cfg, protocolRouter: pr, maxAccountSwitches: 5}
 				body := `{"model":"gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`
-				if scenario == "buffered" {
+				if strings.HasSuffix(scenario, "buffered") {
 					body = strings.Replace(body, `"stream":true`, `"stream":false`, 1)
 				}
 				router := gin.New()
@@ -163,7 +173,7 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				case <-time.After(time.Second):
 					t.Fatal("handler did not finish after response")
 				}
-				if scenario == "exhausted" {
+				if strings.HasSuffix(scenario, "exhausted") {
 					require.GreaterOrEqual(t, res.StatusCode, 500, string(response))
 					mu.Lock()
 					actualHits := append([]string(nil), hits...)
@@ -201,13 +211,16 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				require.Equal(t, 200, res.StatusCode, string(response))
 				require.Contains(t, string(response), "recovered")
 				require.NotContains(t, string(response), "waiting")
-				if scenario != "buffered" {
+				require.NotContains(t, string(response), "temporarily overloaded")
+				if !strings.HasSuffix(scenario, "buffered") {
 					require.Contains(t, string(response), "[DONE]")
 				}
-				select {
-				case <-canceled:
-				case <-time.After(time.Second):
-					t.Fatal("failed upstream not canceled")
+				if !strings.HasPrefix(scenario, "overloaded") {
+					select {
+					case <-canceled:
+					case <-time.After(time.Second):
+						t.Fatal("failed upstream not canceled")
+					}
 				}
 				mu.Lock()
 				actualHits := append([]string(nil), hits...)
