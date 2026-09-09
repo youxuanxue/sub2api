@@ -201,15 +201,9 @@
       "path": "backend/internal/integration/newapi/video_task_resolution.go",
       "must_contain": [
         "NormalizeVideoTaskResolution",
-        "max(width, height) >= 3840",
-        "max(width, height) >= 1920"
+        "geminitask.SizeToVeoResolution"
       ],
-      "rationale": "Shared request-dimension normalizer for tiered video billing and task plugins. The new-api upgrade removed the exported Gemini adaptor helper; preserve its 4k/1080p dimension thresholds in this owner, used before both charging and request construction."
-    },
-    {
-      "path": "backend/internal/integration/newapi/video_task_resolution_test.go",
-      "must_contain": ["TestNormalizeVideoTaskResolution"],
-      "rationale": "Verify alias, dimensions and invalid-input behavior after the pinned new-api task-plugin migration."
+      "rationale": "Shared request-dimension normalizer for tiered video billing and the pinned task adaptors. TaskSubmitReq.size (for example 1920x1080) must resolve to the same canonical resolution before both charging and upstream request construction; separate converters can silently underbill a generated tier."
     },
     {
       "path": "backend/internal/relay/bridge/video_relay_test.go",
@@ -478,10 +472,16 @@
     {
       "path": "backend/internal/relay/bridge/context_input.go",
       "must_contain": [
+        "BoundedChatAttempt bool",
         "VertexKeyType",
         "ContextKeyChannelOtherSetting"
       ],
       "rationale": "VertexAI (channel_type 41) service-account passthrough: the newapi bridge sets new-api's ChannelOtherSettings.VertexKeyType (via ContextKeyChannelOtherSetting) and the region gin key so the Vertex adaptor authenticates via JWT. Without it ch41 reverts to api_key mode and fails; this is also the only path by which the GCP trial credit is spendable (Gemini Developer API ch24 prepay does not accept Cloud Billing credits)."
+    },
+    {
+      "path": "backend/internal/relay/bridge/dispatch.go",
+      "must_contain": ["request.WithContext(relaycommon.WithUpstreamRequestContext(ctx))", "relayInfo.DisablePing = in.BoundedChatAttempt"],
+      "rationale": "Bounded Chat attempts must reach the actual NewAPI transport and suppress concurrent pings before output; unrelated dispatches retain their existing lifecycle."
     },
     {
       "path": "backend/internal/service/newapi_bridge_usage.go",
@@ -1366,7 +1366,7 @@
         "RouteFacts",
         "ExecuteSelectedProtocol",
         "protocolPlansRoutingEquivalent",
-        "if router == nil && canonical && !routed && !planned {"
+        "if !protocolRoutingGovernsAccount(account) || (router == nil && canonical && !routed && !planned) {"
       ],
       "rationale": "Protocol routing is the single execution boundary for governed text channels. Every registered inbound→target pair, including Gemini, has a concrete adapter and immutable route facts; send-time freshness is authoritative reload plus protocolPlansRoutingEquivalent, not a revision token. The service execution owner alone dispatches the plan-derived Gemini endpoint profile, while transports bind the selected endpoint and preserve transport-derived query semantics. The nil-router legacy branch remains only as a compatibility boundary for explicitly non-routed callers; production candidate images always inject the router and use readiness for traffic admission. Router-enabled requests without a selected plan remain fail-closed."
     },

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"

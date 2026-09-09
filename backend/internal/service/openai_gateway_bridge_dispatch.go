@@ -2,9 +2,10 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
-	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
@@ -48,7 +49,14 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	body []byte,
 	promptCacheKey string,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, resultErr error) {
+	ctx, finishAttempt, beginErr := s.beginCandidateChatAttempt(ctx, c, account, body)
+	if beginErr != nil {
+		return nil, beginErr
+	}
+	if finishAttempt != nil {
+		defer func() { result, resultErr = finishAttempt(result, resultErr) }()
+	}
 	if target, planned := protocolExecutionTarget(ctx); planned && target != protocolrouter.ProtocolChatCompletions {
 		return s.ForwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 	}
@@ -74,8 +82,17 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
+	in.BoundedChatAttempt = finishAttempt != nil
 	out, apiErr := dispatchNewAPIChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
+		if attempt, _ := ctx.Value(candidateChatAttemptKey{}).(*candidateChatAttempt); attempt != nil {
+			if cause := context.Cause(attempt.ctx); cause != nil {
+				return nil, cause
+			}
+			if !attempt.started && (apiErr.GetErrorCode() == newapitypes.ErrorCodeDoRequestFailed || apiErr.GetErrorCode() == newapitypes.ErrorCodeReadResponseBodyFailed) {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Scope: GatewayFailureScopeAccount, Reason: "upstream_transport_failure"}
+			}
+		}
 		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointChatCompletions),

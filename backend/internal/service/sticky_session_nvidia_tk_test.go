@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
-	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 	"github.com/gin-gonic/gin"

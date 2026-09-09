@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"

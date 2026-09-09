@@ -20,8 +20,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	newapihelper "github.com/QuantumNous/new-api/relay/helper"
-	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
@@ -37,8 +36,12 @@ import (
 // so the handler can record latency in usage_logs without timing twice.
 //
 // IMPORTANT response-write ordering: new-api task adaptors (doubao, jimeng,
-// vidu, ...) return a parsed task identity. This bridge writes the public
-// response with TokenKey's pre-generated ID; handlers must not write it again.
+// vidu, …) write the OpenAI-Video-shaped JSON response to gin.Context
+// inside DoResponse, embedding `relayInfo.PublicTaskID` as the task id.
+// The handler MUST therefore (a) pre-generate the public task id and pass
+// it into PublicTaskID below so the adaptor stamps it on the wire, and
+// (b) NOT call c.JSON again afterwards — the response is already on
+// the writer when DispatchVideoSubmit returns.
 type TaskSubmitOutcome struct {
 	PublicTaskID   string
 	UpstreamTaskID string
@@ -48,8 +51,6 @@ type TaskSubmitOutcome struct {
 	BaseURL        string
 	APIKey         string
 	Duration       time.Duration
-	PluginState    json.RawMessage
-	TaskData       json.RawMessage
 }
 
 // VideoFetchInput identifies which upstream account+task the fetch should
@@ -69,10 +70,8 @@ type VideoFetchInput struct {
 	// to a native poll and re-resolves a fresh OAuth Bearer via AccountID (the
 	// pinned APIKey may be a rotated/stale grok token by poll time). Empty/zero
 	// for the bridge (channel_type>0) path — fully backward compatible.
-	Platform    string
-	AccountID   int64
-	PluginState json.RawMessage
-	TaskData    json.RawMessage
+	Platform  string
+	AccountID int64
 }
 
 // VideoFetchOutcome holds the upstream raw response and the parsed status
@@ -82,7 +81,6 @@ type VideoFetchInput struct {
 type VideoFetchOutcome struct {
 	RawResponse []byte
 	Status      string
-	PluginState json.RawMessage
 }
 
 // videoSubmitErrorBodyMaxBytes bounds untrusted upstream diagnostics before they
@@ -226,34 +224,30 @@ func DispatchVideoSubmit(_ context.Context, c *gin.Context, in ChannelContextInp
 		)
 	}
 
-	defer func() { _ = resp.Body.Close() }()
-	parsed, taskErr := adaptor.ParseResponse(c, resp, relayInfo)
+	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, resp, relayInfo)
 	if taskErr != nil {
 		return nil, taskErrorToNewAPIError(taskErr)
 	}
-	if parsed == nil || strings.TrimSpace(parsed.UpstreamTaskID) == "" {
+	if strings.TrimSpace(upstreamTaskID) == "" {
 		return nil, types.NewError(errors.New("empty upstream task id"), types.ErrorCodeBadResponseStatusCode, types.ErrOptionWithSkipRetry())
 	}
 
-	// New upstream parsers return data without writing to Gin. TokenKey retains
-	// its public task identity and response contract independently of plugins.
-	video := kitdto.NewOpenAIVideo()
-	video.ID = publicTaskID
-	video.TaskID = publicTaskID
-	video.Model = req.Model
-	video.CreatedAt = time.Now().Unix()
-	c.JSON(http.StatusOK, video)
+	// UpstreamModelName was just set above to req.Model on the freshly
+	// initialised ChannelMeta; an adaptor that legitimately rewrites it
+	// (model_mapping) updates the same field in place. Direct read.
+	// taskData (raw upstream response) is intentionally discarded — the
+	// adaptor's DoResponse already wrote the OpenAI-Video-shaped JSON
+	// straight to the gin context for the synchronous submit response.
+	_ = taskData
 	return &TaskSubmitOutcome{
 		PublicTaskID:   publicTaskID,
-		UpstreamTaskID: parsed.UpstreamTaskID,
+		UpstreamTaskID: upstreamTaskID,
 		UpstreamModel:  relayInfo.UpstreamModelName,
 		OriginModel:    req.Model,
 		ChannelType:    in.ChannelType,
 		BaseURL:        in.BaseURL,
 		APIKey:         in.APIKey,
 		Duration:       dur,
-		PluginState:    parsed.PluginState,
-		TaskData:       parsed.TaskData,
 	}, nil
 }
 
@@ -434,8 +428,9 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 		return nil, errUnsupportedChannel(in.ChannelType)
 	}
 
-	task := newAPIVideoPollTask(in)
-	resp, err := adaptor.FetchTask(baseURL, in.APIKey, task, "")
+	resp, err := adaptor.FetchTask(baseURL, in.APIKey, map[string]any{
+		"task_id": in.UpstreamTaskID,
+	}, "")
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
 	}
@@ -457,9 +452,8 @@ func DispatchVideoFetch(_ context.Context, _ *gin.Context, in VideoFetchInput) (
 	}
 
 	out := &VideoFetchOutcome{RawResponse: body}
-	if info, parseErr := adaptor.ParseTaskResult(task, resp, body); parseErr == nil && info != nil {
+	if info, parseErr := adaptor.ParseTaskResult(body); parseErr == nil && info != nil {
 		out.Status = string(info.Status)
-		out.PluginState = info.PluginState
 	}
 	return out, nil
 }

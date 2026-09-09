@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"

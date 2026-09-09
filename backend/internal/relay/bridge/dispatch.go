@@ -9,10 +9,10 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 )
@@ -73,8 +73,13 @@ func installBodyStorage(c *gin.Context, body []byte) error {
 }
 
 // DispatchChatCompletions runs the New API adaptor for OpenAI Chat Completions.
-func DispatchChatCompletions(_ context.Context, c *gin.Context, in ChannelContextInput, body []byte) (*DispatchOutcome, *types.NewAPIError) {
+func DispatchChatCompletions(ctx context.Context, c *gin.Context, in ChannelContextInput, body []byte) (*DispatchOutcome, *types.NewAPIError) {
 	ensureNewAPIDeps()
+	if in.BoundedChatAttempt {
+		request := c.Request
+		c.Request = request.WithContext(relaycommon.WithUpstreamRequestContext(ctx))
+		defer func() { c.Request = request }()
+	}
 	if err := installBodyStorage(c, body); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 	}
@@ -96,6 +101,7 @@ func DispatchChatCompletions(_ context.Context, c *gin.Context, in ChannelContex
 	}
 
 	start := time.Now()
+	relayInfo.DisablePing = in.BoundedChatAttempt
 	usage, apiErr := RunOpenAITextRelay(c, relayInfo)
 	dur := time.Since(start)
 	if apiErr != nil {

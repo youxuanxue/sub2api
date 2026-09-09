@@ -3,6 +3,16 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/account_tk_cursor.go",
+      "must_contain": ["tx.Account.Query().Where(entaccount.IDEQ(accountID)).ForUpdate().Only(opCtx)", "*stored.ErrorMessage == cursorOAuthReauthorizationRequired", "s.UpdateAccount(opCtx, accountID, update)"],
+      "rationale": "Verified Cursor reauthorization clears only the refresh-owned failure inside the credential transaction and preserves operator pauses under the account lock."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_cursor_transaction_integration_test.go",
+      "must_contain": ["TestCursorReconnectPreservesPersistedPause", "operator investigation", "operator disabled", "scenario.replace", "loaded.ErrorMessage"],
+      "rationale": "Real persistence tests distinguish verified reauthorization from an expiry-only edit and retain unrelated errors and manual controls."
+    },
+    {
       "path": "backend/internal/integration/cursor/oauth_refresh.go",
       "must_contain": ["func RefreshOAuth", "ShouldLogout", "RefreshToken: wire.AccessToken"],
       "rationale": "Cursor renewal follows the verified Desktop token grant and rejects explicit logout without exposing credentials."
@@ -264,6 +274,97 @@
       "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution."
     },
     {
+      "path": "backend/internal/service/candidate_failure_tk.go",
+      "must_contain": ["plan.ResolvedModel()", "candidateFailureScope(path.account, plan, path.model)", "resolveGeminiForwardModels(account, model)", "ResolveBedrockModelID(account, model)", "kiroproto.MapModel(model)", "candidateFailureAttributable", "counter.IncrementCandidateFailure", "candidateTransportFailure", "errors.As(err, &observed)"],
+      "must_not_contain": ["PlatformNewAPI"],
+      "rationale": "All account platforms share model-scoped failure feedback; native paths reuse forwarding model resolvers, transport attribution excludes caller cancellation, and observed errors cannot count twice."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": ["err = candidate.observeFailure(ctx, freshAccount, plan, err)", "err = candidate.observeFailure(ctx, account, protocolrouter.Plan{}, err)", "return protocolrouter.Result{Value: value}, err"],
+      "rationale": "The execution boundary must actually record feedback and preserve known partial results on errors."
+    },
+    {
+      "path": "backend/internal/service/openai_apikey_health_breaker.go",
+      "must_contain": ["var observed *candidateObservedFailure", "errors.As(err, &observed)"],
+      "rationale": "The legacy account-wide breaker must not duplicate shared candidate model-scoped failure observations."
+    },
+    {
+      "path": "backend/internal/service/candidate_failure_tk_test.go",
+      "must_contain": ["TestCandidateFailurePriorityDirectUniversalAndModelIsolation", "TestCandidateFailureNativeExecutionUsesForwardModel", "TestCandidateTransportFailureAttribution", "ExecuteSelectedProtocol", "classifyOpenAIAPIKeyHealthFailure(observed)"],
+      "rationale": "Protect actual execution feedback, native mapped scopes, caller/transport attribution and legacy breaker deduplication across platforms and key modes."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Sanitized Anthropic transport errors must retain candidate failure attribution."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Anthropic passthrough transport failures feed the shared counter without exposing raw transport details."
+    },
+    {
+      "path": "backend/internal/service/gateway_bedrock.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Bedrock transport failures retain attribution on native execution without a Plan."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Messages-to-Chat transport failures retain candidate attribution."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_responses.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Messages-to-Responses transport failures retain candidate attribution."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_v1_forward.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "OpenAI v1 transport failures retain candidate attribution after sanitization."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx, s.writeClaudeError", "candidateTransportFailure(ctx, s.writeGoogleError"],
+      "rationale": "Gemini Messages and native execution preserve terminal transport attribution after their existing retries."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Gemini Chat preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/gemini_responses_compat_service.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Gemini Responses preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Antigravity Messages preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": ["candidateTransportFailure(ctx,"],
+      "rationale": "Antigravity native Gemini preserves terminal transport attribution."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": ["candidateTransportFailure(c.Request.Context(),"],
+      "rationale": "Antigravity compatibility transports preserve terminal failure attribution."
+    },
+    {
+      "path": "backend/internal/service/candidate_chat_attempt_tk.go",
+      "must_contain": ["candidateChatMaxAttempts = 3", "candidateChatReplayable", "r.continuationAccountID > 0", "a.abortBeforeOutput(errCandidateChatFirstOutput)", "errCandidateChatIncomplete"],
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output."
+    },
+    {
+      "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
+      "must_contain": ["TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce", "partial_tool", "exhausted", "failed upstream not canceled"],
+      "rationale": "Real handler and upstream HTTP tests protect cancellation, failover, partial metering and bounded attempts for both key modes."
+    },
+    {
       "path": "backend/internal/service/candidate_rpm_tk.go",
       "must_contain": [
         "func (r *CandidateRequest) peekGroupRPM(",
@@ -280,14 +381,16 @@
         "r.evaluatePath(ctx, account, group)",
         "selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins",
         "pool = recoverCandidateWindowPool(pool)",
-        "candidateOccupancy(a.account, loads) < candidateOccupancy(b.account, loads)",
+        "r.mergeFailureCounts(ctx, pool, counts)",
+        "candidateEffectivePriority(a.account, counts)",
         "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)",
         "r.recheck(path, options)",
         "gw.candidateSaturationState().counts(ctx, accounts, r.model)"
       ],
       "must_not_contain": [
         "lessUniversalBacking(",
-        ".SortOrder"
+        ".SortOrder",
+        "candidateOccupancy("
       ],
       "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
     },
@@ -512,7 +615,7 @@
         "TestGlobalCandidateDeduplicatesMembershipBeforeSelection",
         "TestGlobalCandidateReadyPeerAndSlotRace",
         "TestGlobalCandidateWaitRechecksAuthorizationAndPlan",
-        "TestGlobalCandidateNormalizedOccupancyAndTopologyTies",
+        "TestGlobalCandidateCapacityIsOnlyAnAdmissionLimit",
         "TestGlobalCandidateModelGrantsCannotBeBorrowed",
         "TestGlobalCandidateWindowRecoveryAndStickyAdmission",
         "TestGlobalCandidateNativeConverterParityAndGoogleFailover",
@@ -2166,6 +2269,8 @@
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
       "must_contain": [
+        "s.beginCandidateChatAttempt(ctx, c, account, body)",
+        "in.BoundedChatAttempt = finishAttempt != nil",
         "rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)",
         "rewriteNewAPIBridgeBodyModel(account, body, \"\")",
         "applyNewAPIAliFixedSamplingShape"
@@ -7942,6 +8047,22 @@
       "rationale": "GetByKeyForAuth hydrates the service Group from the Ent projection. Sticky routing and messages compaction fields are selected by SQL but are silently lost unless groupEntityToService maps them, causing cached gateway requests to observe zero values."
     },
     {
+      "path": "backend/internal/repository/api_key_repo.go",
+      "must_contain": [
+        "Where(apikey.IDEQ(id)).\n\t\tWithUser(func(q *dbent.UserQuery) {\n\t\t\tq.WithAllowedGroups("
+      ],
+      "rationale": "Per-turn WebSocket authorization refresh reads GetByID. Its user projection must hydrate current exclusive-group grants, as the opening authentication query does, or authorized direct keys disconnect on their second turn."
+    },
+    {
+      "path": "backend/internal/repository/api_key_repo_ws_authorization_tk_integration_test.go",
+      "must_contain": [
+        "TestGetByID_RefreshesExclusiveGroupAuthorization",
+        "True(refreshed.User.CanBindGroup",
+        "False(revoked.User.CanBindGroup"
+      ],
+      "rationale": "Keep the real repository regression for retained and revoked exclusive-group grants so a projection regression cannot pass only mocked WebSocket authorization tests."
+    },
+    {
       "path": "backend/internal/service/api_key_auth_cache_impl.go",
       "must_contain": [
         "apiKeyAuthSnapshotVersion = 20",
@@ -10599,8 +10720,23 @@
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
-      "must_contain": ["!signatureRetried && attempt < geminiMaxRetries", "s.tkRepairGeminiNativeSignature(c, account, resp, body)", "signatureRetried = true"],
+      "must_contain": ["!signatureRetried && attempt < geminiMaxRetries", "s.tkRepairGeminiNativeSignature(c, account, resp, body)", "signatureRetried = true", "body = tkNormalizeGeminiFunctionResponseImages(body)"],
       "rationale": "Native Gemini and Vertex must recover rejected history signatures at most once within the existing retry budget, including sessions whose sticky binding already exists."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_function_response_tk.go",
+      "must_contain": ["func tkNormalizeGeminiFunctionResponseImages", "responseCount != 1", "functionResponse.parts", "json.RawMessage"],
+      "rationale": "Vertex Gemini 3 rejects CLI image parts beside tool responses. Preserve unambiguous tool ownership and exact payload values when nesting images into multimodal function responses."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_function_response_tk_test.go",
+      "must_contain": ["TestGeminiForwardNativeNormalizesVertexToolImages", "TestGeminiFunctionResponseImagesPreserveToolResult", "multiple_tools", "count_tokens"],
+      "rationale": "Protect actual Vertex transport normalization, payload preservation, and no-op handling for ambiguous or unrelated requests."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_signature_cleaner_test.go",
+      "must_contain": ["TestCleanGeminiNativeThoughtSignatures_PreservesToolData", "9007199254740993", "business-value"],
+      "rationale": "Native signature repair must preserve opaque tool data, same-named business fields, and exact numeric values."
     },
     {
       "path": "backend/internal/service/gemini_native_signature_retry_tk.go",

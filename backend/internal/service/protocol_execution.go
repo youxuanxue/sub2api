@@ -237,10 +237,7 @@ func executeBoundProtocolAdapter(
 		return protocolrouter.Result{}, fmt.Errorf("%w: authoritative execution account is missing", ErrProtocolRouteUnavailable)
 	}
 	value, err := execute(withProtocolExecutionPlan(ctx, plan), executionAccount, plan, execution.Request())
-	if err != nil {
-		return protocolrouter.Result{}, err
-	}
-	return protocolrouter.Result{Value: value}, nil
+	return protocolrouter.Result{Value: value}, err
 }
 
 func protocolExecutorsFromContext(ctx context.Context) ProtocolExecutors {
@@ -364,17 +361,15 @@ func ExecuteSelectedProtocol(
 	request, canonical := protocolRoutingCanonicalRequest(ctx)
 	_, routed := ProtocolRoutingRequest(ctx)
 	plan, planned := ProtocolPlanFromSelection(selection)
-	if !protocolRoutingGovernsAccount(account) {
+	if !protocolRoutingGovernsAccount(account) || (router == nil && canonical && !routed && !planned) {
 		if executors.NonGoverned == nil {
 			return nil, ErrProtocolExecutorMissing
 		}
-		return executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
-	}
-	if router == nil && canonical && !routed && !planned {
-		if executors.NonGoverned == nil {
-			return nil, ErrProtocolExecutorMissing
+		value, err := executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
+		if candidate := CandidateRequestFromContext(ctx); candidate != nil {
+			err = candidate.observeFailure(ctx, account, protocolrouter.Plan{}, err)
 		}
-		return executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
+		return value, err
 	}
 	if !routed || !planned || router == nil {
 		return nil, fmt.Errorf("%w: governed account requires canonical request, router, and selected plan", ErrProtocolRouteUnavailable)
@@ -433,11 +428,16 @@ func ExecuteSelectedProtocol(
 		CredentialPresent: ProtocolAuthorizationPresent(freshAccount),
 	})
 	result, err := router.Execute(executionCtx, plan, request)
+	if candidate := CandidateRequestFromContext(ctx); candidate != nil {
+		err = candidate.observeFailure(ctx, freshAccount, plan, err)
+	}
 	if err != nil {
 		if errors.Is(err, protocolrouter.ErrStalePlan) || errors.Is(err, protocolrouter.ErrMissingCredential) {
 			return nil, protocolExecutionPreSendFailure(err, GatewayFailureScopeAccount)
 		}
-		return nil, err
+		// Preserve metered partial output; failover-before-output returns no value.
+		stampProtocolRouteFacts(result.Value, routeFactsFromPlan(plan))
+		return result.Value, err
 	}
 	stampProtocolRouteFacts(result.Value, routeFactsFromPlan(plan))
 	return result.Value, nil

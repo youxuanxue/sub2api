@@ -11,6 +11,7 @@ import (
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	entaccount "github.com/Wei-Shaw/sub2api/ent/account"
 	entgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 )
@@ -85,6 +86,23 @@ func (s *adminServiceImpl) SaveCursorAccount(ctx context.Context, create *Create
 	}
 	var account *Account
 	if accountID > 0 {
+		stored, lockErr := tx.Account.Query().Where(entaccount.IDEQ(accountID)).ForUpdate().Only(opCtx)
+		if lockErr != nil {
+			return nil, lockErr
+		}
+		if stored.Platform != PlatformNewAPI || stored.Type != AccountTypeAPIKey ||
+			stored.ChannelType != newapiconstant.ChannelTypeAnthropic || stored.Extra[CursorSourceExtraKey] != "cursor" {
+			return nil, errors.New("only Cursor accounts can be reconnected")
+		}
+		// A verified replacement clears only our refresh failure. Holding the row
+		// lock across UpdateAccount preserves concurrent operator pause decisions.
+		token, _ := update.Credentials["api_key"].(string)
+		if token != "" && update.ExpiresAt != nil && *update.ExpiresAt > time.Now().Unix() &&
+			stored.Status == StatusError && stored.ErrorMessage != nil && *stored.ErrorMessage == cursorOAuthReauthorizationRequired {
+			if _, err = tx.Account.UpdateOneID(accountID).SetStatus(StatusActive).SetErrorMessage("").Save(opCtx); err != nil {
+				return nil, err
+			}
+		}
 		// Expiry and an operator pause share schedulable=false. Replacing a key
 		// cannot establish why the account was paused, so preserve that state.
 		account, err = s.UpdateAccount(opCtx, accountID, update)

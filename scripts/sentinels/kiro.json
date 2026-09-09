@@ -137,6 +137,9 @@
       "path": "backend/internal/integration/kiro/translator.go",
       "must_contain": [
         "func ClaudeToKiro",
+        "block[\"is_error\"].(bool)",
+        "preserveToolResultFailure(tr, body)",
+        "normalizeKiroToolHistory(payload)",
         "buildAdditionalModelRequestFields",
         "display := \"summarized\"",
         "additionalModelRequestFields",
@@ -148,11 +151,47 @@
       "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply. EnsureClaudeCodeCompletionGuard keeps recognized Claude Code sessions working until implementation and verification are complete without duplicating policy text in this vendored-shaped layer. The completion protocol flag is enabled only when the private tool was actually added, which prevents a client-owned same-name tool from being shadowed or swallowed."
     },
     {
+      "path": "backend/internal/integration/kiro/tool_result_status_test.go",
+      "must_contain": [
+        "TestClaudeToKiro_PreservesToolResultFailure"
+      ],
+      "rationale": "Anthropic tool_result.is_error must survive active and historical structured results, orphan fallback and private completion continuation; successful or omitted flags remain success."
+    },
+    {
+      "path": "backend/internal/integration/kiro/tool_history.go",
+      "must_contain": [
+        "func normalizeKiroToolHistory",
+        "repairKiroToolResultPair(previous, current)",
+        "preserveToolResultFailure(*result, result.Content[0].Text)",
+        "ctx.ToolResults = results",
+        "Execution is not confirmed."
+      ],
+      "rationale": "Kiro CLI tool history parity: retain all valid tool pairs and statuses; repair only orphan or missing results instead of flattening normal history. Live runtime evidence requires failure to remain explicit inside tool content as well as status."
+    },
+    {
+      "path": "backend/internal/service/kiro_gateway_tool_history_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_ContinuationPreservesToolHistory"
+      ],
+      "rationale": "Streaming and non-streaming gateway requests must retain structured tool history and failure semantics through private completion continuation."
+    },
+    {
+      "path": "backend/internal/integration/kiro/tool_history_test.go",
+      "must_contain": [
+        "TestClaudeToKiro_CLIToolHistory",
+        "TestClaudeToKiro_RepairsOnlyUnpairedResults",
+        "TestOpenAIToKiro_ParallelToolHistory",
+        "TestClaudeToKiro_ToolHistoryTruncation"
+      ],
+      "rationale": "Lock real-CLI multi-turn history shape, partial batches, OpenAI parity and truncation to behavior tests."
+    },
+    {
       "path": "backend/internal/integration/kiro/claude_code_completion.go",
       "must_contain": [
         "func addClaudeCodeCompletionTool",
         "func ConsumeClaudeCodeCompletionSignal",
         "func PrepareClaudeCodeCompletionContinuation",
+        "normalizeKiroToolHistory(payload)",
         "ClaudeCodeCompletionProtocol",
         "repair turn is transport-only",
         "Do not emit a recap",

@@ -15,7 +15,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	newapihelper "github.com/QuantumNous/new-api/relay/helper"
-	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/types"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -157,8 +157,9 @@ func TestXRTokenTaskAdaptor_FetchTask_HitsV1Path(t *testing.T) {
 	ensureNewAPIDeps()
 
 	a := newXRTokenTaskAdaptor()
-	task := newAPIVideoPollTask(VideoFetchInput{UpstreamTaskID: "cgt-xr-fetch-888"})
-	resp, err := a.FetchTask(srv.URL, "tr-test-key", task, "")
+	resp, err := a.FetchTask(srv.URL, "tr-test-key", map[string]any{
+		"task_id": "cgt-xr-fetch-888",
+	}, "")
 	if err != nil {
 		t.Fatalf("FetchTask error: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestXRTokenTaskAdaptor_FetchTask_HitsV1Path(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
-	info, err := a.ParseTaskResult(task, resp, body)
+	info, err := a.ParseTaskResult(body)
 	if err != nil {
 		t.Fatalf("inherited ParseTaskResult failed on XRToken response: %v", err)
 	}
@@ -193,10 +194,10 @@ func TestXRTokenTaskAdaptor_FetchTask_HitsV1Path(t *testing.T) {
 func TestXRTokenTaskAdaptor_FetchTask_Rejects(t *testing.T) {
 	t.Parallel()
 	a := newXRTokenTaskAdaptor()
-	if _, err := a.FetchTask(newapiintegration.XRTokenBaseURL, "k", nil, ""); err == nil {
+	if _, err := a.FetchTask(newapiintegration.XRTokenBaseURL, "k", map[string]any{}, ""); err == nil {
 		t.Fatal("expected error for missing task_id, got nil")
 	}
-	if _, err := a.FetchTask("", "k", newAPIVideoPollTask(VideoFetchInput{UpstreamTaskID: "x"}), ""); err == nil {
+	if _, err := a.FetchTask("", "k", map[string]any{"task_id": "x"}, ""); err == nil {
 		t.Fatal("expected error for empty base_url, got nil")
 	}
 }
@@ -504,7 +505,7 @@ func TestDispatchVideoFetch_XRTokenStripsVendorPrefixFromClientBody(t *testing.T
 	// Drive the wrapper directly: dispatch selects it by sentinel base_url, which
 	// an httptest host cannot satisfy.
 	adaptor := newXRTokenTaskAdaptor()
-	resp, err := adaptor.FetchTask(srv.URL, "tr-test-key", newAPIVideoPollTask(VideoFetchInput{UpstreamTaskID: "cgt-xr-poll-1"}), "")
+	resp, err := adaptor.FetchTask(srv.URL, "tr-test-key", map[string]any{"task_id": "cgt-xr-poll-1"}, "")
 	if err != nil {
 		t.Fatalf("FetchTask: %v", err)
 	}

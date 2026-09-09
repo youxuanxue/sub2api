@@ -12,6 +12,8 @@ import (
 
 type CursorTokenRefresher struct{ upstream HTTPUpstream }
 
+const cursorOAuthReauthorizationRequired = "Token refresh failed (non-retryable): browser reauthorization required"
+
 func NewCursorTokenRefresher(upstream HTTPUpstream) *CursorTokenRefresher {
 	return &CursorTokenRefresher{upstream: upstream}
 }
@@ -71,7 +73,7 @@ func (s *TokenRefreshService) recordCursorRefreshFailure(ctx context.Context, ac
 	if !ok {
 		return errors.New("cursor OAuth conditional persistence is unavailable")
 	}
-	reason := "Token refresh failed (non-retryable): browser reauthorization required"
+	reason := cursorOAuthReauthorizationRequired
 	if until != nil {
 		reason = "token refresh retry exhausted: cursor token renewal unavailable"
 	}

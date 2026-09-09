@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 )
 

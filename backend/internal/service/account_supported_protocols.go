@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"

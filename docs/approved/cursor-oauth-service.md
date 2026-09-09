@@ -13,6 +13,8 @@ TokenKey is a standalone Go gateway. Cursor inference uses the authenticated
 CLI AgentService protocol directly, with connections, protobuf blobs and output
 buffers limited to one request. There is no inference session store, SDK worker,
 local tool execution, Bridge secret or cross-request connection affinity.
+The native protocol implementation does not require a new-api upgrade or a
+video task adaptor migration; the dependency pin follows the main branch.
 
 Cursor is the supply source and service group; accounts remain
 `platform=newapi`, `type=apikey`, channel type 14. Model family, supply and public
@@ -37,6 +39,8 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   publication with other providers. Credential/expiry writes and failure state
   changes match the attempted credential version and proxy. Operator pauses
   survive renewal; revoked credentials still require browser reauthorization.
+  Reauthorization clears the Cursor refresh failure atomically with replacement
+  credentials, while preserving manual pauses, disabled status and other errors.
 - Account creation/update, group binding and probes use existing owners.
   A dedicated Cursor group may contain multiple Cursor accounts.
 - The authenticated catalog supplies exact base IDs, default regular-speed

@@ -3,6 +3,8 @@ package newapi
 import (
 	"strconv"
 	"strings"
+
+	geminitask "github.com/QuantumNous/new-api/relay/channel/task/gemini"
 )
 
 const (
@@ -36,14 +38,5 @@ func NormalizeVideoTaskResolution(value string) (string, bool) {
 	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 {
 		return "", false
 	}
-	// Retain the previous upstream SizeToVeoResolution contract after its Go
-	// package moved into a task plugin. Resolution remains a TokenKey billing fact.
-	switch {
-	case max(width, height) >= 3840:
-		return VideoTaskResolution4K, true
-	case max(width, height) >= 1920:
-		return VideoTaskResolution1080P, true
-	default:
-		return VideoTaskResolution720P, true
-	}
+	return geminitask.SizeToVeoResolution(normalized), true
 }

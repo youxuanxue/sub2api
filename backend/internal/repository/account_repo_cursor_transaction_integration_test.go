@@ -68,30 +68,60 @@ func TestCursorReconnectPreservesPersistedPause(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id=$1", group.ID)
 	})
-	for _, paused := range []bool{false, true} {
-		past := time.Now().Add(-time.Hour)
-		account := &service.Account{Name: fmt.Sprintf("cursor-renew-%d", time.Now().UnixNano()),
-			Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14,
-			Status: service.StatusActive, Schedulable: !paused, AutoPauseOnExpired: true, ExpiresAt: &past,
-			Extra:       map[string]any{service.CursorSourceExtraKey: "cursor"},
-			Credentials: map[string]any{"api_key": "test-only", "base_url": "https://agentn.global.api5.cursor.sh", "api_base_urls": map[string]any{"anthropic": "https://agentn.global.api5.cursor.sh"}, "protocol_endpoints_exclusive": true}}
-		require.NoError(t, repo.Create(ctx, account))
-		ids := []int64{group.ID}
-		require.NoError(t, repo.BindGroups(ctx, account.ID, ids))
-		future := time.Now().Add(time.Hour).Unix()
-		updated, err := admin.SaveCursorAccount(ctx, nil, &service.UpdateAccountInput{ExpiresAt: &future, GroupIDs: &ids}, account.ID)
-		require.NoError(t, err)
-		require.Equal(t, !paused, updated.Schedulable)
-		require.Equal(t, !paused, updated.IsSchedulable())
-		loaded, err := repo.GetByID(ctx, account.ID)
-		require.NoError(t, err)
-		require.Equal(t, !paused, loaded.Schedulable)
-		require.Equal(t, future, loaded.ExpiresAt.Unix())
-		// Free the dedicated group before exercising the other pause state.
-		require.NoError(t, repo.BindGroups(ctx, account.ID, nil))
-		t.Cleanup(func() {
-			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id=$1", account.ID)
-			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id=$1", account.ID)
-		})
+	for _, scenario := range []struct {
+		status, reason string
+		replace        bool
+		wantStatus     string
+	}{
+		{service.StatusActive, "", true, service.StatusActive},
+		{service.StatusError, "Token refresh failed (non-retryable): browser reauthorization required", true, service.StatusActive},
+		{service.StatusError, "Token refresh failed (non-retryable): browser reauthorization required", false, service.StatusError},
+		{service.StatusError, "operator investigation", true, service.StatusError},
+		{service.StatusDisabled, "operator disabled", true, service.StatusDisabled},
+	} {
+		for _, paused := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/%s/replace=%t/paused=%t", scenario.status, scenario.reason, scenario.replace, paused), func(t *testing.T) {
+				past := time.Now().Add(-time.Hour)
+				account := &service.Account{Name: fmt.Sprintf("cursor-renew-%d", time.Now().UnixNano()),
+					Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14,
+					Status: service.StatusActive, Schedulable: !paused, AutoPauseOnExpired: true, ExpiresAt: &past,
+					Extra:       map[string]any{service.CursorSourceExtraKey: "cursor"},
+					Credentials: map[string]any{"api_key": "test-only", "base_url": "https://agentn.global.api5.cursor.sh", "api_base_urls": map[string]any{"anthropic": "https://agentn.global.api5.cursor.sh"}, "protocol_endpoints_exclusive": true}}
+				require.NoError(t, repo.Create(ctx, account))
+				// Match the refresh owner's SQL: status=error does not erase whether an
+				// operator paused the account while browser authorization was pending.
+				_, err = integrationDB.ExecContext(ctx, "UPDATE accounts SET status=$1, error_message=$2, schedulable=$3 WHERE id=$4", scenario.status, scenario.reason, !paused, account.ID)
+				require.NoError(t, err)
+				ids := []int64{group.ID}
+				require.NoError(t, repo.BindGroups(ctx, account.ID, ids))
+				future := time.Now().Add(time.Hour).Unix()
+				input := &service.UpdateAccountInput{ExpiresAt: &future, GroupIDs: &ids}
+				if scenario.replace {
+					input.Credentials = map[string]any{"api_key": "verified-replacement"}
+				}
+				updated, err := admin.SaveCursorAccount(ctx, nil, input, account.ID)
+				require.NoError(t, err)
+				wantSchedulable := !paused && scenario.wantStatus != service.StatusError
+				require.Equal(t, wantSchedulable, updated.Schedulable)
+				require.Equal(t, !paused && scenario.wantStatus == service.StatusActive, updated.IsSchedulable())
+				require.Equal(t, scenario.wantStatus, updated.Status)
+				loaded, err := repo.GetByID(ctx, account.ID)
+				require.NoError(t, err)
+				require.Equal(t, wantSchedulable, loaded.Schedulable)
+				require.Equal(t, scenario.wantStatus, loaded.Status)
+				if scenario.wantStatus == service.StatusActive {
+					require.Empty(t, loaded.ErrorMessage)
+				} else {
+					require.Equal(t, scenario.reason, loaded.ErrorMessage)
+				}
+				require.Equal(t, future, loaded.ExpiresAt.Unix())
+				// Free the dedicated group before exercising the other pause state.
+				require.NoError(t, repo.BindGroups(ctx, account.ID, nil))
+				t.Cleanup(func() {
+					_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id=$1", account.ID)
+					_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id=$1", account.ID)
+				})
+			})
+		}
 	}
 }

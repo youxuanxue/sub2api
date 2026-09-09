@@ -3,11 +3,11 @@ package bridge
 import (
 	"bytes"
 	"fmt"
-	"github.com/QuantumNous/new-api/model"
 	"io"
 	"net/http"
 
 	newapichannel "github.com/QuantumNous/new-api/relay/channel"
+	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	newapiservice "github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -47,7 +47,7 @@ import (
 // Auth needs no header override: XRToken accepts `Authorization: Bearer <key>`,
 // which is exactly what the embedded BuildRequestHeader sends.
 type xrTokenTaskAdaptor struct {
-	newapichannel.TaskAdaptor
+	*taskdoubao.TaskAdaptor
 
 	// baseURL mirrors what Init received. The embedded adaptor keeps its own
 	// copy in an UNEXPORTED field, so this wrapper cannot read it back and must
@@ -57,7 +57,7 @@ type xrTokenTaskAdaptor struct {
 
 // newXRTokenTaskAdaptor wraps a fresh upstream doubao task adaptor.
 func newXRTokenTaskAdaptor() *xrTokenTaskAdaptor {
-	return &xrTokenTaskAdaptor{TaskAdaptor: newArkTaskAdaptor()}
+	return &xrTokenTaskAdaptor{TaskAdaptor: &taskdoubao.TaskAdaptor{}}
 }
 
 // Init captures the resolved base URL for this wrapper, then delegates so the
@@ -83,10 +83,6 @@ func (a *xrTokenTaskAdaptor) BuildRequestURL(_ *relaycommon.RelayInfo) (string, 
 	return fmt.Sprintf("%s/v1/contents/generations/tasks", a.baseURL), nil
 }
 
-func (a *xrTokenTaskAdaptor) BuildRequestHeader(_ *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
-	return setArkTaskRequestHeaders(req, info)
-}
-
 // DoRequest preserves method dispatch to this wrapper's BuildRequestURL.
 //
 // Calling the promoted TaskAdaptor.DoRequest is not sufficient: that method
@@ -104,11 +100,11 @@ func (a *xrTokenTaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayIn
 // re-resolves it from the persisted task registry — a poll can happen in a
 // different process than the submit. Normalize it on the way in for the same
 // reason Init does.
-func (a *xrTokenTaskAdaptor) FetchTask(baseUrl, key string, task *model.Task, proxy string) (*http.Response, error) {
-	if task == nil || task.GetUpstreamTaskID() == "" {
+func (a *xrTokenTaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error) {
+	taskID, ok := body["task_id"].(string)
+	if !ok {
 		return nil, fmt.Errorf("invalid task_id")
 	}
-	taskID := task.GetUpstreamTaskID()
 	base := newapiintegration.NormalizeXRTokenBaseURL(baseUrl)
 	if base == "" {
 		return nil, fmt.Errorf("xrtoken video fetch: empty base_url")

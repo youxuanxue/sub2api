@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	newapitypes "github.com/QuantumNous/new-api/relaykit/types"
+	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/require"
 )
 
