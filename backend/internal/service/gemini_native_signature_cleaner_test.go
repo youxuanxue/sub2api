@@ -6,9 +6,10 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
-func TestCleanGeminiNativeThoughtSignatures_ReplacesNestedThoughtSignatures(t *testing.T) {
+func TestCleanGeminiNativeThoughtSignatures_ReplacesPartSignatures(t *testing.T) {
 	input := []byte(`{
 		"contents": [
 			{
@@ -34,11 +35,20 @@ func TestCleanGeminiNativeThoughtSignatures_ReplacesNestedThoughtSignatures(t *t
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(cleaned, &got))
 
-	require.NotContains(t, string(cleaned), `"thoughtSignature":"sig_1"`)
-	require.NotContains(t, string(cleaned), `"thoughtSignature":"sig_2"`)
-	require.NotContains(t, string(cleaned), `"thoughtSignature":"sig_3"`)
-	require.Contains(t, string(cleaned), `"thoughtSignature":"`+antigravity.DummyThoughtSignature+`"`)
-	require.Contains(t, string(cleaned), `"signature":"keep_me"`)
+	require.Equal(t, antigravity.DummyThoughtSignature, gjson.GetBytes(cleaned, "contents.1.parts.0.thoughtSignature").String())
+	require.Equal(t, antigravity.DummyThoughtSignature, gjson.GetBytes(cleaned, "contents.1.parts.1.thoughtSignature").String())
+	require.Equal(t, "sig_3", gjson.GetBytes(cleaned, "cachedContent.parts.0.thoughtSignature").String())
+	require.Equal(t, "keep_me", gjson.GetBytes(cleaned, "signature").String())
+}
+
+func TestCleanGeminiNativeThoughtSignatures_PreservesToolData(t *testing.T) {
+	input := []byte(`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"lookup","args":{"id":9007199254740993,"thoughtSignature":"business-value"}},"thoughtSignature":"old-signature"}]},{"role":"user","parts":[{"functionResponse":{"name":"lookup","response":{"id":9007199254740993,"thoughtSignature":"tool-result"}}},{"inlineData":{"mimeType":"image/png","data":"test-image"}}]}],"tools":[{"functionDeclarations":[{"name":"lookup","parameters":{"type":"object","properties":{"thoughtSignature":{"type":"string"}}}}]}]}`)
+	cleaned := CleanGeminiNativeThoughtSignatures(input)
+	require.Equal(t, antigravity.DummyThoughtSignature, gjson.GetBytes(cleaned, "contents.0.parts.0.thoughtSignature").String())
+	for _, path := range []string{"contents.0.parts.0.functionCall", "contents.1", "tools"} {
+		require.JSONEq(t, gjson.GetBytes(input, path).Raw, gjson.GetBytes(cleaned, path).Raw)
+	}
+	require.Equal(t, "9007199254740993", gjson.GetBytes(cleaned, "contents.0.parts.0.functionCall.args.id").Raw)
 }
 
 func TestCleanGeminiNativeThoughtSignatures_InvalidJSONReturnsOriginal(t *testing.T) {
@@ -49,27 +59,7 @@ func TestCleanGeminiNativeThoughtSignatures_InvalidJSONReturnsOriginal(t *testin
 	require.Equal(t, input, cleaned)
 }
 
-func TestReplaceThoughtSignaturesRecursive_OnlyReplacesTargetField(t *testing.T) {
-	input := map[string]any{
-		"thoughtSignature": "sig_root",
-		"signature":        "keep_signature",
-		"nested": []any{
-			map[string]any{
-				"thoughtSignature": "sig_nested",
-				"signature":        "keep_nested_signature",
-			},
-		},
-	}
-
-	got, ok := replaceThoughtSignaturesRecursive(input).(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, antigravity.DummyThoughtSignature, got["thoughtSignature"])
-	require.Equal(t, "keep_signature", got["signature"])
-
-	nested, ok := got["nested"].([]any)
-	require.True(t, ok)
-	nestedMap, ok := nested[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, antigravity.DummyThoughtSignature, nestedMap["thoughtSignature"])
-	require.Equal(t, "keep_nested_signature", nestedMap["signature"])
+func TestCleanGeminiNativeThoughtSignatures_NoProtocolSignatureIsNoOp(t *testing.T) {
+	input := []byte(`{ "contents": [{"role":"user","parts":[{"text":"hi"}]}], "thoughtSignature": "opaque" }`)
+	require.Equal(t, input, CleanGeminiNativeThoughtSignatures(input))
 }

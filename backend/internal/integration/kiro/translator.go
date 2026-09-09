@@ -733,6 +733,10 @@ func extractClaudeUserContent(content interface{}) (string, []KiroImage, []KiroT
 				}
 			case "tool_result":
 				toolUseID, _ := block["tool_use_id"].(string)
+				status := "success"
+				if isError, _ := block["is_error"].(bool); isError {
+					status = "error"
+				}
 				resultContent, resultImages := extractToolResultContent(block["content"])
 				if len(resultImages) > 0 {
 					images = append(images, resultImages...)
@@ -743,7 +747,7 @@ func extractClaudeUserContent(content interface{}) (string, []KiroImage, []KiroT
 				toolResults = append(toolResults, KiroToolResult{
 					ToolUseID: toolUseID,
 					Content:   []KiroResultContent{{Text: resultContent}},
-					Status:    "success",
+					Status:    status,
 				})
 			}
 		}
@@ -1531,6 +1535,7 @@ func narrateToolResults(toolResults []KiroToolResult, names map[string]string) s
 		if strings.TrimSpace(body) == "" {
 			body = "(no output)"
 		}
+		body = preserveToolResultFailure(tr, body)
 		if name := names[tr.ToolUseID]; name != "" {
 			parts = append(parts, fmt.Sprintf("[%s] %s", name, body))
 		} else {
@@ -1541,6 +1546,15 @@ func narrateToolResults(toolResults []KiroToolResult, names map[string]string) s
 		return ""
 	}
 	return toolResultsContinuationPrefix + "\n\n" + strings.Join(parts, "\n\n")
+}
+
+// Text-only history/orphan fallbacks have no status field. Preserve failures
+// explicitly when a structured result leaves the active tool turn.
+func preserveToolResultFailure(result KiroToolResult, text string) string {
+	if result.Status == "error" {
+		return "[Tool execution failed]\n" + text
+	}
+	return text
 }
 
 // joinHistoryText combines an existing message body with narrated tool text.
@@ -1828,6 +1842,9 @@ func buildToolResultsContinuation(toolResults []KiroToolResult) string {
 
 	parts := make([]string, 0, len(toolResults))
 	for _, tr := range toolResults {
+		if tr.Status == "error" {
+			parts = append(parts, preserveToolResultFailure(tr, ""))
+		}
 		if len(tr.Content) == 0 {
 			continue
 		}

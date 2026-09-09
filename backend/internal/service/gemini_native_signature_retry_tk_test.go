@@ -30,6 +30,7 @@ func TestGeminiForwardNativeRepairsRejectedSignatureOnce(t *testing.T) {
 		{"recover", body, invalid, 200, 2, 200},
 		{"persistent_error_stops", body, invalid, 400, 2, 400},
 		{"unrelated_400", body, `{"error":{"code":400,"message":"Invalid function arguments"}}`, 200, 1, 400},
+		{"model_turn_error_is_not_signature_error", body, `{"error":{"code":400,"message":"Requests ending with a model turn are not supported."}}`, 200, 1, 400},
 		{"no_signature", `{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`, invalid, 200, 1, 400},
 		{"already_repaired", strings.ReplaceAll(body, "old-signature", geminiDummyThoughtSignature), invalid, 200, 1, 400},
 	} {

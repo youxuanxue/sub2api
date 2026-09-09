@@ -10277,8 +10277,23 @@
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
-      "must_contain": ["!signatureRetried && attempt < geminiMaxRetries", "s.tkRepairGeminiNativeSignature(c, account, resp, body)", "signatureRetried = true"],
+      "must_contain": ["!signatureRetried && attempt < geminiMaxRetries", "s.tkRepairGeminiNativeSignature(c, account, resp, body)", "signatureRetried = true", "body = tkNormalizeGeminiFunctionResponseImages(body)"],
       "rationale": "Native Gemini and Vertex must recover rejected history signatures at most once within the existing retry budget, including sessions whose sticky binding already exists."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_function_response_tk.go",
+      "must_contain": ["func tkNormalizeGeminiFunctionResponseImages", "responseCount != 1", "functionResponse.parts", "json.RawMessage"],
+      "rationale": "Vertex Gemini 3 rejects CLI image parts beside tool responses. Preserve unambiguous tool ownership and exact payload values when nesting images into multimodal function responses."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_function_response_tk_test.go",
+      "must_contain": ["TestGeminiForwardNativeNormalizesVertexToolImages", "TestGeminiFunctionResponseImagesPreserveToolResult", "multiple_tools", "count_tokens"],
+      "rationale": "Protect actual Vertex transport normalization, payload preservation, and no-op handling for ambiguous or unrelated requests."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_signature_cleaner_test.go",
+      "must_contain": ["TestCleanGeminiNativeThoughtSignatures_PreservesToolData", "9007199254740993", "business-value"],
+      "rationale": "Native signature repair must preserve opaque tool data, same-named business fields, and exact numeric values."
     },
     {
       "path": "backend/internal/service/gemini_native_signature_retry_tk.go",
