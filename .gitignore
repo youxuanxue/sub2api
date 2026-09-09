@@ -157,7 +157,8 @@ output/
 # ===================
 __pycache__/
 *.py[cod]
-.agents/
+.agents/*
+!.agents/skills
 .tls_list/
 frontend/e2e/artifacts/
 frontend/e2e/report/

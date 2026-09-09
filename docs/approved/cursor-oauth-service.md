@@ -16,7 +16,7 @@ local tool execution, Bridge secret or cross-request connection affinity.
 
 Cursor is the supply source and service group; accounts remain
 `platform=newapi`, `type=apikey`, channel type 14. Model family, supply and public
-protocol remain separate dimensions. The new-api upgrade in this PR is retained.
+protocol remain separate dimensions.
 The native adapter follows the MIT protocol subset from can1357/oh-my-pi
 `a8b0d6cc18a69e90f2bfa0da496bb537fce9319d`, checked against Cursor CLI
 `2026.09.02-c22c1a3`; attribution is in
@@ -146,6 +146,3 @@ chained renewal. The real background service updated PostgreSQL expiry and Redis
 credentials, followed by a successful Playwright Composer call. This proves
 renewal before expiry, not recovery of already-expired or revoked credentials.
 Production deployment status belongs to release records, not this design.
-
-Complete full tests and preflight, review and push PR #2036. This approval does not
-authorize merging or deployment.
