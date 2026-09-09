@@ -1,6 +1,7 @@
 -- Add independent group pricing controls for Grok video generation.
 -- Video prices intentionally do not backfill from image prices: image and video
 -- generation must be priced separately.
+-- bluegreen-safe-destructive-ok: expand-only defaulted columns; old app writers omit them and old readers ignore them.
 
 ALTER TABLE groups
     ADD COLUMN IF NOT EXISTS video_rate_independent BOOLEAN NOT NULL DEFAULT false,

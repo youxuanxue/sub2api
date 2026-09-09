@@ -1,6 +1,9 @@
 -- /admin/groups 分组用量日汇总。
 -- 迁移创建结构与源表失效触发器，历史数据由后台聚合作业按持久水位回填。
 
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '10min';
+
 CREATE TABLE IF NOT EXISTS usage_group_daily_rollups (
     bucket_date DATE NOT NULL,
     group_id BIGINT NOT NULL,

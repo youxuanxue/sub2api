@@ -1,3 +1,4 @@
+-- bluegreen-safe-destructive-ok: expand-only ADD COLUMN with NOT NULL DEFAULT; old app ignores new columns.
 -- Add per-group controls for explicit OpenAI/Codex reasoning effort values.
 ALTER TABLE groups
     ADD COLUMN IF NOT EXISTS max_reasoning_effort VARCHAR(20) NOT NULL DEFAULT '',

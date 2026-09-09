@@ -1,6 +1,7 @@
 -- Configurable Channel Monitor V2 health scoring thresholds.
 -- Defaults are intentionally tolerant: small amounts of real traffic errors or
 -- zero cache rate should not immediately paint the user page as "abnormal".
+-- bluegreen-safe-destructive-ok: expand-only ADD COLUMN with NOT NULL DEFAULT on channel_monitor_v2_config; old app ignores new column.
 ALTER TABLE channel_monitor_v2_config
     ADD COLUMN IF NOT EXISTS health_thresholds JSONB NOT NULL DEFAULT '{
       "minimum_sample": 50,

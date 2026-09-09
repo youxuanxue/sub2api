@@ -1,4 +1,5 @@
 -- 179_usage_log_image_input_tokens.sql
+-- bluegreen-safe-destructive-ok: expand-only ADD COLUMN with NOT NULL DEFAULT; old app ignores new columns.
 -- usage_logs 单独记录图片输入 token 数与费用，便于图片编辑/图生图场景对账。
 -- image_input_tokens 从 input_tokens 中拆出，image_input_cost 从 input_cost 中拆出，
 -- total_cost 口径不变。

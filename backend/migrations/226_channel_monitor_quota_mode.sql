@@ -48,6 +48,8 @@ BEGIN
     END IF;
 END $$;
 
+-- bluegreen-safe-destructive-ok: additive constant-default column; PostgreSQL 11+
+-- materializes the default without a table rewrite, and old binaries ignore it.
 ALTER TABLE channel_monitors
     ADD COLUMN IF NOT EXISTS check_mode VARCHAR(32) NOT NULL DEFAULT 'probe';
 

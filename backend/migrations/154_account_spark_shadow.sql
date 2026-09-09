@@ -1,4 +1,5 @@
 -- 154_account_spark_shadow.sql
+-- bluegreen-safe-destructive-ok: expand-only columns with stable defaults; old app writers can omit quota_dimension and old readers ignore both new columns.
 ALTER TABLE accounts
     ADD COLUMN IF NOT EXISTS parent_account_id BIGINT,
     ADD COLUMN IF NOT EXISTS quota_dimension VARCHAR(20) NOT NULL DEFAULT 'global';
