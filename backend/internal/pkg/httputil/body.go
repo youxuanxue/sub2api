@@ -25,7 +25,44 @@ const (
 // ReadRequestBodyWithPrealloc reads request body with preallocated buffer based
 // on content length, transparently decoding any Content-Encoding the upstream
 // client used to compress the body (zstd, gzip, deflate).
+// PrereadBody 回填已读取完成的请求体
+type PrereadBody struct {
+	body   []byte
+	reader *bytes.Reader
+}
+
+// NewPrereadBody 包装一段已读取的请求体。
+func NewPrereadBody(body []byte) *PrereadBody {
+	return &PrereadBody{body: body, reader: bytes.NewReader(body)}
+}
+
+// Read 实现 io.Reader
+func (p *PrereadBody) Read(b []byte) (int, error) {
+	if p == nil {
+		return 0, io.EOF
+	}
+	return p.reader.Read(b)
+}
+
+// Close 实现 io.Closer
+func (p *PrereadBody) Close() error { return nil }
+
+// Bytes 返回完整的原始请求体切片。
+func (p *PrereadBody) Bytes() []byte {
+	if p == nil {
+		return nil
+	}
+	return p.body
+}
+
 func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
+	if req == nil || req.Body == nil {
+		return nil, nil
+	}
+	if preread, ok := req.Body.(*PrereadBody); ok {
+		return preread.Bytes(), nil
+	}
+
 	if req == nil || req.Body == nil {
 		return nil, nil
 	}

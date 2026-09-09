@@ -1,5 +1,3 @@
--- bluegreen-safe-destructive-ok: adding long_context_pricing_enabled with a constant DEFAULT keeps old app writes compatible while the column is absent from old code paths; PostgreSQL backfills existing rows and future old-version inserts receive TRUE automatically.
-
 ALTER TABLE groups
     ADD COLUMN IF NOT EXISTS long_context_pricing_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     ADD COLUMN IF NOT EXISTS model_pricing JSONB;
