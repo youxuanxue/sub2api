@@ -106,6 +106,7 @@ type PublicCatalogPricing struct {
 	OutputCostPerSecond     float64 `json:"output_cost_per_second,omitempty"`
 	// OutputCostPerCharacter is USD per billable character for character-priced TTS.
 	OutputCostPerCharacter float64 `json:"output_cost_per_character,omitempty"`
+	InputCostPerSecond     float64 `json:"input_cost_per_second,omitempty"`
 	// VideoPriceTiers surfaces official resolution×audio (and Grok image-input) ladders.
 	// OutputCostPerSecond carries the minimum tier for legacy clients; tier-aware UIs
 	// should render the full ladder. Omitted for flat-priced legacy rows.
@@ -174,6 +175,7 @@ type catalogRichEntry struct {
 	ImagePrice4K                *float64 `json:"image_price_4k"`
 	OutputCostPerSecond         *float64 `json:"output_cost_per_second"`
 	OutputCostPerCharacter      *float64 `json:"output_cost_per_character"`
+	InputCostPerSecond          *float64 `json:"input_cost_per_second"`
 	LiteLLMProvider             string   `json:"litellm_provider"`
 	Mode                        string   `json:"mode"`
 	MaxInputTokens              int      `json:"max_input_tokens"`
@@ -397,7 +399,7 @@ func applyCatalogOverlayPricingFromSnapshot(resp *PublicCatalogResponse, snapsho
 		if isNewAPILongTailCatalogVendor(p.LiteLLMProvider) && !isTkCuratedNewAPIModelListed(name) {
 			continue
 		}
-		isMedia := p.OutputCostPerImage > 0 || p.OutputCostPerImageToken > 0 || p.OutputCostPerSecond > 0 || p.OutputCostPerCharacter > 0
+		isMedia := p.OutputCostPerImage > 0 || p.OutputCostPerImageToken > 0 || p.OutputCostPerSecond > 0 || p.OutputCostPerCharacter > 0 || p.InputCostPerSecond > 0
 		if p.InputCostPerToken == 0 && p.OutputCostPerToken == 0 && !isMedia && !p.ExplicitFree {
 			continue
 		}
@@ -473,6 +475,10 @@ func catalogModelFromRegistry(name string, p *LiteLLMModelPricing) PublicCatalog
 	if p.OutputCostPerCharacter > 0 {
 		v := p.OutputCostPerCharacter
 		e.OutputCostPerCharacter = &v
+	}
+	if p.InputCostPerSecond > 0 {
+		v := p.InputCostPerSecond
+		e.InputCostPerSecond = &v
 	}
 	return catalogModelFromEntry(name, &e)
 }
@@ -597,6 +603,9 @@ func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel 
 		pricing.BillingMode = "embedding"
 	}
 	switch catalogMediaBillingMode(e) {
+	case "stt":
+		pricing.BillingMode = "stt"
+		pricing.InputCostPerSecond = *e.InputCostPerSecond
 	case "video":
 		pricing.BillingMode = "video"
 		pricing.OutputCostPerSecond = *e.OutputCostPerSecond
@@ -643,6 +652,8 @@ func catalogMediaBillingMode(e *catalogRichEntry) string {
 	hasTokenPrice := e.InputCostPerToken != nil || e.OutputCostPerToken != nil
 	pureMediaWithoutMode := e.Mode == "" && !hasTokenPrice
 	switch {
+	case e.InputCostPerSecond != nil && *e.InputCostPerSecond > 0 && e.Mode == "audio_transcription":
+		return "stt"
 	case e.OutputCostPerSecond != nil && *e.OutputCostPerSecond > 0 &&
 		(e.Mode == "video_generation" || pureMediaWithoutMode):
 		return "video"

@@ -61,7 +61,7 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 		}
 		inbound = protocolrouter.ProtocolGeminiGenerateContent
 	default:
-		return ctx
+		return context.WithValue(ctx, protocolRoutingContextKey{}, false)
 	}
 	var flags struct {
 		Stream bool   `json:"stream"`

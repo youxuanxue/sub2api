@@ -26,6 +26,8 @@ export interface PublicPricing {
   output_cost_per_image?: number
   /** USD per second of generated video (video billing_mode). Minimum tier when video_price_tiers is set. */
   output_cost_per_second?: number
+  output_cost_per_character?: number
+  input_cost_per_second?: number
   /** Official resolution×audio (and Grok image-input) ladder for video models. */
   video_price_tiers?: PublicPricingVideoTier[]
   /** Input-token interval (阶梯) pricing for models whose unit price varies by

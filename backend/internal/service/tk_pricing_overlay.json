@@ -1508,10 +1508,26 @@
     "cache_read_input_token_cost": 4.4776119402985074e-07,
     "source": "VolcEngine Ark official 在线推理(常规) (model-pricing page, captured 2026-06-11; CNY/USD=6.7; flat, USD=¥/M÷6.7)."
   },
+  "doubao-seed-asr-2.0": {
+    "litellm_provider": "volcengine",
+    "mode": "audio_transcription",
+    "input_cost_per_second": 0.00004145936981757877,
+    "failure_billing": "success_only",
+    "supported_endpoints": ["/v1/audio/transcriptions"],
+    "source": "https://www.volcengine.com/docs/82379/2516284, verified 2026-09-09: Agent Plan ASR 1 CNY/hour; CNY/USD=6.7. Settlement uses final audio_info.duration in milliseconds."
+  },
+  "doubao-seed-tts-2.0": {
+    "litellm_provider": "volcengine",
+    "mode": "tts",
+    "output_cost_per_character": 0.00004477611940298507,
+    "failure_billing": "success_only",
+    "supported_endpoints": ["/v1/audio/speech"],
+    "source": "https://www.volcengine.com/docs/82379/2516284, verified 2026-09-09: Agent Plan doubao-seed-tts-2.0 list 3 CNY/10k billable characters; CNY/USD=6.7. Usage owner text_words documented at https://www.volcengine.com/docs/6561/1598757."
+  },
   "doubao-embedding-vision": {
     "litellm_provider": "volcengine",
     "mode": "embedding",
-    "source": "VolcEngine Ark official embedding vision price; CNY/USD=6.7",
+    "source": "VolcEngine official https://www.volcengine.com/docs/82379/1544106, verified 2026-09-09: text 0.70 CNY/M tokens, image 1.80 CNY/M tokens; CNY/USD=6.7.",
     "input_cost_per_token": 1.0447761194029851e-07,
     "input_cost_per_image_token": 2.6865671641791046e-07
   },
@@ -2252,6 +2268,12 @@
     "mode": "image_generation",
     "output_cost_per_image": 0.03731343283582089,
     "source": "VolcEngine Ark official model-pricing page https://www.volcengine.com/docs/82379/1099320, verified 2026-07-02: doubao-seedream-4.5 = 0.25 CNY/image (billed per successfully generated image; single flat price, no resolution tiers) ÷ 6.7 = 0.0373134 USD/image. Direct Ark /api/v3/images/generations probe with 2048x2048 returned 200 servable on 2026-07-02."
+  },
+  "doubao-seedream-5.0-lite": {
+    "litellm_provider": "volcengine",
+    "mode": "image_generation",
+    "output_cost_per_image": 0.03283582089552239,
+    "source": "VolcEngine official https://www.volcengine.com/docs/82379/1544106, verified 2026-09-09: doubao-seedream-5-0-lite 0.22 CNY/successfully generated image, input free; CNY/USD=6.7. Agent Plan model ID documented at https://www.volcengine.com/docs/82379/2375486."
   },
   "doubao-seedream-5-0-260128": {
     "litellm_provider": "volcengine",
