@@ -137,6 +137,9 @@
       "path": "backend/internal/integration/kiro/translator.go",
       "must_contain": [
         "func ClaudeToKiro",
+        "block[\"is_error\"].(bool)",
+        "preserveToolResultFailure(tr, body)",
+        "preserveToolResultFailure(tr, \"\")",
         "buildAdditionalModelRequestFields",
         "display := \"summarized\"",
         "additionalModelRequestFields",
@@ -146,6 +149,13 @@
         "payload.ClaudeCodeCompletionProtocol = completionProtocol"
       ],
       "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply. EnsureClaudeCodeCompletionGuard keeps recognized Claude Code sessions working until implementation and verification are complete without duplicating policy text in this vendored-shaped layer. The completion protocol flag is enabled only when the private tool was actually added, which prevents a client-owned same-name tool from being shadowed or swallowed."
+    },
+    {
+      "path": "backend/internal/integration/kiro/tool_result_status_test.go",
+      "must_contain": [
+        "TestClaudeToKiro_PreservesToolResultFailure"
+      ],
+      "rationale": "Anthropic tool_result.is_error must survive active results, historical narration, orphan fallback and private completion continuation; successful or omitted flags remain success."
     },
     {
       "path": "backend/internal/integration/kiro/claude_code_completion.go",
