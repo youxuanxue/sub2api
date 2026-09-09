@@ -182,3 +182,23 @@ func TestCandidateDiscoveryPropagatesUnknownWhenNoVerifiedRouteExists(t *testing
 	_, _, err := svc.DiscoverCandidates(context.Background(), key, UniversalProtocolAll)
 	require.ErrorIs(t, err, ErrProtocolCapabilityUnknown)
 }
+
+func TestCandidateDiscoveryKeepsVerifiedModelsWhenDifferentModelIsUnknown(t *testing.T) {
+	for _, unknownModel := range []string{"aaa-unknown-model", "zzz-unknown-model"} {
+		t.Run(unknownModel, func(t *testing.T) {
+			healthy := globalCandidateAccount(1, 1, 10)
+			healthy.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4"}
+			unknown := globalCandidateAccount(2, 1, 10)
+			unknown.Credentials["model_mapping"] = map[string]any{unknownModel: unknownModel}
+			unknown.Credentials[openAIEndpointCapabilitiesCredentialKey] = []string{"chat_completions"}
+			unknown.ProtocolEndpointCapability.SupportedProtocols = nil
+			svc, key := candidateDiscoveryFixture([]Group{grpNoImage(10, PlatformOpenAI, 0, false)}, []Account{healthy, unknown})
+			models, accounts, err := svc.DiscoverCandidates(context.Background(), key, UniversalProtocolAll)
+			require.NoError(t, err)
+			require.Len(t, models, 1)
+			require.Equal(t, "gpt-5.4", models[0].ID)
+			require.Len(t, accounts, 1)
+			require.Equal(t, healthy.ID, accounts[0].ID)
+		})
+	}
+}

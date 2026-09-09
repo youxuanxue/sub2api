@@ -108,6 +108,7 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 	sort.Strings(models)
 	out := make([]UniversalCapability, 0, len(models))
 	accountSet := make(map[int64]Account)
+	var catalogSupportFailure error
 	for _, model := range models {
 		capability := UniversalCapability{ID: model}
 		var supportFailure error
@@ -196,9 +197,14 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 		if len(capability.Routes) > 0 {
 			capability.SelectedGroup = capability.Routes[0].Group
 			out = append(out, capability)
-		} else if supportFailure != nil {
-			return nil, nil, fmt.Errorf("discover %s: %w", model, supportFailure)
+		} else if supportFailure != nil && catalogSupportFailure == nil {
+			// One unverified model must not hide other verified models. Retain
+			// the error when no model has a legal route in this catalog.
+			catalogSupportFailure = fmt.Errorf("discover %s: %w", model, supportFailure)
 		}
+	}
+	if len(out) == 0 && catalogSupportFailure != nil {
+		return nil, nil, catalogSupportFailure
 	}
 	supportedAccounts := make([]Account, 0, len(accountSet))
 	for _, account := range accountSet {
