@@ -142,6 +142,8 @@ func runGrokBridgeTestConnection(t *testing.T, svc *OpenAIGatewayService, accoun
 		var closeErr *OpenAIWSClientCloseError
 		if errors.As(err, &closeErr) {
 			_ = conn.Close(closeErr.StatusCode(), closeErr.Reason())
+		} else if err != nil {
+			_ = conn.Close(websocket.StatusInternalError, "test proxy failed")
 		}
 		done <- err
 	}))
@@ -195,4 +197,61 @@ func TestGrokWSBridgeStoreFalseChainIsNotPersisted(t *testing.T) {
 	require.Contains(t, string(upstream.bodies[1]), "private question")
 	require.Contains(t, string(upstream.bodies[1]), "private reply")
 	require.Empty(t, cache.replay)
+}
+
+func TestGrokWSBridgeStoreFalseSurvivesAccountFailover(t *testing.T) {
+	cache := &bridgeReplayTestCache{candidateIdentityTestCache: &candidateIdentityTestCache{}}
+	response := func(id string) *http.Response {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(`data: {"type":"response.completed","response":{"id":"` + id + `","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"private reply"}]}]}}` + "\n\n"))}
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		response("resp_private"),
+		{StatusCode: 429, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"message":"limited"}}`))},
+		response("resp_retried"),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, cache: cache, httpUpstream: upstream}
+	account := &Account{ID: 65, Platform: PlatformGrok, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{"base_url": "https://example.test"}}
+	ctx := WithCandidateIdentity(context.Background(), 1, 10)
+	_, err := runGrokBridgeTestConnection(t, svc, account, ctx,
+		[]byte(`{"type":"response.create","model":"grok-4.6","store":false,"input":"private question"}`),
+		[]byte(`{"type":"response.create","model":"grok-4.6","store":true,"previous_response_id":"resp_private","input":"continue"}`))
+	retry, ok := OpenAIWSCurrentTurnRetryPayload(err)
+	require.True(t, ok)
+	require.NotEmpty(t, retry)
+	require.Equal(t, gjson.False, gjson.GetBytes(retry, "store").Type)
+	account.ID = 66
+	_, err = runGrokBridgeTestConnection(t, svc, account, ctx, retry)
+	require.NoError(t, err)
+	require.Contains(t, string(upstream.bodies[2]), "private question")
+	require.Contains(t, string(upstream.bodies[2]), "private reply")
+	require.Empty(t, cache.replay)
+}
+
+func TestGrokWSBridgeDoesNotPublishCompletionWhenReplayWriteFails(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		replayErr, ownerErr error
+		status              websocket.StatusCode
+	}{
+		{"replay", errors.New("redis write unavailable"), nil, websocket.StatusInternalError},
+		{"owner", nil, errors.New("owner write unavailable"), websocket.StatusInternalError},
+		{"size", errOpenAIWSBridgeReplayTooLarge, nil, websocket.StatusMessageTooBig},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := &bridgeReplayTestCache{candidateIdentityTestCache: &candidateIdentityTestCache{writeErr: tc.ownerErr}, replayErr: tc.replayErr}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`data: {"type":"response.completed","response":{"id":"resp_unsaved","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"reply"}]}]}}` + "\n\n"))}}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, cache: cache, httpUpstream: upstream}
+			account := &Account{ID: 65, Platform: PlatformGrok, Type: AccountTypeAPIKey, Concurrency: 1, Credentials: map[string]any{"base_url": "https://example.test"}}
+			message, err := runGrokBridgeTestConnection(t, svc, account, WithCandidateIdentity(context.Background(), 1, 10), []byte(`{"type":"response.create","model":"grok-4.6","store":true,"input":"hello"}`))
+			wantErr := tc.replayErr
+			if wantErr == nil {
+				wantErr = tc.ownerErr
+			}
+			require.ErrorIs(t, err, wantErr)
+			var closeErr *OpenAIWSClientCloseError
+			require.ErrorAs(t, err, &closeErr)
+			require.Equal(t, tc.status, closeErr.StatusCode())
+			require.NotEqual(t, "response.completed", gjson.GetBytes(message, "type").String())
+		})
+	}
 }

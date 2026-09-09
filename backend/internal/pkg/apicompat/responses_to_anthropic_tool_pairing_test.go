@@ -64,7 +64,7 @@ func convertAnthropic(t *testing.T, input string) []AnthropicMessage {
 	return messages
 }
 
-// Tests use call_-prefixed ids because fromResponsesCallIDToAnthropic passes
+// Tests use call_-prefixed ids because ResponsesCallIDToAnthropic passes
 // those through unchanged (matching codex's real call_00_... ids); bare ids
 // would be rewritten to toolu_<id>.
 

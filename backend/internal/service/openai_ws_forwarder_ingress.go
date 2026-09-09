@@ -569,6 +569,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					openAIWSRawPayloadHasToolCallOutput(currentBridgePayload.payloadRaw),
 				)
 			}
+			// Replayed private history keeps its retention policy at the upstream
+			// and in the payload handed to a replacement account on failover.
+			if account.Platform == PlatformGrok && !bridgeReplayRetentionAllowed {
+				bridgePayloadRaw, err = sjson.SetBytes(bridgePayloadRaw, "store", false)
+				if err != nil {
+					return fmt.Errorf("preserve websocket bridge retention: %w", err)
+				}
+				bridgePayloadBytes = len(bridgePayloadRaw)
+			}
 			grokCacheIdentity := ""
 			if account.Platform == PlatformGrok {
 				grokCacheIdentity, err = resolveGrokWSCacheIdentity(
@@ -661,11 +670,20 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			responseID := strings.TrimSpace(result.RequestID)
 			lastBridgeResponseID = responseID
 			if account.Platform == PlatformGrok && responseID != "" && bridgeReplayRetentionAllowed {
-				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, s.saveOpenAIWSBridgeReplay(ctx, account.ID, responseID, bridgeAccountFailoverInput))
+				if err := s.saveOpenAIWSBridgeReplay(ctx, account.ID, responseID, bridgeAccountFailoverInput); err != nil {
+					if errors.Is(err, errOpenAIWSBridgeReplayTooLarge) {
+						return NewOpenAIWSClientCloseError(coderws.StatusMessageTooBig, "continuation history exceeds storage limit", err)
+					}
+					return NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to save continuation state", err)
+				}
 			}
 			if responseID != "" && stateStore != nil {
 				ttl := s.openAIWSResponseStickyTTL()
-				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
+				bindErr := stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl)
+				if bindErr != nil && account.Platform == PlatformGrok && bridgeReplayRetentionAllowed {
+					return NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to save continuation owner", bindErr)
+				}
+				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, bindErr)
 			}
 			if len(completedMessage) > 0 {
 				if err := writeClientMessage(completedMessage); err != nil {

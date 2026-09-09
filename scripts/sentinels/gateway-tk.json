@@ -9,7 +9,7 @@
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_chat_tools.go",
-      "must_contain": ["func preservesChatToGemini(", "req.profile.Continuation != ContinuationNone", "!calls[message.ToolCallID]"],
+      "must_contain": ["func preservesChatToGemini(", "req.profile.Continuation != ContinuationNone", "!calls[message.ToolCallID]", "apicompat.ResponsesCallIDToAnthropic(call.ID)", "seenCalls[convertedID]", "return len(calls) == 0"],
       "rationale": "Chat tool conversion must retain unsupported-semantics and tool-history guards."
     },
     {
@@ -24,8 +24,13 @@
     },
     {
       "path": "backend/internal/service/openai_ws_bridge_replay_tk_test.go",
-      "must_contain": ["TestGrokWSBridgeReconnectAcrossGatewayInstances", "TestGrokWSBridgeStoreFalseChainIsNotPersisted", "TestGrokWSBridgeMissingHistoryNeverBecomesFreshRequest"],
+      "must_contain": ["TestGrokWSBridgeReconnectAcrossGatewayInstances", "TestGrokWSBridgeStoreFalseChainIsNotPersisted", "TestGrokWSBridgeMissingHistoryNeverBecomesFreshRequest", "TestGrokWSBridgeStoreFalseSurvivesAccountFailover", "TestGrokWSBridgeDoesNotPublishCompletionWhenReplayWriteFails"],
       "rationale": "Protect reconnect, no-storage and fail-closed regression coverage."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
+      "must_contain": ["case \"system\", \"developer\":", "Role: m.Role, Content: content"],
+      "rationale": "Chat developer instructions must not be demoted to user messages during conversion."
     },
     {
       "path": "backend/internal/service/protocol_gemini_tools_tk_test.go",

@@ -30,6 +30,12 @@ func TestPlanChatToGeminiFunctionTools(t *testing.T) {
 		{"orphan_output", `{"messages":[{"role":"tool","tool_call_id":"unknown","content":"sunny"}]}`, false},
 		{"invalid_arguments", `{"messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"bad"}}]}]}`, false},
 		{"unknown_content", `{"messages":[{"role":"user","content":[{"type":"future_block"}]}]}`, false},
+		{"unanswered_call", `{"messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]}]}`, false},
+		{"reused_call_id", `{"messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"first"},{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"second"}]}`, false},
+		{"normalized_id_collision", `{"messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}},{"id":"fc_call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_1","content":"first"},{"role":"tool","tool_call_id":"fc_call_1","content":"second"}]}`, false},
+		{"interleaved_result", `{"messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"user","content":"interruption"},{"role":"tool","tool_call_id":"call_1","content":"sunny"}]}`, false},
+		{"legacy_forced_choice", `{"function_call":{"name":"lookup"}}`, false},
+		{"legacy_functions", `{"functions":[{"name":"extra","parameters":{"type":"object"}}]}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body, patch map[string]json.RawMessage

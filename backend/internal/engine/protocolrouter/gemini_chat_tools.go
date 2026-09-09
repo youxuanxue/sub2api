@@ -3,6 +3,8 @@ package protocolrouter
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
 
 func preservesChatToGemini(req CanonicalRequest) bool {
@@ -25,6 +27,8 @@ func preservesChatToGemini(req CanonicalRequest) bool {
 		ToolChoice        json.RawMessage `json:"tool_choice"`
 		ParallelToolCalls *bool           `json:"parallel_tool_calls"`
 		ResponseFormat    json.RawMessage `json:"response_format"`
+		FunctionCall      json.RawMessage `json:"function_call"`
+		Functions         json.RawMessage `json:"functions"`
 		Messages          []struct {
 			Role         string          `json:"role"`
 			Content      json.RawMessage `json:"content"`
@@ -41,7 +45,8 @@ func preservesChatToGemini(req CanonicalRequest) bool {
 		} `json:"messages"`
 	}
 	if json.Unmarshal(req.body, &root) != nil || len(root.Tools) == 0 ||
-		(root.ParallelToolCalls != nil && !*root.ParallelToolCalls) || hasGeminiJSONValue(root.ResponseFormat) {
+		(root.ParallelToolCalls != nil && !*root.ParallelToolCalls) || hasGeminiJSONValue(root.ResponseFormat) ||
+		hasGeminiJSONValue(root.FunctionCall) || hasGeminiJSONValue(root.Functions) {
 		return false
 	}
 	// The converters carry function calls but do not preserve forced choice,
@@ -61,7 +66,11 @@ func preservesChatToGemini(req CanonicalRequest) bool {
 		names[f.Name] = true
 	}
 	calls := make(map[string]bool)
+	seenCalls := make(map[string]bool)
 	for _, message := range root.Messages {
+		if len(calls) > 0 && message.Role != "tool" {
+			return false
+		}
 		if hasGeminiJSONValue(message.FunctionCall) {
 			return false
 		}
@@ -75,11 +84,15 @@ func preservesChatToGemini(req CanonicalRequest) bool {
 		}
 		for _, call := range message.ToolCalls {
 			var arguments map[string]any
-			if call.ID == "" || calls[call.ID] || call.Type != "function" || !names[call.Function.Name] ||
+			// The intermediate Anthropic converter indexes results by normalized
+			// ID across the whole history; collisions overwrite earlier results.
+			convertedID := apicompat.ResponsesCallIDToAnthropic(call.ID)
+			if call.ID == "" || seenCalls[convertedID] || call.Type != "function" || !names[call.Function.Name] ||
 				json.Unmarshal([]byte(call.Function.Arguments), &arguments) != nil || arguments == nil {
 				return false
 			}
 			calls[call.ID] = true
+			seenCalls[convertedID] = true
 		}
 		if message.Role == "tool" {
 			if !calls[message.ToolCallID] {
@@ -97,7 +110,7 @@ func preservesChatToGemini(req CanonicalRequest) bool {
 			return false
 		}
 	}
-	return true
+	return len(calls) == 0
 }
 
 func hasGeminiJSONValue(raw json.RawMessage) bool {

@@ -12,6 +12,8 @@ import (
 
 const OpenAIWSBridgeReplayMaxBytes = 1 << 20
 
+var errOpenAIWSBridgeReplayTooLarge = errors.New("websocket bridge replay exceeds size limit")
+
 // OpenAIWSBridgeReplayCache retains bounded, expiring history for stateless
 // Grok HTTP bridges. Ownership and current account authorization remain with
 // ResolveCandidateContinuation and CandidateRequest.
@@ -49,7 +51,7 @@ func (s *OpenAIGatewayService) saveOpenAIWSBridgeReplay(ctx context.Context, acc
 		return err
 	}
 	if len(raw) > OpenAIWSBridgeReplayMaxBytes {
-		return errors.New("websocket bridge replay exceeds size limit")
+		return errOpenAIWSBridgeReplayTooLarge
 	}
 	cacheCtx, cancel := withOpenAIWSStateStoreRedisTimeout(ctx)
 	defer cancel()

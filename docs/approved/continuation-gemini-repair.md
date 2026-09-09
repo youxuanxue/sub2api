@@ -25,6 +25,10 @@ delivering response.completed. Reconnecting gateway instances consume the same
 format and revalidate authorization. store:false suppresses persistence for the
 whole dependent chain, including a later store:true turn. Unknown, expired,
 oversize, foreign-account or other-user history cannot become a fresh request.
+Replay to the upstream and account-failover payloads inherit store:false.
+Replay or ownership write failures close with 1011 before response.completed;
+history exceeding the storage bound closes with 1009. Completed upstream work
+still passes through the existing usage hook exactly once.
 Old binaries never persisted bridge history or sufficient owner records, so
 pre-existing old-version sessions cannot be reconstructed from an ID alone;
 clients must replay complete history to start a new chain. Old binaries also
@@ -37,6 +41,11 @@ choices, disabled parallel calls, strict schemas, structured output, built-ins,
 reasoning, cache, continuation and multimodal constraints remain rejected by
 Plan. Existing converters own execution, stream termination, tool results and
 usage; account mappings and advertised endpoint capabilities are not rewritten.
+Developer messages retain their instruction role through the shared Chat to
+Responses converter and become Gemini system instructions.
+Tool history must be fully paired and adjacent, with unique IDs after the
+shared converter's ID normalization. Legacy function fields remain excluded
+because their choice and declarations are not covered by this admission path.
 
 Validation covers HTTP error classification, real WS connections across
 independent gateway services, tenant/account isolation, missing/expired cache,

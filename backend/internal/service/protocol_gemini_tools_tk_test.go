@@ -28,7 +28,7 @@ func TestProtocolGeminiChatToolsPlansExecutesAndReturnsToolUsage(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
 			body, err := json.Marshal(map[string]any{"model": "gemini-3.8-flash", "stream": stream, "stream_options": map[string]any{"include_usage": true}, "max_tokens": 1024, "tool_choice": "auto", "tools": tools,
-				"messages": []any{map[string]any{"role": "user", "content": "Look up Paris"}, map[string]any{"role": "assistant", "content": nil, "tool_calls": []any{map[string]any{"id": "call_old", "type": "function", "function": map[string]any{"name": "lookup_0", "arguments": `{"city":"Paris"}`}}}}, map[string]any{"role": "tool", "tool_call_id": "call_old", "content": "sunny"}}})
+				"messages": []any{map[string]any{"role": "developer", "content": "Only look up public weather."}, map[string]any{"role": "user", "content": "Look up Paris"}, map[string]any{"role": "assistant", "content": nil, "tool_calls": []any{map[string]any{"id": "call_old", "type": "function", "function": map[string]any{"name": "lookup_0", "arguments": `{"city":"Paris"}`}}}}, map[string]any{"role": "tool", "tool_call_id": "call_old", "content": "sunny"}}})
 			require.NoError(t, err)
 			const response = `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup_1","args":{"city":"London"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":3}}`
 			upstreamBody, contentType := response, "application/json"
@@ -70,6 +70,8 @@ func TestProtocolGeminiChatToolsPlansExecutesAndReturnsToolUsage(t *testing.T) {
 			posted, err := io.ReadAll(httpStub.lastReq.Body)
 			require.NoError(t, err)
 			require.Len(t, gjson.GetBytes(posted, "tools.0.functionDeclarations").Array(), 11)
+			require.Contains(t, gjson.GetBytes(posted, "systemInstruction.parts").String(), "Only look up public weather.")
+			require.NotContains(t, gjson.GetBytes(posted, "contents").String(), "Only look up public weather.")
 			require.Contains(t, string(posted), "functionResponse")
 			require.Contains(t, string(posted), "sunny")
 			require.Contains(t, string(posted), "Paris")
