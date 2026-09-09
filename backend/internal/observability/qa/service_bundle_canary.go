@@ -80,7 +80,7 @@ func runBundleCanary(
 		opts.Now = time.Now
 	}
 	if opts.Timeout <= 0 {
-		opts.Timeout = 10 * time.Minute
+		opts.Timeout = 30 * time.Minute
 	}
 	if opts.PollInterval <= 0 {
 		opts.PollInterval = time.Second

@@ -63,7 +63,7 @@ func runQABundleCanaryCommand(
 	var timeoutSeconds int
 	fs.BoolVar(&enabled, "qa-bundle-canary", false, "run the end-to-end QA Bundle canary")
 	fs.StringVar(&confirmation, "confirm", "", "exact QA Bundle canary confirmation")
-	fs.IntVar(&timeoutSeconds, "timeout-seconds", 600, "worker result timeout")
+	fs.IntVar(&timeoutSeconds, "timeout-seconds", 1800, "worker result timeout")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("qa bundle canary flags: %w", err)
 	}
@@ -73,8 +73,8 @@ func runQABundleCanaryCommand(
 	if strings.TrimSpace(confirmation) != qaBundleCanaryConfirmation {
 		return errors.New("qa bundle canary confirmation mismatch")
 	}
-	if timeoutSeconds <= 0 || timeoutSeconds > 1800 {
-		return errors.New("qa bundle canary timeout must be between 1 and 1800 seconds")
+	if timeoutSeconds <= 0 || timeoutSeconds > 3600 {
+		return errors.New("qa bundle canary timeout must be between 1 and 3600 seconds")
 	}
 	deps = deps.withDefaults()
 	cfg, err := deps.loadConfig()
