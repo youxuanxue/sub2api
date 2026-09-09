@@ -421,6 +421,38 @@ func TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody(t *t
 	require.Equal(t, int64(len(raw)), c.Request.ContentLength)
 }
 
+func TestMaybeResolveUniversal_ContinuationUnavailableIs400(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"missing_owner", service.ErrCandidateContinuationUnavailable, http.StatusBadRequest},
+		{"wrapped_owner", fmt.Errorf("lookup: %w", service.ErrCandidateContinuationUnavailable), http.StatusBadRequest},
+		{"redis_failure", errors.New("redis unavailable"), http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const body = `{"model":"qwen3.8-flash","previous_response_id":"resp_unknown","input":"continue"}`
+			c, recorder := newTestCtx(http.MethodPost, "/v1/responses", body)
+			resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(19, service.PlatformNewAPI)}})
+			resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(context.Context, service.Group, string, service.UniversalShape) (service.GroupCandidateEligibility, error) {
+				return service.GroupCandidateEligibility{}, tc.err
+			})
+			key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+			require.True(t, MaybeResolveUniversal(c, key, resolver))
+			require.Equal(t, tc.status, recorder.Code)
+			require.True(t, c.IsAborted())
+			require.Nil(t, key.GroupID)
+			if tc.status == 400 {
+				require.Contains(t, recorder.Body.String(), "previous_response_id is not available for this user")
+			}
+			restored, err := io.ReadAll(c.Request.Body)
+			require.NoError(t, err)
+			require.Equal(t, body, string(restored))
+		})
+	}
+}
+
 func TestMaybeResolveUniversal_UnsupportedModelIs400(t *testing.T) {
 	for _, path := range []string{"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1beta/models/model-does-not-exist:generateContent", "/v1beta/models/model-does-not-exist:streamGenerateContent"} {
 		t.Run(path, func(t *testing.T) {

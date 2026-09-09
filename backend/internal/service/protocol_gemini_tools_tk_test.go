@@ -3,13 +3,81 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestProtocolGeminiChatToolsPlansExecutesAndReturnsToolUsage(t *testing.T) {
+	tools := make([]any, 11)
+	for i := range tools {
+		tools[i] = map[string]any{"type": "function", "function": map[string]any{"name": fmt.Sprintf("lookup_%d", i), "parameters": map[string]any{"type": "object", "properties": map[string]any{"city": map[string]any{"type": "string"}}}}}
+	}
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprint(stream), func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{"model": "gemini-3.8-flash", "stream": stream, "stream_options": map[string]any{"include_usage": true}, "max_tokens": 1024, "tool_choice": "auto", "tools": tools,
+				"messages": []any{map[string]any{"role": "developer", "content": "Only look up public weather."}, map[string]any{"role": "user", "content": "Look up Paris"}, map[string]any{"role": "assistant", "content": nil, "tool_calls": []any{map[string]any{"id": "call_old", "type": "function", "function": map[string]any{"name": "lookup_0", "arguments": `{"city":"Paris"}`}}}}, map[string]any{"role": "tool", "tool_call_id": "call_old", "content": "sunny"}}})
+			require.NoError(t, err)
+			const response = `{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup_1","args":{"city":"London"}}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":3}}`
+			upstreamBody, contentType := response, "application/json"
+			if stream {
+				upstreamBody, contentType = "data: "+response+"\n\ndata: [DONE]\n\n", "text/event-stream"
+			}
+			httpStub := &geminiCompatHTTPUpstreamStub{response: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(upstreamBody))}}
+			svc := &GeminiMessagesCompatService{httpUpstream: httpStub, cfg: &config.Config{}}
+			_, _, accounts, _ := candidateGoogleFixture(t)
+			account := &accounts[1]
+			router := NewProtocolRouter()
+			request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gemini-3.8-flash", stream, body)
+			require.NoError(t, err)
+			ctx := WithProtocolRouting(context.Background(), router, request)
+			plan, governed, err := protocolPlanForAccount(ctx, account, "gemini-3.8-flash")
+			require.NoError(t, err)
+			require.True(t, governed)
+			require.Equal(t, protocolrouter.AdapterChatToGemini, plan.AdapterID())
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body)).WithContext(ctx)
+			value, err := ExecuteSelectedProtocol(ctx, router, &AccountSelectionResult{Account: account, ProtocolPlan: &plan}, account,
+				func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(account),
+				ProtocolExecutors{ChatToGemini: func(ctx context.Context, a *Account, _ protocolrouter.Plan, req protocolrouter.CanonicalRequest) (any, error) {
+					return svc.ForwardAsChatCompletions(ctx, c, a, req.Body())
+				}})
+			require.NoError(t, err)
+			result := value.(*ForwardResult)
+			require.Equal(t, 12, result.Usage.InputTokens)
+			require.Equal(t, 3, result.Usage.OutputTokens)
+			require.Equal(t, 200, rec.Code)
+			require.Contains(t, rec.Body.String(), `"finish_reason":"tool_calls"`)
+			require.Contains(t, rec.Body.String(), `"name":"lookup_1"`)
+			if stream {
+				require.Contains(t, rec.Body.String(), "data: [DONE]")
+				require.Contains(t, rec.Body.String(), `"prompt_tokens":12`)
+			}
+			require.NotNil(t, httpStub.lastReq)
+			posted, err := io.ReadAll(httpStub.lastReq.Body)
+			require.NoError(t, err)
+			require.Len(t, gjson.GetBytes(posted, "tools.0.functionDeclarations").Array(), 11)
+			require.Contains(t, gjson.GetBytes(posted, "systemInstruction.parts").String(), "Only look up public weather.")
+			require.NotContains(t, gjson.GetBytes(posted, "contents").String(), "Only look up public weather.")
+			require.Contains(t, string(posted), "functionResponse")
+			require.Contains(t, string(posted), "sunny")
+			require.Contains(t, string(posted), "Paris")
+		})
+	}
+}
 
 func TestProtocolGeminiMessagesToolsPlansAndConvertsVertex(t *testing.T) {
 	resolver, _, accounts, _ := candidateGoogleFixture(t)
