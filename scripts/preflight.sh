@@ -3325,6 +3325,14 @@ else
     echo "  ok: Go toolchain pins match backend/go.mod"
 fi
 
+# ---- sub2api: release cache toolchain parity ---------------------------------
+echo ""
+echo "=== sub2api: release cache toolchain parity ==="
+if ! python3 -m unittest scripts.checks.test_release_cache_key_parity; then
+    echo "  FAIL: release cache toolchain differs from CI consumers"
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: platform registry drift ----------------------------------------
 # Go ↔ TS platform registry lockstep: OpenAI-compat list, dispatch-config
 # platforms, Platform constant universe, Ent enum coverage, and admin UI style
