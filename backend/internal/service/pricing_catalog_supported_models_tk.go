@@ -311,6 +311,13 @@ func FilterPublicCatalogToServable(resp *PublicCatalogResponse) *PublicCatalogRe
 		// m is a by-value copy of the row — re-tagging its vendor here is
 		// presentation-only and never mutates the caller's cached BuildPublicCatalog.
 		m.Vendor = presentationVendorForServable(m.ModelID, m.Vendor)
+		// Public embeddings are the reviewed DashScope text selection in the
+		// manifest. Native capability floors and retained settlement rows do not
+		// expand this presentation policy.
+		if m.Pricing.BillingMode == "embedding" &&
+			(m.Vendor != "dashscope" || !isTkCuratedNewAPICatalogRowDisplayed(m.Vendor, m.ModelID)) {
+			continue
+		}
 		if isPublicCatalogModelSupported(m.Vendor, m.ModelID) {
 			filtered = append(filtered, m)
 		}

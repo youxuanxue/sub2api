@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "e98e26999b54f9a62d914b2e8c1aa0c5883bfe3ddcc90bd4c66f450bc11067ca",
+  "floor_sha256": "af850bb52c9ebe1a89f3b91c46777c1d617fc1e3ef4bdc0b4b6471ff22657b38",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -272,8 +272,14 @@
         "qwen3.7-max-2026-06-08": "qwen3.7-max-2026-06-08",
         "qwen3.7-max-preview": "qwen3.7-max-preview",
         "qwen3.7-plus": "qwen3.7-plus",
+        "qwen3.7-text-embedding": "qwen3.7-text-embedding",
+        "qwen3.7-text-embedding-flash": "qwen3.7-text-embedding-flash",
         "qwen3.8-2.4t-a95b": "qwen3.8-2.4t-a95b",
-        "qwen3.8-max": "qwen3.8-max"
+        "qwen3.8-max": "qwen3.8-max",
+        "text-embedding-v1": "text-embedding-v1",
+        "text-embedding-v2": "text-embedding-v2",
+        "text-embedding-v3": "text-embedding-v3",
+        "text-embedding-v4": "text-embedding-v4"
       },
       "25": {
         "kimi-k2.5": "kimi-k2.5",
