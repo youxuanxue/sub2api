@@ -31,6 +31,9 @@ func TestTkIsAccountStandingBillingMessage_PositiveAndNegative(t *testing.T) {
 
 	negatives := []string{
 		"You have exceeded the weekly usage quota. It will reset at 2026-08-30 23:59:59 +0800 CST",
+		"Token Plan Person monthly quota limit exceeded",
+		"monthly quota limit exceeded",
+		"monthly usage quota limit exceeded",
 		"Requests rate limit exceeded, please retry later",
 		"insufficient_quota",
 		"Invalid value for parameter 'temperature'",
@@ -40,6 +43,7 @@ func TestTkIsAccountStandingBillingMessage_PositiveAndNegative(t *testing.T) {
 	for _, msg := range negatives {
 		require.False(t, tkIsAccountStandingBillingFailure(msg, nil), msg)
 	}
+	require.False(t, tkIsAccountStandingBillingFailure("", []byte(`{"error":{"code":"token_quota_exceeded","message":"Token Plan Person monthly quota limit exceeded"}}`)))
 }
 
 func TestTkTryHandleStandingBilling_Tokensea403DisablesAndAlerts(t *testing.T) {
@@ -101,6 +105,25 @@ func TestTkTryHandleStandingBilling_WeeklyQuota429IsNotStanding(t *testing.T) {
 	_ = svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body)
 
 	require.Zero(t, repo.setErrorCalls, "weekly usage window must not permanently disable")
+	for _, reason := range incidents.reasons {
+		require.NotEqual(t, tkStandingBillingIncidentReason, reason)
+	}
+}
+
+func TestTkTryHandleStandingBilling_QianfanMonthlyQuota429IsNotStanding(t *testing.T) {
+	svc, repo, _, incidents := newBridgePenaltyTestService()
+	account := &Account{
+		ID:          130,
+		Name:        "qianfan-token-plan",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: 1,
+	}
+	body := []byte(`{"error":{"code":"token_quota_exceeded","message":"Token Plan Person monthly quota limit exceeded","type":"quota_exceeded"}}`)
+
+	_ = svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{}, body)
+
+	require.Zero(t, repo.setErrorCalls, "monthly usage window must not permanently disable")
 	for _, reason := range incidents.reasons {
 		require.NotEqual(t, tkStandingBillingIncidentReason, reason)
 	}

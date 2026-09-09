@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// TK: NewAPI recoverable usage-window snapshots (weekly / 5h / 7d quota text).
+// TK: NewAPI recoverable usage-window snapshots (weekly / 5h / 7d / monthly quota text).
 //
 // Prod 2026-09-02 account 88 volcengine-agent-plan: upstream 429
 // "You have exceeded the weekly usage quota. It will reset at …" was correctly
@@ -22,7 +22,7 @@ import (
 //
 // This file is the write+read SSOT for that window text: parse reset time,
 // persist Extra, cool until reset, and surface utilization on the local 7d
-// (or 5h) progress + UpstreamQuota dimensions.
+// (or 5h, or 30d monthly) progress + UpstreamQuota dimensions.
 
 const (
 	newAPIWeeklyUtilExtraKey      = "newapi_weekly_utilization"

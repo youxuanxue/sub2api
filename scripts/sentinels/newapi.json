@@ -64,9 +64,11 @@
         "newAPIWeeklyUtilExtraKey",
         "tkParseNewAPIUsageWindowResponse",
         "parseRetryAfterResetTime(headers, reference)",
-        "(*progress).UtilizationUnknown = false"
+        "(*progress).UtilizationUnknown = false",
+        "newAPIMonthlyUtilExtraKey",
+        "nextNaturalMonthStartCST"
       ],
-      "rationale": "NewAPI Agent Plan weekly/5h/7d prose 429s must cool until the parsed reset and persist Extra so admin usage windows show exhaustion instead of a permanent 'unsupported' chip. Dropping this companion recreates the account-88 weekly-quota UI blind spot."
+      "rationale": "NewAPI Agent Plan weekly/5h/7d/monthly prose 429s must cool until the parsed reset and persist Extra so admin usage windows show exhaustion instead of a permanent 'unsupported' chip. Dropping this companion recreates the account-88 weekly-quota UI blind spot or Qianfan monthly quota spin."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
