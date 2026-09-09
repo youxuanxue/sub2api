@@ -1979,9 +1979,18 @@
       "must_contain": [
         "Wei-Shaw/sub2api#1311",
         "c.Writer.Header().Set(\"Content-Type\", \"application/json\")",
+        "beginAnthropicClientHeaderWaitKeepalive(c, clientStream)",
         "openAICompatSSEFrameParser"
       ],
-      "rationale": "Non-stream /v1/messages uses the same buffered Responses SSE -> JSON conversion root cause as /v1/chat/completions; it must also override Content-Type after WriteFilteredHeaders so JSON bodies are not labeled text/event-stream. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+      "rationale": "Non-stream /v1/messages must gate downstream keepalive on clientStream, even when the Responses upstream is always streamed, and override Content-Type after WriteFilteredHeaders so buffered JSON is not mixed with SSE. The buffered terminal reader must use openAICompatSSEFrameParser to recognise typed completion events when the stream closes without a standalone [DONE] (upstream PR #2530). isOpenAICompatResponsesTerminalEvent — used by both the Messages and Chat Completions streaming handlers — must keep response.cancelled / response.canceled in its terminal set so legitimate upstream cancellations close the stream cleanly instead of degenerating to 'stream usage incomplete: missing terminal event' (upstream #1322)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_buffered_keepalive_tk_test.go",
+      "must_contain": [
+        "TestForwardAsAnthropic_BufferedHeaderWaitPreservesJSON",
+        "json.Unmarshal(rec.Body.Bytes(), &response)"
+      ],
+      "rationale": "Slow Responses headers must not commit SSE to a buffered Messages client. Regression covers omitted and false stream flags, successful JSON and JSON errors after a keepalive interval."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_tk.go",
