@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility and review-fix push approval, 2026-09-09)"
 created: 2026-09-07
 ---
 
@@ -79,17 +79,20 @@ Focused regression tests cover shared candidate ordering, credential expiry,
 atomic imports, cache billing, streaming truncation and consumer cancellation.
 These tests do not replace TokenKey UI or coding-client acceptance.
 
-**System instruction compatibility is unresolved.** Current Composer probes did
+**System-to-user compatibility was approved on 2026-09-09.** Earlier Composer probes did
 not follow a marker supplied through request-context rules, non-file rules,
 system_prompt_spec append or root system history. Diagnostic probes observed a
 context callback but no marker in the returned prompt blobs. They are diagnostic
-observations, not passing system-instruction acceptance tests. Do not publish
-this work as a complete programming-client service until that gap is resolved.
-Placing instructions into user content is a proposed compatibility compromise,
-not an approved or implemented contract.
-The public adapter currently rejects nonempty system instructions before calling
-upstream, so unsupported semantics cannot silently reach clients. Native system
-paths remain diagnostic code, and opt-in live tests fail when the marker is lost.
+observations, not passing system-instruction acceptance tests. The accepted
+compatibility path prepends system text to the first user message on every full
+history reconstruction, including tool continuation. It preserves subsequent user
+messages and does not modify the caller's history. This is user-message content,
+not a guarantee of native system priority or resistance to conflicting user
+instructions. Existing native rule/system fields remain supplemental.
+Tests decode the actual outgoing protobuf and cover first requests, multiple
+turns, tool continuation and rejection of malformed system/tool content. They do
+not establish model obedience. Real coding-client acceptance is still required
+before presenting this as a complete programming-client service.
 
 Current boundary checks also reject image/thinking content blocks and forced
 tool choice. Native `max_tokens` enforcement and reasoning-history replay remain

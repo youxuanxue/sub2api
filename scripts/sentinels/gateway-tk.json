@@ -3,6 +3,21 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/integration/cursor/agent.go",
+      "must_contain": ["func buildAgentRun", "firstUserPrepared", "input.Messages = preparedMessages"],
+      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes."
+    },
+    {
+      "path": "backend/internal/integration/cursor/agent_test.go",
+      "must_contain": ["TestAgentSystemCompatibilityPreservesHistory"],
+      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history."
+    },
+    {
+      "path": "backend/internal/integration/cursor/messages_test.go",
+      "must_contain": ["TestMessagesAcceptsAndPropagatesSystemPrompt", "TestMessagesSystemAndToolRolesValidateTextContent"],
+      "rationale": "The public adapter must emit the approved system text and reject malformed content before upstream execution."
+    },
+    {
       "path": "backend/internal/service/cursor_rollout_regression_test.go",
       "must_contain": [
         "TestCursorExpiryCannotBeDisabledAndRenewalPreservesPause",

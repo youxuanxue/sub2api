@@ -91,31 +91,22 @@ func parseMessages(body []byte, parameters []Parameter, wireModel string) (Agent
 	}
 	for _, message := range raw.Messages {
 		if message.Role == "system" {
-			var text string
-			if json.Unmarshal(message.Content, &text) == nil {
+			text, err := textContent(message.Content)
+			if err != nil {
+				return input, false, err
+			}
+			if text != "" {
 				if input.System != "" {
 					input.System += "\n\n"
 				}
 				input.System += text
-			} else {
-				var blocks []messageBlock
-				if json.Unmarshal(message.Content, &blocks) == nil {
-					for _, b := range blocks {
-						if b.Type == "text" && b.Text != "" {
-							if input.System != "" {
-								input.System += "\n\n"
-							}
-							input.System += b.Text
-						}
-					}
-				}
 			}
 			continue
 		}
 		if message.Role == "tool" {
-			var text string
-			if json.Unmarshal(message.Content, &text) != nil {
-				text = string(message.Content)
+			text, err := textContent(message.Content)
+			if err != nil {
+				return input, false, err
 			}
 			input.Messages = append(input.Messages, AgentMessage{Role: "tool", ToolCallID: message.ToolCallID, Text: text})
 			continue

@@ -12,6 +12,7 @@ import (
 
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -62,16 +63,43 @@ func TestMessagesReportedUsageAndStreaming(t *testing.T) {
 }
 func TestMessagesAcceptsAndPropagatesSystemPrompt(t *testing.T) {
 	for _, system := range []string{`"Follow the caller's instructions"`, `[{"type":"text","text":"Follow the caller's instructions"}]`} {
-		resp, err := Messages(t.Context(), "test-token", []byte(`{"model":"composer-2.5","system":`+system+`,"messages":[{"role":"user","content":"hello"}]}`), nil, "composer-2.5", messagesTestTransport(t,
+		respond := messagesTestTransport(t,
 			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "world"}}},
 			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: 15, OutputTokens: 2}}},
-		))
+		)
+		resp, err := Messages(t.Context(), "test-token", []byte(`{"model":"composer-2.5","system":`+system+`,"messages":[{"role":"user","content":"hello"}]}`), nil, "composer-2.5", func(req *http.Request) (*http.Response, error) {
+			_, frame, err := readAgentFrame(req.Body)
+			require.NoError(t, err)
+			var message pb.AgentClientMessage
+			require.NoError(t, proto.Unmarshal(frame, &message))
+			require.Equal(t, "Follow the caller's instructions\n\nhello", message.GetRunRequest().GetAction().GetUserMessageAction().GetUserMessage().GetText())
+			return respond(req)
+		})
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		raw, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		require.Contains(t, string(raw), `"text":"world"`)
 		require.NoError(t, resp.Body.Close())
+	}
+}
+
+func TestMessagesSystemAndToolRolesValidateTextContent(t *testing.T) {
+	input, _, err := parseMessages([]byte(`{"model":"composer-2.5","system":"top","messages":[{"role":"system","content":[{"type":"text","text":"rule"}]},{"role":"user","content":"hello"},{"role":"assistant","content":[{"type":"tool_use","id":"call_a","name":"lookup","input":{}}]},{"role":"tool","tool_call_id":"call_a","content":[{"type":"text","text":"result"}]}]}`), nil, "composer-2.5")
+	require.NoError(t, err)
+	require.Equal(t, "top\n\nrule", input.System)
+	require.Equal(t, "result", input.Messages[len(input.Messages)-1].Text)
+	for _, role := range []string{"system", "tool"} {
+		for _, content := range []string{`{"unexpected":"object"}`, `[{"type":"image","source":{}}]`} {
+			body := []byte(`{"model":"composer-2.5","messages":[{"role":"` + role + `","content":` + content + `},{"role":"user","content":"hello"}]}`)
+			resp, err := Messages(t.Context(), "test-token", body, nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
+				t.Fatal("invalid content must not reach upstream")
+				return nil, nil
+			})
+			require.NoError(t, err)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			require.NoError(t, resp.Body.Close())
+		}
 	}
 }
 func TestMessagesToolHandoffEstimatesOnlyMissingUsage(t *testing.T) {

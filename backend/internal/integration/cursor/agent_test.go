@@ -47,6 +47,38 @@ func TestAgentHistoryReconstructsNativeToolTurns(t *testing.T) {
 	}
 }
 
+func TestAgentSystemCompatibilityPreservesHistory(t *testing.T) {
+	for _, continuation := range []string{"first", "user", "tool"} {
+		t.Run(continuation, func(t *testing.T) {
+			input := AgentRequest{Model: "composer-2.5", System: "Follow the supplied rules.", Messages: []AgentMessage{{Role: "user", Text: "question"}}}
+			switch continuation {
+			case "user":
+				input.Messages = append(input.Messages, AgentMessage{Role: "assistant", Text: "answer"}, AgentMessage{Role: "user", Text: "next question"})
+			case "tool":
+				input.Messages = append(input.Messages, AgentMessage{Role: "assistant", ToolCalls: []AgentToolCall{{ID: "call_a", Name: "lookup"}}}, AgentMessage{Role: "tool", ToolCallID: "call_a", Text: "result"})
+			}
+			run, blobs, err := buildAgentRun(input)
+			require.NoError(t, err)
+			require.Equal(t, "question", input.Messages[0].Text, "building a run must not modify caller history")
+			var firstUser *pb.UserMessage
+			if continuation == "first" {
+				firstUser = run.Action.GetUserMessageAction().GetUserMessage()
+			} else {
+				var turn pb.ConversationTurnStructure
+				require.NoError(t, proto.Unmarshal(blobs.data[string(run.ConversationState.Turns[0])], &turn))
+				firstUser = &pb.UserMessage{}
+				require.NoError(t, proto.Unmarshal(blobs.data[string(turn.GetAgentConversationTurn().GetUserMessage())], firstUser))
+				if continuation == "user" {
+					require.Equal(t, "next question", run.Action.GetUserMessageAction().GetUserMessage().GetText())
+				} else {
+					require.NotNil(t, run.Action.GetResumeAction())
+				}
+			}
+			require.Equal(t, input.System+"\n\nquestion", firstUser.GetText())
+		})
+	}
+}
+
 func TestAgentRejectsOrphanToolHistory(t *testing.T) {
 	for _, messages := range [][]AgentMessage{
 		{{Role: "tool", ToolCallID: "orphan", Text: "result"}},
