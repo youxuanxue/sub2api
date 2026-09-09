@@ -1288,6 +1288,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	var resp *http.Response
+	signatureRetried := false
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
 		upstreamReq, idHeader, err := buildReq(ctx)
 		if err != nil {
@@ -1335,6 +1336,15 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}
 			setOpsUpstreamError(c, 0, safeErr, "")
 			return nil, s.writeGoogleError(c, http.StatusBadGateway, "Upstream request failed after retries: "+safeErr)
+		}
+
+		// TK: recover stale native signatures once, before a terminal error policy.
+		if !signatureRetried && attempt < geminiMaxRetries && action != "countTokens" {
+			if repaired, retry := s.tkRepairGeminiNativeSignature(c, account, resp, body); retry {
+				body = repaired
+				signatureRetried = true
+				continue
+			}
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
