@@ -47,15 +47,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, failoverErr
 	}
 
-	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
+	// 2. Convert to Messages while preserving tool and cache semantics.
+	anthropicReq, err := apicompat.ChatCompletionsToAnthropicRequest(&ccReq)
 	if err != nil {
-		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
-	}
-
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
-	if err != nil {
-		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
 	}
 
 	// 3. Upstream streaming shape. Native Anthropic upstreams are forced to SSE

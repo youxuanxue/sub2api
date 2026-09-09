@@ -605,7 +605,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 // appendRawJSON appends a JSON fragment string to existing raw JSON.
 func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
-	if len(existing) == 0 {
+	// Messages starts streamed tool input with an empty-object placeholder;
+	// the first input_json_delta replaces it rather than appending after it.
+	if len(existing) == 0 || strings.TrimSpace(string(existing)) == "{}" {
 		return json.RawMessage(fragment)
 	}
 	return json.RawMessage(string(existing) + fragment)

@@ -52,6 +52,8 @@ func TestTkBridgeUpstreamShouldFailoverAfterPenalty_ClientAndOtherServerErrorsNe
 		{"client 400", upstreamBridgeError(400, "The supported API model names are ...")},
 		{"model not found 404", upstreamBridgeError(404, "model_not_found")},
 		{"server 500", upstreamBridgeError(500, "internal error")},
+		{"client forbidden envelope", upstreamBridgeError(400, "Upstream access forbidden, please contact administrator")},
+		{"unrelated forbidden", upstreamBridgeError(500, "content access forbidden by policy")},
 		{"server 501", upstreamBridgeError(501, "not implemented")},
 		{"nil", nil},
 	} {
@@ -168,4 +170,32 @@ func TestOpenAIGatewayService_TkWrapBridgeRelayErrorWithPenalty_402Failover(t *t
 	var failoverErr *UpstreamFailoverError
 	require.True(t, errors.As(err, &failoverErr))
 	require.True(t, failoverErr.ShouldRetryNextAccount())
+}
+
+func TestBridgeSupplierUnavailable500RetriesWithoutPenalty(t *testing.T) {
+	var mojibake []rune
+	for _, b := range []byte("没有可用账号，请稍后重试") {
+		mojibake = append(mojibake, rune(b))
+	}
+	for _, message := range []string{
+		"Upstream access forbidden, please contact administrator (request id: example)",
+		"没有可用账号，请稍后重试 (request id: example)",
+		string(mojibake) + " (request id: example)",
+	} {
+		t.Run(message, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			svc, repo, blocker, incidents := newBridgePenaltyTestService()
+			err := bridgeWrapRelayErrorAfterPenalty(context.Background(), svc, c, newNewAPIBridgeAccount(), upstreamBridgeError(500, message))
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			require.True(t, failover.ShouldRetryNextAccount())
+			require.False(t, candidateFailureAttributable(err))
+			require.False(t, c.Writer.Written())
+			require.Zero(t, repo.setErrorCalls)
+			require.Zero(t, repo.setRateLimitedCalls)
+			require.Zero(t, repo.tempCalls)
+			require.Empty(t, blocker.reasons)
+			require.Empty(t, incidents.reasons)
+		})
+	}
 }

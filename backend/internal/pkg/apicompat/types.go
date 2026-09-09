@@ -705,13 +705,14 @@ type ChatStreamOptions struct {
 
 // ChatMessage is a single message in the Chat Completions conversation.
 type ChatMessage struct {
-	Role             string          `json:"role"` // "system" | "user" | "assistant" | "tool" | "function"
-	Content          json.RawMessage `json:"content,omitempty"`
-	ReasoningContent string          `json:"reasoning_content,omitempty"`
-	Reasoning        string          `json:"reasoning,omitempty"`
-	Name             string          `json:"name,omitempty"`
-	ToolCalls        []ChatToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID       string          `json:"tool_call_id,omitempty"`
+	CacheControl     *AnthropicCacheControl `json:"cache_control,omitempty"`
+	Role             string                 `json:"role"` // "system" | "user" | "assistant" | "tool" | "function"
+	Content          json.RawMessage        `json:"content,omitempty"`
+	ReasoningContent string                 `json:"reasoning_content,omitempty"`
+	Reasoning        string                 `json:"reasoning,omitempty"`
+	Name             string                 `json:"name,omitempty"`
+	ToolCalls        []ChatToolCall         `json:"tool_calls,omitempty"`
+	ToolCallID       string                 `json:"tool_call_id,omitempty"`
 
 	// Legacy function calling
 	FunctionCall *ChatFunctionCall `json:"function_call,omitempty"`
@@ -719,10 +720,11 @@ type ChatMessage struct {
 
 // ChatContentPart is a typed content part in a multi-modal message.
 type ChatContentPart struct {
-	Type     string        `json:"type"` // "text" | "image_url" | "file"
-	Text     string        `json:"text,omitempty"`
-	ImageURL *ChatImageURL `json:"image_url,omitempty"`
-	File     *ChatFile     `json:"file,omitempty"`
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+	Type         string                 `json:"type"` // "text" | "image_url" | "file"
+	Text         string                 `json:"text,omitempty"`
+	ImageURL     *ChatImageURL          `json:"image_url,omitempty"`
+	File         *ChatFile              `json:"file,omitempty"`
 }
 
 // ChatImageURL contains the URL for an image content part.
@@ -740,8 +742,9 @@ type ChatFile struct {
 
 // ChatTool describes a tool available to the model.
 type ChatTool struct {
-	Type     string        `json:"type"` // "function" | "x_search"
-	Function *ChatFunction `json:"function,omitempty"`
+	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+	Type         string                 `json:"type"` // "function" | "x_search"
+	Function     *ChatFunction          `json:"function,omitempty"`
 
 	// type=x_search
 	AllowedXHandles          []string `json:"allowed_x_handles,omitempty"`
