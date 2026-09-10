@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	kiroproto "github.com/Wei-Shaw/sub2api/internal/integration/kiro"
 	"github.com/gin-gonic/gin"
 )
 
@@ -223,6 +224,8 @@ func classifyKiroForwardError(err error, model string) (*kiroForwardErrorObserva
 
 func classifyKiroOpaqueFailure(err error) (kiroForwardErrorObservation, bool) {
 	switch {
+	case errors.Is(err, kiroproto.ErrInvalidToolUse):
+		return kiroForwardErrorObservation{Kind: "response_error", Reason: "invalid_tool_use"}, true
 	case errors.Is(err, errKiroEmptyResponse):
 		return kiroForwardErrorObservation{Kind: "response_error", Reason: "empty_response"}, true
 	case errors.Is(err, errKiroUnsupportedStopReason):

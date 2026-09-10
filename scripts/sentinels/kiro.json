@@ -777,6 +777,8 @@
         "func classifyAndRecordKiroForwardError",
         "MarkOpsClientContentFiltered(c)",
         "func classifyKiroOpaqueFailure",
+        "errors.Is(err, kiroproto.ErrInvalidToolUse)",
+        "invalid_tool_use",
         "func recordKiroForwardError",
         "func parseKiroEventStreamError",
         "func isKiroInputTooLongError",
@@ -793,9 +795,21 @@
         "KiroContentFilteredError",
         "content_filter_error",
         "MarkOpsClientContentFiltered(c)",
+        "origCommitted := IsResponseCommitted(c)",
+        "c.Set(ResponseCommittedKey, origCommitted)",
         "KiroOutcomeHeader"
       ],
-      "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling."
+      "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling. Internal capture errors must restore the outer response commitment so the handler can report failures to the actual client."
+    },
+    {
+      "path": "backend/internal/handler/kiro_stream_error_regression_test.go",
+      "must_contain": [
+        "TestKiroChatBridge_CapturedErrorReachesClient",
+        "TestGatewayHandlerMessages_InvalidKiroToolFailsOver",
+        "http.StatusBadGateway",
+        "invalid_tool_use"
+      ],
+      "rationale": "Behavioral regressions require captured stream failures to reach Chat Completions clients and invalid Kiro tools before output to reach bounded account failover with structured upstream evidence."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
