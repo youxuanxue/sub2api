@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -149,7 +150,7 @@ func TestPublicCatalog_SurfacesEmbeddingBillingMode(t *testing.T) {
 	assert.Greater(t, row.Pricing.InputPer1KTokens, 0.0)
 }
 
-func TestPublicCatalog_EmbeddingsFollowDashScopeDisplayIntent(t *testing.T) {
+func TestPublicCatalog_EmbeddingsFollowManifestDisplayIntent(t *testing.T) {
 	t.Parallel()
 	catalog := &PricingCatalogService{}
 	catalog.SetSourceForTesting(func() ([]byte, time.Time, bool) {
@@ -172,7 +173,6 @@ func TestPublicCatalog_EmbeddingsFollowDashScopeDisplayIntent(t *testing.T) {
 		// Hiding a card must not remove the model's settlement or account path.
 		require.True(t, catalog.IsModelPriced(id, PlatformNewAPI), id)
 		if intent.Display {
-			require.Equal(t, newapiconstant.ChannelTypeAli, intent.ChannelType, id)
 			want[id] = true
 		}
 	}
@@ -183,12 +183,15 @@ func TestPublicCatalog_EmbeddingsFollowDashScopeDisplayIntent(t *testing.T) {
 			continue
 		}
 		got[model.ModelID] = true
-		assert.Equal(t, "dashscope", model.Vendor)
+		require.True(t, want[model.ModelID], "unselected vector model: %s", model.ModelID)
+		price := registry[model.ModelID]
+		require.NotNil(t, price)
+		assert.Equal(t, price.LiteLLMProvider, model.Vendor)
 		assert.Greater(t, model.Pricing.InputPer1KTokens, 0.0)
 		assert.Zero(t, model.Pricing.OutputPer1KTokens)
-		assert.NotContains(t, model.Capabilities, "vision")
+		assert.Equal(t, price.SupportsVision, slices.Contains(model.Capabilities, "vision"))
 	}
-	assert.Equal(t, want, got, "public vector cards must contain only the selected DashScope text models")
+	assert.Equal(t, want, got, "public vector cards must match the manifest display selection")
 
 	// Native Gemini/Vertex floors and unreviewed multimodal rows may still be
 	// priced or callable, but must not expand the public vector selection.

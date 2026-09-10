@@ -152,7 +152,8 @@ func shouldPreserveOpenAIResponsesNoneReasoningEffort(account *Account) bool {
 // non-reasoning model. Treat that catalog-only "none" value as omission for
 // compatible upstreams, while preserving official OpenAI request semantics.
 func filterOpenAIResponsesNoneReasoningEffortForAccount(account *Account, body []byte) ([]byte, error) {
-	if len(body) == 0 || shouldPreserveOpenAIResponsesNoneReasoningEffort(account) {
+	if len(body) == 0 || shouldPreserveOpenAIResponsesNoneReasoningEffort(account) ||
+		tkPreserveExplicitNoneReasoning(account, gjson.GetBytes(body, "model").String()) {
 		return body, nil
 	}
 
@@ -180,6 +181,10 @@ func filterOpenAIResponsesNoneReasoningEffortForAccount(account *Account, body [
 
 func deleteOpenAIResponsesNoneReasoningEffortFromObject(account *Account, body map[string]any) {
 	if body == nil || shouldPreserveOpenAIResponsesNoneReasoningEffort(account) {
+		return
+	}
+	model, _ := body["model"].(string)
+	if tkPreserveExplicitNoneReasoning(account, model) {
 		return
 	}
 	if effort, ok := body["reasoning_effort"].(string); ok && strings.EqualFold(strings.TrimSpace(effort), "none") {

@@ -82,6 +82,7 @@ type LiteLLMModelPricing struct {
 	// TTS owners (e.g. Ali Qwen-Audio-TTS). CalculateAudioCost("tts") multiplies
 	// by 1e6 to obtain the per-million-chars unit used by AudioUsage.
 	OutputCostPerCharacter float64 `json:"output_cost_per_character,omitempty"`
+	InputCostPerSecond     float64 `json:"input_cost_per_second,omitempty"`
 
 	// Intervals 输入-token 区间分档定价（active registry 扩展，见
 	// tk_pricing_overlay.json 的 "intervals"）。空 = 扁平定价。
@@ -151,6 +152,7 @@ type LiteLLMRawEntry struct {
 	ImagePrice4K                        *float64 `json:"image_price_4k"`
 	OutputCostPerSecond                 *float64 `json:"output_cost_per_second"`
 	OutputCostPerCharacter              *float64 `json:"output_cost_per_character"`
+	InputCostPerSecond                  *float64 `json:"input_cost_per_second"`
 	InputCostPerTokenAbove272K          *float64 `json:"input_cost_per_token_above_272k_tokens"`
 	OutputCostPerTokenAbove272K         *float64 `json:"output_cost_per_token_above_272k_tokens"`
 	CacheReadInputTokenCostAbove272K    *float64 `json:"cache_read_input_token_cost_above_272k_tokens"`
@@ -670,6 +672,9 @@ func (s *PricingService) parsePricingSensorData(body []byte) (map[string]*LiteLL
 		}
 		if entry.OutputCostPerCharacter != nil {
 			pricing.OutputCostPerCharacter = *entry.OutputCostPerCharacter
+		}
+		if entry.InputCostPerSecond != nil {
+			pricing.InputCostPerSecond = *entry.InputCostPerSecond
 		}
 
 		hasExplicitLongContext := entry.LongContextInputTokenThreshold != nil ||

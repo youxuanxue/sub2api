@@ -271,7 +271,7 @@ func peekUniversalModel(c *gin.Context, shape service.UniversalShape) string {
 			return geminiModelFromAction(ma)
 		}
 		return c.Param("model")
-	case service.ShapeOpenAIImagesEdit:
+	case service.ShapeOpenAIImagesEdit, service.ShapeOpenAIAudioTranscription:
 		return peekImageEditModel(c)
 	case service.ShapeOpenAIVideo:
 		if c.Request != nil && strings.EqualFold(c.Request.Method, http.MethodPost) {

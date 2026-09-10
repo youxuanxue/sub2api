@@ -105,6 +105,13 @@ func (s *OpenAIGatewayService) TkTTSModelUnpriced(model string, group *Group) bo
 	return s.billingService.TkTTSModelUnpriced(model, group)
 }
 
+func (s *OpenAIGatewayService) TkSTTModelUnpriced(model string, group *Group) bool {
+	if group != nil && group.AudioSTTPricePerHour != nil {
+		return false
+	}
+	return s == nil || s.billingService == nil || s.billingService.TkRegistrySTTPricePerHour(model) <= 0
+}
+
 // TkUnpricedMediaModelMessage is the client-facing 400 body for both media
 // surfaces — explicit about WHY (no silent wrong charge) and about the way
 // out (operator adds pricing).

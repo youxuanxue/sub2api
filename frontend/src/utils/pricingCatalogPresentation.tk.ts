@@ -1,4 +1,4 @@
-export type PricingCatalogModality = 'text' | 'image' | 'video' | 'embedding'
+export type PricingCatalogModality = 'text' | 'image' | 'video' | 'embedding' | 'audio'
 
 /** Catalog API stores token prices per 1K; UI displays per 1M for readability. */
 export const CATALOG_TOKEN_DISPLAY_UNIT = 1_000_000 as const
@@ -8,7 +8,14 @@ export function pricingCatalogModality(billingMode?: string): PricingCatalogModa
   if (billingMode === 'image') return 'image'
   if (billingMode === 'video') return 'video'
   if (billingMode === 'embedding') return 'embedding'
+  if (billingMode === 'tts' || billingMode === 'stt') return 'audio'
   return 'text'
+}
+
+export function catalogAudioPrice(mode?: string, perCharacter?: number | null, perInputSecond?: number | null) {
+  if (mode === 'tts') return { value: perCharacter == null ? undefined : perCharacter * 10_000, unit: 'pricing.perTenThousandCharacters' }
+  if (mode === 'stt') return { value: perInputSecond == null ? undefined : perInputSecond * 3600, unit: 'pricing.perHour' }
+  return undefined
 }
 
 /** Convert stored per-1K token price to per-1M display amount. */

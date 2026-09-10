@@ -3,6 +3,21 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/openai_gateway_request_body.go",
+      "must_contain": ["tkPreserveExplicitNoneReasoning(account, gjson.GetBytes(body, \"model\").String())", "tkPreserveExplicitNoneReasoning(account, model)"],
+      "rationale": "HTTP and WS bridge normalization must preserve explicit reasoning opt-out for actual reasoning models behind compatible gateways."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_request_tk_reasoning.go",
+      "must_contain": ["account.GetMappedModel(model)", "isOpenAICodexReasoningGPTModel(model)", "account.GetUpstreamModelMetadata(model)"],
+      "rationale": "Reuse account alias and catalog capability owners to distinguish real reasoning choices from synthetic none placeholders."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_request_tk_reasoning_test.go",
+      "must_contain": ["TestCompatibleResponsesPreservesExplicitNoneForReasoningModels", "filterOpenAIResponsesNoneReasoningEffortForAccount", "prepareOpenAIWSHTTPBridgeBody", "mapped GPT alias", "catalog placeholder"],
+      "rationale": "Keep both transport regressions, mapped-model coverage and the non-reasoning placeholder counterexample."
+    },
+    {
       "path": "backend/internal/service/service_tier_billing.go",
       "must_contain": ["OpenAIFastTierUltrafast", "account.IsOpenAIOAuthLike() && codexOAuthResponseTierIsNonAuthoritative(observed)", "return ResolveBillingServiceTier(requested, observed)"],
       "rationale": "Public API service-tier downgrades include Ultrafast, while the private Codex default echo cannot override the outbound paid tier."
@@ -91,6 +106,41 @@
       "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
       "must_contain": ["loadOpenAIAccountRuntimeBlockEntry(value)", "currentEntry, valid := loadOpenAIAccountRuntimeBlockEntry(current)", "currentEntry.Until.Equal(snapshot.until)"],
       "rationale": "Runtime block snapshots and conditional clearing must read the structured entry format without treating active blocks as corrupt legacy timestamps."
+    },
+    {
+      "path": "backend/internal/service/volcengine_plan_asr_tk.go",
+      "must_contain": ["volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
+      "rationale": "ASR must retain bounded binary decoding, terminal-only duration settlement and its dedicated Plan credential destination."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_audio_speech_tk.go",
+      "must_contain": ["AudioTranscriptions", "audio.Normalize", "TkReserveSTTHold", "ForwardNativeAudioTranscription", "audioRequestContextDone"],
+      "rationale": "Speech and transcription share the scheduling and settlement owner; transcription keeps normalization, hold and timeout cleanup."
+    },
+    {
+      "path": "backend/internal/service/volcengine_plan_asr_tk_test.go",
+      "must_contain": ["TestVolcEnginePlanASRDefaultTTSRoundTrip", "TestVolcEnginePlanASRBinaryWebSocketTransport", "TestVolcEnginePlanASRFailureAndCancellation", "TestVolcEnginePlanASRForwardSilentInputAndBilling", "TestVolcEnginePlanASRFrameValidation"],
+      "rationale": "Preserve recording, cancellation, metering and malformed-frame regression coverage."
+    },
+    {
+      "path": "frontend/src/utils/pricingCatalogPresentation.tk.ts",
+      "must_contain": ["catalogAudioPrice", "pricing.perTenThousandCharacters", "pricing.perHour"],
+      "rationale": "Audio display units are shared by pricing and marketplace, not duplicated in page logic."
+    },
+    {
+      "path": "backend/internal/service/volcengine_plan_tts_tk.go",
+      "must_contain": ["https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional", "seed-tts-2.0", "case 20000000:", "event.Usage.TextWords <= 0", "ForwardAliTokenPlanTTS"],
+      "rationale": "Plan speech uses its dedicated credential destination, terminal success and authoritative character count, while preserving Ali forwarding."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_v1_forward.go",
+      "must_contain": ["newapiintegration.VolcEngineAgentPlanBaseURL", "volcEnginePlanMultimodalEmbeddingInput(forwardBody)", "normalizeVolcEnginePlanEmbeddingResponse(responseBody)"],
+      "rationale": "Plan media must retain its subscription root and OpenAI multimodal vector response shape."
+    },
+    {
+      "path": "backend/internal/service/tk_served_models_manifest_tk.go",
+      "must_contain": ["func newAPIVolcEngineAgentPlanModelAliases() map[string]string"],
+      "rationale": "Agent Plan aliases share one owner for account floors, activation and target-model billing."
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
@@ -10206,11 +10256,11 @@
       "path": "backend/internal/handler/openai_gateway_audio_speech_tk.go",
       "must_contain": [
         "func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context)",
-        "ForwardAliTokenPlanTTS",
+        "ForwardNativeAudioSpeech",
         "TkTTSModelUnpriced",
-        "TkUnpricedMediaModelMessage(reqModel, \"tts\")",
+        "TkUnpricedMediaModelMessage(reqModel, mode)",
         "tkApplyTTSHold",
-        "IsNewAPIAliTokenPlanAccount"
+        "SupportsNativeAudioSpeech"
       ],
       "rationale": "POST /v1/audio/speech handler: Token Plan native forward + unpriced TTS reject. Losing TkTTSModelUnpriced re-opens serve-unpriced for character-priced speech."
     },
@@ -10226,7 +10276,8 @@
       "path": "backend/internal/service/openai_gateway_service_tk_hold.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) TkReserveTTSHold(",
-        "EstimateTTSHold"
+        "tkReserveAudioHold(ctx, requestID, model, \"tts\"",
+        "CalculateAudioCostForModel(model, mode, units, cfg, multiplier)"
       ],
       "rationale": "Character-priced TTS balance hold mirrors settlement units (chars/1e6)."
     },

@@ -237,8 +237,11 @@ type MePricingPrice struct {
 	// TK media units: per-generated-image (image billing_mode) and per-second
 	// (video billing_mode), scaled by the user's effective rate. Carried from
 	// the public catalog meta (which now surfaces media — pricing_catalog_tk.go).
-	PerImage  *float64 `json:"per_image,omitempty"`
-	PerSecond *float64 `json:"per_second,omitempty"`
+	PerImage           *float64 `json:"per_image,omitempty"`
+	PerSecond          *float64 `json:"per_second,omitempty"`
+	PerCharacter       *float64 `json:"per_character,omitempty"`
+	PerInputSecond     *float64 `json:"per_input_second,omitempty"`
+	PerImageInputToken *float64 `json:"per_image_input_token,omitempty"`
 	// Tiers, when non-empty, is the input-token interval (阶梯) ladder for models
 	// whose unit price varies by request input length. Single source of truth: it
 	// is copied verbatim from the public catalog (PublicCatalogModel.Pricing.Tiers,
@@ -1129,6 +1132,9 @@ func applyCatalogMetaToMePricingModel(entry *MePricingModel, meta PublicCatalogM
 	// Media units (nil when 0 — non-media models stay token-only).
 	entry.YourPrice.PerImage = scaleCatalogPrice(meta.Pricing.OutputCostPerImage, rate)
 	entry.YourPrice.PerSecond = scaleCatalogPrice(meta.Pricing.OutputCostPerSecond, rate)
+	entry.YourPrice.PerCharacter = scaleCatalogPrice(meta.Pricing.OutputCostPerCharacter, rate)
+	entry.YourPrice.PerInputSecond = scaleCatalogPrice(meta.Pricing.InputCostPerSecond, rate)
+	entry.YourPrice.PerImageInputToken = scaleCatalogPrice(meta.Pricing.InputCostPerImageToken, rate)
 }
 
 // scaleCatalogPrice multiplies a PublicCatalogPricing value (already in

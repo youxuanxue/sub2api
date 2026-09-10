@@ -5,6 +5,7 @@
 # rejection (upstream_rejected; exact text is platform-specific).
 # Batch Kiro Claude matrix: ops/stage0/probe_kiro_claude_models.sh (see tokenkey-account-model-probe skill).
 # Embedding models: use ENDPOINT=embeddings (/v1/embeddings), not chat — chat probes can 401 and mark accounts error.
+# Transcription: ENDPOINT=transcriptions and AUDIO_FILE=<remote MP3/WAV path>.
 # Skill wrapper: .cursor/skills/tokenkey-account-model-probe/scripts/probe_account_model.sh
 set -euo pipefail
 
@@ -28,6 +29,7 @@ USAGE_POLL_ATTEMPTS="${USAGE_POLL_ATTEMPTS:-12}"
 USAGE_POLL_INTERVAL_SECONDS="${USAGE_POLL_INTERVAL_SECONDS:-1}"
 LOG_WINDOW="${LOG_WINDOW:-3m}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-90}"
+AUDIO_FILE="${AUDIO_FILE:-}"
 PROBE_USER_ID=1
 
 fail_json() {
@@ -125,9 +127,13 @@ if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_
   fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
-  messages|count_tokens|chat|responses|embeddings|images|speech) ;;
-  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, images, or speech" ;;
+  messages|count_tokens|chat|responses|embeddings|images|speech|transcriptions) ;;
+  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, images, speech, or transcriptions" ;;
 esac
+if [[ "$ENDPOINT" == "transcriptions" ]]; then
+  [[ -n "$AUDIO_FILE" && -f "$AUDIO_FILE" && -r "$AUDIO_FILE" && -s "$AUDIO_FILE" ]] || fail_json "transcriptions requires AUDIO_FILE pointing to a readable nonempty MP3/WAV"
+  [[ -z "$REQUEST_EXTRA_JSON" ]] || fail_json "transcriptions does not accept REQUEST_EXTRA_JSON"
+fi
 
 PROBE_ID="tkprobe-${ACCOUNT_ID}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
@@ -314,7 +320,7 @@ elif endpoint == "speech":
     payload = {
         "model": model,
         "input": prompt or "你好",
-        "voice": "longanlingxin",
+        "voice": "zh_female_vv_uranus_bigtts" if model == "doubao-seed-tts-2.0" else "longanlingxin",
         "response_format": "mp3",
     }
 elif endpoint == "messages":
@@ -362,6 +368,7 @@ case "$ENDPOINT" in
   responses) PATH_SUFFIX="/v1/responses"; AUTH_HEADER_NAME="Authorization";;
   images) PATH_SUFFIX="/v1/images/generations"; AUTH_HEADER_NAME="Authorization";;
   speech) PATH_SUFFIX="/v1/audio/speech"; AUTH_HEADER_NAME="Authorization";;
+  transcriptions) PATH_SUFFIX="/v1/audio/transcriptions"; AUTH_HEADER_NAME="Authorization";;
 esac
 
 # Direct probe groups default allow_image_generation=false; image endpoints need it on.
@@ -415,6 +422,9 @@ tmp_headers="$(mktemp)"
 tmp_err="$(mktemp)"
 tmp_logs="$(mktemp)"
 printf '%s' "$payload" >"$tmp_payload"
+if [[ "$ENDPOINT" == "transcriptions" ]]; then
+  cp "$AUDIO_FILE" "$tmp_payload"
+fi
 
 PROBE_STARTED_AT="$("${PSQL[@]}" -c "SELECT to_char(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"');" | tr -d '\n')"
 CLIENT_REQUEST_ID="$PROBE_ID"
@@ -448,12 +458,23 @@ if [[ "$AUTH_HEADER_NAME" == "x-api-key" ]]; then
   fi
 else
   if http_output="$(sudo docker exec -i \
+    -e TK_PROBE_ENDPOINT="$ENDPOINT" \
+    -e TK_PROBE_MODEL="$MODEL" \
     -e TK_PROBE_KEY="$API_KEY" \
     -e TK_PROBE_URL="${APP_URL}${PATH_SUFFIX}" \
     -e TK_PROBE_REQUEST_ID="$CLIENT_REQUEST_ID" \
     -e TK_PROBE_TIMEOUT_SECONDS="$REQUEST_TIMEOUT_SECONDS" \
     "$APP_CONTAINER" sh -lc '
       cat >/tmp/tk-probe-request.json
+      if [ "$TK_PROBE_ENDPOINT" = "transcriptions" ]; then
+        exec curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
+          -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
+          -H "Authorization: Bearer $TK_PROBE_KEY" \
+          -H "X-Request-ID: $TK_PROBE_REQUEST_ID" \
+          -H "User-Agent: tokenkey-account-model-probe/1" \
+          -F "model=$TK_PROBE_MODEL" -F "file=@/tmp/tk-probe-request.json;filename=recording.audio" \
+          "$TK_PROBE_URL"
+      fi
       curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
         -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
         -H "Authorization: Bearer $TK_PROBE_KEY" \
@@ -482,7 +503,8 @@ for ((attempt=1; attempt<=USAGE_POLL_ATTEMPTS; attempt++)); do
 SELECT COALESCE(row_to_json(t)::text, '')
 FROM (
   SELECT id, account_id, api_key_id, group_id, request_id, model, requested_model,
-         upstream_model, duration_ms, stream, created_at AT TIME ZONE 'UTC' AS created_at_utc
+         upstream_model, duration_ms, total_cost, actual_cost, rate_multiplier,
+         stream, created_at AT TIME ZONE 'UTC' AS created_at_utc
   FROM usage_logs
   WHERE api_key_id = ${API_KEY_ID}
     AND created_at >= TIMESTAMPTZ '$(sql_escape "$PROBE_STARTED_AT")'

@@ -1561,6 +1561,11 @@ func (s *BillingService) CalculateAudioCostForModel(model, mode string, duration
 		unitPrice = defaultAudioSTTPricePerHour
 		if groupConfig != nil && groupConfig.STTPerHour != nil {
 			unitPrice = *groupConfig.STTPerHour
+		} else if p := s.TkRegistrySTTPricePerHour(model); p > 0 {
+			unitPrice = p
+		} else if model == VolcEnginePlanASRModel {
+			// This owner must never inherit the unrelated Grok default.
+			return &CostBreakdown{}
 		}
 	default:
 		return &CostBreakdown{}
@@ -1587,6 +1592,14 @@ func (s *BillingService) TkRegistryTTSPricePerMillionChars(model string) float64
 		return 0
 	}
 	return pricing.OutputCostPerCharacter * 1_000_000.0
+}
+
+func (s *BillingService) TkRegistrySTTPricePerHour(model string) float64 {
+	pricing := s.tkRegistryMediaPricing(model)
+	if pricing == nil || pricing.Mode != "audio_transcription" || pricing.InputCostPerSecond <= 0 {
+		return 0
+	}
+	return pricing.InputCostPerSecond * 3600
 }
 
 // CalculateImageCost 计算图片生成费用

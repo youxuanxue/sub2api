@@ -39,6 +39,13 @@ def classify_probe_verdict(
     low = body_text.lower()
 
     if 200 <= status < 300:
+        if endpoint == "transcriptions":
+            try:
+                transcript = json.loads(body_text)
+            except json.JSONDecodeError:
+                return "uncorrelated_success"
+            if not isinstance(transcript, dict) or not isinstance(transcript.get("text"), str):
+                return "uncorrelated_success"
         if endpoint == "count_tokens":
             return "servable"
         if endpoint == "embeddings":

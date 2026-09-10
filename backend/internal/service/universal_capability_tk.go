@@ -27,6 +27,7 @@ const (
 	UniversalModalityEmbedding UniversalModality = "embedding"
 	UniversalModalityImage     UniversalModality = "image"
 	UniversalModalityVideo     UniversalModality = "video"
+	UniversalModalityAudio     UniversalModality = "audio"
 )
 
 type UniversalSelectedGroup struct {
@@ -125,6 +126,8 @@ var universalCapabilityShapes = []universalCapabilityShape{
 	{protocol: UniversalProtocolOpenAI, modality: UniversalModalityImage, shape: ShapeOpenAIImages},
 	{protocol: UniversalProtocolOpenAI, modality: UniversalModalityImage, shape: ShapeOpenAIImagesEdit},
 	{protocol: UniversalProtocolOpenAI, modality: UniversalModalityVideo, shape: ShapeOpenAIVideo},
+	{protocol: UniversalProtocolOpenAI, modality: UniversalModalityAudio, shape: ShapeOpenAIAudioSpeech},
+	{protocol: UniversalProtocolOpenAI, modality: UniversalModalityAudio, shape: ShapeOpenAIAudioTranscription},
 	{protocol: UniversalProtocolGemini, modality: UniversalModalityChat, shape: ShapeGemini},
 	{protocol: UniversalProtocolCodex, modality: UniversalModalityChat, shape: ShapeOpenAIChat, forcedPlatform: PlatformOpenAI},
 	{protocol: UniversalProtocolAntigravity, modality: UniversalModalityChat, shape: ShapeAnthropicMessages, forcedPlatform: PlatformAntigravity},

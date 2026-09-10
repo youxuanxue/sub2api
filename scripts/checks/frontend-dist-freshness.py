@@ -31,13 +31,13 @@ EXCLUDED_NAMES = {".DS_Store", "playwright.config.ts"}
 def iter_frontend_input_paths() -> list[Path]:
     if (REPO_ROOT / ".git").exists():
         result = subprocess.run(
-            ["git", "ls-files", "frontend"],
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "frontend"],
             cwd=REPO_ROOT,
             check=True,
             text=True,
             stdout=subprocess.PIPE,
         )
-        return filter_input_paths(REPO_ROOT / line for line in result.stdout.splitlines())
+        return filter_input_paths(REPO_ROOT / name for name in result.stdout.split("\0") if name)
 
     return filter_input_paths(path for path in FRONTEND_ROOT.rglob("*") if path.is_file())
 
