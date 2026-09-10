@@ -2,8 +2,7 @@
 # Keys use schema / runner OS / exact go.mod version / family / dependency /
 # source fingerprints. Date, week, branch, and run ID are not key dimensions.
 #
-# Dual-write window: required main jobs may still save. The warm workflow is
-# the intended long-term writer and uses restore → build → save → prune.
+# Required jobs restore only; the warm workflow owns managed main snapshots.
 #
 # Set `cache: false` on the calling job's actions/setup-go step and call this
 # AFTER it.
@@ -25,7 +24,7 @@ inputs:
   save_caches:
     description: Allow main pushes to save caches owned by this action; set false on restore-only jobs.
     required: false
-    default: "true"
+    default: "false"
   benchmark_build_cache_write:
     description: Allow a workflow_dispatch run to write only an isolated build cache for controlled A/B measurement.
     required: false

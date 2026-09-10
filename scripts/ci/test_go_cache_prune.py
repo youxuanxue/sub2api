@@ -197,7 +197,7 @@ class GoCachePruneTest(unittest.TestCase):
         self.assertFalse(family_fits(caches, "analysis", size=4, budget_bytes=10))
         self.assertTrue(family_fits(caches, "test", size=2, budget_bytes=10))
 
-    def test_fails_when_single_latest_exceeds_budget(self) -> None:
+    def test_discards_oversized_latest_without_sacrificing_other_families(self) -> None:
         caches = [
             _cache("Linux-gomod-v1-a", 1, cache_id=1),
             _cache("Linux-gobuild-test-v1-a", 20, cache_id=2),
@@ -206,10 +206,88 @@ class GoCachePruneTest(unittest.TestCase):
             _cache("Linux-go-release-v1-a", 1, cache_id=5),
         ]
         plan = plan_prune(caches, budget_bytes=10)
-        self.assertFalse(plan.ok)
-        self.assertEqual(plan.delete_ids, ())
-        # test is highest keep priority; after dropping others, test alone still overflows.
-        self.assertIn(2, plan.keep_ids)
+        self.assertTrue(plan.ok)
+        self.assertEqual(plan.delete_ids, (2,))
+        self.assertEqual(set(plan.keep_ids), {1, 3, 4, 5})
+        self.assertFalse(family_fits(caches, "test", budget_bytes=10))
+        self.assertTrue(family_fits(caches, "test", size=4, budget_bytes=10))
+
+    def test_single_oversized_cache_can_be_evicted_for_cold_rebuild(self) -> None:
+        caches = [_cache("Linux-gobuild-test-v1-a", 20, cache_id=2)]
+        plan = plan_prune(caches, budget_bytes=10)
+        self.assertTrue(plan.ok)
+        self.assertEqual(plan.delete_ids, (2,))
+        self.assertEqual(plan.keep_ids, ())
+
+    def test_save_budget_measures_paths_and_never_deletes_remote_caches(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            payload = Path(root) / "entry"
+            payload.write_bytes(b"compiled")
+            with patch.object(go_cache_prune, "_list_caches", return_value=[]), \
+                    patch.object(go_cache_prune, "family_fits", return_value=False) as fits, \
+                    patch.object(go_cache_prune, "_delete_caches") as delete:
+                self.assertEqual(go_cache_prune.main(["--save-budget", "test", "--path", root]), 0)
+                self.assertGreater(fits.call_args.kwargs["size"], payload.stat().st_size)
+                delete.assert_not_called()
+
+    def test_save_budget_fails_on_missing_directory_or_inventory_failure(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(go_cache_prune, "_list_caches", return_value=[]):
+                with self.assertRaisesRegex(ValueError, "directory unavailable"):
+                    go_cache_prune.main(["--save-budget", "test", "--path", str(Path(root) / "missing")])
+        with patch.object(go_cache_prune, "_list_caches", side_effect=OSError("inventory unavailable")):
+            with self.assertRaisesRegex(OSError, "inventory unavailable"):
+                go_cache_prune.main(["--save-budget", "test"])
+
+    def test_save_budget_fails_on_unreadable_subtree_without_output(self) -> None:
+        import contextlib
+        import io
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            denied = Path(root) / "denied"
+            denied.mkdir()
+            (denied / "large-cache").write_bytes(b"compiled")
+            scandir = os.scandir
+
+            def read_directory(path):
+                if Path(path) == denied:
+                    raise PermissionError("cache subtree unavailable")
+                return scandir(path)
+
+            output = io.StringIO()
+            with patch.object(go_cache_prune, "_list_caches", return_value=[]), \
+                    patch("os.scandir", side_effect=read_directory), \
+                    contextlib.redirect_stdout(output):
+                with self.assertRaisesRegex(PermissionError, "cache subtree unavailable"):
+                    go_cache_prune.main(["--save-budget", "test", "--path", root])
+            self.assertEqual(output.getvalue(), "")
+
+    def test_save_budget_counts_nested_files_without_following_symlinks(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            nested = Path(root) / "nested"
+            nested.mkdir()
+            (nested / "entry").write_bytes(b"compiled")
+            link = nested / "cycle"
+            link.symlink_to(Path(root), target_is_directory=True)
+            with patch.object(go_cache_prune, "_list_caches", return_value=[]), \
+                    patch.object(go_cache_prune, "family_fits", return_value=True) as fits:
+                self.assertEqual(go_cache_prune.main(["--save-budget", "test", "--path", root]), 0)
+            self.assertEqual(fits.call_args.kwargs["size"], 1024 * 1024 + 3 * 1024 + 8 + link.lstat().st_size)
+
+    def test_heal_actually_deletes_an_oversized_single_snapshot(self) -> None:
+        caches = [_cache("Linux-gobuild-test-v1-too-large", BUDGET_BYTES + 1, cache_id=23)]
+        with patch.object(go_cache_prune, "_list_caches", return_value=caches), \
+                patch.object(go_cache_prune, "_delete_caches") as delete:
+            self.assertEqual(go_cache_prune.main(["--heal"]), 0)
+            delete.assert_called_once_with((23,))
 
     def test_candidate_tie_breaks_by_key_ascending(self) -> None:
         caches = [

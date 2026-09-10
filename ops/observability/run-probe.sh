@@ -20,6 +20,7 @@
 #       [--comment "free text"] \
 #       [--expected-instance-id i-*|mi-*] \
 #       [--timeout-seconds 120]
+#       [--compressed-output] integrity-checked gzip transport for large stdout
 #       [--describe-script]  print the registered companion/verdict contract and exit
 #
 # Probe contracts (ops/observability/probe-contracts.json):
@@ -81,6 +82,7 @@ COMMENT="run-probe wrapper"
 TIMEOUT_SECONDS=120
 EXPECTED_INSTANCE_ID=""
 DESCRIBE_SCRIPT=0
+COMPRESSED_OUTPUT=0
 declare -a ENVS=()
 declare -a WITH_FILES=()
 
@@ -96,6 +98,7 @@ while [ "$#" -gt 0 ]; do
     --expected-instance-id) EXPECTED_INSTANCE_ID="${2:-}"; shift 2 ;;
     --timeout-seconds) TIMEOUT_SECONDS="${2:-}"; shift 2 ;;
     --describe-script) DESCRIBE_SCRIPT=1; shift ;;
+    --compressed-output) COMPRESSED_OUTPUT=1; shift ;;
     *) echo "[run-probe] ERROR: unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
@@ -133,6 +136,10 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROBE_CONTRACTS="$REPO_ROOT/ops/observability/probe-contracts.json"
+OUTPUT_TRANSPORT="$REPO_ROOT/ops/observability/probe_output_transport.py"
+if [ "$COMPRESSED_OUTPUT" = "1" ]; then
+  WITH_FILES+=("$OUTPUT_TRANSPORT")
+fi
 
 probe_contract() {
   python3 - "$PROBE_CONTRACTS" "$(basename "$SCRIPT_PATH")" "$1" <<'PY'
@@ -307,7 +314,11 @@ for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
 done
 B64=$(base64 < "$SCRIPT_PATH" | tr -d '\n')
 REMOTE_PARTS+=("echo $B64 | base64 -d > $REMOTE_PATH && chmod +x $REMOTE_PATH")
-REMOTE_PARTS+=("env $ENV_PREFIX bash $REMOTE_PATH")
+if [ "$COMPRESSED_OUTPUT" = "1" ]; then
+  REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_transport.py encode -- bash $REMOTE_PATH")
+else
+  REMOTE_PARTS+=("env $ENV_PREFIX bash $REMOTE_PATH")
+fi
 REMOTE_LINE=""
 for part in "${REMOTE_PARTS[@]}"; do
   if [ -z "$REMOTE_LINE" ]; then
@@ -417,4 +428,15 @@ if [ "$STATUS" != "Success" ]; then
   exit 3
 fi
 
-printf '%s\n' "$STDOUT"
+if [[ "$STDOUT" == *"--output truncated--"* ]]; then
+  echo "[run-probe] ERROR: SSM stdout truncated; refusing partial probe output" >&2
+  exit 2
+fi
+if [ "$COMPRESSED_OUTPUT" = "1" ]; then
+  if ! printf '%s\n' "$STDOUT" | python3 "$OUTPUT_TRANSPORT" decode; then
+    echo "[run-probe] ERROR: compressed output integrity check failed" >&2
+    exit 2
+  fi
+else
+  printf '%s\n' "$STDOUT"
+fi

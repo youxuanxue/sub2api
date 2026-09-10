@@ -122,15 +122,16 @@ for tgt in "${TARGETS[@]}"; do
     fi
   fi
   if out="$(bash "$RUN_PROBE" --target "$tgt" --script "$PROBE" \
+              --compressed-output \
               --env "PLATFORM=anthropic" --env "SINCE=$SINCE" \
               --env "TERMINAL_ONLY=$ALERT_JSON" \
-              --timeout-seconds "$PROBE_TIMEOUT" 2>/dev/null)"; then
+              --timeout-seconds "$PROBE_TIMEOUT")"; then
     if [ "$ALERT_JSON" = "1" ]; then
       terminal_json=""
-      if ! terminal_json="$(printf '%s\n' "$out" | python3 "$HERE/edge_terminal_probe.py" --label "$label" 2>/dev/null)"; then
+      if ! terminal_json="$(printf '%s\n' "$out" | python3 "$HERE/edge_terminal_probe.py" --label "$label")"; then
         echo "    terminal parser failed — scan will fail" >&2
         ORCHESTRATION_ERRORS=$((ORCHESTRATION_ERRORS + 1))
-        printf '{"edge":"%s","reachable":false,"reason":"parse_error","schema_version":1}\n' "$label" >> "$RESULTS"
+        printf '{"edge":"%s","reachable":true,"reason":"parse_error","schema_version":1,"telemetry_status":"unavailable","buckets":[]}\n' "$label" >> "$RESULTS"
       else
         printf '%s\n' "$terminal_json" >> "$RESULTS"
       fi
@@ -148,6 +149,7 @@ for tgt in "${TARGETS[@]}"; do
     fi
   else
     if [ "$ALERT_JSON" = "1" ]; then
+      ORCHESTRATION_ERRORS=$((ORCHESTRATION_ERRORS + 1))
       printf '{"edge":"%s","reachable":true,"reason":"ssm_unreachable","schema_version":1,"telemetry_status":"unavailable","buckets":[]}\n' "$label" >> "$RESULTS"
     else
       printf '{"edge":"%s","verdict":"unreachable","reason":"ssm_unreachable"}\n' "$label" >> "$RESULTS"
