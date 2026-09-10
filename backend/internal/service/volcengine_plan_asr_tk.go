@@ -77,7 +77,9 @@ func decodeVolcEngineASRFrame(frame []byte) (*volcEngineASRResult, bool, error) 
 			return nil, false, invalid
 		}
 		sequence := int32(binary.BigEndian.Uint32(payload))
-		if (terminal && sequence >= 0) || (!terminal && sequence <= 0) {
+		// The server may keep a positive sequence on its terminal response;
+		// completion is indicated by flags, independently of sequence sign.
+		if sequence == 0 || (!terminal && sequence < 0) {
 			return nil, false, invalid
 		}
 		payload = payload[4:]
