@@ -10,20 +10,9 @@ import {
   type DefaultPlatformQuotasMap,
 } from "@/api/admin/settings";
 
-/** 全 null 的平台配额默认值。 */
-const allNullQuotas: DefaultPlatformQuotasMap = {
-  anthropic: { daily: null, weekly: null, monthly: null },
-  openai:    { daily: null, weekly: null, monthly: null },
-  gemini:    { daily: null, weekly: null, monthly: null },
-  antigravity: { daily: null, weekly: null, monthly: null },
-  grok: { daily: null, weekly: null, monthly: null },
-  newapi: { daily: null, weekly: null, monthly: null },
-  kiro: { daily: null, weekly: null, monthly: null },
-  kimi: { daily: null, weekly: null, monthly: null },
-  zhipu: { daily: null, weekly: null, monthly: null },
-  deepseek: { daily: null, weekly: null, monthly: null },
-  minimax: { daily: null, weekly: null, monthly: null },
-}
+const allNullQuotas: DefaultPlatformQuotasMap = Object.fromEntries(
+  ALLOWED_QUOTA_PLATFORMS.map(platform => [platform, { daily: null, weekly: null, monthly: null }])
+)
 
 describe("admin settings auth source defaults helpers", () => {
   it("builds auth source defaults state from flat settings fields", () => {
@@ -247,7 +236,7 @@ describe("normalizePlatformQuotasMap", () => {
     expect(result.grok).toEqual({ daily: null, weekly: null, monthly: null });
   });
 
-  it("无参数时返回全部支持平台的空配额", () => {
+  it("无参数时返回 registry 所有配额平台全 null", () => {
     const result = normalizePlatformQuotasMap();
     expect(Object.keys(result).sort()).toEqual([...ALLOWED_QUOTA_PLATFORMS].sort());
     for (const v of Object.values(result)) {

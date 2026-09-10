@@ -15,7 +15,11 @@ describe('Prompt Audit integration surface', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: adminRoutes })
     const route = router.resolve('/admin/prompt-audit')
     expect(route.name).toBe('AdminPromptAudit')
-    expect(route.meta).toMatchObject({ requiresAuth: true, requiresAdmin: true, requiresRiskControl: true })
+    expect(route.meta).toMatchObject({
+      requiresAuth: true,
+      requiresAdmin: true,
+      requiresRiskControl: true,
+    })
   })
 
   it('keeps the legacy content moderation route and adds both pages under an expand-only security group', () => {

@@ -106,7 +106,6 @@ describe('OpsSystemLogTable host support', () => {
     })
     await flushPromises()
 
-    // The dashboard owns the initial data load through its refresh token.
     expect(mockListSystemLogs).not.toHaveBeenCalled()
     await wrapper.setProps({ refreshToken: 1 })
     await flushPromises()

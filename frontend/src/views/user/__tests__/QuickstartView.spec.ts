@@ -43,6 +43,11 @@ vi.mock('@/api/keys', () => ({
   create: vi.fn(),
 }))
 
+vi.mock('@/api/playground', async importOriginal => ({
+  ...await importOriginal<typeof import('@/api/playground')>(),
+  gatewayWarmupConnection: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
   default: {
     name: 'UseKeyGuide',
@@ -62,6 +67,9 @@ vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
       'hideInlineTest',
     ],
     emits: ['modelChange', 'testStateChange'],
+    mounted() {
+      this.$emit('modelChange', 'claude-sonnet-4-6')
+    },
     methods: {
       runTest() {},
     },
@@ -236,6 +244,8 @@ describe('QuickstartView', () => {
 
   it('renders connection health inline with transport/protocol and collapsible advanced key options', async () => {
     const wrapper = await mountView()
+    wrapper.getComponent({ name: 'UseKeyGuide' }).vm.$emit('modelChange', '')
+    await nextTick()
     expect(wrapper.find('[data-tk="quickstart-connection-row"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="quickstart-connection-health"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="quickstart-advanced-options"]').exists()).toBe(true)

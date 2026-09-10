@@ -47,6 +47,18 @@ Deletion commit: `9e0bf73e092e99e0b7251d5b938a16c36357c137`, reviewed in
   cost is limited to losing the unused artwork; re-adopt when a reviewed partner
   entry actually references it.
 
+## Deletion ledger: redundant frontend tests
+
+- **Deletion commit + PR:** `63e351dec`, [fork cleanup PR](https://github.com/youxuanxue/sub2api/pulls?q=is%3Apr+head%3Achore%2Fclean0910).
+- **Path:** `frontend/src/components/layout/__tests__/siteLogoSanitization.spec.ts`.
+  **Reason and replacement:** redundant logo expectations are covered by the active branding tests, `frontend/src/utils/__tests__/defaultSiteLogo.spec.ts`, and the brand surface checks; keep the runtime branding owner as the source of truth.
+  **Regression cost / tests lost:** this standalone suite no longer receives automatic upstream additions. During upstream review, move any new URL-safety or logo-fallback behavior into the active branding coverage instead of restoring duplicate fixtures.
+  **Re-adopt when:** upstream adds distinct runtime branding behavior not covered by the active suites.
+- **Path:** `frontend/src/features/channel-monitor-v2/__tests__/designSystem.structure.spec.ts`.
+  **Reason and replacement:** source-string checks for CSS classes and component names do not prove the monitor settings entry works. `frontend/e2e/admin-maintenance.e2e.ts` drives the actual route, changes settings, saves, reloads, and switches management tabs on desktop and mobile; existing monitor component behavior tests remain.
+  **Regression cost / tests lost:** exact historical CSS tokens, SVG/layout composition, and source ordering are no longer pinned. Future upstream changes to those assertions require behavior-level review instead of automatic fixture restoration.
+  **Re-adopt when:** the suite tests distinct user-visible behavior or accessibility guarantees, rather than source text already superseded by the current UI.
+
 ## Deletion ledger: `backend/internal/service/openai_apikey_responses_probe_verdict_test.go#removed`
 
 - **Upstream path:** `backend/internal/service/openai_apikey_responses_probe_verdict_test.go`.

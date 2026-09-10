@@ -7,7 +7,7 @@
         label="5h"
         :utilization="usageInfo.five_hour.utilization"
         :utilization-unknown="usageInfo.five_hour.utilization_unknown"
-        :window-stats-label="account.platform === 'newapi' ? t('admin.accounts.usageWindow.rollingStats', { window: '5h' }) : undefined"
+        :window-stats-label="usesLocalUsageWindows(account) ? t('admin.accounts.usageWindow.rollingStats', { window: '5h' }) : undefined"
         :resets-at="usageInfo.five_hour.resets_at"
         :window-stats="usageInfo.five_hour.window_stats"
         :show-now-when-idle="showNowWhenIdleForWindow(usageInfo.five_hour)"
@@ -19,16 +19,21 @@
         :estimated-total-cost="sevenDayEstimatedTotalCost"
         :utilization="usageInfo.seven_day.utilization"
         :utilization-unknown="usageInfo.seven_day.utilization_unknown"
-        :window-stats-label="account.platform === 'newapi' ? t('admin.accounts.usageWindow.rollingStats', { window: '7d' }) : undefined"
+        :window-stats-label="usesLocalUsageWindows(account) ? t('admin.accounts.usageWindow.rollingStats', { window: '7d' }) : undefined"
         :resets-at="usageInfo.seven_day.resets_at"
         :window-stats="usageInfo.seven_day.window_stats"
         :show-now-when-idle="showNowWhenIdleForWindow(usageInfo.seven_day)"
         color="emerald"
       />
       <UpstreamQuotaSummary
-        v-if="hasOpenAIUsageFallback"
         :quota="usageInfo?.upstream_quota"
         :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
+      />
+      <GrokQuotaProbeCell
+        v-if="account.platform === 'grok' && account.type === 'oauth'"
+        :account="account"
+        :usage="usageInfo"
+        :active-usage-loader="activeUsageLoader"
       />
       <div v-if="!hasOpenAIUsageFallback && loading" class="space-y-1.5">
         <div class="flex items-center gap-1">
@@ -43,7 +48,11 @@
         </div>
       </div>
       <div v-else-if="!hasOpenAIUsageFallback" class="text-xs text-gray-400">-</div>
-      <OpenAIQuotaResetCell v-if="hasOpenAIUsageFallback || !loading" :account="account" @account-updated="emit('account-updated', $event)">
+      <OpenAIQuotaResetCell
+        v-if="hasOpenAIUsageFallback || !loading"
+        :account="account"
+        @account-updated="onAccountUpdated"
+      >
         <template #pre-actions>
           <button
             type="button"
@@ -79,6 +88,7 @@ import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import OpenAIQuotaResetCell from '../OpenAIQuotaResetCell.vue'
+import GrokQuotaProbeCell from '../GrokQuotaProbeCell.vue'
 import UpstreamQuotaSummary from './UpstreamQuotaSummary.vue'
 import TodayStatsBadges from './TodayStatsBadges.vue'
 import {
@@ -86,6 +96,7 @@ import {
   type AccountUsageCellProps
 } from '../accountUsageCellProps'
 import { useAccountUsageFetch } from './useAccountUsageFetch'
+import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
 const emit = defineEmits<{ 'account-updated': [account: Account] }>()
@@ -101,11 +112,16 @@ const upstreamQuotaWindowDimensionKeys = [
   'newapi_5h',
 ]
 
-const { loading, activeQueryLoading, usageInfo, loadActiveUsage } = useAccountUsageFetch(
+const { loading, activeQueryLoading, usageInfo, loadActiveUsage, acknowledgeAccountUpdate } = useAccountUsageFetch(
   props,
   rootRef,
   { enableOpenAIRefreshKeyWatch: true }
 )
+
+function onAccountUpdated(account: Account) {
+  acknowledgeAccountUpdate(account)
+  emit('account-updated', account)
+}
 
 const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day

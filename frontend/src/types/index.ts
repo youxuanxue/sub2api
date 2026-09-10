@@ -1489,24 +1489,11 @@ export interface AccountUsageInfo {
   grok_last_quota_probe_at?: string
   grok_last_headers_seen_at?: string
   grok_last_status_code?: number
-  grok_free_token_limit?: number
   grok_local_usage?: WindowStats | null
   grok_local_usage_24h?: WindowStats | null
   grok_local_usage_7d?: WindowStats | null
   grok_local_usage_monthly?: WindowStats | null
-  grok_billing?: {
-    period_type?: string
-    usage_percent?: number
-    used_percent?: number
-    period_end?: string | null
-    billing_period_end?: string | null
-    monthly_limit_cents?: number | null
-    used_cents?: number | null
-    monthly_limit?: number | null
-    monthly_used?: number | null
-    prepaid_balance?: number | null
-    plan?: string
-  } | null
+  grok_billing?: GrokBillingSummary | null
   subscription_tier?: string
   upstream_quota?: UpstreamQuotaInfo | null
   ai_credits?: Array<{

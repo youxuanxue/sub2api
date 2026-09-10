@@ -235,8 +235,7 @@ func recordsContinue(prev, cur SourceRecord) bool {
 }
 
 // RequestContinues 是 recordsContinue 的导出包装，供流式导出按 wire-shape 感知的
-// 会话边界增量 flush（无需把整批 blob 同时读进内存）。取代仅识 messages-shape 的
-// RequestMessagesContinue 用于多平台导出。
+// 会话边界增量 flush（无需把整批 blob 同时读进内存）。
 func RequestContinues(prev, cur SourceRecord) bool {
 	return recordsContinue(prev, cur)
 }
@@ -276,14 +275,6 @@ func continuityField(shape WireShape) string {
 // 供各 shape（messages / contents / input）复用。
 func messagesContinue(prev, cur []gjson.Result) bool {
 	return len(cur) < len(prev) || messagesEqualPrefix(prev, cur)
-}
-
-// RequestMessagesContinue 是 messagesContinue 的导出包装（仅 messages-shape），
-// 保留作 sentinel 锚点与向后兼容；多平台导出改用 RequestContinues。
-func RequestMessagesContinue(prevReqBody, curReqBody any) bool {
-	prev := marshalToGJSON(prevReqBody).Get("messages").Array()
-	cur := marshalToGJSON(curReqBody).Get("messages").Array()
-	return messagesContinue(prev, cur)
 }
 
 // messagesEqualPrefix 报告 cur 的前 len(prev) 条消息是否与 prev 逐条深度相等。

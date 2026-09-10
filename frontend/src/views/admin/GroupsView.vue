@@ -245,7 +245,7 @@
                   t("admin.groups.subscription.noLimit")
                 }}</span>
                 <div class="text-gray-400 dark:text-gray-500">
-                  {{ t("admin.groups.usageTotal", { days: usageRetainedDays }) }}
+                  {{ usageTotalLabel }}
                   <span class="ml-1 font-medium text-gray-600 dark:text-gray-300"
                     >{{
                       usageLoading
@@ -361,7 +361,7 @@
               </div>
               <div class="text-gray-500 dark:text-gray-400">
                 <span class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.usageTotal", { days: usageRetainedDays })
+                  usageTotalLabel
                 }}</span>
                 <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
                   >${{
@@ -4795,8 +4795,13 @@ type GroupUsageSummary = {
 };
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
-const usageRetainedDays = ref<number | null>(null);
 const usageLoading = ref(false);
+const usageRetainedDays = ref<number | null>(null);
+const usageTotalLabel = computed(() =>
+  usageRetainedDays.value == null
+    ? t("common.total")
+    : t("admin.groups.usageTotal", { days: usageRetainedDays.value }),
+);
 const capacityMap = ref<
   Map<
     number,
@@ -5693,7 +5698,6 @@ const loadUsageSummary = async () => {
   usageLoading.value = true;
   try {
     const data = await adminAPI.groups.getUsageSummary();
-    usageRetainedDays.value = data.retained_days;
     const map = new Map<number, GroupUsageSummary>();
     for (const item of data.groups ?? []) {
       map.set(item.group_id, {
@@ -5703,6 +5707,7 @@ const loadUsageSummary = async () => {
       });
     }
     usageMap.value = map;
+    usageRetainedDays.value = data.retained_days > 0 ? data.retained_days : null;
   } catch (error) {
     console.error("Error loading group usage summary:", error);
   } finally {

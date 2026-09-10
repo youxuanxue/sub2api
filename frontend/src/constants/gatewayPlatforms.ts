@@ -154,34 +154,7 @@ const SOFT_BADGE: Record<string, string> = {
   minimax: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300',
 }
 
-const LABEL_TEXT: Record<string, string> = {
-  anthropic: 'text-orange-600 dark:text-orange-400',
-  openai: 'text-emerald-600 dark:text-emerald-400',
-  gemini: 'text-blue-600 dark:text-blue-400',
-  antigravity: 'text-purple-600 dark:text-purple-400',
-  newapi: 'text-cyan-600 dark:text-cyan-400',
-  kiro: 'text-indigo-600 dark:text-indigo-400',
-  grok: 'text-slate-700 dark:text-slate-300',
-  kimi: 'text-cyan-700 dark:text-cyan-300',
-  zhipu: 'text-blue-700 dark:text-blue-300',
-  deepseek: 'text-emerald-700 dark:text-emerald-300',
-  minimax: 'text-rose-700 dark:text-rose-300',
-}
-
-const TABLE_CELL_BASE =
-  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium'
-
 /** Background + text colors for compact platform pills (e.g. channel model tags). */
 export function tkAdminPlatformSoftBadgeClass(platform: string): string {
   return SOFT_BADGE[platform] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400'
-}
-
-/** Text color for platform labels next to icons. */
-export function tkAdminPlatformLabelTextColor(platform: string): string {
-  return LABEL_TEXT[platform] ?? 'text-gray-600 dark:text-gray-400'
-}
-
-/** Full class string for the admin groups table platform column. */
-export function tkAdminGroupsPlatformTableCellClass(platform: string): string {
-  return `${TABLE_CELL_BASE} ${tkAdminPlatformSoftBadgeClass(platform)}`
 }

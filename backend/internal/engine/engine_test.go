@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -217,7 +218,7 @@ func TestAllSchedulingPlatforms(t *testing.T) {
 }
 
 func TestMiniMaxDoesNotRefreshOAuth(t *testing.T) {
-	if IsOAuthRefreshPlatform(domain.PlatformMiniMax) {
+	if slices.Contains(OAuthRefreshPlatforms(), domain.PlatformMiniMax) {
 		t.Fatal("MiniMax uses static API credentials and must not enter OAuth refresh")
 	}
 }

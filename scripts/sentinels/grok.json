@@ -3,6 +3,26 @@
   "rationale": "Load-bearing files and symbols that anchor TokenKey's seventh platform `grok` (xAI / SuperGrok Heavy OAuth). Unlike kiro, xAI speaks the OpenAI-compatible wire protocol, so grok is an OpenAICompatPool member and REUSES the OpenAI-compat routing/scheduling/forward/billing path; the only grok-specific code is the OAuth refresh, the two forward seams that make the OAuth branch forward like the apikey branch (plain Bearer + api.x.ai base_url, NOT the ChatGPT/Codex branch), and the Heavy-403 honesty guard. If any sentinel below is missing, the platform either silently disappears from scheduling/UI or mis-forwards/mis-bills at runtime. Single source of truth read by both `scripts/preflight.sh` and `.github/workflows/upstream-merge-pr-shape.yml`. Adding a new load-bearing surface for grok MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
+      "path": "frontend/src/components/account/usage-cells/OpenAIUsageCell.vue",
+      "must_contain": ["<GrokQuotaProbeCell", ":usage=\"usageInfo\"", ":active-usage-loader=\"activeUsageLoader\""],
+      "rationale": "Grok billing display must remain connected to parent snapshots and the Edge-specific transport."
+    },
+    {
+      "path": "frontend/src/components/account/GrokQuotaProbeCell.vue",
+      "must_contain": ["props.activeUsageLoader()", "adminAPI.accounts.getUsage(props.account.id, 'active', true)", "watch(() => props.usage", "if (!isCurrent()) return"],
+      "rationale": "Explicit billing queries reuse the billing-only usage endpoint, adopt parent refreshes, and reject obsolete async responses."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/GrokQuotaProbeCell.spec.ts",
+      "must_contain": ["adopts a refreshed parent snapshot", "ignores a late query", "never falls back to a main account ID"],
+      "rationale": "Keep behavior coverage for refresh freshness, late queries and Edge transport failure isolation."
+    },
+    {
+      "path": "backend/internal/service/grok_quota_service_test.go",
+      "must_contain": ["TestAccountUsageServiceGrokRefreshUsesBillingOnly"],
+      "rationale": "The usage refresh path must remain billing-only, including explicit force refreshes."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
       "must_contain": [
         "line = applyGrokRawChatCompletionsUsageSSELine(account, line)",

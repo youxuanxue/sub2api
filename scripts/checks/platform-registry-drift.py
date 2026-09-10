@@ -39,7 +39,7 @@ Eleven mirrored pairs, backend Go is the single source of truth:
 
   5. Frontend style mapping coverage
        backend/internal/engine/provider.go        AllSchedulingPlatforms()
-       frontend/src/constants/gatewayPlatforms.ts SOFT_BADGE + LABEL_TEXT
+       frontend/src/constants/gatewayPlatforms.ts SOFT_BADGE
      A platform missing from the style maps renders as unstyled (gray
      fallback) in the admin UI — easy to miss in review.
 
@@ -670,11 +670,11 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
         )
 
     # --- CHECK 5: frontend style mapping coverage ---
-    # Every scheduling platform should have entries in the admin UI style maps
-    # (SOFT_BADGE and LABEL_TEXT). A missing key falls through to a generic gray
+    # Every scheduling platform should have an entry in the admin UI SOFT_BADGE
+    # style map. A missing key falls through to a generic gray
     # fallback — functional but visually inconsistent and easy to miss in review.
 
-    for map_name in ("SOFT_BADGE", "LABEL_TEXT"):
+    for map_name in ("SOFT_BADGE",):
         ts_keys, ts_keys_line = parse_ts_record_keys(
             ts_const_text, map_name, TS_GATEWAY_PLATFORMS
         )

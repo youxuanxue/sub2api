@@ -28,6 +28,11 @@ html.tk-admin-ui-zoom main {
 }
 
 @media (min-width: 1024px) {
+  /* A minimum height alone grows with all rows, defeating virtual scrolling. */
+  html.tk-admin-ui-zoom .min-h-screen.bg-gray-50 > .relative.min-h-screen:has(.table-page-layout:not(.mobile-mode)) {
+    height: calc(100dvh / var(--tk-admin-ui-zoom));
+  }
+
   html.tk-admin-ui-zoom main {
     padding-bottom: 1rem;
   }

@@ -13,6 +13,15 @@ vi.mock('vue-i18n', async () => {
 })
 
 describe('UsageProgressBar', () => {
+  it.each([0, 50, 100, 110])('caps bar width while preserving measured %s percent', (utilization) => {
+    const wrapper = mount(UsageProgressBar, {
+      props: { label: '7d', utilization, color: 'emerald' }
+    })
+    const row = wrapper.get('[data-testid="usage-quota-row"]')
+    expect(row.text()).toContain(`${utilization}%`)
+    expect(row.get('[style]').attributes('style')).toContain(`width: ${Math.min(100, utilization)}%`)
+    wrapper.unmount()
+  })
   it('keeps labeled local statistics without inventing a quota or reset', async () => {
     const wrapper = mount(UsageProgressBar, {
       props: {

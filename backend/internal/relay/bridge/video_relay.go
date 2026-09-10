@@ -21,7 +21,6 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	newapihelper "github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/types"
-	"github.com/Wei-Shaw/sub2api/internal/engine"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 )
@@ -544,12 +543,6 @@ func taskAdaptorForChannel(channelType int, baseURL string) channel.TaskAdaptor 
 	}
 	platform := newapiconstant.TaskPlatform(strconv.Itoa(channelType))
 	return newapirelay.GetTaskAdaptor(platform)
-}
-
-// IsVideoSupportedChannelType preserves the bridge's load-bearing exported
-// surface while delegating capability truth to the engine registry.
-func IsVideoSupportedChannelType(channelType int) bool {
-	return engine.IsVideoSupportedChannelType(channelType)
 }
 
 // errUnsupportedChannel is the canonical error for "no task adaptor for this

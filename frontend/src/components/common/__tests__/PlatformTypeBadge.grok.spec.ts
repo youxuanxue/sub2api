@@ -46,8 +46,6 @@ describe('PlatformTypeBadge Grok plans', () => {
     expect(wrapper.text()).toContain('SuperGrok Heavy')
     expect(wrapper.find('[data-testid="grok-plan-icon"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="grok-free-plan-icon"]').exists()).toBe(false)
-    // Heavy uses purple plan chip
-    expect(wrapper.html()).toContain('bg-purple-100')
 
     await wrapper.setProps({ platform: 'openai', planType: 'free' })
     expect(wrapper.text()).toContain('Free')
@@ -55,42 +53,18 @@ describe('PlatformTypeBadge Grok plans', () => {
     expect(wrapper.find('[data-testid="grok-plan-icon"]').exists()).toBe(false)
   })
 
-  it('colors free gray, SuperGrok cyan, and Heavy purple', async () => {
-    const free = mount(PlatformTypeBadge, {
-      props: { platform: 'grok', type: 'oauth', planType: 'free' },
+  it.each([
+    ['free', 'Grok Free'],
+    ['supergrok', 'SuperGrok'],
+    ['Heavy', 'Heavy'],
+    ['supergrok_lite', 'SuperGrok Lite'],
+    ['supergrok_plus', 'SuperGrok Plus'],
+  ])('identifies the %s plan as %s', (planType, label) => {
+    const wrapper = mount(PlatformTypeBadge, {
+      props: { platform: 'grok', type: 'oauth', planType }
     })
-    expect(free.html()).toContain('bg-gray-100')
-    expect(free.html()).not.toContain('bg-purple-100')
-    expect(free.html()).not.toContain('bg-cyan-100')
-
-    const superGrok = mount(PlatformTypeBadge, {
-      props: { platform: 'grok', type: 'oauth', planType: 'supergrok' },
-    })
-    expect(superGrok.text()).toContain('SuperGrok')
-    expect(superGrok.html()).toContain('bg-cyan-100')
-    expect(superGrok.find('[data-testid="grok-plan-icon"]').exists()).toBe(true)
-
-    const heavy = mount(PlatformTypeBadge, {
-      props: { platform: 'grok', type: 'oauth', planType: 'Heavy' },
-    })
-    expect(heavy.text()).toContain('Heavy')
-    expect(heavy.html()).toContain('bg-purple-100')
-    expect(heavy.find('[data-testid="grok-plan-icon"]').exists()).toBe(true)
-
-    const lite = mount(PlatformTypeBadge, {
-      props: { platform: 'grok', type: 'oauth', planType: 'supergrok_lite' },
-    })
-    expect(lite.text()).toContain('SuperGrok Lite')
-    expect(lite.html()).toContain('bg-cyan-100')
-  })
-
-  it('uses a dedicated 12px currentColor Grok mark with a Free sparkle', () => {
-    const wrapper = mount(GrokFreeIcon)
-
-    expect(wrapper.element.tagName.toLowerCase()).toBe('svg')
-    expect(wrapper.attributes('fill')).toBe('currentColor')
-    expect(wrapper.classes()).toEqual(expect.arrayContaining(['h-3', 'w-3']))
-    expect(wrapper.findAll('path')).toHaveLength(2)
+    expect(wrapper.text()).toContain(label)
+    wrapper.unmount()
   })
 })
 

@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DataTable from '../DataTable.vue'
 
@@ -42,6 +42,7 @@ const stubMobileMatchMedia = () => {
 }
 
 describe('DataTable', () => {
+  afterEach(() => vi.restoreAllMocks())
   beforeEach(() => {
     stubDesktopMatchMedia()
     localStorage.clear()
@@ -62,14 +63,14 @@ describe('DataTable', () => {
         defaultSortOrder: 'asc'
       },
       slots: {
-        'header-name': '<span data-test="custom-name-header">Name</span>'
+        'header-created_at': '<span data-test="custom-created-header">Created</span>'
       }
     })
 
     await wrapper.vm.$nextTick()
 
     const nameHeader = wrapper.findAll('th')[0]
-    expect(nameHeader.find('[data-test="custom-name-header"]').exists()).toBe(true)
+    expect(wrapper.findAll('th')[1].find('[data-test="custom-created-header"]').exists()).toBe(true)
     expect(nameHeader.attributes('aria-sort')).toBe('ascending')
     expect(nameHeader.findAll('svg')).toHaveLength(2)
     expect(nameHeader.findAll('svg')[0].classes()).toContain('text-primary-600')
@@ -122,163 +123,48 @@ describe('DataTable', () => {
     expect(instance.options.count).toBe(data.length)
   })
 
-  it('keys the virtualizer size cache by row identity, not index (avoids stale heights on sort/filter)', async () => {
-    const data = Array.from({ length: 12 }, (_, i) => ({ id: 100 + i, name: `Row ${i + 1}` }))
-    const wrapper = mount(DataTable, {
-      props: {
-        columns: [{ key: 'name', label: 'Name' }],
-        data,
-        rowKey: 'id',
-        virtualizeThreshold: 3
+  it.each(['stable', 'missing', 'duplicate'] as const)(
+    'keeps measurements with rows and drops old pages with %s keys',
+    async (keys) => {
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+        return this.tagName === 'TR' ? (this.textContent?.includes('First 0') ? 156 : 56) : 800
+      })
+      const page = (prefix: string, offset = 0) => Array.from({ length: 12 }, (_, i) => ({
+        ...(keys === 'missing' ? {} : { id: keys === 'duplicate' ? i % 2 : offset + i }),
+        name: `${prefix} ${i}`
+      }))
+      const firstPage = page('First')
+      const wrapper = mount(DataTable, {
+        props: {
+          columns: [{ key: 'name', label: 'Name' }],
+          data: firstPage, virtualizeThreshold: 1, estimateRowHeight: 56
+        }
+      })
+      await wrapper.vm.$nextTick()
+      const exposed = (wrapper.vm as any).virtualizer
+      const instance = exposed?.value ?? exposed
+      const firstKey = instance.options.getItemKey(0)
+      expect(new Set(firstPage.map((_, i) => instance.options.getItemKey(i))).size).toBe(12)
+
+      instance.resizeItem(0, 156)
+      expect(instance.getTotalSize()).toBe(12 * 56 + 100)
+
+      await wrapper.setProps({ data: [...firstPage].reverse() })
+      expect(instance.options.getItemKey(11)).toBe(firstKey)
+      expect(instance.getTotalSize()).toBe(12 * 56 + 100)
+
+      for (let index = 1; index <= 3; index++) {
+        await wrapper.setProps({ data: page('Next', index * 12) })
+        await wrapper.vm.$nextTick()
+        expect(instance.getTotalSize()).toBe(12 * 56)
+        expect(wrapper.text()).not.toContain('First')
+        // Observe retention; seed measurements only through the public API.
+        expect(instance.itemSizeCache.size).toBeLessThanOrEqual(12)
+        instance.resizeItem(0, 156)
       }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    const exposed = (wrapper.vm as any).virtualizer
-    const instance = exposed?.value ?? exposed
-    // getItemKey must resolve to the row's stable key (id), not the positional index.
-    expect(instance.options.getItemKey(0)).toBe('100')
-    expect(instance.options.getItemKey(5)).toBe('105')
-  })
-
-  it('clears stale row and element caches when pagination replaces the row ID set', async () => {
-    const firstPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, name: `First ${i + 1}` }))
-    const secondPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 101, name: `Second ${i + 1}` }))
-    const wrapper = mount(DataTable, {
-      props: {
-        columns: [{ key: 'name', label: 'Name' }],
-        data: firstPage,
-        rowKey: 'id',
-        virtualizeThreshold: 1
-      }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    const exposed = (wrapper.vm as any).virtualizer
-    const instance = exposed?.value ?? exposed
-    const firstPageIDs = firstPage.map(row => String(row.id))
-    ;(instance as any).itemSizeCache = new Map(firstPageIDs.map(id => [id, 156]))
-    instance.elementsCache.clear()
-    for (const id of firstPageIDs) {
-      instance.elementsCache.set(id, document.createElement('tr'))
+      wrapper.unmount()
     }
-    const measureElementSpy = vi.spyOn(instance, 'measureElement')
-
-    await wrapper.setProps({ data: secondPage })
-    await wrapper.vm.$nextTick()
-
-    const sizeCache = (instance as any).itemSizeCache as Map<string, number>
-    expect(sizeCache.size).toBeLessThanOrEqual(secondPage.length)
-    expect(instance.elementsCache.size).toBeLessThanOrEqual(secondPage.length)
-    expect(firstPageIDs.some(id => sizeCache.has(id))).toBe(false)
-    expect(firstPageIDs.some(id => instance.elementsCache.has(id))).toBe(false)
-    expect(measureElementSpy.mock.calls.some(([node]) => node === null)).toBe(true)
-  })
-
-  it('clears stale caches when equal-length pages replace rows without stable keys', async () => {
-    const firstPage = Array.from({ length: 12 }, (_, i) => ({ name: `First ${i + 1}` }))
-    const secondPage = Array.from({ length: 12 }, (_, i) => ({ name: `Second ${i + 1}` }))
-    const wrapper = mount(DataTable, {
-      props: {
-        columns: [{ key: 'name', label: 'Name' }],
-        data: firstPage,
-        virtualizeThreshold: 1
-      }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    const exposed = (wrapper.vm as any).virtualizer
-    const instance = exposed?.value ?? exposed
-    const measureElementSpy = vi.spyOn(instance, 'measureElement')
-
-    await wrapper.setProps({ data: secondPage })
-    await wrapper.vm.$nextTick()
-
-    expect(measureElementSpy.mock.calls.some(([node]) => node === null)).toBe(true)
-  })
-
-  it('conservatively clears caches when duplicate row-key multiplicity changes', async () => {
-    const firstPage = [
-      { id: 1, name: 'First A' },
-      { id: 1, name: 'First B' },
-      { id: 2, name: 'First C' }
-    ]
-    const secondPage = [
-      { id: 1, name: 'Second A' },
-      { id: 2, name: 'Second B' },
-      { id: 2, name: 'Second C' }
-    ]
-    const wrapper = mount(DataTable, {
-      props: {
-        columns: [{ key: 'name', label: 'Name' }],
-        data: firstPage,
-        rowKey: 'id',
-        virtualizeThreshold: 1
-      }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    const exposed = (wrapper.vm as any).virtualizer
-    const instance = exposed?.value ?? exposed
-    const measureElementSpy = vi.spyOn(instance, 'measureElement')
-
-    await wrapper.setProps({ data: secondPage })
-    await wrapper.vm.$nextTick()
-
-    expect(measureElementSpy.mock.calls.some(([node]) => node === null)).toBe(true)
-  })
-
-  it('preserves cache when rows without stable keys only reorder the same objects', async () => {
-    const data = Array.from({ length: 12 }, (_, i) => ({ name: `Row ${i + 1}` }))
-    const wrapper = mount(DataTable, {
-      props: {
-        columns: [{ key: 'name', label: 'Name' }],
-        data,
-        virtualizeThreshold: 1
-      }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    const exposed = (wrapper.vm as any).virtualizer
-    const instance = exposed?.value ?? exposed
-    const measureSpy = vi.spyOn(instance, 'measure')
-
-    await wrapper.setProps({ data: [...data].reverse() })
-    await wrapper.vm.$nextTick()
-
-    expect(measureSpy).not.toHaveBeenCalled()
-  })
-
-  it('preserves stable row height cache when the same row IDs are only reordered', async () => {
-    const data = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
-    const wrapper = mount(DataTable, {
-      props: {
-        columns: [{ key: 'name', label: 'Name' }],
-        data,
-        rowKey: 'id',
-        virtualizeThreshold: 1
-      }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    const exposed = (wrapper.vm as any).virtualizer
-    const instance = exposed?.value ?? exposed
-    ;(instance as any).itemSizeCache = new Map(data.map(row => [String(row.id), 156]))
-    const measureSpy = vi.spyOn(instance, 'measure')
-
-    await wrapper.setProps({ data: [...data].reverse() })
-    await wrapper.vm.$nextTick()
-
-    const sizeCache = (instance as any).itemSizeCache as Map<string, number>
-    expect(measureSpy).not.toHaveBeenCalled()
-    expect(sizeCache.size).toBe(100)
-  })
+  )
 
   it('emits controlled current-page selection while preserving off-page keys', async () => {
     const wrapper = mount(DataTable, {
@@ -307,6 +193,40 @@ describe('DataTable', () => {
 
     expect(wrapper.emitted('update:selectedKeys')?.at(-1)?.[0]).toEqual([99, 2])
     expect(wrapper.emitted('selectionChange')?.at(-1)?.[0]).toEqual([99, 2])
+  })
+
+  it('remeasures expanded details and survives filtering across the virtual threshold', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.tagName === 'TR' ? 56 : 800
+    })
+    const data = Array.from({ length: 12 }, (_, id) => ({ id, name: `Row ${id}` }))
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }], data,
+        virtualizeThreshold: 3, estimateRowHeight: 56,
+        expandable: () => true, expandedKeys: new Set<number>(),
+      },
+      slots: { 'row-detail': '<div>Expanded account details</div>' },
+    })
+    await wrapper.vm.$nextTick()
+    const exposed = (wrapper.vm as any).virtualizer
+    const instance = exposed?.value ?? exposed
+    await wrapper.setProps({ expandedKeys: new Set([0]) })
+    expect(wrapper.text()).toContain('Expanded account details')
+    instance.resizeItem(1, 300)
+    expect(instance.getTotalSize()).toBe(12 * 56 + 300)
+
+    await wrapper.setProps({ expandedKeys: new Set() })
+    expect(wrapper.text()).not.toContain('Expanded account details')
+    expect(instance.getTotalSize()).toBe(12 * 56)
+
+    await wrapper.setProps({ data: data.slice(0, 2) })
+    expect(wrapper.findAll('tbody tr[data-index]')).toHaveLength(2)
+    expect(wrapper.findAll('tbody tr[aria-hidden="true"]')).toHaveLength(0)
+    await wrapper.setProps({ data })
+    expect(instance.getTotalSize()).toBe(12 * 56)
+    expect(wrapper.text()).toContain('Row 0')
+    wrapper.unmount()
   })
 
   it('keeps the single usage field shrinkable in a 320px mobile card', () => {

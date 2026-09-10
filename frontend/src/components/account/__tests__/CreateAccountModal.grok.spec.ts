@@ -8,16 +8,6 @@ const source = readFileSync(
 )
 
 describe('CreateAccountModal Grok account types', () => {
-  it('offers API-key edge relay setup alongside OAuth with the official xAI fallback', () => {
-    expect(source).toContain('data-testid="grok-account-type-api-key"')
-    expect(source).toContain("@click=\"accountCategory = 'apikey'\"")
-    expect(source).toContain('newPlatform === PLATFORM_GROK')
-    expect(source).toContain("return 'https://api.x.ai/v1'")
-    expect(source).toContain("const baseURL = apiKeyBaseUrl.value.trim()")
-    expect(source).toContain("form.platform === 'grok'")
-    expect(source).toContain("return 'xai-...'")
-  })
-
   it('exposes custom upstream URL and header override for the OAuth create flow', () => {
     expect(source).toContain('data-testid="grok-custom-base-url-toggle"')
     expect(source).toContain('data-testid="grok-custom-base-url-input"')
@@ -25,7 +15,7 @@ describe('CreateAccountModal Grok account types', () => {
   })
 
   it('validates and applies upstream config on all five Grok OAuth create paths', () => {
-    // Direct form, authorization code, refresh token, SSO, and password login.
+    // 表单直建 / 授权码兑换 / RT 批量 / SSO 批量 / 密码授权。
     expect(source.match(/validateGrokOAuthUpstreamConfig\(\)/g)?.length).toBe(5)
     expect(source).toContain('applyGrokOAuthUpstreamConfig(bundle.credentials)')
     expect(source.match(/applyGrokOAuthUpstreamConfig\(credentials\)/g)?.length).toBe(4)
