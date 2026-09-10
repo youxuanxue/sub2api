@@ -163,11 +163,6 @@ type KiroPayload struct {
 	// in tool_use responses so the client can match them to its tool registry.
 	// Not serialized to the Kiro API request body.
 	ToolNameMap map[string]string `json:"-"`
-
-	// ClaudeCodeCompletionProtocol marks payloads whose system prompt was
-	// positively identified as Claude Code and whose tool list contains the
-	// transport-private completion signal. It is service-side state only.
-	ClaudeCodeCompletionProtocol bool `json:"-"`
 }
 
 // AdditionalModelRequestFields carries Kiro adaptive-thinking controls that
@@ -517,9 +512,7 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 	// Read directly without bufio to avoid buffering latency in streaming responses.
 	var inputTokens, outputTokens int
 	var totalCredits float64
-	var currentToolUse *toolUseState
-	var lastAssistantContent string
-	var lastReasoningContent string
+	tools := toolUseDecoder{pending: make(map[string]*toolUseState), completed: make(map[string]bool)}
 	var sawTerminalStop bool
 
 	for {
@@ -569,6 +562,15 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 			}
 			return fmt.Errorf("kiro event stream error: %s: %s", kind, string(payloadBytes))
 		}
+		if eventType == "toolUseEvent" {
+			if sawTerminalStop {
+				return fmt.Errorf("%w: tool event after terminal stop", ErrInvalidToolUse)
+			}
+			if err := tools.consume(payloadBytes, callback); err != nil {
+				return err
+			}
+			continue
+		}
 		if len(payloadBytes) == 0 {
 			continue
 		}
@@ -583,33 +585,29 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 		// Dispatch by event type.
 		switch eventType {
 		case "assistantResponseEvent":
+			// Kiro sends deltas, not cumulative snapshots. Repeated or overlapping
+			// fragments are content and must survive unchanged, including hashes.
 			if content, ok := event["content"].(string); ok && content != "" {
-				normalized := normalizeChunk(content, &lastAssistantContent)
-				if normalized != "" && callback.OnText != nil {
-					callback.OnText(normalized, false)
+				if callback.OnText != nil {
+					callback.OnText(content, false)
 				}
 			}
 			if reasoningText := kiroReasoningTextFromEvent(event); reasoningText != "" {
-				normalized := normalizeChunk(reasoningText, &lastReasoningContent)
-				if normalized != "" {
-					dispatchKiroReasoningContent(callback, normalized, "")
-				}
+				dispatchKiroReasoningContent(callback, reasoningText, "")
 			}
 		case "reasoningContentEvent":
 			text, _ := event["text"].(string)
 			signature, _ := event["signature"].(string)
 			if text != "" {
-				normalized := normalizeChunk(text, &lastReasoningContent)
-				if normalized != "" {
-					dispatchKiroReasoningContent(callback, normalized, signature)
-				}
+				dispatchKiroReasoningContent(callback, text, signature)
 			} else if strings.TrimSpace(signature) != "" {
 				dispatchKiroReasoningContent(callback, "", signature)
 			}
-		case "toolUseEvent":
-			currentToolUse = handleToolUseEvent(event, currentToolUse, callback)
 		case "metadataEvent":
 			if stopReason, ok := event["stopReason"].(string); ok && stopReason != "" {
+				if len(tools.pending) != 0 {
+					return fmt.Errorf("%w: terminal stop with unfinished tool", ErrInvalidToolUse)
+				}
 				sawTerminalStop = true
 				if callback.OnStopMetadata != nil {
 					metadata := KiroStopMetadata{StopReason: stopReason}
@@ -638,10 +636,6 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 				}
 			}
 		}
-	}
-
-	if currentToolUse != nil {
-		finishToolUse(currentToolUse, callback)
 	}
 
 	if callback.OnCredits != nil && totalCredits > 0 {
@@ -726,51 +720,6 @@ func collectUsageMaps(v interface{}, out *[]map[string]interface{}) {
 	}
 }
 
-func normalizeChunk(chunk string, previous *string) string {
-	if chunk == "" {
-		return ""
-	}
-
-	prev := *previous
-	if prev == "" {
-		*previous = chunk
-		return chunk
-	}
-
-	if chunk == prev {
-		return ""
-	}
-
-	if strings.HasPrefix(chunk, prev) {
-		delta := chunk[len(prev):]
-		*previous = chunk
-		return delta
-	}
-
-	if strings.HasPrefix(prev, chunk) {
-		return ""
-	}
-
-	maxOverlap := 0
-	maxLen := len(prev)
-	if len(chunk) < maxLen {
-		maxLen = len(chunk)
-	}
-	for i := maxLen; i > 0; i-- {
-		if strings.HasSuffix(prev, chunk[:i]) {
-			maxOverlap = i
-			break
-		}
-	}
-
-	*previous = chunk
-	if maxOverlap > 0 {
-		return chunk[maxOverlap:]
-	}
-
-	return chunk
-}
-
 func readTokenNumber(m map[string]interface{}, keys ...string) (int, bool) {
 	for _, k := range keys {
 		v, ok := m[k]
@@ -798,96 +747,6 @@ func readTokenNumber(m map[string]interface{}, keys ...string) (int, bool) {
 		}
 	}
 	return 0, false
-}
-
-// ==================== Tool Use Handling ====================
-
-type toolUseState struct {
-	ToolUseID   string
-	Name        string
-	InputBuffer strings.Builder
-	GeneratedID bool
-}
-
-func handleToolUseEvent(event map[string]interface{}, current *toolUseState, callback *KiroStreamCallback) *toolUseState {
-	toolUseID := firstStringField(event, "toolUseId", "toolUseID", "tool_use_id", "id")
-	name := firstStringField(event, "name", "toolName", "tool_name")
-	isStop := firstBoolField(event, "stop", "isStop", "done")
-
-	if toolUseID != "" && name != "" {
-		if current == nil {
-			current = &toolUseState{ToolUseID: toolUseID, Name: name}
-		} else if current.ToolUseID != toolUseID {
-			if current.GeneratedID && current.Name == name {
-				current.ToolUseID = toolUseID
-				current.GeneratedID = false
-			} else {
-				finishToolUse(current, callback)
-				current = &toolUseState{ToolUseID: toolUseID, Name: name}
-			}
-		}
-	} else if name != "" && current == nil {
-		current = &toolUseState{ToolUseID: "toolu_" + uuid.New().String(), Name: name, GeneratedID: true}
-	} else if name != "" && current != nil && current.Name != name {
-		finishToolUse(current, callback)
-		current = &toolUseState{ToolUseID: "toolu_" + uuid.New().String(), Name: name, GeneratedID: true}
-	}
-
-	if current != nil {
-		if input, ok := event["input"].(string); ok {
-			current.InputBuffer.WriteString(input)
-		} else if inputObj, ok := event["input"].(map[string]interface{}); ok {
-			data, _ := json.Marshal(inputObj)
-			current.InputBuffer.Reset()
-			current.InputBuffer.Write(data)
-		}
-	}
-
-	if isStop && current != nil {
-		finishToolUse(current, callback)
-		return nil
-	}
-
-	return current
-}
-
-func finishToolUse(state *toolUseState, callback *KiroStreamCallback) {
-	if state == nil || state.Name == "" || callback == nil || callback.OnToolUse == nil {
-		return
-	}
-	if state.ToolUseID == "" {
-		state.ToolUseID = "toolu_" + uuid.New().String()
-	}
-	var input map[string]interface{}
-	if state.InputBuffer.Len() > 0 {
-		json.Unmarshal([]byte(state.InputBuffer.String()), &input)
-	}
-	if input == nil {
-		input = make(map[string]interface{})
-	}
-	callback.OnToolUse(KiroToolUse{
-		ToolUseID: state.ToolUseID,
-		Name:      state.Name,
-		Input:     input,
-	})
-}
-
-func firstStringField(m map[string]interface{}, keys ...string) string {
-	for _, key := range keys {
-		if v, ok := m[key].(string); ok && v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func firstBoolField(m map[string]interface{}, keys ...string) bool {
-	for _, key := range keys {
-		if v, ok := m[key].(bool); ok {
-			return v
-		}
-	}
-	return false
 }
 
 func kiroReasoningTextFromEvent(event map[string]interface{}) string {

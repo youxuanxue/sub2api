@@ -143,19 +143,16 @@
         "buildAdditionalModelRequestFields",
         "display := \"summarized\"",
         "additionalModelRequestFields",
-        "func KiroToClaudeResponse",
-        "EnsureClaudeCodeCompletionGuard",
-        "addClaudeCodeCompletionTool",
-        "payload.ClaudeCodeCompletionProtocol = completionProtocol"
+        "func KiroToClaudeResponse"
       ],
-      "rationale": "Anthropic <-> Kiro request/response translation. Without it the /v1/messages -> CodeWhisperer bridge cannot build a payload or decode the reply. EnsureClaudeCodeCompletionGuard keeps recognized Claude Code sessions working until implementation and verification are complete without duplicating policy text in this vendored-shaped layer. The completion protocol flag is enabled only when the private tool was actually added, which prevents a client-owned same-name tool from being shadowed or swallowed."
+      "rationale": "Translate only client instructions and tools; preserve tool history and failure semantics. No gateway-owned completion prompt or private tool."
     },
     {
       "path": "backend/internal/integration/kiro/tool_result_status_test.go",
       "must_contain": [
         "TestClaudeToKiro_PreservesToolResultFailure"
       ],
-      "rationale": "Anthropic tool_result.is_error must survive active and historical structured results, orphan fallback and private completion continuation; successful or omitted flags remain success."
+      "rationale": "Tool failures remain explicit in active/history structured results and orphan fallback; omitted flags remain success."
     },
     {
       "path": "backend/internal/integration/kiro/tool_history.go",
@@ -171,9 +168,9 @@
     {
       "path": "backend/internal/service/kiro_gateway_tool_history_test.go",
       "must_contain": [
-        "TestKiroGatewayService_ContinuationPreservesToolHistory"
+        "TestKiroGatewayService_ClientTurnsPreserveToolHistory"
       ],
-      "rationale": "Streaming and non-streaming gateway requests must retain structured tool history and failure semantics through private completion continuation."
+      "rationale": "Client-initiated turns retain structured tool history and failure semantics in JSON and SSE."
     },
     {
       "path": "backend/internal/integration/kiro/tool_history_test.go",
@@ -186,51 +183,18 @@
       "rationale": "Lock real-CLI multi-turn history shape, partial batches, OpenAI parity and truncation to behavior tests."
     },
     {
-      "path": "backend/internal/integration/kiro/claude_code_completion.go",
-      "must_contain": [
-        "func addClaudeCodeCompletionTool",
-        "func ConsumeClaudeCodeCompletionSignal",
-        "func PrepareClaudeCodeCompletionContinuation",
-        "normalizeKiroToolHistory(payload)",
-        "ClaudeCodeCompletionProtocol",
-        "repair turn is transport-only",
-        "Do not emit a recap",
-        "minLength"
-      ],
-      "rationale": "Single owner for Kiro's transport-private Claude Code completion handshake. It defines the non-empty completion schema, strips only valid private signals, and creates the bounded continuation payload while preserving the normal tool catalog. The repair prompt explicitly keeps completion-only turns transport-private, forbids recap text, and asks an already-complete model to reuse the preceding answer verbatim. Losing this owner returns completion judgment to lossy stop-reason guessing, leaks private tool calls to Claude Code, or invites repeated final replies during hidden continuation."
-    },
-    {
-      "path": "backend/internal/integration/kiro/claude_code_completion_test.go",
-      "must_contain": [
-        "TestConsumeClaudeCodeCompletionSignal_StripsOnlyPrivateTool",
-        "TestPrepareClaudeCodeCompletionContinuation_PreservesToolsAndMovesTurnToHistory",
-        "minLength"
-      ],
-      "rationale": "Focused regression evidence for private-signal parsing, non-empty completion messages, ordinary-tool preservation, and continuation history/tool-catalog integrity."
-    },
-    {
       "path": "backend/internal/pkg/claude/claude_code_completion_guard.go",
       "must_contain": [
         "ClaudeCodeCompletionGuardMarker",
         "ClaudeCodeCompletionGuardText",
-        "ClaudeCodeCompletionToolName",
-        "func EnsureClaudeCodeCompletionGuard"
+        "ClaudeCodeCompletionToolName"
       ],
-      "rationale": "Shared SSOT for Claude Code completion continuity across OpenAI-compatible Messages and Kiro. Losing or duplicating this owner lets a backend present unfinished work as a completed turn or makes the two bridge paths drift."
-    },
-    {
-      "path": "backend/internal/pkg/claude/claude_code_completion_guard_test.go",
-      "must_contain": [
-        "TestEnsureClaudeCodeCompletionGuard_AppendsExactlyOnce",
-        "If any item remains in_progress or pending, continue using tools"
-      ],
-      "rationale": "Behavioral evidence that completion continuity is present and idempotent while preserving the legacy marker used by existing bridge detection."
+      "rationale": "Retained shared OpenAI-compatible Messages guard; Kiro no longer injects or interprets this protocol."
     },
     {
       "path": "backend/internal/integration/kiro/estimate.go",
       "must_contain": [
         "func EstimateInputTokens",
-        "func EstimatePayloadInputTokens",
         "func EstimateOutputTokens",
         "KiroEstimatedBillingTier",
         "KiroCacheEstimatedBillingTier"
@@ -293,6 +257,10 @@
         "case \"metadataEvent\":",
         "stale profileArn",
         "func parseEventStream",
+        "tools.consume(payloadBytes, callback)",
+        "len(tools.pending) != 0",
+        "callback.OnText(content, false)",
+        "dispatchKiroReasoningContent(callback, text, signature)",
         "ErrIncompleteEventStream",
         "sawTerminalStop",
         "extractEventStreamHeaderValue",
@@ -303,6 +271,49 @@
         "q.us-east-1.amazonaws.com"
       ],
       "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for QA/traj export without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+    },
+    {
+      "path": "backend/internal/integration/kiro/eventstream_delta_test.go",
+      "must_contain": [
+        "TestParseEventStream_PreservesIncrementalText",
+        "identical deltas",
+        "repeated digits",
+        "reasoningContentEvent"
+      ],
+      "rationale": "Kiro emits incremental text. Repeated fragments, overlapping words and numeric strings must survive on both assistant and reasoning paths; heuristic snapshot deduplication corrupts the evidence returned to clients."
+    },
+    {
+      "path": "backend/internal/service/kiro_stream_integrity_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_PreservesIncrementalText",
+        "TestKiroGatewayService_InvalidToolNeverCompletesSuccessfully",
+        "screen\\nfoofoo\\nsha256=1111111122222222"
+      ],
+      "rationale": "Both JSON and SSE gateway responses must preserve incremental Kiro text and reject malformed or unfinished tool events without a successful terminal response."
+    },
+    {
+      "path": "backend/internal/integration/kiro/tool_stream.go",
+      "must_contain": [
+        "ErrInvalidToolUse",
+        "func (d *toolUseDecoder) consume",
+        "d.completed[id]",
+        "if !stop",
+        "decoder.UseNumber()",
+        "decoder.Decode(&trailing) != io.EOF"
+      ],
+      "rationale": "Tool execution requires a unique upstream identity, complete JSON object and explicit tool stop. Never fabricate identity, replace malformed input with an empty object, or lose numeric precision."
+    },
+    {
+      "path": "backend/internal/integration/kiro/eventstream_tool_test.go",
+      "must_contain": [
+        "TestParseEventStream_RejectsInvalidToolEvents",
+        "TestParseEventStream_CompleteToolEvents",
+        "TestParseEventStream_DuplicateToolIDDoesNotExecuteTwice",
+        "TestParseEventStream_InterruptedToolIsNotEmitted",
+        "TestParseEventStream_ToolInputNumbersRemainExact",
+        "TestParseEventStream_RejectsToolAfterTerminalStop"
+      ],
+      "rationale": "Pins valid fragmented/interleaved calls and invalid event rejection, including incomplete streams and duplicate execution."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_test.go",
@@ -400,39 +411,26 @@
         "kiroproto.EstimateOutputTokens",
         "kiroBillingTier(cacheBillingEnabled)",
         "callErr != nil && !enc.started",
-        "visibleTurnText == \"\" && turnThinking == \"\" && len(turnToolUses) == 0",
         "KiroContentFilteredError",
         "KiroPostOutputStreamDisconnectError",
         "classifyKiroPostOutputStreamError",
         "recordKiroStreamError",
         "CONTENT_FILTERED",
         "mapKiroStopReason",
-        "maxClaudeCodeCompletionTurns",
-        "payload.ClaudeCodeCompletionProtocol",
-        "kiroproto.ConsumeClaudeCodeCompletionSignal",
-        "kiroproto.PrepareClaudeCodeCompletionContinuation",
-        "shouldExposeClaudeCodeContinuationText",
-        "shouldExposeClaudeCodeCompletionMessage",
-        "completionSignalTextDelta",
-        "isShortBlockerQuestion",
-        "maxBlockerQuestionRunes",
-        "continuationTextDelta",
         "writeVisibleText",
         "stopPreContentStreamKeepalive(c)",
-        "stripCompletionMarkdownPrefix",
-        "flushContinuationText",
-        "billingTextBuf",
         "gateway.kiro_stop_reason",
-        "gateway.kiro_completion_protocol",
         "unsupported_stop_reason",
         "classifyAndRecordKiroForwardError",
         "OnReasoningContent: func(text, signature string)",
         "thinkingSigBuf",
-        "sigTurnRawAssistant",
         "ResolveStashThinking",
-        "publishKiroInternalThinkingSideChannel"
+        "publishKiroInternalThinkingSideChannel",
+        "textBuf == \"\" && thinkingBuf == \"\" && len(toolUses) == 0",
+        "rawAssistant",
+        "if callOutputCommitted"
       ],
-      "rationale": "The sixth-platform forwarder translates /v1/messages onto Kiro EventStream and estimates usage because upstream reports credits only. Prompt-side input/cache_read attribution is centralized in kiroPromptUsage (with commitKiroCacheFingerprints after success) so Anthropic-mapped multi-turn traffic can bill cache_read instead of full input. OnReasoningContent plus thinkingSigBuf accumulate upstream reasoningContentEvent signatures into the internal QA side channel without exposing them on the client wire. The context-aware call and ResetForRetry callbacks protect retry integrity. The stop-reason mapper preserves Kiro's authoritative terminal outcome; for positively identified Claude Code payloads, the private completion signal and bounded continuation loop separate model END_TURN from agent completion. Continuation turns are transport-only wiring: default zero client-visible text; only ordinary client tools, non-completion terminal outcomes, and deduped short blocker questions may pass. shouldExposeClaudeCodeCompletionMessage and completionSignalTextDelta enforce turn>=2 complete silence plus isShortBlockerQuestion gating after continuationTextDelta dedupe. stripCompletionMarkdownPrefix accepts only explicit marker-plus-space decoration so semantic prefixes such as negative signs survive. flushContinuationText preserves text-before-tool ordering in SSE. Every private-tool consume/hide site is guarded by payload.ClaudeCodeCompletionProtocol so ordinary API clients retain same-name tools. billingTextBuf keeps hidden continuation output billable even when presentation is suppressed, while private completion input is counted exactly once through billingToolUses. Both stop/completion actions remain observable, and the visible-text-aware pre-content error guard keeps failures visible instead of returning an empty 200 stream. Losing these anchors silently regresses reliability, billing, response integrity, completion semantics, or incident diagnosability."
+      "rationale": "Preserve authoritative turn outcomes, client tools, estimated usage/cache billing and internal reasoning signatures. Transport retries reset only uncommitted output. A normal END_TURN must never generate a gateway-authored user instruction; focused turn-boundary tests anchor that behavior."
     },
     {
       "path": "backend/internal/service/kiro_gateway_service_tk_cache_billing.go",
@@ -485,33 +483,8 @@
         "TestKiroGatewayService_Forward_Streaming_PreservesMaxTokensStopReason",
         "TestKiroGatewayService_Forward_Streaming_UnknownStopReasonFailsClosed",
         "TestKiroGatewayService_Forward_NonStreaming_UnknownStopReasonFailsOver",
-        "TestUS041_KiroGatewayService_ClaudeCodeEndTurnContinuesUntilExplicitCompletion",
-        "TestUS041_KiroGatewayService_EmptyCompletionSignalDoesNotFinish",
-        "TestUS041_KiroGatewayService_EmptyCompletionMessageWithAssistantTextDoesNotFinish",
-        "TestUS041_KiroGatewayService_CompletionSignalMessageIsPreservedAfterText",
-        "TestUS041_KiroGatewayService_CompletionSignalDoesNotRepeatVisibleFinalText",
-        "TestUS041_KiroGatewayService_ContinuationCompletionDoesNotRepeatPriorFinalText",
-        "TestUS041_KiroGatewayService_HiddenCompletionSuppressesSemanticRecapAndToolOutputSummary",
-        "TestUS041_KiroGatewayService_HiddenBlockedMessageRemainsVisible",
-        "TestUS041_KiroGatewayService_HiddenBlockedRecapDoesNotRepeatVisibleAnswer",
-        "TestUS041_KiroGatewayService_HiddenBlockedExactRecapIsTransportOnly",
-        "TestUS041_KiroGatewayService_HiddenBlockedLongEssayIsTransportOnly",
-        "TestIsShortBlockerQuestion",
-        "TestCompletionSignalTextDeltaTurn2CompleteIsAlwaysSilent",
-        "TestCompletionSignalTextDeltaDropsBlockedRecapKeepsNovelQuestion",
-        "TestUS041_KiroGatewayService_HiddenMaxTokensTextRemainsVisible",
-        "TestUS041_KiroGatewayService_ContinuationTextDoesNotRepeatAcrossTurns",
-        "TestContinuationTextDeltaKeepsOnlyNewToolContext",
-        "TestContinuationTextDeltaKeepsParagraphBoundary",
-        "TestCompletionSignalTextDeltaPreservesNegativeNumber",
-        "TestUS041_KiroGatewayService_ContinuationToolPreservesTextBeforeTool",
-        "TestUS041_KiroGatewayService_CompletionBillingCountsPrivateToolOnce",
-        "TestUS041_KiroGatewayService_ContinuationStreamingReportsFinalInputUsage",
-        "TestUS041_KiroGatewayService_NonClaudeCodeCompletionNamedToolIsPreserved",
+        "TestUS041_KiroGatewayService_ClientCompletionNamedToolIsPreserved",
         "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolUseReturnsImmediately",
-        "TestUS041_KiroGatewayService_ClaudeCodeOrdinaryToolWinsOverCompletionSignal",
-        "TestUS041_KiroGatewayService_MaxTokensOverridesCompletionSignal",
-        "TestUS041_KiroGatewayService_ClaudeCodeCompletionLoopIsBounded",
         "TestKiroGatewayService_Forward_GuardrailIntervenedIsNotFailover",
         "TestKiroGatewayService_Forward_Streaming_PreContentReadErrorTriggersFailover",
         "TestKiroGatewayService_Forward_EventStreamThrottlingTriggersFailover",
@@ -525,7 +498,7 @@
         "discard me",
         "recovered"
       ],
-      "rationale": "Service-layer regression evidence for both sides of the truncated-response contract: non-streaming partial state is fully discarded before fallback, while a stream that already committed output emits an SSE error and never calls another upstream endpoint. It also pins Kiro's content-length validation as a client-owned non-failover error so context overflow cannot regress to provider 502 churn. The transport regression preserves the sanitized original cause and stable classification for ops while proving query secrets are redacted and client cancellation is not misreported as an upstream failure."
+      "rationale": "Wire regression coverage for normal tool calls, client-owned tool names, stop reasons, content filtering, incomplete streams, retry integrity and thinking side channels."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder.go",
@@ -536,7 +509,7 @@
         "func (e *kiroSSEEncoder) ensureBlock",
         "writeMessageDelta(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens int, stopReason string)"
       ],
-      "rationale": "Translates Kiro callbacks into the canonical Anthropic SSE event sequence. Losing it breaks streaming /v1/messages response shape for kiro accounts (clients hang or mis-parse). writeMessageDelta carries the final input total as well as optional cache_read/cache_creation fields and output tokens because hidden completion turns occur after message_start and relay billing merges terminal usage. The explicit stopReason argument prevents the encoder from inventing end_turn when upstream actually stopped for a token limit or an unsupported outcome. ensureBlock (and writeToolUse) lazily call writeMessageStart on first content; writeMessageStart is idempotent (`if e.started { return }`). This laziness is what keeps enc.started false on a pre-content upstream 400 so the gateway service can surface the error instead of a clean empty 200 stream."
+      "rationale": "Canonical lazy Anthropic SSE framing and estimated terminal usage. Unknown/truncated outcomes cannot be forged into successful message_stop."
     },
     {
       "path": "backend/internal/service/kiro_sse_encoder_tk_thinking_redact_test.go",
@@ -730,6 +703,8 @@
         "func classifyAndRecordKiroForwardError",
         "MarkOpsClientContentFiltered(c)",
         "func classifyKiroOpaqueFailure",
+        "errors.Is(err, kiroproto.ErrInvalidToolUse)",
+        "invalid_tool_use",
         "func recordKiroForwardError",
         "func parseKiroEventStreamError",
         "func isKiroInputTooLongError",
@@ -746,9 +721,21 @@
         "KiroContentFilteredError",
         "content_filter_error",
         "MarkOpsClientContentFiltered(c)",
+        "origCommitted := IsResponseCommitted(c)",
+        "c.Set(ResponseCommittedKey, origCommitted)",
         "KiroOutcomeHeader"
       ],
-      "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling."
+      "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling. Internal capture errors must restore the outer response commitment so the handler can report failures to the actual client."
+    },
+    {
+      "path": "backend/internal/handler/kiro_stream_error_regression_test.go",
+      "must_contain": [
+        "TestKiroChatBridge_CapturedErrorReachesClient",
+        "TestGatewayHandlerMessages_InvalidKiroToolFailsOver",
+        "http.StatusBadGateway",
+        "invalid_tool_use"
+      ],
+      "rationale": "Behavioral regressions require captured stream failures to reach Chat Completions clients and invalid Kiro tools before output to reach bounded account failover with structured upstream evidence."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
@@ -1167,6 +1154,24 @@
         "TestRedactKiroUsageError_CamelCaseCredentials"
       ],
       "rationale": "Load-bearing QA evidence for Kiro usage mapping, passive round-trip, expired-token recovery, Invalid-token retry, lock handling, and the invariant that usage credential refresh never re-enables a 402-disabled account."
+    },
+    {
+      "path": "backend/internal/service/kiro_turn_boundary_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_EndTurnDoesNotContinue",
+        "TestKiroGatewayService_ClaudeCodeTerminalOutcomes",
+        "require.Equal(t, 1, len(upstream.requests))",
+        "Do not call tools."
+      ],
+      "rationale": "Replay the observed NO + END_TURN followed by unauthorized Read; the second upstream call must never occur for Claude Code or ordinary clients in JSON or SSE. Preserve limits/refusals without business continuation."
+    },
+    {
+      "path": "backend/internal/integration/kiro/prompt_filter_test.go",
+      "must_contain": [
+        "TestClaudeToKiro_NoPrivateCompletionProtocol",
+        "require.Len(t, current.UserInputMessageContext.Tools, 1)"
+      ],
+      "rationale": "Client instructions/catalog stay client-owned, without completion guard/tool injection, including recognized Claude Code sessions."
     }
   ]
 }
