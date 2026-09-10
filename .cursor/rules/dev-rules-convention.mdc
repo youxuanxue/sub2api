@@ -35,11 +35,14 @@ alwaysApply: true
 ~/.codex/skills/<name>→ 配置的 agent-skills/<name>（逐个叠加，只维护 dev-rules-owned links，不动 Codex 自带 .system/default.rules）
 ~/.gemini/antigravity-cli/AGENTS.md    → dev-rules/global/CLAUDE.md（Antigravity 与 Claude/Codex 同一宪法）
 ~/.gemini/antigravity-cli/skills/<name>→ 配置的 agent-skills/<name>（逐个叠加，只维护 dev-rules-owned links，不动 Antigravity 自带 builtin）
+~/.gemini/skills/<name>                → 配置的 agent-skills/<name>（逐个叠加，Gemini CLI 全局技能）
 ```
 
 Codex 消费端要点：Codex 不读 `.cursor/rules/*.mdc`，行为规则经 `AGENTS.md` 的 dev-rules 受管块**指针化**到达（宪法 + 规则索引 + 技能索引 + 全局工具）；`~/.codex/rules/` 是 Codex 自己的命令审批策略（Starlark `.rules`），**dev-rules 永不写入**；三端通用 skill 都在 `.cursor/skills/` 保持同一份 `SKILL.md`，由各自的 skill 加载位消费。Codex 自定义 prompt 已被 OpenAI deprecated，可复用工作流一律走 skill，不 symlink commands 到 `~/.codex/prompts/`。
 
 Antigravity CLI（Google `agy`）消费端要点：customization 模型与 Codex 同构，故复用同一管线。家目录 Global Customizations Root = `~/.gemini/antigravity-cli/`：全局规则读 `AGENTS.md`（symlink 同一宪法），技能自动发现 `skills/<name>/SKILL.md`（逐个 symlink）。工作区 Workspace Root = `<project>/.agents/`：技能读 `.agents/skills/<name>/`，**工作区规则复用项目根 `AGENTS.md` 的同一受管块**（与 Codex 同文件，零额外生成）。Antigravity 同样不自动加载 `.cursor/rules/*.mdc`，规则经 AGENTS.md 到达；不碰 `~/.gemini/GEMINI.md`（那是 gemini-cli 的根，非 antigravity-cli root）；可复用工作流走 skill，不 symlink commands。
+
+Gemini CLI（Google `gemini`）消费端要点：全局技能由 `sync.sh` 逐个同步到 `~/.gemini/skills/<name>`；工作区技能直接消费 `<project>/.agents/skills`（与 Antigravity 共用同一加载位，新 worktree 由 `wts` 自动确保 symlink 就绪）。
 
 ## 新项目接入
 
