@@ -100,6 +100,7 @@ fi
 
 out="$(run_alert_scan http503)"
 grep -q -- '--env TERMINAL_ONLY=1' "${TMPDIR_SCAN}/run-probe.called"
+grep -q -- '--compressed-output' "${TMPDIR_SCAN}/run-probe.called"
 python3 -c '
 import json, sys
 rows = [json.loads(line) for line in sys.stdin]
@@ -122,8 +123,12 @@ if out="$(run_alert_scan http503 malformed 2>/dev/null)"; then
   exit 1
 fi
 grep -q '"reason":"parse_error"' <<< "${out}"
+python3 -c 'import json,sys; row=json.load(sys.stdin); assert row["reachable"] and row["telemetry_status"] == "unavailable" and not row["buckets"]' <<< "${out}"
 
-out="$(MOCK_SSM_MODE=failure run_alert_scan http503)"
+if out="$(MOCK_SSM_MODE=failure run_alert_scan http503)"; then
+  echo "FAIL: SSM collection failure must keep the scan red" >&2
+  exit 1
+fi
 python3 -c '
 import json, sys
 row = json.load(sys.stdin)

@@ -3,7 +3,7 @@ import type { AccountPlatform } from '@/types'
 /** Ordered account/group platforms, including the independent fifth platform `newapi`. */
 export const GATEWAY_PLATFORMS = [
   'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
-  'kimi', 'zhipu', 'deepseek', 'composite'
+  'kimi', 'zhipu', 'deepseek', 'minimax', 'composite'
 ] as const satisfies readonly AccountPlatform[]
 
 /**
@@ -13,7 +13,7 @@ export const GATEWAY_PLATFORMS = [
  */
 export const ALLOWED_QUOTA_PLATFORMS = [
   'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
-  'kimi', 'zhipu', 'deepseek'
+  'kimi', 'zhipu', 'deepseek', 'minimax'
 ] as const satisfies readonly AccountPlatform[]
 export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
 
@@ -29,7 +29,7 @@ export type QuotaPlatform = (typeof ALLOWED_QUOTA_PLATFORMS)[number]
  * covered by the `useModelWhitelist` and `usePlatformOptions` test suites.
  */
 export const OPENAI_COMPAT_PLATFORMS: readonly AccountPlatform[] = [
-  'openai', 'newapi', 'grok', 'kimi', 'zhipu', 'deepseek'
+  'openai', 'newapi', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax'
 ] as const
 
 /** Predicate sibling of {@link OPENAI_COMPAT_PLATFORMS} — use whenever a UI branch is gated on "speaks OpenAI HTTP shape". */
@@ -54,7 +54,7 @@ export function isOpenAICompatPlatform(platform: string | null | undefined): boo
  * intentionally do not coincide for gemini.
  */
 export const GROUP_DISPATCH_CONFIG_PLATFORMS: readonly AccountPlatform[] = [
-  'openai', 'newapi', 'gemini', 'grok', 'kimi', 'zhipu', 'deepseek'
+  'openai', 'newapi', 'gemini', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax'
 ] as const
 
 export function hasMessagesDispatchConfig(platform: string | null | undefined): boolean {
@@ -76,6 +76,7 @@ export const CREATE_ACCOUNT_PLATFORM_SEGMENT_ACTIVE: Record<AccountPlatform, str
   kimi: 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300',
   zhipu: 'bg-white text-blue-700 shadow-sm dark:bg-dark-600 dark:text-blue-300',
   deepseek: 'bg-white text-emerald-700 shadow-sm dark:bg-dark-600 dark:text-emerald-300',
+  minimax: 'bg-white text-rose-700 shadow-sm dark:bg-dark-600 dark:text-rose-300',
   composite: 'bg-white text-cyan-700 shadow-sm dark:bg-dark-600 dark:text-cyan-300',
 }
 
@@ -97,6 +98,7 @@ export const PLATFORM_GROK = 'grok' as const
 export const PLATFORM_KIMI = 'kimi' as const
 export const PLATFORM_ZHIPU = 'zhipu' as const
 export const PLATFORM_DEEPSEEK = 'deepseek' as const
+export const PLATFORM_MINIMAX = 'minimax' as const
 
 // --- Subscription type constants (use instead of inline literals) ------------
 
@@ -149,35 +151,10 @@ const SOFT_BADGE: Record<string, string> = {
   kimi: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
   zhipu: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
   deepseek: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  minimax: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300',
 }
-
-const LABEL_TEXT: Record<string, string> = {
-  anthropic: 'text-orange-600 dark:text-orange-400',
-  openai: 'text-emerald-600 dark:text-emerald-400',
-  gemini: 'text-blue-600 dark:text-blue-400',
-  antigravity: 'text-purple-600 dark:text-purple-400',
-  newapi: 'text-cyan-600 dark:text-cyan-400',
-  kiro: 'text-indigo-600 dark:text-indigo-400',
-  grok: 'text-slate-700 dark:text-slate-300',
-  kimi: 'text-cyan-700 dark:text-cyan-300',
-  zhipu: 'text-blue-700 dark:text-blue-300',
-  deepseek: 'text-emerald-700 dark:text-emerald-300',
-}
-
-const TABLE_CELL_BASE =
-  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium'
 
 /** Background + text colors for compact platform pills (e.g. channel model tags). */
 export function tkAdminPlatformSoftBadgeClass(platform: string): string {
   return SOFT_BADGE[platform] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400'
-}
-
-/** Text color for platform labels next to icons. */
-export function tkAdminPlatformLabelTextColor(platform: string): string {
-  return LABEL_TEXT[platform] ?? 'text-gray-600 dark:text-gray-400'
-}
-
-/** Full class string for the admin groups table platform column. */
-export function tkAdminGroupsPlatformTableCellClass(platform: string): string {
-  return `${TABLE_CELL_BASE} ${tkAdminPlatformSoftBadgeClass(platform)}`
 }

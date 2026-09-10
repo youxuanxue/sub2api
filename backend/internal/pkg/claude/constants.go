@@ -35,6 +35,11 @@ const (
 	// cc 2.1.154+ 抓包新增。
 	BetaThinkingTokenCount = "thinking-token-count-2026-05-13"
 	BetaStructuredOutputs  = "structured-outputs-2025-12-15"
+	// Recognize explicit fallback requests without adding these to default fingerprints.
+	BetaServerSideFallback      = "server-side-fallback-2026-07-01"
+	BetaFallbackCredit          = "fallback-credit-2026-07-01"
+	BetaFallbackCreditLegacy    = "fallback-credit-2026-06-01"
+	BetaThinkingBindingControls = "thinking-binding-controls-2026-08-01"
 )
 
 // DroppedBetas 是转发时需要从 anthropic-beta header 中移除的 beta token 列表。
@@ -78,7 +83,7 @@ const APIKeyHaikuBetaHeader = BetaInterleavedThinking
 // 客户端缺省时统一使用 5m"，这样既不浪费 1h 缓存额度，也保留客户端自定义能力。
 const DefaultCacheControlTTL = "5m"
 
-// CLICurrentVersion 是 sub2api 当前对外伪装的 Claude Code CLI 版本号（三段 semver）。
+// CLICurrentVersion 是内置的 Claude Code CLI 伪装版本号基线（三段 semver）。
 // 用于 billing attribution block 中的 cc_version=X.Y.Z.{fp} 前缀以及 fingerprint 计算。
 // 必须与 DefaultHeaders["User-Agent"] 中的版本号严格一致；不一致会被 Anthropic 判第三方。
 const CLICurrentVersion = "2.1.266"
@@ -162,6 +167,12 @@ type Model struct {
 
 // DefaultModels Claude Code 客户端支持的默认模型列表
 var DefaultModels = []Model{
+	{
+		ID:          "claude-fable-5-1",
+		Type:        "model",
+		DisplayName: "Claude Fable 5.1",
+		CreatedAt:   "2026-09-01T00:00:00Z",
+	},
 	{
 		ID:          "claude-fable-5",
 		Type:        "model",

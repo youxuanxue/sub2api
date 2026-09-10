@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"mime"
-	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
 
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -69,7 +68,7 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			return
 		}
 
-		model := compositeRequestModelFromBody(c.GetHeader("Content-Type"), body)
+		model := requestmodel.FromBodyForRoute(c.FullPath(), c.GetHeader("Content-Type"), body)
 		if model != "" {
 			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, compositeRouteEndpointForPath(c.Request.URL.Path))
 			if err != nil {
@@ -80,7 +79,7 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			if decision.Matched {
 				c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
 				if upstreamModel := strings.TrimSpace(decision.UpstreamModel); upstreamModel != "" && upstreamModel != model && gjson.ValidBytes(body) {
-					if _, modelPath := compositeJSONRequestModel(body); modelPath != "" {
+					if _, modelPath := requestmodel.JSONModelPathForRoute(c.FullPath(), body); modelPath != "" {
 						if rewritten, rewriteErr := sjson.SetBytes(body, modelPath, upstreamModel); rewriteErr == nil {
 							body = rewritten
 						}
@@ -90,63 +89,6 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 		}
 		resetRequestBody(c, body)
 		c.Next()
-	}
-}
-
-func compositeRequestModelFromBody(contentType string, body []byte) string {
-	if model, _ := compositeJSONRequestModel(body); model != "" {
-		return model
-	}
-	return compositeMultipartModelFromBody(contentType, body)
-}
-
-func compositeJSONRequestModel(body []byte) (string, string) {
-	for _, path := range []string{"model", "session.model"} {
-		model := gjson.GetBytes(body, path)
-		if model.Type != gjson.String {
-			continue
-		}
-		if value := strings.TrimSpace(model.String()); value != "" {
-			return value, path
-		}
-	}
-	return "", ""
-}
-
-func compositeMultipartModelFromBody(contentType string, body []byte) string {
-	mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(contentType))
-	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") {
-		return ""
-	}
-	boundary := strings.TrimSpace(params["boundary"])
-	if boundary == "" {
-		return ""
-	}
-	reader := multipart.NewReader(bytes.NewReader(body), boundary)
-	for {
-		part, err := reader.NextPart()
-		if errors.Is(err, io.EOF) {
-			return ""
-		}
-		if err != nil {
-			return ""
-		}
-		fieldName := part.FormName()
-		if part.FileName() != "" || (fieldName != "model" && fieldName != "session") {
-			continue
-		}
-		data, err := io.ReadAll(part)
-		if err != nil {
-			return ""
-		}
-		switch fieldName {
-		case "model":
-			return strings.TrimSpace(string(data))
-		case "session":
-			if model, _ := compositeJSONRequestModel(data); model != "" {
-				return model
-			}
-		}
 	}
 }
 

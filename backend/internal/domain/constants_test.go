@@ -152,6 +152,19 @@ func TestDefaultAntigravityModelMapping_Gemini38MediumDefault(t *testing.T) {
 	}
 }
 
+func TestDefaultAntigravityModelMapping_KeepsServableSonnetWithoutRetiredDefaults(t *testing.T) {
+	t.Parallel()
+
+	if got := DefaultAntigravityModelMapping["claude-sonnet-4-6"]; got != "claude-sonnet-4-6" {
+		t.Fatalf("servable Sonnet identity mapping lost: %q", got)
+	}
+	for _, model := range []string{"claude-sonnet-4-5", "claude-sonnet-4-5-thinking", "claude-sonnet-4-5-20250929"} {
+		if _, exists := DefaultAntigravityModelMapping[model]; exists {
+			t.Fatalf("retired model %q must not be reintroduced by upstream defaults", model)
+		}
+	}
+}
+
 func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
 	t.Parallel()
 

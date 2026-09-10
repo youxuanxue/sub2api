@@ -52,8 +52,10 @@ class UpstreamSyncRegressionTest(unittest.TestCase):
                 "upstream drift regression applies only to main and merge/upstream-* branches"
             )
         self.assertTrue(CHECK_DRIFT.is_file(), f"missing {CHECK_DRIFT}")
+        target = (REPO_ROOT / ".upstream-ref").read_text().strip()
+        self.assertRegex(target, r"^[0-9a-f]{40}$", "review target must be a fixed commit")
         proc = subprocess.run(
-            ["bash", str(CHECK_DRIFT)],
+            ["bash", str(CHECK_DRIFT), "--head", "HEAD", "--target", target],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
@@ -66,6 +68,33 @@ class UpstreamSyncRegressionTest(unittest.TestCase):
 
 
 class UpstreamDriftGateTest(unittest.TestCase):
+    def test_review_head_is_independent_of_main_and_newer_upstream(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = pathlib.Path(temp_dir)
+
+            def git(*args: str) -> str:
+                return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+            git("init", "-q")
+            git("config", "user.email", "test@example.invalid")
+            git("config", "user.name", "Drift test")
+            git("commit", "--allow-empty", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            git("update-ref", "refs/remotes/origin/main", base)
+            git("commit", "--allow-empty", "-qm", "reviewed upstream")
+            target = git("rev-parse", "HEAD")
+            git("commit", "--allow-empty", "-qm", "upstream advanced")
+            git("update-ref", "refs/remotes/upstream/main", "HEAD")
+            git("checkout", "--detach", "-q", target)
+            script = f'source "{UPSTREAM_DRIFT_LIB}"; load_upstream_drift_snapshot "$@"; printf "%s %s" "$TK_BEHIND" "$TK_AHEAD"'
+
+            def snapshot(*args: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(["bash", "-c", script, "snapshot", *args], cwd=repo, capture_output=True, text=True, check=False)
+
+            self.assertEqual(snapshot("HEAD", target).stdout, "0 0")
+            self.assertEqual(snapshot().stdout, "2 0")
+            self.assertEqual(snapshot(base, target).stdout, "1 0")
+
     def test_sync_pr_branch_runs_gate(self) -> None:
         self.assertEqual(_gate_status(head_ref="merge/upstream-2026-08-24"), 0)
 

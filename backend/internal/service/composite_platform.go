@@ -106,12 +106,14 @@ func DetectModelPlatform(model string) (string, bool) {
 			return PlatformGemini, true
 		case "xai", "x-ai", "grok":
 			return PlatformGrok, true
-		case "kimi", "moonshot":
+		case "kimi", "moonshot", "kimi-code":
 			return PlatformKimi, true
 		case "zhipu", "glm", "bigmodel":
 			return PlatformZhipu, true
 		case "deepseek":
 			return PlatformDeepseek, true
+		case "minimax":
+			return PlatformMiniMax, true
 		}
 		if rest != "" {
 			normalized = strings.TrimPrefix(rest, "models/")
@@ -139,13 +141,16 @@ func DetectModelPlatform(model string) (string, bool) {
 		return PlatformGemini, true
 	case normalized == "grok" || strings.HasPrefix(normalized, "grok-"):
 		return PlatformGrok, true
-	case strings.HasPrefix(normalized, "kimi-"), strings.HasPrefix(normalized, "moonshot-"):
+	case normalized == "k3", strings.HasPrefix(normalized, "k3-"),
+		strings.HasPrefix(normalized, "kimi-"), strings.HasPrefix(normalized, "moonshot-"):
 		return PlatformKimi, true
 	case strings.HasPrefix(normalized, "glm-"):
 		return PlatformZhipu, true
 	case strings.HasPrefix(normalized, "deepseek-"):
 		return PlatformDeepseek, true
-	case strings.HasPrefix(normalized, "minimax-"), strings.HasPrefix(normalized, "qwen"):
+	case strings.HasPrefix(normalized, "minimax-"):
+		return PlatformMiniMax, true
+	case strings.HasPrefix(normalized, "qwen"):
 		return PlatformOpenAI, true
 	default:
 		return "", false

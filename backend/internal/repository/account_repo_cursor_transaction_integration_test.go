@@ -61,7 +61,7 @@ func TestCursorReconnectPreservesPersistedPause(t *testing.T) {
 	client := testEntClient(t)
 	repo := newAccountRepositoryWithSQL(client, integrationDB, nil, nil)
 	groups := newGroupRepositoryWithSQL(client, integrationDB)
-	admin := service.NewAdminService(nil, groups, repo, nil, nil, nil, nil, nil,
+	admin := service.NewAdminService(nil, nil, groups, repo, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	group, err := client.Group.Create().SetName(fmt.Sprintf("cursor-renew-%d", time.Now().UnixNano())).SetPlatform(service.PlatformNewAPI).Save(ctx)
 	require.NoError(t, err)

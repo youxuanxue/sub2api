@@ -41,7 +41,7 @@ func newAdminServiceForBalanceLedgerTests(t *testing.T) (service.AdminService, s
 	userRepo := NewUserRepository(client, integrationDB)
 	redeemRepo := NewRedeemCodeRepository(client)
 	adminSvc := service.NewAdminService(
-		userRepo,
+		nil, userRepo,
 		nil, nil, nil, nil, // group/account/proxy/api-key repos
 		redeemRepo,
 		nil, nil, nil, nil, nil, nil, // user-group/rpm/billing/proxy/auth helpers

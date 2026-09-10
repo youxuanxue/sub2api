@@ -75,7 +75,7 @@ func (s *OpenAIGatewayService) doNativeMessagesRequest(req *http.Request, accoun
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	return s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	return s.doOpenAIUpstream(req, proxyURL, account)
 }
 
 func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUpstream) (*http.Response, error) {

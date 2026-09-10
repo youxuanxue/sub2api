@@ -7,10 +7,11 @@ function readSource(path: string): string {
 }
 
 describe('admin platform filters', () => {
-  it('uses the group platform catalog on the subscriptions page', () => {
+  it('uses the shared platform options on the subscriptions page', () => {
     const source = readSource('src/views/admin/SubscriptionsView.vue')
-    expect(source).toContain("import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'")
-    expect(source).toMatch(/const platformFilterOptions[\s\S]*?\.\.\.GROUP_PLATFORM_OPTIONS/)
+    expect(source).toContain("import { usePlatformOptions } from '@/composables/usePlatformOptions'")
+    expect(source).toContain('const { optionsWithAll } = usePlatformOptions()')
+    expect(source).toContain('const platformFilterOptions = optionsWithAll(')
   })
 
   it('uses the shared catalogs on the groups page', () => {
@@ -19,15 +20,15 @@ describe('admin platform filters', () => {
     expect(source).toContain('...CONCRETE_PLATFORM_OPTIONS')
   })
 
-  it('uses the concrete platform catalog wherever concrete platforms are selected', () => {
+  it('uses the registry-backed platform catalog across account and ops filters', () => {
     for (const path of [
       'src/components/admin/account/AccountTableFilters.vue',
       'src/components/admin/ErrorPassthroughRulesModal.vue',
       'src/views/admin/ops/components/OpsDashboardHeader.vue'
     ]) {
       const source = readSource(path)
-      expect(source).toContain("import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'")
-      expect(source).toMatch(/platformOptions\s*=.*CONCRETE_PLATFORM_OPTIONS|pOpts.*\.\.\.CONCRETE_PLATFORM_OPTIONS/s)
+      expect(source).toContain("import { usePlatformOptions } from '@/composables/usePlatformOptions'")
+      expect(source).toContain('= usePlatformOptions()')
     }
   })
 })

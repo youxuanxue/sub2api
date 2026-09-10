@@ -26,14 +26,15 @@ const publicSettings = {
 }
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), currentRoute: { value: { query: {} } } }),
   useRoute: () => ({ query: {} })
 }))
 
 vi.mock('vue-i18n', () => ({
   createI18n: () => ({
     global: {
-      t: (key: string) => key
+      t: (key: string) => key,
+      locale: { value: 'en' }
     }
   }),
   useI18n: () => ({

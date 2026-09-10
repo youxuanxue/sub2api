@@ -84,6 +84,7 @@ jobs:
           /bin/bash -n deploy/apple-container.sh
           /bin/bash deploy/tests/apple-container-test.sh
           /bin/sh deploy/tests/docker-compose-security-test.sh
+          /bin/sh deploy/tests/docker-compose-gateway-env-test.sh
           /bin/sh deploy/tests/docker-runtime-resources-test.sh
           /bin/sh deploy/test-caddyfile-cache.sh
 
@@ -246,14 +247,14 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         id: go_cache
         with:
-          # Main writes one Unit snapshot per distinct backend tree. Content
-          # keys let a same-day backend merge restore the latest compatible
-          # snapshot, compile the delta, and persist the refreshed objects.
+          # The warm workflow writes one snapshot per distinct backend tree.
+          # Required jobs restore the latest compatible snapshot and compile
+          # the delta without competing for the same immutable cache key.
           # Manual A/B runs use an isolated namespace; ordinary PR runs remain
           # restore-only by action policy.
           family: test
           fallback_prefix: unit-nodwarf-v3
-          save_caches: "true"
+          save_caches: "false"
           benchmark_prefix: unit-nodwarf-v5-other-first-bench
           benchmark_build_cache_write: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}
       - name: Verify Go version
@@ -297,10 +298,9 @@ jobs:
           family: integration
           fallback_prefix: integration-nodwarf-v2
           build_cache_path: ${{ github.workspace }}/.cache/go-build-integration
-          # Main required job writes the same key as warm. PRs restore
-          # backend-ci's main snapshot more reliably than a just-finished
-          # warm-release-cache-main run (measured miss on #1880).
-          save_caches: "true"
+          # Restore the snapshot produced by warm-release-cache-main;
+          # required integration jobs never compete for its immutable key.
+          save_caches: "false"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)
@@ -384,7 +384,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.9
+          version: v2.13.2
           args: --concurrency=4 --timeout=30m
           working-directory: backend
           only-new-issues: false
@@ -424,7 +424,7 @@ jobs:
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.9
+          version: v2.13.2
           args: --enable-only gosec --concurrency=4 --timeout=30m
           working-directory: backend
       - name: Note gosec scope (push/PR runs)
@@ -441,9 +441,9 @@ jobs:
         run: |
           # Pin govulncheck (was @latest). An unpinned @latest is non-reproducible
           # and a supply-chain surface — a bad upstream release would silently
-          # break or poison this gate. Contrast golangci-lint (pinned v2.9) and
+          # break or poison this gate. Contrast the pinned golangci-lint and
           # new-api (pinned by SHA). Bump deliberately.
-          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
 
   frontend-security:

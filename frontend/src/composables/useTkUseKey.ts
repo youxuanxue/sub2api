@@ -214,6 +214,7 @@ interface UseTkUseKeyArgs {
   apiKey: Ref<string>
   platform: Ref<GroupPlatform | null>
   routingMode?: Ref<KeyRoutingMode | undefined>
+  codexModels?: Ref<UseKeyServableModel[] | null>
   /** anthropic groups gated to claude-cli / /v1/messages only */
   claudeCodeOnly: Ref<boolean | undefined>
   /** stripped gateway root, e.g. https://api.tokenkey.dev (no /v1) */
@@ -290,6 +291,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     flavor: UseKeyFlavor,
     protocol: UseKeyDiscoveryProtocol = flavor,
   ): UseKeyServableModel[] {
+    if (protocol === 'codex' && args.codexModels?.value != null) return args.codexModels.value
     return servableModels.value.filter((model) => {
       if (!model.protocols?.length) return flavorOfModel(model.id) === flavor
       return model.protocols.includes(protocol)
@@ -305,6 +307,7 @@ export function useTkUseKey(args: UseTkUseKeyArgs) {
     const picked = selectedByFlavor.value[flavor]
     if (picked && modelsForFlavor(flavor, protocol).some((model) => model.id === picked)) return picked
     const first = modelsForFlavor(flavor, protocol)[0]
+    if (protocol === 'codex' && args.codexModels?.value != null) return first?.id ?? ''
     if (args.routingMode?.value === 'universal') return first?.id ?? ''
     return first?.id ?? FLAVOR_DEFAULT_MODEL[flavor]
   }

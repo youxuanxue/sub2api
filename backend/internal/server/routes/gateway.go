@@ -34,6 +34,7 @@ func RegisterGatewayRoutes(
 	if h != nil && h.QACapture != nil {
 		qaCapture = h.QACapture.Middleware()
 	}
+	groupModelAllowlist := middleware.GroupModelAllowlist()
 	compositeTarget := compositeTargetPlatformMiddleware(compositeResolver)
 	compositeGeminiTarget := compositeGeminiTargetPlatformMiddleware(compositeResolver)
 
@@ -58,6 +59,7 @@ func RegisterGatewayRoutes(
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
 	gatewayRoutes := newTerminalRouteRegistrar(gateway, terminalOutcomeRecorder)
 	gatewayRoutes.Register(http.MethodGet, "/sub2api/billing", Excluded("billing"), h.Gateway.KeyBillingInfo)
+	gateway.Use(groupModelAllowlist)
 	gateway.Use(compositeTarget)
 	gateway.Use(requireGroupAnthropic)
 	{
@@ -119,6 +121,7 @@ func RegisterGatewayRoutes(
 	gemini.Use(opsErrorLogger)
 	gemini.Use(endpointNorm)
 	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, settingService, cfg))
+	gemini.Use(groupModelAllowlist)
 	gemini.Use(compositeGeminiTarget)
 	gemini.Use(requireGroupGoogle)
 	geminiRoutes := newTerminalRouteRegistrar(gemini, terminalOutcomeRecorder)
@@ -132,23 +135,23 @@ func RegisterGatewayRoutes(
 	// OpenAI Responses API（不带v1前缀的别名）— keep the same OpenAI-compatible
 	// routing predicate as /v1/responses so newapi never drifts into a second path.
 	rootRoutes := newTerminalRouteRegistrar(r, terminalOutcomeRecorder)
-	rootRoutes.Register(http.MethodPost, "/responses", StreamInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
-	rootRoutes.Register(http.MethodPost, "/responses/*subpath", StreamInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, guardResponsesSubpath(responsesHandler))
-	rootRoutes.Register(http.MethodGet, "/responses", WebSocketTurn, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatResponsesWebSocketGET(h))
+	rootRoutes.Register(http.MethodPost, "/responses", StreamInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, responsesHandler)
+	rootRoutes.Register(http.MethodPost, "/responses/*subpath", StreamInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, guardResponsesSubpath(responsesHandler))
+	rootRoutes.Register(http.MethodGet, "/responses", WebSocketTurn, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatResponsesWebSocketGET(h))
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
-	rootRoutes.Register(http.MethodPost, "/chat/completions", StreamInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatChatCompletionsPOST(h))
-	rootRoutes.Register(http.MethodPost, "/embeddings", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatEmbeddingsHandler(h))
-	rootRoutes.Register(http.MethodPost, "/images/generations", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageGenerationsHandler(h))
-	rootRoutes.Register(http.MethodPost, "/images/edits", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatImageEditsHandler(h))
-	rootRoutes.Register(http.MethodPost, "/audio/speech", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))
-	rootRoutes.Register(http.MethodPost, "/audio/transcriptions", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, tkOpenAICompatAudioTranscriptionHandler(h))
-	rootRoutes.Register(http.MethodGet, "/models", Excluded("model_catalog"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, modelsHandler)
-	registerTKOpenAICompatImagePresignRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
-	registerTKOpenAICompatVideoRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
-	rootRoutes.Register(http.MethodPost, "/alpha/search", SyncInference, textBodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.AlphaSearch)
-	rootRoutes.Register(http.MethodPost, "/messages/count_tokens", Excluded("count_tokens"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, countTokensHandler)
+	rootRoutes.Register(http.MethodPost, "/chat/completions", StreamInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatChatCompletionsPOST(h))
+	rootRoutes.Register(http.MethodPost, "/embeddings", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatEmbeddingsHandler(h))
+	rootRoutes.Register(http.MethodPost, "/images/generations", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatImageGenerationsHandler(h))
+	rootRoutes.Register(http.MethodPost, "/images/edits", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatImageEditsHandler(h))
+	rootRoutes.Register(http.MethodPost, "/audio/speech", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatAudioSpeechHandler(h))
+	rootRoutes.Register(http.MethodPost, "/audio/transcriptions", SyncInference, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, tkOpenAICompatAudioTranscriptionHandler(h))
+	rootRoutes.Register(http.MethodGet, "/models", Excluded("model_catalog"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, modelsHandler)
+	registerTKOpenAICompatImagePresignRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic)
+	registerTKOpenAICompatVideoRoutesNoPrefix(rootRoutes, h, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic)
+	rootRoutes.Register(http.MethodPost, "/alpha/search", SyncInference, textBodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, h.OpenAIGateway.AlphaSearch)
+	rootRoutes.Register(http.MethodPost, "/messages/count_tokens", Excluded("count_tokens"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
-	codexDirect.Use(bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
+	codexDirect.Use(bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic)
 	codexRoutes := newTerminalRouteRegistrar(codexDirect, terminalOutcomeRecorder)
 	{
 		codexRoutes.Register(http.MethodGet, "/models", Excluded("model_catalog"), h.OpenAIGateway.CodexModels)
@@ -159,15 +162,15 @@ func RegisterGatewayRoutes(
 		codexRoutes.Register(http.MethodPost, "/alpha/search", SyncInference, textBodyLimit, h.OpenAIGateway.AlphaSearch)
 		codexRoutes.Register(http.MethodGet, "/responses", WebSocketTurn, tkOpenAICompatResponsesWebSocketGET(h))
 	}
-	rootRoutes.Register(http.MethodPost, "/images/generations/async", AsyncSubmission, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.AsyncImage.Submit)
-	rootRoutes.Register(http.MethodPost, "/images/edits/async", AsyncSubmission, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.AsyncImage.Submit)
-	rootRoutes.Register(http.MethodGet, "/images/tasks/:task_id", Excluded("status"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.AsyncImage.Get)
+	rootRoutes.Register(http.MethodPost, "/images/generations/async", AsyncSubmission, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, h.AsyncImage.Submit)
+	rootRoutes.Register(http.MethodPost, "/images/edits/async", AsyncSubmission, bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, h.AsyncImage.Submit)
+	rootRoutes.Register(http.MethodGet, "/images/tasks/:task_id", Excluded("status"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, h.AsyncImage.Get)
 
 	// TK: Grok voice/realtime/search (no /v1 prefix) — see gateway_tk_grok_voice_routes.go
 	registerTKGrokVoiceRoutesRoot(rootRoutes, h, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic)
 
 	// Antigravity 模型列表
-	rootRoutes.Register(http.MethodGet, "/antigravity/models", Excluded("model_catalog"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
+	rootRoutes.Register(http.MethodGet, "/antigravity/models", Excluded("model_catalog"), bodyLimit, clientRequestID, trajectoryID, qaCapture, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, requireGroupAnthropic, h.Gateway.AntigravityModels)
 
 	// Antigravity 专用路由（仅使用 antigravity 账户，不混合调度）
 	antigravityV1 := r.Group("/antigravity/v1")
@@ -179,6 +182,7 @@ func RegisterGatewayRoutes(
 	antigravityV1.Use(endpointNorm)
 	antigravityV1.Use(middleware.ForcePlatform(service.PlatformAntigravity))
 	antigravityV1.Use(gin.HandlerFunc(apiKeyAuth))
+	antigravityV1.Use(groupModelAllowlist)
 	antigravityV1.Use(requireGroupAnthropic)
 	antigravityV1Routes := newTerminalRouteRegistrar(antigravityV1, terminalOutcomeRecorder)
 	{
@@ -197,6 +201,7 @@ func RegisterGatewayRoutes(
 	antigravityV1Beta.Use(endpointNorm)
 	antigravityV1Beta.Use(middleware.ForcePlatform(service.PlatformAntigravity))
 	antigravityV1Beta.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, settingService, cfg))
+	antigravityV1Beta.Use(groupModelAllowlist)
 	antigravityV1Beta.Use(requireGroupGoogle)
 	antigravityV1BetaRoutes := newTerminalRouteRegistrar(antigravityV1Beta, terminalOutcomeRecorder)
 	{

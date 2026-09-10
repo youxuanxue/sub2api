@@ -51,8 +51,13 @@ func useCandidateModelDiscovery(source apiKeyCapabilitySource, key *service.APIK
 }
 
 func directCustomCapabilityIDs(key *service.APIKey, ids []string) []string {
-	if key != nil && !key.IsUniversal() && key.Group != nil && key.Group.CustomModelsListEnabled() {
-		return filterModelsByCustomList(ids, nil, key.Group.ModelsListConfig.Models)
+	if key != nil && !key.IsUniversal() && key.Group != nil {
+		if key.Group.CustomModelsListEnabled() {
+			ids = filterModelsByCustomList(ids, nil, key.Group.ModelsListConfig.Models)
+		}
+		if key.Group.ModelAllowlistEnabled() {
+			ids = key.Group.ModelAllowlist.FilterForListing(ids)
+		}
 	}
 	return ids
 }
@@ -84,11 +89,7 @@ func (h *GatewayHandler) tryServeUniversalModels(c *gin.Context, apiKey *service
 		if forcedPlatform, ok := middleware2.GetForcePlatformFromContext(c); ok && forcedPlatform != "" {
 			platform = forcedPlatform
 		}
-		if apiKey.Group.CustomModelsListEnabled() {
-			writeCustomModelsList(c, platform, ids)
-		} else {
-			writeModelsList(c, platform, ids)
-		}
+		writeModelsList(c, platform, ids)
 		return true
 	}
 	if protocol == service.UniversalProtocolAnthropic {
@@ -122,6 +123,11 @@ func (h *GatewayHandler) serveAntigravityModels(c *gin.Context) {
 	// are enforced only after an operator-reviewed apply-accounts run.
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil {
 		models = tkAntigravityFilterModelsByGroupScopes(apiKey.Group.SupportedModelScopes, models)
+		ids := make([]string, 0, len(models))
+		for _, model := range models {
+			ids = append(ids, model.ID)
+		}
+		models = antigravityModelsForCapabilityIDs(directCustomCapabilityIDs(apiKey, ids))
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",

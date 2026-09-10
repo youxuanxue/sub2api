@@ -44,7 +44,11 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     expect(starts).toBe(1)
     expect(polls).toBe(2)
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
-    await page.screenshot({ path: `e2e/artifacts/cursor-recovery-${viewport.width}.png`, fullPage: true })
+    expect(await dialog.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      return rect.left >= 0 && rect.right <= window.innerWidth && rect.top >= 0 && rect.bottom <= window.innerHeight
+    })).toBe(true)
+    await page.screenshot({ path: `e2e/artifacts/cursor-recovery-${viewport.width}.png` })
     await dialog.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(dialog).toBeHidden()
     expect(imported).toEqual({ session_id: session.id, name: 'Cursor', group_ids: [2] })

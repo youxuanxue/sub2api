@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
 import type { ApiKey } from '@/types'
 
@@ -9,6 +9,9 @@ const { listKeys, replaceMock } = vi.hoisted(() => ({
 }))
 
 const routeQuery = ref<Record<string, string>>({})
+enableAutoUnmount(afterEach)
+
+vi.mock('@/api/playground', () => ({ gatewayWarmupConnection: vi.fn().mockResolvedValue(undefined) }))
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({
@@ -40,6 +43,11 @@ vi.mock('@/api/keys', () => ({
   create: vi.fn(),
 }))
 
+vi.mock('@/api/playground', async importOriginal => ({
+  ...await importOriginal<typeof import('@/api/playground')>(),
+  gatewayWarmupConnection: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
   default: {
     name: 'UseKeyGuide',
@@ -59,6 +67,9 @@ vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
       'hideInlineTest',
     ],
     emits: ['modelChange', 'testStateChange'],
+    mounted() {
+      this.$emit('modelChange', 'claude-sonnet-4-6')
+    },
     methods: {
       runTest() {},
     },
@@ -233,9 +244,14 @@ describe('QuickstartView', () => {
 
   it('renders connection health inline with transport/protocol and collapsible advanced key options', async () => {
     const wrapper = await mountView()
+    wrapper.getComponent({ name: 'UseKeyGuide' }).vm.$emit('modelChange', '')
+    await nextTick()
     expect(wrapper.find('[data-tk="quickstart-connection-row"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="quickstart-connection-health"]').exists()).toBe(true)
     expect(wrapper.find('[data-tk="quickstart-advanced-options"]').exists()).toBe(true)
+    expect(wrapper.find('[data-tk="quickstart-send-test"]').exists()).toBe(false)
+    wrapper.getComponent({ name: 'UseKeyGuide' }).vm.$emit('modelChange', 'claude-haiku-4-5')
+    await nextTick()
     expect(wrapper.find('[data-tk="quickstart-send-test"]').exists()).toBe(true)
   })
 
@@ -299,7 +315,7 @@ describe('QuickstartView', () => {
 
   it('shows a support-tier icon badge on every client card, not only verified ones', async () => {
     const wrapper = await mountView()
-    expect(wrapper.get('[data-tk="quickstart-client-claude-code"] [data-tk="quickstart-tier-badge"]').attributes('aria-label')).toContain('quickstart.supportVerified')
+    expect(wrapper.get('[data-tk="quickstart-client-claude-code"] [data-tk="quickstart-tier-badge"]').attributes('aria-label')).toContain('quickstart.supportImport')
     expect(wrapper.get('[data-tk="quickstart-client-qwen-code"] [data-tk="quickstart-tier-badge"]').attributes('aria-label')).toContain('quickstart.supportCompatible')
     await wrapper.get('[data-tk="quickstart-client-qwen-code"]').trigger('click')
     await nextTick()

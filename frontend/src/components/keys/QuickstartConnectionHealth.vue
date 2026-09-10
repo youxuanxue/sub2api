@@ -147,7 +147,7 @@ const statusDetail = computed(() => {
 
 const rootClass = computed(() => {
   if (props.layout === 'inline') {
-    return 'min-w-0 flex-1'
+    return 'min-w-0 basis-full sm:flex-1'
   }
   const panel = 'rounded-lg border px-4 py-3'
   if (props.setupBlocked) {

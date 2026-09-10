@@ -391,6 +391,7 @@ const variantByModel = computed(() => {
                 timezone: p.peak_valley.timezone,
                 windows: p.peak_valley.windows,
                 peakMultiplier: p.peak_valley.peak_multiplier,
+				weekdaysOnly: p.peak_valley.weekdays_only,
                 inputPer1K: p.peak_valley.input_per_1k_tokens,
                 outputPer1K: p.peak_valley.output_per_1k_tokens,
                 cacheReadPer1K: p.peak_valley.cache_read_per_1k ?? null,

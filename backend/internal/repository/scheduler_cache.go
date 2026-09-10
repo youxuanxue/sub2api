@@ -1074,6 +1074,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		// 且永远调度不到。详见 service/account.go:IsPrivacySet。
 		"privacy_mode",
 		"openai_responses_mode",
+		"openai_passthrough",
+		"openai_oauth_passthrough",
 		"openai_responses_supported",
 		"openai_native_messages_supported",
 		service.SupportedProtocolsExtraKey,

@@ -104,11 +104,11 @@ func TestRateLimitService_HandleUpstreamError_GenericOAuth401_StillCoolsAccount(
 func TestOpenAIGatewayService_ShouldFailover_CapabilityScope401Suppressed(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	capBody := []byte(tkCapabilityScope401IncidentBody)
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(401, "", capBody),
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, 401, "", capBody),
 		"capability-scope 401 must not failover")
 
 	genericBody := []byte(`{"error":{"message":"invalid or expired credentials"}}`)
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(401, "invalid or expired credentials", genericBody),
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, 401, "invalid or expired credentials", genericBody),
 		"generic 401 must still failover")
 }
 

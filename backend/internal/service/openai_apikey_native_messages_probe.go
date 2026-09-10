@@ -81,7 +81,7 @@ func (s *AccountTestService) probeOpenAIAPIKeyNativeMessagesSupport(
 			if account.IsAnthropicOAuthOrSetupToken() {
 				setAnthropicOAuthPassthroughAuthHeader(req.Header, authToken)
 			} else {
-				setAnthropicAPIKeyAuthHeader(req.Header, account, authToken)
+				setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, normalizedBaseURL)
 			}
 		} else {
 			req.Header.Set("Authorization", "Bearer "+authToken)

@@ -41,14 +41,18 @@ fetch_upstream_drift_refs() {
 }
 
 load_upstream_drift_snapshot() {
-  TK_BEHIND=$(git rev-list --count origin/main..upstream/main)
-  TK_AHEAD=$(git rev-list --count upstream/main..origin/main)
-  UPSTREAM_HEAD=$(git rev-parse --short upstream/main)
-  ORIGIN_HEAD=$(git rev-parse --short origin/main)
+  local head_ref="${1:-origin/main}" target_ref="${2:-upstream/main}"
+  local head_sha target_sha
+  head_sha=$(git rev-parse --verify "$head_ref^{commit}") || return 2
+  target_sha=$(git rev-parse --verify "$target_ref^{commit}") || return 2
+  TK_BEHIND=$(git rev-list --count "$head_sha..$target_sha") || return 2
+  TK_AHEAD=$(git rev-list --count "$target_sha..$head_sha") || return 2
+  UPSTREAM_HEAD=$(git rev-parse --short "$target_sha")
+  ORIGIN_HEAD=$(git rev-parse --short "$head_sha")
   export TK_BEHIND TK_AHEAD UPSTREAM_HEAD ORIGIN_HEAD
 }
 
 fetch_and_load_upstream_drift_snapshot() {
   fetch_upstream_drift_refs || return $?
-  load_upstream_drift_snapshot
+  load_upstream_drift_snapshot "$@"
 }

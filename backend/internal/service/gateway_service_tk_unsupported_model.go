@@ -88,6 +88,9 @@ func tkWrapSelectionFailure(platform, requestedModel string, stats selectionFail
 	if tkSelectionFailedDueToUnsupportedModel(stats) {
 		return fmt.Errorf("%w: %s (%s)", ErrUnsupportedModel, requestedModel, summarizeSelectionFailureStats(stats))
 	}
+	if stats.ChannelRestricted > 0 {
+		return fmt.Errorf("%w supporting model: %s (channel pricing restriction; %s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
+	}
 	return fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
 }
 

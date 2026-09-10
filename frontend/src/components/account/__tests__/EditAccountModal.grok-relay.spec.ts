@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 const { updateAccountMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
@@ -171,5 +171,19 @@ describe('EditAccountModal — Grok relay stub', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('saves the explicit relay destination while preserving the redacted key', async () => {
+    updateAccountMock.mockResolvedValue(buildGrokRelayStubAccount())
+    const wrapper = mountModal()
+    await wrapper.get('input[placeholder="https://api-us4.tokenkey.dev"]').setValue(' https://relay.example.test ')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledWith(7, expect.objectContaining({
+      credentials: expect.objectContaining({ base_url: 'https://relay.example.test', mirror_platform: 'grok' })
+    }))
+    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('api_key')
+    wrapper.unmount()
   })
 })

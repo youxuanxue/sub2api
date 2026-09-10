@@ -79,6 +79,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Scan fleet edge health (read-only SSM)
+        id: scan
         run: |
           set -uo pipefail
           mkdir -p .edge-health-state
@@ -95,6 +96,10 @@ jobs:
           fi
 
       - name: Decide + post alert
+        id: deliver
+        # A target's telemetry failure must not suppress other hosts' alerts.
+        # The failed scan step still leaves this workflow red.
+        if: ${{ !cancelled() && steps.scan.outcome != 'skipped' }}
         run: |
           set -euo pipefail
           STATEFILE=.edge-health-state/state.json
@@ -111,7 +116,7 @@ jobs:
 
       - name: Save state key
         # Not on dry-run: a dry-run must not advance the dedup state (see Decide step).
-        if: inputs.dry_run != 'true'
+        if: ${{ !cancelled() && steps.deliver.outcome == 'success' && inputs.dry_run != 'true' }}
         uses: actions/cache/save@v6
         with:
           path: .edge-health-state

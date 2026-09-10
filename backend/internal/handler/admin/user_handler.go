@@ -59,15 +59,16 @@ func NewUserHandler(
 
 // CreateUserRequest represents admin create user request
 type CreateUserRequest struct {
-	Email         string   `json:"email" binding:"required,email"`
-	Password      string   `json:"password" binding:"required,min=6"`
-	Username      string   `json:"username"`
-	Notes         string   `json:"notes"`
-	Role          string   `json:"role" binding:"omitempty,oneof=admin user"`
-	Balance       *float64 `json:"balance"`
-	Concurrency   int      `json:"concurrency"`
-	RPMLimit      int      `json:"rpm_limit"`
-	AllowedGroups []int64  `json:"allowed_groups"`
+	Email                string   `json:"email" binding:"required,email"`
+	Password             string   `json:"password" binding:"required,min=6"`
+	Username             string   `json:"username"`
+	Notes                string   `json:"notes"`
+	Role                 string   `json:"role" binding:"omitempty,oneof=admin user"`
+	Balance              *float64 `json:"balance"`
+	Concurrency          int      `json:"concurrency"`
+	RPMLimit             int      `json:"rpm_limit"`
+	AllowedGroups        []int64  `json:"allowed_groups"`
+	RestrictPublicGroups bool     `json:"restrict_public_groups"`
 }
 
 // UpdateUserRequest represents admin update user request
@@ -286,16 +287,17 @@ func (h *UserHandler) Create(c *gin.Context) {
 	}
 
 	user, err := h.adminService.CreateUser(c.Request.Context(), &service.CreateUserInput{
-		Email:         req.Email,
-		Password:      req.Password,
-		Username:      req.Username,
-		Notes:         req.Notes,
-		Role:          req.Role,
-		Balance:       req.Balance,
-		Concurrency:   req.Concurrency,
-		RPMLimit:      req.RPMLimit,
-		AllowedGroups: req.AllowedGroups,
-		ActorAdminID:  getAdminIDFromContext(c),
+		Email:                req.Email,
+		Password:             req.Password,
+		Username:             req.Username,
+		Notes:                req.Notes,
+		Role:                 req.Role,
+		Balance:              req.Balance,
+		Concurrency:          req.Concurrency,
+		RPMLimit:             req.RPMLimit,
+		AllowedGroups:        req.AllowedGroups,
+		RestrictPublicGroups: req.RestrictPublicGroups,
+		ActorAdminID:         getAdminIDFromContext(c),
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

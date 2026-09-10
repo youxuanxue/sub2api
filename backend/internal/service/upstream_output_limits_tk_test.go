@@ -95,7 +95,7 @@ func TestOutputLimitsCompatibilityLeavesOtherSuppliesUntouched(t *testing.T) {
 	body := []byte(`{"max_tokens":8,"max_output_tokens":13,"max_completion_tokens":21,"input":"hello"}`)
 	for _, platform := range []string{PlatformKiro, PlatformAntigravity, PlatformGrok, PlatformAnthropic} {
 		t.Run(platform, func(t *testing.T) {
-			normalized, changed, err := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, &Account{Platform: platform, Type: AccountTypeOAuth})
+			normalized, changed, err := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, &Account{Platform: platform, Type: AccountTypeOAuth}, false)
 			require.NoError(t, err)
 			require.False(t, changed)
 			require.Equal(t, body, normalized)

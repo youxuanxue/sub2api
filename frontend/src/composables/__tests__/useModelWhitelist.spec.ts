@@ -5,10 +5,17 @@ vi.mock('@/api/admin/accounts', () => ({
   getModelMappingPresets: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 import { apiBackedPlatforms } from '../useServableModels'
 
 describe('useModelWhitelist', () => {
+  it('keeps GPT-6 and Astra mapping presets', () => {
+    expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: 'gpt-6', to: 'gpt-6' }),
+      expect.objectContaining({ from: 'gpt-6-astra', to: 'gpt-6-astra' })
+    ]))
+  })
+
   beforeEach(() => {
     vi.resetModules()
   })
@@ -73,7 +80,7 @@ describe('useModelWhitelist', () => {
       'grok-4.5': 'grok-4.5',
       'grok-latest': 'grok-4.5',
       'grok-4.5-latest': 'grok-4.5',
-      'grok-build-latest': 'grok-4.5'
+      'grok-build-latest': 'grok-4.5',
     })
   })
 
@@ -128,7 +135,7 @@ describe('useModelWhitelist', () => {
 
     expect(parsed).toEqual({
       allowedModels: ['gpt-5.4'],
-      modelMappings: [{ from: 'gpt-latest', to: 'gpt-5.4' }]
+      modelMappings: [{ from: 'gpt-latest', to: 'gpt-5.4' }],
     })
   })
 })

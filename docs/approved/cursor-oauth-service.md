@@ -63,6 +63,10 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
 
 ## Billing
 
+Third-party models use the shared TokenKey model price, including Fable cache
+TTLs and reasoning multipliers. Cursor supplier quotes must not replace global
+prices for the same model. Only Composer adds Cursor-owned registry prices.
+
 The user approved estimated charging for successful tool handoffs on 2026-09-08.
 
 Complete upstream input/output/cache usage wins and is tagged

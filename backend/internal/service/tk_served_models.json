@@ -952,6 +952,7 @@
       ]
     },
     "claude-fable-5-1": {
+      "price_owner": "claude-fable-5",
       "display": true,
       "scopes": [
         {

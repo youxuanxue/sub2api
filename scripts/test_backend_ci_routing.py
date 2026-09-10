@@ -457,7 +457,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertNotIn("refresh_daily", integration_cache.get("with", {}))
         self.assertEqual(
             integration_cache["with"]["save_caches"],
-            "true",
+            "false",
         )
         self.assertEqual(
             integration_cache["with"]["build_cache_path"],
@@ -490,7 +490,7 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertNotIn("build_cache_path", unit_cache["with"])
         self.assertEqual(
             unit_cache["with"]["save_caches"],
-            "true",
+            "false",
         )
         self.assertNotIn("GOCACHE", self.jobs["test-unit"]["env"])
 

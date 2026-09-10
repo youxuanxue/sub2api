@@ -15,6 +15,20 @@ assert _spec and _spec.loader
 _spec.loader.exec_module(prd)
 
 
+class TypeAliasTest(unittest.TestCase):
+    def test_resolves_shared_platform_union(self) -> None:
+        source = "export type AccountPlatform = GroupPlatform\nexport type GroupPlatform = 'openai' | 'minimax'\n"
+        self.assertEqual(prd.parse_ts_union(source, "AccountPlatform", "types.ts"), (["openai", "minimax"], 1))
+
+    def test_rejects_circular_or_missing_alias(self) -> None:
+        for source in (
+            "export type A = B\nexport type B = A\n",
+            "export type A = Missing\n",
+        ):
+            with self.subTest(source=source), self.assertRaises(prd.ParseFailure):
+                prd.parse_ts_union(source, "A", "types.ts")
+
+
 PLATFORMS = ["anthropic", "gemini", "openai", "antigravity", "newapi", "kiro", "grok"]
 QUOTA_PLATFORMS = ["anthropic", "openai", "gemini", "antigravity", "grok"]
 ACCOUNT_TYPES = ["oauth", "setup-token", "apikey", "upstream", "bedrock", "service_account"]
@@ -59,7 +73,6 @@ def _fixture(
     *,
     ent_values: list[str] | None = None,
     soft_badge: list[str] | None = None,
-    label_text: list[str] | None = None,
 ) -> None:
     _write(
         root,
@@ -229,7 +242,6 @@ def _fixture(
 
         const SOFT_BADGE: Record<string, string> = {_ts_record(soft_badge or PLATFORMS)}
 
-        const LABEL_TEXT: Record<string, string> = {_ts_record(label_text or PLATFORMS)}
         """,
     )
 
@@ -245,7 +257,6 @@ class PlatformRegistryDriftTest(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertTrue(any("free string" in line for line in ok_lines))
         self.assertTrue(any("SOFT_BADGE style map covers" in line for line in ok_lines))
-        self.assertTrue(any("LABEL_TEXT style map covers" in line for line in ok_lines))
 
     def test_ent_enum_missing_scheduling_platform_fails(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -264,17 +275,14 @@ class PlatformRegistryDriftTest(unittest.TestCase):
             _fixture(
                 root,
                 soft_badge=[p for p in PLATFORMS if p != "grok"],
-                label_text=[p for p in PLATFORMS if p != "kiro"],
             )
 
             failures, _ = prd.run(root)
 
         rendered = "\n\n".join("\n".join(fail) for fail in failures)
-        self.assertEqual(len(failures), 2)
+        self.assertEqual(len(failures), 1)
         self.assertIn("frontend SOFT_BADGE style map", rendered)
         self.assertIn("missing: grok", rendered)
-        self.assertIn("frontend LABEL_TEXT style map", rendered)
-        self.assertIn("missing: kiro", rendered)
 
     def test_all_new_checks_pass(self) -> None:
         """All 11 checks pass with a complete, aligned fixture."""

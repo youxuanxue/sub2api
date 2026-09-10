@@ -112,7 +112,8 @@ const CALLED_KEYS = [
   'tierAbove',
   'tierRange',
   'tierUpTo',
-  'tieredCaption'
+  'tieredCaption',
+  'weekdayPeakCaption'
 ]
 
 describe('pricing.variant locale wiring', () => {
@@ -155,7 +156,8 @@ describe('pricing.variant locale wiring', () => {
       it('leaves no {placeholder} unsubstituted in any rendered string', () => {
         const strings = [
           ...renderedStrings(resolvePricingVariant({ flat, tiers: TIERS }, t)),
-          ...renderedStrings(resolvePricingVariant({ flat, peakValley: PEAK_VALLEY }, t))
+          ...renderedStrings(resolvePricingVariant({ flat, peakValley: PEAK_VALLEY }, t)),
+          ...renderedStrings(resolvePricingVariant({ flat, peakValley: { ...PEAK_VALLEY, weekdaysOnly: true } }, t))
         ]
         for (const s of strings) {
           expect(s, `unsubstituted placeholder in: ${s}`).not.toMatch(/\{\w+\}/)

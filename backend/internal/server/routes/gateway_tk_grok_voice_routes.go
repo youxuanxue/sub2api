@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -79,9 +80,9 @@ func registerTKGrokVoiceRoutesRoot(
 			h.OpenAIGateway.GrokVoice(c, endpoint)
 		}
 	}
-	rootRoutes.Register(http.MethodPost, "/tts", SyncInference, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, rootVoiceHandler("tts"))
-	rootRoutes.Register(http.MethodPost, "/stt", SyncInference, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, rootVoiceHandler("stt"))
-	rootRoutes.Register(http.MethodPost, "/custom-voices", AsyncSubmission, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, rootVoiceHandler("custom-voices"))
+	rootRoutes.Register(http.MethodPost, "/tts", SyncInference, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, rootVoiceHandler("tts"))
+	rootRoutes.Register(http.MethodPost, "/stt", SyncInference, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, rootVoiceHandler("stt"))
+	rootRoutes.Register(http.MethodPost, "/custom-voices", AsyncSubmission, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, rootVoiceHandler("custom-voices"))
 	rootCustomVoicePathHandler := func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformGrok {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
@@ -90,12 +91,12 @@ func registerTKGrokVoiceRoutesRoot(
 		}
 		h.OpenAIGateway.GrokVoice(c, grokCustomVoiceEndpoint(c))
 	}
-	rootRoutes.Register(http.MethodGet, "/custom-voices", Excluded("voice_management"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, rootVoiceHandler("custom-voices"))
-	rootRoutes.Register(http.MethodGet, "/custom-voices/:voice_id/audio", Excluded("content_fetch"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, rootCustomVoicePathHandler)
-	rootRoutes.Register(http.MethodGet, "/custom-voices/:voice_id", Excluded("voice_management"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, rootCustomVoicePathHandler)
-	rootRoutes.Register(http.MethodPatch, "/custom-voices/:voice_id", Excluded("voice_management"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, rootCustomVoicePathHandler)
-	rootRoutes.Register(http.MethodDelete, "/custom-voices/:voice_id", Excluded("voice_management"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, rootCustomVoicePathHandler)
-	rootRoutes.Register(http.MethodGet, "/realtime", WebSocketTurn, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, func(c *gin.Context) {
+	rootRoutes.Register(http.MethodGet, "/custom-voices", Excluded("voice_management"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, rootVoiceHandler("custom-voices"))
+	rootRoutes.Register(http.MethodGet, "/custom-voices/:voice_id/audio", Excluded("content_fetch"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, rootCustomVoicePathHandler)
+	rootRoutes.Register(http.MethodGet, "/custom-voices/:voice_id", Excluded("voice_management"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, rootCustomVoicePathHandler)
+	rootRoutes.Register(http.MethodPatch, "/custom-voices/:voice_id", Excluded("voice_management"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, rootCustomVoicePathHandler)
+	rootRoutes.Register(http.MethodDelete, "/custom-voices/:voice_id", Excluded("voice_management"), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, rootCustomVoicePathHandler)
+	rootRoutes.Register(http.MethodGet, "/realtime", WebSocketTurn, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformGrok {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Realtime API is not supported for this platform"}})
@@ -103,7 +104,7 @@ func registerTKGrokVoiceRoutesRoot(
 		}
 		h.OpenAIGateway.GrokRealtime(c)
 	})
-	rootRoutes.Register(http.MethodPost, "/web_search", SyncInference, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, func(c *gin.Context) {
+	rootRoutes.Register(http.MethodPost, "/web_search", SyncInference, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformGrok {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Web Search API is not supported for this platform"}})
@@ -111,7 +112,7 @@ func registerTKGrokVoiceRoutesRoot(
 		}
 		h.Gateway.WebSearch(c)
 	})
-	rootRoutes.Register(http.MethodPost, "/x_search", SyncInference, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, func(c *gin.Context) {
+	rootRoutes.Register(http.MethodPost, "/x_search", SyncInference, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), middleware.GroupModelAllowlist(), compositeTarget, requireGroupAnthropic, func(c *gin.Context) {
 		if getGroupPlatform(c) != service.PlatformGrok {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "X Search API is not supported for this platform"}})

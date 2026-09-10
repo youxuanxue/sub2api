@@ -141,14 +141,15 @@
             ]"
             @click="column.sortable && handleSort(column.key)"
           >
-            <slot
-              :name="`header-${column.key}`"
-              :column="column"
-              :sort-key="sortKey"
-              :sort-order="sortOrder"
-            >
               <div :class="['flex items-center space-x-1', getHeaderContentAlignmentClass(column)]">
+                <slot
+                  :name="`header-${column.key}`"
+                  :column="column"
+                  :sort-key="sortKey"
+                  :sort-order="sortOrder"
+                >
                 <span>{{ column.label }}</span>
+                </slot>
                 <span
                   v-if="column.sortable"
                   class="inline-flex h-5 w-4 flex-col items-center justify-center"
@@ -172,7 +173,6 @@
                   </svg>
                 </span>
               </div>
-            </slot>
           </th>
         </tr>
       </thead>
@@ -831,13 +831,28 @@ const flatItems = computed<FlatItem[]>(() => {
   return out
 })
 
-// flatItemKey gives each virtual <tr> a stable, unique :key. A row and its detail
-// share the parent key, so detail items get a ':detail' suffix.
-const flatItemKey = (idx: number): string => {
-  const item = flatItems.value[idx]
-  if (!item) return `empty:${idx}`
-  return item.kind === 'detail' ? `${item.key}:detail` : `${item.key}`
-}
+// Missing or duplicate business keys use object identity for measurement only;
+// selection and expansion still require unique rowKey values from the caller.
+const measurementIDs = new WeakMap<object, number>()
+let nextMeasurementID = 0
+const flatItemKeys = computed(() => {
+  const counts = new Map<string | number, number>()
+  for (const row of sortedData.value) {
+    const key = resolveStableRowKey(row)
+    if (key != null) counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return flatItems.value.map(item => {
+    const key = resolveStableRowKey(item.row)
+    if (key != null && counts.get(key) === 1) return JSON.stringify([item.kind, 'key', key])
+    let id = measurementIDs.get(item.row)
+    if (id == null) {
+      id = ++nextMeasurementID
+      measurementIDs.set(item.row, id)
+    }
+    return JSON.stringify([item.kind, 'object', id])
+  })
+})
+const flatItemKey = (idx: number): string => flatItemKeys.value[idx] ?? `empty:${idx}`
 
 // --- Virtual scrolling ---
 // 是否启用虚拟化:仅桌面端且行数超过阈值时开启。小列表全量渲染,彻底绕开虚拟器的
@@ -847,6 +862,7 @@ const shouldVirtualize = computed(() =>
 )
 
 const rowVirtualizer = useVirtualizer(computed(() => ({
+  enabled: shouldVirtualize.value,
   count: isDesktopViewport.value ? (flatItems.value?.length ?? 0) : 0,
   getScrollElement: () => tableWrapperRef.value,
   // 用行主键(与模板 :key 一致)而非默认的 index 作为 itemSizeCache 键,
@@ -865,34 +881,39 @@ const rowVirtualizer = useVirtualizer(computed(() => ({
   useAnimationFrameWithResizeObserver: true,
 })))
 
-const virtualItems = computed(() => rowVirtualizer.value.getVirtualItems())
+const virtualItems = computed(() => shouldVirtualize.value
+  ? rowVirtualizer.value.getVirtualItems()
+  : flatItems.value.map((_, index) => ({ index, start: 0, end: 0 }))
+)
 
 const virtualPaddingTop = computed(() => {
+  if (!shouldVirtualize.value) return 0
   const items = virtualItems.value
   return items.length > 0 ? items[0].start : 0
 })
 
 const virtualPaddingBottom = computed(() => {
+  if (!shouldVirtualize.value) return 0
   const items = virtualItems.value
   if (items.length === 0) return 0
   return rowVirtualizer.value.getTotalSize() - items[items.length - 1].end
 })
 
 const measureElement = (el: any) => {
-  if (el) {
-    rowVirtualizer.value.measureElement(el as Element)
-  }
+  if (!shouldVirtualize.value) return
+  rowVirtualizer.value.measureElement(el as Element | null)
 }
 
-// TK: when expansion changes, inserting/removing a detail item shifts every
-// subsequent virtual index, so the index-keyed measurement cache is stale.
-// measure() clears it and forces a fresh pass, keeping the padding math correct
-// (without this, total-size drift can blank or mis-offset the table).
+// Bound retained measurements across pages while preserving heights on reorder.
 watch(
-  () => (props.expandedKeys ? Array.from(props.expandedKeys).sort().join(',') : ''),
-  async () => {
+  flatItemKeys,
+  async (keys, previous) => {
+    const previousKeys = new Set(previous)
+    if (keys.length !== previous.length || keys.some(key => !previousKeys.has(key))) {
+      rowVirtualizer.value.measure()
+    }
     await nextTick()
-    rowVirtualizer.value.measure()
+    rowVirtualizer.value.measureElement(null)
   },
   { flush: 'post' }
 )

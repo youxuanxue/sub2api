@@ -39,7 +39,7 @@ Eleven mirrored pairs, backend Go is the single source of truth:
 
   5. Frontend style mapping coverage
        backend/internal/engine/provider.go        AllSchedulingPlatforms()
-       frontend/src/constants/gatewayPlatforms.ts SOFT_BADGE + LABEL_TEXT
+       frontend/src/constants/gatewayPlatforms.ts SOFT_BADGE
      A platform missing from the style maps renders as unstyled (gray
      fallback) in the admin UI — easy to miss in review.
 
@@ -331,16 +331,24 @@ def parse_ts_array(text: str, name: str, rel: str) -> tuple[list[str], int]:
     return values, line
 
 
-def parse_ts_union(text: str, name: str, rel: str) -> tuple[list[str], int]:
+def parse_ts_union(
+    text: str, name: str, rel: str, seen: frozenset[str] = frozenset()
+) -> tuple[list[str], int]:
     """export type NAME = 'a' | 'b' | ... → values (prettier-tolerant:
     accepts multiline unions with leading `|`)."""
-    m = re.search(rf"export\s+type\s+{name}\s*=", text)
+    if name in seen:
+        raise ParseFailure(f"{rel}: circular type alias involving {name}")
+    m = re.search(rf"export\s+type\s+{re.escape(name)}\s*=", text)
     if not m:
         raise ParseFailure(
             f"{rel}: `export type {name}` not found — renamed/moved? "
             "Update platform-registry-drift.py."
         )
     line = line_of(text, m.start())
+    alias = re.match(r"[ \t]*([A-Za-z_$][\w$]*)[ \t]*(?:;[ \t]*)?(?://[^\n]*)?(?:\n|$)", text[m.end():])
+    if alias:
+        values, _ = parse_ts_union(text, alias.group(1), rel, seen | {name})
+        return values, line
     member = re.compile(r"\s*\|?\s*(?:'([^']*)'|\"([^\"]*)\")")
     comment = re.compile(r"\s*//[^\n]*")
     values: list[str] = []
@@ -662,11 +670,11 @@ def run(root: Path) -> tuple[list[list[str]], list[str]]:
         )
 
     # --- CHECK 5: frontend style mapping coverage ---
-    # Every scheduling platform should have entries in the admin UI style maps
-    # (SOFT_BADGE and LABEL_TEXT). A missing key falls through to a generic gray
+    # Every scheduling platform should have an entry in the admin UI SOFT_BADGE
+    # style map. A missing key falls through to a generic gray
     # fallback — functional but visually inconsistent and easy to miss in review.
 
-    for map_name in ("SOFT_BADGE", "LABEL_TEXT"):
+    for map_name in ("SOFT_BADGE",):
         ts_keys, ts_keys_line = parse_ts_record_keys(
             ts_const_text, map_name, TS_GATEWAY_PLATFORMS
         )

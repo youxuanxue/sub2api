@@ -31,7 +31,7 @@ import (
 // Field names match the access points in the vendored files verbatim so no
 // access site needed to change. The TokenKey layer fills this from an ent
 // account; this package treats it as read-mostly (ProfileArn may be populated
-// in-memory by ResolveProfileArn, but nothing here persists it).
+// in-memory by ResolveProfileArnWithDoer, but nothing here persists it).
 type Account struct {
 	ID           string `json:"id"`
 	Email        string `json:"email,omitempty"`
@@ -119,7 +119,6 @@ func GetPromptFilterRules() []PromptFilterRule { return nil }
 func logDebugf(format string, args ...any) { slog.Debug(fmt.Sprintf(format, args...)) }
 func logInfof(format string, args ...any)  { slog.Info(fmt.Sprintf(format, args...)) }
 func logWarnf(format string, args ...any)  { slog.Warn(fmt.Sprintf(format, args...)) }
-func logErrorf(format string, args ...any) { slog.Error(fmt.Sprintf(format, args...)) }
 
 // ==================== Auth HTTP client shim ====================
 

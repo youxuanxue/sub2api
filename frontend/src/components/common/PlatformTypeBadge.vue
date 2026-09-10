@@ -163,7 +163,7 @@ const isGrokFreePlan = computed(() =>
 
 const planIconName = computed<'bolt' | null>(() => {
   if (props.platform !== 'grok') return null
-  if (normalizedPlanType.value === 'supergrok' || normalizedPlanType.value === 'supergrokheavy') {
+  if (normalizedPlanType.value === 'supergrok' || normalizedPlanType.value === 'supergrokheavy' || normalizedPlanType.value === 'heavy') {
     return 'bolt'
   }
   return null
@@ -192,6 +192,9 @@ const typeClass = computed(() => {
   }
   if (props.platform === 'deepseek') {
     return 'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400'
+  }
+  if (props.platform === 'minimax') {
+    return 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400'
   }
   return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
 })

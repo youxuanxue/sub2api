@@ -18,6 +18,31 @@
       "rationale": "Lifecycle tests cover late polling, identical-payload retries and changed-payload corrections after a rejected import."
     },
     {
+      "path": "frontend/src/composables/useCodexModelManifest.ts",
+      "must_contain": ["current !== generation", "controller?.abort()", "watch([baseUrl, apiKey], reset, { flush: 'sync' })", "onBeforeUnmount(reset)", "if (state.value !== 'ready') return"],
+      "rationale": "Credential changes, endpoint changes and unmount invalidate pending manifest requests; only the current authorized manifest may be downloaded."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": ["useCodexModelManifest(toRef(props, 'baseUrl'), toRef(props, 'apiKey'))"],
+      "rationale": "Quickstart and key guidance share one manifest lifecycle through UseKeyGuide."
+    },
+    {
+      "path": "frontend/src/composables/__tests__/useCodexModelManifest.spec.ts",
+      "must_contain": ["useCodexModelManifest", "unmount", "download", "aborted"],
+      "rationale": "Keep stale request, credential change, disposal and download guard regressions with the shared owner."
+    },
+    {
+      "path": "frontend/src/components/account/EditAccountModal.vue",
+      "must_contain": ["v-for=\"option in codexImageToolOptions\"", "switch (codexImageToolMode.value)", "delete newExtra.codex_image_generation_bridge_enabled"],
+      "rationale": "One Codex image policy control owns inherited, enabled, disabled and blocked states and migrates the legacy key on save."
+    },
+    {
+      "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+      "must_contain": ["persists the single Codex image control in %s mode"],
+      "rationale": "Keep the four-mode save regression and duplicate-control assertion."
+    },
+    {
       "path": "frontend/src/components/catalog/CatalogEmbeddingPrice.tk.vue",
       "must_contain": ["formatCatalogTokenPrice(props.perImageInputToken * 1000)", "t('pricing.modality.image')", "<CatalogTieredPriceGrid"],
       "rationale": "One shared embedding component displays both text and image input rates in million-token units across catalog views."
@@ -1710,7 +1735,7 @@
       "must_contain": [
         "useTkAccountUsageBatch",
         ":usage-override=\"accountUsageOverrideFor(row)\"",
-        "const refreshAccountRowMetrics = () => {",
+        "const refreshAccountRowMetrics = (refreshTodayStats = true) => {",
         "refreshTodayStatsBatch().catch(",
         "refreshUsageBatch(rows).catch(",
         "refreshAccountRowMetrics()"

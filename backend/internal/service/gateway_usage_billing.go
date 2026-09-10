@@ -590,13 +590,6 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 	}
 }
 
-// recordUsageOpts 内部选项，参数化普通计费与长上下文计费的差异点。
-type recordUsageOpts struct {
-	// 长上下文计费（仅 Gemini 路径需要）
-	LongContextThreshold  int
-	LongContextMultiplier float64
-}
-
 // RecordUsage 记录使用量并扣费（或更新订阅用量）
 func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInput) error {
 	return s.recordUsageCore(ctx, &recordUsageCoreInput{
@@ -666,6 +659,11 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 		LongContextThreshold:  input.LongContextThreshold,
 		LongContextMultiplier: input.LongContextMultiplier,
 	})
+}
+
+type recordUsageOpts struct {
+	LongContextThreshold  int
+	LongContextMultiplier float64
 }
 
 // recordUsageCoreInput 是 recordUsageCore 的公共输入字段，从两种输入结构体中提取。
@@ -763,8 +761,7 @@ func logResponseModelBillingApplied(component string, account *Account, requestI
 	slog.Info("billing.response_model_applied", attrs...)
 }
 
-// recordUsageCore 是 RecordUsage 和 RecordUsageWithLongContext 的统一实现。
-// LongContextThreshold > 0 时 Token 计费回退走 CalculateCostWithLongContext。
+// recordUsageCore 是 RecordUsage 的核心实现。
 func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsageCoreInput, opts *recordUsageOpts) error {
 	result := input.Result
 	if facts, ok := result.ProtocolRouteFacts(); ok {
@@ -776,6 +773,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	account := input.Account
 	subscription := input.Subscription
 	ApplyForwardImageBillingResolution(result)
+	logServiceTierBillingDowngrade("service.gateway", account, result.RequestID, ApplyForwardServiceTierBillingResolution(result))
 
 	// 强制缓存计费：将 input_tokens 转为 cache_read_input_tokens
 	// 用于粘性会话切换时的特殊计费处理
@@ -882,7 +880,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	s.tkRecordUsagePostCostObservability(cost, result, apiKey, billingModel, requestedModel, multiplier, accountRateMultiplier)
 
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
-		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
+		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost)
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
@@ -940,7 +938,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	return nil
 }
 
-// calculateRecordUsageCost 根据请求类型和选项计算费用。
+// calculateRecordUsageCost 根据请求类型计算费用。
 func (s *GatewayService) calculateRecordUsageCost(
 	ctx context.Context,
 	result *ForwardResult,
@@ -1141,7 +1139,8 @@ func (s *GatewayService) calculateImageCost(
 	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier), nil
 }
 
-// calculateTokenCost 计算 Token 计费：根据 opts 决定走普通/长上下文/渠道统一计费。
+// calculateTokenCost 计算 Token 计费：路径选择（分组/渠道定价 → 内置定价）
+// 统一交给 BillingService.CalculateTokenCostForRequest，与模型广场的阶梯表查询同源。
 func (s *GatewayService) calculateTokenCost(
 	ctx context.Context,
 	result *ForwardResult,
@@ -1161,47 +1160,24 @@ func (s *GatewayService) calculateTokenCost(
 		ImageOutputTokens:     result.Usage.ImageOutputTokens,
 	}
 
-	billingAt := RecordUsageBillingAt(pricingAt)
-
-	var cost *CostBreakdown
-	var err error
-
-	// Explicit group/channel pricing wins. Built-in pricing also uses the unified
-	// resolver so the group long-context toggle can veto model-native tiers.
-	if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil {
-		gid := apiKey.Group.ID
-		cost, err = s.billingService.CalculateCostUnified(CostInput{
-			Ctx:            ctx,
-			Model:          billingModel,
-			GroupID:        &gid,
-			Group:          apiKey.Group,
-			Tokens:         tokens,
-			RequestCount:   1,
-			RateMultiplier: multiplier,
-			PricingAt:      pricingAt,
-			BillingAt:      billingAt,
-			ServiceTier:    optionalStringValue(result.ServiceTier),
-			Resolver:       s.resolver,
-			Resolved:       resolved,
-		})
-	} else if opts.LongContextThreshold > 0 && (apiKey.Group == nil || apiKey.Group.LongContextPricingEnabled) {
-		// 长上下文双倍计费（如 Gemini 200K 阈值）
-		cost, err = s.billingService.CalculateCostWithLongContextAt(
-			billingModel, tokens, multiplier, opts.LongContextThreshold, opts.LongContextMultiplier, billingAt,
-		)
-	} else if s.resolver != nil && apiKey.Group != nil {
-		gid := apiKey.Group.ID
-		cost, err = s.billingService.CalculateCostUnified(CostInput{
-			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
-			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier,
-			PricingAt: pricingAt, BillingAt: billingAt,
-			ServiceTier: optionalStringValue(result.ServiceTier), Resolver: s.resolver,
-		})
-	} else {
-		cost, err = s.billingService.calculateCostInternalWithPolicyAt(
-			billingModel, tokens, multiplier, optionalStringValue(result.ServiceTier), nil, true, billingAt,
-		)
+	if opts == nil {
+		opts = &recordUsageOpts{}
 	}
+
+	cost, err := s.billingService.CalculateTokenCostForRequest(TokenCostRequest{
+		Ctx:                   ctx,
+		Model:                 billingModel,
+		Group:                 apiKey.Group,
+		Tokens:                tokens,
+		RateMultiplier:        multiplier,
+		PricingAt:             pricingAt,
+		ServiceTier:           optionalStringValue(result.ServiceTier),
+		ReasoningEffort:       optionalStringValue(result.ReasoningEffort),
+		Resolver:              s.resolver,
+		Resolved:              s.resolveChannelPricing(ctx, billingModel, apiKey),
+		LongContextThreshold:  opts.LongContextThreshold,
+		LongContextMultiplier: opts.LongContextMultiplier,
+	})
 	if err != nil {
 		// TK: surface pricing-missing as structured zero-cost logs instead of silent ActualCost:0.
 		logTokenCostPricingMissing(billingModel, apiKey, result, err)
@@ -1230,7 +1206,6 @@ func (s *GatewayService) buildRecordUsageLog(
 	billingType int8,
 	cacheTTLOverridden bool,
 	cost *CostBreakdown,
-	opts *recordUsageOpts,
 ) *UsageLog {
 	durationMs := int(result.Duration.Milliseconds())
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)

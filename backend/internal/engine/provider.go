@@ -19,7 +19,7 @@ const (
 func OpenAICompatPlatforms() []string {
 	return []string{
 		domain.PlatformOpenAI, domain.PlatformNewAPI, domain.PlatformGrok,
-		domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek,
+		domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek, domain.PlatformMiniMax,
 	}
 }
 
@@ -60,6 +60,7 @@ func AllSchedulingPlatforms() []string {
 		domain.PlatformKimi,
 		domain.PlatformZhipu,
 		domain.PlatformDeepseek,
+		domain.PlatformMiniMax,
 	}
 }
 
@@ -71,7 +72,7 @@ func AllSchedulingPlatforms() []string {
 // newapi and the concrete CN providers carry static channel credentials, not
 // OAuth refresh tokens, so the background refresh ticker skips them.
 func apiKeyOnlySchedulingPlatforms() []string {
-	return []string{domain.PlatformNewAPI, domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek}
+	return []string{domain.PlatformNewAPI, domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek, domain.PlatformMiniMax}
 }
 
 // OAuthRefreshPlatforms is the SINGLE Go source of truth for which platforms the
@@ -104,21 +105,6 @@ func OAuthRefreshPlatforms() []string {
 		}
 	}
 	return out
-}
-
-// IsOAuthRefreshPlatform reports whether the platform is renewed by the
-// background OAuth refresh ticker. Derived from OAuthRefreshPlatforms() so the
-// predicate and the SQL filter can never disagree.
-func IsOAuthRefreshPlatform(platform string) bool {
-	if platform == "" {
-		return false
-	}
-	for _, p := range OAuthRefreshPlatforms() {
-		if platform == p {
-			return true
-		}
-	}
-	return false
 }
 
 // TrajProjectablePlatforms returns the platforms whose captured client-facing

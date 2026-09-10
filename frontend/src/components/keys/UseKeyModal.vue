@@ -6,6 +6,7 @@
     @close="emit('close')"
   >
     <UseKeyGuide
+      v-if="show"
       :api-key="apiKey"
       :api-key-id="apiKeyId"
       :base-url="baseUrl"

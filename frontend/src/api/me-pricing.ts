@@ -59,6 +59,7 @@ export interface MePricingPrice {
 /** Peak-window list price for models with an upstream time-of-day multiplier.
  *  Mirrors PublicPricingPeakValley — see api/pricing.ts. */
 export interface MePricingPeakValley {
+	weekdays_only?: boolean
   timezone: string
   windows: string[]
   peak_multiplier: number
