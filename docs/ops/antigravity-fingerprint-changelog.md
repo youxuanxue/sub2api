@@ -17,6 +17,7 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 
 | date (UTC) | UA version | type | change | note |
 |---|---|---|---|---|
+| 2026-09-10 | **1.2.0** | pure UA | `DefaultUserAgentVersion` 1.1.27 → 1.2.0 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2086. |
 | 2026-09-06 | **1.1.27** | pure UA | `DefaultUserAgentVersion` 1.1.26 → 1.1.27 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2014. |
 | 2026-09-04 | **1.1.26** | pure UA | `DefaultUserAgentVersion` 1.1.19 → 1.1.26 | Local `agy --version` ground truth; HTTP UA format unchanged. |
 | 2026-06-10 | 1.23.2 | baseline | — | capture toolchain added; `DefaultUserAgentVersion=1.23.2`, body `userAgent="antigravity"`, ideType=`ANTIGRAVITY`, `X-Goog-Api-Client=gl-node/22.21.1`. No real-IDE capture yet (IDE not installed locally). |

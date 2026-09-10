@@ -125,7 +125,7 @@ func floorClaudeCLIUserAgentVersion(ua string) (string, bool) {
 // / `StainlessPackageVersion:` 字面量做指纹基线巡检，computed 值会让它失明。
 // 字面量与 canonical 的一致性改由 identity_canonical_consistency_test.go 机械锁死。
 var defaultFingerprint = Fingerprint{
-	UserAgent:               "claude-cli/2.1.266 (external, cli)",
+	UserAgent:               "claude-cli/2.1.267 (external, cli)",
 	StainlessLang:           "js",
 	StainlessPackageVersion: "0.112.1",
 	StainlessOS:             "MacOS",
