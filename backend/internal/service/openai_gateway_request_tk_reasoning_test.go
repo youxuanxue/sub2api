@@ -18,6 +18,8 @@ func TestCompatibleResponsesPreservesExplicitNoneForReasoningModels(t *testing.T
 	}{
 		{name: "GPT through relay", model: "gpt-5.4", want: "none"},
 		{name: "mapped GPT alias", model: "coding", target: "gpt-5.4", want: "none"},
+		{name: "DeepSeek without metadata", model: "deepseek-v4-flash", want: "none"},
+		{name: "mapped DeepSeek alias", model: "coding", target: "deepseek-v4-pro", want: "none"},
 		{name: "discovered reasoning model", model: "custom-reasoner", known: true, want: "none"},
 		{name: "catalog placeholder", model: "company-coding-model"},
 	} {

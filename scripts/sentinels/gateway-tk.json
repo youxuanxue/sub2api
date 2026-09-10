@@ -9,13 +9,18 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_request_tk_reasoning.go",
-      "must_contain": ["account.GetMappedModel(model)", "isOpenAICodexReasoningGPTModel(model)", "account.GetUpstreamModelMetadata(model)"],
+      "must_contain": ["account.GetMappedModel(model)", "isOpenAICodexReasoningGPTModel(model)", "isDeepSeekCodexModel(model)", "account.GetUpstreamModelMetadata(model)"],
       "rationale": "Reuse account alias and catalog capability owners to distinguish real reasoning choices from synthetic none placeholders."
     },
     {
       "path": "backend/internal/service/openai_gateway_request_tk_reasoning_test.go",
       "must_contain": ["TestCompatibleResponsesPreservesExplicitNoneForReasoningModels", "filterOpenAIResponsesNoneReasoningEffortForAccount", "prepareOpenAIWSHTTPBridgeBody", "mapped GPT alias", "catalog placeholder"],
       "rationale": "Keep both transport regressions, mapped-model coverage and the non-reasoning placeholder counterexample."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_responses_chat_fallback_test.go",
+      "must_contain": ["TestForwardResponses_DeepSeekToolHistoryPreservesNone", "messages.1.reasoning_content", "deepseek-v4-flash", "deepseek-v4-pro"],
+      "rationale": "DeepSeek tool history without reasoning_content must retain none through alias mapping and Responses-to-Chat forwarding; omission restores thinking and causes an upstream 400."
     },
     {
       "path": "backend/internal/service/service_tier_billing.go",

@@ -94,6 +94,40 @@ func TestForwardResponses_ForceChatCompletionsOmitsNoneReasoningEffort(t *testin
 	require.Nil(t, result.ReasoningEffort)
 }
 
+// DeepSeek rejects tool history without reasoning_content when omission restores
+// thinking mode. Preserve the opt-out through Responses-to-Chat conversion.
+func TestForwardResponses_DeepSeekToolHistoryPreservesNone(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, model := range []string{"deepseek-v4-flash", "deepseek-v4-pro"} {
+		t.Run(model, func(t *testing.T) {
+			body := []byte(`{"model":"coding","input":[{"role":"user","content":"Use the tool result and reply OK only."},{"type":"function_call","call_id":"call_probe","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"call_probe","output":"OK"}],"tools":[{"type":"function","name":"lookup","parameters":{"type":"object","properties":{}}}],"reasoning":{"effort":"none"},"stream":false}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl_tool","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":285,"completion_tokens":1,"total_tokens":286}}`)),
+			}}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			account := forceChatResponsesFallbackAccount()
+			account.Credentials["model_mapping"] = map[string]any{"coding": model}
+			result, err := svc.Forward(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, "/v1/chat/completions", upstream.lastReq.URL.Path)
+			require.Equal(t, model, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
+			require.Equal(t, "call_probe", gjson.GetBytes(upstream.lastBody, "messages.1.tool_calls.0.id").String())
+			require.False(t, gjson.GetBytes(upstream.lastBody, "messages.1.reasoning_content").Exists())
+			require.Equal(t, "call_probe", gjson.GetBytes(upstream.lastBody, "messages.2.tool_call_id").String())
+			require.Equal(t, "OK", gjson.GetBytes(upstream.lastBody, "messages.2.content").String())
+			require.Equal(t, "OK", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+		})
+	}
+}
+
 func TestForwardResponses_PassthroughFlagWithUnsupportedResponsesUsesAccountMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
