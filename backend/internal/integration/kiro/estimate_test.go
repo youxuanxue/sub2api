@@ -2,7 +2,10 @@
 
 package kiro
 
-import "testing"
+import (
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tokenestimate"
+	"testing"
+)
 
 // TestCountTokens_NonEmptyNeverZero asserts that the tokenizer path returns a
 // positive, reasonable count for ordinary text and never zero for non-empty
@@ -27,10 +30,10 @@ func TestCountTokens_NonEmptyNeverZero(t *testing.T) {
 // returns 0 for non-empty input (which would silently bill an interaction as
 // free), and approximates ~4 chars/token for longer strings.
 func TestFallbackCount_FloorsAtOne(t *testing.T) {
-	if got := fallbackCount(""); got != 0 {
+	if got := tokenestimate.FallbackCount(""); got != 0 {
 		t.Fatalf("fallbackCount(empty) = %d, want 0", got)
 	}
-	if got := fallbackCount("a"); got != 1 {
+	if got := tokenestimate.FallbackCount("a"); got != 1 {
 		t.Fatalf("fallbackCount(short) = %d, want 1 (floor)", got)
 	}
 	// 40 ASCII chars → ~10 tokens.
@@ -38,7 +41,7 @@ func TestFallbackCount_FloorsAtOne(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		long += "x"
 	}
-	if got := fallbackCount(long); got != 10 {
+	if got := tokenestimate.FallbackCount(long); got != 10 {
 		t.Fatalf("fallbackCount(40 chars) = %d, want 10", got)
 	}
 }

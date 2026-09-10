@@ -39,7 +39,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	account *Account,
 	body []byte,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, forwardErr error) {
 	startTime := time.Now()
 
 	// 1. Parse Chat Completions request
@@ -101,11 +101,6 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 		return nil, err
 	}
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
 	upstreamReq, _, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, anthropicBody, apiKey, targetURL)
 	releaseUpstreamCtx()
@@ -113,11 +108,12 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
-	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+	resp, err := s.doNativeMessagesRequest(upstreamReq, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	defer func() { cursorResponseOutcome(account, resp, result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -252,7 +248,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 		}
 		if event.Type == "content_block_delta" && event.Delta != nil && finalResp != nil && event.Index != nil {
 			idx := *event.Index
-			if idx < len(finalResp.Content) {
+			if idx >= 0 && idx < len(finalResp.Content) {
 				switch event.Delta.Type {
 				case "text_delta":
 					finalResp.Content[idx].Text += event.Delta.Text
@@ -307,6 +303,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 		RequestID:        requestID,
 		UpstreamHeaders:  resp.Header,
 		Usage:            claudeUsageToOpenAIUsage(&usage),
+		BillingTier:      usage.BillingTier,
 		Model:            originalModel,
 		BillingModel:     billingModel,
 		UpstreamModel:    upstreamModel,
@@ -363,6 +360,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 			RequestID:        requestID,
 			UpstreamHeaders:  resp.Header,
 			Usage:            claudeUsageToOpenAIUsage(&usage),
+			BillingTier:      usage.BillingTier,
 			Model:            originalModel,
 			BillingModel:     billingModel,
 			UpstreamModel:    upstreamModel,

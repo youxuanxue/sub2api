@@ -1327,11 +1327,15 @@ func TestGetModelPricing_GrokCatalogFallbacks(t *testing.T) {
 				"grok-build-0.1",
 				"grok-composer",
 				"grok-composer-2.5-fast",
-				"composer-2.5",
 			},
 			input:     1e-6,
 			cacheRead: 0.2e-6,
 			output:    2e-6,
+		},
+		{
+			name:   "Cursor Composer regular speed",
+			models: []string{"composer-2.5"},
+			input:  0.5e-6, cacheRead: 0.2e-6, output: 2.5e-6,
 		},
 	}
 

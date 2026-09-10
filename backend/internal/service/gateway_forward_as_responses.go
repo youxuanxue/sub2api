@@ -293,6 +293,9 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if dst == nil {
 		return
 	}
+	if src.BillingTier != "" {
+		dst.BillingTier = src.BillingTier
+	}
 
 	// Some Anthropic-compatible providers retain OpenAI-style prompt/cache
 	// fields. Prefer those authoritative totals or hit/miss buckets over the
@@ -628,6 +631,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 // appendRawJSON appends a JSON fragment string to existing raw JSON.
 func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
+	if fragment == "" {
+		return existing
+	}
 	// Anthropic initializes tool_use.input to {} in content_block_start, then
 	// streams the actual input through input_json_delta events. Treat that empty
 	// object as a placeholder instead of prefixing it to the streamed JSON.

@@ -503,7 +503,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// Chat Completions 习惯发送 max_tokens，兼容 Responses 上游会拒绝该字段（#4417）。
 		// 仅对 OpenAI 平台归一化：Anthropic 合法使用 max_tokens，其 max_output_tokens
 		// 反向转换已在上方 switch 中处理。
-		if account.Platform == PlatformOpenAI {
+		if account.Platform == PlatformOpenAI && !account.UsesOpenAICodexProtocol() {
 			if maxTokens := gjson.GetBytes(body, "max_tokens"); maxTokens.Exists() {
 				if !gjson.GetBytes(body, "max_output_tokens").Exists() {
 					markPatchSet("max_output_tokens", maxTokens.Value())

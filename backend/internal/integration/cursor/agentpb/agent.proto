@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package agent.v1;
+option go_package = "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb";
+
+import "google/protobuf/struct.proto";
+
+// Protocol subset adapted from can1357/oh-my-pi (MIT), see VENDORED_FROM.md.
+// Unknown execution requests are rejected by the adapter, never executed.
+message AgentClientMessage {
+  AgentRunRequest run_request = 1;
+  ExecClientMessage exec_client_message = 2;
+  KvClientMessage kv_client_message = 3;
+  ConversationAction conversation_action = 4;
+}
+message AgentServerMessage {
+  InteractionUpdate interaction_update = 1;
+  ExecServerMessage exec_server_message = 2;
+  ConversationStateStructure conversation_checkpoint_update = 3;
+  KvServerMessage kv_server_message = 4;
+  bytes exec_server_control_message = 5;
+  bytes interaction_query = 7;
+}
+message AgentRunRequest {
+  ConversationStateStructure conversation_state = 1;
+  ConversationAction action = 2;
+  ModelDetails model_details = 3;
+  McpTools mcp_tools = 4;
+  string conversation_id = 5;
+  RequestedModel requested_model = 9;
+  repeated PreFetchedBlob pre_fetched_blobs = 17;
+  SystemPromptSpec system_prompt_spec = 29;
+}
+message ModelDetails { string model_id = 1; }
+message RequestedModel {
+  string model_id = 1;
+  repeated ModelParameter parameters = 3;
+}
+message ModelParameter { string id = 1; string value = 2; }
+message PreFetchedBlob { bytes id = 1; bytes value = 2; }
+message ConversationStateStructure {
+  repeated bytes root_prompt_messages_json = 1;
+  repeated string pending_tool_calls = 4;
+  repeated bytes turns = 8;
+  int32 mode = 10;
+}
+message ConversationAction {
+  UserMessageAction user_message_action = 1;
+  ResumeAction resume_action = 2;
+  CancelAction cancel_action = 3;
+}
+message CancelAction { string reason = 1; }
+message UserMessageAction {
+  UserMessage user_message = 1;
+  RequestContext request_context = 2;
+}
+message ResumeAction { RequestContext request_context = 2; }
+message UserMessage { string text = 1; string message_id = 2; int32 mode = 4; }
+message ConversationTurnStructure { AgentConversationTurnStructure agent_conversation_turn = 1; }
+message AgentConversationTurnStructure { bytes user_message = 1; repeated bytes steps = 2; }
+message ConversationStep { AssistantMessage assistant_message = 1; ToolCall tool_call = 2; }
+message AssistantMessage { string text = 1; }
+message ToolCall { McpToolCall mcp_tool_call = 15; string tool_call_id = 57; }
+message McpToolCall { McpArgs args = 1; McpResult result = 2; }
+message McpArgs {
+  string name = 1;
+  map<string, google.protobuf.Value> args = 2;
+  string tool_call_id = 3;
+  string provider_identifier = 4;
+  string tool_name = 5;
+  bool smart_mode_approval_only = 7;
+}
+message McpTools { repeated McpToolDefinition mcp_tools = 1; }
+message McpToolDefinition {
+  string name = 1;
+  string description = 2;
+  google.protobuf.Value input_schema = 3;
+  string provider_identifier = 4;
+  string tool_name = 5;
+  string input_schema_json = 6;
+}
+message McpResult { McpSuccess success = 1; McpRejected rejected = 3; Empty approved = 7; }
+message McpRejected { string reason = 1; }
+message McpSuccess { repeated McpToolResultContentItem content = 1; bool is_error = 2; }
+message McpToolResultContentItem { McpTextContent text = 1; }
+message McpTextContent { string text = 1; }
+message Empty {}
+message ExecServerMessage {
+  uint32 id = 1;
+  Empty request_context_args = 10;
+  McpArgs mcp_args = 11;
+  string exec_id = 15;
+}
+message ExecClientMessage {
+  uint32 id = 1;
+  RequestContextResult request_context_result = 10;
+  McpResult mcp_result = 11;
+  string exec_id = 15;
+}
+message RequestContextResult { RequestContextSuccess success = 1; }
+message RequestContextSuccess { RequestContext request_context = 1; }
+message RequestContext {
+  repeated CursorRule rules = 2;
+  repeated CursorRule non_file_rules = 37;
+  Empty env = 4;
+  repeated McpToolDefinition tools = 7;
+  bool git_repo_info_complete = 33;
+  bool mcp_info_complete = 36;
+  bool rules_info_complete = 39;
+  bool env_info_complete = 40;
+  bool repository_info_complete = 41;
+  bool custom_subagents_info_complete = 42;
+  bool agent_skills_info_complete = 43;
+  bool mcp_file_system_info_complete = 44;
+  bool git_status_info_complete = 45;
+}
+message CursorRule { string full_path = 1; string content = 2; CursorRuleType type = 3; int32 source = 4; }
+message CursorRuleType { Empty global = 1; }
+message SystemPromptSpec { optional string replace = 1; optional string append = 2; }
+message KvServerMessage { uint32 id = 1; GetBlobArgs get_blob_args = 2; SetBlobArgs set_blob_args = 3; }
+message KvClientMessage { uint32 id = 1; GetBlobResult get_blob_result = 2; Empty set_blob_result = 3; }
+message GetBlobArgs { bytes blob_id = 1; }
+message GetBlobResult { bytes blob_data = 1; }
+message SetBlobArgs { bytes blob_id = 1; bytes blob_data = 2; }
+message InteractionUpdate {
+  TextDeltaUpdate text_delta = 1;
+  ToolCallStartedUpdate tool_call_started = 2;
+  ToolCallStartedUpdate tool_call_completed = 3;
+  TextDeltaUpdate thinking_delta = 4;
+  TokenDeltaUpdate token_delta = 8;
+  TurnEndedUpdate turn_ended = 14;
+}
+message TextDeltaUpdate { string text = 1; }
+message ToolCallStartedUpdate { string call_id = 1; ToolCall tool_call = 2; string model_call_id = 3; }
+message TokenDeltaUpdate { int32 tokens = 1; }
+message TurnEndedUpdate {
+  optional int64 input_tokens = 1;
+  optional int64 output_tokens = 2;
+  optional int64 cache_read_tokens = 3;
+  optional int64 cache_write_tokens = 4;
+  optional int64 reasoning_tokens = 5;
+}

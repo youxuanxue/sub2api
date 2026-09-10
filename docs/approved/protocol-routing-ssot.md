@@ -303,7 +303,12 @@ AND the required adapter and transport exist
 ```
 
 On a non-`OfficialEndpointAnthropic` identity, native `messages` is legal only
-when the resolved upstream model is in the Claude family (`claude-*`). Dual-stack
+when the resolved upstream model is in the Claude family (`claude-*`), except
+for the `cursor_oauth_messages` endpoint profile described in
+[`cursor-oauth-service.md`](cursor-oauth-service.md). That profile admits an
+explicitly mapped authenticated catalog model only when its saved variant
+parameters exist and, for a native account, its saved wire model is present.
+It still requires the same linked capability, Plan and Execute gates. Dual-stack
 OpenAI relays that advertise `messages` plus `chat_completions` and/or
 `responses` therefore convert inbound Claude Code `/v1/messages` for GPT and
 other non-Claude models instead of identity-forwarding onto a Claude-only
@@ -313,6 +318,14 @@ legal conversion for those identities is `chat_completions`. The
 `messages → chat_completions` conversion preserves Claude Code function tools
 and images, matching the already-proven `messages → responses` surface, so a
 tools-bearing Claude Code body does not fail closed back onto identity.
+
+The `chat_completions -> messages` and `responses -> messages` adapters also
+preserve function tools and images through the existing apicompat conversions.
+They still reject server-side continuation, unsupported reasoning/cache features
+and non-root Responses paths. Cursor tool results carry client-side continuation
+IDs; the service only restricts the current tool-result turn to Cursor supply.
+Ordinary metadata and completed history cannot create that restriction. A supply
+mismatch is candidate-local `ErrNoLegalRoute`, not an internal selection error.
 
 Endpoint resolution must reproduce the identity used to obtain the capability
 key. A configurable endpoint with an empty or mismatched URL never falls back

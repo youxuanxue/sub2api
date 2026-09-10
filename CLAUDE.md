@@ -41,6 +41,13 @@ pnpm lint:check && pnpm typecheck # Lint + type check
 
 ## Architecture
 
+Unsupported output limits (`upstream-output-limits-ssot`):
+`backend/internal/service/upstream_output_limits_tk.go` owns omission for native
+Cursor and ChatGPT/Codex transports. Call at dispatch boundaries, never during
+candidate admission. Native limit policies for other supplies remain with their
+existing adapters. Contract and acceptance:
+[`docs/approved/cursor-oauth-service.md`](docs/approved/cursor-oauth-service.md#output-limit-compatibility).
+
 Backend `backend/` (Go: `handler` → `service` → `repository` → `ent`), frontend `frontend/` (Vue 3 + pnpm), deploy `deploy/`. Sibling `new-api/` clone required at `../../new-api` (see §4). Key paths: `backend/internal/{handler,service,integration/newapi,relay/bridge}`, `frontend/src/{views,composables,api}`, `deploy/docker-compose*.yml`.
 
 Candidate eligibility and scheduling (`candidate-eligibility-ssot`): approved

@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "5efbeacc54286b2edafb017e9b9a085c8cee0b1ca31af98244e728330c73adad",
+  "floor_sha256": "769e42f9003dbbbedddf45a19764bf503097fcad40e56060ca67e70c9946b21c",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -354,6 +354,50 @@
           "deepseek-v4-pro": "deepseek-ai/deepseek-v4-pro-0813",
           "deepseek-v4-pro-0813": "deepseek-ai/deepseek-v4-pro-0813",
           "kimi-k3": "moonshotai/kimi-k3"
+        }
+      },
+      {
+        "platform": "newapi",
+        "channel_type": 14,
+        "base_url": "https://agentn.global.api5.cursor.sh",
+        "model_mapping": {
+          "claude-fable-5": "claude-fable-5",
+          "claude-fable-5-1": "claude-fable-5-1",
+          "claude-haiku-4-5": "claude-haiku-4-5",
+          "claude-opus-4-5": "claude-opus-4-5",
+          "claude-opus-4-6": "claude-opus-4-6",
+          "claude-opus-4-7": "claude-opus-4-7",
+          "claude-opus-4-8": "claude-opus-4-8",
+          "claude-opus-5": "claude-opus-5",
+          "claude-sonnet-4": "claude-sonnet-4",
+          "claude-sonnet-4-5": "claude-sonnet-4-5",
+          "claude-sonnet-4-6": "claude-sonnet-4-6",
+          "claude-sonnet-5": "claude-sonnet-5",
+          "composer-2": "composer-2",
+          "composer-2.5": "composer-2.5",
+          "gemini-2.5-flash": "gemini-2.5-flash",
+          "gemini-3-flash": "gemini-3-flash",
+          "gemini-3.1-pro": "gemini-3.1-pro",
+          "gemini-3.5-flash": "gemini-3.5-flash",
+          "gemini-3.6-flash": "gemini-3.6-flash",
+          "gemini-3.7-flash": "gemini-3.7-flash",
+          "gemini-3.8-flash": "gemini-3.8-flash",
+          "glm-5.2": "glm-5.2",
+          "gpt-5-mini": "gpt-5-mini",
+          "gpt-5.1": "gpt-5.1",
+          "gpt-5.2": "gpt-5.2",
+          "gpt-5.3-codex": "gpt-5.3-codex",
+          "gpt-5.4": "gpt-5.4",
+          "gpt-5.4-mini": "gpt-5.4-mini",
+          "gpt-5.4-nano": "gpt-5.4-nano",
+          "gpt-5.5": "gpt-5.5",
+          "gpt-5.6-luna": "gpt-5.6-luna",
+          "gpt-5.6-sol": "gpt-5.6-sol",
+          "gpt-5.6-terra": "gpt-5.6-terra",
+          "grok-4.5": "grok-4.5",
+          "grok-4.6": "grok-4.6",
+          "kimi-k2.7-code": "kimi-k2.7-code",
+          "kimi-k3": "kimi-k3"
         }
       },
       {

@@ -189,8 +189,6 @@ var openAIChatGPTInternalUnsupportedFields = []string{
 }
 
 var openAICodexOAuthUnsupportedFields = append([]string{
-	"max_output_tokens",
-	"max_completion_tokens",
 	"temperature",
 	"top_p",
 	"frequency_penalty",
@@ -248,6 +246,9 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 	}
 
 	// Strip parameters unsupported by ChatGPT internal Codex endpoint.
+	if omitUnsupportedOutputLimits(reqBody) {
+		result.Modified = true
+	}
 	for _, key := range openAICodexOAuthUnsupportedFields {
 		if _, ok := reqBody[key]; ok {
 			delete(reqBody, key)

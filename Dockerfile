@@ -86,7 +86,6 @@ WORKDIR /build/sub2api/backend
 COPY sub2api/backend/go.mod sub2api/backend/go.sum ./
 COPY new-api /build/new-api
 RUN go mod download
-COPY backend/go.mod backend/go.sum ./
 # Cache mount keeps the module cache across builds so a transient CDN blip on
 # retry resumes instead of re-fetching every zip from scratch.
 RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \

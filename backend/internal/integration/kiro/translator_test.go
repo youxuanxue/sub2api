@@ -20,6 +20,9 @@ func TestClaudeToKiro_MinimalUserMessage(t *testing.T) {
 	if payload == nil {
 		t.Fatal("ClaudeToKiro returned nil payload")
 	}
+	if payload.InferenceConfig.MaxTokens != req.MaxTokens {
+		t.Fatalf("expected native maxTokens %d, got %d", req.MaxTokens, payload.InferenceConfig.MaxTokens)
+	}
 
 	got := payload.ConversationState.CurrentMessage.UserInputMessage
 	if got.Content == "" {

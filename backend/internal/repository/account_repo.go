@@ -302,11 +302,11 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
-	tx, err := r.client.Tx(ctx)
+	client := clientFromContext(ctx, r.client)
+	tx, err := client.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return err
 	}
-	client := r.client
 	if tx != nil {
 		defer func() { _ = tx.Rollback() }()
 		client = tx.Client()
@@ -545,7 +545,7 @@ WHERE a.platform = $1 AND a.schedulable = true AND a.deleted_at IS NULL
 }
 
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
-	m, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(ctx)
+	m, err := clientFromContext(ctx, r.client).Account.Query().Where(dbaccount.IDEQ(id)).Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
@@ -1797,14 +1797,9 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	// NOT (a AND b) 在 PG 三值逻辑下会把 a 或 b 为 NULL 的行（即绝大多数
 	// 健康账号：temp_unschedulable_until=NULL）也排除，导致后台 token
 	// 刷新工作器漏掉所有正常账号 → access_token 到期后请求开始 401。
-	// TK: 平台过滤改为参数化 `= ANY($1)`，绑定值来自单一真值源
-	// engine.OAuthRefreshPlatforms()（= AllSchedulingPlatforms() 去掉仅用 api key
-	// 的 newapi）。SQL 里不再留任何平台字面量，杜绝 R-001 那类「上游重写本方法时
-	// 把名单重置回上游四平台、静默漏掉 TK 第六/七平台 kiro/grok」的回归——掉平台
-	// 必须改 engine 真值源（TK 持有、sentinel 锚定），且后台刷新器注册集会被
-	// token_refresh_service_candidates_test.go 断言覆盖该名单。kiro/grok 的
-	// OAuth access_token 短寿命（grok 默认 1h）且网关端只读 credentials 不做按需
-	// 刷新，后台刷新是其唯一续期路径，漏掉即 ~1h 后 401 掉出池且无自愈。
+	// Platform scope comes from the registered refreshers. Cursor retains its
+	// newapi/apikey account representation; only its explicit provider marker
+	// admits it alongside OAuth rows, never ordinary API keys.
 	query := `
 		SELECT id
 		FROM accounts
@@ -1818,15 +1813,15 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	}
 	if options.IncludeSetupToken {
 		query += `
-			AND type IN ('oauth', 'setup-token')`
+			AND (type IN ('oauth', 'setup-token') OR ` + cursorOAuthAccountSQL + `)`
 	} else {
 		query += `
-			AND type = 'oauth'`
+			AND (type = 'oauth' OR ` + cursorOAuthAccountSQL + `)`
 	}
 	if options.RequireRefreshToken {
 		query += `
-			AND credentials ? 'refresh_token'
-			AND btrim(credentials->>'refresh_token') <> ''`
+			AND ((credentials ? 'refresh_token' AND btrim(credentials->>'refresh_token') <> '')
+				OR (` + cursorOAuthAccountSQL + ` AND btrim(credentials->>'api_key') <> ''))`
 	}
 	if options.ExcludeRetryCooldown {
 		query += `
@@ -2444,7 +2439,8 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		return err
 	}
 	// 使用事务保证删除旧绑定与创建新绑定的原子性
-	tx, err := r.client.Tx(ctx)
+	parentClient := clientFromContext(ctx, r.client)
+	tx, err := parentClient.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return err
 	}
@@ -2455,7 +2451,7 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		txClient = tx.Client()
 	} else {
 		// 已处于外部事务中（ErrTxStarted），复用当前 client
-		txClient = r.client
+		txClient = parentClient
 	}
 	if err := lockLiveGroups(ctx, txClient, groupIDs); err != nil {
 		return err
@@ -2485,14 +2481,12 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		return err
 	}
 
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
 	payload := buildSchedulerGroupPayload(mergeGroupIDs(existingGroupIDs, groupIDs))
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
-		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue bind groups failed: account=%d err=%v", accountID, err)
+	if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventAccountGroupsChanged, &accountID, nil, payload); err != nil {
+		return err
+	}
+	if tx != nil {
+		return tx.Commit()
 	}
 	return nil
 }
@@ -3996,7 +3990,7 @@ func uniquePositiveInt64s(ids []int64) []int64 {
 }
 
 func (r *accountRepository) loadAccountGroupIDs(ctx context.Context, accountID int64) ([]int64, error) {
-	entries, err := r.client.AccountGroup.
+	entries, err := clientFromContext(ctx, r.client).AccountGroup.
 		Query().
 		Where(dbaccountgroup.AccountIDEQ(accountID)).
 		Order(dbent.Asc(dbaccountgroup.FieldPriority), dbent.Asc(dbaccountgroup.FieldGroupID)).

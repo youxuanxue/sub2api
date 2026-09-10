@@ -1208,6 +1208,12 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 		}
 		normalized = oauthBody
 		changed = changed || oauthChanged
+		limitBody, limitChanged, err := omitUnsupportedOutputLimitsJSON(normalized)
+		if err != nil {
+			return body, false, err
+		}
+		normalized = limitBody
+		changed = changed || limitChanged
 		for _, field := range openAIChatGPTInternalUnsupportedFields {
 			if !gjson.GetBytes(normalized, field).Exists() {
 				continue

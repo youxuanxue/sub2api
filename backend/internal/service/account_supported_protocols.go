@@ -295,6 +295,9 @@ func protocolResolvedModelAllowedForTarget(
 	if !accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled) {
 		return false
 	}
+	if account.IsCursor() {
+		return target == protocolrouter.ProtocolMessages && cursorMappedModelAllowed(account, requestedModel, resolvedModel)
+	}
 	switch profile {
 	case protocolrouter.OfficialEndpointOpenAICodex:
 		return target == protocolrouter.ProtocolResponses && isOpenAIOAuthServableModel(resolvedModel)

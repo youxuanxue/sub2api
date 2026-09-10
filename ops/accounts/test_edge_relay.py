@@ -7,6 +7,23 @@ import edge_relay as er
 
 
 class EdgeRelayTest(unittest.TestCase):
+    def test_cursor_relay_keeps_platform_source_protocol_and_catalog_distinct(self) -> None:
+        config = {
+            "extra": {"upstream_provider": "cursor"}, "group_ids": [8],
+            "model_mapping": {"composer-2.5": "composer-2.5"},
+            "cursor_model_parameters": {"composer-2.5": [{"id": "fast", "value": "false"}]},
+        }
+        spec = er.build_prod_relay_create_spec(edge_id="us6", pool_platform="newapi", prod_relay=config, edge_api_key="relay-key")
+        self.assertEqual(spec["platform"], "newapi")
+        self.assertEqual(spec["type"], "apikey")
+        self.assertEqual(spec["channel_type"], 14)
+        self.assertEqual(spec["credentials"]["api_base_urls"], {"anthropic": "https://api-us6.tokenkey.dev"})
+        self.assertFalse(spec["credentials"]["pool_mode"])
+        self.assertEqual(er.prod_stub_pool_platform(spec), "newapi")
+        self.assertNotIn("cursor_model_parameters", spec["extra"])
+        with self.assertRaises(ValueError):
+            er.build_prod_relay_create_spec(edge_id="us6", pool_platform="newapi", prod_relay={}, edge_api_key="relay-key")
+
     def test_edge_id_from_base_url(self) -> None:
         self.assertEqual(er.edge_id_from_base_url("https://api-us6.tokenkey.dev"), "us6")
         self.assertEqual(er.edge_id_from_base_url("https://api-us6.tokenkey.dev/"), "us6")

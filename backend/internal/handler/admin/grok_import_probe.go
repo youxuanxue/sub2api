@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -211,6 +212,7 @@ func ProvideAccountHandler(
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 	grokQuotaService *service.GrokQuotaService,
+	cursorOAuth *cursor.Client,
 ) *AccountHandler {
 	handler := NewAccountHandler(
 		adminService,
@@ -230,6 +232,7 @@ func ProvideAccountHandler(
 		nil,
 	)
 	handler.grokImportProber = grokQuotaService
+	handler.cursorOAuth = cursorOAuth
 	handler.cfg = cfg
 	return handler
 }
