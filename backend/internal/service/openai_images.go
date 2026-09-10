@@ -35,12 +35,13 @@ const (
 	openAIImagesGenerationsURL = "https://api.openai.com/v1/images/generations"
 	openAIImagesEditsURL       = "https://api.openai.com/v1/images/edits"
 
-	openAIChatGPTStartURL          = "https://chatgpt.com/"
-	openAIChatGPTFilesURL          = "https://chatgpt.com/backend-api/files"
-	openAIImageBackendUserAgent    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-	openAIImageMaxDownloadBytes    = 20 << 20 // 20MB per image download
-	openAIImageMaxUploadPartSize   = 20 << 20 // 20MB per multipart upload part
-	openAIImagesResponsesMainModel = "gpt-5.6-luna"
+	openAIChatGPTStartURL                  = "https://chatgpt.com/"
+	openAIChatGPTFilesURL                  = "https://chatgpt.com/backend-api/files"
+	openAIImageBackendUserAgent            = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	openAIImageMaxDownloadBytes            = 20 << 20 // 20MB per image download
+	openAIImageMaxUploadPartSize           = 20 << 20 // 20MB per multipart upload part
+	openAIImagesResponsesMainModel         = "gpt-5.6-luna"
+	openAIImagesVerbatimPromptInstructions = "When invoking the image_generation tool, use the user's image prompt verbatim. Do not rewrite, expand, summarize, embellish, translate, normalize punctuation, or add or remove visual details or constraints. Preserve the original language, wording, capitalization, quotes, and punctuation exactly."
 )
 
 type OpenAIImagesCapability string
@@ -625,12 +626,14 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		proxyURL = account.Proxy.URL()
 	}
 	upstreamStart := time.Now()
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			ProxyID:            opsUpstreamProxyID(account),
+			ProxyName:          opsUpstreamProxyName(account),
 			Platform:           account.Platform,
 			AccountID:          account.ID,
 			AccountName:        account.Name,
@@ -648,8 +651,10 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+		if s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				ProxyID:            opsUpstreamProxyID(account),
+				ProxyName:          opsUpstreamProxyName(account),
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
@@ -682,6 +687,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			if streamCount > 0 {
 				return &OpenAIForwardResult{
 					RequestID:        resp.Header.Get("x-request-id"),
+					UpstreamHeaders:  resp.Header,
 					Usage:            streamUsage,
 					Model:            requestModel,
 					UpstreamModel:    upstreamModel,
@@ -703,6 +709,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		firstTokenMs = ttft
 		return &OpenAIForwardResult{
 			RequestID:        resp.Header.Get("x-request-id"),
+			UpstreamHeaders:  resp.Header,
 			Usage:            usage,
 			Model:            requestModel,
 			UpstreamModel:    upstreamModel,
@@ -716,7 +723,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			ImageOutputSizes: imageOutputSizes,
 		}, nil
 	} else {
-		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(resp, c, parsed.ResponseFormat)
+		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(resp, c, account, parsed)
 		if err != nil {
 			return nil, err
 		}
@@ -726,6 +733,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		}
 		return &OpenAIForwardResult{
 			RequestID:        resp.Header.Get("x-request-id"),
+			UpstreamHeaders:  resp.Header,
 			Usage:            usage,
 			Model:            requestModel,
 			UpstreamModel:    upstreamModel,
@@ -887,11 +895,12 @@ func cloneMultipartHeader(src textproto.MIMEHeader) textproto.MIMEHeader {
 	return dst
 }
 
-func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context, responseFormat string) (OpenAIUsage, int, []string, error) {
+func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http.Response, c *gin.Context, account *Account, parsed *OpenAIImagesRequest) (OpenAIUsage, int, []string, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
+	body = s.backfillOpenAIImagesB64JSON(c.Request.Context(), account, parsed, body)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := "application/json"
 	if s.cfg != nil && !s.cfg.Security.ResponseHeaders.Enabled {
@@ -902,7 +911,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(resp *http
 	usage, _ := extractOpenAIUsageFromJSONBytes(body)
 	imageCount := extractOpenAIImageCountFromJSONBytes(body)
 	imageSizes := collectOpenAIResponseImageOutputSizesFromJSONBytes(body)
-	body = s.tkMaybeOffloadImagesToS3(c.Request.Context(), body, responseFormat)
+	body = s.tkMaybeOffloadImagesToS3(c.Request.Context(), body, parsed.ResponseFormat)
 	c.Data(resp.StatusCode, contentType, body)
 	return usage, imageCount, imageSizes, nil
 }

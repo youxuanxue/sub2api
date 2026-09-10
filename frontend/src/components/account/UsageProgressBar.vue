@@ -6,7 +6,7 @@
     <div v-if="!utilizationUnknown" class="flex flex-wrap items-center gap-1" data-testid="usage-quota-row">
       <!-- Label badge (fixed width for alignment) -->
       <span
-        :class="['w-[32px] shrink-0 rounded px-1 text-center text-[10px] font-medium', labelClass]"
+        :class="[labelSizeClass, labelClass]"
       >
         {{ label }}
       </span>
@@ -49,6 +49,7 @@ const props = defineProps<{
   windowStatsLabel?: string
   showNowWhenIdle?: boolean
   remainingCapacity?: boolean
+  labelWidth?: 'fixed' | 'auto'
 }>()
 
 const { t } = useI18n()
@@ -87,6 +88,14 @@ const labelClass = computed(() => {
   return colors[props.color]
 })
 
+// Label badge width mode: fixed 定宽保证账号页纵向对齐；auto 限宽截断适配
+// 监控页「Pro/7 天」类组合标签。百分比列在两种模式下保持不变。
+const labelSizeClass = computed(() =>
+  props.labelWidth === 'auto'
+    ? 'max-w-[72px] shrink-0 truncate rounded px-1 text-left text-[10px] font-medium'
+    : 'w-[32px] shrink-0 rounded px-1 text-center text-[10px] font-medium'
+)
+
 // Progress bar color based on utilization
 const barClass = computed(() => {
   if (props.remainingCapacity) {
@@ -97,9 +106,9 @@ const barClass = computed(() => {
     }
     return 'bg-green-500'
   }
-  if (props.utilization >= 100) {
+  if (props.utilization >= 90) {
     return 'bg-red-500'
-  } else if (props.utilization >= 80) {
+  } else if (props.utilization >= 75) {
     return 'bg-amber-500'
   } else {
     return 'bg-green-500'
@@ -116,9 +125,9 @@ const textClass = computed(() => {
     }
     return 'text-gray-600 dark:text-gray-400'
   }
-  if (props.utilization >= 100) {
+  if (props.utilization >= 90) {
     return 'text-red-600 dark:text-red-400'
-  } else if (props.utilization >= 80) {
+  } else if (props.utilization >= 75) {
     return 'text-amber-600 dark:text-amber-400'
   } else {
     return 'text-gray-600 dark:text-gray-400'

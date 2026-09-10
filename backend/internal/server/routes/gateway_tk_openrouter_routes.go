@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,7 @@ func registerTKOpenRouterProviderRoutes(
 	openrouterProvider.Use(opsErrorLogger)
 	openrouterProvider.Use(endpointNorm)
 	openrouterProvider.Use(apiKeyAuth)
+	openrouterProvider.Use(middleware.GroupModelAllowlist())
 	openrouterRoutes := newTerminalRouteRegistrar(openrouterProvider, terminalOutcomeRecorder)
 	{
 		openrouterRoutes.Register(http.MethodGet, "/models", Excluded("model_catalog"), h.Gateway.OpenRouterProviderModels)

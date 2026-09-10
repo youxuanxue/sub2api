@@ -8,7 +8,12 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {
+func resolveOpenAIMessagesMetadataSession(c *gin.Context, sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {
+	if promptCacheKey == "" && c != nil {
+		if sessionID := strings.TrimSpace(c.GetHeader("X-Claude-Code-Session-Id")); sessionID != "" {
+			return service.DeriveSessionHashFromSeed(sessionID), promptCacheKey
+		}
+	}
 	// Anthropic metadata.user_id 只作为账号粘性信号。上游 GPT/Codex 缓存键
 	// 交给 ForwardAsAnthropic 从 cache_control 或完整消息 digest 派生，避免
 	// 固定 metadata key 压住后续 turn 的缓存滚动。

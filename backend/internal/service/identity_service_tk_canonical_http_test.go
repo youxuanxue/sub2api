@@ -268,9 +268,9 @@ func TestGetOrCreateFingerprint_NonCanonical_StillMergesNewerIngressUA(t *testin
 	require.NoError(t, cache.SetFingerprint(context.Background(), 3, seed))
 
 	hdr := http.Header{}
-	hdr.Set("User-Agent", "claude-cli/2.1.150 (external, cli)")
+	hdr.Set("User-Agent", "claude-cli/2.9.0 (external, cli)")
 
 	fp, err := svc.GetOrCreateFingerprint(context.Background(), 3, hdr, "")
 	require.NoError(t, err)
-	require.Equal(t, "claude-cli/2.1.150 (external, cli)", fp.UserAgent)
+	require.Equal(t, "claude-cli/2.9.0 (external, cli)", fp.UserAgent)
 }

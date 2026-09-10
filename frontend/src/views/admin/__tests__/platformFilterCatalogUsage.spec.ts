@@ -7,7 +7,7 @@ function readSource(path: string): string {
 }
 
 describe('admin platform filters', () => {
-  it('uses the group platform catalog on the subscriptions page', () => {
+  it('uses the shared platform options on the subscriptions page', () => {
     const source = readSource('src/views/admin/SubscriptionsView.vue')
     expect(source).toContain("import { usePlatformOptions } from '@/composables/usePlatformOptions'")
     expect(source).toContain('const { optionsWithAll } = usePlatformOptions()')

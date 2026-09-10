@@ -1201,6 +1201,49 @@ func TestOpenAISelectAccountWithLoadAwareness_StickyWaitPlan(t *testing.T) {
 	}
 }
 
+func TestOpenAISelectAccountWithLoadAwareness_StickyCapacitySpilloverKeepsBinding(t *testing.T) {
+	sessionHash := "sticky-spillover"
+	groupID := int64(1)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 6, Priority: 1, GroupIDs: []int64{groupID}},
+			{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 6, Priority: 1, GroupIDs: []int64{groupID}},
+		},
+	}
+	cache := &stubGatewayCache{
+		sessionBindings: map[string]int64{"openai:" + sessionHash: 1},
+	}
+	concurrencyCache := stubConcurrencyCache{
+		acquireResults: map[int64]bool{1: false, 2: true},
+		waitCounts:     map[int64]int{1: 1},
+		loadMap: map[int64]*AccountLoadInfo{
+			1: {AccountID: 1, LoadRate: 100},
+			2: {AccountID: 2, LoadRate: 10},
+		},
+	}
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 1
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              cache,
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, sessionHash, "gpt-4", nil)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, int64(2), selection.Account.ID, "capacity spillover should use the other account for this request")
+	require.True(t, selection.Acquired)
+	require.Equal(t, int64(1), cache.sessionBindings["openai:"+sessionHash], "capacity spillover must not migrate the durable sticky binding")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_PrefersLowerLoad(t *testing.T) {
 	groupID := int64(1)
 	repo := stubOpenAIAccountRepo{
@@ -2004,10 +2047,37 @@ func TestOpenAIStreamingResponseFailedAfterOutputItemAddedStillFailovers(t *test
 	require.NotContains(t, rec.Body.String(), "servers are currently overloaded")
 }
 
-func TestOpenAIStreamFailoverBlockedByClientOutput_UsesFirstTokenOnly(t *testing.T) {
-	require.False(t, openAIStreamFailoverBlockedByClientOutput(nil))
-	ms := 1
-	require.True(t, openAIStreamFailoverBlockedByClientOutput(&ms))
+func TestOpenAIStreamFailureUsesCommittedOutput(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		for _, committed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("passthrough=%t/committed=%t", passthrough, committed), func(t *testing.T) {
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				if committed {
+					_, err := c.Writer.Write([]byte("data: partial\n\n"))
+					require.NoError(t, err)
+				}
+				account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+				input := tkCodexStreamFailureInput{
+					s: &OpenAIGatewayService{cfg: &config.Config{}}, c: c, account: account,
+					codex: newTkCodexFailureStreamStateForReasoning(account),
+					ctx:   c.Request.Context(), canonicalModel: "gpt-5.6-sol", usage: &OpenAIUsage{},
+					passthrough: passthrough, failoverOnlyBeforeOutput: true,
+					eventType: "response.failed",
+					dataBytes: []byte(`{"type":"response.failed","response":{"error":{"type":"server_error","code":"server_is_overloaded"}}}`),
+				}
+				result, handled := input.handleFailureEvent(false)
+				require.True(t, handled)
+				var failover *UpstreamFailoverError
+				if committed {
+					require.False(t, errors.As(result.streamEarlyErr, &failover))
+				} else {
+					require.ErrorAs(t, result.streamEarlyErr, &failover)
+					require.False(t, c.Writer.Written())
+				}
+			})
+		}
+	}
 }
 
 func TestIsOpenAITransientProcessingError_ServerOverloaded(t *testing.T) {
@@ -3789,7 +3859,10 @@ func TestHandleSSEToJSON_NoFinalResponseKeepsSSEBody(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `data: {"type":"response.in_progress"`)
 }
 
-func TestHandleSSEToJSON_ResponseFailedReturnsProtocolError(t *testing.T) {
+// 无账号时没有可换的对象：newOpenAIStreamFailoverError 要拿 account 记录 ops 归属与
+// 账号健康，故这一支保持原有的协议错误行为。带真实账号的同一报文改为换号，
+// 由 TestNonStreamingSSEToJSON_UnclassifiedFailedEventFailsOver 钉死（issue #5281）。
+func TestHandleSSEToJSON_ResponseFailedWithoutAccountReturnsProtocolError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)

@@ -140,6 +140,25 @@ func TestGrokContentPolicy403DoesNotMutateOrFailover(t *testing.T) {
 	require.Zero(t, repo.tempUnschedCalls)
 }
 
+func TestGrokEntitlement403PipelineDoesNotMutateOrFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &grokQuotaAccountRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{ID: 4717, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	body := []byte(`{"code":"permission-denied","error":"You do not have an active Grok subscription"}`)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{}}
+
+	got := svc.failoverOpenAIUpstreamHTTPError(context.Background(), c, account, resp, body, "You do not have an active Grok subscription", "grok-4.5")
+
+	require.Nil(t, got)
+	require.Zero(t, repo.tempUnschedCalls)
+	require.Zero(t, repo.rateLimitedCalls)
+	require.Zero(t, repo.updateCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
 func TestGrokNonFailoverDoesNotApplyGenericTempUnschedulablePolicy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := &grokQuotaAccountRepo{}

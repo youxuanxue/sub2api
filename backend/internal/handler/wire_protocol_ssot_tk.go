@@ -11,6 +11,7 @@ import (
 // mandatory in the generated Wire graph.
 func ProvideProtocolRoutedOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
+	pluginManager *service.PluginManager,
 	nativeGatewayService *service.GatewayService,
 	geminiCompatService *service.GeminiMessagesCompatService,
 	antigravityGatewayService *service.AntigravityGatewayService,
@@ -30,6 +31,7 @@ func ProvideProtocolRoutedOpenAIGatewayHandler(
 ) *OpenAIGatewayHandler {
 	h := ProvideOpenAIGatewayHandler(
 		gatewayService,
+		pluginManager,
 		concurrencyService,
 		billingCacheService,
 		apiKeyService,

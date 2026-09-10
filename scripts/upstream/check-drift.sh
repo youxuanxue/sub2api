@@ -8,6 +8,7 @@
 #   bash scripts/upstream/check-drift.sh           # human-readable
 #   bash scripts/upstream/check-drift.sh --json    # JSON for CI consumption
 #   bash scripts/upstream/check-drift.sh --quiet   # exit code only (no output)
+#   bash scripts/upstream/check-drift.sh --head HEAD --target <reviewed-sha>
 #
 # Exit codes:
 #   0 — TK fork is in sync (origin/main contains all of upstream/main)
@@ -21,17 +22,28 @@
 set -euo pipefail
 
 MODE="human"
+HEAD_REF="origin/main"
+TARGET_REF="upstream/main"
 
-for arg in "$@"; do
-  case "$arg" in
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --json)  MODE="json" ;;
     --quiet) MODE="quiet" ;;
+    --head|--target)
+      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+        echo "$1 requires a commit reference" >&2
+        exit 2
+      fi
+      if [ "$1" = "--head" ]; then HEAD_REF="$2"; else TARGET_REF="$2"; fi
+      shift
+      ;;
     -h|--help)
       sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
-    *) echo "unknown arg: $arg" >&2; exit 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 
 log() { [ "$MODE" = "quiet" ] && return; [ "$MODE" = "json" ] && return; echo "$@"; }
@@ -42,7 +54,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/upstream-drift.sh"
 
 # Fetch both, fail loudly on network/auth errors.
-if ! fetch_and_load_upstream_drift_snapshot; then
+if ! fetch_and_load_upstream_drift_snapshot "$HEAD_REF" "$TARGET_REF"; then
   exit 2
 fi
 
@@ -55,14 +67,14 @@ if [ "$MODE" = "json" ]; then
     "$([ "$BEHIND" -eq 0 ] && echo true || echo false)"
 elif [ "$MODE" = "human" ]; then
   log "Upstream:  Wei-Shaw/sub2api@$UPSTREAM_HEAD"
-  log "TK fork:   origin/main@$ORIGIN_HEAD"
+  log "TK fork:   $HEAD_REF@$ORIGIN_HEAD"
   log "TK ahead:  $AHEAD commits"
   log "TK behind: $BEHIND commits"
 fi
 
 if [ "$BEHIND" -eq 0 ]; then
   log ""
-  log "TK fork is in sync with upstream/main."
+  log "TK fork is in sync with $TARGET_REF."
   exit 0
 fi
 
@@ -70,7 +82,7 @@ if [ "$MODE" = "human" ]; then
   log ""
   log "Upstream has $BEHIND new commits not yet merged into TK fork:"
   log ""
-  git log --oneline origin/main..upstream/main | head -20 | sed 's/^/  /'
+  git log --oneline -20 "$HEAD_REF..$TARGET_REF" | sed 's/^/  /'
   if [ "$BEHIND" -gt 20 ]; then
     log "  ... ($((BEHIND - 20)) more)"
   fi

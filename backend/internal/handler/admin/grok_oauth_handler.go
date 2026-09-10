@@ -615,9 +615,8 @@ func (h *GrokOAuthHandler) ResetQuota(c *gin.Context) {
 		response.BadRequest(c, "grok quota service is not enabled")
 		return
 	}
-	if _, resetErr := h.quotaService.ResetQuota(c.Request.Context(), accountID); resetErr != nil {
-		response.ErrorFrom(c, resetErr)
-	}
+	_, resetErr := h.quotaService.ResetQuota(c.Request.Context(), accountID)
+	response.ErrorFrom(c, resetErr)
 }
 
 func (h *GrokOAuthHandler) RuntimeSanity(c *gin.Context) {

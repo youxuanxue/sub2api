@@ -4,12 +4,17 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -428,6 +433,56 @@ func TestCodexSpark429_GeneralWindowHealthy_ModelScoped(t *testing.T) {
 	require.Equal(t, tkOpenAICodexMeteredCooldownReason, call.reason)
 	require.Equal(t, 0, repo.setRateLimitedCalls,
 		"model-scoped spark cooldown must NOT cool the whole account")
+}
+
+func TestCodexSpark429_ExecutedModelIsNotMappedTwice(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	svc := newG4RateLimitService(repo)
+	account := newOpenAICodexAccount(1001, AccountTypeOAuth)
+	account.Credentials = map[string]any{"model_mapping": map[string]any{
+		"customer-model": codexSparkModel,
+		codexSparkModel:  "gpt-5.6-sol",
+	}}
+	executedModel := account.GetMappedModel("customer-model")
+	headers := codexGeneralWindowHeaders(4, 1)
+	require.True(t, tkShouldOpenAICodex429BeModelScoped(account, headers, codexUsageLimitBody, executedModel))
+	svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, codexUsageLimitBody, executedModel)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+	require.Zero(t, repo.setRateLimitedCalls)
+}
+
+func TestCodexSparkStreamTerminalKeepsExecutedModelAfterOutput(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		for _, event := range []string{"error", "response.failed"} {
+			t.Run(fmt.Sprintf("passthrough=%t/event=%s", passthrough, event), func(t *testing.T) {
+				repo := &rateLimitAccountRepoStub{}
+				svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}, rateLimitService: newG4RateLimitService(repo)}
+				account := newOpenAICodexAccount(1001, AccountTypeOAuth)
+				account.Credentials = map[string]any{"model_mapping": map[string]any{codexSparkModel: "gpt-5.6-sol"}}
+				failure := `{"type":"error","error":{"type":"usage_limit_reached","message":"limit reached","resets_in_seconds":7620}}`
+				if event == "response.failed" {
+					failure = `{"type":"response.failed","response":{"error":{"type":"usage_limit_reached","message":"limit reached","resets_in_seconds":7620}}}`
+				}
+				body := "data: " + `{"type":"response.output_text.delta","delta":"Partial"}` + "\n\nevent: " + event + "\ndata: " + failure + "\n\n"
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				resp := &http.Response{StatusCode: http.StatusOK, Header: codexSparkBengalfox429Headers(), Body: io.NopCloser(strings.NewReader(body))}
+				var err error
+				if passthrough {
+					_, err = svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "customer-model", codexSparkModel)
+				} else {
+					_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "customer-model", codexSparkModel)
+				}
+				require.Error(t, err)
+				require.Contains(t, recorder.Body.String(), "Partial")
+				require.Len(t, repo.modelRateLimitCalls, 1)
+				require.Equal(t, codexSparkModel, repo.modelRateLimitCalls[0].scope)
+				require.Zero(t, repo.setRateLimitedCalls)
+			})
+		}
+	}
 }
 
 func TestCodexSpark429_GeneralWindowNearCapNotExhausted_ModelScoped(t *testing.T) {

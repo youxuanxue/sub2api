@@ -84,6 +84,7 @@ jobs:
           /bin/bash -n deploy/apple-container.sh
           /bin/bash deploy/tests/apple-container-test.sh
           /bin/sh deploy/tests/docker-compose-security-test.sh
+          /bin/sh deploy/tests/docker-compose-gateway-env-test.sh
           /bin/sh deploy/tests/docker-runtime-resources-test.sh
           /bin/sh deploy/test-caddyfile-cache.sh
 
@@ -384,7 +385,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.9
+          version: v2.13.2
           args: --concurrency=4 --timeout=30m
           working-directory: backend
           only-new-issues: false
@@ -424,7 +425,7 @@ jobs:
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.9
+          version: v2.13.2
           args: --enable-only gosec --concurrency=4 --timeout=30m
           working-directory: backend
       - name: Note gosec scope (push/PR runs)
@@ -441,9 +442,9 @@ jobs:
         run: |
           # Pin govulncheck (was @latest). An unpinned @latest is non-reproducible
           # and a supply-chain surface — a bad upstream release would silently
-          # break or poison this gate. Contrast golangci-lint (pinned v2.9) and
+          # break or poison this gate. Contrast the pinned golangci-lint and
           # new-api (pinned by SHA). Bump deliberately.
-          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
 
   frontend-security:

@@ -27,7 +27,7 @@ func tkApplyAnthropicNormalizeParsed(settings map[string]string, result *SystemS
 
 // IsAnthropicRequestNormalizeEnabled reports whether the gateway should rewrite
 // known-bad Anthropic native request shapes (tool_choice string -> object;
-// strip thinking when tool_choice forces tool use). Defaults to true: an
+// preserve thinking and relax conflicting forced tool choice). Defaults to true: an
 // unreadable repo or empty value means enabled.
 //
 // Reads through the shared 60s gatewayForwardingCache (singleflight) — every

@@ -48,6 +48,14 @@ func Normalize(body []byte, messages bool, capabilities Capabilities) ([]byte, b
 		changed = true
 	}
 	enabled := capabilities.AlwaysThinking || thinking == "enabled" || thinking == "adaptive"
+	if !messages {
+		for _, field := range []string{"reasoning_effort", "reasoning.effort"} {
+			switch gjson.GetBytes(body, field).String() {
+			case "minimal", "low", "medium", "high", "xhigh", "max":
+				enabled = true
+			}
+		}
+	}
 	if !enabled || capabilities.ForcedToolsWithThinking {
 		return next, changed
 	}

@@ -5,7 +5,7 @@
       <div class="fixed inset-0 z-[9998]" @click="emit('close')"></div>
       <div
         ref="contentRef"
-        class="action-menu-content fixed z-[9999] w-52 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800"
+        class="action-menu-content fixed z-[9999] w-52 overflow-y-auto overscroll-contain rounded-lg bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800"
         :style="menuStyle"
         @click.stop
       >
@@ -112,10 +112,13 @@ const cancelPositionFrame = (handle: number) => {
   window.clearTimeout(handle)
 }
 
-const resolveMenuSize = () => ({
-  width: contentRef.value?.offsetWidth || DEFAULT_MENU_WIDTH,
-  height: contentRef.value?.offsetHeight || DEFAULT_MENU_HEIGHT
-})
+const resolveMenuSize = () => {
+  const rect = contentRef.value?.getBoundingClientRect()
+  return {
+    width: Math.min(rect?.width || DEFAULT_MENU_WIDTH, Math.max(0, window.innerWidth - 16)),
+    height: Math.min(rect?.height || DEFAULT_MENU_HEIGHT, Math.max(0, window.innerHeight - 16))
+  }
+}
 
 const resolveTriggerRect = (): Pick<DOMRect, 'top' | 'right' | 'bottom' | 'left' | 'width'> | null => {
   if (props.anchor?.isConnected) {
@@ -138,14 +141,14 @@ const updateMenuPosition = () => {
   if (!props.show) return
   const trigger = resolveTriggerRect()
   if (!trigger) return
-  menuStyle.value = anchoredMenuStyle(
+  menuStyle.value = { ...anchoredMenuStyle(
     getAnchoredMenuPosition(
       trigger,
       resolveMenuSize(),
       window.innerWidth,
       window.innerHeight
     )
-  )
+  ), maxHeight: `${Math.max(0, window.innerHeight - 16)}px`, maxWidth: `${Math.max(0, window.innerWidth - 16)}px` }
 }
 
 const schedulePositionUpdate = () => {
@@ -214,6 +217,15 @@ const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Escape') emit('close')
 }
 
+let resizeObserver: ResizeObserver | null = null
+watch(contentRef, (element) => {
+  resizeObserver?.disconnect()
+  if (element && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(schedulePositionUpdate)
+    resizeObserver.observe(element)
+  }
+}, { flush: 'post' })
+
 watch(
   () => props.show,
   (visible) => {
@@ -236,6 +248,7 @@ watch(
 )
 
 onUnmounted(() => {
+  resizeObserver?.disconnect()
   if (positionRaf) cancelPositionFrame(positionRaf)
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', schedulePositionUpdate)

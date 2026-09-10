@@ -51,7 +51,10 @@ on models that support it. A confirmed always-on model omits unsupported explici
 disabled; an adaptive-only model converts manual thinking to adaptive and omits
 its unsupported budget. Both count as adjusted Plans. Chat-to-Messages additionally preserves the validated
 Messages `thinking` extension; unsupported reasoning formats remain excluded by
-converter admission. This change does not claim universal reasoning conversion.
+converter admission. Native Chat `reasoning_effort` and Responses
+`reasoning.effort` participate in the same endpoint capability decision; an
+explicit `none` does not enable thinking. These fields are preserved verbatim.
+This change does not claim universal reasoning conversion.
 
 Plan binds the original digest and an immutable effective request. Admission,
 selection and authoritative pre-send rechecks share that Plan. Execution uses

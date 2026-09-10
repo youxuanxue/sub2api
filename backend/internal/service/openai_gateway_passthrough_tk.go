@@ -53,6 +53,12 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 			body = normalizedBody
 		}
 		reqStream = gjson.GetBytes(body, "stream").Bool()
+		if !isOpenAIResponsesCompactPath(c) {
+			body, _, err = applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+			if err != nil {
+				return body, reqStream, err
+			}
+		}
 
 		stageCodexFingerprintIDs(c, nil)
 		// 指纹收敛：与非透传路径同门控（仅 OAuth、legacy compact 形态跳过）。
@@ -92,7 +98,7 @@ func (s *OpenAIGatewayService) tkPrepareOpenAIPassthroughRequestBody(
 		body = injectedBody
 	}
 	if account != nil && account.IsOpenAI() {
-		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account)
+		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(body, account, isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)))
 		if normalizeErr != nil {
 			return body, reqStream, fmt.Errorf("normalize passthrough Responses compatibility: %w", normalizeErr)
 		}
@@ -158,10 +164,10 @@ func (s *OpenAIGatewayService) tkApplyOpenAIPassthroughUpstreamHeaders(
 			clientConversationID = promptCacheKey
 		}
 		if clientSessionID != "" {
-			req.Header.Set("session_id", isolateOpenAISessionID(apiKeyID, clientSessionID))
+			req.Header.Set("session_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), clientSessionID))
 		}
 		if clientConversationID != "" {
-			req.Header.Set("conversation_id", isolateOpenAISessionID(apiKeyID, clientConversationID))
+			req.Header.Set("conversation_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), clientConversationID))
 		}
 	} else if isOpenAIResponsesCompactPath(c) {
 		// 透传白名单会放行客户端的 Accept: text/event-stream；compact 上游是
@@ -181,6 +187,7 @@ func (s *OpenAIGatewayService) tkApplyOpenAIPassthroughUpstreamHeaders(
 	// 指纹收敛：使用 forwardOpenAIPassthrough 中预计算的收敛 ID 改写出站头，
 	// 与请求体 client_metadata 共享同一份 IDs（与非透传路径相同的相对位置：
 	// 会话隔离之后、终态身份收口之前）。
+	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
 	applyStagedCodexFingerprintHeaders(c, account, req.Header)
 	// 终态收口：透传路径的 OAuth 与非透传完全一致，同样强制统一出站身份
 	// （User-Agent / originator / version 同源自洽），客户端自报身份不会到达上游。

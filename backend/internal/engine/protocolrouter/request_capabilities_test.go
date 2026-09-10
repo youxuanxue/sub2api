@@ -7,6 +7,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropicpolicy"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func TestThinkingToolPlanExecution(t *testing.T) {
@@ -80,4 +81,43 @@ func TestPlanDoesNotLoseThinkingThroughResponses(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ProtocolMessages, plan.TargetProtocol())
 	require.Equal(t, 1, plan.CompatibilityRank())
+}
+
+func TestNativeReasoningCapabilities(t *testing.T) {
+	for _, protocol := range []Protocol{ProtocolChatCompletions, ProtocolResponses} {
+		for _, effort := range []string{"high", "none"} {
+			t.Run(string(protocol)+"/"+effort, func(t *testing.T) {
+				body := []byte(`{"model":"alias","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":"required"}`)
+				field := "reasoning_effort"
+				if protocol == ProtocolResponses {
+					body = []byte(`{"model":"alias","input":"hi","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],"tool_choice":"required"}`)
+					field = "reasoning.effort"
+				}
+				body, err := sjson.SetBytes(body, field, effort)
+				require.NoError(t, err)
+				request, err := ParseCanonicalRequest(protocol, ResponsesPathNone, "alias", false, body)
+				require.NoError(t, err)
+				account := testAccount(t, protocol)
+				account.modelCapabilities = map[Protocol]anthropicpolicy.Capabilities{protocol: {}}
+				adapter := &recordingAdapter{}
+				router := New(AdapterCatalog{AdapterChatIdentity: adapter, AdapterResponsesIdentity: adapter})
+				plan, err := router.Plan(request, account)
+				require.NoError(t, err)
+				ctx := WithExecutionAccountState(context.Background(), ExecutionAccountState{AccountID: account.accountID, CapabilityKey: account.capabilityKey, CredentialPresent: true})
+				_, err = router.Execute(ctx, plan, request)
+				require.NoError(t, err)
+				effective := adapter.execution.Request().Body()
+				require.Equal(t, effort, gjson.GetBytes(effective, field).String())
+				require.Equal(t, gjson.GetBytes(body, "tools").Raw, gjson.GetBytes(effective, "tools").Raw)
+				require.Equal(t, body, request.Body())
+				if effort == "none" {
+					require.Equal(t, 0, plan.CompatibilityRank())
+					require.Equal(t, "required", gjson.GetBytes(effective, "tool_choice").String())
+				} else {
+					require.Equal(t, 1, plan.CompatibilityRank())
+					require.Equal(t, "auto", gjson.GetBytes(effective, "tool_choice").String())
+				}
+			})
+		}
+	}
 }

@@ -97,7 +97,7 @@ func TestExtractClientSessionID_SupportedHeaders(t *testing.T) {
 }
 
 func TestExtractClientSessionID_HeaderPrecedence(t *testing.T) {
-	// session_id ranks ahead of conversation_id and the X-* variants.
+	// The canonical Codex session-id wins over legacy aliases.
 	c := newSessionHeaderContext(t, map[string]string{
 		"session_id":                "primary",
 		"session-id":                "codex-hyphen",
@@ -105,7 +105,7 @@ func TestExtractClientSessionID_HeaderPrecedence(t *testing.T) {
 		openCodeSessionIDHeader:     "tertiary",
 		codeBuddyConversationHeader: "quaternary",
 	})
-	require.Equal(t, "primary", ExtractClientSessionID(c))
+	require.Equal(t, "codex-hyphen", ExtractClientSessionID(c))
 }
 
 func TestExtractClientSessionID_CodexHyphenWhenUnderscoreAbsent(t *testing.T) {

@@ -1148,7 +1148,7 @@ func (k oidcJWK) publicKey() (any, error) {
 		if err := validateECDHJWKPoint(strings.TrimSpace(k.Crv), x, y); err != nil {
 			return nil, err
 		}
-		return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
+		return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil //nolint:staticcheck // 同上
 	default:
 		return nil, fmt.Errorf("unsupported jwk kty: %s", k.Kty)
 	}

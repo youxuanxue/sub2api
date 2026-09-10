@@ -153,7 +153,7 @@ func TestUS050_CandidateDiscoveryPropagatesPricingReadFailure(t *testing.T) {
 	failure := errors.New("channel database unavailable")
 	svc.resolver.candidateGateway.channelService = NewChannelService(&mockChannelRepository{
 		listAllFn: func(context.Context) ([]Channel, error) { return nil, failure },
-	}, nil, nil, nil)
+	}, nil, nil, nil, nil)
 	_, err := svc.List(context.Background(), key, UniversalProtocolOpenAI)
 	require.ErrorIs(t, err, failure)
 }

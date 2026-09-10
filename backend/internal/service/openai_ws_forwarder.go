@@ -255,11 +255,14 @@ type OpenAIWSIngressHooks struct {
 	InitialTurnStartedAt time.Time
 	// MaxReasoningEffort limits explicit reasoning effort values for this WS session.
 	MaxReasoningEffort string
+	// MaxReasoningEffortOverLimit is the access control when an explicit effort
+	// exceeds the ceiling: downgrade (default) or deny.
+	MaxReasoningEffortOverLimit string
 	// ReasoningEffortMappings rewrites explicit effort values for this WS session.
 	ReasoningEffortMappings []ReasoningEffortMapping
 	// CurrentReasoningEffortPolicy resolves the admitted turn's policy after
 	// BeforeRequest. Static session fields remain the fallback for other callers.
-	CurrentReasoningEffortPolicy func() (string, []ReasoningEffortMapping)
+	CurrentReasoningEffortPolicy func() (string, []ReasoningEffortMapping, string)
 	TurnStarted                  func(turn int, startedAt time.Time)
 	BeforeTurn                   func(turn int) error
 	BeforeRequest                func(turn int, payload []byte, originalModel string) error

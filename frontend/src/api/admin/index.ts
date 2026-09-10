@@ -39,11 +39,13 @@ import edgeAccountsAPI from './edgeAccounts'
 import inviteTrialAPI from './inviteTrial'
 import auditAPI from './audit'
 import supplierSourcesAPI from './supplierSources'
+import pluginsAPI from './plugins'
 
 /**
  * Unified admin API object for convenient access
  */
 export const adminAPI = {
+  plugins: pluginsAPI,
   dashboard: dashboardAPI,
   users: usersAPI,
   groups: groupsAPI,
@@ -83,6 +85,7 @@ export const adminAPI = {
 }
 
 export {
+  pluginsAPI,
   dashboardAPI,
   usersAPI,
   groupsAPI,
@@ -124,6 +127,7 @@ export {
 export default adminAPI
 
 // Re-export types used by components
+export type { PluginInstallation, PluginUISession } from './plugins'
 export type { AuditLog, AuditLogQuery, AuditLogListResponse } from './audit'
 export type { BalanceHistoryItem } from './users'
 export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from './errorPassthrough'

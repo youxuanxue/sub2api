@@ -111,7 +111,7 @@ func TestOpenAICompatPlatforms_ListsCanonicals(t *testing.T) {
 	// OpenAI-wire compatible platforms share the OpenAI-compat pool.
 	want := map[string]bool{
 		PlatformOpenAI: false, PlatformNewAPI: false, PlatformGrok: false,
-		PlatformKimi: false, PlatformZhipu: false, PlatformDeepseek: false,
+		PlatformKimi: false, PlatformZhipu: false, PlatformDeepseek: false, PlatformMiniMax: false,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("OpenAICompatPlatforms must list exactly %d platforms today, got %d: %v", len(want), len(got), got)

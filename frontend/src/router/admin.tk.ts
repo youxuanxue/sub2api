@@ -196,6 +196,16 @@ export const adminRoutes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'plugins',
+        name: 'AdminPlugins',
+        component: () => import('@/views/admin/PluginsView.vue'),
+        meta: {
+          title: 'Plugins',
+          titleKey: 'admin.plugins.title',
+          requiresPluginManagement: true
+        }
+      },
+      {
         path: 'risk-control',
         name: 'AdminRiskControl',
         component: () => import('@/views/admin/RiskControlView.vue'),

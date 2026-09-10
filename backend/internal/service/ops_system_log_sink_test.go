@@ -42,7 +42,7 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 			want:  true,
 		},
 		{
-			name: "access component from fields (real zap path)",
+			name: "access component from fields disabled by default",
 			event: &logger.LogEvent{
 				Level:     "info",
 				Component: "",

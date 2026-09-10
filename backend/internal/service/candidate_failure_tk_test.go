@@ -221,7 +221,14 @@ func TestCandidateTransportForwardersPreserveAttribution(t *testing.T) {
 				_, err = svc.ForwardNative(ctx, c, account, "gemini-3.8-flash", "generateContent", false, body)
 			}
 			require.Error(t, err)
-			require.Equal(t, http.StatusBadGateway, recorder.Code)
+			if platform == PlatformAnthropic {
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.Equal(t, http.StatusBadGateway, failover.StatusCode)
+				require.False(t, c.Writer.Written(), "failover must leave the response available for the next account")
+			} else {
+				require.Equal(t, http.StatusBadGateway, recorder.Code)
+			}
 			require.True(t, candidateFailureAttributable(err), "terminal forwarder must retain transport attribution")
 		})
 	}

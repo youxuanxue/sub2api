@@ -44,7 +44,7 @@ func (s *OpenAIGatewayService) tkApplyOpenAIForwardUpstreamHeaders(
 				req.Header.Set("version", CodexCanonicalClientVersion())
 			}
 			compactSession := resolveOpenAICompactSessionID(c)
-			req.Header.Set("session_id", isolateOpenAISessionID(apiKeyID, compactSession))
+			req.Header.Set("session_id", isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), compactSession))
 		} else {
 			req.Header.Set("accept", "text/event-stream")
 			if req.Header.Get("version") == "" {
@@ -52,7 +52,7 @@ func (s *OpenAIGatewayService) tkApplyOpenAIForwardUpstreamHeaders(
 			}
 		}
 		if promptCacheKey != "" {
-			isolated := isolateOpenAISessionID(apiKeyID, promptCacheKey)
+			isolated := isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey)
 			req.Header.Set("session_id", isolated)
 			if !compatMessagesBridge || clientConversationID != "" {
 				req.Header.Set("conversation_id", isolated)
@@ -85,6 +85,7 @@ func (s *OpenAIGatewayService) tkApplyOpenAIForwardUpstreamHeaders(
 	}
 
 	// 指纹收敛：使用 Forward() 中预计算的收敛 ID 改写出站头，与请求体使用同一份 IDs。
+	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
 	applyStagedCodexFingerprintHeaders(c, account, req.Header)
 
 	// 终态收口：强制统一 OAuth 出站身份（User-Agent / originator / version 同源自洽）。
