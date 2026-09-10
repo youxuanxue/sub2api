@@ -13,7 +13,9 @@ uploading a cache that heal would immediately delete.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import stat
 from typing import Iterable
 
 BUDGET_BYTES = 6 * 1024**3
@@ -298,10 +300,18 @@ def main(argv: list[str] | None = None) -> int:
             path = Path(raw_path).expanduser()
             if not path.is_dir():
                 raise ValueError(f"cache directory unavailable: {path}")
-            for entry in path.rglob("*"):
-                size += 1024
-                if entry.is_file():
-                    size += entry.stat().st_size
+            pending = [path]
+            while pending:
+                # scandir/stat propagate unreadable or disappearing entries;
+                # pathlib glob can silently skip them and undercount the save.
+                with os.scandir(pending.pop()) as entries:
+                    for entry in entries:
+                        info = entry.stat(follow_symlinks=False)
+                        size += 1024
+                        if stat.S_ISDIR(info.st_mode):
+                            pending.append(Path(entry.path))
+                        else:
+                            size += info.st_size
         fits = family_fits(caches, args.save_budget, size=size if args.path else None)
         print(f"go_cache_prune: save family={args.save_budget} bytes={size} fits={fits}", file=sys.stderr)
         print(f"fits={str(fits).lower()}")

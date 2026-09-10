@@ -298,9 +298,8 @@ jobs:
           family: integration
           fallback_prefix: integration-nodwarf-v2
           build_cache_path: ${{ github.workspace }}/.cache/go-build-integration
-          # Main required job writes the same key as warm. PRs restore
-          # backend-ci's main snapshot more reliably than a just-finished
-          # warm-release-cache-main run (measured miss on #1880).
+          # Restore the snapshot produced by warm-release-cache-main;
+          # required integration jobs never compete for its immutable key.
           save_caches: "false"
       - name: Verify Go version
         run: |
