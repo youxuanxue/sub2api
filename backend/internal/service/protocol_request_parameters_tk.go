@@ -14,6 +14,10 @@ func protocolRequestParametersSupported(account *Account, resolvedModel string, 
 	if request == nil {
 		return true
 	}
+	if account.IsCursor() {
+		choice := request.Profile().ToolChoice
+		return choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed
+	}
 	if isNewAPINVIDIABuildAccount(account) && resolvedModel == nvidiaBuildModelTargets["deepseek-v4-pro"] &&
 		request.InboundProtocol() == protocolrouter.ProtocolChatCompletions {
 		return !gjson.GetBytes(request.Body(), "enable_thinking").Exists()

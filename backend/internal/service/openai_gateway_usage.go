@@ -433,6 +433,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeSource:          optionalTrimmedStringPtr(result.ImageSizeSource),
 		ImageSizeBreakdown:       result.ImageSizeBreakdown,
 	}
+	if account.IsCursor() {
+		usageLog.BillingTier = optionalTrimmedStringPtr(cursorBillingTier(result.BillingTier))
+	}
 	isVideoUsage := isOpenAIVideoUsageResult(result)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount

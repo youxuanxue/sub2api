@@ -195,7 +195,7 @@ func (a *Account) IsSchedulable() bool {
 		return false
 	}
 	now := time.Now()
-	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+	if (a.AutoPauseOnExpired || a.IsCursor()) && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
 		return false
 	}
 	if a.OverloadUntil != nil && now.Before(*a.OverloadUntil) {
@@ -230,7 +230,7 @@ func (a *Account) IsCredentialUsableForShadow() bool {
 		return false
 	}
 	now := time.Now()
-	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+	if (a.AutoPauseOnExpired || a.IsCursor()) && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
 		return false
 	}
 	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {

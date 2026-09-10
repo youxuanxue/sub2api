@@ -213,7 +213,7 @@ func manifestScopeKeysForTest(entry tkServedModelsOwnerEntryForTest) []string {
 
 func manifestScopeKeyForTest(scope tkServedModelsOwnerScopeForTest) string {
 	// Keep recognition aligned with production manifestScopeKey (same integration helpers).
-	if !newapiintegration.IsNVIDIABuildBaseURL(scope.ChannelType, scope.BaseURL) &&
+	if (scope.ChannelType != 14 || scope.BaseURL != "https://agentn.global.api5.cursor.sh") && !newapiintegration.IsNVIDIABuildBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&

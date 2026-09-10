@@ -1,0 +1,25 @@
+name: tokenkey-cursor-dev
+services:
+  postgres:
+    image: ${CURSOR_DEV_POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_USER: cursor_dev
+      POSTGRES_DB: cursor_dev
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?}
+    ports: ["127.0.0.1:15439:5432"]
+    volumes: ["postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cursor_dev -d cursor_dev"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:16389:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+volumes:
+  postgres:

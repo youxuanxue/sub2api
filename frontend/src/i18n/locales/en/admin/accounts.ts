@@ -1,5 +1,13 @@
 export default {
     accounts: {
+      cursor: {
+        connect: 'Connect Cursor', reconnect: 'Reconnect Cursor', group: 'Service group',
+        selectGroup: 'Select a group', noGroups: 'No newapi service groups available',
+        pending: 'Waiting for Cursor authorization', open: 'Open Cursor', authorize: 'Authorize Cursor',
+        authorized: 'Authorized', modelCount: '{count} models available', expires: 'Expires {date}',
+        authorizationFailed: 'Cursor authorization failed. Authorize again.', disconnected: 'Authorization expired or disconnected. Authorize again.',
+        startFailed: 'Could not start Cursor authorization. Try again.', saveFailed: 'Could not save account. Check the service group and retry.'
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

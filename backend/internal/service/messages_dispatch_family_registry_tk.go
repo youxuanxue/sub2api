@@ -119,6 +119,13 @@ func validateGroupMessagesDispatchModelConfig(group *Group) error {
 
 	groupName := strings.TrimSpace(group.Name)
 	family, registered := tkMessagesDispatchFamilyForGroup(groupName)
+	// Native mixed-model supplies need protocol admission without translating
+	// Claude model names into another family. Empty config means identity.
+	if group.Platform == PlatformNewAPI && !registered && group.MessagesDispatchModelConfig.OpusMappedModel == "" &&
+		group.MessagesDispatchModelConfig.SonnetMappedModel == "" && group.MessagesDispatchModelConfig.HaikuMappedModel == "" &&
+		len(group.MessagesDispatchModelConfig.ExactModelMappings) == 0 {
+		return nil
+	}
 	if !registered {
 		switch group.Platform {
 		case PlatformOpenAI:

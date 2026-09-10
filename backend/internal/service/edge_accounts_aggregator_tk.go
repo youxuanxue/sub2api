@@ -539,6 +539,9 @@ func edgeStubPoolPlatform(acct *Account) string {
 	if acct == nil {
 		return ""
 	}
+	if acct.IsCursor() {
+		return PlatformNewAPI
+	}
 	if mp := strings.ToLower(strings.TrimSpace(acct.GetCredential("mirror_platform"))); mp != "" {
 		return mp
 	}

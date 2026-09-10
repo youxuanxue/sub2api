@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 )
 
@@ -167,7 +168,8 @@ func manifestEntryScopeKeys(e tkServedModelsManifestEntry) []string {
 }
 
 func manifestScopeKey(scope tkServedModelsManifestScope) string {
-	if !newapiintegration.IsNVIDIABuildBaseURL(scope.ChannelType, scope.BaseURL) &&
+	isCursor := scope.ChannelType == newapiconstant.ChannelTypeAnthropic && scope.BaseURL == cursor.AgentBaseURL
+	if !isCursor && !newapiintegration.IsNVIDIABuildBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsVolcEngineAgentPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanBaseURL(scope.ChannelType, scope.BaseURL) &&
 		!newapiintegration.IsQianfanTokenPlanBaseURL(scope.ChannelType, scope.BaseURL) &&
@@ -417,7 +419,7 @@ func isTkCuratedNewAPICatalogRowDisplayed(vendor, modelID string) bool {
 // platforms + grok which carry their own servable allowlists.
 func isNewAPILongTailCatalogVendor(vendor string) bool {
 	switch vendor {
-	case "newapi", "volcengine", "deepseek", "dashscope", "alibaba", "zhipu", "bigmodel", "zai", "moonshot", "kimi", "wenxin", "qianfan", "baidu":
+	case "newapi", "cursor", "volcengine", "deepseek", "dashscope", "alibaba", "zhipu", "bigmodel", "zai", "moonshot", "kimi", "wenxin", "qianfan", "baidu":
 		return true
 	default:
 		return false

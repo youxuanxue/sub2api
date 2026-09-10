@@ -31,11 +31,11 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 	account *Account,
 	body []byte,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, forwardErr error) {
 	startTime := time.Now()
 	selectedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	selectedModel = protocolExecutionResolvedModel(ctx, selectedModel)
-	if !tkIsForwardableAnthropicModelName(selectedModel) {
+	if !tkIsForwardableAnthropicModelName(selectedModel) && !cursorMappedModelAllowed(account, gjson.GetBytes(body, "model").String(), selectedModel) {
 		return nil, fmt.Errorf("native anthropic messages requires a Claude model")
 	}
 
@@ -82,6 +82,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	defer func() { cursorResponseOutcome(account, resp, result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -105,7 +106,7 @@ func (s *OpenAIGatewayService) nativeAnthropicMessagesTargetURL(account *Account
 		}
 		baseURL = "https://api.openai.com"
 	}
-	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+	validatedURL, err := validateCursorBaseURL(account, baseURL, s.validateUpstreamBaseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
@@ -122,6 +123,9 @@ func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest(
 	bearerToken string,
 ) (*http.Response, error) {
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	if account.IsCursor() {
+		upstreamCtx = ctx
+	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
 	if err != nil {
@@ -147,13 +151,12 @@ func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest(
 		upstreamReq.Header.Set("user-agent", ua)
 	}
 	account.ApplyHeaderOverrides(upstreamReq.Header)
-
-	proxyURL := ""
-	if account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	if err := prepareCursorUpstreamRequest(upstreamReq, c, account); err != nil {
+		return nil, err
 	}
+
 	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, stream)
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := s.doNativeMessagesRequest(upstreamReq, account)
 	hwka.stop()
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -179,10 +182,7 @@ func (s *OpenAIGatewayService) bufferNativeAnthropicMessages(
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
-	var usage OpenAIUsage
-	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
-		usage = parsedUsage
-	}
+	usage := parseClaudeUsageFromResponseBody(respBody)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -197,7 +197,8 @@ func (s *OpenAIGatewayService) bufferNativeAnthropicMessages(
 
 	return &OpenAIForwardResult{
 		RequestID:     requestID,
-		Usage:         usage,
+		Usage:         claudeUsageToOpenAIUsage(usage),
+		BillingTier:   usage.BillingTier,
 		Model:         originalModel,
 		BillingModel:  billingModel,
 		UpstreamModel: upstreamModel,
@@ -218,7 +219,7 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
-	var usage OpenAIUsage
+	var usage ClaudeUsage
 	var firstTokenMs *int
 	clientDisconnected := false
 	headersWritten := false
@@ -245,9 +246,7 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 		if strings.HasPrefix(line, "data:") {
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload != "" && payload != "[DONE]" {
-				if u, ok := extractOpenAIUsageFromJSONBytes([]byte(payload)); ok {
-					usage = u
-				}
+				parseSSEUsagePassthrough(payload, &usage)
 				if firstTokenMs == nil && anthropicStreamPayloadHasOutput(payload) {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
@@ -269,7 +268,8 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 
 	return &OpenAIForwardResult{
 		RequestID:     requestID,
-		Usage:         usage,
+		Usage:         claudeUsageToOpenAIUsage(&usage),
+		BillingTier:   usage.BillingTier,
 		Model:         originalModel,
 		BillingModel:  billingModel,
 		UpstreamModel: upstreamModel,

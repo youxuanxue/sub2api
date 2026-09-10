@@ -39,7 +39,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	account *Account,
 	body []byte,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, forwardErr error) {
 	startTime := time.Now()
 
 	originalModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
@@ -90,12 +90,10 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		return nil, err
 	}
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, clientStream)
+	if account.IsCursor() {
+		upstreamCtx = ctx
+	}
 	upstreamReq, _, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, body, apiKey, targetURL)
 	releaseUpstreamCtx()
 	if err != nil {
@@ -103,12 +101,13 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	}
 
 	hwka := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := s.doNativeMessagesRequest(upstreamReq, account)
 	hwka.stop()
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	defer func() { cursorResponseOutcome(account, resp, result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -150,7 +149,7 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(ctx context.Context, acc
 	if baseURL == "" {
 		return "", fmt.Errorf("account %d has no anthropic protocol base url", account.ID)
 	}
-	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+	validatedURL, err := validateCursorBaseURL(account, baseURL, s.validateUpstreamBaseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
@@ -165,6 +164,9 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	apiKey string,
 	targetURL string,
 ) (*http.Request, []byte, error) {
+	if account.IsCursor() && c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
 	targetURL = protocolExecutionEndpoint(ctx, targetURL)
 	// 能力维度 body sanitize：与 Anthropic 平台 passthrough 相同，按 beta
 	// header 决定是否保留 body 中的 beta 能力字段，避免客户端"body 带字段但
@@ -221,6 +223,9 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
+	if err := prepareCursorUpstreamRequest(req, c, account); err != nil {
+		return nil, nil, err
+	}
 
 	return req, body, nil
 }
@@ -288,6 +293,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 		RequestID:        resp.Header.Get("x-request-id"),
 		UpstreamHeaders:  resp.Header,
 		Usage:            claudeUsageToOpenAIUsage(usage),
+		BillingTier:      usage.BillingTier,
 		Model:            originalModel,
 		BillingModel:     billingModel,
 		UpstreamModel:    upstreamModel,
@@ -562,6 +568,7 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 		RequestID:        resp.Header.Get("x-request-id"),
 		UpstreamHeaders:  resp.Header,
 		Usage:            claudeUsageToOpenAIUsage(usage),
+		BillingTier:      usage.BillingTier,
 		Model:            originalModel,
 		BillingModel:     billingModel,
 		UpstreamModel:    upstreamModel,
@@ -574,10 +581,8 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 	}
 }
 
-// claudeUsageToOpenAIUsage 把 Anthropic 格式 usage 映射到 OpenAI 网关统一的
-// 用量结构。Anthropic 的 input_tokens 不含缓存读写，而 OpenAI 网关内部
-// 约定 InputTokens 是包含缓存明细的总输入；这里必须先合并，RecordUsage
-// 才能准确拆回互斥的计费桶。
+// Anthropic input excludes cache buckets; OpenAI input includes them. RecordUsage
+// subtracts cache once when deriving the uncached billing bucket.
 func claudeUsageToOpenAIUsage(u *ClaudeUsage) OpenAIUsage {
 	if u == nil {
 		return OpenAIUsage{}

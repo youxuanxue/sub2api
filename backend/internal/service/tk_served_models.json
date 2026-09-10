@@ -78,6 +78,10 @@
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        },
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -96,6 +100,10 @@
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        },
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -418,6 +426,10 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
+        },
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -873,6 +885,313 @@
         {
           "channel_type": 17,
           "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
+    "grok-4.5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "grok-4.6": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "composer-2.5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-opus-5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-opus-4-8": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.6-sol": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-fable-5-1": {
+      "price_owner": "claude-fable-5",
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-fable-5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gemini-3.8-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gemini-3.7-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.6-terra": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-sonnet-5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-sonnet-4-6": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "composer-2": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.3-codex": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-opus-4-7": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.4": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-opus-4-6": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-opus-4-5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.2": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.6-luna": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gemini-3.6-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gemini-3.1-pro": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.4-mini": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.4-nano": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-haiku-4-5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-sonnet-4-5": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5.1": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gemini-3-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gemini-3.5-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "claude-sonnet-4": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gpt-5-mini": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
+        }
+      ]
+    },
+    "gemini-2.5-flash": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 14,
+          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     }

@@ -6,6 +6,7 @@
     "migration_baseline_external_sha256": "f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
   },
   "_aliases": {
+    "claude-fable-5-1": "claude-fable-5",
     "deepseek-v4-flash-0731": "deepseek-v4-flash",
     "deepseek-v4-pro-0813": "deepseek-v4-pro",
     "gpt-5.5-pro": "gpt-5.5",
@@ -72,6 +73,22 @@
       ]
     },
     "web_search_price_per_call": 0.01
+  },
+  "composer-2.5": {
+    "litellm_provider": "cursor",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000005,
+    "output_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 0.0000002,
+    "source": "Cursor official https://cursor.com/docs/models-and-pricing and https://cursor.com/blog/composer-2-5, captured 2026-09-07: regular (fast=false) input $0.50/M, cache read $0.20/M, output $2.50/M. The bridge explicitly selects regular speed; subscription included usage does not change list pricing."
+  },
+  "composer-2": {
+    "litellm_provider": "cursor",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000005,
+    "output_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 0.0000005,
+    "source": "Cursor official https://cursor.com/blog/composer-2, captured 2026-09-07: regular (fast=false) input $0.50/M, output $2.50/M. TokenKey conservatively prices cache reads at the same input rate pending a verified cache discount; this cache rate is a TokenKey price, not an official Cursor cache quote."
   },
   "ark-code-latest": {
     "litellm_provider": "volcengine",

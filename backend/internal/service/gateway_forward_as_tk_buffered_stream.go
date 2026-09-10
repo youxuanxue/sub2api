@@ -64,7 +64,7 @@ func (a *tkAnthropicBufferedAssembly) applyEvent(event *apicompat.AnthropicStrea
 	}
 	if event.Type == "content_block_delta" && event.Delta != nil && a.FinalResp != nil && event.Index != nil {
 		idx := *event.Index
-		if idx < len(a.FinalResp.Content) {
+		if idx >= 0 && idx < len(a.FinalResp.Content) {
 			switch event.Delta.Type {
 			case "text_delta":
 				a.FinalResp.Content[idx].Text += event.Delta.Text

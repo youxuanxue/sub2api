@@ -239,6 +239,11 @@ func isPublicCatalogModelSupported(vendor, modelID string) bool {
 	if !isCatalogModelRecommended(modelID) {
 		return false
 	}
+	for _, id := range tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh") {
+		if modelID == id {
+			return true
+		}
+	}
 	// Fifth-platform newapi long-tail: only manifest-listed models may appear on
 	// /pricing when their manifest display bit is true. Unlisted newapi long-tail
 	// residue is excluded from BuildPublicCatalog overlay fill and from

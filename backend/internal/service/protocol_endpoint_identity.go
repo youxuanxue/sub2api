@@ -241,6 +241,9 @@ func protocolEndpointProfile(account *Account) string {
 	if account == nil {
 		return ""
 	}
+	if account.IsCursor() {
+		return "cursor_oauth_messages"
+	}
 	if account.Platform == PlatformOpenAI && account.IsOpenAIOAuthLike() {
 		return "openai_codex_official"
 	}
@@ -265,6 +268,9 @@ func protocolEndpointProfile(account *Account) string {
 func protocolUpstreamRequestProfile(account *Account) string {
 	if account == nil {
 		return ""
+	}
+	if account.IsCursor() {
+		return "cursor_oauth_v1"
 	}
 	if account.Platform == PlatformOpenAI && account.IsOpenAIOAuthLike() {
 		return "openai_codex_responses_v1"
