@@ -27,10 +27,10 @@ to `go.mod`.
 
 | TokenKey file | Kiro-Go source | Contents |
 | --- | --- | --- |
-| `translator.go` | `proxy/translator.go` | Claude ↔ Kiro and OpenAI ↔ Kiro request/response translation, model mapping, prompt filtering |
-| `client.go` | `proxy/kiro.go` | HTTP client, official runtime + transitional q fallback, `CallKiroAPI`, `parseEventStream`, AWS EventStream decode, tool-use handling |
+| `translator.go` | `proxy/translator.go` | Claude ↔ Kiro and OpenAI → Kiro translation, model mapping, prompt filtering; OpenAI responses use the gateway encoder |
+| `client.go` | `proxy/kiro.go` | HTTP client, official runtime + transitional q fallback, `CallKiroAPIWithDoerContext`, `parseEventStream`, AWS EventStream decode, tool-use handling |
 | `headers.go` | `proxy/kiro_headers.go` | TokenKey Kiro CLI User-Agent / `x-amz-user-agent` adapter |
-| `rest.go` | `proxy/kiro_api.go` | REST calls: usage limits, user info, model list, profile ARN resolution, `RefreshAccountInfo` |
+| `rest.go` | `proxy/kiro_api.go` | REST calls: usage limits (including user info), profile ARN resolution, `RefreshAccountInfo` |
 | `refresh.go` | `auth/oidc.go` | `RefreshToken`: social + OIDC token refresh |
 | `shim.go` | *(new, TK-authored)* | Local replacements for the upstream `config` / `logger` / `auth` packages |
 | `translator_test.go`, `eventstream_test.go` | *(new, TK-authored)* | Golden unit tests |
@@ -60,7 +60,7 @@ changes are tracked in git and guarded by `scripts/sentinels/kiro.json`.
    - `config.GetFilterClaudeCode` → `true`; `StripBoundaries/EnvNoise` → `false`
      (preserve Claude Code identity while leaving the other filters disabled).
    - `config.GetPromptFilterRules` → `nil`.
-   - `logger.Debugf/Infof/Warnf/Errorf` → local `logDebugf/logInfof/logWarnf/logErrorf`
+   - Used `logger.Debugf/Infof/Warnf` calls → local `logDebugf/logInfof/logWarnf`
      (thin `log/slog` wrappers).
    - `auth.RefreshToken` → in-package `RefreshToken` (refresh.go).
    - `auth.GetAuthClientForProxy` → local `GetAuthClientForProxy` (30s-timeout
@@ -73,7 +73,7 @@ changes are tracked in git and guarded by `scripts/sentinels/kiro.json`.
    streaming and runtime requests to that owner.
 
 4. **DB side effects removed.** The vendored package never writes a database.
-   - `config.UpdateAccountProfileArn(...)` calls in `ResolveProfileArn` deleted —
+   - `config.UpdateAccountProfileArn(...)` calls in `ResolveProfileArnWithDoer` deleted —
      the resolved ARN is set only on the in-memory `account.ProfileArn` and
      returned. TokenKey persists it.
    - `config.UpdateAccount(...)` calls in `RefreshAccountInfo` (ban/suspend/clear)
@@ -82,12 +82,11 @@ changes are tracked in git and guarded by `scripts/sentinels/kiro.json`.
      TokenKey layer inspects the error and decides whether to disable/ban the ent
      account. Function signature `(*AccountInfo, error)` is preserved.
 
-5. **`HTTPDoer` decoupling point added** (`client.go`). New
-   `type HTTPDoer interface { Do(*http.Request) (*http.Response, error) }` and
-   `CallKiroAPIWithDoer(doer HTTPDoer, ...)`. `CallKiroAPI` now delegates to it
-   with `nil` (built-in per-proxy client, identical behavior). This lets a later
-   PR inject TokenKey's TLS/proxy-aware doer. (REST functions still use the
-   built-in client; a doer seam there can be added at first need.)
+5. **Injected transport** (`client.go`, `rest.go`). Streaming uses
+   `CallKiroAPIWithDoerContext`; REST usage/profile operations also accept
+   `HTTPDoer`. TokenKey supplies its TLS/proxy-aware transport; nil keeps the
+   built-in per-proxy fallback. Unused no-doer wrappers, standalone user/model
+   discovery, and the unused context-window estimator have been removed.
 
 `tool_history.go` owns current conversation normalization: retain valid tool
 call/result pairs across history, preserve failure status in the result block,

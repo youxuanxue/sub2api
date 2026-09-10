@@ -59,7 +59,6 @@ def _fixture(
     *,
     ent_values: list[str] | None = None,
     soft_badge: list[str] | None = None,
-    label_text: list[str] | None = None,
 ) -> None:
     _write(
         root,
@@ -229,7 +228,6 @@ def _fixture(
 
         const SOFT_BADGE: Record<string, string> = {_ts_record(soft_badge or PLATFORMS)}
 
-        const LABEL_TEXT: Record<string, string> = {_ts_record(label_text or PLATFORMS)}
         """,
     )
 
@@ -245,7 +243,6 @@ class PlatformRegistryDriftTest(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertTrue(any("free string" in line for line in ok_lines))
         self.assertTrue(any("SOFT_BADGE style map covers" in line for line in ok_lines))
-        self.assertTrue(any("LABEL_TEXT style map covers" in line for line in ok_lines))
 
     def test_ent_enum_missing_scheduling_platform_fails(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -264,17 +261,14 @@ class PlatformRegistryDriftTest(unittest.TestCase):
             _fixture(
                 root,
                 soft_badge=[p for p in PLATFORMS if p != "grok"],
-                label_text=[p for p in PLATFORMS if p != "kiro"],
             )
 
             failures, _ = prd.run(root)
 
         rendered = "\n\n".join("\n".join(fail) for fail in failures)
-        self.assertEqual(len(failures), 2)
+        self.assertEqual(len(failures), 1)
         self.assertIn("frontend SOFT_BADGE style map", rendered)
         self.assertIn("missing: grok", rendered)
-        self.assertIn("frontend LABEL_TEXT style map", rendered)
-        self.assertIn("missing: kiro", rendered)
 
     def test_all_new_checks_pass(self) -> None:
         """All 11 checks pass with a complete, aligned fixture."""

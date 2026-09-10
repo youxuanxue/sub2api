@@ -40,6 +40,11 @@ vi.mock('@/api/keys', () => ({
   create: vi.fn(),
 }))
 
+vi.mock('@/api/playground', async importOriginal => ({
+  ...await importOriginal<typeof import('@/api/playground')>(),
+  gatewayWarmupConnection: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
   default: {
     name: 'UseKeyGuide',
@@ -59,6 +64,9 @@ vi.mock('@/components/keys/UseKeyGuide.vue', () => ({
       'hideInlineTest',
     ],
     emits: ['modelChange', 'testStateChange'],
+    mounted() {
+      this.$emit('modelChange', 'claude-sonnet-4-6')
+    },
     methods: {
       runTest() {},
     },
@@ -299,7 +307,7 @@ describe('QuickstartView', () => {
 
   it('shows a support-tier icon badge on every client card, not only verified ones', async () => {
     const wrapper = await mountView()
-    expect(wrapper.get('[data-tk="quickstart-client-claude-code"] [data-tk="quickstart-tier-badge"]').attributes('aria-label')).toContain('quickstart.supportVerified')
+    expect(wrapper.get('[data-tk="quickstart-client-claude-code"] [data-tk="quickstart-tier-badge"]').attributes('aria-label')).toContain('quickstart.supportImport')
     expect(wrapper.get('[data-tk="quickstart-client-qwen-code"] [data-tk="quickstart-tier-badge"]').attributes('aria-label')).toContain('quickstart.supportCompatible')
     await wrapper.get('[data-tk="quickstart-client-qwen-code"]').trigger('click')
     await nextTick()

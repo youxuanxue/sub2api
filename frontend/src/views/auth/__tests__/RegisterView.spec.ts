@@ -26,7 +26,7 @@ const publicSettings = {
 }
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), currentRoute: { value: { query: {} } } }),
   useRoute: () => ({ query: {} })
 }))
 

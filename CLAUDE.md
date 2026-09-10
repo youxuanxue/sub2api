@@ -126,7 +126,7 @@ Default to an **isolated git worktree** for any commit-bearing task — sharing 
 This repo is a fork of `Wei-Shaw/sub2api`, tracked via the `upstream` remote (`upstream/main`). Minimize diff against upstream:
 
 - TK-specific code goes in scoped packages (`internal/integration/newapi/`, dedicated files).
-- For large upstream-owned Go sources (handlers, services, routes), prefer companion files in the same package named `*_tk_*.go` (examples: `gateway_handler_tk_affinity.go`, `setting_service_tk_bridge_passkey_payments.go`, `routes/admin_tk_channel_routes.go`, `routes/gateway_tk_openai_compat_handlers.go`) so the primary file stays close to upstream shape.
+- For large upstream-owned Go sources (handlers, services, routes), prefer companion files in the same package named `*_tk_*.go` (examples: `gateway_handler_tk_selection.go`, `setting_service_tk_bridge_passkey_payments.go`, `routes/admin_tk_channel_routes.go`, `routes/gateway_tk_openai_compat_handlers.go`) so the primary file stays close to upstream shape.
 - For Vue/admin UI, prefer `*.tk.ts` modules under `frontend/src/constants/` (or composables) for TokenKey-only styling and options; keep upstream-shaped `.vue` files to thin template + import + call.
 - When modifying upstream files, prefer **appending** code (new imports + calls) over rewriting existing functions.
 - Merge upstream: `git fetch upstream && git merge upstream/main` → resolve → `make test`.

@@ -1,5 +1,10 @@
 <template>
-    <TablePageLayout>
+    <div class="tabs mb-4" role="tablist" :aria-label="t('channelMonitorV2.admin.tabAria')">
+      <button class="tab" :class="{ 'tab-active': adminMonitorTab === 'v2' }" role="tab" :aria-selected="adminMonitorTab === 'v2'" @click="adminMonitorTab = 'v2'">{{ t('channelMonitorV2.admin.tabV2') }}</button>
+      <button class="tab" :class="{ 'tab-active': adminMonitorTab === 'legacy' }" role="tab" :aria-selected="adminMonitorTab === 'legacy'" @click="adminMonitorTab = 'legacy'">{{ t(isChannelMonitorV1Mode() ? 'channelMonitorV2.admin.tabV1Active' : 'channelMonitorV2.admin.tabV1History') }}</button>
+    </div>
+    <MonitorSettingsPanel v-if="adminMonitorTab === 'v2'" />
+    <TablePageLayout v-else>
       <template #filters>
         <MonitorFiltersBar
           v-model:search="searchQuery"
@@ -146,11 +151,13 @@ import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vu
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { isChannelMonitorV1Mode } from '@/utils/featureFlags'
+import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const isV1Mode = computed(() => isChannelMonitorV1Mode())
 const adminMonitorTab = ref<'v2' | 'legacy'>(isChannelMonitorV1Mode() ? 'legacy' : 'v2')
+watch(isV1Mode, isV1 => { adminMonitorTab.value = isV1 ? 'legacy' : 'v2' })
 const {
   providerLabel,
   providerBadgeClass,

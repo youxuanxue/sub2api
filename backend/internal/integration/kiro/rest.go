@@ -15,12 +15,11 @@ const (
 	// kiroManagementAPIBase is the go-forward *.kiro.dev control-plane host
 	// (configuration / lifecycle / access management). It replaces the legacy
 	// codewhisperer.* base, which Kiro's docs no longer list at all. Used (via
-	// kiroRestFetch, management-first with codewhisperer fallback) by the calls
+	// kiroRestFetchWithDoer, management-first with codewhisperer fallback) by the calls
 	// edge-us6 smoke-validated equivalent on management: ListAvailableProfiles
 	// (same profileArn), ListAvailableModels (same model set), Get-Usage-Limits (all
-	// fields UsageLimitsResponse reads). GetUserInfo stays on codewhisperer: the new
-	// protocol has no standalone user-info op — identity is folded into Get-Usage-Limits
-	// (userInfo{email,userId}); and kiro.GetUserInfo has no TK caller anyway.
+	// fields UsageLimitsResponse reads). User identity is returned inside
+	// Get-Usage-Limits (userInfo{email,userId}).
 	kiroManagementAPIBase = "https://management.us-east-1.kiro.dev"
 )
 
@@ -39,19 +38,6 @@ func kiroRestTargets(path string) []kiroRestTarget {
 		targets = append(targets, kiroRestTarget{base: base, path: path})
 	}
 	return targets
-}
-
-// kiroRestFetch issues method+path against each control-plane base in turn
-// (profileArn appended when withParn), returning the first HTTP-200 body. Used by
-// the calls edge-us6 smoke-validated equivalent on management — ListAvailableProfiles
-// (same profileArn), ListAvailableModels (same model set), getUsageLimits (every
-// field UsageLimitsResponse reads is present). GetUserInfo is NOT routed here: the
-// new *.kiro.dev protocol has no standalone user-info operation (management 400s
-// every GetUserInfo/getUserInfo/GetUser variant, edge-us6-probed); user identity is
-// instead folded into getUsageLimits (userInfo{email,userId} + subscriptionInfo),
-// which TK already parses. kiro.GetUserInfo has no caller in TK anyway.
-func kiroRestFetch(account *Account, method, path, body string, withParn bool) ([]byte, error) {
-	return kiroRestFetchWithDoer(account, method, path, body, withParn, nil)
 }
 
 func kiroRestFetchWithDoer(account *Account, method, path, body string, withParn bool, doer HTTPDoer) ([]byte, error) {
@@ -124,22 +110,12 @@ func kiroRestFetchTargetsOnce(account *Account, method string, targets []kiroRes
 	return nil, lastError
 }
 
-func ensureProfileArn(account *Account) error {
-	return ensureProfileArnWithDoer(account, nil)
-}
-
 func ensureProfileArnWithDoer(account *Account, doer HTTPDoer) error {
 	if account == nil {
 		return fmt.Errorf("account is nil")
 	}
 	_, err := ResolveProfileArnWithDoer(account, doer)
 	return err
-}
-
-// reresolveProfileArnAfterStale clears a cached profileArn and fetches a fresh one.
-// Used when upstream returns HTTP 400 Invalid profileArn for REST and chat paths.
-func reresolveProfileArnAfterStale(account *Account) error {
-	return reresolveProfileArnAfterStaleWithDoer(account, nil)
 }
 
 func reresolveProfileArnAfterStaleWithDoer(account *Account, doer HTTPDoer) error {
@@ -195,64 +171,6 @@ func getUsageLimitsWithDoer(account *Account, doer HTTPDoer) (*UsageLimitsRespon
 	return &result, nil
 }
 
-// GetUserInfo 获取用户信息. Legacy codewhisperer.* only — the new *.kiro.dev protocol
-// has NO standalone user-info operation (management 400s every variant; edge-us6 probe
-// 2026-06-26). On the new protocol user identity is returned inside getUsageLimits
-// (userInfo{email,userId} + subscriptionInfo), already parsed via the migrated
-// GetUsageLimits. This function additionally has no caller in TK, so it needs no
-// migration; kept as vendored API surface.
-func GetUserInfo(account *Account) (*UserInfoResponse, error) {
-	url := fmt.Sprintf("%s/GetUserInfo", kiroRestAPIBase)
-
-	payload := `{"origin":"KIRO_IDE"}`
-	req, err := http.NewRequest("POST", url, strings.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-
-	setKiroHeaders(req, account)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := GetRestClientForProxy(ResolveAccountProxyURL(account)).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result UserInfoResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
-// ListAvailableModels 获取可用模型列表
-func ListAvailableModels(account *Account) ([]ModelInfo, error) {
-	data, err := kiroRestFetch(account, "GET", "/ListAvailableModels?origin=AI_EDITOR&maxResults=50", "", true)
-	if err != nil {
-		return nil, err
-	}
-	var result struct {
-		Models []ModelInfo `json:"models"`
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, err
-	}
-	return result.Models, nil
-}
-
-// ResolveProfileArn returns the account profile ARN, fetching and caching it
-// when it is missing. First tries ListAvailableProfiles; if that returns empty,
-// falls back to refreshing the token (which returns profileArn in the response).
-func ResolveProfileArn(account *Account) (string, error) {
-	return ResolveProfileArnWithDoer(account, nil)
-}
-
 func ResolveProfileArnWithDoer(account *Account, doer HTTPDoer) (string, error) {
 	if account == nil {
 		return "", fmt.Errorf("account is nil")
@@ -281,10 +199,6 @@ func ResolveProfileArnWithDoer(account *Account, doer HTTPDoer) (string, error) 
 	}
 
 	return "", fmt.Errorf("no available Kiro profile")
-}
-
-func listAvailableProfilesWithRetry(account *Account) (string, error) {
-	return listAvailableProfilesWithRetryWithDoer(account, nil)
 }
 
 func listAvailableProfilesWithRetryWithDoer(account *Account, doer HTTPDoer) (string, error) {
@@ -328,10 +242,6 @@ func isTransientProfileFetchError(err error) bool {
 	}
 	// Non-HTTP errors are network/transport level — retry.
 	return true
-}
-
-func listAvailableProfiles(account *Account) (string, error) {
-	return listAvailableProfilesWithDoer(account, nil)
 }
 
 func listAvailableProfilesWithDoer(account *Account, doer HTTPDoer) (string, error) {
@@ -605,23 +515,4 @@ type SubscriptionInfo struct {
 type UserInfo struct {
 	Email  string `json:"email"`
 	UserId string `json:"userId"`
-}
-
-type UserInfoResponse struct {
-	Email  string `json:"email"`
-	UserId string `json:"userId"`
-	Idp    string `json:"idp"`
-	Status string `json:"status"`
-}
-
-type ModelInfo struct {
-	ModelId        string   `json:"modelId"`
-	ModelName      string   `json:"modelName"`
-	Description    string   `json:"description"`
-	InputTypes     []string `json:"supportedInputTypes"`
-	RateMultiplier float64  `json:"rateMultiplier"`
-	TokenLimits    *struct {
-		MaxInputTokens  int `json:"maxInputTokens"`
-		MaxOutputTokens int `json:"maxOutputTokens"`
-	} `json:"tokenLimits"`
 }
