@@ -293,6 +293,8 @@
         "case \"metadataEvent\":",
         "stale profileArn",
         "func parseEventStream",
+        "tools.consume(payloadBytes, callback)",
+        "len(tools.pending) != 0",
         "callback.OnText(content, false)",
         "dispatchKiroReasoningContent(callback, text, signature)",
         "ErrIncompleteEventStream",
@@ -320,9 +322,34 @@
       "path": "backend/internal/service/kiro_stream_integrity_test.go",
       "must_contain": [
         "TestKiroGatewayService_PreservesIncrementalText",
+        "TestKiroGatewayService_InvalidToolNeverCompletesSuccessfully",
         "screen\\nfoofoo\\nsha256=1111111122222222"
       ],
-      "rationale": "Both JSON and SSE gateway responses must preserve the same incremental Kiro text through client serialization."
+      "rationale": "Both JSON and SSE gateway responses must preserve incremental Kiro text and reject malformed or unfinished tool events without a successful terminal response."
+    },
+    {
+      "path": "backend/internal/integration/kiro/tool_stream.go",
+      "must_contain": [
+        "ErrInvalidToolUse",
+        "func (d *toolUseDecoder) consume",
+        "d.completed[id]",
+        "if !stop",
+        "decoder.UseNumber()",
+        "decoder.Decode(&trailing) != io.EOF"
+      ],
+      "rationale": "Tool execution requires a unique upstream identity, complete JSON object and explicit tool stop. Never fabricate identity, replace malformed input with an empty object, or lose numeric precision."
+    },
+    {
+      "path": "backend/internal/integration/kiro/eventstream_tool_test.go",
+      "must_contain": [
+        "TestParseEventStream_RejectsInvalidToolEvents",
+        "TestParseEventStream_CompleteToolEvents",
+        "TestParseEventStream_DuplicateToolIDDoesNotExecuteTwice",
+        "TestParseEventStream_InterruptedToolIsNotEmitted",
+        "TestParseEventStream_ToolInputNumbersRemainExact",
+        "TestParseEventStream_RejectsToolAfterTerminalStop"
+      ],
+      "rationale": "Pins valid fragmented/interleaved calls and invalid event rejection, including incomplete streams and duplicate execution."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_test.go",
