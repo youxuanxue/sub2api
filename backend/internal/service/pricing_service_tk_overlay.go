@@ -169,6 +169,9 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		if e.OutputCostPerCharacter != nil {
 			p.OutputCostPerCharacter = *e.OutputCostPerCharacter
 		}
+		if e.InputCostPerSecond != nil {
+			p.InputCostPerSecond = *e.InputCostPerSecond
+		}
 		if e.InputCostPerToken != nil {
 			p.InputCostPerToken = *e.InputCostPerToken
 		}
@@ -316,7 +319,7 @@ func validateTKPricingRegistryOwner(model string, p *LiteLLMModelPricing) error 
 		p.LongContextOutputCostMultiplier, p.OutputCostPerImage,
 		p.OutputCostPerImageToken, p.InputCostPerImageToken, p.ImagePrice1K,
 		p.ImagePrice2K, p.ImagePrice4K, p.OutputCostPerSecond,
-		p.OutputCostPerCharacter,
+		p.OutputCostPerCharacter, p.InputCostPerSecond,
 	}
 	for _, value := range values {
 		if !tkFiniteNonNegative(value) {
@@ -356,7 +359,11 @@ func validateTKPricingRegistryOwner(model string, p *LiteLLMModelPricing) error 
 		}
 	}
 	switch p.Mode {
-	case "chat", "completion", "responses", "realtime", "audio_transcription", "audio_speech":
+	case "audio_transcription":
+		if !tkPositive(p.InputCostPerSecond) && !tokenPriced && !intervalPriced {
+			return fmt.Errorf("registry model %s lacks transcription settlement price", model)
+		}
+	case "chat", "completion", "responses", "realtime", "audio_speech":
 		if !tokenPriced && !intervalPriced {
 			return fmt.Errorf("registry model %s mode=%s lacks token settlement prices", model, p.Mode)
 		}
@@ -575,7 +582,7 @@ func tkIsEffectivelyUnpriced(p *LiteLLMModelPricing) bool {
 		p.ImagePrice2K == 0 &&
 		p.ImagePrice4K == 0 &&
 		p.OutputCostPerSecond == 0 &&
-		p.OutputCostPerCharacter == 0
+		p.OutputCostPerCharacter == 0 && p.InputCostPerSecond == 0
 }
 
 func tkRegistryWebSearchPricePerCall() float64 {

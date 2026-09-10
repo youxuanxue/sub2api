@@ -3,6 +3,41 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
+      "path": "frontend/src/components/catalog/CatalogEmbeddingPrice.tk.vue",
+      "must_contain": ["formatCatalogTokenPrice(props.perImageInputToken * 1000)", "t('pricing.modality.image')", "<CatalogTieredPriceGrid"],
+      "rationale": "One shared embedding component displays both text and image input rates in million-token units across catalog views."
+    },
+    {
+      "path": "frontend/e2e/volcengine-plan-audio-catalog.e2e.ts",
+      "must_contain": ["multimodal embedding prices", "['$0.111', '$0.285']"],
+      "rationale": "Real UI regressions cover both embedding input prices in cards and the pricing table on mobile and desktop."
+    },
+    {
+      "path": "frontend/src/components/catalog/CatalogAudioPrice.tk.vue",
+      "must_contain": ["catalogAudioPrice(props.mode, props.perCharacter, props.perInputSecond)", "formatCatalogMediaPrice(price.value)", "t(price.unit)"],
+      "rationale": "Shared audio price rendering keeps character and duration units consistent across both catalog views."
+    },
+    {
+      "path": "frontend/src/views/ModelMarketplaceCatalog.vue",
+      "must_contain": ["<CatalogAudioPrice", ":per-input-second=\"model.pricing.input_cost_per_second\"", "<CatalogEmbeddingPrice", ":per-image-input-token=\"model.pricing.input_cost_per_image_token\""],
+      "rationale": "Marketplace cards consume shared audio and embedding components, preserving duration and image-token rates."
+    },
+    {
+      "path": "frontend/src/views/PricingView.vue",
+      "must_contain": ["<CatalogAudioPrice", "perInputSecond: m.your_price.per_input_second ?? null", "<CatalogEmbeddingPrice", "perImageInputToken: m.your_price.per_image_input_token ?? null"],
+      "rationale": "Group pricing preserves audio duration and embedding image-token rates through its shared presentation."
+    },
+    {
+      "path": "frontend/src/composables/useTkPricingExport.ts",
+      "must_contain": ["price_per_character_USD", "price_per_input_second_USD", "unitUsd(p.output_cost_per_character)", "unitUsd(p.input_cost_per_second)", "image_input_per_1M", "p.input_cost_per_image_token * 1000"],
+      "rationale": "CSV export carries both audio price units and the separate embedding image input price."
+    },
+    {
+      "path": "frontend/src/utils/studioMediaCatalog.tk.ts",
+      "must_contain": ["if (billingMode !== 'image' && billingMode !== 'video') return undefined"],
+      "rationale": "Audio catalog entries must not become unusable image/video Studio choices."
+    },
+    {
       "path": "frontend/src/constants/clientIntegrations.tk.ts",
       "must_contain": [
         "export const TK_CLIENT_CATALOG",

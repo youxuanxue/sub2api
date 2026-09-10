@@ -105,7 +105,7 @@ class ProbeAccountModelTest(unittest.TestCase):
         self.assertIn('"input": prompt', script)
         self.assertIn('embeddings) PATH_SUFFIX="/v1/embeddings"', script)
         self.assertIn('elif endpoint == "speech":', script)
-        self.assertIn('"voice": "longanlingxin"', script)
+        self.assertIn('else "longanlingxin"', script)
         self.assertIn('speech) PATH_SUFFIX="/v1/audio/speech"', script)
         self.assertIn("PROBE_SCRIPT_DIR", script)
         self.assertIn("from probe_account_model_verdict import classify_probe_verdict", script)

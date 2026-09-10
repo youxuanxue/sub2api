@@ -9,7 +9,7 @@ from typing import Any
 # A mode may have more than one valid billable shape (currently image models).
 MODE_FIELDS: dict[str, tuple[tuple[str, ...], ...]] = {
     "audio_speech": (("input_cost_per_token", "output_cost_per_token"),),
-    "audio_transcription": (("input_cost_per_token", "output_cost_per_token"),),
+    "audio_transcription": (("input_cost_per_token", "output_cost_per_token"), ("input_cost_per_second",)),
     "completion": (("input_cost_per_token", "output_cost_per_token"),),
     "embedding": (("input_cost_per_token",),),
     "image_generation": (("output_cost_per_image",), ("output_cost_per_image_token",)),

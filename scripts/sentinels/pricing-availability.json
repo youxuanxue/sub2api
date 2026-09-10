@@ -3,6 +3,36 @@
   "rationale": "Load-bearing tap injection points and companion files that anchor the pricing-availability passive observability system (docs/approved/pricing-availability-source-of-truth.md). Each entry is a 1-line TK injection in an upstream-shaped file that could be silently dropped by a future `git merge upstream/main`. Without these taps the model_availability table receives no data, availability status stays 'untested' forever, and the /pricing endpoint never decorates responses with real availability. This file is the single source of truth read by both scripts/preflight.sh and the upstream-merge-pr-shape workflow.",
   "sentinels": [
     {
+      "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
+      "must_contain": ["!isNewAPILongTailCatalogVendor(m.Vendor) || !isTkCuratedNewAPIModelDisplayed(m.ModelID)"],
+      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_tk_test.go",
+      "must_contain": ["TestPublicCatalog_EmbeddingsFollowManifestDisplayIntent", "TestPublicCatalog_EmbeddingFilterDoesNotMutateSettlementCatalog"],
+      "rationale": "Preserve exact manifest display selection and separation of catalog presentation from settlement."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_tk.go",
+      "must_contain": ["InputCostPerSecond", "pricing.BillingMode = \"stt\"", "pricing.InputCostPerSecond = *e.InputCostPerSecond", "pricing.InputCostPerImageToken = *e.InputCostPerImageToken"],
+      "rationale": "Audio duration and embedding image-token rates must survive catalog projection; focused tests protect the distinct billing-mode branches."
+    },
+    {
+      "path": "backend/internal/service/volcengine_plan_audio_candidate_tk_test.go",
+      "must_contain": ["TestVolcEnginePlanAudioCatalogUsesSettlementUnits", "applyCatalogMetaToMePricingModel", "model.Pricing.InputCostPerSecond", "TestVolcEnginePlanEmbeddingCatalogPreservesBothInputPrices", "entry.YourPrice.PerImageInputToken"],
+      "rationale": "Protect tax, audio duration and distinct embedding text/image price agreement between registry, public catalog and group projection."
+    },
+    {
+      "path": "backend/internal/service/me_pricing_catalog_tk.go",
+      "must_contain": ["entry.YourPrice.PerImageInputToken = scaleCatalogPrice(meta.Pricing.InputCostPerImageToken, rate)"],
+      "rationale": "Group catalog rows must retain the embedding image input rate, not just the lower text rate."
+    },
+    {
+      "path": "backend/internal/service/volcengine_plan_media_tk_test.go",
+      "must_contain": ["TestVolcEnginePlanAliasesAndProviderIsolation", "newAPIVolcEngineAgentPlanModelAliases()", "settleBillingOnAccountServedModel"],
+      "rationale": "Plan manifest aliases must resolve and bill the served target without removing other provider scopes."
+    },
+    {
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
         "TkRecordFailureFromErr",

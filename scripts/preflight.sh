@@ -1675,6 +1675,9 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 -m py_compile ./scripts/checks/frontend-release-assets.py ./scripts/checks/frontend-dist-freshness.py; then
     errors=$((errors + 1))
+elif ! python3 ./scripts/checks/test_frontend_dist_freshness.py; then
+    echo "  FAIL: frontend source fingerprint regressions failed"
+    errors=$((errors + 1))
 elif ! python3 ./scripts/checks/frontend-dist-freshness.py --check ./backend/internal/web/dist; then
     errors=$((errors + 1))
 elif [ -f ./backend/internal/web/dist/index.html ] && ls ./backend/internal/web/dist/assets/AccountsView-*.js >/dev/null 2>&1; then

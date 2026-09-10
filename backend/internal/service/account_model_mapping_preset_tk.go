@@ -205,6 +205,12 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 	}
 	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		ids := tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
+		seen := identityModelMapping(ids)
+		for alias := range newAPIVolcEngineAgentPlanModelAliases() {
+			if _, exists := seen[alias]; !exists {
+				ids = append(ids, alias)
+			}
+		}
 		sort.Strings(ids)
 		return ids
 	}
