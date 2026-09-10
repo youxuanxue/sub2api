@@ -527,8 +527,6 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 	var inputTokens, outputTokens int
 	var totalCredits float64
 	var currentToolUse *toolUseState
-	var lastAssistantContent string
-	var lastReasoningContent string
 	var sawTerminalStop bool
 
 	for {
@@ -592,26 +590,21 @@ func parseEventStream(body io.Reader, callback *KiroStreamCallback) error {
 		// Dispatch by event type.
 		switch eventType {
 		case "assistantResponseEvent":
+			// Kiro sends deltas, not cumulative snapshots. Repeated or overlapping
+			// fragments are content and must survive unchanged, including hashes.
 			if content, ok := event["content"].(string); ok && content != "" {
-				normalized := normalizeChunk(content, &lastAssistantContent)
-				if normalized != "" && callback.OnText != nil {
-					callback.OnText(normalized, false)
+				if callback.OnText != nil {
+					callback.OnText(content, false)
 				}
 			}
 			if reasoningText := kiroReasoningTextFromEvent(event); reasoningText != "" {
-				normalized := normalizeChunk(reasoningText, &lastReasoningContent)
-				if normalized != "" {
-					dispatchKiroReasoningContent(callback, normalized, "")
-				}
+				dispatchKiroReasoningContent(callback, reasoningText, "")
 			}
 		case "reasoningContentEvent":
 			text, _ := event["text"].(string)
 			signature, _ := event["signature"].(string)
 			if text != "" {
-				normalized := normalizeChunk(text, &lastReasoningContent)
-				if normalized != "" {
-					dispatchKiroReasoningContent(callback, normalized, signature)
-				}
+				dispatchKiroReasoningContent(callback, text, signature)
 			} else if strings.TrimSpace(signature) != "" {
 				dispatchKiroReasoningContent(callback, "", signature)
 			}
@@ -778,51 +771,6 @@ func collectUsageMaps(v interface{}, out *[]map[string]interface{}) {
 			collectUsageMaps(child, out)
 		}
 	}
-}
-
-func normalizeChunk(chunk string, previous *string) string {
-	if chunk == "" {
-		return ""
-	}
-
-	prev := *previous
-	if prev == "" {
-		*previous = chunk
-		return chunk
-	}
-
-	if chunk == prev {
-		return ""
-	}
-
-	if strings.HasPrefix(chunk, prev) {
-		delta := chunk[len(prev):]
-		*previous = chunk
-		return delta
-	}
-
-	if strings.HasPrefix(prev, chunk) {
-		return ""
-	}
-
-	maxOverlap := 0
-	maxLen := len(prev)
-	if len(chunk) < maxLen {
-		maxLen = len(chunk)
-	}
-	for i := maxLen; i > 0; i-- {
-		if strings.HasSuffix(prev, chunk[:i]) {
-			maxOverlap = i
-			break
-		}
-	}
-
-	*previous = chunk
-	if maxOverlap > 0 {
-		return chunk[maxOverlap:]
-	}
-
-	return chunk
 }
 
 func readTokenNumber(m map[string]interface{}, keys ...string) (int, bool) {

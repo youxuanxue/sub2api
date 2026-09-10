@@ -293,6 +293,8 @@
         "case \"metadataEvent\":",
         "stale profileArn",
         "func parseEventStream",
+        "callback.OnText(content, false)",
+        "dispatchKiroReasoningContent(callback, text, signature)",
         "ErrIncompleteEventStream",
         "sawTerminalStop",
         "extractEventStreamHeaderValue",
@@ -303,6 +305,24 @@
         "q.us-east-1.amazonaws.com"
       ],
       "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for QA/traj export without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+    },
+    {
+      "path": "backend/internal/integration/kiro/eventstream_delta_test.go",
+      "must_contain": [
+        "TestParseEventStream_PreservesIncrementalText",
+        "identical deltas",
+        "repeated digits",
+        "reasoningContentEvent"
+      ],
+      "rationale": "Kiro emits incremental text. Repeated fragments, overlapping words and numeric strings must survive on both assistant and reasoning paths; heuristic snapshot deduplication corrupts the evidence returned to clients."
+    },
+    {
+      "path": "backend/internal/service/kiro_stream_integrity_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_PreservesIncrementalText",
+        "screen\\nfoofoo\\nsha256=1111111122222222"
+      ],
+      "rationale": "Both JSON and SSE gateway responses must preserve the same incremental Kiro text through client serialization."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_test.go",
