@@ -257,6 +257,10 @@
         "case \"metadataEvent\":",
         "stale profileArn",
         "func parseEventStream",
+        "tools.consume(payloadBytes, callback)",
+        "len(tools.pending) != 0",
+        "callback.OnText(content, false)",
+        "dispatchKiroReasoningContent(callback, text, signature)",
         "ErrIncompleteEventStream",
         "sawTerminalStop",
         "extractEventStreamHeaderValue",
@@ -267,6 +271,49 @@
         "q.us-east-1.amazonaws.com"
       ],
       "rationale": "Streaming call entry + hand-rolled AWS EventStream binary decoder + the HTTPDoer injection seam that lets the TK gateway supply a TLS/proxy-aware doer. OnReasoningContent plus dispatchKiroReasoningContent preserve upstream reasoningContentEvent text and signature for QA/traj export without forging client-wire redacted_thinking blocks. CallKiroAPIWithDoerContext binds upstream attempts to the customer request lifetime, while ResetForRetry permits response-read failover only when the consumer can discard all partial state. OnStopReason plus KiroStopMetadata preserve Kiro's authoritative terminal outcome and structured refusal details; losing them turns policy outcomes back into opaque empty-response 502s. Losing parseEventStream breaks all streaming responses; losing the HTTPDoer seam breaks fingerprint/proxy egress. The endpoint anchors pin the official current runtime host followed only by Kiro's explicitly transitional q host; an upstream merge must not restore undocumented codewhisperer or alternate AmazonQ protocol retries."
+    },
+    {
+      "path": "backend/internal/integration/kiro/eventstream_delta_test.go",
+      "must_contain": [
+        "TestParseEventStream_PreservesIncrementalText",
+        "identical deltas",
+        "repeated digits",
+        "reasoningContentEvent"
+      ],
+      "rationale": "Kiro emits incremental text. Repeated fragments, overlapping words and numeric strings must survive on both assistant and reasoning paths; heuristic snapshot deduplication corrupts the evidence returned to clients."
+    },
+    {
+      "path": "backend/internal/service/kiro_stream_integrity_test.go",
+      "must_contain": [
+        "TestKiroGatewayService_PreservesIncrementalText",
+        "TestKiroGatewayService_InvalidToolNeverCompletesSuccessfully",
+        "screen\\nfoofoo\\nsha256=1111111122222222"
+      ],
+      "rationale": "Both JSON and SSE gateway responses must preserve incremental Kiro text and reject malformed or unfinished tool events without a successful terminal response."
+    },
+    {
+      "path": "backend/internal/integration/kiro/tool_stream.go",
+      "must_contain": [
+        "ErrInvalidToolUse",
+        "func (d *toolUseDecoder) consume",
+        "d.completed[id]",
+        "if !stop",
+        "decoder.UseNumber()",
+        "decoder.Decode(&trailing) != io.EOF"
+      ],
+      "rationale": "Tool execution requires a unique upstream identity, complete JSON object and explicit tool stop. Never fabricate identity, replace malformed input with an empty object, or lose numeric precision."
+    },
+    {
+      "path": "backend/internal/integration/kiro/eventstream_tool_test.go",
+      "must_contain": [
+        "TestParseEventStream_RejectsInvalidToolEvents",
+        "TestParseEventStream_CompleteToolEvents",
+        "TestParseEventStream_DuplicateToolIDDoesNotExecuteTwice",
+        "TestParseEventStream_InterruptedToolIsNotEmitted",
+        "TestParseEventStream_ToolInputNumbersRemainExact",
+        "TestParseEventStream_RejectsToolAfterTerminalStop"
+      ],
+      "rationale": "Pins valid fragmented/interleaved calls and invalid event rejection, including incomplete streams and duplicate execution."
     },
     {
       "path": "backend/internal/integration/kiro/eventstream_test.go",
@@ -656,6 +703,8 @@
         "func classifyAndRecordKiroForwardError",
         "MarkOpsClientContentFiltered(c)",
         "func classifyKiroOpaqueFailure",
+        "errors.Is(err, kiroproto.ErrInvalidToolUse)",
+        "invalid_tool_use",
         "func recordKiroForwardError",
         "func parseKiroEventStreamError",
         "func isKiroInputTooLongError",
@@ -672,9 +721,21 @@
         "KiroContentFilteredError",
         "content_filter_error",
         "MarkOpsClientContentFiltered(c)",
+        "origCommitted := IsResponseCommitted(c)",
+        "c.Set(ResponseCommittedKey, origCommitted)",
         "KiroOutcomeHeader"
       ],
-      "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling."
+      "rationale": "Native Kiro Chat Completions mapping must turn the typed content-policy outcome into a committed HTTP 400 content_filter_error before rate-limit handling. Internal capture errors must restore the outer response commitment so the handler can report failures to the actual client."
+    },
+    {
+      "path": "backend/internal/handler/kiro_stream_error_regression_test.go",
+      "must_contain": [
+        "TestKiroChatBridge_CapturedErrorReachesClient",
+        "TestGatewayHandlerMessages_InvalidKiroToolFailsOver",
+        "http.StatusBadGateway",
+        "invalid_tool_use"
+      ],
+      "rationale": "Behavioral regressions require captured stream failures to reach Chat Completions clients and invalid Kiro tools before output to reach bounded account failover with structured upstream evidence."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
