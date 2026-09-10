@@ -28,7 +28,7 @@ CatalogPolicy + RequestPlan + RuntimeReadiness = 本次可交付
 
 | 判定 | 只回答 | 读哪些 owner | 不拥有 |
 | --- | --- | --- | --- |
-| **CatalogPolicy** | 能不能公开展示、按什么价结算 | 公共目录投影；`tk_pricing_overlay.json`（含 `_aliases`）；scope 内 `channel_model_pricing` | 账号映射、协议、容量 |
+| **CatalogPolicy** | 能不能公开展示、按什么价结算 | 公共目录投影；`tk_pricing_overlay.json`（含 `_aliases`）；scope 内分组及渠道价目 | 账号映射、协议、容量 |
 | **RequestPlan** | 这个 operation 在这个账号上有没有合法路径 | 统一 outcome：合法 plan 或 reason。generation 现由 `protocolrouter` 实现；其它 family 读各自已有 owner | 实时容量、客户价格 |
 | **RuntimeReadiness** | 已有路径的账号现在能不能跑 | schedulable、cooldown、quota、concurrency、capacity | 展示、价格、协议 |
 
@@ -71,14 +71,17 @@ AND 没有 structurally-gone 证据
 ## 4. 价格与 alias
 
 ```text
-匹配 scope 的 channel_model_pricing
-  > active tk_pricing_overlay.json
-    > embedded last-known-good
+匹配计费分组的 Group.ModelPricing
+  > 匹配 scope 的 channel_model_pricing
+    > active tk_pricing_overlay.json
+      > embedded last-known-good
 ```
 
 公开价格 alias 只写 `_aliases: alias -> owner`：owner 必须存在，只单跳，禁止 self/chain/cycle。
 路由归一化不拥有价格。运行期 priced-serving gate 只保证
 发往上游前能解析结算价，见 `docs/approved/priced-or-it-doesnt-ship.md`。
+分组与渠道覆盖都由 `ModelPricingResolver` 解析；准入必须传入实际计费分组，
+不能只传 group ID 而漏掉分组价目。公开目录仍展示官方价格，作用域覆盖不是第二个全局注册表。
 
 ## 5. 本文拥有的门禁
 

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
@@ -1145,10 +1144,15 @@ func (k oidcJWK) publicKey() (any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode ec y: %w", err)
 		}
-		if err := validateECDHJWKPoint(strings.TrimSpace(k.Crv), x, y); err != nil {
-			return nil, err
+		coordinateSize := (curve.Params().BitSize + 7) / 8
+		if x.BitLen() > coordinateSize*8 || y.BitLen() > coordinateSize*8 {
+			return nil, errors.New("ec point coordinate is too large")
 		}
-		return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil //nolint:staticcheck // 同上
+		encoded := make([]byte, 1+2*coordinateSize)
+		encoded[0] = 4 // SEC 1 uncompressed point encoding.
+		x.FillBytes(encoded[1 : 1+coordinateSize])
+		y.FillBytes(encoded[1+coordinateSize:])
+		return ecdsa.ParseUncompressedPublicKey(curve, encoded)
 	default:
 		return nil, fmt.Errorf("unsupported jwk kty: %s", k.Kty)
 	}
@@ -1163,44 +1167,6 @@ func decodeBase64URLBigInt(raw string) (*big.Int, error) {
 		return nil, errors.New("empty value")
 	}
 	return new(big.Int).SetBytes(buf), nil
-}
-
-func validateECDHJWKPoint(curveName string, x, y *big.Int) error {
-	if x == nil || y == nil {
-		return errors.New("ec point is nil")
-	}
-	encoded := elliptic.MarshalCompressed(resolveJWKCurve(curveName), x, y)
-	if len(encoded) == 0 {
-		return errors.New("ec point is not on curve")
-	}
-	var err error
-	switch strings.TrimSpace(curveName) {
-	case "P-256":
-		_, err = ecdh.P256().NewPublicKey(encoded)
-	case "P-384":
-		_, err = ecdh.P384().NewPublicKey(encoded)
-	case "P-521":
-		_, err = ecdh.P521().NewPublicKey(encoded)
-	default:
-		return fmt.Errorf("unsupported ec curve: %s", curveName)
-	}
-	if err != nil {
-		return errors.New("ec point is not on curve")
-	}
-	return nil
-}
-
-func resolveJWKCurve(curveName string) elliptic.Curve {
-	switch strings.TrimSpace(curveName) {
-	case "P-256":
-		return elliptic.P256()
-	case "P-384":
-		return elliptic.P384()
-	case "P-521":
-		return elliptic.P521()
-	default:
-		return nil
-	}
 }
 
 func containsString(values []string, target string) bool {

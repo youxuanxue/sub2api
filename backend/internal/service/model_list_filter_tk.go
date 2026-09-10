@@ -70,12 +70,18 @@ func (f *ModelListFilter) FilterClientFacing(ctx context.Context, platform strin
 // availability service is wired it propagates repository errors so discovery
 // can say “unknown” without treating transient degradation as structural death.
 func (f *ModelListFilter) FilterClientFacingStrict(ctx context.Context, platform string, candidates []string) ([]string, error) {
+	return f.filterClientFacingStrict(ctx, platform, candidates, nil)
+}
+
+// scopedPrice extends membership only for an authorized discovery scope. It
+// never changes the public catalog or the shared availability projection.
+func (f *ModelListFilter) filterClientFacingStrict(ctx context.Context, platform string, candidates []string, scopedPrice func(string) bool) ([]string, error) {
 	if f == nil || f.pricing == nil || len(candidates) == 0 {
 		return candidates, nil
 	}
 	priced := make([]string, 0, len(candidates))
 	for _, id := range candidates {
-		if !f.pricing.IsModelPriced(id, platform) {
+		if !f.pricing.IsModelPriced(id, platform) && (scopedPrice == nil || !scopedPrice(id)) {
 			continue
 		}
 		priced = append(priced, id)

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
@@ -37,6 +38,15 @@ func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, group
 		}
 	}
 
+	return s.withGatewayProfitControlGroups(ctx, group, billingGroup, pricingAt)
+}
+
+// withGatewayProfitControlGroups also serves candidate paths, whose loaded
+// authorization group is the billing origin rather than an ingress snapshot.
+func (s *GatewayService) withGatewayProfitControlGroups(ctx context.Context, group, billingGroup *Group, pricingAt time.Time) context.Context {
+	if group == nil || !group.ProfitControlEnabled || !profitControlPlatformSupported(group.Platform) {
+		return ctx
+	}
 	downstream := billingGroup.RateMultiplier
 	if userID, _ := ctx.Value(ctxkey.UserID).(int64); userID > 0 {
 		downstream = s.ResolveUserGroupRateMultiplier(ctx, userID, billingGroup.ID, billingGroup.RateMultiplier)

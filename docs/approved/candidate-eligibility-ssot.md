@@ -173,6 +173,13 @@ These are implementation and local test changes, not production acceptance.
 Production cutover remains forbidden until the user reviews the prepared
 candidate and explicitly authorizes switching traffic.
 
+The 2026-09-10 SSOT repair work reconnects existing owners: candidate readiness
+installs profit control from the actual billing origin, carries it through slot
+and wait rechecks, and shares the pricing instant with settlement. User pricing
+menus consume candidate discovery's verified origins, including cross-origin
+billing-policy agreement, before attaching official catalog metadata. Neither
+price rows nor group platform labels independently grant model support.
+
 Group configuration must be classified by responsibility during implementation:
 authorization/endpoint restrictions remain gates, prices and subscriptions stay
 with billing, and account-ordering settings such as preferred-account routing
@@ -297,9 +304,10 @@ consume the same selected path, including retries and final slot checks.
 | Current availability | `gateway_candidate_eligibility.go`, `openai_candidate_eligibility.go` and existing quota/auth/capability helpers | The global selector supplies the actual account platform and sticky identity, then applies recovery over the admitted payment tier. |
 | Empty-pool feedback and expiring preference | `candidate_saturation.go` over existing Redis counters | Account scoring consumes shared scoped feedback; groups do not receive scheduling votes. |
 | Billing origin and reservations | `candidate_billing_tk.go`, `BillingCacheService`, existing hold lifecycle | Compare only equivalent origins, rebind reservations, snapshot the final path before async settlement. |
+| Profit admission | `candidate_profit_tk.go` delegates to the existing gateway profit owner | Actual billing origin and request pricing instant follow selection, slot checks and WS turns. |
 | Stable affinity and continuation | `candidate_identity_tk.go`, `candidate_ws_identity_tk.go`, `candidate_ws_authorization_tk.go` | User/key/session soft affinity; user-owned response continuation with authorized legacy lookup and dual writes. |
 | Supplier credential faults | `supplier_credential_fault.go`, `account_repo_supplier_fault.go` | Conditional updates share confirmed credential faults and preserve independent model limits, Plans and account concurrency. |
-| Model discovery | `candidate_discovery_tk.go` | Direct and Universal model/capability surfaces project the same authorization and support paths without live payment or slot admission. |
+| Model discovery | `candidate_discovery_tk.go` | Direct and Universal model/capability surfaces and `me_pricing_candidate_tk.go` project the same authorization and support paths without live payment or slot admission. |
 
 ### Implemented behavior
 

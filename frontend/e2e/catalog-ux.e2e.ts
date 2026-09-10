@@ -71,6 +71,7 @@ async function installQuickstartFixture(page: Page): Promise<void> {
     localStorage.setItem('theme', 'light')
   }, { token: 'quickstart-e2e-token', persistedUser: user })
 
+  await page.route('**/setup/status', (route) => route.fulfill({ json: ok({ needs_setup: false, step: '' }) }))
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: ok(user) }))
   await page.route('**/api/v1/keys?**', (route) => route.fulfill({
     json: ok({ items: [universalKey], total: 1, page: 1, page_size: 100, pages: 1 }),

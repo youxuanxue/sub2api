@@ -33,10 +33,16 @@
         "func (s *AntigravityGatewayService) tkPricedServingGate(",
         "func (s *KiroGatewayService) tkPricedServingGate(",
         "func tkChannelPricingProbeFromResolver(resolver *ModelPricingResolver) tkChannelPricingProbe {",
-        "return resolved != nil && resolved.Source == PricingSourceChannel",
+        "PricingInput{Model: model, GroupID: &groupID, Group: group}",
+        "resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel",
         "func tkResolvedPricingChargeable(r *ResolvedPricing) bool {"
       ],
-      "rationale": "Post-construction DI setters and the per-service one-liner wrappers each route hook calls. SetPricedServingGateDeps injects the BillingService (the gate's base oracle) AND the ModelPricingResolver (the channel-price source) alongside setting/catalog/notifier — the 5-arg shape proves BOTH billing sources are wired (drop the resolver and the gate stops seeing channel_model_pricing → false-404s channel-only-priced models, re-review BLOCKER B1). tkChannelPricingProbeFromResolver mirrors GatewayService.resolveChannelPricing EXACTLY (Source==PricingSourceChannel), so gate ⟺ billing holds on the channel source too; losing it reopens B1."
+      "rationale": "Forwarders share the billing resolver and the actual billing group's scoped price cards. Group and channel prices must both remain visible to serving admission, with chargeability validation."
+    },
+    {
+      "path": "backend/internal/service/gateway_priced_serving_group_tk_test.go",
+      "must_contain": ["func TestPricedServingGroupPriceMatchesSettlement(", "func TestPricedServingUsesCurrentKeyBillingGroup("],
+      "rationale": "An opaque group-only priced model must pass the same price interpretation as settlement, without borrowing another group's card or accepting an empty price."
     },
     {
       "path": "backend/internal/service/openai_gateway_forward.go",

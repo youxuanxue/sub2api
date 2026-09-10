@@ -18,8 +18,8 @@ of global price numbers and executable global pricing policy.
 
 Provider and LiteLLM documents are sensors. They may open a diff PR, but they
 never become runtime billing input. A protected-main merge is the only global
-price decision. `channel_model_pricing` remains an explicitly scoped commercial
-override; it is not a second global registry.
+price decision. Group model pricing and `channel_model_pricing` remain explicitly
+scoped commercial overrides; they are not second global registries.
 
 ## Focus and non-goals
 
@@ -92,9 +92,10 @@ miss cannot silently roll active pricing back to release-time bytes.
 Runtime precedence is:
 
 ```text
-scoped channel_model_pricing override
-  > active complete registry snapshot
-    > embedded complete registry fallback
+matching billing Group.ModelPricing
+  > scoped channel_model_pricing override
+    > active complete registry snapshot
+      > embedded complete registry fallback
 ```
 
 The deploy workflow never writes the runtime price setting. Therefore an older

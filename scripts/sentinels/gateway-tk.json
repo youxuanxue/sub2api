@@ -113,6 +113,36 @@
       "rationale": "Runtime block snapshots and conditional clearing must read the structured entry format without treating active blocks as corrupt legacy timestamps."
     },
     {
+      "path": "backend/internal/service/candidate_profit_tk.go",
+      "must_contain": ["func (r *CandidateRequest) withProfitControl(", "gatewayTokenRequestBillingGroupCtxKey{}, path.group", "withGatewayProfitControlGroups(ctx, path.group, path.group, pricingAt)", "func (r *CandidateRequest) withProfitPricing("],
+      "rationale": "Candidate profit admission reuses the shared formula with the actual billing origin and the settlement pricing instant, including reselection and WS turns."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_tk.go",
+      "must_contain": ["r.withProfitPricing(ctx)", "r.withProfitControl(path)", "attachSelectionProfitGate(path.ctx", "r.pathReady(rebuilt, options)"],
+      "rationale": "Profit policy must govern initial selection, slot and wait rechecks, and the terminal handler result rather than only legacy scheduler branches."
+    },
+    {
+      "path": "backend/internal/service/candidate_profit_tk_test.go",
+      "must_contain": ["func TestCandidateProfitNativeMessagesRejectsBeforeReservation(", "func TestCandidateProfitReselectionUsesActualBillingOrigin(", "func TestCandidateProfitFreshCostAfterSlotReleasesAndReselects(", "func TestCandidateProfitWaitRechecksFreshCost(", "func TestCandidateProfitWebSocketRevalidationRefreshesOriginGate("],
+      "rationale": "Behavioral proof crosses candidate admission, physical slots, actual billing origins and continuation turns."
+    },
+    {
+      "path": "backend/internal/service/me_pricing_candidate_tk.go",
+      "must_contain": ["s.capabilities.discoverCandidates(", "isMePricingModelDisplayed(model)", "enrichMePricingCatalogModel("],
+      "rationale": "User catalog support and authorization groups must be projections of candidate discovery; price and metadata enrichment do not grant execution support."
+    },
+    {
+      "path": "backend/internal/service/me_pricing_catalog_tk.go",
+      "must_contain": ["capabilities *UniversalCapabilityService", "s.projectCandidateCatalog(", "s.pruneStructurallyGoneIDs(ctx, m.Platform", "s.pruneStructurallyGoneIDs(ctx, a.Platform"],
+      "rationale": "Production injection, catalog support handoff and all price-source evidence filters must survive upstream refactors."
+    },
+    {
+      "path": "backend/internal/service/me_pricing_candidate_tk_test.go",
+      "must_contain": ["func TestCandidatePricingMenuUsesAuthorizedSupport(", "func TestCandidatePricingMenuRejectsPhantomChannelAndConflictingOrigins(", "func TestCandidatePricingMenuPrunesEveryPriceSource(", "func TestCandidatePricingMenuScopedPriceWithProductionFilter(", "func TestCandidatePricingMenuDoesNotRestoreHiddenManifestRows("],
+      "rationale": "Cross-platform and alias projection, cross-origin billing conflict, phantom prices and structurally-gone behavior are verified together."
+    },
+    {
       "path": "backend/internal/service/volcengine_plan_asr_tk.go",
       "must_contain": ["volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
       "rationale": "ASR must retain bounded binary decoding, terminal-only duration settlement and its dedicated Plan credential destination."

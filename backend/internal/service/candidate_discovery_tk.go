@@ -20,6 +20,12 @@ func (s *UniversalCapabilityService) listCandidateCapabilities(ctx context.Conte
 // adapters that enrich the response from upstream. It never admits payment,
 // acquires capacity or binds the key to a billing origin.
 func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key *APIKey, protocol UniversalProtocol) ([]UniversalCapability, []Account, error) {
+	return s.discoverCandidates(ctx, key, protocol, nil)
+}
+
+// origins is an optional presentation projection of the same verified paths.
+// It records complete origins only after cross-origin billing policy agrees.
+func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key *APIKey, protocol UniversalProtocol, originsByModel map[string]map[int64]Group) ([]UniversalCapability, []Account, error) {
 	if !s.CandidateSchedulingEnabled() || key == nil {
 		return nil, nil, ErrUniversalCapabilityUnavailable
 	}
@@ -83,7 +89,9 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 			models = append(models, fallback...)
 		}
 		if s.modelFilter != nil {
-			models, err = s.modelFilter.FilterClientFacingStrict(ctx, platform, models)
+			models, err = s.modelFilter.filterClientFacingStrict(ctx, platform, models, func(model string) bool {
+				return s.candidateScopedPricing(ctx, groups, model) != nil
+			})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -147,6 +155,10 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 					if candidate == nil {
 						continue
 					}
+					if !s.candidateModelPriced(requestCtx, candidate.group, accounts[i].Platform, model) &&
+						!s.candidateModelPriced(requestCtx, candidate.group, accounts[i].Platform, candidate.model) {
+						continue
+					}
 					if candidate.group.IsSubscriptionType() {
 						subscriptions = append(subscriptions, *candidate.group)
 					} else {
@@ -164,6 +176,14 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 						continue
 					}
 					accountSet[accounts[i].ID] = accounts[i]
+					if originsByModel != nil {
+						if originsByModel[model] == nil {
+							originsByModel[model] = make(map[int64]Group)
+						}
+						for _, group := range origins {
+							originsByModel[model][group.ID] = group
+						}
+					}
 					if selected == nil || origin.ID < selected.ID {
 						selected = origin
 					}
@@ -217,6 +237,27 @@ func (s *UniversalCapabilityService) DiscoverCandidates(ctx context.Context, key
 		return supportedAccounts[i].ID < supportedAccounts[j].ID
 	})
 	return out, supportedAccounts, nil
+}
+
+func (s *UniversalCapabilityService) candidateModelPriced(ctx context.Context, group *Group, platform, model string) bool {
+	return s.modelFilter == nil || s.modelFilter.pricing == nil || s.modelFilter.pricing.IsModelPriced(model, platform) ||
+		s.candidateScopedPricing(ctx, []Group{*group}, model) != nil
+}
+
+func (s *UniversalCapabilityService) candidateScopedPricing(ctx context.Context, groups []Group, model string) *ResolvedPricing {
+	gateway := s.resolver.candidateGateway
+	if gateway == nil || gateway.billingService == nil {
+		return nil
+	}
+	resolver := NewModelPricingResolver(gateway.channelService, gateway.billingService)
+	for i := range groups {
+		group := &groups[i]
+		resolved := resolver.Resolve(ctx, PricingInput{Model: model, GroupID: &group.ID, Group: group})
+		if resolved != nil && (resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel) && tkResolvedPricingChargeable(resolved) {
+			return resolved
+		}
+	}
+	return nil
 }
 
 func candidateDiscoveryPlatformMatches(protocol UniversalProtocol, platform string) bool {
