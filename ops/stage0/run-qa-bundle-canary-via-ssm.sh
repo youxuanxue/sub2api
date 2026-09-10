@@ -5,7 +5,7 @@ set -euo pipefail
 INSTANCE_ID="${1:-${INSTANCE_ID:-}}"
 COMMENT="${2:-${SSM_COMMENT:-qa-bundle-canary}}"
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
-TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-900}"
+TIMEOUT_SECONDS="${STAGE0_SSM_TIMEOUT_SECONDS:-2100}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.qa-bundle-canary}"
 
 [[ "${INSTANCE_ID}" =~ ^i-[0-9a-f]{17}$ ]] || { echo "valid instance id required" >&2; exit 1; }

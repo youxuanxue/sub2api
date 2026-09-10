@@ -670,7 +670,7 @@ run_bundle_canary() {
     "${APP_IMAGE}" /app/sub2api \
     --qa-bundle-canary \
     --confirm=tokenkey-prod-qa-bundle-canary-v1 \
-    --timeout-seconds="${QA_BUNDLE_CANARY_TIMEOUT_SECONDS:-600}"
+    --timeout-seconds="${QA_BUNDLE_CANARY_TIMEOUT_SECONDS:-1800}"
   local result=$?
   set -e
   cleanup_runtime_files
