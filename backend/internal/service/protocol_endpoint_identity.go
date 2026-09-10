@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropicpolicy"
 )
 
 const protocolEndpointCapabilityKeySchemaVersion = 1
@@ -36,10 +37,11 @@ type ProtocolEndpointIdentity struct {
 }
 
 type ProtocolProbeEvidence struct {
-	InitialProbeCompleted bool           `json:"initial_probe_completed"`
-	OfficialSeed          bool           `json:"official_seed"`
-	IdentityConflict      bool           `json:"identity_conflict"`
-	Verdicts              map[string]any `json:"verdicts,omitempty"`
+	ModelCapabilities     map[string]map[protocolrouter.Protocol]anthropicpolicy.Capabilities `json:"model_capabilities,omitempty"`
+	InitialProbeCompleted bool                                                                `json:"initial_probe_completed"`
+	OfficialSeed          bool                                                                `json:"official_seed"`
+	IdentityConflict      bool                                                                `json:"identity_conflict"`
+	Verdicts              map[string]any                                                      `json:"verdicts,omitempty"`
 }
 
 type ProtocolEndpointCapability struct {

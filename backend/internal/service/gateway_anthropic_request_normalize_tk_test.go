@@ -46,15 +46,15 @@ func TestTkNormalizeAnthropicThinkingForcesToolUse(t *testing.T) {
 		wantPatch bool
 	}{
 		{
-			"thinking + any -> strip thinking",
+			"thinking + any -> preserve thinking",
 			`{"thinking":{"type":"enabled","budget_tokens":10000},"tool_choice":{"type":"any"}}`,
-			`{"tool_choice":{"type":"any"}}`,
+			`{"thinking":{"type":"enabled","budget_tokens":10000},"tool_choice":{"type":"auto"}}`,
 			true,
 		},
 		{
-			"thinking + tool -> strip thinking, keep name",
+			"thinking + tool -> auto without a forced name",
 			`{"thinking":{"type":"enabled"},"tool_choice":{"type":"tool","name":"foo"}}`,
-			`{"tool_choice":{"type":"tool","name":"foo"}}`,
+			`{"thinking":{"type":"enabled"},"tool_choice":{"type":"auto"}}`,
 			true,
 		},
 		{
@@ -82,10 +82,10 @@ func TestTkNormalizeAnthropicThinkingForcesToolUse(t *testing.T) {
 			false,
 		},
 		{
-			"tool_choice still string -> no match (caller runs string-normalize first)",
+			"required string also preserves thinking",
 			`{"thinking":{"type":"enabled"},"tool_choice":"required"}`,
-			`{"thinking":{"type":"enabled"},"tool_choice":"required"}`,
-			false,
+			`{"thinking":{"type":"enabled"},"tool_choice":{"type":"auto"}}`,
+			true,
 		},
 	}
 	for _, tc := range cases {
@@ -128,8 +128,8 @@ func TestTkNormalizeAnthropicRequestBody_CombinedRewrite(t *testing.T) {
 
 	out := svc.tkNormalizeAnthropicRequestBody(context.Background(), c, in, nil)
 
-	// Step 1 turned "required" into {"type":"any"}; step 2 then stripped thinking.
-	require.JSONEq(t, `{"tool_choice":{"type":"any"},"tools":[]}`, string(out))
+	// String normalization and capability adjustment share the thinking-first policy.
+	require.JSONEq(t, `{"tool_choice":{"type":"auto"},"thinking":{"type":"enabled","budget_tokens":10000},"tools":[]}`, string(out))
 
 	// Both changes recorded as a single ops upstream-errors event.
 	ev := normalizeTestEventsFor(c)

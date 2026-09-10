@@ -235,8 +235,8 @@ type SystemSettings struct {
 	NewAPIBridgeEnabled bool
 
 	// TokenKey: normalize Anthropic native /v1/messages request body
-	// (tool_choice string -> object; strip thinking when tool_choice forces
-	// tool use). Default true; see gateway_anthropic_request_normalize_tk.go.
+	// (tool_choice string -> object; preserve thinking and relax conflicting
+	// forced tool choice). Default true; see gateway_anthropic_request_normalize_tk.go.
 	AnthropicRequestNormalizeEnabled bool
 
 	// New-User Cold Start (docs/approved/user-cold-start.md)

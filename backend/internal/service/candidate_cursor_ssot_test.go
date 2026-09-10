@@ -85,6 +85,51 @@ func TestCursorCandidateRuntimeAndCapabilityGates(t *testing.T) {
 	}
 }
 
+func TestCursorForcedToolsCannotBecomeCompatibilityFallback(t *testing.T) {
+	const model = "claude-fable-5-1"
+	for _, protocol := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
+		for _, mode := range []string{"auto", "none", "required", "named"} {
+			t.Run(fmt.Sprintf("%s/%s", protocol, mode), func(t *testing.T) {
+				forced := mode == "required" || mode == "named"
+				choice := fmt.Sprintf("%q", mode)
+				if protocol == protocolrouter.ProtocolMessages {
+					choice = fmt.Sprintf(`{"type":%q}`, mode)
+					if mode == "required" {
+						choice = `{"type":"any"}`
+					} else if mode == "named" {
+						choice = `{"type":"tool","name":"lookup"}`
+					}
+				} else if mode == "named" {
+					choice = `{"type":"function","name":"lookup"}`
+					if protocol == protocolrouter.ProtocolChatCompletions {
+						choice = `{"type":"function","function":{"name":"lookup"}}`
+					}
+				}
+				tools := `[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]`
+				if protocol == protocolrouter.ProtocolMessages {
+					tools = `[{"name":"lookup","input_schema":{"type":"object"}}]`
+				} else if protocol == protocolrouter.ProtocolResponses {
+					tools = `[{"type":"function","name":"lookup","parameters":{"type":"object"}}]`
+				}
+				body := []byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"input":"hi","tool_choice":%s,"tools":%s}`, model, choice, tools))
+				path := protocolrouter.ResponsesPathNone
+				if protocol == protocolrouter.ProtocolResponses {
+					path = protocolrouter.ResponsesPathRoot
+				}
+				request, err := protocolrouter.ParseCanonicalRequest(protocol, path, model, false, body)
+				require.NoError(t, err)
+				ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+				_, _, err = protocolPlanForAccount(ctx, cursorCandidateAccount(model), model)
+				if forced {
+					require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute)
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
+	}
+}
+
 func TestCursorCandidateUsesSharedUniversalOrdering(t *testing.T) {
 	for _, cursorFirst := range []bool{false, true} {
 		for _, unavailable := range []int{0, 1, 2} {

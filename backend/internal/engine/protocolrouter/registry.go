@@ -191,6 +191,10 @@ func preservesMessagesToChat(req CanonicalRequest) bool {
 }
 
 func preservesChatToResponses(req CanonicalRequest) bool {
+	var chat apicompat.ChatCompletionsRequest
+	if json.Unmarshal(req.body, &chat) != nil || (len(chat.Thinking) > 0 && string(chat.Thinking) != "null") || req.profile.PromptCache == PromptCachePlacement {
+		return false
+	}
 	// ChatCompletionsToResponses already preserves function tools, images, and
 	// tool_call / tool result turns. Text-only-without-tools was fail-closing
 	// Agent /v1/chat/completions onto identity chat, which TokenKey edge
@@ -201,11 +205,18 @@ func preservesChatToResponses(req CanonicalRequest) bool {
 
 func preservesChatToMessages(req CanonicalRequest) bool {
 	if req.profile.ContentKinds != ContentText || req.profile.Continuation != ContinuationNone ||
-		req.profile.Reasoning != ReasoningNone || req.profile.PromptCache == PromptCacheKey {
+		req.profile.PromptCache == PromptCacheKey {
 		return false
 	}
 	var chat apicompat.ChatCompletionsRequest
-	return json.Unmarshal(req.body, &chat) == nil && apicompat.ValidateChatToAnthropic(&chat) == nil
+	var root map[string]json.RawMessage
+	if json.Unmarshal(req.body, &root) != nil || len(root["reasoning"]) > 0 {
+		return false
+	}
+	if json.Unmarshal(req.body, &chat) != nil || apicompat.ValidateChatToAnthropic(&chat) != nil {
+		return false
+	}
+	return req.profile.Reasoning == ReasoningNone || (len(chat.Thinking) > 0 && string(chat.Thinking) != "null" && chat.ReasoningEffort == "")
 }
 
 func preservesResponsesConversion(req CanonicalRequest) bool {

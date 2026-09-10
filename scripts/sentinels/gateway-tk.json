@@ -132,6 +132,7 @@
       "must_contain": [
         "TestCursorCandidateCatalogAdmissionMatchesTransport",
         "TestCursorCandidateRuntimeAndCapabilityGates",
+        "TestCursorForcedToolsCannotBecomeCompatibilityFallback",
         "TestCursorCandidateUsesSharedUniversalOrdering",
         "TestCursorToolHistoryUsesOrdinaryCandidateRouting"
       ],
@@ -179,6 +180,61 @@
         "TestCursorRelayedUsagePreservesBillingProvenance"
       ],
       "rationale": "Messages JSON and SSE relay must preserve the source of terminal Cursor usage across Edge and Prod."
+    },
+    {
+      "path": "backend/internal/service/candidate_request_tk.go",
+      "must_contain": ["ctx = withProtocolNativeOnly(ctx,", "!group.AllowMessagesDispatch)"],
+      "rationale": "Messages conversion authorization constrains route choice before compatibility preference."
+    },
+    {
+      "path": "backend/internal/service/protocol_routing_context.go",
+      "must_contain": ["router.PlanNative(request, account)", "routing.nativeOnly == nativeOnly", "routing.plans = newProtocolPlanCache()"],
+      "rationale": "Different endpoint permissions cannot share a cached route decision."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": ["freshPlan, err := planProtocolRoute(ctx, router, request, fresh)"],
+      "rationale": "Send-time freshness must enforce the same native-only route policy as admission."
+    },
+    {
+      "path": "backend/internal/service/candidate_thinking_tools_tk_test.go",
+      "must_contain": ["TestCandidateThinkingToolsRespectConversionPermission", "TestCandidateThinkingToolsPreferAuthorizedExactOrigin", "TestProtocolPlanCacheSeparatesConversionPermission"],
+      "rationale": "Direct and Universal requests retain authorized native capacity through selection and execution."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_native.go",
+      "must_contain": ["s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel)"],
+      "rationale": "Native Messages and Chat-to-Messages must share supplier capability refusal failover."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_anthropic_native_test.go",
+      "must_contain": ["TestNativeAnthropicPassthroughSupplierCapabilityFailover"],
+      "rationale": "Exercise supplier capability failure through the Plan-bound native forwarding entry point without account penalties."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/request_capabilities_test.go",
+      "must_contain": ["TestNativeReasoningCapabilities"],
+      "rationale": "Endpoint evidence must govern native Chat and Responses reasoning efforts as well as Messages thinking."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
+      "must_contain": ["s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel)"],
+      "rationale": "Native Messages supplier capability refusals must rotate accounts without credential penalties."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/router.go",
+      "must_contain": ["compatibleRequest(request, account.requestCapabilities(route.target))", "CompatibilityRank()", "request: plan.effectiveRequest"],
+      "rationale": "Admission and execution must share the evaluated thinking/tool capability decision and immutable effective request."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_tk.go",
+      "must_contain": ["candidateCompatibilityRank(a) < candidateCompatibilityRank(b)", "candidateCompatibilityRank(paths[origin.ID])", "account, preferredOrigins, r.model"],
+      "rationale": "Full client intent precedes thinking-first fallback within each authorized payment tier."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": ["scheduled.EffectiveRequestDigest() == fresh.EffectiveRequestDigest()"],
+      "rationale": "Capability changes must invalidate incompatible selected requests before transport."
     },
     {
       "path": "backend/internal/service/openai_gateway_request_body.go",
@@ -581,22 +637,8 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": [
-        "list.ListCandidateAccounts(ctx, ids)",
-        "r.evaluatePath(ctx, account, group)",
-        "selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins",
-        "pool = recoverCandidateWindowPool(pool)",
-        "r.mergeFailureCounts(ctx, pool, counts)",
-        "candidateEffectivePriority(a.account, counts)",
-        "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)",
-        "r.recheck(path, options)",
-        "gw.candidateSaturationState().counts(ctx, accounts, r.model)"
-      ],
-      "must_not_contain": [
-        "lessUniversalBacking(",
-        ".SortOrder",
-        "candidateOccupancy("
-      ],
+      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "r.mergeFailureCounts(ctx, pool, counts)", "candidateEffectivePriority(a.account, counts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
+      "must_not_contain": ["lessUniversalBacking(", ".SortOrder", "candidateOccupancy("],
       "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
     },
     {
@@ -1197,7 +1239,7 @@
     },
     {
       "path": "backend/internal/service/protocol_request_parameters_tk.go",
-      "must_contain": ["func protocolRequestParametersSupported(", "isNewAPINVIDIABuildAccount(account)", "normalizeGrokReasoningEffortValue(value.String(), resolvedModel)"],
+      "must_contain": ["func protocolRequestParametersSupported(", "account.IsCursor()", "choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed", "isNewAPINVIDIABuildAccount(account)", "normalizeGrokReasoningEffortValue(value.String(), resolvedModel)"],
       "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent."
     },
     {

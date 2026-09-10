@@ -12,9 +12,10 @@ import (
 var ErrProtocolRouteUnavailable = errors.New("protocol route unavailable")
 
 type protocolRoutingContextValue struct {
-	router  *protocolrouter.Router
-	request protocolrouter.CanonicalRequest
-	plans   *protocolPlanCache
+	router     *protocolrouter.Router
+	request    protocolrouter.CanonicalRequest
+	plans      *protocolPlanCache
+	nativeOnly bool
 }
 
 type protocolPlanCacheKey struct {
@@ -35,7 +36,7 @@ func newProtocolPlanCache() *protocolPlanCache {
 	return &protocolPlanCache{outcomes: make(map[protocolPlanCacheKey]protocolPlanOutcome)}
 }
 
-// getOrPlan is the per-request, per-account planning boundary. It caches both
+// getOrPlan is the per-request-policy, per-account planning boundary. It caches both
 // success and failure so scheduler rechecks cannot call Plan twice for the
 // same account in one request. Send-time freshness is route-fact equivalence,
 // not a version token.
@@ -87,6 +88,23 @@ func WithProtocolRouting(
 func ProtocolRouteLegal(ctx context.Context, account *Account, requestedModel string) bool {
 	_, governed, err := protocolPlanForAccount(ctx, account, requestedModel)
 	return !governed || err == nil
+}
+
+func withProtocolNativeOnly(ctx context.Context, nativeOnly bool) context.Context {
+	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
+	if !ok || routing.nativeOnly == nativeOnly {
+		return ctx
+	}
+	routing.nativeOnly = nativeOnly
+	routing.plans = newProtocolPlanCache()
+	return context.WithValue(ctx, protocolRoutingContextKey{}, routing)
+}
+
+func planProtocolRoute(ctx context.Context, router *protocolrouter.Router, request protocolrouter.CanonicalRequest, account protocolrouter.AccountSnapshot) (protocolrouter.Plan, error) {
+	if routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue); ok && routing.nativeOnly {
+		return router.PlanNative(request, account)
+	}
+	return router.Plan(request, account)
 }
 
 // protocolRequestEligibilityReason is the single scheduler-facing owner for
@@ -159,7 +177,7 @@ func protocolPlanForAccount(
 	}
 	key := protocolPlanCacheKey{accountID: snapshot.AccountID()}
 	plan, err := routing.plans.getOrPlan(key, func() (protocolrouter.Plan, error) {
-		return routing.router.Plan(routing.request, snapshot)
+		return planProtocolRoute(ctx, routing.router, routing.request, snapshot)
 	})
 	if err != nil {
 		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %w", ErrProtocolRouteUnavailable, err)

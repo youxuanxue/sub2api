@@ -831,7 +831,7 @@ const en: LocaleOverlay = {
         "stickyRouting": "Prompt Cache Sticky Routing",
         "stickyRoutingHint": "Enabled by default. Derives stable prompt_cache_key / metadata.user_id / X-Session-Id and injects them upstream to maximize prompt cache hits. When disabled, every group falls back to passthrough — only forwarding sticky fields the client already sent. See docs/approved/sticky-routing.md.",
         "anthropicRequestNormalize": "Anthropic Request Normalize",
-        "anthropicRequestNormalizeHint": "Default on. Fixes two recurring client mistakes on /v1/messages before forwarding: (1) tool_choice given as an OpenAI-style string (\"auto\" / \"required\" / \"none\") is rewritten to Anthropic's required object form; (2) when thinking is enabled together with a tool_choice that forces tool use (any / tool), strips thinking to preserve the forced-tool-use intent. Unknown tool_choice strings are left untouched so the upstream still surfaces the client bug.",
+        "anthropicRequestNormalizeHint": "Default on. Converts OpenAI-style tool_choice strings to Messages objects. For legacy forwarding, preserves thinking and changes conflicting forced tool choice to auto. Requests governed by protocol routing always use its shared capability policy, independently of this setting. Tool definitions, history and tool_choice=none are preserved.",
         "openaiAllowClaudeCodeCodexPlugin": "Allow using the Codex plugin in Claude Code",
         "openaiAllowClaudeCodeCodexPluginDesc": "Global switch; only affects OpenAI OAuth accounts that have 'Codex official clients only' enabled. When on, all such accounts additionally allow requests from the Claude Code Codex plugin (exact match on originator=Claude Code) without per-account config; upstream requests remain pass-through."
       }
@@ -1793,7 +1793,7 @@ const zh: LocaleOverlay = {
         "stickyRouting": "Prompt Cache 粘性路由",
         "stickyRoutingHint": "默认开启：网关派生稳定的 prompt_cache_key / metadata.user_id / X-Session-Id 注入到上游，以提高 prompt cache 命中率。关闭后所有分组退化为透传客户端已发送的字段，不再派生。详见 docs/approved/sticky-routing.md。",
         "anthropicRequestNormalize": "Anthropic 请求归一化",
-        "anthropicRequestNormalizeHint": "默认开启，在转发前修复客户端的两类常见错误：(1) tool_choice 为 OpenAI 风格字符串（\"auto\" / \"required\" / \"none\"）时改写成 Anthropic 必需的 object 形态；(2) 同时启用 thinking 且 tool_choice 强制工具使用（any / tool）时，删除 thinking 以保留客户端的强制工具使用意图。未知的 tool_choice 字符串保留原样，让上游继续暴露客户端 bug。",
+        "anthropicRequestNormalizeHint": "默认开启，将 OpenAI 风格的 tool_choice 字符串转换为 Messages 对象。旧转发路径在冲突时保留思考，将强制工具选择放宽为 auto。接入统一协议路由的请求始终遵循共享能力策略，不受此开关影响。工具定义、历史和 tool_choice=none 均保留。",
         "openaiAllowClaudeCodeCodexPlugin": "允许在 Claude Code 中使用 Codex 插件",
         "openaiAllowClaudeCodeCodexPluginDesc": "全局开关，仅对已开启「仅允许 Codex 官方客户端」的 OpenAI OAuth 账号生效。开启后，所有此类账号都额外放行通过 Claude Code 的 Codex 插件发起的请求（精确匹配 originator=Claude Code），无需逐账号配置；上游请求仍保持透传。"
       }

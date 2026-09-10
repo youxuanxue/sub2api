@@ -341,6 +341,7 @@ func (r *CandidateRequest) pathContext(ctx context.Context, group *Group) (conte
 		}
 	}
 	ctx = r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
+	ctx = withProtocolNativeOnly(ctx, (r.shape == ShapeAnthropicMessages || r.shape == ShapeAnthropicCountTokens) && !group.AllowMessagesDispatch)
 	ctx = context.WithValue(ctx, ctxkey.Group, group)
 	return ctx, model, mapping, nil
 }

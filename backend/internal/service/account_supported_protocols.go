@@ -265,6 +265,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		protocols = nil
 	}
 	return protocolrouter.NewAccountSnapshot(protocolrouter.AccountSnapshotInput{
+		ModelCapabilities:  capability.ProbeEvidence.ModelCapabilities[resolvedModel],
 		AccountID:          account.ID,
 		CapabilityKey:      capability.CapabilityKey,
 		SupportedProtocols: protocols,
