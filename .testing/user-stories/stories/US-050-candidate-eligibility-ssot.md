@@ -55,6 +55,7 @@
 37. AC-037 (regression): Given an opaque model priced only by the actual billing group's card When checking serving prices Then admission agrees with settlement; unrelated-group and empty prices cannot grant admission.
 38. AC-038 (regression): Given Direct and Universal user catalogs When presenting models and authorized groups Then project candidate support across platform memberships and request aliases, preserving cross-origin policy conflicts and rejecting unsupported channel-only rows.
 39. AC-039 (negative): Given channel or restricted-account catalog rows When structurally-gone evidence exists Then hide the model; transient evidence preserves it.
+40. AC-040 (regression): Given overlapping account/group model sets When building a user menu Then reuse metadata/channel inputs and batch retirement evidence within the request; discovery reuses only its fixed account facts, subsequent requests observe changes, and runtime selection retains fresh account validation. File or registry replacement rotates membership and prices together, including atomic replacement preserving mtime.
 
 The Direct/Universal mapping boundary is approved in
 `docs/approved/candidate-request-policy-convergence.md`. Mapping isolation, global
@@ -85,6 +86,10 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 
 ## Linked Tests
 
+- `backend/internal/service/me_pricing_performance_tk_test.go`::`TestMePricingMenuBatchesAvailabilityAndReusesInputs`
+- `backend/internal/service/me_pricing_performance_tk_test.go`::`TestMenuBatchAvailabilityFailureKeepsModelsWithoutQueryStorm`
+- `backend/internal/service/candidate_discovery_snapshot_tk_test.go`::`TestCandidateDiscoveryPlanCacheAvoidsRepeatedSnapshotsAndRefreshesNextRequest`
+- `backend/internal/service/pricing_catalog_lookup_perf_tk_test.go`::`TestCatalogMembershipAtomicReplacementWithSameMTime`
 - `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitNativeMessagesRejectsBeforeReservation`
 - `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitReselectionUsesActualBillingOrigin`
 - `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitFreshCostAfterSlotReleasesAndReselects`

@@ -169,6 +169,10 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 // evaluatePath is the support projection shared by scheduling and discovery.
 // It evaluates a complete authorization path without changing runtime state.
 func (r *CandidateRequest) evaluatePath(ctx context.Context, account *Account, group *Group) (*candidateExecutionPath, error) {
+	return r.evaluatePathWithPreparation(ctx, account, group, r.pathContext)
+}
+
+func (r *CandidateRequest) evaluatePathWithPreparation(ctx context.Context, account *Account, group *Group, prepare func(context.Context, *Group) (context.Context, string, ChannelMappingResult, error)) (*candidateExecutionPath, error) {
 	if !group.IsActive() || !candidateAccountInGroup(account, group.ID) || (r.forcePlatform != "" && account.Platform != r.forcePlatform) {
 		return nil, nil
 	}
@@ -182,7 +186,7 @@ func (r *CandidateRequest) evaluatePath(ctx context.Context, account *Account, g
 			}
 		}
 	}
-	pathCtx, model, channel, err := r.pathContext(ctx, group)
+	pathCtx, model, channel, err := prepare(ctx, group)
 	if err != nil {
 		return nil, err
 	}

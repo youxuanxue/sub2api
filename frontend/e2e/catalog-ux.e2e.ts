@@ -76,6 +76,36 @@ async function installQuickstartFixture(page: Page): Promise<void> {
   await page.route('**/api/v1/keys?**', (route) => route.fulfill({
     json: ok({ items: [universalKey], total: 1, page: 1, page_size: 100, pages: 1 }),
   }))
+  await page.route('**/api/v1/me/api-keys/42/capabilities**', (route) => route.fulfill({
+    json: ok({
+      api_key_id: universalKey.id,
+      routing_mode: 'universal',
+      models: [
+        {
+          id: 'gpt-5.5',
+          protocols: ['openai', 'codex'],
+          modalities: ['chat'],
+          routes: ['openai', 'codex'].map((protocol) => ({
+            protocol,
+            modality: 'chat',
+            selected_group: { id: 1, name: 'Universal OpenAI', platform: 'openai' },
+          })),
+          selected_group: { id: 1, name: 'Universal OpenAI', platform: 'openai' },
+        },
+        {
+          id: 'claude-opus-4-8',
+          protocols: ['anthropic'],
+          modalities: ['chat'],
+          routes: [{
+            protocol: 'anthropic',
+            modality: 'chat',
+            selected_group: { id: 2, name: 'Universal Anthropic', platform: 'anthropic' },
+          }],
+          selected_group: { id: 2, name: 'Universal Anthropic', platform: 'anthropic' },
+        },
+      ],
+    }),
+  }))
   await page.route('**/api/v1/me/pricing-catalog**', (route) => route.fulfill({
     json: ok({
       target_group: {
@@ -397,6 +427,18 @@ test.describe('catalog UX — models / pricing / quickstart', () => {
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
       .toBe(true)
+    for (const id of expectedClients) {
+      const client = page.locator(`[data-tk="quickstart-client-${id}"]`)
+      const name = client.locator('span').first()
+      await expect(name).not.toHaveCSS('text-overflow', 'ellipsis')
+      expect(await name.evaluate((element) => {
+        const button = element.closest('button')!
+        const textRect = element.getBoundingClientRect()
+        const buttonRect = button.getBoundingClientRect()
+        return element.scrollWidth <= element.clientWidth
+          && textRect.top >= buttonRect.top && textRect.bottom <= buttonRect.bottom
+      })).toBe(true)
+    }
 
     await qwen.scrollIntoViewIfNeeded()
     await qwen.focus()

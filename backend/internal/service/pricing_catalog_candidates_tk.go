@@ -53,6 +53,21 @@ func tkPruneStructurallyGoneIDs(ctx context.Context, platform string, ids []stri
 	if availability == nil || len(ids) == 0 {
 		return ids
 	}
+	if batch, ok := availability.(interface {
+		GetAvailabilityBatch(context.Context, string, []string) (map[string]AvailabilityState, error)
+	}); ok {
+		states, err := batch.GetAvailabilityBatch(ctx, platform, ids)
+		if err != nil {
+			return ids
+		}
+		kept := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if !tkAvailabilityStructurallyGone(states[id]) {
+				kept = append(kept, id)
+			}
+		}
+		return kept
+	}
 	kept := make([]string, 0, len(ids))
 	for _, id := range ids {
 		st, err := availability.GetAvailability(ctx, platform, id)

@@ -9,12 +9,8 @@ package service
 // keeping them isolated keeps merge surface minimal and makes it obvious where
 // the membership semantics live.
 //
-// Performance: we call BuildPublicCatalog which is mtime-cached, so repeated
-// calls within the same source-mtime window do NOT re-parse the JSON. For the
-// admin "fetch upstream models" path (one call per click) and the client
-// /v1/models path (one call per model-list request) this is fine; if hot
-// paths ever pull this in a tight loop, switch to a model_id → bool map
-// computed lazily and invalidated on cache rotation.
+// Membership indexes belong to the immutable catalog response, so file or
+// registry rotation replaces prices and lookup decisions together.
 
 import (
 	"context"
@@ -66,35 +62,62 @@ func (s *PricingCatalogService) findCatalogModel(modelID string) (*PublicCatalog
 	if resp == nil {
 		return nil, false
 	}
-	for i := range resp.Data {
-		if resp.Data[i].ModelID != id {
-			continue
-		}
+	index := resp.membership
+	if index == nil {
+		return nil, false
+	}
+	if i, ok := index.literal[id]; ok {
 		if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, id) {
 			return nil, false
 		}
 		return &resp.Data[i], true
 	}
 	if tail, ok := stripVendorPrefixForCatalogLookup(id); ok {
-		allowPrefix := strings.Contains(tail, "-")
-		prefix := tail + "-"
-		for i := range resp.Data {
-			mid := resp.Data[i].ModelID
-			if mid == tail {
-				if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, mid) {
-					continue
-				}
-				return &resp.Data[i], true
-			}
-			if allowPrefix && strings.HasPrefix(mid, prefix) {
-				if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, mid) {
-					continue
-				}
-				return &resp.Data[i], true
-			}
+		if i, found := index.fallback[tail]; found {
+			return &resp.Data[i], true
 		}
 	}
 	return nil, false
+}
+
+type catalogMembershipIndex struct {
+	literal  map[string]int
+	fallback map[string]int
+}
+
+func buildCatalogMembershipIndex(models []PublicCatalogModel) *catalogMembershipIndex {
+	index := &catalogMembershipIndex{
+		literal:  make(map[string]int, len(models)),
+		fallback: make(map[string]int, len(models)),
+	}
+	for i := range models {
+		id := models[i].ModelID
+		if _, exists := index.literal[id]; !exists {
+			index.literal[id] = i
+		}
+		if !isTkCuratedNewAPICatalogRowListed(models[i].Vendor, id) {
+			continue
+		}
+		if _, exists := index.fallback[id]; !exists {
+			index.fallback[id] = i
+		}
+		// The old fallback scan chose the first exact OR version-prefix match
+		// in catalog order. Keep that order, including duplicate and hidden rows.
+		firstDash := strings.IndexByte(id, '-')
+		if firstDash < 0 {
+			continue
+		}
+		for j := firstDash + 1; j < len(id); j++ {
+			if id[j] != '-' {
+				continue
+			}
+			prefix := id[:j]
+			if _, exists := index.fallback[prefix]; !exists {
+				index.fallback[prefix] = i
+			}
+		}
+	}
+	return index
 }
 
 // NOTE: the runtime priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md)

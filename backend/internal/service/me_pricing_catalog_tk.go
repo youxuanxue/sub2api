@@ -481,10 +481,27 @@ func (s *MePricingCatalogService) BuildForUser(
 	// TK: 模型价格一律按官方基础价（倍率 1.0）计算，不乘 effective/override。
 	// pricing 页是官方定价目录；真实计费在网关按 effective 倍率执行，不受此影响。
 	const officialRate = 1.0
+	ctx = withModelAvailabilityRequestCache(ctx)
+	metadata := make(map[string]PublicCatalogModel)
+	if s.catalog != nil {
+		if catalog := s.catalog.BuildPublicCatalog(ctx); catalog != nil {
+			for _, model := range catalog.Data {
+				metadata[model.ModelID] = model
+			}
+		}
+	}
+	var channels []AvailableChannel
+	if s.channels != nil {
+		// Channel enrichment remains best-effort; candidate support is checked below.
+		channels, err = s.channels.ListAvailable(ctx)
+		if err != nil {
+			channels = nil
+		}
+	}
 	modelsByGroup := make(map[int64][]MePricingModel, len(accessibleGroups))
 	for i := range accessibleGroups {
 		g := accessibleGroups[i]
-		modelsByGroup[g.ID] = s.buildModelsForGroup(ctx, g, officialRate)
+		modelsByGroup[g.ID] = s.buildModelsForGroup(ctx, g, officialRate, channels, metadata)
 	}
 	if s.capabilities != nil {
 		projectionKey := &APIKey{UserID: userID, RoutingMode: RoutingModeDirect}
@@ -497,7 +514,7 @@ func (s *MePricingCatalogService) BuildForUser(
 				}
 			}
 		}
-		modelsByGroup, err = s.projectCandidateCatalog(ctx, projectionKey, accessibleGroups, modelsByGroup)
+		modelsByGroup, err = s.projectCandidateCatalog(ctx, projectionKey, accessibleGroups, modelsByGroup, metadata)
 		if err != nil {
 			return nil, err
 		}
@@ -670,59 +687,53 @@ func (s *MePricingCatalogService) buildModelsForGroup(
 	ctx context.Context,
 	targetGroup Group,
 	effectiveRate float64,
+	channels []AvailableChannel,
+	metaByID map[string]PublicCatalogModel,
 ) []MePricingModel {
 	out := []MePricingModel{}
-
-	// Build LiteLLM catalog index up-front: the channel metadata join and
-	// the account-whitelist fallback both consume it, so we read once.
-	metaByID := map[string]PublicCatalogModel{}
-	if s.catalog != nil {
-		if resp := s.catalog.BuildPublicCatalog(ctx); resp != nil {
-			for _, m := range resp.Data {
-				metaByID[m.ModelID] = m
+	bestByModel := make(map[string]MePricingModel)
+	var channelModels []SupportedModel
+	var channelModelIDs []string
+	for _, ch := range channels {
+		if ch.Status != StatusActive {
+			continue
+		}
+		mapped := false
+		for _, g := range ch.Groups {
+			if g.ID == targetGroup.ID {
+				mapped = true
+				break
 			}
 		}
-	}
-
-	bestByModel := make(map[string]MePricingModel)
-
-	// Stage 1: channel pricing.
-	if s.channels != nil {
-		channels, err := s.channels.ListAvailable(ctx)
-		if err == nil {
-			for _, ch := range channels {
-				if ch.Status != StatusActive {
-					continue
-				}
-				mapped := false
-				for _, g := range ch.Groups {
-					if g.ID == targetGroup.ID {
-						mapped = true
-						break
-					}
-				}
-				if !mapped {
-					continue
-				}
-				for i := range ch.SupportedModels {
-					m := ch.SupportedModels[i]
-					if len(s.pruneStructurallyGoneIDs(ctx, m.Platform, []string{m.Name})) == 0 {
-						continue
-					}
-					// Cross-platform leak guard — a channel can sit on groups
-					// from multiple platforms; we restrict to models declared
-					// on the target group's platform.
-					if m.Platform != targetGroup.Platform {
-						continue
-					}
-					candidate := buildChannelServedEntry(m, effectiveRate, metaByID)
-					if existing, ok := bestByModel[m.Name]; ok {
-						bestByModel[m.Name] = pickCheaperModel(existing, candidate)
-					} else {
-						bestByModel[m.Name] = candidate
-					}
-				}
+		if !mapped {
+			continue
+		}
+		for i := range ch.SupportedModels {
+			m := ch.SupportedModels[i]
+			// Cross-platform leak guard — a channel can sit on groups
+			// from multiple platforms; we restrict to models declared
+			// on the target group's platform.
+			if m.Platform != targetGroup.Platform {
+				continue
 			}
+			channelModels = append(channelModels, m)
+			channelModelIDs = append(channelModelIDs, m.Name)
+		}
+	}
+	// Read retirement evidence once for the channel's model set, not per row.
+	available := make(map[string]bool)
+	for _, id := range s.pruneStructurallyGoneIDs(ctx, targetGroup.Platform, channelModelIDs) {
+		available[id] = true
+	}
+	for _, model := range channelModels {
+		if !available[model.Name] {
+			continue
+		}
+		candidate := buildChannelServedEntry(model, effectiveRate, metaByID)
+		if existing, ok := bestByModel[model.Name]; ok {
+			bestByModel[model.Name] = pickCheaperModel(existing, candidate)
+		} else {
+			bestByModel[model.Name] = candidate
 		}
 	}
 
@@ -918,7 +929,17 @@ func (s *MePricingCatalogService) fillAccountFallback(
 	// as structurally gone (model_not_found → unreachable) so an upstream-retired
 	// model auto-disappears from the menu without a manual servable-allowlist
 	// edit — same gone-vs-degraded rule as the public /pricing storefront.
-	platformDefaults := s.pruneStructurallyGoneIDs(ctx, targetGroup.Platform, platformDefaultModelIDs(targetGroup.Platform))
+	platformDefaults := platformDefaultModelIDs(targetGroup.Platform)
+	modelIDs := append([]string(nil), platformDefaults...)
+	for i := range accounts {
+		if accountInGroupScope(&accounts[i], targetGroup.Platform) && accountHasModelRestriction(accounts[i].Credentials) {
+			modelIDs = append(modelIDs, parseWhitelistFromCredentials(accounts[i].Credentials)...)
+		}
+	}
+	available := make(map[string]bool)
+	for _, id := range s.pruneStructurallyGoneIDs(ctx, targetGroup.Platform, modelIDs) {
+		available[id] = true
+	}
 	var restrictedDisplayAllow map[string]struct{}
 	if targetGroup.Platform == PlatformAntigravity {
 		if ids := supportedCatalogModelIDsForPlatform(targetGroup.Platform); len(ids) > 0 {
@@ -945,7 +966,10 @@ func (s *MePricingCatalogService) fillAccountFallback(
 			}
 		}
 		if accountHasModelRestriction(a.Credentials) {
-			for _, modelID := range s.pruneStructurallyGoneIDs(ctx, a.Platform, parseWhitelistFromCredentials(a.Credentials)) {
+			for _, modelID := range parseWhitelistFromCredentials(a.Credentials) {
+				if !available[modelID] {
+					continue
+				}
 				if restrictedDisplayAllow != nil {
 					if _, ok := restrictedDisplayAllow[modelID]; !ok {
 						continue
@@ -962,6 +986,9 @@ func (s *MePricingCatalogService) fillAccountFallback(
 		}
 		// Unrestricted native account → canonical platform model list.
 		for _, modelID := range platformDefaults {
+			if !available[modelID] {
+				continue
+			}
 			if targetGroup.Platform == PlatformAnthropic {
 				if _, deprecated := tkIsDeprecatedAnthropicModel(modelID); deprecated {
 					continue

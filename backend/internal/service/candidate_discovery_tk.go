@@ -51,6 +51,10 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 	if err != nil {
 		return nil, nil, err
 	}
+	billingAccounts := &candidateDiscoveryAccountRepository{
+		AccountRepository: s.resolver.candidateGateway.accountRepo,
+		loaded:            make(map[int64]candidateDiscoveryAccountResult),
+	}
 	byPlatform := make(map[string]map[string]struct{})
 	needsCatalog := make(map[string]bool)
 	forcedPlatform, _ := ctx.Value(ctxkey.ForcePlatform).(string)
@@ -140,12 +144,13 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 			path, body := candidateDiscoveryRequest(model, spec)
 			request.shape, request.path, request.model, request.body, request.forcePlatform = spec.shape, path, model, body, spec.forcedPlatform
 			requestCtx := s.resolver.WithRequest(ctx, spec.shape, path, model, body)
+			preparePath := candidateDiscoveryPathPreparer(request)
 			var selected *Group
 			var failure error
 			for i := range accounts {
 				var subscriptions, balances []Group
 				for j := range groups {
-					candidate, err := request.evaluatePath(requestCtx, &accounts[i], &groups[j])
+					candidate, err := request.evaluatePathWithPreparation(requestCtx, &accounts[i], &groups[j], preparePath)
 					if err != nil {
 						if !candidateIgnorableSupportError(err) {
 							failure = fmt.Errorf("account %d group %d: %w", accounts[i].ID, groups[j].ID, err)
@@ -170,7 +175,7 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 						continue
 					}
 					gateway := s.resolver.candidateGateway
-					origin, err := selectCandidateBillingOrigin(requestCtx, key.UserID, &accounts[i], origins, model, spec.shape, gateway.channelService, gateway.userGroupRateResolver, gateway.accountRepo)
+					origin, err := selectCandidateBillingOrigin(requestCtx, key.UserID, &accounts[i], origins, model, spec.shape, gateway.channelService, gateway.userGroupRateResolver, billingAccounts)
 					if err != nil {
 						failure = err
 						continue

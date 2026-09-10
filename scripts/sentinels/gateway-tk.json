@@ -368,8 +368,28 @@
     },
     {
       "path": "backend/internal/service/me_pricing_catalog_tk.go",
-      "must_contain": ["capabilities *UniversalCapabilityService", "s.projectCandidateCatalog(", "s.pruneStructurallyGoneIDs(ctx, m.Platform", "s.pruneStructurallyGoneIDs(ctx, a.Platform"],
+      "must_contain": ["capabilities *UniversalCapabilityService", "s.projectCandidateCatalog(", "withModelAvailabilityRequestCache(ctx)", "s.pruneStructurallyGoneIDs(ctx, targetGroup.Platform, channelModelIDs)", "s.pruneStructurallyGoneIDs(ctx, targetGroup.Platform, modelIDs)"],
       "rationale": "Production injection, catalog support handoff and all price-source evidence filters must survive upstream refactors."
+    },
+    {
+      "path": "backend/internal/service/me_pricing_performance_tk_test.go",
+      "must_contain": ["func TestMePricingMenuBatchesAvailabilityAndReusesInputs(", "func TestMenuBatchAvailabilityFailureKeepsModelsWithoutQueryStorm("],
+      "rationale": "Menu enrichment must batch retirement reads, reuse request-local inputs, preserve transient failures and refresh evidence on the next request."
+    },
+    {
+      "path": "backend/internal/service/candidate_discovery_snapshot_tk.go",
+      "must_contain": ["candidateDiscoveryPathPreparer", "routing.immutableAccounts = true", "candidateDiscoveryAccountRepository"],
+      "rationale": "Only metadata discovery may reuse fixed account snapshots and prepared group requests; credential parents are loaded once per discovery."
+    },
+    {
+      "path": "backend/internal/service/candidate_discovery_snapshot_tk_test.go",
+      "must_contain": ["TestCandidateDiscoveryReadsSharedShadowParentOnceAndRefreshesNextCall", "TestCandidateDiscoveryPlanCacheAvoidsRepeatedSnapshotsAndRefreshesNextRequest", "BenchmarkCandidateDiscoverySnapshot"],
+      "rationale": "Bound repeated discovery work while retaining execution freshness and request/group isolation."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_lookup_perf_tk_test.go",
+      "must_contain": ["TestCatalogFileSourceReusesBytesAndTracksSourceChanges", "TestCatalogMembershipAtomicReplacementWithSameMTime", "TestCatalogMembershipIndexRotatesWithRegistryAndFile", "BenchmarkCatalogFileMembership"],
+      "rationale": "Catalog byte reuse and membership indexes must rotate on file replacement and registry changes instead of trading speed for stale prices."
     },
     {
       "path": "backend/internal/service/me_pricing_candidate_tk_test.go",
@@ -836,7 +856,7 @@
       "path": "backend/internal/service/candidate_discovery_tk.go",
       "must_contain": [
         "func (s *UniversalCapabilityService) DiscoverCandidates(",
-        "request.evaluatePath(requestCtx",
+        "request.evaluatePathWithPreparation(requestCtx",
         "selectCandidateBillingOrigin(requestCtx",
         "candidateDiscoveryRequest(model, spec)",
         "if len(out) == 0 && catalogSupportFailure != nil"

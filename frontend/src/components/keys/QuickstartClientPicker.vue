@@ -46,7 +46,7 @@
           {{ group.label }}
         </h3>
 
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(8.75rem,1fr))] gap-1.5">
+        <div class="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-1.5">
           <div
             v-for="client in group.clients"
             :key="client.id"
@@ -72,7 +72,7 @@
               @click="selectClient(client)"
             >
               <Icon :name="client.icon" size="sm" aria-hidden="true" class="shrink-0" />
-              <span class="min-w-0 flex-1 truncate">{{ client.name }}</span>
+              <span class="min-w-0 flex-1 whitespace-normal break-words leading-tight">{{ client.name }}</span>
               <span
                 data-tk="quickstart-tier-badge"
                 class="inline-flex shrink-0 items-center justify-center rounded-md p-1"

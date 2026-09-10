@@ -21,8 +21,10 @@ package service
 //   3) Empty list (never 500) — see US-028 AC-005.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,9 +37,10 @@ import (
 
 // PublicCatalogResponse is the top-level shape for GET /api/v1/public/pricing.
 type PublicCatalogResponse struct {
-	Object    string               `json:"object"`
-	Data      []PublicCatalogModel `json:"data"`
-	UpdatedAt time.Time            `json:"updated_at"`
+	Object     string               `json:"object"`
+	Data       []PublicCatalogModel `json:"data"`
+	UpdatedAt  time.Time            `json:"updated_at"`
+	membership *catalogMembershipIndex
 }
 
 // PublicCatalogModel is one entry in the public catalog. Field-level omitempty
@@ -202,10 +205,11 @@ type CatalogSource func() (data []byte, modTime time.Time, ok bool)
 type PricingCatalogService struct {
 	source CatalogSource
 
-	mu       sync.RWMutex
-	cached   *PublicCatalogResponse
-	cachedMt time.Time
-	cachedTk *tkPricingOverlaySnapshot
+	mu         sync.RWMutex
+	cached     *PublicCatalogResponse
+	cachedMt   time.Time
+	cachedTk   *tkPricingOverlaySnapshot
+	cachedData []byte
 }
 
 // NewPricingCatalogService wires the default source: live data file in
@@ -227,6 +231,7 @@ func (s *PricingCatalogService) SetSourceForTesting(src CatalogSource) {
 	s.cached = nil
 	s.cachedMt = time.Time{}
 	s.cachedTk = nil
+	s.cachedData = nil
 	s.mu.Unlock()
 }
 
@@ -243,6 +248,7 @@ func (s *PricingCatalogService) InvalidateCache() {
 	s.cached = nil
 	s.cachedMt = time.Time{}
 	s.cachedTk = nil
+	s.cachedData = nil
 	s.mu.Unlock()
 }
 
@@ -278,8 +284,9 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 		cached := s.cached
 		cachedMt := s.cachedMt
 		cachedTk := s.cachedTk
+		cachedData := s.cachedData
 		s.mu.RUnlock()
-		if cached != nil && cachedTk == registrySnapshot && !modTime.IsZero() && modTime.Equal(cachedMt) {
+		if cached != nil && cachedTk == registrySnapshot && !modTime.IsZero() && modTime.Equal(cachedMt) && bytes.Equal(data, cachedData) {
 			return cached
 		}
 
@@ -290,14 +297,15 @@ func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicC
 		if len(resp.Data) > 0 {
 			applyCatalogRegistrySnapshot(resp, registrySnapshot)
 		}
+		resp.membership = buildCatalogMembershipIndex(resp.Data)
 
-		if s.storeCatalogIfSnapshotCurrent(resp, modTime, registrySnapshot) {
+		if s.storeCatalogIfSnapshotCurrent(resp, modTime, registrySnapshot, data) {
 			return resp
 		}
 	}
 }
 
-func (s *PricingCatalogService) storeCatalogIfSnapshotCurrent(resp *PublicCatalogResponse, modTime time.Time, snapshot *tkPricingOverlaySnapshot) bool {
+func (s *PricingCatalogService) storeCatalogIfSnapshotCurrent(resp *PublicCatalogResponse, modTime time.Time, snapshot *tkPricingOverlaySnapshot, sourceData []byte) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if loadTKPricingOverlaySnapshot() != snapshot {
@@ -306,6 +314,7 @@ func (s *PricingCatalogService) storeCatalogIfSnapshotCurrent(resp *PublicCatalo
 	s.cached = resp
 	s.cachedMt = modTime
 	s.cachedTk = snapshot
+	s.cachedData = sourceData
 	return true
 }
 
@@ -714,6 +723,10 @@ func catalogCapabilities(e *catalogRichEntry) []string {
 // file first, then the bundled fallback. cfg may be nil during unusual
 // bootstrap; in that case the source returns ok=false (empty catalog).
 func defaultCatalogSource(cfg *config.Config) CatalogSource {
+	var mu sync.Mutex
+	var cachedPath string
+	var cachedInfo os.FileInfo
+	var cachedBody []byte
 	return func() ([]byte, time.Time, bool) {
 		if cfg == nil {
 			return nil, time.Time{}, false
@@ -725,17 +738,35 @@ func defaultCatalogSource(cfg *config.Config) CatalogSource {
 		if cfg.Pricing.FallbackFile != "" {
 			candidates = append(candidates, cfg.Pricing.FallbackFile)
 		}
+		mu.Lock()
+		defer mu.Unlock()
 		for _, p := range candidates {
-			body, err := os.ReadFile(p)
+			// Open every time so deleted or unreadable sources still fall back
+			// immediately; unchanged files need no full-file read or allocation.
+			file, err := os.Open(p)
+			if err != nil {
+				continue
+			}
+			info, statErr := file.Stat()
+			if statErr == nil && cachedInfo != nil && p == cachedPath &&
+				os.SameFile(info, cachedInfo) && info.ModTime().Equal(cachedInfo.ModTime()) &&
+				info.Size() == cachedInfo.Size() && info.Mode() == cachedInfo.Mode() {
+				_ = file.Close()
+				return cachedBody, info.ModTime(), true
+			}
+			body, err := io.ReadAll(file)
+			_ = file.Close()
 			if err != nil {
 				continue
 			}
 			var modTime time.Time
-			if info, statErr := os.Stat(p); statErr == nil {
+			if statErr == nil {
 				modTime = info.ModTime()
 			}
+			cachedPath, cachedInfo, cachedBody = p, info, body
 			return body, modTime, true
 		}
+		cachedPath, cachedInfo, cachedBody = "", nil, nil
 		return nil, time.Time{}, false
 	}
 }

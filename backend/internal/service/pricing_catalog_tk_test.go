@@ -518,6 +518,7 @@ func TestUS043_CatalogRejectsCacheWriteFromSupersededSnapshot(t *testing.T) {
 		&PublicCatalogResponse{Data: []PublicCatalogModel{{ModelID: "old"}}},
 		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
 		oldSnapshot,
+		nil,
 	)
 	require.False(t, stored)
 	require.Nil(t, service.cached)
@@ -527,6 +528,7 @@ func TestUS043_CatalogRejectsCacheWriteFromSupersededSnapshot(t *testing.T) {
 		&PublicCatalogResponse{Data: []PublicCatalogModel{{ModelID: "new"}}},
 		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
 		newSnapshot,
+		nil,
 	)
 	require.True(t, stored)
 	require.Equal(t, "new", service.cached.Data[0].ModelID)

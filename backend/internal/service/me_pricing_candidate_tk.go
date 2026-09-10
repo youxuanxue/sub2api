@@ -7,7 +7,7 @@ import (
 
 // The menu enriches verified candidate support with official prices. Price
 // rows and schedulable-account snapshots cannot independently grant support.
-func (s *MePricingCatalogService) projectCandidateCatalog(ctx context.Context, key *APIKey, groups []Group, prices map[int64][]MePricingModel) (map[int64][]MePricingModel, error) {
+func (s *MePricingCatalogService) projectCandidateCatalog(ctx context.Context, key *APIKey, groups []Group, prices map[int64][]MePricingModel, metadata map[string]PublicCatalogModel) (map[int64][]MePricingModel, error) {
 	origins := make(map[string]map[int64]Group)
 	if key.IsUniversal() {
 		if _, _, err := s.capabilities.discoverCandidates(ctx, key, UniversalProtocolAll, origins); err != nil {
@@ -19,14 +19,6 @@ func (s *MePricingCatalogService) projectCandidateCatalog(ctx context.Context, k
 			groupKey.Group, groupKey.GroupID = &groups[i], &groups[i].ID
 			if _, _, err := s.capabilities.discoverCandidates(ctx, &groupKey, UniversalProtocolAll, origins); err != nil {
 				return nil, err
-			}
-		}
-	}
-	metadata := make(map[string]PublicCatalogModel)
-	if s.catalog != nil {
-		if catalog := s.catalog.BuildPublicCatalog(ctx); catalog != nil {
-			for _, model := range catalog.Data {
-				metadata[model.ModelID] = model
 			}
 		}
 	}
