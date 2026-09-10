@@ -38,36 +38,55 @@ func New(catalog AdapterCatalog) *Router {
 }
 
 type Plan struct {
-	accountID       int64
-	capabilityKey   string
-	requestDigest   RequestDigest
-	resolvedModel   string
-	inboundProtocol Protocol
-	targetProtocol  Protocol
-	responsesPath   ResponsesPathKind
-	endpoint        string
-	adapterID       RouteAdapterID
-	transport       TransportID
-	routeKind       RouteKind
-	geminiProfile   GeminiEndpointProfile
-	reason          string
+	effectiveRequest CanonicalRequest
+	adjustment       string
+	accountID        int64
+	capabilityKey    string
+	requestDigest    RequestDigest
+	resolvedModel    string
+	inboundProtocol  Protocol
+	targetProtocol   Protocol
+	responsesPath    ResponsesPathKind
+	endpoint         string
+	adapterID        RouteAdapterID
+	transport        TransportID
+	routeKind        RouteKind
+	geminiProfile    GeminiEndpointProfile
+	reason           string
 }
 
-func (p Plan) AccountID() int64                     { return p.accountID }
-func (p Plan) CapabilityKey() string                { return p.capabilityKey }
-func (p Plan) RequestDigest() RequestDigest         { return p.requestDigest }
-func (p Plan) ResolvedModel() string                { return p.resolvedModel }
-func (p Plan) InboundProtocol() Protocol            { return p.inboundProtocol }
-func (p Plan) TargetProtocol() Protocol             { return p.targetProtocol }
-func (p Plan) ResponsesPath() ResponsesPathKind     { return p.responsesPath }
-func (p Plan) Endpoint() string                     { return p.endpoint }
-func (p Plan) AdapterID() RouteAdapterID            { return p.adapterID }
-func (p Plan) Transport() TransportID               { return p.transport }
-func (p Plan) RouteKind() RouteKind                 { return p.routeKind }
-func (p Plan) Reason() string                       { return p.reason }
-func (p Plan) GeminiProfile() GeminiEndpointProfile { return p.geminiProfile }
+func (p Plan) AccountID() int64                      { return p.accountID }
+func (p Plan) CapabilityKey() string                 { return p.capabilityKey }
+func (p Plan) RequestDigest() RequestDigest          { return p.requestDigest }
+func (p Plan) ResolvedModel() string                 { return p.resolvedModel }
+func (p Plan) InboundProtocol() Protocol             { return p.inboundProtocol }
+func (p Plan) TargetProtocol() Protocol              { return p.targetProtocol }
+func (p Plan) ResponsesPath() ResponsesPathKind      { return p.responsesPath }
+func (p Plan) Endpoint() string                      { return p.endpoint }
+func (p Plan) AdapterID() RouteAdapterID             { return p.adapterID }
+func (p Plan) Transport() TransportID                { return p.transport }
+func (p Plan) RouteKind() RouteKind                  { return p.routeKind }
+func (p Plan) Reason() string                        { return p.reason }
+func (p Plan) GeminiProfile() GeminiEndpointProfile  { return p.geminiProfile }
+func (p Plan) Adjustment() string                    { return p.adjustment }
+func (p Plan) EffectiveRequestDigest() RequestDigest { return p.effectiveRequest.digest }
+func (p Plan) CompatibilityRank() int {
+	if p.adjustment != "" {
+		return 1
+	}
+	return 0
+}
 
 func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, error) {
+	return r.plan(request, account, false)
+}
+
+// PlanNative applies endpoint authorization before comparing compatibility.
+func (r *Router) PlanNative(request CanonicalRequest, account AccountSnapshot) (Plan, error) {
+	return r.plan(request, account, true)
+}
+
+func (r *Router) plan(request CanonicalRequest, account AccountSnapshot, nativeOnly bool) (Plan, error) {
 	if r == nil {
 		return Plan{}, fmt.Errorf("%w: router is nil", ErrRouterUnavailable)
 	}
@@ -79,8 +98,12 @@ func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, 
 	}
 	supportedTargetSeen := false
 	modelPermittedSeen := false
+	var fallback *Plan
 	for _, route := range routeRegistry {
 		if route.inbound != request.inboundProtocol {
+			continue
+		}
+		if nativeOnly && route.target != request.inboundProtocol {
 			continue
 		}
 		if !account.supports(route.target) {
@@ -111,21 +134,33 @@ func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, 
 		if err != nil {
 			continue
 		}
-		return Plan{
-			accountID:       account.accountID,
-			capabilityKey:   account.capabilityKey,
-			requestDigest:   request.digest,
-			resolvedModel:   account.resolvedModel,
-			inboundProtocol: request.inboundProtocol,
-			targetProtocol:  route.target,
-			responsesPath:   responsesPath,
-			endpoint:        endpoint,
-			adapterID:       route.adapterID,
-			transport:       route.transport,
-			routeKind:       route.kind,
-			geminiProfile:   account.geminiProfile,
-			reason:          string(route.kind),
-		}, nil
+		effective, adjustment := compatibleRequest(request, account.requestCapabilities(route.target))
+		plan := Plan{
+			effectiveRequest: effective,
+			adjustment:       adjustment,
+			accountID:        account.accountID,
+			capabilityKey:    account.capabilityKey,
+			requestDigest:    request.digest,
+			resolvedModel:    account.resolvedModel,
+			inboundProtocol:  request.inboundProtocol,
+			targetProtocol:   route.target,
+			responsesPath:    responsesPath,
+			endpoint:         endpoint,
+			adapterID:        route.adapterID,
+			transport:        route.transport,
+			routeKind:        route.kind,
+			geminiProfile:    account.geminiProfile,
+			reason:           string(route.kind),
+		}
+		if adjustment == "" {
+			return plan, nil
+		}
+		if fallback == nil {
+			fallback = &plan
+		}
+	}
+	if fallback != nil {
+		return *fallback, nil
 	}
 	if supportedTargetSeen && !modelPermittedSeen {
 		return Plan{}, fmt.Errorf("%w: %w", ErrNoLegalRoute, ErrModelNotAllowed)
@@ -178,5 +213,5 @@ func (r *Router) Execute(ctx context.Context, plan Plan, request CanonicalReques
 	if adapter == nil {
 		return Result{}, ErrStalePlan
 	}
-	return adapter.Execute(ctx, Execution{plan: plan, request: request})
+	return adapter.Execute(ctx, Execution{plan: plan, request: plan.effectiveRequest})
 }

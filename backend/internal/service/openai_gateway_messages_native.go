@@ -85,7 +85,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
-		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
+		if foErr := s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
 		return s.handleAnthropicErrorResponse(resp, c, account, billingModel)

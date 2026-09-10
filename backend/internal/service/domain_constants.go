@@ -190,8 +190,8 @@ const (
 
 	// SettingKeyAnthropicRequestNormalizeEnabled toggles gateway-side
 	// normalization of common client mistakes on the Anthropic native
-	// /v1/messages path (tool_choice string -> object; strip thinking when
-	// tool_choice forces tool use). Defaults to true. See
+	// /v1/messages path (tool_choice string -> object; preserve thinking and
+	// relax conflicting forced tool choice to auto). Defaults to true. See
 	// gateway_anthropic_request_normalize_tk.go for the rules.
 	SettingKeyAnthropicRequestNormalizeEnabled = "tk_anthropic_request_normalize_enabled"
 
