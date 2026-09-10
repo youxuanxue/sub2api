@@ -258,6 +258,9 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 		rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
 		sort.SliceStable(pool, func(i, j int) bool {
 			a, b := pool[i], pool[j]
+			if candidateCompatibilityRank(a) != candidateCompatibilityRank(b) {
+				return candidateCompatibilityRank(a) < candidateCompatibilityRank(b)
+			}
 			pa, pb := candidateEffectivePriority(a.account, counts), candidateEffectivePriority(b.account, counts)
 			if pa != pb {
 				return pa < pb
@@ -324,6 +327,13 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 		}
 	}
 	return nil, candidateSelectionError(supported, evaluationErr, r.model)
+}
+
+func candidateCompatibilityRank(path *candidateExecutionPath) int {
+	if path.plan == nil {
+		return 0
+	}
+	return path.plan.CompatibilityRank()
 }
 
 func recoverCandidateWindowPool(paths []*candidateExecutionPath) []*candidateExecutionPath {

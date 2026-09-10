@@ -3,6 +3,26 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
+      "must_contain": ["tkSupplierThinkingToolPreflight(resp.StatusCode, upstreamMsg)", "if supplierCapability {"],
+      "rationale": "Native Messages supplier capability refusals must rotate accounts without credential penalties."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/router.go",
+      "must_contain": ["compatibleRequest(request, account.requestCapabilities(route.target))", "CompatibilityRank()", "request: plan.effectiveRequest"],
+      "rationale": "Admission and execution must share the evaluated thinking/tool capability decision and immutable effective request."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_tk.go",
+      "must_contain": ["candidateCompatibilityRank(a) < candidateCompatibilityRank(b)"],
+      "rationale": "Full client intent precedes thinking-first fallback within each authorized payment tier."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": ["scheduled.EffectiveRequestDigest() == fresh.EffectiveRequestDigest()"],
+      "rationale": "Capability changes must invalidate incompatible selected requests before transport."
+    },
+    {
       "path": "backend/internal/service/volcengine_plan_asr_tk.go",
       "must_contain": ["volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
       "rationale": "ASR must retain bounded binary decoding, terminal-only duration settlement and its dedicated Plan credential destination."

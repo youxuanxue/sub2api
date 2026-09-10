@@ -199,3 +199,36 @@ func TestBridgeSupplierUnavailable500RetriesWithoutPenalty(t *testing.T) {
 		})
 	}
 }
+
+func TestBridgeSupplierCapability400RetriesWithoutPenalty(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	svc, repo, blocker, incidents := newBridgePenaltyTestService()
+	err := bridgeWrapRelayErrorAfterPenalty(context.Background(), svc, c, newNewAPIBridgeAccount(), upstreamBridgeError(400, "[preflight:R3.forced_tool_choice_incompatible] model has always-on thinking"))
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.True(t, failover.ShouldRetryNextAccount())
+	require.False(t, candidateFailureAttributable(err))
+	require.Zero(t, repo.setErrorCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Empty(t, blocker.reasons)
+	require.Empty(t, incidents.reasons)
+	require.False(t, tkBridgeUpstreamShouldFailoverAfterPenalty(upstreamBridgeError(400, "Thinking may not be enabled when tool_choice forces tool use.")))
+}
+
+func TestNativeMessagesSupplierCapability400RetriesWithoutPenalty(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	rateLimit, repo, blocker, incidents := newBridgePenaltyTestService()
+	svc := &OpenAIGatewayService{rateLimitService: rateLimit}
+	message := "[preflight:R3.forced_tool_choice_incompatible] model has always-on thinking"
+	response := &http.Response{StatusCode: 400, Header: make(http.Header)}
+	failover := svc.failoverOpenAIUpstreamHTTPError(context.Background(), c, newNewAPIBridgeAccount(), response, []byte(`{"error":{"message":"`+message+`"}}`), message, "claude-fable-5")
+	require.NotNil(t, failover)
+	require.True(t, failover.ShouldRetryNextAccount())
+	require.False(t, candidateFailureAttributable(failover))
+	require.Zero(t, repo.setErrorCalls)
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Empty(t, blocker.reasons)
+	require.Empty(t, incidents.reasons)
+}

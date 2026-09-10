@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -236,6 +237,9 @@ func executeBoundProtocolAdapter(
 	if executionAccount == nil {
 		return protocolrouter.Result{}, fmt.Errorf("%w: authoritative execution account is missing", ErrProtocolRouteUnavailable)
 	}
+	if plan.Adjustment() != "" {
+		slog.InfoContext(ctx, "gateway.request_capability_adjusted", "account_id", plan.AccountID(), "model", plan.ResolvedModel(), "target_protocol", plan.TargetProtocol(), "reason", plan.Adjustment())
+	}
 	value, err := execute(withProtocolExecutionPlan(ctx, plan), executionAccount, plan, execution.Request())
 	return protocolrouter.Result{Value: value}, err
 }
@@ -445,6 +449,8 @@ func ExecuteSelectedProtocol(
 
 func protocolPlansRoutingEquivalent(scheduled, fresh protocolrouter.Plan) bool {
 	return scheduled.AccountID() == fresh.AccountID() &&
+		scheduled.Adjustment() == fresh.Adjustment() &&
+		scheduled.EffectiveRequestDigest() == fresh.EffectiveRequestDigest() &&
 		scheduled.CapabilityKey() == fresh.CapabilityKey() &&
 		scheduled.RequestDigest() == fresh.RequestDigest() &&
 		scheduled.ResolvedModel() == fresh.ResolvedModel() &&

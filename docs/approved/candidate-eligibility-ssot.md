@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08 and 2026-09-09)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09 and 2026-09-10)"
 created: 2026-09-07
 ---
 
@@ -19,6 +19,50 @@ This contract owns evaluated-request candidate selection;
 [universal-key-routing.md](universal-key-routing.md) owns key authorization and
 billing binding. It does not
 replace the protocol-routing SSOT, endpoint authorization, or billing owners.
+
+## Thinking and tool compatibility (2026-09-10 approval)
+
+The user approved shared capability evaluation for admission and scheduling,
+with priority: satisfy client requirements, then preserve thinking, then honor
+forced tool invocation. The gateway returns tool calls; clients execute them.
+
+`protocolrouter.Plan` evaluates each target protocol against the resolved model.
+`internal/pkg/anthropicpolicy` owns the thinking/tool conflict decision. Messages
+uses its native conflict rule, including Fable 5 always-on thinking already
+recorded in `docs/spec-delta/cc-fable-5.md`; this is not applied to Chat targets.
+Endpoint-specific evidence may override that baseline in the existing JSON
+`probe_evidence.model_capabilities[resolved_model][target_protocol]`, using the
+complete `always_thinking` / `adaptive_only_thinking` /
+`forced_tools_with_thinking` capability record.
+Endpoint identity and exact resolved model scope this evidence. Account IDs,
+supplier names, billing groups and public aliases are not capability evidence.
+
+Within each admitted payment tier, available unadjusted Plans precede adjusted
+Plans, then existing account priority/stickiness apply. Capacity races and
+failed-account exclusions may select an adjusted peer. Authorization, hard
+continuation affinity, subscription preference and window-reserve rules retain
+their existing ownership. Within an account, an unadjusted legal route precedes
+an adjusted route; equivalent routes retain registry/native preference.
+
+Only conflicting forced choice (`required`, named function, Messages `any` or
+`tool`) becomes `auto`. Thinking, tools, cache placement, tool history, parallel
+tool restrictions and `none` remain intact. Explicit thinking-off remains intact
+on models that support it. A confirmed always-on model omits unsupported explicit
+disabled; an adaptive-only model converts manual thinking to adaptive and omits
+its unsupported budget. Both count as adjusted Plans. Chat-to-Messages additionally preserves the validated
+Messages `thinking` extension; unsupported reasoning formats remain excluded by
+converter admission. This change does not claim universal reasoning conversion.
+
+Plan binds the original digest and an immutable effective request. Admission,
+selection and authoritative pre-send rechecks share that Plan. Execution uses
+its effective body without mutating retry input. Changes are audited by account,
+resolved model, target protocol and adjustment reason, without logging bodies.
+Legacy Messages normalization reuses the same policy and cannot undo a selected
+Plan. Endpoint evidence changes that alter the effective request invalidate the
+selected Plan before transport. This approval covers implementation and tests,
+not merge or production deployment. The supplier's exact
+`[preflight:R3.forced_tool_choice_incompatible]` 400 is eligible for another
+account without credential penalties; unrelated client 400s remain terminal.
 
 ## Approved policy: authorization-scoped account scheduling
 

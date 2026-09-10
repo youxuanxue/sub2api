@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropicpolicy"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -23,9 +24,8 @@ import (
 //
 //  2. thinking.type=enabled together with tool_choice.type IN ("any","tool").
 //     Anthropic rejects with "Thinking may not be enabled when tool_choice
-//     forces tool use." Per the product decision recorded in the incident
-//     report (strategy A), we strip the thinking field — the client's
-//     forced-tool-use intent wins.
+//     forces tool use." Preserve thinking and relax forced tool choice to auto,
+//     using the same policy as protocol admission and candidate scheduling.
 //
 //  3. Claude Code prompt surfaces in system / system-reminder text: geo-stego
 //     date lines, # Environment (TZ/proxy), and client userEmail. Rewritten
@@ -65,7 +65,7 @@ type tkAnthropicNormalizeChange string
 
 const (
 	tkNormalizeChangeToolChoiceStringToObject tkAnthropicNormalizeChange = "tool_choice_string_to_object"
-	tkNormalizeChangeThinkingForcesToolUse    tkAnthropicNormalizeChange = "thinking_with_forces_tool_use"
+	tkNormalizeChangeThinkingForcesToolUse    tkAnthropicNormalizeChange = anthropicpolicy.ThinkingPreferred
 )
 
 // tkNormalizeAnthropicRequestBody applies request-body normalization for the
@@ -90,9 +90,11 @@ func (s *GatewayService) tkNormalizeAnthropicRequestBody(ctx context.Context, c 
 		changes = append(changes, tkNormalizeChangeToolChoiceStringToObject)
 	}
 
-	if patched, applied := tkNormalizeAnthropicThinkingForcesToolUse(next); applied {
-		next = patched
-		changes = append(changes, tkNormalizeChangeThinkingForcesToolUse)
+	if _, planned := ProtocolExecutionPlan(ctx); !planned {
+		if patched, applied := tkNormalizeAnthropicThinkingForcesToolUse(next); applied {
+			next = patched
+			changes = append(changes, tkNormalizeChangeThinkingForcesToolUse)
+		}
 	}
 
 	oauthEmail := ""
@@ -172,26 +174,9 @@ func tkNormalizeAnthropicToolChoiceString(body []byte) ([]byte, bool) {
 	return out, true
 }
 
-// tkNormalizeAnthropicThinkingForcesToolUse strips the thinking field when it
-// conflicts with a tool_choice that forces tool use. Anthropic forbids
-// thinking together with tool_choice.type IN ("any","tool"); we keep the
-// forced-tool-use intent and drop thinking (strategy A).
+// Legacy non-Plan execution shares the thinking-first compatibility owner.
 func tkNormalizeAnthropicThinkingForcesToolUse(body []byte) ([]byte, bool) {
-	thinking := gjson.GetBytes(body, "thinking")
-	if !thinking.Exists() || thinking.Get("type").String() != "enabled" {
-		return body, false
-	}
-	switch gjson.GetBytes(body, "tool_choice.type").String() {
-	case "any", "tool":
-		// fall through
-	default:
-		return body, false
-	}
-	out, err := sjson.DeleteBytes(body, "thinking")
-	if err != nil {
-		return body, false
-	}
-	return out, true
+	return anthropicpolicy.Normalize(body, true, anthropicpolicy.MessagesCapabilities(gjson.GetBytes(body, "model").String()))
 }
 
 // tkLogAnthropicNormalize emits the INFO-level audit log. Keeping the log

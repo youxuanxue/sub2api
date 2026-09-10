@@ -17,6 +17,13 @@ func ChatCompletionsToAnthropicRequest(req *ChatCompletionsRequest) (*AnthropicR
 	if err != nil {
 		return nil, err
 	}
+	if hasChatJSON(req.Thinking) {
+		var thinking AnthropicThinking
+		if err := json.Unmarshal(req.Thinking, &thinking); err != nil {
+			return nil, err
+		}
+		out.Thinking = &thinking
+	}
 	for i, tool := range req.Tools {
 		if tool.CacheControl != nil && i < len(out.Tools) {
 			out.Tools[i].CacheControl = tool.CacheControl

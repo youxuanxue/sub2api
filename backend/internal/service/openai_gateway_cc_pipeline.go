@@ -90,6 +90,8 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamModel string,
 ) *UpstreamFailoverError {
 	shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody)
+	supplierCapability := account != nil && account.Platform == PlatformNewAPI && tkSupplierThinkingToolPreflight(resp.StatusCode, upstreamMsg)
+	shouldFailover = shouldFailover || supplierCapability
 	tempUnscheduled := false
 	if c != nil && account != nil && account.Platform != PlatformGrok && !shouldFailover && !IsResponseCommitted(c) && s.rateLimitService != nil {
 		tempUnscheduled = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, upstreamModel) == ErrorPolicyTempUnscheduled
@@ -122,6 +124,11 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		Message:            upstreamMsg,
 		Detail:             upstreamDetail,
 	})
+	if supplierCapability {
+		return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+			StatusCode: resp.StatusCode, ResponseBody: respBody, RequestScopedTransient: true,
+		}, gatewayFailoverProfileNewAPIBridge, gatewayFailureSemanticTransientFault)
+	}
 	shouldDisable := tempUnscheduled
 	if account.Platform != PlatformGrok && !tempUnscheduled {
 		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
