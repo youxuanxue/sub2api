@@ -39,12 +39,12 @@ REQUIRED = {
         "prod_fallback: forbidden",
         "pause_capture: false",
         "resolved_worker_image",
-        "qa_bundle_release_surface.py",
-        "legacy_rollback",
+        "prod_release_plan.py",
+        "durable DROP pause",
         "bundle_runtime_contract: phase3_v1",
-        "当前 release tree 的 Phase 3 runners",
-        "按 resolver 的",
-        "`run_canary`",
+        "component_release.runtime_contract: independent_v1",
+        "独立 QA pin",
+        "gateway-only",
     ),
     "ops/qa/README.md": (
         "only target lifecycle owner",
@@ -69,11 +69,22 @@ REQUIRED = {
     ),
     ".github/workflows/deploy-stage0.yml": (
         "ops/qa/resolve_qa_bundle_worker_image.py",
-        "ops/qa/qa_bundle_release_surface.py",
+        "ops/stage0/prod_release_plan.py",
         "steps.qa_infra.outputs.resolved_worker_image",
         "if: steps.qa_infra.outputs.mode == 'legacy_rollback'",
-        "QA Phase 3 degraded",
+        "QA degraded",
         "--surface-json",
+    ),
+    "ops/stage0/prod_release_plan.py": (
+        "from qa_bundle_release_surface import",
+        '"backend/go.mod"',
+        '"runtime_host_sha"',
+        '"publisher_tag"',
+    ),
+    "deploy/aws/stage0/qa-runtime.sh": (
+        "tk_resolve_qa_runtime",
+        "tokenkey-qa-runtime",
+        "independent-v1",
     ),
     "docs/deploy/aws-us-openai-gateway-deployment.md": (
         "tokenkey-qa-maintenance.sh",
@@ -291,7 +302,7 @@ def scan(root: Path) -> list[str]:
         if workflow_body.count(resolved_binding) != 2:
             failures.append("QA deploy and verifier must share exactly one resolved Worker image")
         legacy_maintenance = workflow_body.find(
-            "name: Converge current QA maintenance runner before legacy app rollback"
+            "name: Pause pinned QA deletion before legacy app rollback"
         )
         legacy_boundary = workflow_body.find(
             "name: Disable QA boundary before legacy app rollback"

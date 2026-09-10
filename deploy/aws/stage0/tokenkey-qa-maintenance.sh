@@ -3,7 +3,7 @@
 set -euo pipefail
 
 QA_MAINTENANCE_DOCKER="${QA_MAINTENANCE_DOCKER:-docker}"
-QA_MAINTENANCE_RESOLVER="${QA_MAINTENANCE_RESOLVER:-/usr/local/lib/tokenkey/resolve-app-container.sh}"
+QA_MAINTENANCE_RESOLVER="${QA_MAINTENANCE_RESOLVER:-/usr/local/lib/tokenkey/qa-runtime.sh}"
 QA_MAINTENANCE_RUNTIME_DIR="${QA_MAINTENANCE_RUNTIME_DIR:-/run/tokenkey-qa-maintenance}"
 QA_MAINTENANCE_HOST_DATA_ROOT="${QA_MAINTENANCE_HOST_DATA_ROOT:-/var/lib/tokenkey/app}"
 QA_MAINTENANCE_HOST_SCRATCH="${QA_MAINTENANCE_HOST_SCRATCH:-/var/lib/tokenkey/app/qa_archive_tmp}"
@@ -131,20 +131,18 @@ load_app_runtime() {
     qa_fail resolver_unavailable 42 "canonical app-container resolver unavailable"
     return
   fi
-  TK_DOCKER="${QA_MAINTENANCE_DOCKER}"
-  ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
-  export TK_DOCKER ACTIVE_COLOR_FILE
-  # shellcheck source=../../../ops/lib/resolve-app-container.sh
+  # shellcheck source=qa-runtime.sh
   . "${QA_MAINTENANCE_RESOLVER}"
-  APP_CONTAINER="$(tk_resolve_app_container auto)" || {
-    qa_fail container_unresolved 43 "active app container is ambiguous or unavailable"
+  APP_CONTAINER="$(tk_resolve_qa_runtime)" || {
+    qa_fail container_unresolved 43 "pinned QA runtime is unavailable"
     return
   }
+  QA_RUNTIME_NETWORK="$(tk_qa_runtime_network "${APP_CONTAINER}")" || return
   APP_IMAGE="$(qa_docker inspect --format '{{.Image}}' "${APP_CONTAINER}" 2>/dev/null)" || APP_IMAGE=""
   case "${APP_IMAGE}" in
     sha256:*) ;;
     *)
-      qa_fail image_unavailable 44 "active app immutable image unavailable"
+      qa_fail image_unavailable 44 "pinned QA immutable image unavailable"
       return
       ;;
   esac
@@ -192,7 +190,7 @@ load_app_runtime() {
   }
   chmod 0600 "${ENV_FILE}"
   if ! qa_docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${APP_CONTAINER}" >"${ENV_FILE}"; then
-    qa_fail env_capture_failed 47 "cannot capture active app environment"
+    qa_fail env_capture_failed 47 "cannot capture pinned QA environment"
     return
   fi
 }
@@ -204,13 +202,14 @@ qa_container_run() {
     --user="${QA_MAINTENANCE_UID}:${QA_MAINTENANCE_GID}" \
     --read-only --cap-drop=ALL --security-opt=no-new-privileges \
     --memory=1g --memory-swap=1g --cpus=0.20 --pids-limit=128 \
-    --network="container:${APP_CONTAINER}" \
+    --network="${QA_RUNTIME_NETWORK}" \
     --volume="${APP_DATA_SOURCE}:/app/data:ro" \
     --volume="${QA_MAINTENANCE_HOST_BLOB_ROOT}:/app/data/qa_blobs:rw" \
     --volume="${QA_MAINTENANCE_HOST_DLQ_ROOT}:/app/data/qa_dlq:rw" \
     --volume="${QA_MAINTENANCE_HOST_LEDGER_ROOT}:/app/data/qa_capture_ledger:ro" \
     --volume="${QA_MAINTENANCE_HOST_SCRATCH}:${QA_MAINTENANCE_CONTAINER_SCRATCH}:rw" \
     --env-file="${ENV_FILE}" \
+    --env="QA_MAINTENANCE_PAUSE_DROP=$([ -e /var/lib/tokenkey/qa-release/pause-drop ] && printf true || printf false)" \
     --env="TMPDIR=${QA_MAINTENANCE_CONTAINER_SCRATCH}" \
     "$@"
 }
@@ -665,6 +664,10 @@ run_bundle_canary() {
   CHILD_STDOUT=""
   CHILD_STDERR=""
   load_app_runtime
+  if [ -n "${QA_CANARY_IMAGE:-}" ]; then
+    [[ "${QA_CANARY_IMAGE}" =~ ^ghcr.io/youxuanxue/sub2api:[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta)\.[0-9]+)?$ ]] || return 40
+    APP_IMAGE="$(qa_docker image inspect --format '{{.Id}}' "${QA_CANARY_IMAGE}")" || return
+  fi
   set +e
   qa_container_run "tokenkey-qa-bundle-canary-$$" \
     "${APP_IMAGE}" /app/sub2api \

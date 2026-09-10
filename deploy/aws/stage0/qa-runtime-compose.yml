@@ -1,0 +1,41 @@
+# Configuration snapshot for the QA commands. This container is never started;
+# it pins the image against pruning and holds an independently deployed config.
+services:
+  runtime:
+    image: ${QA_MAINTENANCE_IMAGE:?QA_MAINTENANCE_IMAGE is required}
+    container_name: tokenkey-qa-runtime
+    entrypoint: /bin/true
+    labels:
+      dev.tokenkey.qa-runtime: independent-v1
+      dev.tokenkey.release-tag: ${QA_MAINTENANCE_TAG:?QA_MAINTENANCE_TAG is required}
+    volumes:
+      - /var/lib/tokenkey/app:/app/data
+    environment:
+      DATA_DIR: /app/data
+      TZ: ${TZ:-UTC}
+      DATABASE_HOST: tokenkey-postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: ${POSTGRES_USER:-tokenkey}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DATABASE_DBNAME: ${POSTGRES_DB:-tokenkey}
+      DATABASE_SSLMODE: disable
+      DATABASE_MAX_OPEN_CONNS: "2"
+      DATABASE_MAX_IDLE_CONNS: "1"
+      QA_ARCHIVE_ENABLED: ${QA_ARCHIVE_ENABLED:-true}
+      QA_ARCHIVE_STORAGE_DRIVER: ${QA_ARCHIVE_STORAGE_DRIVER:-s3}
+      QA_ARCHIVE_STORAGE_REGION: ${QA_ARCHIVE_STORAGE_REGION:-us-east-1}
+      QA_ARCHIVE_STORAGE_BUCKET: ${QA_ARCHIVE_STORAGE_BUCKET:?QA_ARCHIVE_STORAGE_BUCKET is required}
+      QA_ARCHIVE_STORAGE_PREFIX: ${QA_ARCHIVE_STORAGE_PREFIX:-raw/v1}
+      QA_ARCHIVE_SEAL_DELAY_MINUTES: ${QA_ARCHIVE_SEAL_DELAY_MINUTES:-15}
+      QA_BUNDLE_ENABLED: "true"
+      QA_BUNDLE_QUEUE_URL: ${QA_BUNDLE_QUEUE_URL:?QA_BUNDLE_QUEUE_URL is required}
+      QA_BUNDLE_STORAGE_DRIVER: s3
+      QA_BUNDLE_STORAGE_REGION: ${QA_BUNDLE_STORAGE_REGION:-us-east-1}
+      QA_BUNDLE_STORAGE_BUCKET: ${QA_BUNDLE_STORAGE_BUCKET:?QA_BUNDLE_STORAGE_BUCKET is required}
+      QA_BUNDLE_STORAGE_PREFIX: ${QA_BUNDLE_STORAGE_PREFIX:-user-qa}
+    networks:
+      - data
+networks:
+  data:
+    external: true
+    name: ${QA_RUNTIME_NETWORK:?QA_RUNTIME_NETWORK is required}

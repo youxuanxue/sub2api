@@ -720,7 +720,10 @@ QA Bundle 的 dedicated OIDC role、CloudFormation service role 和 GitHub varia
 gh workflow run deploy-stage0.yml -f tag=<上一版本>
 ```
 
-这只把输入解释为 app tag；QA Worker 与 host runners 不随 legacy app 一起降级。具体模式、失败边界和 degraded 验收只以 `ops/qa/README.md` 链接的 QA SSOT 为准。
+输入是目标 release tag；同一入口自动选择发生变化的 gateway、QA maintenance 和 Bundle Worker。
+maintenance 使用 `tokenkey-qa-runtime` 停止容器固定独立镜像、配置和 data network；gateway-only 发布不更新或执行 QA。
+首次启用必须完成完整 QA 验收；旧 contract 回滚保留 QA pin 并暂停 DROP。
+组件与失败恢复契约见 [`prod-component-release.md`](../../docs/approved/prod-component-release.md)，数据生命周期仍以 QA SSOT 为准。
 
 ### 生产升级 SOP（备用：纯手工 SSM）
 

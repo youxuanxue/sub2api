@@ -287,6 +287,9 @@ func defaultQAMaintenanceDeps() qaMaintenanceDeps {
 			return lifecycle.RunProvision(ctx, conn, lifecycle.Options{HoursAhead: lifecycle.HourlyHorizon}, nil)
 		},
 		singleOwnerActive: func(ctx context.Context, conn *sql.Conn) (bool, error) {
+			if os.Getenv("QA_MAINTENANCE_PAUSE_DROP") == "true" {
+				return false, nil
+			}
 			var active bool
 			err := conn.QueryRowContext(ctx, `
 SELECT EXISTS (

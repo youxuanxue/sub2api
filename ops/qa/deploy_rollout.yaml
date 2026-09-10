@@ -6,6 +6,12 @@ schema_version: 1
 # observed_* fields are reconciled by live probes.
 
 prod:
+  component_release:
+    runtime_contract: independent_v1
+    repository_state: ready
+    observed_live_state: not_deployed
+    planner: ops/stage0/prod_release_plan.py
+    verified_state: /var/lib/tokenkey/qa-release/verified.json
   QA_ARCHIVE_ENABLED:
     deploy_inject_default: true
     policy_target: prod.archive.enabled
@@ -17,7 +23,7 @@ prod:
     repository_closeout_state: single_owner_ready
     observed_live_state: single_owner_not_activated
     policy_target_state: sole_lifecycle_owner_after_activation
-    host_artifact_sync_on_prod_deploy: required
+    host_artifact_sync_on_prod_deploy: component_change_only
     host_artifact_source: target_release_tag
     sync_active_service_policy: bounded_drain_then_replace
     sync_failure_restore_policy: pre_sync_timer_state
@@ -36,7 +42,7 @@ prod:
     repository_closeout_state: pre_activation_fixed_age_transition
     observed_live_state: single_owner_not_activated
     policy_target_state: disabled_after_single_owner_activate
-    host_artifact_sync_on_prod_deploy: required
+    host_artifact_sync_on_prod_deploy: component_change_only
     host_artifact_source: target_release_tag
     sync_active_service_policy: bounded_drain_then_replace
     sync_failure_restore_policy: activation_receipt_forces_disabled

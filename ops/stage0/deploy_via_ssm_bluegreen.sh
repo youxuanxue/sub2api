@@ -40,6 +40,13 @@ OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 STAGE="${STAGE0_BLUEGREEN_STAGE:-deploy}"
 APPROVED_RECEIPT="${STAGE0_BLUEGREEN_APPROVED_RECEIPT:-}"
 REPLACE_RECEIPT="${STAGE0_BLUEGREEN_REPLACE_RECEIPT:-}"
+WAIT_PHASE="${STAGE0_BLUEGREEN_WAIT_PHASE:-complete}"
+DEPLOY_TOKEN="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+case "${WAIT_PHASE}" in complete|cutover) ;; *) echo "invalid blue/green wait phase" >&2; exit 1 ;; esac
+if [[ "${WAIT_PHASE}" = cutover && "${STAGE}" != deploy ]]; then
+  echo "early cutover observation requires deploy stage" >&2
+  exit 1
+fi
 
 case "${STAGE}" in
   deploy|prepare|promote) ;;
@@ -125,6 +132,8 @@ STAGE="${STAGE:-deploy}"
 APPROVED_RECEIPT="${APPROVED_RECEIPT:-}"
 REPLACE_RECEIPT="${REPLACE_RECEIPT:-}"
 PREPARED_FILE="${ROOT}/bluegreen-prepared.json"
+PENDING_DRAIN="${ROOT}/bluegreen-pending-drain.json"
+DEPLOY_TOKEN="${DEPLOY_TOKEN:-}"
 
 # Serialize host mutations across local invocations and workflow dispatches.
 exec 9>"${ROOT}/bluegreen-deploy.lock"
@@ -136,6 +145,7 @@ CUTOVER_AT=""
 ENV_BACKUP=""
 LEGACY_MIGRATED=0
 ROUTE_SWITCHED=0
+PENDING_DRAIN_OWNED=0
 
 log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
@@ -148,6 +158,11 @@ record_cutover() {
   printf '%s\n' "${CUTOVER_AT}" | sudo tee "${cutover_tmp}" >/dev/null
   sudo chmod 0644 "${cutover_tmp}"
   sudo mv "${cutover_tmp}" "${ROOT}/last-cutover-at"
+  if [[ -n "${DEPLOY_TOKEN}" ]]; then
+    jq -n --arg token "${DEPLOY_TOKEN}" --arg tag "${TAG}" --arg at "${CUTOVER_AT}" \
+      '{token:$token,tag:$tag,cutover_at:$at}' | sudo tee "${ROOT}/bluegreen-cutover-${DEPLOY_TOKEN}.json.tmp" >/dev/null
+    sudo mv "${ROOT}/bluegreen-cutover-${DEPLOY_TOKEN}.json.tmp" "${ROOT}/bluegreen-cutover-${DEPLOY_TOKEN}.json"
+  fi
   echo "tk_stage0_cutover: timestamp=${CUTOVER_AT}"
 }
 
@@ -220,6 +235,9 @@ cleanup_on_exit() {
     log "removed failed target ${TARGET_CONTAINER}; active color remains untouched"
   fi
   restore_env_if_safe
+  if [[ "${PENDING_DRAIN_OWNED:-0}" = 1 && "${CUTOVER_COMMITTED}" = 0 && "${ROUTE_SWITCHED}" = 0 ]]; then
+    sudo rm -f "${PENDING_DRAIN}"
+  fi
   if [[ "${CUTOVER_COMMITTED}" = 1 ]]; then
     echo "::warning::Caddy was already switched to the target color; not auto-rolling back"
   fi
@@ -457,6 +475,30 @@ drain_container() {
   done
   die "drain not complete for ${container}; preserving old container and stopping rollout"
   return 1
+}
+
+record_pending_drain() {
+  local container="$1" identity
+  identity="$(sudo docker inspect "${container}" --format '{{.Id}}')"
+  jq -n --arg container "${container}" --arg identity "${identity}" \
+    '{container:$container,identity:$identity}' | sudo tee "${PENDING_DRAIN}.tmp" >/dev/null
+  sudo mv "${PENDING_DRAIN}.tmp" "${PENDING_DRAIN}"
+  PENDING_DRAIN_OWNED=1
+}
+
+finish_pending_drain() {
+  [[ -f "${PENDING_DRAIN}" ]] || return 0
+  local container identity active
+  container="$(sudo jq -er '.container' "${PENDING_DRAIN}")"
+  identity="$(sudo jq -er '.identity' "${PENDING_DRAIN}")"
+  active="$(color_container "$(read_active_color)")"
+  [[ "${container}" != "${active}" ]] || die "pending drain points at the active gateway"
+  [[ "$(sudo docker inspect "${container}" --format '{{.Id}}')" = "${identity}" ]] || die "pending drain container changed"
+  if [[ "$(sudo docker inspect "${container}" --format '{{.State.Running}}')" = true ]]; then
+    drain_container "${container}"
+    sudo docker stop -t 180 "${container}" >/dev/null
+  fi
+  sudo rm -f "${PENDING_DRAIN}"
 }
 
 write_bluegreen_compose() {
@@ -922,12 +964,14 @@ ensure_legacy_cutover() {
   wait_healthy tokenkey-blue
   wait_ready tokenkey-blue
 
+  record_pending_drain tokenkey
   commit_cutover blue
   observe_routed_health blue
   install_bluegreen_systemd_unit
 
   drain_container tokenkey
   sudo docker stop -t 180 tokenkey >/dev/null
+  sudo rm -f "${PENDING_DRAIN}"
   sudo docker rm -f tokenkey >/dev/null 2>&1 || true
   log "legacy tokenkey container removed after cutover to blue"
 
@@ -978,6 +1022,7 @@ deploy_target_color() {
     return 0
   fi
 
+  record_pending_drain "${active_container}"
   commit_cutover "${target}"
   observe_routed_health "${target}"
   install_bluegreen_systemd_unit
@@ -985,6 +1030,7 @@ deploy_target_color() {
   drain_container "${active_container}"
   sudo docker stop -t 180 "${active_container}" >/dev/null
   log "stopped previous color ${active_container}"
+  sudo rm -f "${PENDING_DRAIN}"
 
   TARGET_CONTAINER=""
 }
@@ -1056,12 +1102,14 @@ promote_prepared_color() {
   validate_prepared_receipt "${active}" "${target}"
   backup_env "promote-${target}"
   env_set TOKENKEY_IMAGE "$(container_image "tokenkey-${target}")"
+  record_pending_drain "tokenkey-${active}"
   commit_cutover "${target}"
   sudo mv "${PREPARED_FILE}" "${ROOT}/bluegreen-last-promoted.json"
   observe_routed_health "${target}"
   install_bluegreen_systemd_unit
   drain_container "tokenkey-${active}"
   sudo docker stop -t 180 "tokenkey-${active}" >/dev/null
+  sudo rm -f "${PENDING_DRAIN}"
   log "promoted reviewed candidate ${target}; stopped previous color ${active}"
 }
 
@@ -1101,6 +1149,7 @@ prune_images() {
 }
 
 log "=== blue/green deploy tag=${TAG} ==="
+finish_pending_drain
 run_bluegreen_stage
 if [[ "${STAGE}" = prepare ]]; then
   log "candidate prepared; public traffic remains on $(read_active_color); explicit approval required before promote"
@@ -1154,6 +1203,7 @@ fi
 jq -n \
   --arg tag "${TAG}" \
   --arg stage "${STAGE}" \
+  --arg deploy_token "${DEPLOY_TOKEN}" \
   --arg approved_receipt "${APPROVED_RECEIPT}" \
   --arg replace_receipt "${REPLACE_RECEIPT}" \
   --arg deploy_profile "${DEPLOY_PROFILE}" \
@@ -1205,6 +1255,7 @@ jq -n \
     (
       "TAG=" + ($tag|@sh)
       + " STAGE=" + ($stage|@sh)
+      + " DEPLOY_TOKEN=" + ($deploy_token|@sh)
       + " APPROVED_RECEIPT=" + ($approved_receipt|@sh)
       + " REPLACE_RECEIPT=" + ($replace_receipt|@sh)
       + " DEPLOY_PROFILE=" + ($deploy_profile|@sh)
@@ -1266,6 +1317,13 @@ cmd_id="$(aws "${ssm_region_args[@]}" ssm send-command \
 echo "ssm command-id=${cmd_id}"
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "command_id=${cmd_id}" >> "${GITHUB_OUTPUT}"
+  echo "deploy_token=${DEPLOY_TOKEN}" >> "${GITHUB_OUTPUT}"
+fi
+
+if [[ "${WAIT_PHASE}" = cutover ]]; then
+  python3 "$(dirname "$0")/bluegreen_completion.py" cutover --instance-id "${INSTANCE_ID}" \
+    --command-id "${cmd_id}" --token "${DEPLOY_TOKEN}" --tag "${TAG}" --timeout "${TIMEOUT_SECONDS}"
+  exit 0
 fi
 
 deadline=$(( $(date +%s) + TIMEOUT_SECONDS ))

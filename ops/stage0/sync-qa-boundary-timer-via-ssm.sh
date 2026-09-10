@@ -35,7 +35,7 @@ else
   ARTIFACT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 BOUNDARY_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/tokenkey-qa-boundary.sh"
-RESOLVER_SRC="${ARTIFACT_ROOT}/ops/lib/resolve-app-container.sh"
+RESOLVER_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/qa-runtime.sh"
 for source in "${BOUNDARY_SRC}" "${RESOLVER_SRC}"; do
   [[ -f "${source}" ]] || { echo "missing ${source}" >&2; exit 1; }
 done
@@ -74,7 +74,7 @@ jq -n \
     "if sudo systemctl list-unit-files tokenkey-qa-boundary.timer --no-legend 2>/dev/null | grep -q \"^tokenkey-qa-boundary[.]timer\"; then sudo systemctl disable --now tokenkey-qa-boundary.timer; fi",
     ("qa_sync_deadline=$(( $(date +%s) + " + ($drain_timeout | tostring) + " )); while sudo systemctl is-active --quiet tokenkey-qa-boundary.service; do if [ \"$(date +%s)\" -ge \"${qa_sync_deadline}\" ]; then echo \"timeout draining tokenkey-qa-boundary.service\" >&2; exit 1; fi; sleep 2; done"),
     "! sudo systemctl is-active --quiet tokenkey-qa-boundary.service",
-    atomic_install($resolver; "/usr/local/lib/tokenkey/resolve-app-container.sh"; "0644"),
+    atomic_install($resolver; "/usr/local/lib/tokenkey/qa-runtime.sh"; "0644"),
     atomic_install($boundary; "/usr/local/bin/tokenkey-qa-boundary.sh"; "0755"),
     "sudo test -d /var/lib/tokenkey/app/qa_blobs",
     "sudo test -d /var/lib/tokenkey/app/qa_dlq",

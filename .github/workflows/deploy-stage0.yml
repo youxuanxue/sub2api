@@ -208,6 +208,11 @@ jobs:
           path: qa-target-release
           fetch-depth: 1
 
+      - name: Read independently pinned prod component state
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: python3 ops/stage0/prod_release_state.py read --instance-id "$INSTANCE_ID" --output .prod-release-state.json
+
       - name: Verify target-tag QA release tree
         id: qa_target
         run: |
@@ -246,11 +251,17 @@ jobs:
           CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN: ${{ vars.QA_OPS_RECOVERY_PRINCIPAL_ARN }}
           VERIFIED_EXISTING_WORKER_IMAGE: ${{ steps.qa_worker_discovery.outputs.worker_image }}
           TARGET_ROLLOUT: ${{ steps.qa_target.outputs.rollout }}
+          PREVIOUS_GATEWAY_TAG: ${{ steps.previous_runtime.outputs.tag }}
         run: |
           set -euo pipefail
           STACK_ERROR="$(mktemp)"
           trap 'rm -f "$STACK_ERROR"' EXIT
           if STACK_JSON="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" --output json 2>"$STACK_ERROR")"; then
+            EXISTING_WORKER_IMAGE="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "BundleWorkerImage") | .ParameterValue' <<<"$STACK_JSON")"
+            if [ -n "$EXISTING_WORKER_IMAGE" ] && [ "$EXISTING_WORKER_IMAGE" != None ] && [ -z "$VERIFIED_EXISTING_WORKER_IMAGE" ]; then
+              echo "::error::existing Bundle Worker discovery failed; refusing bootstrap fallback"
+              exit 1
+            fi
             OPS_RECOVERY_PRINCIPAL_ARN="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "OpsRecoveryPrincipalArn") | .ParameterValue' <<<"$STACK_JSON")"
             if [ -z "$OPS_RECOVERY_PRINCIPAL_ARN" ] || [ "$OPS_RECOVERY_PRINCIPAL_ARN" = None ]; then
               echo "::error::existing QA stack has no OpsRecoveryPrincipalArn parameter"
@@ -271,38 +282,21 @@ jobs:
               exit "$describe_rc"
             fi
           fi
-          SURFACE_JSON="{}"
-          FROM_TAG=""
-          if FROM_TAG="$(python3 ops/qa/qa_bundle_release_surface.py --from-image "$VERIFIED_EXISTING_WORKER_IMAGE" --print-tag)"; then
-            FETCH_OK=1
-            if [ "$FROM_TAG" != "$INPUT_TAG" ]; then
-              if ! git fetch --no-tags origin \
-                "refs/tags/v${FROM_TAG}:refs/tags/v${FROM_TAG}" \
-                "refs/tags/v${INPUT_TAG}:refs/tags/v${INPUT_TAG}"; then
-                echo "::warning::could not fetch v$FROM_TAG..v$INPUT_TAG; fail closed to target Worker + canary"
-                FETCH_OK=0
-              fi
-            fi
-            if [ "$FETCH_OK" = 1 ] && ! SURFACE_JSON="$(python3 ops/qa/qa_bundle_release_surface.py \
-              --from-image "$VERIFIED_EXISTING_WORKER_IMAGE" \
-              --to-tag "$INPUT_TAG" --json)"; then
-              echo "::warning::QA Bundle surface classify failed; fail closed to target Worker + canary"
-              SURFACE_JSON="{}"
-            fi
-          else
-            echo "QA Bundle surface classify skipped: live Worker is not a reusable release tag"
-          fi
+          # prod_release_plan consumes qa_bundle_release_surface.py as the QA path owner.
+          python3 ops/stage0/prod_release_plan.py --target "$INPUT_TAG" \
+            --gateway "$PREVIOUS_GATEWAY_TAG" --worker "$VERIFIED_EXISTING_WORKER_IMAGE" \
+            --state .prod-release-state.json --rollout "$TARGET_ROLLOUT" --output .prod-release-plan.json
+          SURFACE_JSON="$(jq '{worker_surface_changed:.deploy_worker,publisher_surface_changed:.run_canary}' .prod-release-plan.json)"
           RESOLUTION="$(python3 ops/qa/resolve_qa_bundle_worker_image.py \
             --target-tag "$INPUT_TAG" --target-rollout "$TARGET_ROLLOUT" \
             --verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE" \
             --surface-json "$SURFACE_JSON")"
-          echo "qa bundle surface: from=${FROM_TAG:-none} to=$INPUT_TAG $SURFACE_JSON"
+          echo "qa bundle surface: independent baselines to=$INPUT_TAG $SURFACE_JSON"
           echo "qa bundle resolution: $RESOLUTION"
-          MODE="$(jq -er '.mode' <<<"$RESOLUTION")"
-          RESOLVED_WORKER_IMAGE="$(jq -er '.resolved_worker_image' <<<"$RESOLUTION")"
           echo "qa_stack_name=$QA_STACK_NAME" >> "$GITHUB_OUTPUT"
           echo "ops_recovery_principal_arn=$OPS_RECOVERY_PRINCIPAL_ARN" >> "$GITHUB_OUTPUT"
           jq -r 'to_entries[] | "\(.key)=\(.value)"' <<<"$RESOLUTION" >> "$GITHUB_OUTPUT"
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' .prod-release-plan.json >> "$GITHUB_OUTPUT"
 
       - name: Verify target-tag Phase 3 host artifacts
         if: steps.qa_infra.outputs.mode == 'phase3'
@@ -310,6 +304,8 @@ jobs:
           set -euo pipefail
           test -f qa-target-release/deploy/aws/stage0/tokenkey-qa-maintenance.sh
           test -f qa-target-release/deploy/aws/stage0/tokenkey-qa-boundary.sh
+          test -f qa-target-release/deploy/aws/stage0/qa-runtime.sh
+          test -f qa-target-release/deploy/aws/stage0/qa-runtime-compose.yml
 
       - name: Configure Stage0 credentials for legacy host safety
         if: steps.qa_infra.outputs.mode == 'legacy_rollback'
@@ -318,14 +314,11 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Converge current QA maintenance runner before legacy app rollback
+      - name: Pause pinned QA deletion before legacy app rollback
         if: steps.qa_infra.outputs.mode == 'legacy_rollback'
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          QA_MAINTENANCE_TIMER_STATE: enabled
-          QA_HOST_ARTIFACT_SHA: ${{ github.sha }}
-          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-legacy-safety
-        run: bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 legacy safety maintenance"
+        run: python3 ops/stage0/prod_release_state.py pause --instance-id "$INSTANCE_ID"
 
       - name: Disable QA boundary before legacy app rollback
         if: steps.qa_infra.outputs.mode == 'legacy_rollback'
@@ -343,6 +336,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy QA Bundle infrastructure
+        if: steps.qa_infra.outputs.deploy_worker == 'true'
         env:
           QA_RAW_ARCHIVE_STACK: ${{ steps.qa_infra.outputs.qa_stack_name }}
           APP_INSTANCE_ROLE_ARN: ${{ steps.instance.outputs.app_role_arn }}
@@ -373,10 +367,12 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy via SSM Run-Command
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
         id: ssm
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
+          STAGE0_BLUEGREEN_WAIT_PHASE: cutover
           QA_BUNDLE_ENABLED: ${{ env.QA_BUNDLE_ENABLED }}
           QA_BUNDLE_QUEUE_URL: ${{ steps.qa_bundle.outputs.queue_url }}
           QA_BUNDLE_STORAGE_DRIVER: ${{ env.QA_BUNDLE_STORAGE_DRIVER }}
@@ -390,68 +386,32 @@ jobs:
           API_URL: ${{ steps.instance.outputs.api_url }}
         run: bash ops/stage0/external_health.sh "$API_URL"
 
-      - name: Sync QA maintenance host runner
-        if: steps.qa_infra.outputs.mode == 'phase3'
+      - name: Post-deploy gateway smoke (API + Claude paths)
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
         env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          QA_MAINTENANCE_TIMER_STATE: enabled
-          QA_HOST_ARTIFACT_ROOT: qa-target-release
-          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_target.outputs.sha }}
-          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-sync
-        run: bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance host artifact"
+          TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
+          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
+          TK_SMOKE_ANTHROPIC_MODELS: ${{ vars.TK_SMOKE_ANTHROPIC_MODELS || 'claude-sonnet-4-6' }}
+          TK_SMOKE_GEMINI_MODELS: ${{ vars.TK_SMOKE_GEMINI_MODELS || '' }}
+          TK_SMOKE_OPENAI_OAUTH_MODELS: ${{ vars.TK_SMOKE_OPENAI_OAUTH_MODELS || 'gpt-5.4' }}
+        run: bash ops/stage0/post_deploy_smoke.sh
 
-      - name: Sync QA boundary host runner and restore durable owner
-        if: steps.qa_infra.outputs.mode == 'phase3'
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          QA_BOUNDARY_TIMER_STATE: auto
-          QA_HOST_ARTIFACT_ROOT: qa-target-release
-          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_target.outputs.sha }}
-          STAGE0_SSM_OUTPUT_DIR: .qa-boundary-sync
-        run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-boundary host artifact"
+      - name: Post-deploy global candidate contract
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
+        run: python3 ops/observability/probe-global-candidate.py --phase candidate
 
-      - name: Verify QA maintenance systemd execution
-        if: steps.qa_infra.outputs.mode == 'phase3'
+      - name: Post-deploy SSOT display gate (deploy canary)
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
         env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-health-gate
-          STAGE0_SSM_TIMEOUT_SECONDS: "2700"
-        run: bash ops/stage0/run-qa-maintenance-health-gate-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance systemd health gate"
-
-      - name: Post-deploy QA Bundle canary
-        if: steps.qa_infra.outputs.run_canary == 'true'
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          STAGE0_SSM_OUTPUT_DIR: .qa-bundle-canary
-        run: bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-bundle canary"
+          TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
+          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
+          TK_FULLTEST_TIMEOUT: "15"
+        run: bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
 
       - name: Report legacy QA rollback degradation
         if: steps.qa_infra.outputs.mode == 'legacy_rollback'
         run: |
-          echo "::warning::QA Phase 3 degraded: the app was rolled back to legacy mode; the verified Worker was preserved, current maintenance was enabled, boundary was forced disabled, Bundle canary was skipped, and DROP is paused until a Phase 3 app is restored."
-
-      - name: Audit pricing registry runtime (read-only)
-        # Price publication is owned only by pricing-registry-publish.yml after a
-        # protected-main registry merge. Deploy and application rollback must not
-        # overwrite a newer active price snapshot. This step is advisory because
-        # deployment and price publication have independent rollback lifecycles.
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          python3 ops/pricing/manage-overlay-runtime.py check
-
-      - name: Post-deploy data invariant check (exclusive-group orphans)
-        # ADVISORY ONLY — never blocks the deploy. Reads (read-only) whether any
-        # API key is bound to an exclusive standard group whose user is NOT in
-        # user_allowed_groups (would 403 under #669). The sanctioned admin-UI
-        # path can't produce this; only manual DB edits / legacy rows can — so
-        # this surfaces drift right after deploy (often follows DB surgery).
-        # continue-on-error + the script's always-0 exit are belt-and-suspenders.
-        continue-on-error: true
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-        run: bash ops/stage0/check_exclusive_group_orphans_via_ssm.sh "$INSTANCE_ID" "deploy-stage0 orphan check env=prod"
+          echo "::warning::QA degraded: legacy gateway rollback preserved the Worker and independent maintenance pin, disabled boundary, and paused DROP until compatible component acceptance succeeds."
 
       - name: Assert live-host state (drift check)
         # ADVISORY ONLY — never blocks the deploy. Reads (read-only) the running
@@ -463,10 +423,12 @@ jobs:
         continue-on-error: true
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          GATEWAY_TAG: ${{ steps.qa_infra.outputs.gateway_tag }}
           EXPECT_ENV: QA_BUNDLE_ENABLED=${{ env.QA_BUNDLE_ENABLED }},QA_BUNDLE_QUEUE_URL=${{ steps.qa_bundle.outputs.queue_url }},QA_BUNDLE_STORAGE_DRIVER=${{ env.QA_BUNDLE_STORAGE_DRIVER }},QA_BUNDLE_STORAGE_REGION=${{ env.AWS_REGION }},QA_BUNDLE_STORAGE_BUCKET=${{ steps.qa_bundle.outputs.bucket }},QA_BUNDLE_STORAGE_PREFIX=${{ env.QA_BUNDLE_STORAGE_PREFIX }}
-        run: bash ops/stage0/assert-live-host-state.sh "$INSTANCE_ID" "$INPUT_TAG" "deploy-stage0 live-host assert env=prod"
+        run: bash ops/stage0/assert-live-host-state.sh "$INSTANCE_ID" "$GATEWAY_TAG" "deploy-stage0 live-host assert env=prod"
 
       - name: Sync Feishu alert config
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
         # Inject the shared Feishu webhook/secret into prod's
         # ops_email_notification_config and enable alerting (idempotent). The
         # script verifies the write and exits non-zero if not applied, so a node
@@ -476,63 +438,11 @@ jobs:
           TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
         run: bash ops/stage0/sync-feishu-config.sh prod
 
-      - name: Post-deploy gateway smoke (API + Claude paths)
-        env:
-          TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
-          TK_SMOKE_API_KEY: ${{ secrets.TK_SMOKE_API_KEY }}
-          TK_SMOKE_ANTHROPIC_MODELS: ${{ vars.TK_SMOKE_ANTHROPIC_MODELS || 'claude-sonnet-4-6' }}
-          TK_SMOKE_GEMINI_MODELS: ${{ vars.TK_SMOKE_GEMINI_MODELS || '' }}
-          TK_SMOKE_OPENAI_OAUTH_MODELS: ${{ vars.TK_SMOKE_OPENAI_OAUTH_MODELS || 'gpt-5.4' }}
-        run: |
-          set -euo pipefail
-          # Secret presence is validated up front in "Validate prod smoke secrets"
-          # (before the SSM image swap); here we just run the smoke against the
-          # already-deployed image.
-          bash ops/stage0/post_deploy_smoke.sh
-
-      - name: Post-deploy global candidate contract
-        run: python3 ops/observability/probe-global-candidate.py --phase candidate
-
-      - name: Post-deploy SSOT display gate (deploy canary)
-        env:
-          TOKENKEY_BASE_URL: ${{ steps.instance.outputs.api_url }}
-          TK_FULLTEST_KEY: ${{ secrets.TK_FULLTEST_KEY }}
-          TK_FULLTEST_TIMEOUT: "15"
-        run: |
-          set -euo pipefail
-          bash ops/observability/endpoint-compat-audit.sh --ssot-model-matrix --gate --deploy-canary --deploy-closeout
-
-      - name: Post-deploy supplier projection check (read-only)
-        # ADVISORY ONLY: supplier/account config drift is reported after release,
-        # while status and schedulable remain scheduler-owned runtime state.
-        continue-on-error: true  # preflight-allow: advisory post-release drift report
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-        run: |
-          set -euo pipefail
-          bash ops/observability/check-supplier-projection.sh \
-            --target prod \
-            --expected-instance-id "$INSTANCE_ID" \
-            --timeout-seconds 180
-
-      - name: Post-deploy account group binding check (read-only)
-        # ADVISORY ONLY: compare each healthy, schedulable account's explicit
-        # model_mapping with peer accounts' established active-group bindings.
-        # A review verdict or probe failure must never block the rollout.
-        continue-on-error: true  # preflight-allow: advisory post-release drift report
-        env:
-          INSTANCE_ID: ${{ steps.instance.outputs.id }}
-        run: |
-          set -euo pipefail
-          bash ops/observability/check-account-group-bindings.sh \
-            --target prod \
-            --expected-instance-id "$INSTANCE_ID" \
-            --timeout-seconds 180
-
       # Same deploy job: reuse the already-approved prod Environment + OIDC.
       # A second job with environment: prod would re-open Required reviewers
       # and start the +5min clock after that gate, not after cutover.
       - name: Plan checks from live→new PRs
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
         id: post_release_plan
         env:
           LIVE_TAG: ${{ steps.previous_runtime.outputs.tag }}
@@ -554,7 +464,7 @@ jobs:
           fi
 
       - name: Check PR hooks immediately
-        if: steps.post_release_plan.outputs.count != '0'
+        if: steps.post_release_plan.outputs.count != '' && steps.post_release_plan.outputs.count != '0'
         id: post_release_immediate
         continue-on-error: true  # preflight-allow: swallow; final verdict gate runs after both phases
         env:
@@ -574,7 +484,7 @@ jobs:
             --out-dir "$OUT_DIR/immediate"
 
       - name: Wait until 5 minutes after cutover
-        if: steps.post_release_plan.outputs.count != '0'
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
         env:
           OBSERVATION_SINCE: ${{ steps.ssm.outputs.cutover_at }}
         run: |
@@ -584,7 +494,7 @@ jobs:
             --minimum-seconds 300
 
       - name: Check traffic and 5xx after 5 minutes
-        if: steps.post_release_plan.outputs.count != '0'
+        if: steps.post_release_plan.outputs.count != '' && steps.post_release_plan.outputs.count != '0'
         id: post_release_check
         continue-on-error: true  # preflight-allow: swallow; final verdict gate runs after summary
         env:
@@ -616,7 +526,7 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce post-release verdicts
-        if: always() && steps.post_release_plan.outputs.count != '0'
+        if: always() && steps.post_release_plan.outputs.count != '' && steps.post_release_plan.outputs.count != '0'
         env:
           OUT_DIR: ${{ steps.post_release_plan.outputs.out_dir }}
         run: |
@@ -625,7 +535,65 @@ jobs:
             --immediate-evaluation-file "$OUT_DIR/immediate/evaluate.json" \
             --evaluation-file "$OUT_DIR/evaluate.json"
 
+      - name: Join gateway deployment and old request drain
+        if: always() && steps.ssm.outputs.command_id != ''
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          DEPLOY_COMMAND_ID: ${{ steps.ssm.outputs.command_id }}
+          DEPLOY_TOKEN: ${{ steps.ssm.outputs.deploy_token }}
+        run: |
+          python3 ops/stage0/bluegreen_completion.py complete --instance-id "$INSTANCE_ID" \
+            --command-id "$DEPLOY_COMMAND_ID" --token "$DEPLOY_TOKEN" --tag "$INPUT_TAG"
+
+      - name: Sync QA maintenance host runner
+        if: steps.qa_infra.outputs.deploy_maintenance == 'true'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_MAINTENANCE_TIMER_STATE: enabled
+          QA_HOST_ARTIFACT_ROOT: qa-target-release
+          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_target.outputs.sha }}
+          QA_MAINTENANCE_IMAGE: ghcr.io/youxuanxue/sub2api:${{ steps.qa_infra.outputs.maintenance_tag }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-sync
+        run: bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance host artifact"
+
+      - name: Sync QA boundary host runner and restore durable owner
+        if: steps.qa_infra.outputs.deploy_maintenance == 'true'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_BOUNDARY_TIMER_STATE: auto
+          QA_HOST_ARTIFACT_ROOT: qa-target-release
+          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_target.outputs.sha }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-boundary-sync
+        run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-boundary host artifact"
+
+      - name: Bind selected QA runtime for acceptance
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: python3 ops/stage0/prod_release_state.py bind --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
+
+      - name: Verify QA maintenance systemd execution
+        if: steps.qa_infra.outputs.deploy_maintenance == 'true'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-health-gate
+          STAGE0_SSM_TIMEOUT_SECONDS: "2700"
+        run: bash ops/stage0/run-qa-maintenance-health-gate-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance systemd health gate"
+
+      - name: Post-deploy QA Bundle canary
+        if: steps.qa_infra.outputs.run_canary == 'true'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_CANARY_IMAGE: ghcr.io/youxuanxue/sub2api:${{ steps.qa_infra.outputs.canary_tag }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-bundle-canary
+        run: bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-bundle canary"
+
+      - name: Record verified component combination
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: python3 ops/stage0/prod_release_state.py record --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
+
       - name: Notify Feishu (release rollout)
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
         # Best-effort 发版公告。只在 prod 换镜像 + external health + smoke +
         # immediate hooks +5min traffic post-release（green 或 skip）之后才跑 ——
         # 卡片 == 该版本已上线且烟测与 live→new PR 实测均通过（或无可测产品提交）。
@@ -659,29 +627,38 @@ jobs:
           STACK_NAME: ${{ steps.stack.outputs.name }}
           CMD_ID: ${{ steps.ssm.outputs.command_id }}
           INPUT_TAG: ${{ inputs.tag }}
+          GATEWAY_TAG: ${{ steps.qa_infra.outputs.gateway_tag }}
           QA_MODE: ${{ steps.qa_infra.outputs.mode }}
           QA_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}
           QA_WORKER_SOURCE: ${{ steps.qa_infra.outputs.worker_source }}
           QA_HOST_RUNTIME_MODE: ${{ steps.qa_infra.outputs.host_runtime_mode }}
+          QA_MAINTENANCE_TAG: ${{ steps.qa_infra.outputs.maintenance_tag }}
         run: |
           {
             echo "## deploy-stage0"
             echo "- environment: \`prod\`"
-            echo "- app image: \`ghcr.io/youxuanxue/sub2api:$INPUT_TAG\`"
+            echo "- app image: \`ghcr.io/youxuanxue/sub2api:${GATEWAY_TAG:-not-resolved}\`"
             echo "- QA mode: \`${QA_MODE:-not-resolved}\`"
             echo "- QA Bundle Worker image: \`${QA_WORKER_IMAGE:-not-resolved}\`"
             echo "- QA Bundle Worker source: \`${QA_WORKER_SOURCE:-not-resolved}\`"
             echo "- QA host runtime mode: \`${QA_HOST_RUNTIME_MODE:-not-resolved}\`"
+            echo "- QA maintenance image: \`ghcr.io/youxuanxue/sub2api:${QA_MAINTENANCE_TAG:-not-resolved}\`"
+            if [ -f .prod-release-plan.json ]; then
+              echo '- Component selection:'
+              echo '```json'
+              jq '{deploy_gateway,deploy_worker,deploy_maintenance,run_canary,reason,plan_id}' .prod-release-plan.json
+              echo '```'
+            fi
             echo "- stack: \`$STACK_NAME\`"
             echo "- instance: \`$INSTANCE_ID\`"
             echo "- api: $API_URL"
             echo "- ssm command id: \`${CMD_ID:-none}\`"
             echo
             if [ "$QA_MODE" = legacy_rollback ]; then
-              echo "**QA Phase 3 degraded:** legacy rollback preserved the verified Worker, converged current maintenance, forced boundary disabled, skipped Bundle canary, and paused DROP."
+              echo "**QA degraded:** legacy rollback preserved the Worker and independent maintenance pin, disabled boundary, skipped Bundle canary, and paused DROP."
               echo
             fi
-            echo "Rollback: re-dispatch with a previous app tag. Legacy mode requires a verified live Worker, installs the current safe host runners, and pauses DROP until Phase 3 is restored."
+            echo "Rollback: re-dispatch with a previous tag. Legacy mode requires a verified Worker and independent maintenance pin, and pauses DROP until compatible component acceptance succeeds."
             echo
             echo '```bash'
             echo "gh workflow run deploy-stage0.yml -f tag=<previous>"

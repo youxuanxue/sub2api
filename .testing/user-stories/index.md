@@ -4,6 +4,7 @@
 
 | ID     | Title                                            | Status | Path                                                                                  |
 | ------ | ------------------------------------------------ | ------ | ------------------------------------------------------------------------------------- |
+| US-051 | Prod component release | InTest | `.testing/user-stories/stories/US-051-prod-component-release.md` |
 | US-050 | Candidate Eligibility SSOT | Done | `.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md` |
 | US-001 | Channel type bridge dispatch baseline            | Done   | `.testing/user-stories/stories/US-001-channel-type-bridge-dispatch-baseline.md`       |
 | US-002 | OpenAI entrypoints affinity prefetch integration | Done   | `.testing/user-stories/stories/US-002-openai-affinity-entrypoints.md`                 |

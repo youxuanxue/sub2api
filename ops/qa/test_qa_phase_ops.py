@@ -732,7 +732,7 @@ exit 0
         resolver_install = next(
             command
             for command in commands
-            if "/usr/local/lib/tokenkey/resolve-app-container.sh" in command
+            if "/usr/local/lib/tokenkey/qa-runtime.sh" in command
         )
         self.assertIn("base64 -d", resolver_install)
         scratch_prepare = (
@@ -1259,7 +1259,7 @@ esac
             payload = json.loads((healthy_output / "ssm-params.json").read_text(encoding="utf-8"))
             self.assertEqual(
                 payload["commands"],
-                ["set -euo pipefail", "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --qa-bundle-canary"],
+                ["set -euo pipefail", "sudo env QA_CANARY_IMAGE='' /usr/local/bin/tokenkey-qa-maintenance.sh --qa-bundle-canary"],
             )
 
             invalid_output = root / "invalid"

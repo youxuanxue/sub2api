@@ -320,6 +320,8 @@ install_bluegreen_systemd_unit() { :; }
 commit_cutover() { CUTOVER_COMMITTED=1; printf 'commit:%s\n' "$1"; }
 observe_routed_health() { printf 'observe:%s\n' "$1"; }
 drain_container() { printf 'drain:%s\n' "$1"; }
+record_pending_drain() { printf 'pending:%s\n' "$1"; }
+PENDING_DRAIN=/unused/pending
 admit_edge_candidate() { :; }
 assert_active_route_consistent() { :; }
 write_prepared_receipt() { printf 'prepared:%s:%s\n' "$1" "$2"; }
@@ -563,6 +565,8 @@ echo "next-tag:$TAG"
 {function}
 ROOT=/unused
 PREPARED_FILE=/unused/receipt
+PENDING_DRAIN=/unused/pending
+record_pending_drain() {{ :; }}
 read_active_color() {{ echo blue; }}
 other_color() {{ echo green; }}
 assert_active_route_consistent() {{ :; }}
@@ -925,14 +929,47 @@ validate_prepared_receipt blue green
         assert remote is not None
 
         cases = [
-            ("ensure_legacy_cutover", ["commit:blue", "observe:blue", "drain:tokenkey"]),
-            ("deploy_target_color", ["commit:green", "observe:green", "drain:tokenkey-blue"]),
+            ("ensure_legacy_cutover", ["pending:tokenkey", "commit:blue", "observe:blue", "drain:tokenkey"]),
+            ("deploy_target_color", ["pending:tokenkey-blue", "commit:green", "observe:green", "drain:tokenkey-blue"]),
         ]
         for function_name, expected in cases:
             with self.subTest(function_name=function_name):
                 cutover = _run_cutover_path(remote, function_name)
                 self.assertEqual(cutover.returncode, 0, msg=cutover.stderr)
                 self.assertEqual(cutover.stdout.splitlines(), expected)
+
+    def test_pending_drain_survives_failure_and_rejects_live_or_replaced_container(self) -> None:
+        _, _, remote = _render()
+        function = _extract_shell_function(remote, "finish_pending_drain")
+        for active, identity, drain_rc, succeeds in (
+            ("green", "original", 0, True), ("blue", "original", 0, False),
+            ("green", "replacement", 0, False), ("green", "original", 1, False),
+        ):
+            with self.subTest(active=active, identity=identity, drain_rc=drain_rc), tempfile.TemporaryDirectory() as directory:
+                pending = pathlib.Path(directory) / "pending.json"
+                pending.write_text(json.dumps({"container": "tokenkey-blue", "identity": "original"}))
+                script = f'''set -euo pipefail
+{function}
+PENDING_DRAIN={shlex.quote(str(pending))}
+read_active_color() {{ echo {active}; }}
+color_container() {{ echo "tokenkey-$1"; }}
+die() {{ echo "$*" >&2; exit 1; }}
+drain_container() {{ echo drain; return {drain_rc}; }}
+sudo() {{
+  if [[ "$1" != docker ]]; then "$@"; return; fi
+  case "$*" in
+    *State.Running*) echo true ;;
+    *inspect*) echo {identity} ;;
+    *stop*) echo stop >&2 ;;
+    *) return 42 ;;
+  esac
+}}
+finish_pending_drain
+'''
+                result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+                self.assertEqual(result.returncode == 0, succeeds, result.stderr)
+                self.assertEqual(pending.exists(), not succeeds)
+                self.assertEqual("stop" in result.stderr, succeeds)
 
     def test_exports_remote_cutover_timestamp_to_github_output(self) -> None:
         proc, github_output = _run_with_fake_aws(

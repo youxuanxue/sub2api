@@ -10063,23 +10063,28 @@
       "rationale": "Wrapper tests keep review distinct from transport/setup failure so the workflow can surface both while remaining explicitly non-blocking."
     },
     {
-      "path": ".github/workflows/deploy-stage0.yml",
+      "path": "ops/observability/prod-config-audit.sh",
       "must_contain": [
-        "name: Post-deploy supplier projection check (read-only)",
         "bash ops/observability/check-supplier-projection.sh",
         "--expected-instance-id \"$INSTANCE_ID\""
       ],
-      "rationale": "The supplier projection audit runs automatically after the prod smoke/display gates as an advisory post-release check against the exact deployed instance."
+      "rationale": "The periodic prod audit checks supplier projection against the exact discovered instance, independently of gateway rollout."
     },
     {
-      "path": ".github/workflows/deploy-stage0.yml",
+      "path": "ops/observability/prod-config-audit.sh",
       "must_contain": [
-        "name: Post-deploy account group binding check (read-only)",
-        "continue-on-error: true  # preflight-allow: advisory post-release drift report",
         "bash ops/observability/check-account-group-bindings.sh",
         "--expected-instance-id \"$INSTANCE_ID\""
       ],
-      "rationale": "Every prod deploy runs the healthy-account model_mapping peer audit after smoke. The step is bound to the exact deployed instance and remains advisory for review findings and probe failures."
+      "rationale": "The periodic prod audit preserves account binding drift reporting while removing unrelated work from gateway deployment."
+    },
+    {
+      "path": ".github/workflows/ops-daily-diagnostics.yml",
+      "must_contain": [
+        "name: Audit prod configuration independently of deployment",
+        "bash ops/observability/prod-config-audit.sh"
+      ],
+      "rationale": "The existing scheduled diagnostics workflow remains the automatic owner of prod configuration audits."
     },
     {
       "path": "backend/internal/service/supplier_source_account_store.go",

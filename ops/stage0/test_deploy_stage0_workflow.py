@@ -5,6 +5,7 @@ from __future__ import annotations
 import pathlib
 import re
 import unittest
+import yaml
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -44,6 +45,25 @@ def step_run(name: str) -> str:
 
 
 class DeployStage0WorkflowTest(unittest.TestCase):
+    def test_us051_selected_components_and_drain_join_preserve_gateway_acceptance_order(self) -> None:
+        steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
+        names = [step.get("name", "") for step in steps]
+        by_name = {step.get("name"): step for step in steps}
+        ordered = ["Deploy via SSM Run-Command", "Post-deploy gateway smoke (API + Claude paths)",
+                   "Wait until 5 minutes after cutover", "Join gateway deployment and old request drain",
+                   "Sync QA maintenance host runner", "Verify QA maintenance systemd execution",
+                   "Post-deploy QA Bundle canary", "Record verified component combination"]
+        self.assertEqual([names.index(name) for name in ordered], sorted(names.index(name) for name in ordered))
+        for name, component in (("Deploy via SSM Run-Command", "deploy_gateway"),
+                                ("Deploy QA Bundle infrastructure", "deploy_worker"),
+                                ("Sync QA maintenance host runner", "deploy_maintenance"),
+                                ("Verify QA maintenance systemd execution", "deploy_maintenance"),
+                                ("Post-deploy QA Bundle canary", "run_canary")):
+            self.assertEqual(by_name[name]["if"], f"steps.qa_infra.outputs.{component} == 'true'")
+        self.assertEqual(by_name[ordered[0]]["env"]["STAGE0_BLUEGREEN_WAIT_PHASE"], "cutover")
+        self.assertEqual(by_name[ordered[3]]["if"], "always() && steps.ssm.outputs.command_id != ''")
+        self.assertNotIn("continue-on-error", by_name[ordered[3]])
+
     def test_prod_and_edge_share_bluegreen_deploy_owner(self) -> None:
         prod = WORKFLOW.read_text(encoding="utf-8")
         edge = EDGE_WORKFLOW.read_text(encoding="utf-8")
@@ -115,32 +135,19 @@ class DeployStage0WorkflowTest(unittest.TestCase):
 
         self.assertLess(baseline, image_mutation)
         post_release = deploy.index("name: Plan checks from live→new PRs")
-        supplier_projection = deploy.index(
-            "name: Post-deploy supplier projection check (read-only)"
-        )
-        account_group_binding = deploy.index(
-            "name: Post-deploy account group binding check (read-only)"
-        )
         post_release_immediate = deploy.index("name: Check PR hooks immediately")
         post_release_delayed = deploy.index("name: Check traffic and 5xx after 5 minutes")
         post_release_gate = deploy.index("name: Enforce post-release verdicts")
         self.assertLess(smoke, post_release)
-        self.assertLess(smoke, supplier_projection)
-        self.assertLess(supplier_projection, account_group_binding)
-        self.assertLess(account_group_binding, post_release)
         self.assertLess(post_release, post_release_immediate)
         self.assertLess(post_release_immediate, post_release_delayed)
         self.assertLess(post_release_delayed, post_release_gate)
         self.assertLess(post_release_gate, notification)
         self.assertIn("release_post_check.py gate", deploy[post_release_gate:notification])
-        supplier_block = deploy[supplier_projection:post_release]
-        self.assertIn("continue-on-error: true", supplier_block)
-        self.assertIn("check-supplier-projection.sh", supplier_block)
-        self.assertIn('--expected-instance-id "$INSTANCE_ID"', supplier_block)
-        account_group_block = deploy[account_group_binding:post_release]
-        self.assertIn("continue-on-error: true", account_group_block)
-        self.assertIn("check-account-group-bindings.sh", account_group_block)
-        self.assertIn('--expected-instance-id "$INSTANCE_ID"', account_group_block)
+        daily = (REPO_ROOT / ".github/workflows/ops-daily-diagnostics.yml").read_text()
+        self.assertIn("prod-config-audit.sh", daily)
+        self.assertNotIn("check-supplier-projection.sh", deploy)
+        self.assertNotIn("check-account-group-bindings.sh", deploy)
         block = deploy[baseline:image_mutation]
         self.assertIn("resolve-prod-running-tag-via-ssm.sh", block)
         self.assertIn('INSTANCE_ID: ${{ steps.instance.outputs.id }}', block)
@@ -242,7 +249,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         deploy = job_block("deploy")
         discovery = deploy.index("name: Discover existing QA Bundle Worker (read-only)")
         resolve = deploy.index("name: Resolve QA infrastructure deploy inputs")
-        host_safety = deploy.index("name: Converge current QA maintenance runner before legacy app rollback")
+        host_safety = deploy.index("name: Pause pinned QA deletion before legacy app rollback")
         infra_mutation = deploy.index("name: Deploy QA Bundle infrastructure")
         image_mutation = deploy.index("name: Deploy via SSM Run-Command")
         self.assertLess(discovery, resolve)
@@ -256,9 +263,9 @@ class DeployStage0WorkflowTest(unittest.TestCase):
             '--verified-existing-image "$VERIFIED_EXISTING_WORKER_IMAGE"',
             pre_mutation,
         )
-        self.assertIn("ops/qa/qa_bundle_release_surface.py", pre_mutation)
+        self.assertIn("ops/stage0/prod_release_plan.py", pre_mutation)
         self.assertIn("--surface-json", pre_mutation)
-        self.assertIn("fail closed to target Worker + canary", pre_mutation)
+        self.assertIn("--state .prod-release-state.json", pre_mutation)
 
     def test_bundle_infrastructure_is_ready_before_app_image_swap(self) -> None:
         deploy = job_block("deploy")
@@ -291,27 +298,27 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertLess(boundary_sync, health_gate)
         self.assertLess(health_gate, bundle_canary)
         gate = deploy[health_gate:bundle_canary]
-        self.assertIn("if: steps.qa_infra.outputs.mode == 'phase3'", gate)
+        self.assertIn("if: steps.qa_infra.outputs.deploy_maintenance == 'true'", gate)
         self.assertIn("run-qa-maintenance-health-gate-via-ssm.sh", gate)
 
     def test_legacy_rollback_converges_safe_control_plane_before_app_mutation(self) -> None:
         deploy = job_block("deploy")
-        maintenance = deploy.index("name: Converge current QA maintenance runner before legacy app rollback")
+        maintenance = deploy.index("name: Pause pinned QA deletion before legacy app rollback")
         boundary = deploy.index("name: Disable QA boundary before legacy app rollback")
         app_mutation = deploy.index("name: Deploy via SSM Run-Command")
         self.assertLess(maintenance, boundary)
         self.assertLess(boundary, app_mutation)
         safety = deploy[maintenance:app_mutation]
-        self.assertIn("QA_MAINTENANCE_TIMER_STATE: enabled", safety)
+        self.assertIn('prod_release_state.py pause --instance-id "$INSTANCE_ID"', safety)
         self.assertIn("QA_BOUNDARY_TIMER_STATE: disabled", safety)
         self.assertNotIn("QA_HOST_ARTIFACT_ROOT: qa-target-release", safety)
 
         canary = deploy[deploy.index("- name: Post-deploy QA Bundle canary"):]
         self.assertIn("if: steps.qa_infra.outputs.run_canary == 'true'", canary)
         warning = deploy[deploy.index("- name: Report legacy QA rollback degradation"):]
-        self.assertIn("QA Phase 3 degraded", warning)
-        self.assertIn("boundary was forced disabled", warning)
-        self.assertIn("DROP is paused", warning)
+        self.assertIn("QA degraded", warning)
+        self.assertIn("disabled boundary", warning)
+        self.assertIn("paused DROP", warning)
 
     def test_qa_infra_check_is_read_only_and_verifies_oidc_binding(self) -> None:
         job = job_block("qa-infra-check")

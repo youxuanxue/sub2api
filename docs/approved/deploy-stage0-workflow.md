@@ -21,6 +21,12 @@ scope: ".github/workflows/deploy-stage0.yml + .github/workflows/deploy-edge-ligh
 
 # Cloud-Agent-Driven Stage0 Blue/Green Deployment Workflow
 
+The approved 2026-09-10 [component release revision](prod-component-release.md)
+supersedes the prod component selection and cutover/completion ordering below.
+The same entry selects gateway, QA maintenance, and Bundle Worker independently;
+gateway smoke overlaps the original SSM request drain, and success still joins
+that command and preserves the five-minute observation.
+
 ## 1. Why this exists
 
 The release loop is now: tag → `release.yml` builds a multi-arch image →

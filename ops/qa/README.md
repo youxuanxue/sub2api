@@ -26,7 +26,7 @@ This is the single operator entry for the IAM and GitHub configuration required 
 
 `QA_INFRA_OIDC_ROLE_ARN`, `QA_OPS_RECOVERY_PRINCIPAL_ARN`, `CICD_OIDC_STACK_NAME`, and `QA_RAW_ARCHIVE_STACK` are GitHub Actions variables, not secrets. No AWS long-lived credentials are added to GitHub.
 
-App rollback does not imply QA control-plane rollback. The target release tree explicitly declares `bundle_runtime_contract: phase3_v1`. Legacy app rollback preserves only a fully verified live Worker, converges the current Phase 3 maintenance runner, forces boundary disabled/inactive before the app switch, skips canary, pauses DROP, and reports a degraded state. The complete resolver and recovery contract has one normative source: `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
+App rollback does not imply QA control-plane rollback. The target release tree explicitly declares `bundle_runtime_contract: phase3_v1` and `component_release.runtime_contract: independent_v1`. Legacy rollback preserves the verified live Worker and independent maintenance pin, disables boundary before the gateway switch, and pauses DROP. The component release contract is in `docs/approved/prod-component-release.md`; lifecycle authorization remains in `docs/approved/design-prod-qa-24h-s3-lifecycle.md` section 18.2.
 
 ## State and checks
 
