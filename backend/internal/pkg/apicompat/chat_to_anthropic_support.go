@@ -1,6 +1,7 @@
 package apicompat
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -12,6 +13,26 @@ func ValidateChatToAnthropic(req *ChatCompletionsRequest) error {
 	invalid := fmt.Errorf("unsupported Chat to Messages semantics")
 	if len(req.Functions) > 0 || hasChatJSON(req.FunctionCall) || hasChatJSON(req.ResponseFormat) {
 		return invalid
+	}
+	if hasChatJSON(req.Thinking) {
+		var thinking AnthropicThinking
+		decoder := json.NewDecoder(bytes.NewReader(req.Thinking))
+		decoder.DisallowUnknownFields()
+		if req.ReasoningEffort != "" || decoder.Decode(&thinking) != nil {
+			return invalid
+		}
+		switch thinking.Type {
+		case "enabled":
+			if thinking.BudgetTokens < 1024 {
+				return invalid
+			}
+		case "adaptive", "disabled":
+			if thinking.BudgetTokens != 0 {
+				return invalid
+			}
+		default:
+			return invalid
+		}
 	}
 	cacheCount := 0
 	cache := func(value *AnthropicCacheControl) bool {

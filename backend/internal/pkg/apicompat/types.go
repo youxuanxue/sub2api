@@ -709,6 +709,7 @@ type ChatCompletionsRequest struct {
 	ParallelToolCalls   *bool              `json:"parallel_tool_calls,omitempty"`
 	ToolChoice          json.RawMessage    `json:"tool_choice,omitempty"`
 	ReasoningEffort     string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high" | "xhigh"
+	Thinking            json.RawMessage    `json:"thinking,omitempty"`         // Messages-compatible extension, preserved by the native converter.
 	ServiceTier         string             `json:"service_tier,omitempty"`
 	Stop                json.RawMessage    `json:"stop,omitempty"` // string or []string
 	ResponseFormat      json.RawMessage    `json:"response_format,omitempty"`

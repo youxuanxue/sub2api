@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropicpolicy"
 )
 
 type OfficialEndpointProfile string
@@ -39,6 +41,7 @@ type TransportID string
 const TransportHTTP TransportID = "http"
 
 type AccountSnapshotInput struct {
+	ModelCapabilities  map[Protocol]anthropicpolicy.Capabilities
 	AccountID          int64
 	CapabilityKey      string
 	SupportedProtocols []Protocol
@@ -54,6 +57,7 @@ type AccountSnapshotInput struct {
 }
 
 type AccountSnapshot struct {
+	modelCapabilities  map[Protocol]anthropicpolicy.Capabilities
 	accountID          int64
 	capabilityKey      string
 	supportedProtocols map[Protocol]struct{}
@@ -69,6 +73,13 @@ type AccountSnapshot struct {
 }
 
 func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
+	modelCapabilities := make(map[Protocol]anthropicpolicy.Capabilities, len(input.ModelCapabilities))
+	for protocol, capabilities := range input.ModelCapabilities {
+		if !protocol.Valid() {
+			return AccountSnapshot{}, fmt.Errorf("invalid model capability protocol %q", protocol)
+		}
+		modelCapabilities[protocol] = capabilities
+	}
 	if input.AccountID <= 0 {
 		return AccountSnapshot{}, errors.New("account id must be positive")
 	}
@@ -123,6 +134,7 @@ func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
 		return AccountSnapshot{}, fmt.Errorf("invalid Gemini endpoint profile %q", input.GeminiProfile)
 	}
 	return AccountSnapshot{
+		modelCapabilities:  modelCapabilities,
 		accountID:          input.AccountID,
 		capabilityKey:      capabilityKey,
 		supportedProtocols: supported,

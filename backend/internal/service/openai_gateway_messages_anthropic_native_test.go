@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -212,4 +213,36 @@ func TestNativeAnthropicPassthroughLeavesOtherThinkingUntouched(t *testing.T) {
 			require.JSONEq(t, tt.body, string(upstream.lastBody))
 		})
 	}
+}
+
+func TestNativeAnthropicPassthroughSupplierCapabilityFailover(t *testing.T) {
+	body := []byte(`{"model":"claude-fable-5","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","message":"[preflight:R3.forced_tool_choice_incompatible] model has always-on thinking"}}`)),
+	}}
+	rateLimit, repo, blocker, incidents := newBridgePenaltyTestService()
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream, rateLimitService: rateLimit}
+	account := nativeAnthropicTestAccount()
+	account.Platform = PlatformNewAPI
+	account.Credentials["base_url"] = "http://anthropic.example"
+	attachTestProtocolCapability(account, protocolrouter.ProtocolMessages)
+	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone, "claude-fable-5", false, body)
+	require.NoError(t, err)
+	snapshot, err := protocolAccountSnapshotForRequest(account, request)
+	require.NoError(t, err)
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	require.NoError(t, err)
+	ctx := withProtocolExecutionPlan(context.Background(), plan)
+	_, err = svc.ForwardAsAnthropic(ctx, adaptiveProtocolTestContext("/v1/messages", body), account, body, "", "")
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.True(t, failover.ShouldRetryNextAccount())
+	require.False(t, candidateFailureAttributable(err))
+	require.Zero(t, repo.setErrorCalls)
+	require.Zero(t, repo.tempCalls)
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Empty(t, blocker.reasons)
+	require.Empty(t, incidents.reasons)
 }

@@ -21,13 +21,14 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 )
 
 func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, mode := range []string{service.RoutingModeDirect, service.RoutingModeUniversal} {
 		for _, stream := range []bool{false, true} {
-			for _, first := range []string{"messages", "supplier_forbidden", "supplier_empty", "ordinary_500"} {
+			for _, first := range []string{"messages", "supplier_forbidden", "supplier_empty", "ordinary_500", "thinking_forced", "implicit_thinking_forced", "supplier_capability"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", mode, stream, first), func(t *testing.T) {
 					var mu sync.Mutex
 					var hits []string
@@ -37,6 +38,7 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 						defer mu.Unlock()
 						hits = append(hits, r.URL.Path)
 						if r.URL.Path == "/v1/chat/completions" {
+							status := http.StatusInternalServerError
 							message := "Upstream access forbidden, please contact administrator (request id: fixture)"
 							if first == "supplier_empty" {
 								message = "没有可用账号，请稍后重试 (request id: fixture)"
@@ -44,8 +46,11 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 							if first == "ordinary_500" {
 								message = "internal error"
 							}
+							if first == "supplier_capability" {
+								status, message = http.StatusBadRequest, "[preflight:R3.forced_tool_choice_incompatible] model has always-on thinking"
+							}
 							w.Header().Set("Content-Type", "application/json")
-							w.WriteHeader(http.StatusInternalServerError)
+							w.WriteHeader(status)
 							_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"type": "unknown_error", "message": message}})
 							return
 						}
@@ -96,6 +101,12 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 					}
 					h := &OpenAIGatewayHandler{gatewayService: openai, nativeGatewayService: gateway, billingCacheService: billingCache, apiKeyService: keys, concurrencyHelper: NewConcurrencyHelper(concurrency, SSEPingFormatNone, time.Second), cfg: cfg, protocolRouter: pr, maxAccountSwitches: 5}
 					body := candidateMessagesToolBody(t, stream)
+					if first == "thinking_forced" || first == "implicit_thinking_forced" || first == "supplier_capability" {
+						body, _ = sjson.SetBytes(body, "tool_choice", map[string]any{"type": "function", "function": map[string]any{"name": "lookup_0"}})
+						if first == "thinking_forced" {
+							body, _ = sjson.SetBytes(body, "thinking", map[string]any{"type": "adaptive"})
+						}
+					}
 					router := gin.New()
 					router.POST("/v1/chat/completions", func(c *gin.Context) {
 						c.Set(string(middleware.ContextKeyAPIKey), key)
@@ -126,6 +137,10 @@ func TestCandidateChatMessagesToolsPriorityAndSupplierFailover(t *testing.T) {
 					require.Equal(t, "claude-fable-5", got.Model)
 					require.Equal(t, 64, got.MaxTokens)
 					require.JSONEq(t, `{"type":"auto","disable_parallel_tool_use":true}`, string(got.ToolChoice))
+					if first == "thinking_forced" {
+						require.NotNil(t, got.Thinking)
+						require.Equal(t, "adaptive", got.Thinking.Type)
+					}
 					var system []apicompat.AnthropicContentBlock
 					require.NoError(t, json.Unmarshal(got.System, &system))
 					require.Equal(t, "1h", system[0].CacheControl.TTL)
