@@ -40,6 +40,7 @@ export interface MePricingPrice {
   per_second?: number
   per_character?: number
   per_input_second?: number
+  per_image_input_token?: number
   /** Higher output price charged in thinking mode for the same model id, copied
    *  from the public catalog. Present only when the model has a thinking-mode
    *  premium; `output_per_1k` stays the non-thinking rate. */

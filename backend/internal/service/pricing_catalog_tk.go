@@ -601,6 +601,9 @@ func catalogModelFromEntry(name string, e *catalogRichEntry) PublicCatalogModel 
 	// token-priced chat rows (Gemini chat rows can carry image-related costs).
 	if e.Mode == "embedding" {
 		pricing.BillingMode = "embedding"
+		if e.InputCostPerImageToken != nil {
+			pricing.InputCostPerImageToken = *e.InputCostPerImageToken
+		}
 	}
 	switch catalogMediaBillingMode(e) {
 	case "stt":

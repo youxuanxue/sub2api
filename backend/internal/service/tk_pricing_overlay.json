@@ -1527,6 +1527,7 @@
   "doubao-embedding-vision": {
     "litellm_provider": "volcengine",
     "mode": "embedding",
+    "supports_vision": true,
     "source": "VolcEngine official https://www.volcengine.com/docs/82379/1544106, verified 2026-09-09: text 0.70 CNY/M tokens, image 1.80 CNY/M tokens; CNY/USD=6.7.",
     "input_cost_per_token": 1.0447761194029851e-07,
     "input_cost_per_image_token": 2.6865671641791046e-07

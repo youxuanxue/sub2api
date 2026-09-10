@@ -84,3 +84,24 @@ func TestVolcEnginePlanAudioCatalogUsesSettlementUnits(t *testing.T) {
 	}
 	require.True(t, found)
 }
+
+func TestVolcEnginePlanEmbeddingCatalogPreservesBothInputPrices(t *testing.T) {
+	catalog := &PricingCatalogService{}
+	catalog.SetSourceForTesting(func() ([]byte, time.Time, bool) {
+		return tkPricingOverlayRaw, time.Now(), true
+	})
+	for _, model := range catalog.BuildPublicCatalog(context.Background()).Data {
+		if model.ModelID != "doubao-embedding-vision" {
+			continue
+		}
+		require.Equal(t, "embedding", model.Pricing.BillingMode)
+		require.InDelta(t, 0.7/6.7/1000*1.06, model.Pricing.InputPer1KTokens, 1e-15)
+		require.InDelta(t, 1.8/6.7/1_000_000*1.06, model.Pricing.InputCostPerImageToken, 1e-15)
+		require.Contains(t, model.Capabilities, "vision")
+		entry := buildAccountFallbackEntry(model.ModelID, 1, map[string]PublicCatalogModel{model.ModelID: model})
+		require.NotNil(t, entry.YourPrice.PerImageInputToken)
+		require.Equal(t, model.Pricing.InputCostPerImageToken, *entry.YourPrice.PerImageInputToken)
+		return
+	}
+	t.Fatal("reviewed embedding model missing from public catalog")
+}
