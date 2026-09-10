@@ -24,14 +24,15 @@ import (
 )
 
 type asrTestConn struct {
-	frames     chan []byte
-	pcm        []byte
-	writes     int
-	failWrite  int
-	silent     bool
-	noFinal    bool
-	earlyFinal bool
-	closed     atomic.Bool
+	frames        chan []byte
+	pcm           []byte
+	writes        int
+	failWrite     int
+	silent        bool
+	noFinal       bool
+	earlyFinal    bool
+	positiveFinal bool
+	closed        atomic.Bool
 }
 
 func newASRTestConn() *asrTestConn { return &asrTestConn{frames: make(chan []byte, 4)} }
@@ -71,7 +72,11 @@ func (c *asrTestConn) WriteFrame(ctx context.Context, kind coderws.MessageType, 
 			text = ""
 		}
 		body, _ := json.Marshal(map[string]any{"audio_info": map[string]any{"duration": len(c.pcm) * 1000 / audio.PCMBytesPerSecond}, "result": map[string]any{"text": text}})
-		c.frames <- encodeVolcEngineASRFrame(9, -1, body)
+		final := encodeVolcEngineASRFrame(9, -1, body)
+		if c.positiveFinal {
+			binary.BigEndian.PutUint32(final[4:8], 15)
+		}
+		c.frames <- final
 	}
 	return nil
 }
@@ -138,7 +143,9 @@ func TestVolcEnginePlanASRBinaryWebSocketTransport(t *testing.T) {
 				if int32(binary.BigEndian.Uint32(frame[4:8])) < 0 {
 					received <- recording
 					body := fmt.Sprintf(`{"audio_info":{"duration":%d},"result":{"text":"loopback"}}`, len(recording)*1000/audio.PCMBytesPerSecond)
-					return conn.Write(ctx, coderws.MessageBinary, encodeVolcEngineASRFrame(9, -1, []byte(body)))
+					final := encodeVolcEngineASRFrame(9, -1, []byte(body))
+					binary.BigEndian.PutUint32(final[4:8], 15)
+					return conn.Write(ctx, coderws.MessageBinary, final)
 				}
 			}
 		}()
@@ -216,7 +223,9 @@ func TestVolcEnginePlanASRFrameValidation(t *testing.T) {
 	require.True(t, terminal)
 	require.Equal(t, "ok", result.Result.Text)
 	badSeq := bytes.Clone(valid)
-	binary.BigEndian.PutUint32(badSeq[4:8], 1)
+	binary.BigEndian.PutUint32(badSeq[4:8], 0)
+	negativeNonTerminal := bytes.Clone(valid)
+	negativeNonTerminal[1] = 0x91
 	var compressed bytes.Buffer
 	writer := gzip.NewWriter(&compressed)
 	_, err = writer.Write(bytes.Repeat([]byte(" "), volcEngineASRFrameLimit+1))
@@ -224,8 +233,45 @@ func TestVolcEnginePlanASRFrameValidation(t *testing.T) {
 	require.NoError(t, writer.Close())
 	bomb := encodeVolcEngineASRFrame(9, -1, compressed.Bytes())
 	bomb[2] = 0x11
-	for _, frame := range [][]byte{nil, valid[:7], valid[:len(valid)-1], badSeq, bomb, encodeVolcEngineASRFrame(9, -1, []byte("bad JSON"))} {
+	for _, frame := range [][]byte{nil, valid[:7], valid[:len(valid)-1], badSeq, negativeNonTerminal, bomb, encodeVolcEngineASRFrame(9, -1, []byte("bad JSON"))} {
 		_, _, err := decodeVolcEngineASRFrame(frame)
 		require.Error(t, err)
 	}
+}
+
+func TestVolcEnginePlanASRPositiveTerminalSequence(t *testing.T) {
+	// Observed upstream header on 2026-09-10: 11 93 10 00, sequence +15.
+	// Build the response independently of the client audio-frame encoder.
+	body := []byte(`{"audio_info":{"duration":2664},"result":{"text":"Hello, this is a short audio test."}}`)
+	frame := []byte{0x11, 0x93, 0x10, 0, 0, 0, 0, 15}
+	frame = binary.BigEndian.AppendUint32(frame, uint32(len(body)))
+	frame = append(frame, body...)
+	result, terminal, err := decodeVolcEngineASRFrame(frame)
+	require.NoError(t, err)
+	require.True(t, terminal)
+	require.EqualValues(t, 2664, result.AudioInfo.Duration)
+	require.Equal(t, "Hello, this is a short audio test.", result.Result.Text)
+}
+
+func TestVolcEnginePlanASRPositiveTerminalForwardAndBilling(t *testing.T) {
+	conn := newASRTestConn()
+	conn.positiveFinal = true
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, openaiWSPassthroughDialer: &asrTestDialer{conn: conn}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/audio/transcriptions", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	pcm := make([]byte, 6400)
+	result, err := svc.ForwardNativeAudioTranscription(ctx, c, volcEnginePlanTestAccount(), &AudioTranscriptionRequest{
+		Model: VolcEnginePlanASRModel, ResponseFormat: "json", PCM: pcm,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"text":"Hello, this is a short audio test."}`, recorder.Body.String())
+	require.Equal(t, pcm, conn.pcm)
+	require.True(t, conn.closed.Load())
+	require.InDelta(t, 200.0/3_600_000, result.AudioUsage.DurationOrUnits, 1e-12)
+	cost := NewBillingService(nil, nil).CalculateAudioCostForModel(VolcEnginePlanASRModel, result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, nil, 1)
+	require.InDelta(t, 1.0/6.7*1.06*200/3_600_000, cost.ActualCost, 1e-12)
 }
