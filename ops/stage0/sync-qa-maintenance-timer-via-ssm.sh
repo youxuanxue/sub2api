@@ -54,17 +54,24 @@ else
   ARTIFACT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 MAINT_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/tokenkey-qa-maintenance.sh"
-RESOLVER_SRC="${ARTIFACT_ROOT}/ops/lib/resolve-app-container.sh"
+RESOLVER_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/qa-runtime.sh"
 [[ -f "${MAINT_SRC}" ]] || { echo "missing ${MAINT_SRC}" >&2; exit 1; }
 [[ -f "${RESOLVER_SRC}" ]] || { echo "missing ${RESOLVER_SRC}" >&2; exit 1; }
 
 MAINT_SH_B64="$(base64 <"${MAINT_SRC}" | tr -d '\n')"
 RESOLVER_SH_B64="$(base64 <"${RESOLVER_SRC}" | tr -d '\n')"
 TEMPLATE_SHA="${QA_HOST_ARTIFACT_SHA:-${GITHUB_SHA:-local}}"
+RUNTIME_TEMPLATE_B64="$(base64 <"${ARTIFACT_ROOT}/deploy/aws/stage0/qa-runtime-compose.yml" | tr -d '\n')"
+RUNTIME_INSTALL_B64="$(base64 <"${SCRIPT_DIR}/qa-runtime-install.py" | tr -d '\n')"
+RUNTIME_TRANSACTION_B64="$(base64 <"${ARTIFACT_ROOT}/deploy/aws/stage0/qa-runtime-transaction.sh" | tr -d '\n')"
 
 jq -n \
   --arg maint "${MAINT_SH_B64}" \
   --arg resolver "${RESOLVER_SH_B64}" \
+  --arg runtime_template "${RUNTIME_TEMPLATE_B64}" \
+  --arg runtime_install "${RUNTIME_INSTALL_B64}" \
+  --arg runtime_transaction "${RUNTIME_TRANSACTION_B64}" \
+  --arg runtime_image "${QA_MAINTENANCE_IMAGE:-}" \
   --arg sha "${TEMPLATE_SHA}" \
   --arg timer_command "${timer_command}" \
   --arg timer_state "${TIMER_STATE}" \
@@ -74,16 +81,22 @@ jq -n \
     commands: [
       "set -euo pipefail",
       "echo === qa-maintenance timer sync ===",
-      "if sudo systemctl is-enabled --quiet tokenkey-qa-maintenance.timer; then qa_timer_enabled=1; else qa_timer_enabled=0; fi; if sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer; then qa_timer_active=1; else qa_timer_active=0; fi; qa_sync_committed=0; qa_sync_restore() { qa_sync_rc=$?; trap - EXIT; if [ \"${qa_sync_committed}\" != 1 ]; then if [ \"${qa_timer_enabled}\" = 1 ]; then sudo systemctl enable tokenkey-qa-maintenance.timer >/dev/null 2>&1 || true; else sudo systemctl disable tokenkey-qa-maintenance.timer >/dev/null 2>&1 || true; fi; if [ \"${qa_timer_active}\" = 1 ]; then sudo systemctl start tokenkey-qa-maintenance.timer >/dev/null 2>&1 || true; else sudo systemctl stop tokenkey-qa-maintenance.timer >/dev/null 2>&1 || true; fi; fi; exit \"${qa_sync_rc}\"; }; trap qa_sync_restore EXIT",
+      ("eval \"$(printf %s " + $runtime_transaction + " | base64 -d)\""),
+      "if sudo systemctl is-enabled --quiet tokenkey-qa-maintenance.timer; then qa_timer_enabled=1; else qa_timer_enabled=0; fi; if sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer; then qa_timer_active=1; else qa_timer_active=0; fi; qa_sync_committed=0; qa_sync_restore() { qa_sync_rc=$?; trap - EXIT; if [ \"${qa_sync_committed}\" != 1 ]; then if ! qa_runtime_rollback; then echo \"QA runtime rollback failed; timer remains disabled\" >&2; sudo systemctl disable --now tokenkey-qa-maintenance.timer; exit 1; fi; if [ \"${qa_timer_enabled}\" = 1 ]; then sudo systemctl enable tokenkey-qa-maintenance.timer; else sudo systemctl disable tokenkey-qa-maintenance.timer; fi; if [ \"${qa_timer_active}\" = 1 ]; then sudo systemctl start tokenkey-qa-maintenance.timer; else sudo systemctl stop tokenkey-qa-maintenance.timer; fi; fi; qa_runtime_cleanup; exit \"${qa_sync_rc}\"; }; trap qa_sync_restore EXIT",
       "if sudo systemctl list-unit-files tokenkey-qa-maintenance.timer --no-legend 2>/dev/null | grep -q \"^tokenkey-qa-maintenance[.]timer\"; then sudo systemctl disable --now tokenkey-qa-maintenance.timer; fi",
       "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.timer",
       ("qa_sync_deadline=$(( $(date +%s) + " + ($drain_timeout | tostring) + " )); while sudo systemctl is-active --quiet tokenkey-qa-maintenance.service; do if [ \"$(date +%s)\" -ge \"${qa_sync_deadline}\" ]; then echo \"timeout draining tokenkey-qa-maintenance.service\" >&2; exit 1; fi; sleep 2; done"),
       "! sudo systemctl is-active --quiet tokenkey-qa-maintenance.service",
+      ("sudo install -d -m 0755 /var/lib/tokenkey/qa-lifecycle; exec 8>/var/lib/tokenkey/qa-lifecycle/host.lock; flock -w " + ($drain_timeout | tostring) + " -x 8"),
+      "qa_runtime_backup",
       ("echo " + $maint + " | base64 -d | sudo tee /usr/local/bin/tokenkey-qa-maintenance.sh > /dev/null"),
       "sudo chmod +x /usr/local/bin/tokenkey-qa-maintenance.sh",
       "sudo install -d -m 0755 /usr/local/lib/tokenkey",
-      ("echo " + $resolver + " | base64 -d | sudo tee /usr/local/lib/tokenkey/resolve-app-container.sh > /dev/null"),
-      "sudo chmod 0644 /usr/local/lib/tokenkey/resolve-app-container.sh",
+      ("echo " + $resolver + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-runtime.sh > /dev/null"),
+      "sudo chmod 0644 /usr/local/lib/tokenkey/qa-runtime.sh",
+      ("echo " + $runtime_template + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-runtime-compose.yml > /dev/null"),
+      ("echo " + $runtime_install + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-runtime-install.py > /dev/null"),
+      (if $runtime_image != "" then "sudo python3 /usr/local/lib/tokenkey/qa-runtime-install.py --keep-previous --template /usr/local/lib/tokenkey/qa-runtime-compose.yml --image " + ($runtime_image | @sh) else "sudo docker inspect tokenkey-qa-runtime >/dev/null" end),
       "sudo test -e /var/lib/tokenkey/app/qa_archive_tmp || sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_archive_tmp",
       "sudo test -e /var/lib/tokenkey/app/qa_blobs || sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_blobs",
       "sudo test -e /var/lib/tokenkey/app/qa_dlq || sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_dlq",
@@ -94,6 +107,8 @@ jq -n \
       ("test \"$(sudo systemctl is-enabled tokenkey-qa-maintenance.timer)\" = \"" + $timer_state + "\""),
       ("test \"$(sudo systemctl is-active tokenkey-qa-maintenance.timer)\" = \"" + $timer_active_state + "\""),
       "qa_sync_committed=1",
+      "qa_runtime_commit",
+      "qa_runtime_cleanup",
       "trap - EXIT",
       "sudo systemctl list-timers tokenkey-qa-maintenance.timer --no-pager || true",
       ("echo Live qa-maintenance units now match deploy/aws@" + $sha + " timer=" + $timer_state + " on $(hostname)")

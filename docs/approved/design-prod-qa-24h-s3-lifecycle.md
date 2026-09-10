@@ -550,30 +550,22 @@ Bundle 基础设施 bootstrap 与普通 app 发布分属两个权限边界。首
   Bundle outputs 不是 blocker，首次 deploy 可以在 app image 切换前更新它；OIDC outputs、IAM trust/policy 或
   GitHub variable 缺失则必须在任何 QA stack/app mutation 前失败。
 
-app image 与 Bundle Worker image 是两个发布生命周期，不能再用同一个 tag 隐式绑定。能力由目标 release
-tree 的 `ops/qa/deploy_rollout.yaml` 显式声明 `bundle_runtime_contract: phase3_v1`，不得根据尚未发布的 semver
-下限猜测。prod deploy 只调用一个确定性 resolver，由它输出 `mode`、唯一 `resolved_worker_image`、
-`worker_source`、`run_canary` 与 `host_runtime_mode`：
+2026-09-10 用户批准的 [组件发布修订](prod-component-release.md) 更新本节的发布边界：gateway、
+Bundle Worker 和 maintenance 各自固定版本与已验收基线，仍通过同一个 prod deploy 入口自动选择。
+目标 release tree 必须同时声明 `bundle_runtime_contract: phase3_v1` 与
+`component_release.runtime_contract: independent_v1`；不根据 semver 下限猜测能力。
 
-1. 目标 release tree 声明受支持 contract 时，`mode=phase3`。app image 与 Worker 是两个发布生命周期：若
-   read-only discovery 已证明 live Worker 是本仓库 immutable release tag，且 `qa_bundle_release_surface.py`
-   判定相对目标 tag 的 Worker 表面无 diff，则复用 live Worker、不滚动 Fargate；否则 Worker 使用目标
-   release image。canary 只在 Worker 将滚动、app 侧 Bundle publisher/canary 表面有 diff、或表面分类失败
-   （fail closed）时执行；gateway-only 发版不得为了同一个 tag 再付一次 Fargate pull 和 24 小时 raw-S3 canary；
-2. contract 缺失时，`mode=legacy_rollback`，只接受完整 read-only readiness verifier 已证明正在运行的本仓库
-   immutable release tag/digest；未知或 malformed contract 一律 fail closed；
-3. 没有 verified live Worker 的 legacy rollback 必须在 CloudFormation/app mutation 前失败；
-4. discovery 必须先验证 stack complete、CORS、AES256、lifecycle、queue/DLQ、ECS capacity 与实际 task image
-   精确等于 stack parameter，不能把 parameter 本身当成运行证明；
-5. infra deploy 与 post-update verifier 必须消费同一个 `resolved_worker_image`，并在 summary 同时报告 app image、
-   Worker image/source、mode 与 host runtime mode。
+`prod_release_plan.py` 消费真实 gateway tag、完整 discovery 验证的 Worker、独立 QA pin，以及已通过
+验收的 publisher 基线。共享依赖联动发布，未知 Git 证据失败退出，验收回执缺失或漂移则重新验收 QA。
+gateway-only 变更不滚动 Worker、不替换 maintenance、不执行 maintenance 或完整 Bundle canary。
+discovery 仍必须验证 stack complete、CORS、AES256、lifecycle、queue/DLQ、ECS capacity 与实际 task
+image 精确等于 stack parameter。infra deploy 与 verifier 消费同一个 `resolved_worker_image`。
 
-回滚到 Phase 3 之前的 app 只用于恢复 gateway 服务，不撤销已经建立的 Bundle 基础设施，也不把 Worker
-降级到不支持其命令的 binary。`mode=phase3` checkout/sync target-tag host runners，并按 resolver 的
-`run_canary` 决定是否执行 post-deploy Bundle canary；`mode=legacy_rollback` 在 app switch 前用当前 release tree 的 Phase 3 runners 收敛 host：maintenance
-enabled，boundary disabled/inactive；不得安装 legacy target runner，也不得保留未经证明的 live runner 状态。
-此模式跳过 canary，标记 `QA Phase 3 degraded`，archive 可继续而 DROP 明确暂停；durable activation receipt 不变，
-恢复 compatible Phase 3 app 后才以 boundary `auto` 恢复唯一 owner。
+maintenance 通过独立停止容器固定镜像与配置，复用 PostgreSQL data network，不再读取活动网关的
+配置或 network namespace。旧 contract 回滚保留已验证 Worker 和独立 QA pin，在切换网关前写入
+durable DROP pause 并禁用 boundary；没有有效 pin 的旧 contract 回滚必须失败退出。
+此模式跳过 canary，archive 可继续，durable activation receipt 不变。兼容版本完成组件验收后才
+清除 DROP pause，并依 durable activation receipt 恢复唯一 owner。
 
 ## 19. 迁移完成后的唯一运行图
 

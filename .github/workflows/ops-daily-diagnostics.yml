@@ -208,6 +208,20 @@ jobs:
             echo "skip live-host audit: no InstanceId for $STACK_NAME"
           fi
 
+      - name: Audit prod configuration independently of deployment
+        if: steps.precheck.outputs.skip == 'false' && env.TARGET_KIND == 'prod'
+        continue-on-error: true  # preflight-allow: advisory configuration audit
+        env:
+          AWS_REGION: ${{ matrix.region }}
+          PROD_CONFIG_AUDIT_DIR: prod-ops-targets/${{ matrix.target_id }}/config-audit
+        run: |
+          set -euo pipefail
+          INSTANCE_ID="$(aws cloudformation describe-stacks --region "$TARGET_REGION" --stack-name "$STACK_NAME" \
+            --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue | [0]' --output text)"
+          export INSTANCE_ID
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          bash ops/observability/prod-config-audit.sh
+
       - name: Run target diagnostics
         if: steps.precheck.outputs.skip == 'false'
         env:

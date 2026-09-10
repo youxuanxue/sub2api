@@ -3,7 +3,7 @@
 set -euo pipefail
 
 QA_BOUNDARY_DOCKER="${QA_BOUNDARY_DOCKER:-docker}"
-QA_BOUNDARY_RESOLVER="${QA_BOUNDARY_RESOLVER:-/usr/local/lib/tokenkey/resolve-app-container.sh}"
+QA_BOUNDARY_RESOLVER="${QA_BOUNDARY_RESOLVER:-/usr/local/lib/tokenkey/qa-runtime.sh}"
 QA_BOUNDARY_RUNTIME_DIR="${QA_BOUNDARY_RUNTIME_DIR:-/run/tokenkey-qa-boundary}"
 QA_BOUNDARY_HOST_DATA_ROOT="${QA_BOUNDARY_HOST_DATA_ROOT:-/var/lib/tokenkey/app}"
 QA_BOUNDARY_RECEIPT="${QA_BOUNDARY_RECEIPT:-/var/lib/tokenkey/qa-boundary-last-run.json}"
@@ -89,15 +89,13 @@ load_app_runtime() {
     qa_fail resolver_unavailable 42 "canonical app-container resolver unavailable"
     return
   fi
-  TK_DOCKER="${QA_BOUNDARY_DOCKER}"
-  ACTIVE_COLOR_FILE="${ACTIVE_COLOR_FILE:-/var/lib/tokenkey/active-color}"
-  export TK_DOCKER ACTIVE_COLOR_FILE
-  # shellcheck source=../../../ops/lib/resolve-app-container.sh
+  # shellcheck source=qa-runtime.sh
   . "${QA_BOUNDARY_RESOLVER}"
-  APP_CONTAINER="$(tk_resolve_app_container auto)" || {
-    qa_fail container_unresolved 43 "active app container is ambiguous or unavailable"
+  APP_CONTAINER="$(tk_resolve_qa_runtime)" || {
+    qa_fail container_unresolved 43 "pinned QA runtime is unavailable"
     return
   }
+  QA_RUNTIME_NETWORK="$(tk_qa_runtime_network "${APP_CONTAINER}")" || return
   APP_IMAGE="$(qa_docker inspect --format '{{.Image}}' "${APP_CONTAINER}" 2>/dev/null)" || APP_IMAGE=""
   case "${APP_IMAGE}" in
     sha256:*) ;;
@@ -141,7 +139,7 @@ qa_container_run() {
     --user="${QA_BOUNDARY_UID}:${QA_BOUNDARY_GID}" \
     --read-only --cap-drop=ALL --security-opt=no-new-privileges \
     --memory=1g --memory-swap=1g --cpus=0.20 --pids-limit=128 \
-    --network="container:${APP_CONTAINER}" \
+    --network="${QA_RUNTIME_NETWORK}" \
     --volume="${APP_DATA_SOURCE}:/app/data:ro" \
     --volume="${APP_DATA_SOURCE}/qa_blobs:/app/data/qa_blobs:rw" \
     --volume="${APP_DATA_SOURCE}/qa_dlq:/app/data/qa_dlq:rw" \

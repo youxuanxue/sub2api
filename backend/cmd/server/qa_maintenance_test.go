@@ -29,6 +29,27 @@ func qaMaintenanceTestInactive(context.Context, *sql.Conn) (bool, error) {
 	return false, nil
 }
 
+func TestQAMaintenanceLegacyPauseSkipsDeletionEvenWithActivation(t *testing.T) {
+	t.Setenv("QA_MAINTENANCE_PAUSE_DROP", "true")
+	deps := defaultQAMaintenanceDeps()
+	result, err := runQAMaintenanceDropPhase(context.Background(), qaMaintenancePlan{
+		State: archive.StateCommitted, RestoreVerified: true,
+	}, nil, qaMaintenanceDropPhaseDeps{
+		active: func(ctx context.Context) (bool, error) { return deps.singleOwnerActive(ctx, nil) },
+		drop: func(context.Context, archive.Window) (lifecycle.ExpiryResult, error) {
+			t.Fatal("legacy rollback must not DROP")
+			return lifecycle.ExpiryResult{}, nil
+		},
+		resume: func(context.Context) ([]lifecycle.HotCleanupResult, error) {
+			t.Fatal("legacy rollback must not resume hot cleanup")
+			return nil, nil
+		},
+	})
+	if err != nil || result.Active || result.DeletionAuthorized {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
 func TestQAMaintenanceDropPhaseDoesNothingBeforeSingleOwnerActivation(t *testing.T) {
 	dropCalls := 0
 	result, err := runQAMaintenanceDropPhase(

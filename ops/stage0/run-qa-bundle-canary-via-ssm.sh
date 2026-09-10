@@ -13,9 +13,9 @@ mkdir -p "${OUTPUT_DIR}"
 params="${OUTPUT_DIR}/ssm-params.json"
 stdout="${OUTPUT_DIR}/stdout.txt"
 stderr="${OUTPUT_DIR}/stderr.txt"
-jq -n '{commands:[
+jq -n --arg image "${QA_CANARY_IMAGE:-}" '{commands:[
   "set -euo pipefail",
-  "sudo /usr/local/bin/tokenkey-qa-maintenance.sh --qa-bundle-canary"
+  ("sudo env QA_CANARY_IMAGE=" + ($image | @sh) + " /usr/local/bin/tokenkey-qa-maintenance.sh --qa-bundle-canary")
 ]}' >"${params}"
 
 command_id="$(aws --region "${REGION}" ssm send-command \

@@ -45,9 +45,10 @@ class QAPhase2RunnerTest(unittest.TestCase):
 
         resolver = root / "resolve-app-container.sh"
         resolver.write_text(
-            "tk_resolve_app_container() { "
+            "tk_resolve_qa_runtime() { "
             "[ \"${TEST_RESOLVER_FAIL:-0}\" = 0 ] || return 1; "
-            "printf '%s\\n' tokenkey-green; }\n",
+            "printf '%s\\n' tokenkey-qa-runtime; }\n"
+            "tk_qa_runtime_network() { printf '%s\\n' tokenkey-data; }\n",
             encoding="utf-8",
         )
         docker_log = root / "docker.log"
@@ -460,7 +461,7 @@ exit 9
             self.assertEqual(payload["schema_version"], "qa-maintenance-runner-v1")
             self.assertEqual(payload["trigger"], "operator")
             self.assertTrue(payload["run_id"])
-            self.assertEqual(payload["active_container"], "tokenkey-green")
+            self.assertEqual(payload["active_container"], "tokenkey-qa-runtime")
             self.assertEqual(payload["image"], "sha256:image-v2")
             self.assertEqual(payload["runner_uid"], 1000)
             self.assertEqual(payload["runner_gid"], 1000)
@@ -481,7 +482,7 @@ exit 9
                 "--memory-swap=1g",
                 "--cpus=0.20",
                 "--pids-limit=128",
-                "--network=container:tokenkey-green",
+                "--network=tokenkey-data",
                 f"{env['TEST_DATA_ROOT']}:/app/data:ro",
                 f"{env['TEST_DATA_ROOT']}/qa_blobs:/app/data/qa_blobs:rw",
                 f"{env['TEST_DATA_ROOT']}/qa_dlq:/app/data/qa_dlq:rw",
