@@ -1,0 +1,175 @@
+name: QA Infra Deploy Stage0
+
+# Dedicated workflow for deploying and updating the QA Bundle CloudFormation
+# infrastructure (S3 buckets, SQS, ECS Fargate Worker task definition and service)
+# independently of gateway app releases.
+# See docs/approved/design-prod-qa-24h-s3-lifecycle.md and ops/qa/README.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Target release image tag for QA Bundle Worker without leading v (e.g. 1.8.170). If omitted, uses current live worker."
+        required: false
+        type: string
+        default: ""
+      confirm:
+        description: "Type 'deploy-qa-infra' to confirm stack mutation."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-qa-infra-stage0
+  cancel-in-progress: false
+
+jobs:
+  deploy-qa-infra:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 30
+    environment: prod
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      QA_INFRA_OIDC_ROLE_ARN: ${{ vars.QA_INFRA_OIDC_ROLE_ARN }}
+      QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
+      CICD_OIDC_STACK_NAME: ${{ vars.CICD_OIDC_STACK_NAME || 'tokenkey-cicd-oidc' }}
+      PROD_STACK_NAME: ${{ vars.PROD_STACK_NAME || 'tokenkey-prod-stage0' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Validate inputs and confirmation
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm }}" != "deploy-qa-infra" ]; then
+            echo "::error::confirmation failed; type 'deploy-qa-infra' to authorize stack update"
+            exit 1
+          fi
+          test -n "${OIDC_ROLE_ARN:-}" || { echo "::error::AWS_OIDC_ROLE_ARN is unset"; exit 1; }
+          test -n "${QA_INFRA_OIDC_ROLE_ARN:-}" || { echo "::error::QA_INFRA_OIDC_ROLE_ARN is unset"; exit 1; }
+
+      - name: Configure Stage0 credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve network, instance role, and service role
+        id: resolve
+        run: |
+          set -euo pipefail
+          read -r ID API_URL < <(
+            aws cloudformation describe-stacks --stack-name "$PROD_STACK_NAME" 
+              --query 'Stacks[0].Outputs' --output json |
+            python3 -c 'import json, sys; rows=json.load(sys.stdin); m={r.get("OutputKey"): r.get("OutputValue", "") for r in rows}; print(m.get("InstanceId", ""), m.get("ApiUrl", ""))'
+          )
+          test -n "$ID" && test "$ID" != "None" || { echo "::error::could not resolve InstanceId"; exit 1; }
+          test -n "$API_URL" && test "$API_URL" != "None" || { echo "::error::could not resolve ApiUrl"; exit 1; }
+          API_HOST="${API_URL#https://}"
+          browser_origin="$API_URL"
+          if [[ "$API_HOST" == api.* ]]; then
+            browser_origin="https://${API_HOST#api.}"
+          fi
+          echo "browser_origin=$browser_origin" >> "$GITHUB_OUTPUT"
+
+          resources="$(aws cloudformation describe-stack-resources --stack-name "$PROD_STACK_NAME" --output json)"
+          physical_id() {
+            jq -r --arg logical "$1" '.StackResources[] | select(.LogicalResourceId == $logical) | .PhysicalResourceId' <<<"$resources"
+          }
+          VPC_ID="$(physical_id VPC)"
+          SUBNET_ID="$(physical_id PublicSubnet)"
+          ROUTE_TABLE_ID="$(physical_id PublicRouteTable)"
+          INSTANCE_ROLE_NAME="$(physical_id InstanceRole)"
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          SERVICE_ROLE_ARN="$(aws cloudformation describe-stacks --stack-name "$CICD_OIDC_STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='QAInfraCloudFormationServiceRoleArn'].OutputValue | [0]" --output text)"
+          for value in "$VPC_ID" "$SUBNET_ID" "$ROUTE_TABLE_ID" "$INSTANCE_ROLE_NAME" "$SERVICE_ROLE_ARN"; do
+            test -n "$value" && test "$value" != "None" || { echo "::error::required coordinate is missing"; exit 1; }
+          done
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+          echo "subnet_id=$SUBNET_ID" >> "$GITHUB_OUTPUT"
+          echo "route_table_id=$ROUTE_TABLE_ID" >> "$GITHUB_OUTPUT"
+          echo "app_role_arn=arn:aws:iam::${ACCOUNT_ID}:role/${INSTANCE_ROLE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "service_role_arn=$SERVICE_ROLE_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Configure QA infrastructure credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.QA_INFRA_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Discover existing QA Bundle Worker
+        id: qa_worker_discovery
+        continue-on-error: true
+        env:
+          QA_BUNDLE_VERIFY_MODE: discovery
+          QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
+        run: bash ops/qa/verify_qa_bundle_infra.sh
+
+      - name: Resolve target worker image and recovery principal
+        id: target
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          VERIFIED_IMAGE: ${{ steps.qa_worker_discovery.outputs.worker_image }}
+          CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN: ${{ vars.QA_OPS_RECOVERY_PRINCIPAL_ARN }}
+        run: |
+          set -euo pipefail
+          STACK_JSON="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" --output json)"
+          OPS_RECOVERY_PRINCIPAL_ARN="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "OpsRecoveryPrincipalArn") | .ParameterValue' <<<"$STACK_JSON")"
+          if [ -z "$OPS_RECOVERY_PRINCIPAL_ARN" ] || [ "$OPS_RECOVERY_PRINCIPAL_ARN" = "None" ]; then
+            OPS_RECOVERY_PRINCIPAL_ARN="$CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN"
+          fi
+          test -n "$OPS_RECOVERY_PRINCIPAL_ARN" || { echo "::error::OpsRecoveryPrincipalArn is required"; exit 1; }
+
+          WORKER_IMAGE=""
+          if [ -n "$INPUT_TAG" ]; then
+            WORKER_IMAGE="ghcr.io/youxuanxue/sub2api:$INPUT_TAG"
+          elif [ -n "$VERIFIED_IMAGE" ]; then
+            WORKER_IMAGE="$VERIFIED_IMAGE"
+          else
+            echo "::error::no worker image specified and discovery returned none"
+            exit 1
+          fi
+          echo "worker_image=$WORKER_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "ops_recovery_principal_arn=$OPS_RECOVERY_PRINCIPAL_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy QA Bundle infrastructure
+        env:
+          QA_RAW_ARCHIVE_STACK: ${{ env.QA_STACK_NAME }}
+          APP_INSTANCE_ROLE_ARN: ${{ steps.resolve.outputs.app_role_arn }}
+          OPS_RECOVERY_PRINCIPAL_ARN: ${{ steps.target.outputs.ops_recovery_principal_arn }}
+          QA_RAW_ARCHIVE_VPC_ID: ${{ steps.resolve.outputs.vpc_id }}
+          QA_RAW_ARCHIVE_ROUTE_TABLE_IDS: ${{ steps.resolve.outputs.route_table_id }}
+          QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS: ${{ steps.resolve.outputs.subnet_id }}
+          QA_BUNDLE_WORKER_IMAGE: ${{ steps.target.outputs.worker_image }}
+          QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
+          QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.resolve.outputs.browser_origin }}
+          QA_CLOUDFORMATION_SERVICE_ROLE_ARN: ${{ steps.resolve.outputs.service_role_arn }}
+          QA_RAW_ARCHIVE_CONFIRM: "yes"
+        run: bash ops/qa/deploy_qa_raw_archive_cfn.sh
+
+      - name: Verify QA Bundle infrastructure
+        id: qa_bundle
+        env:
+          QA_RAW_ARCHIVE_STACK: ${{ env.QA_STACK_NAME }}
+          QA_BUNDLE_WORKER_IMAGE: ${{ steps.target.outputs.worker_image }}
+          QA_BUNDLE_WORKER_DESIRED_COUNT: "1"
+          QA_BUNDLE_VERIFY_MODE: expected
+        run: bash ops/qa/verify_qa_bundle_infra.sh
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## deploy-qa-infra-stage0"
+            echo "- stack: `${{ env.QA_STACK_NAME }}`"
+            echo "- worker image: `${{ steps.target.outputs.worker_image }}`"
+            echo "- bucket: `${{ steps.qa_bundle.outputs.bucket }}`"
+            echo "- queue: `${{ steps.qa_bundle.outputs.queue_url }}`"
+          } >> "$GITHUB_STEP_SUMMARY"

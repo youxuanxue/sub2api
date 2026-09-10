@@ -392,6 +392,41 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn("no image or host state was changed", summary)
         self.assertNotRegex(summary.lower(), r"\bdeployed\b|rollback:")
 
+    def test_fast_gateway_deploy_skips_slow_offline_gates_by_default(self) -> None:
+        text = workflow_text()
+        deploy = job_block("deploy")
+
+        # Fast deployment inputs exist with safe, non-blocking defaults
+        self.assertIn("force_qa_infra_deploy:", text)
+        self.assertIn("default: false", text)
+        self.assertIn("run_qa_maintenance_gate:", text)
+        self.assertIn("post_release_wait_seconds:", text)
+        self.assertIn("default: 0", text)
+
+        # QA infrastructure CFN deploy is conditional on worker change or explicit force
+        infra = deploy[
+            deploy.index("- name: Deploy QA Bundle infrastructure"):
+            deploy.index("- name: Verify QA Bundle infrastructure")
+        ]
+        self.assertIn("steps.qa_infra.outputs.worker_source != 'verified_live_worker'", infra)
+        self.assertIn("inputs.force_qa_infra_deploy == true", infra)
+
+        # Maintenance gate and canary are skipped for gateway releases by default
+        maint_gate = deploy[
+            deploy.index("- name: Verify QA maintenance systemd execution"):
+            deploy.index("- name: Post-deploy QA Bundle canary")
+        ]
+        self.assertIn("inputs.run_qa_maintenance_gate == true", maint_gate)
+        self.assertIn("steps.qa_infra.outputs.worker_source != 'verified_live_worker'", maint_gate)
+
+        # Cutover wait is parameterized by post_release_wait_seconds (defaults to 0 for fast deploy)
+        wait_step = deploy[
+            deploy.index("- name: Wait until 5 minutes after cutover"):
+            deploy.index("- name: Check traffic and 5xx after 5 minutes")
+        ]
+        self.assertIn("WAIT_SECONDS: ${{ inputs.post_release_wait_seconds || 0 }}", wait_step)
+        self.assertIn('--minimum-seconds "$WAIT_SECONDS"', wait_step)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,6 +30,21 @@ on:
         required: false
         type: string
         default: ""
+      force_qa_infra_deploy:
+        description: "Force CloudFormation stack update for QA Bundle infra. Default false (gateway releases reuse existing verified QA infra without waiting for slow CFN changesets)."
+        required: false
+        type: boolean
+        default: false
+      run_qa_maintenance_gate:
+        description: "Run synchronous QA maintenance systemd health gate and canary. Default false (fast gateway deploy; hourly timer handles maintenance); set true to validate QA engine changes."
+        required: false
+        type: boolean
+        default: false
+      post_release_wait_seconds:
+        description: "Seconds to wait after cutover before running post-release traffic check. Default 0 (fast deploy; non-blocking observation); set to 300 for full 5-minute soak."
+        required: false
+        type: number
+        default: 0
 
 # Default to read-only. The deploy job explicitly opts into AWS OIDC and package
 # access; smoke-only cannot obtain either capability.
@@ -343,6 +358,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy QA Bundle infrastructure
+        if: steps.qa_infra.outputs.worker_source != 'verified_live_worker' || inputs.force_qa_infra_deploy == true
         env:
           QA_RAW_ARCHIVE_STACK: ${{ steps.qa_infra.outputs.qa_stack_name }}
           APP_INSTANCE_ROLE_ARN: ${{ steps.instance.outputs.app_role_arn }}
@@ -411,7 +427,7 @@ jobs:
         run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-boundary host artifact"
 
       - name: Verify QA maintenance systemd execution
-        if: steps.qa_infra.outputs.mode == 'phase3'
+        if: steps.qa_infra.outputs.mode == 'phase3' && (inputs.run_qa_maintenance_gate == true || steps.qa_infra.outputs.worker_source != 'verified_live_worker')
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-health-gate
@@ -419,7 +435,7 @@ jobs:
         run: bash ops/stage0/run-qa-maintenance-health-gate-via-ssm.sh "$INSTANCE_ID" "deploy-stage0 qa-maintenance systemd health gate"
 
       - name: Post-deploy QA Bundle canary
-        if: steps.qa_infra.outputs.run_canary == 'true'
+        if: steps.qa_infra.outputs.run_canary == 'true' && (inputs.run_qa_maintenance_gate == true || steps.qa_infra.outputs.worker_source != 'verified_live_worker')
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .qa-bundle-canary
@@ -577,11 +593,12 @@ jobs:
         if: steps.post_release_plan.outputs.count != '0'
         env:
           OBSERVATION_SINCE: ${{ steps.ssm.outputs.cutover_at }}
+          WAIT_SECONDS: ${{ inputs.post_release_wait_seconds || 0 }}
         run: |
           set -euo pipefail
           python3 scripts/release_post_check.py wait \
             --since "$OBSERVATION_SINCE" \
-            --minimum-seconds 300
+            --minimum-seconds "$WAIT_SECONDS"
 
       - name: Check traffic and 5xx after 5 minutes
         if: steps.post_release_plan.outputs.count != '0'

@@ -683,7 +683,7 @@ class DeployStage0PostReleaseJobTest(unittest.TestCase):
         self.assertIn("--since \"$OBSERVATION_SINCE\"", deploy_block)
         self.assertIn("steps.ssm.outputs.cutover_at", deploy_block)
         self.assertIn("release_post_check.py wait", deploy_block)
-        self.assertIn("--minimum-seconds 300", deploy_block)
+        self.assertIn("--minimum-seconds \"$WAIT_SECONDS\"", deploy_block)
         self.assertIn("release_post_check.py summary", deploy_block)
         self.assertIn("release_post_check.py gate", deploy_block)
         feishu_pos = deploy_block.index("name: Notify Feishu (release rollout)")
