@@ -26,10 +26,6 @@ type protocolEndpointCapabilityRepository struct {
 	db protocolCapabilitySQL
 }
 
-func NewProtocolEndpointCapabilityRepository(db *sql.DB) service.ProtocolEndpointCapabilityRepository {
-	return newProtocolEndpointCapabilityRepositoryWithDB(db)
-}
-
 func newProtocolEndpointCapabilityRepositoryWithDB(db protocolCapabilitySQL) *protocolEndpointCapabilityRepository {
 	return &protocolEndpointCapabilityRepository{db: db}
 }

@@ -14,6 +14,12 @@ related_audit: external — testers report 2026-04-19 (not committed to repo; ci
 
 # NewAPI as First-Class Fifth Platform
 
+本文保留 2026-04-19 第五平台接入的历史审批与验收依据。下文按
+`group.platform` 划分调度池的策略已由
+[`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) 和
+[`protocol-routing-ssot.md`](protocol-routing-ssot.md) 的现行契约替代；
+新增入口应读取这两个 owner，不应恢复本文的旧选号约束。
+
 ## 0. TL;DR
 
 CLAUDE.md 把 `newapi` 描述为"first-class fifth platform"，路由层与 endpoint 推导也已就位，
@@ -84,7 +90,7 @@ POST /v1/messages
    新增 `IsOpenAICompatPoolMember(groupPlatform string)` 表达"账号是否属于该 platform 调度池"，
    把"调度池归属"这个新语义明确出来，避免污染原有 30+ 处 `IsOpenAI()` 调用语义。
 3. **最小注入点**（§5 upstream 兼容）：upstream 文件每处只改一行/加一字段，
-   真实判定逻辑搬到 `*_tk_*.go` companion，对照 `gateway_handler_tk_affinity.go` 等已有先例。
+   真实判定逻辑搬到 `*_tk_*.go` companion，对照 `gateway_handler_tk_selection.go` 等已有先例。
 4. **bucket 按 group.platform 自然分桶**：cache key 自动隔离，`openai` group 与 `newapi` group
    各拥一份调度快照，不会互相污染。
 

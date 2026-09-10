@@ -105,6 +105,10 @@ describe('OpsSystemLogTable host support', () => {
     })
     await flushPromises()
 
+    expect(mockListSystemLogs).not.toHaveBeenCalled()
+    await wrapper.setProps({ refreshToken: 1 })
+    await flushPromises()
+
     expect(wrapper.text()).toContain('api-node-1')
 
     const hostLabel = wrapper.findAll('label').find((label) => label.text().includes('admin.ops.systemLogs.host'))

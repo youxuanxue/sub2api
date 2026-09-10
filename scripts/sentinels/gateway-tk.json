@@ -10195,9 +10195,9 @@
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk.go",
       "must_contain": [
-        "func IsNewAPIAliTokenPlanAccount(account *Account) bool"
+        "func isNewAPIAliTokenPlanAccount(account *Account) bool"
       ],
-      "rationale": "Exported Token Plan account predicate for AudioSpeech failover skip."
+      "rationale": "Token Plan account predicate used by model presets and native TTS eligibility."
     },
     {
       "path": "backend/internal/handler/openai_gateway_audio_speech_tk_test.go",

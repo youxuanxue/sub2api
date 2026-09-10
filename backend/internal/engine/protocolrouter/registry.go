@@ -59,10 +59,7 @@ type RouteSpec struct {
 
 func (s RouteSpec) InboundProtocol() Protocol { return s.inbound }
 func (s RouteSpec) TargetProtocol() Protocol  { return s.target }
-func (s RouteSpec) RouteKind() RouteKind      { return s.kind }
 func (s RouteSpec) AdapterID() RouteAdapterID { return s.adapterID }
-func (s RouteSpec) Transport() TransportID    { return s.transport }
-
 func RouteSpecs() []RouteSpec {
 	specs := make([]RouteSpec, len(routeRegistry))
 	for i, route := range routeRegistry {

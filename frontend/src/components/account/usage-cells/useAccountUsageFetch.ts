@@ -217,10 +217,18 @@ export function useAccountUsageFetch(
     requestAutoLoad(source)
   })
 
+  let acknowledgedRefreshKey: string | undefined
+  const acknowledgeAccountUpdate = (account: Account) => {
+    acknowledgedRefreshKey = buildOpenAIUsageRefreshKey(account)
+  }
+
   if (options?.enableOpenAIRefreshKeyWatch) {
     watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
       if (!prevKey || nextKey === prevKey) return
       if (props.account.platform !== PLATFORM_OPENAI || props.account.type !== 'oauth') return
+      const acknowledged = nextKey === acknowledgedRefreshKey
+      acknowledgedRefreshKey = undefined
+      if (acknowledged) return
 
       _usageCache.delete(props.account.id)
       requestAutoLoad()
@@ -298,6 +306,7 @@ export function useAccountUsageFetch(
     usageInfo,
     loadUsage,
     loadActiveUsage,
+    acknowledgeAccountUpdate,
     shouldFetchUsage
   }
 }

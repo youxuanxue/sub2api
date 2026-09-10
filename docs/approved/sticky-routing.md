@@ -152,7 +152,7 @@ const (
 | Chat Completions compat | `openai_gateway_chat_completions.go:69-74` | 把 `shouldAutoInjectPromptCacheKeyForCompat` 替换为 strategy 判定 |
 | Messages → OpenAI | `openai_gateway_handler.go:597-611` | 把 if 条件从"有 metadata.user_id 才合成"扩展为"按 strategy 决定" |
 | Anthropic OAuth mimic | `gateway_service.go:1077-1081` | 注入逻辑改用统一 injector，但 `IsClaudeCodeUA` 时 short-circuit |
-| NewAPI 透传 | `gateway_handler_tk_affinity.go` | 新增 header 注入步骤（仅 `X-Session-Id`） |
+| NewAPI 透传 | `sticky_session_context.go` / `sticky_session_injector.go` | 共用 sticky 注入 owner（含 `X-Session-Id`） |
 
 ---
 

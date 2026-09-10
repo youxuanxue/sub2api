@@ -219,16 +219,6 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 		"an unaffected SSOT sibling must remain in fallback response")
 }
 
-// buildPricingJSON builds a minimal LiteLLM-shaped pricing JSON string where
-// all models in the given []antigravity.ClaudeModel are priced at $0.001/1k.
-func buildPricingJSON(models []antigravity.ClaudeModel) string {
-	ids := make([]string, len(models))
-	for i, m := range models {
-		ids[i] = m.ID
-	}
-	return buildPricingJSONFromIDs(ids)
-}
-
 func modelIDsFromAntigravityModels(models []antigravity.ClaudeModel) []string {
 	ids := make([]string, len(models))
 	for i, m := range models {

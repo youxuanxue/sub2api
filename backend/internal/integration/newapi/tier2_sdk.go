@@ -6,8 +6,6 @@ import (
 
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/stripe/stripe-go/v81"
-	waffo "github.com/waffo-com/waffo-go"
-	"github.com/waffo-com/waffo-go/config"
 )
 
 type EPayConfig struct {
@@ -25,37 +23,6 @@ func NewEPayClient(cfg EPayConfig) (*epay.Client, error) {
 		PartnerID: cfg.PartnerID,
 		Key:       cfg.Key,
 	}, cfg.BaseURL)
-}
-
-type WaffoConfig struct {
-	Sandbox      bool
-	APIKey       string
-	PrivateKey   string
-	PublicCert   string
-	MerchantID   string
-	DefaultMoney string
-	DefaultTitle string
-}
-
-// NewWaffoClient builds a Waffo SDK client using the same builder style as New API.
-func NewWaffoClient(cfg WaffoConfig) (*waffo.Waffo, error) {
-	env := config.Production
-	if cfg.Sandbox {
-		env = config.Sandbox
-	}
-	builder := config.NewConfigBuilder().
-		APIKey(strings.TrimSpace(cfg.APIKey)).
-		PrivateKey(strings.TrimSpace(cfg.PrivateKey)).
-		WaffoPublicKey(strings.TrimSpace(cfg.PublicCert)).
-		Environment(env)
-	if id := strings.TrimSpace(cfg.MerchantID); id != "" {
-		builder = builder.MerchantID(id)
-	}
-	c, err := builder.Build()
-	if err != nil {
-		return nil, err
-	}
-	return waffo.New(c), nil
 }
 
 type StripeCheckoutInput struct {

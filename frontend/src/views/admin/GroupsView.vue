@@ -241,7 +241,7 @@
                   t("admin.groups.subscription.noLimit")
                 }}</span>
                 <div class="text-gray-400 dark:text-gray-500">
-                  {{ t("admin.groups.usageTotal") }}
+                  {{ usageTotalLabel }}
                   <span class="ml-1 font-medium text-gray-600 dark:text-gray-300"
                     >{{
                       usageLoading
@@ -357,7 +357,7 @@
               </div>
               <div class="text-gray-500 dark:text-gray-400">
                 <span class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.usageTotal")
+                  usageTotalLabel
                 }}</span>
                 <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
                   >${{
@@ -4950,6 +4950,12 @@ type GroupUsageSummary = {
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
 const usageLoading = ref(false);
+const usageRetainedDays = ref<number | null>(null);
+const usageTotalLabel = computed(() =>
+  usageRetainedDays.value == null
+    ? t("common.total")
+    : t("admin.groups.usageTotal", { days: usageRetainedDays.value }),
+);
 const capacityMap = ref<
   Map<
     number,
@@ -5806,6 +5812,7 @@ const loadUsageSummary = async () => {
       });
     }
     usageMap.value = map;
+    usageRetainedDays.value = data.retained_days > 0 ? data.retained_days : null;
   } catch (error) {
     console.error("Error loading group usage summary:", error);
   } finally {

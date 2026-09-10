@@ -4,18 +4,22 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { adminRoutes } from '@/router/admin.tk'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (path: string) => readFileSync(resolve(here, path), 'utf8')
 
 describe('Prompt Audit integration surface', () => {
   it('registers an admin and risk-control guarded route', () => {
-    const router = read('../../../router/index.ts')
-    expect(router).toContain("path: '/admin/prompt-audit'")
-    const route = router.slice(router.indexOf("path: '/admin/prompt-audit'"), router.indexOf("path: '/admin/usage'"))
-    expect(route).toContain('requiresAuth: true')
-    expect(route).toContain('requiresAdmin: true')
-    expect(route).toContain('requiresRiskControl: true')
+    const router = createRouter({ history: createMemoryHistory(), routes: adminRoutes })
+    const route = router.resolve('/admin/prompt-audit')
+    expect(route.name).toBe('AdminPromptAudit')
+    expect(route.meta).toMatchObject({
+      requiresAuth: true,
+      requiresAdmin: true,
+      requiresRiskControl: true,
+    })
   })
 
   it('keeps the legacy content moderation route and adds both pages under an expand-only security group', () => {

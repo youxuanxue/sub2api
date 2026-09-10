@@ -106,21 +106,6 @@ func OAuthRefreshPlatforms() []string {
 	return out
 }
 
-// IsOAuthRefreshPlatform reports whether the platform is renewed by the
-// background OAuth refresh ticker. Derived from OAuthRefreshPlatforms() so the
-// predicate and the SQL filter can never disagree.
-func IsOAuthRefreshPlatform(platform string) bool {
-	if platform == "" {
-		return false
-	}
-	for _, p := range OAuthRefreshPlatforms() {
-		if platform == p {
-			return true
-		}
-	}
-	return false
-}
-
 // TrajProjectablePlatforms returns the platforms whose captured client-facing
 // wire shape the traj v2 projector faithfully reconstructs (see
 // trajectory.WireShapeForRecord). It is the SINGLE SOURCE the /auth/me

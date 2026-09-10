@@ -157,15 +157,6 @@ func ProtocolExecutionPlan(ctx context.Context) (protocolrouter.Plan, bool) {
 	return plan, ok && plan.TargetProtocol().Valid()
 }
 
-func ProtocolRouteFactsFromContext(ctx context.Context) (RouteFacts, bool) {
-	plan, ok := ProtocolExecutionPlan(ctx)
-	if !ok {
-		return RouteFacts{}, false
-	}
-	facts := routeFactsFromPlan(plan)
-	return facts, facts.valid()
-}
-
 func protocolExecutionTarget(ctx context.Context) (protocolrouter.Protocol, bool) {
 	plan, ok := ProtocolExecutionPlan(ctx)
 	if !ok {

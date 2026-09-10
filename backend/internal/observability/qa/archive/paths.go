@@ -27,8 +27,3 @@ func ShardPrefix(windowStart time.Time) string {
 		windowStart.Hour(),
 	)
 }
-
-// PartialPrefix returns the incomplete shard staging prefix for a segment id.
-func PartialPrefix(segmentID string) string {
-	return fmt.Sprintf("raw/partial/%s", segmentID)
-}
