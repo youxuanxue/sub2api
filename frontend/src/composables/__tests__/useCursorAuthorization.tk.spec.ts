@@ -2,15 +2,53 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope } from 'vue'
 import { useCursorAuthorization } from '../useCursorAuthorization.tk'
 import { cursorAPI, type CursorAuthorization } from '@/api/admin/cursor.tk'
+import { createApiError, createNetworkError } from '@/api/client.tk'
 
 vi.mock('@/api/admin/cursor.tk', () => ({ cursorAPI: { start: vi.fn(), status: vi.fn(), cancel: vi.fn(), save: vi.fn() } }))
 const pending: CursorAuthorization = { id: 'session-test', state: 'pending', authorization_url: 'https://cursor.com/loginDeepControl', expires_at: '2026-12-01' }
 let scope: ReturnType<typeof effectScope>
 function setup() { scope = effectScope(); return scope.run(() => useCursorAuthorization(key => key))! }
-beforeEach(() => { vi.resetAllMocks(); vi.useFakeTimers(); vi.mocked(cursorAPI.cancel).mockResolvedValue(); vi.mocked(cursorAPI.start).mockResolvedValue({ ...pending }) })
+beforeEach(() => { vi.resetAllMocks(); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-10')); vi.mocked(cursorAPI.cancel).mockResolvedValue(); vi.mocked(cursorAPI.start).mockResolvedValue({ ...pending }) })
 afterEach(() => { scope?.stop(); vi.useRealTimers() })
 
 describe('Cursor authorization lifecycle', () => {
+  it.each([createNetworkError(), createApiError({ status: 503 }), createApiError({ status: 429 }), createApiError({ status: 409 })])('recovers a pending authorization after a transient poll failure: %s', async failure => {
+    vi.mocked(cursorAPI.status).mockRejectedValueOnce(failure).mockResolvedValueOnce({ ...pending, state: 'authorized' })
+    const auth = setup()
+    await auth.start()
+    await vi.advanceTimersByTimeAsync(6500)
+    expect(cursorAPI.start).toHaveBeenCalledTimes(1)
+    expect(cursorAPI.status).toHaveBeenCalledTimes(2)
+    expect(auth.session.value?.state).toBe('authorized')
+    expect(auth.error.value).toBe('')
+  })
+  it('stops retrying when the authorization expires', async () => {
+    vi.mocked(cursorAPI.start).mockResolvedValue({ ...pending, expires_at: new Date(Date.now() + 3000).toISOString() })
+    vi.mocked(cursorAPI.status).mockRejectedValue(createNetworkError())
+    const auth = setup()
+    await auth.start()
+    await vi.advanceTimersByTimeAsync(12000)
+    expect(cursorAPI.status).toHaveBeenCalledTimes(1)
+    expect(auth.error.value).toBe('admin.accounts.cursor.disconnected')
+  })
+  it('cancels a scheduled poll retry when the dialog closes', async () => {
+    vi.mocked(cursorAPI.status).mockRejectedValue(createNetworkError())
+    const auth = setup()
+    await auth.start()
+    await vi.advanceTimersByTimeAsync(1500)
+    await auth.cancel()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(cursorAPI.status).toHaveBeenCalledTimes(1)
+    expect(auth.session.value).toBeNull()
+  })
+  it.each([401, 403, 404, 410])('does not retry a terminal authorization error: %i', async status => {
+    vi.mocked(cursorAPI.status).mockRejectedValue(createApiError({ status }))
+    const auth = setup()
+    await auth.start()
+    await vi.advanceTimersByTimeAsync(12000)
+    expect(cursorAPI.status).toHaveBeenCalledTimes(1)
+    expect(auth.error.value).toBe('admin.accounts.cursor.disconnected')
+  })
   it('cancels a session arriving after the modal has closed', async () => {
     let resolve!: (value: CursorAuthorization) => void
     vi.mocked(cursorAPI.start).mockReturnValue(new Promise(done => { resolve = done }))

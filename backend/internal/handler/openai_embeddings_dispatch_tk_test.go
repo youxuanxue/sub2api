@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -22,10 +23,17 @@ import (
 func TestEmbeddings_DispatchesSelectedAccountProtocol(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, mode := range []string{service.RoutingModeDirect, service.RoutingModeUniversal} {
-		for _, platform := range []string{service.PlatformNewAPI, service.PlatformOpenAI} {
+		for _, provider := range []string{service.PlatformNewAPI, service.PlatformOpenAI, "volcengine-plan"} {
+			platform := provider
+			if provider == "volcengine-plan" {
+				platform = service.PlatformNewAPI
+			}
 			for _, status := range []int{http.StatusOK, http.StatusBadRequest} {
-				t.Run(mode+"/"+platform+"/"+http.StatusText(status), func(t *testing.T) {
-					const model = "text-embedding-v4"
+				t.Run(mode+"/"+provider+"/"+http.StatusText(status), func(t *testing.T) {
+					model := "text-embedding-v4"
+					if provider == "volcengine-plan" {
+						model = "doubao-embedding-vision"
+					}
 					type request struct {
 						path, auth string
 						body       map[string]any
@@ -44,7 +52,7 @@ func TestEmbeddings_DispatchesSelectedAccountProtocol(t *testing.T) {
 							_, _ = io.WriteString(w, `{"error":{"message":"invalid embedding input","type":"invalid_request_error","code":"invalid_input"}}`)
 							return
 						}
-						_, _ = io.WriteString(w, `{"object":"list","model":"text-embedding-v4","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]},{"object":"embedding","index":1,"embedding":[0.3,0.4]}],"usage":{"prompt_tokens":4,"total_tokens":4}}`)
+						_, _ = io.WriteString(w, strings.ReplaceAll(`{"object":"list","model":"text-embedding-v4","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]},{"object":"embedding","index":1,"embedding":[0.3,0.4]}],"usage":{"prompt_tokens":4,"total_tokens":4}}`, "text-embedding-v4", model))
 					}))
 					defer upstream.Close()
 					group := service.Group{ID: 10, Platform: platform, Status: service.StatusActive, RateMultiplier: 1, Hydrated: true, AllowMessagesDispatch: true}
@@ -53,6 +61,10 @@ func TestEmbeddings_DispatchesSelectedAccountProtocol(t *testing.T) {
 					account := service.Account{ID: 110, Name: "embedding-upstream", Platform: platform, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 10, GroupIDs: []int64{10}, Credentials: map[string]any{"api_key": "embedding-test-key", "base_url": upstream.URL, "model_mapping": map[string]any{model: model}}}
 					if platform == service.PlatformNewAPI {
 						account.ChannelType = 17
+					}
+					if provider == "volcengine-plan" {
+						account.ChannelType = 45
+						account.Credentials["base_url"] = newapiintegration.VolcEngineAgentPlanBaseURL
 					}
 					repo := &candidateNativeRepo{accounts: []service.Account{account}}
 					cfg := &config.Config{RunMode: config.RunModeSimple}
@@ -79,6 +91,7 @@ func TestEmbeddings_DispatchesSelectedAccountProtocol(t *testing.T) {
 					}
 					h := &OpenAIGatewayHandler{gatewayService: openai, nativeGatewayService: gateway, billingCacheService: billingCache, apiKeyService: keyService, concurrencyHelper: NewConcurrencyHelper(concurrency, SSEPingFormatNone, time.Second), cfg: cfg, protocolRouter: pr}
 					body := `{"model":"text-embedding-v4","input":["hello","world"],"encoding_format":"float","dimensions":2}`
+					body = strings.ReplaceAll(body, "text-embedding-v4", model)
 					c, response := newGateEmbeddingContext(body)
 					c.Set(string(middleware.ContextKeyAPIKey), key)
 					c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7, Concurrency: 2})
@@ -91,6 +104,9 @@ func TestEmbeddings_DispatchesSelectedAccountProtocol(t *testing.T) {
 						path := "/v1/embeddings"
 						if platform == service.PlatformNewAPI {
 							path = "/compatible-mode/v1/embeddings"
+						}
+						if provider == "volcengine-plan" {
+							path = "/api/plan/v3/embeddings"
 						}
 						require.Equal(t, path, got.path)
 						require.Equal(t, "Bearer embedding-test-key", got.auth)

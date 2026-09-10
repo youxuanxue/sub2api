@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/audio"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -18,12 +20,28 @@ import (
 )
 
 // AudioSpeech handles POST /v1/audio/speech for OpenAI-compat platforms.
-// Ali Token Plan TTS is forwarded natively (SpeechSynthesizer); other platforms 404.
+// Supported Token Plan accounts use provider-native speech synthesis.
 func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
+	h.audioRequest(c, false)
+}
+
+func (h *OpenAIGatewayHandler) AudioTranscriptions(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), service.AudioTranscriptionTimeout)
+	defer cancel()
+	c.Request = c.Request.WithContext(ctx)
+	h.audioRequest(c, true)
+}
+
+// Both audio operations share admission, scheduling, failover and settlement.
+func (h *OpenAIGatewayHandler) audioRequest(c *gin.Context, transcription bool) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
 
 	requestStart := time.Now()
+	component := "handler.openai_gateway.audio_speech"
+	if transcription {
+		component = "handler.openai_gateway.audio_transcriptions"
+	}
 
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok {
@@ -38,7 +56,7 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 	}
 	reqLog := requestLogger(
 		c,
-		"handler.openai_gateway.audio_speech",
+		component,
 		zap.Int64("user_id", subject.UserID),
 		zap.Int64("api_key_id", apiKey.ID),
 		zap.Any("group_id", apiKey.GroupID),
@@ -48,6 +66,9 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 		return
 	}
 
+	if transcription {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, audio.MaxUploadBytes+64*1024)
+	}
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
 		writeReadRequestBodyError(c, err, h.errorResponse)
@@ -56,6 +77,16 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 	if len(body) == 0 {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
+	}
+	var recording []byte
+	var asr *service.AudioTranscriptionRequest
+	if transcription {
+		asr, recording, err = parseAudioTranscription(body, c.GetHeader("Content-Type"))
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		body, _ = json.Marshal(map[string]any{"model": asr.Model, "response_format": asr.ResponseFormat, "audio_bytes": len(recording)})
 	}
 	if !gjson.ValidBytes(body) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
@@ -69,9 +100,15 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 	}
 	reqModel := modelResult.String()
 	reqLog = reqLog.With(zap.String("model", reqModel))
+	if reqModel == "doubao-seed-tts-2.0" {
+		if err := service.ValidateVolcEnginePlanTTSRequest(body); err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+	}
 
 	inputText := gjson.GetBytes(body, "input").String()
-	if strings.TrimSpace(inputText) == "" {
+	if !transcription && strings.TrimSpace(inputText) == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "input is required")
 		return
 	}
@@ -80,10 +117,12 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
 	auditBody := body
-	if b, err := json.Marshal(map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": inputText}},
-	}); err == nil {
-		auditBody = b
+	if !transcription {
+		if b, err := json.Marshal(map[string]any{
+			"messages": []map[string]any{{"role": "user", "content": inputText}},
+		}); err == nil {
+			auditBody = b
+		}
 	}
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, auditBody); decision != nil && !decision.AllowNextStage {
 		h.openAISecurityAuditError(c, decision)
@@ -95,25 +134,28 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 		return
 	}
 
-	if h.gatewayService.TkTTSModelUnpriced(reqModel, apiKey.Group) {
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.TkUnpricedMediaModelMessage(reqModel, "tts"))
+	unpriced := h.gatewayService.TkTTSModelUnpriced(reqModel, apiKey.Group)
+	mode := "tts"
+	if transcription {
+		unpriced = h.gatewayService.TkSTTModelUnpriced(reqModel, apiKey.Group)
+		mode = "stt"
+	}
+	if unpriced {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.TkUnpricedMediaModelMessage(reqModel, mode))
 		return
 	}
 
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	if transcription && channelMapping.Mapped && channelMapping.MappedModel != reqModel {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "unsupported transcription model mapping")
+		return
+	}
 
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-
-	hold, holdReject := h.tkApplyTTSHold(c, apiKey, reqModel, utf8.RuneCountInString(inputText))
-	if holdReject {
-		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
-		return
-	}
-	defer hold.ReleaseUnlessSettling()
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -125,6 +167,32 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 	if userReleaseFunc != nil {
 		defer userReleaseFunc()
 	}
+	if transcription {
+		normalizeCtx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		asr.PCM, err = audio.Normalize(normalizeCtx, recording)
+		cancel()
+		if err != nil {
+			if h.audioRequestContextDone(c) {
+				return
+			}
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+	}
+	var hold *tkHoldHandle
+	var holdReject bool
+	if transcription {
+		hold, holdReject = h.tkApplyHold(c, apiKey, "", func(requestID string) (bool, bool) {
+			return h.gatewayService.TkReserveSTTHold(c.Request.Context(), requestID, reqModel, apiKey.User, apiKey, float64(len(asr.PCM))/audio.PCMBytesPerSecond)
+		})
+	} else {
+		hold, holdReject = h.tkApplyTTSHold(c, apiKey, reqModel, utf8.RuneCountInString(inputText))
+	}
+	if holdReject {
+		h.errorResponse(c, http.StatusForbidden, "insufficient_balance", tkInsufficientBalanceForHoldMsg)
+		return
+	}
+	defer hold.ReleaseUnlessSettling()
 
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai_audio_speech.billing_eligibility_check_failed", zap.Error(err))
@@ -142,6 +210,9 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 	profitVetoCount := 0
 
 	for {
+		if h.audioRequestContextDone(c) {
+			return
+		}
 		reqLog.Debug("openai_audio_speech.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selectionCtx, groupName := h.tkOpenAIChatSelectionCtx(c, apiKey, reqModel)
 		selection, _, err := h.gatewayService.SelectAccountWithScheduler(
@@ -174,14 +245,20 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 		}
 
 		account := selection.Account
-		if !service.IsNewAPIAliTokenPlanAccount(account) {
-			// Native SpeechSynthesizer forward is Token Plan only; mis-mapped
-			// PAYG/other Ali accounts must not abort the loop before a capable
-			// account is tried.
+		supported := service.SupportsNativeAudioSpeech(account)
+		if transcription {
+			supported = service.SupportsNativeAudioTranscription(account) && account.GetMappedModel(reqModel) == service.VolcEnginePlanASRModel
+		}
+		if !supported {
+			// Continue selection when a mapping includes an unsupported provider.
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+				selection.ReleaseFunc = nil
+			}
 			failedAccountIDs[account.ID] = struct{}{}
 			h.gatewayService.RecordOpenAIAccountSwitch()
 			if switchCount >= maxAccountSwitches {
-				h.handleStreamingAwareError(c, http.StatusBadGateway, "api_error", "No Ali Token Plan account available for audio speech", streamStarted)
+				h.handleStreamingAwareError(c, http.StatusBadGateway, "api_error", "No supported Token Plan account available for this audio operation", streamStarted)
 				return
 			}
 			switchCount++
@@ -211,7 +288,12 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()
-		result, err := h.gatewayService.ForwardAliTokenPlanTTS(c.Request.Context(), c, account, forwardBody)
+		var result *service.OpenAIForwardResult
+		if transcription {
+			result, err = h.gatewayService.ForwardNativeAudioTranscription(c.Request.Context(), c, account, asr)
+		} else {
+			result, err = h.gatewayService.ForwardNativeAudioSpeech(c.Request.Context(), c, account, forwardBody)
+		}
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -219,6 +301,9 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 		tkRecordForwardResponseTail(c, forwardStart)
 
 		if err != nil {
+			if h.audioRequestContextDone(c) {
+				return
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(reqModel), false, nil)
@@ -228,6 +313,7 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 						sameAccountRetryCount[account.ID]++
 						select {
 						case <-c.Request.Context().Done():
+							h.audioRequestContextDone(c)
 							return
 						case <-time.After(sameAccountRetryDelay):
 						}
@@ -249,7 +335,7 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 				return
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(reqModel), false, nil)
-			wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
+			wroteFallback := h.ensureForwardErrorResponseForError(c, err, streamStarted)
 			reqLog.Warn("openai_audio_speech.forward_failed",
 				zap.Int64("account_id", account.ID),
 				zap.Bool("fallback_error_response_written", wroteFallback),
@@ -276,9 +362,20 @@ func (h *OpenAIGatewayHandler) AudioSpeech(c *gin.Context) {
 			Result:             result,
 			ReqModel:           reqModel,
 			ChannelMapping:     channelMapping,
-			LogComponent:       "handler.openai_gateway.audio_speech",
+			LogComponent:       component,
 			LogFailedEventName: "openai_audio_speech.record_usage_failed",
 		})
 		return
 	}
+}
+
+func (h *OpenAIGatewayHandler) audioRequestContextDone(c *gin.Context) bool {
+	err := c.Request.Context().Err()
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) && !c.Writer.Written() {
+		h.errorResponse(c, http.StatusGatewayTimeout, "timeout_error", "Audio request timed out")
+	}
+	return true
 }

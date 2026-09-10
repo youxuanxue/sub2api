@@ -73,7 +73,7 @@ function mediaPriceFromCatalogRow(
   videoTiersRaw?: readonly PublicPricingVideoTier[]
 ): MediaPrice | undefined {
   const billingMode = pricingCatalogModality(billingModeRaw)
-  if (billingMode === 'text' || billingMode === 'embedding') return undefined
+  if (billingMode !== 'image' && billingMode !== 'video') return undefined
   const hasImage = perImage != null && perImage > 0
   const hasVideo = perSecond != null && perSecond > 0
   if ((billingMode === 'image' && !hasImage) || (billingMode === 'video' && !hasVideo && !videoTiersRaw?.length)) return undefined

@@ -1,5 +1,6 @@
 import { onScopeDispose, ref } from 'vue'
 import { cursorAPI, type CursorAuthorization } from '@/api/admin/cursor.tk'
+import { ApiError, isNetworkError } from '@/api/client.tk'
 
 export function useCursorAuthorization(t: (key: string) => string) {
   const session = ref<CursorAuthorization | null>(null)
@@ -21,14 +22,25 @@ export function useCursorAuthorization(t: (key: string) => string) {
 
   async function poll(current: number) {
     if (current !== generation || !session.value) return
+    if (!(Date.parse(session.value.expires_at) > Date.now())) {
+      error.value = t('admin.accounts.cursor.disconnected')
+      return
+    }
     try {
       const next = await cursorAPI.status(session.value.id)
       if (current !== generation) return
       session.value = next
+      error.value = ''
       if (next.state === 'failed') error.value = t('admin.accounts.cursor.authorizationFailed')
       if (next.state === 'pending') timer = setTimeout(() => void poll(current), 1500)
-    } catch {
-      if (current === generation) error.value = t('admin.accounts.cursor.disconnected')
+    } catch (cause) {
+      if (current !== generation) return
+      const status = cause instanceof ApiError ? cause.status : undefined
+      if (isNetworkError(cause) || status === 409 || status === 429 || (status !== undefined && status >= 500)) {
+        timer = setTimeout(() => void poll(current), 5000)
+      } else {
+        error.value = t('admin.accounts.cursor.disconnected')
+      }
     }
   }
 

@@ -368,6 +368,16 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     imageSizes: SEEDREAM_IMAGE_SIZES,
   },
   {
+    modelId: 'doubao-seedream-5.0-lite',
+    displayName: 'Seedream 5.0 Lite',
+    qualityBadge: 'standard',
+    qualityBadgeKey: 'studio.badge.standard',
+    vendorLabel: VOLC,
+    modality: 'image',
+    supportedParams: [],
+    imageSizes: SEEDREAM_IMAGE_SIZES,
+  },
+  {
     modelId: 'doubao-seedream-4-5-251128',
     displayName: 'Seedream 4.5',
     qualityBadge: 'standard',

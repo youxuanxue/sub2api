@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  catalogAudioPrice,
   catalogTokenPricePer1M,
   formatCatalogMediaPrice,
   formatCatalogPrice,
@@ -10,6 +11,14 @@ import {
 } from '../pricingCatalogPresentation.tk'
 
 describe('pricingCatalogPresentation', () => {
+  it('shows audio prices in their settlement units', () => {
+    expect(pricingCatalogModality('stt')).toBe('audio')
+    expect(pricingCatalogModality('tts')).toBe('audio')
+    expect(catalogAudioPrice('stt', undefined, 0.00004)).toEqual({ value: 0.14400000000000002, unit: 'pricing.perHour' })
+    expect(catalogAudioPrice('tts', 0.000045)?.value).toBeCloseTo(0.45)
+    expect(catalogAudioPrice('stt')?.value).toBeUndefined()
+    expect(catalogAudioPrice('token')).toBeUndefined()
+  })
   it('derives text, image, video, and embedding from the catalog billing mode', () => {
     expect(pricingCatalogModality('image')).toBe('image')
     expect(pricingCatalogModality('video')).toBe('video')

@@ -30,6 +30,8 @@ const (
 	ShapeOpenAIImagesEdit                           // POST /v1/images/edits（openai + grok）
 	ShapeOpenAIVideo                                // POST /v1/video/generations + GET poll
 	ShapeGemini                                     // POST /v1beta/models/{model}:action
+	ShapeOpenAIAudioSpeech
+	ShapeOpenAIAudioTranscription
 )
 
 // UniversalShapeForRequest 由 gin 路由模式（c.FullPath()，handler 前即稳定可得）+ HTTP 方法
@@ -38,6 +40,10 @@ func UniversalShapeForRequest(fullPath, method string) UniversalShape {
 	p := fullPath
 	isPost := strings.EqualFold(method, http.MethodPost)
 	switch {
+	case isPost && strings.HasSuffix(p, "/audio/speech"):
+		return ShapeOpenAIAudioSpeech
+	case isPost && strings.HasSuffix(p, "/audio/transcriptions"):
+		return ShapeOpenAIAudioTranscription
 	case strings.Contains(p, "/messages/count_tokens"):
 		return ShapeAnthropicCountTokens
 	case strings.Contains(p, "/messages"):
@@ -87,6 +93,8 @@ func universalCandidatePlatforms(shape UniversalShape, forcedPlatform string, ha
 		return []string{forcedPlatform}
 	}
 	switch shape {
+	case ShapeOpenAIAudioSpeech, ShapeOpenAIAudioTranscription:
+		return OpenAICompatPlatforms()
 	case ShapeAnthropicMessages:
 		// Direct /v1/messages routes non-OpenAI-compatible groups through
 		// Gateway.Messages, which supports Anthropic, Antigravity, Gemini and

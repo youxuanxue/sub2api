@@ -175,6 +175,12 @@ func universalOpenAICompatAccountSupportsModel(ctx context.Context, s *GatewaySe
 	if model == "" {
 		return true
 	}
+	if shape == ShapeOpenAIAudioTranscription && (model != VolcEnginePlanASRModel || account.GetMappedModel(model) != VolcEnginePlanASRModel) {
+		return false
+	}
+	if shape == ShapeOpenAIAudioSpeech && isNewAPIVolcEngineAgentPlanAccount(account) && (model != volcEnginePlanTTSModel || account.GetMappedModel(model) != volcEnginePlanTTSModel) {
+		return false
+	}
 	mapping := account.GetModelMapping()
 	if len(mapping) > 0 {
 		if mappingSupportsRequestedModel(mapping, model) {
@@ -221,6 +227,10 @@ func universalOpenAICompatMappingHonorsPlatformHint(account *Account, model stri
 
 func universalOpenAICompatAccountSupportsShape(account *Account, shape UniversalShape) bool {
 	switch shape {
+	case ShapeOpenAIAudioSpeech:
+		return SupportsNativeAudioSpeech(account)
+	case ShapeOpenAIAudioTranscription:
+		return SupportsNativeAudioTranscription(account)
 	case ShapeGemini:
 		return account.IsNewAPIVertexServiceAccount()
 	case ShapeOpenAIEmbeddings:

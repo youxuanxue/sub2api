@@ -148,7 +148,11 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			if len(ids) == 0 {
 				return nil, false
 			}
-			return identityModelMapping(ids), true
+			mapping := identityModelMapping(ids)
+			for alias, target := range newAPIVolcEngineAgentPlanModelAliases() {
+				mapping[alias] = target
+			}
+			return mapping, true
 		}
 		if isNewAPIAliTokenPlanAccount(account) {
 			ids := NewAPIModelMappingPresetIDsForAccount(account)

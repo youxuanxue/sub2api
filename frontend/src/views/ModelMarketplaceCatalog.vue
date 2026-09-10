@@ -159,7 +159,18 @@
 
             <!-- Pricing -->
             <div v-if="model.pricing" class="border-t border-gray-100 pt-3 dark:border-dark-700">
-              <template v-if="modelListingCategory(model) === 'image'">
+              <CatalogAudioPrice
+                v-if="modelListingCategory(model) === 'audio'"
+                :mode="model.pricing.billing_mode"
+                :per-character="model.pricing.output_cost_per_character"
+                :per-input-second="model.pricing.input_cost_per_second"
+              />
+              <CatalogEmbeddingPrice
+                v-else-if="modelListingCategory(model) === 'embedding' && model.pricing.input_cost_per_image_token != null"
+                :input-per1k="model.pricing.input_per_1k_tokens"
+                :per-image-input-token="model.pricing.input_cost_per_image_token"
+              />
+              <template v-else-if="modelListingCategory(model) === 'image'">
                 <div class="min-w-0">
                   <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
                   <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
@@ -261,6 +272,8 @@ import {
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
 import CatalogTieredPriceGrid from '@/components/catalog/CatalogTieredPriceGrid.tk.vue'
+import CatalogAudioPrice from '@/components/catalog/CatalogAudioPrice.tk.vue'
+import CatalogEmbeddingPrice from '@/components/catalog/CatalogEmbeddingPrice.tk.vue'
 import type { CatalogTieredPriceLine } from '@/components/catalog/CatalogTieredPriceGrid.tk.vue'
 
 withDefaults(
@@ -288,6 +301,7 @@ const categoryFilters = computed(() => [
   { key: 'all', label: t('models.filterAll') },
   { key: 'text', label: t('models.filterText') },
   { key: 'embedding', label: t('models.filterEmbedding') },
+  { key: 'audio', label: t('pricing.modality.audio') },
   { key: 'image', label: t('models.filterImage') },
   { key: 'video', label: t('models.filterVideo') },
 ])
@@ -403,6 +417,7 @@ function marketplaceVendor(m: PublicCatalogModel): string {
 // Filter by category (billing_mode-driven — same truth as /pricing modality tabs)
 const filteredByCategory = computed(() => {
   if (activeCategory.value === 'all') return models.value
+  if (activeCategory.value === 'audio') return models.value.filter((m) => modelListingCategory(m) === 'audio')
   if (activeCategory.value === 'image') {
     return models.value.filter((m) => modelListingCategory(m) === 'image')
   }

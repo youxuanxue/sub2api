@@ -50,7 +50,10 @@ const CSV_COLUMNS = [
   'peak_cache_read_per_1M',
   'context_window',
   'max_output_tokens',
-  'capabilities'
+  'capabilities',
+  'price_per_character_USD',
+  'price_per_input_second_USD',
+  'image_input_per_1M'
 ] as const
 
 /** per-1k → per-1M; same precision as catalog UI (formatCatalogUsd). */
@@ -139,7 +142,10 @@ function rowFor(m: PublicCatalogModel): string[] {
     per1M(p.peak_valley?.cache_read_per_1k),
     m.context_window ? String(m.context_window) : '',
     m.max_output_tokens ? String(m.max_output_tokens) : '',
-    (m.capabilities ?? []).join(';')
+    (m.capabilities ?? []).join(';'),
+    unitUsd(p.output_cost_per_character),
+    unitUsd(p.input_cost_per_second),
+    per1M(p.input_cost_per_image_token == null ? undefined : p.input_cost_per_image_token * 1000)
   ]
 }
 

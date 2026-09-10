@@ -234,6 +234,12 @@ func candidateDiscoveryRequest(model string, spec universalCapabilityShape) (str
 	path := "/v1/chat/completions"
 	document := map[string]any{"model": model, "messages": []any{map[string]any{"role": "user", "content": "Hello"}}}
 	switch spec.shape {
+	case ShapeOpenAIAudioSpeech:
+		path = "/v1/audio/speech"
+		document = map[string]any{"model": model, "input": "Hello"}
+	case ShapeOpenAIAudioTranscription:
+		path = "/v1/audio/transcriptions"
+		document = map[string]any{"model": model}
 	case ShapeAnthropicMessages:
 		path = "/v1/messages"
 		document["max_tokens"] = 1

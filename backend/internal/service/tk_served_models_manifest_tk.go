@@ -240,6 +240,19 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 	return ids
 }
 
+// Agent Plan resolves these historical names to current models upstream.
+// Keep the aliases scoped to Plan; other providers may still serve old versions.
+func newAPIVolcEngineAgentPlanModelAliases() map[string]string {
+	return map[string]string{
+		"doubao-seed-2.0-code": "doubao-seed-2.1-turbo",
+		"doubao-seed-2.0-pro":  "doubao-seed-2.1-turbo",
+		"glm-4.5-air":          "glm-5.3",
+		"glm-5.2":              "glm-5.3",
+		"kimi-k2.6":            "kimi-k2.7-code",
+		"minimax-m2.7":         "minimax-m3",
+	}
+}
+
 // Ali Token Plan migration intent; shared by presets, runtime floors, the
 // generated activation bundle, and billing settlement (settleBillingOnAccountServedModel).
 // PAYG aliases retain their original targets.
