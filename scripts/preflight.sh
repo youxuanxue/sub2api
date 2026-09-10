@@ -3226,6 +3226,9 @@ if ! command -v python3 >/dev/null 2>&1; then
     errors=$((errors + 1))
 elif ! python3 ./scripts/checks/release-cache-key-parity.py --quiet; then
     errors=$((errors + 1))
+elif ! python3 -m unittest scripts.checks.test_release_cache_key_parity >/dev/null; then
+    echo "  FAIL: release/warm cache workflow regression tests"
+    errors=$((errors + 1))
 else
     echo "  ok: release/warm cache key prefix + directionality in sync"
 fi

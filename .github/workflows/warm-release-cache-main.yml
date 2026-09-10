@@ -44,6 +44,11 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           go version | grep -Fq "go${version}"
 
+      - name: Heal oversized snapshots before restore
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/go_cache_prune.py --heal
+
       - name: Restore Go module cache
         id: gomod_cache
         uses: actions/cache/restore@v6
@@ -57,8 +62,14 @@ jobs:
         if: steps.gomod_cache.outputs.cache-hit != 'true'
         working-directory: backend
         run: go mod download
-      - name: Save Go module cache
+      - name: Budget gate for Go module cache save
+        id: gomod_save_budget
         if: steps.gomod_cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/go_cache_prune.py --save-budget gomod --path "$HOME/go/pkg/mod" >> "$GITHUB_OUTPUT"
+      - name: Save Go module cache
+        if: steps.gomod_cache.outputs.cache-hit != 'true' && steps.gomod_save_budget.outputs.fits == 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/go/pkg/mod
@@ -84,8 +95,14 @@ jobs:
           # Match unit_test_runner's service -c so a warm exact hit does not
           # still spend ~100s linking ./internal/service.test.
           go test -c -tags=unit -o "${RUNNER_TEMP}/service.test" ./internal/service
-      - name: Save test build cache
+      - name: Budget gate for test cache save
+        id: test_save_budget
         if: steps.test_cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/go_cache_prune.py --save-budget test --path "$HOME/.cache/go-build" >> "$GITHUB_OUTPUT"
+      - name: Save test build cache
+        if: steps.test_cache.outputs.cache-hit != 'true' && steps.test_save_budget.outputs.fits == 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.cache/go-build
@@ -119,8 +136,14 @@ jobs:
           go test -c -tags=integration \
             -o "${RUNNER_TEMP}/integration-cache/" \
             "${integration_packages[@]}"
-      - name: Save integration build cache
+      - name: Budget gate for integration cache save
+        id: integration_save_budget
         if: steps.integration_cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/go_cache_prune.py --save-budget integration --path "${{ github.workspace }}/.cache/go-build-integration" >> "$GITHUB_OUTPUT"
+      - name: Save integration build cache
+        if: steps.integration_cache.outputs.cache-hit != 'true' && steps.integration_save_budget.outputs.fits == 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ github.workspace }}/.cache/go-build-integration
@@ -145,13 +168,7 @@ jobs:
         if: steps.analysis_cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if python3 scripts/ci/go_cache_prune.py --fits analysis; then
-            echo "fits=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "fits=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::skip analysis warm/save; family would be overflow-dropped under 6 GiB budget"
-          fi
+        run: python3 scripts/ci/go_cache_prune.py --save-budget analysis >> "$GITHUB_OUTPUT"
       - name: Warm analysis build cache
         if: steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_budget.outputs.fits == 'true'
         working-directory: backend
@@ -174,14 +191,7 @@ jobs:
         if: steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_budget.outputs.fits == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          size="$(du -sb "$HOME/.cache/go-build" "$HOME/.cache/golangci-lint" 2>/dev/null | awk '{s+=$1} END {print s+0}')"
-          if python3 scripts/ci/go_cache_prune.py --fits analysis --size "$size"; then
-            echo "fits=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "fits=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::skip analysis cache save (size=${size}); would be overflow-dropped under 6 GiB budget"
-          fi
+        run: python3 scripts/ci/go_cache_prune.py --save-budget analysis --path "$HOME/.cache/go-build" --path "$HOME/.cache/golangci-lint" >> "$GITHUB_OUTPUT"
       - name: Save analysis build cache
         if: steps.analysis_cache.outputs.cache-hit != 'true' && steps.analysis_save_budget.outputs.fits == 'true'
         uses: actions/cache/save@v6
@@ -207,13 +217,7 @@ jobs:
         if: steps.release_cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if python3 scripts/ci/go_cache_prune.py --fits release; then
-            echo "fits=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "fits=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::skip release warm/save; family would be overflow-dropped under 6 GiB budget"
-          fi
+        run: python3 scripts/ci/go_cache_prune.py --save-budget release >> "$GITHUB_OUTPUT"
       - name: Warm cross-arch Go build cache
         if: steps.release_cache.outputs.cache-hit != 'true' && steps.release_budget.outputs.fits == 'true'
         working-directory: backend
@@ -233,14 +237,7 @@ jobs:
         if: steps.release_cache.outputs.cache-hit != 'true' && steps.release_budget.outputs.fits == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          size="$(du -sb "$HOME/.cache/go-build" 2>/dev/null | awk '{print $1+0}')"
-          if python3 scripts/ci/go_cache_prune.py --fits release --size "$size"; then
-            echo "fits=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "fits=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::skip release cache save (size=${size}); would be overflow-dropped under 6 GiB budget"
-          fi
+        run: python3 scripts/ci/go_cache_prune.py --save-budget release --path "$HOME/.cache/go-build" >> "$GITHUB_OUTPUT"
       - name: Save release build cache
         if: steps.release_cache.outputs.cache-hit != 'true' && steps.release_save_budget.outputs.fits == 'true'
         uses: actions/cache/save@v6

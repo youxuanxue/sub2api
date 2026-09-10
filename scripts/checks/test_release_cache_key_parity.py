@@ -103,14 +103,14 @@ class ReleaseCacheWorkflowTest(unittest.TestCase):
         self.assertTrue(
             any(
                 step.get("name") == "Budget gate for analysis warm"
-                and "go_cache_prune.py --fits analysis" in str(step.get("run", ""))
+                and "go_cache_prune.py --save-budget analysis" in str(step.get("run", ""))
                 for step in steps
             )
         )
         self.assertTrue(
             any(
                 step.get("name") == "Budget gate for release warm"
-                and "go_cache_prune.py --fits release" in str(step.get("run", ""))
+                and "go_cache_prune.py --save-budget release" in str(step.get("run", ""))
                 for step in steps
             )
         )

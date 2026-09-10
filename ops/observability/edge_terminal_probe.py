@@ -28,6 +28,8 @@ def _timestamp(value: object) -> dt.datetime:
 
 
 def _tagged_rows(raw: str) -> dict[str, list[dict]]:
+    if "--output truncated--" in raw:
+        raise ProbeContractError("SSM truncated terminal output")
     rows = {"TERMINAL_META": [], "TERMINAL_WINDOW": [], "TERMINAL_FACT": []}
     for number, line in enumerate(raw.splitlines(), 1):
         tag, separator, payload = line.strip().partition(" ")

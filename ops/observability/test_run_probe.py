@@ -198,6 +198,21 @@ class RunProbePollingTest(unittest.TestCase):
                     status = "Pending"
                     stdout = ""
                     stderr = ""
+                elif scenario == "truncated-success":
+                    status = "Success"
+                    stdout = "complete-row\\n--output truncated--"
+                    stderr = ""
+                elif scenario in {"compressed-success", "compressed-corrupt"}:
+                    import base64
+                    import gzip
+                    import hashlib
+                    data = b"fact\\n" * 10000
+                    checksum = hashlib.sha256(data).hexdigest()
+                    if scenario == "compressed-corrupt":
+                        checksum = "0" * 64
+                    stdout = f"TK_PROBE_GZIP_V1 {len(data)} {checksum} " + base64.b64encode(gzip.compress(data)).decode()
+                    stderr = ""
+                    status = "Success"
                 else:
                     print(f"unexpected fake aws scenario: {scenario}", file=sys.stderr)
                     raise SystemExit(99)
@@ -226,6 +241,7 @@ class RunProbePollingTest(unittest.TestCase):
         timeout_seconds: int | str = 30,
         date_step: int = 1,
         expected_instance_id: str | None = None,
+        compressed_output: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
@@ -249,6 +265,8 @@ class RunProbePollingTest(unittest.TestCase):
         ]
         if expected_instance_id is not None:
             args.extend(["--expected-instance-id", expected_instance_id])
+        if compressed_output:
+            args.append("--compressed-output")
         return _run(*args, env=env)
 
     def _aws_calls(self) -> list[tuple[str, str]]:
@@ -293,6 +311,26 @@ class RunProbePollingTest(unittest.TestCase):
         self.assertIn("[remote-stderr] probe-failed", proc.stderr)
         self.assertIn("[run-probe] ERROR: remote status=Failed", proc.stderr)
         self._assert_one_command(expected_gets=1)
+
+    def test_success_with_ssm_truncation_is_transport_failure(self) -> None:
+        proc = self._run_scenario("truncated-success")
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn("SSM stdout truncated", proc.stderr)
+
+    def test_compressed_output_is_verified_and_delivered_once(self) -> None:
+        proc = self._run_scenario("compressed-success", compressed_output=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "fact\n" * 10000)
+        params = self.aws_params_log.read_text(encoding="utf-8")
+        self.assertIn("python3 /tmp/probe_output_transport.py encode -- bash", params)
+        self._assert_one_command(expected_gets=1)
+
+    def test_compressed_corruption_never_exposes_partial_stdout(self) -> None:
+        proc = self._run_scenario("compressed-corrupt", compressed_output=True)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(proc.stdout, "")
+        self.assertIn("integrity check failed", proc.stderr)
 
     def test_poll_deadline_does_not_resubmit_command(self) -> None:
         proc = self._run_scenario("timeout", timeout_seconds=30, date_step=15)

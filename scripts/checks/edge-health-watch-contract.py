@@ -34,6 +34,8 @@ def main() -> int:
         "fleet scan call site": "bash ops/observability/scan-edge-health.sh --with-prod" in text,
         "structured terminal scan": "--alert-json > terminal-buckets.jsonl" in text,
         "scan status propagated": "|| scan_status=$?" in text and 'exit "$scan_status"' in text,
+        "alerts continue after failed scan": "!cancelled() && steps.scan.outcome != 'skipped'" in text,
+        "state follows successful delivery": "!cancelled() && steps.deliver.outcome == 'success'" in text,
         "model-unit evaluator call site": "python3 ops/observability/edge_model_health_alert.py" in text,
         "delivery owner call site": "python3 ops/observability/edge_health_delivery.py" in text,
         "structured state path": "STATEFILE=.edge-health-state/state.json" in text,
@@ -45,6 +47,9 @@ def main() -> int:
         "legacy account verdict removed": "edge-health-alert.py" not in text,
     }
     failures = [name for name, passed in checks.items() if not passed]
+    scan_script = (REPO / "ops/observability/scan-edge-health.sh").read_text(encoding="utf-8")
+    if "--compressed-output" not in scan_script:
+        failures.append("integrity-checked compressed probe transport")
     if failures:
         for name in failures:
             print(f"FAIL: edge-health-watch contract missing {name}", file=sys.stderr)
