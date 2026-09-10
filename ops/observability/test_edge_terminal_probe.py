@@ -59,6 +59,15 @@ class EdgeTerminalProbeTest(unittest.TestCase):
         with self.assertRaises(ProbeContractError):
             parse_probe_output(raw, "us5", now=NOW)
 
+    def test_rejects_ssm_truncation_at_a_complete_line_boundary(self):
+        raw = "\n".join([
+            line("TERMINAL_META", {"schema_version": 1, "watermark": "2026-08-18T12:06:00Z"}),
+            line("TERMINAL_WINDOW", {"bucket_start": "2026-08-18T12:00:00Z", "heartbeat_minutes": 5, "producer_epochs": 1, "all_complete": True}),
+            "--output truncated--",
+        ])
+        with self.assertRaisesRegex(ProbeContractError, "truncated"):
+            parse_probe_output(raw, "prod", now=NOW)
+
 
 if __name__ == "__main__":
     unittest.main()

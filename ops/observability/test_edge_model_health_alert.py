@@ -49,6 +49,18 @@ def state_units(decision):
 
 
 class EdgeModelHealthAlertTest(unittest.TestCase):
+    def test_bad_prod_telemetry_does_not_suppress_other_host_alert(self):
+        rows = [
+            {"edge": "us6", "schema_version": 1, "reachable": False, "reason": "https_unreachable"},
+            {"edge": "prod", "schema_version": 1, "reachable": True, "reason": "parse_error", "telemetry_status": "unavailable", "buckets": []},
+        ]
+        first = evaluate(rows, {}, RULES, evaluated_at=NOW)
+        self.assertTrue(first["should_alert"])
+        self.assertEqual([entry["edge"] for entry in first["state"]["hosts"]], ["us6"])
+        second = evaluate(rows, first["state"], RULES, evaluated_at=NOW + dt.timedelta(minutes=5))
+        self.assertTrue(second["should_alert"])
+        self.assertEqual(second["state"]["telemetry"][0]["status"], "unavailable")
+
     def test_provider_qualified_model_uses_generated_family_rules(self):
         decision = evaluate(
             [edge(
