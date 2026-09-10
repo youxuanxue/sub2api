@@ -48,13 +48,22 @@ func tkOpenAICompatCountTokensPOST(h *handler.Handlers) gin.HandlerFunc {
 
 func tkModelsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		apiKey, _ := middleware.GetAPIKeyFromContext(c)
-		if c.Query("client_version") != "" && (getGroupPlatform(c) == service.PlatformOpenAI || getGroupPlatform(c) == service.PlatformComposite || (apiKey != nil && apiKey.IsUniversal())) {
-			h.OpenAIGateway.CodexModels(c)
+		if c.Query("client_version") != "" {
+			dispatchCodexModelsGateway(c, h.OpenAIGateway.CodexModels, h.Gateway.CodexModels)
 			return
 		}
 		h.Gateway.Models(c)
 	}
+}
+
+func dispatchCodexModelsGateway(c *gin.Context, openAI, generated gin.HandlerFunc) {
+	key, _ := middleware.GetAPIKeyFromContext(c)
+	platform := getGroupPlatform(c)
+	if platform == service.PlatformOpenAI || platform == service.PlatformComposite || (key != nil && key.IsUniversal()) {
+		openAI(c)
+		return
+	}
+	generated(c)
 }
 
 // tkGuardResponsesSubpath rejects non-forwardable /responses/*subpath requests

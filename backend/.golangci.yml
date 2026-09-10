@@ -15,6 +15,10 @@ linters:
 
   exclusions:
     generated: strict
+    rules:
+      - path: '_test\.go$'
+        linters: [ gosec ]
+        text: 'G70[34]'
     paths:
       - ent/.*
       - cmd/server/wire_gen(_test)?\.go

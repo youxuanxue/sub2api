@@ -3331,6 +3331,14 @@ else
     echo "  ok: Go toolchain pins match backend/go.mod"
 fi
 
+# ---- sub2api: release cache toolchain parity ---------------------------------
+echo ""
+echo "=== sub2api: release cache toolchain parity ==="
+if ! python3 -m unittest scripts.checks.test_release_cache_key_parity; then
+    echo "  FAIL: release cache toolchain differs from CI consumers"
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: platform registry drift ----------------------------------------
 # Go ↔ TS platform registry lockstep: OpenAI-compat list, dispatch-config
 # platforms, Platform constant universe, Ent enum coverage, and admin UI style
@@ -3400,9 +3408,10 @@ else
     done
     if [ "$_wire_inputs_changed" -eq 1 ]; then
         _wire_rc=0
-        ( cd backend && GOTOOLCHAIN="$_backend_go_toolchain" go generate ./cmd/server ) >/dev/null 2>&1 || _wire_rc=$?
+        _wire_output=$( cd backend && GOTOOLCHAIN="$_backend_go_toolchain" go generate ./cmd/server 2>&1 ) || _wire_rc=$?
         if [ "$_wire_rc" -ne 0 ]; then
             echo "  FAIL: go generate ./cmd/server failed (exit $_wire_rc)"
+            printf '%s\n' "$_wire_output"
             errors=$((errors + 1))
         elif ! git diff --exit-code "$_wire_gen" >/dev/null 2>&1; then
             echo "  FAIL: wire.go input changed ($_wire_changed_file) but wire_gen.go was not regenerated. Run 'go generate ./cmd/server' in backend/"
@@ -3438,9 +3447,10 @@ elif [ "$_ent_surface_changed" = "0" ] && { [ "$_ent_has_base" = "1" ] || [ "$_p
     echo "  skip: Ent generation staleness (no backend/ent changes vs ${PREFLIGHT_BASE:-origin/main})"
 else
     _ent_rc=0
-    ( cd backend && GOTOOLCHAIN="$_backend_go_toolchain" go generate ./ent ) >/dev/null 2>&1 || _ent_rc=$?
+    _ent_output=$( cd backend && GOTOOLCHAIN="$_backend_go_toolchain" go generate ./ent 2>&1 ) || _ent_rc=$?
     if [ "$_ent_rc" -ne 0 ]; then
         echo "  FAIL: go generate ./ent failed (exit $_ent_rc)"
+        printf '%s\n' "$_ent_output"
         errors=$((errors + 1))
     elif ! git diff --exit-code backend/ent/ >/dev/null 2>&1; then
         echo "  FAIL: ent generated code is stale — run 'go generate ./ent' in backend/"

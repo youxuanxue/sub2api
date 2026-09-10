@@ -331,16 +331,24 @@ def parse_ts_array(text: str, name: str, rel: str) -> tuple[list[str], int]:
     return values, line
 
 
-def parse_ts_union(text: str, name: str, rel: str) -> tuple[list[str], int]:
+def parse_ts_union(
+    text: str, name: str, rel: str, seen: frozenset[str] = frozenset()
+) -> tuple[list[str], int]:
     """export type NAME = 'a' | 'b' | ... → values (prettier-tolerant:
     accepts multiline unions with leading `|`)."""
-    m = re.search(rf"export\s+type\s+{name}\s*=", text)
+    if name in seen:
+        raise ParseFailure(f"{rel}: circular type alias involving {name}")
+    m = re.search(rf"export\s+type\s+{re.escape(name)}\s*=", text)
     if not m:
         raise ParseFailure(
             f"{rel}: `export type {name}` not found — renamed/moved? "
             "Update platform-registry-drift.py."
         )
     line = line_of(text, m.start())
+    alias = re.match(r"[ \t]*([A-Za-z_$][\w$]*)[ \t]*(?:;[ \t]*)?(?://[^\n]*)?(?:\n|$)", text[m.end():])
+    if alias:
+        values, _ = parse_ts_union(text, alias.group(1), rel, seen | {name})
+        return values, line
     member = re.compile(r"\s*\|?\s*(?:'([^']*)'|\"([^\"]*)\")")
     comment = re.compile(r"\s*//[^\n]*")
     values: list[str] = []

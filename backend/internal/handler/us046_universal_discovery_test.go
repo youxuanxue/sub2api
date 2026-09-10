@@ -359,7 +359,10 @@ func TestUS046_CodexDiscoveryPathsUseAuthorizedOpenAIGroup(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 			require.Equal(t, "keep", body.Custom)
-			require.Equal(t, []map[string]any{{"slug": "gpt-5.6-sol", "custom_model": "keep"}}, body.Models)
+			require.Len(t, body.Models, 1)
+			require.Equal(t, "gpt-5.6-sol", body.Models[0]["slug"])
+			require.Equal(t, "keep", body.Models[0]["custom_model"])
+			require.NotEmpty(t, body.Models[0]["supported_reasoning_levels"])
 			require.Nil(t, key.Group, "metadata discovery must not mutate the authenticated key")
 		})
 	}

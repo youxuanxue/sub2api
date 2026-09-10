@@ -21,9 +21,10 @@ func TestSummarizeSelectionFailureStats_IncludesRuntimeAndProfitReasons(t *testi
 		RuntimeBlocked:    7,
 		ProfitThreshold:   8,
 		ProfitInvalidRate: 9,
+		ChannelRestricted: 10,
 	})
 
-	want := "total=9 eligible=1 excluded=2 unschedulable=3 platform_filtered=4 model_unsupported=5 model_rate_limited=6 runtime_blocked=7 profit_threshold=8 profit_invalid_account_rate=9"
+	want := "total=9 eligible=1 excluded=2 unschedulable=3 platform_filtered=4 model_unsupported=5 model_rate_limited=6 runtime_blocked=7 profit_threshold=8 profit_invalid_account_rate=9 channel_restricted=10"
 	if got != want {
 		t.Fatalf("summarizeSelectionFailureStats() = %q, want %q", got, want)
 	}

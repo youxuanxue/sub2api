@@ -37,6 +37,9 @@ func (s *BillingService) tkResolveFallbackOverlayPricing(modelLower string) *Mod
 			return pricing
 		}
 	}
+	if strings.Contains(modelLower, "glm-5.3-flash") {
+		return tkOverlayModelPricing("glm-5.3-flash")
+	}
 	if strings.Contains(modelLower, "glm-5.3") {
 		return tkOverlayModelPricing("glm-5.3")
 	}

@@ -52,6 +52,8 @@ export interface CustomEndpoint {
 }
 
 export type SettingsForm = {
+  openai_ttft_mode: string;
+  plugin_management_enabled: boolean;
   registration_enabled: boolean;
   email_verify_enabled: boolean;
   registration_email_suffix_whitelist: string[];

@@ -46,6 +46,7 @@ description: >-
 1. 工作区必须干净；若已有用户改动，先确认归属，不覆盖。
 2. 同步远端：`git fetch origin --tags && git fetch upstream --tags`。
 3. 确认 main 与 upstream 状态：`bash scripts/upstream/check-drift.sh`。
+   将本轮审阅的 upstream 完整 SHA 写入 `.upstream-ref`；PR 门禁验证该固定目标已是 `HEAD` 的祖先，日常漂移报告仍比较两端 main。新目标必须经本轮审阅后更新，不能用回退目标消除失败。
 4. Dry-run：`git merge-tree upstream/main HEAD`，先识别热点冲突。
 5. 创建分支：`merge/upstream-YYYYMMDD`。
 

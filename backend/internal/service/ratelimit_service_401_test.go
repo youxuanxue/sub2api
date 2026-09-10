@@ -17,6 +17,7 @@ type rateLimitAccountRepoStub struct {
 	mockAccountRepoForGemini
 	setErrorCalls          int
 	tempCalls              int
+	tempErr                error
 	updateCredentialsCalls int
 	clearErrorCalls        int
 	setSchedulableCalls    int
@@ -109,7 +110,7 @@ func (r *rateLimitAccountRepoStub) SetTempUnschedulable(ctx context.Context, id 
 	r.tempCalls++
 	r.lastTempID = id
 	r.lastTempReason = reason
-	return nil
+	return r.tempErr
 }
 
 func (r *rateLimitAccountRepoStub) ClearTempUnschedulable(ctx context.Context, id int64) error {

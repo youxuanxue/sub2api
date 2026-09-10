@@ -111,7 +111,7 @@
     {
       "path": "backend/internal/model/error_passthrough_rule.go",
       "must_contain": [
-        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek}"
+        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax}"
       ],
       "rationale": "The separate model.AllPlatforms registry feeds the error-passthrough rule UI's applicable-platform list. The concrete-provider tail must retain Grok together with the TokenKey CN providers; upstream intentionally removed the compatibility-only newapi/kiro entries from this registry, so the anchor covers the current concrete-provider surface rather than the legacy compatibility tail."
     },
@@ -177,13 +177,17 @@
     {
       "path": "backend/internal/service/openai_gateway_cc_pipeline.go",
       "must_contain": [
-        "shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody)",
+        "shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody)",
         "if account != nil && account.Platform == PlatformGrok {",
         "shouldFailover = s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)",
-        "if !shouldFailover {",
-        "return nil"
+        "if !shouldFailover {\n\t\treturn nil\n\t}\n\tif account != nil && account.Platform == PlatformGrok {\n\t\ts.handleGrokAccountUpstreamError"
       ],
       "rationale": "The shared Chat Completions HTTP pipeline must decide failover and return before applying Grok account side effects. The contiguous anchor deliberately pins that ordering so a terminal entitlement 403 can never reach the account cooldown handler."
+    },
+    {
+      "path": "backend/internal/service/grok_upstream_errors_test.go",
+      "must_contain": ["TestGrokEntitlement403PipelineDoesNotMutateOrFailover"],
+      "rationale": "Exercises the production pipeline for terminal entitlement denial and asserts no failover, cooldown, rate limit, account update, or runtime block."
     },
     {
       "path": "backend/internal/service/openai_gateway_request_body.go",

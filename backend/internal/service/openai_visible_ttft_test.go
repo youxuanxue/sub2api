@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,7 +51,7 @@ func TestOpenAIResponsesTTFTStartsAtVisibleOutput(t *testing.T) {
 			name = "passthrough"
 		}
 		t.Run(name, func(t *testing.T) {
-			result := runSyntheticVisibleTTFTStream(t, passthrough, 120*time.Millisecond, 0,
+			result := runSyntheticVisibleTTFTStream(t, passthrough, 120*time.Millisecond, 0, OpenAITTFTModeVisible,
 				`{"type":"response.output_text.delta","delta":"test output"}`)
 			require.NotNil(t, result.firstTokenMs)
 			require.GreaterOrEqual(t, *result.firstTokenMs, 100)
@@ -63,7 +66,7 @@ func TestOpenAIResponsesTTFTStartsAtCompletedImage(t *testing.T) {
 			name = "passthrough"
 		}
 		t.Run(name, func(t *testing.T) {
-			result := runSyntheticVisibleTTFTStream(t, passthrough, 120*time.Millisecond, 0,
+			result := runSyntheticVisibleTTFTStream(t, passthrough, 120*time.Millisecond, 0, OpenAITTFTModeVisible,
 				`{"type":"response.output_item.done","item":{"id":"item_test","type":"image_generation_call","result":"dGVzdA=="}}`)
 			require.NotNil(t, result.firstTokenMs)
 			require.GreaterOrEqual(t, *result.firstTokenMs, 100)
@@ -105,9 +108,75 @@ func TestOpenAINativeMetadataDoesNotDisarmFirstOutputTimeout(t *testing.T) {
 	}
 }
 
-func runSyntheticVisibleTTFTStream(t *testing.T, passthrough bool, visibleDelay time.Duration, timeoutSeconds int, visibleEvent string) *openaiStreamingResult {
+func TestOpenAIResponsesTTFTDefaultsToSemanticOutput(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		name := "native"
+		if passthrough {
+			name = "passthrough"
+		}
+		t.Run(name, func(t *testing.T) {
+			result := runSyntheticVisibleTTFTStream(t, passthrough, 120*time.Millisecond, 0, "",
+				`{"type":"response.output_text.delta","delta":"test output"}`)
+			require.NotNil(t, result.firstTokenMs)
+			require.Less(t, *result.firstTokenMs, 100)
+		})
+	}
+}
+
+func TestOpenAIResponsesFailoverUsesOutputIndependentlyOfTTFT(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		for _, mode := range []string{OpenAITTFTModeSemantic, OpenAITTFTModeVisible} {
+			for _, output := range []bool{false, true} {
+				t.Run(fmt.Sprintf("passthrough=%t/mode=%s/output=%t", passthrough, mode, output), func(t *testing.T) {
+					previous := gatewayForwardingCache.Load()
+					if previous == nil {
+						previous = &cachedGatewayForwardingSettings{}
+					}
+					gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{openAITTFTMode: mode, expiresAt: time.Now().Add(time.Minute).UnixNano()})
+					defer gatewayForwardingCache.Store(previous)
+					event := `{"type":"response.output_item.added","item":{"type":"reasoning","id":"rs_1","summary":[]}}`
+					if output {
+						event = `{"type":"response.reasoning_summary_text.delta","delta":"Working"}`
+					}
+					body := "data: " + event + "\n\ndata: " + `{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"Please retry later"}}}` + "\n\n"
+					recorder := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(recorder)
+					c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+					resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
+					svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+					account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+					var err error
+					if passthrough {
+						_, err = svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+					} else {
+						_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+					}
+					require.Error(t, err)
+					var failover *UpstreamFailoverError
+					if output {
+						require.False(t, errors.As(err, &failover))
+						require.Contains(t, recorder.Body.String(), "Working")
+					} else {
+						require.ErrorAs(t, err, &failover)
+						require.Empty(t, recorder.Body.String())
+					}
+				})
+			}
+		}
+	}
+}
+
+func runSyntheticVisibleTTFTStream(t *testing.T, passthrough bool, visibleDelay time.Duration, timeoutSeconds int, ttftMode string, visibleEvent string) *openaiStreamingResult {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	mode := ttftMode
+	if mode == "" {
+		mode = OpenAITTFTModeSemantic
+	}
+	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{openAITTFTMode: mode, expiresAt: time.Now().Add(time.Minute).UnixNano()})
+	t.Cleanup(func() {
+		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{openAITTFTMode: OpenAITTFTModeSemantic, expiresAt: time.Now().Add(time.Minute).UnixNano()})
+	})
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{
 		MaxLineSize:                     defaultMaxLineSize,
 		OpenAIFirstOutputTimeoutSeconds: timeoutSeconds,

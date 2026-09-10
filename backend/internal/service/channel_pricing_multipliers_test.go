@@ -19,6 +19,8 @@ func TestConfiguredServiceTierMultiplier(t *testing.T) {
 		{name: "priority alias", serviceTier: "priority", pricing: &ModelPricing{FastMultiplier: pricingMultiplier(2)}, want: 2},
 		{name: "flex configured", serviceTier: "flex", pricing: &ModelPricing{FlexMultiplier: pricingMultiplier(0.4)}, want: 0.4},
 		{name: "legacy fast default", serviceTier: "fast", pricing: &ModelPricing{}, want: 2},
+		{name: "ultrafast default", serviceTier: "ultrafast", pricing: &ModelPricing{}, want: 2},
+		{name: "ultrafast ignores fast multiplier", serviceTier: "ultrafast", pricing: &ModelPricing{FastMultiplier: pricingMultiplier(2.5)}, want: 2},
 		{name: "legacy flex default", serviceTier: "flex", pricing: &ModelPricing{}, want: 0.5},
 	}
 
@@ -137,21 +139,21 @@ func TestIntervalMultipliersApplyToChannelBase(t *testing.T) {
 }
 
 func TestIntervalExplicitPriceTakesPrecedenceOverMultiplier(t *testing.T) {
-	pricing := intervalToModelPricing(&PricingInterval{
+	pricing := (&ModelPricingResolver{}).GetIntervalPricing(&ResolvedPricing{Intervals: []PricingInterval{{
 		InputPrice:      pricingMultiplier(7),
 		InputMultiplier: pricingMultiplier(2),
-	}, &ModelPricing{InputPricePerToken: 5}, nil)
+	}}, BasePricing: &ModelPricing{InputPricePerToken: 5}}, 1)
 
 	require.InDelta(t, 7, pricing.InputPricePerToken, 1e-12)
 }
 
 func TestIntervalPricePreservesDefaultFastRatio(t *testing.T) {
-	pricing := intervalToModelPricing(&PricingInterval{
+	pricing := (&ModelPricingResolver{}).GetIntervalPricing(&ResolvedPricing{Intervals: []PricingInterval{{
 		InputPrice: pricingMultiplier(7),
-	}, &ModelPricing{
+	}}, BasePricing: &ModelPricing{
 		InputPricePerToken:         5,
 		InputPricePerTokenPriority: 10,
-	}, nil)
+	}}, 1)
 
 	require.InDelta(t, 7, pricing.InputPricePerToken, 1e-12)
 	require.InDelta(t, 14, pricing.InputPricePerTokenPriority, 1e-12)

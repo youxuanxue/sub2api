@@ -23,6 +23,30 @@ restores the file and removes the entry in the same change.
 
 ---
 
+## Upstream import: PR #2062
+
+Deletion commit: `9e0bf73e092e99e0b7251d5b938a16c36357c137`, reviewed in
+[PR #2062](https://github.com/youxuanxue/sub2api/pull/2062).
+
+- `backend/internal/service/channel_plaza.go`: upstream moved aggregation to
+  `model_plaza_service.go`. TokenKey composite-platform isolation, deterministic
+  platform/model deduplication, image-price precedence and official pricing
+  remain in `ModelPlazaService`; `model_plaza_service_test.go` covers the new
+  owner. No plaza behavior is intentionally retired. Future upstream edits to
+  the old path must be ported to the new owner; re-adopt only if upstream moves
+  the canonical service back.
+- `frontend/src/views/admin/__tests__/groupsModelsList.spec.ts`: the old
+  `groupsModelsList` implementation was already replaced by `groupModelAllowlist`.
+  All eight selection, ordering, hydration and disabled-state cases survive in
+  `groupModelAllowlist.spec.ts`, alongside custom-entry cases. No test scenario
+  is intentionally lost. New upstream cases must follow that owner; restore
+  the old filename only if the implementation moves back.
+- `assets/partners/logos/novada.png` and `assets/partners/logos/sui-xiang.jpg`:
+  unused upstream partner artwork was removed upstream. No runtime or document
+  references remain and no tests were removed with these assets. Regression
+  cost is limited to losing the unused artwork; re-adopt when a reviewed partner
+  entry actually references it.
+
 ## Deletion ledger: redundant frontend tests
 
 - **Deletion commit + PR:** `63e351dec`, [fork cleanup PR](https://github.com/youxuanxue/sub2api/pulls?q=is%3Apr+head%3Achore%2Fclean0910).

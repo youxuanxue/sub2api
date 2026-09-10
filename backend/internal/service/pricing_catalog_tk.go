@@ -130,6 +130,7 @@ type PublicCatalogPricing struct {
 // PublicCatalogPeakValley surfaces off-peak vs peak list prices for models with
 // upstream time-of-day multipliers. Peak* fields are flat × PeakMultiplier.
 type PublicCatalogPeakValley struct {
+	WeekdaysOnly      bool     `json:"weekdays_only,omitempty"`
 	Timezone          string   `json:"timezone"`
 	Windows           []string `json:"windows"`
 	PeakMultiplier    float64  `json:"peak_multiplier"`
@@ -565,6 +566,7 @@ func attachCatalogDeepSeekPeakValleyFromSnapshot(resp *PublicCatalogResponse, sn
 			continue
 		}
 		peak := PublicCatalogPeakValley{
+			WeekdaysOnly:      policy.WeekdaysOnly,
 			Timezone:          tz,
 			Windows:           windows,
 			PeakMultiplier:    policy.PeakMultiplier,

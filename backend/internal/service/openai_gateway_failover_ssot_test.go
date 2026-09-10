@@ -91,7 +91,7 @@ func TestShouldFailoverOpenAIUpstreamError_HTTPAndSSEShareDecision(t *testing.T)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, shouldFailoverOpenAIUpstreamError(tc.status, tc.message, tc.body))
-			require.Equal(t, tc.want, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(tc.status, tc.message, tc.body))
+			require.Equal(t, tc.want, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(nil, tc.status, tc.message, tc.body))
 			if len(tc.ssePayload) == 0 {
 				return
 			}

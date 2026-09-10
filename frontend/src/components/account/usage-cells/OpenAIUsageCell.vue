@@ -16,6 +16,7 @@
       <UsageProgressBar
         v-if="hasOpenAIUsageFallback && usageInfo?.seven_day"
         label="7d"
+        :estimated-total-cost="sevenDayEstimatedTotalCost"
         :utilization="usageInfo.seven_day.utilization"
         :utilization-unknown="usageInfo.seven_day.utilization_unknown"
         :window-stats-label="usesLocalUsageWindows(account) ? t('admin.accounts.usageWindow.rollingStats', { window: '7d' }) : undefined"
@@ -124,6 +125,16 @@ function onAccountUpdated(account: Account) {
 
 const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
+})
+
+const sevenDayEstimatedTotalCost = computed(() => {
+  if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return null
+  const utilization = usageInfo.value?.seven_day?.utilization
+  const cost = usageInfo.value?.seven_day?.window_stats?.cost
+  if (typeof utilization !== 'number' || typeof cost !== 'number' ||
+      !Number.isFinite(utilization) || !Number.isFinite(cost) || utilization <= 0 || cost <= 0) return null
+  const estimate = cost * 100 / utilization
+  return Number.isFinite(estimate) ? estimate : null
 })
 
 /** Upstream codex % missing/stale but local rolling window stats show activity — don't show「现在」. */

@@ -2282,7 +2282,8 @@ func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status i
 	clientClosedRequest := service.HasOpsClientClosedRequest(c)
 	clientInducedUpstream := upstreamError && tkUpstreamClientInducedRejection(c, errType)
 	clientCanceledUpstream := upstreamError && tkUpstreamClientCanceled(c)
-	clientRequestRejected := hasOpsClientRequestRejected(c) ||
+	_, ingressRejected := middleware2.GetIngressRejectReason(c)
+	clientRequestRejected := ingressRejected || hasOpsClientRequestRejected(c) ||
 		(clientBusinessLimited && service.OpsClientBusinessLimitedReason(c) == service.OpsClientBusinessLimitedReasonUnsupportedModel)
 	effectiveUpstreamError := upstreamError && !localModelConfiguration
 	if localModelConfiguration {
@@ -2404,6 +2405,7 @@ func isOpsLocalBusinessLimitError(code string, msg string) bool {
 		strings.Contains(msg, "this group is restricted to claude code clients") ||
 		strings.Contains(msg, "this group does not allow /v1/messages dispatch") ||
 		strings.Contains(msg, "image generation is not enabled for this group") ||
+		(strings.Contains(msg, "reasoning effort") && strings.Contains(msg, "exceeds this group's limit")) ||
 		strings.Contains(msg, "token counting is not supported for this platform") ||
 		strings.Contains(msg, "images api is not supported for this platform") ||
 		(strings.Contains(msg, "model ") && strings.Contains(msg, " not in whitelist")) ||

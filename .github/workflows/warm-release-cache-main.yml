@@ -181,7 +181,7 @@ jobs:
         env:
           GOFLAGS: -trimpath -gcflags=all=-dwarf=false
         with:
-          version: v2.9
+          version: v2.13.2
           args: --concurrency=4 --timeout=30m
           working-directory: backend
           only-new-issues: false
