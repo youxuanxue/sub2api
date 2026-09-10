@@ -423,6 +423,12 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		Detail:             upstreamDetail,
 	})
 
+	if len(requestedModel) > 0 {
+		if rejection := candidateEdgeModelRejection(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0]); rejection != nil {
+			return nil, rejection
+		}
+	}
+
 	// 处理上游错误，标记账号状态
 	shouldDisable := false
 	if s.rateLimitService != nil {

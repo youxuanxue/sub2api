@@ -58,6 +58,14 @@ func tkSupplierThinkingToolPreflight(status int, message string) bool {
 }
 
 func (s *OpenAIGatewayService) failoverNativeMessagesUpstreamHTTPError(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, body []byte, message, model string) *UpstreamFailoverError {
+	if rejection := candidateEdgeModelRejection(ctx, account, resp.StatusCode, resp.Header, body, model); rejection != nil {
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+			UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
+			Kind: "failover", Message: message,
+		})
+		return rejection
+	}
 	if account == nil || account.Platform != PlatformNewAPI || !tkSupplierThinkingToolPreflight(resp.StatusCode, message) {
 		return s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, body, message, model)
 	}

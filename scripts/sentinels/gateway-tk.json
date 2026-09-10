@@ -11065,6 +11065,26 @@
       "path": "backend/internal/service/gemini_native_signature_retry_tk_test.go",
       "must_contain": ["TestGeminiForwardNativeRepairsRejectedSignatureOnce", "persistent_error_stops", "already_repaired", "unrelated_400"],
       "rationale": "Regression coverage must retain successful recovery, bounded failure, and ordinary-error/no-op preservation."
+    },
+    {
+      "path": "backend/internal/service/candidate_edge_model_rejection_tk.go",
+      "must_contain": ["func candidateEdgeModelRejection", "r.current.model != model", "isEdgeMirrorStub(account, edgeIDPattern)", "TkUnsupportedModelMessage(model)", "gatewayFailureSemanticTransientFault"],
+      "rationale": "A known edge's exact model-path rejection cannot terminate other authorized candidate paths or become an account credential penalty."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_response.go",
+      "must_contain": ["candidateEdgeModelRejection(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0])"],
+      "rationale": "Messages forwarding must expose edge model rejection to the candidate retry loop before committing the error response."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_failover_tk.go",
+      "must_contain": ["candidateEdgeModelRejection(ctx, account, resp.StatusCode, resp.Header, body, model)"],
+      "rationale": "OpenAI-compatible requests using native Messages share the same edge rejection owner."
+    },
+    {
+      "path": "backend/internal/service/candidate_edge_model_rejection_tk_test.go",
+      "must_contain": ["TestCandidateEdgeModelRejectionBoundaries", "TestCandidateEdgeModelRejectionBeforeResponseCommit", "TestCandidateEdgeModelRejectionReselectsAuthorizedOrigin"],
+      "rationale": "Keep strict error matching, response-commit safety, authorized retry and billing rebinding regression coverage."
     }
   ]
 }
