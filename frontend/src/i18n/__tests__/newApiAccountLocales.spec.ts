@@ -1,16 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import en from '../locales/en'
-import zh from '../locales/zh'
+import { i18n, loadLocaleMessages } from '..'
 
 describe('NewAPI account locale messages', () => {
-  it('does not put JSON object examples in i18n messages', () => {
-    const hints = [
-      en.admin.accounts.newApiPlatform.statusCodeMappingHint,
-      zh.admin.accounts.newApiPlatform.statusCodeMappingHint
-    ]
-
-    for (const hint of hints) {
+  it('does not put JSON object examples in loaded i18n messages', async () => {
+    for (const locale of ['en', 'zh'] as const) {
+      await loadLocaleMessages(locale)
+      const hint = i18n.global.getLocaleMessage(locale).admin.accounts.newApiPlatform.statusCodeMappingHint
+      expect(hint).toBeTruthy()
       expect(hint).not.toMatch(/\{[^}]*:[^}]*\}/)
     }
   })

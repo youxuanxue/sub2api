@@ -471,6 +471,7 @@ export default {
         grokUsed: '已用 $',
         grokBalance: '余额 $',
         grokPrepaid: '预付余额',
+        grokBillingPeriod: '账单周期',
         grokMonthlyLimit: '月度已用/上限（USD）',
         grokOverage: '超额 onDemandUsed/onDemandCap',
         grokOverageShort: '超额 $',

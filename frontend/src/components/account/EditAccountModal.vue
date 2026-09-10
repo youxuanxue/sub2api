@@ -5046,12 +5046,12 @@ const handleSubmit = async () => {
         // channel_type 上浮到顶层（admin_service.Update 通过 UpdateAccountInput.ChannelType 读取）
         updatePayload.channel_type = bundle.channelType
       } else {
-        const submittedBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
+        const submittedBaseUrl = editBaseUrl.value.trim()
         if (props.account.platform === PLATFORM_GROK && !submittedBaseUrl) {
           appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
           return
         }
-        newCredentials = { ...currentCredentials, base_url: submittedBaseUrl }
+        newCredentials = { ...currentCredentials, base_url: submittedBaseUrl || defaultBaseUrl.value }
         // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。
         if (isCNApiKeyAccount.value) {
           newCredentials.account_mode = editAccountMode.value

@@ -3,7 +3,6 @@ package bridge
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
@@ -291,9 +290,4 @@ func DescribeRelayFormat(f types.RelayFormat) string {
 		return "unknown"
 	}
 	return string(f)
-}
-
-// DescribeAPIType returns api_type as string for logs.
-func DescribeAPIType(apiType int) string {
-	return fmt.Sprintf("%d", apiType)
 }

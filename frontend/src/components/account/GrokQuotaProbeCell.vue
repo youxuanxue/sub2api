@@ -26,12 +26,22 @@
       </button>
     </div>
 
-    <!-- Compact mode: parent already shows 7d/30d/prepaid or 24h — only surface errors. -->
-    <div
-      v-if="!compact && summary"
-      class="text-[10px] text-gray-600 dark:text-gray-300"
-    >
-      {{ summary }}
+    <UsageProgressBar
+      v-if="billing?.period_type === 'weekly' && billing.usage_percent != null"
+      label="7d"
+      :utilization="billing.usage_percent"
+      :resets-at="billing.period_end"
+      :window-stats="usage?.grok_local_usage_7d"
+      :window-stats-label="t('admin.accounts.usageWindow.grokBillingPeriod')"
+      color="emerald"
+    />
+    <UsageStatsRow label="24h" :stats="usage?.grok_local_usage_24h" />
+    <div v-if="monthlyLimit != null && monthlyLimit > 0 && monthlyUsed != null" class="text-[10px] text-gray-600 dark:text-gray-300">
+      <span :title="billing?.billing_period_end">{{ t('admin.accounts.usageWindow.grokMonthlyLimit') }}: ${{ monthlyUsed.toFixed(2) }} / ${{ monthlyLimit.toFixed(2) }}</span>
+      <UsageStatsRow :label="t('admin.accounts.usageWindow.grokBillingPeriod')" :stats="usage?.grok_local_usage_monthly" />
+    </div>
+    <div v-if="billing?.prepaid_balance != null" class="text-[10px] text-gray-600 dark:text-gray-300">
+      {{ t('admin.accounts.usageWindow.grokPrepaid') }}: ${{ billing.prepaid_balance.toFixed(2) }}
     </div>
     <div v-if="error" class="truncate text-[10px] text-red-600 dark:text-red-400" :title="error">
       {{ truncatedError }}
@@ -44,17 +54,16 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { GrokQuotaProbeResult } from '@/api/admin/grok'
-import type { Account } from '@/types'
+import type { Account, AccountUsageInfo } from '@/types'
 import { PLATFORM_GROK } from '@/constants/gatewayPlatforms'
+import UsageProgressBar from './UsageProgressBar.vue'
+import UsageStatsRow from './UsageStatsRow.vue'
 
-const props = withDefaults(
-  defineProps<{
-    account: Account
-    /** When true, only show the probe button (+ errors). No duplicate weekly summary. */
-    compact?: boolean
-  }>(),
-  { compact: false }
-)
+const props = defineProps<{
+  account: Account
+  usage?: AccountUsageInfo | null
+  activeUsageLoader?: () => Promise<AccountUsageInfo>
+}>()
 
 const emit = defineEmits<{ probed: [result: GrokQuotaProbeResult] }>()
 
@@ -63,7 +72,7 @@ const { t } = useI18n()
 const visible = computed(() => props.account.platform === PLATFORM_GROK && props.account.type === 'oauth')
 const loading = ref(false)
 const error = ref<string | null>(null)
-const data = ref<GrokQuotaProbeResult | null>(null)
+const queriedUsage = ref<Partial<AccountUsageInfo> | null>(null)
 
 const extractErrorMessage = (e: unknown): string => {
   const err = e as {
@@ -80,17 +89,14 @@ const extractErrorMessage = (e: unknown): string => {
   )
 }
 
-const summary = computed(() => {
-  if (props.compact || !data.value) return ''
-  // Non-compact fallback (rarely used): brief weekly percent if present.
-  const billing = data.value.billing
-  if (billing?.period_type?.toLowerCase() === 'weekly' && billing.usage_percent != null) {
-    return t('admin.accounts.usageWindow.grokWeeklyUsage', {
-      percent: Math.round(Math.min(100, Math.max(0, billing.usage_percent)))
-    })
-  }
-  return ''
-})
+const usage = computed(() => queriedUsage.value ?? props.usage)
+const billing = computed(() => usage.value?.grok_billing)
+const monthlyLimit = computed(() => billing.value?.monthly_limit ?? (
+  billing.value?.monthly_limit_cents == null ? null : billing.value.monthly_limit_cents / 100
+))
+const monthlyUsed = computed(() => billing.value?.monthly_used ?? (
+  billing.value?.used_cents == null ? null : billing.value.used_cents / 100
+))
 
 const truncatedError = computed(() => {
   if (!error.value) return ''
@@ -102,9 +108,20 @@ const handleProbe = async () => {
   loading.value = true
   error.value = null
   try {
-    data.value = await adminAPI.grok.queryQuota(props.account.id)
-    error.value = data.value.probe_error || null
-    emit('probed', data.value)
+    if (props.activeUsageLoader) {
+      queriedUsage.value = await props.activeUsageLoader()
+      error.value = queriedUsage.value.error || null
+    } else {
+      const result = await adminAPI.grok.queryQuota(props.account.id)
+      queriedUsage.value = {
+        grok_billing: result.billing,
+        grok_local_usage_24h: result.local_usage_24h,
+        grok_local_usage_7d: result.local_usage_7d,
+        grok_local_usage_monthly: result.local_usage_monthly,
+      }
+      error.value = result.probe_error || null
+      emit('probed', result)
+    }
   } catch (e) {
     error.value = extractErrorMessage(e)
   } finally {
@@ -115,7 +132,7 @@ const handleProbe = async () => {
 watch(
   () => props.account.id,
   () => {
-    data.value = null
+    queriedUsage.value = null
     error.value = null
     loading.value = false
   }

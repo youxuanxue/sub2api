@@ -1,7 +1,5 @@
 package protocolrouter
 
-import "fmt"
-
 type Protocol string
 
 const (
@@ -22,14 +20,6 @@ func (p Protocol) Valid() bool {
 	default:
 		return false
 	}
-}
-
-func ParseProtocol(raw string) (Protocol, error) {
-	protocol := Protocol(raw)
-	if !protocol.Valid() {
-		return "", fmt.Errorf("invalid protocol %q", raw)
-	}
-	return protocol, nil
 }
 
 type ResponsesPathKind string

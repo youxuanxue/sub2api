@@ -183,7 +183,6 @@
       "must_contain": [
         "DispatchVideoSubmit",
         "DispatchVideoFetch",
-        "IsVideoSupportedChannelType",
         "normalizeVideoSubmitBodyForTaskAdaptor",
         "videoFetchResponseMaxBytes",
         "errVideoFetchResponseTooLarge",

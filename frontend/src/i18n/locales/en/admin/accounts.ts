@@ -1506,6 +1506,7 @@ export default {
         grokBalance: 'Bal $',
         grokPrepaid: 'Prepaid balance',
         grokMonthlyLimit: 'Monthly used / limit (USD)',
+        grokBillingPeriod: 'Billing period',
         grokOverage: 'Overage onDemandUsed/onDemandCap',
         grokOverageShort: 'OD $',
         grokUnknown: 'Grok quota is unknown until the first upstream response includes xAI rate-limit headers.',

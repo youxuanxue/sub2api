@@ -251,6 +251,13 @@ type HourlyRange struct {
 	End   time.Time
 }
 
+func isCanonicalHourlyName(name string, lower time.Time) bool {
+	if !lower.Equal(HourStartUTC(lower)) {
+		return false
+	}
+	return name == HourlyPartitionName(qaRecordsTableName, lower)
+}
+
 // HourlyTargetRanges returns required UTC-hour ranges from now through hoursAhead.
 func HourlyTargetRanges(now time.Time, hoursAhead int) []HourlyRange {
 	base := HourStartUTC(now)
@@ -260,22 +267,4 @@ func HourlyTargetRanges(now time.Time, hoursAhead int) []HourlyRange {
 		ranges = append(ranges, HourlyRange{Start: start, End: start.Add(time.Hour)})
 	}
 	return ranges
-}
-
-// CountTableRows counts rows in a single relation.
-func CountTableRows(ctx context.Context, db DB, schema, table string) (int64, error) {
-	return countTableRows(ctx, db, schema, table)
-}
-
-func countTableRows(ctx context.Context, db DB, schema, table string) (int64, error) {
-	if strings.TrimSpace(schema) == "" || strings.TrimSpace(table) == "" {
-		return 0, fmt.Errorf("pgpartition: count relation requires schema and table")
-	}
-	var count int64
-	qualified := pq.QuoteIdentifier(schema) + "." + pq.QuoteIdentifier(table)
-	q := "SELECT COUNT(*) FROM " + qualified
-	if err := db.QueryRowContext(ctx, q).Scan(&count); err != nil {
-		return 0, fmt.Errorf("pgpartition: count %s: %w", qualified, err)
-	}
-	return count, nil
 }

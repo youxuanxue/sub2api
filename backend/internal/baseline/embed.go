@@ -19,14 +19,3 @@ var stubPoolBaselineJSON []byte
 
 //go:embed anthropic-http-mimicry-baselines.json
 var httpMimicryBaselineJSON []byte
-
-// RawTierBaselineJSON returns the embedded tier baseline document bytes.
-// Exposed for the sentinel/test to compare against the deploy/aws/stage0 source.
-func RawTierBaselineJSON() []byte { return tierBaselineJSON }
-
-// RawStubPoolBaselineJSON returns the embedded stub-pool policy bytes.
-func RawStubPoolBaselineJSON() []byte { return stubPoolBaselineJSON }
-
-// RawHTTPMimicryBaselineJSON returns the embedded Claude Code HTTP mimicry policy
-// bytes (UA version + per-model betas). Exposed for the sentinel/test.
-func RawHTTPMimicryBaselineJSON() []byte { return httpMimicryBaselineJSON }

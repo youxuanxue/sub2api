@@ -1,10 +1,17 @@
 <template>
-  <component v-if="activeCell" :is="activeCell" v-bind="props" />
+  <component
+    v-if="activeCell"
+    :is="activeCell"
+    v-bind="props"
+    @account-updated="emit('account-updated', $event)"
+    @updated="onOllamaUpdated"
+  />
   <div v-else class="text-xs text-gray-400">-</div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Account, OllamaCloudUsageState } from '@/types'
 import {
   accountUsageCellPropDefaults,
   type AccountUsageCellProps
@@ -15,7 +22,6 @@ import AnthropicUsageCell from './usage-cells/AnthropicUsageCell.vue'
 import OpenAIUsageCell from './usage-cells/OpenAIUsageCell.vue'
 import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
-import GrokUsageCell from './usage-cells/GrokUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
@@ -23,12 +29,16 @@ import {
   PLATFORM_ANTHROPIC,
   PLATFORM_ANTIGRAVITY,
   PLATFORM_GEMINI,
-  PLATFORM_GROK,
   PLATFORM_KIRO,
   PLATFORM_OPENAI,
 } from '@/constants/gatewayPlatforms'
 
 const props = withDefaults(defineProps<AccountUsageCellProps>(), accountUsageCellPropDefaults)
+const emit = defineEmits<{ 'account-updated': [account: Account] }>()
+
+function onOllamaUpdated(state: OllamaCloudUsageState) {
+  emit('account-updated', { ...props.account, ollama_cloud_usage: state })
+}
 
 const activeCell = computed(() => {
   const { account } = props
@@ -54,10 +64,6 @@ const activeCell = computed(() => {
     usesLocalUsageWindows(account)
   ) {
     return OpenAIUsageCell
-  }
-
-  if (account.platform === PLATFORM_GROK) {
-    return account.type === 'oauth' ? GrokUsageCell : OpenAIUsageCell
   }
 
   if (account.platform === PLATFORM_ANTIGRAVITY && account.type === 'oauth') {

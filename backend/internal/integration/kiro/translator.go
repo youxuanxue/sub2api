@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
-	"time"
 
 	claudepkg "github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/google/uuid"
@@ -108,19 +107,6 @@ func ParseModelAndThinking(model string, thinkingSuffix string) (string, bool) {
 	}
 
 	return model, thinking
-}
-
-func resolveClaudeThinkingMode(model string, thinkingCfg *ClaudeThinkingConfig, thinkingSuffix string) (string, bool) {
-	actualModel, suffixThinking := ParseModelAndThinking(model, thinkingSuffix)
-	return actualModel, suffixThinking || isClaudeThinkingRequested(thinkingCfg)
-}
-
-func isClaudeThinkingRequested(thinkingCfg *ClaudeThinkingConfig) bool {
-	if thinkingCfg == nil {
-		return false
-	}
-	kind := strings.ToLower(strings.TrimSpace(thinkingCfg.Type))
-	return kind == "enabled" || kind == "adaptive"
 }
 
 func MapModel(model string) string {
@@ -582,77 +568,6 @@ func collapseBlankLines(s string) string {
 	return strings.Join(out, "\n")
 }
 
-func cloneClaudeRequestForThinking(req *ClaudeRequest, thinking bool) *ClaudeRequest {
-	if req == nil {
-		return nil
-	}
-
-	cloned := *req
-	if thinking {
-		cloned.System = prependThinkingSystem(req.System)
-	}
-	return &cloned
-}
-
-func prependThinkingSystem(system interface{}) interface{} {
-	thinkingText := ThinkingModePrompt
-	if hasClaudeSystemContent(system) {
-		thinkingText += "\n"
-	}
-	thinkingBlock := map[string]interface{}{
-		"type": "text",
-		"text": thinkingText,
-	}
-
-	switch v := system.(type) {
-	case nil:
-		return []interface{}{thinkingBlock}
-	case string:
-		if v == "" {
-			return []interface{}{thinkingBlock}
-		}
-		return []interface{}{
-			thinkingBlock,
-			map[string]interface{}{
-				"type": "text",
-				"text": v,
-			},
-		}
-	case []interface{}:
-		blocks := make([]interface{}, 0, len(v)+1)
-		blocks = append(blocks, thinkingBlock)
-		blocks = append(blocks, v...)
-		return blocks
-	case []string:
-		blocks := make([]interface{}, 0, len(v)+1)
-		blocks = append(blocks, thinkingBlock)
-		for _, block := range v {
-			blocks = append(blocks, map[string]interface{}{
-				"type": "text",
-				"text": block,
-			})
-		}
-		return blocks
-	default:
-		return []interface{}{thinkingBlock}
-	}
-}
-
-func hasClaudeSystemContent(system interface{}) bool {
-	switch v := system.(type) {
-	case nil:
-		return false
-	case string:
-		return v != ""
-	case []interface{}:
-		return len(v) > 0
-	case []string:
-		return len(v) > 0
-	default:
-		return true
-	}
-}
-
 func extractSystemPrompt(system interface{}) string {
 	if system == nil {
 		return ""
@@ -1109,27 +1024,6 @@ func (t *OpenAITool) UnmarshalJSON(data []byte) error {
 		t.Function.Parameters = raw.Parameters
 	}
 	return nil
-}
-
-type OpenAIResponse struct {
-	ID      string         `json:"id"`
-	Object  string         `json:"object"`
-	Created int64          `json:"created"`
-	Model   string         `json:"model"`
-	Choices []OpenAIChoice `json:"choices"`
-	Usage   OpenAIUsage    `json:"usage"`
-}
-
-type OpenAIChoice struct {
-	Index        int           `json:"index"`
-	Message      OpenAIMessage `json:"message"`
-	FinishReason string        `json:"finish_reason"`
-}
-
-type OpenAIUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
 }
 
 // ==================== OpenAI -> Kiro 转换 ====================
@@ -1849,134 +1743,4 @@ func convertOpenAITools(tools []OpenAITool) []KiroToolWrapper {
 		result = append(result, wrapper)
 	}
 	return result
-}
-
-// ==================== Kiro -> OpenAI 转换 ====================
-
-func KiroToOpenAIResponse(content string, toolUses []KiroToolUse, inputTokens, outputTokens int, model string) *OpenAIResponse {
-	msg := OpenAIMessage{
-		Role: "assistant",
-	}
-
-	finishReason := "stop"
-
-	if len(toolUses) > 0 {
-		msg.Content = nil
-		msg.ToolCalls = make([]ToolCall, len(toolUses))
-		for i, tu := range toolUses {
-			args, _ := json.Marshal(tu.Input)
-			msg.ToolCalls[i] = ToolCall{
-				ID:   tu.ToolUseID,
-				Type: "function",
-			}
-			msg.ToolCalls[i].Function.Name = tu.Name
-			msg.ToolCalls[i].Function.Arguments = string(args)
-		}
-		finishReason = "tool_calls"
-	} else {
-		msg.Content = content
-	}
-
-	return &OpenAIResponse{
-		ID:      "chatcmpl-" + uuid.New().String(),
-		Object:  "chat.completion",
-		Created: time.Now().Unix(),
-		Model:   model,
-		Choices: []OpenAIChoice{{
-			Index:        0,
-			Message:      msg,
-			FinishReason: finishReason,
-		}},
-		Usage: OpenAIUsage{
-			PromptTokens:     inputTokens,
-			CompletionTokens: outputTokens,
-			TotalTokens:      inputTokens + outputTokens,
-		},
-	}
-}
-
-// extractThinkingFromContent 从内容中提取 <thinking> 标签内的内容
-func extractThinkingFromContent(content string) (string, string) {
-	var reasoning string
-	result := content
-
-	for {
-		start := strings.Index(result, "<thinking>")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(result[start:], "</thinking>")
-		if end == -1 {
-			break
-		}
-		end += start
-
-		// 提取 thinking 内容
-		thinkingContent := result[start+10 : end]
-		reasoning += thinkingContent
-
-		// 从结果中移除 thinking 标签
-		result = result[:start] + result[end+11:]
-	}
-
-	return strings.TrimSpace(result), reasoning
-}
-
-// KiroToOpenAIResponseWithReasoning 带 reasoning_content 的 OpenAI 响应
-func KiroToOpenAIResponseWithReasoning(content, reasoningContent string, toolUses []KiroToolUse, inputTokens, outputTokens int, model, thinkingFormat string) map[string]interface{} {
-	finishReason := "stop"
-
-	message := map[string]interface{}{
-		"role": "assistant",
-	}
-
-	if len(toolUses) > 0 {
-		message["content"] = nil
-		toolCalls := make([]map[string]interface{}, len(toolUses))
-		for i, tu := range toolUses {
-			args, _ := json.Marshal(tu.Input)
-			toolCalls[i] = map[string]interface{}{
-				"id":   tu.ToolUseID,
-				"type": "function",
-				"function": map[string]string{
-					"name":      tu.Name,
-					"arguments": string(args),
-				},
-			}
-		}
-		message["tool_calls"] = toolCalls
-		finishReason = "tool_calls"
-	} else {
-		// 根据配置格式化 thinking 输出
-		if reasoningContent != "" {
-			switch thinkingFormat {
-			case "thinking":
-				message["content"] = "<thinking>" + reasoningContent + "</thinking>" + content
-			case "think":
-				message["content"] = "<think>" + reasoningContent + "</think>" + content
-			default: // "reasoning_content"
-				message["content"] = content
-				message["reasoning_content"] = reasoningContent
-			}
-		} else {
-			message["content"] = content
-		}
-	}
-
-	return map[string]interface{}{
-		"id":      "chatcmpl-" + uuid.New().String(),
-		"object":  "chat.completion",
-		"created": time.Now().Unix(),
-		"model":   model,
-		"choices": []map[string]interface{}{{
-			"index":         0,
-			"message":       message,
-			"finish_reason": finishReason,
-		}},
-		"usage": map[string]int{
-			"prompt_tokens":     inputTokens,
-			"completion_tokens": outputTokens,
-			"total_tokens":      inputTokens + outputTokens,
-		},
-	}
 }

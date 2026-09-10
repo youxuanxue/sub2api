@@ -3,6 +3,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const copyToClipboard = vi.fn().mockResolvedValue(true)
 
+vi.mock('@/api/admin/accounts', () => ({
+  getModelMappingPresets: vi.fn().mockResolvedValue(['gpt-5.6-sol']),
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -83,6 +87,7 @@ describe('ModelWhitelistSelector', () => {
 
   it('copies a model ID without selecting the model', async () => {
     const wrapper = mountSelector()
+    await flushPromises()
     await wrapper.get('div.cursor-pointer').trigger('click')
 
     const row = findModelRow(wrapper, 'gpt-5.6-sol')
@@ -99,6 +104,7 @@ describe('ModelWhitelistSelector', () => {
 
   it('keeps the existing model selection behavior', async () => {
     const wrapper = mountSelector()
+    await flushPromises()
     await wrapper.get('div.cursor-pointer').trigger('click')
 
     const row = findModelRow(wrapper, 'gpt-5.6-sol')

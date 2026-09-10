@@ -83,6 +83,3 @@ func wireShapeFor(platform, inboundEndpoint string) WireShape {
 		return WireUnknown
 	}
 }
-
-// ProjectableShape reports whether the projector has a builder for this shape.
-func ProjectableShape(s WireShape) bool { return s != WireUnknown }

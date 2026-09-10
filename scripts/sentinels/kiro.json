@@ -341,9 +341,9 @@
         "management.us-east-1.kiro.dev",
         "\"/Get-Usage-Limits\"",
         "\"/getUsageLimits\"",
-        "func ensureProfileArn",
-        "func reresolveProfileArnAfterStale",
-        "func kiroRestFetch",
+        "func ensureProfileArnWithDoer",
+        "func reresolveProfileArnAfterStaleWithDoer",
+        "func kiroRestFetchWithDoer",
         "buildKiroHeaderValues(host)",
         "applyKiroBaseHeaders(req, account, headerValues)"
       ],
