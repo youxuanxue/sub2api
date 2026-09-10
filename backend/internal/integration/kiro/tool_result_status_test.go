@@ -22,7 +22,7 @@ func TestClaudeToKiro_PreservesToolResultFailure(t *testing.T) {
 		{name: "successful", field: `,"is_error":false`, status: "success"},
 		{name: "omitted_is_success", status: "success"},
 	} {
-		for _, phase := range []string{"active", "history", "orphan", "completion_continuation"} {
+		for _, phase := range []string{"active", "history", "orphan"} {
 			t.Run(tc.name+"/"+phase, func(t *testing.T) {
 				var req ClaudeRequest
 				require.NoError(t, json.Unmarshal([]byte(fmt.Sprintf(`{
@@ -42,10 +42,6 @@ func TestClaudeToKiro_PreservesToolResultFailure(t *testing.T) {
 					req.Messages = req.Messages[2:]
 				}
 				payload := ClaudeToKiro(&req, false)
-				if phase == "completion_continuation" {
-					payload.ClaudeCodeCompletionProtocol = true
-					PrepareClaudeCodeCompletionContinuation(payload, "I received the result.")
-				}
 				current := payload.ConversationState.CurrentMessage.UserInputMessage
 				if phase != "orphan" {
 					var results []KiroToolResult

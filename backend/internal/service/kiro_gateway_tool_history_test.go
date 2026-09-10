@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestKiroGatewayService_ContinuationPreservesToolHistory(t *testing.T) {
+func TestKiroGatewayService_ClientTurnsPreserveToolHistory(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
 			parsed := newClaudeCodeKiroParsedRequestForTest(stream)
@@ -37,10 +37,21 @@ func TestKiroGatewayService_ContinuationPreservesToolHistory(t *testing.T) {
 			parsed.Body = NewRequestBodyRef(raw)
 			upstream := &kiroSequenceUpstream{bodies: [][]byte{
 				kiroTextStopStream("I received the results.", "END_TURN"),
-				kiroCompletionSignalStream("blocked", "Which fixture should I retry?"),
+				kiroTextStopStream("Which fixture should I retry?", "END_TURN"),
 			}}
 			gin.SetMode(gin.TestMode)
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			_, err = NewKiroGatewayService(upstream, nil, nil).Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
+			require.NoError(t, err)
+			require.Len(t, upstream.requests, 1)
+			messages = append(messages,
+				map[string]any{"role": "assistant", "content": "I received the results."},
+				map[string]any{"role": "user", "content": "Which fixture failed? Do not retry."})
+			body["messages"] = messages
+			raw, err = json.Marshal(body)
+			require.NoError(t, err)
+			parsed.Body = NewRequestBodyRef(raw)
+			c, _ = gin.CreateTestContext(httptest.NewRecorder())
 			_, err = NewKiroGatewayService(upstream, nil, nil).Forward(context.Background(), c, newKiroAccountForTest(), parsed, time.Now())
 			require.NoError(t, err)
 			require.Len(t, upstream.requests, 2)
