@@ -195,6 +195,40 @@ describe('DataTable', () => {
     expect(wrapper.emitted('selectionChange')?.at(-1)?.[0]).toEqual([99, 2])
   })
 
+  it('remeasures expanded details and survives filtering across the virtual threshold', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.tagName === 'TR' ? 56 : 800
+    })
+    const data = Array.from({ length: 12 }, (_, id) => ({ id, name: `Row ${id}` }))
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }], data,
+        virtualizeThreshold: 3, estimateRowHeight: 56,
+        expandable: () => true, expandedKeys: new Set<number>(),
+      },
+      slots: { 'row-detail': '<div>Expanded account details</div>' },
+    })
+    await wrapper.vm.$nextTick()
+    const exposed = (wrapper.vm as any).virtualizer
+    const instance = exposed?.value ?? exposed
+    await wrapper.setProps({ expandedKeys: new Set([0]) })
+    expect(wrapper.text()).toContain('Expanded account details')
+    instance.resizeItem(1, 300)
+    expect(instance.getTotalSize()).toBe(12 * 56 + 300)
+
+    await wrapper.setProps({ expandedKeys: new Set() })
+    expect(wrapper.text()).not.toContain('Expanded account details')
+    expect(instance.getTotalSize()).toBe(12 * 56)
+
+    await wrapper.setProps({ data: data.slice(0, 2) })
+    expect(wrapper.findAll('tbody tr[data-index]')).toHaveLength(2)
+    expect(wrapper.findAll('tbody tr[aria-hidden="true"]')).toHaveLength(0)
+    await wrapper.setProps({ data })
+    expect(instance.getTotalSize()).toBe(12 * 56)
+    expect(wrapper.text()).toContain('Row 0')
+    wrapper.unmount()
+  })
+
   it('keeps the single usage field shrinkable in a 320px mobile card', () => {
     stubMobileMatchMedia()
     const viewport = document.createElement('div')

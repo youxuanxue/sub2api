@@ -741,36 +741,40 @@ func TestGrokLocalUsageForBillingOnlyReturnsAvailableWindows(t *testing.T) {
 
 func TestAccountUsageServiceGrokRefreshUsesBillingOnly(t *testing.T) {
 	t.Parallel()
+	for _, force := range []bool{false, true} {
+		t.Run(strconv.FormatBool(force), func(t *testing.T) {
 
-	account := healthyGrokQuotaOAuthAccount(54)
-	repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
-		accountsByID: map[int64]*Account{account.ID: account},
-	}}
-	upstream := &grokHybridUpstream{}
-	usageRepo := &grokQuotaUsageLogRepo{stats: &usagestats.AccountStats{Tokens: 750_000}}
-	quotaService := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream, nil, usageRepo)
-	usageService := &AccountUsageService{
-		grokQuotaFetcher: NewGrokQuotaFetcher(),
-		grokQuotaService: quotaService,
-		usageLogRepo:     usageRepo,
-		cache:            NewUsageCache(),
-	}
+			account := healthyGrokQuotaOAuthAccount(54)
+			repo := &grokQuotaAccountRepo{mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+				accountsByID: map[int64]*Account{account.ID: account},
+			}}
+			upstream := &grokHybridUpstream{}
+			usageRepo := &grokQuotaUsageLogRepo{stats: &usagestats.AccountStats{Tokens: 750_000}}
+			quotaService := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream, nil, usageRepo)
+			usageService := &AccountUsageService{
+				grokQuotaFetcher: NewGrokQuotaFetcher(),
+				grokQuotaService: quotaService,
+				usageLogRepo:     usageRepo,
+				cache:            NewUsageCache(),
+			}
 
-	usage, err := usageService.getGrokUsage(context.Background(), account, false)
-	require.NoError(t, err)
-	require.NotNil(t, usage.GrokBilling)
-	require.Nil(t, usage.GrokBilling.UsagePercent)
-	require.NotNil(t, usage.GrokLocalUsage24h)
-	require.EqualValues(t, 750_000, usage.GrokLocalUsage24h.Tokens)
-	require.Equal(t, 1, usageRepo.calls)
-	require.Len(t, usageRepo.startTimes, 1)
-	require.WithinDuration(t, time.Now().UTC().Add(-24*time.Hour), usageRepo.startTimes[0], time.Second)
+			usage, err := usageService.getGrokUsage(context.Background(), account, force)
+			require.NoError(t, err)
+			require.NotNil(t, usage.GrokBilling)
+			require.Nil(t, usage.GrokBilling.UsagePercent)
+			require.NotNil(t, usage.GrokLocalUsage24h)
+			require.EqualValues(t, 750_000, usage.GrokLocalUsage24h.Tokens)
+			require.Equal(t, 1, usageRepo.calls)
+			require.Len(t, usageRepo.startTimes, 1)
+			require.WithinDuration(t, time.Now().UTC().Add(-24*time.Hour), usageRepo.startTimes[0], time.Second)
 
-	requests, _ := grokQuotaForegroundRequests(upstream.snapshot())
-	require.Len(t, requests, 2)
-	for _, req := range requests {
-		require.Equal(t, http.MethodGet, req.Method)
-		require.Equal(t, "/v1/billing", req.URL.Path)
+			requests, _ := grokQuotaForegroundRequests(upstream.snapshot())
+			require.Len(t, requests, 2)
+			for _, req := range requests {
+				require.Equal(t, http.MethodGet, req.Method)
+				require.Equal(t, "/v1/billing", req.URL.Path)
+			}
+		})
 	}
 }
 

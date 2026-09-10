@@ -50,10 +50,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import type { GrokQuotaProbeResult } from '@/api/admin/grok'
 import type { Account, AccountUsageInfo } from '@/types'
 import { PLATFORM_GROK } from '@/constants/gatewayPlatforms'
 import UsageProgressBar from './UsageProgressBar.vue'
@@ -65,14 +64,13 @@ const props = defineProps<{
   activeUsageLoader?: () => Promise<AccountUsageInfo>
 }>()
 
-const emit = defineEmits<{ probed: [result: GrokQuotaProbeResult] }>()
-
 const { t } = useI18n()
 
 const visible = computed(() => props.account.platform === PLATFORM_GROK && props.account.type === 'oauth')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const queriedUsage = ref<Partial<AccountUsageInfo> | null>(null)
+let queryGeneration = 0
 
 const extractErrorMessage = (e: unknown): string => {
   const err = e as {
@@ -105,36 +103,40 @@ const truncatedError = computed(() => {
 
 const handleProbe = async () => {
   if (loading.value) return
+  const generation = ++queryGeneration
+  const initialUsage = props.usage
+  const isCurrent = () => generation === queryGeneration && props.usage === initialUsage
   loading.value = true
   error.value = null
   try {
-    if (props.activeUsageLoader) {
-      queriedUsage.value = await props.activeUsageLoader()
-      error.value = queriedUsage.value.error || null
-    } else {
-      const result = await adminAPI.grok.queryQuota(props.account.id)
-      queriedUsage.value = {
-        grok_billing: result.billing,
-        grok_local_usage_24h: result.local_usage_24h,
-        grok_local_usage_7d: result.local_usage_7d,
-        grok_local_usage_monthly: result.local_usage_monthly,
-      }
-      error.value = result.probe_error || null
-      emit('probed', result)
-    }
+    const result = props.activeUsageLoader
+      ? await props.activeUsageLoader()
+      : await adminAPI.accounts.getUsage(props.account.id, 'active', true)
+    if (!isCurrent()) return
+    queriedUsage.value = result
+    error.value = result.error || null
   } catch (e) {
-    error.value = extractErrorMessage(e)
+    if (isCurrent()) error.value = extractErrorMessage(e)
   } finally {
-    loading.value = false
+    if (generation === queryGeneration) loading.value = false
   }
 }
+
+watch(() => props.usage, () => {
+  queriedUsage.value = null
+  error.value = null
+}, { flush: 'sync' })
 
 watch(
   () => props.account.id,
   () => {
+    queryGeneration++
     queriedUsage.value = null
     error.value = null
     loading.value = false
-  }
+  },
+  { flush: 'sync' }
 )
+
+onBeforeUnmount(() => { queryGeneration++ })
 </script>
