@@ -28,6 +28,7 @@ package service
 import (
 	"context"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 )
 
@@ -59,8 +60,15 @@ func tkChannelPricingProbeFromResolver(resolver *ModelPricingResolver) tkChannel
 		return nil
 	}
 	return func(ctx context.Context, model string, groupID int64) bool {
-		resolved := resolver.Resolve(ctx, PricingInput{Model: model, GroupID: &groupID})
-		return resolved != nil && resolved.Source == PricingSourceChannel && tkResolvedPricingChargeable(resolved)
+		var group *Group
+		if ctx != nil {
+			group, _ = ctx.Value(ctxkey.Group).(*Group)
+			if group != nil && group.ID != groupID {
+				group = nil
+			}
+		}
+		resolved := resolver.Resolve(ctx, PricingInput{Model: model, GroupID: &groupID, Group: group})
+		return resolved != nil && (resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel) && tkResolvedPricingChargeable(resolved)
 	}
 }
 

@@ -45,6 +45,7 @@ func (r *CandidateRequest) accounts(ctx context.Context) ([]Account, error) {
 }
 
 func (r *CandidateRequest) candidates(ctx context.Context, options candidateSelectOptions) ([]*candidateExecutionPath, bool, error) {
+	ctx = r.withProfitPricing(ctx)
 	if r.key.IsUniversal() {
 		groups, err := r.resolver.span(ctx, r.key.UserID)
 		if err != nil {
@@ -168,6 +169,10 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 // evaluatePath is the support projection shared by scheduling and discovery.
 // It evaluates a complete authorization path without changing runtime state.
 func (r *CandidateRequest) evaluatePath(ctx context.Context, account *Account, group *Group) (*candidateExecutionPath, error) {
+	return r.evaluatePathWithPreparation(ctx, account, group, r.pathContext)
+}
+
+func (r *CandidateRequest) evaluatePathWithPreparation(ctx context.Context, account *Account, group *Group, prepare func(context.Context, *Group) (context.Context, string, ChannelMappingResult, error)) (*candidateExecutionPath, error) {
 	if !group.IsActive() || !candidateAccountInGroup(account, group.ID) || (r.forcePlatform != "" && account.Platform != r.forcePlatform) {
 		return nil, nil
 	}
@@ -181,7 +186,7 @@ func (r *CandidateRequest) evaluatePath(ctx context.Context, account *Account, g
 			}
 		}
 	}
-	pathCtx, model, channel, err := r.pathContext(ctx, group)
+	pathCtx, model, channel, err := prepare(ctx, group)
 	if err != nil {
 		return nil, err
 	}
@@ -204,6 +209,7 @@ func (r *CandidateRequest) evaluatePath(ctx context.Context, account *Account, g
 
 func (r *CandidateRequest) pathReady(path *candidateExecutionPath, options candidateSelectOptions) bool {
 	gw, openai := r.resolver.candidateGateway, r.resolver.candidateOpenAI
+	path.ctx = r.withProfitControl(path)
 	account, ctx := path.account, path.ctx
 	if gw.isAccountBlockedBySchedulingThreshold(ctx, account) {
 		return false
@@ -325,7 +331,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 				evaluationErr = err
 				continue
 			}
-			result := &AccountSelectionResult{Account: path.account, ProtocolPlan: path.plan}
+			result := attachSelectionProfitGate(path.ctx, &AccountSelectionResult{Account: path.account, ProtocolPlan: path.plan})
 			r.selectionOptions = options
 			if acquired != nil {
 				result.Acquired = true
@@ -344,9 +350,9 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			}
 			cfg := gw.schedulingConfig()
 			r.selectionOptions = options
-			return &AccountSelectionResult{Account: busy.account, ProtocolPlan: busy.plan,
+			return attachSelectionProfitGate(busy.ctx, &AccountSelectionResult{Account: busy.account, ProtocolPlan: busy.plan,
 				WaitPlan: &AccountWaitPlan{AccountID: busy.account.ID, MaxConcurrency: busy.account.Concurrency,
-					Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting}}, nil
+					Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting}}), nil
 		}
 	}
 	return nil, candidateSelectionError(supported, evaluationErr, r.model)

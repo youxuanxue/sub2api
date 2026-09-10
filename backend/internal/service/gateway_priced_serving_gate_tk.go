@@ -42,6 +42,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
@@ -143,8 +144,16 @@ func tkCheckPricedServingGate(
 	wireProtocol tkGateWireProtocol,
 	platform, billingModel, requestedModel string,
 ) bool {
-	// groupID 用于渠道价探测（B1）：从 gin context 经 api_key 取，与下面告警取 group 同源。
+	// Scoped prices and rejection diagnostics use the current key's billing group.
 	groupID := tkGateGroupID(c)
+	if c != nil {
+		if group := apiKeyGroup(getAPIKeyFromContext(c)); group != nil {
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			ctx = context.WithValue(ctx, ctxkey.Group, group)
+		}
+	}
 	if !tkPricedServingGateRejected(ctx, resolve, channelProbe, setting, billingModel, platform, groupID) {
 		return true
 	}

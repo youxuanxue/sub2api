@@ -12,10 +12,11 @@ import (
 var ErrProtocolRouteUnavailable = errors.New("protocol route unavailable")
 
 type protocolRoutingContextValue struct {
-	router     *protocolrouter.Router
-	request    protocolrouter.CanonicalRequest
-	plans      *protocolPlanCache
-	nativeOnly bool
+	router            *protocolrouter.Router
+	request           protocolrouter.CanonicalRequest
+	plans             *protocolPlanCache
+	nativeOnly        bool
+	immutableAccounts bool
 }
 
 type protocolPlanCacheKey struct {
@@ -171,12 +172,24 @@ func protocolPlanForAccount(
 	if !ok || routing.router == nil || !protocolRoutingGovernsAccount(account) {
 		return protocolrouter.Plan{}, false, nil
 	}
-	snapshot, err := protocolAccountSnapshotForRequestWithThinking(account, routing.request, thinkingEnabledFromCtx(ctx))
-	if err != nil {
-		return protocolrouter.Plan{}, true, fmt.Errorf("%w: %w", ErrProtocolRouteUnavailable, err)
+	var snapshot protocolrouter.AccountSnapshot
+	var err error
+	if !routing.immutableAccounts {
+		snapshot, err = protocolAccountSnapshotForRequestWithThinking(account, routing.request, thinkingEnabledFromCtx(ctx))
+		if err != nil {
+			return protocolrouter.Plan{}, true, fmt.Errorf("%w: %w", ErrProtocolRouteUnavailable, err)
+		}
 	}
-	key := protocolPlanCacheKey{accountID: snapshot.AccountID()}
+	key := protocolPlanCacheKey{accountID: account.ID}
 	plan, err := routing.plans.getOrPlan(key, func() (protocolrouter.Plan, error) {
+		// Discovery owns a fixed account slice. Only that path may skip repeated
+		// snapshot construction; execution still validates fresh account facts.
+		if routing.immutableAccounts {
+			snapshot, err = protocolAccountSnapshotForRequestWithThinking(account, routing.request, thinkingEnabledFromCtx(ctx))
+			if err != nil {
+				return protocolrouter.Plan{}, err
+			}
+		}
 		return planProtocolRoute(ctx, routing.router, routing.request, snapshot)
 	})
 	if err != nil {

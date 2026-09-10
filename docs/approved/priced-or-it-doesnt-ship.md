@@ -31,7 +31,7 @@ supersedes: none
 
 native 空 `model_mapping` 仍可能 catch-all 透传未定价 id；billing 在
 `ErrModelPricingUnavailable` 时 fail-open 记 `$0`。静态 catalog/manifest/price-owner
-门禁只保护已声明的上架 id；闸是运行期对应：转发前用与 billing **同一两个价源、同一键**判定。
+门禁只保护已声明的上架 id；闸是运行期对应：转发前用与 billing **同一价源、同一键、同一计费分组**判定。
 
 ## 2. 闸点
 
@@ -41,7 +41,7 @@ native 空 `model_mapping` 仍可能 catch-all 透传未定价 id；billing 在
 价源（闸 ⟺ billing，无影子谓词）：
 
 1. `BillingService.GetModelPricing`（active registry direct owner + registry family alias / floor）
-2. `resolveChannelPricing` / `channel_model_pricing`（基础价 miss 时）
+2. `ModelPricingResolver` 解析实际计费分组的 `Group.ModelPricing` 及 `channel_model_pricing`（基础价 miss 时）；作用域结果必须存在有效价格维度。
 
 两源都解不出价（含 floor）且平台在启用集内 → 拒。键：native gemini/anthropic 用
 `originalModel`；openai native 用 mapped `billingModel`。

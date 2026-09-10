@@ -51,6 +51,11 @@
 33. AC-033 (integration): Given replayable NewAPI Chat When the upstream hangs before headers or after empty stream output Then cancel the actual connection, release its slot and try another account, returning complete output and one successful usage record; at most three attempts are allowed.
 34. AC-034 (negative): Given content or function-tool output before an upstream truncation When finishing the attempt Then never replay or synthesize successful completion, and retain known partial usage; caller cancellation and hard continuations cannot enter pre-output failover.
 35. AC-035 (regression): Given thinking and forced tools When evaluating admitted accounts Then prefer an unadjusted Plan within the existing payment tier; unavailable/excluded peers allow thinking-first auto fallback without altering tools, cache or retry input. Direct/Universal streaming and buffered handlers forward the evaluated body; changed endpoint capabilities invalidate stale Plans before transport. Conversion permission constrains Plan before compatibility preference, plan caches remain isolated by that permission, and a cheaper same-account origin cannot displace an authorized exact Plan.
+36. AC-036 (regression): Given candidate requests with enabled profit control When admitting, changing billing origins, acquiring or waiting for a slot, or starting a WS turn Then the shared profit owner uses the actual billing origin and pricing instant; an ineligible cost releases capacity and cannot execute.
+37. AC-037 (regression): Given an opaque model priced only by the actual billing group's card When checking serving prices Then admission agrees with settlement; unrelated-group and empty prices cannot grant admission.
+38. AC-038 (regression): Given Direct and Universal user catalogs When presenting models and authorized groups Then project candidate support across platform memberships and request aliases, preserving cross-origin policy conflicts and rejecting unsupported channel-only rows.
+39. AC-039 (negative): Given channel or restricted-account catalog rows When structurally-gone evidence exists Then hide the model; transient evidence preserves it.
+40. AC-040 (regression): Given overlapping account/group model sets When building a user menu Then reuse metadata/channel inputs and batch retirement evidence within the request; discovery reuses only its fixed account facts, subsequent requests observe changes, and runtime selection retains fresh account validation. File or registry replacement rotates membership and prices together, including atomic replacement preserving mtime.
 
 The Direct/Universal mapping boundary is approved in
 `docs/approved/candidate-request-policy-convergence.md`. Mapping isolation, global
@@ -80,6 +85,24 @@ production scheduler. AC-004 follows the approved account-scope policy; its old
 mixed-pool test documents only the remaining legacy adapter's behavior.
 
 ## Linked Tests
+
+- `backend/internal/service/me_pricing_performance_tk_test.go`::`TestMePricingMenuBatchesAvailabilityAndReusesInputs`
+- `backend/internal/service/me_pricing_performance_tk_test.go`::`TestMenuBatchAvailabilityFailureKeepsModelsWithoutQueryStorm`
+- `backend/internal/service/candidate_discovery_snapshot_tk_test.go`::`TestCandidateDiscoveryPlanCacheAvoidsRepeatedSnapshotsAndRefreshesNextRequest`
+- `backend/internal/service/pricing_catalog_lookup_perf_tk_test.go`::`TestCatalogMembershipAtomicReplacementWithSameMTime`
+- `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitNativeMessagesRejectsBeforeReservation`
+- `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitReselectionUsesActualBillingOrigin`
+- `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitFreshCostAfterSlotReleasesAndReselects`
+- `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitWaitRechecksFreshCost`
+- `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitWebSocketRevalidationRefreshesOriginGate`
+- `backend/internal/service/gateway_priced_serving_group_tk_test.go`::`TestPricedServingGroupPriceMatchesSettlement`
+- `backend/internal/service/gateway_priced_serving_group_tk_test.go`::`TestPricedServingUsesCurrentKeyBillingGroup`
+- `backend/internal/service/me_pricing_candidate_tk_test.go`::`TestCandidatePricingMenuUsesAuthorizedSupport`
+- `backend/internal/service/me_pricing_candidate_tk_test.go`::`TestCandidatePricingMenuRejectsPhantomChannelAndConflictingOrigins`
+- `backend/internal/service/me_pricing_candidate_tk_test.go`::`TestCandidatePricingMenuPrunesEveryPriceSource`
+- `backend/internal/service/me_pricing_candidate_tk_test.go`::`TestCandidatePricingMenuScopedPriceWithProductionFilter`
+- `backend/internal/service/me_pricing_candidate_tk_test.go`::`TestCandidatePricingMenuDoesNotRestoreHiddenManifestRows`
+- `frontend/e2e/us050-candidate-pricing-catalog.e2e.ts`
 
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityGoogleBackends`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityThinkingModelReadiness`
@@ -190,6 +213,8 @@ They are backend integration/unit tests, not UI E2E or live supplier probes.
 | AC-030/031 | Supplier credential sharing/recovery and real repository guards; discovery supports actual accounts and native response schemas | No production configuration writes or live supplier verification were performed. |
 
 | AC-032/033/034 | Direct/Universal handler tests cover real transport cancellation, failover, attempt cap, partial text/tool output and usage preservation; scoped counter and replay boundary tests cover exclusions | Production comparison and original Kimi task completion remain pending. No traffic switch is authorized. |
+| AC-036/037 | Profit selection, origin changes, post-slot and WS rechecks; group-only price admission and wrong-group rejection | Live price/cost comparison remains a release prerequisite. |
+| AC-038/039 | Candidate catalog tests include production price filters, scoped-only models, hidden manifest rows and retirement evidence; Playwright exercises desktop/mobile pricing filters and readable authorized groups | UI requests use fixtures; they do not prove live supplier capability or production billing. |
 
 Keep the story in InTest until the
 remaining production acceptance evidence above is available; these are validation

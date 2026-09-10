@@ -132,6 +132,11 @@ type openAIProfitControlGate struct {
 // 利润门。ctx 携带 WithOpenAIProfitControlSuppressed 标记（门范围外流量）时
 // 只固定 pricingAt、不装门。handler 各文本入口应在选号循环前调用一次。
 func (s *OpenAIGatewayService) WithOpenAIRequestPricingContext(ctx context.Context, groupID *int64) (context.Context, time.Time) {
+	if CandidateRequestFromContext(ctx) != nil {
+		if pricingAt, ok := openAIPricingAtFromContext(ctx); ok {
+			return ctx, pricingAt
+		}
+	}
 	pricingAt := timezone.Now()
 	ctx = context.WithValue(ctx, openAIPricingAtCtxKey{}, pricingAt)
 	return s.withOpenAIProfitControlGate(ctx, groupID), pricingAt
@@ -152,6 +157,11 @@ func WithOpenAIProfitControlSuppressed(ctx context.Context) context.Context {
 func (s *OpenAIGatewayService) WithOpenAITurnPricingContext(ctx context.Context, groupID *int64) (context.Context, time.Time) {
 	pricingAt := timezone.Now()
 	ctx = context.WithValue(ctx, openAIPricingAtCtxKey{}, pricingAt)
+	if candidate := CandidateRequestFromContext(ctx); candidate != nil && candidate.current != nil {
+		path := *candidate.current
+		path.ctx = candidate.withProfitPricing(ctx)
+		return candidate.withProfitControl(&path), pricingAt
+	}
 	if _, suppressed := ctx.Value(openAIProfitControlSuppressCtxKey{}).(struct{}); suppressed {
 		return ctx, pricingAt
 	}
@@ -288,7 +298,10 @@ func attachSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult)
 // （ProfitControlVetoLatest / GatewayProfitControlVetoLatest）与准入后粘性
 // 绑定，否则这两步会因为看不到调度栈内安装的门而退化为空操作。
 func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult) context.Context {
-	if sel == nil || sel.profitGate == nil {
+	if sel == nil {
+		return ctx
+	}
+	if sel.profitGate == nil && CandidateRequestFromContext(ctx) == nil {
 		return ctx
 	}
 	if existing, ok := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate); ok && existing == sel.profitGate {

@@ -449,11 +449,12 @@
     {
       "path": "backend/internal/service/me_pricing_catalog_tk.go",
       "must_contain": [
-        "isCatalogModelRecommended(m.ModelID)",
+        "isMePricingModelDisplayed(m.ModelID)",
+        "isCatalogModelRecommended(model)",
         "MePricingAccountSource",
         "fillAccountFallback",
         "NewAPIModelDisplayIDsForAccount(a)",
-        "isTkCuratedNewAPIModelListed(displayID) && !isTkCuratedNewAPIModelDisplayed(displayID)",
+        "!isTkCuratedNewAPIModelListed(model) || isTkCuratedNewAPIModelDisplayed(model)",
         "parseWhitelistFromCredentials",
         "buildAccountFallbackEntry"
       ],

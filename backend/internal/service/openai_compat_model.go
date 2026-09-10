@@ -84,7 +84,7 @@ func splitOpenAICompatReasoningModel(model string) (normalizedModel string, reas
 		return trimmed, "", false
 	}
 
-	last := strings.NewReplacer("-", "", "_", "", " ", "").Replace(parts[len(parts)-1])
+	last := parts[len(parts)-1]
 	switch last {
 	case "none", "minimal":
 	case "low", "medium", "high":
