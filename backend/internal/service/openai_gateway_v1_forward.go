@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -36,6 +37,14 @@ func buildOpenAIV1SegmentURL(base string, segment string) string {
 func (s *OpenAIGatewayService) buildOpenAIV1TargetURL(account *Account, segment string) (string, error) {
 	if account == nil {
 		return "", fmt.Errorf("account is required")
+	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		switch segment {
+		case "embeddings", "embeddings/multimodal", "images/generations":
+			return newapiintegration.VolcEngineAgentPlanBaseURL + "/" + segment, nil
+		default:
+			return "", fmt.Errorf("unsupported Agent Plan media endpoint %q", segment)
+		}
 	}
 	switch account.Type {
 	case AccountTypeAPIKey:
@@ -106,6 +115,10 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 	if originalModel == "" {
 		return nil, fmt.Errorf("model is required")
 	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) && gjson.GetBytes(body, "stream").Bool() {
+		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "Agent Plan media streaming is not supported by this endpoint")
+		return nil, fmt.Errorf("agent plan media streaming is unsupported")
+	}
 	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
 	// Embeddings is a billed surface and must hit the priced-serving gate.
 	// images/generations stays on its own media path — do not gate it here.
@@ -117,6 +130,14 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 	forwardBody := body
 	if upstreamModel != originalModel {
 		forwardBody = s.ReplaceModelInBody(body, upstreamModel)
+	}
+	if isNewAPIVolcEngineAgentPlanAccount(account) && urlSegment == "embeddings" &&
+		volcEnginePlanMultimodalEmbeddingInput(forwardBody) {
+		if encoding := gjson.GetBytes(body, "encoding_format").String(); encoding != "" && encoding != "float" {
+			writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "Agent Plan multimodal embeddings require float encoding")
+			return nil, fmt.Errorf("unsupported multimodal embedding encoding")
+		}
+		urlSegment = "embeddings/multimodal"
 	}
 
 	token, _, err := s.GetAccessToken(ctx, account)
@@ -153,9 +174,15 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 		})
 		return nil, candidateTransportFailure(ctx, fmt.Errorf("upstream request failed: %s", safeErr), err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	upstreamBody := resp.Body
+	defer func() { _ = upstreamBody.Close() }()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	var respBody []byte
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		respBody, err = ReadUpstreamResponseBody(upstreamBody, s.cfg, c, openAITooLargeError)
+	} else {
+		respBody, err = io.ReadAll(io.LimitReader(upstreamBody, 2<<20))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read upstream response body: %w", err)
 	}
@@ -196,6 +223,28 @@ func (s *OpenAIGatewayService) forwardOpenAIV1JSON(
 		return s.handleErrorResponse(ctx, resp, c, account, body)
 	}
 
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		responseBody := respBody
+		if !gjson.ValidBytes(responseBody) {
+			return nil, fmt.Errorf("invalid Agent Plan media response")
+		}
+		if urlSegment == "embeddings/multimodal" {
+			responseBody, err = normalizeVolcEnginePlanEmbeddingResponse(responseBody)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if urlSegment == "images/generations" {
+			if countOpenAIResponseImageOutputsFromJSONBytes(responseBody) == 0 {
+				return nil, fmt.Errorf("agent plan image response contains no images")
+			}
+		} else if !gjson.GetBytes(responseBody, "data.0.embedding").Exists() || extractOpenAIEmbeddingsUsage(responseBody).InputTokens <= 0 {
+			return nil, fmt.Errorf("agent plan embedding response missing vector or usage")
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(responseBody))
+		resp.ContentLength = int64(len(responseBody))
+		resp.Header.Del("Content-Length")
+	}
 	usage, err := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, billingModel)
 	if err != nil {
 		return nil, err

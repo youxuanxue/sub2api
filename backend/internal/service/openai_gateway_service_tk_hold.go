@@ -194,12 +194,20 @@ func (s *OpenAIGatewayService) tkEstimateImageHoldAmount(ctx context.Context, mo
 // TkReserveTTSHold estimates character-priced TTS cost from the request input
 // rune count and reserves it. Same fail-open posture as TkReserveTokenHold.
 func (s *OpenAIGatewayService) TkReserveTTSHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, characterCount int) (held bool, reject bool) {
+	return s.tkReserveAudioHold(ctx, requestID, model, "tts", user, apiKey, float64(characterCount)/1_000_000)
+}
+
+func (s *OpenAIGatewayService) TkReserveSTTHold(ctx context.Context, requestID, model string, user *User, apiKey *APIKey, seconds float64) (held bool, reject bool) {
+	return s.tkReserveAudioHold(ctx, requestID, model, "stt", user, apiKey, seconds/3600)
+}
+
+func (s *OpenAIGatewayService) tkReserveAudioHold(ctx context.Context, requestID, model, mode string, user *User, apiKey *APIKey, units float64) (held bool, reject bool) {
 	if s == nil || s.billingService == nil || user == nil || apiKey == nil || requestID == "" || s.tkHoldGatingDisabled() {
 		return false, false
 	}
 	multiplier := s.tkHoldRateMultiplier(ctx, user, apiKey)
 	cfg := groupAudioPriceConfigFromAPIKey(apiKey)
-	amount := s.billingService.EstimateTTSHold(model, characterCount, cfg, multiplier)
+	amount := s.billingService.CalculateAudioCostForModel(model, mode, units, cfg, multiplier).ActualCost
 	held, reject, err := tkReserveBalanceHold(ctx, s.usageBillingRepo, requestID, user.ID, apiKey.ID, amount)
 	if err != nil {
 		logger.L().Error("openai_gateway.hold_reserve_failed",

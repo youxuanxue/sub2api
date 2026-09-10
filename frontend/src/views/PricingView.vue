@@ -386,7 +386,18 @@
                       <template v-else>—</template>
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 align-top text-right text-sm tabular-nums text-gray-900 dark:text-white">
-                      <template v-if="row.billingMode === 'image' && row.perImage != null">
+                      <CatalogAudioPrice
+                        v-if="row.billingMode === 'tts' || row.billingMode === 'stt'"
+                        :mode="row.billingMode"
+                        :per-character="row.perCharacter"
+                        :per-input-second="row.perInputSecond"
+                      />
+                      <CatalogEmbeddingPrice
+                        v-else-if="row.billingMode === 'embedding' && row.perImageInputToken != null"
+                        :input-per1k="row.inputPer1K"
+                        :per-image-input-token="row.perImageInputToken"
+                      />
+                      <template v-else-if="row.billingMode === 'image' && row.perImage != null">
                         {{ formatPrice(row.perImage) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perImage') }}</span>
                       </template>
@@ -454,7 +465,7 @@
                       <template v-else-if="row.billingMode === 'video' && row.perSecond != null">
                         <span class="text-xs text-gray-500 dark:text-dark-400">{{ t('pricing.videoClipExample', { five: formatPrice(row.perSecond * 5), ten: formatPrice(row.perSecond * 10) }) }}</span>
                       </template>
-                      <template v-else-if="row.billingMode === 'image' || row.billingMode === 'per_request'">—</template>
+                      <template v-else-if="row.billingMode === 'image' || row.billingMode === 'per_request' || row.billingMode === 'tts' || row.billingMode === 'stt'">—</template>
                       <!-- Same lines, same order as the input column (see there). -->
                       <template v-else-if="variantOf(row).kind !== 'flat'">
                         <div
@@ -618,6 +629,8 @@
  * while the UI avoids separate "group catalog" vs "public catalog" modes.
  */
 import { computed, onMounted, ref } from 'vue'
+import CatalogAudioPrice from '@/components/catalog/CatalogAudioPrice.tk.vue'
+import CatalogEmbeddingPrice from '@/components/catalog/CatalogEmbeddingPrice.tk.vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { getPublicPricing, type PublicCatalogResponse, type PublicPricingVideoTier } from '@/api/pricing'
@@ -693,6 +706,9 @@ interface NormalizedRow {
   perRequest?: number | null
   perImage?: number | null
   perSecond?: number | null
+  perCharacter?: number | null
+  perInputSecond?: number | null
+  perImageInputToken?: number | null
   /** Official video ladder from the public / me catalog (SSOT: videoPricingVariants.tk.ts). */
   videoPriceTiers?: PublicPricingVideoTier[]
   /** Context-length interval (阶梯) ladder, normalized from either catalog source. */
@@ -743,6 +759,7 @@ const modalityOptions = computed<{ value: PricingModality; label: string }[]>(()
   { value: 'all', label: t('pricing.modality.all') },
   { value: 'text', label: t('pricing.modality.text') },
   { value: 'embedding', label: t('pricing.modality.embedding') },
+  { value: 'audio', label: t('pricing.modality.audio') },
   { value: 'image', label: t('pricing.modality.image') },
   { value: 'video', label: t('pricing.modality.video') }
 ])
@@ -869,6 +886,9 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       perRequest: null,
       perImage: m.pricing.output_cost_per_image ?? null,
       perSecond: m.pricing.output_cost_per_second ?? null,
+      perCharacter: m.pricing.output_cost_per_character ?? null,
+      perInputSecond: m.pricing.input_cost_per_second ?? null,
+      perImageInputToken: m.pricing.input_cost_per_image_token ?? null,
       videoPriceTiers: m.pricing.video_price_tiers,
       tiers: m.pricing.tiers?.map((tt) => ({
         minTokens: tt.min_tokens,
@@ -907,6 +927,9 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
     perRequest: m.your_price.per_request ?? null,
     perImage: m.your_price.per_image ?? null,
     perSecond: m.your_price.per_second ?? null,
+    perCharacter: m.your_price.per_character ?? null,
+    perInputSecond: m.your_price.per_input_second ?? null,
+    perImageInputToken: m.your_price.per_image_input_token ?? null,
     videoPriceTiers: m.your_price.video_price_tiers,
     tiers: m.your_price.tiers?.map((tt) => ({
       minTokens: tt.min_tokens,

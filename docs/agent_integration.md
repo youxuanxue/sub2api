@@ -629,6 +629,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/users/me/qa/bundles/:job_id` from `backend/internal/server/routes/user_tk_routes.go`
 - `POST /api/v1/users/me/qa/bundles/:job_id/export` from `backend/internal/server/routes/user_tk_routes.go`
 - `POST /audio/speech` from `backend/internal/server/routes/gateway.go`
+- `POST /audio/transcriptions` from `backend/internal/server/routes/gateway.go`
 - `GET /backend-api/codex/:call_id` from `backend/internal/server/routes/gateway.go`
 - `POST /backend-api/codex/alpha/search` from `backend/internal/server/routes/gateway.go`
 - `GET /backend-api/codex/models` from `backend/internal/server/routes/gateway.go`
@@ -668,6 +669,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /tts` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `POST /v1/alpha/search` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/audio/speech` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/audio/transcriptions` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/chat/completions` from `backend/internal/server/routes/gateway.go`
 - `GET /v1/custom-voices` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `POST /v1/custom-voices` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`

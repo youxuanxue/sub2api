@@ -62,10 +62,6 @@
       "channel_type": 25,
       "scopes": [
         {
-          "channel_type": 45,
-          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
-        },
-        {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
         },
@@ -371,6 +367,42 @@
       "display": true,
       "channel_type": 45
     },
+    "doubao-seed-asr-2.0": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
+    "doubao-seed-tts-2.0": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
+    "doubao-embedding-vision": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
+    "doubao-seedream-5.0-lite": {
+      "display": true,
+      "scopes": [
+        {
+          "channel_type": 45,
+          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        }
+      ]
+    },
     "doubao-seedream-5-0-260128": {
       "display": true,
       "channel_type": 45
@@ -379,10 +411,6 @@
       "display": true,
       "channel_type": 17,
       "scopes": [
-        {
-          "channel_type": 45,
-          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
-        },
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com"
@@ -492,7 +520,7 @@
       ]
     },
     "doubao-seed-2.0-code": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 45,
@@ -501,7 +529,7 @@
       ]
     },
     "doubao-seed-2.0-pro": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 45,
@@ -510,7 +538,7 @@
       ]
     },
     "minimax-m2.7": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 45,

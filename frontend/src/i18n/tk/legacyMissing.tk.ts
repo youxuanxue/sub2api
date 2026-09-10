@@ -98,11 +98,14 @@ const en: LocaleOverlay = {
     "perRequest": "/ request",
     "perImage": "/ image",
     "perSecond": "/ second",
+    "perHour": "/ hour",
+    "perTenThousandCharacters": "/ 10k characters",
     "videoClipExample": "5s {five} · 10s {ten}",
     "modality": {
       "all": "All",
       "text": "Text",
       "embedding": "Embedding",
+      "audio": "Audio",
       "image": "Image",
       "video": "Video"
     },
@@ -1056,11 +1059,14 @@ const zh: LocaleOverlay = {
     "perRequest": "/ 次",
     "perImage": "/ 张",
     "perSecond": "/ 秒",
+    "perHour": "/ 小时",
+    "perTenThousandCharacters": "/ 万字符",
     "videoClipExample": "5秒 {five} · 10秒 {ten}",
     "modality": {
       "all": "全部",
       "text": "文本",
       "embedding": "向量",
+      "audio": "音频",
       "image": "图片",
       "video": "视频"
     },

@@ -22,11 +22,11 @@ var (
 
 // ShouldDispatchToNewAPIBridge reports whether this OpenAI-gateway request should use the New API adaptor path.
 func (s *OpenAIGatewayService) ShouldDispatchToNewAPIBridge(account *Account, endpoint string) bool {
-	// Agent Plan's /api/plan/v3/responses endpoint is a direct OpenAI-compatible
-	// upstream. Keep it on TokenKey's native path so the upstream new-api
-	// adaptor does not append its pay-as-you-go /api/v3 suffix.
+	// Agent Plan uses its own API root for text and media. The new-api adaptor
+	// appends a PAYG suffix and drops multimodal embedding usage details.
 	if isNewAPIVolcEngineAgentPlanAccount(account) &&
-		(endpoint == BridgeEndpointChatCompletions || endpoint == BridgeEndpointResponses) {
+		(endpoint == BridgeEndpointChatCompletions || endpoint == BridgeEndpointResponses ||
+			endpoint == BridgeEndpointEmbeddings || endpoint == BridgeEndpointImages) {
 		return false
 	}
 	// Qianfan Token Plan Person uses /v2/tokenplan/personal/* — the BaiduV2
@@ -237,6 +237,9 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 	body []byte,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		return s.ForwardAsEmbeddings(ctx, c, account, body, defaultMappedModel)
+	}
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointEmbeddings) {
 		if account != nil && account.Platform == PlatformNewAPI {
 			return nil, fmt.Errorf("newapi embeddings adaptor unavailable for account %d", account.ID)
