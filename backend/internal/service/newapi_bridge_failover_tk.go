@@ -57,6 +57,20 @@ func tkSupplierThinkingToolPreflight(status int, message string) bool {
 	return status == http.StatusBadRequest && strings.HasPrefix(strings.TrimSpace(message), "[preflight:R3.forced_tool_choice_incompatible]")
 }
 
+func (s *OpenAIGatewayService) failoverNativeMessagesUpstreamHTTPError(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, body []byte, message, model string) *UpstreamFailoverError {
+	if account == nil || account.Platform != PlatformNewAPI || !tkSupplierThinkingToolPreflight(resp.StatusCode, message) {
+		return s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, body, message, model)
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+		UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
+		Kind: "failover", Message: message,
+	})
+	return applyGatewayFailoverSemantic(&UpstreamFailoverError{
+		StatusCode: resp.StatusCode, ResponseBody: body, RequestScopedTransient: true,
+	}, gatewayFailoverProfileNewAPIBridge, gatewayFailureSemanticTransientFault)
+}
+
 // Some relays encode UTF-8 error bytes as Latin-1 characters in their JSON.
 func tkBridgeDecodeSupplierMessage(message string) string {
 	decoded := make([]byte, 0, len(message))

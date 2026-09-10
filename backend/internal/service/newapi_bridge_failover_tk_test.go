@@ -222,7 +222,7 @@ func TestNativeMessagesSupplierCapability400RetriesWithoutPenalty(t *testing.T) 
 	svc := &OpenAIGatewayService{rateLimitService: rateLimit}
 	message := "[preflight:R3.forced_tool_choice_incompatible] model has always-on thinking"
 	response := &http.Response{StatusCode: 400, Header: make(http.Header)}
-	failover := svc.failoverOpenAIUpstreamHTTPError(context.Background(), c, newNewAPIBridgeAccount(), response, []byte(`{"error":{"message":"`+message+`"}}`), message, "claude-fable-5")
+	failover := svc.failoverNativeMessagesUpstreamHTTPError(context.Background(), c, newNewAPIBridgeAccount(), response, []byte(`{"error":{"message":"`+message+`"}}`), message, "claude-fable-5")
 	require.NotNil(t, failover)
 	require.True(t, failover.ShouldRetryNextAccount())
 	require.False(t, candidateFailureAttributable(failover))
