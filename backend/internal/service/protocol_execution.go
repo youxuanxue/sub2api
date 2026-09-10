@@ -405,7 +405,7 @@ func ExecuteSelectedProtocol(
 			GatewayFailureScopeAccount,
 		)
 	}
-	freshPlan, err := router.Plan(request, fresh)
+	freshPlan, err := planProtocolRoute(ctx, router, request, fresh)
 	if err != nil {
 		return nil, protocolExecutionPreSendFailure(
 			fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err),

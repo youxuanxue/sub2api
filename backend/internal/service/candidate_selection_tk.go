@@ -140,7 +140,19 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			if len(origins) == 0 {
 				continue
 			}
-			group, originErr := selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins, r.model, r.shape, gw.channelService, gw.userGroupRateResolver, gw.accountRepo)
+			// Compare billing origins only after preserving the best legal request.
+			preferredOrigins := make([]Group, 0, len(origins))
+			bestRank := -1
+			for _, origin := range origins {
+				rank := candidateCompatibilityRank(paths[origin.ID])
+				if bestRank < 0 || rank < bestRank {
+					preferredOrigins, bestRank = preferredOrigins[:0], rank
+				}
+				if rank == bestRank {
+					preferredOrigins = append(preferredOrigins, origin)
+				}
+			}
+			group, originErr := selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins, r.model, r.shape, gw.channelService, gw.userGroupRateResolver, gw.accountRepo)
 			if originErr != nil {
 				failure = originErr
 				continue

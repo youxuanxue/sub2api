@@ -70,6 +70,12 @@ func TestPlanPrefersExactConversionOverAdjustedIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ProtocolResponses, plan.TargetProtocol())
 	require.Empty(t, plan.Adjustment())
+	plan, err = New(allTestAdapters()).PlanNative(request, account)
+	require.NoError(t, err)
+	require.Equal(t, ProtocolMessages, plan.TargetProtocol())
+	require.Equal(t, 1, plan.CompatibilityRank())
+	_, err = New(allTestAdapters()).PlanNative(request, testAccount(t, ProtocolResponses))
+	require.ErrorIs(t, err, ErrNoLegalRoute, "conversion-only accounts cannot bypass native-only permission")
 }
 
 func TestPlanDoesNotLoseThinkingThroughResponses(t *testing.T) {

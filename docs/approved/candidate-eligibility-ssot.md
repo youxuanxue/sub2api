@@ -43,6 +43,13 @@ failed-account exclusions may select an adjusted peer. Authorization, hard
 continuation affinity, subscription preference and window-reserve rules retain
 their existing ownership. Within an account, an unadjusted legal route precedes
 an adjusted route; equivalent routes retain registry/native preference.
+Endpoint conversion permission constrains Plan before that comparison: disabling
+Messages dispatch retains a legal native Messages fallback even when an exact
+conversion exists. The request-local Plan cache is isolated by this permission,
+and authoritative pre-send planning consumes the same restriction.
+For one account reached through multiple authorized origins in the same payment
+tier, compare billing origins only among its best-compatible legal Plans. A
+lower multiplier must not replace an available exact request with an adjusted one.
 
 Only conflicting forced choice (`required`, named function, Messages `any` or
 `tool`) becomes `auto`. Thinking, tools, cache placement, tool history, parallel

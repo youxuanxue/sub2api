@@ -3,6 +3,26 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/candidate_request_tk.go",
+      "must_contain": ["ctx = withProtocolNativeOnly(ctx,", "!group.AllowMessagesDispatch)"],
+      "rationale": "Messages conversion authorization constrains route choice before compatibility preference."
+    },
+    {
+      "path": "backend/internal/service/protocol_routing_context.go",
+      "must_contain": ["router.PlanNative(request, account)", "routing.nativeOnly == nativeOnly", "routing.plans = newProtocolPlanCache()"],
+      "rationale": "Different endpoint permissions cannot share a cached route decision."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": ["freshPlan, err := planProtocolRoute(ctx, router, request, fresh)"],
+      "rationale": "Send-time freshness must enforce the same native-only route policy as admission."
+    },
+    {
+      "path": "backend/internal/service/candidate_thinking_tools_tk_test.go",
+      "must_contain": ["TestCandidateThinkingToolsRespectConversionPermission", "TestCandidateThinkingToolsPreferAuthorizedExactOrigin", "TestProtocolPlanCacheSeparatesConversionPermission"],
+      "rationale": "Direct and Universal requests retain authorized native capacity through selection and execution."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
       "must_contain": ["s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel)"],
       "rationale": "Native Messages and Chat-to-Messages must share supplier capability refusal failover."
@@ -29,7 +49,7 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["candidateCompatibilityRank(a) < candidateCompatibilityRank(b)"],
+      "must_contain": ["candidateCompatibilityRank(a) < candidateCompatibilityRank(b)", "candidateCompatibilityRank(paths[origin.ID])", "account, preferredOrigins, r.model"],
       "rationale": "Full client intent precedes thinking-first fallback within each authorized payment tier."
     },
     {
@@ -400,7 +420,7 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, origins", "pool = recoverCandidateWindowPool(pool)", "r.mergeFailureCounts(ctx, pool, counts)", "candidateEffectivePriority(a.account, counts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
+      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "r.mergeFailureCounts(ctx, pool, counts)", "candidateEffectivePriority(a.account, counts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
       "must_not_contain": ["lessUniversalBacking(", ".SortOrder", "candidateOccupancy("],
       "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
     },

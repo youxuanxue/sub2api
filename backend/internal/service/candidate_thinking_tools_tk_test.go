@@ -67,3 +67,73 @@ func TestExecuteSelectedProtocolRejectsChangedThinkingCapability(t *testing.T) {
 	}))
 	require.ErrorIs(t, err, protocolrouter.ErrStalePlan)
 }
+
+func TestCandidateThinkingToolsRespectConversionPermission(t *testing.T) {
+	for _, universal := range []bool{false, true} {
+		for _, allowConversion := range []bool{false, true} {
+			group := grp(10, PlatformOpenAI, 1, false)
+			group.AllowMessagesDispatch = allowConversion
+			account := globalCandidateAccount(1, 1, 10)
+			account.Credentials["model_mapping"] = map[string]any{"claude-fable-5": "claude-fable-5"}
+			attachTestProtocolCapability(&account, protocolrouter.ProtocolMessages, protocolrouter.ProtocolResponses)
+			r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+			if !universal {
+				key.RoutingMode, key.Group, key.GroupID = RoutingModeDirect, &group, &group.ID
+			}
+			body := []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}],"tool_choice":{"type":"any"}}`)
+			ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicMessages, "/v1/messages", "claude-fable-5", body, "", "")
+			require.NoError(t, err, "native Messages remains available when conversion is forbidden")
+			selection, err := state.selectAccount(ctx, candidateSelectOptions{})
+			require.NoError(t, err)
+			want := protocolrouter.ProtocolMessages
+			if allowConversion {
+				want = protocolrouter.ProtocolResponses
+			}
+			require.Equal(t, want, selection.ProtocolPlan.TargetProtocol())
+			_, err = ExecuteSelectedProtocol(ctx, r.router, selection, selection.Account,
+				func(context.Context, *Account, string) error { return nil },
+				func(context.Context, int64) (*Account, error) { return selection.Account, nil },
+				protocolExecutorsForTest(*selection.ProtocolPlan, func(_ context.Context, _ *Account, plan protocolrouter.Plan, _ protocolrouter.CanonicalRequest) (any, error) {
+					require.Equal(t, want, plan.TargetProtocol())
+					return nil, nil
+				}))
+			require.NoError(t, err, "send-time planning uses the same conversion permission")
+		}
+	}
+}
+
+func TestCandidateThinkingToolsPreferAuthorizedExactOrigin(t *testing.T) {
+	groups := []Group{grp(10, PlatformOpenAI, 1, false), grp(20, PlatformOpenAI, 2, false)}
+	groups[1].AllowMessagesDispatch = true
+	account := globalCandidateAccount(1, 1, 10, 20)
+	account.Credentials["model_mapping"] = map[string]any{"claude-fable-5": "claude-fable-5"}
+	attachTestProtocolCapability(&account, protocolrouter.ProtocolMessages, protocolrouter.ProtocolResponses)
+	r, _, key := globalCandidateFixture(groups, []Account{account})
+	body := []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}],"tool_choice":{"type":"any"}}`)
+	_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicMessages, "/v1/messages", "claude-fable-5", body, "", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(20), state.current.group.ID)
+	require.Equal(t, protocolrouter.ProtocolResponses, state.current.plan.TargetProtocol())
+}
+
+func TestProtocolPlanCacheSeparatesConversionPermission(t *testing.T) {
+	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone, "claude-fable-5", false, []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}],"tool_choice":{"type":"any"}}`))
+	require.NoError(t, err)
+	account := protocolRoutingOpenAIAccount(1, "messages", "responses")
+	account.Credentials["model_mapping"] = map[string]any{"claude-fable-5": "claude-fable-5"}
+	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+	for _, nativeOnly := range []bool{false, true, false} {
+		ctx = withProtocolNativeOnly(ctx, nativeOnly)
+		plan, governed, err := protocolPlanForAccount(ctx, account, "claude-fable-5")
+		require.NoError(t, err)
+		require.True(t, governed)
+		want := protocolrouter.ProtocolResponses
+		if nativeOnly {
+			want = protocolrouter.ProtocolMessages
+		}
+		require.Equal(t, want, plan.TargetProtocol())
+		selection, err := attachProtocolPlan(ctx, &AccountSelectionResult{Account: account})
+		require.NoError(t, err)
+		require.Equal(t, want, selection.ProtocolPlan.TargetProtocol())
+	}
+}

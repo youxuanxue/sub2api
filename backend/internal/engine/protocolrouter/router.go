@@ -78,6 +78,15 @@ func (p Plan) CompatibilityRank() int {
 }
 
 func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, error) {
+	return r.plan(request, account, false)
+}
+
+// PlanNative applies endpoint authorization before comparing compatibility.
+func (r *Router) PlanNative(request CanonicalRequest, account AccountSnapshot) (Plan, error) {
+	return r.plan(request, account, true)
+}
+
+func (r *Router) plan(request CanonicalRequest, account AccountSnapshot, nativeOnly bool) (Plan, error) {
 	if r == nil {
 		return Plan{}, fmt.Errorf("%w: router is nil", ErrRouterUnavailable)
 	}
@@ -92,6 +101,9 @@ func (r *Router) Plan(request CanonicalRequest, account AccountSnapshot) (Plan, 
 	var fallback *Plan
 	for _, route := range routeRegistry {
 		if route.inbound != request.inboundProtocol {
+			continue
+		}
+		if nativeOnly && route.target != request.inboundProtocol {
 			continue
 		}
 		if !account.supports(route.target) {
