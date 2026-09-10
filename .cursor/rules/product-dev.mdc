@@ -225,6 +225,12 @@ spec delta 是意图载体，不是审批基线；若命中高风险条件，必
 - release 敏感分支/语境下提交消息禁止出现 `[skip ci]` / `[ci skip]`，避免流水线静默跳过。
 - PR 合并后必须继续监控目标分支 CI 状态，直到合并 commit / merge queue 关联检查全绿；若出现失败、取消或长时间 pending，立即报告并进入修复或人工决策。
 
+### Fork 仓库上游治理（Upstream Merge）纪律
+
+Fork 仓库对齐外部上游时，加载 `agent-skills` 的 [upstream-merge SOP](https://github.com/youxuanxue/agent-skills/blob/main/upstream-merge/SKILL.md)。该 skill 是保留上游历史、A/B/C 提交职责、冲突审计和合并收尾流程的唯一 owner；分支命名、PR 格式与审批沿用本规则，worktree 操作沿用 `git-worktree-submodule`。
+
+项目本地仅补充已有不变量 owner、冲突裁决与验证命令，复用通用 SOP。若 skill 尚未可用，先通过既有 Skills Core 安装入口取得；不得仅凭本段摘要跳过完整流程。审计 helper 按加载到的 skill 目录定位，在宿主仓库 workdir 执行。
+
 ## 代码质量门禁
 
 - 新增功能：至少 1 个正向测试 + 1 个负向测试
