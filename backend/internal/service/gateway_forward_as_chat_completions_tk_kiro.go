@@ -63,10 +63,13 @@ func (s *GatewayService) forwardAsChatCompletionsViaKiro(
 	var captureBuf bytes.Buffer
 	captureWriter := newBridgeCaptureWriter(&captureBuf)
 	origWriter := c.Writer
+	origCommitted := IsResponseCommitted(c)
 	c.Writer = captureWriter
 
 	fwdResult, err := s.kiroGateway.Forward(ctx, c, account, kiroParsed, startTime)
 	c.Writer = origWriter
+	// Errors written into the capture have not reached the real client.
+	c.Set(ResponseCommittedKey, origCommitted)
 	if err != nil {
 		var contentFilteredErr *KiroContentFilteredError
 		if errors.As(err, &contentFilteredErr) {

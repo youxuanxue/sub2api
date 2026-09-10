@@ -91,8 +91,9 @@ changes are tracked in git and guarded by `scripts/sentinels/kiro.json`.
 
 `tool_history.go` owns current conversation normalization: retain valid tool
 call/result pairs across history, preserve failure status in the result block,
-and repair only unpaired results. Both translators and private completion
-continuations use it. Do not restore upstream's blanket history narration.
+and repair only unpaired results. Both translators use it. Do not restore
+upstream's blanket history narration. The gateway returns completed model turns
+to the client agent without injecting a private completion tool or user turn.
 
 ## Re-vendor procedure
 

@@ -52,9 +52,10 @@ func TestClaudeToKiro_CLIToolHistory(t *testing.T) {
 			require.Equal(t, wantText, results[j].Content[0].Text)
 		}
 	}
+	req.Messages = append(req.Messages,
+		ClaudeMessage{Role: "assistant", Content: "I received the results."},
+		ClaudeMessage{Role: "user", Content: "Summarize the results without calling tools."})
 	payload := ClaudeToKiro(req, false)
-	payload.ClaudeCodeCompletionProtocol = true
-	PrepareClaudeCodeCompletionContinuation(payload, "I received the results.")
 	assertKiroToolPairs(t, wireKiroPayload(t, payload))
 	var count int
 	for _, msg := range payload.ConversationState.History {

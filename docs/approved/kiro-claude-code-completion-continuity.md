@@ -11,6 +11,10 @@ related_commits: []
 
 # Kiro Claude Code Completion Continuity
 
+> 2026-09-10：下述私有完成工具与网关续跑设计已由
+> [Kiro turn boundary](kiro-turn-boundary.md) 取代。本文保留历史决策；
+> stop reason 保真、失败流处理仍有效，END_TURN 不再触发业务续跑。
+
 ## Problem
 
 Claude Code 经 TokenKey 的 Kiro 节点调用 Claude Opus 时，模型可能在实现或验证尚未完成时返回文本。网关此前无条件把 Kiro 的终止结果合成为 Anthropic `end_turn`；即使真实原因是 token 上限或未知终止态，Claude Code 终端也会把这一轮显示成正常结束，用户只能反复输入“继续”。
