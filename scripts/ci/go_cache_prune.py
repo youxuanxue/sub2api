@@ -13,6 +13,7 @@ uploading a cache that heal would immediately delete.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
 BUDGET_BYTES = 6 * 1024**3
@@ -80,9 +81,14 @@ def plan_prune(
 
     kept_latest = dict(latest_by_family)
     overflow_delete: list[dict[str, object]] = []
+    # A snapshot larger than the entire budget cannot be reused. Evict it first
+    # so one oversized high-priority family cannot displace all healthy families.
+    for family, item in latest_by_family.items():
+        if int(item["sizeInBytes"]) > budget_bytes:
+            kept_latest.pop(family)
+            overflow_delete.append(item)
+            evidence.append(f"oversized_drop family={family} key={item['key']} size={item['sizeInBytes']}")
     latest_bytes = sum(int(item["sizeInBytes"]) for item in kept_latest.values())
-    # Never drop the final surviving family: if it alone exceeds the budget the
-    # plan is impossible and the warm job must fail closed.
     while latest_bytes > budget_bytes and len(kept_latest) > 1:
         dropped = False
         for family in OVERFLOW_DROP_ORDER:
@@ -264,6 +270,13 @@ def main(argv: list[str] | None = None) -> int:
         help="apply prune plan, including overflow drops of lowest-priority latest caches",
     )
     mode.add_argument(
+        "--save-budget",
+        metavar="FAMILY",
+        choices=FAMILIES,
+        help="emit fits=true/false for GITHUB_OUTPUT using local paths; inventory/read errors fail",
+    )
+    parser.add_argument("--path", action="append", default=[], help="cache directory for --save-budget")
+    mode.add_argument(
         "--fits",
         metavar="FAMILY",
         choices=FAMILIES,
@@ -277,6 +290,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     caches = _list_caches()
+    if args.save_budget:
+        # Use uncompressed bytes plus tar headers and framing headroom. This is
+        # conservative relative to Actions' compressed archive inventory.
+        size = 1024 * 1024
+        for raw_path in args.path:
+            path = Path(raw_path).expanduser()
+            if not path.is_dir():
+                raise ValueError(f"cache directory unavailable: {path}")
+            for entry in path.rglob("*"):
+                size += 1024
+                if entry.is_file():
+                    size += entry.stat().st_size
+        fits = family_fits(caches, args.save_budget, size=size if args.path else None)
+        print(f"go_cache_prune: save family={args.save_budget} bytes={size} fits={fits}", file=sys.stderr)
+        print(f"fits={str(fits).lower()}")
+        return 0
     if args.fits:
         if args.size is not None and args.size < 0:
             print("go_cache_prune: --size must be >= 0", file=sys.stderr)

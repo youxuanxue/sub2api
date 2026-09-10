@@ -246,14 +246,14 @@ jobs:
       - uses: ./.github/actions/go-rolling-cache
         id: go_cache
         with:
-          # Main writes one Unit snapshot per distinct backend tree. Content
-          # keys let a same-day backend merge restore the latest compatible
-          # snapshot, compile the delta, and persist the refreshed objects.
+          # The warm workflow writes one snapshot per distinct backend tree.
+          # Required jobs restore the latest compatible snapshot and compile
+          # the delta without competing for the same immutable cache key.
           # Manual A/B runs use an isolated namespace; ordinary PR runs remain
           # restore-only by action policy.
           family: test
           fallback_prefix: unit-nodwarf-v3
-          save_caches: "true"
+          save_caches: "false"
           benchmark_prefix: unit-nodwarf-v5-other-first-bench
           benchmark_build_cache_write: ${{ github.event_name == 'workflow_dispatch' && inputs.suite == 'unit-cache-benchmark' && 'true' || 'false' }}
       - name: Verify Go version
@@ -300,7 +300,7 @@ jobs:
           # Main required job writes the same key as warm. PRs restore
           # backend-ci's main snapshot more reliably than a just-finished
           # warm-release-cache-main run (measured miss on #1880).
-          save_caches: "true"
+          save_caches: "false"
       - name: Verify Go version
         run: |
           expected=$(awk '/^go /{print $2; exit}' backend/go.mod)

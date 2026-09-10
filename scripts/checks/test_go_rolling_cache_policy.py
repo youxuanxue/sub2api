@@ -89,7 +89,7 @@ class GoRollingCachePolicyTest(unittest.TestCase):
 
     def test_only_main_push_or_explicit_benchmark_steps_can_save_caches(self) -> None:
         action = load_action()
-        self.assertEqual(action["inputs"]["save_caches"]["default"], "true")
+        self.assertEqual(action["inputs"]["save_caches"]["default"], "false")
         self.assertEqual(action["inputs"]["benchmark_build_cache_write"]["default"], "false")
         saving = [
             step

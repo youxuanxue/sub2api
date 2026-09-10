@@ -64,9 +64,29 @@ class GoCacheBoundaryContractTest(unittest.TestCase):
     def test_warm_release_cache_heals_budget_overflow(self) -> None:
         text = (WORKFLOWS / "warm-release-cache-main.yml").read_text(encoding="utf-8")
         self.assertIn("go_cache_prune.py --heal", text)
-        self.assertIn("go_cache_prune.py --fits analysis", text)
-        self.assertIn("go_cache_prune.py --fits release", text)
+        self.assertIn("go_cache_prune.py --save-budget analysis", text)
+        self.assertIn("go_cache_prune.py --save-budget release", text)
         self.assertNotIn("go_cache_prune.py --check", text)
+
+    def test_all_warm_saves_are_budgeted_and_heal_precedes_restore(self) -> None:
+        steps = load(WORKFLOWS / "warm-release-cache-main.yml")["jobs"]["warm-release-cache"]["steps"]
+        heal = next(i for i, s in enumerate(steps) if "go_cache_prune.py --heal" in s.get("run", ""))
+        restores = [i for i, s in enumerate(steps) if s.get("uses") == "actions/cache/restore@v6"]
+        self.assertLess(heal, min(restores))
+        for family in ("gomod", "test", "integration", "analysis", "release"):
+            gate_id = f"{family}_save_budget"
+            gate = next(s for s in steps if s.get("id") == gate_id)
+            self.assertIn(f"--save-budget {family} --path", gate["run"])
+            self.assertNotIn("if python3", gate["run"])
+            saving = [s for s in steps if s.get("uses") == "actions/cache/save@v6" and f"steps.{gate_id}.outputs.fits == 'true'" in s.get("if", "")]
+            self.assertEqual(len(saving), 1, family)
+
+    def test_required_workflows_do_not_compete_with_warm_cache_writer(self) -> None:
+        for path in WORKFLOWS.glob("*.yml"):
+            for job in load(path).get("jobs", {}).values():
+                for step in job.get("steps", []):
+                    if step.get("uses") == "./.github/actions/go-rolling-cache":
+                        self.assertIn(step.get("with", {}).get("save_caches", "false"), (False, "false"), str(path))
 
 
 if __name__ == "__main__":
