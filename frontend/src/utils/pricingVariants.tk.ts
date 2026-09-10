@@ -46,6 +46,7 @@ export interface PricingVariantTier {
 
 /** Peak-window pricing. Prices here are the PEAK side; off-peak is the flat row. */
 export interface PricingVariantPeakValley {
+	weekdaysOnly?: boolean
   /** IANA zone the windows are evaluated in, e.g. "Asia/Shanghai". */
   timezone: string
   /** Windows as `"HH:MM-HH:MM"`, verbatim from the backend. */
@@ -197,7 +198,7 @@ export function resolvePricingVariant(
           cacheReadPer1K: peakValley.cacheReadPer1K
         }
       ],
-      caption: t('pricing.variant.peakCaption', {
+      caption: t(peakValley.weekdaysOnly ? 'pricing.variant.weekdayPeakCaption' : 'pricing.variant.peakCaption', {
         windows: windows.join(', '),
         tz: peakValley.timezone,
         mult: peakValley.peakMultiplier

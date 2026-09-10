@@ -184,6 +184,6 @@ func TestUS050_CodexDiscoveryUsesActualAccountsAndPreservesManifest(t *testing.T
 		require.Equal(t, "Live model", body.Models[0].DisplayName)
 		require.Equal(t, 256000, body.Models[0].ContextWindow)
 		require.Equal(t, "peer-model", body.Models[1].Slug)
-		require.Empty(t, w.Header().Get("ETag"))
+		require.Equal(t, service.CodexModelsManifestETag(w.Body.Bytes()), w.Header().Get("ETag"))
 	}
 }

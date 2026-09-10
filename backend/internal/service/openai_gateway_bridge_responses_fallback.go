@@ -375,10 +375,12 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		Body:       io.NopCloser(bytes.NewReader(buf.Bytes())),
 	}
 	customTools := map[string]bool(nil)
+	functionTools := map[string]bool(nil)
 	toolSearch := false
 	namespaceTools := map[string]apicompat.NamespacedToolName(nil)
 	if effectiveTools, toolsErr := apicompat.EffectiveResponsesTools(&responsesReq); toolsErr == nil {
 		customTools = apicompat.CustomToolNames(effectiveTools)
+		functionTools = apicompat.FunctionToolNames(effectiveTools)
 		toolSearch = apicompat.HasToolSearchTool(effectiveTools)
 		namespaceTools = apicompat.NamespaceToolNames(effectiveTools)
 	}
@@ -388,13 +390,13 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	switch {
 	case clientStream:
 		result, handleErr = s.streamChatCompletionsAsResponses(
-			c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
+			c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
 	case upstreamStream:
 		result, handleErr = s.bufferStreamChatCompletionsAsResponses(
 			c, resp, originalModel, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
 	default:
 		result, handleErr = s.bufferChatCompletionsAsResponses(
-			c, resp, originalModel, customTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
+			c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, bridgeUpstream, reasoningEffort, serviceTier, startTime)
 	}
 	if handleErr == nil && result != nil {
 		if out.Usage != nil {

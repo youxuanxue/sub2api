@@ -141,14 +141,15 @@
             ]"
             @click="column.sortable && handleSort(column.key)"
           >
-            <slot
-              :name="`header-${column.key}`"
-              :column="column"
-              :sort-key="sortKey"
-              :sort-order="sortOrder"
-            >
               <div :class="['flex items-center space-x-1', getHeaderContentAlignmentClass(column)]">
+                <slot
+                  :name="`header-${column.key}`"
+                  :column="column"
+                  :sort-key="sortKey"
+                  :sort-order="sortOrder"
+                >
                 <span>{{ column.label }}</span>
+                </slot>
                 <span
                   v-if="column.sortable"
                   class="inline-flex h-5 w-4 flex-col items-center justify-center"
@@ -172,7 +173,6 @@
                   </svg>
                 </span>
               </div>
-            </slot>
           </th>
         </tr>
       </thead>

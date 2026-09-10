@@ -7,6 +7,7 @@ import (
 
 // opsRepoMock is a test-only OpsRepository implementation with optional function hooks.
 type opsRepoMock struct {
+	GetErrorLogByIDFn                func(context.Context, int64) (*OpsErrorLogDetail, error)
 	InsertErrorLogFn                 func(ctx context.Context, input *OpsInsertErrorLogInput) (int64, error)
 	BatchInsertErrorLogsFn           func(ctx context.Context, inputs []*OpsInsertErrorLogInput) (int64, error)
 	BatchInsertSystemLogsFn          func(ctx context.Context, inputs []*OpsInsertSystemLogInput) (int64, error)
@@ -37,6 +38,9 @@ func (m *opsRepoMock) ListErrorLogs(ctx context.Context, filter *OpsErrorLogFilt
 }
 
 func (m *opsRepoMock) GetErrorLogByID(ctx context.Context, id int64) (*OpsErrorLogDetail, error) {
+	if m.GetErrorLogByIDFn != nil {
+		return m.GetErrorLogByIDFn(ctx, id)
+	}
 	return &OpsErrorLogDetail{}, nil
 }
 

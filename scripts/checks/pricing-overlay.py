@@ -364,9 +364,11 @@ def validate_deepseek_peak_valley(data: dict) -> list[str]:
         return errors
     if not isinstance(policy, dict):
         return errors + ["_config.deepseek_peak_valley must be an object"]
-    unknown = sorted(set(policy) - {"timezone", "peak_multiplier", "windows", "model_contains"})
+    unknown = sorted(set(policy) - {"timezone", "peak_multiplier", "windows", "model_contains", "weekdays_only"})
     if unknown:
         errors.append(f"deepseek_peak_valley has unknown fields: {unknown}")
+    if "weekdays_only" in policy and not isinstance(policy["weekdays_only"], bool):
+        errors.append("deepseek_peak_valley.weekdays_only must be a boolean")
     multiplier = policy.get("peak_multiplier")
     if (not isinstance(multiplier, (int, float)) or isinstance(multiplier, bool)
             or not math.isfinite(multiplier) or multiplier < 1 or multiplier > 4):

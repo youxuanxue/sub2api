@@ -122,6 +122,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // upstreamBillingProbe
 		nil, // ollamaCloudUsage
 		nil, // auditLog
+		nil, // openAIAutoReset
 		nil, // promptAudit
 		nil, // telemetryArchive
 		nil, // telemetryArchiveHealth

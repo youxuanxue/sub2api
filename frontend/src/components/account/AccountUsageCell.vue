@@ -24,6 +24,8 @@ import AntigravityUsageCell from './usage-cells/AntigravityUsageCell.vue'
 import GeminiUsageCell from './usage-cells/GeminiUsageCell.vue'
 import KiroUsageCell from './usage-cells/KiroUsageCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
+import CNProviderUsageCell from './usage-cells/CNProviderUsageCell.vue'
+import { isCNProviderPlatform } from './credentialsBuilder'
 import { usesLocalUsageWindows } from '@/utils/accountUsageBatch.tk'
 import {
   PLATFORM_ANTHROPIC,
@@ -46,6 +48,8 @@ const activeCell = computed(() => {
   if (account.ollama_cloud_usage?.eligible) {
     return OllamaCloudUsageCell
   }
+
+  if (isCNProviderPlatform(account.platform)) return CNProviderUsageCell
 
   if (!showUsageWindowsForAccount(account)) {
     return PlainUsageCell

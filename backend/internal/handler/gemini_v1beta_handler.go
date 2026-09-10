@@ -79,7 +79,61 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		h.tkGeminiV1BetaListModelsCatalogFallback(c)
 		return
 	}
+	if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+		if filtered, dropped, ok := filterUpstreamGeminiModelsBody(res.Body, apiKey.Group.ModelAllowlist); ok && dropped {
+			// 只在确有条目被过滤时替换响应体；全命中或解析失败时保持原始响应，
+			// 统一经 writeUpstreamResponse 写出（保留全部上游响应头）。
+			res.Body = filtered
+		}
+	}
 	writeUpstreamResponse(c, res)
+}
+
+// filterUpstreamGeminiModelsBody 按白名单过滤上游 /v1beta/models 响应中的
+// models[].name，其余信封字段（如 nextPageToken）原样保留。
+// 返回值：filtered 为过滤后的响应体；dropped 表示是否有条目被移除（全命中时
+// 为 false，调用方应保持原始响应以完整透传上游头）；ok=false 表示解析失败，
+// 调用方同样应透传原始响应。
+func filterUpstreamGeminiModelsBody(body []byte, allowlist service.GroupModelAllowlist) (filtered []byte, dropped bool, ok bool) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, false, false
+	}
+	rawModels, hasModels := envelope["models"]
+	if !hasModels {
+		return body, false, true
+	}
+	type geminiModelName struct {
+		Name string `json:"name"`
+	}
+	var models []json.RawMessage
+	if err := json.Unmarshal(rawModels, &models); err != nil {
+		return nil, false, false
+	}
+	kept := make([]json.RawMessage, 0, len(models))
+	for _, raw := range models {
+		var model geminiModelName
+		if err := json.Unmarshal(raw, &model); err != nil {
+			return nil, false, false
+		}
+		if allowlist.Allows(model.Name) {
+			kept = append(kept, raw)
+		}
+	}
+	if len(kept) == len(models) {
+		// 全部命中时直接透传原始响应体。
+		return body, false, true
+	}
+	mergedModels, err := json.Marshal(kept)
+	if err != nil {
+		return nil, false, false
+	}
+	envelope["models"] = mergedModels
+	merged, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, false, false
+	}
+	return merged, true, true
 }
 
 // GeminiV1BetaGetModel proxies:
@@ -612,6 +666,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		usageFields := clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel)
 		quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
 		sessionID := service.ExtractClientSessionID(c)
+		// 长上下文阶梯由目录数据驱动，统一在计费路径内生效，入口无需声明。
 		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsageWithLongContext(ctx, &service.RecordUsageLongContextInput{
 				Result:                result,

@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "1f6ff7c557cfd1550c1b5d91fa3cd6d46e88ccc7d3c0b016884be924e1e56c4f",
+  "floor_sha256": "5efbeacc54286b2edafb017e9b9a085c8cee0b1ca31af98244e728330c73adad",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -64,6 +64,7 @@
       },
       "bedrock": {
         "claude-fable-5": "anthropic.claude-fable-5",
+        "claude-fable-5-1": "anthropic.claude-fable-5-1",
         "claude-haiku-4-5": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         "claude-haiku-4-5-20251001": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         "claude-opus-4-1": "us.anthropic.claude-opus-4-1-20250805-v1:0",

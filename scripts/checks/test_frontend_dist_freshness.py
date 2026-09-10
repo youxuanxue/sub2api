@@ -24,7 +24,7 @@ class FrontendDistFreshnessTest(unittest.TestCase):
                 subprocess.run(["git", *args], cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
             git("init", "-q")
-            (root / ".gitignore").write_text("frontend/.cache/\n", encoding="utf-8")
+            (root / ".gitignore").write_text((MODULE.REPO_ROOT / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8")
             source = root / "frontend/src/live.ts"
             source.parent.mkdir(parents=True)
             source.write_text("export const live = true\n", encoding="utf-8")

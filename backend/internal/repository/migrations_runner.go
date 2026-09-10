@@ -73,6 +73,8 @@ const upstreamModelMismatchIndex = "idx_usage_logs_upstream_model_mismatch_creat
 const usageLogsEffectiveModelIndexesMigration = "226_add_usage_log_effective_model_indexes_notx.sql"
 const usageLogsEffectiveRequestedModelIndex = "idx_usage_logs_effective_requested_model_created"
 const usageLogsEffectiveUpstreamModelIndex = "idx_usage_logs_effective_upstream_model_created"
+const usageLogsUpstreamRequestIDIndexMigration = "233_add_usage_log_upstream_request_id_index_notx.sql"
+const usageLogsUpstreamRequestIDIndex = "idx_usage_logs_upstream_request_id"
 
 // migrationDB is the session-scoped database surface used by the migration
 // runner. Both *sql.DB and *sql.Conn satisfy it, but production migrations use a
@@ -94,6 +96,14 @@ type nonTransactionalIndexPolicy struct {
 }
 
 var nonTransactionalIndexPolicies = map[string][]nonTransactionalIndexPolicy{
+	usageLogsUpstreamRequestIDIndexMigration: {
+		{
+			indexName:             usageLogsUpstreamRequestIDIndex,
+			partitionedTable:      "usage_logs",
+			partitionedIndexExpr:  "upstream_request_id",
+			partitionedIndexWhere: "upstream_request_id IS NOT NULL",
+		},
+	},
 	schedulerOutboxPendingDedupKeyMigration: {
 		{
 			indexName: schedulerOutboxPendingDedupKeyIndex,

@@ -18,6 +18,57 @@ import (
 // for the OpenAI Responses gateway. Extracted from openai_gateway_service.go to
 // reduce upstream merge surface.
 
+// ErrInvalidOpenAIServiceTier indicates a request carried a service_tier value
+// that is not a known OpenAI tier. HTTP handlers translate it into a 400
+// invalid_request_error so malformed values are rejected up front instead of
+// being silently stripped (which would mask the user's intent to use fast
+// mode).
+type ErrInvalidOpenAIServiceTier struct {
+	Value string
+}
+
+func (e *ErrInvalidOpenAIServiceTier) Error() string {
+	return fmt.Sprintf("invalid service_tier %q: must be one of auto, default, fast, flex, priority, scale, ultrafast", e.Value)
+}
+
+const invalidOpenAIServiceTierValueMaxLen = 64
+
+func boundInvalidOpenAIServiceTierValue(raw string) string {
+	if len(raw) <= invalidOpenAIServiceTierValueMaxLen {
+		return raw
+	}
+	return raw[:invalidOpenAIServiceTierValueMaxLen] + "..."
+}
+
+// ValidateOpenAIServiceTierField validates the service_tier field of a raw
+// OpenAI-compatible request body (/v1/responses and /v1/chat/completions).
+//
+//   - absent / null → valid, returns "" (field omitted keeps current behavior)
+//   - "fast" → normalized to "priority" (the two are equivalent; the canonical
+//     value is what reaches the OpenAI upstream)
+//   - "priority" / "flex" / "auto" / "default" / "scale" / "ultrafast" → valid, returned as-is
+//   - an explicitly present non-string value, an empty string, or any other
+//     unknown value → *ErrInvalidOpenAIServiceTier (handler maps to HTTP 400),
+//     matching OpenAI's enum validation semantics
+func ValidateOpenAIServiceTierField(body []byte) (string, error) {
+	tierResult := gjson.GetBytes(body, "service_tier")
+	if !tierResult.Exists() || tierResult.Type == gjson.Null {
+		return "", nil
+	}
+	if tierResult.Type != gjson.String {
+		return "", &ErrInvalidOpenAIServiceTier{Value: "<non-string>"}
+	}
+	raw := strings.TrimSpace(tierResult.String())
+	if raw == "" {
+		return "", &ErrInvalidOpenAIServiceTier{Value: raw}
+	}
+	norm := normalizedOpenAIServiceTierValue(raw)
+	if norm == "" {
+		return "", &ErrInvalidOpenAIServiceTier{Value: boundInvalidOpenAIServiceTierValue(raw)}
+	}
+	return norm, nil
+}
+
 // OpenAIFastBlockedError indicates a request was rejected by the OpenAI fast
 // policy (action=block). Mirrors BetaBlockedError on the Claude side.
 type OpenAIFastBlockedError struct {
@@ -144,9 +195,24 @@ func openAIFastPolicySettingsFromContext(ctx context.Context) *OpenAIFastPolicyS
 // 到了上游可识别值；passthrough（OpenAI 自动透传） / native /responses 等
 // 入口没有这一前置步骤，pass 路径下若不在此处归一化，"fast" 就会被原样
 // 透传到 OpenAI 上游导致 400/拒绝。把归一化收敛到本函数，所有入口行为一致。
+func openAIGroupForcesFast(ctx context.Context, account *Account) bool {
+	if ctx == nil || account == nil || account.Platform != PlatformOpenAI || IsUniversalKeyRouting(ctx) {
+		return false
+	}
+	group, _ := ctx.Value(ctxkey.Group).(*Group)
+	return IsGroupContextValid(group) && group.ForceOpenAIFast
+}
+
 func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, account *Account, model string, body []byte) ([]byte, error) {
 	if len(body) == 0 {
 		return body, nil
+	}
+	if openAIGroupForcesFast(ctx, account) {
+		updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
+		if err != nil {
+			return body, err
+		}
+		body = updated
 	}
 	rawTier := gjson.GetBytes(body, "service_tier").String()
 	if rawTier == "" {
@@ -256,6 +322,13 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 	// upstream reject it rather than guessing at our layer.
 	if frameType != "response.create" {
 		return frame, nil, nil
+	}
+	if openAIGroupForcesFast(ctx, account) {
+		updated, err := sjson.SetBytes(frame, "service_tier", OpenAIFastTierPriority)
+		if err != nil {
+			return frame, nil, err
+		}
+		frame = updated
 	}
 	rawTier := gjson.GetBytes(frame, "service_tier").String()
 	if rawTier == "" {

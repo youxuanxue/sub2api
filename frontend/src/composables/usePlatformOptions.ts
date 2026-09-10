@@ -13,6 +13,7 @@ export const PLATFORM_LABELS: Record<AccountPlatform, string> = {
   kimi: 'Kimi',
   zhipu: 'Zhipu GLM',
   deepseek: 'DeepSeek',
+  minimax: 'MiniMax',
   composite: 'Composite',
 }
 

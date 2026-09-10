@@ -55,6 +55,7 @@
     },
     "deepseek_peak_valley": {
       "timezone": "Asia/Shanghai",
+	  "weekdays_only": true,
       "peak_multiplier": 2,
       "windows": [
         {

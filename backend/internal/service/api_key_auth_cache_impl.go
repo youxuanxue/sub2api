@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 20 // v20: group long-context and model pricing fields (force refresh of pre-fix snapshots)
+const apiKeyAuthSnapshotVersion = 24 // v24: independent group model_allowlist enforcement alongside display preferences
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -361,6 +361,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			Email:                      apiKey.User.Email,
 			Username:                   apiKey.User.Username,
 			BalanceNotifyEnabled:       apiKey.User.BalanceNotifyEnabled,
+			RestrictPublicGroups:       apiKey.User.RestrictPublicGroups,
 			BalanceNotifyThresholdType: apiKey.User.BalanceNotifyThresholdType,
 			BalanceNotifyThreshold:     apiKey.User.BalanceNotifyThreshold,
 			BalanceNotifyExtraEmails:   apiKey.User.BalanceNotifyExtraEmails,
@@ -415,6 +416,11 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			MessagesDispatchModelConfig:            apiKey.Group.MessagesDispatchModelConfig,
 			StickyRoutingMode:                      apiKey.Group.StickyRoutingMode,
 			ModelsListConfig:                       apiKey.Group.ModelsListConfig,
+			ModelAllowlist:                         apiKey.Group.ModelAllowlist,
+			CodexModelsManifestConfig:              apiKey.Group.CodexModelsManifestConfig,
+			ForceOpenAIFast:                        apiKey.Group.ForceOpenAIFast,
+			FreeOpenAIFast:                         apiKey.Group.FreeOpenAIFast,
+			MaxReasoningEffortOverLimit:            apiKey.Group.MaxReasoningEffortOverLimit,
 			RPMLimit:                               apiKey.Group.RPMLimit,
 			MessagesCompactionEnabled:              apiKey.Group.MessagesCompactionEnabled,
 			MessagesCompactionInputTokensThreshold: apiKey.Group.MessagesCompactionInputTokensThreshold,
@@ -469,6 +475,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			Email:                      snapshot.User.Email,
 			Username:                   snapshot.User.Username,
 			BalanceNotifyEnabled:       snapshot.User.BalanceNotifyEnabled,
+			RestrictPublicGroups:       snapshot.User.RestrictPublicGroups,
 			BalanceNotifyThresholdType: snapshot.User.BalanceNotifyThresholdType,
 			BalanceNotifyThreshold:     snapshot.User.BalanceNotifyThreshold,
 			BalanceNotifyExtraEmails:   snapshot.User.BalanceNotifyExtraEmails,
@@ -516,6 +523,11 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			MessagesDispatchModelConfig:            snapshot.Group.MessagesDispatchModelConfig,
 			StickyRoutingMode:                      snapshot.Group.StickyRoutingMode,
 			ModelsListConfig:                       snapshot.Group.ModelsListConfig,
+			ModelAllowlist:                         snapshot.Group.ModelAllowlist,
+			CodexModelsManifestConfig:              snapshot.Group.CodexModelsManifestConfig,
+			ForceOpenAIFast:                        snapshot.Group.ForceOpenAIFast,
+			FreeOpenAIFast:                         snapshot.Group.FreeOpenAIFast,
+			MaxReasoningEffortOverLimit:            snapshot.Group.MaxReasoningEffortOverLimit,
 			RPMLimit:                               snapshot.Group.RPMLimit,
 			MessagesCompactionEnabled:              snapshot.Group.MessagesCompactionEnabled,
 			MessagesCompactionInputTokensThreshold: snapshot.Group.MessagesCompactionInputTokensThreshold,

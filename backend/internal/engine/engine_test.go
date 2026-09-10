@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -117,6 +118,7 @@ func TestOpenAICompatPlatforms(t *testing.T) {
 		domain.PlatformKimi:     false,
 		domain.PlatformZhipu:    false,
 		domain.PlatformDeepseek: false,
+		domain.PlatformMiniMax:  false,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("OpenAICompatPlatforms() returned %d entries, want %d: %v", len(got), len(want), got)
@@ -142,6 +144,7 @@ func TestIsOpenAICompatPlatform(t *testing.T) {
 		{domain.PlatformOpenAI, true},
 		{domain.PlatformNewAPI, true},
 		{domain.PlatformGrok, true},
+		{domain.PlatformMiniMax, true},
 		{domain.PlatformAnthropic, false},
 		{domain.PlatformGemini, false},
 		{domain.PlatformAntigravity, false},
@@ -196,6 +199,7 @@ func TestAllSchedulingPlatforms(t *testing.T) {
 		domain.PlatformKimi:        false,
 		domain.PlatformZhipu:       false,
 		domain.PlatformDeepseek:    false,
+		domain.PlatformMiniMax:     false,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("AllSchedulingPlatforms() returned %d entries, want %d: %v", len(got), len(want), got)
@@ -210,6 +214,12 @@ func TestAllSchedulingPlatforms(t *testing.T) {
 		if !seen {
 			t.Fatalf("AllSchedulingPlatforms() missing %q", platform)
 		}
+	}
+}
+
+func TestMiniMaxDoesNotRefreshOAuth(t *testing.T) {
+	if slices.Contains(OAuthRefreshPlatforms(), domain.PlatformMiniMax) {
+		t.Fatal("MiniMax uses static API credentials and must not enter OAuth refresh")
 	}
 }
 
