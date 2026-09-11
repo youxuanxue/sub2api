@@ -110,6 +110,15 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 // Content-Encoding value. It is shared by handlers and QA capture so evidence is
 // sanitized from the same semantic bytes that gateway handlers process.
 func DecodeContentEncodedBody(encoding string, raw []byte) ([]byte, error) {
+	return DecodeContentEncodedBodyPrefix(encoding, raw, maxDecompressedBodySize)
+}
+
+// DecodeContentEncodedBodyPrefix bounds a secondary observability copy without
+// requiring it to materialize the entire decompressed request body.
+func DecodeContentEncodedBodyPrefix(encoding string, raw []byte, limit int64) ([]byte, error) {
+	if limit <= 0 || limit > maxDecompressedBodySize {
+		limit = maxDecompressedBodySize
+	}
 	switch encoding {
 	case "zstd":
 		dec, err := zstd.NewReader(bytes.NewReader(raw))
@@ -117,21 +126,21 @@ func DecodeContentEncodedBody(encoding string, raw []byte) ([]byte, error) {
 			return nil, err
 		}
 		defer dec.Close()
-		return io.ReadAll(io.LimitReader(dec, maxDecompressedBodySize))
+		return io.ReadAll(io.LimitReader(dec, limit))
 	case "gzip", "x-gzip":
 		gr, err := gzip.NewReader(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = gr.Close() }()
-		return io.ReadAll(io.LimitReader(gr, maxDecompressedBodySize))
+		return io.ReadAll(io.LimitReader(gr, limit))
 	case "deflate":
 		zr, err := zlib.NewReader(bytes.NewReader(raw))
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = zr.Close() }()
-		return io.ReadAll(io.LimitReader(zr, maxDecompressedBodySize))
+		return io.ReadAll(io.LimitReader(zr, limit))
 	default:
 		return nil, errors.New("unsupported Content-Encoding")
 	}

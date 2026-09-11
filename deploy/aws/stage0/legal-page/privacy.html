@@ -23,7 +23,7 @@
 
     <section class="locale" data-locale="en" lang="en">
       <h1>Privacy Policy</h1>
-      <p class="meta">Effective date: 2026-09-07 · Production public policy · Applies to tokenkey.dev and related TokenKey API services operated by ORBIT LOGIC PTE. LTD. (organisation / data controller for PDPA purposes).</p>
+      <p class="meta">Effective date: 2026-09-11 · Production public policy · Applies to tokenkey.dev and related TokenKey API services operated by ORBIT LOGIC PTE. LTD. (organisation / data controller for PDPA purposes).</p>
 
       <div class="card">
         <span class="card-title">Summary</span>
@@ -61,9 +61,9 @@
         <li><strong>Account data</strong> — email, authentication identifiers, profile settings.</li>
         <li><strong>Billing data</strong> — balances, invoices, payment references via payment providers (we do not store full card numbers on TokenKey servers).</li>
         <li><strong>API usage metadata</strong> — timestamps, model IDs, token counts, latency, status codes, API key identifiers, client IP / User-Agent where logged for security.</li>
-        <li><strong>Request / prompt content</strong> — processed to fulfill API calls; error paths may retain truncated request-body snippets.</li>
+        <li><strong>Request / prompt content</strong> — processed to fulfill API calls. The production gateway also captures bounded request and response content, including successful calls, tool results and stream excerpts, for QA history, troubleshooting and authorized trajectory exports.</li>
         <li><strong>Support communications</strong> — messages you send to us.</li>
-        <li><strong>Cookies and similar technologies</strong> — we use session and authentication cookies (and related security/challenge mechanisms such as CAPTCHA providers where enabled) needed to operate the console and protect accounts. We do not use third-party advertising cookies on the TokenKey service.</li>
+        <li><strong>Cookies and similar technologies</strong> — we use browser storage for console authentication and session state, and cookies or related security/challenge mechanisms such as CAPTCHA providers where enabled needed to operate the console and protect accounts. We do not use third-party advertising cookies on the TokenKey service.</li>
       </ul>
 
       <h2>3. Purposes and legal bases</h2>
@@ -80,8 +80,8 @@
         To operate the gateway we must process request content (including prompts and parameters) so it can be forwarded to the upstream provider you select and so usage can be metered.
       </p>
       <ul>
-        <li>We do <strong>not</strong> run platform-wide full prompt-audit persistence (no long-lived searchable archive of every successful prompt by default).</li>
-        <li>Operational and abuse tooling may record metadata and, when needed, limited truncated body excerpts—especially on errors.</li>
+        <li>The production gateway retains QA records and bounded content from successful and unsuccessful calls. Authorized users can view and export their QA history; authorized operators process the records for service operations. Edge gateways do not separately capture QA history.</li>
+        <li>Capture applies automated credential redaction and size limits. These controls do not identify every secret or remove all personal or confidential information. Avoid sending private keys, passwords or other unnecessary sensitive content. Operational error tooling may also retain bounded excerpts.</li>
         <li>Content is not used to train or fine-tune models (see §6).</li>
       </ul>
 
@@ -94,6 +94,8 @@
           <tr><td>Detailed API usage / metering records</td><td>90 days in operational systems</td></tr>
           <tr><td>Ops / error / security troubleshooting logs</td><td>30 days</td></tr>
           <tr><td>Truncated error-path request snippets</td><td>≤ 30 days</td></tr>
+          <tr><td>Raw QA content archives</td><td>7-day object lifecycle; production staging is cleaned after verified archiving. Failed archives may retain staging data pending recovery.</td></tr>
+          <tr><td>QA history bundles and export job objects</td><td>2-day object lifecycle; downloaded copies are controlled by the recipient.</td></tr>
           <tr><td>Account profile data</td><td>Life of the account; then deleted or anonymized per §11 unless law requires longer</td></tr>
           <tr><td>Billing / invoice / top-up records (including aggregates needed for accounting)</td><td>Life of the account + at least 24 months, or longer where required by law (including tax and accounting)</td></tr>
           <tr><td>Backups</td><td>Limited backup rotation only</td></tr>

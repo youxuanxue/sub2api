@@ -71,6 +71,7 @@
 		# blue-green（始终有健康容器，无空窗，届时 30s 也够）。
 		lb_try_duration 30s
 		lb_try_interval 1s
+		header_up -CF-Connecting-IP
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}

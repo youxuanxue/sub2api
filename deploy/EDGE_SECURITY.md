@@ -29,9 +29,19 @@ the application's responsibility.
 
 ## Trusted client IPs
 
+Security decisions never use the raw-header compatibility override. Existing
+session bindings made with untrusted header values may require a new login after
+this security update. The bundled Caddy ingress clears `CF-Connecting-IP` before
+setting its own X-Real-IP/X-Forwarded-For values. Stage0 app compose explicitly
+trusts its Docker bridge pool (`172.16.0.0/12` by default); set
+`SERVER_TRUSTED_PROXIES` to the actual Caddy peer CIDR for custom Docker pools.
+The app must not publish its port outside that network. Other deployments must
+configure their own trusted proxy addresses before upgrading.
+
 `security.trust_forwarded_ip_for_api_key_acl` is enabled by default for upgrade
 compatibility. While enabled, raw forwarding headers take over client-IP
-resolution for logs and security-sensitive paths. Custom headers from
+resolution for compatibility request logs only. Security-sensitive paths always use
+the Gin trusted-proxy chain, regardless of this switch. Custom headers from
 `security.forwarded_client_ip_headers` are checked in configured order before
 the built-in `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` fallback.
 Header names are case-insensitive, normalized when loaded, de-duplicated, and

@@ -51,3 +51,4 @@
 | US-048 | 运营以供应源安全接入并热更新模型供应账号 | InTest | `.testing/user-stories/stories/US-048-model-supplier-source-management.md` |
 | US-049 | Gateway failover 判定使用全局单一 owner | Done | `.testing/user-stories/stories/US-049-gateway-failover-policy-ssot.md` |
 | US-052 | Gemini generateContent 使用通用 Chat 转换边 | InTest | `.testing/user-stories/stories/US-052-gemini-chat-conversion.md` |
+| US-053 | 正文采集与入口安全边界 | InTest | `.testing/user-stories/stories/US-053-security-capture-and-ingress.md` |

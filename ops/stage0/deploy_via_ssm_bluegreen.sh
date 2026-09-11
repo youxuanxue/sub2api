@@ -534,6 +534,8 @@ services:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
       - SERVER_MODE=${SERVER_MODE:-release}
+      # App ingress is restricted to Caddy on the private Docker bridge.
+      - SERVER_TRUSTED_PROXIES=${SERVER_TRUSTED_PROXIES-172.16.0.0/12}
       - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}
       - RUN_MODE=${RUN_MODE:-standard}
       - DATABASE_HOST=tokenkey-postgres
@@ -619,6 +621,8 @@ services:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
       - SERVER_MODE=${SERVER_MODE:-release}
+      # App ingress is restricted to Caddy on the private Docker bridge.
+      - SERVER_TRUSTED_PROXIES=${SERVER_TRUSTED_PROXIES-172.16.0.0/12}
       - SERVER_FRONTEND_URL=${SERVER_FRONTEND_URL:-}
       - RUN_MODE=${RUN_MODE:-standard}
       - DATABASE_HOST=tokenkey-postgres

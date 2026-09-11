@@ -1,10 +1,10 @@
 package trajectory
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -53,10 +53,11 @@ func (w *Writer) Write(ctx context.Context, key string, payload []byte, requestI
 	if err != nil {
 		return "", err
 	}
-	if dlqErr := os.MkdirAll(filepath.Dir(dlqPath), 0o755); dlqErr != nil {
-		return "", dlqErr
+	key, err = filepath.Rel(w.dlqDir, dlqPath)
+	if err != nil {
+		return "", err
 	}
-	if writeErr := os.WriteFile(dlqPath, payload, 0o644); writeErr != nil {
+	if _, writeErr := WriteBlobFile(w.dlqDir, key, bytes.NewReader(payload)); writeErr != nil {
 		return "", writeErr
 	}
 	RecordDLQWrite()

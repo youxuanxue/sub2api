@@ -21,10 +21,9 @@ func RequestLogger() gin.HandlerFunc {
 			return
 		}
 
-		requestID, validRequestID := normalizeCorrelationID(c.GetHeader(requestIDHeader))
-		if !validRequestID {
-			requestID = uuid.NewString()
-		}
+		// The request ID is a storage/correlation identity, never client authority.
+		// Reusing a caller's ID can alias QA objects across users and requests.
+		requestID := uuid.NewString()
 		c.Header(requestIDHeader, requestID)
 
 		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestID, requestID)
