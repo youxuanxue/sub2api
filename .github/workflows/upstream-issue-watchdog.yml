@@ -8,9 +8,9 @@ on:
     paths:
       - 'scripts/upstream/*watchdog*.py'
       - 'scripts/upstream/issue-triage-generate.py'
+      - 'scripts/upstream/issue_ledger.py'
       - 'scripts/anthropic/cc-issue-triage-generate.py'
-      - '.cache/upstream/fact-checks.json'
-      - '.cache/anthropic/cc-fact-checks.json'
+      - 'ops/issue-watchdog/**'
       - '.github/workflows/upstream-issue-watchdog.yml'
   workflow_dispatch:
     inputs:

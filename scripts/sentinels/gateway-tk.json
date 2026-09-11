@@ -222,6 +222,16 @@
       "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner."
     },
     {
+      "path": "scripts/upstream/issue_ledger.py",
+      "must_contain": ["def load_ledger(", "def declared_problems(", "ops/issue-watchdog/upstream.json", "ops/issue-watchdog/anthropic.json"],
+      "rationale": "Curated judgments and fix evidence have one non-cache owner per source; the read-only gate validates schemas and trailer-scoped anchors without generated snapshots."
+    },
+    {
+      "path": "scripts/test_issue_ledger.py",
+      "must_contain": ["def test_declared_fix_checks_grouped_refs_without_cache_or_writes(", "def test_missing_empty_and_rotted_evidence_fail_declared_fix(", "def test_wrong_repo_and_malformed_trailers_fail_instead_of_matching_number("],
+      "rationale": "Ledger validation must work without caches, reject missing evidence and cross-repository refs, and leave the curated source untouched."
+    },
+    {
       "path": "scripts/test_issue_watchdog_flow.py",
       "must_contain": [
         "test_create_then_replay_performs_no_writes_for_either_source",
@@ -3393,7 +3403,7 @@
       "must_contain": [
         "TK fix for upstream Wei-Shaw/sub2api#1471"
       ],
-      "rationale": "OpenAI /v1/responses handleStreamingResponse.sendErrorEvent MUST prepend a blank line before the synthetic `data:` event so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into one SSE event whose data buffer contains two concatenated JSON objects — downstream OpenAI-compatible SDKs (Codex / OpenCode) fail JSON.parse. The marker comment is the intent anchor; the literal write expression is intentionally NOT pinned so harmless refactors (extracting prefix to a constant, renaming `payload`, switching to fmt.Fprintf) do not flap the registry. Regression test (sentinel below) is the primary protection — the watchdog fact-check in .cache/upstream/fact-checks.json pins the actual `\\ndata: ` literal for the watchdog's stricter audit."
+      "rationale": "OpenAI /v1/responses handleStreamingResponse.sendErrorEvent MUST prepend a blank line before the synthetic `data:` event so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into one SSE event whose data buffer contains two concatenated JSON objects — downstream OpenAI-compatible SDKs (Codex / OpenCode) fail JSON.parse. The marker comment is the intent anchor; the literal write expression is intentionally NOT pinned so harmless refactors (extracting prefix to a constant, renaming `payload`, switching to fmt.Fprintf) do not flap the registry. Regression test (sentinel below) is the primary protection — the watchdog fact-check in ops/issue-watchdog/upstream.json pins the actual `\\ndata: ` literal for the watchdog's stricter audit."
     },
     {
       "path": "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go",

@@ -704,22 +704,6 @@ else
     echo "  ok: no buffered SSE->JSON Content-Type leak antipattern"
 fi
 
-# ---- sub2api: anthropic claude-code issue cache JSON --------------------------
-# Historical .cache/anthropic/cc-*.json records maintained inside fix PRs must
-# stay valid JSON. Daily scans read them without committing cache refreshes.
-# Source: scripts/checks/cc-issue-cache-json.py.
-echo ""
-echo "=== sub2api: anthropic cc-issue cache JSON ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required to run cc-issue-cache-json.py)"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/cc-issue-cache-json.py --quiet; then
-    # cc-issue-cache-json.py already printed the actionable failure.
-    errors=$((errors + 1))
-else
-    echo "  ok: anthropic cc-issue cache files valid"
-fi
-
 # ---- sub2api: OpsUpstreamErrorEvent.Kind suffix antipattern ----------------
 # Guards against the regression pattern that surfaced in prod ops_error_logs:
 # storage metadata (e.g. ":request_body_truncated") appended onto the
@@ -3192,39 +3176,20 @@ else
 fi
 
 echo ""
-echo "=== sub2api: fix-ledger consistency (Upstream-Fixes / Anthropic-Fixes) ==="
-# Trailer-scoped drift gate for the issue-watchdog ledgers. When a commit in
-# this branch declares it closes an upstream/anthropic issue via an
-# `Upstream-Fixes:` / `Anthropic-Fixes:` trailer, require that the matching
-# fact-check entry exists, its anchors resolve, and fixes/triage already
-# reflect it (author ran `apply-fix-ledger.py --apply`). Unrelated PRs that do
-# not carry the trailer are not gated — pre-existing cosmetic drift / anchor
-# rot in OTHER ledger entries stays the daily watchdog's job. Same script runs
-# in --apply mode to do the propagation, so固化 lands inside the fix PR rather
-# than waiting for the next daily *-issue-watchdog.yml run.
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for apply-fix-ledger.py)"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/upstream/apply-fix-ledger.py --selftest >/dev/null; then
-    echo "  FAIL: apply-fix-ledger.py self-test failed"
+echo "=== sub2api: issue ledger (schema + declared fix evidence) ==="
+# Curated evidence has one owner; scans derive triage/fixes without git writes.
+# Check anchors only for declared fixes, leaving historical rot to the watchdog.
+_fl_base="${PREFLIGHT_BASE:-origin/main}"
+python3 ./scripts/upstream/issue_ledger.py --commits-range "${_fl_base}..HEAD" --quiet
+_fl_rc=$?
+if [ "$_fl_rc" -eq 2 ]; then
+    echo "  skip: cannot resolve ${_fl_base}..HEAD (fetch origin/main); schema validated"
+elif [ "$_fl_rc" -ne 0 ]; then
     errors=$((errors + 1))
 else
-    _fl_base="${PREFLIGHT_BASE:-origin/main}"
-    for _fl_ledger in upstream anthropic; do
-        python3 ./scripts/upstream/apply-fix-ledger.py --ledger "$_fl_ledger" \
-            --check --commits-range "${_fl_base}..HEAD" --quiet
-        _fl_rc=$?
-        if [ "$_fl_rc" -eq 1 ]; then
-            # apply-fix-ledger.py already printed the actionable problem list.
-            errors=$((errors + 1))
-        elif [ "$_fl_rc" -eq 2 ]; then
-            echo "  skip[$_fl_ledger]: cannot resolve ${_fl_base}..HEAD (fetch origin/main); the PR gate enforces this"
-        else
-            echo "  ok[$_fl_ledger]: declared fixes have consistent fact-checks"
-        fi
-    done
-    unset _fl_base _fl_ledger _fl_rc
+    echo "  ok: curated ledgers valid; declared fix anchors resolve"
 fi
+unset _fl_base _fl_rc
 
 echo ""
 echo "=== sub2api: upstream merge notify (detect-only) ==="

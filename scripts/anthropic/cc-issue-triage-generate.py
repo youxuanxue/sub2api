@@ -59,14 +59,11 @@ EXCLUDE = [
 # Human-pinned overrides. impact "high"/"critical" here (and only here) can promote
 # an issue to a fix candidate via the watchdog's is_unresolved_high() gate.
 MANUAL_TRIAGE = {
-    61348: ("fixed", "fixed_in_tokenkey",
-            "Opus 4.7/4.8 reject manual thinking (thinking.type=enabled+budget_tokens) with a 400 "
-            "'thinking.type.enabled is not supported … Use thinking.type.adaptive'; TokenKey reactively "
-            "self-heals enabled→adaptive on both the Forward and APIKey passthrough paths, hard-gated by "
-            "isOpus47OrNewer. Fixed in youxuanxue/sub2api#514 + #518."),
+    int(entry["upstream"].rsplit("#", 1)[1]): tuple(entry["judgment"][key]
+        for key in ("impact", "tokenkey_status", "rationale"))
+    for entry in json.loads((Path(__file__).resolve().parents[2] / "ops/issue-watchdog/anthropic.json").read_text(encoding="utf-8"))["entries"]
+    if "judgment" in entry
 }
-
-FIXED_IDS = {num for num, (impact, _, _) in MANUAL_TRIAGE.items() if impact == "fixed"}
 
 
 def norm(s: str) -> str:

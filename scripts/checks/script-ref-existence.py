@@ -76,8 +76,10 @@ SCAN_BASENAMES = {
 #   backend/ent/      generated; backend/ent/schema/ is scanned via SCAN_EXTS
 #   backend/internal/web/dist/   built artifact, opaque to humans
 #   node_modules/     vendored
-#   .cache/           historical fact records (upstream issue cache); paths
-#                     frozen at scan-time, not live source references
+#   .cache/           retained capture artifacts, not live source references
+#   ops/issue-watchdog/*.json  curated historical fix locations; live anchors
+#                     are validated by issue_ledger.py for declared fixes and
+#                     reported by the watchdog for older records
 EXCLUDE_PREFIXES = (
     "dev-rules/",
     ".cursor/rules/",
@@ -85,6 +87,8 @@ EXCLUDE_PREFIXES = (
     "backend/internal/web/dist/",
     "node_modules/",
     ".cache/",
+    "ops/issue-watchdog/upstream.json",
+    "ops/issue-watchdog/anthropic.json",
     # The self-test must contain literal "scripts/missing-*.sh" fixture strings
     # to exercise the check; those fixtures would otherwise fire this check on
     # itself. The self-test runs alongside via preflight, providing equivalent
