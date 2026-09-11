@@ -31,6 +31,7 @@ const (
 	AdapterMessagesToGemini    RouteAdapterID = "messages_to_gemini_generate_content"
 	AdapterChatToGemini        RouteAdapterID = "chat_completions_to_gemini_generate_content"
 	AdapterResponsesToGemini   RouteAdapterID = "responses_to_gemini_generate_content"
+	AdapterGeminiToChat        RouteAdapterID = "gemini_generate_content_to_chat_completions"
 	AdapterGeminiIdentity      RouteAdapterID = "gemini_generate_content_identity"
 )
 
@@ -88,6 +89,7 @@ var routeRegistry = []routeEntry{
 	{inbound: ProtocolResponses, target: ProtocolMessages, kind: RouteConversion, adapterID: AdapterResponsesToMessages, transport: TransportHTTP, model: permitsMessagesModel, preserves: preservesResponsesToMessages, endpoint: resolveEndpoint},
 	{inbound: ProtocolResponses, target: ProtocolGeminiGenerateContent, kind: RouteConversion, adapterID: AdapterResponsesToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesToGemini, endpoint: resolveEndpoint},
 	{inbound: ProtocolGeminiGenerateContent, target: ProtocolGeminiGenerateContent, kind: RouteIdentity, adapterID: AdapterGeminiIdentity, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesGeminiIdentity, endpoint: resolveEndpoint},
+	{inbound: ProtocolGeminiGenerateContent, target: ProtocolChatCompletions, kind: RouteConversion, adapterID: AdapterGeminiToChat, transport: TransportHTTP, model: permitsChatCompletionsModel, preserves: preservesGeminiToChat, endpoint: resolveEndpoint},
 }
 
 func validateRouteRegistry(entries []routeEntry) error {
@@ -252,4 +254,9 @@ func preservesTextOnlyWithoutTools(req CanonicalRequest) bool {
 		req.profile.ToolChoice == ToolChoiceNone &&
 		req.profile.ContentKinds != 0 &&
 		req.profile.ContentKinds&^ContentText == 0
+}
+
+func preservesGeminiToChat(req CanonicalRequest) bool {
+	_, err := apicompat.GeminiToChatRequest(req.Body(), req.RequestedModel(), req.Profile().Stream)
+	return err == nil
 }

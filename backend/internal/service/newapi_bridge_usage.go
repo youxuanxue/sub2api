@@ -55,6 +55,8 @@ func openAIUsageFromNewAPIDTO(u *dto.Usage) OpenAIUsage {
 		InputTokens:              cu.InputTokens,
 		OutputTokens:             cu.OutputTokens,
 		CacheCreationInputTokens: cu.CacheCreationInputTokens,
+		CacheCreation5mTokens:    cu.CacheCreation5mTokens,
+		CacheCreation1hTokens:    cu.CacheCreation1hTokens,
 		CacheReadInputTokens:     cu.CacheReadInputTokens,
 		ImageOutputTokens:        cu.ImageOutputTokens,
 	}

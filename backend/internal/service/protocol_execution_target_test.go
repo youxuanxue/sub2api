@@ -86,6 +86,9 @@ func protocolTargetTestExecution(
 	// mirror that lifecycle boundary before planning.
 	attachTestProtocolCapability(account, account.SupportedProtocols()...)
 	requestedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if inbound == protocolrouter.ProtocolGeminiGenerateContent && requestedModel == "" {
+		requestedModel = "client-model"
+	}
 	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 		InboundProtocol: inbound,
 		RequestedModel:  requestedModel,
@@ -976,6 +979,8 @@ func TestProtocolRouteRegistryRealAdaptersHonorWireContract(t *testing.T) {
 					return svc.ForwardAsChatCompletionsDispatched(executionCtx, c, account, request.Body(), "", "")
 				case protocolrouter.AdapterChatToResponses, protocolrouter.AdapterChatToMessages:
 					return svc.ForwardAsChatCompletions(executionCtx, c, account, request.Body(), "", "")
+				case protocolrouter.AdapterGeminiToChat:
+					return svc.ForwardGeminiViaChat(executionCtx, c, account, request)
 				case protocolrouter.AdapterResponsesIdentity:
 					return svc.ForwardAsResponsesDispatched(executionCtx, c, account, request.Body())
 				case protocolrouter.AdapterResponsesToChat, protocolrouter.AdapterResponsesToMessages:
@@ -987,6 +992,9 @@ func TestProtocolRouteRegistryRealAdaptersHonorWireContract(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatalf("ExecuteSelectedProtocol: %v", err)
+			}
+			if geminiResult, ok := value.(*ForwardResult); ok {
+				value = OpenAIForwardResultFromForward(geminiResult)
 			}
 			result, ok := value.(*OpenAIForwardResult)
 			if !ok || result == nil {
@@ -1023,6 +1031,8 @@ func TestProtocolRouteRegistryRealAdaptersHonorWireContract(t *testing.T) {
 
 func protocolRouteContractRequestBody(protocol protocolrouter.Protocol) []byte {
 	switch protocol {
+	case protocolrouter.ProtocolGeminiGenerateContent:
+		return []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`)
 	case protocolrouter.ProtocolMessages:
 		return []byte(`{"model":"client-model","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
 	case protocolrouter.ProtocolChatCompletions:
@@ -1036,6 +1046,8 @@ func protocolRouteContractRequestBody(protocol protocolrouter.Protocol) []byte {
 
 func protocolRouteContractInboundPath(protocol protocolrouter.Protocol) string {
 	switch protocol {
+	case protocolrouter.ProtocolGeminiGenerateContent:
+		return "/v1beta/models/client-model:generateContent"
 	case protocolrouter.ProtocolMessages:
 		return "/v1/messages"
 	case protocolrouter.ProtocolChatCompletions:

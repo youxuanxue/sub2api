@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -632,7 +633,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
 			TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, modelName, account.ID, err)
-			return
+			// A started conversion cannot retry, but known partial usage must settle.
+			if result == nil || selection.ProtocolPlan == nil || selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToChat {
+				return
+			}
 		}
 
 		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)

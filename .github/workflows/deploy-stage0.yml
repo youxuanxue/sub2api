@@ -8,11 +8,12 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "deploy changes prod; smoke-only probes the API; qa-infra-check verifies QA OIDC/IAM readiness without mutation."
+        description: "deploy changes prod; replay prepares inactive prod color and runs retained-traffic replay without cutover; smoke-only probes the API; qa-infra-check verifies QA OIDC/IAM readiness without mutation."
         required: true
         type: choice
         options:
           - deploy
+          - replay
           - smoke-only
           - qa-infra-check
         default: deploy
@@ -20,6 +21,11 @@ on:
         description: "Released image tag without leading v (e.g. 1.6.0). In smoke-only and qa-infra-check modes this is an audit label; no image is changed."
         required: true
         type: string
+      replay_receipt:
+        description: "Only after human approval: green replay receipt SHA256 to promote the tested candidate and run the complete deploy checks."
+        required: false
+        type: string
+        default: ""
       simple_release_override:
         description: "⚠️ Allow deploy of a single-arch (amd64-only) :latest manifest. Default false; flip ONLY if the prod Stage0 host is amd64. Today prod runs AWS Graviton t4g (arm64) — flipping this WILL crash with exec format error."
         required: false
@@ -31,7 +37,7 @@ on:
         type: string
         default: ""
 
-# Default to read-only. The deploy job explicitly opts into AWS OIDC and package
+# Default to read-only. Deploy/replay explicitly opt into AWS OIDC and package
 # access; smoke-only cannot obtain either capability.
 permissions:
   contents: read
@@ -42,6 +48,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  replay:
+    if: inputs.operation == 'replay'
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    timeout-minutes: 120
+    env:
+      AWS_REGION: us-east-1
+      INPUT_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Validate replay release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
+          bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" false
+          python3 scripts/checks/bluegreen-migration-safety.py --release-tag "$INPUT_TAG"
+      - name: Configure prod replay credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Prepare prod and replay retained requests without cutover
+        run: python3 scripts/stage0/replay-prod-release.py --target prod --tag "$INPUT_TAG" --out replay-output
+      - name: Upload sanitized replay receipt
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: prod-replay-receipt
+          path: replay-output/replay-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
   deploy:
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-latest
@@ -366,6 +412,17 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Validate human-approved replay receipt
+        if: inputs.replay_receipt != ''
+        id: replay_gate
+        env:
+          APPROVED_REPLAY: ${{ inputs.replay_receipt }}
+          DEPLOY_GATEWAY: ${{ steps.qa_infra.outputs.deploy_gateway }}
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_GATEWAY" = true || { echo "::error::replay continuation requires a gateway deployment plan"; exit 1; }
+          python3 scripts/stage0/replay-prod-release.py --tag "$INPUT_TAG" --approved-replay "$APPROVED_REPLAY"
+
       - name: Deploy via SSM Run-Command
         if: steps.qa_infra.outputs.deploy_gateway == 'true'
         id: ssm
@@ -373,6 +430,9 @@ jobs:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
           STAGE0_BLUEGREEN_WAIT_PHASE: cutover
+          STAGE0_BLUEGREEN_STAGE: ${{ inputs.replay_receipt != '' && 'promote' || 'deploy' }}
+          STAGE0_BLUEGREEN_APPROVED_RECEIPT: ${{ steps.replay_gate.outputs.prepared_receipt }}
+          STAGE0_BLUEGREEN_APPROVED_REPLAY: ${{ inputs.replay_receipt }}
           QA_BUNDLE_ENABLED: ${{ env.QA_BUNDLE_ENABLED }}
           QA_BUNDLE_QUEUE_URL: ${{ steps.qa_bundle.outputs.queue_url }}
           QA_BUNDLE_STORAGE_DRIVER: ${{ env.QA_BUNDLE_STORAGE_DRIVER }}
