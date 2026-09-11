@@ -38,6 +38,27 @@ Status vocabulary is enforced by `dev-rules/scripts/check_approved_docs.py`:
 
 Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
+## TokenKey SSOT 导航
+
+本节只提供契约入口；规则、实现 owner 和验收状态在链接目标维护。
+
+| 要判断的事实 | 契约入口 |
+| --- | --- |
+| 展示、请求计划与运行时可用性的组合边界 | [模型交付承诺](pricing-serving-single-source-of-truth.md) |
+| endpoint 原生协议与 generation 路由合法性 | [协议路由](protocol-routing-ssot.md) |
+| 授权范围内的候选资格、账号调度与实现 owner | [候选资格 Owners 表](candidate-eligibility-ssot.md#owners) |
+| Key 授权与计费归属 | [Universal key routing](universal-key-routing.md) |
+| 官方价格注册表与热发布 | [Pricing registry](pricing-registry-hot-reload.md) |
+| 分组／渠道价目优先级与 alias | [价格与 alias](pricing-serving-single-source-of-truth.md#4-价格与-alias) |
+| 可用性观测证据与目录裁剪 | [Availability evidence](pricing-availability-source-of-truth.md#1-本文唯一拥有的事实) |
+| 模型映射与显式激活 | [Model surface activation](model-surface-activation-contract.md) |
+| 供应源发现、校验与投影 | [Supplier source](model-supplier-source-probe-sync-split.md) |
+| Gateway 是否换号 | [Failover policy](gateway-failover-policy-ssot.md) |
+
+候选实现的发布证据与待验收项目只在
+[US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#coverage-boundaries)
+维护；契约索引不另存“已上线／已验收”状态。
+
 ## Shipped baselines
 
 | File | Topic |
