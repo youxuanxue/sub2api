@@ -37,6 +37,8 @@ class FrontendDistFreshnessTest(unittest.TestCase):
                 ignored.parent.mkdir()
                 ignored.write_text("generated\n", encoding="utf-8")
                 source.with_name("live.spec.ts").write_text("test only\n", encoding="utf-8")
+                for name in ("playwright.config.ts", "playwright.candidate.config.ts"):
+                    (root / "frontend" / name).write_text("test config only\n", encoding="utf-8")
                 before_staging = MODULE.compute_digest()
                 self.assertNotEqual(original[0], before_staging[0])
                 self.assertEqual(before_staging[1], 2)

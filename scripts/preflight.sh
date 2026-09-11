@@ -705,10 +705,9 @@ else
 fi
 
 # ---- sub2api: anthropic claude-code issue cache JSON --------------------------
-# The .cache/anthropic/cc-*.json triage ledger (refreshed by
-# anthropic-cc-issue-watchdog.yml, hand-curated for cc-fixes / cc-fact-checks) must
-# stay valid JSON with its required top-level keys. The workflow json-validates
-# inline; this gate catches a hand-edit before push. Source: scripts/checks/cc-issue-cache-json.py.
+# Historical .cache/anthropic/cc-*.json records maintained inside fix PRs must
+# stay valid JSON. Daily scans read them without committing cache refreshes.
+# Source: scripts/checks/cc-issue-cache-json.py.
 echo ""
 echo "=== sub2api: anthropic cc-issue cache JSON ==="
 if ! command -v python3 >/dev/null 2>&1; then

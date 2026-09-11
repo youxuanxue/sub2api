@@ -2,6 +2,235 @@
   "version": 1,
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
+    {
+      "path": "backend/internal/server/middleware/request_logger.go",
+      "must_contain": [
+        "requestID := uuid.NewString()"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/observability/trajectory/blob_files.go",
+      "must_contain": [
+        "os.OpenRoot(root)",
+        "os.O_WRONLY|os.O_CREATE|os.O_EXCL",
+        "0o600"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/observability/qa/blob_store.go",
+      "must_contain": [
+        "trajectory.WriteBlobFile",
+        "IfNoneMatch: aws.String(\"*\")",
+        "dir.ReadFile"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/observability/trajectory/writer.go",
+      "must_contain": [
+        "WriteBlobFile(w.dlqDir"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/observability/qa/sse_tee.go",
+      "must_contain": [
+        "p = p[:remaining]",
+        "maxCapturedSSEChunks",
+        "body[start:boundary.end:boundary.end]"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/pkg/ip/ip.go",
+      "must_contain": [
+        "func GetSecurityClientIP(c *gin.Context, _ bool) string {\n\treturn GetTrustedClientIP(c)"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/pkg/httpclient/public.go",
+      "must_contain": [
+        "transport.Proxy = nil",
+        "publicDialContext",
+        "net.JoinHostPort(ip.IP.String(), port)"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/service/image_storage.go",
+      "must_contain": [
+        "httpclient.NewPublicClient",
+        "contentType := detectedImageContentType(data)"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/util/logredact/redact.go",
+      "must_contain": [
+        "return redactUnstructuredText(v, getTextRedactPatterns(extraKeys))"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/observability/qa/security_capture_test.go",
+      "must_contain": [
+        "TestQACaptureBoundsAllStreamBytesWithoutTruncatingForwarding",
+        "TestQABlobStoreConfinesReadsAndDeletes"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/observability/trajectory/blob_files_test.go",
+      "must_contain": [
+        "TestWriteBlobFileConfinesPathsAndRefusesReplacement"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/util/logredact/content_test.go",
+      "must_contain": [
+        "TestRedactSecretsInContentAndToolResults"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/pkg/httpclient/public_test.go",
+      "must_contain": [
+        "TestPublicClientRejectsLocalTargetsAndRedirects",
+        "TestPublicDialPinsResolvedAddressAndRejectsMixedAnswers"
+      ],
+      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/server/middleware/request_logger.go",
+      "must_contain": ["c.Writer = &requestIDResponseWriter{"],
+      "rationale": "Server request identity must survive upstream header forwarding at the response commit boundary."
+    },
+    {
+      "path": "backend/internal/server/middleware/request_id_response_writer_tk.go",
+      "must_contain": ["func (w *requestIDResponseWriter) Write(", "func (w *requestIDResponseWriter) Flush()", "w.Header().Set(requestIDHeader, w.requestID)"],
+      "rationale": "Keep JSON and SSE responses correlated to the server-owned QA identity."
+    },
+    {
+      "path": "backend/internal/server/middleware/request_access_logger_test.go",
+      "must_contain": ["TestRequestLoggerKeepsServerIDWhenUpstreamOverwritesHeader"],
+      "rationale": "Exercise actual committed headers after adapters overwrite the response request ID."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing_request_id_test.go",
+      "must_contain": ["TestUsageBillingIgnoresReusedClientMarker"],
+      "rationale": "Client correlation markers must never collapse distinct served requests into one billing dedup key or fallback fingerprint."
+    },
+    {
+      "path": "backend/internal/observability/qa/service.go",
+      "must_contain": ["restoreInternalThinkingBlockJSON(logredact.RedactJSON([]byte(raw)), []byte(raw))", "captureRequestedModel(metadataBody)", "captureToolCallsPresent(metadataBody)", "captureMultimodalPresent(metadataBody)"],
+      "rationale": "Bounded content capture must preserve metadata from the already-read request and retain only thinking-block signatures after redaction."
+    },
+    {
+      "path": "backend/internal/observability/qa/internal_thinking_capture_test.go",
+      "must_contain": ["TestBuildBlobPreservesInternalThinkingSignatureAndRedactsSecrets"],
+      "rationale": "Test the final persisted blob, not only the pre-serialization thinking extractor."
+    },
+    {
+      "path": "backend/internal/observability/qa/middleware_synth_test.go",
+      "must_contain": ["TestQAMetadataSurvivesBodyCaptureLimit"],
+      "rationale": "Long request metadata must survive capture limits while persisted body bytes remain bounded."
+    },
+    {
+      "path": ".github/workflows/backend-ci.yml",
+      "must_contain": [
+        "candidate-browser:",
+        "TK_CANDIDATE_BROWSER: \"1\"",
+        "-run '^TestCandidatePricingBrowser$' -count=1 -timeout 6m",
+        "needs.changes.outputs.frontend == 'true'"
+      ],
+      "rationale": "Candidate UI acceptance must execute the real Go catalog with Chromium in CI; a skipped opt-in test cannot close the browser evidence boundary."
+    },
+    {
+      "path": "backend/internal/service/candidate_pricing_browser_test.go",
+      "must_contain": [
+        "func TestCandidatePricingBrowser(",
+        "requestCapabilities.modelFilter = NewModelListFilter(",
+        "svc.BuildForUser(",
+        "exec.CommandContext("
+      ],
+      "rationale": "Browser acceptance must consume the actual candidate, pricing and retirement owners instead of manufacturing catalog responses."
+    },
+    {
+      "path": "frontend/e2e/us050-candidate-backend.e2e.ts",
+      "must_contain": [
+        "[1280, 390]",
+        "route.fetch(",
+        "'model_not_found'",
+        "await keySelect.selectOption"
+      ],
+      "rationale": "Real UI regression covers Direct/Universal scope, cross-platform aliases and structural versus transient retirement with actual service responses."
+    },
+    {
+      "path": "backend/internal/repository/candidate_compatibility_integration_test.go",
+      "must_contain": [
+        "func TestCandidatePersistentFormatUpgradeAndRollback(",
+        "current.BindResponseAccount(",
+        "restarted.GetResponseAccount("
+      ],
+      "rationale": "Persistent old/new/rollback compatibility must remain independently exercised against real Redis."
+    },
+    {
+      "path": "backend/internal/repository/candidate_supplier_integration_test.go",
+      "must_contain": [
+        "func TestCandidateSupplierFaultPersistentSharingAndRecovery(",
+        "svc.HandleUpstreamError(",
+        "svc.RecoverSupplierCredentialPeers(",
+        "repo.UpdateSupplierCredentialFault("
+      ],
+      "rationale": "Real PostgreSQL integration proves shared credential faults, guarded rotation and outbox invalidation without erasing independent model/capacity/pause state."
+    },
+    {
+      "path": ".testing/user-stories/verify_quality.py",
+      "must_contain": [
+        "def verify_index(",
+        "index_issues = verify_index("
+      ],
+      "rationale": "Story owns status; index drift must fail preflight instead of claiming Done independently."
+    },
+    {
+      "path": ".github/workflows/upstream-issue-watchdog.yml",
+      "must_contain": [
+        "source: [upstream, anthropic]",
+        "python3 scripts/upstream/watchdog-run.py scan",
+        "actions/cache/restore@",
+        "actions/cache/save@"
+      ],
+      "must_not_contain": [
+        "git push --force",
+        "cache_pr",
+        "gh issue comment"
+      ],
+      "rationale": "One source matrix delegates scanning and semantic Issue updates; no cache-refresh PR or repeated report comments."
+    },
+    {
+      "path": "scripts/upstream/watchdog-run.py",
+      "must_contain": [
+        "def fetch_snapshot(",
+        "def sync_issues(",
+        "def managed_body(",
+        "temporary.replace(checkpoint)"
+      ],
+      "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner."
+    },
+    {
+      "path": "scripts/test_issue_watchdog_flow.py",
+      "must_contain": [
+        "test_create_then_replay_performs_no_writes_for_either_source",
+        "test_closed_legacy_issue_is_not_recreated_or_reopened",
+        "test_failed_sync_does_not_advance_checkpoint_and_retry_converges",
+        "test_missing_and_empty_anchors_revoke_runtime_fixed_classification"
+      ],
+      "rationale": "The normal scripts unittest gate exercises no-change, operator decisions, cursor replay and stale evidence."
+    },
       {
         "path": ".github/workflows/deploy-stage0.yml",
         "must_contain": [
@@ -1033,7 +1262,7 @@
     },
     {
       "path": "backend/internal/service/candidate_billing_tk_test.go",
-      "must_contain": ["TestCandidateBillingOriginQueryFailureIsNeverTariffEquality", "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold", "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota", "TestCandidateBillingSelectedOriginReachesHoldAndSettlement", "TestCandidateBillingOriginUsesSettlementServedModel", "TestCandidateRebindingEnforcesDestinationRPM", "TestCandidateRPMUsesAvailableOriginAndResetsEachTurn", "TestCandidateBillingOriginComparesFreeFastSettlementPolicy", "TestCandidateBillingOriginIgnoresInapplicableFreeFastPolicy"],
+      "must_contain": ["TestCandidateBillingPriceChangeBetweenHoldAndSettlement", "TestCandidateBillingOriginQueryFailureIsNeverTariffEquality", "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold", "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota", "TestCandidateBillingSelectedOriginReachesHoldAndSettlement", "TestCandidateBillingOriginUsesSettlementServedModel", "TestCandidateRebindingEnforcesDestinationRPM", "TestCandidateRPMUsesAvailableOriginAndResetsEachTurn", "TestCandidateBillingOriginComparesFreeFastSettlementPolicy", "TestCandidateBillingOriginIgnoresInapplicableFreeFastPolicy"],
       "rationale": "Billing regressions preserve configuration errors, reservation rollback and group-independent Universal quota behavior."
     },
     {
@@ -5646,6 +5875,8 @@
       "must_contain": [
         "func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool",
         "func tkOpsIsAccountLevel4xx(lower string) bool",
+        "if tkOpsDashScopeRequestRejection(body, msg) {",
+        "func tkOpsDashScopeRequestRejection(body, message string) bool",
         "if status == 413 {",
         "if status != 400 && status != 422 {",
         "invalid_request_error",
@@ -5673,6 +5904,47 @@
         "TestClassifyOpsRoutingCapacityWinsOverClientInduced"
       ],
       "rationale": "Focused regressions proving the boundary: (1) upstream 400 invalid_request_error (structured body), the /v1/responses wrapped-upstream_error message shape, 413 request_too_large, and a generic invalid_request_error all classify as error_owner=client; (2) genuine upstream 5xx/401/403 and account-level 400s (organization disabled / credit balance) stay error_owner=provider so they keep counting toward upstream_error_rate; (3) routing-capacity 'no available accounts' still wins over the client-induced branch. Dropping these lets an upstream merge silently revert the prod-P0 fix through the classifier."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_dashscope_rejection_test.go",
+      "must_contain": [
+        "TestClassifyOpsDashScopeRequestRejections",
+        "embedding batch exceeds provider limit",
+        "content inspection rejection",
+        "provider 503 remains visible",
+        "account health wins",
+        "echoed input is not an error signal"
+      ],
+      "rationale": "DashScope batch-limit and explicit content-policy 400 rejections must remain request/client-owned despite the bridge api_error wrapper; provider failures, unknown InvalidParameter errors and echoed request content must not be hidden from provider-health alerts."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)",
+        "if shouldDisable && statusCode == http.StatusServiceUnavailable {",
+        "failoverErr.RetryableOnSameAccount = false",
+        "failoverErr.RequestScopedTransient = false"
+      ],
+      "rationale": "Explicit operator overload rules must also apply to HTTP 200 SSE terminal failures and skip same-account retries after cooling the selected model. Default capacity retries remain unchanged without a matching rule."
+    },
+    {
+      "path": "backend/internal/service/openai_stream_capacity_rule_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tkHandleOpenAIStreamCapacityRule",
+        "openAIStreamFailedEventPassthroughBody(payload, message)",
+        "HandleTempUnschedulable(stateCtx, account, http.StatusServiceUnavailable, body, model)"
+      ],
+      "rationale": "Reuse the model cooldown owner and match only the actual stream error envelope, never echoed instructions or response output."
+    },
+    {
+      "path": "backend/internal/service/openai_stream_capacity_rule_tk_test.go",
+      "must_contain": [
+        "TestOpenAIStreamCapacityRuleCoolsOnlyKnownModel",
+        "default retains request local retry",
+        "unknown model never blocks whole account",
+        "echoed input does not match rule"
+      ],
+      "rationale": "Regression coverage pins model-only cooldown, immediate account failover on an explicit rule, default retries, and protection against echoed input affecting scheduling."
     },
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
