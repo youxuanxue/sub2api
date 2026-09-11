@@ -10715,18 +10715,6 @@
       "rationale": "Registry-owned vt_ status reads must reach VideoFetch before Grok/composite/native platform gates because the model-less GET's temporary platform cannot identify the submit route. Non-vt_ provider request IDs continue through their native status handlers. OpenAI-compat platform gate for POST /audio/speech; non-compat groups must keep 404. Injection into AudioSpeech is the only route into native Token Plan TTS."
     },
     {
-      "path": "backend/internal/server/routes/gateway_tk_openrouter_routes.go",
-      "must_contain": [
-        "Group(\"/openrouter/v1\")",
-        "OpenRouterProviderModels",
-        "OpenRouterProviderImages",
-        "OpenRouterProviderVideoSubmit",
-        "OpenRouterProviderVideoFetch",
-        "registerTKOpenRouterProviderRoutes("
-      ],
-      "rationale": "OpenRouter seller route registration companion: Group(/openrouter/v1) + provider models/images/videos handlers. Thin call registerTKOpenRouterProviderRoutes from gateway.go."
-    },
-    {
       "path": "backend/internal/service/ali_token_plan_tts_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) ForwardAliTokenPlanTTS(",
@@ -11109,6 +11097,24 @@
       "path": "backend/internal/service/candidate_edge_model_rejection_tk_test.go",
       "must_contain": ["TestCandidateEdgeModelRejectionBoundaries", "TestCandidateEdgeModelRejectionBeforeResponseCommit", "TestCandidateEdgeModelRejectionReselectsAuthorizedOrigin"],
       "rationale": "Keep strict error matching, response-commit safety, authorized retry and billing rebinding regression coverage."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway.go",
+      "must_contain": [
+        "registerTKOpenRouterProviderRoutes(r, h,",
+        "registerTKGrokVoiceRoutesV1(gatewayRoutes, h)",
+        "registerTKGrokVoiceRoutesRoot(rootRoutes, h,"
+      ],
+      "rationale": "Keep the public router connected to the OpenRouter and Grok companions. Anchoring only function definitions allows upstream merges to silently remove these HTTP surfaces."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_companion_routes_test.go",
+      "must_contain": [
+        "func TestGatewayCompanionRoutesRequireAPIKey(",
+        "router.ServeHTTP(response, req)",
+        "http.StatusUnauthorized"
+      ],
+      "rationale": "HTTP regression covers each companion route through RegisterGatewayRoutes and its API-key middleware; dead registration helpers must not pass by source scanning alone."
     }
   ]
 }
