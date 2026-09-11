@@ -109,10 +109,24 @@ count 与 serialized byte 两个硬上限保护。4 个固定 worker 独立批�
 只累计 shadow loss，不回滚 PostgreSQL。
 
 启用后，唯一健康 owner 每分钟把累计统计写入 `ops_job_heartbeats` 的
-`telemetry_archive_shadow` 行，JSON 统计存入 `last_result`。日常诊断要求 3 分钟内存在 clean
+`telemetry_archive_shadow` 行，JSON 统计存入 `last_result`。日常诊断要求 3 分钟内存在新鲜
 heartbeat，且 dropped/failed 均为零；配置已启用但 runtime 未启动、心跳缺失/过期、统计非法
 或出现任何 loss 时均 fail closed。S3 shadow 连续稳定后才可另行审批缩短 PostgreSQL raw
 retention；本阶段不把 S3 变成账务 source of truth。
+
+**loss 归因边界（single finding owner）。** loss 计数器是**进程累计、重启前不清零**
+（`telemetryarchive.Shadow` 只做 `Add`），且任一计数器非零时健康 owner 改写
+`last_error_at` 而不再写 `last_success_at`。因此一次失败上传必然同时满足三个条件：loss
+本身、`last_error_at` 晚于 `last_success_at`、clean heartbeat 冻结在 loss 之前而过期。
+2026-09-11 prod `failed=1` 就此放大成 3 个 issue（#2110/#2111/#2112），后两个不含新信息。
+
+**loss 仍然 fail closed，未被降级**；改变的只是归因：loss finding 是唯一 owner，被它
+必然导致的 error / clean-heartbeat-stale 两个派生 finding 在 loss 已上报时抑制。存活性
+换用 `last_run_at`（无论 loss 每分钟都写），因此计数器卡住期间写入者真的死亡或卡死仍会
+被 `telemetry_archive_heartbeat` 抓到。抑制范围仅限冗余，never 一个已停止的 publisher；
+统计不可读（无法证明 loss）时 clean heartbeat 仍是必需信号。Owner：
+`ops/observability/data_layer_safety_verdict.py`，验收在
+`ops/observability/test_data_layer_safety_verdict.py`。
 
 ## 回滚边界
 

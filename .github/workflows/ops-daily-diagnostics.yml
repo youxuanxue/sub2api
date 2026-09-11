@@ -934,6 +934,11 @@ jobs:
       - name: Dispatch highest-priority eligible repair candidate
         env:
           GH_TOKEN: ${{ github.token }}
+          # gh infers the target repository from git remotes, and this job has no
+          # checkout (it only dispatches a workflow). Without GH_REPO every run that
+          # produced a repair candidate died on "fatal: not a git repository", so
+          # ops-repair-draft.yml was never actually dispatched.
+          GH_REPO: ${{ github.repository }}
           REPORT_RUN_ID: ${{ github.run_id }}
           CANDIDATE_SIGNATURE: ${{ needs.aggregate-report.outputs.top_repair_signature }}
         run: |
