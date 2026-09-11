@@ -11147,7 +11147,6 @@
       "rationale": "Keep strict error matching, response-commit safety, authorized retry and billing rebinding regression coverage."
     },
     {
-<<<<<<< HEAD
       "path": "backend/internal/server/routes/gateway.go",
       "must_contain": [
         "registerTKOpenRouterProviderRoutes(r, h,",
@@ -11164,7 +11163,8 @@
         "http.StatusUnauthorized"
       ],
       "rationale": "HTTP regression covers each companion route through RegisterGatewayRoutes and its API-key middleware; dead registration helpers must not pass by source scanning alone."
-=======
+    },
+    {
       "path": "backend/internal/pkg/apicompat/gemini_chat_tk.go",
       "must_contain": [
         "func GeminiToChatRequest(",
@@ -11206,7 +11206,6 @@
         "TestUS052_GeminiChatSelectedHTTPTransport"
       ],
       "rationale": "Exercise authoritative candidate-to-handler execution against real HTTP Chat endpoints through OpenAI and NewAPI transports."
->>>>>>> origin/main
     }
   ]
 }
