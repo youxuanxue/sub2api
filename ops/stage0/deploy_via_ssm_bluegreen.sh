@@ -39,12 +39,13 @@ EXECUTION_TIMEOUT_SECONDS="${STAGE0_SSM_EXECUTION_TIMEOUT_SECONDS:-$TIMEOUT_SECO
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 STAGE="${STAGE0_BLUEGREEN_STAGE:-deploy}"
 APPROVED_RECEIPT="${STAGE0_BLUEGREEN_APPROVED_RECEIPT:-}"
+APPROVED_REPLAY="${STAGE0_BLUEGREEN_APPROVED_REPLAY:-}"
 REPLACE_RECEIPT="${STAGE0_BLUEGREEN_REPLACE_RECEIPT:-}"
 WAIT_PHASE="${STAGE0_BLUEGREEN_WAIT_PHASE:-complete}"
 DEPLOY_TOKEN="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
 case "${WAIT_PHASE}" in complete|cutover) ;; *) echo "invalid blue/green wait phase" >&2; exit 1 ;; esac
-if [[ "${WAIT_PHASE}" = cutover && "${STAGE}" != deploy ]]; then
-  echo "early cutover observation requires deploy stage" >&2
+if [[ "${WAIT_PHASE}" = cutover && "${STAGE}" = prepare ]]; then
+  echo "early cutover observation requires deploy or promote stage" >&2
   exit 1
 fi
 
@@ -130,6 +131,7 @@ CADDY_DIR="${ROOT}/caddy"
 LIVE_CADDY="${CADDY_DIR}/Caddyfile"
 STAGE="${STAGE:-deploy}"
 APPROVED_RECEIPT="${APPROVED_RECEIPT:-}"
+APPROVED_REPLAY="${APPROVED_REPLAY:-}"
 REPLACE_RECEIPT="${REPLACE_RECEIPT:-}"
 PREPARED_FILE="${ROOT}/bluegreen-prepared.json"
 PENDING_DRAIN="${ROOT}/bluegreen-pending-drain.json"
@@ -1090,6 +1092,23 @@ validate_candidate_replacement() {
   sudo cp -p "${PREPARED_FILE}" "${ROOT}/bluegreen-replaced-${REPLACE_RECEIPT}.json"
 }
 
+validate_replay_gate() {
+  # A replay attempt (including a failed one) cannot be bypassed by calling the
+  # low-level promote primitive. Recheck inside the same deployment host lock.
+  if [[ -f "${ROOT}/bluegreen-replay.json" ]]; then
+    python3 - "${TAG}" "${APPROVED_REPLAY}" <<'PYREPLAY'
+import base64, json, os, sys, zlib
+from pathlib import Path
+scope = {"__name__": "replay_contract"}
+exec(compile(zlib.decompress(base64.b64decode(os.environ["REPLAY_CONTRACT_B64"])), "replay_contract", "exec"), scope)
+sha, _ = scope["prepared"](sys.argv[1])
+scope["validate_receipt"](json.loads(Path("/var/lib/tokenkey/bluegreen-replay.json").read_bytes()), sys.argv[2], sha, sys.argv[1])
+PYREPLAY
+  elif [[ -n "${APPROVED_REPLAY}" ]]; then
+    die "approved replay receipt missing on host"
+  fi
+}
+
 promote_prepared_color() {
   local active target
   active="$(read_active_color)"
@@ -1097,14 +1116,19 @@ promote_prepared_color() {
   target="$(other_color "${active}")"
   assert_active_route_consistent "${active}"
   validate_prepared_receipt "${active}" "${target}"
+  validate_replay_gate
   wait_healthy "tokenkey-${target}"
   wait_ready "tokenkey-${target}"
   validate_prepared_receipt "${active}" "${target}"
+  validate_replay_gate
   backup_env "promote-${target}"
   env_set TOKENKEY_IMAGE "$(container_image "tokenkey-${target}")"
   record_pending_drain "tokenkey-${active}"
   commit_cutover "${target}"
   sudo mv "${PREPARED_FILE}" "${ROOT}/bluegreen-last-promoted.json"
+  if [[ -f "${ROOT}/bluegreen-replay.json" ]]; then
+    sudo mv "${ROOT}/bluegreen-replay.json" "${ROOT}/bluegreen-last-promoted-replay.json"
+  fi
   observe_routed_health "${target}"
   install_bluegreen_systemd_unit
   drain_container "tokenkey-${active}"
@@ -1205,6 +1229,8 @@ jq -n \
   --arg stage "${STAGE}" \
   --arg deploy_token "${DEPLOY_TOKEN}" \
   --arg approved_receipt "${APPROVED_RECEIPT}" \
+  --arg approved_replay "${APPROVED_REPLAY}" \
+  --arg replay_contract_b64 "$(python3 -c 'import base64,pathlib,sys,zlib; print(base64.b64encode(zlib.compress(pathlib.Path(sys.argv[1]).read_bytes())).decode())' "$(dirname "$0")/prod_replay.py")" \
   --arg replace_receipt "${REPLACE_RECEIPT}" \
   --arg deploy_profile "${DEPLOY_PROFILE}" \
   --arg execution_timeout "${EXECUTION_TIMEOUT_SECONDS}" \
@@ -1257,6 +1283,8 @@ jq -n \
       + " STAGE=" + ($stage|@sh)
       + " DEPLOY_TOKEN=" + ($deploy_token|@sh)
       + " APPROVED_RECEIPT=" + ($approved_receipt|@sh)
+      + " APPROVED_REPLAY=" + ($approved_replay|@sh)
+      + " REPLAY_CONTRACT_B64=" + ($replay_contract_b64|@sh)
       + " REPLACE_RECEIPT=" + ($replace_receipt|@sh)
       + " DEPLOY_PROFILE=" + ($deploy_profile|@sh)
       + " QA_BUNDLE_ENABLED=" + ($qa_enabled|@sh)
