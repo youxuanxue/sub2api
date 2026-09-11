@@ -226,45 +226,68 @@ The new tests exercise real service selectors, authentication/handler handoffs,
 WebSocket sockets with a controlled upstream, and production cache key formats.
 They are backend integration/unit tests, not UI E2E or live supplier probes.
 
+- `backend/internal/service/candidate_billing_tk_test.go`::`TestCandidateBillingPriceChangeBetweenHoldAndSettlement` (AC-013/017/018/027).
+- `backend/internal/repository/usage_billing_repo_tk_hold_integration_test.go`::`TestApply_ConsumesHandedOffHoldAtomically` (AC-013/017/027; actual below/above hold, duplicate settlement and late release).
+- `backend/internal/repository/candidate_compatibility_integration_test.go`::`TestCandidatePersistentFormatUpgradeAndRollback` (AC-014/021/026; persistent format boundary).
+- `backend/internal/repository/candidate_supplier_integration_test.go`::`TestCandidateSupplierFaultPersistentSharingAndRecovery` (AC-030).
+- `backend/internal/service/candidate_pricing_browser_test.go`::`TestCandidatePricingBrowser` (AC-038/039; opt-in local runner, mandatory candidate-browser CI job).
+- `frontend/e2e/us050-candidate-backend.e2e.ts`::`US050 real candidate catalog at` (AC-038/039; actual service responses, desktop/mobile).
+- `scripts/checks/test_story_index.py`::`StoryIndexTest.test_drift_missing_duplicate_and_wrong_target_fail` (status owner regression).
+
 ### Coverage Boundaries
 
-| Criteria | Current evidence | Remaining acceptance work |
-| --- | --- | --- |
-| AC-001/003/004/016/023 | Shared capability regressions, actual-account HTTP/Gemini admission, native account 115 retry, global Vertex/Antigravity failover and equal-priority native/converter competition | Live supplier verification is outside this task. |
-| AC-008/009/010 | Real selectors cover conflicting group order, renamed/renumbered split groups, duplicate membership, capacity admission and random ties | Random outcomes are tested for both eligible peers with wide distribution bounds, not a fixed global RNG seed. |
-| AC-011/012 | Explicit A/X versus B/Y no-borrowing; Direct/Universal HTTP handoff, model isolation and billing-scope checks | No local acceptance gap. |
-| AC-013/017/018/027 | Minimum-origin admission, real hold estimation and final settlement are connected; rollback, delayed snapshots and quota checks also covered | Live price/cost comparison still to be gathered — runnable against the deployed build, no longer a release blocker. |
-| AC-014/021/026 | Authorization/Plan rechecks after waits, namespace-aware owner tests, stored-media key preservation, actual task polling across key/origin changes with a controlled upstream and real socket turn tests | Production rolling upgrade/rollback has not been exercised. |
-| AC-019/020 | Global selectors cover sticky-only old/new session admission, capacity admission, random ties, priority and slot races | No local acceptance gap. |
-| AC-029 | Full candidate selection covers split/duplicate membership, normal versus reserve accounts, and hard gates after global recovery | No local acceptance gap. |
-| AC-030/031 | Supplier credential sharing/recovery and real repository guards; discovery supports actual accounts and native response schemas | No production configuration writes or live supplier verification were performed. |
-| AC-032/033/034 | Direct/Universal handler tests cover real transport cancellation, failover, attempt cap, partial text/tool output and usage preservation; scoped counter and replay boundary tests cover exclusions | Production comparison and original Kimi task completion still pending. Release evidence is recorded under Status; the comparison is a measurement to record, not a traffic switch to authorize. |
-| AC-036/037 | Profit selection, origin changes, post-slot and WS rechecks; group-only price admission and wrong-group rejection | Live price/cost comparison still to be gathered — runnable against the deployed build, no longer a release blocker. |
-| AC-038/039 | Candidate catalog tests include production price filters, scoped-only models, hidden manifest rows and retirement evidence; Playwright exercises desktop/mobile pricing filters and readable authorized groups | UI requests use fixtures; they do not prove live supplier capability or production billing. |
+Acceptance redesign approved by feng on 2026-09-11: stable contracts use controlled
+inputs and independent expectations; deployment receipts and ongoing supplier/billing
+observations have separate lifecycles. A changing price is input, not a changing AC.
+The production policy remains unchanged: no request-price freeze, no price ranking
+across different accounts, and no expansion of profit-control applicability.
 
-Keep the story in InTest until the
-remaining production acceptance evidence above is available; these are validation
-boundaries, not pending implementation or architectural decisions. The
-implementation itself is released and live — InTest here tracks outstanding
-live-traffic measurement, not unshipped code.
+| Criteria | Reproducible acceptance | Operational boundary / owner |
+| --- | --- | --- |
+| AC-001/003/004/016/023 | Shared capability regressions, actual-account HTTP/Gemini admission, native account 115 retry, Vertex/Antigravity failover and native/converter competition | Supplier availability is time-specific; modelops/account-model-probe owns current capability observations. |
+| AC-008/009/010 | Real selectors cover group order, renamed/renumbered groups, duplicate membership, capacity and random ties | Random outcomes use wide distribution bounds, not a fixed global RNG seed. |
+| AC-011/012 | A/X versus B/Y no-borrowing; Direct/Universal HTTP handoff, model isolation and billing scope | No outstanding contract gap. |
+| AC-013/017/018/027 | Origin selection → hold → RecordUsage; tariff conflicts, quota exhaustion, rollback and stale snapshots. Controlled registry prices rise/fall after reservation, with multiplier cache retention/invalidation. Real PostgreSQL settles above/below holds exactly once. | Dollar values in production are not golden fixtures. Configuration-impact analysis below records the discount consequence; billing-watch observations do not prove supplier profit. |
+| AC-014/021/026 | Authorization/Plan rechecks, real WS turns, stored task polling, and real Redis old-format reads/new-format dual writes/restart/old-reader rollback checks | This proves persistent-format compatibility, not a full historical server-binary rollout. Release execution is owned by US-051 and Stage0 release gates; historical deployment evidence is below. |
+| AC-019/020 | Global sticky/new-session selectors, capacity, random ties, priority and slot races | No outstanding contract gap. |
+| AC-029 | Split/duplicate membership, normal/reserve accounts, hard gates after recovery | No outstanding contract gap. |
+| AC-030/031 | Confirmed credential failure and recovery run through the real service and PostgreSQL repository across OpenAI/Anthropic projections; preserve pause, model limits and capacity, publish outbox invalidation, reject stale rotation writes. Discovery tests verify actual paths and native schemas. | Real supplier credentials are not required to prove state ownership. Account-model-probe owns live capability; transient probe evidence never becomes catalog policy. |
+| AC-032/033/034 | Direct/Universal handler tests use controlled upstream HTTP hangs, empty output, truncation and tool output; assert transport cancellation, slot release, bounded replay, partial usage and single successful usage. All account platforms share the model-scoped failure policy. | These regressions reproduce failure shapes without depending on a Kimi vendor being broken on demand. No original Kimi user task completion is claimed; incident-specific success remains an operational observation, not SSOT acceptance. |
+| AC-036/037 | Profit owner tests change account cost before/after slots and on WS turns; reject ineligible origins and release capacity. Scoped group-only prices agree with admission/settlement and reject wrong/empty sources. | Profit-control enablement/applicability remains the approved policy; disabled gates imply no margin guarantee. |
+| AC-038/039 | Chromium drives the real pricing UI at 1280/390px with HTTP responses built by actual candidate/catalog/filter services. Direct scope, Universal union, aliases, cross-platform groups, structural retirement, transient retention and recovery are asserted. | Auth/storage are controlled fixtures. This is browser-to-service acceptance, not production billing or live supplier verification. |
+
+Story completion requires these contract suites to pass. It does not require
+repeated live price snapshots or a production failure on demand. A contract or
+implementation change reruns its tests; a price-only change follows the pricing
+registry validation/hot-reload contract (US-043). A deployment follows US-051 and
+Stage0 gates. An observed operational regression creates a concrete incident or
+failing regression test; it must not be hidden by a green Story.
+
 - Run:
 
 ```bash
 (cd backend && go test -tags unit ./internal/service ./internal/server/middleware ./internal/repository ./internal/handler ./internal/engine/protocolrouter ./internal/server)
+# Docker required; the normal integration CI runs these with real PostgreSQL/Redis.
+(cd backend && go test -tags integration ./internal/repository -run 'TestCandidate|TestApply_ConsumesHandedOffHoldAtomically|TestReserveBalanceHold' -count=1)
+(cd frontend && pnpm install --frozen-lockfile && pnpm exec playwright install chromium)
+(cd backend && TK_CANDIDATE_BROWSER=1 go test -tags unit ./internal/service -run '^TestCandidatePricingBrowser$' -count=1 -timeout 6m)
 python3 scripts/sentinels/check-gateway-tk.py --quiet
 python3 scripts/checks/protocol-routing-ssot.py
 python3 -m unittest discover -s scripts/checks -p 'test_protocol_routing_ssot.py'
+python3 -m unittest discover -s scripts/checks -p 'test_story_index.py'
 python3 .testing/user-stories/verify_quality.py
 ```
 
 ## Status
 
-- [ ] InTest
+- [x] Done
 
-The approved 2026-09-08 account scheduling, equivalent-origin billing, discovery
-and session-identity policies are implemented, merged and released. Local verification
-passes with the coverage boundaries listed above. Ordinary soft-sticky cold start is
-accepted; hard execution ownership retains compatible reads and writes.
+The approved candidate implementation is merged and released as recorded below.
+The 2026-09-11 acceptance redesign closes the contract-evidence gaps with
+repeatable tests; the acceptance additions themselves await their normal PR/CI
+path. Done is contract acceptance, not a claim that a new deployment or full
+production rollback rehearsal occurred. Index status is checked mechanically
+against this section by `verify_quality.py`.
 
 ### Release status (verified 2026-09-11)
 
@@ -294,8 +317,8 @@ The implementation passes the complete backend suite (`go test -p 4 -tags unit
 ./...`), golangci-lint and full preflight against origin/main. Focused billing,
 hold, WebSocket and identity cases also pass with the race detector. Protocol
 routing guards, gateway sentinels, Story quality and Wire checks pass. These
-checks cover the reviewed implementation; production acceptance is still bounded
-as documented above. No production configuration write was made from this task —
+checks describe the previously reviewed implementation. The acceptance additions
+are verified separately below; operational boundaries remain as documented above. No production configuration write was made from this task —
 the code reached prod through the ordinary tag-and-deploy path recorded under
 Status, not a manual write.
 
@@ -315,3 +338,37 @@ bash ops/observability/run-probe.sh --target prod \
   --script ops/observability/probe-user-billing-watch.sh \
   --env WINDOW_MINUTES=30 --compressed-output
 ```
+
+### Acceptance redesign evidence (2026-09-11)
+
+Initial base: `4088b33fbc56c1d53e7763d59b17c4a9d590156b` (merged #2115);
+refreshed to origin/main `a2931cc6f6` before final validation.
+Controlled price mutation passes for Direct/Universal and both price directions.
+Real PostgreSQL/Redis integration passes for credential sharing/recovery, stale
+rotation rejection, outbox emission, persistent format compatibility, concurrent
+holds and above/below-hold idempotent settlement. Real Chromium UI passes at both
+1280px and 390px, including retirement and recovery. These tests are retained in
+normal unit/integration CI and the dedicated `candidate-browser` job, so updating
+prices does not require editing this dated evidence.
+
+### Authorization discount/cost impact assessment
+
+This is a controlled configuration assessment, not a reconstructed production
+revenue report. The price-change regression uses one account, a synthetic tariff
+of $0.001/input token and $0.002/output token, 100 input + 10 output tokens:
+base charge $0.12. Direct group 10 at multiplier 1 charges $0.12; Universal may
+legally attribute the same path to group 20 at 0.5 and charge $0.06. Therefore
+broader authorization can lower revenue by $0.06 (50%) for this request even
+when execution is identical. Different tariffs are rejected by equivalence tests;
+Direct cannot borrow the other origin. These are controlled inputs, not catalog pins.
+
+Supplier cost is a separate input. For example, at an assumed supplier cost
+$0.08, those revenues imply contribution $0.04 and -$0.02 respectively. This
+arithmetic is a sensitivity example, not measured supplier cost or a guarantee
+from `total_cost`/`actual_cost`. Profit tests cover configured admission thresholds
+and changing account cost; disabled or inapplicable profit control cannot prevent
+the negative case. No blanket revenue-neutral or margin-safe claim is made.
+The accepted policy keeps lowest eligible equivalent-origin attribution; changes
+to that policy or profit applicability require a business decision. Ordinary
+price changes validate their new input under US-043 and existing monitoring,
+without reopening this Story or updating the example's prices.

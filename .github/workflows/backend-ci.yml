@@ -348,6 +348,50 @@ jobs:
       - name: Frontend lint, typecheck, and critical vitest
         run: make -j3 --output-sync=target test-frontend
 
+  candidate-browser:
+    needs: changes
+    if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOFLAGS: -trimpath -gcflags=all=-dwarf=false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/cache-and-checkout-new-api
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - uses: ./.github/actions/go-rolling-cache
+        with:
+          family: test
+          fallback_prefix: unit-nodwarf-v3
+          save_caches: "false"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install browser dependencies
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Candidate service through real pricing UI
+        working-directory: backend
+        env:
+          TK_CANDIDATE_BROWSER: "1"
+        run: go test -p 4 -tags unit ./internal/service -run '^TestCandidatePricingBrowser$' -count=1 -timeout 6m -v
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: candidate-browser-failure
+          path: frontend/e2e/artifacts
+          retention-days: 7
+
   golangci-lint:
     needs: changes
     if: (github.event_name == 'push' || github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.suite == 'all' || inputs.suite == 'ci'))) && (needs.changes.outputs.all == 'true' || needs.changes.outputs.backend == 'true')

@@ -78,7 +78,10 @@ compaction 不同，但分别属于余额/订阅层，不能作为同层冲突�
 本契约不要求冻结请求报价；共用来源不等于锁价，预留与实际扣费差额仍走既有结算链。
 
 上线前需核对扩大授权模型范围后的折扣和成本影响。规则复用现有配置不等于收入不变，
-也不能假设未启用的利润控制会自动兜底。
+也不能假设未启用的利润控制会自动兜底。2026-09-11 用户确认验收重设计：
+以受控配置、独立算式及真实执行链测试完成该影响核对，结论见
+[US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#authorization-discountcost-impact-assessment)。
+生产价格是动态输入，调价走既有 pricing registry 校验与监测，不反复重开本 Story。
 
 延期 note（用户已确认）：现有利润门仍有按计费组平台安装的限制。实际账号决定
 执行 handler 后可能漏装原来源的利润门；本轮不改该机制，不作为此次设计收敛的
@@ -88,7 +91,8 @@ compaction 不同，但分别属于余额/订阅层，不能作为同层冲突�
 账号映射和协议转换保留。具体契约、兼容边界与续接变更影响见
 [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md)。
 组配置继续服务 Direct，不要求客户迁移客户端。映射模式隔离、统一选号与续接存储
-迁移均在本分支实现，尚未部署。
+迁移的发布与验收事实统一见 [US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#status)，
+本契约不维护第二份可变部署状态。
 
 ### Platform quota boundary
 

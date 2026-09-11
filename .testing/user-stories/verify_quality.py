@@ -251,6 +251,34 @@ def verify_alignment(story: dict) -> List[str]:
     return issues
 
 
+def verify_index(index: Path, stories: list[dict]) -> List[str]:
+    """The index is navigation; the linked Story owns its status."""
+    if not index.is_file():
+        return ["missing user-stories/index.md"]
+    by_id = {story["id"]: story for story in stories}
+    seen: set[str] = set()
+    issues = []
+    for line in index.read_text(encoding="utf-8").splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if not cells or not re.fullmatch(r"US-\d+", cells[0]):
+            continue
+        story_id = cells[0]
+        story = by_id.get(story_id)
+        if story_id in seen:
+            issues.append(f"index.md: duplicate {story_id}")
+        seen.add(story_id)
+        if story is None:
+            issues.append(f"index.md: unknown {story_id}")
+            continue
+        if len(cells) != 4 or cells[2] != story["status"]:
+            issues.append(f"index.md: {story_id} status must match Story: {story['status']}")
+        if len(cells) != 4 or cells[3].strip("`") != str(story["path"].relative_to(PROJECT_ROOT)):
+            issues.append(f"index.md: {story_id} path must point to its Story")
+    for missing in sorted(by_id.keys() - seen):
+        issues.append(f"index.md: missing {missing}")
+    return issues
+
+
 def main() -> int:
     if not STORIES_DIR.is_dir():
         print(
@@ -269,6 +297,7 @@ def main() -> int:
 
     rows: List[Tuple[str, str, str]] = []
     total_issues = 0
+    parsed_stories = []
     for path in stories:
         try:
             story = parse_story(path)
@@ -279,6 +308,7 @@ def main() -> int:
             total_issues += 1
             rows.append((path.name, "ERROR", f"parse error: {exc}"))
             continue
+        parsed_stories.append(story)
         issues = list(story["issues"]) + verify_alignment(story)
         status_label = story.get("status") or "?"
         if issues:
@@ -288,6 +318,11 @@ def main() -> int:
                 rows.append((path.name, status_label, issue))
         else:
             rows.append((path.name, status_label, "ok"))
+
+    index_issues = verify_index(HERE / "index.md", parsed_stories)
+    for issue in index_issues:
+        print(f"FAIL: {issue}", file=sys.stderr)
+    total_issues += len(index_issues)
 
     if total_issues:
         print(

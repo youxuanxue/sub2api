@@ -25,7 +25,7 @@ EXCLUDED_SUFFIXES = (
 )
 
 # Test-only top-level files that are not part of the built app bundle.
-EXCLUDED_NAMES = {".DS_Store", "playwright.config.ts"}
+EXCLUDED_NAMES = {".DS_Store", "playwright.config.ts", "playwright.candidate.config.ts"}
 
 
 def iter_frontend_input_paths() -> list[Path]:
