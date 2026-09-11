@@ -144,26 +144,30 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
             _finding("telemetry_archive_probe", "telemetry archive enablement signal is invalid")
         )
     else:
+        # Loss counters are cumulative per process and never reset until restart
+        # (telemetryarchive.Shadow only Add()s), and the health owner writes
+        # last_error_at instead of last_success_at on every tick where a counter
+        # is non-zero. So one failed upload used to raise THREE independent
+        # findings forever: the loss itself, "failed since last clean heartbeat"
+        # (error newer than success), and "clean heartbeat stale" (success frozen
+        # at the pre-loss tick, aged past 3 minutes) — three GitHub issues per
+        # daily run for a single event, with no new information in the extra two.
+        #
+        # Loss still fails closed, exactly as
+        # docs/approved/design-data-layer-phase1-closeout.md requires. What
+        # changes is only which finding owns it: the loss finding is the single
+        # owner, and the derived error/heartbeat findings are suppressed while a
+        # reported loss already explains them. Liveness keeps its own signal via
+        # last_run_at, written every minute regardless of loss, so a genuinely
+        # dead or wedged publisher is still caught while a counter is stuck.
+        telemetry_run = _timestamp(telemetry.get("last_run_at"))
         telemetry_success = _timestamp(telemetry.get("last_success_at"))
         telemetry_error = _timestamp(telemetry.get("last_error_at"))
-        if telemetry_error is not None and (
-            telemetry_success is None or telemetry_error > telemetry_success
-        ):
-            findings.append(
-                _finding(
-                    "telemetry_archive_error",
-                    "telemetry archive has failed since its last clean heartbeat",
-                )
-            )
-        if not _fresh(telemetry_success, now, TELEMETRY_HEARTBEAT_MAX_AGE):
-            findings.append(
-                _finding(
-                    "telemetry_archive_heartbeat",
-                    "telemetry archive clean heartbeat is missing, stale, or future-dated",
-                )
-            )
+
         telemetry_result = telemetry.get("last_result")
-        if not isinstance(telemetry_result, dict):
+        stats_invalid = not isinstance(telemetry_result, dict)
+        reported_loss = False
+        if stats_invalid:
             findings.append(
                 _finding("telemetry_archive_stats", "telemetry archive stats are missing or invalid")
             )
@@ -178,16 +182,53 @@ def compute_verdict(signals: dict[str, Any]) -> dict[str, Any]:
                 or isinstance(failed, bool)
                 or failed < 0
             ):
+                stats_invalid = True
                 findings.append(
                     _finding("telemetry_archive_stats", "telemetry archive loss counters are invalid")
                 )
             elif dropped > 0 or failed > 0:
+                reported_loss = True
                 findings.append(
                     _finding(
                         "telemetry_archive_loss",
                         f"telemetry archive lost records: dropped={dropped}, failed={failed}",
                     )
                 )
+
+        # A reported loss owns the error timestamp it caused. Anything else that
+        # moved last_error_at ahead of last_success_at is still its own failure.
+        if (
+            not reported_loss
+            and telemetry_error is not None
+            and (telemetry_success is None or telemetry_error > telemetry_success)
+        ):
+            findings.append(
+                _finding(
+                    "telemetry_archive_error",
+                    "telemetry archive has failed since its last clean heartbeat",
+                )
+            )
+
+        # While a loss is reported, last_success_at is frozen by design, so
+        # liveness must come from last_run_at. Absent a reported loss (including
+        # when the stats themselves are unreadable) the clean heartbeat is still
+        # the required signal, which keeps a silently stopped publisher failing
+        # closed even if it never records loss.
+        if reported_loss:
+            if not _fresh(telemetry_run, now, TELEMETRY_HEARTBEAT_MAX_AGE):
+                findings.append(
+                    _finding(
+                        "telemetry_archive_heartbeat",
+                        "telemetry archive heartbeat is missing, stale, or future-dated",
+                    )
+                )
+        elif not _fresh(telemetry_success, now, TELEMETRY_HEARTBEAT_MAX_AGE):
+            findings.append(
+                _finding(
+                    "telemetry_archive_heartbeat",
+                    "telemetry archive clean heartbeat is missing, stale, or future-dated",
+                )
+            )
 
     archive_mode = archive.get("archive_mode") if isinstance(archive, dict) else None
     ledgers = archive.get("ledgers") if isinstance(archive, dict) else None

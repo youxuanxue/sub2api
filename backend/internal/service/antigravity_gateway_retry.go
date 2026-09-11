@@ -161,6 +161,10 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		}
 		s.clearStickySession(p.ctx, p.groupID, p.sessionHash)
 
+		// TK: keep the provider verdict attributable across the account switch —
+		// see antigravity_gateway_tk_smart_retry_attribution.go
+		s.appendAntigravitySmartRetryOpsEvent(p, resp.StatusCode, resp.Header, respBody, "smart_retry_rate_limited")
+
 		// 返回账号切换信号，让上层切换账号重试
 		return &smartRetryResult{
 			action: smartRetryActionBreakWithResp,
@@ -191,6 +195,9 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				if exists && time.Now().Before(cooldownUntil) {
 					log.Printf("%s status=%d model_capacity_exhausted_dedup model=%s account=%d cooldown_until=%v (skip retry)",
 						p.prefix, resp.StatusCode, modelName, p.account.ID, cooldownUntil.Format("15:04:05"))
+					// TK: attribute the deduped provider verdict — see
+					// antigravity_gateway_tk_smart_retry_attribution.go
+					s.appendAntigravitySmartRetryOpsEvent(p, resp.StatusCode, resp.Header, respBody, "smart_retry_capacity_dedup")
 					return &smartRetryResult{
 						action: smartRetryActionBreakWithResp,
 						resp: &http.Response{
@@ -285,6 +292,9 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			}
 			log.Printf("%s status=%d smart_retry_exhausted_model_capacity attempts=%d model=%s account=%d body=%s (model capacity exhausted, not switching account)",
 				p.prefix, resp.StatusCode, maxAttempts, modelName, p.account.ID, truncateForLog(retryBody, 200))
+			// TK: attribute provider capacity exhaustion — see
+			// antigravity_gateway_tk_smart_retry_attribution.go
+			s.appendAntigravitySmartRetryOpsEvent(p, resp.StatusCode, resp.Header, retryBody, "smart_retry_capacity_exhausted")
 			return &smartRetryResult{
 				action: smartRetryActionBreakWithResp,
 				resp: &http.Response{
@@ -300,6 +310,9 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		if resp.StatusCode == http.StatusServiceUnavailable && isSingleAccountRetry(p.ctx) {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d smart_retry_exhausted_single_account attempts=%d model=%s account=%d body=%s (return 503 directly)",
 				p.prefix, resp.StatusCode, antigravitySmartRetryMaxAttempts, modelName, p.account.ID, truncateForLog(retryBody, 200))
+			// TK: attribute the provider 503 the handler will back off on — see
+			// antigravity_gateway_tk_smart_retry_attribution.go
+			s.appendAntigravitySmartRetryOpsEvent(p, resp.StatusCode, resp.Header, retryBody, "smart_retry_single_account_exhausted")
 			return &smartRetryResult{
 				action: smartRetryActionBreakWithResp,
 				resp: &http.Response{
@@ -318,6 +331,10 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 
 		// 清除粘性会话绑定，避免下次请求仍命中限流账号
 		s.clearStickySession(p.ctx, p.groupID, p.sessionHash)
+
+		// TK: keep the provider verdict attributable across the account switch —
+		// see antigravity_gateway_tk_smart_retry_attribution.go
+		s.appendAntigravitySmartRetryOpsEvent(p, resp.StatusCode, resp.Header, retryBody, "smart_retry_exhausted")
 
 		// 返回账号切换信号，让上层切换账号重试
 		return &smartRetryResult{
@@ -447,6 +464,10 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 	}
 	logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d single_account_503_retry_exhausted attempts=%d total_waited=%v model=%s account=%d body=%s (return 503 directly)",
 		p.prefix, resp.StatusCode, antigravitySingleAccountSmartRetryMaxAttempts, totalWaited, modelName, p.account.ID, truncateForLog(retryBody, 200))
+
+	// TK: attribute the provider 503 that survived in-place backoff — see
+	// antigravity_gateway_tk_smart_retry_attribution.go
+	s.appendAntigravitySmartRetryOpsEvent(p, resp.StatusCode, resp.Header, retryBody, "single_account_retry_exhausted")
 
 	return &smartRetryResult{
 		action: smartRetryActionBreakWithResp,
