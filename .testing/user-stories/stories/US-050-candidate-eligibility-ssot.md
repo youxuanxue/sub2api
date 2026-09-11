@@ -238,8 +238,7 @@ They are backend integration/unit tests, not UI E2E or live supplier probes.
 | AC-019/020 | Global selectors cover sticky-only old/new session admission, capacity admission, random ties, priority and slot races | No local acceptance gap. |
 | AC-029 | Full candidate selection covers split/duplicate membership, normal versus reserve accounts, and hard gates after global recovery | No local acceptance gap. |
 | AC-030/031 | Supplier credential sharing/recovery and real repository guards; discovery supports actual accounts and native response schemas | No production configuration writes or live supplier verification were performed. |
-
-| AC-032/033/034 | Direct/Universal handler tests cover real transport cancellation, failover, attempt cap, partial text/tool output and usage preservation; scoped counter and replay boundary tests cover exclusions | Production comparison and original Kimi task completion still pending. The code serves live traffic on `v1.8.219`; the comparison is a measurement to record, not a traffic switch to authorize. |
+| AC-032/033/034 | Direct/Universal handler tests cover real transport cancellation, failover, attempt cap, partial text/tool output and usage preservation; scoped counter and replay boundary tests cover exclusions | Production comparison and original Kimi task completion still pending. Release evidence is recorded under Status; the comparison is a measurement to record, not a traffic switch to authorize. |
 | AC-036/037 | Profit selection, origin changes, post-slot and WS rechecks; group-only price admission and wrong-group rejection | Live price/cost comparison still to be gathered — runnable against the deployed build, no longer a release blocker. |
 | AC-038/039 | Candidate catalog tests include production price filters, scoped-only models, hidden manifest rows and retirement evidence; Playwright exercises desktop/mobile pricing filters and readable authorized groups | UI requests use fixtures; they do not prove live supplier capability or production billing. |
 
@@ -267,14 +266,27 @@ and session-identity policies are implemented, merged and released. Local verifi
 passes with the coverage boundaries listed above. Ordinary soft-sticky cold start is
 accepted; hard execution ownership retains compatible reads and writes.
 
-Release status (verified 2026-09-11): the release prohibition applied to the
-original implementation task and has been lifted. Every owner is contained in a
-released tag — `v1.8.204` (#2032), `v1.8.208` (#2051, #2053), `v1.8.213` (#2067),
-`v1.8.216` (#2097), `v1.8.217` (#2100) — each with a successful Release run. Prod
-(`api.tokenkey.dev`) has been serving `v1.8.219`, which contains all of them,
-since the successful Stage0 Deploy of 2026-09-11 (multi-arch manifest verified,
-`/health` 200 under live traffic). The owner-to-tag table is in
-`docs/approved/candidate-eligibility-ssot.md` § Release status.
+### Release status (verified 2026-09-11)
+
+This is a historical observation, not a claim about the current deployment or
+future owners. The original implementation task's release prohibition was lifted.
+The following changes were included in released tags, each with a successful
+Release workflow run:
+
+| Change | Commit | First containing tag |
+| --- | --- | --- |
+| Candidate eligibility and saturation (#2032) | `b2e8681443` | `v1.8.204` |
+| Shared selection, billing, discovery and affinity (#2051) | `321a7ff334` | `v1.8.208` |
+| Per-turn RPM admission (#2053) | `928316bc02` | `v1.8.208` |
+| Failure observation and Chat attempt budget (#2067) | `651593de38` | `v1.8.213` |
+| Discovery snapshot and profit admission (#2097) | `9b72ce6bfc` | `v1.8.216` |
+| Relay-scoped model rejection (#2100) | `f5921f5232` | `v1.8.217` |
+
+At the 2026-09-11 observation, prod (`api.tokenkey.dev`) served `v1.8.219`,
+which contains these changes, after a successful Stage0 Deploy (multi-arch
+manifest verified and `/health` 200 under live traffic). Deployment makes live
+verification runnable; only the evidence under Coverage Boundaries can close
+an acceptance criterion.
 
 ## Evidence
 
@@ -286,3 +298,20 @@ checks cover the reviewed implementation; production acceptance is still bounded
 as documented above. No production configuration write was made from this task —
 the code reached prod through the ordinary tag-and-deploy path recorded under
 Status, not a manual write.
+
+### Read-only production observation (2026-09-11)
+
+At 08:57 UTC / 16:57 Asia/Shanghai, the existing billing-watch probe completed
+successfully over the preceding 30 minutes (SSM command
+`fa42a8f8-182b-423f-8f39-49ef7002524f`, no SQL errors). Active-user usage rows
+contained 2,118 requests: 2,110 with positive `total_cost` and 8 with zero
+`total_cost`. These aggregates do not classify zero-cost rows or prove tariff
+correctness, candidate-origin alternatives, profit rejection or retry safety.
+No acceptance criterion is closed by this observation; Coverage Boundaries
+remains authoritative. No production configuration was changed.
+
+```bash
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/observability/probe-user-billing-watch.sh \
+  --env WINDOW_MINUTES=30 --compressed-output
+```

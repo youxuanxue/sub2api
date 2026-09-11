@@ -1,33 +1,10 @@
 #!/usr/bin/env python3
-"""candidate-owner-table — one enumeration of the candidate-eligibility owners.
+"""Guard the candidate owner table and its navigation/evidence boundaries.
 
-The candidate SSOT owner list existed in three places (root `CLAUDE.md`, root
-`AGENTS.md`, and the approved contract). All three drifted: the two root files
-named six owners while twenty `candidate_*.go` production files existed, and the
-missing ones included the single HTTP ingress (`candidate_ingress_tk.go`) and the
-profit gate. A copied list is the failure mode — every copy is a second source of
-truth that ages independently — so this gate enforces two rules:
-
-  1. SINGLE ENUMERATION. Only `docs/approved/candidate-eligibility-ssot.md` may
-     enumerate the owners. The root navigation files must point at that table and
-     name at most one owner file inline (a search anchor is fine, a roster is not).
-
-  2. TABLE COMPLETENESS. Every production `backend/internal/service/candidate_*.go`
-     must appear in that contract, so a new candidate entry cannot ship without
-     declaring which fact it owns and what its consumers may assume.
-
-  3. RELEASE-STATUS COMPLETENESS. The contract's §Release status section asserts
-     that all production owners are contained in a released tag. A claim like that
-     rots the moment a new owner lands, and a stale "everything shipped" line is
-     worse than none — it is read as deployment evidence. So when that section
-     exists, every owner must appear inside it too, with a tag. Drafting the first
-     version of this section already produced the error it now prevents: the prose
-     said "every owner" while the table listed 9 of 16.
-
-Test files are excluded: they follow their owner and are pinned by
-`scripts/sentinels/gateway-tk.json` plus US-050.
-
-Exit: 0 ok, 1 gate fail, 2 error.
+Only §Implementation/Owners declares production candidate owners. Mentions in
+examples, prose or historical evidence cannot satisfy a missing owner row.
+Navigation files link the table; dated release and acceptance evidence lives in
+US-050 instead of being copied into the policy contract.
 """
 from __future__ import annotations
 
@@ -37,105 +14,90 @@ import sys
 from pathlib import Path
 
 CONTRACT_REL = "docs/approved/candidate-eligibility-ssot.md"
+STORY_REL = ".testing/user-stories/stories/US-050-candidate-eligibility-ssot.md"
 OWNER_DIR = "backend/internal/service"
 OWNER_GLOB = "candidate_*.go"
-
-# Root navigation files must delegate rather than re-list. One inline owner name is
-# allowed so prose can still cite a concrete search anchor.
-POINTER_FILES = ("CLAUDE.md", "AGENTS.md")
+POINTER_FILES = ("CLAUDE.md", "AGENTS.md", "docs/approved/README.md")
 MAX_INLINE_OWNERS = 1
-
-# The release-status section, checked only when present so the gate never forces a
-# deployment claim into a contract that has not shipped. `RELEASE_TAG_RE` keeps the
-# section honest: a listed owner without a tag next to it is not release evidence.
+OWNER_MENTION_RE = re.compile(r"\b(candidate_[a-z0-9_]+\.go)\b")
 RELEASE_HEADING_RE = re.compile(r"^#{2,4}\s+Release status\b.*$", re.MULTILINE)
-RELEASE_TAG_RE = re.compile(r"`v\d+\.\d+\.\d+`")
-
-OWNER_MENTION_RE = re.compile(r"`?(candidate_[a-z0-9_]+\.go)`?")
 
 
-def production_owners(root: Path) -> list[str]:
-    directory = root / OWNER_DIR
-    if not directory.is_dir():
-        return []
-    return sorted(
-        p.name for p in directory.glob(OWNER_GLOB) if not p.name.endswith("_test.go")
-    )
-
-
-def check_release_status(contract_text: str, owners: list[str]) -> list[str]:
-    """Owners must all appear under §Release status, when that section exists."""
-    match = RELEASE_HEADING_RE.search(contract_text)
+def section(text: str, title: str, level: int) -> str:
+    match = re.search(rf"^#{{{level}}}\s+{re.escape(title)}\s*$", text, re.MULTILINE)
     if not match:
-        return []
-    section = contract_text[match.end():]
-    # Stop at the next same-or-higher-level heading so a later section's mentions
-    # cannot make an incomplete release table look complete.
-    level = len(match.group(0)) - len(match.group(0).lstrip("#"))
-    nxt = re.search(rf"^#{{1,{level}}}\s+\S", section, re.MULTILINE)
-    if nxt:
-        section = section[: nxt.start()]
+        return ""
+    body = text[match.end():]
+    end = re.search(rf"^#{{1,{level}}}\s+\S", body, re.MULTILINE)
+    return body[:end.start()] if end else body
 
-    if not RELEASE_TAG_RE.search(section):
-        return [
-            f"{CONTRACT_REL}: §Release status names no `vX.Y.Z` tag. State the tags "
-            "that contain these owners, or drop the section — an untagged release "
-            "claim reads as deployment evidence without being any."
-        ]
 
-    missing = [owner for owner in owners if owner not in section]
-    if missing:
-        return [
-            f"{CONTRACT_REL}: §Release status omits {len(missing)} of {len(owners)} "
-            f"candidate owners ({', '.join(missing)}). That section asserts every "
-            "owner is in a released tag, so a new owner must be added there with its "
-            "tag — otherwise the claim silently overstates what shipped."
-        ]
-    return []
+def production_owners(root: Path) -> set[str]:
+    return {
+        path.name for path in (root / OWNER_DIR).glob(OWNER_GLOB)
+        if not path.name.endswith("_test.go")
+    }
 
 
 def check(root: Path) -> list[str]:
-    errors: list[str] = []
     contract = root / CONTRACT_REL
     if not contract.is_file():
         return [f"missing candidate SSOT contract: {CONTRACT_REL}"]
-    contract_text = contract.read_text(encoding="utf-8")
-
+    text = contract.read_text(encoding="utf-8")
     owners = production_owners(root)
     if not owners:
         return [f"no {OWNER_GLOB} production files found under {OWNER_DIR}"]
 
-    for owner in owners:
-        if owner not in contract_text:
-            errors.append(
-                f"{CONTRACT_REL}: candidate owner `{owner}` is not declared in the "
-                "contract. Add a row to §Implementation/Owners stating the fact it "
-                "owns and its consumer contract."
-            )
+    errors: list[str] = []
+    table = section(section(text, "Implementation", 2), "Owners", 3)
+    declared: set[str] = set()
+    for line in table.splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if not line.strip().startswith("|") or len(cells) != 3:
+            continue
+        names = set(OWNER_MENTION_RE.findall(cells[1]))
+        if not names:
+            continue
+        if not cells[0] or not cells[2]:
+            errors.append(f"{CONTRACT_REL}: owner row must state its fact and consumer contract: {line}")
+            continue
+        duplicates = names & declared
+        if duplicates:
+            errors.append(f"{CONTRACT_REL}: duplicate owner rows: {', '.join(sorted(duplicates))}")
+        declared.update(names)
 
-    errors.extend(check_release_status(contract_text, owners))
+    for owner in sorted(owners - declared):
+        errors.append(
+            f"{CONTRACT_REL}: candidate owner `{owner}` is not declared in "
+            "§Implementation/Owners. Add its fact and consumer contract to that table."
+        )
+    for owner in sorted(declared - owners):
+        errors.append(f"{CONTRACT_REL}: owner table references non-production owner `{owner}`")
+
+    # An evidence pointer replaces mutable deployment claims in the contract.
+    if RELEASE_HEADING_RE.search(text):
+        errors.append(f"{CONTRACT_REL}: move Release status evidence to {STORY_REL}#status")
+    for anchor in ("status", "coverage-boundaries"):
+        if f"{STORY_REL}#{anchor}" not in text:
+            errors.append(f"{CONTRACT_REL}: must link {STORY_REL}#{anchor}")
+    story = root / STORY_REL
+    story_text = story.read_text(encoding="utf-8") if story.is_file() else ""
+    for title, level in (("Status", 2), ("Coverage Boundaries", 3)):
+        if not section(story_text, title, level).strip():
+            errors.append(f"{STORY_REL}: missing or empty {title} evidence section")
 
     for relative in POINTER_FILES:
         path = root / relative
         if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8")
-        if CONTRACT_REL not in text:
-            errors.append(
-                f"{relative}: must link {CONTRACT_REL} as the candidate owner table."
-            )
-        mentioned = {
-            name
-            for name in OWNER_MENTION_RE.findall(text)
-            if name.endswith(".go") and not name.endswith("_test.go")
-        }
+        nav = path.read_text(encoding="utf-8")
+        # The approved index links sibling contracts; root files use full paths.
+        target = Path(CONTRACT_REL).name if relative == "docs/approved/README.md" else CONTRACT_REL
+        if target not in nav:
+            errors.append(f"{relative}: must link {CONTRACT_REL} as the candidate owner table")
+        mentioned = {name for name in OWNER_MENTION_RE.findall(nav) if not name.endswith("_test.go")}
         if len(mentioned) > MAX_INLINE_OWNERS:
-            errors.append(
-                f"{relative}: re-enumerates {len(mentioned)} candidate owners "
-                f"({', '.join(sorted(mentioned))}). Keep the roster only in "
-                f"{CONTRACT_REL} and leave a pointer here — three copies of this "
-                "list already drifted apart once."
-            )
+            errors.append(f"{relative}: re-enumerates candidate owners; keep the roster only in {CONTRACT_REL}")
     return errors
 
 
@@ -152,97 +114,60 @@ def selftest() -> int:
         root = Path(raw)
         service = root / OWNER_DIR
         service.mkdir(parents=True)
-        (service / "candidate_request_tk.go").write_text("package service\n", encoding="utf-8")
-        (service / "candidate_ingress_tk.go").write_text("package service\n", encoding="utf-8")
-        (service / "candidate_request_tk_test.go").write_text("package service\n", encoding="utf-8")
+        for name in ("candidate_request_tk.go", "candidate_ingress_tk.go", "candidate_request_tk_test.go"):
+            (service / name).write_text("package service\n", encoding="utf-8")
         contract = root / CONTRACT_REL
-        contract.parent.mkdir(parents=True, exist_ok=True)
-        contract.write_text("| x | `candidate_request_tk.go` | y |\n", encoding="utf-8")
+        contract.parent.mkdir(parents=True)
+        story = root / STORY_REL
+        story.parent.mkdir(parents=True)
+        story.write_text("### Coverage Boundaries\n\nLive acceptance pending.\n\n## Status\n\nInTest.\n", encoding="utf-8")
         for relative in POINTER_FILES:
-            (root / relative).write_text(
-                f"See [c]({CONTRACT_REL}); `candidate_request_tk.go` is the entry.\n",
-                encoding="utf-8",
-            )
-
-        errors = check(root)
-        expect(any("candidate_ingress_tk.go" in e for e in errors),
-               "undeclared owner is reported")
-        expect(not any("candidate_request_tk_test.go" in e for e in errors),
-               "test files are exempt")
-
-        contract.write_text(
-            "| x | `candidate_request_tk.go`, `candidate_ingress_tk.go` | y |\n",
-            encoding="utf-8",
+            (root / relative).write_text(f"See [contract]({CONTRACT_REL}).\n", encoding="utf-8")
+        rows = (
+            "| Selection | `candidate_request_tk.go` | Shared request state |\n"
+            "| Ingress | `candidate_ingress_tk.go` | Shared parsing |\n"
         )
-        expect(check(root) == [], "complete contract with pointer files passes")
+        prefix = f"See [status]({STORY_REL}#status) and [coverage]({STORY_REL}#coverage-boundaries).\n"
+        heading = "\n## Implementation\n\n### Owners\n\n"
+        valid = prefix + heading + rows
+        contract.write_text(valid, encoding="utf-8")
+        expect(check(root) == [], "complete owner table passes; tests are exempt")
 
-        (root / "CLAUDE.md").write_text(
-            f"See [c]({CONTRACT_REL}). Owners: `candidate_request_tk.go`, "
-            "`candidate_ingress_tk.go`.\n",
-            encoding="utf-8",
-        )
-        expect(any("re-enumerates" in e for e in check(root)),
-               "duplicated roster is reported")
-
-        (root / "CLAUDE.md").write_text("No pointer here.\n", encoding="utf-8")
-        expect(any("must link" in e for e in check(root)), "missing pointer is reported")
-
-        # Restore healthy pointer files before exercising §Release status.
+        # This was the real false green: a release table could hide a missing row.
+        contract.write_text(prefix + heading + rows.splitlines()[0] + "\n\n### History\n\n" + rows, encoding="utf-8")
+        expect(any("candidate_ingress_tk.go` is not declared" in e for e in check(root)), "history cannot satisfy owner registration")
+        contract.write_text(prefix + heading + "Prose mentions candidate_request_tk.go and candidate_ingress_tk.go.\n", encoding="utf-8")
+        expect(sum("is not declared" in e for e in check(root)) == 2, "prose is not an owner row")
+        contract.write_text(prefix + "\n## Other\n\n### Owners\n\n" + rows, encoding="utf-8")
+        expect(sum("is not declared" in e for e in check(root)) == 2, "only Implementation owns the table")
+        contract.write_text(valid.replace("| Shared parsing |", "| |"), encoding="utf-8")
+        expect(any("fact and consumer" in e for e in check(root)), "empty consumer contract fails")
+        contract.write_text(valid + rows, encoding="utf-8")
+        expect(any("duplicate owner" in e for e in check(root)), "duplicate registration fails")
+        contract.write_text(valid + "| Retired | `candidate_retired.go` | Removed |\n", encoding="utf-8")
+        expect(any("non-production owner" in e for e in check(root)), "retired owner fails")
+        contract.write_text(valid + "\n### Release status\n\nAll owners shipped.\n", encoding="utf-8")
+        expect(any("move Release status" in e for e in check(root)), "release status cannot be copied into contract")
+        contract.write_text(heading + rows, encoding="utf-8")
+        expect(sum("must link" in e for e in check(root)) == 2, "both evidence pointers are required")
+        contract.write_text(valid, encoding="utf-8")
+        story.write_text("## Status\n\nInTest.\n", encoding="utf-8")
+        expect(any("Coverage Boundaries" in e for e in check(root)), "dangling evidence pointer fails")
+        story.write_text("### Coverage Boundaries\n\nPending.\n\n## Status\n\nInTest.\n", encoding="utf-8")
         for relative in POINTER_FILES:
-            (root / relative).write_text(
-                f"See [c]({CONTRACT_REL}); `candidate_request_tk.go` is the entry.\n",
-                encoding="utf-8",
-            )
-        owners_row = "| x | `candidate_request_tk.go`, `candidate_ingress_tk.go` | y |\n"
+            nav = root / relative
+            nav.write_text(f"See {CONTRACT_REL}. candidate_request_tk.go, candidate_ingress_tk.go.\n", encoding="utf-8")
+            expect(any(relative in e and "re-enumerates" in e for e in check(root)), f"{relative} cannot copy roster")
+            nav.write_text("No pointer.\n", encoding="utf-8")
+            expect(any(relative in e and "must link" in e for e in check(root)), f"{relative} must link table")
+            nav.write_text(f"See {CONTRACT_REL}.\n", encoding="utf-8")
+        expect(check(root) == [], "restoring canonical ownership passes")
 
-        # Absent section: the gate must not force a deployment claim.
-        contract.write_text(owners_row, encoding="utf-8")
-        expect(check(root) == [], "absent Release status section is allowed")
-
-        # Complete section passes.
-        contract.write_text(
-            owners_row
-            + "\n### Release status\n\n"
-            + "| `candidate_request_tk.go`, `candidate_ingress_tk.go` | `v1.8.208` |\n",
-            encoding="utf-8",
-        )
-        expect(check(root) == [], f"complete Release status passes (got {check(root)[:1]})")
-
-        # Incomplete section: an owner listed above but missing here.
-        contract.write_text(
-            owners_row
-            + "\n### Release status\n\n| `candidate_request_tk.go` | `v1.8.208` |\n",
-            encoding="utf-8",
-        )
-        expect(any("omits 1 of 2" in e for e in check(root)),
-               "incomplete Release status is reported")
-
-        # A later section's mentions must not patch an incomplete release table.
-        contract.write_text(
-            owners_row
-            + "\n### Release status\n\n| `candidate_request_tk.go` | `v1.8.208` |\n"
-            + "\n## Later section\n\n`candidate_ingress_tk.go` appears here.\n",
-            encoding="utf-8",
-        )
-        expect(any("omits" in e for e in check(root)),
-               "mentions after the section do not count")
-
-        # Tagless claim: reads as release evidence without being any.
-        contract.write_text(
-            owners_row
-            + "\n### Release status\n\nAll owners shipped: "
-            + "`candidate_request_tk.go`, `candidate_ingress_tk.go`.\n",
-            encoding="utf-8",
-        )
-        expect(any("names no" in e for e in check(root)),
-               "tagless Release status is reported")
-
-    if failures:
-        for failure in failures:
-            print(f"FAIL selftest: {failure}", file=sys.stderr)
-        return 1
-    print("ok: candidate-owner-table selftests pass")
-    return 0
+    for failure in failures:
+        print(f"FAIL selftest: {failure}", file=sys.stderr)
+    if not failures:
+        print("ok: candidate-owner-table selftests pass")
+    return int(bool(failures))
 
 
 def main() -> int:
@@ -258,13 +183,11 @@ def main() -> int:
     except OSError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    if errors:
-        for error in errors:
-            print(f"FAIL: {error}", file=sys.stderr)
-        return 1
-    if not args.quiet:
-        print("ok: candidate owners are declared once in the approved contract")
-    return 0
+    for error in errors:
+        print(f"FAIL: {error}", file=sys.stderr)
+    if not errors and not args.quiet:
+        print("ok: candidate table, navigation and acceptance evidence have separate owners")
+    return int(bool(errors))
 
 
 if __name__ == "__main__":
