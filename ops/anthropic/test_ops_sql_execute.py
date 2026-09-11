@@ -35,6 +35,7 @@ OPS_DIR = OPS_ANTHROPIC.parent
 # RAISEs otherwise); tls_fingerprint_profiles.id auto-generates + name is unique
 # (generate_sql INSERT ... ON CONFLICT (name)).
 SCHEMA = """
+CREATE TABLE usage_logs(request_id text, created_at timestamptz);
 CREATE TABLE accounts(id bigint, name text, platform text, type text, status text, schedulable boolean,
   concurrency int, load_factor numeric, priority int, channel_type int, rate_multiplier numeric,
   auto_pause_on_expired boolean, proxy_id bigint, error_message text, last_used_at timestamptz,
@@ -68,6 +69,7 @@ _OPS_MODULES = [
     OPS_ANTHROPIC / "rebalance-anthropic-priority.py",
     OPS_DIR / "antigravity" / "check-antigravity-account-config.py",
     OPS_DIR / "grok" / "migrate-grok-relay-stubs.py",
+    OPS_DIR / "stage0" / "prod_replay.py",
 ]
 
 

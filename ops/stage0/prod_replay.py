@@ -29,6 +29,7 @@ MAX_BYTES = 16 * 1024 * 1024
 MAX_SAMPLES = 200
 MAX_CORPUS_BYTES = 64 * 1024 * 1024
 REPLAY_SECONDS = 5400
+CAPTURE_ALTERNATIVES = 50
 
 
 class ReplayError(RuntimeError):
@@ -146,29 +147,38 @@ def sample_from_capture(row, payload):
     request = payload.get('request', {})
     body = request.get('body')
     path = request.get('path')
-    require(isinstance(body, dict) and body and body_intact(body), 'body_missing_or_redacted')
+    require(isinstance(body, dict) and body, 'body_missing_or_truncated')
+    require(body_intact(body), 'body_redacted')
     require(isinstance(path, str) and len(path) < 2048 and '\r' not in path and '\n' not in path,
             'path_missing')
     parsed = urlsplit(path)
     require(not parsed.scheme and not parsed.netloc and not parsed.fragment, 'unsupported_path')
     supported = {'/v1/messages', '/v1/messages/count_tokens', '/v1/chat/completions', '/v1/responses',
-                 '/v1/images/generations', '/v1/audio/speech', '/v1/embeddings'}
+                 '/v1/images/generations', '/v1/audio/speech', '/v1/embeddings',
+                 '/responses', '/chat/completions', '/embeddings', '/images/generations',
+                 '/audio/speech', '/messages/count_tokens', '/backend-api/codex/responses'}
     require(parsed.path in supported or re.fullmatch(r'/v1beta/models/[A-Za-z0-9_.-]+:(?:streamGenerateContent|generateContent|countTokens)', parsed.path), 'unsupported_path')
     # Never fabricate a missing Gemini model/action or mutate the user's prompt.
     require(body.get('model', row['requested_model']) == row['requested_model'], 'capture_model_mismatch')
     return {'row': row, 'path': path, 'body': encoded(body)}
 
 
-def collect(root=ROOT):
-    # Five recent alternatives per observed combination; select a complete
-    # retained body where possible. Missing/truncated combinations stay gaps.
-    query = """WITH ranked AS (
- SELECT request_id,user_id,api_key_id,requested_model,inbound_endpoint,stream,
- tool_calls_present,multimodal_present,blob_uri,created_at,
- row_number() OVER (PARTITION BY user_id,requested_model,inbound_endpoint,stream,
- tool_calls_present,multimodal_present ORDER BY created_at DESC,request_id) rn
- FROM qa_records WHERE created_at >= now()-interval '24 hours' AND success=true
- ) SELECT row_to_json(ranked) FROM ranked WHERE rn<=5
+def collect(root=ROOT, gap_results=None):
+    # Keep every observed stratum, including those whose keys were revoked.
+    # Prefer usable credentials within that same stratum; never substitute a key.
+    query = f"""WITH ranked AS (
+ SELECT q.request_id,q.user_id,q.api_key_id,q.requested_model,q.inbound_endpoint,q.stream,
+ q.tool_calls_present,q.multimodal_present,q.blob_uri,q.created_at,q.duration_ms,
+ (k.id IS NOT NULL AND k.user_id=q.user_id AND k.status='active' AND k.deleted_at IS NULL
+  AND (k.expires_at IS NULL OR k.expires_at>now())) AS key_replayable,
+ row_number() OVER (PARTITION BY q.user_id,q.requested_model,q.inbound_endpoint,q.stream,
+ q.tool_calls_present,q.multimodal_present ORDER BY
+ (k.id IS NOT NULL AND k.user_id=q.user_id AND k.status='active' AND k.deleted_at IS NULL
+  AND (k.expires_at IS NULL OR k.expires_at>now())) DESC, q.created_at DESC,q.request_id) rn
+ FROM qa_records q LEFT JOIN api_keys k ON k.id=q.api_key_id
+ -- ops-allow-soft-deleted: retain observed strata after key deletion; key_replayable rejects deleted keys.
+ WHERE q.created_at >= now()-interval '24 hours' AND q.success=true
+ ) SELECT row_to_json(ranked) FROM ranked WHERE rn<={CAPTURE_ALTERNATIVES}
  ORDER BY user_id,requested_model,inbound_endpoint,stream,rn LIMIT 5001;"""
     rows = [json.loads(line) for line in sql(query).splitlines()]
     require(0 < len(rows) <= 5000, 'capture_empty_or_scan_limit')
@@ -181,8 +191,10 @@ def collect(root=ROOT):
     for values in groups.values():
         selected = None
         reason = 'capture_missing'
+        failures = collections.Counter()
         for row in values:
             try:
+                require(row.get('key_replayable'), 'key_not_replayable')
                 uri = urlsplit(row['blob_uri'] or '')
                 require(uri.scheme == 'file' and not uri.netloc, 'capture_not_local')
                 relative = Path(uri.path).relative_to('/app/data')
@@ -203,27 +215,45 @@ def collect(root=ROOT):
                 break
             except (ReplayError, ValueError, OSError) as exc:
                 reason = str(exc) if isinstance(exc, ReplayError) else 'capture_decode_failed'
-        if selected is None:
-            gaps[reason] += 1
-        elif corpus_bytes + len(selected['body']) > MAX_CORPUS_BYTES:
-            gaps['corpus_byte_budget_exceeded'] += 1
-        elif len(samples) < MAX_SAMPLES:
-            samples.append(selected)
-            corpus_bytes += len(selected['body'])
-        else:
-            gaps['sample_budget_exceeded'] += 1
+                failures[reason] += 1
+        if selected is not None:
+            if corpus_bytes + len(selected['body']) > MAX_CORPUS_BYTES:
+                reason = 'corpus_byte_budget_exceeded'
+            elif len(samples) >= MAX_SAMPLES:
+                reason = 'sample_budget_exceeded'
+            else:
+                samples.append(selected)
+                corpus_bytes += len(selected['body'])
+                continue
+        if selected is None and failures:
+            reason = next((r for r in failures if r != 'key_not_replayable'), 'key_not_replayable')
+        gaps[reason] += 1
+        if gap_results is not None:
+            gap_results.append(dict(case_metadata(values[0]), passed=False,
+                                    reason=reason, phase='collection', alternatives=len(values),
+                                    alternative_failures=dict(failures)))
     return samples, dict(gaps), len(groups)
 
 
-def response_ok(status, ctype, raw, stream):
-    if not 200 <= status < 300 or not raw:
-        return False
+def case_metadata(row):
+    return {k: row[k] for k in ('user_id', 'requested_model', 'inbound_endpoint', 'stream',
+                                'tool_calls_present', 'multimodal_present')}
+
+
+def response_reason(status, ctype, raw, stream):
+    """Return a bounded reason code; never return response text or error messages."""
+    if not 200 <= status < 300:
+        return 'http_status'
+    if not raw:
+        return 'response_empty'
     try:
         if stream or 'text/event-stream' in ctype:
             if 'text/event-stream' not in ctype:
-                return False
+                return 'stream_content_type'
             terminal = False
             for line in raw.decode('utf-8').splitlines():
+                if line.startswith('event:') and line[6:].strip() == 'error':
+                    return 'upstream_error'
                 if not line.startswith('data:'):
                     continue
                 data = line[5:].strip()
@@ -231,52 +261,96 @@ def response_ok(status, ctype, raw, stream):
                     terminal = True
                 elif data:
                     event = json.loads(data)
-                    if not isinstance(event, dict) or event.get('error') or event.get('type') in ('error', 'response.failed', 'response.incomplete'):
-                        return False
+                    if not isinstance(event, dict):
+                        return 'stream_event_shape'
+                    if event.get('error') or event.get('type') in ('error', 'response.failed', 'response.incomplete'):
+                        return 'upstream_error'
                     terminal |= event.get('type') in ('message_stop', 'response.completed')
                     terminal |= any(c.get('finish_reason') for c in event.get('choices', []))
                     terminal |= any(c.get('finishReason') for c in event.get('candidates', []))
-            return bool(terminal)
+            return 'ok' if terminal else 'stream_terminal_missing'
         if 'json' in ctype:
             data = json.loads(raw)
-            return isinstance(data, (list, dict)) and bool(data) and not (isinstance(data, dict) and data.get('error'))
-        return ctype.startswith(('audio/', 'image/'))
+            if isinstance(data, dict) and (data.get('error') or data.get('status') in ('failed', 'incomplete')):
+                return 'upstream_error'
+            return 'ok' if isinstance(data, (list, dict)) and data else 'response_shape'
+        return 'ok' if ctype.startswith(('audio/', 'image/')) else 'response_content_type'
     except (ValueError, TypeError, AttributeError):
-        return False
+        return 'response_invalid_json'
 
 
 def execute(sample, key, port, replay_id):
-    # http.client has no proxy or redirect handling: credentials cannot be sent
-    # to a Location supplied by a replayed response.
-    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=30)
-    status, ok, response_id = 0, False, None
+    # Production non-stream p95 exceeds 50s. Give retained slow requests their
+    # observed duration plus headroom, still bounded per request and per run.
+    budget = min(900, max(300, sample['row'].get('duration_ms', 0) / 1000 * 2 + 30))
+    started = time.monotonic()
+    deadline = started + budget
+    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=min(300, budget))
+    status, response_id, ctype = 0, None, ''
+    phase, reason = 'request', 'request_deadline'
+    raw = bytearray()
     try:
+        # No proxy or redirects: credentials remain on the loopback connection.
         connection.request('POST', sample['path'], body=sample['body'], headers={
             'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key,
-            'x-api-key': key, 'anthropic-version': '2023-06-01',
+            'x-api-key': key, 'x-goog-api-key': key, 'anthropic-version': '2023-06-01',
             'User-Agent': 'tokenkey-private-replay', 'X-Client-Request-ID': replay_id})
+        phase = 'response_headers'
         response = connection.getresponse()
         status = response.status
         response_id = response.getheader('X-Request-ID')
         if not response_id or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', response_id):
             response_id = None
-        raw = bytearray()
-        deadline = time.monotonic() + 120
+        ctype = response.getheader('Content-Type', '').split(';', 1)[0].strip().lower()
+        phase = 'response_body'
         while time.monotonic() < deadline:
-            part = response.read1(65536)
+            # read1 is bounded by both the idle limit and the absolute deadline.
+            # HTTP/1.0 close responses detach connection.sock after getresponse.
+            if response.fp is not None:
+                response.fp.raw._sock.settimeout(min(120, max(0.001, deadline - time.monotonic())))
+            part = response.read1(min(65536, MAX_BYTES + 1 - len(raw)))
             if not part:
-                ok = response_ok(status, response.getheader('Content-Type', ''), raw,
-                                 sample['row']['stream'])
+                reason = ('response_truncated' if response.length not in (None, 0) else
+                          response_reason(status, ctype, raw, sample['row']['stream']))
                 break
             raw.extend(part)
             if len(raw) > MAX_BYTES:
+                reason = 'response_too_large'
                 break
+    except TimeoutError:
+        reason = 'socket_timeout'
     except (OSError, http.client.HTTPException):
-        pass  # Classified as a failed result, never as a successful replay.
+        reason = 'transport_error'
     finally:
         connection.close()
     return {'sample_sha256': digest(encoded(sample['row'])), 'http_status': status,
-            'passed': bool(ok), 'body_sha256': digest(sample['body']), 'response_request_id': response_id}
+            'passed': reason == 'ok', 'reason': reason, 'phase': phase,
+            'elapsed_ms': round((time.monotonic() - started) * 1000),
+            'response_bytes': len(raw), 'response_sha256': digest(raw),
+            'response_content_type': ctype if ctype in ('application/json', 'text/event-stream',
+                'audio/mpeg', 'audio/wav', 'image/png', 'image/jpeg') else 'other',
+            'body_sha256': digest(sample['body']), 'response_request_id': response_id}
+
+
+def production_usage_query(prefix, results):
+    # Storage uses local:<server UUID> or legacy client:<client marker>.
+    # Check all supported namespaces, including requests that timed out before
+    # receiving a server ID. Identifiers are validated before SQL construction.
+    require(re.fullmatch(r'[A-Za-z0-9-]+', prefix), 'invalid_replay_prefix')
+    ids = {r['response_request_id'] for r in results if r.get('response_request_id')}
+    require(all(re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', rid) for rid in ids), 'invalid_response_id')
+    literals = ','.join("'" + ns + rid + "'" for rid in sorted(ids) for ns in ('', 'local:', 'client:')) or 'NULL'
+    prefixes = ' OR '.join("request_id LIKE '" + ns + prefix + "%'" for ns in ('', 'local:', 'client:'))
+    return ("SELECT count(*) FROM usage_logs WHERE created_at >= now()-interval '3 hours' "
+            "AND (" + prefixes + " OR request_id IN (" + literals + "));")
+
+
+SELF_CHECK_EXEMPT: dict[str, str] = {}
+
+
+def iter_self_check_sql():
+    return [('production_usage_query', production_usage_query('tk-replay-check-',
+             [{'response_request_id': 'server-uuid'}]))]
 
 
 def isolated_environment(source, name, password):
@@ -429,14 +503,15 @@ def replay(tag, root=ROOT):
               'verdict': 'red', 'cutover': False, 'approval_pending': True,
               'billing': 'isolated_snapshot', 'upstream_quota_consumed': True,
               'header_fidelity': 'capture_has_no_headers; protocol/auth headers reconstructed',
-              'started_at': time.time()}
+              'executor_sha256': digest(Path(__file__).read_bytes()), 'started_at': time.time()}
     receipt_path = root / 'bluegreen-replay.json'
     # Invalidate an older successful attempt before doing any paid work.
     write_json(receipt_path, seal(record))
     sandbox = Sandbox(inspect('tokenkey-' + before['target']), root)
     results = []
+    write_json(root / 'bluegreen-replay-results.json', results)
     try:
-        samples, gaps, total = collect(root)
+        samples, gaps, total = collect(root, results)
         record['coverage'] = {'observed_combinations': total, 'selected': len(samples),
                               'users': len({s['row']['user_id'] for s in samples}),
                               'models': len({s['row']['requested_model'] for s in samples}),
@@ -444,7 +519,7 @@ def replay(tag, root=ROOT):
         require(samples, 'no_replayable_captures')
         port = sandbox.start()
         keys = {r['id']: r for r in (json.loads(line) for line in sql(
-            'SELECT row_to_json(t) FROM (SELECT id,user_id,key,status FROM api_keys WHERE deleted_at IS NULL) t;',
+            "SELECT row_to_json(t) FROM (SELECT id,user_id,key,status FROM api_keys WHERE deleted_at IS NULL AND (expires_at IS NULL OR expires_at>now())) t;",
             sandbox.pg, sandbox.database).splitlines())}
         prefix = sandbox.name + '-'
         for i, sample in enumerate(samples):
@@ -456,20 +531,12 @@ def replay(tag, root=ROOT):
                 results.append({'sample_sha256': digest(encoded(row)), 'passed': False, 'reason': 'key_not_replayable'})
             else:
                 results.append(execute(sample, key['key'], port, prefix + str(i)))
-            results[-1].update({k: row[k] for k in ('user_id', 'requested_model', 'inbound_endpoint', 'stream',
-                                                  'tool_calls_present', 'multimodal_present')})
-        # Production user usage must not contain a replay request ID.
-        # Storage identity is the server X-Request-ID echoed on the response.
-        # Client markers use X-Client-Request-ID and must not appear as request_id.
-        response_ids = sorted({r['response_request_id'] for r in results if r.get('response_request_id')})
-        id_literals = ','.join("'" + rid + "'" for rid in response_ids) or "NULL"
-        production_writes = int(sql("SELECT count(*) FROM usage_logs WHERE created_at >= now()-interval '3 hours' "
-                                   "AND (request_id LIKE '" + prefix + "%' OR request_id IN (" + id_literals + "));").strip())
+            results[-1].update(case_metadata(row))
+            # Preserve sanitized progress if the host command is interrupted.
+            write_json(root / 'bluegreen-replay-results.json', results)
+        production_writes = int(sql(production_usage_query(prefix, results)).strip())
         require(production_writes == 0, 'production_usage_written')
         record['production_usage_rows'] = production_writes
-        record['passed'] = sum(r['passed'] for r in results)
-        record['failed'] = len(results) - record['passed']
-        record['results_sha256'] = digest(encoded(results))
         record['corpus_sha256'] = digest(encoded([{'row': s['row'], 'body_sha256': digest(s['body'])} for s in samples]))
         # Counts are derived from complete execution, not caller-provided claims.
         require(not gaps and len(results) == total and all(r['passed'] for r in results), 'replay_failed_or_coverage_gap')
@@ -487,6 +554,9 @@ def replay(tag, root=ROOT):
             record['verdict'] = 'red'
             record['reason'] = str(exc) if isinstance(exc, ReplayError) else 'replay_cleanup_error'
             record['cutover'] = None  # Cannot certify the public route after failed verification.
+        record['passed'] = sum(r['passed'] for r in results)
+        record['failed'] = len(results) - record['passed']
+        record['results_sha256'] = digest(encoded(results))
         write_json(root / 'bluegreen-replay-results.json', results)
         record['finished_at'] = time.time()
         record = seal(record)

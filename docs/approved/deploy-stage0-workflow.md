@@ -403,3 +403,41 @@ The fail-closed manifest precheck (Section 4 step 2 / Section 8 acceptance
 [run 24872388875](https://github.com/youxuanxue/sub2api/actions/runs/24872388875):
 dispatched with `tag=99.99.99`, exited at the GHCR manifest precheck
 step **before** any AWS credential was configured or SSM command sent.
+
+
+## 10. Prod replay red-case repair (2026-09-11)
+
+User authorization: investigate real production configuration, repair red cases,
+submit a PR and repeat prod replay; **cutover is forbidden**. This revision only
+repairs the existing retained-capture executor. It grants no deployment approval.
+
+`ops/stage0/prod_replay.py` keeps every observed user/model/endpoint/stream/tool/
+multimodal combination in the denominator. Within the existing scan and byte
+bounds it examines up to 50 recent alternatives, preferring a still-active,
+unexpired key belonging to the captured user. Each request uses its own captured
+key; revoked keys are never reactivated or replaced. A combination without an
+eligible intact capture remains a red coverage gap with per-case reasons.
+
+Registered synchronous route aliases (including `/responses`) are replayed at
+the retained path without normalization. Missing Gemini actions, truncated
+bodies, redacted bodies and unsupported encodings remain gaps. The collection
+contract is not narrowed to hide historical failures or non-replayable traffic.
+
+The first production run showed non-stream p95 durations above 50 seconds,
+exceeding the executor's 30-second header timeout. Replay now gives each request
+300–900 seconds based on retained duration, with a 300-second header limit,
+120-second body idle limit, existing run deadline and sequential concurrency.
+Success still requires complete HTTP framing and valid JSON/SSE completion.
+Sanitized results include phase, reason, elapsed time, byte count and response
+hash, never response text or credentials. Progress survives interrupted attempts;
+the receipt binds the executor source hash as well as candidate and results.
+
+Production usage auditing covers raw, `local:` and legacy `client:` identities,
+including client replay markers for requests with no returned server ID. Tests
+exercise those predicates against stored identities. No route reload, promotion,
+Edge rollout or live key/config mutation is part of this repair.
+
+Validation owner: `ops/stage0/test_prod_replay.py` (real loopback HTTP transport,
+revoked-key alternatives, retained alias and missing-action checks, partial HTTP,
+stream errors, sanitized timeouts, namespace audit and fail-closed receipts).
+Run: `python3 -m unittest discover -s ops/stage0 -p test_prod_replay.py`.

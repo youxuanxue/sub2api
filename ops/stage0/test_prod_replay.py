@@ -5,6 +5,7 @@ import http.server
 import importlib.util
 import json
 import os
+import sqlite3
 from pathlib import Path
 import subprocess
 import sys
@@ -24,7 +25,7 @@ spec.loader.exec_module(cli)
 
 
 def row(user=1, model='m1', endpoint='/v1/messages'):
-    return {'request_id': 'real-request-' + str(user), 'user_id': user, 'api_key_id': user,
+    return {'request_id': 'real-request-' + str(user), 'user_id': user, 'api_key_id': user, 'key_replayable': True,
             'requested_model': model, 'inbound_endpoint': endpoint, 'stream': False,
             'tool_calls_present': False, 'multimodal_present': False}
 
@@ -93,6 +94,41 @@ class CaptureTest(unittest.TestCase):
             self.assertEqual(len(selected), 1)
             self.assertEqual(gaps, {'capture_not_local': 1})
 
+    def test_alias_is_preserved_and_missing_gemini_action_is_a_gap(self):
+        payload = {'request_id': 'real-request-1', 'request': {
+            'path': '/responses', 'body': {'model': 'm1', 'input': 'retained'}}}
+        self.assertEqual(replay.sample_from_capture(row(endpoint='/responses'), payload)['path'], '/responses')
+        payload['request']['path'] = '/v1beta/models'
+        with self.assertRaisesRegex(replay.ReplayError, 'unsupported_path'):
+            replay.sample_from_capture(row(), payload)
+        payload['request']['path'] = '/v1/messages'
+        payload['request']['body'] = '{"model":"m1","messages":['
+        with self.assertRaisesRegex(replay.ReplayError, 'body_missing_or_truncated'):
+            replay.sample_from_capture(row(), payload)
+
+    def test_revoked_key_uses_same_stratum_alternative_without_reactivation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'app').mkdir()
+            (root / 'app/a.zst').write_bytes(b'fixture')
+            revoked = dict(row(), key_replayable=False, blob_uri='file:///app/data/a.zst')
+            usable = dict(revoked, api_key_id=77, key_replayable=True)
+            rows = [revoked, usable, dict(row(2), key_replayable=False)]
+            proc = MagicMock()
+            proc.stdout.read.return_value = json.dumps({'request_id': 'real-request-1', 'request': {
+                'path': '/v1/messages', 'body': {'model': 'm1'}}}).encode()
+            proc.wait.return_value = 0
+            details = []
+            with patch.object(replay, 'sql', return_value='\n'.join(map(json.dumps, rows))), patch.object(replay.subprocess, 'Popen', return_value=proc) as decompress:
+                selected, gaps, total = replay.collect(root, details)
+            self.assertEqual(total, 2)
+            self.assertEqual(selected[0]['row']['api_key_id'], 77)
+            self.assertEqual(gaps, {'key_not_replayable': 1})
+            self.assertEqual(details[0]['user_id'], 2)
+            self.assertFalse(details[0]['passed'])
+            self.assertEqual(decompress.call_count, 1)
+
+
 
 class HTTPTest(unittest.TestCase):
     def test_real_loopback_request_preserves_body_identity_and_hides_payload(self):
@@ -119,6 +155,74 @@ class HTTPTest(unittest.TestCase):
                 request = sample()
                 request['row']['stream'] = True
                 self.assertEqual(replay.execute(request, 'secret', port, 'id')['passed'], expected)
+
+    def test_timeout_reports_phase_without_exception_or_credential_text(self):
+        with patch.object(replay.http.client, 'HTTPConnection') as conn:
+            conn.return_value.getresponse.side_effect = TimeoutError('private-key private prompt')
+            result = replay.execute(sample(), 'private-key', 1234, 'replay-id')
+        self.assertEqual(result['reason'], 'socket_timeout')
+        self.assertEqual(result['phase'], 'response_headers')
+        self.assertEqual(result['http_status'], 0)
+        self.assertNotIn('private', json.dumps(result))
+        self.assertGreaterEqual(conn.call_args.kwargs['timeout'], 120)
+
+    def test_partial_http_framing_and_error_events_never_pass(self):
+        # A complete JSON object is insufficient if HTTP advertises missing bytes.
+        class ShortResponse(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']))
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', '100')
+                self.end_headers()
+                self.wfile.write(b'{"content":[{"text":"ok"}]}')
+            def log_message(self, *_):
+                pass
+        httpd = http.server.HTTPServer(('127.0.0.1', 0), ShortResponse)
+        thread = threading.Thread(target=httpd.handle_request)
+        thread.start()
+        try:
+            result = replay.execute(sample(), 'secret', httpd.server_port, 'id')
+            self.assertFalse(result['passed'])
+            self.assertEqual(result['reason'], 'response_truncated')
+        finally:
+            thread.join()
+            httpd.server_close()
+        self.assertEqual(replay.response_reason(200, 'text/event-stream',
+            b'event: error\ndata: {}\n\ndata: [DONE]\n\n', True), 'upstream_error')
+        self.assertEqual(replay.response_reason(200, 'application/json',
+            b'{"status":"incomplete"}', False), 'upstream_error')
+
+    def test_stream_failure_diagnostics_distinguish_missing_terminal_and_invalid_json(self):
+        for body, reason in ((b'data: {"type":"ping"}\n\n', 'stream_terminal_missing'),
+                             (b'data: broken\n\n', 'response_invalid_json')):
+            with self.subTest(reason=reason), server(200, body, 'text/event-stream') as (port, _):
+                request = sample()
+                request['row']['stream'] = True
+                result = replay.execute(request, 'secret', port, 'id')
+                self.assertFalse(result['passed'])
+                self.assertEqual(result['reason'], reason)
+                self.assertEqual(result['response_bytes'], len(body))
+                self.assertEqual(result['response_sha256'], replay.digest(body))
+
+
+class ProductionAuditTest(unittest.TestCase):
+    def test_usage_audit_matches_storage_namespaces_and_timeout_markers(self):
+        query = replay.production_usage_query('tk-replay-test-', [{'response_request_id': 'server-uuid'}])
+        # Exercise the generated predicate against persisted identities.
+        query = query.replace("now()-interval '3 hours'", '0')
+        with sqlite3.connect(':memory:') as db:
+            db.execute('CREATE TABLE usage_logs (request_id TEXT, created_at INTEGER)')
+            for rid in ('server-uuid', 'local:server-uuid', 'client:server-uuid',
+                        'tk-replay-test-1', 'client:tk-replay-test-2', 'local:tk-replay-test-3'):
+                db.execute('INSERT INTO usage_logs VALUES (?, 1)', (rid,))
+            db.execute("INSERT INTO usage_logs VALUES ('local:unrelated', 1)")
+            self.assertEqual(db.execute(query).fetchone()[0], 6)
+        with self.assertRaises(replay.ReplayError):
+            replay.production_usage_query("prefix' OR TRUE", [])
+        with self.assertRaises(replay.ReplayError):
+            replay.production_usage_query('prefix', [{'response_request_id': "id'"}])
+
 
 
 class ReceiptTest(unittest.TestCase):
