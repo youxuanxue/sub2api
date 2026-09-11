@@ -68,12 +68,32 @@ func textContent(raw json.RawMessage) (string, error) {
 }
 
 func parseMessages(body []byte, parameters []Parameter, wireModel string) (AgentRequest, bool, error) {
+	input, stream, err := parseMessagesContent(body)
+	if err != nil {
+		return input, false, err
+	}
+	input.WireModel, input.Parameters = wireModel, parameters
+	if _, _, err := buildAgentRun(input); err != nil {
+		return input, false, err
+	}
+	return input, stream, nil
+}
+
+// ValidateMessagesContent applies the native parser's content and tool contract
+// during request planning, without building protobuf history or performing I/O.
+// Callers with another ingress wire must first use their execution converter.
+func ValidateMessagesContent(body []byte) error {
+	_, _, err := parseMessagesContent(body)
+	return err
+}
+
+func parseMessagesContent(body []byte) (AgentRequest, bool, error) {
 	var raw messagesInput
 	var input AgentRequest
 	if len(body) > 16<<20 || json.Unmarshal(body, &raw) != nil {
 		return input, false, errors.New("invalid Cursor Messages request")
 	}
-	input.Model, input.WireModel, input.Parameters = raw.Model, wireModel, parameters
+	input.Model = raw.Model
 	var err error
 	input.System, err = textContent(raw.System)
 	if err != nil {
@@ -157,9 +177,6 @@ func parseMessages(body []byte, parameters []Parameter, wireModel string) (Agent
 			}
 		}
 		flush()
-	}
-	if _, _, err := buildAgentRun(input); err != nil {
-		return input, false, err
 	}
 	return input, raw.Stream, nil
 }

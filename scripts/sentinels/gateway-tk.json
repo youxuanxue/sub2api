@@ -71,7 +71,11 @@
     },
     {
       "path": "backend/internal/service/gateway_tk_cursor.go",
-      "must_contain": ["return s.doOpenAIUpstream(req, proxyURL, account)"],
+      "must_contain": [
+        "return s.doOpenAIUpstream(req, proxyURL, account)",
+        "body = normalizeCursorMessagesContent(body, model)",
+        "func normalizeCursorMessagesContent("
+      ],
       "rationale": "Non-Cursor native Messages sends preserve the shared OAuth transport entry point and plugin policy."
     },
     {
@@ -126,7 +130,12 @@
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",
-      "must_contain": ["TestMessagesAcceptsAndPropagatesSystemPrompt", "TestMessagesSystemAndToolRolesValidateTextContent", "TestMessagesIncompleteUsageCannotSettleAsReported"],
+      "must_contain": [
+        "TestMessagesAcceptsAndPropagatesSystemPrompt",
+        "TestMessagesSystemAndToolRolesValidateTextContent",
+        "TestMessagesIncompleteUsageCannotSettleAsReported",
+        "TestValidateMessagesContentSharesNativeParser"
+      ],
       "rationale": "The public adapter must emit the approved system text and reject malformed content before upstream execution."
     },
     {
@@ -200,7 +209,10 @@
         "TestCursorCandidateRuntimeAndCapabilityGates",
         "TestCursorForcedToolsCannotBecomeCompatibilityFallback",
         "TestCursorCandidateUsesSharedUniversalOrdering",
-        "TestCursorToolHistoryUsesOrdinaryCandidateRouting"
+        "TestCursorToolHistoryUsesOrdinaryCandidateRouting",
+        "TestCursorPlanRejectsUnsupportedNativeContent",
+        "TestCursorPlanPreservesEmulatedWebSearchHistoryCompatibility",
+        "TestCursorNativeContentFailureDoesNotWinCandidateSelection"
       ],
       "rationale": "Exercise real Plan, Universal selection and scheduler filters for Cursor, including metadata/history false positives and candidate-local rejection."
     },
@@ -251,7 +263,13 @@
     },
     {
       "path": "backend/internal/service/protocol_routing_context.go",
-      "must_contain": ["router.PlanNative(request, account)", "routing.nativeOnly == nativeOnly", "routing.plans = newProtocolPlanCache()"],
+      "must_contain": [
+        "router.PlanNative(request, account)",
+        "routing.nativeOnly == nativeOnly",
+        "routing.plans = newProtocolPlanCache()",
+        "content: &cursorRequestContentCache{}",
+        "protocolAccountSnapshotForRouting(ctx, account, routing.request)"
+      ],
       "rationale": "Different endpoint permissions cannot share a cached route decision."
     },
     {
@@ -261,7 +279,12 @@
     },
     {
       "path": "backend/internal/service/candidate_thinking_tools_tk_test.go",
-      "must_contain": ["TestCandidateThinkingToolsRespectConversionPermission", "TestCandidateThinkingToolsPreferAuthorizedExactOrigin", "TestProtocolPlanCacheSeparatesConversionPermission"],
+      "must_contain": [
+        "TestCandidateThinkingToolsRespectConversionPermission",
+        "TestCandidateThinkingToolsPreferAuthorizedExactOrigin",
+        "TestProtocolPlanCacheSeparatesConversionPermission",
+        "TestCandidateThinkingToolsSlotRecheckPreservesConversionPermission"
+      ],
       "rationale": "Direct and Universal requests retain authorized native capacity through selection and execution."
     },
     {
@@ -291,7 +314,12 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["candidateCompatibilityRank(a) < candidateCompatibilityRank(b)", "candidateCompatibilityRank(paths[origin.ID])", "account, preferredOrigins, r.model"],
+      "must_contain": [
+        "candidateCompatibilityRank(a) < candidateCompatibilityRank(b)",
+        "candidateCompatibilityRank(paths[origin.ID])",
+        "account, preferredOrigins, r.model",
+        "planProtocolRoute(rebuilt.ctx, r.resolver.router, request, snapshot)"
+      ],
       "rationale": "Full client intent precedes thinking-first fallback within each authorized payment tier."
     },
     {
@@ -784,7 +812,16 @@
     },
     {
       "path": "backend/internal/service/candidate_billing_tk.go",
-      "must_contain": ["func selectCandidateBillingOrigin(", "ErrCandidatePolicyConflict", "channels.lookupGroupChannel(ctx, group.ID)", "candidateBillingRate(ctx, userID, group", "resolveCredentialAccount(ctx, accounts, account)", "settleBillingOnAccountServedModel(billingAccount, model, policy.billingModel)", "policy.freeOpenAIFast = groupBillsOpenAIFastAtStandard(&APIKey{Group: group}, billingAccount, \"priority\")"],
+      "must_contain": [
+        "func selectCandidateBillingOrigin(",
+        "ErrCandidatePolicyConflict",
+        "channels.lookupGroupChannel(ctx, group.ID)",
+        "candidateBillingRate(ctx, userID, group",
+        "resolveCredentialAccount(ctx, accounts, account)",
+        "settleBillingOnAccountServedModel(billingAccount, model, policy.billingModel)",
+        "policy.freeOpenAIFast = groupBillsOpenAIFastAtStandard(&APIKey{Group: group}, billingAccount, \"priority\")",
+        "pricing = lookupConfiguredModelPricing(model,"
+      ],
       "rationale": "Only equivalent legal origins of the same account/payment tier compare effective rates; failed configuration reads cannot establish tariff equality. Free Fast uses settlement's credential/platform gates before comparing multipliers."
     },
     {
@@ -1078,7 +1115,8 @@
     {
       "path": "backend/internal/handler/openai_gateway_embeddings_images.go",
       "must_contain": [
-        "defaultModel := resolveOpenAIForwardDefaultMappedModel(apiKey, \"\")"
+        "defaultModel := resolveOpenAIForwardDefaultMappedModel(apiKey, \"\")",
+        "TkImageModelUnpriced(reqModel, apiKey.Group, gjson.GetBytes(body, \"size\").String())"
       ],
       "rationale": "Image selection fallback consumes the routing-mode-aware default model owner."
     },
@@ -1346,13 +1384,26 @@
         "fmt.Errorf(\"%w: %w: protocol endpoint capability is invalid or conflicted\", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)",
         "fmt.Errorf(\"%w: %w: account endpoint identity does not match linked capability\", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)",
         "ModelPolicyDenied:",
-        "protocolRequestParametersSupported(account, resolvedModel, request)"
+        "protocolRequestParametersSupported(account, resolvedModel, request, content)"
       ],
       "rationale": "Unknown capability is distinct from a proven route rejection and cannot justify a client unsupported-model error. Healthy peers remain eligible. Account model policy is projected into the Plan snapshot."
     },
     {
       "path": "backend/internal/service/protocol_request_parameters_tk.go",
-      "must_contain": ["func protocolRequestParametersSupported(", "account.IsCursor()", "choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed", "isNewAPINVIDIABuildAccount(account)", "normalizeGrokReasoningEffortValue(value.String(), resolvedModel)"],
+      "must_contain": [
+        "func protocolRequestParametersSupported(",
+        "account.IsCursor()",
+        "choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed",
+        "isNewAPINVIDIABuildAccount(account)",
+        "normalizeGrokReasoningEffortValue(value.String(), resolvedModel)",
+        "content.supported(*request, resolvedModel)",
+        "cursor.ValidateMessagesContent(body)",
+        "apicompat.ChatCompletionsToAnthropicRequest",
+        "apicompat.ResponsesToAnthropicRequest",
+        "normalizeCursorMessagesContent(body, resolvedModel)",
+        "type cursorRequestContentCache struct",
+        "digest: request.Digest(), model: model"
+      ],
       "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent."
     },
     {
@@ -3023,7 +3074,10 @@
         "tkApplyChannelFlatOverridesAsFallback(chPricing, resolved)",
         "tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)",
         "tkApplyOverlayIntervals(resolved)",
-        "tkResolveOverlayMediaPerRequest(input.Model)"
+        "tkResolveOverlayMediaPerRequest(input.Model)",
+        "func lookupConfiguredModelPricing(",
+        "func (r *ModelPricingResolver) resolveGroupPricing(",
+        "if resolved := r.resolveGroupPricing(input); resolved != nil"
       ],
       "rationale": "TK channel-pricing policy: applyTokenOverrides MUST delegate flat-default application to the TK companion regardless of whether intervals are configured (upstream #2107 — out-of-range fallback). GetIntervalPricing MUST preserve base dimensions while overlaying an interval (upstream #2363). Resolve MUST project active-registry intervals through the historically named tkApplyOverlayIntervals hook when no channel override is present. Dropping either hook silently restores $0 or wrong-tier billing while the resolver still compiles."
     },
@@ -5312,7 +5366,8 @@
       "path": "backend/internal/handler/openai_images.go",
       "must_contain": [
         "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, err)",
-        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, nil)"
+        "openAICompatFirstAttemptSelectionFailure(c, h.gatewayService, apiKey, routingModel, clientRequestModel, nil)",
+        "TkImageModelUnpriced(requestModel, apiKey.Group, parsed.Size)"
       ],
       "rationale": "Images first-selection failure must route through openAICompatFirstAttemptSelectionFailure (SSOT) for both err and selection==nil branches — 429 on empty pool, 404 on mapping gap, not 503 (PR #723, #575 parity). An upstream merge restoring bare tkSelectFailureStatusMessage or hard-coded PlatformOpenAI classify compiles clean but regresses misclassification on newapi groups."
     },
@@ -6408,7 +6463,11 @@
       "must_contain": [
         "TkVideoModelUnpriced",
         "TkImageModelUnpriced",
-        "TkUnpricedMediaModelMessage"
+        "TkUnpricedMediaModelMessage",
+        "resolveGroupPricing(PricingInput",
+        "func (s *BillingService) tkResolvedImagePricingChargeable(",
+        "s.tkResolvedImagePricingChargeable(resolved, resolver, size)",
+        "s.calculatePerRequestCost(resolved, CostInput{"
       ],
       "rationale": "Media unpriced-reject policy (operator decision 2026-06-12): image/video gateway surfaces refuse to serve models with no usable price — the pre-spend 400 replaces the post-spend served_zero_cost P0 for media, where one task is real upstream money (video up to ~$22) and image otherwise falls back to a blind hardcoded $0.134. Also the safety premise that lets new upstream channels auto-enable: their models arrive unpriced and are rejected until the human pricing act. Removing this file silently reverts media to serve-unpriced."
     },
@@ -11163,6 +11222,47 @@
         "http.StatusUnauthorized"
       ],
       "rationale": "HTTP regression covers each companion route through RegisterGatewayRoutes and its API-key middleware; dead registration helpers must not pass by source scanning alone."
+    },
+    {
+      "path": "backend/internal/integration/cursor/messages.go",
+      "must_contain": [
+        "func ValidateMessagesContent(body []byte) error",
+        "input, stream, err := parseMessagesContent(body)",
+        "_, _, err := parseMessagesContent(body)"
+      ],
+      "rationale": "Cursor planning and execution share the native content parser; unsupported nested content is excluded before account selection without duplicating a block whitelist."
+    },
+    {
+      "path": "backend/internal/service/pricing_scope_consistency_tk_test.go",
+      "must_contain": [
+        "TestPricingScopeGroupNormalizedRecordUsage",
+        "TestPricingScopeEquivalentChannelCardsDoNotRejectCandidate",
+        "TestPricingScopeImageGroupPriceGuardSettlementParity",
+        "TestPricingScopeLiteralAndWildcardBeforeNormalized",
+        "TestPricingScopeImageEmptyCardsRemainBlocked",
+        "TestPricingScopeImageGroupZeroCardOverridesGlobalPrice",
+        "TestPricingScopeImageTokenCardCannotPriceCountOnlyUsage",
+        "TestPricingScopeImageRequestedSizeMatchesSettlement"
+      ],
+      "rationale": "Scoped price admission, candidate tariff equivalence and actual settlement agree on model aliases and usable group image cards while retaining literal override precedence."
+    },
+    {
+      "path": "backend/internal/handler/openai_images_controls_test.go",
+      "must_contain": [
+        "TestOpenAIImageHandlersRejectUnpricedRequestedSize"
+      ],
+      "rationale": "Regression coverage pins actual image-size admission and Cursor forwarding/content-cache behavior, including rejection and freshness boundaries."
+    },
+    {
+      "path": "backend/internal/service/cursor_content_consistency_tk_test.go",
+      "must_contain": [
+        "TestCursorNativeHistoryPlanAndForwardAgree",
+        "ForwardAsAnthropic(ctx, c, account, body",
+        "TestCursorContentCacheKeepsRequestModelAndAccountBoundaries",
+        "TestCursorCachedContentDoesNotCopyLongRequest",
+        "BenchmarkCursorCachedContent"
+      ],
+      "rationale": "Regression coverage pins actual image-size admission and Cursor forwarding/content-cache behavior, including rejection and freshness boundaries."
     },
     {
       "path": "backend/internal/pkg/apicompat/gemini_chat_tk.go",
