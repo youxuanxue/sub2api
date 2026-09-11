@@ -129,94 +129,83 @@ backend/data/
 backend/config.yaml
 deploy/config.yaml
 backend/.installed
-# Re-included script homes (see the `scripts` override below) previously inherited
-# blanket coverage from that bare rule. Nothing sensitive is tracked there today,
-# but keep local operator config and key material ignored explicitly rather than as
-# a side effect of a rule whose real job was hiding the directory.
+# Key material and local operator config, repo-wide. These were briefly scoped to
+# `scripts/**` only, which was the wrong shape twice over: the repo had NO global
+# key patterns at all (a stray `ops/deploy.key` or `backend/tls.pem` was
+# committable), and scoping them implied `scripts/` was special when the risk is
+# everywhere. Extension- and filename-based on purpose: a `*secret*` /
+# `*credential*` substring glob would shadow ~48 legitimate tracked sources
+# (`security_secret.go`, `credentials_redact.go`, `credential_shadow.go`, …),
+# recreating the tracked-but-ignored trap that `scripts/checks/gitignore-script-homes.py`
+# exists to prevent. Name a real secret file after its content, not its extension,
+# and it is on you — that is what review is for.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+config.local.*
 scripts/config.*
-scripts/**/config.local.*
-scripts/**/*secret*
-scripts/**/*credential*
-scripts/**/*.pem
-scripts/**/*.key
-scripts/**/id_rsa*
 
 # ===================
 # 其他
 # ===================
-tests
-!deploy/tests/
-!deploy/tests/**
-CLAUDE.md
-.claude
-# TK override: this repo's own agent contract is tracked, so the upstream rules that
-# hide it must be narrowed to the root path. Both `CLAUDE.md` and `.claude` are
-# pattern-less and therefore match at ANY depth; keep that reach for nested/local
-# copies (e.g. an agent scratch `CLAUDE.md` in a subdirectory) and re-include only
-# the repo-root entries that are already committed. Inside `.claude/` the tracked
-# surface is exactly the session hook, settings and the `skills -> ../.cursor/skills`
-# symlink required by the constitution; `/.claude/*` re-establishes the wall so agent
-# state (`worktrees/`, `mcp.local.json`, `history.jsonl`, `todos/`) stays ignored — it
-# is the only coverage for those, unlike `tmp/` which line 90 already handles.
-!/CLAUDE.md
-!/.claude/
-/.claude/*
+# TK override: upstream's bare `tests` matched any directory named `tests` at any
+# depth, then took two negations to hand `deploy/tests/` back. It ignored nothing
+# real (this repo's suites live in `__tests__/`, `frontend/e2e/` and Go `_test.go`)
+# while standing ready to swallow a future `frontend/tests/` or `ops/tests/`.
+# Upstream merges will conflict here; resolve toward tracking test directories.
+# TK override: upstream ignores `CLAUDE.md` outright; TokenKey tracks it as the
+# project agent contract. The upstream rule's un-rooted reach (matching at any
+# depth) protected nothing here — the only other CLAUDE.md in the tree is inside
+# the `dev-rules` submodule, which this file does not govern — so the rule is
+# dropped rather than narrowed-then-undone.
+# Upstream merges will conflict here; resolve toward tracking it.
+# `.claude/` is agent state, so it stays ignore-by-default: the three tracked
+# entries are named back explicitly and everything else (worktrees, history,
+# todos, mcp.local.json, tmp renders) is ignored without needing to be listed.
+# This is the one place the split earns its keep — most of the directory really
+# is untracked local state.
+.claude/*
 !/.claude/hooks/
 !/.claude/settings.json
 !/.claude/skills
-# TK override: upstream ignores a bare `scripts`, which (being pattern-less) matches
-# a directory named `scripts` at ANY depth. TokenKey keeps load-bearing tooling in
-# `scripts/` (preflight gates, sentinels, ops) and in per-skill `scripts/` dirs, all
-# of which are force-added today — so a NEW checker or skill script is silently
-# dropped from commits until someone notices. Keep the upstream line for parity and
-# re-include TokenKey's real script homes. `.pyc`/`__pycache__` stay ignored by the
-# dedicated Python rules below, so nothing build-generated becomes visible.
-scripts
-!/scripts/
-!/skills/*/scripts/
-!/.cursor/skills/*/scripts/
-!backend/scripts/
-!backend/scripts/resolve-version.sh
+# TK override: upstream ignores a bare `scripts`, which (being pattern-less) matched
+# every `scripts/` directory at any depth. TokenKey keeps load-bearing tooling there
+# (223 tracked files: preflight gates, sentinels, ops) — all force-added past this
+# rule, so a NEW checker or skill script was silently dropped from commits. Like
+# `docs/` above, the rule ignored nothing real: the only untracked files under
+# `scripts/` are 62 `.pyc` already covered by the `__pycache__/` rule below. So the
+# ignore is dropped rather than re-included five times over.
+# Upstream merges will conflict here; resolve toward tracking these.
 .code-review-state
 #openspec/
 code-reviews/
-AGENTS.md
-# TK override: same reasoning as the `CLAUDE.md` re-include above — this repo's root
-# `AGENTS.md` carries the sync.sh-managed Codex/Antigravity block and is tracked,
-# while the pattern-less rule keeps hiding nested/generated copies at any depth.
-!/AGENTS.md
+# TK override: same as `CLAUDE.md` above — the root `AGENTS.md` carries the
+# sync.sh-managed Codex/Antigravity block and is tracked, and the un-rooted reach
+# protected nothing (no other AGENTS.md exists outside the dev-rules submodule).
+# Upstream merges will conflict here; resolve toward tracking it.
 backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
-docs/*
-!docs/PAYMENT.md
-!docs/PAYMENT_CN.md
-!docs/ADMIN_PAYMENT_INTEGRATION_API.md
-!docs/ASYNC_IMAGE_TASKS.md
-!docs/BATCH_IMAGE_MVP.md
-!docs/COMPOSITE_GROUPS.md
-!docs/PLUGIN_DEVELOPMENT.md
-!docs/channel-monitor-v2-safe-defaults.md
-!docs/legal/
-!docs/legal/*.md
-!docs/screenshots/
-# TK override: upstream treats `docs/` as an ignore-by-default area with a per-file
-# allowlist, because upstream keeps almost no docs in git. TokenKey does the opposite —
-# 98 tracked docs (every `docs/approved/*` contract, `docs/global/*`, `docs/ops/*`, the
-# operator runbooks) are load-bearing and referenced by preflight gates such as
-# `scripts/checks/approved-docs-index.py`, yet all of them were force-added past this
-# rule. That makes a NEW approved design doc silently uncommittable, which is the same
-# trap the `scripts` override above fixes. Re-include doc SUBDIRECTORIES (that is where
-# TK organizes docs, and a brand-new home works without editing this file); loose files
-# straight at `docs/` root stay allowlisted so local scratch notes are still ignored.
-!docs/*/
-!docs/DEPRECATIONS.md
-!docs/README.md
-!docs/agent_integration.md
-!docs/spec-delta-*.md
-docs/screenshots/*
-!docs/screenshots/mobile-account-actions-menu.png
+# TK override: upstream ignores `docs/*` and allowlists a handful of files back,
+# because upstream keeps almost no docs in git. TokenKey's policy is the opposite:
+# all 104 docs are tracked and load-bearing (every `docs/approved/*` contract,
+# `docs/global/*`, the operator runbooks), several enforced by
+# `scripts/checks/approved-docs-index.py`. Inverting an ignore for an entire
+# directory we fully track is pure complexity: the rule protected zero files while
+# needing 14 negations to undo itself, 4 of which named files that never existed
+# (`ASYNC_IMAGE_TASKS.md`, `BATCH_IMAGE_MVP.md`, `COMPOSITE_GROUPS.md`,
+# `channel-monitor-v2-safe-defaults.md`) — nobody could tell, because the block's
+# net effect was nothing. So `docs/` is now a normal tracked directory: a new doc
+# is committable and a stray note shows up in `git status` instead of vanishing.
+# Scratch that should never be committed goes in `docs/_scratch/`.
+# Upstream merges will conflict in this region; resolve toward this shape.
+docs/_scratch/
 .serena/
 .codex/
 frontend/coverage/

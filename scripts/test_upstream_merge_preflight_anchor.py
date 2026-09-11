@@ -3,8 +3,14 @@
 
 The retired daily merge agent failed because high-risk migrations 222/223 had
 no docs/approved anchor, and docs/* hid that directory so a newly written
-anchor could not be staged. The gitignore exception remains load-bearing for
-human-driven upstream merge PRs.
+anchor could not be staged. Keeping approval anchors stageable remains
+load-bearing for human-driven upstream merge PRs.
+
+The mechanism changed: `docs/*` plus a per-path allowlist was replaced by
+tracking `docs/` normally (all 104 docs are tracked; the ignore protected
+nothing while needing 14 negations to undo itself). Scratch that must stay out
+of commits now lives in `docs/_scratch/`. These tests assert the invariant —
+anchors stageable, scratch ignored — not the rule shape that used to provide it.
 """
 from __future__ import annotations
 
@@ -43,14 +49,29 @@ class ApprovedDocsGitignoreTest(unittest.TestCase):
         self.assertNotEqual(
             _check_ignore(str(APPROVED_DOC.relative_to(REPO_ROOT))),
             0,
-            "docs/approved/*.md must not match docs/* gitignore",
+            "docs/approved/*.md must be stageable",
         )
 
-    def test_unexcepted_docs_path_still_ignored(self) -> None:
-        self.assertEqual(
-            _check_ignore("docs/not-an-approved-anchor.md"),
+    def test_new_approval_anchor_is_stageable(self) -> None:
+        """#1685's actual requirement: a NEWLY WRITTEN anchor must be stageable.
+
+        The original failure was an anchor that could not be staged, so probe a
+        path that does not exist yet — the tracked file above would pass even if
+        a future rule made new docs invisible again.
+        """
+        self.assertNotEqual(
+            _check_ignore("docs/approved/upstream-merge-new-anchor.md"),
             0,
-            "docs/* must still ignore files outside the approved/ exception",
+            "a new docs/approved anchor must be stageable, or an upstream merge "
+            "PR cannot record its high-risk migration approval",
+        )
+
+    def test_docs_scratch_is_ignored(self) -> None:
+        """The one thing `docs/` still ignores: the explicit scratch home."""
+        self.assertEqual(
+            _check_ignore("docs/_scratch/local-notes.md"),
+            0,
+            "docs/_scratch/ must stay ignored so local notes are not commit noise",
         )
 
 

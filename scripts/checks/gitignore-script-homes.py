@@ -28,8 +28,19 @@ This gate is the ratchet on that fix, and it cuts both ways:
 
   4. TRACKED-HOME COMMITTABILITY. The homes in `TRACKED_HOMES` hold load-bearing
      content that a fresh clone must be able to extend — a new approved design doc, a
-     new agent hook. Assert a plausible new file in each is committable, so narrowing
-     an upstream rule cannot silently regress to blanket coverage.
+     new agent hook. Assert a plausible new file in each is committable, so a
+     reintroduced blanket ignore cannot silently swallow new work.
+
+The fix's shape changed once and the reason is worth keeping: the first version
+narrowed each upstream rule and then re-included the tracked surface, which produced
+`docs/*` plus fourteen negations to undo itself. Measurement showed those rules
+ignored NOTHING on disk (`docs/` is 104/104 tracked; `scripts/`'s only untracked
+files are `.pyc` already covered by `__pycache__/`), so for a directory we fully
+track the ignore was pure complexity and is now simply absent. `.claude/*` keeps the
+allowlist shape, because there most of the directory really is untracked local state.
+Assertion 2's patterns are global for the same reason: scoping key material to
+`scripts/**` implied that directory was special while leaving `ops/deploy.key`
+committable.
 
 Probe paths are hypothetical — nothing is created on disk; `git check-ignore`
 answers from the rules alone.
@@ -58,11 +69,11 @@ SCRIPT_HOMES = (
 # A plausible new-tooling filename per home: what an agent would actually add.
 COMMITTABLE_PROBES = ("new_check.py", "new-check.sh", "registry.json")
 
-# Non-script homes that upstream ignores wholesale but TokenKey tracks, each narrowed
-# by an explicit re-include. Upstream keeps almost no docs and no agent contract in
-# git; TK's are load-bearing and consumed by preflight gates, so a new file in any of
-# them must be committable. Probe filenames are per-home because the trap is
-# extension-agnostic — the rules here match directories, not suffixes.
+# Non-script homes that upstream ignores wholesale but TokenKey tracks. Upstream keeps
+# almost no docs and no agent contract in git; TK's are load-bearing and consumed by
+# preflight gates, so a new file in any of them must be committable. Probe filenames
+# are per-home because the trap is extension-agnostic — the rules that caused it
+# matched directories, not suffixes.
 TRACKED_HOMES = {
     "docs/approved": ("new-design.md",),
     "docs/global": ("new-guide.md",),
@@ -73,9 +84,10 @@ TRACKED_HOMES = {
     ".cursor/skills": ("new-skill/SKILL.md",),
 }
 
-# Root-level tracked files that pattern-less upstream rules match at any depth. Each
-# needs a rooted `!/<name>` re-include; the un-rooted reach is deliberately kept so
-# nested or generated copies stay ignored.
+# Root-level tracked files that pattern-less upstream rules used to match at any depth.
+# Reintroducing any of those rules — most likely by taking upstream's side in a merge
+# conflict — makes the repo's own agent contract and the embedded-dist manifest
+# invisible again, so assert each stays committable.
 ROOTED_TRACKED_FILES = (
     "CLAUDE.md",
     "AGENTS.md",
@@ -88,18 +100,27 @@ ROOTED_TRACKED_FILES = (
 # instead of `!docs/*/`, or `!/.claude/` without the `/.claude/*` reset) would let
 # these through, which is exactly the leak this pairing prevents. None exists on disk.
 NARROWED_RULE_PROBES = (
-    "docs/scratch-notes.md",  # script-ref-allow-missing
-    "docs/screenshots/unapproved.png",  # script-ref-allow-missing
-    # Agent-local state the `/.claude/*` wall is the ONLY .gitignore coverage for. Do not
-    # substitute a `tmp/` path here: line 90's `tmp/` covers that independently, so such a
+    "docs/_scratch/notes.md",  # script-ref-allow-missing
+    # Agent-local state the `.claude/*` wall is the ONLY .gitignore coverage for. Do not
+    # substitute a `tmp/` path here: the `tmp/` rule covers that independently, so such a
     # probe passes even with the wall deleted and asserts nothing.
     ".claude/mcp.local.json",  # script-ref-allow-missing
     ".claude/history.jsonl",  # script-ref-allow-missing
     ".claude/worktrees/wt/main.go",  # script-ref-allow-missing
     ".cursor/operator.env",  # script-ref-allow-missing
-    "nested/CLAUDE.md",  # script-ref-allow-missing
-    "nested/AGENTS.md",  # script-ref-allow-missing
     "backend/internal/web/dist/index.html",  # script-ref-allow-missing
+)
+
+# Key material and local operator config, anywhere in the tree. These were once scoped
+# to `scripts/**`, which left `ops/deploy.key` and `backend/tls.pem` committable; the
+# patterns are global now and this asserts they stay that way. Extension-based on
+# purpose — a `*secret*` substring glob would shadow ~48 real tracked sources.
+GLOBAL_SECRET_PROBES = (
+    "ops/deploy.key",  # script-ref-allow-missing
+    "backend/tls.pem",  # script-ref-allow-missing
+    "frontend/id_rsa",  # script-ref-allow-missing
+    "ops/stage0/bundle.p12",  # script-ref-allow-missing
+    "backend/config.local.json",  # script-ref-allow-missing
 )
 
 # Secret-shaped paths under the re-included homes that MUST stay ignored. These are
@@ -109,8 +130,6 @@ SECRET_PROBES = (
     "scripts/config.yaml",  # script-ref-allow-missing
     "scripts/config.yml",  # script-ref-allow-missing
     "scripts/checks/config.local.json",  # script-ref-allow-missing
-    "scripts/my_secret.txt",  # script-ref-allow-missing
-    "scripts/aws_credentials.json",  # script-ref-allow-missing
     "scripts/tls.pem",  # script-ref-allow-missing
     "scripts/deploy.key",  # script-ref-allow-missing
     "scripts/id_rsa",  # script-ref-allow-missing
@@ -196,7 +215,7 @@ def check(root: Path) -> list[str]:
                 "re-include rather than dropping the upstream line."
             )
 
-    secrets = [*SECRET_PROBES, *NARROWED_RULE_PROBES]
+    secrets = [*SECRET_PROBES, *NARROWED_RULE_PROBES, *GLOBAL_SECRET_PROBES]
     for path, ignored in check_ignored(root, secrets).items():
         if not ignored:
             errors.append(
@@ -245,55 +264,57 @@ def selftest() -> int:
     # Fixture .gitignore text, mirroring the real rules. The paths inside are fixture
     # content in a temp repo, never this repo's files.
     good = (
-        "scripts/config.yaml\nscripts/config.yml\nscripts/**/config.local.*\n"  # script-ref-allow-missing
-        "scripts/**/*secret*\nscripts/**/*credential*\nscripts/**/*.pem\n"
-        "scripts/**/*.key\nscripts/**/id_rsa*\n.env\n*.env\n"
-        "!.cursor/cloud-agent.env\n"
+        "scripts/config.*\nconfig.local.*\n"  # script-ref-allow-missing
+        "*.pem\n*.key\n*.p12\n*.pfx\nid_rsa*\nid_ed25519*\n"
+        ".env\n*.env\n!.cursor/cloud-agent.env\n"
         "backend/internal/web/dist/*\n!backend/internal/web/dist/frontend-source.json\n"
-        "CLAUDE.md\n.claude\n!/CLAUDE.md\n!/.claude/\n/.claude/*\n!/.claude/hooks/\n"
-        "AGENTS.md\n!/AGENTS.md\n"
-        "docs/*\n!docs/*/\ndocs/screenshots/*\n"
-        "scripts\n!/scripts/\n!/skills/*/scripts/\n!/.cursor/skills/*/scripts/\n"
-        "!backend/scripts/\n"
+        ".claude/*\n!/.claude/hooks/\n"
+        "docs/_scratch/\n"
     )
     root = make_repo(good)
     expect(check(root) == [], f"healthy .gitignore passes (got {check(root)[:1]})")
 
-    # Regression 1: re-includes dropped -> new tooling uncommittable.
-    root = make_repo(good.replace("!/scripts/\n", ""))
+    # Regression 1: the upstream blanket `scripts` ignore comes back (the likely shape
+    # of a bad merge resolution) -> new tooling silently uncommittable.
+    root = make_repo(good + "scripts\n")
     expect(any("would be IGNORED" in e for e in check(root)),
-           "dropped re-include is reported")
+           "reintroduced blanket scripts ignore is reported")
 
-    # Regression 2: secret patterns dropped -> credentials committable.
-    root = make_repo(good.replace("scripts/**/*credential*\n", ""))
-    expect(any("aws_credentials.json" in e for e in check(root)),
-           "dropped secret pattern is reported")
+    # Regression 2: a global key pattern dropped -> key material committable anywhere.
+    root = make_repo(good.replace("*.key\n", ""))
+    expect(any("ops/deploy.key" in e for e in check(root)),
+           "dropped global key pattern is reported")
 
-    # Regression 3: a tracked-home re-include dropped -> new approved doc uncommittable.
-    root = make_repo(good.replace("!docs/*/\n", ""))
+    # Regression 2b: patterns re-scoped to `scripts/**` -> the exact gap that shape had.
+    root = make_repo(good.replace("*.pem\n", "scripts/**/*.pem\n"))
+    expect(any("backend/tls.pem" in e for e in check(root)),
+           "key patterns rescoped to scripts/ are reported")
+
+    # Regression 3: upstream `docs/*` comes back -> a new approved doc goes invisible.
+    root = make_repo(good + "docs/*\n")
     expect(any("docs/approved/new-design.md" in e for e in check(root)),
-           "dropped docs subdirectory re-include is reported")
+           "reintroduced docs/* ignore is reported")
 
-    # Regression 4: rooted re-include dropped -> the repo's own contract goes invisible.
-    root = make_repo(good.replace("!/AGENTS.md\n", ""))
+    # Regression 4: upstream's pattern-less `AGENTS.md` comes back -> the repo's own
+    # contract goes invisible again.
+    root = make_repo(good + "AGENTS.md\n")
     expect(any("tracked root file `AGENTS.md`" in e for e in check(root)),
-           "dropped rooted re-include is reported")
+           "reintroduced AGENTS.md ignore is reported")
 
-    # Regression 5: a re-include written one level too broad -> scratch files stop being
-    # ignored. `!docs/*` re-includes loose files at `docs/` root too, not just subdirs
-    # (`!docs/` would not, since a trailing slash matches directories only).
-    root = make_repo(good.replace("!docs/*/\n", "!docs/*\n"))
-    expect(any("scratch-notes.md" in e for e in check(root)),
-           "over-broad docs re-include is reported")
+    # Regression 5: the docs scratch home stops being ignored -> local notes become
+    # commit noise, which is what drove the original ignore-by-default shape.
+    root = make_repo(good.replace("docs/_scratch/\n", ""))
+    expect(any("docs/_scratch/notes.md" in e for e in check(root)),
+           "missing docs scratch ignore is reported")
 
-    # Regression 6: `/.claude/*` wall removed -> agent scratch renders become visible.
-    root = make_repo(good.replace("/.claude/*\n", ""))
+    # Regression 6: `.claude/*` wall removed -> agent-local state becomes visible.
+    root = make_repo(good.replace(".claude/*\n", ""))
     expect(any(".claude/mcp.local.json" in e for e in check(root)),
            "missing .claude wall is reported")
 
-    # Regression 3: a tracked file shadowed by a rule. Created inside the temp repo.
+    # Regression 7: a tracked file shadowed by a rule. Created inside the temp repo.
     root = make_repo(good)
-    shadowed_fixture = "scripts/checks/my_secret.py"  # script-ref-allow-missing
+    shadowed_fixture = "scripts/checks/local.key"  # script-ref-allow-missing
     (root / shadowed_fixture).write_text("x\n", encoding="utf-8")
     subprocess.run(
         ["git", "-C", str(root), "add", "-f", shadowed_fixture], check=True
