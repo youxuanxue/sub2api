@@ -8,11 +8,12 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "deploy changes prod; smoke-only probes the API; qa-infra-check verifies QA OIDC/IAM readiness without mutation."
+        description: "deploy changes prod; replay prepares inactive prod color and runs retained-traffic replay without cutover; smoke-only probes the API; qa-infra-check verifies QA OIDC/IAM readiness without mutation."
         required: true
         type: choice
         options:
           - deploy
+          - replay
           - smoke-only
           - qa-infra-check
         default: deploy
@@ -42,6 +43,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  replay-contract:
+    if: inputs.operation == 'replay'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - name: Enforce replay-only safety contract
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          test -n "$INPUT_TAG"
+          test "${{ inputs.operation }}" = replay
+          echo "Replay mode is prod-only and requires a host prepare receipt plus retained capture executor."
+          echo "No promote, Caddy reload, or edge rollout is reachable from this job."
+          python3 scripts/stage0/replay-prod-release.py --help >/dev/null
+
   deploy:
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-latest
