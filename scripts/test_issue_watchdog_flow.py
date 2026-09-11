@@ -158,6 +158,28 @@ class WatchdogFlowTest(unittest.TestCase):
             mod.sync_issues(source, {"high_unresolved": [item]}, "example/fork", api)
             self.assertEqual(api.writes, [])
 
+    def test_existing_issue_tracks_downgrade_and_fix_without_opening_keyword_issues(self):
+        source = next(iter(mod.SOURCES.values()))
+        item = finding(source)
+        api = FakeGitHub()
+        mod.sync_issues(source, {"high_unresolved": [item]}, "example/fork", api)
+        for status, note in [("needs_tokenkey_review", "Recorded anchors missing"),
+                             ("fixed_in_tokenkey", "Fix PR merged with a regression test")]:
+            changed = {**item, "impact": "needs_review" if status != mod.engine.FIXED_STATUS else "fixed",
+                       "tokenkey_status": status, "rationale": note}
+            unrelated = {**finding(source, 900002), "impact": "needs_review"}
+            api.calls.clear()
+            mod.sync_issues(source, {"high_unresolved": []}, "example/fork", api,
+                            entries=[changed, unrelated])
+            self.assertEqual(len(api.issues), 1)
+            self.assertEqual(len(api.writes), 1)
+            self.assertIn(note, api.issues[0]["body"])
+            self.assertEqual(api.issues[0]["state"], "open")
+            api.calls.clear()
+            mod.sync_issues(source, {"high_unresolved": []}, "example/fork", api,
+                            entries=[changed, unrelated])
+            self.assertEqual(api.writes, [])
+
     def test_anchors_alone_do_not_close_tracking_issue(self):
         source = next(iter(mod.SOURCES.values()))
         api = FakeGitHub()

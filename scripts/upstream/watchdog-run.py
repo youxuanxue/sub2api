@@ -93,19 +93,23 @@ def managed_body(body, content):
 
 
 def issue_content(item):
+    next_step = ("已有历史修复记录；以修复 PR 和行为验证结果决定是否关闭。"
+                 if item.get("tokenkey_status") == engine.FIXED_STATUS
+                 else "核对当前代码与复现；确认受影响后提交聚焦修复 PR。")
     return (f"影响：{item.get('rationale') or '需要核对 TokenKey 当前代码。'}\n\n"
             f"证据：{item['url']}\n\n"
-            "下一步：核对当前代码与复现；确认受影响后提交聚焦修复 PR。\n\n"
+            f"下一步：{next_step}\n\n"
             "修复与验证：在此条目关联修复 PR 与行为测试结果。")
 
 
-def sync_issues(source, report, target_repo, api=gh):
+def sync_issues(source, report, target_repo, api=gh, entries=()):
     """Only confirmed high-risk items create issues. Keyword candidates stay in the report.
 
     Search closed issues as well: operator closure is a decision, not a reason to
     recreate/reopen the same issue. Code needles alone must never close issues.
     """
-    items = report["high_unresolved"]
+    eligible = {item["upstream"] for item in report["high_unresolved"]}
+    items = {item["upstream"]: item for item in (*entries, *report["high_unresolved"])}
     if not items:
         return
     label = source["label"]
@@ -113,8 +117,9 @@ def sync_issues(source, report, target_repo, api=gh):
                 f"repos/{target_repo}/issues?{urlencode({'state': 'all', 'labels': label, 'per_page': 100})}")
     existing = [row for page in pages for row in page if "pull_request" not in row]
     labels = None
-    for item in items:
+    for item in items.values():
         ref = item["upstream"]
+        item = {**item, "number": engine.issue_number(ref), "url": engine.issue_url(ref)}
         number_label = f"{source['prefix']}-issue:{item['number']}"
         sig_label = f"{source['prefix']}-sig:{engine.issue_signature(ref)}"
         # Legacy labels plus canonical ref/URL support migration without a new label per issue.
@@ -132,7 +137,7 @@ def sync_issues(source, report, target_repo, api=gh):
             if body != row.get("body"):
                 api("api", "--method", "PATCH", f"repos/{target_repo}/issues/{row['number']}",
                     payload={"body": body})
-        else:
+        elif ref in eligible:
             # Lazy label creation keeps a no-change run strictly read-only.
             if labels is None:
                 labels = {row["name"] for page in api("api", "--paginate", "--slurp",
@@ -172,7 +177,7 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
             stream.write(summary)
     if target_repo:
-        sync_issues(source, report, target_repo, api)
+        sync_issues(source, report, target_repo, api, triage["issues"])
     # Commit the cursor only after fetching, reporting and GitHub synchronization succeed.
     # The workflow saves this cache only on success; a retry replays the previous window.
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -210,7 +215,9 @@ python3 scripts/upstream/apply-fix-ledger.py --ledger {source_name} --apply.
 Update the relevant manual classification in {source['classifier']} if present.
 Run focused tests and bash scripts/preflight.sh, then commit, push and create/update the fix PR.
 The Chinese PR description must identify {item['upstream']}, explain the behavior and give test
-evidence. Link the tracking issue when one exists. Never merge the PR.
+evidence. After the regression test passes, use a GitHub closing reference to the local tracking
+issue when one exists, so merging the PR closes it. Never close from string anchors alone.
+Never merge the PR.
 This is explicitly dispatched fix mode; proceed autonomously within that scope.
 """
     (work / "fix-prompt.txt").write_text(prompt, encoding="utf-8")
