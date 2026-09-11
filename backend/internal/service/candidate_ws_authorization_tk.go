@@ -53,7 +53,7 @@ func (r *CandidateRequest) ValidateWebSocketExecution(account *Account) (*Accoun
 		if !ok {
 			return nil, ErrProtocolRouteUnavailable
 		}
-		snapshot, err := protocolAccountSnapshotForRequestWithThinking(account, request, thinkingEnabledFromCtx(r.current.ctx))
+		snapshot, err := protocolAccountSnapshotForRouting(r.current.ctx, account, request)
 		if err != nil {
 			return nil, err
 		}

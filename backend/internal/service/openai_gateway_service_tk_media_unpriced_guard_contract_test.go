@@ -72,7 +72,7 @@ func TestMediaUnpricedGuard_EmptyModelDefaultIsPriced(t *testing.T) {
 	require.NoError(t, err)
 	svc := &BillingService{pricingService: &PricingService{pricingData: data}}
 
-	require.False(t, svc.TkImageModelUnpriced(defaultModel, nil),
+	require.False(t, svc.TkImageModelUnpriced(defaultModel, nil, ""),
 		"the model-less image default %q must be priced in the shipped pricing chain — "+
 			"an unpriced default makes the guard's empty-model fail-open a billing hole",
 		defaultModel)

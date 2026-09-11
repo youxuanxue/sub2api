@@ -400,7 +400,7 @@ func ExecuteSelectedProtocol(
 			GatewayFailureScopeAccount,
 		)
 	}
-	fresh, err := protocolAccountSnapshotForRequestWithThinking(freshAccount, request, thinkingEnabledFromCtx(ctx))
+	fresh, err := protocolAccountSnapshotForRouting(ctx, freshAccount, request)
 	if err != nil {
 		return nil, protocolExecutionPreSendFailure(
 			fmt.Errorf("%w: %v", ErrProtocolRouteUnavailable, err),

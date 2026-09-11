@@ -3,11 +3,30 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestImageGroupPricingAdmissionMatchesSettlement(t *testing.T) {
+	for _, mode := range []BillingMode{BillingModeImage, BillingModePerRequest} {
+		t.Run(string(mode), func(t *testing.T) {
+			price := 0.25
+			group := &Group{ID: 1, ModelPricing: []ChannelModelPricing{{Models: []string{"vendor-image-custom"}, BillingMode: mode, PerRequestPrice: &price}}}
+			billing := NewBillingService(nil, &PricingService{})
+			gateway := &OpenAIGatewayService{billingService: billing, resolver: NewModelPricingResolver(nil, billing)}
+			cost, err := gateway.calculateOpenAIImageCost(context.Background(), "vendor-image-custom", &APIKey{GroupID: &group.ID, Group: group}, &OpenAIForwardResult{ImageCount: 2}, 1)
+			require.NoError(t, err)
+			require.Equal(t, 0.5, cost.TotalCost)
+			require.False(t, gateway.TkImageModelUnpriced("vendor-image-custom", group, ""))
+			require.True(t, gateway.TkImageModelUnpriced("other-image", group, ""))
+			price = 0
+			require.True(t, gateway.TkImageModelUnpriced("vendor-image-custom", group, ""), "empty group card must not grant priced admission")
+		})
+	}
+}
 
 func tkMediaGuardBillingService() *BillingService {
 	return &BillingService{
@@ -46,26 +65,26 @@ func TestTkVideoModelUnpriced(t *testing.T) {
 func TestTkImageModelUnpriced(t *testing.T) {
 	svc := tkMediaGuardBillingService()
 
-	require.False(t, svc.TkImageModelUnpriced("imagen-4.0-generate-001", nil))
+	require.False(t, svc.TkImageModelUnpriced("imagen-4.0-generate-001", nil, ""))
 	// gpt-image-style models bill by tokens — token prices count as priced.
-	require.False(t, svc.TkImageModelUnpriced("gpt-image-token-billed", nil))
+	require.False(t, svc.TkImageModelUnpriced("gpt-image-token-billed", nil, ""))
 
 	// Truly priceless / zero placeholder → rejected (this replaces the blind
 	// $0.134 hardcoded fallback for models nobody priced).
-	require.True(t, svc.TkImageModelUnpriced("never-priced-image-model", nil))
-	require.True(t, svc.TkImageModelUnpriced("zero-placeholder-media", nil))
+	require.True(t, svc.TkImageModelUnpriced("never-priced-image-model", nil, ""))
+	require.True(t, svc.TkImageModelUnpriced("zero-placeholder-media", nil, ""))
 
 	// Group-level size prices are a legitimate sole price source.
 	price := 0.05
 	group := &Group{ImagePrice2K: &price}
-	require.False(t, svc.TkImageModelUnpriced("never-priced-image-model", group))
+	require.False(t, svc.TkImageModelUnpriced("never-priced-image-model", group, ""))
 
 	// Model-less requests (OAuth path defaults the model downstream) fail OPEN.
-	require.False(t, svc.TkImageModelUnpriced("", nil))
-	require.False(t, svc.TkImageModelUnpriced("   ", nil))
+	require.False(t, svc.TkImageModelUnpriced("", nil, ""))
+	require.False(t, svc.TkImageModelUnpriced("   ", nil, ""))
 
 	// Fail OPEN on missing wiring.
-	require.False(t, (&BillingService{}).TkImageModelUnpriced("anything", nil))
+	require.False(t, (&BillingService{}).TkImageModelUnpriced("anything", nil, ""))
 }
 
 func TestTkUnpricedMediaModelMessage(t *testing.T) {

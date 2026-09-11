@@ -130,6 +130,88 @@ func TestCursorForcedToolsCannotBecomeCompatibilityFallback(t *testing.T) {
 	}
 }
 
+func TestCursorPlanRejectsUnsupportedNativeContent(t *testing.T) {
+	const model = "claude-sonnet-4-6"
+	for _, tc := range []struct {
+		name     string
+		protocol protocolrouter.Protocol
+		payload  string
+	}{
+		{"messages_image", protocolrouter.ProtocolMessages, `"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGk="}}]}]`},
+		{"messages_thinking", protocolrouter.ProtocolMessages, `"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"prior thought","signature":"s"}]},{"role":"user","content":"continue"}]`},
+		{"messages_redacted_thinking", protocolrouter.ProtocolMessages, `"messages":[{"role":"assistant","content":[{"type":"redacted_thinking","data":"s"}]},{"role":"user","content":"continue"}]`},
+		{"messages_tool_result_image", protocolrouter.ProtocolMessages, `"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_a","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGk="}}]}]}]`},
+		{"chat_image", protocolrouter.ProtocolChatCompletions, `"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGk="}}]}]`},
+		{"responses_image", protocolrouter.ProtocolResponses, `"input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,aGk="}]}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(fmt.Sprintf(`{"model":%q,%s}`, model, tc.payload))
+			path := protocolrouter.ResponsesPathNone
+			if tc.protocol == protocolrouter.ProtocolResponses {
+				path = protocolrouter.ResponsesPathRoot
+			}
+			request, err := protocolrouter.ParseCanonicalRequest(tc.protocol, path, model, false, body)
+			require.NoError(t, err)
+			account := cursorCandidateAccount(model)
+			ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+			_, governed, err := protocolPlanForAccount(ctx, account, model)
+			require.True(t, governed)
+			require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute)
+			require.Equal(t, body, request.Body(), "planning must preserve caller content")
+			require.Equal(t, []protocolrouter.Protocol{protocolrouter.ProtocolMessages}, account.ProtocolEndpointCapability.SupportedProtocols)
+		})
+	}
+}
+
+func TestCursorNativeContentFailureDoesNotWinCandidateSelection(t *testing.T) {
+	const model = "claude-sonnet-4-6"
+	body := []byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"prior thought","signature":"s"}]},{"role":"user","content":"continue"}]}`, model))
+	cursorAccount := cursorCandidateAccount(model)
+	peer := protocolRoutingOpenAIAccount(43, "messages")
+	peer.Platform = PlatformAnthropic
+	peer.GroupIDs = []int64{2}
+	peer.Credentials["model_mapping"] = map[string]any{model: model}
+	attachTestProtocolCapability(peer, protocolrouter.ProtocolMessages)
+	groups := []Group{grp(1, PlatformNewAPI, 0, false), grp(2, PlatformAnthropic, 1, false)}
+	resolver := NewUniversalRoutingResolver(&stubSpanLister{groups: groups})
+	wireCandidateTestResolver(resolver, &GatewayService{}, []Account{*cursorAccount, *peer})
+	ctx := resolver.WithRequest(context.Background(), ShapeAnthropicMessages, "/v1/messages", model, body)
+	group, err := resolver.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, model, "")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), group.ID, "the legal peer must win before a Cursor transport attempt")
+	resolver = NewUniversalRoutingResolver(&stubSpanLister{groups: groups[:1]})
+	wireCandidateTestResolver(resolver, &GatewayService{}, []Account{*cursorAccount})
+	ctx = resolver.WithRequest(context.Background(), ShapeAnthropicMessages, "/v1/messages", model, body)
+	_, err = resolver.Resolve(ctx, universalKey(1), ShapeAnthropicMessages, model, "")
+	require.Error(t, err, "a Cursor-only pool must fail at planning")
+}
+
+func TestCursorPlanPreservesEmulatedWebSearchHistoryCompatibility(t *testing.T) {
+	const model = "claude-sonnet-4-6"
+	for _, tc := range []struct {
+		name, id string
+		legal    bool
+	}{
+		{"emulated", "srvtoolu_ws_demo", true},
+		{"genuine", "srvtoolu_demo", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"assistant","content":[{"type":"server_tool_use","id":%q,"name":"web_search","input":{"query":"weather"}},{"type":"web_search_tool_result","tool_use_id":%q,"content":[]},{"type":"text","text":"The forecast is sunny."}]},{"role":"user","content":"Summarize the forecast."}]}`, model, tc.id, tc.id))
+			request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone, model, false, body)
+			require.NoError(t, err)
+			ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
+			_, governed, err := protocolPlanForAccount(ctx, cursorCandidateAccount(model), model)
+			require.True(t, governed)
+			if tc.legal {
+				require.NoError(t, err, "execution strips emulated search blocks and retains their text summary")
+			} else {
+				require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute, "genuine search blocks remain unsupported for the resolved Claude model")
+			}
+			require.Equal(t, body, request.Body(), "planning must not mutate retry input")
+		})
+	}
+}
+
 func TestCursorCandidateUsesSharedUniversalOrdering(t *testing.T) {
 	for _, cursorFirst := range []bool{false, true} {
 		for _, unavailable := range []int{0, 1, 2} {

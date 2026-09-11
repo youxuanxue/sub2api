@@ -157,8 +157,8 @@ type MePricingCatalogOptions struct {
 	GroupID  *int64
 	// HideUserRateOverrides 隐藏 per-user 专属倍率的"数值痕迹"：倍率提示
 	// 字段（rate_multiplier / has_override / accessible_groups 的倍率）回落
-	// 到分组默认值，但 models 的 your_price 仍按真实生效倍率计算——价格
-	// 必须与实际计费一致。非 admin 请求由 handler 置位。
+	// 到分组默认值。models 的 your_price 始终展示官方价，不乘用户倍率；
+	// 实际倍率由结算应用。非 admin 请求由 handler 置位。
 	HideUserRateOverrides bool
 }
 
