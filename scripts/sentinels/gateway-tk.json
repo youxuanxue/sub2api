@@ -40,6 +40,31 @@
         "rationale": "Direct promote must enforce the same reviewed replay receipt under the deployment lock."
       },
     {
+      "path": "backend/internal/service/openai_codex_models_service.go",
+      "must_contain": [
+        "cached, state := s.openAIModelsCache.get(cacheKey, time.Now())",
+        "if state == openAIModelsCacheFresh {\n\t\t\treturn cached, nil\n\t\t}"
+      ],
+      "rationale": "Recheck freshness inside the shared refresh flight so a caller with an earlier cache miss cannot refetch a catalog just filled by another caller. Stale entries must still revalidate."
+    },
+    {
+      "path": "backend/internal/service/openai_models_cache_refresh_tk_test.go",
+      "must_contain": [
+        "TestOpenAIModelsRefreshRechecksCacheAfterConcurrentFill",
+        "stale still revalidates"
+      ],
+      "rationale": "Deterministically cover a concurrent cache fill between the initial miss and the refresh flight, while preserving stale revalidation."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_cache_ttl_tk_test.go",
+      "must_contain": [
+        "TestNativeAnthropicCacheTTLReachesSettlement",
+        "TestMergeAnthropicUsageCacheTTLPreservesPresence",
+        "0.018745"
+      ],
+      "rationale": "Native Anthropic cache TTL buckets must survive conversion, settlement and usage persistence, including one-hour writes and aggregate-only fallback."
+    },
+    {
       "path": "backend/internal/service/billing_service_test.go",
       "must_contain": ["TestGetModelPricing_Fable51FallbackPricing", "pricing.CacheCreation1hPrice", "pricing.MaxReasoningEffortMultiplier"],
       "rationale": "Cursor supply must retain shared Fable pricing, cache TTLs and reasoning policy; provider quotes cannot replace the global model tariff."
@@ -136,7 +161,11 @@
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses.go",
-      "must_contain": ["dst.BillingTier = src.BillingTier"],
+      "must_contain": [
+        "dst.BillingTier = src.BillingTier",
+        "src.CacheCreation.Ephemeral5mInputTokens",
+        "src.CacheCreation.Ephemeral1hInputTokens"
+      ],
       "rationale": "The shared usage merger must retain the terminal Messages billing provenance."
     },
     {
@@ -4645,7 +4674,9 @@
       "must_contain": [
         "isOpenAIVideoUsageResult(result)",
         "tkTryCalculateOpenAIVideoUsageCost",
-        "settleBillingOnAccountServedModel(billingAccount, requestedForBilling, billingModel)"
+        "settleBillingOnAccountServedModel(billingAccount, requestedForBilling, billingModel)",
+        "result.Usage.CacheCreation5mTokens",
+        "result.Usage.CacheCreation1hTokens"
       ],
       "rationale": "Injection wiring from upstream-owned RecordUsage/calculateOpenAIRecordUsageCost into TK settlement companions. VideoSubmit billing must stay on the video path. Account model_mapping remaps (Token Plan legacy aliases) must settle on the served model after BillingModelSource overrides, not the client legacy price card."
     },
@@ -7920,7 +7951,9 @@
       "path": "backend/internal/service/openai_gateway_service.go",
       "must_contain": [
         "if protocolExecutionBound(ctx) {",
-        "strings.TrimSpace(protocolAuthorizationToken(account))"
+        "strings.TrimSpace(protocolAuthorizationToken(account))",
+        "CacheCreation5mTokens",
+        "CacheCreation1hTokens"
       ],
       "rationale": "Plan-bound API-key execution must consume the existing protocol authorization owner used during capability evaluation. Falling back to the legacy OpenAI-only accessor rejects valid Antigravity edge credentials."
     },
@@ -9415,7 +9448,9 @@
         "apiKey := nativeAnthropicAPIKeyForAccount(account)",
         "func nativeAnthropicAPIKeyForAccount(account *Account) string {",
         "account.Type != AccountTypeAPIKey",
-        "protocolAuthorizationToken(account)"
+        "protocolAuthorizationToken(account)",
+        "CacheCreation5mTokens:    u.CacheCreation5mTokens",
+        "CacheCreation1hTokens:    u.CacheCreation1hTokens"
       ],
       "rationale": "Native Anthropic Messages transports reached through the OpenAI-compatible protocol router enforce their API-key-only boundary, then delegate credential binding to protocolAuthorizationToken, the shared protocol-routing owner. The selected wire protocol owns the credential shape; platform=anthropic Kiro mirror stubs must not pass through the OpenAI-platform getter and fail locally before HTTP dispatch."
     },

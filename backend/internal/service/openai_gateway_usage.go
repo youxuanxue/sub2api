@@ -187,12 +187,14 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// Calculate cost
 	tokens := UsageTokens{
-		InputTokens:         actualInputTokens,
-		ImageInputTokens:    result.Usage.ImageInputTokens,
-		OutputTokens:        result.Usage.OutputTokens,
-		CacheCreationTokens: result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:     result.Usage.CacheReadInputTokens,
-		ImageOutputTokens:   result.Usage.ImageOutputTokens,
+		InputTokens:           actualInputTokens,
+		ImageInputTokens:      result.Usage.ImageInputTokens,
+		OutputTokens:          result.Usage.OutputTokens,
+		CacheCreationTokens:   result.Usage.CacheCreationInputTokens,
+		CacheCreation5mTokens: result.Usage.CacheCreation5mTokens,
+		CacheCreation1hTokens: result.Usage.CacheCreation1hTokens,
+		CacheReadTokens:       result.Usage.CacheReadInputTokens,
+		ImageOutputTokens:     result.Usage.ImageOutputTokens,
 	}
 
 	// Get rate multiplier
@@ -423,6 +425,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		InputTokens:              actualInputTokens,
 		OutputTokens:             result.Usage.OutputTokens,
 		CacheCreationTokens:      result.Usage.CacheCreationInputTokens,
+		CacheCreation5mTokens:    result.Usage.CacheCreation5mTokens,
+		CacheCreation1hTokens:    result.Usage.CacheCreation1hTokens,
 		CacheReadTokens:          result.Usage.CacheReadInputTokens,
 		ImageOutputTokens:        result.Usage.ImageOutputTokens,
 		ImageInputTokens:         result.Usage.ImageInputTokens,
