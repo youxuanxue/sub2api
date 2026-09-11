@@ -2,6 +2,43 @@
   "version": 1,
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
+      {
+        "path": ".github/workflows/deploy-stage0.yml",
+        "must_contain": [
+          "replay-prod-release.py --target prod --tag",
+          "STAGE0_BLUEGREEN_APPROVED_REPLAY:",
+          "Validate human-approved replay receipt"
+        ],
+        "rationale": "Replay dispatch must execute retained requests; reviewed continuation must bind the exact candidate to the existing deploy gates."
+      },
+      {
+        "path": "ops/stage0/prod_replay.py",
+        "must_contain": [
+          "def validate_receipt(",
+          "def execute(",
+          "def replay(",
+          "all(r['passed'] for r in results)",
+          "sandbox.close()"
+        ],
+        "rationale": "Preserve fail-closed replay evidence, actual HTTP execution, and isolated-resource cleanup."
+      },
+      {
+        "path": "ops/stage0/test_prod_replay.py",
+        "must_contain": [
+          "test_full_execution_green_requires_real_successes",
+          "test_gaps_failures_drift_and_cleanup_never_green",
+          "test_prepare_cannot_inherit_cutover_and_execution_must_produce_receipt"
+        ],
+        "rationale": "Behavioral regressions stop a no-op workflow or an observations-only green receipt from replacing real replay."
+      },
+      {
+        "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
+        "must_contain": [
+          "validate_replay_gate()",
+          "  validate_replay_gate"
+        ],
+        "rationale": "Direct promote must enforce the same reviewed replay receipt under the deployment lock."
+      },
     {
       "path": "backend/internal/service/openai_codex_models_service.go",
       "must_contain": [
@@ -181,10 +218,7 @@
     },
     {
       "path": "backend/internal/engine/protocolrouter/registry.go",
-      "must_contain": [
-        "preservesResponsesToMessages",
-        "preservesChatToMessages"
-      ],
+      "must_contain": ["preservesResponsesToMessages", "preservesChatToMessages", "adapterID: AdapterGeminiToChat", "func preservesGeminiToChat(", "apicompat.GeminiToChatRequest("],
       "rationale": "Tool-capable Messages conversions remain owned by the protocol registry, never a Cursor handler fallback."
     },
     {
@@ -240,7 +274,7 @@
     },
     {
       "path": "backend/internal/service/protocol_execution.go",
-      "must_contain": ["freshPlan, err := planProtocolRoute(ctx, router, request, fresh)"],
+      "must_contain": ["freshPlan, err := planProtocolRoute(ctx, router, request, fresh)", "protocolrouter.AdapterGeminiToChat:", "protocolExecutorsFromContext(ctx).GeminiToChat"],
       "rationale": "Send-time freshness must enforce the same native-only route policy as admission."
     },
     {
@@ -1392,7 +1426,7 @@
     {
       "path": "backend/internal/service/candidate_eligibility_test.go",
       "must_contain": [
-        "TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer",
+        "TestCandidateEligibilityGeminiChatMappingWithInvalidPeer",
         "TestCandidateEligibilityInvalidCapabilityIsCandidateRejection",
         "TestCandidateEligibilityUnknownCapabilityIsNotEntitlement"
       ],
@@ -3507,9 +3541,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
-      "must_contain": [
-        "account.GetPoolModeRetryCount(), failoverErr"
-      ],
+      "must_contain": ["account.GetPoolModeRetryCount(), failoverErr", "selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToChat"],
       "rationale": "Gemini /v1beta gateway must thread account.GetPoolModeRetryCount() into the shared failover loop — same contract that unifies pool_mode retry behavior across platforms."
     },
     {
@@ -11127,7 +11159,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
-      "must_contain": ["if cleanThoughtSignatures", "forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)"],
+      "must_contain": ["if cleanThoughtSignatures", "forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)", "GeminiToChat: func(", "h.openAIGatewayService.ForwardGeminiViaChat("],
       "rationale": "Apply signature repair to the validated canonical request's transport copy without replacing the immutable route plan."
     },
     {
@@ -11225,6 +11257,49 @@
         "BenchmarkCursorCachedContent"
       ],
       "rationale": "Regression coverage pins actual image-size admission and Cursor forwarding/content-cache behavior, including rejection and freshness boundaries."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/gemini_chat_tk.go",
+      "must_contain": [
+        "func GeminiToChatRequest(",
+        "decoder.DisallowUnknownFields()",
+        "func ChatToGeminiResponse("
+      ],
+      "rationale": "Gemini conversion admission and execution share strict raw-body parsing; native identity does not inherit converter exclusions."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_forward_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) ForwardGeminiViaChat(",
+        "s.ForwardAsChatCompletionsDispatched(",
+        "func (w *geminiChatWriter) flushEvent()",
+        "ForwardResultFromOpenAI(result)"
+      ],
+      "rationale": "Reuse Chat transport and accounting; stream complete Gemini events without synthetic completion."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/gemini_chat_conversion_tk_test.go",
+      "must_contain": [
+        "TestGeminiToChatPlanChecksActualBody"
+      ],
+      "rationale": "Protect strict conversion rejection and unchanged native identity for Gemini media, thinking and continuation bodies."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_forward_tk_test.go",
+      "must_contain": [
+        "TestGeminiChatCandidateUsesSharedScopeAndPriority",
+        "TestGeminiChatForwardFailureAndPartialUsage",
+        "TestGeminiChatUsagePreservesCacheTTLThroughSettlementConversion",
+        "TestGeminiChatWriterStreamsBeforeCompletion"
+      ],
+      "rationale": "Protect scope/scheduling parity, partial usage, pre-output retry and incremental streaming."
+    },
+    {
+      "path": "backend/internal/handler/gemini_chat_conversion_tk_test.go",
+      "must_contain": [
+        "TestUS052_GeminiChatSelectedHTTPTransport"
+      ],
+      "rationale": "Exercise authoritative candidate-to-handler execution against real HTTP Chat endpoints through OpenAI and NewAPI transports."
     }
   ]
 }

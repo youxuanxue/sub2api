@@ -33,6 +33,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
 | 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier`（是否值得人工再跟；**实测检查不走这里**） |
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
+| **prod replay（只准备 inactive color，不切流）** | 机械 | `scripts/stage0/replay-prod-release.py --tag X.Y.Z` → prod SSM `prepare` → `ops/stage0/prod_replay.py` 收集保留 capture、独立 PostgreSQL/Redis、同 image ID 副本、真实 HTTP 请求、coverage/response/route 门禁 → 脱敏 `replay-receipt.json`（不接收人工 observations） |
 | **发版后两阶段实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` 同一 `deploy` job：蓝绿脚本在 Caddy reload 成功的真实切流点输出 `cutover_at`；`Check PR hooks immediately` 查该时刻起的 PR observables，workflow 只补足到 `cutover_at + 300s`，再由 `Check traffic and 5xx after 5 minutes` 查累计流量/5xx；两阶段复用 `plan.json` 与已批的 prod Environment |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（canonical：`tokenkey-anthropic-oauth-config`） |
 | **发版后健康账号分组合理性检查（只读 advisory）** | 机械 | `bash ops/observability/check-account-group-bindings.sh --target prod`；从健康、可调度账号的显式 `model_mapping` 与 peer 分组证据派生，不硬编码模型→分组表；`review` / 探针失败均不阻塞 rollout |
@@ -46,18 +47,56 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 本 skill 默认按用户语义解析；用户未写完整参数时，先按下面语义补全，仍有歧义再问。
 
 ```text
-/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|deploy|smoke|rollback>] [previous_tag=X.Y.Z] [anthropic_config_check=false] [account_model_mapping_check=false] [main_via_edge=false]
+/tokenkey-stage0-release-rollout target=<prod|edge-<edge_id>|all> [tag=X.Y.Z] [operation=<check|release|replay|deploy|smoke|rollback>] [replay_receipt=SHA256] [previous_tag=X.Y.Z] [anthropic_config_check=false] [account_model_mapping_check=false] [main_via_edge=false]
 ```
 
 | 参数 | 语义 |
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
+| `operation=replay` | **仅允许 `target=prod`**：先以 `STAGE0_BLUEGREEN_STAGE=prepare` 部署 inactive color，再用保留的真实生产 capture 做分层回放。必须生成 verdict=`green` 的 replay receipt；整个阶段强制 `cutover=false`，不得调用 promote、Caddy reload 或 edge rollout。receipt 通过后仍须用户审核，审核通过才可继续 promote → prod smoke → post-release 检查 → edge 逐个 rollout。 |
 | `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。 |
 | `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（edges 均为 Lightsail，路由到 `deploy-edge-lightsail-stage0.yml`）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_instance。 |
 | `target=all` | release 一次 → canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。`main_via_edge=true` 才跑可选段。 |
 | `main_via_edge` | 默认 **false**。`target=all` 时不跑 prod→Edge 中转 smoke；缺 key 或 by-design 503 不得据此 rollback。 |
 | `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
 | `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only），只读 diff prod 显式 `model_mapping` 与 Go SSOT floor/policy metadata。violation 或 SSM/OIDC 失败记 **yellow**，不 rollback 镜像。`account_model_mapping_check=false` 跳过。edge 空 mapping 不纳入 post-release 检查；需显式 `--include-edges` 才查 edge。 |
+
+### 回放与审核后续发
+
+用户说“回放 / 只部署 prod，不切流”时，使用 `operation=replay target=prod`。
+先完成 release/build，然后 dispatch `deploy-stage0.yml -f operation=replay -f tag=X.Y.Z`。
+这一阶段跳过 canary 和全部 Edge。workflow 会准备 inactive color（已有同 tag 且指纹一致的
+prepare 可重试复用），从过去 24 小时保留的成功请求中按用户 × 模型 × endpoint × stream ×
+tool × multimodal 选择完整请求体，以原用户 key 向 loopback 隔离副本发送真实请求。
+隔离副本复用 prepared 容器的 image ID；可供 promote 的容器仍使用原生产数据层。
+生产 `prepare` 的兼容性 migration 门禁仍执行。原始请求和凭证不上传 CI artifact。
+
+验收由脚本决定：每个观测组合须有成功响应；JSON/SSE 必须完整，无执行失败、覆盖缺口、
+候选指纹/路由漂移或生产 usage 写入，且用户、模型、协议各至少两类，才能为 green。
+采样预算或本地 capture 缺失（包括已归档 S3）、脱敏/截断 body、缺失的 Gemini action
+均如实报告 gap，禁止 agent 补造 prompt、猜 path 或手改 verdict。
+现有 capture 不保留请求头，协议/鉴权头由执行器重建，此限制写入 receipt。
+回放消耗真实上游/edge 配额；主网关用户余额与 usage 只写隔离数据库。
+临时数据层、请求体和凭证在结束时清理，清理失败也判 red。
+
+`green` 只表示可以交用户审核，**不是切流授权**。向用户展示 receipt、coverage 和限制，
+停在 `approval_pending=true`。用户明确审核通过后，使用该 receipt 的 SHA256 dispatch：
+
+```bash
+gh workflow run deploy-stage0.yml -f operation=deploy -f tag=X.Y.Z -f replay_receipt=<reviewed-sha256>
+```
+
+workflow 验证 receipt 与当前 prepared 指纹，并沿原 deploy job 执行 promote、完整 prod smoke、
+endpoint/global candidate gates、pricing/advisory、immediate/delayed post-release、drain join 和
+QA component 验收。原有 Environment approval **不能替代用户对切流的审核**，禁止自动取得
+receipt 后自行 dispatch 上述命令。receipt 24 小时失效；重试 replay 会立即使旧 receipt 失效。
+底层 promote 在主机部署锁内再次校验，不提供绕过 red 的开关。
+
+完整发版后续继续默认 Anthropic OAuth snapshot/check、account model_mapping check、控制面探活；
+用户授权完整 fleet 时，用 `rollout-edges.sh --tag X.Y.Z --parallel 1` 逐个 upgrade + infra smoke
+（此次没有 pre-prod canary，不填 `--skip`）。任一 hard gate 失败则停止；advisory 保持原策略。
+替换不同 tag 的失败候选仍走 bluegreen owner 的显式 `STAGE0_BLUEGREEN_REPLACE_RECEIPT`，然后
+重新运行 replay；不得重新部署镜像后沿用旧 receipt。
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
 
