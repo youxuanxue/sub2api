@@ -1384,6 +1384,8 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 ) (int, bool) {
 	statusCode := openAIStreamFailureStatus(payload, message)
 	switch statusCode {
+	case http.StatusServiceUnavailable:
+		return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {
 			return statusCode, false
@@ -1534,6 +1536,12 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		classificationHeaders = nil
 	}
 	failoverErr := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, statusCode, headers, classificationHeaders, payload, message, shouldDisable, retryableOnSameAccount)
+	if shouldDisable && statusCode == http.StatusServiceUnavailable {
+		// An explicit operator rule has cooled this model; retrying the same
+		// account would immediately reuse the supply that the rule excluded.
+		failoverErr.RetryableOnSameAccount = false
+		failoverErr.RequestScopedTransient = false
+	}
 	if failoverErr.IsCredentialFailure() || failoverErr.RequestScopedTransient {
 		return failoverErr
 	}
