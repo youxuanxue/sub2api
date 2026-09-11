@@ -53,14 +53,13 @@ Backend `backend/` (Go: `handler` → `service` → `repository` → `ent`), fro
 Candidate eligibility and scheduling (`candidate-eligibility-ssot`): approved
 authorization-scoped scheduling policy, implementation and acceptance boundaries are in
 [`docs/approved/candidate-eligibility-ssot.md`](docs/approved/candidate-eligibility-ssot.md).
-Production owners in `backend/internal/service/`: `candidate_request_tk.go`
-(request/Plan/billing binding), `candidate_selection_tk.go` (account selection,
-capacity and retries), `candidate_billing_tk.go` (legal billing origin),
-`candidate_identity_tk.go` / `candidate_ws_identity_tk.go` (affinity/continuation),
-and `candidate_discovery_tk.go` (shared support projection). Execution consumes
-the actual account and Plan, never the billing group's platform. Existing
-capability, availability, saturation and supplier credential-fault owners remain
-shared. US-050 records test coverage and release gaps; implementation is not deployment.
+Its §Implementation/Owners table is the **only** owner enumeration — do not copy a
+second list here or into `AGENTS.md`; a new candidate entry joins that table and
+`scripts/sentinels/gateway-tk.json`. Invariants: every ingress consumes those
+owners, execution consumes the actual account and Plan, never the billing group's
+platform, and existing capability, availability, saturation and supplier
+credential-fault owners remain shared. US-050 records test coverage and release
+gaps; implementation is not deployment.
 
 ## Hard Rules
 
@@ -252,7 +251,7 @@ Owner table + extension rules: [`docs/global/agent-reference.md`](docs/global/ag
 
 Gateway flow, prod↔edge topology, disaster recovery, full PR checklist: [`docs/global/agent-reference.md`](docs/global/agent-reference.md).
 
-Model delivery SSOT（prod mapping / catalog / 价格各有 owner；edge 空 mapping）：[`docs/global/agent-reference.md`](docs/global/agent-reference.md#model-serving-ssot-model_mapping-catalog-prod-vs-edge)。完整公式只在 `docs/approved/pricing-serving-single-source-of-truth.md`。
+Model delivery SSOT（prod mapping / catalog / 价格各有 owner；edge 空 mapping）：[`docs/global/agent-reference.md`](docs/global/agent-reference.md#model-serving-ssot--模型交付-ssot)。完整公式只在 `docs/approved/pricing-serving-single-source-of-truth.md`。
 
 Model/catalog tests must derive positive and negative model sets from that SSOT (`ServableClientFacingIDs`, platform allowlist helpers, manifest/overlay parsers, runtime mapping helpers). Do not hand-maintain duplicate model lists in tests; only hardcode true boundary samples such as unknown IDs, cross-platform IDs, compatibility aliases, or priced-but-hidden examples.
 

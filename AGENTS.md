@@ -51,11 +51,10 @@ Codex 不自动加载 `.cursor/rules/*.mdc`；需要时按下表路径读取对�
 
 协作检索名：`candidate-eligibility-ssot`。授权范围内统一调度的策略、实现与验收边界见
 [`docs/approved/candidate-eligibility-ssot.md`](docs/approved/candidate-eligibility-ssot.md)。
-生产 owner 位于 `backend/internal/service/`：`candidate_request_tk.go` 管请求、Plan 与
-计费绑定；`candidate_selection_tk.go` 管授权范围内去重选号、容量与重试；
-`candidate_billing_tk.go` 管合法来源和价格等价性；`candidate_identity_tk.go` 与
-`candidate_ws_identity_tk.go` 管账号会话及硬续接身份；`candidate_discovery_tk.go`
-复用支持投影。模型及 converter 合法性由 `protocolrouter.Plan` 裁决，现有可用性、
-`candidate_saturation.go` 和供应源凭据故障 owner 继续共享。
-新增入口必须接入这些 owner；执行读取实际账号和 Plan，计费组平台不参与选号或
+该文档 §Implementation/Owners 表是**唯一**的 owner 清单：本文件与 `CLAUDE.md` 都只留
+指针，不再复制第二份名单（三处副本已经各自漂移过）。新增 candidate 入口同时进那张表和
+`scripts/sentinels/gateway-tk.json`。
+
+不变式：模型及 converter 合法性由 `protocolrouter.Plan` 裁决；现有可用性、saturation
+与供应源凭据故障 owner 继续共享；执行读取实际账号和 Plan，计费组平台不参与选号或
 handler 选择。测试及发布前缺口见 US-050，本地实现不代表已部署。

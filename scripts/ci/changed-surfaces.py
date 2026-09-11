@@ -34,6 +34,10 @@ CONTRACT_FILES = {
     "ops/archive/data_layer_archive_promote_batch.py",
     "ops/archive/data_layer_archive_closeout.py",
     "ops/migration/usage_logs_daily_partition.py",
+    # Owner-declaration and approved-doc navigation gates: editing either checker
+    # must re-run the contracts surface that consumes it.
+    "scripts/checks/candidate-owner-table.py",
+    "scripts/checks/approved-docs-index.py",
 }
 
 PREFLIGHT_GO_FILES = {

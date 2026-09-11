@@ -11,7 +11,8 @@ created: 2026-09-07
 
 The user approved converging on four existing owners in the 2026-09-07
 conversation, with the instruction to implement this SSOT principle.
-This authorizes implementation; merge and production deployment remain separate.
+That approval authorized implementation only; merge and deployment were separate
+decisions, and both have since been taken — see the release status below.
 The Chinese collaboration name is recorded in project AGENTS.md. Use
 `candidate-eligibility-ssot` as the stable search term.
 
@@ -69,8 +70,9 @@ its effective body without mutating retry input. Changes are audited by account,
 resolved model, target protocol and adjustment reason, without logging bodies.
 Legacy Messages normalization reuses the same policy and cannot undo a selected
 Plan. Endpoint evidence changes that alter the effective request invalidate the
-selected Plan before transport. This approval covers implementation and tests,
-not merge or production deployment. The supplier's exact
+selected Plan before transport. This 2026-09-10 approval covered implementation
+and tests only; the resulting change has since merged and released.
+The supplier's exact
 `[preflight:R3.forced_tool_choice_incompatible]` 400 is eligible for another
 account without credential penalties; unrelated client 400s remain terminal.
 
@@ -79,9 +81,10 @@ account without credential penalties; unrelated client 400s remain terminal.
 On 2026-09-08 the user approved the policy below and its ownership in this
 contract. This branch implements the shared candidate handoff and account pool;
 local validation is recorded in US-050. The follow-up conversation also approved the balance-origin rule in
-[universal-key-routing.md](universal-key-routing.md#target-billing-attribution),
+[universal-key-routing.md](universal-key-routing.md#已确认的余额计费归属),
 group-independent session affinity with a one-time soft-cache cold start, and
-the common account ordering below. These approvals are not deployment evidence.
+the common account ordering below. A conversation approval is never by itself
+deployment evidence; the release facts below are what record what shipped.
 
 The subsequent review accepts multiplier-read fallback to 1 and normal
 administrative rate changes between reservation and settlement; billing details
@@ -91,8 +94,14 @@ Direct group model mappings while Universal ignores them, as defined in
 That supplement also assesses continuation-order migration impacts. Direct
 compatibility does not require client migration or deletion of group fields.
 The mapping-mode guard, global scheduling and continuation-storage migration
-are implemented in this branch. Release and deployment are explicitly prohibited
-for this task; local implementation and tests are not deployment evidence.
+are merged and released. The release prohibition recorded here applied to the
+original implementation task and has been lifted: every owner in the table below
+is contained in a released tag (`v1.8.204` through `v1.8.217`) and prod
+(`api.tokenkey.dev`) has been serving `v1.8.219`, an ancestor-inclusive
+superset, since 2026-09-11. Local implementation and tests remain separate from
+deployment evidence — the acceptance boundaries in
+[US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md)
+now describe live-traffic verification still to be gathered, not unshipped code.
 
 ### Scope and decision order
 
@@ -355,12 +364,19 @@ consume the same selected path, including retries and final slot checks.
 | --- | --- | --- |
 | Model mapping, native/converter legality | `protocolrouter.Router.Plan` via `protocol_routing_context.go` | Parse the actual request using `protocolrouter.ParseCanonicalRequest`; a valid converter is equally eligible. |
 | Authorization paths and account selection | `candidate_request_tk.go`, `candidate_selection_tk.go` | HTTP auth, Responses WS, both schedulers and retries consume one request-local state. |
+| Inference ingress into candidate state | `candidate_ingress_tk.go` (`PrepareCandidateIngress`) | The single HTTP entry: existing client and session parsers run before billing admission, when sticky-only eligibility already matters. A new ingress joins this owner instead of preparing its own state. |
+| Account pool admission projection | `candidate_eligibility.go` (`candidateSupportsRequest`) | Support and readiness stay separate; an empty live pool is never missing entitlement. Legacy adapters in `universal_routing_tk_serving.go` share this admission but keep their callers' snapshot/fallback semantics and are not the selection owner. |
 | Current availability | `gateway_candidate_eligibility.go`, `openai_candidate_eligibility.go` and existing quota/auth/capability helpers | The global selector supplies the actual account platform and sticky identity, then applies recovery over the admitted payment tier. |
 | Empty-pool feedback and expiring preference | `candidate_saturation.go` over existing Redis counters | Account scoring consumes shared scoped feedback; groups do not receive scheduling votes. |
 | Billing origin and reservations | `candidate_billing_tk.go`, `BillingCacheService`, existing hold lifecycle | Compare only equivalent origins, rebind reservations, snapshot the final path before async settlement. |
 | Profit admission | `candidate_profit_tk.go` delegates to the existing gateway profit owner | Actual billing origin and request pricing instant follow selection, slot checks and WS turns. |
 | Stable affinity and continuation | `candidate_identity_tk.go`, `candidate_ws_identity_tk.go`, `candidate_ws_authorization_tk.go` | User/key/session soft affinity; user-owned response continuation with authorized legacy lookup and dual writes. |
 | Supplier credential faults | `supplier_credential_fault.go`, `account_repo_supplier_fault.go` | Conditional updates share confirmed credential faults and preserve independent model limits, Plans and account concurrency. |
+| Attributable failure observation and deprioritization | `candidate_failure_tk.go` | One attribution rule per account and resolved model. Caller cancellation, credential faults, request-scoped transients, same-account retries and caller errors keep their dedicated owners; an observed failure must not also feed the legacy OpenAI health breaker. |
+| Per-turn RPM admission | `candidate_rpm_tk.go` | Peek before binding, count once after. Universal drops the auth snapshot's group override because it belongs to the original bound group. |
+| Replayable Chat attempt budget | `candidate_chat_attempt_tk.go` | Pre-output failover only, bounded by the shared attempt cap; handlers still own switching. Never replay or synthesize completion after content or tool output. |
+| Relay-scoped model rejection | `candidate_edge_model_rejection_tk.go` | A relay's own model verdict covers that path only, and must not exclude other authorized candidates at the main gateway. |
+| Discovery request/account snapshot | `candidate_discovery_snapshot_tk.go` | One immutable request and account set per discovery shape; prepare each group's request policy once while runtime selection keeps fresh account validation. |
 | Model discovery | `candidate_discovery_tk.go` | Direct and Universal model/capability surfaces and `me_pricing_candidate_tk.go` project the same authorization and support paths without live payment or slot admission. |
 
 ### Implemented behavior
@@ -397,6 +413,30 @@ WebSocket ingress/upstream sockets, discovery and legacy continuation storage.
 Gateway sentinels protect consuming call sites as well as shared owners and tests.
 
 This is a backend/API change with no new UI surface, schema or live configuration.
-Local unit and middleware integration tests are required; production verification
-requires deploying the reviewed change before a Universal-key probe can prove
-the new behavior.
+Local unit and middleware integration tests are required.
+
+### Release status (verified 2026-09-11)
+
+All 16 production `backend/internal/service/candidate_*.go` owners named in
+§Implementation/Owners are contained in a released tag, so the "deploy the
+reviewed change before a Universal-key probe can prove the new behavior"
+prerequisite is satisfied — that probe is runnable against prod, not blocked:
+
+| Owners introduced | Commit | Tag |
+| --- | --- | --- |
+| `candidate_eligibility.go`, `candidate_saturation.go` (#2032) | `b2e8681443` | `v1.8.204` |
+| `candidate_request_tk.go`, `candidate_selection_tk.go`, `candidate_ingress_tk.go`, `candidate_billing_tk.go`, `candidate_discovery_tk.go`, `candidate_identity_tk.go`, `candidate_ws_authorization_tk.go`, `candidate_ws_identity_tk.go` (#2051) | `321a7ff334` | `v1.8.208` |
+| `candidate_rpm_tk.go` (#2053) | `928316bc02` | `v1.8.208` |
+| `candidate_failure_tk.go`, `candidate_chat_attempt_tk.go` (#2067) | `651593de38` | `v1.8.213` |
+| `candidate_discovery_snapshot_tk.go`, `candidate_profit_tk.go` (#2097) | `9b72ce6bfc` | `v1.8.216` |
+| `candidate_edge_model_rejection_tk.go` (#2100) | `f5921f5232` | `v1.8.217` |
+
+Each tag's Release workflow run succeeded. Prod (`api.tokenkey.dev`) has been
+serving `v1.8.219` — which contains all of the above — since the successful
+Stage0 Deploy of 2026-09-11, with a multi-arch (amd64 + arm64) manifest verified
+by that run and `/health` returning 200 under live traffic.
+
+What remains open is live-traffic acceptance evidence, not shipping: US-050's
+`AC-013/017/018/027` and `AC-036/037` still need real price/cost comparison
+against production data, and `AC-032/033/034` still need the production
+comparison recorded. Those are measurements to take on the deployed build.

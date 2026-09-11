@@ -71,6 +71,23 @@
 #   QA lifecycle SSOT gate      — prevents retired QA archive/purge/self-export
 #        owners from returning and keeps generic data-layer tooling usage/ops-only.
 #        Driven by `scripts/checks/qa-lifecycle-ssot.py`.
+#   gitignore script homes       — upstream's bare `scripts` rule matches a directory
+#        named `scripts` at ANY depth, so ~230 tracked tooling files were force-added
+#        and every NEW checker/skill script was silently dropped from commits. Asserts
+#        the TK re-includes hold, that the explicit secret patterns replacing the bare
+#        rule's incidental coverage hold, and that no tracked file is shadowed. Driven
+#        by `scripts/checks/gitignore-script-homes.py`.
+#   candidate owner table        — the candidate-eligibility owner roster existed in
+#        three places and all three drifted (root files named 6 of 16 owners,
+#        omitting the single HTTP ingress). Keeps the enumeration only in the
+#        approved contract and requires every production `candidate_*.go` to declare
+#        the fact it owns. Driven by `scripts/checks/candidate-owner-table.py`.
+#   approved-doc index/anchors   — an approved contract that is not linked from
+#        `docs/approved/README.md` is invisible to the next agent, who then
+#        re-derives the policy into a second source of truth; a `#fragment` link
+#        silently rots when the target heading is reworded. Driven by
+#        `scripts/checks/approved-docs-index.py` (status vocabulary stays with
+#        `dev-rules/scripts/check_approved_docs.py`, which does not check membership).
 #   QA Bundle contract gate      — runs the active S3 Bundle service/worker package
 #        tests and requires the US-044 authorization anchor to prevent zero-match
 #        false greens after an upstream merge.
@@ -465,6 +482,51 @@ elif ! python3 ./scripts/checks/pricing-serving-docs.py --quiet; then
     errors=$((errors + 1))
 else
     echo "  ok: pricing, availability, and protocol docs have one reciprocal precedence"
+fi
+
+echo ""
+echo "=== sub2api: gitignore script homes ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by gitignore script-home check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/gitignore-script-homes.py --selftest >/dev/null; then
+    echo "  FAIL: gitignore script-home checker self-tests"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/gitignore-script-homes.py --quiet; then
+    echo "  FAIL: new script files would be silently ignored, or script-home secrets became committable"
+    errors=$((errors + 1))
+else
+    echo "  ok: script homes committable, script-home secrets ignored"
+fi
+
+echo ""
+echo "=== sub2api: candidate owner table ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by candidate owner table check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/candidate-owner-table.py --selftest >/dev/null; then
+    echo "  FAIL: candidate owner table checker self-tests"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/candidate-owner-table.py --quiet; then
+    echo "  FAIL: candidate owner undeclared in the approved contract, or the roster was copied into a root file"
+    errors=$((errors + 1))
+else
+    echo "  ok: candidate owners declared once, root files only point at the table"
+fi
+
+echo ""
+echo "=== sub2api: approved-doc index and anchors ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by approved-doc index check)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/approved-docs-index.py --selftest >/dev/null; then
+    echo "  FAIL: approved-doc index checker self-tests"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/approved-docs-index.py --quiet; then
+    echo "  FAIL: approved doc missing from index, or a doc anchor is dead"
+    errors=$((errors + 1))
+else
+    echo "  ok: every approved contract is indexed and doc anchors resolve"
 fi
 
 echo ""
