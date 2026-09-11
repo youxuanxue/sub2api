@@ -12,7 +12,7 @@
 
 ## Acceptance Criteria
 
-1. 重复客户端请求 ID 不能决定服务端身份；本地 blob/DLQ 禁止目录越界、符号链接逃逸和覆盖。入站 X-Client-Request-ID 仅作为 client_request_id 标记。
+1. 重复客户端请求 ID 不能决定服务端身份；本地 blob/DLQ 禁止目录越界、符号链接逃逸和覆盖。入站 X-Client-Request-ID 仅作为 client_request_id 标记；若只传遗留 X-Request-ID，降级为同一标记以便响应丢失时仍可检索，但永不成为存储主键。
 2. QA 长响应、未结束帧和密集小帧的采集有界，客户端收到的响应不被采集截断。
 3. 结构化内容中的常见凭据会遮蔽，普通文本和字符串 JSON 不改变、不无限递归。
 4. 兼容日志开关不覆盖 ACL、限流和会话绑定的可信代理链。
@@ -35,6 +35,8 @@
 - `backend/internal/util/logredact/content_test.go`::`TestRedactJSONStringPreservesOrdinaryContentAndTerminates`
 - `backend/internal/server/middleware/request_access_logger_test.go`::`TestRequestLogger_DoesNotTrustIncomingRequestID`
 - `backend/internal/server/middleware/client_request_id_test.go`::`TestClientRequestIDAcceptsInboundHeader`
+- `backend/internal/server/middleware/client_request_id_test.go`::`TestClientRequestIDFallsBackToInboundRequestIDAsClientMarker`
+- `backend/internal/server/middleware/client_request_id_test.go`::`TestClientRequestIDPrefersExplicitClientHeaderOverLegacyRequestID`
 - `backend/internal/pkg/ip/ip_test.go`::`TestGetSecurityClientIPSwitchCannotOverrideTrustedPeer`
 - `backend/internal/pkg/httpclient/public_test.go`::`TestPublicClientRejectsLocalTargetsAndRedirects`
 - `backend/internal/pkg/httpclient/public_test.go`::`TestPublicDialPinsResolvedAddressAndRejectsMixedAnswers`

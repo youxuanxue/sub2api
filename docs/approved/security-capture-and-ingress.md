@@ -35,9 +35,10 @@ risk: high
 - 隐私声明准确披露成功请求采集、自动脱敏的限制、QA 归档与导出生命周期。
 
 回归覆盖：目录穿越、符号链接、重复写入、写入失败、重复客户端请求 ID、
-入站 X-Client-Request-ID 被接受为 client_request_id、入站 X-Request-ID 不决定存储身份、
-长流/碎片/缺分隔符、正常转发、正文凭据、普通 JSON 字符串、伪造 IP、
-公共 DNS 固定连接、混合 DNS 答案、私网重定向及伪造图片 Content-Type。
+入站 X-Client-Request-ID 被接受为 client_request_id、仅传遗留 X-Request-ID 时降级为
+client_request_id、入站 X-Request-ID 不决定存储身份、长流/碎片/缺分隔符、正常转发、
+正文凭据、普通 JSON 字符串、伪造 IP、公共 DNS 固定连接、混合 DNS 答案、私网重定向及
+伪造图片 Content-Type。
 相关 owner、调用点及负向测试登记 gateway sentinel，防止上游同步静默移除安全行为。
 
 剩余审计事项逐项处理，不能把本 PR 当作全部安全审计结案：管理员 MFA 需要真实持有者绑定；

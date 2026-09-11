@@ -21,8 +21,10 @@ func RequestLogger() gin.HandlerFunc {
 			return
 		}
 
-		// The request ID is a storage/correlation identity, never client authority.
-		// Reusing a caller's ID can alias QA objects across users and requests.
+		// Storage/correlation identity is always minted here. Never trust inbound
+		// X-Request-ID as ctxkey.RequestID (QA/usage blob keys). Legacy callers that
+		// still send only that header are handled by ClientRequestID as a client
+		// marker, not as this storage id.
 		requestID := uuid.NewString()
 		c.Header(requestIDHeader, requestID)
 

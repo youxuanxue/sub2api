@@ -88,6 +88,8 @@ func TestRequestLogger_GenerateAndPropagateRequestID(t *testing.T) {
 	}
 }
 
+// Inbound X-Request-ID must never become storage request_id. ClientRequestID may
+// still adopt the same inbound value as client_request_id (see its fallback tests).
 func TestRequestLogger_DoesNotTrustIncomingRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
