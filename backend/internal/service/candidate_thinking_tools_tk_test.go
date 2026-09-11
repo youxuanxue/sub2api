@@ -137,3 +137,52 @@ func TestProtocolPlanCacheSeparatesConversionPermission(t *testing.T) {
 		require.Equal(t, want, selection.ProtocolPlan.TargetProtocol())
 	}
 }
+
+func TestCandidateThinkingToolsSlotRecheckPreservesConversionPermission(t *testing.T) {
+	for _, mode := range []string{"direct", "universal"} {
+		for _, stage := range []string{"acquire", "wait"} {
+			for _, permission := range []string{"native-only", "conversion-allowed"} {
+				t.Run(mode+"/"+stage+"/"+permission, func(t *testing.T) {
+					group := grp(10, PlatformOpenAI, 1, false)
+					group.AllowMessagesDispatch = permission == "conversion-allowed"
+					account := globalCandidateAccount(1, 1, group.ID)
+					account.Credentials["model_mapping"] = map[string]any{"claude-fable-5": "claude-fable-5"}
+					attachTestProtocolCapability(&account, protocolrouter.ProtocolMessages, protocolrouter.ProtocolResponses)
+					r, _, key := globalCandidateFixture([]Group{group}, []Account{account})
+					if mode == "direct" {
+						key.RoutingMode, key.Group, key.GroupID = RoutingModeDirect, &group, &group.ID
+					}
+					body := []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}],"tool_choice":{"type":"any"}}`)
+					ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicMessages, "/v1/messages", "claude-fable-5", body, "", "")
+					require.NoError(t, err)
+					want := protocolrouter.ProtocolMessages
+					if group.AllowMessagesDispatch {
+						want = protocolrouter.ProtocolResponses
+					}
+					require.Equal(t, want, state.current.plan.TargetProtocol())
+					if stage == "wait" {
+						r.candidateGateway.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{
+							loadMap: map[int64]*AccountLoadInfo{account.ID: {AccountID: account.ID, CurrentConcurrency: account.Concurrency}},
+						})
+					}
+					selection, err := state.selectAccount(ctx, candidateSelectOptions{acquire: true})
+					if selection != nil && selection.ReleaseFunc != nil {
+						defer selection.ReleaseFunc()
+					}
+					require.NoError(t, err, "slot acquisition must preserve the authorized Plan")
+					if stage == "wait" {
+						require.NotNil(t, selection.WaitPlan)
+						require.False(t, selection.Acquired)
+						require.NoError(t, RecheckCandidateAccountSlot(ctx, account.ID), "post-wait recheck must preserve the authorized Plan")
+					} else {
+						require.True(t, selection.Acquired)
+						require.Nil(t, selection.WaitPlan)
+					}
+					require.Equal(t, want, selection.ProtocolPlan.TargetProtocol())
+					require.Equal(t, want, state.current.plan.TargetProtocol())
+					require.Equal(t, body, state.body, "rechecking must preserve retry input")
+				})
+			}
+		}
+	}
+}

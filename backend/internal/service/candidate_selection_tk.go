@@ -448,7 +448,7 @@ func (r *CandidateRequest) recheck(path *candidateExecutionPath, options candida
 		if err != nil {
 			return err
 		}
-		freshPlan, err := r.resolver.router.Plan(request, snapshot)
+		freshPlan, err := planProtocolRoute(rebuilt.ctx, r.resolver.router, request, snapshot)
 		if err != nil {
 			return err
 		}

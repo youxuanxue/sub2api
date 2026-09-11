@@ -1,9 +1,12 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/tidwall/gjson"
 )
@@ -16,7 +19,8 @@ func protocolRequestParametersSupported(account *Account, resolvedModel string, 
 	}
 	if account.IsCursor() {
 		choice := request.Profile().ToolChoice
-		return choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed
+		return choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed &&
+			cursorProtocolContentSupported(*request, resolvedModel)
 	}
 	if isNewAPINVIDIABuildAccount(account) && resolvedModel == nvidiaBuildModelTargets["deepseek-v4-pro"] &&
 		request.InboundProtocol() == protocolrouter.ProtocolChatCompletions {
@@ -49,4 +53,48 @@ func protocolRequestParametersSupported(account *Account, resolvedModel string, 
 		}
 	}
 	return true
+}
+
+// Cursor's native parser owns supported content, including nested tool results.
+// Project through the execution converters so image/thinking history is judged
+// on the Messages wire that will actually reach that parser.
+func cursorProtocolContentSupported(request protocolrouter.CanonicalRequest, resolvedModel string) bool {
+	body := request.Body()
+	var converted *apicompat.AnthropicRequest
+	var err error
+	switch request.InboundProtocol() {
+	case protocolrouter.ProtocolMessages:
+		// Native Messages already has the execution wire shape.
+	case protocolrouter.ProtocolChatCompletions:
+		var input apicompat.ChatCompletionsRequest
+		if json.Unmarshal(body, &input) != nil {
+			return false
+		}
+		converted, err = apicompat.ChatCompletionsToAnthropicRequest(&input)
+	case protocolrouter.ProtocolResponses:
+		body, _, err = adaptResponsesClientToolsForAnthropic(body)
+		if err != nil {
+			return false
+		}
+		var input apicompat.ResponsesRequest
+		if json.Unmarshal(body, &input) != nil {
+			return false
+		}
+		converted, err = apicompat.ResponsesToAnthropicRequest(&input)
+	default:
+		return false
+	}
+	if err != nil {
+		return false
+	}
+	if converted != nil {
+		body, err = json.Marshal(converted)
+		if err != nil {
+			return false
+		}
+	}
+	// All native-Messages transports apply these same history filters.
+	body = StripEmptyTextBlocks(body)
+	body = FilterWebSearchHistoryBlocks(body, resolvedModel)
+	return cursor.ValidateMessagesContent(body) == nil
 }

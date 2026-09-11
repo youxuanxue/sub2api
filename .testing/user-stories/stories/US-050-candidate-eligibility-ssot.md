@@ -57,6 +57,12 @@
 39. AC-039 (negative): Given channel or restricted-account catalog rows When structurally-gone evidence exists Then hide the model; transient evidence preserves it.
 40. AC-040 (regression): Given overlapping account/group model sets When building a user menu Then reuse metadata/channel inputs and batch retirement evidence within the request; discovery reuses only its fixed account facts, subsequent requests observe changes, and runtime selection retains fresh account validation. File or registry replacement rotates membership and prices together, including atomic replacement preserving mtime.
 
+
+41. AC-041 (regression): Given a native-only Direct or Universal path with a thinking/tool adjustment When acquiring or waiting for capacity Then fresh Plan validation preserves conversion permission and remains identical to initial selection; genuinely changed capabilities still invalidate stale Plans.
+42. AC-042 (negative): Given Cursor and native Messages, Chat or Responses content When planning Then the actual execution converter and Cursor parser reject unsupported image/thinking content before selection; healthy peers remain eligible and ordinary text/tool schemas are preserved.
+43. AC-043 (regression): Given a usable group image/per_request card for a custom model When admitting and recording image usage Then admission and settlement agree on that group's card; unrelated, empty or unusable cards cannot establish a price.
+44. AC-044 (regression): Given Codex model aliases and scoped group/channel cards When resolving prices or comparing candidate origins Then literal exact/wildcard cards precede canonical fallback, equivalent tariffs remain eligible, unequal tariffs remain conflicting, and recorded usage uses the resolved group rate.
+
 The Direct/Universal mapping boundary is approved in
 `docs/approved/candidate-request-policy-convergence.md`. Mapping isolation, global
 account selection, billing rebinding and hard-continuation compatibility are now
@@ -85,6 +91,17 @@ production scheduler. AC-004 follows the approved account-scope policy; its old
 mixed-pool test documents only the remaining legacy adapter's behavior.
 
 ## Linked Tests
+
+- `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsSlotRecheckPreservesConversionPermission`
+- `backend/internal/integration/cursor/messages_test.go`::`TestValidateMessagesContentSharesNativeParser`
+- `backend/internal/service/candidate_cursor_ssot_test.go`::`TestCursorPlanPreservesEmulatedWebSearchHistoryCompatibility`
+- `backend/internal/service/candidate_cursor_ssot_test.go`::`TestCursorPlanRejectsUnsupportedNativeContent`
+- `backend/internal/service/candidate_cursor_ssot_test.go`::`TestCursorNativeContentFailureDoesNotWinCandidateSelection`
+- `backend/internal/service/pricing_scope_consistency_tk_test.go`::`TestPricingScopeGroupNormalizedRecordUsage`
+- `backend/internal/service/pricing_scope_consistency_tk_test.go`::`TestPricingScopeEquivalentChannelCardsDoNotRejectCandidate`
+- `backend/internal/service/pricing_scope_consistency_tk_test.go`::`TestPricingScopeImageGroupPriceGuardSettlementParity`
+- `backend/internal/service/pricing_scope_consistency_tk_test.go`::`TestPricingScopeImageEmptyCardsRemainBlocked`
+- `backend/internal/service/pricing_scope_consistency_tk_test.go`::`TestPricingScopeLiteralAndWildcardBeforeNormalized`
 
 - `backend/internal/service/me_pricing_performance_tk_test.go`::`TestMePricingMenuBatchesAvailabilityAndReusesInputs`
 - `backend/internal/service/me_pricing_performance_tk_test.go`::`TestMenuBatchAvailabilityFailureKeepsModelsWithoutQueryStorm`

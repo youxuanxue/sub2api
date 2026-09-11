@@ -8,14 +8,8 @@ import (
 // TK: media unpriced = reject (操作员拍板 2026-06-12，反转媒体路径的
 // "先服务后补价"默认).
 //
-// Chat keeps serve-and-alert (a chat request is cents and availability wins;
-// the served_zero_cost P0 probe surfaces the gap). Media is the opposite
-// regime: one video task is up to ~$22 of upstream spend and images burn
-// hard per-project provider quota — serving them unpriced (video bills $0,
-// image falls back to a blind hardcoded $0.134) converts a pricing gap into
-// real money loss before any operator can react to the P0. So the image and
-// video gateway surfaces refuse to serve a model with no usable price: the
-// pre-spend 400 below replaces the post-spend alert.
+// Image and video gateway surfaces reject missing prices before upstream spend.
+// Generation price admission is owned by gateway_priced_serving_gate_tk.go.
 //
 // This is also what makes new upstream channels safe to auto-enable: their
 // models arrive unpriced → rejected → the human pricing act (overlay entry
@@ -23,8 +17,8 @@ import (
 // scripts/checks/pricing-overlay.py) is the approval gate.
 //
 // Both predicates key off the REQUESTED model — the billing key — via the
-// same PricingService.GetModelPricing the billing path resolves through, so
-// guard and bill cannot drift. They fail OPEN on missing wiring (nil
+// billing price owners, including ModelPricingResolver for group image cards.
+// They fail OPEN on missing wiring (nil
 // services: can't tell → don't block) and CLOSED on missing price.
 
 // TkVideoModelUnpriced reports whether the requested model has no per-second
@@ -43,7 +37,7 @@ func (s *BillingService) TkVideoModelUnpriced(model string) bool {
 }
 
 // TkImageModelUnpriced reports whether the requested model has no usable
-// image price from ANY static source: group-level size prices, a per-image
+// image price from a group model card, group-level size prices, a per-image
 // price, or token prices (gpt-image-style models bill by image tokens).
 // Only the truly priceless are rejected — tkIsEffectivelyUnpriced treats
 // litellm's all-zero placeholder rows as unpriced too. Channel-level DB
@@ -57,6 +51,14 @@ func (s *BillingService) TkImageModelUnpriced(model string, group *Group) bool {
 		// validation belong to that layer, so an empty name fails OPEN here.
 		return false
 	}
+	if s != nil {
+		resolved := NewModelPricingResolver(nil, s).resolveGroupPricing(PricingInput{Model: model, Group: group})
+		if resolved != nil && (resolved.Mode == BillingModeImage || resolved.Mode == BillingModePerRequest) {
+			// Settlement consumes a matching group image card even when empty
+			// or nonpositive; a lower-priority registry price cannot admit it.
+			return !tkResolvedImagePricingChargeable(resolved)
+		}
+	}
 	if group != nil && (group.ImagePrice1K != nil || group.ImagePrice2K != nil || group.ImagePrice4K != nil) {
 		return false
 	}
@@ -65,6 +67,27 @@ func (s *BillingService) TkImageModelUnpriced(model string, group *Group) bool {
 	}
 	pricing := s.pricingService.GetModelPricing(model)
 	return !tkRegistryRowHasBillableImagePrice(pricing)
+}
+
+// Group image admission requires image/per-request prices. A token card alone
+// cannot price count-only image usage; token-image support keeps its existing
+// registry owner. Token-only interval fields are not per-request image prices.
+func tkResolvedImagePricingChargeable(resolved *ResolvedPricing) bool {
+	if resolved == nil {
+		return false
+	}
+	switch resolved.Mode {
+	case BillingModeImage, BillingModePerRequest:
+		if resolved.DefaultPerRequestPrice > 0 {
+			return true
+		}
+		for _, tier := range resolved.RequestTiers {
+			if tier.PerRequestPrice != nil && *tier.PerRequestPrice > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // TkVideoModelUnpriced / TkImageModelUnpriced — handler-facing wrappers so the

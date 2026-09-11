@@ -3,11 +3,30 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestImageGroupPricingAdmissionMatchesSettlement(t *testing.T) {
+	for _, mode := range []BillingMode{BillingModeImage, BillingModePerRequest} {
+		t.Run(string(mode), func(t *testing.T) {
+			price := 0.25
+			group := &Group{ID: 1, ModelPricing: []ChannelModelPricing{{Models: []string{"vendor-image-custom"}, BillingMode: mode, PerRequestPrice: &price}}}
+			billing := NewBillingService(nil, &PricingService{})
+			gateway := &OpenAIGatewayService{billingService: billing, resolver: NewModelPricingResolver(nil, billing)}
+			cost, err := gateway.calculateOpenAIImageCost(context.Background(), "vendor-image-custom", &APIKey{GroupID: &group.ID, Group: group}, &OpenAIForwardResult{ImageCount: 2}, 1)
+			require.NoError(t, err)
+			require.Equal(t, 0.5, cost.TotalCost)
+			require.False(t, gateway.TkImageModelUnpriced("vendor-image-custom", group))
+			require.True(t, gateway.TkImageModelUnpriced("other-image", group))
+			price = 0
+			require.True(t, gateway.TkImageModelUnpriced("vendor-image-custom", group), "empty group card must not grant priced admission")
+		})
+	}
+}
 
 func tkMediaGuardBillingService() *BillingService {
 	return &BillingService{

@@ -199,7 +199,9 @@ func candidateOriginModelPricing(group *Group, channel *channelLookup, model str
 		pricing.Intervals = nil // Group token cards only override flat prices.
 	}
 	if pricing == nil && channel != nil {
-		pricing = lookupPricingAcrossPlatforms(channel.cache, group.ID, channel.platform, model)
+		pricing = lookupConfiguredModelPricing(model, func(name string) *ChannelModelPricing {
+			return lookupPricingAcrossPlatforms(channel.cache, group.ID, channel.platform, name)
+		})
 	}
 	return candidateComparablePricing(pricing)
 }

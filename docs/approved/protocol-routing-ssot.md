@@ -63,8 +63,9 @@ conversions among governed protocols. It also includes protocol-specific
 Responses path variants such as compact and input-token operations when an
 individual route explicitly supports them.
 
-Only text generation is governed. Embeddings, image/video/audio generation,
-OCR, rerank, and Gemini multimodal identity remain outside this router. One
+Generation wires are governed, including Gemini generateContent with image
+input or output. Embeddings, standalone image/video/audio APIs, OCR and rerank
+remain outside this router. One
 ingress predicate owns this boundary; handlers cannot independently choose
 between SSOT routing and legacy text routing.
 
