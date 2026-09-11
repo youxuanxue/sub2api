@@ -161,13 +161,21 @@ type AnthropicPromptTokensDetails struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
+// AnthropicCacheCreation preserves optional TTL buckets, including explicit zeroes
+// in message_delta updates.
+type AnthropicCacheCreation struct {
+	Ephemeral5mInputTokens *int `json:"ephemeral_5m_input_tokens,omitempty"`
+	Ephemeral1hInputTokens *int `json:"ephemeral_1h_input_tokens,omitempty"`
+}
+
 // AnthropicUsage holds token counts in Anthropic format.
 type AnthropicUsage struct {
-	BillingTier              string `json:"tk_billing_tier,omitempty"`
-	InputTokens              int    `json:"input_tokens"`
-	OutputTokens             int    `json:"output_tokens"`
-	CacheCreationInputTokens int    `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int    `json:"cache_read_input_tokens"`
+	BillingTier              string                  `json:"tk_billing_tier,omitempty"`
+	InputTokens              int                     `json:"input_tokens"`
+	OutputTokens             int                     `json:"output_tokens"`
+	CacheCreationInputTokens int                     `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int                     `json:"cache_read_input_tokens"`
+	CacheCreation            *AnthropicCacheCreation `json:"cache_creation,omitempty"`
 	// Anthropic-compatible providers can also expose their native OpenAI-style
 	// total/cache fields. Preserve them so callers can normalize provider totals
 	// into Anthropic's mutually-exclusive billing buckets.
