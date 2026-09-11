@@ -32,7 +32,7 @@ type ResolvedPricing struct {
 	DefaultPerRequestPrice float64
 
 	// 来源标识
-	Source string // "channel", "litellm", "fallback"
+	Source string // PricingSourceGroup / Channel / LiteLLM / Fallback
 
 	// 是否支持缓存细分
 	SupportsCacheBreakdown bool
@@ -73,21 +73,10 @@ type PricingInput struct {
 	Group   *Group
 }
 
-// Resolve 解析模型定价。
-// 1. 获取基础定价（LiteLLM → Fallback）
-// 2. 如果指定了 GroupID，查找渠道定价并覆盖
+// Resolve 按分组、渠道、官方及兜底顺序解析适用定价。
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
-	if groupPricing := matchGroupModelPricing(input.Group, input.Model); groupPricing != nil {
-		// Group token cards only override the first-tier / flat rates.
-		// Long-context ladders come from official presets, gated by the checkbox.
-		if groupPricing.BillingMode == "" || groupPricing.BillingMode == BillingModeToken {
-			stripped := groupPricing.Clone()
-			stripped.Intervals = nil
-			groupPricing = &stripped
-		}
-		resolved := r.resolveConfiguredPricing(groupPricing, input.Model, PricingSourceGroup)
-		resolved.longContextPricingEnabled = longContextPricingEnabled
+	if resolved := r.resolveGroupPricing(input); resolved != nil {
 		return resolved
 	}
 
@@ -178,7 +167,45 @@ func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPric
 	return resolved
 }
 
+// resolveGroupPricing is shared by settlement and media admission. It applies
+// exactly the same group-card policy, including token interval suppression.
+func (r *ModelPricingResolver) resolveGroupPricing(input PricingInput) *ResolvedPricing {
+	pricing := matchGroupModelPricing(input.Group, input.Model)
+	if pricing == nil {
+		return nil
+	}
+	if pricing.BillingMode == "" || pricing.BillingMode == BillingModeToken {
+		pricing.Intervals = nil
+	}
+	resolved := r.resolveConfiguredPricing(pricing, input.Model, PricingSourceGroup)
+	resolved.longContextPricingEnabled = input.Group == nil || input.Group.LongContextPricingEnabled
+	return resolved
+}
+
+// lookupConfiguredModelPricing preserves literal exact/wildcard priority before
+// trying the canonical Codex billing name. Group cards, channel resolution and
+// candidate tariff comparisons must all use this lookup order.
+func lookupConfiguredModelPricing(model string, lookup func(string) *ChannelModelPricing) *ChannelModelPricing {
+	if pricing := lookup(model); pricing != nil {
+		return pricing
+	}
+	normalized := normalizeKnownOpenAICodexModel(model)
+	if normalized == "" || strings.EqualFold(normalized, strings.TrimSpace(model)) {
+		return nil
+	}
+	return lookup(normalized)
+}
+
 func matchGroupModelPricing(group *Group, model string) *ChannelModelPricing {
+	if group == nil || len(group.ModelPricing) == 0 {
+		return nil
+	}
+	return lookupConfiguredModelPricing(model, func(name string) *ChannelModelPricing {
+		return matchGroupModelPricingLiteral(group, name)
+	})
+}
+
+func matchGroupModelPricingLiteral(group *Group, model string) *ChannelModelPricing {
 	if group == nil {
 		return nil
 	}
@@ -236,14 +263,9 @@ func (r *ModelPricingResolver) lookupChannelPricingNormalized(ctx context.Contex
 	if r.channelService == nil {
 		return nil
 	}
-	if pricing := r.channelService.GetChannelModelPricing(ctx, groupID, model); pricing != nil {
-		return pricing
-	}
-	normalized := normalizeKnownOpenAICodexModel(model)
-	if normalized == "" || strings.EqualFold(normalized, strings.TrimSpace(model)) {
-		return nil
-	}
-	return r.channelService.GetChannelModelPricing(ctx, groupID, normalized)
+	return lookupConfiguredModelPricing(model, func(name string) *ChannelModelPricing {
+		return r.channelService.GetChannelModelPricing(ctx, groupID, name)
+	})
 }
 
 // applyChannelOverrides 应用渠道定价覆盖

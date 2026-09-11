@@ -15,6 +15,7 @@ type protocolRoutingContextValue struct {
 	router            *protocolrouter.Router
 	request           protocolrouter.CanonicalRequest
 	plans             *protocolPlanCache
+	content           *cursorRequestContentCache
 	nativeOnly        bool
 	immutableAccounts bool
 }
@@ -83,6 +84,7 @@ func WithProtocolRouting(
 		router:  router,
 		request: request,
 		plans:   newProtocolPlanCache(),
+		content: &cursorRequestContentCache{},
 	})
 }
 
@@ -175,7 +177,7 @@ func protocolPlanForAccount(
 	var snapshot protocolrouter.AccountSnapshot
 	var err error
 	if !routing.immutableAccounts {
-		snapshot, err = protocolAccountSnapshotForRequestWithThinking(account, routing.request, thinkingEnabledFromCtx(ctx))
+		snapshot, err = protocolAccountSnapshotForRouting(ctx, account, routing.request)
 		if err != nil {
 			return protocolrouter.Plan{}, true, fmt.Errorf("%w: %w", ErrProtocolRouteUnavailable, err)
 		}
@@ -185,7 +187,7 @@ func protocolPlanForAccount(
 		// Discovery owns a fixed account slice. Only that path may skip repeated
 		// snapshot construction; execution still validates fresh account facts.
 		if routing.immutableAccounts {
-			snapshot, err = protocolAccountSnapshotForRequestWithThinking(account, routing.request, thinkingEnabledFromCtx(ctx))
+			snapshot, err = protocolAccountSnapshotForRouting(ctx, account, routing.request)
 			if err != nil {
 				return protocolrouter.Plan{}, err
 			}
@@ -252,7 +254,7 @@ func attachProtocolPlan(
 	if routing.plans == nil {
 		return releaseProtocolSelectionOnPlanError(selection, fmt.Errorf("%w: governed account requires scheduler-created plan", ErrProtocolRouteUnavailable))
 	}
-	snapshot, err := protocolAccountSnapshotForRequestWithThinking(selection.Account, routing.request, thinkingEnabledFromCtx(ctx))
+	snapshot, err := protocolAccountSnapshotForRouting(ctx, selection.Account, routing.request)
 	if err != nil {
 		if _, planned := routing.plans.get(selection.Account.ID); planned {
 			return releaseProtocolSelectionOnPlanError(selection, protocolrouter.ErrStalePlan)

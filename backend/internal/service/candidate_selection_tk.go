@@ -444,11 +444,11 @@ func (r *CandidateRequest) recheck(path *candidateExecutionPath, options candida
 		if !ok {
 			return ErrProtocolRouteUnavailable
 		}
-		snapshot, err := protocolAccountSnapshotForRequestWithThinking(fresh, request, thinkingEnabledFromCtx(rebuilt.ctx))
+		snapshot, err := protocolAccountSnapshotForRouting(rebuilt.ctx, fresh, request)
 		if err != nil {
 			return err
 		}
-		freshPlan, err := r.resolver.router.Plan(request, snapshot)
+		freshPlan, err := planProtocolRoute(rebuilt.ctx, r.resolver.router, request, snapshot)
 		if err != nil {
 			return err
 		}

@@ -373,8 +373,8 @@ consume the same selected path, including retries and final slot checks.
 3. Subscription admission precedes balance, after hard continuation ownership.
    Non-equivalent same-account origins reject that candidate in that tier;
    independent usable peers remain eligible.
-4. The pool uses account priority, normalized occupancy and randomized equal
-   ties. Ready peers and slot-race alternatives precede bounded waiting.
+4. The pool follows the account ordering policy above. Occupancy determines
+   capacity, not ready-account rank. Ready peers and slot-race alternatives precede bounded waiting.
    Acquired and waited slots recheck authorization, runtime state and route facts.
 5. Window reserves recover only when the admitted global tier has no ordinary
    candidate. Shared saturation feedback remains bounded and expiring.
