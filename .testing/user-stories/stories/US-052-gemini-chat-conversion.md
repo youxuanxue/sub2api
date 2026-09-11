@@ -21,7 +21,7 @@
 
 ## Assertions
 
-AC-001: exact upstream HTTP path, bearer, mapped model, converted request and client model; Gemini JSON/SSE fields; prompt/cache/output usage.
+AC-001: exact upstream HTTP path, bearer, mapped model, converted request and client model; Gemini JSON/SSE fields; prompt/cache/output usage, including reported cache creation TTL buckets through settlement conversion.
 AC-002: real Gemini body negatives through Plan, native identity positive, no new supplier or model allowlist.
 AC-003: Direct/Universal selection with Chat and native peers, priority and failed-account exclusion.
 AC-004: recorder receives content and flush before finish, no false terminal on EOF.
@@ -36,6 +36,7 @@ AC-005: retry classification before output; result retains usage after truncatio
 - `backend/internal/service/gemini_chat_forward_tk_test.go`::`TestGeminiChatCandidateUsesSharedScopeAndPriority`
 - `backend/internal/service/gemini_chat_forward_tk_test.go`::`TestGeminiChatWriterStreamsBeforeCompletion`
 - `backend/internal/service/gemini_chat_forward_tk_test.go`::`TestGeminiChatForwardFailureAndPartialUsage`
+- `backend/internal/service/gemini_chat_forward_tk_test.go`::`TestGeminiChatUsagePreservesCacheTTLThroughSettlementConversion`
 - `backend/internal/handler/gemini_chat_conversion_tk_test.go`::`TestUS052_GeminiChatSelectedHTTPTransport`
 - `backend/internal/handler/gemini_v1beta_handler_tk_execute_test.go`::`TestGeminiSelectedProtocolRepairsTransportSignature`
 

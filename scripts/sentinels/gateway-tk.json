@@ -11136,6 +11136,7 @@
       "must_contain": [
         "TestGeminiChatCandidateUsesSharedScopeAndPriority",
         "TestGeminiChatForwardFailureAndPartialUsage",
+        "TestGeminiChatUsagePreservesCacheTTLThroughSettlementConversion",
         "TestGeminiChatWriterStreamsBeforeCompletion"
       ],
       "rationale": "Protect scope/scheduling parity, partial usage, pre-output retry and incremental streaming."

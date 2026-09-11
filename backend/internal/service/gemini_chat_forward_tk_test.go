@@ -11,11 +11,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestGeminiChatUsagePreservesCacheTTLThroughSettlementConversion(t *testing.T) {
+	upstream := &dto.Usage{PromptTokens: 150, CompletionTokens: 10,
+		ClaudeCacheCreation5mTokens: 20, ClaudeCacheCreation1hTokens: 30}
+	upstream.PromptTokensDetails.CachedCreationTokens = 50
+	upstream.PromptTokensDetails.CachedTokens = 40
+	result := ForwardResultFromOpenAI(&OpenAIForwardResult{Usage: openAIUsageFromNewAPIDTO(upstream)})
+	require.Equal(t, 60, result.Usage.InputTokens)
+	require.Equal(t, 10, result.Usage.OutputTokens)
+	require.Equal(t, 40, result.Usage.CacheReadInputTokens)
+	require.Equal(t, 50, result.Usage.CacheCreationInputTokens)
+	require.Equal(t, 20, result.Usage.CacheCreation5mTokens)
+	require.Equal(t, 30, result.Usage.CacheCreation1hTokens)
+}
 
 func TestGeminiChatWriterStreamsBeforeCompletion(t *testing.T) {
 	rec := httptest.NewRecorder()
