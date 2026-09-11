@@ -26,6 +26,7 @@ TAG_PATTERN = re.compile(
 # CloudFormation contract changed.
 WORKER_SURFACE_PATHS = (
     "backend/internal/observability/qa/bundle/",
+    "backend/internal/observability/trajectory/",
     "backend/internal/observability/qa/archive/",
     "backend/cmd/server/qa_bundle_worker.go",
     "deploy/aws/cloudformation/stage0-qa-raw-archive.yaml",

@@ -1265,7 +1265,7 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 // conversation-record export entry (backend also enforces 403).
 const canExportTraj = computed(() => authStore.user?.traj_export_enabled === true)
 
-// Server-driven allowlist of platforms whose conversation records the traj
+// Server-driven allowlist of platforms whose conversation records the Bundle session
 // projector can reconstruct (engine.TrajProjectablePlatforms via /auth/me).
 // The chip renders only for a key whose group platform is in this list — the UI
 // holds no hardcoded platform list of its own (single source = the backend).

@@ -258,3 +258,10 @@ Model/catalog tests must derive positive and negative model sets from that SSOT 
 Treat `internal/integration/newapi/` and `internal/relay/bridge/` as implementation source of truth; external planning docs may lag the code.
 
 **Before push:** run `./scripts/preflight.sh` + `make test`. PR checklist detail in agent-reference doc above.
+
+## Trajectory SSOT
+
+`traj-ssot`：会话导出契约与唯一 owner 清单见
+[`docs/approved/qa-bundle-session-export.md`](docs/approved/qa-bundle-session-export.md)。
+QA Bundle 是用户会话导出的唯一数据来源；采集/归档/授权沿用 QA lifecycle，
+不恢复旧 prod traj export 或平行投影器。

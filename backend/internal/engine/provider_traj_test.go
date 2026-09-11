@@ -8,7 +8,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
-// TrajProjectablePlatforms is the single source for "which platforms the traj v2
+// TrajProjectablePlatforms is the single source for "which platforms the Bundle session export
 // projector can faithfully reconstruct" (feeds the /auth/me export-chip
 // allowlist). This pins its membership and that the OpenAI-compat members are
 // derived from OpenAICompatPlatforms() rather than re-listed.

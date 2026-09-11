@@ -2,7 +2,7 @@
 
 package qa
 
-// traj v2 via cc-edges（非 passthrough 网关路径）：转发前的请求侧改写
+// Bundle session export via cc-edges（非 passthrough 网关路径）：转发前的请求侧改写
 //（normalize / alias strip / signature-preempt 剥 thinking 等）会让「捕获的
 // 客户端请求」≠「产生该响应的真实上游请求」。本文件钉住失真捕获契约：
 //   - captureUpstreamRequestBody 仅在 opt-in 且字节真不等时取值（零误标）

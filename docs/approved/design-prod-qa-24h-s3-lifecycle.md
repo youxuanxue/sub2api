@@ -315,6 +315,9 @@ Worker 按小时对已验证 segment 做有界归并，单条投影 evidence 后
 `user-qa/qa-bundles/v1/jobs/<zip-job-id>/export.zip`，不重新扫描 raw archive。
 因此列表、详情和导出仍共享一个投影 owner，但大导出不会阻塞首次浏览。
 
+ZIP 内的会话、工具链与证据关联契约由 [traj SSOT](qa-bundle-session-export.md) 裁决，
+会话投影只读 committed Bundle，不能另建 prod 自导出路径。
+
 ### 9.2 原子发布与复用
 
 Worker 先写不可见 generation，校验全部 pages 后最后发布 manifest。没有 committed manifest 的 partial generation
