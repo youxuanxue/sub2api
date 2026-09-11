@@ -13,7 +13,7 @@ import (
 // after all migrations apply: tk_060 seeds user-visible failure P0/P1, tk_061
 // retires routing_capacity_rejection_count (replaced by user_visible_failure_count),
 // tk_087 deletes the 8% upstream_error_rate P1 and keeps the 20% rule as an
-// edge-only Feishu P1, tk_088 makes client failures a P2 operational signal,
+// edge-only Feishu P1, tk_088 tightens client failure thresholds while retaining P1 notifications,
 // and tk_036 latency rules ship disabled — every enabled
 // rule has a working path.
 func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {

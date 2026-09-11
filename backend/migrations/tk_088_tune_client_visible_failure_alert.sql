@@ -1,6 +1,6 @@
 -- Reduce non-actionable client-fault paging. Caller cancellations are excluded
--- from the numerator in buildUserVisibleFailureWhere; this migration lowers the
--- remaining client-validation signal to an operational P2 notification.
+-- from the numerator in buildUserVisibleFailureWhere; this migration raises
+-- the count and duration thresholds while retaining P1 notifications.
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '5min';
@@ -15,4 +15,3 @@ SET severity = 'P1',
     updated_at = NOW()
 WHERE name = '真实用户客户端失败增多'
   AND metric_type = 'client_visible_failure_count';
-
