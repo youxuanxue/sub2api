@@ -232,7 +232,7 @@ func TestCandidateEligibilityErrorPrecedence(t *testing.T) {
 	}
 }
 
-func TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer(t *testing.T) {
+func TestCandidateEligibilityGeminiChatMappingWithInvalidPeer(t *testing.T) {
 	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite"} {
 		t.Run(model, func(t *testing.T) {
 			resolver, gateway, accounts, _ := candidateGoogleFixture(t)
@@ -243,6 +243,7 @@ func TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer(t *testing.T
 			invalid.ProtocolEndpointCapability.ProbeEvidence = ProtocolProbeEvidence{}
 			chatOnly := *protocolRoutingOpenAIAccount(113, "chat_completions")
 			chatOnly.Platform = PlatformNewAPI
+			chatOnly.ChannelType = 1 // OpenAI-compatible NewAPI transport
 			chatOnly.GroupIDs = []int64{19}
 			chatOnly.Credentials["model_mapping"] = map[string]any{
 				"gemini-3-flash-preview":        "gemini-3-flash-preview",
@@ -262,12 +263,19 @@ func TestCandidateEligibilityGeminiUnsupportedModelsWithInvalidPeer(t *testing.T
 				require.True(t, governed)
 				require.ErrorIs(t, err, protocolrouter.ErrModelNotAllowed)
 			}
-			_, governed, err := protocolPlanForAccount(ctx, &chatOnly, model)
+			plan, governed, planErr := protocolPlanForAccount(ctx, &chatOnly, model)
 			require.True(t, governed)
-			require.ErrorIs(t, err, protocolrouter.ErrNoLegalRoute)
 			group, err := resolver.Resolve(ctx, universalKey(334), ShapeGemini, model, "")
-			require.Nil(t, group)
-			require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
+			if _, mapped := chatOnly.ResolveMappedModel(model); mapped {
+				require.NoError(t, planErr)
+				require.Equal(t, protocolrouter.AdapterGeminiToChat, plan.AdapterID())
+				require.NoError(t, err)
+				require.Equal(t, int64(19), group.ID)
+			} else {
+				require.ErrorIs(t, planErr, protocolrouter.ErrNoLegalRoute)
+				require.Nil(t, group)
+				require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
+			}
 		})
 	}
 }

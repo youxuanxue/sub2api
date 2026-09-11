@@ -82,8 +82,8 @@ func buildUserVisibleFailureWhere(filter *service.OpsDashboardFilter, ownerScope
 		// request-shape incident. Keep them in raw logs, but exclude them from
 		// the client-visible alert numerator.
 		where += " AND COALESCE(status_code, 0) <> 499"
-		where += " AND LOWER(COALESCE(message, '')) NOT LIKE '%context canceled%'"
-		where += " AND LOWER(COALESCE(message, '')) NOT LIKE '%context cancelled%'"
+		where += " AND LOWER(CONCAT_WS(' ', error_message, upstream_error_message)) NOT LIKE '%context canceled%'"
+		where += " AND LOWER(CONCAT_WS(' ', error_message, upstream_error_message)) NOT LIKE '%context cancelled%'"
 	default:
 		where += " AND COALESCE(error_owner, '') IN ('provider', 'platform')"
 	}
