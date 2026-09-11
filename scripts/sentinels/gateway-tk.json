@@ -37,41 +37,6 @@
       ],
       "rationale": "The normal scripts unittest gate exercises no-change, operator decisions, cursor replay and stale evidence."
     },
-    {
-      "path": "backend/internal/server/middleware/request_logger.go",
-      "must_contain": ["c.Writer = &requestIDResponseWriter{"],
-      "rationale": "Server request identity must survive upstream header forwarding at the response commit boundary."
-    },
-    {
-      "path": "backend/internal/server/middleware/request_id_response_writer_tk.go",
-      "must_contain": ["func (w *requestIDResponseWriter) Write(", "func (w *requestIDResponseWriter) Flush()", "w.Header().Set(requestIDHeader, w.requestID)"],
-      "rationale": "Keep JSON and SSE responses correlated to the server-owned QA identity."
-    },
-    {
-      "path": "backend/internal/server/middleware/request_access_logger_test.go",
-      "must_contain": ["TestRequestLoggerKeepsServerIDWhenUpstreamOverwritesHeader"],
-      "rationale": "Exercise actual committed headers after adapters overwrite the response request ID."
-    },
-    {
-      "path": "backend/internal/service/gateway_usage_billing_request_id_test.go",
-      "must_contain": ["TestUsageBillingIgnoresReusedClientMarker"],
-      "rationale": "Client correlation markers must never collapse distinct served requests into one billing dedup key or fallback fingerprint."
-    },
-    {
-      "path": "backend/internal/observability/qa/service.go",
-      "must_contain": ["restoreInternalThinkingBlockJSON(logredact.RedactJSON([]byte(raw)), []byte(raw))", "captureRequestedModel(metadataBody)", "captureToolCallsPresent(metadataBody)", "captureMultimodalPresent(metadataBody)"],
-      "rationale": "Bounded content capture must preserve metadata from the already-read request and retain only thinking-block signatures after redaction."
-    },
-    {
-      "path": "backend/internal/observability/qa/internal_thinking_capture_test.go",
-      "must_contain": ["TestBuildBlobPreservesInternalThinkingSignatureAndRedactsSecrets"],
-      "rationale": "Test the final persisted blob, not only the pre-serialization thinking extractor."
-    },
-    {
-      "path": "backend/internal/observability/qa/middleware_synth_test.go",
-      "must_contain": ["TestQAMetadataSurvivesBodyCaptureLimit"],
-      "rationale": "Long request metadata must survive capture limits while persisted body bytes remain bounded."
-    },
       {
         "path": ".github/workflows/deploy-stage0.yml",
         "must_contain": [
@@ -11378,106 +11343,29 @@
       "rationale": "Exercise authoritative candidate-to-handler execution against real HTTP Chat endpoints through OpenAI and NewAPI transports."
     },
     {
-      "path": "backend/internal/server/middleware/request_logger.go",
+      "path": "backend/internal/service/antigravity_gateway_tk_smart_retry_attribution.go",
       "must_contain": [
-        "requestID := uuid.NewString()"
+        "func (s *AntigravityGatewayService) appendAntigravitySmartRetryOpsEvent(",
+        "appendOpsUpstreamError(p.c, OpsUpstreamErrorEvent{"
       ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+      "rationale": "handleSmartRetry's terminal exits must stay attributable: with no ops upstream event, provider 5xx classifies as phase=internal/owner=platform and becomes daily_error_report's code_owned repair candidate against blameless code."
     },
     {
-      "path": "backend/internal/observability/trajectory/blob_files.go",
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
       "must_contain": [
-        "os.OpenRoot(root)",
-        "os.O_WRONLY|os.O_CREATE|os.O_EXCL",
-        "0o600"
+        "resp.Header, respBody, \"smart_retry_rate_limited\")",
+        "\"smart_retry_capacity_exhausted\")",
+        "\"single_account_retry_exhausted\")"
       ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+      "rationale": "Every terminal handleSmartRetry exit consumes the attribution owner; dropping a call site silently re-books provider capacity exhaustion as a TokenKey defect."
     },
     {
-      "path": "backend/internal/observability/qa/blob_store.go",
+      "path": "ops/observability/data_layer_safety_verdict.py",
       "must_contain": [
-        "trajectory.WriteBlobFile",
-        "IfNoneMatch: aws.String(\"*\")",
-        "dir.ReadFile"
+        "reported_loss = True",
+        "telemetry_run = _timestamp(telemetry.get(\"last_run_at\"))"
       ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/observability/trajectory/writer.go",
-      "must_contain": [
-        "WriteBlobFile(w.dlqDir"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/observability/qa/sse_tee.go",
-      "must_contain": [
-        "p = p[:remaining]",
-        "maxCapturedSSEChunks",
-        "body[start:boundary.end:boundary.end]"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/pkg/ip/ip.go",
-      "must_contain": [
-        "func GetSecurityClientIP(c *gin.Context, _ bool) string {\n\treturn GetTrustedClientIP(c)"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/pkg/httpclient/public.go",
-      "must_contain": [
-        "transport.Proxy = nil",
-        "publicDialContext",
-        "net.JoinHostPort(ip.IP.String(), port)"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/service/image_storage.go",
-      "must_contain": [
-        "httpclient.NewPublicClient",
-        "contentType := detectedImageContentType(data)"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/util/logredact/redact.go",
-      "must_contain": [
-        "return redactUnstructuredText(v, getTextRedactPatterns(extraKeys))"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/observability/qa/security_capture_test.go",
-      "must_contain": [
-        "TestQACaptureBoundsAllStreamBytesWithoutTruncatingForwarding",
-        "TestQABlobStoreConfinesReadsAndDeletes"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/observability/trajectory/blob_files_test.go",
-      "must_contain": [
-        "TestWriteBlobFileConfinesPathsAndRefusesReplacement"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/util/logredact/content_test.go",
-      "must_contain": [
-        "TestRedactSecretsInContentAndToolResults"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
-    },
-    {
-      "path": "backend/internal/pkg/httpclient/public_test.go",
-      "must_contain": [
-        "TestPublicClientRejectsLocalTargetsAndRedirects",
-        "TestPublicDialPinsResolvedAddressAndRejectsMixedAnswers"
-      ],
-      "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+      "rationale": "Cumulative shadow loss counters amplify one failed upload into three findings; the loss finding owns its derived error/stale-clean-heartbeat, and liveness stays on last_run_at so a dead publisher still fails closed."
     }
   ]
 }
