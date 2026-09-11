@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 type testLogSink struct {
@@ -309,5 +310,34 @@ func TestLogger_AccessLogDroppedWhenLevelWarn(t *testing.T) {
 		if event != nil && event.Message == "http request completed" {
 			t.Fatalf("access log should not be indexed when level=warn: %+v", event)
 		}
+	}
+}
+
+func TestRequestLoggerKeepsServerIDWhenUpstreamOverwritesHeader(t *testing.T) {
+	for _, mode := range []string{"json", "stream", "empty"} {
+		t.Run(mode, func(t *testing.T) {
+			r := gin.New()
+			r.Use(RequestLogger())
+			var serverID string
+			r.GET("/", func(c *gin.Context) {
+				serverID, _ = c.Request.Context().Value(ctxkey.RequestID).(string)
+				c.Header("X-Request-ID", "upstream-id")
+				switch mode {
+				case "json":
+					c.JSON(200, gin.H{"ok": true})
+				case "stream":
+					c.Header("Content-Type", "text/event-stream")
+					c.Writer.Flush()
+					_, err := c.Writer.WriteString("data: ok\n\n")
+					require.NoError(t, err)
+				case "empty":
+					c.Status(204)
+				}
+			})
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+			require.NotEmpty(t, serverID)
+			require.Equal(t, serverID, w.Result().Header.Get("X-Request-ID"))
+		})
 	}
 }

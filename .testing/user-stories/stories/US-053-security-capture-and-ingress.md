@@ -26,6 +26,10 @@
 
 ## Linked Tests
 
+- `backend/internal/service/gateway_usage_billing_request_id_test.go`::`TestUsageBillingIgnoresReusedClientMarker`
+- `backend/internal/server/middleware/request_access_logger_test.go`::`TestRequestLoggerKeepsServerIDWhenUpstreamOverwritesHeader`
+- `backend/internal/observability/qa/internal_thinking_capture_test.go`::`TestBuildBlobPreservesInternalThinkingSignatureAndRedactsSecrets`
+- `backend/internal/observability/qa/middleware_synth_test.go`::`TestQAMetadataSurvivesBodyCaptureLimit`
 - `backend/internal/observability/trajectory/blob_files_test.go`::`TestWriteBlobFileConfinesPathsAndRefusesReplacement`
 - `backend/internal/observability/trajectory/blob_files_test.go`::`TestWriteBlobFileCleansOnlyItsIncompleteWrite`
 - `backend/internal/observability/qa/security_capture_test.go`::`TestQACaptureBoundsAllStreamBytesWithoutTruncatingForwarding`

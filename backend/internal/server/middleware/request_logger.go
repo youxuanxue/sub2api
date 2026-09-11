@@ -27,6 +27,7 @@ func RequestLogger() gin.HandlerFunc {
 		// marker, not as this storage id.
 		requestID := uuid.NewString()
 		c.Header(requestIDHeader, requestID)
+		c.Writer = &requestIDResponseWriter{ResponseWriter: c.Writer, requestID: requestID}
 
 		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestID, requestID)
 		clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string)
@@ -43,5 +44,8 @@ func RequestLogger() gin.HandlerFunc {
 		ctx = logger.IntoContext(ctx, requestLogger)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
+		// Gin commits an unwritten response using its original writer after the
+		// middleware chain returns, so also restore the header for empty replies.
+		c.Header(requestIDHeader, requestID)
 	}
 }

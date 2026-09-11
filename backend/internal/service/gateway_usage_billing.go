@@ -198,9 +198,7 @@ func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string)
 		}
 	}
 	if ctx != nil {
-		if clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(clientRequestID) != "" {
-			return "client:" + strings.TrimSpace(clientRequestID)
-		}
+		// ClientRequestID is an untrusted correlation marker, never a money-event key.
 		if requestID, _ := ctx.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 			return "local:" + strings.TrimSpace(requestID)
 		}
@@ -250,9 +248,6 @@ func resolveUsageBillingPayloadFingerprint(ctx context.Context, requestPayloadHa
 		return payloadHash
 	}
 	if ctx != nil {
-		if clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(clientRequestID) != "" {
-			return "client:" + strings.TrimSpace(clientRequestID)
-		}
 		if requestID, _ := ctx.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 			return "local:" + strings.TrimSpace(requestID)
 		}

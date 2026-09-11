@@ -22,10 +22,13 @@ risk: high
   入站 X-Client-Request-ID → context/logs/ops 的 client_request_id（及计费侧 ClientRequestID）；
   若未传该头而只传了遗留 X-Request-ID，则把该值降级为 client_request_id 标记，便于响应丢失时
   仍可按客户端持有的值检索，但它永远不是存储主键，也不能替代响应 X-Request-ID 做权威定位。
+  计费去重与兜底指纹同样不使用客户端标记；普通 HTTP 使用 `local:<服务端 ID>`，
+  保留既有异步任务/WS turn 的独立结算身份。上游响应头不能覆盖返回给用户的服务端 ID。
 - QA blob 和 DLQ 写入由 `trajectory.WriteBlobFile` 统一执行目录边界、私有权限及禁止覆盖。
   S3 blob 写入也要求目标不存在；已有记录不迁移。读取与删除同样不能越过根目录。
 - 响应采集只保留预算内的字节，流片段引用这份有界内容，不再持有无上限的待解析缓冲。
   流片段元数据数量也有上限，转发不因采集截断而截断。直接提交的流片段序列化同样有界。
+  模型及工具/多模态元数据复用 handler 已读取的请求体，不能因正文前缀截断而丢失。
 - logredact 统一处理结构化敏感字段与正文内可识别的秘密；普通文字和结构保持不变。
   该功能不是完整 DLP 承诺。保留已批准的 thinking signature / encrypted reasoning 兼容行为。
 - ACL、限流及会话绑定只信任已配置代理链；现有兼容开关仅作用于日志归因。

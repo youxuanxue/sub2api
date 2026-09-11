@@ -296,7 +296,15 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	if raw, ok := requestBytes.([]byte); ok {
 		requestBody = raw
 	}
-	upstreamRequestBody := captureUpstreamRequestBody(c, requestBody)
+	// Metadata must use the handler's already-read body, not a truncated JSON
+	// prefix. Keep only the bounded requestBody in the async capture payload.
+	metadataBody := requestBody
+	if raw, ok := c.Get("ops_request_body"); ok {
+		if body, ok := raw.([]byte); ok && len(body) > 0 {
+			metadataBody = body
+		}
+	}
+	upstreamRequestBody := captureUpstreamRequestBody(c, metadataBody)
 	var responseBody []byte
 	var streamChunks []RawSSEChunk
 	var responseTruncated bool
@@ -351,7 +359,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		Platform:                   strings.TrimSpace(platform),
 		Provider:                   provider,
 		ChannelType:                channelType,
-		RequestedModel:             captureRequestedModel(requestBody),
+		RequestedModel:             captureRequestedModel(metadataBody),
 		UpstreamModel:              captureUpstreamModel(c),
 		InboundEndpoint:            inboundEndpoint,
 		UpstreamEndpoint:           upstreamEndpoint,
@@ -368,8 +376,8 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		InputTokens:                inputTokens,
 		OutputTokens:               outputTokens,
 		CachedTokens:               cachedTokens,
-		ToolCallsPresent:           captureToolCallsPresent(requestBody),
-		MultimodalPresent:          captureMultimodalPresent(requestBody),
+		ToolCallsPresent:           captureToolCallsPresent(metadataBody),
+		MultimodalPresent:          captureMultimodalPresent(metadataBody),
 		RedactionVersion:           qaRedactionVersion,
 		CaptureStatus:              captureStatusCaptured,
 		Tags:                       captureTags(requestBody, responseBody, status, responseTruncated),
@@ -622,7 +630,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		if resp, ok := payload["response"].(map[string]any); ok {
 			blocks := make([]string, 0, len(input.InternalThinkingBlocksJSON))
 			for _, raw := range input.InternalThinkingBlocksJSON {
-				redacted := restoreThinkingSignatures(logredact.RedactJSON([]byte(raw)), []byte(raw))
+				redacted := restoreInternalThinkingBlockJSON(logredact.RedactJSON([]byte(raw)), []byte(raw))
 				blocks = append(blocks, redacted)
 			}
 			resp["internal_thinking_blocks"] = blocks
