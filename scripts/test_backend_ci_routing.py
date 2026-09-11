@@ -59,6 +59,20 @@ class BackendCIRoutingTest(unittest.TestCase):
                 self.assertIn(f"needs.changes.outputs.{surface} == 'true'", condition)
                 self.assertIn("needs.changes.outputs.all == 'true'", condition)
 
+    def test_candidate_browser_runs_real_service_for_backend_or_frontend_changes(self) -> None:
+        job = self.jobs["candidate-browser"]
+        self.assertEqual(job["needs"], "changes")
+        for surface in ("backend", "frontend", "all"):
+            self.assertIn(f"needs.changes.outputs.{surface} == 'true'", job["if"])
+        run = next(step for step in job["steps"] if "TestCandidatePricingBrowser" in step.get("run", ""))
+        self.assertEqual(run["env"]["TK_CANDIDATE_BROWSER"], "1")
+        self.assertEqual(run["working-directory"], "backend")
+        self.assertIn("-count=1", run["run"])
+        self.assertNotIn("continue-on-error", run)
+        self.assertNotIn("continue-on-error", job)
+        installs = "\n".join(step.get("run", "") for step in job["steps"])
+        self.assertIn("playwright install --with-deps chromium", installs)
+
     def test_frontend_job_parallelizes_checks_on_one_runner(self) -> None:
         frontend_step = next(
             step
@@ -384,6 +398,7 @@ class BackendCIRoutingTest(unittest.TestCase):
                 ("preflight", "job", "-trimpath -gcflags=all=-dwarf=false"),
                 ("test-unit", "job", "-trimpath -gcflags=all=-dwarf=false"),
                 ("test-integration", "job", "-trimpath -gcflags=all=-dwarf=false"),
+                ("candidate-browser", "job", "-trimpath -gcflags=all=-dwarf=false"),
                 ("golangci-lint", "job", "-trimpath -gcflags=all=-dwarf=false"),
                 ("backend-security", "job", "-trimpath -gcflags=all=-dwarf=false"),
             ],

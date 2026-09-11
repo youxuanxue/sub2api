@@ -37,6 +37,63 @@
       "must_contain": ["TestQAMetadataSurvivesBodyCaptureLimit"],
       "rationale": "Long request metadata must survive capture limits while persisted body bytes remain bounded."
     },
+    {
+      "path": ".github/workflows/backend-ci.yml",
+      "must_contain": [
+        "candidate-browser:",
+        "TK_CANDIDATE_BROWSER: \"1\"",
+        "-run '^TestCandidatePricingBrowser$' -count=1 -timeout 6m",
+        "needs.changes.outputs.frontend == 'true'"
+      ],
+      "rationale": "Candidate UI acceptance must execute the real Go catalog with Chromium in CI; a skipped opt-in test cannot close the browser evidence boundary."
+    },
+    {
+      "path": "backend/internal/service/candidate_pricing_browser_test.go",
+      "must_contain": [
+        "func TestCandidatePricingBrowser(",
+        "requestCapabilities.modelFilter = NewModelListFilter(",
+        "svc.BuildForUser(",
+        "exec.CommandContext("
+      ],
+      "rationale": "Browser acceptance must consume the actual candidate, pricing and retirement owners instead of manufacturing catalog responses."
+    },
+    {
+      "path": "frontend/e2e/us050-candidate-backend.e2e.ts",
+      "must_contain": [
+        "[1280, 390]",
+        "route.fetch(",
+        "'model_not_found'",
+        "await keySelect.selectOption"
+      ],
+      "rationale": "Real UI regression covers Direct/Universal scope, cross-platform aliases and structural versus transient retirement with actual service responses."
+    },
+    {
+      "path": "backend/internal/repository/candidate_compatibility_integration_test.go",
+      "must_contain": [
+        "func TestCandidatePersistentFormatUpgradeAndRollback(",
+        "current.BindResponseAccount(",
+        "restarted.GetResponseAccount("
+      ],
+      "rationale": "Persistent old/new/rollback compatibility must remain independently exercised against real Redis."
+    },
+    {
+      "path": "backend/internal/repository/candidate_supplier_integration_test.go",
+      "must_contain": [
+        "func TestCandidateSupplierFaultPersistentSharingAndRecovery(",
+        "svc.HandleUpstreamError(",
+        "svc.RecoverSupplierCredentialPeers(",
+        "repo.UpdateSupplierCredentialFault("
+      ],
+      "rationale": "Real PostgreSQL integration proves shared credential faults, guarded rotation and outbox invalidation without erasing independent model/capacity/pause state."
+    },
+    {
+      "path": ".testing/user-stories/verify_quality.py",
+      "must_contain": [
+        "def verify_index(",
+        "index_issues = verify_index("
+      ],
+      "rationale": "Story owns status; index drift must fail preflight instead of claiming Done independently."
+    },
       {
         "path": ".github/workflows/deploy-stage0.yml",
         "must_contain": [
@@ -1068,7 +1125,7 @@
     },
     {
       "path": "backend/internal/service/candidate_billing_tk_test.go",
-      "must_contain": ["TestCandidateBillingOriginQueryFailureIsNeverTariffEquality", "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold", "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota", "TestCandidateBillingSelectedOriginReachesHoldAndSettlement", "TestCandidateBillingOriginUsesSettlementServedModel", "TestCandidateRebindingEnforcesDestinationRPM", "TestCandidateRPMUsesAvailableOriginAndResetsEachTurn", "TestCandidateBillingOriginComparesFreeFastSettlementPolicy", "TestCandidateBillingOriginIgnoresInapplicableFreeFastPolicy"],
+      "must_contain": ["TestCandidateBillingPriceChangeBetweenHoldAndSettlement", "TestCandidateBillingOriginQueryFailureIsNeverTariffEquality", "TestCandidateBillingFailedRebindRestoresPathWithoutRevivingReleasedHold", "TestUniversalUsageBillingNeverRevivesGroupPlatformQuota", "TestCandidateBillingSelectedOriginReachesHoldAndSettlement", "TestCandidateBillingOriginUsesSettlementServedModel", "TestCandidateRebindingEnforcesDestinationRPM", "TestCandidateRPMUsesAvailableOriginAndResetsEachTurn", "TestCandidateBillingOriginComparesFreeFastSettlementPolicy", "TestCandidateBillingOriginIgnoresInapplicableFreeFastPolicy"],
       "rationale": "Billing regressions preserve configuration errors, reservation rollback and group-independent Universal quota behavior."
     },
     {

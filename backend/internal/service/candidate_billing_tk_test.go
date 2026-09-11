@@ -562,3 +562,67 @@ func TestCandidateRPMUsesAvailableOriginAndResetsEachTurn(t *testing.T) {
 	require.EqualValues(t, 2, atomic.LoadInt32(&rpm.userCalls))
 	require.EqualValues(t, 2, atomic.LoadInt32(&rpm.userGroupCalls))
 }
+
+// Controlled prices are inputs; the arithmetic oracle never calls the resolver.
+func TestCandidateBillingPriceChangeBetweenHoldAndSettlement(t *testing.T) {
+	resetPricingRegistrySnapshot(t)
+	const model = "ssot-price-change"
+	for _, mode := range []string{RoutingModeDirect, RoutingModeUniversal} {
+		for _, scale := range []float64{0.5, 2} {
+			t.Run(fmt.Sprintf("%s/price-scale-%g", mode, scale), func(t *testing.T) {
+				publish := func(input, output float64) {
+					envelope := registryEnvelopeForTest(t, func(registry map[string]any) {
+						registry[model] = map[string]any{"mode": "chat", "litellm_provider": "test",
+							"input_cost_per_token": input, "output_cost_per_token": output}
+					}, nil)
+					rebuildTKOverlayUnion([]byte(envelope))
+				}
+				publish(.001, .002)
+				groups := []Group{grp(10, PlatformOpenAI, 0, false), grp(20, PlatformOpenAI, 1, false)}
+				rates := candidateRatesRepo{rates: map[int64]float64{10: 1, 20: .5}}
+				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+				billingRepo := &openAIRecordUsageBillingRepoStub{}
+				holds := &videoHoldRepoStub{UsageBillingRepository: billingRepo}
+				svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, holds, nil, nil, rates)
+				svc.billingService = NewBillingService(nil, &PricingService{})
+				// Share the production multiplier cache across admission and settlement.
+				svc.userGroupRateResolver = newUserGroupRateResolver(rates, nil, 0, nil, "")
+				account := globalCandidateAccount(115, 1, 10, 20)
+				account.Credentials["model_mapping"] = map[string]any{model: model}
+				r, repo, key := globalCandidateFixture(groups, []Account{account})
+				r.candidateGateway.userGroupRateResolver = svc.userGroupRateResolver
+				r.candidateOpenAI = svc
+				svc.accountRepo = repo
+				key.ID, key.Quota = 77, 100
+				groupID, beforeRate := int64(20), .5
+				if mode == RoutingModeDirect {
+					key.RoutingMode, key.Group, key.GroupID = mode, &groups[0], &groups[0].ID
+					groupID, beforeRate = 10, 1
+				}
+				body := []byte(`{"model":"ssot-price-change","messages":[{"role":"user","content":"hi"}]}`)
+				ctx, _, err := r.PrepareCandidateRequest(context.Background(), key, ShapeOpenAIChat, "/v1/chat/completions", model, body, "", "")
+				require.NoError(t, err)
+				require.Equal(t, groupID, *key.GroupID)
+				held, reject := svc.TkReserveTokenHold(ctx, "price-change", model, "", key.User, key, 100, 10)
+				require.True(t, held)
+				require.False(t, reject)
+				require.InDelta(t, .12*beforeRate, holds.command.Amount, 1e-9)
+				publish(.001*scale, .002*scale)
+				rates.rates[groupID] = beforeRate * scale
+				require.Equal(t, beforeRate, svc.ResolveUserGroupRateMultiplier(ctx, key.UserID, groupID, 1), "cached rate remains valid until invalidation/expiry")
+				// Model an expired entry without a wall-clock sleep.
+				svc.userGroupRateResolver.cache.Delete(fmt.Sprintf("%d:%d", key.UserID, groupID))
+				err = svc.RecordUsage(ctx, &OpenAIRecordUsageInput{APIKey: key, User: key.User, Account: &account,
+					APIKeyService: &openAIRecordUsageAPIKeyQuotaStub{}, TkHoldRequestID: "price-change",
+					Result: &OpenAIForwardResult{RequestID: "price-change", Model: model,
+						Usage: OpenAIUsage{InputTokens: 100, OutputTokens: 10}}})
+				require.NoError(t, err)
+				require.Equal(t, groupID, *usageRepo.lastLog.GroupID)
+				require.Equal(t, beforeRate*scale, usageRepo.lastLog.RateMultiplier)
+				require.InDelta(t, .12*beforeRate*scale*scale, billingRepo.lastCmd.BalanceCost, 1e-9)
+				require.Equal(t, "price-change", billingRepo.lastCmd.TkHoldRequestID)
+				require.Equal(t, billingRepo.lastCmd.BalanceCost, billingRepo.lastCmd.APIKeyQuotaCost)
+			})
+		}
+	}
+}
