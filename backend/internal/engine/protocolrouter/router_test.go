@@ -48,12 +48,16 @@ func testRequest(t *testing.T, protocol Protocol, profile RequestProfile) Canoni
 	if profile.ContentKinds == 0 {
 		profile.ContentKinds = ContentText
 	}
+	body := []byte(`{"model":"client-model","stream":false}`)
+	if protocol == ProtocolGeminiGenerateContent {
+		body = []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`)
+	}
 	req, err := NewCanonicalRequest(CanonicalRequestInput{
 		InboundProtocol: protocol,
 		RequestedModel:  "client-model",
 		ResponsesPath:   ResponsesPathRoot,
 		Profile:         profile,
-		Body:            []byte(`{"model":"client-model","stream":false}`),
+		Body:            body,
 	})
 	if err != nil {
 		t.Fatalf("NewCanonicalRequest: %v", err)
@@ -105,6 +109,7 @@ func allTestAdapters() AdapterCatalog {
 		AdapterChatToGemini:        &recordingAdapter{},
 		AdapterResponsesToGemini:   &recordingAdapter{},
 		AdapterGeminiIdentity:      &recordingAdapter{},
+		AdapterGeminiToChat:        &recordingAdapter{},
 	}
 }
 

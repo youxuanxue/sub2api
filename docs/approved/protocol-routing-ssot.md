@@ -282,7 +282,7 @@ tried in this fixed order:
 | `messages` | `responses`, then `chat_completions`, then `gemini_generate_content` |
 | `chat_completions` | `responses`, then `messages`, then `gemini_generate_content` |
 | `responses` | `chat_completions`, then `messages`, then `gemini_generate_content` |
-| `gemini_generate_content` | identity only |
+| `gemini_generate_content` | `chat_completions` within the [Gemini conversion contract](gemini-chat-conversion.md) |
 
 The first legal entry wins. Each registry entry names its target protocol,
 allowed Responses paths, model policy, feature constraints, endpoint/profile
