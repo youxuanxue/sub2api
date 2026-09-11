@@ -12,7 +12,7 @@ created: 2026-09-07
 The user approved converging on four existing owners in the 2026-09-07
 conversation, with the instruction to implement this SSOT principle.
 That approval authorized implementation only; merge and deployment were separate
-decisions, and both have since been taken — see the release status below.
+decisions. Release evidence and acceptance status are maintained in US-050.
 The Chinese collaboration name is recorded in project AGENTS.md. Use
 `candidate-eligibility-ssot` as the stable search term.
 
@@ -71,7 +71,7 @@ resolved model, target protocol and adjustment reason, without logging bodies.
 Legacy Messages normalization reuses the same policy and cannot undo a selected
 Plan. Endpoint evidence changes that alter the effective request invalidate the
 selected Plan before transport. This 2026-09-10 approval covered implementation
-and tests only; the resulting change has since merged and released.
+and tests only; subsequent release evidence belongs to US-050.
 The supplier's exact
 `[preflight:R3.forced_tool_choice_incompatible]` 400 is eligible for another
 account without credential penalties; unrelated client 400s remain terminal.
@@ -79,12 +79,12 @@ account without credential penalties; unrelated client 400s remain terminal.
 ## Approved policy: authorization-scoped account scheduling
 
 On 2026-09-08 the user approved the policy below and its ownership in this
-contract. This branch implements the shared candidate handoff and account pool;
-local validation is recorded in US-050. The follow-up conversation also approved the balance-origin rule in
+contract. The shared candidate handoff and account pool implement this policy.
+The follow-up conversation also approved the balance-origin rule in
 [universal-key-routing.md](universal-key-routing.md#已确认的余额计费归属),
 group-independent session affinity with a one-time soft-cache cold start, and
 the common account ordering below. A conversation approval is never by itself
-deployment evidence; the release facts below are what record what shipped.
+deployment evidence; US-050 records what shipped and what was verified.
 
 The subsequent review accepts multiplier-read fallback to 1 and normal
 administrative rate changes between reservation and settlement; billing details
@@ -93,15 +93,9 @@ Direct group model mappings while Universal ignores them, as defined in
 [candidate-request-policy-convergence.md](candidate-request-policy-convergence.md).
 That supplement also assesses continuation-order migration impacts. Direct
 compatibility does not require client migration or deletion of group fields.
-The mapping-mode guard, global scheduling and continuation-storage migration
-are merged and released. The release prohibition recorded here applied to the
-original implementation task and has been lifted: every owner in the table below
-is contained in a released tag (`v1.8.204` through `v1.8.217`) and prod
-(`api.tokenkey.dev`) has been serving `v1.8.219`, an ancestor-inclusive
-superset, since 2026-09-11. Local implementation and tests remain separate from
-deployment evidence — the acceptance boundaries in
-[US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md)
-now describe live-traffic verification still to be gathered, not unshipped code.
+Implementation, release and live acceptance are separate facts. Their evidence
+and remaining work are maintained in
+[US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#coverage-boundaries).
 
 ### Scope and decision order
 
@@ -415,28 +409,11 @@ Gateway sentinels protect consuming call sites as well as shared owners and test
 This is a backend/API change with no new UI surface, schema or live configuration.
 Local unit and middleware integration tests are required.
 
-### Release status (verified 2026-09-11)
+### Release and acceptance evidence
 
-All 16 production `backend/internal/service/candidate_*.go` owners named in
-§Implementation/Owners are contained in a released tag, so the "deploy the
-reviewed change before a Universal-key probe can prove the new behavior"
-prerequisite is satisfied — that probe is runnable against prod, not blocked:
-
-| Owners introduced | Commit | Tag |
-| --- | --- | --- |
-| `candidate_eligibility.go`, `candidate_saturation.go` (#2032) | `b2e8681443` | `v1.8.204` |
-| `candidate_request_tk.go`, `candidate_selection_tk.go`, `candidate_ingress_tk.go`, `candidate_billing_tk.go`, `candidate_discovery_tk.go`, `candidate_identity_tk.go`, `candidate_ws_authorization_tk.go`, `candidate_ws_identity_tk.go` (#2051) | `321a7ff334` | `v1.8.208` |
-| `candidate_rpm_tk.go` (#2053) | `928316bc02` | `v1.8.208` |
-| `candidate_failure_tk.go`, `candidate_chat_attempt_tk.go` (#2067) | `651593de38` | `v1.8.213` |
-| `candidate_discovery_snapshot_tk.go`, `candidate_profit_tk.go` (#2097) | `9b72ce6bfc` | `v1.8.216` |
-| `candidate_edge_model_rejection_tk.go` (#2100) | `f5921f5232` | `v1.8.217` |
-
-Each tag's Release workflow run succeeded. Prod (`api.tokenkey.dev`) has been
-serving `v1.8.219` — which contains all of the above — since the successful
-Stage0 Deploy of 2026-09-11, with a multi-arch (amd64 + arm64) manifest verified
-by that run and `/health` returning 200 under live traffic.
-
-What remains open is live-traffic acceptance evidence, not shipping: US-050's
-`AC-013/017/018/027` and `AC-036/037` still need real price/cost comparison
-against production data, and `AC-032/033/034` still need the production
-comparison recorded. Those are measurements to take on the deployed build.
+[US-050 Status](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#status)
+owns dated release evidence. Its
+[Coverage Boundaries](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#coverage-boundaries)
+own the remaining acceptance work. Keep those facts there; this contract owns
+policy and the implementation owner table. A passing local gate or a successful
+release does not close a live acceptance criterion.
