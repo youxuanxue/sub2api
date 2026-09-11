@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import os
@@ -354,43 +353,3 @@ def build_report(upstream_rows: list[dict[str, Any]], triage: dict[str, Any],
         "selected_issue": selected,
     }
     return report
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--upstream-issues", required=True, type=Path)
-    parser.add_argument("--triage", required=True, type=Path)
-    parser.add_argument("--fixes", required=True, type=Path)
-    parser.add_argument("--fact-checks", required=True, type=Path)
-    parser.add_argument("--report-json", required=True, type=Path)
-    parser.add_argument("--report-md", required=True, type=Path)
-    parser.add_argument("--agent-input-json", type=Path)
-    parser.add_argument("--force-upstream-issue", default="")
-    # Watched-repo display title for the markdown report. The repo for issue URLs is
-    # derived from each ref, so this is the only repo-specific knob — defaults keep
-    # the upstream (Wei-Shaw) watchdog behavior unchanged.
-    parser.add_argument("--report-title", default="# Upstream Issue Watchdog Report")
-    args = parser.parse_args()
-
-    triage = load_json(args.triage)
-    fixes = load_json(args.fixes)
-    report = build_report(load_jsonl(args.upstream_issues), triage, fixes,
-                          load_json(args.fact_checks).get("checks", []), args.force_upstream_issue)
-    write_json(args.triage, triage)
-    write_json(args.fixes, fixes)
-    selected = report["selected_issue"]
-    high_unresolved = report["high_unresolved"]
-    write_json(args.report_json, report)
-    args.report_md.write_text(report_markdown(report, args.report_title), encoding="utf-8")
-    if args.agent_input_json:
-        write_json(args.agent_input_json, agent_input(report))
-
-    set_output("has_high_unresolved", "true" if high_unresolved else "false")
-    set_output("selected_issue", str(selected["number"]) if selected else "")
-    set_output("selected_upstream", selected["upstream"] if selected else "")
-    set_output("high_unresolved_count", str(len(high_unresolved)))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

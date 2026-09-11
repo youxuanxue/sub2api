@@ -94,9 +94,7 @@ temp/
 *.log
 *.bak
 .cache/*
-!.cache/anthropic/
 !.cache/fingerprint/
-!.cache/upstream/
 .dev/
 .serena/
 

@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
 import subprocess
 import sys
 import unittest
-
+from pathlib import Path
 
 MODULE_PATH = Path(__file__).resolve().parent / "changed-surfaces.py"
 SPEC = importlib.util.spec_from_file_location("changed_surfaces", MODULE_PATH)
@@ -105,7 +104,7 @@ class ChangedSurfacesTest(unittest.TestCase):
 
     def test_cache_snapshot_change_keeps_expensive_jobs_off(self) -> None:
         self.assertEqual(
-            changed_surfaces.classify([".cache/anthropic/cc-triage.json"]),
+            changed_surfaces.classify([".cache/fingerprint/client-release-watch.json"]),
             {
                 "backend": False,
                 "frontend": False,
