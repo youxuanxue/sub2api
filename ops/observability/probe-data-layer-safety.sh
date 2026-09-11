@@ -55,15 +55,20 @@ case "$telemetry_enabled" in
     printf '%s\n' 'TELEMETRYSTATS {"probe_ok":true,"enabled":false}'
     ;;
   true)
+    # last_run_at is the shadow writer's liveness signal: the health owner writes
+    # it every minute regardless of loss, while last_success_at is only written on
+    # a clean tick. Reporting both lets the verdict separate "the publisher is
+    # dead" from "the publisher is alive and still carrying a loss counter".
     "${PSQL[@]}" -c "
 WITH heartbeat AS (
-  SELECT last_success_at, last_error_at, last_error, last_result
+  SELECT last_run_at, last_success_at, last_error_at, last_error, last_result
   FROM ops_job_heartbeats
   WHERE job_name = 'telemetry_archive_shadow'
 )
 SELECT 'TELEMETRYSTATS ' || json_build_object(
   'probe_ok', true,
   'enabled', true,
+  'last_run_at', (SELECT last_run_at FROM heartbeat),
   'last_success_at', (SELECT last_success_at FROM heartbeat),
   'last_error_at', (SELECT last_error_at FROM heartbeat),
   'last_error', (SELECT last_error FROM heartbeat),
