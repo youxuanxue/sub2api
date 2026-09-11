@@ -160,26 +160,41 @@ def sample_from_capture(row, payload):
     require(parsed.path in supported or re.fullmatch(r'/v1beta/models/[A-Za-z0-9_.-]+:(?:streamGenerateContent|generateContent|countTokens)', parsed.path), 'unsupported_path')
     # Never fabricate a missing Gemini model/action or mutate the user's prompt.
     require(body.get('model', row['requested_model']) == row['requested_model'], 'capture_model_mismatch')
+    # qa_records.success is based on HTTP status and can label a 200 error
+    # stream as successful. Such a request is not a positive replay baseline.
+    baseline = payload.get('response', {}).get('body')
+    baseline_raw = baseline.encode() if isinstance(baseline, str) else encoded(baseline)
+    require(not response_error_details(baseline_raw), 'baseline_upstream_error')
     return {'row': row, 'path': path, 'body': encoded(body)}
+
+
+def capture_query():
+    # Sample both ends of the window: long-running conversations grow past
+    # capture limits, while their earlier complete requests remain retained.
+    half = CAPTURE_ALTERNATIVES // 2
+    return f"""WITH captures AS (
+ SELECT q.request_id,q.user_id,q.api_key_id,q.requested_model,q.inbound_endpoint,q.stream,
+ q.tool_calls_present,q.multimodal_present,q.blob_uri,q.created_at,q.duration_ms,
+ (k.id IS NOT NULL AND k.user_id=q.user_id AND k.status='active' AND k.deleted_at IS NULL
+  AND (k.expires_at IS NULL OR k.expires_at>now())) AS key_replayable
+ FROM qa_records q LEFT JOIN api_keys k ON k.id=q.api_key_id
+ -- ops-allow-soft-deleted: retain observed strata after key deletion; key_replayable rejects deleted keys.
+ WHERE q.created_at >= now()-interval '24 hours' AND q.success=true
+ ), ranked AS (
+ SELECT captures.*,
+ row_number() OVER (PARTITION BY user_id,requested_model,inbound_endpoint,stream,
+ tool_calls_present,multimodal_present ORDER BY key_replayable DESC,created_at DESC,request_id) rn,
+ row_number() OVER (PARTITION BY user_id,requested_model,inbound_endpoint,stream,
+ tool_calls_present,multimodal_present ORDER BY key_replayable DESC,created_at ASC,request_id) rn_old
+ FROM captures
+ ) SELECT row_to_json(ranked) FROM ranked WHERE rn<={half} OR rn_old<={half}
+ ORDER BY user_id,requested_model,inbound_endpoint,stream,rn LIMIT 5001;"""
 
 
 def collect(root=ROOT, gap_results=None):
     # Keep every observed stratum, including those whose keys were revoked.
     # Prefer usable credentials within that same stratum; never substitute a key.
-    query = f"""WITH ranked AS (
- SELECT q.request_id,q.user_id,q.api_key_id,q.requested_model,q.inbound_endpoint,q.stream,
- q.tool_calls_present,q.multimodal_present,q.blob_uri,q.created_at,q.duration_ms,
- (k.id IS NOT NULL AND k.user_id=q.user_id AND k.status='active' AND k.deleted_at IS NULL
-  AND (k.expires_at IS NULL OR k.expires_at>now())) AS key_replayable,
- row_number() OVER (PARTITION BY q.user_id,q.requested_model,q.inbound_endpoint,q.stream,
- q.tool_calls_present,q.multimodal_present ORDER BY
- (k.id IS NOT NULL AND k.user_id=q.user_id AND k.status='active' AND k.deleted_at IS NULL
-  AND (k.expires_at IS NULL OR k.expires_at>now())) DESC, q.created_at DESC,q.request_id) rn
- FROM qa_records q LEFT JOIN api_keys k ON k.id=q.api_key_id
- -- ops-allow-soft-deleted: retain observed strata after key deletion; key_replayable rejects deleted keys.
- WHERE q.created_at >= now()-interval '24 hours' AND q.success=true
- ) SELECT row_to_json(ranked) FROM ranked WHERE rn<={CAPTURE_ALTERNATIVES}
- ORDER BY user_id,requested_model,inbound_endpoint,stream,rn LIMIT 5001;"""
+    query = capture_query()
     rows = [json.loads(line) for line in sql(query).splitlines()]
     require(0 < len(rows) <= 5000, 'capture_empty_or_scan_limit')
     groups = collections.defaultdict(list)
@@ -279,6 +294,60 @@ def response_reason(status, ctype, raw, stream):
         return 'response_invalid_json'
 
 
+def response_error_details(raw):
+    """Classify provider errors without persisting their free-form messages."""
+    try:
+        text = raw.decode('utf-8')
+        try:
+            events = [json.loads(text)]
+        except ValueError:
+            events = []
+            for line in text.splitlines():
+                if line.startswith('data:') and line[5:].strip() != '[DONE]':
+                    try:
+                        events.append(json.loads(line[5:].strip()))
+                    except ValueError:
+                        continue  # Malformed framing is already a failed response.
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            error = event.get('error')
+            response = event.get('response')
+            if not error and isinstance(response, dict):
+                error = response.get('error')
+            if not error and event.get('type') in ('error', 'response.failed', 'response.incomplete'):
+                error = {'type': event['type']}
+            if not error and event.get('status') in ('failed', 'incomplete'):
+                error = {'status': event['status']}
+            if not error:
+                continue
+            error_text = json.dumps(error, ensure_ascii=False).lower()
+            categories = {'quota': ('quota', 'balance', '余额', '欠费'),
+                          'rate_limit': ('rate limit', 'rate_limit', '频率'),
+                          'timeout': ('timeout', 'timed out', '超时'),
+                          'content_filter': ('content filter', 'content_filter', 'moderation', 'sensitive', '敏感'),
+                          'authentication': ('authentication', 'unauthorized', 'invalid api key'),
+                          'context_limit': ('context length', 'context_length', 'maximum context'),
+                          'overloaded': ('overloaded', 'over capacity')}
+            details = {'error_sha256': digest(encoded(error)),
+                       'error_message_categories': [k for k, terms in categories.items()
+                                                    if any(term in error_text for term in terms)]}
+            if event.get('type') in ('error', 'response.failed', 'response.incomplete'):
+                details['error_event_type'] = event['type']
+            if isinstance(response, dict) and isinstance(response.get('incomplete_details'), dict):
+                reason = response['incomplete_details'].get('reason')
+                if reason in ('max_output_tokens', 'content_filter'):
+                    details['incomplete_reason'] = reason
+            if isinstance(error, dict):
+                code = error.get('code')
+                if isinstance(code, int) and not isinstance(code, bool) and 0 <= code <= 2**32:
+                    details['error_numeric_code'] = code
+            return details
+    except (ValueError, TypeError):
+        return {}  # Invalid payload remains red; never print parsing input.
+    return {}
+
+
 def execute(sample, key, port, replay_id):
     # Production non-stream p95 exceeds 50s. Give retained slow requests their
     # observed duration plus headroom, still bounded per request and per run.
@@ -323,7 +392,8 @@ def execute(sample, key, port, replay_id):
         reason = 'transport_error'
     finally:
         connection.close()
-    return {'sample_sha256': digest(encoded(sample['row'])), 'http_status': status,
+    details = response_error_details(raw) if reason != 'ok' else {}
+    return {**details, 'sample_sha256': digest(encoded(sample['row'])), 'http_status': status,
             'passed': reason == 'ok', 'reason': reason, 'phase': phase,
             'elapsed_ms': round((time.monotonic() - started) * 1000),
             'response_bytes': len(raw), 'response_sha256': digest(raw),
@@ -349,7 +419,8 @@ SELF_CHECK_EXEMPT: dict[str, str] = {}
 
 
 def iter_self_check_sql():
-    return [('production_usage_query', production_usage_query('tk-replay-check-',
+    return [('capture_query', capture_query()),
+            ('production_usage_query', production_usage_query('tk-replay-check-',
              [{'response_request_id': 'server-uuid'}]))]
 
 

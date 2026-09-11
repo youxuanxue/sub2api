@@ -413,10 +413,16 @@ repairs the existing retained-capture executor. It grants no deployment approval
 
 `ops/stage0/prod_replay.py` keeps every observed user/model/endpoint/stream/tool/
 multimodal combination in the denominator. Within the existing scan and byte
-bounds it examines up to 50 recent alternatives, preferring a still-active,
+bounds it examines up to 50 alternatives (25 newest and 25 oldest within the
+same window), preferring a still-active,
 unexpired key belonging to the captured user. Each request uses its own captured
 key; revoked keys are never reactivated or replaced. A combination without an
 eligible intact capture remains a red coverage gap with per-case reasons.
+A retained HTTP 200 response with an explicit error envelope is not a successful
+baseline: the collector tries another request in the same observed combination.
+If none is usable, `baseline_upstream_error` remains a coverage gap. The live
+GLM case exposed a content-filter error that QA's status-only success flag missed;
+replay never edits the prompt or bypasses upstream content policy.
 
 Registered synchronous route aliases (including `/responses`) are replayed at
 the retained path without normalization. Missing Gemini actions, truncated
@@ -429,7 +435,7 @@ exceeding the executor's 30-second header timeout. Replay now gives each request
 120-second body idle limit, existing run deadline and sequential concurrency.
 Success still requires complete HTTP framing and valid JSON/SSE completion.
 Sanitized results include phase, reason, elapsed time, byte count and response
-hash, never response text or credentials. Progress survives interrupted attempts;
+hash plus bounded provider-error categories/numeric codes, never response text or credentials. Progress survives interrupted attempts;
 the receipt binds the executor source hash as well as candidate and results.
 
 Production usage auditing covers raw, `local:` and legacy `client:` identities,

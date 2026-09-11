@@ -35,6 +35,10 @@ OPS_DIR = OPS_ANTHROPIC.parent
 # RAISEs otherwise); tls_fingerprint_profiles.id auto-generates + name is unique
 # (generate_sql INSERT ... ON CONFLICT (name)).
 SCHEMA = """
+CREATE TABLE api_keys(id bigint, user_id bigint, status text, deleted_at timestamptz, expires_at timestamptz);
+CREATE TABLE qa_records(request_id text, user_id bigint, api_key_id bigint, requested_model text,
+  inbound_endpoint text, stream boolean, tool_calls_present boolean, multimodal_present boolean,
+  blob_uri text, created_at timestamptz, duration_ms bigint, success boolean);
 CREATE TABLE usage_logs(request_id text, created_at timestamptz);
 CREATE TABLE accounts(id bigint, name text, platform text, type text, status text, schedulable boolean,
   concurrency int, load_factor numeric, priority int, channel_type int, rate_multiplier numeric,
@@ -164,6 +168,31 @@ class OpsSqlExecuteTest(unittest.TestCase):
                         f"Postgres rejected {path.name}:{label}:\n{proc.stderr}\n---\n{sql}",
                     )
         self.assertGreaterEqual(total, 15, "expected the full ops generator fleet")
+
+    def test_replay_selection_covers_window_ends_and_keeps_revoked_strata(self):
+        replay = _load(OPS_DIR / "stage0" / "prod_replay.py")
+        self.assertEqual(self._run_sql("""
+INSERT INTO api_keys VALUES (71,71,'active',NULL,NULL), (72,72,'disabled',now(),NULL);
+INSERT INTO qa_records
+SELECT 'req-'||n,71,71,'m','/v1/messages',false,false,false,'file:///retained',
+       now()-n*interval '1 minute',5000,true FROM generate_series(1,200) n;
+INSERT INTO qa_records VALUES ('revoked',72,72,'m','/v1/messages',false,false,false,
+       'file:///retained',now(),5000,true);
+""").returncode, 0)
+        try:
+            import json
+            proc = self._run_sql(replay.capture_query())
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            rows = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+            active = [r for r in rows if r['user_id'] == 71]
+            self.assertEqual(len(active), 50)
+            self.assertEqual({r['request_id'] for r in active},
+                             {'req-'+str(i) for i in (*range(1,26), *range(176,201))})
+            revoked = [r for r in rows if r['user_id'] == 72]
+            self.assertEqual(len(revoked), 1)
+            self.assertFalse(revoked[0]['key_replayable'])
+        finally:
+            self.assertEqual(self._run_sql('DELETE FROM qa_records; DELETE FROM api_keys;').returncode, 0)
 
     def test_reverse_teeth_corrupt_sql_is_rejected(self) -> None:
         # Prove the gate has teeth: an unbalanced COALESCE( (the PR #563 shape)

@@ -94,6 +94,18 @@ class CaptureTest(unittest.TestCase):
             self.assertEqual(len(selected), 1)
             self.assertEqual(gaps, {'capture_not_local': 1})
 
+    def test_http200_error_capture_is_not_a_successful_baseline(self):
+        payload = {'request_id': 'real-request-1', 'request': {
+            'path': '/v1/messages', 'body': {'model': 'm1', 'messages': ['retained']}},
+            'response': {'status_code': 200, 'body': 'data: {"error":{"message":"sensitive content"}}\n\n'}}
+        with self.assertRaisesRegex(replay.ReplayError, 'baseline_upstream_error'):
+            replay.sample_from_capture(row(), payload)
+        payload['response']['body'] = 'data: {"type":"response.failed","response":{"error":{"code":"server_error"}}}\n\n'
+        with self.assertRaisesRegex(replay.ReplayError, 'baseline_upstream_error'):
+            replay.sample_from_capture(row(), payload)
+        payload['response']['body'] = 'data: {"type":"message_stop"}\n\n'
+        self.assertEqual(json.loads(replay.sample_from_capture(row(), payload)['body']), payload['request']['body'])
+
     def test_alias_is_preserved_and_missing_gemini_action_is_a_gap(self):
         payload = {'request_id': 'real-request-1', 'request': {
             'path': '/responses', 'body': {'model': 'm1', 'input': 'retained'}}}
@@ -192,6 +204,19 @@ class HTTPTest(unittest.TestCase):
             b'event: error\ndata: {}\n\ndata: [DONE]\n\n', True), 'upstream_error')
         self.assertEqual(replay.response_reason(200, 'application/json',
             b'{"status":"incomplete"}', False), 'upstream_error')
+
+    def test_provider_error_classification_never_exposes_message_or_credentials(self):
+        raw = b'data: {"error":{"code":1301,"message":"sensitive content: private prompt private-key"}}\n\n'
+        details = replay.response_error_details(raw)
+        self.assertEqual(details['error_message_categories'], ['content_filter'])
+        self.assertEqual(details['error_numeric_code'], 1301)
+        self.assertNotIn('private', json.dumps(details))
+        incomplete = replay.response_error_details(
+            b'data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}\n\n')
+        self.assertEqual(incomplete['error_event_type'], 'response.incomplete')
+        self.assertEqual(incomplete['incomplete_reason'], 'max_output_tokens')
+        self.assertNotIn('private', json.dumps(replay.response_error_details(
+            b'{"error":{"code":"private-key","message":"private prompt"}}')))
 
     def test_stream_failure_diagnostics_distinguish_missing_terminal_and_invalid_json(self):
         for body, reason in ((b'data: {"type":"ping"}\n\n', 'stream_terminal_missing'),
