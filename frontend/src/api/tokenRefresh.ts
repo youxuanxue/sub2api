@@ -174,6 +174,15 @@ async function requestTokenPair(
     // wait through the shared request deadline before treating the session as expired. Transient
     // non-4xx failures retain the short reconciliation window.
     const responseStatus = (error as { response?: { status?: unknown } }).response?.status
+    // A guest with neither a local session nor a refresh cookie gets a 400
+    // (missing refresh token), not a rotating-token rejection. There is no
+    // failed token to reconcile; preserve peer recovery for all actual sessions.
+    if (responseStatus === 400 && !snapshot.accessToken && !snapshot.refreshToken &&
+        snapshot.userID === null && !failedAccessToken) {
+      const peerResult = readPeerRefreshResult(snapshot)
+      if (peerResult) return peerResult
+      throw error
+    }
     const isTokenRejection =
       typeof responseStatus === 'number' && responseStatus >= 400 && responseStatus < 500
     const peerResult = await waitForPeerRefresh(

@@ -19,8 +19,8 @@ const (
 	storefrontZHOGDescription   = "每一次调用，都是官方品质。一个 API Key，所有主流 AI 模型。文本、图像、视频。订阅配额，费用可预测。"
 	storefrontZHHeroTitle       = "每一次调用，都是官方品质。"
 	storefrontZHHeroSubtitle    = "一个 API Key，所有主流 AI 模型。文本、图像、视频。订阅配额，费用可预测。"
-	storefrontZHFreeTrial       = "免费试用，送 100 万 tokens。足够测试你的真实工作流。只需邮箱，无需信用卡。"
+	storefrontZHFreeTrial       = "开启注册赠额时，首页和价格表会显示当前赠送金额。可使用的 token 数量取决于所选模型及实际请求。"
 
 	storefrontENTwitterDescription = "One API key for Claude, GPT, Gemini, and more. Direct-to-vendor quality, predictable pricing."
-	storefrontENFreeTrial          = "Try free with 1M tokens on us. Enough to run your real workload end-to-end. Just an email — no credit card required."
+	storefrontENFreeTrial          = "When signup credit is available, the current amount is shown on the home and pricing pages. Token usage depends on the model and your requests."
 )

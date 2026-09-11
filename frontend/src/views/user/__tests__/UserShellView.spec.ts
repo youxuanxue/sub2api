@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, reactive } from 'vue'
 
 import UserShellView from '../UserShellView.vue'
@@ -15,6 +15,7 @@ vi.mock('@/stores/auth', () => ({
 }))
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({
+  __esModule: true,
   default: defineComponent({
     name: 'AppLayout',
     template: '<div data-testid="app-layout"><slot /></div>',
@@ -22,9 +23,10 @@ vi.mock('@/components/layout/AppLayout.vue', () => ({
 }))
 
 describe('UserShellView', () => {
-  it('wraps authenticated routes in AppLayout', () => {
+  it('wraps authenticated routes in AppLayout', async () => {
     authState.isAuthenticated = true
     const wrapper = mount(UserShellView)
+    await flushPromises()
     expect(wrapper.find('[data-testid="app-layout"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="router-view"]').exists()).toBe(true)
   })

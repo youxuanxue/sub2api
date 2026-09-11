@@ -390,11 +390,16 @@ jobs:
         env:
           TK_CANDIDATE_BROWSER: "1"
         run: go test -p 4 -tags unit ./internal/service -run '^TestCandidatePricingBrowser$' -count=1 -timeout 6m -v
+      - name: Public pages against isolated production build
+        working-directory: frontend
+        run: pnpm test:e2e:public
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: candidate-browser-failure
-          path: frontend/e2e/artifacts
+          path: |
+            frontend/e2e/artifacts
+            frontend/.cache/public-e2e-results
           retention-days: 7
 
   golangci-lint:

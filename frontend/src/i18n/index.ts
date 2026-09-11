@@ -65,19 +65,21 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
   }
 
   const loader = localeLoaders[locale]
-  const module = await loader()
+  const [module, tkHome, tkInviteTrial, tkLegacyMissing, tkSupplierSources] = await Promise.all([
+    loader(),
+    import('./tk/home.tk'),
+    import('./tk/inviteTrial.tk'),
+    import('./tk/legacyMissing.tk'),
+    import('./tk/supplierSources.tk'),
+  ])
   i18n.global.setLocaleMessage(locale, module.default)
   // TK: deep-merge TokenKey-only home/landing strings over the upstream locale.
   // Keeps locales/{en,zh}.ts near-upstream and merge-safe (CLAUDE.md §5).
-  const tkHome = await import('./tk/home.tk')
   i18n.global.mergeLocaleMessage(locale, tkHome.default[locale] ?? {})
   // TK: Invite-to-Trial admin strings (admin.users.inviteTrial.*).
-  const tkInviteTrial = await import('./tk/inviteTrial.tk')
   i18n.global.mergeLocaleMessage(locale, tkInviteTrial.default[locale] ?? {})
   // TK: legacy single-file locale keys not present in upstream split modules.
-  const tkLegacyMissing = await import('./tk/legacyMissing.tk')
   i18n.global.mergeLocaleMessage(locale, tkLegacyMissing.default[locale] ?? {})
-  const tkSupplierSources = await import('./tk/supplierSources.tk')
   i18n.global.mergeLocaleMessage(locale, tkSupplierSources.default[locale] ?? {})
   const tkOnboarding = await import('./tk/onboarding.tk')
   i18n.global.mergeLocaleMessage(locale, tkOnboarding.default[locale] ?? {})
