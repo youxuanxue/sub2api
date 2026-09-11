@@ -5875,6 +5875,8 @@
       "must_contain": [
         "func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool",
         "func tkOpsIsAccountLevel4xx(lower string) bool",
+        "if tkOpsDashScopeRequestRejection(body, msg) {",
+        "func tkOpsDashScopeRequestRejection(body, message string) bool",
         "if status == 413 {",
         "if status != 400 && status != 422 {",
         "invalid_request_error",
@@ -5902,6 +5904,47 @@
         "TestClassifyOpsRoutingCapacityWinsOverClientInduced"
       ],
       "rationale": "Focused regressions proving the boundary: (1) upstream 400 invalid_request_error (structured body), the /v1/responses wrapped-upstream_error message shape, 413 request_too_large, and a generic invalid_request_error all classify as error_owner=client; (2) genuine upstream 5xx/401/403 and account-level 400s (organization disabled / credit balance) stay error_owner=provider so they keep counting toward upstream_error_rate; (3) routing-capacity 'no available accounts' still wins over the client-induced branch. Dropping these lets an upstream merge silently revert the prod-P0 fix through the classifier."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_dashscope_rejection_test.go",
+      "must_contain": [
+        "TestClassifyOpsDashScopeRequestRejections",
+        "embedding batch exceeds provider limit",
+        "content inspection rejection",
+        "provider 503 remains visible",
+        "account health wins",
+        "echoed input is not an error signal"
+      ],
+      "rationale": "DashScope batch-limit and explicit content-policy 400 rejections must remain request/client-owned despite the bridge api_error wrapper; provider failures, unknown InvalidParameter errors and echoed request content must not be hidden from provider-health alerts."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)",
+        "if shouldDisable && statusCode == http.StatusServiceUnavailable {",
+        "failoverErr.RetryableOnSameAccount = false",
+        "failoverErr.RequestScopedTransient = false"
+      ],
+      "rationale": "Explicit operator overload rules must also apply to HTTP 200 SSE terminal failures and skip same-account retries after cooling the selected model. Default capacity retries remain unchanged without a matching rule."
+    },
+    {
+      "path": "backend/internal/service/openai_stream_capacity_rule_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) tkHandleOpenAIStreamCapacityRule",
+        "openAIStreamFailedEventPassthroughBody(payload, message)",
+        "HandleTempUnschedulable(stateCtx, account, http.StatusServiceUnavailable, body, model)"
+      ],
+      "rationale": "Reuse the model cooldown owner and match only the actual stream error envelope, never echoed instructions or response output."
+    },
+    {
+      "path": "backend/internal/service/openai_stream_capacity_rule_tk_test.go",
+      "must_contain": [
+        "TestOpenAIStreamCapacityRuleCoolsOnlyKnownModel",
+        "default retains request local retry",
+        "unknown model never blocks whole account",
+        "echoed input does not match rule"
+      ],
+      "rationale": "Regression coverage pins model-only cooldown, immediate account failover on an explicit rule, default retries, and protection against echoed input affecting scheduling."
     },
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",

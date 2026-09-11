@@ -143,6 +143,9 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 	if tkOpsIsAccountLevel4xx(combined) {
 		return false
 	}
+	if tkOpsDashScopeRequestRejection(body, msg) {
+		return true
+	}
 	if strings.EqualFold(strings.TrimSpace(clientErrType), "invalid_request_error") {
 		return true
 	}
@@ -157,6 +160,24 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 		strings.Contains(combined, "request_too_large") ||
 		strings.Contains(combined, "request too large") ||
 		strings.Contains(combined, "is not supported when using")
+}
+
+// DashScope's bridge preserves provider codes in the message while exposing an
+// api_error wrapper. Match explicit request rejection reasons, not the generic
+// InvalidParameter code, which can also describe an adapter/provider fault.
+func tkOpsDashScopeRequestRejection(body, message string) bool {
+	message = strings.ToLower(strings.TrimSpace(message))
+	if gjson.Valid(body) {
+		message += "\n" + strings.ToLower(gjson.Get(body, "error.code").String()) + ": " +
+			strings.ToLower(gjson.Get(body, "error.message").String())
+	}
+	if strings.Contains(message, "invalidparameter:") &&
+		strings.Contains(message, "batch size is invalid, it should not be larger than") {
+		return true
+	}
+	return strings.Contains(message, "data_inspection_failed:") &&
+		(strings.Contains(message, "output data may contain inappropriate content") ||
+			strings.Contains(message, "input data may contain inappropriate content"))
 }
 
 func tkOpsHasUpstreamEventKind(c *gin.Context, kind string) bool {
