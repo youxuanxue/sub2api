@@ -134,9 +134,21 @@ def sync_issues(source, report, target_repo, api=gh, entries=()):
             if row["state"] == "closed":
                 continue
             body = managed_body(row.get("body") or "", issue_content(item))
+            current_labels = {entry["name"] for entry in row.get("labels", [])}
+            # Native Issue state owns lifecycle. Retire old bot status labels and
+            # risk labels that contradict the current report, preserving human labels.
+            retained = {name for name in current_labels
+                        if not name.startswith(f"{source['prefix']}-status:")
+                        and (not name.startswith(f"{source['prefix']}-risk:")
+                             or name == f"{source['prefix']}-risk:{item.get('impact')}")}
+            changes = {}
             if body != row.get("body"):
+                changes["body"] = body
+            if retained != current_labels:
+                changes["labels"] = sorted(retained)
+            if changes:
                 api("api", "--method", "PATCH", f"repos/{target_repo}/issues/{row['number']}",
-                    payload={"body": body})
+                    payload=changes)
         elif ref in eligible:
             # Lazy label creation keeps a no-change run strictly read-only.
             if labels is None:

@@ -43,6 +43,8 @@ class FakeGitHub:
             number = int(args[-1].rsplit("/", 1)[1])
             row = next(row for row in self.issues if row["number"] == number)
             row.update(payload)
+            if "labels" in payload:
+                row["labels"] = [{"name": name} for name in payload["labels"]]
         elif args[-1].endswith("/labels"):
             self.labels.add(payload["name"])
             row = payload
@@ -163,6 +165,9 @@ class WatchdogFlowTest(unittest.TestCase):
         item = finding(source)
         api = FakeGitHub()
         mod.sync_issues(source, {"high_unresolved": [item]}, "example/fork", api)
+        api.issues[0]["labels"] += [{"name": name} for name in
+                                    (f"{source['prefix']}-risk:high",
+                                     f"{source['prefix']}-status:needs-tokenkey-fix", "operator-note")]
         for status, note in [("needs_tokenkey_review", "Recorded anchors missing"),
                              ("fixed_in_tokenkey", "Fix PR merged with a regression test")]:
             changed = {**item, "impact": "needs_review" if status != mod.engine.FIXED_STATUS else "fixed",
@@ -175,6 +180,8 @@ class WatchdogFlowTest(unittest.TestCase):
             self.assertEqual(len(api.writes), 1)
             self.assertIn(note, api.issues[0]["body"])
             self.assertEqual(api.issues[0]["state"], "open")
+            self.assertEqual({label["name"] for label in api.issues[0]["labels"]},
+                             {source["label"], "operator-note"})
             api.calls.clear()
             mod.sync_issues(source, {"high_unresolved": []}, "example/fork", api,
                             entries=[changed, unrelated])
