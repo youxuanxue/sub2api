@@ -102,6 +102,39 @@ func TestMessagesSystemAndToolRolesValidateTextContent(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateMessagesContentSharesNativeParser(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload string
+		valid         bool
+	}{
+		{"text_mentions_image", `"messages":[{"role":"user","content":"explain image and thinking"}]`, true},
+		{"tool_schema_and_arguments", `"tools":[{"name":"lookup","input_schema":{"type":"object","properties":{"type":{"const":"image"}}}}],"messages":[{"role":"user","content":"look up"},{"role":"assistant","content":[{"type":"tool_use","id":"call_a","name":"lookup","input":{"type":"image"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_a","content":[{"type":"text","text":"result"}]}]}]`, true},
+		{"image", `"messages":[{"role":"user","content":[{"type":"image","source":{}}]}]`, false},
+		{"thinking", `"messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"history"}]}]`, false},
+		{"nested_tool_image", `"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_a","content":[{"type":"image","source":{}}]}]}]`, false},
+		{"system_image", `"system":[{"type":"image","source":{}}],"messages":[{"role":"user","content":"hi"}]`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"model":"composer-2.5",` + tc.payload + `}`)
+			err := ValidateMessagesContent(body)
+			_, _, parseErr := parseMessages(body, nil, "composer-2.5")
+			if tc.valid {
+				require.NoError(t, err)
+				require.NoError(t, parseErr)
+				return
+			}
+			require.EqualError(t, err, parseErr.Error())
+			resp, callErr := Messages(t.Context(), "test-token", body, nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
+				t.Fatal("unsupported content must not reach upstream")
+				return nil, nil
+			})
+			require.NoError(t, callErr)
+			require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			require.NoError(t, resp.Body.Close())
+		})
+	}
+}
 func TestMessagesToolHandoffEstimatesOnlyMissingUsage(t *testing.T) {
 	body := []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"Lookup demo"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`)
 	resp, err := Messages(context.Background(), "test-token", body, nil, "composer-2.5", messagesTestTransport(t,

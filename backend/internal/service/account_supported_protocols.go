@@ -194,23 +194,24 @@ func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
 }
 
 func ProtocolAccountSnapshot(account *Account, requestedModel string) (protocolrouter.AccountSnapshot, error) {
-	return protocolAccountSnapshot(account, requestedModel, false, false, nil, nil)
+	return protocolAccountSnapshot(account, requestedModel, false, false, nil, nil, nil)
 }
 
 func protocolAccountSnapshotForRequest(account *Account, request protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
-	return protocolAccountSnapshotForRequestWithThinking(account, request, nil)
+	return protocolAccountSnapshotForRouting(context.Background(), account, request)
 }
 
-func protocolAccountSnapshotForRequestWithThinking(
+func protocolAccountSnapshotForRouting(
+	ctx context.Context,
 	account *Account,
 	request protocolrouter.CanonicalRequest,
-	thinkingEnabled *bool,
 ) (protocolrouter.AccountSnapshot, error) {
 	requireCompact := request.InboundProtocol() == protocolrouter.ProtocolResponses && request.ResponsesPath() == protocolrouter.ResponsesPathCompact
-	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream, thinkingEnabled, &request)
+	routing, _ := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
+	return protocolAccountSnapshot(account, request.RequestedModel(), requireCompact, request.Profile().Stream, thinkingEnabledFromCtx(ctx), &request, routing.content)
 }
 
-func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool, thinkingEnabled *bool, request *protocolrouter.CanonicalRequest) (protocolrouter.AccountSnapshot, error) {
+func protocolAccountSnapshot(account *Account, requestedModel string, requireCompact bool, stream bool, thinkingEnabled *bool, request *protocolrouter.CanonicalRequest, content *cursorRequestContentCache) (protocolrouter.AccountSnapshot, error) {
 	if account == nil {
 		return protocolrouter.AccountSnapshot{}, errors.New("account is required")
 	}
@@ -259,7 +260,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		return protocolrouter.AccountSnapshot{}, err
 	}
 	protocols = retainResolvedNewAPIExactProtocols(account, protocols, exactEndpoints)
-	if !protocolRequestParametersSupported(account, resolvedModel, request) {
+	if !protocolRequestParametersSupported(account, resolvedModel, request, content) {
 		// Keep stored capability evidence intact. Plan rejects this request's
 		// unsupported paths before selection, billing admission or transport.
 		protocols = nil

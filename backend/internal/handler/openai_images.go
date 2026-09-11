@@ -96,7 +96,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 	// TK: unpriced media is not served — see openai_gateway_service_tk_media_unpriced_guard.go.
-	if h.gatewayService.TkImageModelUnpriced(requestModel, apiKey.Group) {
+	if h.gatewayService.TkImageModelUnpriced(requestModel, apiKey.Group, parsed.Size) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", service.TkUnpricedMediaModelMessage(requestModel, "image"))
 		return
 	}

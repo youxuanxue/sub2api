@@ -102,6 +102,7 @@ func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUps
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	body = normalizeCursorMessagesContent(body, model)
 	return cursor.Messages(req.Context(), account.GetCredential("api_key"), body, parameters, wireModel, func(native *http.Request) (*http.Response, error) {
 		ctx := WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(native.Context(), HTTPUpstreamProfileCursor))
 		return upstream.Do(native.WithContext(ctx), proxyURL, account.ID, account.Concurrency)
@@ -130,4 +131,9 @@ func cursorBillingTier(tier string) string {
 	default:
 		return ""
 	}
+}
+
+// Cursor planning and every native execution path consume the same history.
+func normalizeCursorMessagesContent(body []byte, model string) []byte {
+	return FilterWebSearchHistoryBlocks(StripEmptyTextBlocks(body), model)
 }
