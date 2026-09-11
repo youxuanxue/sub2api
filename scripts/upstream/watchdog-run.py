@@ -15,15 +15,15 @@ from urllib.parse import urlencode
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = {
     "upstream": {
-        "repo": "Wei-Shaw/sub2api", "prefix": "upstream",
+        "prefix": "upstream",
         "classifier": "scripts/upstream/issue-triage-generate.py",
-        "ledger": ".cache/upstream/", "branch": "fix/upstream-issue-",
+        "branch": "fix/upstream-issue-",
         "label": "upstream-issue-watchdog",
     },
     "anthropic": {
-        "repo": "anthropics/claude-code", "prefix": "cc",
+        "prefix": "cc",
         "classifier": "scripts/anthropic/cc-issue-triage-generate.py",
-        "ledger": ".cache/anthropic/cc-", "branch": "fix/cc-issue-",
+        "branch": "fix/cc-issue-",
         "label": "cc-issue-watchdog",
     },
 }
@@ -41,6 +41,9 @@ def module(name, path):
 
 
 engine = module("watchdog_engine", "scripts/upstream/issue-watchdog.py")
+ledger = module("watchdog_ledger", "scripts/upstream/issue_ledger.py")
+for name, source in SOURCES.items():
+    source.update(ledger.SOURCES[name])
 
 
 def gh(*args, payload=None):
@@ -165,6 +168,7 @@ def sync_issues(source, report, target_repo, api=gh, entries=()):
 
 
 def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
+    facts = [entry for entry in ledger.load_ledger(source, ROOT) if "fixed_if_all_present" in entry]
     started = datetime.now(timezone.utc).isoformat()
     previous = engine.load_json(checkpoint) if checkpoint.exists() else None
     snapshot = fetch_snapshot(source, previous, started, api)
@@ -176,12 +180,12 @@ def scan(source, work, checkpoint, force_issue="", target_repo="", api=gh):
         rows = [item for item in rows if item["number"] != row["number"]] + [row]
     classifier = module("watchdog_classifier", source["classifier"])
     triage = {"issues": [classifier.classify(row) for row in rows]}
-    fixes = engine.load_json(ROOT / (source["ledger"] + "fixes.json"))
-    facts = engine.load_json(ROOT / (source["ledger"] + "fact-checks.json"))["checks"]
+    fixes = {"issues": []}
     report = engine.build_report(rows, triage, fixes, facts, force_issue)
     work.mkdir(parents=True, exist_ok=True)
     engine.write_json(work / "report.json", report)
     engine.write_json(work / "triage.json", triage)
+    engine.write_json(work / "fixes.json", fixes)
     engine.write_json(work / "agent-input.json", engine.agent_input(report))
     summary = engine.report_markdown(report, f"# {source['repo']}")
     (work / "report.md").write_text(summary, encoding="utf-8")
@@ -222,9 +226,11 @@ for {branch}; otherwise start from origin/main. Fix only this issue, with a focu
 regression test. If the issue is inapplicable or unsafe to fix, report the evidence and blocker.
 Do not invent a fix or mark an unverified issue fixed.
 
-Record the fix through {source['ledger']}fact-checks.json and run
-python3 scripts/upstream/apply-fix-ledger.py --ledger {source_name} --apply.
-Update the relevant manual classification in {source['classifier']} if present.
+Record the fix and any revised judgment in {source['ledger']}; include regression-test anchors.
+Declare {source['trailer']}: {item['upstream']} in the commit message.
+After committing, validate with:
+python3 scripts/upstream/issue_ledger.py --ledger {source_name} --commits-range origin/main..HEAD
+Triage and fixes are runtime artifacts.
 Run focused tests and bash scripts/preflight.sh, then commit, push and create/update the fix PR.
 The Chinese PR description must identify {item['upstream']}, explain the behavior and give test
 evidence. After the regression test passes, use a GitHub closing reference to the local tracking

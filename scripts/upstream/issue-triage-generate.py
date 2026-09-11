@@ -27,50 +27,11 @@ LOW_PATTERNS = [
 ]
 
 MANUAL_TRIAGE = {
-    580: ("fixed", "fixed_in_tokenkey", "Claude Code mimicry UA downgrade fixed by TokenKey PR #223."),
-    641: ("fixed", "fixed_in_tokenkey", "Gemini 429 with no quotaResetDelay/retryDelay now uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts. Fixed in TokenKey gemini_messages_compat_service.go handleGeminiUpstreamError."),
-    1824: ("needs_prod_validation", "partially_mitigated", "OpenAI 403 now starts with temporary unschedulable state, but repeated CF/Arkose challenges can still cool down or error accounts."),
-    1925: ("fixed", "fixed_in_tokenkey", "OpenAI /responses account test requires response.completed/response.done; early EOF fails tests."),
-    2055: ("fixed", "fixed_in_tokenkey", "Rate-limit reset clears account/model rate-limit, temp-unschedulable, and OpenAI 403 counters."),
-    2107: ("fixed", "fixed_in_tokenkey", "Channel interval pricing now applies flat channel defaults as the out-of-range fallback; fixed by TokenKey PR #232."),
-    2159: ("fixed", "fixed_in_tokenkey", "Disabled proxies are filtered out of account preload and WithProxy edge loads; fixed by TokenKey PR #232."),
-    2168: ("fixed", "fixed_in_tokenkey", "Streaming billing uses detached/drain paths and tests cover client-disconnect billing."),
-    2211: ("fixed", "fixed_in_tokenkey", "Account scheduling now queries the account_groups join table for the requested group; balance-group requests should not schedule ungrouped accounts."),
-    2232: ("fixed", "fixed_in_tokenkey", "OpenAI OAuth /v1/images/edits (gpt-image-2) bridges to Responses image_generation action=edit via forwardOpenAIImagesOAuth + buildOpenAIImagesResponsesRequest."),
-    2245: ("needs_prod_validation", "known_protocol_limitation", "Responses stream terminal-event detection exists, but downstream may already have received HTTP 200 before an incomplete SSE is detected."),
-    2258: ("fixed", "fixed_in_tokenkey", "OpenAI 429 burst below usage-window limits now falls through to short fallback cooldown instead of multi-hour/day reset headers; fixed by TokenKey PR #232."),
-    2291: ("medium", "unresolved_observability", "Cache hit rate has inconsistent UI formulas between dashboard/trend views; observability issue, not direct production outage."),
-    2293: ("fixed", "fixed_in_tokenkey", "Long-context billing includes cache_read tokens in the threshold and applies long-context multiplier to cache_read cost."),
-    2310: ("fixed", "fixed_in_tokenkey", "OpenAI OAuth image generation uses a detached upstream context instead of binding long jobs to the client connection."),
-    2332: ("fixed", "fixed_in_tokenkey", "TokenKey writes exactly one usage_logs row per request (single RecordUsage in worker pool, see gateway_handler.go), and parseSSEUsagePassthrough ignores zero-value input_tokens from message_delta. No duplicate input=0/output>0 rows. Test TestGatewayService_ParseSSEUsagePassthrough_MessageDeltaSelectiveOverwrite pins this."),
-    2337: ("fixed", "fixed_in_tokenkey", "Anthropic-to-OpenAI multi-turn tool call mapping is covered by tool-continuation code and tests."),
-    2363: ("needs_prod_validation", "partially_mitigated", "Cache-read price overrides exist in resolver and billing paths; verify production channel-pricing source selection."),
-    2383: ("fixed", "fixed_in_tokenkey", "OpenAI usage recording has billing model candidates/source tracking and tests for mapped/unmapped models."),
-    2410: ("medium", "partially_mitigated", "ClientIP attribution behind reverse proxy fixed via #1326 trusted-proxies defaults; unified ops log correlation (user/api_key/email/IP across SLA + system logs) still needs separate production audit."),
-    2411: ("fixed", "fixed_in_tokenkey", "Sticky-session scheduling has dedicated hash, mode, and invalidation logic."),
-    2413: ("fixed", "fixed_in_tokenkey", "OpenAI OAuth 403 with HTML body (incl. OpenAI access-denied page on gpt-image-2 paths) skips 403 counter and temp_unschedulable via openAIIsHTMLBody; complements #1824 CF/Arkose keyword skip."),
-    2453: ("medium", "intentional_policy", "Default OpenAI fast policy still filters priority/fast globally by design; important product-policy tradeoff, not an accidental outage bug."),
-    2465: ("not_applicable", "outside_tokenkey_runtime", "Issue is about upstream compat-proxy/proxy.py; this TokenKey worktree has no compat-proxy implementation to patch."),
-    2478: ("fixed", "fixed_in_tokenkey", "Expired or non-active subscriptions no longer satisfy ExistsByUserIDAndGroupID for reassignment conflicts; fixed by TokenKey PR #232."),
-    2486: ("fixed", "fixed_in_tokenkey", "Unknown gemini-* models (including gemini-pro-agent) fall back to a non-nil pro/flash family floor instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction). Production also carries an explicit tk_pricing_overlay entry for gemini-pro-agent."),
-    2487: ("fixed", "fixed_in_tokenkey", "Codex OAuth transform strips temperature and other unsupported fields before forwarding to ChatGPT internal endpoints."),
-    2489: ("fixed", "fixed_in_tokenkey", "Claude Code mimicry helper-method header risk fixed by TokenKey PR #223."),
-    2490: ("fixed", "fixed_in_tokenkey", "OpenAI /compact route and request-body normalization are implemented, including compact_not_supported errors when no account is available."),
-    1311: ("fixed", "fixed_in_tokenkey", "Non-stream /v1/chat/completions and /v1/messages now explicitly set Content-Type: application/json after WriteFilteredHeaders, so the upstream Responses SSE Content-Type no longer leaks onto JSON bodies."),
-    2500: ("fixed", "fixed_in_tokenkey", "Codex OAuth fixCallIDPrefix now emits fc_<id> (with underscore) for call_<id> inputs, matching the codex backend's id validator and preventing 502 on multi-hop tool turns."),
-    2506: ("fixed", "fixed_in_tokenkey", "normalizeClaudeOAuthRequestBody skips context_management auto-injection for Haiku models (mirroring the existing Haiku exemption in FullClaudeCodeMimicryBetas), so claude-haiku-4-5-* + thinking.type=enabled no longer triggers Anthropic 400."),
-    2515: ("fixed", "fixed_in_tokenkey", "ChatCompletions→Responses transform no longer emits content:null when the source content array is empty or every part was filtered out — falls back to empty string per upstream Responses contract."),
-    1471: ("fixed", "fixed_in_tokenkey", "OpenAI /v1/responses sendErrorEvent prepends a blank line before the synthetic error event so an in-flight upstream SSE event (data: line without terminating blank line) does not merge with the injected error event into a single event carrying two JSON objects; downstream SDK JSON parsing no longer fails."),
-    2538: ("fixed", "fixed_in_tokenkey", "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a scheduler snapshot rebuild; reaper ticks every 5s, atomically enqueues outbox account_changed events for accounts whose rate_limit_reset_at just elapsed, and the existing outbox worker rebuilds the bucket. Reaper is fully independent of upstream SchedulerSnapshotService and degrades to a no-op when disabled via config."),
-    2539: ("fixed", "fixed_in_tokenkey", "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" (mirroring the request-side normalizeOpenAIImageSizeTier default), so group image-price overrides (image_price_1k/2k/4k) are honored when ForwardResult.ImageSize fails to propagate, instead of silently falling back to the LiteLLM default price ($0.134)."),
-    2556: ("fixed", "fixed_in_tokenkey", "OpenAI Chat Completions raw passthrough now detects upstream silent refusal (empty stream / response with finish_reason=stop and no usage) and emits an ops_error_logs row with Kind=silent_refusal. Detection is conservative (zero content + zero tool_calls + zero reasoning + zero refusal + zero usage + finish_reason=stop) so legitimate short answers are not flagged. Surfaces previously invisible 'ghost stream' failures to ops/dashboards."),
-    1264: ("fixed", "fixed_in_tokenkey", "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. The APIKey native path adds `user` to OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already filters it through applyCodexOAuthTransform); the Cursor-shape short-circuit in ForwardAsChatCompletions adds `user` to cursorResponsesUnsupportedFields. Without this, clients like LobeHub posting `user` to /v1/responses got upstream HTTP 400 'Unsupported parameter: user'."),
-    1170: ("fixed", "fixed_in_tokenkey", "Batch account import (/admin/accounts/data) propagates `group_ids` from the payload to CreateAccountInput.GroupIDs so imported accounts get the requested groups directly, without requiring a manual edit-and-save. DataAccount now declares GroupIDs (original definition lacked the field, so JSON `group_ids` was silently dropped at Unmarshal) and the import handler forwards `item.GroupIDs` instead of hard-coded `nil`. Export side also surfaces GroupIDs + ChannelType for round-trip integrity."),
-    3285: ("fixed", "fixed_in_tokenkey", "Anthropic/Kiro API-key passthrough strips x-stainless-timeout and related client timeout headers by default (config anthropic_passthrough_allow_timeout_headers to opt in), aligning with OpenAI passthrough protection so long non-stream Kiro requests no longer hit the ~125s upstream cancel boundary."),
-    3158: ("fixed", "fixed_in_tokenkey", "WS v2 passthrough applies the same Codex image_generation bridge mutations as the regular ingress path before forwarding response.create frames upstream."),
+    int(entry["upstream"].rsplit("#", 1)[1]): tuple(entry["judgment"][key]
+        for key in ("impact", "tokenkey_status", "rationale"))
+    for entry in json.loads((Path(__file__).resolve().parents[2] / "ops/issue-watchdog/upstream.json").read_text(encoding="utf-8"))["entries"]
+    if "judgment" in entry
 }
-
-FIXED_IDS = {num for num, (impact, _, _) in MANUAL_TRIAGE.items() if impact == "fixed"}
 
 
 def norm(s: str) -> str:
@@ -173,7 +134,7 @@ def main() -> int:
         "version": 1,
         "source": "Wei-Shaw/sub2api open issues",
         "generated_from": "GitHub REST API issues?state=open; pull requests excluded",
-        "rationale": "TokenKey-local triage cache for upstream open issues. Use this file before re-triaging upstream issues; update entries when TokenKey fixes, dismisses, or reclassifies an issue.",
+        "rationale": "TokenKey-local triage cache for upstream open issues. Generated report only; curated judgments live in ops/issue-watchdog/upstream.json.",
         "counts": {},
         "issues": entries,
     }

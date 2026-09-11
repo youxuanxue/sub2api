@@ -207,7 +207,7 @@ class WatchdogFlowTest(unittest.TestCase):
                 mod.prepare_fix(name, work)
                 output.assert_any_call("branch", source["branch"] + str(item["number"]))
                 prompt = (work / "fix-prompt.txt").read_text()
-                self.assertIn(f"--ledger {name} --apply", prompt)
+                self.assertIn(f"--ledger {name}", prompt)
                 self.assertIn("behavioral", prompt)
                 self.assertIn("Never merge", prompt)
 
@@ -217,6 +217,22 @@ class WatchdogFlowTest(unittest.TestCase):
             (work / "report.json").write_text(json.dumps({"selected_issue": None}))
             with self.assertRaisesRegex(ValueError, "no fix candidate"):
                 mod.prepare_fix(next(iter(mod.SOURCES)), work)
+
+    def test_scan_derives_fix_artifact_from_curated_evidence_only(self):
+        for source in mod.SOURCES.values():
+            with self.subTest(source=source["repo"]), tempfile.TemporaryDirectory() as tmp:
+                work = Path(tmp) / "reports"
+                fact = {"upstream": source["repo"] + "#900001", "summary": "Regression covered",
+                        "fixed_if_all_present": ["fixed.py:proved"]}
+                with (patch.object(mod.ledger, "load_ledger", return_value=[fact]),
+                      patch.object(mod.engine, "check_fact", return_value={"ok": True})):
+                    report = mod.scan(source, work, Path(tmp) / "state.json",
+                                      api=lambda *args: [[upstream_issue()]])
+                triage = json.loads((work / "triage.json").read_text())
+                fixes = json.loads((work / "fixes.json").read_text())
+                self.assertEqual(triage["issues"][0]["tokenkey_status"], "fixed_in_tokenkey")
+                self.assertEqual(fixes["issues"][0]["summary"], fact["summary"])
+                self.assertEqual(report["needs_review"], [])
 
     def test_failed_sync_does_not_advance_checkpoint_and_retry_converges(self):
         source = next(iter(mod.SOURCES.values()))

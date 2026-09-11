@@ -83,7 +83,7 @@
     },
     {
       "source": "backend/internal/observability/trajectory/session.go",
-      "rationale": "Single session association, provenance and tool-link owner; payloads and indexes are disk-backed.",
+      "rationale": "Single session association, provenance and tool-link owner; payloads and indexes use a bounded buffer with a single-file spill.",
       "must_contain": [
         "func (e *SessionExporter) Add(",
         "func (e *SessionExporter) WriteTo(",
@@ -105,7 +105,18 @@
       "must_contain": [
         "func TestUS055_SessionsReconstructInterleavedToolChain(",
         "func TestUS055_ResponsesReasoningAndNativeFieldsSurvive(",
-        "func TestUS055_SessionsNeverGuessAcrossScopeRetriesOrAmbiguity("
+        "func TestUS055_SessionsNeverGuessAcrossScopeRetriesOrAmbiguity(",
+        "func TestUS055_SessionStoreSpillPreservesBytesAndBoundsFiles(",
+        "func TestUS055_HistoryCacheRemainsBounded("
+      ]
+    },
+    {
+      "source": "backend/internal/observability/trajectory/session_store.go",
+      "rationale": "Bound the session export buffer and centralize spill storage; avoid per-record files and unbounded day indexes.",
+      "must_contain": [
+        "const sessionBufferBytes = 8 << 20",
+        "func (s *sessionStore) spill(",
+        "PRAGMA cache_size=-2048"
       ]
     }
   ],

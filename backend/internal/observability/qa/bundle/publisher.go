@@ -316,6 +316,7 @@ func buildExportZip(ctx context.Context, store Store, manifestKey, outputKey, ve
 	if err != nil {
 		return receipt, err
 	}
+	defer func() { _ = projector.Close() }()
 	tmp, err := os.CreateTemp(workDir, "export-*.zip")
 	if err != nil {
 		return receipt, err

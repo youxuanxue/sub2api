@@ -115,7 +115,8 @@ func rawIndex(raw json.RawMessage) int { n, _ := strconv.Atoi(string(raw)); retu
 func anthropicSessionStream(events []json.RawMessage, issues []string) (json.RawMessage, []string) {
 	message := map[string]json.RawMessage{}
 	blocks := map[int]map[string]json.RawMessage{}
-	args := map[int]string{}
+	args := map[int]*strings.Builder{}
+	texts := map[int]map[string]*strings.Builder{}
 	terminal := false
 	for _, raw := range events {
 		ev := rawObject(raw)
@@ -124,6 +125,7 @@ func anthropicSessionStream(events []json.RawMessage, issues []string) (json.Raw
 		case "message_start":
 			mergeRaw(message, rawObject(ev["message"]))
 		case "content_block_start":
+			delete(texts, index)
 			blocks[index] = rawObject(ev["content_block"])
 			if blocks[index] == nil {
 				blocks[index] = map[string]json.RawMessage{}
@@ -137,14 +139,21 @@ func anthropicSessionStream(events []json.RawMessage, issues []string) (json.Raw
 				issues = appendIssue(issues, "missing_block_start")
 			}
 			switch rawString(delta["type"]) {
-			case "text_delta":
-				appendRawText(block, "text", delta["text"])
-			case "thinking_delta":
-				appendRawText(block, "thinking", delta["thinking"])
-			case "signature_delta":
-				appendRawText(block, "signature", delta["signature"])
+			case "text_delta", "thinking_delta", "signature_delta":
+				key := strings.TrimSuffix(rawString(delta["type"]), "_delta")
+				if texts[index] == nil {
+					texts[index] = map[string]*strings.Builder{}
+				}
+				if texts[index][key] == nil {
+					texts[index][key] = &strings.Builder{}
+					_, _ = texts[index][key].WriteString(rawString(block[key]))
+				}
+				_, _ = texts[index][key].WriteString(rawString(delta[key]))
 			case "input_json_delta":
-				args[index] += rawString(delta["partial_json"])
+				if args[index] == nil {
+					args[index] = &strings.Builder{}
+				}
+				_, _ = args[index].WriteString(rawString(delta["partial_json"]))
 			case "citations_delta":
 				citations := rawArray(block["citations"])
 				block["citations"] = rawJSON(append(citations, delta["citation"]))
@@ -166,7 +175,13 @@ func anthropicSessionStream(events []json.RawMessage, issues []string) (json.Raw
 			issues = appendIssue(issues, "response_error")
 		}
 	}
-	for i, arg := range args {
+	for index, fields := range texts {
+		for key, text := range fields {
+			blocks[index][key] = rawJSON(text.String())
+		}
+	}
+	for i, builder := range args {
+		arg := builder.String()
 		if json.Valid([]byte(arg)) {
 			blocks[i]["input"] = json.RawMessage(arg)
 		} else {

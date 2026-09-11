@@ -47,8 +47,9 @@ QA 存储、授权、归档与下载生命周期继续由
 - sidecar `internal_thinking_blocks` / `encrypted_reasoning` 单列来源，不能覆盖 client-facing blocks。
   工具链接保留 ID 和 call/result 源路径；缺失或歧义标记 unresolved，不伪造匹配。
 - 不支持的端点、缺失或损坏的证据仍计入会话导出且报告原因；不静默过滤成功/失败调用。
-- ZIP 原始记录与会话共用已验证页面；按记录处理并使用私有临时磁盘保存会话索引和片段，
-  不将整个日窗口或长会话载入内存。失败不发布 ZIP，取消会停止处理并清理临时文件。
+- ZIP 原始记录与会话共用已验证页面；按记录处理，索引和片段使用 8 MiB 计量预算的缓冲，
+  超限后转入单个私有临时 SQLite 文件（2 MiB page cache）；历史规范化缓存另限 1 MiB。
+  缓冲预算计入条目开销，不等同于进程 RSS 上限；内存仍受单条输入大小影响，不随整个日窗口或长会话增长。失败不发布 ZIP，取消会停止处理并清理临时文件。
 
 ## Implementation / Owners
 
@@ -57,6 +58,7 @@ QA 存储、授权、归档与下载生命周期继续由
 | 职责 | Owner |
 | --- | --- |
 | 会话 schema、归组、工具关联、来源 | `backend/internal/observability/trajectory/session.go` |
+| 有界缓冲、索引和片段落盘 | `backend/internal/observability/trajectory/session_store.go` |
 | 原生响应和 SSE 重建 | `backend/internal/observability/trajectory/session_stream.go` |
 | 客户端 wire shape | `backend/internal/observability/trajectory/wire_shape.go` |
 | Bundle Record 适配、ZIP/清单生成 | `backend/internal/observability/qa/bundle/session_export.go`、`publisher.go` |
@@ -76,3 +78,10 @@ QA 存储、授权、归档与下载生命周期继续由
 sidecar 来源、失败/截断/缺证据、权限拒绝、checksum 拒绝、版本与重试幂等。
 真实 UI 由 Playwright 走现有 QA 面板、导出并检查下载的 ZIP 内容。
 本地实现和测试不代表已经部署。
+
+## 性能验证
+
+`backend/internal/observability/qa/bundle/session_export_benchmark_test.go` 用同一批 committed
+Bundle 对比 raw ZIP 和会话 ZIP，分别报告 CPU、生成耗时、磁盘占用和产物字节；不包含 S3 网络。
+运行：在 backend 下执行 `GOMAXPROCS=1 go test -tags=unit ./internal/observability/qa/bundle -run '^$' -bench '^BenchmarkSessionExport$' -benchtime=3x`。
+落盘切换的字节等价、固定文件数、取消和重复请求拒绝由 US-055 回归测试覆盖。

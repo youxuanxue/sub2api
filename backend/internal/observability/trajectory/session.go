@@ -1,7 +1,6 @@
 package trajectory
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -75,19 +73,21 @@ type prefixMatch struct {
 	Length    int    `json:"length"`
 }
 
-// SessionExporter keeps payloads AND the prefix/tool indexes on private disk.
-// Memory is bounded by one input record, not the day window or a long session.
+// SessionExporter buffers indexes and fragments within a fixed budget, then
+// spills to one disk store. Memory never grows with the day window or a session.
 // The caller owns dir and removes it on success, failure or cancellation.
 type SessionExporter struct {
-	dir   string
-	count int
+	store             *sessionStore
+	count             int
+	historyCache      map[[32]byte]string
+	historyCacheBytes int
 }
 
 func NewSessionExporter(dir string) (*SessionExporter, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return &SessionExporter{dir: dir}, nil
+	return &SessionExporter{store: newSessionStore(dir), historyCache: make(map[[32]byte]string)}, nil
 }
 
 func sessionHash(parts ...string) string {
@@ -123,49 +123,60 @@ func canonicalRaw(raw json.RawMessage) string {
 	}
 	return string(rawJSON(value))
 }
-func historyHashes(scope string, history []json.RawMessage) []string {
+
+const sessionHistoryCacheBytes = 1 << 20
+
+func (e *SessionExporter) canonicalMessage(raw json.RawMessage) string {
+	key := sha256.Sum256(raw)
+	if value, ok := e.historyCache[key]; ok {
+		return value
+	}
+	value := canonicalRaw(raw)
+	cost := len(value) + 160
+	if cost <= sessionHistoryCacheBytes {
+		if e.historyCacheBytes+cost > sessionHistoryCacheBytes {
+			e.historyCache = make(map[[32]byte]string)
+			e.historyCacheBytes = 0
+		}
+		e.historyCache[key] = value
+		e.historyCacheBytes += cost
+	}
+	return value
+}
+func (e *SessionExporter) historyHashes(scope string, history []json.RawMessage) []string {
 	hashes := make([]string, len(history))
 	previous := scope
 	for i, m := range history {
-		previous = sessionHash(previous, canonicalRaw(m))
+		previous = sessionHash(previous, e.canonicalMessage(m))
 		hashes[i] = previous
 	}
 	return hashes
 }
-func (e *SessionExporter) file(kind, key string) string {
-	return filepath.Join(e.dir, kind+"-"+key+".json")
+func (e *SessionExporter) Close() error {
+	e.historyCache = nil
+	e.historyCacheBytes = 0
+	return e.store.close()
 }
-func readProjectionFile(path string, v any) (bool, error) {
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return false, nil
+func (e *SessionExporter) read(ctx context.Context, key string, v any) (bool, error) {
+	b, found, err := e.store.get(ctx, key)
+	if err != nil || !found {
+		return found, err
 	}
-	if err != nil {
-		return false, err
-	}
-	if err = json.Unmarshal(b, v); err != nil {
-		return false, err
-	}
-	return true, nil
+	return true, json.Unmarshal(b, v)
 }
-func writeProjectionFile(path string, v any) error {
+func (e *SessionExporter) write(ctx context.Context, key string, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	return e.store.put(ctx, key, b)
 }
-func appendProjectionFile(path string, v any) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+func (e *SessionExporter) append(ctx context.Context, key string, v any) error {
+	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	encErr := json.NewEncoder(f).Encode(v)
-	closeErr := f.Close()
-	if encErr != nil {
-		return encErr
-	}
-	return closeErr
+	return e.store.append(ctx, key, b)
 }
 
 func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
@@ -176,11 +187,15 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 		return errors.New("session export requires a request id")
 	}
 	// Request identity must be unique, including when the archive contains duplicates.
-	seen, err := os.OpenFile(e.file("record", sessionHash(input.RequestID)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	key := "record:" + sessionHash(input.RequestID)
+	_, seen, err := e.store.get(ctx, key)
 	if err != nil {
-		return fmt.Errorf("session export duplicate or unwritable request identity: %w", err)
+		return err
 	}
-	if err = seen.Close(); err != nil {
+	if seen {
+		return errors.New("session export duplicate request identity")
+	}
+	if err = e.store.put(ctx, key, []byte{}); err != nil {
 		return err
 	}
 	shape := wireShapeFor(input.Platform, input.Endpoint)
@@ -190,7 +205,8 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 	resp := rawObject(blob["response"])
 	request := rawObject(req["body"])
 	history := requestHistory(shape, request)
-	hashes := historyHashes(scope, history)
+	responsesScalar := shape == WireOpenAIResponses && rawArray(request["input"]) == nil
+	hashes := e.historyHashes(scope, history)
 	call := SessionCall{RequestID: input.RequestID, EvidenceFile: "qa-records.jsonl", Metadata: input.Metadata}
 	if call.Metadata == nil {
 		call.Metadata = map[string]any{}
@@ -218,7 +234,7 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 		call.Issues = append(call.Issues, "upstream_request_divergent")
 		call.Metadata["upstream_request_path"] = "/detail/evidence/request/upstream_body"
 	}
-	call.Parameters = rawObject(req["body"])
+	call.Parameters = request
 	delete(call.Parameters, historyField(shape))
 	response, responseIssues := sessionResponse(shape, resp["body"], blob["stream"])
 	call.Issues = append(call.Issues, responseIssues...)
@@ -237,7 +253,7 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 	state := sessionState{}
 	start := 0
 	if input.StableSessionID != "" {
-		found, readErr := readProjectionFile(e.file("stable", sessionHash(scope, input.StableSessionID)), &state)
+		found, readErr := e.read(ctx, "stable:"+sessionHash(scope, input.StableSessionID), &state)
 		if readErr != nil {
 			return readErr
 		}
@@ -251,7 +267,7 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 		ambiguous := false
 		for i, key := range hashes {
 			var candidate prefixMatch
-			found, readErr := readProjectionFile(e.file("prefix", key), &candidate)
+			found, readErr := e.read(ctx, "prefix:"+key, &candidate)
 			if readErr != nil {
 				return readErr
 			}
@@ -268,7 +284,7 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 		if ambiguous {
 			call.Issues = append(call.Issues, "ambiguous_history")
 		} else if match.SessionID != "" {
-			found, readErr := readProjectionFile(e.file("state", match.SessionID), &state)
+			found, readErr := e.read(ctx, "state:"+match.SessionID, &state)
 			if readErr != nil {
 				return readErr
 			}
@@ -292,7 +308,7 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 			call.Issues = append(call.Issues, "inferred_session_boundary")
 		}
 		state.Header = sessionHeader{SchemaVersion: SessionSchemaVersion, SessionID: sessionHash(scope, input.RequestID), WireShape: shape, Association: association}
-		if err = appendProjectionFile(e.file("sessions", "index"), state.Header); err != nil {
+		if err = e.append(ctx, "sessions", state.Header); err != nil {
 			return err
 		}
 		e.count++
@@ -300,10 +316,10 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 	sid := state.Header.SessionID
 	for i := start; i < len(history); i++ {
 		turn := SessionTurn{Role: messageRole(shape, history[i]), Message: history[i], Source: SourceRef{RequestID: input.RequestID, Path: fmt.Sprintf("/detail/evidence/request/body/%s/%d", historyField(shape), i)}}
-		if shape == WireOpenAIResponses && rawArray(request["input"]) == nil {
+		if responsesScalar {
 			turn.Source.Path = "/detail/evidence/request/body/input"
 		}
-		if err = e.appendTurn(sid, &turn); err != nil {
+		if err = e.appendTurn(ctx, sid, &turn); err != nil {
 			return err
 		}
 	}
@@ -318,45 +334,45 @@ func (e *SessionExporter) Add(ctx context.Context, input SessionInput) error {
 			turn.Source.Path = "/detail/evidence/stream/chunks"
 			turn.Source.ProjectionPath = strings.TrimPrefix(path, "/detail/evidence/response/body")
 		}
-		if err = e.appendTurn(sid, &turn); err != nil {
+		if err = e.appendTurn(ctx, sid, &turn); err != nil {
 			return err
 		}
 	}
-	if err = appendProjectionFile(e.file("calls", sid), call); err != nil {
+	if err = e.append(ctx, "calls:"+sid, call); err != nil {
 		return err
 	}
-	expected := append(append([]json.RawMessage{}, history...), responseHistory(shape, response)...)
-	// Only a captured successful assistant output can establish a continuation.
-	if len(expected) > len(history) && len(responseIssues) == 0 && len(history) > 0 && !containsIssue(call.Issues, "http_error") {
-		keys := historyHashes(scope, expected)
-		state.ExpectedLength = len(keys)
-		state.ExpectedHash = keys[len(keys)-1]
+	outputHistory := responseHistory(shape, response)
+	// Extend the already hashed request instead of parsing and hashing it twice.
+	if len(outputHistory) > 0 && len(responseIssues) == 0 && len(history) > 0 && !containsIssue(call.Issues, "http_error") {
+		tail := e.historyHashes(hashes[len(hashes)-1], outputHistory)
+		state.ExpectedLength = len(hashes) + len(tail)
+		state.ExpectedHash = tail[len(tail)-1]
 		var existing prefixMatch
-		found, readErr := readProjectionFile(e.file("prefix", state.ExpectedHash), &existing)
+		found, readErr := e.read(ctx, "prefix:"+state.ExpectedHash, &existing)
 		if readErr != nil {
 			return readErr
 		}
-		candidate := prefixMatch{SessionID: sid, Length: len(keys)}
+		candidate := prefixMatch{SessionID: sid, Length: state.ExpectedLength}
 		if found && existing.SessionID != sid {
 			candidate.SessionID = ""
 		}
-		if err = writeProjectionFile(e.file("prefix", state.ExpectedHash), candidate); err != nil {
+		if err = e.write(ctx, "prefix:"+state.ExpectedHash, candidate); err != nil {
 			return err
 		}
 	} else {
 		state.ExpectedHash = ""
 		state.ExpectedLength = 0
 	}
-	if err = writeProjectionFile(e.file("state", sid), state); err != nil {
+	if err = e.write(ctx, "state:"+sid, state); err != nil {
 		return err
 	}
 	if input.StableSessionID != "" {
-		return writeProjectionFile(e.file("stable", sessionHash(scope, input.StableSessionID)), state)
+		return e.write(ctx, "stable:"+sessionHash(scope, input.StableSessionID), state)
 	}
 	return nil
 }
 
-func (e *SessionExporter) appendTurn(sid string, turn *SessionTurn) error {
+func (e *SessionExporter) appendTurn(ctx context.Context, sid string, turn *SessionTurn) error {
 	turn.ToolLinks = toolLinks(turn.Message)
 	for i := range turn.ToolLinks {
 		link := &turn.ToolLinks[i]
@@ -364,9 +380,9 @@ func (e *SessionExporter) appendTurn(sid string, turn *SessionTurn) error {
 			link.Status = "unresolved"
 			continue
 		}
-		key := e.file("tool", sessionHash(sid, link.ID))
+		key := "tool:" + sessionHash(sid, link.ID)
 		var source SourceRef
-		found, err := readProjectionFile(key, &source)
+		found, err := e.read(ctx, key, &source)
 		if err != nil {
 			return err
 		}
@@ -383,7 +399,7 @@ func (e *SessionExporter) appendTurn(sid string, turn *SessionTurn) error {
 			} else {
 				link.Status = "observed"
 			}
-			if err = writeProjectionFile(key, source); err != nil {
+			if err = e.write(ctx, key, source); err != nil {
 				return err
 			}
 		} else if found && source.RequestID != "" {
@@ -393,86 +409,46 @@ func (e *SessionExporter) appendTurn(sid string, turn *SessionTurn) error {
 			link.Status = "unresolved"
 		}
 	}
-	return appendProjectionFile(e.file("turns", sid), turn)
+	return e.append(ctx, "turns:"+sid, turn)
 }
 
 func (e *SessionExporter) WriteTo(ctx context.Context, w io.Writer) (int, error) {
-	f, err := os.Open(e.file("sessions", "index"))
-	if os.IsNotExist(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = f.Close() }()
-	dec := json.NewDecoder(bufio.NewReader(f))
-	for {
-		if err = ctx.Err(); err != nil {
-			return 0, err
+	err := e.store.each(ctx, "sessions", func(header []byte) error {
+		var h sessionHeader
+		if err := json.Unmarshal(header, &h); err != nil {
+			return err
 		}
-		var header sessionHeader
-		if err = dec.Decode(&header); errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return 0, err
-		}
-		b, marshalErr := json.Marshal(header)
-		if marshalErr != nil {
-			return 0, marshalErr
-		}
-		if _, err = w.Write(b[:len(b)-1]); err != nil {
-			return 0, err
+		if _, err := w.Write(header[:len(header)-1]); err != nil {
+			return err
 		}
 		for _, kind := range []string{"calls", "turns"} {
-			if _, err = fmt.Fprintf(w, ",%q:[", kind); err != nil {
-				return 0, err
+			if _, err := fmt.Fprintf(w, ",%q:[", kind); err != nil {
+				return err
 			}
-			if err = copyProjectionArray(ctx, w, e.file(kind, header.SessionID)); err != nil {
-				return 0, err
+			first := true
+			if err := e.store.each(ctx, kind+":"+h.SessionID, func(raw []byte) error {
+				if !first {
+					if _, err := io.WriteString(w, ","); err != nil {
+						return err
+					}
+				}
+				first = false
+				_, err := w.Write(raw)
+				return err
+			}); err != nil {
+				return err
 			}
-			if _, err = io.WriteString(w, "]"); err != nil {
-				return 0, err
-			}
-		}
-		if _, err = io.WriteString(w, "}\n"); err != nil {
-			return 0, err
-		}
-	}
-	return e.count, nil
-}
-func copyProjectionArray(ctx context.Context, w io.Writer, path string) error {
-	f, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	dec := json.NewDecoder(bufio.NewReader(f))
-	first := true
-	for {
-		if err = ctx.Err(); err != nil {
-			return err
-		}
-		var raw json.RawMessage
-		if err = dec.Decode(&raw); errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if !first {
-			if _, err = io.WriteString(w, ","); err != nil {
+			if _, err := io.WriteString(w, "]"); err != nil {
 				return err
 			}
 		}
-		first = false
-		if _, err = w.Write(raw); err != nil {
-			return err
-		}
+		_, err := io.WriteString(w, "}\n")
+		return err
+	})
+	if err != nil {
+		return 0, err
 	}
+	return e.count, nil
 }
 
 func historyField(shape WireShape) string {

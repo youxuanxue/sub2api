@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,6 +22,7 @@ func exportSessions(t *testing.T, inputs ...SessionInput) ([]decodedSession, str
 	t.Helper()
 	e, err := NewSessionExporter(t.TempDir())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	for _, input := range inputs {
 		require.NoError(t, e.Add(context.Background(), input))
 	}
@@ -218,8 +220,15 @@ func TestUS055_SessionExportRejectsDuplicatesCancellationAndWriteFailure(t *test
 	require.ErrorIs(t, e.Add(ctx, in), context.Canceled)
 	_, err = e.WriteTo(ctx, &bytes.Buffer{})
 	require.ErrorIs(t, err, context.Canceled)
+	require.NoError(t, e.Close())
 	require.NoError(t, os.RemoveAll(dir))
 	require.Error(t, e.Add(context.Background(), in))
+	failed, err := NewSessionExporter(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, failed.Close()) })
+	failed.store.limit = 0
+	require.NoError(t, os.RemoveAll(failed.store.dir))
+	require.Error(t, failed.Add(context.Background(), in))
 }
 
 func TestUS055_StreamToolLinkReferencesSourceAndProjectionSeparately(t *testing.T) {
@@ -242,4 +251,50 @@ func TestUS055_IncompleteNativeResponseDoesNotEstablishContinuity(t *testing.T) 
 	sessions, raw := exportSessions(t, in)
 	require.Contains(t, sessions[0].Calls[0].Issues, "response_incomplete")
 	require.Contains(t, raw, "partial")
+}
+
+func TestUS055_SessionStoreSpillPreservesBytesAndBoundsFiles(t *testing.T) {
+	first := sessionFixture("first", `{"messages":[{"role":"user","content":"q"}]}`, `{"content":[{"type":"tool_use","id":"c","name":"shell","input":{}}]}`)
+	next := sessionFixture("next", `{"messages":[{"content":"q","role":"user"},{"content":[{"input":{},"name":"shell","id":"c","type":"tool_use"}],"role":"assistant"},{"role":"user","content":[{"type":"tool_result","tool_use_id":"c","content":"ok"}]}]}`, `{"content":[{"type":"text","text":"done"}]}`)
+	_, want := exportSessions(t, first, next)
+	dir := t.TempDir()
+	e, err := NewSessionExporter(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
+	require.NoError(t, e.Add(context.Background(), first))
+	// Force a transition with existing indexes and fragments, then append a continuation.
+	e.store.limit = e.store.used + 1
+	require.NoError(t, e.Add(context.Background(), next))
+	require.NotNil(t, e.store.tx)
+	require.Nil(t, e.store.values)
+	require.Nil(t, e.store.fragments)
+	var output bytes.Buffer
+	count, err := e.WriteTo(context.Background(), &output)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	require.Equal(t, want, output.String())
+	require.ErrorContains(t, e.Add(context.Background(), first), "duplicate")
+	files, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, "sessions.sqlite", files[0].Name())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = e.WriteTo(ctx, &bytes.Buffer{})
+	require.ErrorIs(t, err, context.Canceled)
+	require.NoError(t, e.Close())
+	require.ErrorContains(t, e.Add(context.Background(), next), "closed")
+}
+
+func TestUS055_HistoryCacheRemainsBounded(t *testing.T) {
+	e, err := NewSessionExporter(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, e.Close()) })
+	for n := 0; n < 200; n++ {
+		raw := rawJSON(map[string]any{"role": "user", "content": strings.Repeat("x", 16384), "index": n})
+		require.Equal(t, canonicalRaw(raw), e.canonicalMessage(raw))
+		require.LessOrEqual(t, e.historyCacheBytes, sessionHistoryCacheBytes)
+	}
+	require.NoError(t, e.Close())
+	require.Empty(t, e.historyCache)
 }

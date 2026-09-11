@@ -1,0 +1,1358 @@
+{
+  "version": 1,
+  "repo": "Wei-Shaw/sub2api",
+  "entries": [
+    {
+      "upstream": "Wei-Shaw/sub2api#225",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "thinking 块上挂 cache_control（Extra inputs are not permitted 400）：collectCacheControlPaths 判定 type==thinking 的 cache_control 归入 invalidThinking，enforceCacheControlLimit 在计数前无条件删除（覆盖 system + messages）。同根 #2013。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#392",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
+      ],
+      "summary": "'authorized for use with Claude Code' 是 OAuth 凭证 scope 错误，TLS 指纹对齐是必要非充分条件。已有识别 isClaudeCodeCredentialScopeError + ingress canonical OAuth guard（拒第三方 SDK UA / 重映射退役 opus）+ 完整 mimicry 栈（同 #1574/#1525/#1715）压制。线上复发用 cc-fingerprint-alignment skill 抓包核对 beta/UA/system 三层。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#580",
+      "tokenkey_pr": "youxuanxue/sub2api#223",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/claude_mimicry_headers_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "summary": "Preserved captured real Claude CLI User-Agent and X-Stainless fingerprint values when applying mimicry defaults, avoiding version downgrade churn.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Claude Code mimicry UA downgrade fixed by TokenKey PR #223."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#599",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_request.go"
+      ],
+      "summary": "FilterThinkingBlocksForRetry 在禁用顶层 thinking 时删除 thinking 字段并把 thinking 块降级为 text；当前 schema 的 thinking_strategy 对应 context_management.edits 的 clear_thinking_20251015，由 removeThinkingDependentContextStrategies 一并清理（见 #851）。有专项单测护栏。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#641",
+      "severity": "high",
+      "summary": "Gemini 429 with no quotaResetDelay/retryDelay uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts.",
+      "fixed_by": [
+        "backend/internal/service/gemini_messages_compat_service.go",
+        "backend/internal/service/gemini_messages_compat_service_tk_oauth_cooldown_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gemini_messages_compat_service.go:TK: See upstream Wei-Shaw/sub2api#641",
+        "backend/internal/service/gemini_messages_compat_service.go:if account.Type == AccountTypeOAuth {",
+        "backend/internal/service/gemini_messages_compat_service_tk_oauth_cooldown_test.go:TestHandleGeminiUpstreamError_GoogleOneOAuth429UsesTierCooldownNotPSTMidnight",
+        "backend/internal/service/gemini_messages_compat_service_tk_oauth_cooldown_test.go:TestHandleGeminiUpstreamError_APIKey429StillFallsBackToPSTMidnight"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Gemini 429 with no quotaResetDelay/retryDelay now uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts. Fixed in TokenKey gemini_messages_compat_service.go handleGeminiUpstreamError."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "Gemini 429 with no quotaResetDelay/retryDelay uses tier cooldown for all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist), not just Code Assist; PST-midnight fallback is reserved for API Key accounts."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#656",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: worktree-anthropic-upstream-audit)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_beta_test.go"
+      ],
+      "summary": "isCountTokensUnsupported404 放宽：除标准 404 外，对中转站把 NoResourceFoundException/No static resource 包装进 HTTP 400/500 的非标准返回也识别为端点不支持（收窄到同时提及 count_tokens + Spring 强信号，刻意不认裸 'not found'，保留 invalid_request_error/#2109 temperature 不被误吞，含 raw-body 兜底）；并在主路径 ForwardCountTokens 的 >=400 分支熔断/failover 之前接入，返回 404 让 Claude Code fallback 本地估算。新增 4 个单测用例。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#851",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_request.go"
+      ],
+      "summary": "removeThinkingDependentContextStrategies 从 context_management.edits 移除 clear_thinking_20251015（edits 清空时删整键），在 FilterThinkingBlocksForRetry fast-path/完整路径及 FilterSignatureSensitiveBlocksForRetry 三处调用；另有 sanitizeAnthropicBodyForBetaTokens 按 anthropic-beta 是否含 context-management-2025-06-27 决定 strip。TestFilterThinkingBlocksForRetry_RemovesClearThinkingStrategy 等护栏。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1170",
+      "severity": "high",
+      "summary": "Batch account import (/admin/accounts/data) now propagates `group_ids` through to CreateAccountInput.GroupIDs and the symmetric export carries `group_ids` + `channel_type` so an export → import round trip preserves group bindings and newapi fifth-platform metadata. Original implementation defined no GroupIDs field on DataAccount (so JSON `group_ids` was silently dropped at Unmarshal) and the import handler hard-coded `GroupIDs: nil`, leaving batch-imported accounts ungrouped until manually re-edited.",
+      "fixed_by": [
+        "backend/internal/handler/admin/account_data.go",
+        "backend/internal/handler/admin/account_data_handler_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/handler/admin/account_data.go:Wei-Shaw/sub2api#1170",
+        "backend/internal/handler/admin/account_data.go:GroupIDs           []int64 `json:\"group_ids,omitempty\"`",
+        "backend/internal/handler/admin/account_data.go:GroupIDs:             item.GroupIDs,",
+        "backend/internal/handler/admin/account_data.go:GroupIDs:           acc.GroupIDs,",
+        "backend/internal/handler/admin/account_data.go:ChannelType:        acc.ChannelType,",
+        "backend/internal/handler/admin/account_data_handler_test.go:TestImportData_GroupIDsReachCreateAccount",
+        "backend/internal/handler/admin/account_data_handler_test.go:TestExportData_IncludesGroupIDsAndChannelType"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Batch account import (/admin/accounts/data) propagates `group_ids` from the payload to CreateAccountInput.GroupIDs so imported accounts get the requested groups directly, without requiring a manual edit-and-save. DataAccount now declares GroupIDs (original definition lacked the field, so JSON `group_ids` was silently dropped at Unmarshal) and the import handler forwards `item.GroupIDs` instead of hard-coded `nil`. Export side also surfaces GroupIDs + ChannelType for round-trip integrity."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "Batch account import (/admin/accounts/data) now propagates `group_ids` through to CreateAccountInput.GroupIDs and the symmetric export carries `group_ids` + `channel_type` so an export → import round trip preserves group bindings and newapi fifth-platform metadata. Original implementation defined no GroupIDs field on DataAccount (so JSON `group_ids` was silently dropped at Unmarshal) and the import handler hard-coded `GroupIDs: nil`, leaving batch-imported accounts ungrouped until manually re-edited."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1264",
+      "severity": "high",
+      "summary": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. Symmetric coverage on (a) APIKey native path via OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already strips it through openAIChatGPTInternalUnsupportedFields in applyCodexOAuthTransform) and (b) the Cursor-shape short-circuit in ForwardAsChatCompletions via cursorResponsesUnsupportedFields. Native OpenAI Responses upstream rejects `user` with HTTP 400 \"Unsupported parameter: user\"; the Responses equivalent is `safety_identifier`, which we already filter.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_responses_unsupported_user_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service.go:Wei-Shaw/sub2api#1264",
+        "backend/internal/service/openai_gateway_service.go:\"prompt_cache_retention\", \"safety_identifier\", \"user\"",
+        "backend/internal/service/openai_gateway_chat_completions.go:Wei-Shaw/sub2api#1264",
+        "backend/internal/service/openai_gateway_chat_completions.go:cursorResponsesUnsupportedFields",
+        "backend/internal/service/openai_responses_unsupported_user_test.go:TestOpenAIGatewayService_Forward_StripsUserFieldFromAPIKeyResponsesPassthrough",
+        "backend/internal/service/openai_responses_unsupported_user_test.go:TestCursorResponsesUnsupportedFields_IncludesUser"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI /v1/responses passthrough strips top-level `user` before forwarding. The APIKey native path adds `user` to OpenAIGatewayService.Forward's unsupportedFields list (the OAuth path already filters it through applyCodexOAuthTransform); the Cursor-shape short-circuit in ForwardAsChatCompletions adds `user` to cursorResponsesUnsupportedFields. Without this, clients like LobeHub posting `user` to /v1/responses got upstream HTTP 400 'Unsupported parameter: user'."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1311",
+      "severity": "high",
+      "summary": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_gateway_messages.go",
+        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_chat_completions.go",
+        "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go",
+        "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go",
+        "backend/internal/service/openai_images_responses.go",
+        "scripts/checks/buffered-content-type-leak.py"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_chat_completions.go:Wei-Shaw/sub2api#1311",
+        "backend/internal/service/openai_gateway_messages.go:Wei-Shaw/sub2api#1311",
+        "backend/internal/service/openai_gateway_chat_completions_tk_content_type_test.go:TestForwardAsChatCompletions_NonStream_ReturnsApplicationJSONContentType",
+        "backend/internal/service/gateway_forward_as_responses.go:Wei-Shaw/sub2api#1311",
+        "backend/internal/service/gateway_forward_as_chat_completions.go:Wei-Shaw/sub2api#1311",
+        "backend/internal/service/gateway_forward_as_responses_tk_content_type_test.go:TestHandleResponsesBufferedStreamingResponse_NonStream_ReturnsApplicationJSONContentType",
+        "backend/internal/service/gateway_forward_as_chat_completions_tk_content_type_test.go:TestHandleCCBufferedFromAnthropic_NonStream_ReturnsApplicationJSONContentType",
+        "backend/internal/service/openai_images_responses.go:Wei-Shaw/sub2api#1311",
+        "scripts/checks/buffered-content-type-leak.py:def scan_file"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Non-stream /v1/chat/completions and /v1/messages now explicitly set Content-Type: application/json after WriteFilteredHeaders, so the upstream Responses SSE Content-Type no longer leaks onto JSON bodies."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "Non-stream buffered SSE->JSON handlers in both the OpenAI gateway (/v1/chat/completions, /v1/messages) and the Anthropic-backed gateway forward paths (Responses, Chat Completions) now explicitly set Content-Type: application/json after WriteFilteredHeaders. Without this, the upstream SSE Content-Type (text/event-stream) leaks onto JSON bodies because gin's render.writeContentType only writes when no Content-Type is set, breaking OpenAI-SDK consumers that branch on Content-Type."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1318",
+      "severity": "high",
+      "summary": "openai_passthrough now propagates HandleUpstreamError's shouldDisable signal: when a temp-unschedulable rule (or any policy that marks the account unschedulable — 402 deactivated_workspace, OAuth 401, organization disabled, etc.) fires, handleErrorResponsePassthrough returns UpstreamFailoverError and emits ops Kind=failover instead of writing the upstream error straight back to the client. This closes the half-applied state where the account got disabled but the in-flight request was still completed on it.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_oauth_passthrough_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service.go:upstream Wei-Shaw/sub2api#1318",
+        "backend/internal/service/openai_gateway_service.go:shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body",
+        "backend/internal/service/openai_oauth_passthrough_test.go:TestOpenAIGatewayService_OpenAIPassthrough_TempUnschedRuleTriggersFailover"
+      ],
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1322",
+      "severity": "high",
+      "summary": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_messages.go",
+        "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go",
+        "scripts/sentinels/terminal.json"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_messages.go:See upstream Wei-Shaw/sub2api#1322",
+        "backend/internal/service/openai_gateway_messages.go:\"response.cancelled\", \"response.canceled\"",
+        "backend/internal/service/openai_gateway_messages_tk_terminal_event_test.go:TestIsOpenAICompatResponsesTerminalEvent_FullSet",
+        "scripts/sentinels/terminal.json:openai_compat_responses_terminal_helper"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "isOpenAICompatResponsesTerminalEvent (driver for the OpenAI-compat Anthropic Messages and Chat Completions streaming handlers) now recognizes the full six-event terminal set, including response.cancelled / response.canceled. Without this, an upstream that ends the Responses SSE with a legitimate cancellation falls through to 'stream usage incomplete: missing terminal event', producing a spurious openai.forward_failed ops_error_logs entry and skipping clean finalization. Symmetric with openAIStreamEventIsTerminal (gateway_service.go), openai_ws_forwarder.go, and openai_ws_v2/passthrough_relay.go."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1326",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/edge-real-client-ip)",
+      "severity": "high",
+      "summary": "反代/容器部署下真实客户端 IP 失真：server.trusted_proxies 出厂为空 → gin SetTrustedProxies(nil) → c.ClientIP() 退回 docker 网桥 IP（172.x）。修复把“未配置”语义改为默认信任 loopback + 私网网段（可被显式配置或 none/off/disabled 哨兵覆盖），使 c.ClientIP() 在反代后沿 X-Forwarded-For 解析真实客户端、直连公网时忽略伪造 XFF（防伪造）。同时修好按 IP 分桶的认证端点限流（rate_limiter.go）与支付审计 IP。",
+      "fixed_by": [
+        "backend/internal/server/http_tk_trusted_proxies.go",
+        "backend/internal/server/http.go",
+        "backend/internal/server/http_tk_trusted_proxies_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/server/http_tk_trusted_proxies.go:func tkResolveTrustedProxies(configured []string) (proxies []string, trust bool)",
+        "backend/internal/server/http_tk_trusted_proxies.go:Wei-Shaw/sub2api#1326",
+        "backend/internal/server/http.go:tkResolveTrustedProxies(cfg.Server.TrustedProxies)",
+        "backend/internal/server/http_tk_trusted_proxies_test.go:TestTkTrustedProxiesClientIPResolution"
+      ],
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1471",
+      "severity": "high",
+      "summary": "OpenAI /v1/responses sendErrorEvent now prepends a blank line before the synthetic data: line, so any in-flight upstream SSE event whose terminating blank line was never sent is closed before the synthetic event is written. Without this, the unterminated `data:` line and the synthetic `data:` line merge into a single SSE event whose payload contains two concatenated JSON objects, which downstream OpenAI-compatible SDKs (Codex, OpenCode, etc.) reject with malformed JSON.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service.go:TK fix for upstream Wei-Shaw/sub2api#1471",
+        "backend/internal/service/openai_gateway_service.go:bufferedWriter.WriteString(\"\\ndata: \" + payload + \"\\n\\n\")",
+        "backend/internal/service/openai_gateway_service_tk_stream_read_error_sse_test.go:TestOpenAIStreamingStreamReadErrorEmitsSeparateSSEEvents"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI /v1/responses sendErrorEvent prepends a blank line before the synthetic error event so an in-flight upstream SSE event (data: line without terminating blank line) does not merge with the injected error event into a single event carrying two JSON objects; downstream SDK JSON parsing no longer fails."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1493",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go"
+      ],
+      "summary": "Already fixed: /v1/responses non-stream empty output is reconstructed from SSE deltas via reconstructResponseOutputFromSSE (handleSSEToJSON detects empty output and rebuilds)."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1525",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
+      ],
+      "summary": "Already fixed (same root as #1574): opencode and other third-party clients are forced onto the Claude Code fingerprint (UA/x-stainless/x-app) + billing block + system rewrite; canonical-TLS accounts additionally 403 non-CC UAs at ingress."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1544",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "Same fix as #1833 — Anthropic/generic token-cost path made symmetric with the OpenAI path's observable pricing_missing_record_zero_cost behavior instead of a silent ActualCost:0."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1574",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "Already fixed: non-Claude-Code OAuth clients have system unconditionally rewritten into a 2-block (billing attribution + CC prompt) shape with original system demoted to messages, eliminating the 'CC prompt without billing block' inconsistency that triggered third-party detection on large requests."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1651",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_model_alias.go"
+      ],
+      "summary": "Already fixed: /v1/chat/completions no longer silently rewrites gpt-5.4-mini to gpt-5.4 for upstream — normalization only applies to OAuth/Codex accounts and -mini/-nano/codex variants are explicitly preserved (TestNormalizeCodexModel_RemovedModelsFallbackToSupportedTargets)."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1715",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_canonical_oauth_guard.go"
+      ],
+      "summary": "Already mitigated by the full mimicry stack (fingerprint alignment + billing attribution block + system rewrite + canonical UA guard + sticky routing). No single patch — maintained via the cc-fingerprint-alignment skill. NOTE: subscription-ban risk is existential; verify online (no third-party 400s) per 'config convergence != online stability'."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1723",
+      "tokenkey_pr": "youxuanxue/sub2api#525",
+      "severity": "high",
+      "summary": "schedulerCache.UpdateLastUsed 不再读改写完整账号键 sched:acc:<id>（3-12 KB JSON），只刷调度热路径 LRU 实际读取的 slim metadata 键 sched:meta:<id>，消除每次 LastUsedAt bump 的 Redis 读写放大（upstream 实测单部署 6.5 天 1.85 TB）。完整账号键的 LastUsedAt 由快照重建 / 账号变更刷新，不参与 LRU。",
+      "fixed_by": [
+        "backend/internal/repository/scheduler_cache.go",
+        "backend/internal/repository/scheduler_cache_integration_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/repository/scheduler_cache.go:背景（upstream Wei-Shaw/sub2api#1723）",
+        "backend/internal/repository/scheduler_cache.go:去掉了完整账号键的整段读 + 写放大",
+        "backend/internal/repository/scheduler_cache.go:schedulerAccountMetaKey(strconv.FormatInt(id, 10))",
+        "backend/internal/repository/scheduler_cache_integration_test.go:TestSchedulerCacheUpdateLastUsedOnlyTouchesMetaKey",
+        "backend/internal/repository/scheduler_cache_integration_test.go:UpdateLastUsed 不得重写完整账号键"
+      ],
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1824",
+      "severity": "high",
+      "summary": "OpenAI 403 handler skips the per-account counter + temp_unschedulable + SetError writes when the response body matches a Cloudflare / Arkose challenge keyword (cloudflare / just a moment / arkoselabs / funcaptcha / challenge-platform). Failover still proceeds for the in-flight request; the OAuth account stays in the pool for unrelated traffic.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service.go:openAICloudflareChallengeKeywords",
+        "backend/internal/service/ratelimit_service.go:openai_403_cf_challenge_skip_cooldown",
+        "backend/internal/service/ratelimit_service.go:See upstream Wei-Shaw/sub2api#1824 and #2413",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403CloudflareChallengeSkipsCooldown",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403RealAccountErrorStillCoolsDown"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "needs_prod_validation",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "OpenAI 403 now starts with temporary unschedulable state, but repeated CF/Arkose challenges can still cool down or error accounts."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "OpenAI 403 handler skips the per-account counter + temp_unschedulable + SetError writes when the response body matches a Cloudflare / Arkose challenge keyword (cloudflare / just a moment / arkoselabs / funcaptcha / challenge-platform). Failover still proceeds for the in-flight request; the OAuth account stays in the pool for unrelated traffic."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1833",
+      "severity": "high",
+      "summary": "calculateTokenCost no longer silently bills zero on ErrModelPricingUnavailable; it emits a structured gateway_usage.pricing_missing_record_zero_cost warning and marks BillingMode, at parity with the OpenAI record-usage path. Closes the free-usage leak for non-builtin models (GLM/qwen/deepseek over /v1/messages) with no configured pricing.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go",
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing.go:func logTokenCostPricingMissing",
+        "backend/internal/service/gateway_service.go:logTokenCostPricingMissing(billingModel, apiKey, result, err)",
+        "backend/internal/service/gateway_service_tk_billing_pricing_missing_test.go:TestCalculateTokenCost_PricingMissing_RecordsObservableZeroCost"
+      ],
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1925",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/account_test_service.go",
+        "backend/internal/service/account_test_service_openai_test.go"
+      ],
+      "summary": "OpenAI /responses account testing requires a terminal response.completed/response.done event; early EOF before completion fails the account test.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI /responses account test requires response.completed/response.done; early EOF fails tests."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1934",
+      "severity": "medium",
+      "summary": "Sticky bindings are namespaced by (groupID, sessionHash) but resolved by global account ID; after an account is moved out of the group the stale binding kept routing the group's traffic at it. All three sticky fast paths now invalidate a binding whose bound account has known group membership excluding groupID (conservative: empty membership kept).",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service_tk_sticky_group.go",
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_account_scheduler.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service_tk_sticky_group.go:func openaiStickyAccountStillInGroup",
+        "backend/internal/service/openai_gateway_service.go:openaiStickyAccountStillInGroup(account, *groupID)",
+        "backend/internal/service/openai_account_scheduler.go:openaiStickyAccountStillInGroup(account, *req.GroupID)",
+        "backend/internal/service/openai_gateway_service_tk_sticky_group_test.go:TestUS1934_Sticky_GroupDrift_ClearsBinding_Legacy"
+      ],
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1941",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_model_alias.go",
+        "backend/internal/service/openai_gateway_service.go"
+      ],
+      "summary": "Already fixed: typo model names no longer silently bill zero — usageBillingModelCandidates uses canonical+normalized candidates and pricing-missing emits a structured warning."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1946",
+      "severity": "medium",
+      "summary": "Anthropic monitor challenge extraction no longer assumes content[0] is the text block; extractAnthropicText skips thinking/redacted_thinking blocks and aggregates text, so a healthy account with extended thinking is not misjudged as a challenge mismatch and kicked out of the pool.",
+      "fixed_by": [
+        "backend/internal/service/channel_monitor_checker.go",
+        "backend/internal/service/channel_monitor_checker.go",
+        "backend/internal/service/channel_monitor_checker_tk_anthropic_text_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/channel_monitor_checker.go:func extractAnthropicText",
+        "backend/internal/service/channel_monitor_checker.go:return extractAnthropicText(respBytes), string(respBytes), status, nil",
+        "backend/internal/service/channel_monitor_checker_tk_anthropic_text_test.go:thinking block before text block"
+      ],
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Anthropic monitor challenge extraction no longer assumes content[0] is the text block; extractAnthropicText skips thinking/redacted_thinking blocks and aggregates text, so a healthy account with extended thinking is not misjudged as a challenge mismatch and kicked out of the pool."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#1981",
+      "severity": "medium",
+      "summary": "Opt-in (default OFF via tk_openai_max_rate_limit_cooldown_seconds) clamp of long OpenAI 429 resets (e.g. 7d window exhaustion) so released accounts re-enter the pool after the ceiling and are re-probed by live traffic instead of idling — 'traffic as the probe', no separate background prober.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go",
+        "backend/internal/service/ratelimit_service.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_openai_reset_clamp.go:func (s *RateLimitService) tkClampOpenAIRateLimitReset",
+        "backend/internal/service/ratelimit_service.go:s.tkClampOpenAIRateLimitReset(ctx, account.ID"
+      ],
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Opt-in (default OFF via tk_openai_max_rate_limit_cooldown_seconds) clamp of long OpenAI 429 resets (e.g. 7d window exhaustion) so released accounts re-enter the pool after the ceiling and are re-probed by live traffic instead of idling — 'traffic as the probe', no separate background prober."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2013",
+      "severity": "medium",
+      "summary": "enforceCacheControlLimit now counts a non-standard top-level cache_control toward the 4-block limit and trims it first, fixing Anthropic 400 'max 4 blocks, Found 5' when a client sends top-level cache_control plus 4 nested blocks.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_body_order_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:topLevelCacheControl := gjson.GetBytes(out, \"cache_control\").Exists()",
+        "backend/internal/service/gateway_body_order_test.go:TestEnforceCacheControlLimit_CountsTopLevelAndTrimsItFirst"
+      ],
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2055",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_clear_test.go"
+      ],
+      "summary": "Manual/successful recovery clears account rate-limit state, model rate limits, temporary unschedulable state, and OpenAI 403 counters.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Rate-limit reset clears account/model rate-limit, temp-unschedulable, and OpenAI 403 counters."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2107",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "summary": "Channel interval pricing applies flat channel defaults as the explicit out-of-range fallback, preventing custom-model requests from billing at zero.",
+      "fixed_by": [
+        "backend/internal/service/model_pricing_resolver.go",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+        "backend/internal/service/model_pricing_resolver_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go:func tkApplyChannelFlatOverridesAsFallback",
+        "backend/internal/service/model_pricing_resolver_test.go:TestGetIntervalPricing_ChannelIntervalsNoMatch_FlatDefaultsApplied",
+        "backend/internal/service/model_pricing_resolver_test.go:TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Channel interval pricing now applies flat channel defaults as the out-of-range fallback; fixed by TokenKey PR #232."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "Channel interval pricing applies flat channel defaults as the explicit out-of-range fallback, preventing custom-model requests from billing at zero. Fixed by youxuanxue/sub2api#232."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2159",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "summary": "Disabled proxies are filtered out of account preload and WithProxy edge loads while preserving account ProxyID bindings for admin visibility.",
+      "fixed_by": [
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/repository/account_repo_integration_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/repository/account_repo.go:dbproxy.StatusEQ(service.StatusActive)",
+        "backend/internal/repository/account_repo.go:See upstream #2159",
+        "backend/internal/repository/account_repo_integration_test.go:TestPreload_SkipsDisabledProxy"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Disabled proxies are filtered out of account preload and WithProxy edge loads; fixed by TokenKey PR #232."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "Disabled proxies are filtered out of account preload and WithProxy edge loads while preserving account ProxyID bindings for admin visibility. Fixed by youxuanxue/sub2api#232."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2168",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_record_usage_test.go"
+      ],
+      "summary": "Streaming usage billing continues on detached/drained upstream paths when clients disconnect early, preventing zero-cost early-disconnect abuse.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Streaming billing uses detached/drain paths and tests cover client-disconnect billing."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2211",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/repository/account_repo.go",
+        "backend/internal/service/openai_account_scheduler.go"
+      ],
+      "summary": "OpenAI scheduling now queries account_groups for the requested group, so grouped balance traffic should not select ungrouped accounts.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Account scheduling now queries the account_groups join table for the requested group; balance-group requests should not schedule ungrouped accounts."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2232",
+      "severity": "high",
+      "summary": "OpenAI OAuth /v1/images/edits (gpt-image-2) bridges multipart/JSON edit requests to the ChatGPT Responses image_generation tool with action=edit (source image + optional mask as data URLs), instead of failing on unsupported native /images/edits passthrough.",
+      "fixed_by": [
+        "backend/internal/service/openai_images_responses.go",
+        "backend/internal/service/openai_images.go",
+        "backend/internal/service/openai_images_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_images_responses.go:Wei-Shaw/sub2api#2232",
+        "backend/internal/service/openai_images_responses.go:action = \"edit\"",
+        "backend/internal/service/openai_images.go:forwardOpenAIImagesOAuth",
+        "backend/internal/service/openai_images_test.go:TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI OAuth /v1/images/edits (gpt-image-2) bridges to Responses image_generation action=edit via forwardOpenAIImagesOAuth + buildOpenAIImagesResponsesRequest."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "OpenAI OAuth /v1/images/edits (gpt-image-2) bridges multipart/JSON edit requests to the ChatGPT Responses image_generation tool with action=edit (source image + optional mask as data URLs), instead of failing on unsupported native /images/edits passthrough."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2245",
+      "severity": "high",
+      "summary": "OpenAI Responses streaming: when the upstream SSE stream ends without a terminal event (Anthropic message_stop), the /responses conversion finalizes the turn as a spec-valid response.incomplete (status=incomplete, incomplete_details.reason=interrupted) instead of a fake response.completed. The streaming terminal event type is now derived from response.status, so strict Responses clients (Codex CLI / OpenAI SDK) receive a correct terminal event and a truncated turn is not reported (to client or billing) as a clean success.",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go",
+        "backend/internal/service/gateway_forward_as_responses.go",
+        "backend/internal/service/gateway_forward_as_responses_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go:responsesTerminalEventTypeForStatus",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_response.go:responsesIncompleteReasonInterrupted",
+        "backend/internal/pkg/apicompat/anthropic_to_responses_truncation_test.go:TestFinalizeAnthropicResponsesStream_TruncationEmitsIncomplete",
+        "backend/internal/service/gateway_forward_as_responses_test.go:TestHandleResponsesStreamingResponse_TruncatedUpstreamEmitsIncomplete"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "needs_prod_validation",
+        "tokenkey_status": "known_protocol_limitation",
+        "rationale": "Responses stream terminal-event detection exists, but downstream may already have received HTTP 200 before an incomplete SSE is detected."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "OpenAI Responses streaming: when the upstream SSE stream ends without a terminal event (Anthropic message_stop), the /responses conversion finalizes the turn as a spec-valid response.incomplete (status=incomplete, incomplete_details.reason=interrupted) instead of a fake response.completed. The streaming terminal event type is now derived from response.status, so strict Responses clients (Codex CLI / OpenAI SDK) receive a correct terminal event and a truncated turn is not reported (to client or billing) as a clean success."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2258",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "summary": "OpenAI burst 429s below Codex usage-window limits use the short fallback cooldown instead of multi-hour or multi-day reset headers.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_burst.go",
+        "backend/internal/service/ratelimit_service_tk_openai_burst_test.go",
+        "backend/internal/service/rate_limit_429_cooldown_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_openai_burst.go:func TkIsOpenAI429TransientBurst",
+        "backend/internal/service/ratelimit_service_tk_openai_burst.go:openai_429_burst_below_window_limits",
+        "backend/internal/service/rate_limit_429_cooldown_test.go:TestHandle429_OpenAIBurstUsesFallbackCooldownNotLongReset"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI 429 burst below usage-window limits now falls through to short fallback cooldown instead of multi-hour/day reset headers; fixed by TokenKey PR #232."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "OpenAI burst 429s below Codex usage-window limits use the short fallback cooldown instead of multi-hour or multi-day reset headers. Fixed by youxuanxue/sub2api#232."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2291",
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "unresolved_observability",
+        "rationale": "Cache hit rate has inconsistent UI formulas between dashboard/trend views; observability issue, not direct production outage."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2293",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_test.go"
+      ],
+      "summary": "GPT-5.4/5.5 long-context billing includes cache_read tokens in the threshold and applies the long-context multiplier to cache_read cost.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Long-context billing includes cache_read tokens in the threshold and applies long-context multiplier to cache_read cost."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2298",
+      "severity": "high",
+      "summary": "OpenAI gateway forward paths drop empty / whitespace-only `data:` SSE frames before they reach the client. Upstream gpt-5.5 on `/v1/responses` emits bare `data:\\n\\n` frames at roughly a 5-10% rate; the OpenAI Python SDK then crashes on json.loads(\"\") inside `openai/_streaming.py`. The TK fix introduces a single `openAISSEDataPayloadIsEmpty` predicate and consumes it in all three client-facing forward paths: handleStreamingResponse (main /v1/responses), handleStreamingResponsePassthrough (OAuth passthrough), and streamRawChatCompletions (third-party OpenAI-compat upstreams like DeepSeek / Kimi / GLM / Qwen). See router-for-me/CLIProxyAPI#2460 for the canonical analysis.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data.go",
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data.go:func openAISSEDataPayloadIsEmpty",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data.go:Wei-Shaw/sub2api#2298",
+        "backend/internal/service/openai_gateway_service.go:TK fix for upstream Wei-Shaw/sub2api#2298",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go:TK fix for upstream Wei-Shaw/sub2api#2298",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go:TestOpenAISSEDataPayloadIsEmpty",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go:TestOpenAIStreamingDropsEmptySSEDataFrames",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go:TestOpenAIPassthroughDropsEmptySSEDataFrames",
+        "backend/internal/service/openai_gateway_service_tk_empty_sse_data_test.go:TestOpenAIChatCompletionsRawDropsEmptySSEDataFrames"
+      ],
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2310",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_images_responses.go",
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "OpenAI OAuth image generation uses a detached upstream context, so long non-stream image jobs are not tied to client disconnect/cancel.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI OAuth image generation uses a detached upstream context instead of binding long jobs to the client connection."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2332",
+      "severity": "high",
+      "summary": "Anthropic streaming /v1/messages produces exactly one usage_logs row per request: TokenKey accumulates message_start + message_delta into a single ClaudeUsage and writes one RecordUsage in the worker pool; parseSSEUsagePassthrough ignores zero-value input_tokens from message_delta.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go",
+        "backend/internal/service/gateway_streaming_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:if v := deltaUsage.Get(\"input_tokens\").Int(); v > 0 {",
+        "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go:TestGatewayService_ParseSSEUsagePassthrough_MessageDeltaSelectiveOverwrite",
+        "backend/internal/service/gateway_anthropic_apikey_passthrough_test.go:message_delta 中 0 值不应覆盖已有 input_tokens",
+        "backend/internal/service/gateway_service.go:Wei-Shaw/sub2api#2332 hardening",
+        "backend/internal/service/gateway_streaming_test.go:TestParseSSEUsage_StartPartialUsageDoesNotZeroAccumulator"
+      ],
+      "history": [
+        {
+          "summary": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent.",
+          "fixed_by": [
+            "backend/internal/service/gateway_service.go",
+            "backend/internal/service/gateway_streaming_test.go"
+          ],
+          "fixed_if_all_present": [
+            "backend/internal/service/gateway_service.go:Wei-Shaw/sub2api#2332 hardening",
+            "backend/internal/service/gateway_streaming_test.go:TestParseSSEUsage_StartPartialUsageDoesNotZeroAccumulator"
+          ]
+        },
+        {
+          "fixed_by": [
+            "backend/internal/service/gateway_service.go",
+            "backend/internal/service/gateway_streaming_test.go"
+          ],
+          "summary": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent."
+        },
+        {
+          "fixed_by": [
+            "backend/internal/service/gateway_service.go",
+            "backend/internal/service/gateway_streaming_test.go"
+          ],
+          "summary": "extractSSEUsagePatch message_start branch now gates hasInputTokens/hasCacheCreationInput/hasCacheReadInput on actual parseSSEUsageInt success instead of setting them unconditionally; a partial or duplicate message_start frame no longer zeroes out accumulator dimensions whose source key was absent (the input_tokens=0 duplicate-billing shape upstream reported)."
+        }
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "TokenKey writes exactly one usage_logs row per request (single RecordUsage in worker pool, see gateway_handler.go), and parseSSEUsagePassthrough ignores zero-value input_tokens from message_delta. No duplicate input=0/output>0 rows. Test TestGatewayService_ParseSSEUsagePassthrough_MessageDeltaSelectiveOverwrite pins this."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2337",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_tool_continuation.go",
+        "backend/internal/service/openai_compat_model_test.go"
+      ],
+      "summary": "Anthropic-to-OpenAI multi-turn tool call conversion preserves tool-call/call-id continuity for tool_result history.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Anthropic-to-OpenAI multi-turn tool call mapping is covered by tool-continuation code and tests."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2363",
+      "severity": "high",
+      "summary": "GetIntervalPricing overlays the matched interval onto BasePricing (which carries channel flat defaults via the #2107 fix), so channel CacheReadPrice/CacheWritePrice/ImageOutputPrice survive in-range matches instead of being silently dropped to 0. Symmetric in-range counterpart to the #2107 out-of-range fix.",
+      "fixed_by": [
+        "backend/internal/service/model_pricing_resolver.go",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go",
+        "backend/internal/service/model_pricing_resolver_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/model_pricing_resolver.go:tkOverlayIntervalOntoBasePricing(resolved.BasePricing, iv, resolved.SupportsCacheBreakdown)",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go:func tkOverlayIntervalOntoBasePricing",
+        "backend/internal/service/model_pricing_resolver_tk_channel_flat_fallback.go:Wei-Shaw/sub2api#2363",
+        "backend/internal/service/model_pricing_resolver_test.go:TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved",
+        "backend/internal/service/model_pricing_resolver_test.go:TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "needs_prod_validation",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "Cache-read price overrides exist in resolver and billing paths; verify production channel-pricing source selection."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "GetIntervalPricing overlays the matched interval onto BasePricing (which carries channel flat defaults via the #2107 fix), so channel CacheReadPrice/CacheWritePrice/ImageOutputPrice survive in-range matches instead of being silently dropped to 0. Symmetric in-range counterpart to the #2107 out-of-range fix."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2380",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/settings_view.go",
+        "backend/internal/service/gateway_service.go"
+      ],
+      "summary": "Already fixed (commit 67e426f7): API-key cross-channel thinking-signature rectifier defaults APIKeySignatureEnabled=true and legacy settings backfill from defaults, so cross-channel routes no longer 400 on thinking signature by default."
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2383",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_record_usage_test.go"
+      ],
+      "summary": "OpenAI usage recording tracks billing-model candidates and source selection so mapped and unmapped model billing paths are covered.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI usage recording has billing model candidates/source tracking and tests for mapped/unmapped models."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2410",
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "partially_mitigated",
+        "rationale": "ClientIP attribution behind reverse proxy fixed via #1326 trusted-proxies defaults; unified ops log correlation (user/api_key/email/IP across SLA + system logs) still needs separate production audit."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2411",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/sticky_session_injector.go",
+        "backend/internal/service/sticky_session_strategy.go",
+        "backend/internal/service/openai_account_scheduler.go"
+      ],
+      "summary": "Sticky-session scheduling has dedicated hash, strategy, TTL refresh, and invalidation logic for OpenAI-compatible account selection.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Sticky-session scheduling has dedicated hash, mode, and invalidation logic."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2413",
+      "severity": "high",
+      "summary": "OpenAI OAuth 403 with HTML body (OpenAI access-denied page on gpt-image-2 / image paths, not just CF/Arkose keywords) skips the 403 counter and temp_unschedulable cooldown via openAIIsHTMLBody; complements #1824 keyword matching so healthy OAuth accounts are not evicted from the pool.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go",
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go",
+        "backend/internal/service/ratelimit_service_tk_openai_cf_challenge_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go:Wei-Shaw/sub2api#2413",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403.go:func openAIIsHTMLBody",
+        "backend/internal/service/ratelimit_service.go:openai_403_html_body_skip_cooldown",
+        "backend/internal/service/ratelimit_service_tk_openai_html_403_test.go:TestRateLimitService_HandleUpstreamError_OpenAI403OpenAIAccessDeniedHTMLSkipsCooldown"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI OAuth 403 with HTML body (incl. OpenAI access-denied page on gpt-image-2 paths) skips 403 counter and temp_unschedulable via openAIIsHTMLBody; complements #1824 CF/Arkose keyword skip."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2453",
+      "judgment": {
+        "impact": "medium",
+        "tokenkey_status": "intentional_policy",
+        "rationale": "Default OpenAI fast policy still filters priority/fast globally by design; important product-policy tradeoff, not an accidental outage bug."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2465",
+      "judgment": {
+        "impact": "not_applicable",
+        "tokenkey_status": "outside_tokenkey_runtime",
+        "rationale": "Issue is about upstream compat-proxy/proxy.py; this TokenKey worktree has no compat-proxy implementation to patch."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2478",
+      "severity": "high",
+      "tokenkey_pr": "youxuanxue/sub2api#232",
+      "summary": "Expired and non-active subscriptions are ignored by reassignment existence checks, preventing stale rows from causing validity_days_mismatch conflicts.",
+      "fixed_by": [
+        "backend/internal/repository/user_subscription_repo.go",
+        "backend/internal/repository/user_subscription_repo_integration_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/repository/user_subscription_repo.go:usersubscription.StatusEQ(service.SubscriptionStatusActive)",
+        "backend/internal/repository/user_subscription_repo.go:usersubscription.ExpiresAtGT(time.Now())",
+        "backend/internal/repository/user_subscription_repo_integration_test.go:TestExistsByUserIDAndGroupID_IgnoresExpiredAndNonActive"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Expired or non-active subscriptions no longer satisfy ExistsByUserIDAndGroupID for reassignment conflicts; fixed by TokenKey PR #232."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "Expired and non-active subscriptions are ignored by reassignment existence checks, preventing stale rows from causing validity_days_mismatch conflicts. Fixed by youxuanxue/sub2api#232."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2486",
+      "severity": "high",
+      "summary": "Unknown gemini-* models (including gemini-pro-agent) fall back to a non-nil pro/flash family floor instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction). Production also carries an explicit tk_pricing_overlay entry for gemini-pro-agent.",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_test.go",
+        "backend/internal/service/pricing_service_tk_overlay_test.go",
+        "backend/internal/service/tk_pricing_overlay.json"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/billing_service.go:Wei-Shaw/sub2api#2486",
+        "backend/internal/service/billing_service.go:if strings.Contains(modelLower, \"gemini\")",
+        "backend/internal/service/billing_service_test.go:gemini-pro-agent falls back to pro family floor",
+        "backend/internal/service/pricing_service_tk_overlay_test.go:TestTKPricingOverlay_FillsGeminiProAgent",
+        "backend/internal/service/tk_pricing_overlay.json:\"gemini-pro-agent\""
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Unknown gemini-* models (including gemini-pro-agent) fall back to a non-nil pro/flash family floor instead of returning nil (which caused calculateTokenCost to silently record ActualCost=0 with no quota deduction). Production also carries an explicit tk_pricing_overlay entry for gemini-pro-agent."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2487",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_gateway_chat_completions.go"
+      ],
+      "summary": "Codex OAuth forwarding strips temperature and other ChatGPT-internal unsupported parameters before dispatch.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Codex OAuth transform strips temperature and other unsupported fields before forwarding to ChatGPT internal endpoints."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2489",
+      "tokenkey_pr": "youxuanxue/sub2api#223",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/header_util.go",
+        "backend/internal/service/claude_mimicry_headers_test.go",
+        "scripts/gateway-tk-sentinels.json"
+      ],
+      "summary": "Stopped emitting or forwarding x-stainless-helper-method on Claude Code OAuth mimicry paths.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Claude Code mimicry helper-method header risk fixed by TokenKey PR #223."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2490",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/handler/openai_gateway_handler.go",
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions.go"
+      ],
+      "summary": "OpenAI /compact route handling and request-body normalization are implemented, with compact_not_supported when no compatible account is available.",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI /compact route and request-body normalization are implemented, including compact_not_supported errors when no account is available."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2500",
+      "severity": "high",
+      "summary": "fixCallIDPrefix in openai_codex_transform.go now produces fc_<id> (with underscore) for call_<id> inputs, matching the fallback branch and the codex backend's id validator; missing underscore caused HTTP 400 on the chatgpt.com codex OAuth path and surfaced as 502 on multi-hop tool turns.",
+      "fixed_by": [
+        "backend/internal/service/openai_codex_transform.go",
+        "backend/internal/service/openai_codex_transform_tk_call_id_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_codex_transform.go:return \"fc_\" + strings.TrimPrefix(id, \"call_\")",
+        "backend/internal/service/openai_codex_transform.go:See upstream Wei-Shaw/sub2api#2500",
+        "backend/internal/service/openai_codex_transform_tk_call_id_test.go:TestApplyCodexOAuthTransform_FunctionCallNanoidIDIsCodexFcUnderscore"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Codex OAuth fixCallIDPrefix now emits fc_<id> (with underscore) for call_<id> inputs, matching the codex backend's id validator and preventing 502 on multi-hop tool turns."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "fixCallIDPrefix in openai_codex_transform.go now produces fc_<id> (with underscore) for call_<id> inputs, matching the fallback branch and the codex backend's id validator; missing underscore caused HTTP 400 on the chatgpt.com codex OAuth path and surfaced as 502 on multi-hop tool turns."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2506",
+      "severity": "high",
+      "summary": "normalizeClaudeOAuthRequestBody now skips auto-injecting context_management for Haiku models, mirroring the existing Haiku exemption in the anthropic-beta header path; Anthropic /v1/messages would otherwise return HTTP 400 for claude-haiku-4-5-* when thinking.type is enabled.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/service/gateway_service_tk_haiku_context_management_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service.go:See upstream Wei-Shaw/sub2api#2506",
+        "backend/internal/service/gateway_service.go:!strings.Contains(strings.ToLower(modelID), \"haiku\")",
+        "backend/internal/service/gateway_service_tk_haiku_context_management_test.go:TestNormalizeClaudeOAuthRequestBody_Haiku45_ThinkingEnabled_DoesNotInjectContextManagement"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "normalizeClaudeOAuthRequestBody skips context_management auto-injection for Haiku models (mirroring the existing Haiku exemption in FullClaudeCodeMimicryBetas), so claude-haiku-4-5-* + thinking.type=enabled no longer triggers Anthropic 400."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2515",
+      "severity": "high",
+      "summary": "ChatCompletions→Responses transform falls back to empty string when the converted parts list is empty (was emitting JSON null and triggering upstream HTTP 400 on gpt-5.5).",
+      "fixed_by": [
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go",
+        "backend/internal/pkg/apicompat/chatcompletions_responses_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go:TK: See upstream Wei-Shaw/sub2api#2515",
+        "backend/internal/pkg/apicompat/chatcompletions_to_responses.go:if len(parts) == 0 {",
+        "backend/internal/pkg/apicompat/chatcompletions_responses_test.go:TestChatCompletionsToResponses_EmptyContentArrayDoesNotProduceNull"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "ChatCompletions→Responses transform no longer emits content:null when the source content array is empty or every part was filtered out — falls back to empty string per upstream Responses contract."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2538",
+      "severity": "high",
+      "summary": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a snapshot rebuild; reaper ticks every 5s, scans accounts.rate_limit_reset_at in (lastTick, now], and enqueues one scheduler_outbox(account_changed) event per match. The existing outbox worker then rebuilds the bucket. Reaper is independent of upstream SchedulerSnapshotService.",
+      "fixed_by": [
+        "backend/internal/service/scheduler_rate_limit_reaper.go",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/scheduler_rate_limit_reaper.go:TK: See upstream Wei-Shaw/sub2api#2538",
+        "backend/internal/service/scheduler_rate_limit_reaper.go:type SchedulerRateLimitReaper struct",
+        "backend/internal/service/scheduler_rate_limit_reaper.go:type RateLimitExpiryRepository interface",
+        "backend/internal/service/scheduler_rate_limit_reaper.go:EnqueueOutboxForJustExpiredAccounts(ctx context.Context, since, until time.Time) (int, error)",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go:TK: See upstream Wei-Shaw/sub2api#2538",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go:INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go:WHERE a.rate_limit_reset_at > $1",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper.go:AND a.rate_limit_reset_at <= $2",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go:TestRateLimitReaper_FirstTick_UsesLookbackWindow",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go:TestRateLimitReaper_SubsequentTicks_UseLastTickAsLowerBound",
+        "backend/internal/service/scheduler_rate_limit_reaper_test.go:TestRateLimitReaper_RepoErrorPreservesLastTick",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go:TestEnqueueOutboxForJustExpiredAccounts_RepoEnqueuesAccountChangedForExpired",
+        "backend/internal/repository/account_repo_tk_rate_limit_reaper_integration_test.go:TestEnqueueOutboxForJustExpiredAccounts_RepoDedupsRepeatedTicksWithin1Second"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a scheduler snapshot rebuild; reaper ticks every 5s, atomically enqueues outbox account_changed events for accounts whose rate_limit_reset_at just elapsed, and the existing outbox worker rebuilds the bucket. Reaper is fully independent of upstream SchedulerSnapshotService and degrades to a no-op when disabled via config."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "SchedulerRateLimitReaper closes the deadlock where an account's 429 cooldown expires but no event triggers a snapshot rebuild; reaper ticks every 5s, scans accounts.rate_limit_reset_at in (lastTick, now], and enqueues one scheduler_outbox(account_changed) event per match. The existing outbox worker then rebuilds the bucket. Reaper is independent of upstream SchedulerSnapshotService."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2539",
+      "severity": "high",
+      "summary": "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" — mirroring the request-side normalizeOpenAIImageSizeTier default — so group image-price overrides (Price1K/Price2K/Price4K) are honored when ForwardResult.ImageSize fails to propagate through the request pipeline, instead of silently falling back to the LiteLLM default price ($0.134). Aligns the empty-size billing tier with the request-side default and unblocks customers with image_price_2k overrides who were being billed at the unconfigured default.",
+      "fixed_by": [
+        "backend/internal/service/billing_service.go",
+        "backend/internal/service/billing_service_image_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/billing_service.go:See upstream Wei-Shaw/sub2api#2539",
+        "backend/internal/service/billing_service.go:normalizedSize := imageSize",
+        "backend/internal/service/billing_service.go:if strings.TrimSpace(normalizedSize) == \"\" {",
+        "backend/internal/service/billing_service.go:normalizedSize = \"2K\"",
+        "backend/internal/service/billing_service_image_test.go:TestGetImageUnitPrice_EmptyImageSize_UsesGroupTier",
+        "backend/internal/service/billing_service_image_test.go:TestGetImageUnitPrice_EmptyImageSize_NoGroupFallsBackTo2KDefault",
+        "backend/internal/service/billing_service_image_test.go:TestGetImageUnitPrice_EmptyImageSize_PartialGroupConfigTier2K"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" (mirroring the request-side normalizeOpenAIImageSizeTier default), so group image-price overrides (image_price_1k/2k/4k) are honored when ForwardResult.ImageSize fails to propagate, instead of silently falling back to the LiteLLM default price ($0.134)."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "BillingService.getImageUnitPrice now defensively normalizes an empty imageSize to \"2K\" — mirroring the request-side normalizeOpenAIImageSizeTier default — so group image-price overrides (Price1K/Price2K/Price4K) are honored when ForwardResult.ImageSize fails to propagate through the request pipeline, instead of silently falling back to the LiteLLM default price ($0.134). Aligns the empty-size billing tier with the request-side default and unblocks customers with image_price_2k overrides who were being billed at the unconfigured default."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2556",
+      "severity": "high",
+      "summary": "OpenAI Chat Completions raw passthrough detects upstream silent refusal (empty stream/response with finish_reason=stop and zero usage) and emits an ops_error_logs row with Kind=silent_refusal. Conservative predicate: no content / no tool_calls / no reasoning / no refusal / no chunk-level error / zero usage / finish_reason=stop. Stream path keeps the client-visible bytes untouched (headers already flushed); buffered path will keep flexibility to harden later. The categorical ops signal turns the previously invisible 'ghost stream' (gpt-5.5 above input budget) into a dashboard-pivotable event.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go:TK: See upstream Wei-Shaw/sub2api#2556",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go:const silentRefusalKind = \"silent_refusal\"",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go:func (o *chatRawStreamObservations) IsSilentRefusal(usage OpenAIUsage) bool {",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal.go:func recordOpenAIChatRawSilentRefusal(",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go:refusalObs.Observe(payload)",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go:if refusalObs.IsSilentRefusal(usage) {",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go:refusalObs.ObserveBufferedResponse(respBody)",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_GhostStream_TriggersOpsError",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_NormalStream_DoesNotTrigger",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_ToolCallsStop_DoesNotTrigger",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_ReasoningStream_DoesNotTrigger",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_LengthStop_DoesNotTrigger",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusal_BufferedGhostResponse_TriggersOpsError",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusalPredicate_RequiresZeroUsage",
+        "backend/internal/service/openai_gateway_chat_completions_tk_silent_refusal_test.go:TestChatRawSilentRefusalPredicate_ChunkLevelErrorBlocks"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "OpenAI Chat Completions raw passthrough now detects upstream silent refusal (empty stream / response with finish_reason=stop and no usage) and emits an ops_error_logs row with Kind=silent_refusal. Detection is conservative (zero content + zero tool_calls + zero reasoning + zero refusal + zero usage + finish_reason=stop) so legitimate short answers are not flagged. Surfaces previously invisible 'ghost stream' failures to ops/dashboards."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2608",
+      "severity": "high",
+      "summary": "Client-induced Anthropic 400 invalid_request_error no longer advances the per-account cooldown counter, so a caller can no longer pause a shared OAuth subscription account by spamming malformed requests. Account-level 400s (org disabled / credit / KYC) and atypical 400s still go through the normal threshold path.",
+      "fixed_by": [
+        "backend/internal/service/ratelimit_service_tk_client_induced_400.go",
+        "backend/internal/service/ratelimit_service.go",
+        "backend/internal/service/ratelimit_service_tk_client_induced_400_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/ratelimit_service_tk_client_induced_400.go:func tkIsAnthropicClientInducedBadRequest",
+        "backend/internal/service/ratelimit_service.go:tkIsAnthropicClientInducedBadRequest(responseBody)",
+        "backend/internal/service/ratelimit_service_tk_client_induced_400_test.go:Anthropic400ClientInduced_DoesNotPenalizeAccount"
+      ],
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Client-induced Anthropic 400 invalid_request_error no longer advances the per-account cooldown counter, so a caller can no longer pause a shared OAuth subscription account by spamming malformed requests. Account-level 400s (org disabled / credit / KYC) and atypical 400s still go through the normal threshold path."
+      }
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2727",
+      "severity": "medium",
+      "summary": "Opt-in (default OFF via tk_openai_implicit_throttle_cooldown_seconds) cross-request cooldown: an OpenAI-compat account that returns a failover-worthy 5xx (implicit throttle / header-timeout with no 429) is briefly benched so subsequent requests skip it. The deliberately-unbounded OpenAIResponseHeaderTimeout default is intentionally NOT changed.",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go",
+        "backend/internal/service/openai_gateway_service.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service_tk_implicit_throttle.go:func (s *OpenAIGatewayService) tkApplyImplicitThrottleCooldown",
+        "backend/internal/service/openai_gateway_service.go:s.tkApplyImplicitThrottleCooldown(ctx, account, resp.StatusCode)"
+      ],
+      "tokenkey_pr": "youxuanxue/sub2api (branch: fix/upstream-issue-remediation)",
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#2754",
+      "tokenkey_pr": "youxuanxue/sub2api (branch: worktree-anthropic-upstream-audit)",
+      "status": "fixed_in_tokenkey",
+      "fixed_by": [
+        "backend/internal/service/gateway_service.go",
+        "backend/internal/pkg/claude/constants.go"
+      ],
+      "summary": "设计性差异非缺陷：Haiku OAuth mimic 刻意用独立 beta 集 FullClaudeCodeHaikuMimicryBetas（cc 2.1.160 structured-outputs 抓包，OMITS claude-code beta + advanced-tool-use，加 structured-outputs），运行时可经 claude_code_http_mimicry_manifest 热改。修正 gateway_service.go 误导注释（原称 Haiku 'includes claude-code beta'/'cc 2.1.152' 与实际 token 集矛盾）。无行为变更；如未来抓包确认 Haiku 真带 claude-code beta，改常量或下发 manifest。"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3014",
+      "severity": "high",
+      "summary": "codex_cli_only 访问控制绕过：限制此前只在 /v1/responses (Forward) 生效，普通非 Codex 客户端可经 /v1/chat/completions 兼容入口（内部转 Responses 后转发）继续使用受限 OAuth 账号。修复抽出共享 enforceCodexClientRestriction，在所有 OpenAI 网关转发入口统一执行：/responses、/v1/chat/completions、图片 OAuth 路径（forwardOpenAIImagesOAuth）；拒绝返回普通错误而非 *UpstreamFailoverError，确保不会 failover 到另一个账号而再次绕过策略。同时修掉既有脏 403：业务限流类拒绝已写完整响应时，handler 兜底 ensureForwardErrorResponse 不再追加错误帧污染 body。未开启 codex_cli_only 的账号为零成本 no-op。",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_images_responses.go",
+        "backend/internal/handler/openai_gateway_handler.go",
+        "backend/internal/service/openai_gateway_service_codex_cli_only_test.go",
+        "backend/internal/handler/openai_gateway_handler_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service.go:func (s *OpenAIGatewayService) enforceCodexClientRestriction(ctx context.Context, c *gin.Context, account *Account, body []byte) error {",
+        "backend/internal/service/openai_gateway_chat_completions.go:if err := s.enforceCodexClientRestriction(ctx, c, account, body); err != nil {",
+        "backend/internal/service/openai_images_responses.go:if err := s.enforceCodexClientRestriction(ctx, c, account, nil); err != nil {",
+        "backend/internal/handler/openai_gateway_handler.go:if service.HasOpsClientBusinessLimited(c) {",
+        "backend/internal/service/openai_gateway_service_codex_cli_only_test.go:TestForwardAsChatCompletions_CodexCliOnlyBlocksCompatEntry",
+        "backend/internal/handler/openai_gateway_handler_test.go:TestOpenAIGatewayEnsureForwardErrorResponse_SkipsAfterBusinessLimited"
+      ],
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3025",
+      "tokenkey_pr": "youxuanxue/sub2api#568",
+      "severity": "high",
+      "summary": "OAuth/pro 账号 5h Codex 用量百分比显示异常（100-raw 反转）：上游 x-codex-*-used-percent（5h 与 7d）都直接携带 used%（消耗百分比），此前 b65dde63 误以为是 remaining% 而对 5h 套了 used=100-raw 反算，导致空闲号在 admin 账号卡显示 99%/100%，并误触 is5hExhausted 给 raw=0 账号挂上数小时 429 cooldown。#568 移除反算，5h 与 7d 对称直传 used%；窗口归属由 Normalize() 按 window_minutes 判定，非固定 primary/secondary。已由 scripts/sentinels/gateway-tk.json 钉住，防 merge/重构再加回反算。",
+      "fixed_by": [
+        "backend/internal/service/openai_gateway_service.go",
+        "backend/internal/service/openai_gateway_service_codex_snapshot_test.go",
+        "scripts/sentinels/gateway-tk.json"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_gateway_service.go:result.Used5hPercent = s.PrimaryUsedPercent",
+        "backend/internal/service/openai_gateway_service.go:result.Used5hPercent = s.SecondaryUsedPercent",
+        "backend/internal/service/openai_gateway_service.go:Do NOT reintroduce a 100-raw inversion",
+        "backend/internal/service/openai_gateway_service_codex_snapshot_test.go:TestNormalize_ProdLayoutUsedPercentPassthrough"
+      ],
+      "status": "fixed_in_tokenkey"
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3158",
+      "severity": "high",
+      "summary": "WS v2 passthrough mode applies Codex image_generation bridge mutations on response.create frames before forwarding upstream, matching the regular WS ingress path.",
+      "fixed_by": [
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go",
+        "backend/internal/service/openai_ws_v2_passthrough_adapter.go",
+        "backend/internal/service/openai_ws_forwarder_ingress_session_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go:Wei-Shaw/sub2api#3158",
+        "backend/internal/service/openai_ws_v2_passthrough_codex_image_tk.go:func (s *OpenAIGatewayService) applyCodexImageBridgeToWSResponseCreate",
+        "backend/internal/service/openai_ws_forwarder_ingress_session_test.go:TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeInjectsCodexImageBridge"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "WS v2 passthrough applies the same Codex image_generation bridge mutations as the regular ingress path before forwarding response.create frames upstream."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "WS v2 passthrough mode applies Codex image_generation bridge mutations on response.create frames before forwarding upstream, matching the regular WS ingress path."
+          }
+        }
+      ]
+    },
+    {
+      "upstream": "Wei-Shaw/sub2api#3285",
+      "severity": "high",
+      "summary": "Anthropic/Kiro API-key passthrough strips client timeout headers (x-stainless-timeout and related) by default so long non-stream requests no longer hit the ~125s upstream cancel boundary; opt in via anthropic_passthrough_allow_timeout_headers.",
+      "fixed_by": [
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout_test.go"
+      ],
+      "fixed_if_all_present": [
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go:Wei-Shaw/sub2api#3285",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout.go:func isAnthropicPassthroughTimeoutHeader",
+        "backend/internal/service/gateway_service_tk_anthropic_passthrough_timeout_test.go:TestBuildUpstreamRequestAnthropicAPIKeyPassthrough_StripsTimeoutHeadersByDefault"
+      ],
+      "status": "fixed_in_tokenkey",
+      "judgment": {
+        "impact": "fixed",
+        "tokenkey_status": "fixed_in_tokenkey",
+        "rationale": "Anthropic/Kiro API-key passthrough strips x-stainless-timeout and related client timeout headers by default (config anthropic_passthrough_allow_timeout_headers to opt in), aligning with OpenAI passthrough protection so long non-stream Kiro requests no longer hit the ~125s upstream cancel boundary."
+      },
+      "history": [
+        {
+          "judgment": {
+            "impact": "fixed",
+            "tokenkey_status": "fixed_in_tokenkey",
+            "rationale": "Anthropic/Kiro API-key passthrough strips client timeout headers (x-stainless-timeout and related) by default so long non-stream requests no longer hit the ~125s upstream cancel boundary; opt in via anthropic_passthrough_allow_timeout_headers."
+          }
+        }
+      ]
+    }
+  ]
+}
