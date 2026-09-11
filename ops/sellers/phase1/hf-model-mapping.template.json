@@ -1,0 +1,6 @@
+{
+  "task": "conversational",
+  "hfModel": "REPLACE_WITH_EXACT_HUB_NAMESPACE_AND_REPO",
+  "providerModel": "REPLACE_WITH_VERIFIED_TOKENKEY_MODEL_ID",
+  "status": "staging"
+}

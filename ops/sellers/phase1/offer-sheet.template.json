@@ -1,0 +1,70 @@
+{
+  "document_type": "internal_offer_preparation_template",
+  "prepared_on": "2026-09-08",
+  "submission_ready": false,
+  "currency": "USD",
+  "price_unit": "per_million_tokens",
+  "null_means": "unverified_or_not_decided_not_zero_or_unlimited",
+  "models": [
+    {
+      "model_id": null,
+      "display_name": null,
+      "target_platforms": [],
+      "source_evidence_ref": null,
+      "distribution_permission_evidence_ref": null,
+      "hf_model_repository": null,
+      "model_revision": null,
+      "quantization": null,
+      "context_tokens": null,
+      "max_output_tokens": null,
+      "input_modalities": [],
+      "output_modalities": [],
+      "verified_features": [],
+      "stream_only": null,
+      "quoted_price_source": "generated/seller-offers.json; match model_id; do not maintain manual price overrides here",
+      "capacity_per_key": {
+        "rpm": null,
+        "tpm": null,
+        "concurrency": null,
+        "requests_per_day": null,
+        "requests_per_month": null,
+        "sustained_window_minutes": null,
+        "evidence_ref": null
+      },
+      "data_processing": {
+        "gateway_regions": [],
+        "inference_regions": [],
+        "log_and_backup_regions": [],
+        "subprocessors_evidence_ref": null,
+        "upstream_training_policy_evidence_ref": null,
+        "prompt_retention_days": null,
+        "eu_only_verified": null,
+        "zdr_verified": null,
+        "dpa_evidence_ref": null
+      },
+      "validation": {
+        "date": null,
+        "sample_count": null,
+        "input_output_token_profile": null,
+        "concurrency": null,
+        "ttft_p50_ms": null,
+        "ttft_p95_ms": null,
+        "output_tokens_per_second": null,
+        "success_rate": null,
+        "usage_and_billing_evidence_ref": null
+      }
+    }
+  ],
+  "commercial": {
+    "pricing_authorization": "User instruction 2026-09-08: reuse OpenRouter billing user; public pricing with effective authorized-group rate",
+    "contact_name": "Peng Zhu",
+    "contact_role": "COO, TokenKey",
+    "accepted_payment_methods": [],
+    "invoice_currency": null,
+    "payment_term_days": null,
+    "platform_fee_terms": null,
+    "minimum_commitment": null,
+    "maximum_unsettled_exposure_usd": null,
+    "failure_cancellation_refund_terms": null
+  }
+}
