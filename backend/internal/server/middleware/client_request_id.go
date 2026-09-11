@@ -13,9 +13,11 @@ import (
 
 const clientRequestIDHeader = "X-Client-Request-ID"
 
-// ClientRequestID ensures every request has a unique client_request_id in request.Context().
+// ClientRequestID ensures every gateway request has a client_request_id.
 //
-// This is used by the Ops monitoring module for end-to-end request correlation.
+// Priority: existing context value → inbound X-Client-Request-ID → generated UUID.
+// This is the client-chosen correlation marker for ops/billing evidence. It is
+// never the storage identity: X-Request-ID / ctxkey.RequestID stay server-only.
 func ClientRequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request == nil {
@@ -23,20 +25,21 @@ func ClientRequestID() gin.HandlerFunc {
 			return
 		}
 
+		id := ""
 		if v, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(v) != "" {
-			var valid bool
-			v, valid = normalizeCorrelationID(v)
-			if !valid {
-				v = uuid.New().String()
+			if normalized, ok := normalizeCorrelationID(v); ok {
+				id = normalized
 			}
-			c.Header(clientRequestIDHeader, v)
-			ctx := context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, v)
-			c.Request = c.Request.WithContext(ctx)
-			c.Next()
-			return
+		}
+		if id == "" {
+			if normalized, ok := normalizeCorrelationID(c.GetHeader(clientRequestIDHeader)); ok {
+				id = normalized
+			}
+		}
+		if id == "" {
+			id = uuid.New().String()
 		}
 
-		id := uuid.New().String()
 		c.Header(clientRequestIDHeader, id)
 		ctx := context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, id)
 		requestLogger := logger.FromContext(ctx).With(zap.String("client_request_id", strings.TrimSpace(id)))

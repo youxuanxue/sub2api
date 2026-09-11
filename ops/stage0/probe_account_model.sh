@@ -446,7 +446,7 @@ if [[ "$AUTH_HEADER_NAME" == "x-api-key" ]]; then
         -H "anthropic-version: 2023-06-01" \
         -H "anthropic-beta: claude-code-20250219" \
         -H "X-App: cli" \
-        -H "X-Request-ID: $TK_PROBE_REQUEST_ID" \
+        -H "X-Client-Request-ID: $TK_PROBE_REQUEST_ID" \
         -H "Content-Type: application/json" \
         -H "User-Agent: $TK_PROBE_CLAUDE_UA" \
         --data-binary @/tmp/tk-probe-request.json \
@@ -470,7 +470,7 @@ else
         exec curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
           -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
           -H "Authorization: Bearer $TK_PROBE_KEY" \
-          -H "X-Request-ID: $TK_PROBE_REQUEST_ID" \
+          -H "X-Client-Request-ID: $TK_PROBE_REQUEST_ID" \
           -H "User-Agent: tokenkey-account-model-probe/1" \
           -F "model=$TK_PROBE_MODEL" -F "file=@/tmp/tk-probe-request.json;filename=recording.audio" \
           "$TK_PROBE_URL"
@@ -478,7 +478,7 @@ else
       curl -sS --connect-timeout 5 --max-time "$TK_PROBE_TIMEOUT_SECONDS" \
         -D /tmp/tk-probe-headers.txt -o /tmp/tk-probe-response.json -w "%{http_code}" \
         -H "Authorization: Bearer $TK_PROBE_KEY" \
-        -H "X-Request-ID: $TK_PROBE_REQUEST_ID" \
+        -H "X-Client-Request-ID: $TK_PROBE_REQUEST_ID" \
         -H "Content-Type: application/json" \
         -H "User-Agent: tokenkey-account-model-probe/1" \
         --data-binary @/tmp/tk-probe-request.json \
@@ -520,8 +520,9 @@ python3 - \
   "$TARGET_JSON" "$PLATFORM" "$GROUP_ID" "$GROUP_NAME" "$API_KEY_ID" "$KEY_NAME" \
   "$MODEL" "$ENDPOINT" "$http_code" "$tmp_body" "$tmp_headers" "$tmp_err" "$tmp_logs" \
   "${usage_row:-null}" "$KEEP_PROBE_ARTIFACTS" "$LOG_WINDOW" "$REQUEST_TIMEOUT_SECONDS" \
-  "$PROBE_REUSE_MODE" "$PROBE_STARTED_AT" "$REQUEST_EXTRA_JSON" <<'PY'
+  "$PROBE_REUSE_MODE" "$PROBE_STARTED_AT" "$REQUEST_EXTRA_JSON" "$CLIENT_REQUEST_ID" <<'PY'
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -530,8 +531,8 @@ from pathlib import Path
     target_raw, platform, group_id, group_name, api_key_id, key_name,
     model, endpoint, http_code, body_path, headers_path, err_path, logs_path,
     usage_raw, keep_raw, log_window, request_timeout_seconds,
-    reuse_mode, probe_started_at, request_extra_raw,
-) = sys.argv[1:21]
+    reuse_mode, probe_started_at, request_extra_raw, client_request_id,
+) = sys.argv[1:22]
 
 target = json.loads(target_raw)
 body = Path(body_path).read_text(encoding="utf-8", errors="replace")
@@ -547,9 +548,6 @@ try:
 except Exception:
     request_extra = {}
 
-import os
-import sys
-
 sys.path.insert(0, os.environ.get("PROBE_SCRIPT_DIR", "."))
 from probe_account_model_verdict import classify_probe_verdict
 
@@ -563,9 +561,24 @@ def classify(code: str, body_text: str, usage_row, curl_err: str):
         curl_err=curl_err,
     )
 
+server_request_id = ""
+for line in headers.splitlines():
+    if ":" not in line:
+        continue
+    name, value = line.split(":", 1)
+    if name.strip().lower() == "x-request-id":
+        server_request_id = value.strip()
+        break
+
 log_lines = []
 for line in logs.splitlines():
-    if str(target["id"]) in line or group_name in line or str(api_key_id) in line:
+    if (
+        str(target["id"]) in line
+        or group_name in line
+        or str(api_key_id) in line
+        or (server_request_id and server_request_id in line)
+        or (client_request_id and client_request_id in line)
+    ):
         log_lines.append(line[:600])
     if len(log_lines) >= 12:
         break
@@ -585,6 +598,8 @@ out = {
         "api_key_name": key_name,
         "reuse_mode": reuse_mode == "1",
         "probe_started_at_utc": probe_started_at,
+        "client_request_id": client_request_id or None,
+        "server_request_id": server_request_id or None,
         "kept_artifacts": keep_raw == "1",
         "exclusive_group": True,
         "universal_routing_excluded": True,
@@ -594,6 +609,7 @@ out = {
     "usage_match": usage,
     "response": {
         "headers_excerpt": headers[:1200],
+        "x_request_id": server_request_id or None,
         "body_excerpt": body_excerpt,
         "curl_error": curl_error[:600],
     },

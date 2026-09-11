@@ -254,7 +254,7 @@ def execute(sample, key, port, replay_id):
         connection.request('POST', sample['path'], body=sample['body'], headers={
             'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key,
             'x-api-key': key, 'anthropic-version': '2023-06-01',
-            'User-Agent': 'tokenkey-private-replay', 'X-Request-ID': replay_id})
+            'User-Agent': 'tokenkey-private-replay', 'X-Client-Request-ID': replay_id})
         response = connection.getresponse()
         status = response.status
         response_id = response.getheader('X-Request-ID')
@@ -459,8 +459,8 @@ def replay(tag, root=ROOT):
             results[-1].update({k: row[k] for k in ('user_id', 'requested_model', 'inbound_endpoint', 'stream',
                                                   'tool_calls_present', 'multimodal_present')})
         # Production user usage must not contain a replay request ID.
-        # Some adapters replace the inbound ID with an upstream ID in usage.
-        # Audit both the client correlation prefix and observed response IDs.
+        # Storage identity is the server X-Request-ID echoed on the response.
+        # Client markers use X-Client-Request-ID and must not appear as request_id.
         response_ids = sorted({r['response_request_id'] for r in results if r.get('response_request_id')})
         id_literals = ','.join("'" + rid + "'" for rid in response_ids) or "NULL"
         production_writes = int(sql("SELECT count(*) FROM usage_logs WHERE created_at >= now()-interval '3 hours' "
