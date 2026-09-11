@@ -393,6 +393,9 @@ export const useAppStore = defineStore('app', () => {
     try {
       apiRequest = fetchPublicSettingsAPI()
     } catch (error) {
+      if (cachedPublicSettings.value) {
+        cachedPublicSettings.value = { ...cachedPublicSettings.value, registration_offer: { state: 'unavailable' } }
+      }
       console.error('Failed to fetch public settings:', error)
       publicSettingsLoading.value = false
       return Promise.resolve(null)
@@ -404,6 +407,9 @@ export const useAppStore = defineStore('app', () => {
         return data
       })
       .catch((error) => {
+        if (cachedPublicSettings.value) {
+          cachedPublicSettings.value = { ...cachedPublicSettings.value, registration_offer: { state: 'unavailable' } }
+        }
         console.error('Failed to fetch public settings:', error)
         return null
       })

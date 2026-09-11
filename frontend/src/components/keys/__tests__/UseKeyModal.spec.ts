@@ -40,6 +40,7 @@ vi.mock('@/api/api-key-capabilities', () => ({
   getAPIKeyCapabilities: (...args: unknown[]) => getAPIKeyCapabilities(...args)
 }))
 
+import { TK_QUICKSTART_CLIENTS } from '@/constants/clientIntegrations.tk'
 import UseKeyModal from '../UseKeyModal.vue'
 import UseKeyGuide from '../UseKeyGuide.vue'
 
@@ -893,5 +894,30 @@ describe('UseKeyGuide — model picker persistence', () => {
       .find((content) => content.includes('model_provider = "OpenAI"'))
     expect(configToml).toContain('model = "glm-5.3"')
     expect(configToml).not.toContain('model_reasoning_effort')
+  })
+})
+
+
+describe('UseKeyGuide public preview', () => {
+  it.each(TK_QUICKSTART_CLIENTS)('renders $name through the shared generator without credential requests', async client => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('preview must be offline'))
+    const wrapper = mountQuickstartGuide({
+      preview: true, apiKey: 'YOUR_TOKENKEY_API_KEY', apiKeyId: undefined,
+      selectedClient: client.guideId,
+    })
+    await flushPromises()
+    const config = wrapper.findAll('pre code').map(block => block.text()).join('\n')
+    // Some clients reference a local environment variable in their file.
+    expect(wrapper.text()).toContain('YOUR_TOKENKEY_API_KEY')
+    expect(config).toContain('YOUR_MODEL_ID')
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.testConnection')
+    wrapper.vm.runTest()
+    await wrapper.vm.warmupGateway()
+    expect(getAPIKeyCapabilities).not.toHaveBeenCalled()
+    expect(getPublicPricing).not.toHaveBeenCalled()
+    expect(getMePricingCatalog).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+    fetchMock.mockRestore()
   })
 })

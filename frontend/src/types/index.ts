@@ -211,7 +211,13 @@ export interface LoginAgreementDocument {
   content_md: string
 }
 
+export interface RegistrationOffer {
+  state: 'open' | 'invitation_required' | 'closed' | 'unavailable'
+  signup_bonus_usd?: string
+}
+
 export interface PublicSettings {
+  registration_offer?: RegistrationOffer
   registration_enabled: boolean
   email_verify_enabled: boolean
   force_email_on_third_party_signup: boolean

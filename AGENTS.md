@@ -65,3 +65,9 @@ handler 选择。测试及发布前缺口见 US-050，本地实现不代表已�
 [`docs/approved/qa-bundle-session-export.md`](docs/approved/qa-bundle-session-export.md)。
 QA Bundle 是用户会话导出的唯一数据来源；采集/归档/授权沿用 QA lifecycle，
 不恢复旧 prod traj export 或平行投影器。
+
+## Public Quickstart 与注册承诺 SSOT
+
+公开与登录态接入指南、注册入口和返回路径的 owner 清单见
+[`docs/approved/public-quickstart-registration-offer.md`](docs/approved/public-quickstart-registration-offer.md)。
+页面只做编排；配置生成和注册承诺必须复用该文档中的共享 owner。

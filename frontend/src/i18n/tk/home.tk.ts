@@ -51,8 +51,8 @@ const chinaExportEn = {
   verifyCta: 'Get your API key',
   copyCode: 'Copy request',
   copied: 'Copied',
-  faqEyebrow: 'Free trial',
-  faqTitle: 'Build before you pay.',
+  faqEyebrow: 'Getting started',
+  faqTitle: 'Understand your setup.',
   creditDisclaimer: 'Start with a free trial. No credit card required.',
   faq: {
     models: {
@@ -61,7 +61,7 @@ const chinaExportEn = {
     },
     credit: {
       q: 'How does the free trial work?',
-      a: 'Create an eligible account to receive trial access. No credit card is required, and you can start with any model currently available to your account.',
+      a: 'Current registration availability and any signup credit are shown beside the registration button. After signing in, Quickstart shows the models available to your API key.',
     },
     data: {
       q: 'Where is my data processed?',
@@ -104,8 +104,8 @@ const chinaExportZh = {
   verifyCta: '获取 API Key',
   copyCode: '复制请求',
   copied: '已复制',
-  faqEyebrow: '免费试用',
-  faqTitle: '先构建，后付费。',
+  faqEyebrow: '开始接入',
+  faqTitle: '了解接入与使用方式。',
   creditDisclaimer: '免费开始试用，无需信用卡。',
   faq: {
     models: {
@@ -114,7 +114,7 @@ const chinaExportZh = {
     },
     credit: {
       q: '免费试用如何开通？',
-      a: '创建符合条件的账户即可获得试用权益，无需信用卡，并可从账户当前可用的任意模型开始。',
+      a: '当前注册条件和赠额以注册按钮旁的提示为准。登录后，接入指南会显示你的 API Key 可用的模型。',
     },
     data: {
       q: '数据在哪里处理？',
@@ -254,7 +254,7 @@ const en: HomeLocaleOverlay = {
         },
         trial: {
           q: 'Is there a free trial?',
-          a: '1M tokens free, email registration only, no credit card required. Start building immediately.',
+          a: 'Any signup credit and registration requirements are shown beside the registration button. You can explore the connection guide before creating an account.',
         },
         quotaUp: {
           q: 'What happens when my quota is used up?',
@@ -396,7 +396,7 @@ const zh: HomeLocaleOverlay = {
         },
         trial: {
           q: '有免费试用吗？',
-          a: '100 万 tokens 免费，仅需邮箱注册，无需绑定信用卡。立即开始使用。',
+          a: '当前赠额和注册条件以注册按钮旁的提示为准。注册前即可浏览接入指南，了解配置方法。',
         },
         quotaUp: {
           q: '配额用完了怎么办？',

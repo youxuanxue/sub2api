@@ -347,6 +347,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Frontend lint, typecheck, and critical vitest
         run: make -j3 --output-sync=target test-frontend
+      - name: Public Quickstart browser journeys
+        working-directory: frontend
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm exec playwright test --config playwright.quickstart.config.ts
 
   candidate-browser:
     needs: changes

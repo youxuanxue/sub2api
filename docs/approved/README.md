@@ -129,6 +129,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
+| [`public-quickstart-registration-offer.md`](public-quickstart-registration-offer.md) | Public Quickstart and shared registration offer |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
 | [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双市场首页与统一产品矩阵 |
 

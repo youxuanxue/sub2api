@@ -1,15 +1,13 @@
 <template>
-    <div class="mx-auto max-w-6xl space-y-6">
+    <div class="mx-auto max-w-6xl space-y-6"
+      :class="!authStore.isAuthenticated ? 'min-h-screen px-4 py-8 sm:px-6' : ''">
+      <header v-if="!authStore.isAuthenticated" class="space-y-3">
+        <router-link to="/home" class="text-sm text-primary-600">{{ t('pricing.nav.home') }}</router-link>
+        <h1 class="text-3xl font-semibold text-gray-900 dark:text-white">{{ t('onboarding.title') }}</h1>
+        <p class="text-gray-500 dark:text-gray-400">{{ t('onboarding.subtitle') }}</p>
+      </header>
       <section>
-        <div v-if="keysLoading" class="flex items-center justify-center py-6">
-          <LoadingSpinner />
-        </div>
-        <div v-else-if="keysError" class="text-sm text-red-500">{{ keysError }}</div>
-        <div v-else-if="!keys.length" class="space-y-4 text-center">
-          <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('quickstart.noKeys') }}</p>
-          <router-link to="/keys" class="btn btn-primary text-sm">{{ t('quickstart.createKey') }}</router-link>
-        </div>
-        <div v-else class="space-y-6">
+        <div class="space-y-6">
           <QuickstartClientPicker
             :heading="t('quickstart.chooseClient')"
             :groups="clientGroups"
@@ -45,7 +43,7 @@
               </div>
               <div class="flex shrink-0 flex-wrap gap-2">
                 <button
-                  v-if="showCcSwitchImport"
+                  v-if="!preview && showCcSwitchImport"
                   type="button"
                   data-tk="quickstart-ccs-import"
                   class="btn btn-primary inline-flex items-center gap-1.5 text-sm"
@@ -56,7 +54,7 @@
                   {{ t('quickstart.importToCcSwitch') }}
                 </button>
                 <button
-                  v-if="selectedClient.action === 'app-deeplink' && selectedClient.template"
+                  v-if="!preview && selectedClient.action === 'app-deeplink' && selectedClient.template"
                   type="button"
                   data-tk="quickstart-client-import"
                   class="btn btn-primary inline-flex items-center gap-1.5 text-sm"
@@ -79,6 +77,7 @@
             </div>
 
             <details
+              v-if="selectedKey"
               ref="advancedOptionsRef"
               data-tk="quickstart-advanced-options"
               class="rounded-lg border border-gray-200 bg-gray-50/70 dark:border-dark-600 dark:bg-dark-800/40"
@@ -121,11 +120,11 @@
                         {{ t('keys.universalBadge') }}
                       </span>
                       <GroupBadge
-                        v-else-if="selectedKey.group"
-                        :name="selectedKey.group.name"
-                        :platform="getPublicPlatformStyleKey(selectedKey.group.platform) as GroupPlatform"
-                        :subscription-type="selectedKey.group.subscription_type"
-                        :rate-multiplier="selectedKey.group.rate_multiplier"
+                        v-else-if="selectedKey?.group"
+                        :name="selectedKey?.group.name"
+                        :platform="getPublicPlatformStyleKey(selectedKey?.group.platform) as GroupPlatform"
+                        :subscription-type="selectedKey?.group.subscription_type"
+                        :rate-multiplier="selectedKey?.group.rate_multiplier"
                         hide-rate-value
                       />
                       <span v-else class="text-sm text-amber-600 dark:text-amber-400">{{ t('keys.noGroup') }}</span>
@@ -144,7 +143,7 @@
               @change-key="openAdvancedKeyOptions"
             />
 
-            <template v-if="selectedKey && !selectedClientDisabledReason">
+            <template v-if="!selectedClientDisabledReason">
               <div
                 data-tk="quickstart-connection-row"
                 class="flex w-full flex-wrap items-center gap-x-3 gap-y-2"
@@ -205,7 +204,15 @@
                   </div>
                 </div>
 
+                <RegistrationActionTk v-if="!authStore.isAuthenticated" :return-to="returnPath" for-test />
+                <div v-else-if="!selectedKey" class="flex flex-wrap items-center gap-3" data-tk="quickstart-key-action">
+                  <button class="btn btn-primary" :disabled="keysLoading || creatingKey" @click="keysError ? loadKeys() : createKey()">
+                    {{ keysLoading ? t('common.loading') : creatingKey ? t('onboarding.creatingKey') : keysError ? t('common.retry') : t('onboarding.createKey') }}
+                  </button>
+                  <p class="text-sm text-gray-500" role="status">{{ keysError || t('onboarding.noKey') }}</p>
+                </div>
                 <QuickstartConnectionHealth
+                  v-else
                   layout="inline"
                   :test-state="connectionTestState"
                   :setup-blocked="!selectedModel"
@@ -216,25 +223,27 @@
 
               <UseKeyGuide
                 ref="useKeyGuideRef"
-                :api-key="selectedKey.key"
-                :api-key-id="selectedKey.id"
+                :key="selectedKey?.id ?? 'preview'"
+                :preview="preview"
+                :api-key="selectedKey?.key ?? 'YOUR_TOKENKEY_API_KEY'"
+                :api-key-id="selectedKey?.id"
                 :base-url="baseUrl"
-                :platform="selectedKey.group?.platform ?? null"
-                :routing-mode="selectedKey.routing_mode"
+                :platform="selectedKey?.group?.platform ?? null"
+                :routing-mode="selectedKey?.routing_mode ?? 'universal'"
                 :initial-model="initialModelFromQuery"
-                :claude-code-only="selectedKey.group?.claude_code_only || false"
-                :allow-messages-dispatch="selectedKey.group?.allow_messages_dispatch || false"
-                :supported-model-scopes="selectedKey.group?.supported_model_scopes"
-                :key-quota="selectedKey.quota"
-                :rate-limit5h="selectedKey.rate_limit_5h"
-                :rate-limit1d="selectedKey.rate_limit_1d"
-                :rate-limit7d="selectedKey.rate_limit_7d"
+                :claude-code-only="selectedKey?.group?.claude_code_only || false"
+                :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
+                :supported-model-scopes="selectedKey?.group?.supported_model_scopes"
+                :key-quota="selectedKey?.quota"
+                :rate-limit5h="selectedKey?.rate_limit_5h"
+                :rate-limit1d="selectedKey?.rate_limit_1d"
+                :rate-limit7d="selectedKey?.rate_limit_7d"
                 :selected-client="selectedClient.guideId"
                 :selected-protocol="selectedProtocol"
                 :selected-transport="selectedTransport"
                 :show-client-tabs="false"
                 hide-inline-test
-                @model-change="selectedModel = $event"
+                @model-change="!preview && (selectedModel = $event)"
                 @test-state-change="connectionTestState = $event"
               />
             </template>
@@ -243,9 +252,9 @@
       </section>
 
       <div class="flex flex-wrap items-center justify-center gap-4 pb-6">
-        <router-link to="/keys" class="btn btn-secondary text-sm">{{ t('quickstart.manageKeys') }}</router-link>
+        <router-link v-if="authStore.isAuthenticated" to="/keys" class="btn btn-secondary text-sm">{{ t('quickstart.manageKeys') }}</router-link>
         <router-link to="/models?view=pricing" class="btn btn-secondary text-sm">{{ t('quickstart.viewPricing') }}</router-link>
-        <router-link to="/studio" class="btn btn-primary text-sm">{{ t('quickstart.tryStudio') }}</router-link>
+        <router-link v-if="authStore.isAuthenticated" to="/studio" class="btn btn-primary text-sm">{{ t('quickstart.tryStudio') }}</router-link>
       </div>
     </div>
 </template>
@@ -255,6 +264,9 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
+import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
+import { quickstartReturnPath } from '@/utils/quickstartJourney.tk'
 import * as keysAPI from '@/api/keys'
 import type { ApiKey, GroupPlatform } from '@/types'
 import { filterUserSelectableApiKeys } from '@/utils/reservedProbeKey.tk'
@@ -264,7 +276,6 @@ import {
   quickstartKeyDisabledReason,
   recommendKeyForClient,
 } from '@/utils/quickstartKeyMatch.tk'
-import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import { getPublicPlatformStyleKey } from '@/utils/publicPlatforms'
 import Icon from '@/components/icons/Icon.vue'
@@ -287,16 +298,21 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const preview = computed(() => !selectedKey.value)
+const creatingKey = ref(false)
+const returnPath = computed(() => quickstartReturnPath(selectedClientId.value, selectedProtocol.value, selectedTransport.value))
 const { importToCcSwitch } = useCcSwitchImport()
 
 const keys = ref<ApiKey[]>([])
-const keysLoading = ref(true)
+const keysLoading = ref(false)
 const keysError = ref('')
 const selectedKeyId = ref<number | null>(null)
-const selectedClientId = ref('')
-const selectedProtocol = ref<'anthropic' | 'openai'>('anthropic')
-const selectedTransport = ref<'http' | 'websocket'>('http')
-const selectedModel = ref('')
+const selectedClientId = ref(pickDefaultClientId())
+const selectedProtocol = ref<'anthropic' | 'openai'>(parseStringQuery('protocol') === 'openai' ? 'openai' : 'anthropic')
+const selectedTransport = ref<'http' | 'websocket'>(parseStringQuery('transport') === 'websocket' ? 'websocket' : 'http')
+const selectedModel = ref(parseModelFromQuery() ?? '')
+const requestedModel = parseModelFromQuery()
 const keyManuallySelected = ref(false)
 const advancedOptionsOpen = ref(false)
 const advancedOptionsRef = ref<HTMLDetailsElement | null>(null)
@@ -318,23 +334,23 @@ const qwenProtocols = computed(() => {
     {
       id: 'anthropic' as const,
       label: t('quickstart.protocolAnthropic'),
-      disabled: !available.includes('anthropic'),
+      disabled: !preview.value && !available.includes('anthropic'),
     },
     {
       id: 'openai' as const,
       label: t('quickstart.protocolOpenAI'),
-      disabled: !available.includes('openai'),
+      disabled: !preview.value && !available.includes('openai'),
     },
   ]
 })
 
 const codexTransports = computed(() => [
   { id: 'http' as const, label: t('quickstart.transportHttp'), disabled: false },
-  { id: 'websocket' as const, label: t('quickstart.transportWebSocket'), disabled: !codexWebSocketAvailable() },
+  { id: 'websocket' as const, label: t('quickstart.transportWebSocket'), disabled: !preview.value && !codexWebSocketAvailable() },
 ])
 
 const baseUrl = computed(() => {
-  const raw = appStore.cachedPublicSettings?.api_base_url || window.location.origin
+  const raw = appStore.cachedPublicSettings?.api_base_url || (preview.value ? 'YOUR_TOKENKEY_BASE_URL' : window.location.origin)
   return raw.replace(/\/+$/, '')
 })
 
@@ -380,7 +396,7 @@ function maskKey(key: string) {
 }
 
 function clientListDisabledReason(client: TkClientCatalogEntry): string {
-  if (!keys.value.length) return t('quickstart.unavailableNoGroup')
+  if (preview.value) return ''
   const compatible = keys.value.some((key) => !quickstartKeyDisabledReason(key, client, {}, t))
   if (compatible) return ''
   const sample = recommendKeyForClient(keys.value, client) ?? keys.value[0]
@@ -389,7 +405,7 @@ function clientListDisabledReason(client: TkClientCatalogEntry): string {
 
 function disabledReasonFor(client: TkClientCatalogEntry, selectedVariant = false): string {
   const key = selectedKey.value
-  if (!key) return t('quickstart.unavailableNoGroup')
+  if (!key) return ''
   const options = selectedVariant && client.id === 'qwen-code'
     ? { protocol: selectedProtocol.value, transport: selectedTransport.value }
     : keyMatchOptions.value
@@ -454,7 +470,7 @@ function openAdvancedKeyOptions(): void {
 }
 
 function runConnectionTest(): void {
-  useKeyGuideRef.value?.runTest()
+  if (authStore.isAuthenticated && selectedKey.value) useKeyGuideRef.value?.runTest()
 }
 
 function openSelectedClient(): void {
@@ -507,7 +523,7 @@ function parseStringQuery(name: string): string | null {
   return parsed || null
 }
 
-const initialModelFromQuery = computed(() => parseModelFromQuery())
+const initialModelFromQuery = computed(() => requestedModel)
 
 function pickDefaultClientId(): string {
   const requested = parseStringQuery('client')
@@ -562,49 +578,40 @@ watch([selectedKey, baseUrl], ([key, url]) => {
 })
 
 watch([selectedKeyId, selectedClientId, selectedProtocol, selectedTransport, selectedModel], ([keyId, clientId]) => {
-  if (keyId == null || !clientId) return
+  if (!clientId) return
   const query: Record<string, string | null | (string | null)[]> = {
     ...route.query,
-    keyId: String(keyId),
+    ...(keyId != null ? { keyId: String(keyId) } : {}),
     client: clientId,
   }
   if (clientId === 'qwen-code') query.protocol = selectedProtocol.value
   else delete query.protocol
   if (clientId === 'codex-cli') query.transport = selectedTransport.value
   else delete query.transport
-  if (selectedModel.value) query.model = selectedModel.value
-  else delete query.model
+  if (preview.value) delete query.keyId
+  if (!preview.value && selectedModel.value) query.model = selectedModel.value
+  else if (!requestedModel) delete query.model
   const unchanged = Object.entries(query).every(([key, value]) => route.query[key] === value)
     && Object.keys(route.query).every((key) => key in query)
   if (!unchanged) void router.replace({ query })
 })
 
+let keyLoadEpoch = 0
 async function loadKeys() {
+  const epoch = ++keyLoadEpoch
+  if (!authStore.isAuthenticated) {
+    keys.value = []
+    selectedKeyId.value = null
+    keysLoading.value = false
+    keysError.value = ''
+    return
+  }
   keysLoading.value = true
   keysError.value = ''
   try {
     const result = await keysAPI.list(1, 100, { status: 'active' })
+    if (epoch !== keyLoadEpoch || !authStore.isAuthenticated) return
     keys.value = filterUserSelectableApiKeys(result.items ?? [])
-    if (!keys.value.length) {
-      const created = await keysAPI.create(
-        'Quick Start',
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        'universal',
-      )
-      keys.value = [created]
-    }
-
-    selectedClientId.value = pickDefaultClientId()
-    selectedProtocol.value = parseStringQuery('protocol') === 'openai' ? 'openai' : 'anthropic'
-    selectedTransport.value = parseStringQuery('transport') === 'websocket' ? 'websocket' : 'http'
-    selectedModel.value = parseModelFromQuery() ?? ''
-
     const client = TK_QUICKSTART_CLIENTS.find((entry) => entry.id === selectedClientId.value)
     if (client) {
       selectedKeyId.value = pickDefaultKeyId(client, keys.value)
@@ -619,11 +626,27 @@ async function loadKeys() {
       if (!codexWebSocketAvailable()) selectedTransport.value = 'http'
     }
   } catch (e: unknown) {
-    keysError.value = e instanceof Error ? e.message : String(e)
+    if (epoch === keyLoadEpoch) keysError.value = e instanceof Error ? e.message : String(e)
   } finally {
-    keysLoading.value = false
+    if (epoch === keyLoadEpoch) keysLoading.value = false
   }
 }
+
+async function createKey() {
+  if (!authStore.isAuthenticated || creatingKey.value || selectedKey.value) return
+  creatingKey.value = true
+  const epoch = keyLoadEpoch
+  try {
+    const created = await keysAPI.create('Quick Start', undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'universal')
+    if (epoch !== keyLoadEpoch || !authStore.isAuthenticated) return
+    keys.value = [created, ...keys.value]
+    selectedKeyId.value = created.id
+  } catch (error) {
+    if (epoch === keyLoadEpoch) keysError.value = error instanceof Error ? error.message : String(error)
+  } finally { creatingKey.value = false }
+}
+
+watch(() => authStore.isAuthenticated, () => { void loadKeys() })
 
 onMounted(() => {
   loadKeys()

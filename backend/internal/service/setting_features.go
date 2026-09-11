@@ -462,6 +462,10 @@ func (s *SettingService) GetCaptchaProviderConfig(ctx context.Context) (CaptchaP
 	if err != nil {
 		return CaptchaProviderConfig{}, fmt.Errorf("read captcha provider settings: %w", err)
 	}
+	return captchaProviderConfigFromSettings(values), nil
+}
+
+func captchaProviderConfigFromSettings(values map[string]string) CaptchaProviderConfig {
 	return CaptchaProviderConfig{
 		TurnstileEnabled:   values[SettingKeyTurnstileEnabled] == "true",
 		TurnstileSecretKey: values[SettingKeyTurnstileSecretKey],
@@ -480,7 +484,7 @@ func (s *SettingService) GetCaptchaProviderConfig(ctx context.Context) (CaptchaP
 			SceneID:         values[SettingKeyAliyunCaptchaSceneID],
 			Region:          normalizeAliyunCaptchaRegion(values[SettingKeyAliyunCaptchaRegion]),
 		},
-	}, nil
+	}
 }
 
 func (s *SettingService) IsTencentCaptchaEnabled(ctx context.Context) bool {

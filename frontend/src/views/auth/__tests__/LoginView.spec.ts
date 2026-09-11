@@ -1,3 +1,4 @@
+import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginView from '@/views/auth/LoginView.vue'
@@ -60,6 +61,7 @@ vi.mock('@/api/auth', async () => {
 
 describe('LoginView', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     pushMock.mockReset()
     loginMock.mockReset()
     showSuccessMock.mockReset()
