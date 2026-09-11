@@ -106,3 +106,47 @@ func TestClientRequestIDRejectsOversizedInboundHeader(t *testing.T) {
 	require.NotEqual(t, strings.Repeat("x", 200), w.Body.String())
 	require.Equal(t, w.Body.String(), w.Header().Get(clientRequestIDHeader))
 }
+
+// Legacy-only X-Request-ID must become client_request_id so a lost response is
+// still searchable, while remaining distinct from the server request_id.
+func TestClientRequestIDFallsBackToInboundRequestIDAsClientMarker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RequestLogger())
+	router.Use(ClientRequestID())
+	router.GET("/", func(c *gin.Context) {
+		serverID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
+		clientID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+		c.JSON(http.StatusOK, gin.H{"request_id": serverID, "client_request_id": clientID})
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set(requestIDHeader, "legacy-only-marker")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "legacy-only-marker", w.Header().Get(clientRequestIDHeader))
+	require.NotEqual(t, "legacy-only-marker", w.Header().Get(requestIDHeader))
+	require.Contains(t, w.Body.String(), `"client_request_id":"legacy-only-marker"`)
+	require.NotContains(t, w.Body.String(), `"request_id":"legacy-only-marker"`)
+}
+
+func TestClientRequestIDPrefersExplicitClientHeaderOverLegacyRequestID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(ClientRequestID())
+	router.GET("/", func(c *gin.Context) {
+		value, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+		c.String(http.StatusOK, value)
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set(clientRequestIDHeader, "explicit-client")
+	req.Header.Set(requestIDHeader, "legacy-ignored-for-client")
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "explicit-client", w.Body.String())
+}

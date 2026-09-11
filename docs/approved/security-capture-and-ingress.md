@@ -20,7 +20,8 @@ risk: high
 - 请求存储身份由服务端生成，响应 X-Request-ID 返回该身份，客户端不能通过复用或构造该头
   选择 QA 对象。不新增第二套「权威 request id」头名。客户端自选关联走已有副通道：
   入站 X-Client-Request-ID → context/logs/ops 的 client_request_id（及计费侧 ClientRequestID）；
-  它不是存储主键，也不能替代响应 X-Request-ID 做证据定位。
+  若未传该头而只传了遗留 X-Request-ID，则把该值降级为 client_request_id 标记，便于响应丢失时
+  仍可按客户端持有的值检索，但它永远不是存储主键，也不能替代响应 X-Request-ID 做权威定位。
 - QA blob 和 DLQ 写入由 `trajectory.WriteBlobFile` 统一执行目录边界、私有权限及禁止覆盖。
   S3 blob 写入也要求目标不存在；已有记录不迁移。读取与删除同样不能越过根目录。
 - 响应采集只保留预算内的字节，流片段引用这份有界内容，不再持有无上限的待解析缓冲。

@@ -36,13 +36,15 @@ account-specific commands into this skill.
 
 ## Request ID contract (gateway path)
 
-- `X-Request-ID` is **server-only**. Exact evidence lookup uses the **response**
-  `X-Request-ID` (also `probe.server_request_id` / `response.x_request_id` in
-  `probe_account_model.sh` output). Never assume a request-header value lands in
-  `usage_logs.request_id` or QA blob keys.
-- Client-chosen markers use inbound `X-Client-Request-ID` → `client_request_id`
-  (ops/logs). The account-model probe sets this to the probe id; it is not the
-  storage primary key.
+- `X-Request-ID` is **server-only** as storage identity. Exact evidence lookup
+  uses the **response** `X-Request-ID` (also `probe.server_request_id` /
+  `response.x_request_id` in `probe_account_model.sh` output). Never assume a
+  request-header value lands in `usage_logs.request_id` or QA blob keys.
+- Client-chosen markers prefer inbound `X-Client-Request-ID` →
+  `client_request_id`. If a caller only sends legacy `X-Request-ID`, that value
+  is kept as `client_request_id` (not storage `request_id`) so a lost response
+  is still searchable in logs/ops. Prefer sending `X-Client-Request-ID`
+  explicitly; the account-model probe already does.
 
 ## Interpret the result
 

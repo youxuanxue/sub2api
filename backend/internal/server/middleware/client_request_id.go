@@ -15,9 +15,10 @@ const clientRequestIDHeader = "X-Client-Request-ID"
 
 // ClientRequestID ensures every gateway request has a client_request_id.
 //
-// Priority: existing context value → inbound X-Client-Request-ID → generated UUID.
-// This is the client-chosen correlation marker for ops/billing evidence. It is
-// never the storage identity: X-Request-ID / ctxkey.RequestID stay server-only.
+// Priority: existing context → inbound X-Client-Request-ID → inbound X-Request-ID
+// (compat only) → generated UUID. The X-Request-ID fallback exists so callers that
+// still send only the legacy header keep a searchable marker when the response
+// never returns; it never becomes ctxkey.RequestID / QA / usage storage identity.
 func ClientRequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request == nil {
@@ -33,6 +34,14 @@ func ClientRequestID() gin.HandlerFunc {
 		}
 		if id == "" {
 			if normalized, ok := normalizeCorrelationID(c.GetHeader(clientRequestIDHeader)); ok {
+				id = normalized
+			}
+		}
+		if id == "" {
+			// Legacy clients often only send X-Request-ID. Keep that value as the
+			// client marker so a dropped response is still correlatable in logs/ops,
+			// while RequestLogger continues to mint a distinct server request_id.
+			if normalized, ok := normalizeCorrelationID(c.GetHeader(requestIDHeader)); ok {
 				id = normalized
 			}
 		}
