@@ -29,6 +29,7 @@ type JobSpec struct {
 	Kind             JobKind   `json:"kind"`
 	JobID            string    `json:"job_id"`
 	BundleJobID      string    `json:"bundle_job_id,omitempty"`
+	ExportVersion    string    `json:"export_version,omitempty"`
 	UserID           int64     `json:"user_id"`
 	APIKeyID         int64     `json:"api_key_id"`
 	DataFrom         time.Time `json:"data_from"`
@@ -83,12 +84,12 @@ func NewBundleJobSpec(userID, apiKeyID int64, watermark time.Time) JobSpec {
 }
 
 func NewZipJobSpec(bundleSpec JobSpec, manifestKey string) JobSpec {
-	jobID := deterministicJobID(JobKindBundleZip, bundleSpec.UserID, bundleSpec.APIKeyID, bundleSpec.ArchiveWatermark, bundleSpec.JobID)
+	jobID := deterministicJobID(JobKindBundleZip, bundleSpec.UserID, bundleSpec.APIKeyID, bundleSpec.ArchiveWatermark, zipIdentityParent(bundleSpec.JobID, ExportVersion))
 	base := jobBase(jobID)
 	return JobSpec{
 		SchemaVersion: JobSchemaVersion, Kind: JobKindBundleZip, JobID: jobID,
-		BundleJobID: bundleSpec.JobID,
-		UserID:      bundleSpec.UserID, APIKeyID: bundleSpec.APIKeyID,
+		BundleJobID: bundleSpec.JobID, ExportVersion: ExportVersion,
+		UserID: bundleSpec.UserID, APIKeyID: bundleSpec.APIKeyID,
 		DataFrom: bundleSpec.DataFrom, DataUntil: bundleSpec.DataUntil, ArchiveWatermark: bundleSpec.ArchiveWatermark,
 		ManifestKey: manifestKey, OutputKey: base + "/export.zip",
 		SpecKey: base + "/spec.json", ReceiptKey: base + "/receipt.json", FailureKey: base + "/failure.json",
@@ -174,7 +175,7 @@ func (s JobSpec) Validate() error {
 	switch s.Kind {
 	case JobKindBundle:
 		if s.JobID != deterministicJobID(s.Kind, s.UserID, s.APIKeyID, s.ArchiveWatermark, "") ||
-			s.BundleJobID != "" || s.GenerationPrefix != base+"/generation" || s.ManifestKey != s.GenerationPrefix+"/manifest.json" || s.OutputKey != "" || len(s.CommitKeys) != 24 {
+			s.BundleJobID != "" || s.ExportVersion != "" || s.GenerationPrefix != base+"/generation" || s.ManifestKey != s.GenerationPrefix+"/manifest.json" || s.OutputKey != "" || len(s.CommitKeys) != 24 {
 			return errors.New("qa bundle build job is invalid")
 		}
 		for index, key := range s.CommitKeys {
@@ -184,8 +185,11 @@ func (s JobSpec) Validate() error {
 			}
 		}
 	case JobKindBundleZip:
+		if s.ExportVersion != "" && s.ExportVersion != ExportVersion {
+			return errors.New("unsupported QA session export version")
+		}
 		expectedBundleBase := jobBase(s.BundleJobID)
-		if s.JobID != deterministicJobID(s.Kind, s.UserID, s.APIKeyID, s.ArchiveWatermark, s.BundleJobID) ||
+		if s.JobID != deterministicJobID(s.Kind, s.UserID, s.APIKeyID, s.ArchiveWatermark, zipIdentityParent(s.BundleJobID, s.ExportVersion)) ||
 			len(s.CommitKeys) != 0 || s.GenerationPrefix != "" || s.OutputKey != base+"/export.zip" ||
 			s.ManifestKey != expectedBundleBase+"/generation/manifest.json" {
 			return errors.New("qa bundle zip job is invalid")
@@ -278,7 +282,7 @@ func ExecuteJob(ctx context.Context, spec JobSpec, rawStore archive.ReadOnlyObje
 		}
 		receipt.RecordCount = manifest.RecordCount
 	case JobKindBundleZip:
-		exportReceipt, err := BuildExportZip(ctx, outputStore, spec.ManifestKey, spec.OutputKey)
+		exportReceipt, err := buildExportZip(ctx, outputStore, spec.ManifestKey, spec.OutputKey, spec.ExportVersion)
 		if err != nil {
 			return JobReceipt{}, err
 		}
@@ -305,4 +309,11 @@ func deterministicJobID(kind JobKind, userID, apiKeyID int64, watermark time.Tim
 
 func jobBase(jobID string) string {
 	return "qa-bundles/v1/jobs/" + jobID
+}
+
+func zipIdentityParent(bundleJobID, version string) string {
+	if version == "" {
+		return bundleJobID
+	}
+	return bundleJobID + ":" + version
 }

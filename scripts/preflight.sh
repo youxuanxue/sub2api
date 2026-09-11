@@ -1563,6 +1563,17 @@ else
     echo "  ok: gateway trajectory hooks and QA terminal capture are aligned"
 fi
 
+# ---- sub2api: Bundle session export SSOT -------------------------------------
+echo ""
+echo "=== sub2api: Bundle session export SSOT ==="
+if ! python3 ./scripts/checks/traj-ssot.py; then
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/test_traj_ssot.py; then
+    errors=$((errors + 1))
+elif ! (cd backend && go test -tags=unit ./internal/observability/trajectory -run '^TestUS055_' -count=1); then
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: terminal event registry ---------------------------------------
 # Source of truth: scripts/sentinels/terminal.json. Verifies that the stable
 # terminal-event helpers, `[DONE]` emission, and focused terminal assertions stay

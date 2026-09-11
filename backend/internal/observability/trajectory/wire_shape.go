@@ -9,19 +9,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
-// WireShape identifies the client-facing protocol shape of a captured QARecord's
-// evidence blob. The traj v2 projector dispatches reconstruction by shape: each
-// shape parses its own request.messages / response / SSE layout but every builder
-// emits the SAME TrajSessionV2/TrajTurnV2 vocabulary (text / thinking / tool_use
-// blocks; user / assistant / tool turns), so the export schema stays uniform
-// across platforms (anthropic / openai / gemini / antigravity / kiro / newapi).
-//
-// Shape is a pure function of (platform, normalized inbound_endpoint) — both
-// already stored on every QARecord by the capture layer. It is NOT the upstream
-// shape: antigravity relays to Gemini cloudcode-pa internally, but the captured
-// client-facing blob on /antigravity/v1 is Anthropic-shaped and on
-// /antigravity/v1beta is Gemini-shaped, so antigravity reuses the anthropic /
-// gemini builders by inbound endpoint rather than needing its own.
+// WireShape identifies the client-facing protocol in captured evidence. Session
+// export preserves each shape's native messages; upstream platform is not a
+// substitute for the actual inbound endpoint. See the traj-ssot contract.
 type WireShape string
 
 const (
@@ -69,6 +59,9 @@ func wireShapeFor(platform, inboundEndpoint string) WireShape {
 		return WireAnthropicMessages
 	case strings.Contains(ep, endpointGeminiModels):
 		return WireGemini
+	}
+	if ep != "" {
+		return WireUnknown
 	}
 	// Endpoint carried no conversation marker (embeddings/images/video, or an
 	// empty/odd value). Only platforms with exactly ONE canonical conversation

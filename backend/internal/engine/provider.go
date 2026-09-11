@@ -108,8 +108,8 @@ func OAuthRefreshPlatforms() []string {
 }
 
 // TrajProjectablePlatforms returns the platforms whose captured client-facing
-// wire shape the traj v2 projector faithfully reconstructs (see
-// trajectory.WireShapeForRecord). It is the SINGLE SOURCE the /auth/me
+// wire shape the Bundle session exporter supports (see
+// trajectory.WireShapeForRecord). It is the SINGLE SOURCE for the /auth/me
 // projectable allowlist (frontend export-chip visibility) and the per-key
 // export gate read from — never hand-list projectable platforms anywhere else.
 //

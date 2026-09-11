@@ -54,29 +54,3 @@ func TestWireShapeForRecord_NilSafe(t *testing.T) {
 		t.Errorf("nil record = %q, want Unknown", got)
 	}
 }
-
-// recordsContinue / RequestContinues: a wire-shape change is a hard session
-// boundary even when the message arrays would otherwise look continuous.
-func TestRequestContinues_ShapeBoundary(t *testing.T) {
-	mk := func(platform, endpoint, body string) SourceRecord {
-		blob := &EvidenceBlob{}
-		blob.Request.Body = mustBody(t, body)
-		return SourceRecord{
-			Record: &ent.QARecord{Platform: platform, InboundEndpoint: endpoint},
-			Blob:   blob,
-		}
-	}
-	anth1 := mk("anthropic", "/v1/messages", `{"messages":[{"role":"user","content":"a"}]}`)
-	anth2 := mk("anthropic", "/v1/messages", `{"messages":[{"role":"user","content":"a"},{"role":"assistant","content":"b"},{"role":"user","content":"c"}]}`)
-	gem := mk("gemini", "/v1beta/models", `{"contents":[{"role":"user","parts":[{"text":"a"}]}]}`)
-
-	if !RequestContinues(anth1, anth2) {
-		t.Errorf("same-shape prefix extension should continue")
-	}
-	if RequestContinues(anth1, gem) {
-		t.Errorf("anthropic→gemini shape change must be a hard boundary")
-	}
-	if RequestContinues(gem, anth2) {
-		t.Errorf("gemini→anthropic shape change must be a hard boundary")
-	}
-}
