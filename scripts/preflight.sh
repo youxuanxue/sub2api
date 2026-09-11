@@ -91,6 +91,10 @@
 #   QA Bundle contract gate      — runs the active S3 Bundle service/worker package
 #        tests and requires the US-044 authorization anchor to prevent zero-match
 #        false greens after an upstream merge.
+#   gh CLI repository context    — a workflow job that calls repo-scoped `gh`
+#        subcommands without actions/checkout must pass GH_REPO, or gh fails at
+#        runtime with "fatal: not a git repository". Driven by
+#        `scripts/checks/gh-cli-repo-context.py`.
 #   Node version alignment       — CI frontend jobs must setup-node the same
 #        major as the release Dockerfile (ARG NODE_IMAGE). Driven by
 #        `scripts/checks/node-version-align.py`.
@@ -3369,6 +3373,27 @@ if ! python3 -m unittest scripts.checks.test_cursor_deployment; then
     errors=$((errors + 1))
 else
     echo "  ok: Cursor uses the existing Go gateway runtime"
+fi
+
+# ---- sub2api: gh CLI repository context ---------------------------------------
+# `gh` resolves its target repo from git remotes, so a job with no checkout must
+# pass GH_REPO or every repo-scoped gh subcommand dies on "fatal: not a git
+# repository". This failed silently in ops-daily-diagnostics.yml's
+# queue-repair-draft for as long as it existed: the job only runs on days that
+# produce a repair candidate, so ops-repair-draft.yml was never once dispatched.
+# Gate: scripts/checks/gh-cli-repo-context.py.
+echo ""
+echo "=== sub2api: gh CLI repository context ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by gh-cli-repo-context.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/gh-cli-repo-context.py --selftest >/dev/null; then
+    echo "  FAIL: gh-cli-repo-context.py self-test failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/gh-cli-repo-context.py --quiet; then
+    errors=$((errors + 1))
+else
+    echo "  ok: every gh CLI step can resolve its repository"
 fi
 
 # ---- sub2api: Node version alignment -----------------------------------------
