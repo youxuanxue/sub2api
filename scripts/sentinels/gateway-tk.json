@@ -3,6 +3,22 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/openai_codex_models_service.go",
+      "must_contain": [
+        "cached, state := s.openAIModelsCache.get(cacheKey, time.Now())",
+        "if state == openAIModelsCacheFresh {\n\t\t\treturn cached, nil\n\t\t}"
+      ],
+      "rationale": "Recheck freshness inside the shared refresh flight so a caller with an earlier cache miss cannot refetch a catalog just filled by another caller. Stale entries must still revalidate."
+    },
+    {
+      "path": "backend/internal/service/openai_models_cache_refresh_tk_test.go",
+      "must_contain": [
+        "TestOpenAIModelsRefreshRechecksCacheAfterConcurrentFill",
+        "stale still revalidates"
+      ],
+      "rationale": "Deterministically cover a concurrent cache fill between the initial miss and the refresh flight, while preserving stale revalidation."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_cache_ttl_tk_test.go",
       "must_contain": [
         "TestNativeAnthropicCacheTTLReachesSettlement",
