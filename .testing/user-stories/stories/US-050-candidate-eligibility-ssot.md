@@ -59,9 +59,12 @@
 
 
 41. AC-041 (regression): Given a native-only Direct or Universal path with a thinking/tool adjustment When acquiring or waiting for capacity Then fresh Plan validation preserves conversion permission and remains identical to initial selection; genuinely changed capabilities still invalidate stale Plans.
-42. AC-042 (negative): Given Cursor and native Messages, Chat or Responses content When planning Then the actual execution converter and Cursor parser reject unsupported image/thinking content before selection; healthy peers remain eligible and ordinary text/tool schemas are preserved.
+42. AC-042 (negative): Given Cursor and native Messages, Chat or Responses content When planning Then the actual execution converter and Cursor parser reject unsupported image/thinking content before selection; healthy peers remain eligible and ordinary text/tool schemas are preserved. Native Messages execution applies the same history cleanup before the Cursor parser.
 43. AC-043 (regression): Given a usable group image/per_request card for a custom model When admitting and recording image usage Then admission and settlement agree on that group's card; unrelated, empty or unusable cards cannot establish a price.
 44. AC-044 (regression): Given Codex model aliases and scoped group/channel cards When resolving prices or comparing candidate origins Then literal exact/wildcard cards precede canonical fallback, equivalent tariffs remain eligible, unequal tariffs remain conflicting, and recorded usage uses the resolved group rate.
+
+45. AC-045 (regression): Given a group image card priced only for one size When either image handler receives another size Then admission evaluates that actual normalized size using settlement's tier/default precedence and rejects nonpositive cost; configured size and valid default prices remain usable.
+46. AC-046 (regression): Given long Cursor content and multiple candidate checks When request content and resolved model are unchanged Then reuse content validation within the request without copying the full body on cached Plan checks; changed request/model and fresh account endpoint facts retain independent validation.
 
 The Direct/Universal mapping boundary is approved in
 `docs/approved/candidate-request-policy-convergence.md`. Mapping isolation, global
@@ -91,6 +94,12 @@ production scheduler. AC-004 follows the approved account-scope policy; its old
 mixed-pool test documents only the remaining legacy adapter's behavior.
 
 ## Linked Tests
+
+- `backend/internal/service/cursor_content_consistency_tk_test.go`::`TestCursorNativeHistoryPlanAndForwardAgree`
+- `backend/internal/service/cursor_content_consistency_tk_test.go`::`TestCursorContentCacheKeepsRequestModelAndAccountBoundaries`
+- `backend/internal/service/cursor_content_consistency_tk_test.go`::`TestCursorCachedContentDoesNotCopyLongRequest`
+- `backend/internal/service/pricing_scope_consistency_tk_test.go`::`TestPricingScopeImageRequestedSizeMatchesSettlement`
+- `backend/internal/handler/openai_images_controls_test.go`::`TestOpenAIImageHandlersRejectUnpricedRequestedSize`
 
 - `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsSlotRecheckPreservesConversionPermission`
 - `backend/internal/integration/cursor/messages_test.go`::`TestValidateMessagesContentSharesNativeParser`

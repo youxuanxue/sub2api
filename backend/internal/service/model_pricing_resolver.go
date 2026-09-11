@@ -32,7 +32,7 @@ type ResolvedPricing struct {
 	DefaultPerRequestPrice float64
 
 	// 来源标识
-	Source string // "channel", "litellm", "fallback"
+	Source string // PricingSourceGroup / Channel / LiteLLM / Fallback
 
 	// 是否支持缓存细分
 	SupportsCacheBreakdown bool
@@ -73,9 +73,7 @@ type PricingInput struct {
 	Group   *Group
 }
 
-// Resolve 解析模型定价。
-// 1. 获取基础定价（LiteLLM → Fallback）
-// 2. 如果指定了 GroupID，查找渠道定价并覆盖
+// Resolve 按分组、渠道、官方及兜底顺序解析适用定价。
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
 	if resolved := r.resolveGroupPricing(input); resolved != nil {

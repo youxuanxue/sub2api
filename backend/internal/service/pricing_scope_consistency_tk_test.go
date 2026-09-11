@@ -66,7 +66,7 @@ func TestPricingScopeImageGroupPriceGuardSettlementParity(t *testing.T) {
 	actual, err := gateway.calculateOpenAIImageCost(context.Background(), "vendor-image-custom", &APIKey{GroupID: &group.ID, Group: group}, &OpenAIForwardResult{ImageCount: 1}, 1)
 	require.NoError(t, err)
 	require.Equal(t, 0.25, actual.TotalCost)
-	blocked := bs.TkImageModelUnpriced("vendor-image-custom", group)
+	blocked := bs.TkImageModelUnpriced("vendor-image-custom", group, "")
 	t.Logf("image group settlement=%g; unpriced guard blocked=%v", actual.TotalCost, blocked)
 	require.False(t, blocked, "valid group image price must pass the same pre-forward price check")
 	repo := &openAIRecordUsageLogRepoStub{inserted: true}
@@ -120,7 +120,7 @@ func TestPricingScopeImageEmptyCardsRemainBlocked(t *testing.T) {
 		{BillingMode: BillingModeVideo, PerRequestPrice: float64Ptr(1)},
 	} {
 		card.Models = []string{"vendor-image-custom"}
-		require.True(t, bs.TkImageModelUnpriced("vendor-image-custom", &Group{ModelPricing: []ChannelModelPricing{card}}))
+		require.True(t, bs.TkImageModelUnpriced("vendor-image-custom", &Group{ModelPricing: []ChannelModelPricing{card}}, ""))
 	}
 }
 
@@ -132,8 +132,8 @@ func TestPricingScopeImageGroupModesAndScope(t *testing.T) {
 	} {
 		card.Models = []string{"vendor-image-custom"}
 		group := &Group{ModelPricing: []ChannelModelPricing{card}}
-		require.False(t, bs.TkImageModelUnpriced("vendor-image-custom", group))
-		require.True(t, bs.TkImageModelUnpriced("other-image-custom", group))
+		require.False(t, bs.TkImageModelUnpriced("vendor-image-custom", group, "1K"))
+		require.True(t, bs.TkImageModelUnpriced("other-image-custom", group, ""))
 	}
 }
 
@@ -142,13 +142,13 @@ func TestPricingScopeImageGroupZeroCardOverridesGlobalPrice(t *testing.T) {
 	for _, mode := range []BillingMode{BillingModeImage, BillingModePerRequest} {
 		for _, price := range []*float64{nil, float64Ptr(0), float64Ptr(-0.25)} {
 			billing := tkMediaGuardBillingService()
-			require.False(t, billing.TkImageModelUnpriced(model, nil), "fixture has a positive global image price")
+			require.False(t, billing.TkImageModelUnpriced(model, nil, ""), "fixture has a positive global image price")
 			group := &Group{ID: 1, ModelPricing: []ChannelModelPricing{{Models: []string{model}, BillingMode: mode, PerRequestPrice: price}}}
 			gateway := &OpenAIGatewayService{billingService: billing, resolver: NewModelPricingResolver(nil, billing)}
 			actual, err := gateway.calculateOpenAIImageCost(context.Background(), model, &APIKey{GroupID: &group.ID, Group: group}, &OpenAIForwardResult{ImageCount: 1}, 1)
 			require.NoError(t, err)
 			require.LessOrEqual(t, actual.TotalCost, 0.0, "settlement honors the matched group card instead of global pricing")
-			require.True(t, billing.TkImageModelUnpriced(model, group), "matched nonpositive card must not fall back to the global price for admission")
+			require.True(t, billing.TkImageModelUnpriced(model, group, ""), "matched nonpositive card must not fall back to the global price for admission")
 		}
 	}
 }
@@ -168,5 +168,31 @@ func TestPricingScopeImageTokenCardCannotPriceCountOnlyUsage(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, repo.lastLog)
 	require.Zero(t, repo.lastLog.TotalCost, "a group token card cannot price an image count without reported tokens")
-	require.True(t, billing.TkImageModelUnpriced(model, group), "token card alone must not newly admit count-only image execution")
+	require.True(t, billing.TkImageModelUnpriced(model, group, ""), "token card alone must not newly admit count-only image execution")
+}
+
+func TestPricingScopeImageRequestedSizeMatchesSettlement(t *testing.T) {
+	const model = "vendor-image-custom"
+	for _, tc := range []struct {
+		name, size               string
+		tier, defaultPrice, want float64
+	}{
+		{name: "priced_1k", size: "1K", tier: 0.25, want: 0.25},
+		{name: "unpriced_2k", size: "2K", tier: 0.25, want: 0},
+		{name: "default_size_2k", size: "", tier: 0.25, want: 0},
+		{name: "pixel_size", size: "1024x1024", tier: 0.25, want: 0.25},
+		{name: "default_price", size: "2K", tier: 0.25, defaultPrice: 0.5, want: 0.5},
+		{name: "zero_tier_fallback", size: "1K", tier: 0, defaultPrice: 0.5, want: 0.5},
+		{name: "negative_tier_does_not_fallback", size: "1K", tier: -0.25, defaultPrice: 0.5, want: -0.25},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			billing := NewBillingService(nil, &PricingService{})
+			group := &Group{ID: 1, ModelPricing: []ChannelModelPricing{{Models: []string{model}, BillingMode: BillingModeImage, PerRequestPrice: &tc.defaultPrice, Intervals: []PricingInterval{{TierLabel: "1K", PerRequestPrice: &tc.tier}}}}}
+			gateway := &OpenAIGatewayService{billingService: billing, resolver: NewModelPricingResolver(nil, billing)}
+			actual, err := gateway.calculateOpenAIImageCost(context.Background(), model, &APIKey{GroupID: &group.ID, Group: group}, &OpenAIForwardResult{ImageCount: 1, ImageSize: tc.size}, 1)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, actual.TotalCost)
+			require.Equal(t, tc.want <= 0, billing.TkImageModelUnpriced(model, group, tc.size), "admission must evaluate the price settlement will use for the requested size")
+		})
+	}
 }

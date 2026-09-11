@@ -44,7 +44,7 @@ func (s *BillingService) TkVideoModelUnpriced(model string) bool {
 // pricing is deliberately not consulted (unknown before scheduling; per
 // operating discipline it only holds non-zero corrections of models that
 // already carry a static price, so it cannot be a model's sole price).
-func (s *BillingService) TkImageModelUnpriced(model string, group *Group) bool {
+func (s *BillingService) TkImageModelUnpriced(model string, group *Group, size string) bool {
 	if strings.TrimSpace(model) == "" {
 		// Model-less image requests are legal on the OAuth path (the forward
 		// layer defaults them, e.g. to gpt-image-2) — defaulting and model
@@ -52,11 +52,12 @@ func (s *BillingService) TkImageModelUnpriced(model string, group *Group) bool {
 		return false
 	}
 	if s != nil {
-		resolved := NewModelPricingResolver(nil, s).resolveGroupPricing(PricingInput{Model: model, Group: group})
+		resolver := NewModelPricingResolver(nil, s)
+		resolved := resolver.resolveGroupPricing(PricingInput{Model: model, Group: group})
 		if resolved != nil && (resolved.Mode == BillingModeImage || resolved.Mode == BillingModePerRequest) {
 			// Settlement consumes a matching group image card even when empty
 			// or nonpositive; a lower-priority registry price cannot admit it.
-			return !tkResolvedImagePricingChargeable(resolved)
+			return !s.tkResolvedImagePricingChargeable(resolved, resolver, size)
 		}
 	}
 	if group != nil && (group.ImagePrice1K != nil || group.ImagePrice2K != nil || group.ImagePrice4K != nil) {
@@ -72,22 +73,17 @@ func (s *BillingService) TkImageModelUnpriced(model string, group *Group) bool {
 // Group image admission requires image/per-request prices. A token card alone
 // cannot price count-only image usage; token-image support keeps its existing
 // registry owner. Token-only interval fields are not per-request image prices.
-func tkResolvedImagePricingChargeable(resolved *ResolvedPricing) bool {
-	if resolved == nil {
+func (s *BillingService) tkResolvedImagePricingChargeable(resolved *ResolvedPricing, resolver *ModelPricingResolver, size string) bool {
+	if resolved == nil || (resolved.Mode != BillingModeImage && resolved.Mode != BillingModePerRequest) {
 		return false
 	}
-	switch resolved.Mode {
-	case BillingModeImage, BillingModePerRequest:
-		if resolved.DefaultPerRequestPrice > 0 {
-			return true
-		}
-		for _, tier := range resolved.RequestTiers {
-			if tier.PerRequestPrice != nil && *tier.PerRequestPrice > 0 {
-				return true
-			}
-		}
-	}
-	return false
+	// Reuse settlement's exact size-tier, context-tier and default-price order.
+	// The normalization owner also defines the default size (currently 2K).
+	cost, err := s.calculatePerRequestCost(resolved, CostInput{
+		Resolver: resolver, SizeTier: NormalizeImageBillingTierOrDefault(size),
+		RequestCount: 1, RateMultiplier: 1,
+	})
+	return err == nil && cost != nil && cost.TotalCost > 0
 }
 
 // TkVideoModelUnpriced / TkImageModelUnpriced — handler-facing wrappers so the
@@ -99,11 +95,11 @@ func (s *OpenAIGatewayService) TkVideoModelUnpriced(model string) bool {
 	return s.billingService.TkVideoModelUnpriced(model)
 }
 
-func (s *OpenAIGatewayService) TkImageModelUnpriced(model string, group *Group) bool {
+func (s *OpenAIGatewayService) TkImageModelUnpriced(model string, group *Group, size string) bool {
 	if s == nil {
 		return false
 	}
-	return s.billingService.TkImageModelUnpriced(model, group)
+	return s.billingService.TkImageModelUnpriced(model, group, size)
 }
 
 // TkTTSModelUnpriced reports whether the requested model has no character-priced
