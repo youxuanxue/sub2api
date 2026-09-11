@@ -1,10 +1,13 @@
 package trajectory
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"path/filepath"
+
+	"github.com/klauspost/compress/s2"
 
 	_ "github.com/glebarez/go-sqlite" // Same SQLite driver as the gateway's existing new-api dependency.
 )
@@ -52,9 +55,9 @@ func (s *sessionStore) put(ctx context.Context, key string, value []byte) error 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	cost := len(key) + len(value) + 128
+	cost := len(key) + cap(value) + 128
 	if old, ok := s.values[key]; ok {
-		cost -= len(key) + len(old) + 128
+		cost -= len(key) + cap(old) + 128
 	}
 	if s.tx == nil && s.used+cost <= s.limit {
 		s.values[key] = value
@@ -74,7 +77,12 @@ func (s *sessionStore) append(ctx context.Context, key string, value []byte) err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	cost := len(key) + len(value) + 128
+	// Compact fragments before both buffering and spilling. Decode only one
+	// fragment at a time while writing the unchanged session JSON.
+	// Encode reserves space for incompressible input. Retain only the compact
+	// allocation, and charge its capacity to the fixed buffer budget.
+	value = bytes.Clone(s2.Encode(nil, value))
+	cost := len(key) + cap(value) + 128
 	if s.tx == nil && s.used+cost <= s.limit {
 		s.fragments[key] = append(s.fragments[key], value)
 		s.used += cost
@@ -95,7 +103,11 @@ func (s *sessionStore) each(ctx context.Context, key string, visit func([]byte) 
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := visit(value); err != nil {
+			decoded, err := s2.Decode(nil, value)
+			if err != nil {
+				return err
+			}
+			if err := visit(decoded); err != nil {
 				return err
 			}
 		}
@@ -111,7 +123,11 @@ func (s *sessionStore) each(ctx context.Context, key string, visit func([]byte) 
 		if err = rows.Scan(&value); err != nil {
 			return err
 		}
-		if err = visit(value); err != nil {
+		decoded, decodeErr := s2.Decode(nil, value)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if err = visit(decoded); err != nil {
 			return err
 		}
 	}

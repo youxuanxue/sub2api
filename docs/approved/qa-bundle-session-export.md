@@ -47,8 +47,9 @@ QA 存储、授权、归档与下载生命周期继续由
 - sidecar `internal_thinking_blocks` / `encrypted_reasoning` 单列来源，不能覆盖 client-facing blocks。
   工具链接保留 ID 和 call/result 源路径；缺失或歧义标记 unresolved，不伪造匹配。
 - 不支持的端点、缺失或损坏的证据仍计入会话导出且报告原因；不静默过滤成功/失败调用。
-- ZIP 原始记录与会话共用已验证页面；按记录处理，索引和片段使用 8 MiB 计量预算的缓冲，
+- ZIP 原始记录与会话共用已验证页面；按记录处理，索引和无损压缩后的片段使用 8 MiB 计量预算的缓冲，
   超限后转入单个私有临时 SQLite 文件（2 MiB page cache）；历史规范化缓存另限 1 MiB。
+  片段使用现有 S2 codec，仅在输出时逐片段还原；缓冲按保留切片容量计量。ZIP 文件写入另用 256 KiB 合并缓冲，不改变压缩率或输出字节。
   缓冲预算计入条目开销，不等同于进程 RSS 上限；内存仍受单条输入大小影响，不随整个日窗口或长会话增长。失败不发布 ZIP，取消会停止处理并清理临时文件。
 
 ## Implementation / Owners

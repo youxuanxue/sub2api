@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -323,7 +324,9 @@ func buildExportZip(ctx context.Context, store Store, manifestKey, outputKey, ve
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
-	zipWriter := zip.NewWriter(tmp)
+	// Deflate emits small writes; coalesce them before crossing into the filesystem.
+	zipOutput := bufio.NewWriterSize(tmp, 256<<10)
+	zipWriter := zip.NewWriter(zipOutput)
 	jsonl, err := zipWriter.Create("qa-records.jsonl")
 	if err != nil {
 		_ = tmp.Close()
@@ -387,6 +390,10 @@ func buildExportZip(ctx context.Context, store Store, manifestKey, outputKey, ve
 		}
 	}
 	if err := zipWriter.Close(); err != nil {
+		_ = tmp.Close()
+		return receipt, err
+	}
+	if err := zipOutput.Flush(); err != nil {
 		_ = tmp.Close()
 		return receipt, err
 	}

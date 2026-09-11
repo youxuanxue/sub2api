@@ -298,3 +298,24 @@ func TestUS055_HistoryCacheRemainsBounded(t *testing.T) {
 	require.NoError(t, e.Close())
 	require.Empty(t, e.historyCache)
 }
+
+func TestUS055_CompactFragmentsKeepBudgetAndRejectCorruption(t *testing.T) {
+	store := newSessionStore(t.TempDir())
+	t.Cleanup(func() { require.NoError(t, store.close()) })
+	store.limit = 2048
+	original := []byte(strings.Repeat("preserve this native message ", 1024))
+	require.NoError(t, store.append(context.Background(), "turns", original))
+	require.Nil(t, store.tx, "compressible fragment should fit the fixed budget")
+	require.LessOrEqual(t, store.used, store.limit)
+	require.Less(t, cap(store.fragments["turns"][0]), len(original))
+	check := func(value []byte) error { require.Equal(t, original, value); return nil }
+	require.NoError(t, store.each(context.Background(), "turns", check))
+	require.NoError(t, store.put(context.Background(), "force-spill", make([]byte, 4096)))
+	require.NotNil(t, store.tx)
+	require.NoError(t, store.each(context.Background(), "turns", check))
+	_, err := store.tx.Exec("UPDATE fragments SET v=? WHERE k=?", []byte{0xff}, "turns")
+	require.NoError(t, err)
+	called := false
+	require.Error(t, store.each(context.Background(), "turns", func([]byte) error { called = true; return nil }))
+	require.False(t, called, "corrupt temporary data must not reach the export writer")
+}

@@ -107,7 +107,8 @@
         "func TestUS055_ResponsesReasoningAndNativeFieldsSurvive(",
         "func TestUS055_SessionsNeverGuessAcrossScopeRetriesOrAmbiguity(",
         "func TestUS055_SessionStoreSpillPreservesBytesAndBoundsFiles(",
-        "func TestUS055_HistoryCacheRemainsBounded("
+        "func TestUS055_HistoryCacheRemainsBounded(",
+        "func TestUS055_CompactFragmentsKeepBudgetAndRejectCorruption("
       ]
     },
     {
