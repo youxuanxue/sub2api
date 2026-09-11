@@ -109,21 +109,20 @@ func ProvideRouter(
 }
 
 func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {
-	if cfg.TrustedProxiesConfigured {
-		if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
-			log.Printf("Failed to set trusted proxies: %v", err)
-			_ = r.SetTrustedProxies(nil)
-		}
-		if len(cfg.TrustedProxies) == 0 && cfg.Mode == "release" {
-			log.Printf("Warning: server.trusted_proxies is explicitly empty; forwarded client IP trust is disabled")
-		}
-	} else {
-		if err := r.SetTrustedProxies(nil); err != nil {
-			log.Printf("Failed to disable trusted proxies: %v", err)
-		}
-		if cfg.Mode == "release" {
-			log.Printf("Warning: server.trusted_proxies is not configured; disabling the forwarded-IP compatibility switch will use direct peer addresses only")
-		}
+	// When operators have not explicitly configured trusted_proxies, NewRouter
+	// already applied tkResolveTrustedProxies (private CIDR defaults or opt-out).
+	// Do not wipe that result: GetSecurityClientIP always uses the trusted chain,
+	// so clearing proxies would collapse ACL / rate-limit / session binding onto
+	// the docker peer address after the legacy raw-header override was removed.
+	if !cfg.TrustedProxiesConfigured {
+		return
+	}
+	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Printf("Failed to set trusted proxies: %v", err)
+		_ = r.SetTrustedProxies(nil)
+	}
+	if len(cfg.TrustedProxies) == 0 && cfg.Mode == "release" {
+		log.Printf("Warning: server.trusted_proxies is explicitly empty; forwarded client IP trust is disabled")
 	}
 }
 

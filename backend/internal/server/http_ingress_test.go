@@ -105,6 +105,28 @@ func TestConfigureTrustedProxies(t *testing.T) {
 	}
 }
 
+// Unconfigured trusted_proxies must keep tkResolve private-CIDR defaults so
+// GetSecurityClientIP still sees the real client behind Caddy after the
+// legacy raw-header override was removed.
+func TestConfigureTrustedProxiesPreservesTkDefaultsWhenUnset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	proxies, trust := tkResolveTrustedProxies(nil)
+	require.True(t, trust)
+	require.NoError(t, r.SetTrustedProxies(proxies))
+	configureTrustedProxies(r, config.ServerConfig{TrustedProxiesConfigured: false, Mode: "release"})
+
+	r.GET("/t", func(c *gin.Context) { c.String(http.StatusOK, c.ClientIP()) })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/t", nil)
+	req.RemoteAddr = "172.18.0.2:54321"
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "203.0.113.9", w.Body.String())
+}
+
 func TestHTTPServerRejectsOversizedHTTP1Header(t *testing.T) {
 	r := gin.New()
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })

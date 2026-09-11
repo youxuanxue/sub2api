@@ -73,3 +73,31 @@ func TestCaptureInternalThinkingBlocks_KiroIndependentOfClientWire(t *testing.T)
 	require.Contains(t, got[0], "REAL_SIG_123")
 	require.NotContains(t, got[0], `"signature":"***"`)
 }
+
+func TestBuildBlobPreservesInternalThinkingSignatureAndRedactsSecrets(t *testing.T) {
+	svc := &Service{bodyMaxBytes: 256 * 1024}
+	input := CaptureInput{
+		InternalThinkingBlocksJSON: []string{
+			`{"type":"thinking","thinking":"password=private-value","signature":"REAL_SIG_123"}`,
+			`{"type":"text","text":"ordinary content","signature":"ordinary-secret"}`,
+		},
+	}
+	compressed, _, _, _, err := svc.buildBlob(input)
+	require.NoError(t, err)
+	dec, err := zstd.NewReader(nil)
+	require.NoError(t, err)
+	defer dec.Close()
+	raw, err := dec.DecodeAll(compressed, nil)
+	require.NoError(t, err)
+	var payload struct {
+		Response struct {
+			Blocks []string `json:"internal_thinking_blocks"`
+		} `json:"response"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &payload))
+	require.Len(t, payload.Response.Blocks, 2)
+	require.Contains(t, payload.Response.Blocks[0], `"signature":"REAL_SIG_123"`)
+	require.NotContains(t, payload.Response.Blocks[0], "private-value")
+	require.Contains(t, payload.Response.Blocks[1], `"signature":"***"`)
+	require.Contains(t, payload.Response.Blocks[1], "ordinary content")
+}

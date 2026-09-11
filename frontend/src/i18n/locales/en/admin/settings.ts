@@ -260,12 +260,12 @@ export default {
         regionHint: 'Determines the frontend script region and the server endpoint; must match your captcha instance region'
       },
       apiKeyAcl: {
-        title: 'API Key IP Access Control',
+        title: 'Client IP logging',
         description:
-          'Choose which client IP is used by API Key allowlists/denylists, admin audit logs, and session IP/UA binding',
-        trustForwardedIp: 'Trust forwarded client IP',
+          'Choose compatibility request-log attribution; access controls, rate limits and session binding always use the trusted-proxy chain',
+        trustForwardedIp: 'Use forwarded IP in logs',
         trustForwardedIpHint:
-          'Enabled by default for upgrade compatibility. When enabled, raw CF-Connecting-IP, X-Real-IP, or X-Forwarded-For values take over server.trusted_proxies for client-IP resolution. Disable it to enforce the Gin trusted-proxy chain configured by server.trusted_proxies. Only enable takeover mode when the origin cannot be reached directly. Changing this switch changes existing session IP fingerprints.',
+          'Only affects compatibility request logs. When enabled, custom or built-in forwarded headers take precedence; otherwise server.trusted_proxies applies. API Key IP restrictions, rate limits and session binding always verify the trusted-proxy chain. Proxies must overwrite forwarding headers and restrict origin access.',
         forwardedClientIpHeaders: 'Custom client-IP headers',
         forwardedClientIpHeadersHint: 'Add CDN or proxy header names to check before the built-in headers.',
         forwardedClientIpHeadersPlaceholder: 'X-Client-IP',

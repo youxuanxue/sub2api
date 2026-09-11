@@ -162,6 +162,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
 		health_uri /health
 		health_interval 30s
 		health_timeout 10s
+		header_up -CF-Connecting-IP
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}

@@ -18,11 +18,11 @@ func TestResolveUsageBillingRequestID_ForcedWebSearchBeatsClientID(t *testing.T)
 	require.Equal(t, "web_search:uuid-1", got)
 }
 
-func TestResolveUsageBillingRequestID_ClientWinsOverPlainUpstream(t *testing.T) {
+func TestResolveUsageBillingRequestID_ClientMarkerCannotOverrideUpstream(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "client-shared-id")
 	got := resolveUsageBillingRequestID(ctx, "resp_abc")
-	require.Equal(t, "client:client-shared-id", got)
+	require.Equal(t, "resp_abc", got)
 }
 
 func TestIsForcedUsageBillingRequestID(t *testing.T) {
@@ -56,4 +56,21 @@ func TestResolveUsageBillingRequestID_ForcedGrokAudioBeatsClientID(t *testing.T)
 	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "client-shared-id")
 	got := resolveUsageBillingRequestID(ctx, StableGrokAudioBillingRequestID("up-9"))
 	require.Equal(t, "grok_audio:up-9", got)
+}
+
+func TestUsageBillingIgnoresReusedClientMarker(t *testing.T) {
+	var ids []string
+	for _, serverID := range []string{"server-one", "server-two"} {
+		ctx := context.WithValue(context.Background(), ctxkey.RequestID, serverID)
+		ctx = context.WithValue(ctx, ctxkey.ClientRequestID, "reused-client-marker")
+		id := resolveUsageBillingRequestID(ctx, "upstream-id")
+		require.Equal(t, "local:"+serverID, id)
+		require.Equal(t, id, resolveUsageBillingRequestID(ctx, "retry-upstream-id"), "one served request keeps a stable settlement identity")
+		require.Equal(t, "local:"+serverID, resolveUsageBillingPayloadFingerprint(ctx, ""))
+		ids = append(ids, id)
+	}
+	require.NotEqual(t, ids[0], ids[1], "two served calls must not share the billing dedup key")
+	ctx := context.WithValue(context.Background(), ctxkey.ClientRequestID, "reused-client-marker")
+	require.Equal(t, "upstream-id", resolveUsageBillingRequestID(ctx, "upstream-id"))
+	require.Empty(t, resolveUsageBillingPayloadFingerprint(ctx, ""))
 }

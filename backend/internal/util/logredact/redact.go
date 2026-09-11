@@ -34,6 +34,8 @@ var defaultSensitiveKeys = map[string]struct{}{
 	"secret":                {},
 	"client_secret":         {},
 	"private_key":           {},
+	"privatekey":            {},
+	"accesskeysecret":       {},
 	"accesskeyid":           {},
 	"secretaccesskey":       {},
 	"aws_access_key_id":     {},
@@ -48,6 +50,7 @@ var defaultSensitiveKeys = map[string]struct{}{
 var defaultSensitiveKeyList = []string{
 	"access_token",
 	"accesskeyid",
+	"accesskeysecret",
 	"api-key",
 	"api_key",
 	"apikey",
@@ -68,6 +71,7 @@ var defaultSensitiveKeyList = []string{
 	"passwd",
 	"password",
 	"private_key",
+	"privatekey",
 	"proxy-authorization",
 	"refresh_token",
 	"secret",
@@ -126,8 +130,11 @@ type textRedactPatterns struct {
 }
 
 var (
-	reGOCSPX = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
-	reAIza   = regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)
+	reGOCSPX        = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
+	reAIza          = regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)
+	rePrivateKey    = regexp.MustCompile(`(?s)-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----.*?(?:-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----|$)`)
+	reProviderToken = regexp.MustCompile(`\b(?:glpat-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|(?:AKIA|ASIA)[A-Z0-9]{16}|LTAI[A-Za-z0-9]{12,})`)
+	reBearer        = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+`)
 
 	defaultTextRedactPatterns = compileTextRedactPatterns(nil)
 	extraTextPatternCache     sync.Map // map[string]*textRedactPatterns
@@ -180,9 +187,17 @@ func RedactText(input string, extraKeys ...string) string {
 		return RedactJSON(raw, extraKeys...)
 	}
 
-	patterns := getTextRedactPatterns(extraKeys)
+	return redactUnstructuredText(input, getTextRedactPatterns(extraKeys))
+}
 
+// Do not parse JSON here: JSON strings also pass through this function, and
+// reparsing a quoted scalar would recurse indefinitely. Preserve ordinary text
+// whitespace; only RedactText's legacy top-level API trims its input.
+func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	out := input
+	out = rePrivateKey.ReplaceAllString(out, "<private key redacted>")
+	out = reProviderToken.ReplaceAllString(out, "***")
+	out = reBearer.ReplaceAllString(out, "Bearer ***")
 	out = reGOCSPX.ReplaceAllString(out, "GOCSPX-***")
 	out = reAIza.ReplaceAllString(out, "AIza***")
 	out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
@@ -303,6 +318,14 @@ func redactValueWithDepth(value any, keys map[string]struct{}, depth int) any {
 			out[i] = redactValueWithDepth(item, keys, depth+1)
 		}
 		return out
+	case string:
+		var extraKeys []string
+		for key := range keys {
+			if _, builtin := defaultSensitiveKeys[key]; !builtin {
+				extraKeys = append(extraKeys, key)
+			}
+		}
+		return redactUnstructuredText(v, getTextRedactPatterns(extraKeys))
 	default:
 		return value
 	}

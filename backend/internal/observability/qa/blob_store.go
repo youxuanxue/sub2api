@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -39,51 +40,57 @@ func newLocalFSBlobStore(root string) BlobStore {
 }
 
 func (s *localFSBlobStore) Put(_ context.Context, key string, body []byte, _ string) (string, error) {
-	fullPath := filepath.Join(s.root, filepath.FromSlash(key))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(fullPath, body, 0o644); err != nil {
+	fullPath, err := trajectory.WriteBlobFile(s.root, key, bytes.NewReader(body))
+	if err != nil {
 		return "", err
 	}
 	return "file://" + fullPath, nil
 }
 
 func (s *localFSBlobStore) PutReader(_ context.Context, key string, r io.Reader, _ string) (string, error) {
-	fullPath := filepath.Join(s.root, filepath.FromSlash(key))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		return "", err
-	}
-	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	fullPath, err := trajectory.WriteBlobFile(s.root, key, r)
 	if err != nil {
-		return "", err
-	}
-	if _, err := io.Copy(f, r); err != nil {
-		_ = f.Close()
-		return "", err
-	}
-	if err := f.Close(); err != nil {
 		return "", err
 	}
 	return "file://" + fullPath, nil
 }
 
 func (s *localFSBlobStore) Get(_ context.Context, key string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(s.root, filepath.FromSlash(key)))
+	dir, err := os.OpenRoot(s.root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	return dir.ReadFile(filepath.FromSlash(key))
 }
 
 func (s *localFSBlobStore) Delete(_ context.Context, key string) error {
 	target := key
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(s.root, filepath.FromSlash(key))
+	if filepath.IsAbs(target) {
+		var err error
+		target, err = filepath.Rel(s.root, target)
+		if err != nil {
+			return err
+		}
 	}
-	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+	dir, err := os.OpenRoot(s.root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+	if err := dir.Remove(filepath.FromSlash(target)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
 }
 
 func (s *localFSBlobStore) PresignURL(_ context.Context, key string, _ time.Duration) (string, error) {
+	if !filepath.IsLocal(filepath.FromSlash(key)) {
+		return "", fmt.Errorf("blob key must be relative to the storage root")
+	}
 	return "file://" + filepath.Join(s.root, filepath.FromSlash(key)), nil
 }
 
@@ -171,6 +178,7 @@ func (s *s3BlobStore) Put(ctx context.Context, key string, body []byte, contentT
 		Key:         &fullKey,
 		Body:        bytes.NewReader(body),
 		ContentType: &contentType,
+		IfNoneMatch: aws.String("*"),
 	})
 	if err != nil {
 		return "", err
@@ -185,6 +193,7 @@ func (s *s3BlobStore) PutReader(ctx context.Context, key string, r io.Reader, co
 		Key:         &fullKey,
 		Body:        r,
 		ContentType: &contentType,
+		IfNoneMatch: aws.String("*"),
 	}
 	// A ReadSeeker (e.g. *os.File) lets the SDK compute Content-Length without
 	// buffering; non-seekable readers fall back to the SDK's own handling.

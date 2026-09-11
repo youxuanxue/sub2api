@@ -34,7 +34,7 @@
       "source": "backend/internal/observability/qa/service.go",
       "must_contain": [
         "opsUpstreamRequestBodyContextKey = \"ops_upstream_request_body\"",
-        "captureUpstreamRequestBody(c, requestBody)"
+        "captureUpstreamRequestBody(c, metadataBody)"
       ],
       "rationale": "consumer-side duplicate of OpsUpstreamRequestBodyKey plus the CaptureFromContext hook; either disappearing silently drops request.upstream_body / upstream_divergent from opt-in blobs"
     },

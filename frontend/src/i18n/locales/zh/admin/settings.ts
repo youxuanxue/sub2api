@@ -260,11 +260,11 @@ export default {
         regionHint: '决定前端脚本接入区域与服务端接入点，需与阿里云验证码实例所属地域一致'
       },
       apiKeyAcl: {
-        title: 'API Key IP 访问控制',
-        description: '控制 API Key 白/黑名单、操作审计日志与会话 IP/UA 绑定使用哪个客户端 IP 判断',
-        trustForwardedIp: '信任反代传递的客户端 IP',
+        title: '客户端 IP 记录',
+        description: '兼容请求日志的客户端 IP 记录方式；访问控制、限流和会话绑定始终使用可信代理链',
+        trustForwardedIp: '日志使用反代客户端 IP',
         trustForwardedIpHint:
-          '为保证升级兼容默认开启。开启后 CF-Connecting-IP、X-Real-IP 或 X-Forwarded-For 会直接接管客户端 IP 解析并覆盖 server.trusted_proxies；关闭后严格使用 server.trusted_proxies 配置的 Gin 可信代理链。仅在源站无法被直接访问时开启接管模式。切换会改变现有会话的 IP 指纹。',
+          '仅影响兼容请求日志。开启后优先记录自定义或内置反代头；关闭后使用 server.trusted_proxies。API Key IP 限制、限流和会话绑定不受此开关影响，始终验证可信代理链。反代必须覆盖转发头，并限制源站访问。',
         forwardedClientIpHeaders: '自定义客户端 IP 请求头',
         forwardedClientIpHeadersHint: '添加 CDN 或反代请求头名称，解析时优先于内置请求头。',
         forwardedClientIpHeadersPlaceholder: 'X-Client-IP',

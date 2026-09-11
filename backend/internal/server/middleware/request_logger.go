@@ -21,11 +21,13 @@ func RequestLogger() gin.HandlerFunc {
 			return
 		}
 
-		requestID, validRequestID := normalizeCorrelationID(c.GetHeader(requestIDHeader))
-		if !validRequestID {
-			requestID = uuid.NewString()
-		}
+		// Storage/correlation identity is always minted here. Never trust inbound
+		// X-Request-ID as ctxkey.RequestID (QA/usage blob keys). Legacy callers that
+		// still send only that header are handled by ClientRequestID as a client
+		// marker, not as this storage id.
+		requestID := uuid.NewString()
 		c.Header(requestIDHeader, requestID)
+		c.Writer = &requestIDResponseWriter{ResponseWriter: c.Writer, requestID: requestID}
 
 		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestID, requestID)
 		clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string)
@@ -42,5 +44,8 @@ func RequestLogger() gin.HandlerFunc {
 		ctx = logger.IntoContext(ctx, requestLogger)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
+		// Gin commits an unwritten response using its original writer after the
+		// middleware chain returns, so also restore the header for empty replies.
+		c.Header(requestIDHeader, requestID)
 	}
 }

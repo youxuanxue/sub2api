@@ -84,7 +84,7 @@ var (
 )
 
 const (
-	qaRedactionVersion               = "logredact-v2"
+	qaRedactionVersion               = "logredact-v3"
 	captureStatusCaptured            = "captured"
 	qaCaptureStatusCapturedToDLQ     = "captured_dlq"
 	qaCapturePersistModeAsync        = "async"
@@ -296,7 +296,15 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 	if raw, ok := requestBytes.([]byte); ok {
 		requestBody = raw
 	}
-	upstreamRequestBody := captureUpstreamRequestBody(c, requestBody)
+	// Metadata must use the handler's already-read body, not a truncated JSON
+	// prefix. Keep only the bounded requestBody in the async capture payload.
+	metadataBody := requestBody
+	if raw, ok := c.Get("ops_request_body"); ok {
+		if body, ok := raw.([]byte); ok && len(body) > 0 {
+			metadataBody = body
+		}
+	}
+	upstreamRequestBody := captureUpstreamRequestBody(c, metadataBody)
 	var responseBody []byte
 	var streamChunks []RawSSEChunk
 	var responseTruncated bool
@@ -351,7 +359,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		Platform:                   strings.TrimSpace(platform),
 		Provider:                   provider,
 		ChannelType:                channelType,
-		RequestedModel:             captureRequestedModel(requestBody),
+		RequestedModel:             captureRequestedModel(metadataBody),
 		UpstreamModel:              captureUpstreamModel(c),
 		InboundEndpoint:            inboundEndpoint,
 		UpstreamEndpoint:           upstreamEndpoint,
@@ -368,8 +376,8 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		InputTokens:                inputTokens,
 		OutputTokens:               outputTokens,
 		CachedTokens:               cachedTokens,
-		ToolCallsPresent:           captureToolCallsPresent(requestBody),
-		MultimodalPresent:          captureMultimodalPresent(requestBody),
+		ToolCallsPresent:           captureToolCallsPresent(metadataBody),
+		MultimodalPresent:          captureMultimodalPresent(metadataBody),
 		RedactionVersion:           qaRedactionVersion,
 		CaptureStatus:              captureStatusCaptured,
 		Tags:                       captureTags(requestBody, responseBody, status, responseTruncated),
@@ -566,8 +574,19 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	requestValue := s.sanitizeQABody(input.RequestBody, preserveThinking)
 	responseValue := s.sanitizeQABody(input.ResponseBody, preserveThinking)
 
-	chunks := make([]map[string]any, 0, len(input.StreamChunks))
+	chunks := make([]map[string]any, 0, min(len(input.StreamChunks), maxCapturedSSEChunks))
+	remaining := s.bodyMaxBytes
+	if input.DialogSynth && s.optInBodyMaxBytes > remaining {
+		remaining = s.optInBodyMaxBytes
+	}
 	for _, chunk := range input.StreamChunks {
+		if remaining <= 0 || len(chunks) >= maxCapturedSSEChunks {
+			break
+		}
+		if len(chunk.Bytes) > remaining {
+			chunk.Bytes = chunk.Bytes[:remaining]
+		}
+		remaining -= len(chunk.Bytes)
 		redacted := logredact.RedactText(string(chunk.Bytes))
 		if preserveThinking {
 			redacted = restoreThinkingSignatureInChunk(redacted, chunk.Bytes)
@@ -605,11 +624,16 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 		"stream": map[string]any{
 			"chunks": chunks,
 		},
-		"redactions": []string{"logredact-v2"},
+		"redactions": []string{qaRedactionVersion},
 	}
 	if len(input.InternalThinkingBlocksJSON) > 0 {
 		if resp, ok := payload["response"].(map[string]any); ok {
-			resp["internal_thinking_blocks"] = input.InternalThinkingBlocksJSON
+			blocks := make([]string, 0, len(input.InternalThinkingBlocksJSON))
+			for _, raw := range input.InternalThinkingBlocksJSON {
+				redacted := restoreInternalThinkingBlockJSON(logredact.RedactJSON([]byte(raw)), []byte(raw))
+				blocks = append(blocks, redacted)
+			}
+			resp["internal_thinking_blocks"] = blocks
 		}
 	}
 	if len(input.EncryptedReasoningJSON) > 0 {
@@ -625,6 +649,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	if err != nil {
 		return nil, "", "", nil, err
 	}
+	defer func() { _ = enc.Close() }()
 	compressed := enc.EncodeAll(raw, make([]byte, 0, len(raw)))
 	requestSHA := trajectory.SHA256Hex(requestValue)
 	responseSHA := trajectory.SHA256Hex(responseValue)

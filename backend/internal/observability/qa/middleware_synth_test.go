@@ -14,6 +14,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -159,4 +160,38 @@ func TestQARequestCaptureBytes_OmitsMultipartBodies(t *testing.T) {
 	captured := qaRequestCaptureBytes(req, raw)
 	require.NotContains(t, string(captured), "raw-image-bytes")
 	require.JSONEq(t, `{"_qa_body_omitted":true,"reason":"multipart_body_omitted","content_type":"multipart/form-data"}`, string(captured))
+}
+
+func TestQAMetadataSurvivesBodyCaptureLimit(t *testing.T) {
+	svc, client, store := newQAExportTestService(t)
+	svc.bodyMaxBytes = 32
+	r := gin.New()
+	r.Use(middleware.RequestLogger(), svc.Middleware())
+	r.POST("/v1/messages", func(c *gin.Context) {
+		body, err := io.ReadAll(c.Request.Body)
+		require.NoError(t, err)
+		c.Set(service.OpsRequestBodyKey, body)
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+			ID: 5, UserID: 7, User: &service.User{ID: 7},
+			Group: &service.Group{Platform: service.PlatformAnthropic},
+		})
+		c.JSON(200, gin.H{"ok": true})
+	})
+	body := `{"messages":[{"content":"` + strings.Repeat("x", 64) + `"}],"model":"test-model","tools":[],"image":"test-image"}`
+	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, 200, w.Code)
+	record, err := client.QARecord.Query().Only(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "test-model", record.RequestedModel)
+	require.True(t, record.ToolCallsPresent)
+	require.True(t, record.MultimodalPresent)
+	for _, blob := range store.objects {
+		payload := decodeBlobPayload(t, blob)
+		request, ok := payload["request"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, body[:32], request["body"], "metadata lookup must not expand the persisted capture")
+	}
 }

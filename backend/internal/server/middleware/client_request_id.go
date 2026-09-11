@@ -13,9 +13,12 @@ import (
 
 const clientRequestIDHeader = "X-Client-Request-ID"
 
-// ClientRequestID ensures every request has a unique client_request_id in request.Context().
+// ClientRequestID ensures every gateway request has a client_request_id.
 //
-// This is used by the Ops monitoring module for end-to-end request correlation.
+// Priority: existing context → inbound X-Client-Request-ID → inbound X-Request-ID
+// (compat only) → generated UUID. The X-Request-ID fallback exists so callers that
+// still send only the legacy header keep a searchable marker when the response
+// never returns; it never becomes ctxkey.RequestID / QA / usage storage identity.
 func ClientRequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request == nil {
@@ -23,20 +26,29 @@ func ClientRequestID() gin.HandlerFunc {
 			return
 		}
 
+		id := ""
 		if v, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(v) != "" {
-			var valid bool
-			v, valid = normalizeCorrelationID(v)
-			if !valid {
-				v = uuid.New().String()
+			if normalized, ok := normalizeCorrelationID(v); ok {
+				id = normalized
 			}
-			c.Header(clientRequestIDHeader, v)
-			ctx := context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, v)
-			c.Request = c.Request.WithContext(ctx)
-			c.Next()
-			return
+		}
+		if id == "" {
+			if normalized, ok := normalizeCorrelationID(c.GetHeader(clientRequestIDHeader)); ok {
+				id = normalized
+			}
+		}
+		if id == "" {
+			// Legacy clients often only send X-Request-ID. Keep that value as the
+			// client marker so a dropped response is still correlatable in logs/ops,
+			// while RequestLogger continues to mint a distinct server request_id.
+			if normalized, ok := normalizeCorrelationID(c.GetHeader(requestIDHeader)); ok {
+				id = normalized
+			}
+		}
+		if id == "" {
+			id = uuid.New().String()
 		}
 
-		id := uuid.New().String()
 		c.Header(clientRequestIDHeader, id)
 		ctx := context.WithValue(c.Request.Context(), ctxkey.ClientRequestID, id)
 		requestLogger := logger.FromContext(ctx).With(zap.String("client_request_id", strings.TrimSpace(id)))
