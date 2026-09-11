@@ -1590,6 +1590,40 @@
       "rationale": "Shared Teleport lightbox UI for Studio video playback. VideoStudio and BakeOff mount this instead of duplicating inline video + error/retry/download affordances."
     },
     {
+      "path": "frontend/src/composables/useMediaLibrary.ts",
+      "must_contain": [
+        "export function useMediaLibrary",
+        "tk_media_lib_v1:",
+        "sanitizeImageForPersistence",
+        "cacheStudioBlobFromHttpUrl",
+        "getStudioBlobObjectUrl",
+        "pruneStudioBlobCache"
+      ],
+      "rationale": "Root owner of Studio media history: the localStorage metadata key plus its IndexedDB blob mirror. Image / Video / BakeOff all persist and hydrate through this one composable (agent-reference Studio SSOT table). Anchors pin the storage key, the sanitizer that keeps blob:/http/inline sources out of localStorage (#944), and the three studioBlobCache callsites — an upstream-shaped rewrite that drops the IDB mirror or re-persists raw sources would otherwise still compile and silently break previews on the second refresh."
+    },
+    {
+      "path": "frontend/src/utils/studioBlobCache.tk.ts",
+      "must_contain": [
+        "tk_studio_blob_v1",
+        "export async function cacheStudioBlobFromSrc",
+        "export async function cacheStudioBlobFromHttpUrl",
+        "export async function getStudioBlobObjectUrl",
+        "export async function deleteStudioBlob",
+        "export async function pruneStudioBlobCache",
+        "by_user"
+      ],
+      "rationale": "Sole IndexedDB owner behind useMediaLibrary: DB name, per-user index, and the cache/read/delete/prune surface. Only useMediaLibrary may consume it, so losing an export here silently degrades every Studio page to metadata-only history with no local blob replay."
+    },
+    {
+      "path": "frontend/src/utils/studioDownload.tk.ts",
+      "must_contain": [
+        "export function downloadMedia",
+        "export async function copyMediaLink",
+        "export async function copyStudioVideoLink"
+      ],
+      "rationale": "Shared download / copy-link owner for Studio image and video cards, previews and BakeOff panels (agent-reference Studio SSOT table). Pinning the three exports keeps per-page anchor/clipboard reimplementations from creeping back after an upstream merge."
+    },
+    {
       "path": "frontend/src/composables/useStudioImageLibrary.ts",
       "must_contain": [
         "export async function mountStudioImageLibrary",

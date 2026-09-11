@@ -69,8 +69,9 @@
 The Direct/Universal mapping boundary is approved in
 `docs/approved/candidate-request-policy-convergence.md`. Mapping isolation, global
 account selection, billing rebinding and hard-continuation compatibility are now
-implemented in this branch. The coverage section below distinguishes executable
-evidence from remaining acceptance work; implementation is not deployment.
+implemented, merged and released (see Status). The coverage section below
+distinguishes executable evidence from remaining acceptance work; what is still
+open is live-traffic measurement on the deployed build, not unshipped code.
 Administrative rate changes between hold estimation and settlement are allowed;
 the same billing origin is required, but request-level price freezing is not.
 Profit-gate platform migration is deferred by the user's explicit decision;
@@ -232,19 +233,21 @@ They are backend integration/unit tests, not UI E2E or live supplier probes.
 | AC-001/003/004/016/023 | Shared capability regressions, actual-account HTTP/Gemini admission, native account 115 retry, global Vertex/Antigravity failover and equal-priority native/converter competition | Live supplier verification is outside this task. |
 | AC-008/009/010 | Real selectors cover conflicting group order, renamed/renumbered split groups, duplicate membership, capacity admission and random ties | Random outcomes are tested for both eligible peers with wide distribution bounds, not a fixed global RNG seed. |
 | AC-011/012 | Explicit A/X versus B/Y no-borrowing; Direct/Universal HTTP handoff, model isolation and billing-scope checks | No local acceptance gap. |
-| AC-013/017/018/027 | Minimum-origin admission, real hold estimation and final settlement are connected; rollback, delayed snapshots and quota checks also covered | Live price/cost comparison remains a release prerequisite. |
+| AC-013/017/018/027 | Minimum-origin admission, real hold estimation and final settlement are connected; rollback, delayed snapshots and quota checks also covered | Live price/cost comparison still to be gathered — runnable against the deployed build, no longer a release blocker. |
 | AC-014/021/026 | Authorization/Plan rechecks after waits, namespace-aware owner tests, stored-media key preservation, actual task polling across key/origin changes with a controlled upstream and real socket turn tests | Production rolling upgrade/rollback has not been exercised. |
 | AC-019/020 | Global selectors cover sticky-only old/new session admission, capacity admission, random ties, priority and slot races | No local acceptance gap. |
 | AC-029 | Full candidate selection covers split/duplicate membership, normal versus reserve accounts, and hard gates after global recovery | No local acceptance gap. |
 | AC-030/031 | Supplier credential sharing/recovery and real repository guards; discovery supports actual accounts and native response schemas | No production configuration writes or live supplier verification were performed. |
 
-| AC-032/033/034 | Direct/Universal handler tests cover real transport cancellation, failover, attempt cap, partial text/tool output and usage preservation; scoped counter and replay boundary tests cover exclusions | Production comparison and original Kimi task completion remain pending. No traffic switch is authorized. |
-| AC-036/037 | Profit selection, origin changes, post-slot and WS rechecks; group-only price admission and wrong-group rejection | Live price/cost comparison remains a release prerequisite. |
+| AC-032/033/034 | Direct/Universal handler tests cover real transport cancellation, failover, attempt cap, partial text/tool output and usage preservation; scoped counter and replay boundary tests cover exclusions | Production comparison and original Kimi task completion still pending. The code serves live traffic on `v1.8.219`; the comparison is a measurement to record, not a traffic switch to authorize. |
+| AC-036/037 | Profit selection, origin changes, post-slot and WS rechecks; group-only price admission and wrong-group rejection | Live price/cost comparison still to be gathered — runnable against the deployed build, no longer a release blocker. |
 | AC-038/039 | Candidate catalog tests include production price filters, scoped-only models, hidden manifest rows and retirement evidence; Playwright exercises desktop/mobile pricing filters and readable authorized groups | UI requests use fixtures; they do not prove live supplier capability or production billing. |
 
 Keep the story in InTest until the
 remaining production acceptance evidence above is available; these are validation
-boundaries, not pending implementation or architectural decisions.
+boundaries, not pending implementation or architectural decisions. The
+implementation itself is released and live — InTest here tracks outstanding
+live-traffic measurement, not unshipped code.
 - Run:
 
 ```bash
@@ -260,10 +263,18 @@ python3 .testing/user-stories/verify_quality.py
 - [ ] InTest
 
 The approved 2026-09-08 account scheduling, equivalent-origin billing, discovery
-and session-identity policies are implemented in this branch. Local verification
+and session-identity policies are implemented, merged and released. Local verification
 passes with the coverage boundaries listed above. Ordinary soft-sticky cold start is
 accepted; hard execution ownership retains compatible reads and writes.
-The user prohibits release and deployment in this task.
+
+Release status (verified 2026-09-11): the release prohibition applied to the
+original implementation task and has been lifted. Every owner is contained in a
+released tag — `v1.8.204` (#2032), `v1.8.208` (#2051, #2053), `v1.8.213` (#2067),
+`v1.8.216` (#2097), `v1.8.217` (#2100) — each with a successful Release run. Prod
+(`api.tokenkey.dev`) has been serving `v1.8.219`, which contains all of them,
+since the successful Stage0 Deploy of 2026-09-11 (multi-arch manifest verified,
+`/health` 200 under live traffic). The owner-to-tag table is in
+`docs/approved/candidate-eligibility-ssot.md` § Release status.
 
 ## Evidence
 
@@ -272,4 +283,6 @@ The implementation passes the complete backend suite (`go test -p 4 -tags unit
 hold, WebSocket and identity cases also pass with the race detector. Protocol
 routing guards, gateway sentinels, Story quality and Wire checks pass. These
 checks cover the reviewed implementation; production acceptance is still bounded
-as documented above. No release, deployment or production write occurred.
+as documented above. No production configuration write was made from this task —
+the code reached prod through the ordinary tag-and-deploy path recorded under
+Status, not a manual write.

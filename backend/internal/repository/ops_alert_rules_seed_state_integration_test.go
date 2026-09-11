@@ -13,7 +13,8 @@ import (
 // after all migrations apply: tk_060 seeds user-visible failure P0/P1, tk_061
 // retires routing_capacity_rejection_count (replaced by user_visible_failure_count),
 // tk_087 deletes the 8% upstream_error_rate P1 and keeps the 20% rule as an
-// edge-only Feishu P1, and tk_036 latency rules ship disabled — every enabled
+// edge-only Feishu P1, tk_088 tightens client failure thresholds while retaining P1 notifications,
+// and tk_036 latency rules ship disabled — every enabled
 // rule has a working path.
 func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	ctx := context.Background()
@@ -29,16 +30,19 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 	}
 
 	type seededRule struct {
-		enabled       bool
-		threshold     float64
-		windowMinutes int
+		enabled          bool
+		threshold        float64
+		windowMinutes    int
+		sustainedMinutes int
+		severity         string
+		notifyEmail      bool
 	}
 	ruleFor := func(metricType string) seededRule {
 		var rule seededRule
 		err := integrationDB.QueryRowContext(ctx,
-			`SELECT enabled, threshold, window_minutes FROM ops_alert_rules WHERE metric_type = $1 ORDER BY id LIMIT 1`,
+			`SELECT enabled, threshold, window_minutes, sustained_minutes, severity, notify_email FROM ops_alert_rules WHERE metric_type = $1 ORDER BY id LIMIT 1`,
 			metricType,
-		).Scan(&rule.enabled, &rule.threshold, &rule.windowMinutes)
+		).Scan(&rule.enabled, &rule.threshold, &rule.windowMinutes, &rule.sustainedMinutes, &rule.severity, &rule.notifyEmail)
 		require.NoError(t, err, "metric_type %s should be seeded", metricType)
 		return rule
 	}
@@ -60,8 +64,13 @@ func TestSeededAlertRuleStateAfterMigrations(t *testing.T) {
 		"tk_064 raises the prod P0 user-visible threshold to 50 failures")
 	require.Equal(t, 5, userVisibleFailureRule.windowMinutes,
 		"prod P0 user-visible threshold is evaluated over 5 minutes")
-	require.True(t, enabledFor("client_visible_failure_count"),
-		"tk_060 client_visible_failure_count rule must be enabled")
+	clientRule := ruleFor("client_visible_failure_count")
+	require.True(t, clientRule.enabled, "client failures remain visible in the ops dashboard")
+	require.Equal(t, "P1", clientRule.severity, "broad client failures remain visible as a P1 Feishu signal")
+	require.True(t, clientRule.notifyEmail, "broad client failures should notify operators")
+	require.Equal(t, 50.0, clientRule.threshold)
+	require.Equal(t, 5, clientRule.windowMinutes)
+	require.Equal(t, 5, clientRule.sustainedMinutes)
 
 	// tk_087: delete the 8% early-warning rate rule. Keep the 20% rule enabled
 	// as P1; the evaluator skips it on prod and pages it on edges.

@@ -64,9 +64,13 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md) | Direct/Universal model mapping boundary and continuation migration impact |
 | [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
-| [`cursor-oauth-service.md`](cursor-oauth-service.md) | Cursor native OAuth, credential renewal and billing |
+| [`cursor-oauth-service.md`](cursor-oauth-service.md) | Cursor native OAuth, credential renewal, billing and the shared unsupported-output-limit owner |
+| [`continuation-gemini-repair.md`](continuation-gemini-repair.md) | Responses continuation and Gemini Chat tools repair |
+| [`gemini-chat-conversion.md`](gemini-chat-conversion.md) | Gemini generateContent → Chat conversion edge and its capability contract |
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
 | [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
+| [`kiro-turn-boundary.md`](kiro-turn-boundary.md) | Kiro client-owned turn boundary |
+| [`volcengine-plan-asr.md`](volcengine-plan-asr.md) | VolcEngine Agent Plan speech recognition |
 | [`anthropic-window-util-sched.md`](anthropic-window-util-sched.md) | Upstream window-util scheduling |
 | [`anthropic-buffered-stream-failure-contract.md`](anthropic-buffered-stream-failure-contract.md) | Anthropic buffered stream failure |
 | [`cc-only-disable-prep-decisions.md`](cc-only-disable-prep-decisions.md) | Relaxing cc-only OAuth identity gates |
@@ -86,11 +90,13 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates |
 | [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 |
 | [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | QA 24h S3 lifecycle |
+| [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
 | [`design-edge-env-secrets-recovery.md`](design-edge-env-secrets-recovery.md) | Edge env secrets recovery |
 | [`design-edge-model-family-alert.md`](design-edge-model-family-alert.md) | Edge model-family alert |
 | [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
+| [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
 
 ### Ops / admin / misc
 
@@ -102,6 +108,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
+| [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双市场首页与统一产品矩阵 |
 
 ### Upstream merge anchors
 

@@ -78,6 +78,12 @@ func buildUserVisibleFailureWhere(filter *service.OpsDashboardFilter, ownerScope
 	switch strings.TrimSpace(ownerScope) {
 	case "client":
 		where += " AND COALESCE(error_owner, '') = 'client'"
+		// Caller disconnects are expected client behaviour, not an actionable
+		// request-shape incident. Keep them in raw logs, but exclude them from
+		// the client-visible alert numerator.
+		where += " AND COALESCE(status_code, 0) <> 499"
+		where += " AND LOWER(CONCAT_WS(' ', error_message, upstream_error_message)) NOT LIKE '%context canceled%'"
+		where += " AND LOWER(CONCAT_WS(' ', error_message, upstream_error_message)) NOT LIKE '%context cancelled%'"
 	default:
 		where += " AND COALESCE(error_owner, '') IN ('provider', 'platform')"
 	}
