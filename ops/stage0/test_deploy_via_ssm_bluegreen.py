@@ -571,6 +571,7 @@ read_active_color() {{ echo blue; }}
 other_color() {{ echo green; }}
 assert_active_route_consistent() {{ :; }}
 validate_prepared_receipt() {{ echo validate; return {1 if validation_fails else 0}; }}
+validate_replay_gate() {{ :; }}
 wait_healthy() {{ echo healthy; }}
 wait_ready() {{ echo ready; }}
 backup_env() {{ :; }}
@@ -592,6 +593,24 @@ promote_prepared_color
                 if not validation_fails:
                     self.assertEqual(result.stdout.count("validate"), 2)
                     self.assertLess(result.stdout.index("cutover"), result.stdout.index("drain"))
+
+    def test_failed_replay_gate_blocks_direct_promote_before_cutover(self) -> None:
+        _, _, remote = _render()
+        function = _extract_shell_function(remote, "promote_prepared_color")
+        script = """set -euo pipefail
+%s
+read_active_color() { echo blue; }
+other_color() { echo green; }
+assert_active_route_consistent() { :; }
+validate_prepared_receipt() { :; }
+validate_replay_gate() { echo replay-rejected; return 1; }
+commit_cutover() { echo CUTOVER; }
+promote_prepared_color
+""" % function
+        result = subprocess.run(["bash"], input=script, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("replay-rejected", result.stdout)
+        self.assertNotIn("CUTOVER", result.stdout)
 
     def test_prepared_receipt_rejects_approval_and_runtime_drift(self) -> None:
         import hashlib

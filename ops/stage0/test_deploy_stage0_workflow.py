@@ -80,7 +80,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn(entry, edge)
         self.assertNotIn("git ls-remote --tags origin", prod)
         self.assertNotIn("git ls-remote --tags origin", edge)
-        self.assertEqual(prod.count(entry), 1)
+        self.assertEqual(prod.count(entry), 2)
         self.assertEqual(edge.count(entry), 1)
 
     def test_operation_choice_preserves_deploy_default(self) -> None:
@@ -94,7 +94,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn("type: choice", body)
         self.assertIn("required: true", body)
         self.assertIn("default: deploy", body)
-        self.assertRegex(body, r"(?ms)options:\s*\n\s*- deploy\s*\n(?:\s*- replay\s*\n)?\s*- smoke-only\s*\n\s*- qa-infra-check\s*$")
+        self.assertRegex(body, r"(?ms)options:\s*\n\s*- deploy\s*\n\s*- replay\s*\n\s*- smoke-only\s*\n\s*- qa-infra-check\s*$")
 
     def test_focused_ssot_input_is_optional_and_defaults_empty(self) -> None:
         text = workflow_text()
