@@ -79,7 +79,7 @@ account without credential penalties; unrelated client 400s remain terminal.
 On 2026-09-08 the user approved the policy below and its ownership in this
 contract. This branch implements the shared candidate handoff and account pool;
 local validation is recorded in US-050. The follow-up conversation also approved the balance-origin rule in
-[universal-key-routing.md](universal-key-routing.md#target-billing-attribution),
+[universal-key-routing.md](universal-key-routing.md#已确认的余额计费归属),
 group-independent session affinity with a one-time soft-cache cold start, and
 the common account ordering below. These approvals are not deployment evidence.
 
@@ -355,12 +355,19 @@ consume the same selected path, including retries and final slot checks.
 | --- | --- | --- |
 | Model mapping, native/converter legality | `protocolrouter.Router.Plan` via `protocol_routing_context.go` | Parse the actual request using `protocolrouter.ParseCanonicalRequest`; a valid converter is equally eligible. |
 | Authorization paths and account selection | `candidate_request_tk.go`, `candidate_selection_tk.go` | HTTP auth, Responses WS, both schedulers and retries consume one request-local state. |
+| Inference ingress into candidate state | `candidate_ingress_tk.go` (`PrepareCandidateIngress`) | The single HTTP entry: existing client and session parsers run before billing admission, when sticky-only eligibility already matters. A new ingress joins this owner instead of preparing its own state. |
+| Account pool admission projection | `candidate_eligibility.go` (`candidateSupportsRequest`) | Support and readiness stay separate; an empty live pool is never missing entitlement. Legacy adapters in `universal_routing_tk_serving.go` share this admission but keep their callers' snapshot/fallback semantics and are not the selection owner. |
 | Current availability | `gateway_candidate_eligibility.go`, `openai_candidate_eligibility.go` and existing quota/auth/capability helpers | The global selector supplies the actual account platform and sticky identity, then applies recovery over the admitted payment tier. |
 | Empty-pool feedback and expiring preference | `candidate_saturation.go` over existing Redis counters | Account scoring consumes shared scoped feedback; groups do not receive scheduling votes. |
 | Billing origin and reservations | `candidate_billing_tk.go`, `BillingCacheService`, existing hold lifecycle | Compare only equivalent origins, rebind reservations, snapshot the final path before async settlement. |
 | Profit admission | `candidate_profit_tk.go` delegates to the existing gateway profit owner | Actual billing origin and request pricing instant follow selection, slot checks and WS turns. |
 | Stable affinity and continuation | `candidate_identity_tk.go`, `candidate_ws_identity_tk.go`, `candidate_ws_authorization_tk.go` | User/key/session soft affinity; user-owned response continuation with authorized legacy lookup and dual writes. |
 | Supplier credential faults | `supplier_credential_fault.go`, `account_repo_supplier_fault.go` | Conditional updates share confirmed credential faults and preserve independent model limits, Plans and account concurrency. |
+| Attributable failure observation and deprioritization | `candidate_failure_tk.go` | One attribution rule per account and resolved model. Caller cancellation, credential faults, request-scoped transients, same-account retries and caller errors keep their dedicated owners; an observed failure must not also feed the legacy OpenAI health breaker. |
+| Per-turn RPM admission | `candidate_rpm_tk.go` | Peek before binding, count once after. Universal drops the auth snapshot's group override because it belongs to the original bound group. |
+| Replayable Chat attempt budget | `candidate_chat_attempt_tk.go` | Pre-output failover only, bounded by the shared attempt cap; handlers still own switching. Never replay or synthesize completion after content or tool output. |
+| Relay-scoped model rejection | `candidate_edge_model_rejection_tk.go` | A relay's own model verdict covers that path only, and must not exclude other authorized candidates at the main gateway. |
+| Discovery request/account snapshot | `candidate_discovery_snapshot_tk.go` | One immutable request and account set per discovery shape; prepare each group's request policy once while runtime selection keeps fresh account validation. |
 | Model discovery | `candidate_discovery_tk.go` | Direct and Universal model/capability surfaces and `me_pricing_candidate_tk.go` project the same authorization and support paths without live payment or slot admission. |
 
 ### Implemented behavior

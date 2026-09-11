@@ -56,6 +56,13 @@ pnpm-debug.log*
 *.env
 !.env.example
 !ops/stage0/bluegreen-capacity-policy.env
+# TK: declarative contract, not a secret store — it names the required/optional
+# secret VARIABLES (`ANTHROPIC_AUTH_TOKEN`, `GH_TOKEN`, `TK_TOKEN`) and the tool
+# list that `dev-rules/templates/cloud-agent-bootstrap.sh` sources; the values
+# live in Cursor Dashboard secrets or the local shell. It has been tracked since
+# #215 while `*.env` shadowed it, so a fresh clone plus `git add` silently drops
+# edits to it. Same shape as the bluegreen policy re-include above.
+!.cursor/cloud-agent.env
 docker-compose.override.yml
 
 # ===================
@@ -107,6 +114,11 @@ backend/internal/web/dist/
 !backend/internal/web/dist/
 backend/internal/web/dist/*
 !backend/internal/web/dist/.keep
+# TK: the source-hash manifest is a committed input, not a build output —
+# `scripts/checks/frontend-dist-freshness.py --write` produces it and
+# `backend/internal/web/embed_test.go` reads it back out of the embedded FS, so it
+# must survive a fresh clone. It was tracked while this rule shadowed it.
+!backend/internal/web/dist/frontend-source.json
 
 # 后端运行时缓存数据
 backend/data/
@@ -117,6 +129,17 @@ backend/data/
 backend/config.yaml
 deploy/config.yaml
 backend/.installed
+# Re-included script homes (see the `scripts` override below) previously inherited
+# blanket coverage from that bare rule. Nothing sensitive is tracked there today,
+# but keep local operator config and key material ignored explicitly rather than as
+# a side effect of a rule whose real job was hiding the directory.
+scripts/config.*
+scripts/**/config.local.*
+scripts/**/*secret*
+scripts/**/*credential*
+scripts/**/*.pem
+scripts/**/*.key
+scripts/**/id_rsa*
 
 # ===================
 # 其他
@@ -126,13 +149,42 @@ tests
 !deploy/tests/**
 CLAUDE.md
 .claude
+# TK override: this repo's own agent contract is tracked, so the upstream rules that
+# hide it must be narrowed to the root path. Both `CLAUDE.md` and `.claude` are
+# pattern-less and therefore match at ANY depth; keep that reach for nested/local
+# copies (e.g. an agent scratch `CLAUDE.md` in a subdirectory) and re-include only
+# the repo-root entries that are already committed. Inside `.claude/` the tracked
+# surface is exactly the session hook, settings and the `skills -> ../.cursor/skills`
+# symlink required by the constitution; `/.claude/*` re-establishes the wall so agent
+# state (`worktrees/`, `mcp.local.json`, `history.jsonl`, `todos/`) stays ignored — it
+# is the only coverage for those, unlike `tmp/` which line 90 already handles.
+!/CLAUDE.md
+!/.claude/
+/.claude/*
+!/.claude/hooks/
+!/.claude/settings.json
+!/.claude/skills
+# TK override: upstream ignores a bare `scripts`, which (being pattern-less) matches
+# a directory named `scripts` at ANY depth. TokenKey keeps load-bearing tooling in
+# `scripts/` (preflight gates, sentinels, ops) and in per-skill `scripts/` dirs, all
+# of which are force-added today — so a NEW checker or skill script is silently
+# dropped from commits until someone notices. Keep the upstream line for parity and
+# re-include TokenKey's real script homes. `.pyc`/`__pycache__` stay ignored by the
+# dedicated Python rules below, so nothing build-generated becomes visible.
 scripts
+!/scripts/
+!/skills/*/scripts/
+!/.cursor/skills/*/scripts/
 !backend/scripts/
 !backend/scripts/resolve-version.sh
 .code-review-state
 #openspec/
 code-reviews/
 AGENTS.md
+# TK override: same reasoning as the `CLAUDE.md` re-include above — this repo's root
+# `AGENTS.md` carries the sync.sh-managed Codex/Antigravity block and is tracked,
+# while the pattern-less rule keeps hiding nested/generated copies at any depth.
+!/AGENTS.md
 backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
@@ -149,6 +201,20 @@ docs/*
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/
+# TK override: upstream treats `docs/` as an ignore-by-default area with a per-file
+# allowlist, because upstream keeps almost no docs in git. TokenKey does the opposite —
+# 98 tracked docs (every `docs/approved/*` contract, `docs/global/*`, `docs/ops/*`, the
+# operator runbooks) are load-bearing and referenced by preflight gates such as
+# `scripts/checks/approved-docs-index.py`, yet all of them were force-added past this
+# rule. That makes a NEW approved design doc silently uncommittable, which is the same
+# trap the `scripts` override above fixes. Re-include doc SUBDIRECTORIES (that is where
+# TK organizes docs, and a brand-new home works without editing this file); loose files
+# straight at `docs/` root stay allowlisted so local scratch notes are still ignored.
+!docs/*/
+!docs/DEPRECATIONS.md
+!docs/README.md
+!docs/agent_integration.md
+!docs/spec-delta-*.md
 docs/screenshots/*
 !docs/screenshots/mobile-account-actions-menu.png
 .serena/
