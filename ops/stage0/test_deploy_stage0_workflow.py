@@ -94,7 +94,7 @@ class DeployStage0WorkflowTest(unittest.TestCase):
         self.assertIn("type: choice", body)
         self.assertIn("required: true", body)
         self.assertIn("default: deploy", body)
-        self.assertRegex(body, r"(?ms)options:\s*\n\s*- deploy\s*\n\s*- smoke-only\s*\n\s*- qa-infra-check\s*$")
+        self.assertRegex(body, r"(?ms)options:\s*\n\s*- deploy\s*\n(?:\s*- replay\s*\n)?\s*- smoke-only\s*\n\s*- qa-infra-check\s*$")
 
     def test_focused_ssot_input_is_optional_and_defaults_empty(self) -> None:
         text = workflow_text()
