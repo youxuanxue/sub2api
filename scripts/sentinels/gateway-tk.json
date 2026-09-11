@@ -3,6 +3,41 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": ".github/workflows/upstream-issue-watchdog.yml",
+      "must_contain": [
+        "source: [upstream, anthropic]",
+        "python3 scripts/upstream/watchdog-run.py scan",
+        "actions/cache/restore@",
+        "actions/cache/save@"
+      ],
+      "must_not_contain": [
+        "git push --force",
+        "cache_pr",
+        "gh issue comment"
+      ],
+      "rationale": "One source matrix delegates scanning and semantic Issue updates; no cache-refresh PR or repeated report comments."
+    },
+    {
+      "path": "scripts/upstream/watchdog-run.py",
+      "must_contain": [
+        "def fetch_snapshot(",
+        "def sync_issues(",
+        "def managed_body(",
+        "temporary.replace(checkpoint)"
+      ],
+      "rationale": "Preserve incremental recovery and idempotent Issue projection as one owner."
+    },
+    {
+      "path": "scripts/test_issue_watchdog_flow.py",
+      "must_contain": [
+        "test_create_then_replay_performs_no_writes_for_either_source",
+        "test_closed_legacy_issue_is_not_recreated_or_reopened",
+        "test_failed_sync_does_not_advance_checkpoint_and_retry_converges",
+        "test_missing_and_empty_anchors_revoke_runtime_fixed_classification"
+      ],
+      "rationale": "The normal scripts unittest gate exercises no-change, operator decisions, cursor replay and stale evidence."
+    },
+    {
       "path": "backend/internal/server/middleware/request_logger.go",
       "must_contain": ["c.Writer = &requestIDResponseWriter{"],
       "rationale": "Server request identity must survive upstream header forwarding at the response commit boundary."

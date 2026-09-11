@@ -7,8 +7,8 @@ partly machine-generated (cc-triage). A hand-edit that breaks JSON or drops a
 required top-level key would otherwise only surface in CI; this gate makes it a
 local preflight FAIL.
 
-The anthropic-cc-issue-watchdog workflow also json-validates these inline; this
-mirror exists so the failure is caught before push. stdlib-only.
+Daily scans read these historical records without committing cache updates.
+This gate validates edits made inside fix PRs before push. stdlib-only.
 
 Exit 0 = all present files valid; exit 1 = a present file is invalid. Missing
 files are OK (cc-triage is generated on first run).
