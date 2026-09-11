@@ -10,14 +10,12 @@ Single deterministic tool shared by BOTH issue-watchdog ledgers:
 
 Why this exists
 ---------------
-The daily `*-issue-watchdog.yml` already auto-propagates fact-checks.json into
-fixes.json + triage.json (via the engine functions in issue-watchdog.py) and
-opens a cache-refresh PR. The only step a human must do is author the
-fact-check entry — the `fixed_if_all_present` code anchors, i.e. the
-irreducible "which code facts prove this is fixed" judgment.
+The watchdog derives its scan report in memory and retains it as an Actions artifact.
+Fix PRs still maintain the historical ledgers through this helper; daily scans no
+longer open cache-refresh PRs or write these files back to git.
 
-This tool lets that propagation happen INSIDE the fix PR instead of waiting for
-the next daily watchdog run, and lets preflight GATE it so a fix can't merge
+This tool lets that propagation happen INSIDE the fix PR without a separate
+cache-refresh PR, and lets preflight GATE it so a fix can't merge
 half-recorded:
 
   --apply   author runs once after adding a fact-check; reconciles
@@ -38,7 +36,7 @@ half-recorded:
                   --apply).
             Deliberately trailer-scoped: it never fails an unrelated PR over
             pre-existing cosmetic drift or anchor rot in OTHER ledger entries
-            (that stays the daily watchdog's job to reconcile).
+            (the watchdog reports it for review).
 
   --selftest  hermetic temp-dir fixtures; exercised by scripts/preflight.sh.
 

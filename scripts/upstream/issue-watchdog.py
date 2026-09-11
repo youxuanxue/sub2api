@@ -99,7 +99,7 @@ def sh(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[st
 def git_sha() -> str:
     try:
         return sh(["git", "rev-parse", "HEAD"]).stdout.strip()
-    except Exception:
+    except (subprocess.CalledProcessError, OSError):
         return ""
 
 
@@ -182,10 +182,7 @@ def upstream_issue_map(rows: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     for row in rows:
         if "pull_request" in row:
             continue
-        try:
-            out[int(row["number"])] = row
-        except Exception:
-            continue
+        out[int(row["number"])] = row
     return out
 
 
@@ -202,9 +199,7 @@ def is_unresolved_high(entry: dict[str, Any], upstream_by_number: dict[int, dict
         return False
     impact = entry.get("impact")
     status = entry.get("tokenkey_status")
-    if impact in {"critical", "high"} and status in UNRESOLVED_STATUSES:
-        return True
-    return False
+    return impact in {"critical", "high"} and status in UNRESOLVED_STATUSES
 
 
 def issue_signature(upstream: str) -> str:
@@ -223,7 +218,7 @@ def updated_desc_key(value: str) -> float:
 def agent_input(report: dict[str, Any]) -> dict[str, Any]:
     selected = report.get("selected_issue")
     if not selected:
-        return {"schema_version": 1, "selected_issue": None, "fixed_verified": []}
+        return {"schema_version": 1, "selected_issue": None, "anchors_present": []}
     return {
         "schema_version": 1,
         "selected_issue": {
@@ -235,61 +230,40 @@ def agent_input(report: dict[str, Any]) -> dict[str, Any]:
             "tokenkey_status": selected.get("tokenkey_status"),
             "rationale": selected.get("rationale"),
         },
-        "fixed_verified": [
+        "anchors_present": [
             {
                 "upstream": item.get("upstream"),
                 "tokenkey_pr": item.get("tokenkey_pr"),
                 "severity": item.get("severity"),
             }
-            for item in report.get("fixed_verified", [])
+            for item in report.get("anchors_present", [])
         ],
     }
 
 
-def report_markdown(report: dict[str, Any], title: str = "# Upstream Issue Watchdog Report") -> str:
-    lines = [
-        title,
-        "",
-        f"- Run URL: {report.get('run_url') or 'n/a'}",
-        f"- Repository SHA: `{report.get('repo_sha') or 'unknown'}`",
-        f"- Generated at: `{report.get('generated_at')}`",
-        f"- Upstream issues scanned: `{report.get('upstream_issue_count')}`",
-        f"- Fact checks: `{report.get('fact_check_count')}`",
-        f"- Fixed facts verified: `{len(report.get('fixed_verified', []))}`",
-        f"- High/critical unresolved: `{len(report.get('high_unresolved', []))}`",
-        "",
-    ]
-    selected = report.get("selected_issue")
-    if selected:
-        lines += [
-            "## Selected issue for fix PR",
-            "",
-            f"- {selected.get('upstream')}: {selected.get('title')}",
-            f"- Impact: `{selected.get('impact')}`",
-            f"- TokenKey status: `{selected.get('tokenkey_status')}`",
-            f"- URL: {selected.get('url')}",
-            "",
-        ]
+def report_markdown(report: dict[str, Any], title: str = "# Issue Watchdog") -> str:
+    pending = report.get("needs_review", [])
     high = report.get("high_unresolved", [])
-    if high:
-        lines += ["## High/Critical unresolved", ""]
-        for item in high:
-            lines.append(f"- `{item.get('impact')}` {item.get('upstream')} — {item.get('title')} ({item.get('url')})")
-        lines.append("")
-    fixed = report.get("fixed_verified", [])
-    if fixed:
-        lines += ["## Fixed facts verified", ""]
-        for item in fixed:
-            lines.append(f"- {item.get('upstream')} via {item.get('tokenkey_pr', 'n/a')}")
-        lines.append("")
     missing = report.get("fact_check_missing", [])
+    lines = [title, "",
+             f"待核实：{len(pending)} · 已判定高风险：{len(high)} · 锚点需复核：{len(missing)}", "",
+             "关键词候选尚未核实；锚点存在不等于行为测试通过。", ""]
+    for heading, items in [("待核实（最近更新优先）", pending), ("已判定高风险", high)]:
+        if items:
+            lines += [f"## {heading}", ""]
+            for item in items[:20]:
+                title_text = str(item.get("title") or item["upstream"]).replace("\n", " ")
+                lines.append(f"- {item['upstream']} — {title_text} ({item['url']})")
+            lines.append("")
     if missing:
-        lines += ["## Fact checks missing", ""]
+        lines += ["## 修复证据需复核", ""]
         for item in missing:
-            failed = ", ".join(f.get("spec", "") for f in item.get("failed", []))
-            lines.append(f"- {item.get('upstream')}: {failed}")
+            lines.append(f"- {item['upstream']}：锚点缺失，请核对重构或行为回归。")
         lines.append("")
-    return "\n".join(lines) + "\n"
+    lines += ["完整队列与检查详情见本次运行工件中的 report.json。",
+              f"扫描：{report.get('generated_at')} · main：`{report.get('repo_sha')}`",
+              f"运行：{report.get('run_url') or 'local'}", ""]
+    return "\n".join(lines)
 
 
 def set_output(name: str, value: str) -> None:
@@ -299,6 +273,87 @@ def set_output(name: str, value: str) -> None:
             f.write(f"{name}={value}\n")
     else:
         print(f"{name}={value}")
+
+
+def build_report(upstream_rows: list[dict[str, Any]], triage: dict[str, Any],
+                 fixes: dict[str, Any], fact_checks: list[dict[str, Any]],
+                 force_issue: str = "") -> dict[str, Any]:
+    upstream_by_num = upstream_issue_map(upstream_rows)
+
+    anchors_present: list[dict[str, Any]] = []
+    fact_check_missing: list[dict[str, Any]] = []
+
+    for check in fact_checks:
+        facts = [check_fact(spec) for spec in check.get("fixed_if_all_present", [])]
+        if facts and all(fact.get("ok") for fact in facts):
+            anchors_present.append({
+                "upstream": check.get("upstream"),
+                "tokenkey_pr": check.get("tokenkey_pr"),
+                "severity": check.get("severity"),
+                "facts": facts,
+            })
+            ensure_fixed_entry(fixes, check)
+            update_triage_fixed(triage, check)
+        else:
+            fact_check_missing.append({
+                "upstream": check.get("upstream"),
+                "severity": check.get("severity"),
+                "failed": [fact for fact in facts if not fact.get("ok")],
+            })
+
+    for entry in triage.get("issues", []):
+        if any(upstream_check_covers_entry(item["upstream"], entry["upstream"])
+               for item in fact_check_missing):
+            entry.update(impact="needs_review", tokenkey_status="needs_tokenkey_review",
+                         rationale="Recorded fix anchors are missing; verify refactor or regression.")
+    recalc_triage_counts(triage)
+
+    high_unresolved: list[dict[str, Any]] = []
+    forced = None
+    for entry in triage.get("issues", []):
+        is_high = is_unresolved_high(entry, upstream_by_num, "")
+        is_forced = bool(force_issue) and str(issue_number(entry["upstream"])) == force_issue
+        if not is_high and not is_forced:
+            continue
+        num = issue_number(entry["upstream"])
+        upstream_issue = upstream_by_num.get(num, {})
+        item = {
+            "upstream": entry["upstream"],
+            "number": num,
+            "url": entry.get("url") or issue_url(entry["upstream"]),
+            "title": entry.get("title") or upstream_issue.get("title") or "",
+            "impact": entry.get("impact"),
+            "tokenkey_status": entry.get("tokenkey_status"),
+            "rationale": entry.get("rationale", ""),
+            "updated_at": upstream_issue.get("updated_at") or entry.get("updated_at") or "",
+            "signature": issue_signature(entry["upstream"]),
+        }
+        if is_high:
+            high_unresolved.append(item)
+        if is_forced:
+            forced = item
+
+    high_unresolved.sort(key=lambda item: (RISK_ORDER.get(item.get("impact", ""), 99), updated_desc_key(item.get("updated_at", ""))))
+    selected = forced if force_issue else (high_unresolved[0] if high_unresolved else None)
+
+    report = {
+        "schema_version": 1,
+        "generated_at": now_utc(),
+        "run_url": os.environ.get("GITHUB_SERVER_URL", "") + "/" + os.environ.get("GITHUB_REPOSITORY", "") + "/actions/runs/" + os.environ.get("GITHUB_RUN_ID", "") if os.environ.get("GITHUB_RUN_ID") else "",
+        "repo_sha": git_sha(),
+        "upstream_issue_count": len(upstream_by_num),
+        "triage_issue_count": len(triage.get("issues", [])),
+        "triage_counts": triage.get("counts", {}),
+        "fact_check_count": len(fact_checks),
+        "anchors_present": anchors_present,
+        "fact_check_missing": fact_check_missing,
+        "high_unresolved": high_unresolved,
+        "needs_review": sorted(
+            [entry for entry in triage.get("issues", []) if entry.get("impact") == "needs_review"],
+            key=lambda entry: updated_desc_key(entry.get("updated_at", ""))),
+        "selected_issue": selected,
+    }
+    return report
 
 
 def main() -> int:
@@ -317,73 +372,14 @@ def main() -> int:
     parser.add_argument("--report-title", default="# Upstream Issue Watchdog Report")
     args = parser.parse_args()
 
-    upstream_rows = load_jsonl(args.upstream_issues)
-    upstream_by_num = upstream_issue_map(upstream_rows)
     triage = load_json(args.triage)
     fixes = load_json(args.fixes)
-    fact_checks = load_json(args.fact_checks).get("checks", [])
-
-    fixed_verified: list[dict[str, Any]] = []
-    fact_check_missing: list[dict[str, Any]] = []
-    changed = False
-
-    for check in fact_checks:
-        facts = [check_fact(spec) for spec in check.get("fixed_if_all_present", [])]
-        if all(fact.get("ok") for fact in facts):
-            fixed_verified.append({
-                "upstream": check.get("upstream"),
-                "tokenkey_pr": check.get("tokenkey_pr"),
-                "severity": check.get("severity"),
-                "facts": facts,
-            })
-            changed = ensure_fixed_entry(fixes, check) or changed
-            changed = update_triage_fixed(triage, check) or changed
-        else:
-            fact_check_missing.append({
-                "upstream": check.get("upstream"),
-                "severity": check.get("severity"),
-                "failed": [fact for fact in facts if not fact.get("ok")],
-            })
-
-    if changed:
-        write_json(args.triage, triage)
-        write_json(args.fixes, fixes)
-
-    high_unresolved: list[dict[str, Any]] = []
-    for entry in triage.get("issues", []):
-        if not is_unresolved_high(entry, upstream_by_num, args.force_upstream_issue):
-            continue
-        num = issue_number(entry["upstream"])
-        upstream_issue = upstream_by_num.get(num, {})
-        high_unresolved.append({
-            "upstream": entry["upstream"],
-            "number": num,
-            "url": entry.get("url") or issue_url(entry["upstream"]),
-            "title": entry.get("title") or upstream_issue.get("title") or "",
-            "impact": entry.get("impact"),
-            "tokenkey_status": entry.get("tokenkey_status"),
-            "rationale": entry.get("rationale", ""),
-            "updated_at": upstream_issue.get("updated_at") or entry.get("updated_at") or "",
-            "signature": issue_signature(entry["upstream"]),
-        })
-
-    high_unresolved.sort(key=lambda item: (RISK_ORDER.get(item.get("impact", ""), 99), updated_desc_key(item.get("updated_at", ""))))
-    selected = high_unresolved[0] if high_unresolved else None
-
-    report = {
-        "schema_version": 1,
-        "generated_at": now_utc(),
-        "run_url": os.environ.get("GITHUB_SERVER_URL", "") + "/" + os.environ.get("GITHUB_REPOSITORY", "") + "/actions/runs/" + os.environ.get("GITHUB_RUN_ID", "") if os.environ.get("GITHUB_RUN_ID") else "",
-        "repo_sha": git_sha(),
-        "upstream_issue_count": len(upstream_by_num),
-        "triage_issue_count": len(triage.get("issues", [])),
-        "triage_counts": triage.get("counts", {}),
-        "fact_check_count": len(fact_checks),
-        "fixed_verified": fixed_verified,
-        "fact_check_missing": fact_check_missing,
-        "high_unresolved": high_unresolved,
-        "selected_issue": selected,
-    }
+    report = build_report(load_jsonl(args.upstream_issues), triage, fixes,
+                          load_json(args.fact_checks).get("checks", []), args.force_upstream_issue)
+    write_json(args.triage, triage)
+    write_json(args.fixes, fixes)
+    selected = report["selected_issue"]
+    high_unresolved = report["high_unresolved"]
     write_json(args.report_json, report)
     args.report_md.write_text(report_markdown(report, args.report_title), encoding="utf-8")
     if args.agent_input_json:
@@ -393,7 +389,6 @@ def main() -> int:
     set_output("selected_issue", str(selected["number"]) if selected else "")
     set_output("selected_upstream", selected["upstream"] if selected else "")
     set_output("high_unresolved_count", str(len(high_unresolved)))
-    set_output("cache_changed", "true" if changed else "false")
     return 0
 
 
