@@ -76,6 +76,10 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 			NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				return forwardNonGoverned(executionCtx, account, request)
 			},
+			GeminiToChat: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+				return h.openAIGatewayService.ForwardGeminiViaChat(executionCtx, c, account, request)
+			},
 			GeminiIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 				forwardBody := request.Body()

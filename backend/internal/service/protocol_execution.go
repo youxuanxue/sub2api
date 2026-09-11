@@ -125,6 +125,7 @@ type ProtocolExecutors struct {
 	ChatToGemini        ProtocolExecutionFunc
 	ResponsesToGemini   ProtocolExecutionFunc
 	GeminiIdentity      ProtocolExecutionFunc
+	GeminiToChat        ProtocolExecutionFunc
 }
 
 type protocolExecutorsContextKey struct{}
@@ -333,6 +334,7 @@ func NewProtocolRouter() *protocolrouter.Router {
 		protocolrouter.AdapterChatToGemini:        chatToGeminiAdapter{},
 		protocolrouter.AdapterResponsesToGemini:   responsesToGeminiAdapter{},
 		protocolrouter.AdapterGeminiIdentity:      geminiIdentityAdapter{},
+		protocolrouter.AdapterGeminiToChat:        geminiToChatAdapter{},
 	})
 }
 
@@ -576,4 +578,10 @@ func OpenAIForwardResultFromForward(result *ForwardResult) *OpenAIForwardResult 
 		AudioUsage:                    result.AudioUsage,
 		protocolRouteFacts:            result.protocolRouteFacts,
 	}
+}
+
+type geminiToChatAdapter struct{}
+
+func (geminiToChatAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterGeminiToChat, protocolrouter.ProtocolGeminiGenerateContent, protocolrouter.ProtocolChatCompletions, protocolExecutorsFromContext(ctx).GeminiToChat)
 }
