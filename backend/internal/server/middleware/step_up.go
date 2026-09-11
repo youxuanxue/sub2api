@@ -39,7 +39,7 @@ func StepUpSessionKey(c *gin.Context, userID int64) string {
 // NewStepUpAuthMiddleware 创建敏感操作 step-up 2FA 门控中间件。
 //
 // 功能开关 step_up_enabled（默认关闭）关闭时中间件直接放行，行为与门控引入前一致。
-// 开启时的通过条件（全部满足）：
+// 显式授权的 scoped machine key 可执行已登记的账号/代理导出；其余开启时的通过条件：
 //  1. 必须是 JWT 认证的真人会话——admin API key（机器凭证）一律拒绝
 //  2. 当前用户已启用 TOTP（未启用则拒绝并提示先启用 2FA）
 //  3. 当前会话在有效期内完成过 TOTP step-up 验证（POST /api/v1/user/totp/step-up）
@@ -95,6 +95,17 @@ func EnforceStepUpAlways(
 }
 
 func enforceStepUp(c *gin.Context, grantChecker stepUpGrantChecker, userReader stepUpUserReader, settings stepUpSettingReader) bool {
+	// Scoped automation uses its reviewed permission instead of a human TOTP
+	// grant, only on explicitly approved exports. Check before the feature flag
+	// so even a disabled MFA switch cannot weaken machine scope enforcement.
+	if c.GetString("auth_method") == service.AuditAuthMethodMachineAdminKey {
+		identity, ok := GetMachineAdminIdentity(c)
+		if ok && service.MachineAdminAllowsStepUp(identity.Scopes, c.Request.Method, c.FullPath()) {
+			return true
+		}
+		AbortWithError(c, 403, "MACHINE_ADMIN_SCOPE_REQUIRED", "Machine credential cannot satisfy this step-up operation")
+		return false
+	}
 	// 功能开关关闭时直接放行（含 admin API key），恢复门控引入前的行为。
 	// settings 为 nil 时保持门控（fail-closed）：正常装配不会出现 nil。
 	if settings != nil && !settings.IsStepUpEnabled(c.Request.Context()) {

@@ -78,6 +78,7 @@ func RegisterAdminRoutes(
 
 		// 系统设置
 		registerSettingsRoutes(admin, h)
+		registerMachineAdminKeyRoutes(admin, h, stepUpAuth)
 		registerPluginRoutes(admin, h, stepUpAuth)
 
 		// 数据管理

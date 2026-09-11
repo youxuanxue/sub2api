@@ -22,6 +22,7 @@ func newAdminRoutesTestRouter() *gin.Engine {
 		v1,
 		&handler.Handlers{
 			Admin: &handler.AdminHandlers{
+				Account:        &adminhandler.AccountHandler{},
 				Channel:        &adminhandler.ChannelHandler{},
 				TKChannel:      &adminhandler.TKChannelAdminHandler{},
 				SupplierSource: &adminhandler.SupplierSourceHandler{},

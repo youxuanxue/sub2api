@@ -363,7 +363,7 @@ fi
 if command -v python3 >/dev/null 2>&1; then
     _bg_spawn anthropic_unittest \
         python3 -m unittest discover -s ops/anthropic -p 'test_*.py' -t ops/anthropic
-    for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
+    for _det_dir in ops/admin ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
         _bg_spawn "det_$(echo "$_det_dir" | tr '/' '_')" \
             env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
             python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir"

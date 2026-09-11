@@ -83,6 +83,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 | File | Topic |
 | --- | --- |
+| [`machine-admin-permissions.md`](machine-admin-permissions.md) | Scoped machine administrator credentials and automation/MFA migration |
 | [`design-capacity-first-data-layer-safety.md`](design-capacity-first-data-layer-safety.md) | Capacity-first 阈值 |
 | [`design-data-layer-prod-export-canary.md`](design-data-layer-prod-export-canary.md) | 生产只读 export canary |
 | [`design-data-layer-archive-rehearsal.md`](design-data-layer-archive-rehearsal.md) | Archive rehearsal |

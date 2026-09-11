@@ -52,6 +52,7 @@ func SkipAudit(c *gin.Context) {
 // scalar, non-secret operation summaries. Request bodies and arbitrary maps
 // are never accepted through this channel.
 var auditExtraAllowedKeys = map[string]struct{}{
+	"machine_key_id": {}, "target_machine_key_id": {},
 	"result": {}, "error_code": {}, "enabled": {}, "blocking_enabled": {},
 	"config_version": {}, "endpoint_count": {}, "scanner_count": {},
 	"all_groups": {}, "group_count": {}, "guard_endpoint_id": {},
@@ -180,6 +181,11 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 				record = true
 				action = v
 			}
+		}
+		if !record {
+			// Machine reads can expose account configuration and proxy secrets.
+			// Record every authenticated machine operation with its own key ID.
+			record = c.GetString("auth_method") == service.AuditAuthMethodMachineAdminKey
 		}
 		if !record {
 			c.Next()

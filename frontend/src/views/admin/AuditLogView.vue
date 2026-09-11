@@ -46,7 +46,7 @@
 
               <div class="w-full sm:w-auto sm:min-w-[170px]">
                 <label class="input-label">{{ t('admin.audit.filters.authMethod') }}</label>
-                <Select v-model="filters.auth_method" :options="authMethodOptions" @change="search" />
+                <Select v-model="filters.auth_method" data-testid="audit-auth-method" :options="authMethodOptions" @change="search" />
               </div>
 
               <div class="w-full sm:w-auto sm:min-w-[140px]">
@@ -482,7 +482,8 @@ const methodOptions = computed(() => [
 const authMethodOptions = computed(() => [
   { value: '', label: t('admin.audit.filters.all') },
   { value: 'jwt', label: 'JWT' },
-  { value: 'admin_api_key', label: 'Admin API Key' }
+  { value: 'admin_api_key', label: 'Admin API Key' },
+  { value: 'machine_admin_key', label: 'Machine Admin Key' }
 ])
 
 const resultOptions = computed(() => [

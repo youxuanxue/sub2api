@@ -398,6 +398,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/admin/settings/email-templates/:event/:locale` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/settings/email-templates/:event/:locale` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/settings/email-templates/:event/:locale/restore-official` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/settings/machine-admin-keys` from `backend/internal/server/routes/admin_machine_tk.go`
+- `POST /api/v1/admin/settings/machine-admin-keys` from `backend/internal/server/routes/admin_machine_tk.go`
+- `DELETE /api/v1/admin/settings/machine-admin-keys/:id` from `backend/internal/server/routes/admin_machine_tk.go`
 - `GET /api/v1/admin/settings/openai-images-oauth-unavailable-cooldown` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/settings/openai-images-oauth-unavailable-cooldown` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/settings/overload-cooldown` from `backend/internal/server/routes/admin.go`

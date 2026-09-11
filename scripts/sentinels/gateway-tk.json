@@ -2,6 +2,45 @@
   "version": 1,
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
+{
+  "path": "backend/internal/server/middleware/admin_auth.go",
+  "must_contain": [
+    "strings.HasPrefix(apiKey, service.MachineAdminKeyPrefix)",
+    "authorizeMachineAdminRequest(c, auditService)"
+  ],
+  "rationale": "Machine scope enforcement must live in the shared admin auth boundary including payment and future admin groups; unknown operations default deny."
+},
+{
+  "path": "backend/internal/server/middleware/step_up.go",
+  "must_contain": [
+    "service.MachineAdminAllowsStepUp(identity.Scopes, c.Request.Method, c.FullPath())"
+  ],
+  "rationale": "Preserve explicitly scoped export automation while human MFA is enabled; never blanket-bypass machine step-up."
+},
+{
+  "path": "backend/internal/server/routes/admin.go",
+  "must_contain": [
+    "registerMachineAdminKeyRoutes(admin, h, stepUpAuth)"
+  ],
+  "rationale": "Scoped machine credential lifecycle must remain reachable through human-only admin routes."
+},
+{
+  "path": "backend/internal/service/machine_admin_policy_tk.go",
+  "must_contain": [
+    "func MachineAdminAllows(",
+    "func MachineAdminAllowsStepUp(",
+    "return known"
+  ],
+  "rationale": "Exact method/Gin-template registry is the permission SSOT; unknown paths must not inherit machine grants."
+},
+{
+  "path": "backend/internal/server/middleware/admin_auth_machine_tk_test.go",
+  "must_contain": [
+    "func TestUS054_MachineAuthScopeAndAudit(",
+    "func TestUS054_MachineStepUpIsExportOnly("
+  ],
+  "rationale": "Preserve behavior evidence for independent audit identity, default-deny routes, issuer deactivation, revocation, legacy compatibility and scoped export MFA."
+},
       {
         "path": ".github/workflows/deploy-stage0.yml",
         "must_contain": [
