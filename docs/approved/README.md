@@ -142,3 +142,5 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 ## Pending baselines
 
 （当前无 pending 项。）
+
+- [Gateway capability verification](prod-replay-capability-matrix.md) — offline matrix planning and explicit isolated checks, independent of deployment.

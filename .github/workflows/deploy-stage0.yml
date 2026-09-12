@@ -530,6 +530,24 @@ jobs:
               "$LIVE_TAG" "$INPUT_TAG" "$OUT_DIR/evaluate.json"
           fi
 
+      # Coverage planning is offline and advisory; paid execution is explicit.
+      - name: Plan gateway capability checks
+        env:
+          CAPABILITY_PREVIOUS_TAG: ${{ steps.previous_runtime.outputs.tag }}
+        if: steps.qa_infra.outputs.deploy_gateway == 'true'
+        continue-on-error: true  # preflight-allow: advisory offline capability report; no deployment gate
+        run: |
+          set -euo pipefail
+          git -C qa-target-release fetch --no-tags --depth=1 origin "refs/tags/v${CAPABILITY_PREVIOUS_TAG}:refs/tags/v${CAPABILITY_PREVIOUS_TAG}"
+          bash qa-target-release/scripts/stage0/check-gateway-capabilities.sh "${RUNNER_TEMP}/gateway-capabilities"
+      - name: Upload gateway capability plan
+        if: always() && steps.qa_infra.outputs.deploy_gateway == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: gateway-capability-plan
+          path: ${{ runner.temp }}/gateway-capabilities/*.json
+          if-no-files-found: warn
+
       - name: Check PR hooks immediately
         if: steps.post_release_plan.outputs.count != '' && steps.post_release_plan.outputs.count != '0'
         id: post_release_immediate

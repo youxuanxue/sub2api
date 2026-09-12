@@ -1,0 +1,20 @@
+{
+  "method": "POST",
+  "path": "/v1/responses",
+  "body": {
+    "model": "${model}",
+    "input": "Reply with OK.",
+    "max_output_tokens": 2048,
+    "reasoning": {
+      "effort": "low"
+    },
+    "stream": false
+  },
+  "stream": false,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}

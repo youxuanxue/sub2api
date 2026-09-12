@@ -1,0 +1,15 @@
+{
+  "method": "POST",
+  "path": "/v1/responses/input_tokens",
+  "body": {
+    "model": "${model}",
+    "input": "OK"
+  },
+  "stream": false,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}

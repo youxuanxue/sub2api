@@ -3639,6 +3639,12 @@ else
 fi
 
 echo ""
+echo "=== sub2api: gateway capability catalog projection ==="
+if ! python3 scripts/stage0/update-capability-catalog.py --check; then
+    errors=$((errors + 1))
+fi
+
+echo ""
 if [ "$errors" -eq 0 ]; then
     echo "=== preflight (with sub2api checks): PASS ==="
     exit 0

@@ -1,0 +1,22 @@
+{
+  "method": "POST",
+  "path": "/v1beta/models/${model}:countTokens",
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "OK"
+          }
+        ]
+      }
+    ]
+  },
+  "stream": false,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}
