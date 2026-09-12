@@ -4,7 +4,7 @@
   "body": {
     "model": "${model}",
     "input": "Reply with OK.",
-    "max_output_tokens": 64,
+    "max_output_tokens": 2048,
     "stream": true
   },
   "stream": true,

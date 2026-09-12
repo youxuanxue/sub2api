@@ -79,3 +79,9 @@ func (h *GatewayHandler) tkGeminiV1BetaTryForceAntigravityGetModel(c *gin.Contex
 func (h *GatewayHandler) tkGeminiV1BetaGetModelAntigravityFallback(c *gin.Context, modelName string) {
 	c.JSON(http.StatusOK, gemini.FallbackModel(modelName))
 }
+
+// Candidate ingress already bounds authorization; the actual account and Plan
+// decide protocol compatibility. A backing billing group is not an execution gate.
+func geminiV1BetaRequestPlatformAllowed(c *gin.Context, key *service.APIKey) bool {
+	return key != nil && ((c != nil && c.Request != nil && service.CandidateRequestFromContext(c.Request.Context()) != nil) || geminiV1BetaGroupPlatformAllowed(key))
+}

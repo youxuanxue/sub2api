@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 import prod_replay as replay
 import gateway_capability_matrix as matrix
-from gateway_capability_check import validate_response, objects as response_objects
+from gateway_capability_check import validate_response, thinking_evidence, objects as response_objects
 from gateway_capability_scenarios import tool_continuation
 
 INTERVAL_SECONDS = 10
@@ -102,23 +102,33 @@ def request_wire(request):
     return b''.join(chunks), 'multipart/form-data; boundary=' + boundary
 
 
-def attribution(binding, request_ids, case, inventory):
+def attribution(binding, request_ids, case, inventory, sessions=None):
     if case['request_type'] == 'count_tokens':
         return [], None, [], None
     expected = {rid: set(replay.usage_request_ids([rid])) for rid in request_ids}
     quoted = ','.join(literal(rid) for rid in replay.usage_request_ids(request_ids)) or 'NULL'
-    query = f"""SELECT json_build_object('account_id',account_id,'request_id',request_id,'api_key_id',api_key_id)
-        FROM usage_logs WHERE request_id IN ({quoted});"""
+    # Audio uses an upstream-owned durable billing ID, independent of X-Request-ID.
+    # A unique ordinary client session ties that one call to its existing usage row.
+    sessions = sessions or {}
+    session_filter = (" OR session_id IN (" + ','.join(literal(v) for v in sessions.values()) + ")") if sessions else ''
+    query = f"""SELECT json_build_object('account_id',account_id,'request_id',request_id,
+        'api_key_id',api_key_id,'session_id',session_id)
+        FROM usage_logs WHERE request_id IN ({quoted}){session_filter};"""
     for _ in range(10):
         usage = rows(query)
         recorded = {u['request_id'] for u in usage}
-        complete = bool(expected) and all(ids & recorded for ids in expected.values())
+        matches = {rid: [u for u in usage if u['request_id'] in ids or
+                        (rid in sessions and u.get('session_id') == sessions[rid])]
+                   for rid, ids in expected.items()}
+        complete = bool(expected) and all(matches.values())
         if complete:
             break
         time.sleep(1)
     observed = sorted({u['account_id'] for u in usage if u['account_id'] is not None})
     if any(u['api_key_id'] != binding['api_key_id'] for u in usage):
         return observed, 'wrong_test_key_attribution', sorted(recorded), None
+    if any(len(matches[rid]) > 1 for rid in sessions if rid in matches):
+        return observed, 'ambiguous_usage_attribution', sorted(recorded), None
     if not complete or not observed:
         return observed, 'usage_attribution_missing', sorted(recorded), None
     accounts = rows(f"""SELECT row_to_json(t) FROM (
@@ -137,28 +147,37 @@ def execute_case(case, binding, address, before, throttle, inventory, run_id, ro
     observations = []
     request_ids = []
     final_reason = None
+    sessions = {}
+    reasoning_evidence = None
 
     def retain_id(rid):
         request_ids.append(rid)
 
     def send(request, *, method='POST', validation_case=case):
-        nonlocal final_reason
+        nonlocal final_reason, reasoning_evidence
         throttle()
         replay.require(replay.snapshot(root) == before, 'public_or_prepared_state_changed')
         candidate = replay.inspect('tokenkey-' + before['target'])
         replay.require(candidate_address(candidate) == address, 'candidate_address_changed')
         payload, content_type = request_wire(request)
         captured = {}
+        marker = run_id + '-' + case['id'][:16] + '-' + str(len(observations))
+        session_id = marker if case['scenario'] == 'speech' else None
 
         def validator(status, ctype, raw, stream):
+            nonlocal reasoning_evidence
+            if validation_case['request_type'] == 'thinking':
+                reasoning_evidence = thinking_evidence(raw, stream)
             # Only the synthetic response remains in host memory for the next tool turn.
             captured['raw'] = bytes(raw)
             return validate_response(validation_case, status, ctype, raw, stream)
 
         obs = replay.execute({'path': request['path'], 'body': payload, 'row': {'stream': request['stream']}},
-            binding['key'], 8080, run_id + '-' + case['id'][:16] + '-' + str(len(observations)),
+            binding['key'], 8080, marker,
             validator=validator, budget=REQUEST_SECONDS, method=method, content_type=content_type,
-            on_response_id=retain_id, host=address)
+            on_response_id=retain_id, host=address, session_id=session_id)
+        if session_id and obs.get('response_request_id'):
+            sessions[obs['response_request_id']] = session_id
         observations.append(obs)
         final_reason = obs['reason']
         raw = captured.get('raw', b'')
@@ -201,27 +220,33 @@ def execute_case(case, binding, address, before, throttle, inventory, run_id, ro
             final_reason = final_reason or 'video_task_still_running'
         # Poll requests are unmetered. Submit attribution owns the generated video.
         request_ids[:] = request_ids[:1]
-    observed, reason, usage_ids, matched = attribution(binding, request_ids, case, inventory) if request_ids else ([], 'response_request_id_missing', [], None)
+    observed, reason, usage_ids, matched = attribution(binding, request_ids, case, inventory, sessions) if request_ids else ([], 'response_request_id_missing', [], None)
     final_reason = final_reason or reason
     proof = {'account_class': case['account_class'], 'key_type': 'universal',
              'test_api_key_id': binding['api_key_id'], 'observed_account_ids': observed,
              'account_class_matched': matched, 'request_ids': request_ids, 'usage_request_ids': usage_ids,
              'routing_validation': 'normal_universal',
              'attribution': 'unmetered_endpoint' if case['request_type'] == 'count_tokens' else 'usage_rows'}
+    if case['request_type'] == 'thinking':
+        proof['thinking_evidence'] = reasoning_evidence or 'not_observed'
+        proof['thinking_validation'] = case['request'].get('thinking_validation', 'evidence_required')
     return {'status': 'failed' if final_reason else 'passed', 'reason': final_reason,
             'execution_proof': proof, 'observations': observations}
 
 
-def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY'):
+def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY', case_ids=None):
     matrix.validate_plan(plan)
     replay.require(plan == matrix.build(inventory, matrix.load()), 'plan_not_current')
+    selected = set(case_ids) if case_ids is not None else {c['id'] for c in plan['entries']}
+    replay.require(bool(selected) and (case_ids is None or len(selected) == len(case_ids)) and
+                   selected <= {c['id'] for c in plan['entries']}, 'invalid_case_selection')
     prepared_sha, before = replay.prepared(tag, root)
     result = {'schema': 1, 'kind': 'account-supply-replay', 'tag': tag,
               'plan_sha256': plan['plan_sha256'], 'prepared_receipt': prepared_sha,
               'execution_kind': 'prepared_gateway', 'concurrency': 1, 'interval_seconds': INTERVAL_SECONDS,
               'cutover': False, 'approval_pending': True, 'deployment_gate': False,
               'route_unchanged': False, 'billing': 'normal_test_key',
-              'started_at': time.time(), 'results': []}
+              'started_at': time.time(), 'selected_case_ids': sorted(selected), 'results': []}
     reason = None
     next_request = 0.0
     run_id = 'tk-capability-' + secrets.token_hex(8)
@@ -237,7 +262,9 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY'):
         address = candidate_address(replay.inspect('tokenkey-' + before['target']))
         for case in plan['entries']:
             item = {'id': case['id'], 'case_sha256': case['case_sha256']}
-            if case['blocked_reason']:
+            if case['id'] not in selected:
+                item.update(status='declared-but-untested', reason='not_selected_for_rerun')
+            elif case['blocked_reason']:
                 item.update(status='unsupported' if case['blocked_reason'] == 'protocol_operation_not_defined'
                             else 'blocked-by-test-infrastructure', reason=case['blocked_reason'])
             else:
@@ -257,7 +284,8 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY'):
         signal.alarm(0)
         finished = {r['id'] for r in result['results']}
         result['results'].extend({'id': c['id'], 'case_sha256': c['case_sha256'],
-            'status': 'blocked-by-test-infrastructure', 'reason': reason or 'execution_not_completed'}
+            'status': 'blocked-by-test-infrastructure' if c['id'] in selected else 'declared-but-untested',
+            'reason': (reason or 'execution_not_completed') if c['id'] in selected else 'not_selected_for_rerun'}
             for c in plan['entries'] if c['id'] not in finished)
         try:
             result['route_unchanged'] = replay.snapshot(root) == before
@@ -272,6 +300,8 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY'):
         result['reason'] = reason
         coverage = matrix.report(plan, result)
         result['verdict'] = 'green' if coverage['scope_complete'] else 'red'
+        result['selected_verdict'] = 'green' if result['route_unchanged'] and all(
+            r['status'] == 'passed' for r in result['results'] if r['id'] in selected) else 'red'
         replay.write_json(root / 'bluegreen-capability-results.json', result)
         summary = {k: v for k, v in result.items() if k != 'results'}
         summary['coverage'] = coverage['coverage']
@@ -282,7 +312,7 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY'):
     return replay.seal(summary)
 
 
-def run_locked(plan, inventory, tag, key_name='TK_FULLTEST_KEY'):
+def run_locked(plan, inventory, tag, key_name='TK_FULLTEST_KEY', case_ids=None):
     def timeout(_sig, _frame):
         raise replay.ReplayDeadline()
     with (replay.ROOT / 'bluegreen-deploy.lock').open('a') as lock:
@@ -290,7 +320,7 @@ def run_locked(plan, inventory, tag, key_name='TK_FULLTEST_KEY'):
         signal.signal(signal.SIGALRM, timeout)
         signal.signal(signal.SIGTERM, timeout)
         signal.alarm(RUN_SECONDS)
-        return run(plan, inventory, tag, key_name=key_name)
+        return run(plan, inventory, tag, key_name=key_name, case_ids=case_ids)
 
 
 def main():
@@ -300,6 +330,7 @@ def main():
     parser.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
                         help='prod api_keys.name of an active universal test key (not secrets.TK_FULLTEST_KEY material)')
     parser.add_argument('--offset', type=int, default=0)
+    parser.add_argument('--case-id', action='append', help='rerun explicit stable case IDs; full plan remains the coverage denominator')
     args = parser.parse_args()
     replay.require(re.fullmatch(r'\d+\.\d+\.\d+', args.tag), 'invalid_tag')
     os.umask(0o077)
@@ -310,7 +341,7 @@ def main():
         return
     inventory = json.loads(matrix.DEFAULT_INVENTORY.read_text())
     plan = matrix.build(inventory, matrix.load())
-    print(json.dumps(run_locked(plan, inventory, args.tag, args.test_key_name), separators=(',', ':')))
+    print(json.dumps(run_locked(plan, inventory, args.tag, args.test_key_name, args.case_id), separators=(',', ':')))
 
 
 if __name__ == '__main__':

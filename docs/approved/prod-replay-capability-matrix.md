@@ -77,7 +77,9 @@ universal routing，媒体经过现有 handler。执行器不强制账号绑定�
 测试 usage 按响应 ID 的真实计费命名空间关联，只能归属本次测试 key；不再要求 usage 为零。
 
 生成响应必须有对应协议的正常终态，截断和内容过滤不计通过。
-视觉场景使用本地生成的纯色图片并校验颜色答案；思考场景要求 reasoning/thinking 内容或 token 证据。
+视觉场景使用本地生成的纯色图片并校验颜色答案；思考场景验证带思考参数的请求正常完成且答案正确，
+独立记录实际 reasoning/thinking 内容或 token 证据。供应端隐藏思考或本次 reasoning tokens 为零时，
+只证明请求接受，不冒称已观测到思考输出；未声明 request_acceptance 的测试仍要求思考证据。
 工具场景执行真实 tool call 和 tool result 第二轮；Gemini 图片请求要求 IMAGE 输出；
 语音使用模型对应 voice；转录使用本地合成的 Hello WAV multipart；视频串行轮询到终态。
 OpenAI Chat 未定义 count-token 操作，该义务明确为 unsupported，不猜路径，也不算通过。
@@ -117,3 +119,24 @@ post-release 使用目标 tag 的供应清单与 fixture，从上一 tag 还原�
 老 tag 尚无账号供应清单，或 tag 中的生成器与当前不同，则报告 baseline_available=false，
 使用完整计划，避免以新规则重写旧义务而漏掉新增分支。
 自动上传 plan/coverage artifact，不自动执行上游请求，不参与切流审批。
+
+## 失败用例修正与复测
+
+用户本会话已授权修复已确认的测试及代码问题、提交 PR、审核、合并、部署 prod 候选并循环复测；
+反复明确禁止切流，保持当前线上服务不变。此授权不包含账号池、模型映射或 Edge 配置变更。
+
+Chat 没有独立 count-tokens 操作，因此不生成这个非法协议组合；供应暂不可用的合法用例仍保留。
+fixture 使用足以完成短任务的输出预算，视频时长遵循服务接口字符串类型；音频沿用普通
+X-Session-Id 关联唯一测试调用与既有 grok_audio usage，不改计费实现。
+
+默认仍执行完整计划。显式 `--case-id` 可仅复测指定稳定 ID，拒绝空、重复或未知 ID；
+完整计划的 digest 和覆盖分母不变，未选择项记 declared-but-untested。回执分别记录
+selected_verdict 与全计划 verdict，局部通过不等于全量通过，任何结果都不授权切流。
+
+Gemini countTokens 沿原账号选择、准入与原生计数接口执行，不套用 generation Plan；
+generateContent 仍以 CandidateRequest 和已选 Plan 裁决，计费分组平台不能提前否决合法转换。
+Qwen Token Plan 的参数适配在已选模型别名解析后执行，保留显式 thinking/effort；
+未显式要求思考的强制工具请求关闭供应端默认思考，避免互斥参数组合。
+
+Antigravity 的 Gemini 非流式转换复用共享 parts 收集器，保留早期工具调用、思考、签名和媒体顺序；
+只合并不带元数据的连续文本，禁止把思考文本并入普通输出。

@@ -353,7 +353,7 @@ def usage_request_ids(response_ids):
 
 
 def execute(sample, key, port, replay_id, *, validator=None, budget=None, method='POST',
-            content_type='application/json', on_response_id=None, host='127.0.0.1'):
+            content_type='application/json', on_response_id=None, host='127.0.0.1', session_id=None):
     # No proxy or redirects: a response cannot redirect credentials elsewhere.
     budget = request_seconds(sample) if budget is None else budget
     connection = http.client.HTTPConnection(host, port, timeout=budget)
@@ -363,10 +363,14 @@ def execute(sample, key, port, replay_id, *, validator=None, budget=None, method
     phase, raw, headers_ms = 'request', bytearray(), None
     response, transport_errno = None, None
     try:
-        connection.request(method, sample['path'], body=sample['body'], headers={
+        headers = {
             'Content-Type': content_type, 'Authorization': 'Bearer ' + key,
             'x-api-key': key, 'anthropic-version': '2023-06-01',
-            'User-Agent': 'tokenkey-private-replay', 'X-Client-Request-ID': replay_id})
+            'User-Agent': 'tokenkey-private-replay', 'X-Client-Request-ID': replay_id}
+        if session_id is not None:
+            require(bool(re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', session_id)), 'invalid_session_id')
+            headers['X-Session-Id'] = session_id
+        connection.request(method, sample['path'], body=sample['body'], headers=headers)
         phase = 'response_headers'
         response = connection.getresponse()
         headers_ms = round((time.monotonic() - started) * 1000)

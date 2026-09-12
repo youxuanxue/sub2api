@@ -4,7 +4,7 @@
   "body": {
     "model": "${model}",
     "input": "Call echo with value OK.",
-    "max_output_tokens": 64,
+    "max_output_tokens": 2048,
     "tools": [
       {
         "type": "function",

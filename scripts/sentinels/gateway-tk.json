@@ -3858,7 +3858,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
-      "must_contain": ["account.GetPoolModeRetryCount(), failoverErr", "selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToChat"],
+      "must_contain": ["geminiV1BetaRequestPlatformAllowed(c, apiKey)", "h.forwardGeminiCountTokens(c, requestCtx, account, modelName, body)", "account.GetPoolModeRetryCount(), failoverErr", "selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToChat"],
       "rationale": "Gemini /v1beta gateway must thread account.GetPoolModeRetryCount() into the shared failover loop — same contract that unifies pool_mode retry behavior across platforms."
     },
     {
@@ -7502,7 +7502,7 @@
     },
     {
       "path": "backend/internal/service/antigravity_gateway_streaming.go",
-      "must_contain": [
+      "must_contain": ["finalResponse = mergeCollectedPartsToResponse(finalResponse, collectedParts)",
         "return antigravity.IsImageModel(model)"
       ],
       "rationale": "isImageGenerationModel delegates to the canonical antigravity.IsImageModel (single source of truth for gemini-native image detection; #814 R-002 consolidation). antigravity_gateway_service.go is a large gateway file that attracts upstream merges; one that rewrites this helper could silently restore the old hardcoded gemini-image allowlist body, re-forking the predicate into 3 divergent copies and silently failing to bill future gemini image models (imageCount never fires). Pinning the one-line delegation keeps the dedup mechanical. Pairs with the antigravity.IsImageModel definition sentinel (antigravity.json) and the TestIsImageGenerationModel_DelegatesToCanonical behavioral guard."
@@ -9009,7 +9009,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_platform.go",
-      "must_contain": [
+      "must_contain": ["func geminiV1BetaRequestPlatformAllowed(",
         "return apiKey.IsUniversal()"
       ],
       "rationale": "P3 companion: native Gemini group platform allowlist returns apiKey.IsUniversal() for newapi universal keys."
@@ -11507,7 +11507,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
-      "must_contain": ["if cleanThoughtSignatures", "forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)", "GeminiToChat: func(", "h.openAIGatewayService.ForwardGeminiViaChat("],
+      "must_contain": ["func (h *GatewayHandler) forwardGeminiCountTokens(", "if cleanThoughtSignatures", "forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)", "GeminiToChat: func(", "h.openAIGatewayService.ForwardGeminiViaChat("],
       "rationale": "Apply signature repair to the validated canonical request's transport copy without replacing the immutable route plan."
     },
     {
@@ -11537,7 +11537,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute_test.go",
-      "must_contain": ["TestGeminiSelectedProtocolRepairsTransportSignature", "upstream.body", "request.Digest()"],
+      "must_contain": ["TestGeminiCountTokensBypassesGenerationPlanWithOriginalBody", "TestGeminiSelectedProtocolRepairsTransportSignature", "upstream.body", "request.Digest()"],
       "rationale": "Exercise actual native, planned edge, and Vertex forwarding to prove repaired wire signatures and immutable canonical history."
     },
     {
@@ -11691,6 +11691,21 @@
         "telemetry_run = _timestamp(telemetry.get(\"last_run_at\"))"
       ],
       "rationale": "Cumulative shadow loss counters amplify one failed upload into three findings; the loss finding owns its derived error/stale-clean-heartbeat, and liveness stays on last_run_at so a dead publisher still fails closed."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_qwen_token_plan_tk_test.go",
+      "must_contain": [
+        "TestQwenTokenPlanPreservesThinkingIntent",
+        "TestQwenPlannedAliasIsResolvedBeforeProviderShaping"
+      ],
+      "rationale": "Pin corrected candidate request execution and preserve provider output with focused regression tests."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gemini_collect_tk_test.go",
+      "must_contain": [
+        "TestAntigravityGeminiCollectPreservesEarlyToolsAndThinking"
+      ],
+      "rationale": "Pin corrected candidate request execution and preserve provider output with focused regression tests."
     }
   ]
 }

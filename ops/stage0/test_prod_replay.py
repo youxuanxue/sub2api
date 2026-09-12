@@ -335,7 +335,8 @@ class OrchestrationTest(unittest.TestCase):
         from gateway_capability_matrix import digest
         details = {'tag': tag, 'verdict': verdict, 'cutover': False, 'results': [{'id': 'one-case'}]}
         receipt = {k: v for k, v in details.items() if k != 'results'}
-        receipt.update(total=1, results_sha256=digest(details), receipt_sha256='a'*64)
+        receipt.update(total=1, account_class_coverage={'matched': 1, 'unmatched': 0, 'unmetered_or_absent': 0},
+                       results_sha256=digest(details), receipt_sha256='a'*64)
         return [receipt, {'tag': tag, 'rows': details['results']}]
 
     def test_prepare_cannot_inherit_cutover_and_execution_must_produce_receipt(self):
