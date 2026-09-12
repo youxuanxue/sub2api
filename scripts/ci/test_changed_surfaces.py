@@ -46,6 +46,12 @@ class ChangedSurfacesTest(unittest.TestCase):
             },
         )
 
+    def test_edge_handoff_prototype_runs_browser_job(self) -> None:
+        result = changed_surfaces.classify([".testing/prototypes/edge-handoff/browser.mjs"])
+        self.assertTrue(result["frontend"])
+        self.assertFalse(result["backend"])
+        self.assertFalse(result["all"])
+
     def test_deploy_change_runs_deploy_jobs_only(self) -> None:
         self.assertEqual(
             changed_surfaces.classify(["deploy/tests/docker-runtime-resources-test.sh"]),

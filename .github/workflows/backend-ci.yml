@@ -352,6 +352,10 @@ jobs:
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm exec playwright test --config playwright.quickstart.config.ts
+      - name: Edge handoff protocol prototype
+        run: |
+          node --test .testing/prototypes/edge-handoff/protocol.test.mjs
+          pnpm --dir frontend exec playwright test --config ../.testing/prototypes/edge-handoff/playwright.config.mjs
 
   candidate-browser:
     needs: changes

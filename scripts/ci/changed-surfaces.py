@@ -89,7 +89,7 @@ def classify(paths: Iterable[str]) -> dict[str, bool]:
             result["backend"] = True
             matched = True
 
-        if _starts(path, ("frontend/",)):
+        if _starts(path, ("frontend/", ".testing/prototypes/edge-handoff/")):
             result["frontend"] = True
             matched = True
 
