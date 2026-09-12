@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// TK: NewAPI recoverable usage-window snapshots (weekly / 5h / 7d quota text).
+// TK: NewAPI recoverable usage-window snapshots (weekly / 5h / 7d / monthly quota text).
 //
 // Prod 2026-09-02 account 88 volcengine-agent-plan: upstream 429
 // "You have exceeded the weekly usage quota. It will reset at …" was correctly
@@ -22,7 +22,7 @@ import (
 //
 // This file is the write+read SSOT for that window text: parse reset time,
 // persist Extra, cool until reset, and surface utilization on the local 7d
-// (or 5h) progress + UpstreamQuota dimensions.
+// (or 5h, or 30d monthly) progress + UpstreamQuota dimensions.
 
 const (
 	newAPIWeeklyUtilExtraKey      = "newapi_weekly_utilization"
@@ -34,17 +34,21 @@ const (
 	newAPISevenDayUtilExtraKey    = "newapi_7d_utilization"
 	newAPISevenDayResetExtraKey   = "newapi_7d_reset"
 	newAPISevenDaySampledExtraKey = "newapi_7d_sampled_at"
+	newAPIMonthlyUtilExtraKey     = "newapi_monthly_utilization"
+	newAPIMonthlyResetExtraKey    = "newapi_monthly_reset"
+	newAPIMonthlySampledExtraKey  = "newapi_monthly_sampled_at"
 
 	newAPIUpstreamWeeklyKey   = "newapi_weekly"
 	newAPIUpstreamFiveHourKey = "newapi_5h"
 	newAPIUpstreamSevenDayKey = "newapi_7d"
+	newAPIUpstreamMonthlyKey  = "newapi_monthly"
 )
 
 var newAPIUsageWindowResetAtRE = regexp.MustCompile(`(?i)it will reset at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4}(?:\s+\S+)?)`)
 var newAPIUsageWindowShortResetAtRE = regexp.MustCompile(`(?i)(?:it|the quota) will reset at\s+(\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC\b`)
 
 type newAPIUsageWindowHit struct {
-	Window  string // "weekly" | "5h" | "7d"
+	Window  string // "weekly" | "5h" | "7d" | "monthly"
 	ResetAt time.Time
 }
 
@@ -64,6 +68,8 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 		window = "5h"
 	case strings.Contains(haystack, "7-day") || strings.Contains(haystack, "7 day"):
 		window = "7d"
+	case strings.Contains(haystack, "monthly"):
+		window = "monthly"
 	case strings.Contains(haystack, "weekly"):
 		window = "weekly"
 	}
@@ -93,10 +99,27 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 			}
 		}
 	}
+	if !ok && window == "monthly" {
+		resetAt = nextNaturalMonthStartCST(reference)
+		if resetAt.After(now) {
+			ok = true
+		}
+	}
 	if !ok {
 		return nil
 	}
 	return &newAPIUsageWindowHit{Window: window, ResetAt: resetAt}
+}
+
+// nextNaturalMonthStartCST returns the start of the next natural month in CST (Asia/Shanghai, UTC+8).
+func nextNaturalMonthStartCST(ref time.Time) time.Time {
+	cst := time.FixedZone("CST", 8*3600)
+	t := ref.In(cst)
+	year, month, _ := t.Date()
+	if month == time.December {
+		return time.Date(year+1, time.January, 1, 0, 0, 0, 0, cst)
+	}
+	return time.Date(year, month+1, 1, 0, 0, 0, 0, cst)
 }
 
 func tkParseNewAPIUsageWindowResetAt(haystack string) (time.Time, bool) {
@@ -194,6 +217,8 @@ func newAPIUsageWindowExtraKeys(window string) (utilKey, resetKey, sampledKey st
 		return newAPIFiveHourUtilExtraKey, newAPIFiveHourResetExtraKey, newAPIFiveHourSampledExtraKey
 	case "7d":
 		return newAPISevenDayUtilExtraKey, newAPISevenDayResetExtraKey, newAPISevenDaySampledExtraKey
+	case "monthly":
+		return newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIMonthlySampledExtraKey
 	default:
 		return "", "", ""
 	}
@@ -264,6 +289,7 @@ func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 	apply("weekly", newAPIWeeklyUtilExtraKey, newAPIWeeklyResetExtraKey, newAPIUpstreamWeeklyKey, "Weekly", "7d", &usage.SevenDay)
 	apply("5h", newAPIFiveHourUtilExtraKey, newAPIFiveHourResetExtraKey, newAPIUpstreamFiveHourKey, "5h", "5h", &usage.FiveHour)
 	apply("7d", newAPISevenDayUtilExtraKey, newAPISevenDayResetExtraKey, newAPIUpstreamSevenDayKey, "7d", "7d", &usage.SevenDay)
+	apply("monthly", newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIUpstreamMonthlyKey, "Monthly", "monthly", &usage.ThirtyDay)
 }
 
 func buildNewAPIUpstreamQuota(account *Account, usage *UsageInfo) *UpstreamQuotaInfo {

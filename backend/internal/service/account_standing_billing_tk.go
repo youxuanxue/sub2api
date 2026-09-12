@@ -93,6 +93,10 @@ func tkIsRecoverableUsageWindowMessage(haystack string) bool {
 		"1-week quota",
 		"5-hour",
 		"7-day",
+		"monthly quota",
+		"monthly usage quota",
+		"token plan person monthly",
+		"token_quota_exceeded",
 	} {
 		if strings.Contains(haystack, marker) {
 			return true
