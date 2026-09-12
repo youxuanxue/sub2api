@@ -71,7 +71,9 @@ sequenceDiagram
 
 双方同时检查精确 `event.origin` 和 `event.source`，每次点击绑定一个窗口及 attempt。
 父页面不持有 verifier 或最终会话。成功、超时、窗口关闭和页面卸载都注销 listener、
-清除 timer 与短时状态；超时后的迟到响应不能完成另一次交接。成功后解除 opener。
+清除 timer 与短时状态；超时后的迟到响应不能完成另一次交接。取消信号持续覆盖 auth store 的用户加载；
+超时、卸载或 pagehide 时清理仍属本次交接的本地凭据，迟到用户响应不能恢复会话或覆盖后续登录。
+成功后解除 opener。
 
 生产 Redis owner 用 code 的摘要定位短时记录；Lua 在**同一个操作**中验证有效期、
 attempt、challenge 后消费。错误 verifier/attempt 不得删除正确记录；并发只有一个赢家。

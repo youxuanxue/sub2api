@@ -45,8 +45,7 @@ func TestGenerateEdgeAdminSessionTokenPair_ReturnsRenewablePair(t *testing.T) {
 
 func TestGenerateEdgeAdminSessionTokenPair_RequiresRefreshCache(t *testing.T) {
 	// No refresh cache configured -> GenerateTokenPair errors; the handler maps
-	// this to a 500 so prod surfaces it as a 502 rather than handing out a
-	// non-renewing session silently.
+	// this to a 503 on the Edge rather than returning a non-renewing session.
 	s := newEdgeSessionAuthService(nil)
 	user := &User{ID: 1, Role: RoleAdmin, Status: StatusActive}
 

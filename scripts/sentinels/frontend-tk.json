@@ -1167,11 +1167,40 @@
     {
       "path": "frontend/src/views/admin/EdgeAccountsView.vue",
       "must_contain": [
+        "useTkEdgeAccounts",
+        "admin.edgeAccounts.title",
+        "admin.edgeAccounts.platformFilter",
+        "setPlatform",
+        "acct.notes",
+        "whitespace-pre-wrap break-words",
+        "sticky top-16",
+        "totals.concurrency.current",
+        "admin.edgeAccounts.summaryConcurrency",
+        "openEdgeManage",
+        "admin.edgeAccounts.manageAccounts",
+        "AccountCapacityCell",
+        "AccountUsageCell",
+        "AccountStatusIndicator",
+        "accountVm",
+        "displayEdges",
+        "admin.edgeAccounts.statusFilter",
+        "admin.edgeAccounts.groupFilter",
+        "setStatusFilter",
+        "setGroupFilter",
+        "!edge.stub_schedulable",
+        "admin.edgeAccounts.stubPaused",
+        "setAutoRefreshEnabled",
+        "autoRefreshIntervalLabel",
+        "admin.accounts.autoRefreshCountdown",
+        "isTempUnschedActive",
+        "admin.edgeAccounts.cooldownRecovered",
+        "@click=\"() => fetch({ force: true })\"",
+        "shouldShowEdgeAccountError(acct)",
         ":title=\"t('admin.edgeAccounts.accountIdHint')\">ID: {{ acct.id }}",
         "useEdgeAdminHandoff",
         "EdgeHandoffRecoveryTk"
       ],
-      "rationale": "PR #697: the edge-local account ID line under the name in the Edge Accounts overview table. The ID shown is the EDGE's own database primary key (data comes from each edge's /admin/accounts), NOT the prod account id — the i18n hint exists precisely to prevent that confusion during troubleshooting, so the anchor pins the hint hook together with the rendered acct.id. Same silent-drop risk as the AccountsView entry above; both surfaces must move in lockstep."
+      "rationale": "TK-only read-only admin page grouping accounts by edge. Renders the per-edge ok/failed/timeout state and a credential-free account table that REUSES the real admin AccountCapacityCell + AccountUsageCell (today + 5h/7d windows) via the memoized accountVm (which wraps toAccountLike / toWindowStats / toUsageInfo and caches per account object so the cells get reference-stable props and skip re-render on auto-refresh/hover/filter ticks), so the overview's capacity + usage-window gauges stay pixel-aligned with the per-edge /admin/accounts page. The page filters the already-fetched aggregate on the prod side (no per-edge re-query): displayEdges narrows by the statusFilter / groupFilter dropdowns (admin.edgeAccounts.statusFilter / groupFilter, bound through setStatusFilter / setGroupFilter), with status buckets mirroring the admin accounts page exactly — dropping these anchors regresses the prod-side group/status filtering back to platform-only. Guards against silent upstream-merge deletion of the view or a refactor that drops the cell reuse (which would regress the page back to a sparse static table). Also reuses AccountStatusIndicator for the 状态 column (instead of a hand-rolled badge) so it matches the per-edge admin page's status semantics; dropping it would regress status display. The platformFilter dropdown (bound through setPlatform) and the acct.notes line under the name are load-bearing: the page defaults to ALL platforms (not anthropic-only) and shows the operator 备注 like the per-edge admin page — dropping either anchor regresses the cross-platform overview or hides the remark. openEdgeManage + the manageAccounts button are the jump-to-manage entry: they mint a handoff and open the edge's own /admin/accounts in a new tab; dropping them removes cross-edge account management. The edge-header stubPaused badge (shown when !edge.stub_schedulable) is the one signal that a stub was 关调度 — prod stopped routing to a still-reachable edge; dropping it re-hides that state, the gap this surfacing closed. The acct.notes line uses whitespace-pre-wrap break-words (not truncate) so multi-line operator 备注 render verbatim, matching the #618 AccountsView fix — the truncate anchor would silently collapse newlines again. The header+summary live in a 'sticky top-16' wrapper pinned below the global AppHeader so the operator can refresh and read totals at any scroll depth, and the summary bar renders totals (totals.concurrency.current + the summaryConcurrency/summaryBaseRpm/summarySessions chips): the fleet-wide current/capacity aggregate (Σ live gauge / Σ configured cap) over all schedulable accounts, mirroring AccountCapacityCell's per-account current/capacity shape. Dropping the sticky or totals anchors regresses the pinned-header + at-a-glance current-vs-capacity readout the operator asked for. The header also carries the admin-accounts-style auto-refresh dropdown (setAutoRefreshEnabled toggle + autoRefreshIntervalLabel interval options + the admin.accounts.autoRefreshCountdown live countdown, reusing the accounts page's i18n keys); dropping these anchors regresses the configurable auto-refresh control back to the old fixed full-reload. The manual refresh button calls fetch({force:true}) so operator clicks bypass ETag/prod SWR cache; periodic polling stays cheap. The inline temp-unschedulable reason is gated through isTempUnschedActive (temp_unschedulable_until > now): the cooldown reason persists in the DB after the cooldown lapses (forensic breadcrumb, never cleared), so an ungated render paints every once-cooled account amber as a live problem forever — an expired cooldown must render dimmed with the admin.edgeAccounts.cooldownRecovered (已恢复) tag instead. shouldShowEdgeAccountError gates the stale error_message copy so a recovered account no longer displays an old 403. Dropping the isTempUnschedActive anchor (or the cooldownRecovered key) silently reintroduces that misleading always-alarming display. Preserve the edge-local account ID hint and shared handoff/recovery owner."
     },
     {
       "path": "frontend/src/views/admin/EdgeHandoffView.vue",
@@ -1184,7 +1213,8 @@
         "/api/v1/edge/admin-handoff/exchange",
         "router.replace('/admin/accounts')",
         "window.opener = null",
-        "if (disposed) return"
+        "if (disposed) return",
+        "authStore.setToken(pair.access_token, controller.signal)"
       ],
       "rationale": "One Edge-only lifecycle rejects legacy URLs, binds exact opener/origin, exchanges an in-memory verifier and installs the existing renewable session. Parent never receives tokens."
     },
@@ -1353,13 +1383,6 @@
         ":title=\"t('admin.accounts.accountIdHint')\">ID: {{ row.id }}"
       ],
       "rationale": "PR #697: the account ID (database primary key) line under the name in the #cell-name template, used by operators to pinpoint an account when troubleshooting (cooldown attribution, SQL lookups, scheduler logs all key on id). A single one-line span on a large upstream-shaped view is exactly the kind of change an upstream merge silently drops while keeping the build green — without it operators are back to extra DB queries to map name→id. The literal pins both the i18n hint hook and the rendered row.id in one anchor."
-    },
-    {
-      "path": "frontend/src/views/admin/EdgeAccountsView.vue",
-      "must_contain": [
-        ":title=\"t('admin.edgeAccounts.accountIdHint')\">ID: {{ acct.id }}"
-      ],
-      "rationale": "PR #697: the edge-local account ID line under the name in the Edge Accounts overview table. The ID shown is the EDGE's own database primary key (data comes from each edge's /admin/accounts), NOT the prod account id — the i18n hint exists precisely to prevent that confusion during troubleshooting, so the anchor pins the hint hook together with the rendered acct.id. Same silent-drop risk as the AccountsView entry above; both surfaces must move in lockstep."
     },
     {
       "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
@@ -2485,6 +2508,23 @@
         "legacy URL is scrubbed"
       ],
       "rationale": "Edge handoff SSOT owner and behavioral regression coverage; see docs/approved/edge-admin-handoff-v2.md."
+    },
+    {
+      "path": "frontend/src/stores/auth.ts",
+      "must_contain": [
+        "signal?.addEventListener('abort', cancelPendingToken",
+        "signal?.removeEventListener('abort', cancelPendingToken)",
+        "signal?.throwIfAborted()"
+      ],
+      "rationale": "Cancelled Edge session hydration must clear only its pending token and reject late user responses; the shared auth store owns persistence and refresh lifecycle."
+    },
+    {
+      "path": "frontend/src/stores/__tests__/auth.spec.ts",
+      "must_contain": [
+        "clears the pending handoff immediately and ignores late user hydration",
+        "does not clear a newer login when a cancelled handoff settles late"
+      ],
+      "rationale": "Behavioural guards for cancelled session hydration and isolation from subsequent logins."
     }
   ]
 }

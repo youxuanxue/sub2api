@@ -65,3 +65,32 @@ test('failed Edge mint can be retried from the same existing button', async ({ p
   await child.waitForURL('http://127.0.0.1:4322/admin/accounts')
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
+
+
+test('timeout during user hydration leaves no local Edge session', async ({ page, context }) => {
+  await context.clock.install()
+  await login(page)
+  await page.goto('/admin/edge-accounts')
+  let releaseUser!: () => void
+  const userReady = new Promise<void>(resolve => { releaseUser = resolve })
+  let hydrating = false
+  await context.route('http://127.0.0.1:4322/api/v1/auth/me', async route => {
+    hydrating = true
+    await userReady
+    await route.abort().catch(() => { /* The timed-out child may already be closed. */ })
+  })
+  try {
+    const popupPromise = page.waitForEvent('popup')
+    await page.getByRole('button', { name: 'Manage accounts', exact: true }).click()
+    await popupPromise
+    await expect.poll(() => hydrating).toBe(true)
+    await context.clock.fastForward(55000)
+    await expect(page.getByRole('alert').getByRole('button', { name: 'Try again' })).toBeVisible()
+    const probe = await context.newPage()
+    await probe.goto('http://127.0.0.1:4322/login')
+    expect(await probe.evaluate(() => Boolean(localStorage.getItem('auth_token') || localStorage.getItem('refresh_token') || localStorage.getItem('auth_user')))).toBe(false)
+    await expect(probe.locator('input[type=email]')).toBeVisible()
+  } finally {
+    releaseUser()
+  }
+})

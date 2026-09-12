@@ -36,6 +36,7 @@ function stop() {
   controller.abort()
   clearTimeout(timer)
   window.removeEventListener('message', receive)
+  window.removeEventListener('pagehide', stop)
 }
 function fail() {
   if (disposed) return
@@ -62,7 +63,7 @@ async function receive(event: MessageEvent) {
     if (!pair?.access_token || !pair?.refresh_token || !(pair.expires_in > 0)) throw new Error('Invalid session')
     // Existing session owner also loads the Edge user and schedules refresh.
     persistOAuthTokenContext(pair)
-    await authStore.setToken(pair.access_token)
+    await authStore.setToken(pair.access_token, controller.signal)
     if (disposed) return
     parent.postMessage({ type: HANDOFF_MESSAGE, phase: 'complete', attempt }, issuer)
     stop()
@@ -72,6 +73,7 @@ async function receive(event: MessageEvent) {
 }
 onBeforeUnmount(stop)
 onMounted(async () => {
+  window.addEventListener('pagehide', stop)
   // Old fragments/queries are never accepted, even if they contain valid tokens.
   const legacy = Boolean(window.location.hash || window.location.search)
   history.replaceState(null, '', window.location.pathname)

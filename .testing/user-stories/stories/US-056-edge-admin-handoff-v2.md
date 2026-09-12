@@ -30,7 +30,8 @@
 
 - `frontend/e2e/edge-handoff.e2e.ts`：既有两个入口、干净 URL、可续期会话、弹窗受阻、失败重试、旧 URL 拒绝。
 - `frontend/src/composables/__tests__/useEdgeAdminHandoff.tk.spec.ts`：窗口/来源绑定、超时和迟到 mint、卸载清理。
-- `frontend/src/views/admin/__tests__/EdgeHandoffView.spec.ts`：同源兑换、旧 URL 拒绝、迟到响应不安装会话。
+- `frontend/src/stores/__tests__/auth.spec.ts`：取消交接后清理本次凭据，迟到用户响应不恢复会话、不影响后续登录。
+- `frontend/src/views/admin/__tests__/EdgeHandoffView.spec.ts`：同源兑换、旧 URL 拒绝、迟到响应不安装会话，加载用户期间超时、卸载或 pagehide 取消本次安装。
 - `backend/internal/service/edge_admin_handoff_tk_test.go`::`TestEdgeAdminHandoff_DelegationValidation`：签名、issuer/audience/purpose、过期、kid 撤销。
 - `backend/internal/service/edge_admin_handoff_forward_tk_test.go`：目标固定、无镜像 Key、拒绝重定向。
 - `backend/internal/handler/edge_tk_admin_session_handler_test.go`：一次性 mint、错误 proof 不消费、来源/管理员权限、旧接口 410。

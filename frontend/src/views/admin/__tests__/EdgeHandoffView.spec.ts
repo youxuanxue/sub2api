@@ -34,7 +34,7 @@ describe('EdgeHandoffView', () => {
   it('exchanges only on the Edge and installs renewable session before navigating', async () => {
     await ready(); reply(); await flushPromises()
     expect(mocks.persist).toHaveBeenCalledWith({ access_token: 'edge-access', refresh_token: 'edge-refresh', expires_in: 1800 })
-    expect(mocks.setToken).toHaveBeenCalledWith('edge-access')
+    expect(mocks.setToken).toHaveBeenCalledWith('edge-access', expect.any(AbortSignal))
     expect(mocks.persist.mock.invocationCallOrder[0]).toBeLessThan(mocks.setToken.mock.invocationCallOrder[0])
     expect(mocks.replace).toHaveBeenCalledWith('/admin/accounts')
     expect(JSON.stringify(parent.postMessage.mock.calls)).not.toContain('edge-refresh')
@@ -50,6 +50,20 @@ describe('EdgeHandoffView', () => {
     wrapper = mount(EdgeHandoffView); await flushPromises()
     expect(location.hash + location.search).toBe(''); expect(fetchMock).not.toHaveBeenCalled(); expect(mocks.setToken).not.toHaveBeenCalled()
     expect(wrapper.get('[role=alert]').text()).toContain('handoff.failed')
+  })
+  it.each(['unmount', 'pagehide'])('cancels user hydration on %s after exchange', async lifecycle => {
+    await ready()
+    let resolve!: () => void
+    mocks.setToken.mockReturnValueOnce(new Promise<void>(r => { resolve = r }))
+    reply(); await flushPromises()
+    const signal = mocks.setToken.mock.calls[0][1] as AbortSignal
+    expect(signal.aborted).toBe(false)
+    if (lifecycle === 'unmount') wrapper?.unmount()
+    else window.dispatchEvent(new Event('pagehide'))
+    expect(signal.aborted).toBe(true)
+    resolve(); await flushPromises()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(parent.postMessage.mock.calls.some(([data]) => data.phase === 'complete')).toBe(false)
   })
   it('does not persist an exchange response after leaving the page', async () => {
     await ready()
