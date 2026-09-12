@@ -319,6 +319,19 @@ class ExecutionTest(unittest.TestCase):
 
 
 class OrchestrationTest(unittest.TestCase):
+    def test_class_coverage_summary_does_not_change_result_fingerprint(self):
+        receipt, page = self.receipt()
+        receipt['account_class_coverage'] = {'matched': 1, 'unmatched': 0, 'unmetered_or_absent': 0}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
+                {'needs_prepare': False}, {'needs_prepare': False}, receipt, page]):
+            cli.run_replay('1.2.3', 'i-prod', Path(tmp))
+            saved = json.loads(Path(tmp, 'replay-receipt.json').read_text())
+            details = json.loads(Path(tmp, 'replay-results.json').read_text())
+        self.assertEqual(saved['account_class_coverage'], receipt['account_class_coverage'])
+        self.assertNotIn('account_class_coverage', details)
+        from gateway_capability_matrix import digest
+        self.assertEqual(digest(details), receipt['results_sha256'])
+
     def test_observation_timeout_reconnects_without_resubmitting_requests(self):
         complete = subprocess.CompletedProcess([], 0, json.dumps({'Status': 'Success', 'ResponseCode': 0,
             'StandardOutputContent': '{"total":157}'}), '')
