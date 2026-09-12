@@ -23,7 +23,10 @@ import subprocess
 import time
 from urllib.parse import urlsplit
 
+from prod_replay_manifest import load as load_capability_manifest
+
 ROOT = Path('/var/lib/tokenkey')
+MANIFEST = Path(__file__).with_name('prod-replay-capabilities.json')
 IMAGE = 'ghcr.io/youxuanxue/sub2api'
 MAX_BYTES = 16 * 1024 * 1024
 MAX_SAMPLES = 200
@@ -162,6 +165,8 @@ def sample_from_capture(row, payload):
 def collect(root=ROOT):
     # Five recent alternatives per observed combination; select a complete
     # retained body where possible. Missing/truncated combinations stay gaps.
+    capabilities = load_capability_manifest(MANIFEST)
+    declared_protocols = {c.protocol for c in capabilities}
     query = """WITH ranked AS (
  SELECT request_id,user_id,api_key_id,requested_model,inbound_endpoint,stream,
  tool_calls_present,multimodal_present,blob_uri,created_at,
@@ -200,6 +205,12 @@ def collect(root=ROOT):
                     proc.wait(timeout=10)
                     proc.stdout.close()
                 selected = sample_from_capture(row, json.loads(data))
+                # Historical evidence may only satisfy a declared protocol.
+                # Unknown protocol rows stay gaps instead of expanding the
+                # denominator implicitly.
+                protocol = row.get('inbound_endpoint', '')
+                if not any(protocol_hint(protocol, c.protocol) for c in capabilities):
+                    raise ReplayError('capability_not_declared')
                 break
             except (ReplayError, ValueError, OSError) as exc:
                 reason = str(exc) if isinstance(exc, ReplayError) else 'capture_decode_failed'
@@ -213,6 +224,16 @@ def collect(root=ROOT):
         else:
             gaps['sample_budget_exceeded'] += 1
     return samples, dict(gaps), len(groups)
+
+
+def protocol_hint(endpoint, protocol):
+    endpoint = endpoint.lower()
+    return {
+        'openai-chat': 'chat' in endpoint,
+        'openai-responses': 'responses' in endpoint,
+        'anthropic-messages': 'messages' in endpoint,
+        'gemini-content': 'gemini' in endpoint or 'models' in endpoint,
+    }.get(protocol, False)
 
 
 def response_ok(status, ctype, raw, stream):
