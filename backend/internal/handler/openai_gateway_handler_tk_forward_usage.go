@@ -105,6 +105,7 @@ func (h *OpenAIGatewayHandler) tkSubmitOpenAISimpleForwardUsage(in tkOpenAISimpl
 	userAgent := in.C.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(in.C)
 	quotaPlatform := service.QuotaPlatform(in.C.Request.Context(), in.APIKey)
+	sessionID := service.ExtractClientSessionID(in.C)
 	tkHoldRequestID := in.Hold.HandOffToSettlement()
 	gatewayLatencyMs := tkSnapshotGatewayTransferLatencyMs(in.C)
 	upstreamModelForUsage := ""
@@ -128,6 +129,7 @@ func (h *OpenAIGatewayHandler) tkSubmitOpenAISimpleForwardUsage(in tkOpenAISimpl
 			APIKeyService:      h.apiKeyService,
 			TkHoldRequestID:    tkHoldRequestID,
 			QuotaPlatform:      quotaPlatform,
+			SessionID:          sessionID,
 			GatewayLatencyMs:   gatewayLatencyMs,
 			ChannelUsageFields: usageFields,
 		}); err != nil {

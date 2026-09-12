@@ -156,6 +156,36 @@ class ScenarioTests(unittest.TestCase):
             self.assertIn('173*29 + 47*83 - 61*37', json.dumps(fixture['body']))
             self.assertEqual(fixture['expected_answer'], '6661')
 
+    def test_video_pending_operation_and_inline_mp4_completion(self):
+        import base64
+        case = {**plan()['entries'][0], 'scenario': 'video'}
+        mp4 = base64.b64encode(b'\x00\x00\x00\x18ftypmp42' + b'0' * 40).decode()
+        completed = {'name': 'projects/test/operations/job', 'done': True,
+                     'response': {'videos': [{'bytesBase64Encoded': mp4, 'mimeType': 'video/mp4'}]}}
+        for obj in ({'name': 'projects/test/operations/job'}, completed):
+            self.assertIsNone(validate_response(case, 200, 'application/json', json.dumps(obj).encode(), False))
+        from gateway_capability_check import video_output_present
+        for bad in ('invalid!', __import__('base64').b64encode(b'not video').decode()):
+            self.assertFalse(video_output_present({'mimeType': 'video/mp4', 'bytesBase64Encoded': bad}))
+        for terminal, expected in ((completed, None),
+                                   ({**completed, 'response': {}}, 'video_output_missing'),
+                                   ({'name': 'operation', 'done': True, 'error': {'message': 'failed'}}, 'video_task_failed')):
+            replies = iter([{'id': 'vt_test', 'status': 'queued'}, {'name': 'operation'}, terminal])
+            def execute(request, key, port, marker, **kwargs):
+                obj = next(replies)
+                kwargs['on_response_id'](marker)
+                reason = kwargs['validator'](200, 'application/json', json.dumps(obj).encode(), False)
+                return {'response_request_id': marker, 'reason': reason}
+            with patch.object(host.replay, 'execute', side_effect=execute) as sender, \
+                 patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+                 patch.object(host.replay, 'inspect'), patch.object(host, 'candidate_address', return_value='10.0.0.2'), \
+                 patch.object(host, 'attribution', return_value=([59], None, ['submit'], True)) as attribute:
+                result = host.execute_case(case, {'key': 'test', 'api_key_id': 22}, '10.0.0.2',
+                                           {'target': 'green'}, lambda: None, inventory(), 'run', Path('/tmp'))
+                self.assertEqual(result['reason'], expected)
+                self.assertEqual(sender.call_count, 3)
+                self.assertEqual(len(attribute.call_args.args[1]), 1)
+
     def test_generated_requests_use_valid_operations_and_sufficient_budgets(self):
         value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
         self.assertFalse(any(c['protocol'] == 'openai-chat' and c['scenario'] == 'count-tokens' for c in value['entries']))

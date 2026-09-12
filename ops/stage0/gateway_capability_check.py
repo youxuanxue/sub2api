@@ -94,7 +94,7 @@ def validate_response(case, status, ctype, raw, stream):
                     return None
             return 'image_payload_missing'
         if case.get('scenario') == 'video':
-            return None if any(obj.get('id') or obj.get('task_id') or obj.get('status') for obj in dictionaries) else 'video_task_missing'
+            return None if any(obj.get('id') or obj.get('task_id') or obj.get('status') or obj.get('name') for obj in dictionaries) else 'video_task_missing'
         if case.get('scenario') == 'transcription':
             return None if any(isinstance(obj.get('text'), str) and obj['text'].strip() for obj in dictionaries) else 'transcription_text_missing'
         if case['request_type'] == 'count_tokens':
@@ -139,6 +139,23 @@ def validate_response(case, status, ctype, raw, stream):
         return None
     except (ValueError, TypeError, AttributeError):
         return 'invalid_response_encoding'
+
+
+def video_output_present(response):
+    for obj in objects(response):
+        for key in ('url', 'video_url', 'uri'):
+            url = obj.get(key)
+            if isinstance(url, str) and urlsplit(url).scheme == 'https' and urlsplit(url).hostname:
+                return True
+        encoded = obj.get('bytesBase64Encoded')
+        if obj.get('mimeType') == 'video/mp4' and isinstance(encoded, str):
+            try:
+                decoded = base64.b64decode(encoded, validate=True)
+                if len(decoded) > 32 and decoded[4:8] == b'ftyp':
+                    return True
+            except ValueError:
+                continue
+    return False
 
 
 def has_thinking_evidence(dictionaries):

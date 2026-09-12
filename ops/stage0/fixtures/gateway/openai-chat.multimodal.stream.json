@@ -20,7 +20,7 @@
         ]
       }
     ],
-    "max_completion_tokens": 2048,
+    "max_completion_tokens": 16384,
     "stream": true,
     "stream_options": {
       "include_usage": true

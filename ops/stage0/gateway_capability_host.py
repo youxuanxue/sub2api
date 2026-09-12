@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 
 import prod_replay as replay
 import gateway_capability_matrix as matrix
-from gateway_capability_check import validate_response, thinking_evidence, objects as response_objects
+from gateway_capability_check import validate_response, thinking_evidence, video_output_present, objects as response_objects
 from gateway_capability_scenarios import tool_continuation
 
 INTERVAL_SECONDS = 10
@@ -210,15 +210,14 @@ def execute_case(case, binding, address, before, throttle, inventory, run_id, ro
             response = send({'path': '/v1/videos/' + task, 'body': {}, 'stream': False}, method='GET')
             states = {str(obj.get('status', '')).lower() for obj in response_objects(response)}
             if any(obj.get('done') is True for obj in response_objects(response)):
-                states.add('completed')
+                states.add('failed' if any(obj.get('error') for obj in response_objects(response)) else 'completed')
             state = next((s for s in ('failed', 'failure', 'cancelled', 'canceled',
                                      'success', 'succeeded', 'completed') if s in states), '')
             if state in ('success', 'succeeded', 'completed', 'failed', 'failure', 'cancelled', 'canceled'):
                 terminal = True
                 if state not in ('success', 'succeeded', 'completed'):
                     final_reason = 'video_task_failed'
-                elif not any(isinstance(obj.get(key), str) and urlsplit(obj[key]).scheme == 'https'
-                             for obj in response_objects(response) for key in ('url', 'video_url')):
+                elif not video_output_present(response):
                     final_reason = 'video_output_missing'
                 break
             if final_reason:
