@@ -215,10 +215,62 @@ class OrchestrationTest(unittest.TestCase):
         def invocation(*_args, **_kwargs):
             return subprocess.CompletedProcess([], 0, json.dumps({'Status': 'Success', 'ResponseCode': 0,
                 'StandardOutputContent': delivered['stdout']}), '')
-        source = b'import json,sys; print(json.dumps({"operation":sys.argv[1], "tag":sys.argv[3]}))'
-        with patch.object(Path, 'read_bytes', return_value=source), patch.object(cli.subprocess, 'check_output', side_effect=send), patch.object(cli.subprocess, 'run', side_effect=invocation):
+        source = ('import json,sys; from pathlib import Path; '
+                  'from prod_replay_manifest import load; '
+                  'caps=load(Path(__file__).with_name("prod-replay-capabilities.json")); '
+                  'print(json.dumps({"operation":sys.argv[1], "tag":sys.argv[3], "protocol":caps[0].protocol}))')
+        read_text = Path.read_text
+        def shipped(path, *args, **kwargs):
+            return source if path.name == 'prod_replay.py' else read_text(path, *args, **kwargs)
+        with patch.object(Path, 'read_text', shipped), patch.object(cli.subprocess, 'check_output', side_effect=send), patch.object(cli.subprocess, 'run', side_effect=invocation):
             result = cli.remote('i-prod', 'status', '1.2.3', timeout=60)
-        self.assertEqual(result, {'operation': 'status', 'tag': '1.2.3'})
+        self.assertEqual(result, {'operation': 'status', 'tag': '1.2.3', 'protocol': 'openai-chat'})
+
+    def test_embedded_receipt_contract_loads_without_remote_imports_or_filename(self):
+        source = (ROOT / 'ops/stage0/prod_replay.py').read_text()
+        program = ('import json,time; scope={"__name__":"replay_contract"}; '
+                   'exec(compile(' + repr(source) + ',"replay_contract","exec"),scope); '
+                   'receipt=scope["seal"]({"tag":"1.2.3","prepared_receipt":"b"*64,'
+                   '"verdict":"green","cutover":False,"approval_pending":True,"finished_at":time.time()}); '
+                   'scope["validate_receipt"](receipt,receipt["receipt_sha256"],"b"*64,"1.2.3"); '
+                   'print(json.dumps({"validated":True}))')
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run([sys.executable, '-I', '-c', program], cwd=tmp, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {'validated': True})
+
+    def test_replacement_is_explicit_and_prepare_cannot_inherit_approval(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
+                {'needs_prepare': True}, {'needs_prepare': False},
+                {'verdict': 'green', 'cutover': False, 'receipt_sha256': 'c'*64}]) as remote, \
+             patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {
+                'STAGE0_BLUEGREEN_APPROVED_REPLAY': 'a'*64, 'STAGE0_BLUEGREEN_REPLACE_RECEIPT': 'a'*64}):
+            cli.run_replay('1.2.4', 'i-prod', Path(tmp), 'b'*64)
+            env = process.call_args.kwargs['env']
+            self.assertEqual(env['STAGE0_BLUEGREEN_STAGE'], 'prepare')
+            self.assertEqual(env['STAGE0_BLUEGREEN_REPLACE_RECEIPT'], 'b'*64)
+            self.assertNotIn('STAGE0_BLUEGREEN_APPROVED_REPLAY', env)
+            self.assertEqual(remote.call_args_list[0].kwargs['replace_receipt'], 'b'*64)
+
+    def test_status_rejects_stale_or_missing_replacement_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw = b'{"tag":"1.2.3"}'
+            path = root / 'bluegreen-prepared.json'
+            path.write_bytes(raw)
+            with patch.object(replay, 'prepared', return_value=(replay.digest(raw), {})) as prepared:
+                for receipt in ('', 'a'*64):
+                    with self.subTest(receipt=receipt), self.assertRaises(replay.ReplayError):
+                        replay.prepare_status('1.2.4', receipt, root)
+                prepared.assert_not_called()
+                expected = replay.digest(raw)
+                self.assertEqual(replay.prepare_status('1.2.4', expected, root),
+                                 {'needs_prepare': True, 'replace_receipt': expected})
+                prepared.assert_called_once_with('1.2.3', root)
+                self.assertEqual(path.read_bytes(), raw)
+            with patch.object(replay, 'prepared', side_effect=replay.ReplayError('prepared_state_changed')):
+                with self.assertRaisesRegex(replay.ReplayError, 'prepared_state_changed'):
+                    replay.prepare_status('1.2.4', expected, root)
 
     def test_prepared_retry_does_not_replace_candidate_and_red_fails(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': False}, {'needs_prepare': False}, {'verdict': 'red', 'cutover': False}]), patch.object(cli.subprocess, 'run') as process:

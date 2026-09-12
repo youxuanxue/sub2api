@@ -19,16 +19,23 @@ sys.path.insert(0, str(ROOT / 'ops/stage0'))
 from ssm_execution import PROD_REGION, resolve_prod_instance  # noqa: E402
 
 
-def remote(instance, operation, tag, receipt='', timeout=6000):
-    source = (ROOT / 'ops/stage0/prod_replay.py').read_bytes()
-    payload = base64.b64encode(zlib.compress(source)).decode()
+def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt=''):
+    files = {name: (ROOT / 'ops/stage0' / name).read_text() for name in
+             ('prod_replay.py', 'prod_replay_manifest.py', 'prod-replay-capabilities.json')}
+    payload = base64.b64encode(zlib.compress(json.dumps(files).encode())).decode()
     # Private per-command path: concurrent delivery cannot replace another run's
     # executor. The host module takes the blue/green deployment lock itself.
+    unpack = ('import base64,json,pathlib,sys,zlib; '
+              'files=json.loads(zlib.decompress(base64.b64decode(sys.argv[1]))); '
+              '[pathlib.Path(sys.argv[2],name).write_text(data) for name,data in files.items()]')
     script = ('set -euo pipefail\numask 077\n'
-              'replay_script=$(mktemp /tmp/tk-prod-replay.XXXXXX.py)\n'
-              'trap \'rm -f "$replay_script"\' EXIT\n'
-              f'printf %s {shlex.quote(payload)} | python3 -c \"import base64,sys,zlib; sys.stdout.buffer.write(zlib.decompress(base64.b64decode(sys.stdin.buffer.read())))\" > \"$replay_script\"\n'
-              'python3 "$replay_script" ' + shlex.join([operation, '--tag', tag, '--receipt', receipt]) + '\n')
+              'replay_dir=$(mktemp -d /tmp/tk-prod-replay.XXXXXX)\n'
+              'trap \'rm -f "$replay_dir/prod_replay.py" "$replay_dir/prod_replay_manifest.py" '
+              '"$replay_dir/prod-replay-capabilities.json"; rmdir "$replay_dir"\' EXIT\n'
+              'python3 -c ' + shlex.quote(unpack) + ' ' + shlex.quote(payload) + ' "$replay_dir"\n'
+              'PYTHONDONTWRITEBYTECODE=1 python3 "$replay_dir/prod_replay.py" '
+              + shlex.join([operation, '--tag', tag, '--receipt', receipt,
+                            '--replace-receipt', replace_receipt]) + '\n')
     parameters = json.dumps({'commands': [script], 'executionTimeout': [str(timeout)]})
     region = PROD_REGION
     base = ['aws', '--region', region, 'ssm']
@@ -56,14 +63,16 @@ def remote(instance, operation, tag, receipt='', timeout=6000):
     raise RuntimeError('replay observation timed out; host command=' + cid + ' may still be running; do not promote')
 
 
-def run_replay(tag, instance, out):
+def run_replay(tag, instance, out, replace_receipt=''):
     (out / 'replay-receipt.json').write_text(json.dumps({'tag': tag, 'verdict': 'red', 'reason': 'execution_pending'}) + '\n')
-    state = remote(instance, 'status', tag, timeout=60)
+    state = remote(instance, 'status', tag, timeout=60, replace_receipt=replace_receipt)
     if state['needs_prepare']:
         # No caller-supplied deploy environment can turn this into a cutover.
         env = {k: v for k, v in os.environ.items() if not k.startswith('STAGE0_BLUEGREEN_')}
         env.update(STAGE0_BLUEGREEN_STAGE='prepare', STAGE0_BLUEGREEN_WAIT_PHASE='complete',
                    STAGE0_SSM_OUTPUT_DIR=str(out / 'prepare'))
+        if replace_receipt:
+            env['STAGE0_BLUEGREEN_REPLACE_RECEIPT'] = replace_receipt
         subprocess.run(['bash', str(ROOT / 'ops/stage0/deploy_via_ssm_bluegreen.sh'), tag,
                         instance, 'prod replay prepare; no cutover'], env=env, check=True)
     remote(instance, 'status', tag, timeout=60)  # Require a matching durable prepared candidate.
@@ -79,10 +88,13 @@ def main():
     p.add_argument('--tag', required=True)
     p.add_argument('--target', choices=('prod',), default='prod')
     p.add_argument('--out', type=Path, default=Path('replay-output'))
+    p.add_argument('--replace-receipt', default='', help='existing prepared fingerprint; replace inactive candidate only')
     p.add_argument('--approved-replay', default='', help='reviewed receipt SHA; validate only, never cut over')
     args = p.parse_args()
     if not re.fullmatch(r'\d+\.\d+\.\d+', args.tag):
         p.error('invalid release tag')
+    if args.replace_receipt and (args.approved_replay or not re.fullmatch(r'[a-f0-9]{64}', args.replace_receipt)):
+        p.error('replacement requires SHA256 and cannot accompany approval')
     if args.approved_replay and not re.fullmatch(r'[a-f0-9]{64}', args.approved_replay):
         p.error('approved replay must be SHA256')
     args.out.mkdir(parents=True, exist_ok=True)
@@ -94,7 +106,7 @@ def main():
                 output.write('prepared_receipt=' + state['prepared_receipt'] + '\n')
         print(json.dumps(state))
     else:
-        run_replay(args.tag, instance, args.out)
+        run_replay(args.tag, instance, args.out, args.replace_receipt)
 
 
 if __name__ == '__main__':
