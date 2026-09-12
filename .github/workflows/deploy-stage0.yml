@@ -26,6 +26,11 @@ on:
         required: false
         type: string
         default: ""
+      replace_receipt:
+        description: "Replay only: SHA256 of the existing prepared candidate to replace without cutover."
+        required: false
+        type: string
+        default: ""
       simple_release_override:
         description: "⚠️ Allow deploy of a single-arch (amd64-only) :latest manifest. Default false; flip ONLY if the prod Stage0 host is amd64. Today prod runs AWS Graviton t4g (arm64) — flipping this WILL crash with exec format error."
         required: false
@@ -78,7 +83,9 @@ jobs:
           role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Prepare prod and replay retained requests without cutover
-        run: python3 scripts/stage0/replay-prod-release.py --target prod --tag "$INPUT_TAG" --out replay-output
+        env:
+          REPLACE_RECEIPT: ${{ inputs.replace_receipt }}
+        run: python3 scripts/stage0/replay-prod-release.py --target prod --tag "$INPUT_TAG" --replace-receipt "$REPLACE_RECEIPT" --out replay-output
       - name: Upload sanitized replay receipt
         if: always()
         uses: actions/upload-artifact@v6

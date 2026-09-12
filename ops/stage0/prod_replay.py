@@ -162,6 +162,10 @@ def sample_from_capture(row, payload):
 def collect(root=ROOT):
     # Five recent alternatives per observed combination; select a complete
     # retained body where possible. Missing/truncated combinations stay gaps.
+    # The receipt gate is embedded without a module filename on the host.
+    # Only collection needs the shipped manifest and its loader.
+    from prod_replay_manifest import load as load_capability_manifest
+    capabilities = load_capability_manifest(Path(__file__).with_name('prod-replay-capabilities.json'))
     query = """WITH ranked AS (
  SELECT request_id,user_id,api_key_id,requested_model,inbound_endpoint,stream,
  tool_calls_present,multimodal_present,blob_uri,created_at,
@@ -199,7 +203,14 @@ def collect(root=ROOT):
                         proc.terminate()
                     proc.wait(timeout=10)
                     proc.stdout.close()
-                selected = sample_from_capture(row, json.loads(data))
+                candidate = sample_from_capture(row, json.loads(data))
+                # Historical evidence may only satisfy a declared protocol.
+                # Unknown protocol rows stay gaps instead of expanding the
+                # denominator implicitly.
+                protocol = row.get('inbound_endpoint', '')
+                if not any(protocol_hint(protocol, c.protocol) for c in capabilities):
+                    raise ReplayError('capability_not_declared')
+                selected = candidate
                 break
             except (ReplayError, ValueError, OSError) as exc:
                 reason = str(exc) if isinstance(exc, ReplayError) else 'capture_decode_failed'
@@ -213,6 +224,16 @@ def collect(root=ROOT):
         else:
             gaps['sample_budget_exceeded'] += 1
     return samples, dict(gaps), len(groups)
+
+
+def protocol_hint(endpoint, protocol):
+    endpoint = endpoint.lower()
+    return {
+        'openai-chat': 'chat' in endpoint,
+        'openai-responses': 'responses' in endpoint,
+        'anthropic-messages': 'messages' in endpoint,
+        'gemini-content': 'gemini' in endpoint or 'models' in endpoint,
+    }.get(protocol, False)
 
 
 def response_ok(status, ctype, raw, stream):
@@ -494,23 +515,41 @@ def replay(tag, root=ROOT):
     return record
 
 
+def prepare_status(tag, replace_receipt='', root=ROOT):
+    path = root / 'bluegreen-prepared.json'
+    if path.exists():
+        raw = path.read_bytes()
+        old_tag = json.loads(raw)['tag']
+        if old_tag != tag:
+            require(re.fullmatch(r'[a-f0-9]{64}', replace_receipt or '')
+                    and digest(raw) == replace_receipt, 'replacement_receipt_required')
+            prepared(old_tag, root)  # Bind replacement to the still-current candidate and route.
+            return {'needs_prepare': True, 'replace_receipt': replace_receipt}
+        if replace_receipt:
+            require(digest(raw) == replace_receipt, 'replacement_receipt_mismatch')
+        sha, _ = prepared(tag, root)
+        return {'needs_prepare': False, 'prepared_receipt': sha}
+    require(not replace_receipt, 'replacement_candidate_missing')
+    require((root / 'active-color').read_text().strip() in ('blue', 'green'), 'requires_bluegreen_prod')
+    require(shutil.which('zstd'), 'zstd_required')
+    write_json(root / 'bluegreen-replay.json', seal({'tag': tag, 'verdict': 'red',
+               'cutover': False, 'approval_pending': True, 'reason': 'prepare_pending'}))
+    return {'needs_prepare': True}
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('operation', choices=('status', 'run', 'gate'))
     p.add_argument('--tag', required=True)
     p.add_argument('--receipt', default='')
+    p.add_argument('--replace-receipt', default='')
     args = p.parse_args()
     require(re.fullmatch(r'\d+\.\d+\.\d+', args.tag), 'invalid_tag')
     os.umask(0o077)
     with (ROOT / 'bluegreen-deploy.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if args.operation == 'status' and not (ROOT / 'bluegreen-prepared.json').exists():
-            # Refuse legacy and missing capture prerequisites BEFORE prepare.
-            require((ROOT / 'active-color').read_text().strip() in ('blue', 'green'), 'requires_bluegreen_prod')
-            require(shutil.which('zstd'), 'zstd_required')
-            write_json(ROOT / 'bluegreen-replay.json', seal({'tag': args.tag, 'verdict': 'red',
-                       'cutover': False, 'approval_pending': True, 'reason': 'prepare_pending'}))
-            result = {'needs_prepare': True}
+        if args.operation == 'status':
+            result = prepare_status(args.tag, args.replace_receipt)
         elif args.operation == 'run':
             def timeout(_sig, _frame):
                 raise ReplayDeadline()
