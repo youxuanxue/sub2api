@@ -55,8 +55,14 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
     print('replay SSM command=' + cid, file=sys.stderr)
     deadline = time.monotonic() + timeout + 60
     while time.monotonic() < deadline:
-        proc = subprocess.run(base + ['get-command-invocation', '--command-id', cid,
-            '--instance-id', instance, '--output', 'json'], capture_output=True, text=True, timeout=30)
+        try:
+            proc = subprocess.run(base + ['get-command-invocation', '--command-id', cid,
+                '--instance-id', instance, '--output', 'json'], capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            # The host run continues independently. Reconnect to the same command;
+            # never submit another paid suite after a local observation timeout.
+            time.sleep(5)
+            continue
         if proc.returncode:
             if 'InvocationDoesNotExist' not in proc.stderr:
                 raise RuntimeError('cannot read replay SSM invocation')
