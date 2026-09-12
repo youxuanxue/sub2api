@@ -93,8 +93,7 @@ temp/
 *.temp
 *.log
 *.bak
-.cache/*
-!.cache/fingerprint/
+.cache/
 .dev/
 .serena/
 

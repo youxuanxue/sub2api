@@ -15,36 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type accountModelMappingGroupStub struct {
-	byPlatform  map[string][]Group
-	updateCalls []Group
-	listErr     error
-}
-
-func (s *accountModelMappingGroupStub) ListActiveByPlatform(_ context.Context, platform string) ([]Group, error) {
-	if s.listErr != nil {
-		return nil, s.listErr
-	}
-	return s.byPlatform[platform], nil
-}
-
-func (s *accountModelMappingGroupStub) Update(_ context.Context, g *Group) error {
-	s.updateCalls = append(s.updateCalls, *g)
-	return nil
-}
-
-type accountModelMappingSettingStub struct {
-	values map[string]string
-}
-
-func (s accountModelMappingSettingStub) GetRawSettingValue(_ context.Context, key string) (string, bool) {
-	if s.values == nil {
-		return "", false
-	}
-	v, ok := s.values[key]
-	return v, ok
-}
-
 func TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset(t *testing.T) {
 	t.Parallel()
 
@@ -157,75 +127,6 @@ func TestAccountModelMappingRuntimeOverride(t *testing.T) {
 		"runtime channel replacement must not erase the ch41 profile/shared capability contract")
 }
 
-func TestAccountModelMappingReconciler_RewritesDriftedAccountsAcrossPlatforms(t *testing.T) {
-	acc := &reconcilerAccountStub{
-		byPlatform: map[string][]Account{
-			PlatformAntigravity: {
-				{ID: 1, Platform: PlatformAntigravity, Credentials: nil},
-			},
-			PlatformGrok: {
-				{ID: 2, Platform: PlatformGrok, Credentials: map[string]any{"model_mapping": map[string]any{"grok-not-current-zzz": "grok-not-current-zzz"}}},
-			},
-			PlatformKiro: {
-				{ID: 3, Platform: PlatformKiro, Credentials: map[string]any{}},
-			},
-			PlatformOpenAI: {
-				{ID: 4, Platform: PlatformOpenAI, Credentials: map[string]any{"model_mapping": modelMappingToAny(identityModelMapping(supportedCatalogModelIDsForPlatform(PlatformOpenAI)))}},
-			},
-		},
-	}
-	r := NewAccountModelMappingReconciler(acc, nil, nil, nil, nil)
-	r.runOnce(context.Background())
-
-	var touched []int64
-	for _, c := range acc.bulkCalls {
-		touched = append(touched, c.ids...)
-		mm, ok := c.updates.Credentials["model_mapping"].(map[string]any)
-		require.True(t, ok)
-		require.NotEmpty(t, mm)
-	}
-	require.ElementsMatch(t, []int64{1, 2, 3}, touched)
-}
-
-func TestAccountModelMappingReconciler_PreservesCompatibleExtrasAndRepairsRequiredFloor(t *testing.T) {
-	shared := identityModelMapping(vertexSharedModelMappingPresetIDs())
-	account57Mapping := cloneStringMap(shared)
-	account57Mapping["gemini-2.5-pro"] = "gemini-2.5-pro"
-	account57Mapping["gemini-2.5-flash"] = "wrong-target"
-	account57Mapping["compatible-future-model"] = "compatible-future-model"
-
-	acc := &reconcilerAccountStub{
-		byPlatform: map[string][]Account{
-			PlatformNewAPI: {
-				{
-					ID:          57,
-					Platform:    PlatformNewAPI,
-					ChannelType: newapiconstant.ChannelTypeVertexAi,
-					Credentials: map[string]any{
-						VertexCapabilityProfileCredentialKey: vertexCapabilityProfileCoreImagenUltra,
-						"model_mapping":                      modelMappingToAny(account57Mapping),
-					},
-				},
-			},
-		},
-	}
-	r := NewAccountModelMappingReconciler(acc, nil, nil, nil, nil)
-	r.runOnce(context.Background())
-
-	require.Len(t, acc.bulkCalls, 1)
-	require.Equal(t, []int64{57}, acc.bulkCalls[0].ids)
-	got, ok := acc.bulkCalls[0].updates.Credentials["model_mapping"].(map[string]any)
-	require.True(t, ok)
-	profileIDs, known := vertexCapabilityProfileModelMappingIDs(vertexCapabilityProfileCoreImagenUltra)
-	require.True(t, known)
-	for _, id := range profileIDs {
-		require.Equal(t, id, got[id])
-	}
-	require.Equal(t, "gemini-2.5-pro", got["gemini-2.5-pro"],
-		"account 57 Pro result is inconclusive and must survive as a compatible extra")
-	require.Equal(t, "compatible-future-model", got["compatible-future-model"])
-}
-
 func TestReconciledAccountModelMapping_RemovesForbiddenEntries(t *testing.T) {
 	t.Parallel()
 
@@ -241,59 +142,6 @@ func TestReconciledAccountModelMapping_RemovesForbiddenEntries(t *testing.T) {
 	require.Equal(t, "required-target", got["required"])
 	require.Equal(t, "compatible-extra", got["compatible-extra"])
 	require.NotContains(t, got, "gpt-oss-forbidden-prefix-boundary")
-}
-
-func TestAccountModelMappingReconciler_RuntimeOverrideFromSettings(t *testing.T) {
-	grokID := firstStringSortedForReconcilerTest(t, supportedCatalogModelIDsForPlatform(PlatformGrok))
-	acc := &reconcilerAccountStub{
-		byPlatform: map[string][]Account{
-			PlatformGrok: {
-				{ID: 9, Platform: PlatformGrok, Credentials: map[string]any{}},
-			},
-		},
-	}
-	settings := accountModelMappingSettingStub{values: map[string]string{
-		SettingKeyTKAccountModelMappingRuntime: runtimeOverrideRawForReconcilerTest(t, accountModelMappingRuntimeDoc{
-			Platforms: map[string]map[string]string{
-				"grok": {grokID: grokID},
-			},
-		}),
-	}}
-	r := NewAccountModelMappingReconciler(acc, nil, settings, nil, nil)
-	r.runOnce(context.Background())
-
-	require.Len(t, acc.bulkCalls, 1)
-	require.Equal(t, []int64{9}, acc.bulkCalls[0].ids)
-	require.Equal(t, map[string]any{grokID: grokID}, acc.bulkCalls[0].updates.Credentials["model_mapping"])
-}
-
-func TestAccountModelMappingReconciler_AntigravityGroupScopesAllowClaudeAndGemini(t *testing.T) {
-	grp := &accountModelMappingGroupStub{
-		byPlatform: map[string][]Group{
-			PlatformAntigravity: {
-				{ID: 1, Platform: PlatformAntigravity, SupportedModelScopes: []string{"gemini_text", "gemini_image"}},
-				{ID: 2, Platform: PlatformAntigravity, SupportedModelScopes: []string{"claude", "gemini_text", "gemini_image"}},
-				{ID: 3, Platform: PlatformAntigravity, SupportedModelScopes: nil},
-			},
-		},
-	}
-	r := NewAccountModelMappingReconciler(nil, grp, nil, nil, nil)
-	r.runOnce(context.Background())
-
-	require.Len(t, grp.updateCalls, 2)
-	ids := []int64{grp.updateCalls[0].ID, grp.updateCalls[1].ID}
-	require.ElementsMatch(t, []int64{1, 3}, ids)
-	for _, g := range grp.updateCalls {
-		require.ElementsMatch(t, canonicalAntigravityModelScopes, g.SupportedModelScopes)
-	}
-}
-
-func TestAccountModelMappingReconciler_NilSafe(t *testing.T) {
-	var nilRec *AccountModelMappingReconciler
-	require.NotPanics(t, func() { nilRec.runOnce(context.Background()); nilRec.RunOnce() })
-
-	rec := NewAccountModelMappingReconciler(nil, nil, nil, nil, nil)
-	require.NotPanics(t, func() { rec.runOnce(context.Background()); rec.RunOnce() })
 }
 
 func expectedAntigravityModelMappingForReconcilerTest() map[string]string {

@@ -15,6 +15,9 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
+  // TokenKey platforms share the account, group and composite-route selectors.
+  { value: 'newapi', label: 'Extension Engine' },
+  { value: 'kiro', label: 'Kiro' },
   { value: 'grok', label: 'Grok' },
   { value: 'kimi', label: 'Kimi' },
   { value: 'zhipu', label: 'Zhipu GLM' },
