@@ -125,3 +125,54 @@ func TestCursorReconnectPreservesPersistedPause(t *testing.T) {
 		}
 	}
 }
+
+func TestCursorBindsMixedChinaAfterExplicitMappingRemoval(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client := testEntClient(t)
+	repo := newAccountRepositoryWithSQL(client, integrationDB, nil, nil)
+	groups := newGroupRepositoryWithSQL(client, integrationDB)
+	admin := service.NewAdminService(nil, nil, groups, repo, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	legacy, ok := service.TkMessagesDispatchGroupDefaults("glm")
+	require.True(t, ok)
+	group, err := client.Group.Create().SetName("china").SetPlatform(service.PlatformNewAPI).
+		SetAllowMessagesDispatch(true).SetMessagesDispatchModelConfig(legacy).Save(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id=$1", group.ID)
+	})
+	makeAccount := func(isCursor bool) *service.Account {
+		a := &service.Account{Name: fmt.Sprintf("mixed-supply-%d", time.Now().UnixNano()),
+			Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey, ChannelType: 14,
+			Status: service.StatusActive, Schedulable: true,
+			Credentials: map[string]any{"api_key": "test-only", "base_url": "https://example.com"}}
+		if isCursor {
+			a.Extra = map[string]any{service.CursorSourceExtraKey: "cursor"}
+		}
+		require.NoError(t, repo.Create(ctx, a))
+		t.Cleanup(func() {
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id=$1", a.ID)
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM account_groups WHERE account_id=$1", a.ID)
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id=$1", a.ID)
+		})
+		return a
+	}
+	peer, cursorAccount := makeAccount(false), makeAccount(true)
+	ids := []int64{group.ID}
+	require.NoError(t, repo.BindGroups(ctx, peer.ID, ids))
+	_, err = admin.SaveCursorAccount(ctx, nil, &service.UpdateAccountInput{GroupIDs: &ids}, cursorAccount.ID)
+	require.ErrorContains(t, err, "remapping")
+	empty := service.OpenAIMessagesDispatchModelConfig{}
+	updatedGroup, err := admin.UpdateGroup(ctx, group.ID, &service.UpdateGroupInput{MessagesDispatchModelConfig: &empty})
+	require.NoError(t, err)
+	require.True(t, updatedGroup.AllowMessagesDispatch)
+	require.Empty(t, updatedGroup.ResolveMessagesDispatchModel("claude-opus-4-6"))
+	_, err = admin.SaveCursorAccount(ctx, nil, &service.UpdateAccountInput{GroupIDs: &ids}, cursorAccount.ID)
+	require.NoError(t, err)
+	for _, a := range []*service.Account{peer, cursorAccount} {
+		loaded, err := repo.GetByID(ctx, a.ID)
+		require.NoError(t, err)
+		require.Equal(t, ids, loaded.GroupIDs)
+	}
+}

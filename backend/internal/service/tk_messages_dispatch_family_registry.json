@@ -56,11 +56,6 @@
       "opus_mapped_model": "doubao-seed-2-0-pro-260215",
       "sonnet_mapped_model": "doubao-seed-2-0-code-preview-260215",
       "haiku_mapped_model": "doubao-seed-2-0-mini-260428"
-    },
-    "china": {
-      "opus_mapped_model": "glm-5.2",
-      "sonnet_mapped_model": "glm-4.7",
-      "haiku_mapped_model": "glm-4.5-air"
     }
   },
   "group_families": {

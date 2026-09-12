@@ -57,7 +57,7 @@ func (s *adminServiceImpl) SaveCursorAccount(ctx context.Context, create *Create
 		groupIDs = *update.GroupIDs
 	}
 	if len(groupIDs) != 1 {
-		return nil, errors.New("cursor requires exactly one dedicated service group")
+		return nil, errors.New("cursor requires exactly one service group")
 	}
 	groups, err := tx.Group.Query().Where(entgroup.IDIn(groupIDs...)).Order(dbent.Asc(entgroup.FieldID)).ForUpdate().All(opCtx)
 	if err != nil {
@@ -67,21 +67,8 @@ func (s *adminServiceImpl) SaveCursorAccount(ctx context.Context, create *Create
 		if group.Platform != PlatformNewAPI {
 			return nil, errors.New("cursor requires a newapi service group")
 		}
-		cfg := group.MessagesDispatchModelConfig
-		_, registered := tkMessagesDispatchFamilyForGroup(group.Name)
-		if registered || cfg.OpusMappedModel != "" || cfg.SonnetMappedModel != "" || cfg.HaikuMappedModel != "" || len(cfg.ExactModelMappings) > 0 {
+		if hasMessagesDispatchRemapping(&Group{Name: group.Name, Platform: group.Platform, MessagesDispatchModelConfig: group.MessagesDispatchModelConfig}) {
 			return nil, errors.New("cursor requires a group without cross-family model remapping")
-		}
-	}
-	for _, id := range groupIDs {
-		accounts, listErr := s.accountRepo.ListByGroup(opCtx, id)
-		if listErr != nil {
-			return nil, listErr
-		}
-		for _, candidate := range accounts {
-			if candidate.ID != accountID && !candidate.IsCursor() {
-				return nil, errors.New("cursor requires a dedicated service group")
-			}
 		}
 	}
 	var account *Account
@@ -146,9 +133,7 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client c
 		if group.Platform != PlatformNewAPI {
 			return nil, errors.New("cursor requires a newapi service group")
 		}
-		cfg := group.MessagesDispatchModelConfig
-		_, registered := tkMessagesDispatchFamilyForGroup(group.Name)
-		if registered || cfg.OpusMappedModel != "" || cfg.SonnetMappedModel != "" || cfg.HaikuMappedModel != "" || len(cfg.ExactModelMappings) > 0 {
+		if hasMessagesDispatchRemapping(group) {
 			return nil, errors.New("cursor requires a group without cross-family model remapping")
 		}
 	}
