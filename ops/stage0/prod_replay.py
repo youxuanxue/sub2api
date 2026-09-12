@@ -342,7 +342,18 @@ def request_seconds(sample):
     return min(MAX_REQUEST_SECONDS, max(REQUEST_SECONDS, 2 * historical + 30))
 
 
-def execute(sample, key, port, replay_id, *, validator=None, budget=None, method='POST', content_type='application/json'):
+def usage_request_ids(response_ids):
+    """Storage IDs from gateway_usage_billing.go and openai_gateway_usage.go.
+
+    Keep the echoed ID too for legacy storage; native video uses the forced
+    grok-video namespace around its local billing ID, including bridge video.
+    """
+    return sorted({value for rid in response_ids
+                   for value in (rid, 'local:' + rid, 'grok-video:local:' + rid)})
+
+
+def execute(sample, key, port, replay_id, *, validator=None, budget=None, method='POST',
+            content_type='application/json', on_response_id=None):
     # No proxy or redirects: a response cannot redirect credentials elsewhere.
     budget = request_seconds(sample) if budget is None else budget
     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=budget)
@@ -363,6 +374,8 @@ def execute(sample, key, port, replay_id, *, validator=None, budget=None, method
         response_id = response.getheader('X-Request-ID')
         if not response_id or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', response_id):
             response_id = None
+        if response_id and on_response_id:
+            on_response_id(response_id)  # Retain attribution even if a signal interrupts body reading.
         phase = 'response_body'
         while (remaining := deadline - time.monotonic()) > 0:
             # HTTPConnection clears sock for Connection: close responses; the
@@ -438,7 +451,6 @@ class Sandbox:
         self.name = 'tk-replay-' + secrets.token_hex(6)
         self.path = root / self.name
         self.created = []
-        self.network_created = False
 
     def configure_database(self):
         """Optional isolated-database setup, before the gateway can cache any rows."""
@@ -462,7 +474,6 @@ class Sandbox:
         env = isolated_environment(source, self.name, password)
         database = env['DATABASE_DBNAME']
         run(['docker', 'network', 'create', '--label', 'tokenkey.release-replay=' + self.name, self.name])
-        self.network_created = True
         pg_env = self.path / 'postgres.env'
         pg_env.write_text(f'POSTGRES_USER=tokenkey\nPOSTGRES_DB={database}\nPOSTGRES_PASSWORD={password}\n')
         pg_env.chmod(0o600)
@@ -541,16 +552,27 @@ class Sandbox:
 
     def close(self):
         errors = []
-        for name in reversed(self.created):
+        # Docker may finish creation after its CLI is interrupted. The label is
+        # authoritative even when a Python assignment never completed.
+        label = 'label=tokenkey.release-replay=' + self.name
+        owned = run(['docker', 'ps', '-a', '--filter', label, '--format', '{{.Names}}']).decode().splitlines()
+        names = list(dict.fromkeys([*reversed(self.created), *owned]))
+        for name in names:
+            if name not in owned:
+                continue
             try:
                 run(['docker', 'rm', '-f', '-v', name])
             except ReplayError:
                 errors.append(name)
-        if self.network_created:
+        networks = run(['docker', 'network', 'ls', '--filter', label, '--format', '{{.Name}}']).decode().splitlines()
+        for network in networks:
             try:
-                run(['docker', 'network', 'rm', self.name])
+                run(['docker', 'network', 'rm', network])
             except ReplayError:
-                errors.append(self.name)
+                errors.append(network)
+        require(not run(['docker', 'ps', '-a', '--filter', label, '--format', '{{.Names}}']).strip()
+                and not run(['docker', 'network', 'ls', '--filter', label, '--format', '{{.Name}}']).strip(),
+                'replay_resources_remain')
         if not errors and self.path.exists():
             shutil.rmtree(self.path)
         require(not errors, 'replay_cleanup_failed')
@@ -596,10 +618,10 @@ def replay(tag, root=ROOT):
             results[-1].update({k: row[k] for k in ('user_id', 'requested_model', 'inbound_endpoint', 'stream',
                                                   'tool_calls_present', 'multimodal_present')})
         # Production user usage must not contain a replay request ID.
-        # Storage identity is the server X-Request-ID echoed on the response.
+        # Billing storage IDs derive from the server X-Request-ID, with namespace prefixes.
         # Client markers use X-Client-Request-ID and must not appear as request_id.
         response_ids = sorted({r['response_request_id'] for r in results if r.get('response_request_id')})
-        id_literals = ','.join("'" + rid + "'" for rid in response_ids) or "NULL"
+        id_literals = ','.join("'" + rid + "'" for rid in usage_request_ids(response_ids)) or "NULL"
         production_writes = int(sql("SELECT count(*) FROM usage_logs WHERE created_at >= now()-interval '3 hours' "
                                    "AND (request_id LIKE '" + prefix + "%' OR request_id IN (" + id_literals + "));").strip())
         require(production_writes == 0, 'production_usage_written')

@@ -291,17 +291,17 @@
       },
       {
         "path": "ops/stage0/gateway_capability_matrix.py",
-        "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "harness-passed"],
+        "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "verification_sha256", "harness-passed"],
         "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return."
       },
       {
         "path": "ops/stage0/gateway_capability_host.py",
-        "must_contain": ["def account_guard(", "def run_locked(", "def verify_binding(", "def attribution(", "INTERVAL_SECONDS = 10", "sandbox.close()", "production_usage_rows"],
+        "must_contain": ["def account_guard(", "def run_locked(", "def verify_binding(", "def attribution(", "class HostPressure(replay.ReplayDeadline)", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "sandbox.close()", "production_usage_rows"],
         "rationale": "Serial synthetic verification preserves live headroom checks, account attribution, isolated data, and cleanup."
       },
       {
         "path": "ops/stage0/test_gateway_capability_host.py",
-        "must_contain": ["test_mutated_key_group_or_account_binding_is_rejected", "test_rate_limit_stops_the_full_plan_without_dropping_remaining_cases", "test_pressure_before_start_still_emits_all_obligations_and_cleans_up"],
+        "must_contain": ["test_mutated_key_group_or_account_binding_is_rejected", "test_rate_limit_stops_the_full_plan_without_dropping_remaining_cases", "test_pressure_before_start_still_emits_all_obligations_and_cleans_up", "test_capacity_abort_is_not_swallowed_by_database_health_retry", "test_cleanup_reconciles_resources_even_without_creation_flags", "test_real_sql_resolves_billing_ids_and_detects_production_writes"],
         "rationale": "Behavioral guards prevent account fallback, unsafe continuation and denominator truncation."
       },
       {

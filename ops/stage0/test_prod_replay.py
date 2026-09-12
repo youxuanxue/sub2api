@@ -35,7 +35,8 @@ def sample(user=1, model='m1', endpoint='/v1/messages'):
 
 
 @contextlib.contextmanager
-def server(status=200, body=b'{"content":[{"text":"ok"}]}', content_type='application/json', header_delay=0, body_delay=0, declared_length=None):
+def server(status=200, body=b'{"content":[{"text":"ok"}]}', content_type='application/json', header_delay=0,
+           body_delay=0, declared_length=None, response_id=None):
     requests = []
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
@@ -46,6 +47,8 @@ def server(status=200, body=b'{"content":[{"text":"ok"}]}', content_type='applic
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(body) if declared_length is None else declared_length))
             self.send_header('Location', 'http://example.invalid/credential-sink')
+            if response_id:
+                self.send_header('X-Request-ID', response_id)
             self.end_headers()
             time.sleep(body_delay)
             try:
@@ -147,6 +150,19 @@ class CaptureTest(unittest.TestCase):
 
 
 class HTTPTest(unittest.TestCase):
+    def test_server_id_is_retained_before_body_timeout_or_abort(self):
+        retained = []
+        with server(body_delay=.15, response_id='server-id') as (port, _):
+            result = replay.execute(sample(), 'synthetic', port, 'test', budget=.05, on_response_id=retained.append)
+        self.assertEqual(result['reason'], 'request_deadline_exceeded')
+        self.assertEqual(retained, ['server-id'])
+        def abort(rid):
+            retained.append(rid)
+            raise replay.ReplayDeadline()
+        with server(response_id='interrupted-id') as (port, _), self.assertRaises(replay.ReplayDeadline):
+            replay.execute(sample(), 'synthetic', port, 'test', on_response_id=abort)
+        self.assertEqual(retained, ['server-id', 'interrupted-id'])
+
     def test_real_loopback_request_preserves_body_identity_and_hides_payload(self):
         request = sample()
         with server() as (port, received):

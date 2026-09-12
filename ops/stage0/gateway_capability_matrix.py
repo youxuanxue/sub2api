@@ -17,6 +17,8 @@ DEFAULT_MANIFEST = Path(__file__).with_name('gateway-capability-matrix.json')
 DEFAULT_INVENTORY = Path(__file__).with_name('gateway-account-supply.json')
 KEY_TYPES = {'universal'}
 EXECUTION_BLOCKER = 'upstream_execution_not_requested'
+VERIFICATION_SOURCES = ('gateway_capability_scenarios.py', 'gateway_capability_check.py',
+                        'gateway_capability_host.py', 'prod_replay.py')
 PROTOCOLS = {'openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-content',
              'openai-images', 'openai-embeddings', 'openai-audio', 'openai-video', 'openai-transcription'}
 REQUEST_TYPES = {'plain', 'tool', 'thinking', 'multimodal', 'count_tokens'}
@@ -158,6 +160,8 @@ def build(inventory, profiles):
     """
     inventory = validate_inventory(inventory)
     fixtures = {p['id']: p for p in profiles}
+    verification_sha256 = digest({name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+                                  for name in VERIFICATION_SOURCES})
     entries = []
 
     def emit(cls, rep, protocol, scenario, layer):
@@ -182,7 +186,7 @@ def build(inventory, profiles):
                  'blocked_reason': reason, 'selection': layer, 'plan_validation': 'required'}
         # Equivalence semantics invalidate evidence even if the chosen model is unchanged.
         entry['supply_sha256'] = digest(cls)
-        entry['scenario_sha256'] = hashlib.sha256(Path(__file__).with_name('gateway_capability_scenarios.py').read_bytes()).hexdigest()
+        entry['verification_sha256'] = verification_sha256
         entry['id'] = digest([cls['id'], rep['family'], protocol, scenario, 'universal'])
         entry['case_sha256'] = digest(entry)
         entries.append(entry)
@@ -311,8 +315,9 @@ def from_tag(tag):
         # Rebuilding with changed rules would retrofit new obligations into the
         # previous release and silently erase their delta. Use a full baseline.
         return None
-    if blob('ops/stage0/gateway_capability_scenarios.py', optional=True) != Path(__file__).with_name('gateway_capability_scenarios.py').read_bytes():
-        return None
+    for name in VERIFICATION_SOURCES:
+        if blob('ops/stage0/' + name, optional=True) != Path(__file__).with_name(name).read_bytes():
+            return None
     with tempfile.TemporaryDirectory(prefix='tk-capability-baseline-') as directory:
         root = Path(directory).resolve()
         (root / 'matrix.json').write_bytes(manifest)

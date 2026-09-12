@@ -45,7 +45,7 @@ branch_family，不因线上调用频率变化自动改选代表。仓库内不�
 默认输出完整计划；`--limit` 仅显式限制有模板且无设施阻塞的选择数量，不缩小报告分母。
 不恢复默认抽样截断，不增加 direct smoke。
 
-`--previous` 只比较声明/fixture digest，不代表执行历史。模板、代表或账号类语义改变会
+`--previous` 只比较声明/fixture digest，不代表执行历史。模板、代表、账号类或验证器／执行器源码改变会
 使相应证据过期；清单中的集合顺序不改变 digest；case ID 包含账号类，同一模型在不同账号路径上的成功不能相互替代。
 新模型映射到已有等价类时更新 represented_models；新执行分支另增代表或账号类。
 供应刷新是显式脱敏盘点后评审清单，尚未实现线上 inventory 自动归类；post-release
@@ -66,11 +66,12 @@ media handler；不另造 Python 协议路由策略。count-token endpoint 本�
 每次调用前复核绑定；正确响应但命中其他账号或缺 usage 不得通过。
 
 并发固定为一，所有请求（包括工具续轮和视频轮询）共享最小间隔；主机余量和线上账号
-剩余槽位由执行器检查。副本 dump/restore/startup 期间每两秒复核主机余量，超限中止并清理。生产 SQL/Redis 只读，副本数据库写测试用户、key、分组和 usage。
+剩余槽位由执行器检查。副本 dump/restore/startup 期间每两秒复核主机余量，超限异常不得被健康重试吞掉，清理以实际运行标签核对资源。load 是保守负载门禁，不是 CPU 使用率，也不单独证明线上影响。生产 SQL/Redis 只读，副本数据库写测试用户、key、分组和 usage。
 遇到容量不足不重置线上 cooldown；限流、服务不可用、超时或未结束视频任务停止后续付费调用。
-所有剩余用例保留停止原因。生产 usage 必须没有本次响应 request ID，active/candidate/Caddy
+所有剩余用例保留停止原因。生产 usage 按响应 request ID 对应的真实计费 ID（含 local 和视频命名空间）检查，必须没有本次写入；active/candidate/Caddy
 指纹必须一致，临时资源清理失败使通过证据失效。
 
+生成响应必须有对应协议的正常终态，截断和内容过滤不计通过。
 视觉场景使用本地生成的纯色图片并校验颜色答案；思考场景要求 reasoning/thinking 内容或 token 证据。
 工具场景执行真实 tool call 和 tool result 第二轮；Gemini 图片请求要求 IMAGE 输出；
 语音使用模型对应 voice；转录使用本地合成的 Hello WAV multipart；视频串行轮询到终态。

@@ -29,6 +29,19 @@ def plan(*models):
 
 
 class MatrixTests(unittest.TestCase):
+    def test_validator_or_executor_changes_invalidate_previous_evidence(self):
+        before = plan()
+        read_bytes = Path.read_bytes
+        for source in ('gateway_capability_check.py', 'gateway_capability_host.py', 'prod_replay.py'):
+            def changed(path):
+                return read_bytes(path) + (b'\n# changed verification contract\n' if path.name == source else b'')
+            with patch.object(Path, 'read_bytes', changed):
+                after = plan()
+            self.assertEqual({c['id'] for c in before['entries']}, {c['id'] for c in after['entries']})
+            self.assertEqual(len(matrix.delta(after, before)), len(before['entries']))
+            with self.assertRaisesRegex(ValueError, 'different plan'):
+                matrix.report(after, {'plan_sha256': before['plan_sha256'], 'execution_kind': 'isolated_gateway', 'results': []})
+
     def test_new_family_and_template_changes_create_delta(self):
         before = plan('model-a')
         after = plan('model-a', 'model-z')
@@ -187,9 +200,9 @@ class ExecutionTests(unittest.TestCase):
     def test_real_http_assertions_reject_empty_success_errors_and_missing_tools(self):
         case = next(e for e in plan()['entries'] if e['profile'] == 'openai-chat.plain')
         responses = [
-            (b'{"choices":[{"message":{"content":"OK"}}],"usage":{"prompt_tokens":1}}', True),
+            (b'{"choices":[{"finish_reason":"stop","message":{"content":"OK"}}],"usage":{"prompt_tokens":1}}', True),
             (b'{"choices":[{}],"usage":{"prompt_tokens":1}}', False),
-            (b'{"choices":[{"message":{"content":"OK"}}]}', False),
+            (b'{"choices":[{"finish_reason":"stop","message":{"content":"OK"}}]}', False),
             (b'{"error":{"type":"upstream_error"}}', False),
         ]
         for body, expected in responses:

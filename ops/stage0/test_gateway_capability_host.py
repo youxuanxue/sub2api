@@ -1,6 +1,8 @@
 import copy
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -44,7 +46,7 @@ class BindingTests(unittest.TestCase):
         binding = {'account_id': 11, 'api_key_id': 22}
         good = {'account_id': 11, 'api_key_id': 22, 'request_id': 'server-id'}
         with patch.object(host, 'rows', return_value=[good]):
-            self.assertEqual(host.attribution(None, binding, ['server-id'], {'request_type': 'plain'}), ([11], None))
+            self.assertEqual(host.attribution(None, binding, ['server-id'], {'request_type': 'plain'}), ([11], None, ['server-id']))
         with patch.object(host, 'rows', return_value=[{**good, 'account_id': 12}]):
             self.assertEqual(host.attribution(None, binding, ['server-id'], {'request_type': 'plain'})[1], 'wrong_account_or_key')
         with patch.object(host, 'rows', return_value=[]), patch.object(host.time, 'sleep'):
@@ -60,9 +62,76 @@ class BindingTests(unittest.TestCase):
             occupancy.assert_not_called()
 
 
+@unittest.skipUnless(os.environ.get('CAPABILITY_TEST_POSTGRES_CONTAINER'), 'requires disposable local PostgreSQL')
+class LocalIntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.container = os.environ['CAPABILITY_TEST_POSTGRES_CONTAINER']
+        self.assertTrue(self.container.startswith('tk-xj-review-'))
+        def sql(query, *args):
+            return subprocess.check_output(['docker', 'exec', '-i', self.container, 'psql', '-X', '-U', 'postgres',
+                '-v', 'ON_ERROR_STOP=1', '-At'], input=query.encode()).decode()
+        self.sql = sql
+
+    def test_real_sql_resolves_billing_ids_and_detects_production_writes(self):
+        self.sql('CREATE TABLE IF NOT EXISTS usage_logs(account_id bigint, api_key_id bigint, request_id text, created_at timestamptz DEFAULT now()); TRUNCATE usage_logs;')
+        self.sql("INSERT INTO usage_logs(account_id,api_key_id,request_id) VALUES (11,22,'local:s1'),(11,22,'grok-video:local:s2');")
+        with patch.object(host.replay, 'sql', side_effect=self.sql), patch.object(host.time, 'sleep'):
+            self.assertEqual(host.attribution(None, {'account_id': 11, 'api_key_id': 22}, ['s1', 's2'], {'request_type': 'plain'}),
+                             ([11], None, ['grok-video:local:s2', 'local:s1']))
+            self.assertEqual(host.production_usage_count(['s1', 's2'], 'tk-replay-test', 0), 2)
+            self.assertEqual(host.production_usage_count(['unrelated'], 'tk-replay-test', 0), 0)
+            self.sql("UPDATE usage_logs SET account_id=12 WHERE request_id='local:s1';")
+            self.assertEqual(host.attribution(None, {'account_id': 11, 'api_key_id': 22}, ['s1'], {'request_type': 'plain'})[1],
+                             'wrong_account_or_key')
+            self.assertEqual(host.attribution(None, {'account_id': 11, 'api_key_id': 22}, ['absent'], {'request_type': 'plain'})[1],
+                             'usage_attribution_missing')
+
+    def test_real_orphan_network_is_removed_without_touching_other_containers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            box = host.CapabilitySandbox({}, plan(), inventory(), Path(directory))
+            box.path.mkdir()
+            host.replay.run(['docker', 'network', 'create', '--label', 'tokenkey.release-replay=' + box.name, box.name])
+            try:
+                self.assertFalse(getattr(box, 'network_created', False))
+                box.close()
+                check = subprocess.run(['docker', 'network', 'inspect', box.name], capture_output=True)
+                self.assertNotEqual(check.returncode, 0)
+                self.assertEqual(self.sql('SELECT 1;').strip(), '1')
+            finally:
+                box.close()
+
+
 class ScenarioTests(unittest.TestCase):
+    def test_truncated_or_missing_generation_terminal_cannot_pass(self):
+        from test_prod_replay import server
+        bodies = {
+            'openai-chat': ({'choices': [{'message': {'content': 'partial'}, 'finish_reason': 'length'}],
+                            'usage': {'prompt_tokens': 1}}, 'stop'),
+            'anthropic-messages': ({'type': 'message', 'content': [{'type': 'text', 'text': 'partial'}],
+                                   'stop_reason': 'max_tokens', 'usage': {'input_tokens': 1}}, 'end_turn'),
+            'openai-responses': ({'object': 'response', 'status': 'incomplete',
+                                 'output': [{'type': 'output_text', 'text': 'partial'}], 'usage': {'input_tokens': 1}}, 'completed'),
+            'gemini-content': ({'candidates': [{'content': {'parts': [{'text': 'partial'}]}, 'finishReason': 'MAX_TOKENS'}],
+                               'usageMetadata': {'promptTokenCount': 1}}, 'STOP'),
+        }
+        for protocol, (response, terminal) in bodies.items():
+            case = {'protocol': protocol, 'request_type': 'plain'}
+            with self.subTest(protocol=protocol), server(body=json.dumps(response).encode()) as (port, _):
+                result = host.replay.execute({'row': {'stream': False}, 'body': b'{}', 'path': '/test'},
+                    'synthetic', port, 'id', validator=lambda *args: validate_response(case, *args))
+                self.assertEqual(result['reason'], 'generation_not_completed')
+            obj, key = {'openai-chat': (response.get('choices', [{}])[0], 'finish_reason'),
+                        'anthropic-messages': (response, 'stop_reason'),
+                        'openai-responses': (response, 'status'),
+                        'gemini-content': (response.get('candidates', [{}])[0], 'finishReason')}[protocol]
+            obj[key] = terminal
+            self.assertIsNone(validate_response(case, 200, 'application/json', json.dumps(response).encode(), False))
+            del obj[key]
+            self.assertEqual(validate_response(case, 200, 'application/json', json.dumps(response).encode(), False),
+                             'generation_terminal_missing')
+
     def test_thinking_and_vision_cannot_pass_with_generic_text(self):
-        response = {'choices': [{'message': {'content': 'OK'}}], 'usage': {'prompt_tokens': 1}}
+        response = {'choices': [{'finish_reason': 'stop', 'message': {'content': 'OK'}}], 'usage': {'prompt_tokens': 1}}
         case = {'protocol': 'openai-chat', 'request_type': 'thinking'}
         check = lambda c: validate_response(c, 200, 'application/json', json.dumps(response).encode(), False)
         self.assertEqual(check(case), 'thinking_evidence_missing')
@@ -75,7 +144,7 @@ class ScenarioTests(unittest.TestCase):
 
     def test_tool_roundtrip_uses_actual_call_id_and_validated_result(self):
         body = {'messages': [{'role': 'user', 'content': 'Call echo.'}], 'tools': [], 'tool_choice': 'required'}
-        response = {'choices': [{'message': {'role': 'assistant', 'tool_calls': [
+        response = {'choices': [{'finish_reason': 'tool_calls', 'message': {'role': 'assistant', 'tool_calls': [
             {'id': 'call-real', 'type': 'function', 'function': {'name': 'echo', 'arguments': '{"value":"OK"}'}}]}}]}
         continued = tool_continuation('openai-chat', body, response)
         self.assertEqual(continued['messages'][-1], {'role': 'tool', 'tool_call_id': 'call-real', 'content': 'OK'})
@@ -111,6 +180,32 @@ class ScenarioTests(unittest.TestCase):
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_capacity_abort_is_not_swallowed_by_database_health_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            box = host.CapabilitySandbox({'Config': {'Env': []}, 'Image': 'test'}, plan(), inventory(), Path(directory))
+            with patch.object(Path, 'read_text', return_value='MemAvailable: 8000000'), \
+                 patch.object(host.os, 'getloadavg', return_value=(1000, 0, 0)), \
+                 patch.object(host.replay.shutil, 'disk_usage', return_value=SimpleNamespace(free=10*1024**3)), \
+                 patch.object(host.replay, 'inspect', return_value={'Image': 'test'}), \
+                 patch.object(host.replay, 'run'), patch.object(box, 'start_container', return_value='test-pg'), \
+                 patch.object(host.time, 'sleep'), \
+                 patch.object(host.replay, 'sql', side_effect=lambda *args: host.host_guard()) as sql, \
+                 self.assertRaisesRegex(host.HostPressure, 'host_load_headroom'):
+                box.start()
+            self.assertEqual(sql.call_count, 1)
+
+    def test_cleanup_reconciles_resources_even_without_creation_flags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            box = host.CapabilitySandbox({}, plan(), inventory(), Path(directory))
+            box.path.mkdir()
+            box.created = [box.name + '-pg']  # Container creation never completed.
+            box.network_created = False  # Network creation completed, but its client was interrupted.
+            with patch.object(host.replay, 'run', side_effect=[b'', (box.name+'\n').encode(), b'', b'', b'']) as run:
+                box.close()
+            self.assertIn(['docker', 'network', 'rm', box.name], [c.args[0] for c in run.call_args_list])
+            self.assertFalse(any(c.args[0][:3] == ['docker', 'rm', '-f'] for c in run.call_args_list))
+            self.assertFalse(box.path.exists())
+
     def test_setup_pressure_interrupts_restore_and_restores_deadline_handler(self):
         original = host.signal.getsignal(host.signal.SIGALRM)
         with patch.object(host, 'host_guard', side_effect=host.replay.ReplayError('host_cpu_headroom')), \
@@ -126,11 +221,12 @@ class ExecutionTests(unittest.TestCase):
         binding = {'key': 'synthetic', 'account_id': 1, 'api_key_id': 2}
         box = SimpleNamespace(root=Path('/tmp'), app='test', env={}, candidate={},
             name='tk-replay-test', verify=Mock(), verify_binding=Mock(), response_ids=[])
-        response = {'choices': [{'message': {'role': 'assistant', 'tool_calls': [
+        response = {'choices': [{'finish_reason': 'tool_calls', 'message': {'role': 'assistant', 'tool_calls': [
             {'id': 'real-call', 'function': {'name': 'echo', 'arguments': '{"value":"OK"}'}}]}}],
             'usage': {'prompt_tokens': 1}}
         def execute(*args, **kwargs):
             self.assertIsNone(kwargs['validator'](200, 'application/json', json.dumps(response).encode(), False))
+            kwargs['on_response_id']('first-server-id')
             return {'http_status': 200, 'reason': None, 'response_request_id': 'first-server-id'}
         throttle = Mock()
         with patch.object(host, 'host_guard'), patch.object(host.replay, 'snapshot', return_value={}), \

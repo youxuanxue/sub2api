@@ -32,6 +32,10 @@ PROTOCOL_NAMES = {'messages': 'anthropic-messages', 'chat_completions': 'openai-
                   'responses': 'openai-responses', 'gemini_generate_content': 'gemini-content'}
 
 
+class HostPressure(replay.ReplayDeadline):
+    """Abort the run; ordinary ReplayError health retries must not catch this."""
+
+
 def literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 
@@ -149,12 +153,15 @@ def live_occupancy(aid, candidate):
 
 
 def host_guard():
+    def require(condition, reason):
+        if not condition:
+            raise HostPressure(reason)
     available = int(re.search(r'MemAvailable:\s+(\d+)', Path('/proc/meminfo').read_text())[1])
-    replay.require(available >= 1024 * 1024, 'host_memory_headroom')
-    replay.require(os.getloadavg()[0] < (os.cpu_count() or 1) * .75, 'host_cpu_headroom')
+    require(available >= 1024 * 1024, 'host_memory_headroom')
+    require(os.getloadavg()[0] < (os.cpu_count() or 1) * .75, 'host_load_headroom')
     pressure = Path('/proc/pressure/memory').read_text()
     full = re.search(r'full avg10=([\d.]+)', pressure)
-    replay.require(full is not None and float(full[1]) < .1, 'host_memory_pressure')
+    require(full is not None and float(full[1]) < .1, 'host_memory_pressure')
 
 
 @contextmanager
@@ -213,20 +220,28 @@ def request_wire(request):
 
 
 def attribution(sandbox, binding, request_ids, case):
-    quoted = ','.join(literal(rid) for rid in request_ids)
+    expected = {rid: set(replay.usage_request_ids([rid])) for rid in request_ids}
+    quoted = ','.join(literal(rid) for rid in replay.usage_request_ids(request_ids))
     query = f"""SELECT json_build_object('account_id',account_id,'request_id',request_id,'api_key_id',api_key_id)
         FROM usage_logs WHERE request_id IN ({quoted});"""
     for _ in range(10):
         usage = rows(query, sandbox)
-        if case['request_type'] == 'count_tokens' or {u['request_id'] for u in usage} == set(request_ids):
+        recorded = {u['request_id'] for u in usage}
+        complete = all(ids & recorded for ids in expected.values())
+        if case['request_type'] == 'count_tokens' or complete:
             break
         time.sleep(1)
     observed = sorted({u['account_id'] for u in usage})
     if any(u['account_id'] != binding['account_id'] or u['api_key_id'] != binding['api_key_id'] for u in usage):
-        return observed, 'wrong_account_or_key'
-    if case['request_type'] != 'count_tokens' and {u['request_id'] for u in usage} != set(request_ids):
-        return observed, 'usage_attribution_missing'
-    return observed, None
+        return observed, 'wrong_account_or_key', sorted(recorded)
+    if case['request_type'] != 'count_tokens' and not complete:
+        return observed, 'usage_attribution_missing', sorted(recorded)
+    return observed, None, sorted(recorded)
+
+
+def production_usage_count(response_ids, prefix, started_at):
+    quoted = ','.join(literal(rid) for rid in replay.usage_request_ids(response_ids)) or 'NULL'
+    return int(replay.sql(f"SELECT count(*) FROM usage_logs WHERE created_at>=to_timestamp({float(started_at)}) AND (request_id IN ({quoted}) OR request_id LIKE {literal(prefix+'%')});").strip())
 
 
 def execute_case(case, binding, sandbox, port, before, throttle):
@@ -234,6 +249,10 @@ def execute_case(case, binding, sandbox, port, before, throttle):
     sandbox.current_observations = observations
     request_ids = []
     final_reason = None
+
+    def retain_id(rid):
+        request_ids.append(rid)
+        sandbox.response_ids.append(rid)
 
     def send(request, *, method='POST', validation_case=case):
         nonlocal final_reason
@@ -253,11 +272,9 @@ def execute_case(case, binding, sandbox, port, before, throttle):
 
         obs = replay.execute({'path': request['path'], 'body': payload, 'row': {'stream': request['stream']}},
             binding['key'], port, sandbox.name + '-' + case['id'][:16] + '-' + str(len(observations)),
-            validator=validator, budget=REQUEST_SECONDS, method=method, content_type=content_type)
+            validator=validator, budget=REQUEST_SECONDS, method=method, content_type=content_type,
+            on_response_id=retain_id)
         observations.append(obs)
-        if obs.get('response_request_id'):
-            request_ids.append(obs['response_request_id'])
-            sandbox.response_ids.append(obs['response_request_id'])
         final_reason = obs['reason']
         raw = captured.get('raw', b'')
         try:
@@ -298,11 +315,11 @@ def execute_case(case, binding, sandbox, port, before, throttle):
         replay.require(terminal, 'video_task_still_running')
         # Poll requests are unmetered. Submit attribution owns the generated video.
         request_ids[:] = request_ids[:1]
-    observed, reason = attribution(sandbox, binding, request_ids, case) if request_ids else ([], 'response_request_id_missing')
+    observed, reason, usage_ids = attribution(sandbox, binding, request_ids, case) if request_ids else ([], 'response_request_id_missing', [])
     final_reason = final_reason or reason
     proof = {'account_class': case['account_class'], 'key_type': 'universal',
              'bound_account_id': binding['account_id'], 'observed_account_ids': observed,
-             'request_ids': request_ids, 'routing_validation':
+             'request_ids': request_ids, 'usage_request_ids': usage_ids, 'routing_validation':
              'tokenizer_endpoint' if case['request_type'] == 'count_tokens' else
              'media_handler' if case['scenario'] in ('image', 'content-image', 'speech', 'video', 'transcription', 'embedding') else
              'canonical_gateway', 'attribution': 'unmetered_endpoint' if case['request_type'] == 'count_tokens' else 'usage_rows'}
@@ -360,7 +377,7 @@ def run(plan, inventory, tag, root=replay.ROOT):
             if item.get('stop_reason'):
                 raise replay.ReplayError(item['stop_reason'])
     except (replay.ReplayError, replay.ReplayDeadline, OSError, ValueError, KeyError, TypeError) as exc:
-        reason = str(exc) if isinstance(exc, replay.ReplayError) else 'execution_stopped'
+        reason = str(exc) if isinstance(exc, (replay.ReplayError, HostPressure)) else 'execution_stopped'
     finally:
         signal.alarm(0)
         finished = {r['id'] for r in result['results']}
@@ -369,9 +386,7 @@ def run(plan, inventory, tag, root=replay.ROOT):
             for c in plan['entries'] if c['id'] not in finished)
         try:
             # Lookup both echoed server IDs and the unique client prefix.
-            ids = sandbox.response_ids
-            quoted = ','.join(literal(rid) for rid in ids) or 'NULL'
-            result['production_usage_rows'] = int(replay.sql(f"SELECT count(*) FROM usage_logs WHERE created_at>=to_timestamp({result['started_at']}) AND (request_id IN ({quoted}) OR request_id LIKE {literal(sandbox.name+'%')});").strip())
+            result['production_usage_rows'] = production_usage_count(sandbox.response_ids, sandbox.name, result['started_at'])
             unchanged = replay.snapshot(root) == before
             result['cutover'] = False if unchanged else None
             result['isolation_verified'] = result['production_usage_rows'] == 0 and unchanged

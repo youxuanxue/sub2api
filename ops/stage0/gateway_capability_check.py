@@ -20,6 +20,36 @@ def objects(value):
             yield from objects(child)
 
 
+def generation_terminal(protocol, events, stream):
+    if protocol == 'openai-chat':
+        reasons = [c.get('finish_reason') for e in events for c in e.get('choices', [])
+                   if c.get('finish_reason') is not None]
+        allowed = {'stop', 'tool_calls', 'function_call'}
+    elif protocol == 'anthropic-messages':
+        reasons = [obj['stop_reason'] for e in events for obj in objects(e)
+                   if obj.get('stop_reason') is not None]
+        allowed = {'end_turn', 'tool_use', 'stop_sequence'}
+    elif protocol == 'openai-responses':
+        reasons = [obj['status'] for e in events for obj in objects(e)
+                   if obj.get('object') == 'response' and obj.get('status') is not None]
+        allowed = {'completed'}
+    elif protocol == 'gemini-content':
+        reasons = [c.get('finishReason') for e in events for c in e.get('candidates', [])
+                   if c.get('finishReason') is not None]
+        allowed = {'STOP'}
+    else:
+        return None
+    # Streaming may contain intermediate in_progress response snapshots.
+    if stream and protocol == 'openai-responses':
+        reasons = [r for r in reasons if r not in ('queued', 'in_progress')]
+    if any(r not in allowed for r in reasons):
+        return 'generation_not_completed'
+    # response_failure already verifies stream termination, including [DONE].
+    if not stream and not reasons:
+        return 'generation_terminal_missing'
+    return None
+
+
 def validate_response(case, status, ctype, raw, stream):
     failure = replay.response_failure(status, ctype, raw, stream)
     if failure:
@@ -59,6 +89,9 @@ def validate_response(case, status, ctype, raw, stream):
         }.get(protocol, False)
         if not envelope:
             return 'protocol_envelope_missing'
+        terminal = generation_terminal(protocol, events, stream)
+        if terminal:
+            return terminal
         if not any(type(obj.get(field)) is int and obj[field] >= 0 for obj in dictionaries
                    for field in ('input_tokens', 'prompt_tokens', 'promptTokenCount', 'total_tokens')):
             return 'usage_missing'
