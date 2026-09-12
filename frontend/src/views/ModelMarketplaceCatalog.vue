@@ -230,20 +230,13 @@
 
     <!-- Bottom CTA -->
     <div v-if="showBottomCta" class="pt-6 text-center">
-      <router-link
-        :to="isAuthenticated ? '/quickstart' : '/register'"
-        class="inline-flex items-center gap-2 rounded-full bg-primary-500 px-6 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary-500/30 transition-all hover:bg-primary-600"
-      >
-        {{ isAuthenticated ? t('nav.quickstart') : t('auth.createAccount') }}
-        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-        </svg>
-      </router-link>
+      <RegistrationActionTk class="justify-center" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

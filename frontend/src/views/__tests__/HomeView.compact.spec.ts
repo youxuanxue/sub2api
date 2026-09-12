@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, RouterLinkStub } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, mount, RouterLinkStub } from '@vue/test-utils'
 
 import HomeView from '../HomeView.vue'
+enableAutoUnmount(afterEach)
 
 const { appStore, authStore, profileState } = vi.hoisted(() => ({
   appStore: {
@@ -27,6 +28,8 @@ vi.mock('@/stores', () => ({
   useAppStore: () => appStore,
   useAuthStore: () => authStore,
 }))
+
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => authStore }))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => appStore,
@@ -67,7 +70,7 @@ function mountHome(settings: Record<string, unknown> = {}) {
 }
 
 function compactDestination(wrapper: ReturnType<typeof mountHome>) {
-  return wrapper.get('[data-testid="compact-home"]').findComponent(RouterLinkStub).props('to')
+  return wrapper.get('[data-testid="compact-home"]').findAllComponents(RouterLinkStub).find(link => link.props('to') !== '/quickstart')?.props('to')
 }
 
 function modelPlazaDestination(wrapper: ReturnType<typeof mountHome>) {
@@ -218,14 +221,15 @@ describe('HomeView compact mode', () => {
     expect(wrapper.get('[data-testid="china-export-home"]').exists()).toBe(true)
   })
 
-  it('keeps the China model order, free trial promise, and current proof media', () => {
+  it('keeps the China model order, public guide entry, and current proof media', () => {
     profileState.value = 'china-export'
 
     const wrapper = mountHome()
     const models = wrapper.get('[data-testid="china-model-list"]').findAll('h3').map((node) => node.text())
 
     expect(models).toEqual(['Seedance', 'Seedream', 'Qwen', 'DeepSeek', 'GLM', 'Kimi'])
-    expect(wrapper.text()).toContain('home.chinaExport.creditDisclaimer')
+    expect(wrapper.text()).toContain('onboarding.guide')
+    expect(wrapper.text()).not.toContain('home.chinaExport.creditDisclaimer')
     expect(wrapper.get('[data-testid="seedance-proof-video"]').attributes('src')).toBe(
       '/seedance-2-5-official-showcase-8b37bc3e.mp4',
     )
@@ -263,7 +267,7 @@ describe('HomeView compact mode', () => {
     const href = mountHome().get('[data-testid="china-export-primary-cta"]').attributes('href')
 
     expect(href).toBe(
-      'https://tokenkey.dev/register?redirect=%2Fquickstart%3Fmodel%3Ddeepseek-chat%26protocol%3Dopenai',
+      'https://tokenkey.dev/quickstart?model=deepseek-chat&protocol=openai',
     )
   })
 })

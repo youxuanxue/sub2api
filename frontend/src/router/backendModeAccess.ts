@@ -23,7 +23,7 @@ export function isBackendModePublicRouteAllowed(
   path: string,
   hasPendingAuthSession: boolean,
 ): boolean {
-  if (path === '/home') {
+  if (path === '/home' || path === '/quickstart') {
     return true
   }
 

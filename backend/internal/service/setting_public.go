@@ -243,6 +243,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	}
 	// TK: signup bonus + pricing catalog public keys — see setting_public_tk_signup_pricing.go
 	keys = append(keys, tkPublicSignupPricingSettingKeys()...)
+	keys = append(keys, registrationOfferSettingKeys()...)
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
 	if err != nil {
@@ -377,6 +378,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	}
 	// TK: signup bonus + pricing catalog preview — see setting_public_tk_signup_pricing.go
 	tkApplyPublicSignupPricing(out, tkParsePublicSignupPricing(settings))
+	out.RegistrationOffer = registrationOfferFromSettings(settings, out, s.cfg != nil && s.cfg.Server.Mode == "release" && s.cfg.Turnstile.Required)
 	return out, nil
 }
 
@@ -560,6 +562,7 @@ func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 // A unit test diffs this struct's JSON keys against dto.PublicSettings to catch
 // drift automatically (see setting_service_injection_test.go).
 type PublicSettingsInjectionPayload struct {
+	RegistrationOffer                   RegistrationOffer        `json:"registration_offer"`
 	RegistrationEnabled                 bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                 `json:"registration_email_suffix_whitelist"`
@@ -657,6 +660,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 	}
 
 	payload := &PublicSettingsInjectionPayload{
+		RegistrationOffer:                settings.RegistrationOffer,
 		RegistrationEnabled:              settings.RegistrationEnabled,
 		EmailVerifyEnabled:               settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist: settings.RegistrationEmailSuffixWhitelist,

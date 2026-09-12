@@ -45,7 +45,7 @@ const userShellChildren: RouteRecordRaw[] = [
     name: 'Quickstart',
     component: () => import('@/views/user/QuickstartView.vue'),
     meta: {
-      requiresAuth: true,
+      requiresAuth: false,
       requiresAdmin: false,
       title: 'Tool Integrations',
       titleKey: 'quickstart.title',

@@ -20,13 +20,7 @@
         </span>
       </p>
       <div class="flex shrink-0 flex-wrap items-center gap-2">
-        <router-link
-          v-if="bonusCtaVisible"
-          to="/register"
-          class="hidden rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 sm:inline-flex"
-        >
-          {{ t('pricing.ctaBonus', { amount: signupBonusFormatted }) }}
-        </router-link>
+        <RegistrationActionTk v-if="!isAuthenticated" />
         <button
           v-if="canExportPricing && !loading && !errorMessage && rowTotal > 0"
           type="button"
@@ -615,6 +609,7 @@
 </template>
 
 <script setup lang="ts">
+import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
 /**
  * Model + pricing catalog page.
  *
@@ -645,7 +640,6 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { formatCurrency } from '@/utils/format'
 import {
   filterPricingCatalogByModel,
   type PricingCatalogSearchMode
@@ -726,19 +720,6 @@ interface NormalizedRow {
  * rendered on the /models cards cannot drift (pricingVariants.tk.ts is the owner).
  */
 type NormalizedTier = PricingVariantTier
-
-const signupBonusFormatted = computed(() =>
-  formatCurrency(appStore.cachedPublicSettings?.signup_bonus_balance_usd ?? 0, 'USD')
-)
-
-const bonusCtaVisible = computed(() => {
-  const s = appStore.cachedPublicSettings
-  if (!s?.registration_enabled) return false
-  if (s.backend_mode_enabled) return false
-  if (!s.signup_bonus_enabled) return false
-  const amt = s.signup_bonus_balance_usd ?? 0
-  return amt > 0 && !authStore.isAuthenticated
-})
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 

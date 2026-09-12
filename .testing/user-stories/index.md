@@ -54,3 +54,5 @@
 | US-053 | 正文采集与入口安全边界 | InTest | `.testing/user-stories/stories/US-053-security-capture-and-ingress.md` |
 
 | US-055 | QA Bundle 保真会话导出 | Done | `.testing/user-stories/stories/US-055-qa-bundle-session-export.md` |
+
+| US-054 | Public Quickstart 与统一注册承诺 | Done | `.testing/user-stories/stories/US-054-public-quickstart-registration-offer.md` |

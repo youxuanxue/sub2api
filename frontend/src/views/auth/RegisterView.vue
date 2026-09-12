@@ -1,6 +1,7 @@
 <template>
   <AuthLayout>
     <div class="space-y-6">
+      <router-link to="/quickstart" class="text-sm text-primary-600">{{ t('onboarding.guide') }}</router-link>
       <!-- Title -->
       <div class="text-center">
         <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -20,9 +21,7 @@
           <div class="flex-shrink-0">
             <Icon name="exclamationCircle" size="md" class="text-amber-500" />
           </div>
-          <p class="text-sm text-amber-700 dark:text-amber-400">
-            {{ t('auth.registrationDisabled') }}
-          </p>
+          <RegistrationActionTk :return-to="safeInternalRedirect(router.currentRoute.value.query.redirect)" />
         </div>
       </div>
 
@@ -322,7 +321,7 @@
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.alreadyHaveAccount') }}
         <router-link
-          to="/login"
+          :to="{ path: '/login', query: { redirect: safeInternalRedirect(router.currentRoute.value.query.redirect) } }"
           class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
         >
           {{ t('auth.signIn') }}
@@ -333,6 +332,9 @@
 </template>
 
 <script setup lang="ts">
+import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
+import { useRegistrationOffer } from '@/composables/useRegistrationOffer.tk'
+import { safeInternalRedirect } from '@/utils/quickstartJourney.tk'
 import { computed, ref, reactive, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -352,7 +354,6 @@ const TurnstileWidget = defineAsyncComponent(
 )
 import {
   buildOAuthLoginStartURL,
-  getPublicSettings,
   isWeChatWebOAuthEnabled,
   startOAuthLogin,
   type OAuthLoginStart,
@@ -371,7 +372,7 @@ import {
   loadAffiliateReferralCode,
   resolveAffiliateReferralCode
 } from '@/utils/oauthAffiliate'
-import type { LoginAgreementDocument } from '@/types'
+import type { LoginAgreementDocument, PublicSettings } from '@/types'
 
 const { t, locale } = useI18n()
 const LOGIN_AGREEMENT_STORAGE_KEY = 'sub2api_login_agreement_consent'
@@ -391,10 +392,10 @@ const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
 
 // Public settings
-const registrationEnabled = ref<boolean>(true)
+const { canRegister: registrationEnabled, offer: registrationOffer, refresh: refreshRegistrationOffer } = useRegistrationOffer()
 const emailVerifyEnabled = ref<boolean>(false)
 const promoCodeEnabled = ref<boolean>(true)
-const invitationCodeEnabled = ref<boolean>(false)
+const invitationCodeEnabled = computed(() => registrationOffer.value.state === 'invitation_required')
 const affiliateEnabled = ref<boolean>(false)
 const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
@@ -519,39 +520,46 @@ function syncAffiliateReferralCode(): string {
   return code
 }
 
+// The form and every CTA consume the same refreshed public-settings snapshot.
+function applyRegistrationSettings(settings: PublicSettings): void {
+  emailVerifyEnabled.value = settings.email_verify_enabled
+  promoCodeEnabled.value = settings.promo_code_enabled
+  affiliateEnabled.value = settings.affiliate_enabled
+  turnstileEnabled.value = settings.turnstile_enabled
+  turnstileSiteKey.value = settings.turnstile_site_key || ''
+  tencentCaptchaEnabled.value = settings.tencent_captcha_enabled === true
+  tencentCaptchaAppId.value = settings.tencent_captcha_app_id || ''
+  tencentCaptchaRegion.value = settings.tencent_captcha_region || 'cn'
+  aliyunCaptchaEnabled.value = settings.aliyun_captcha_enabled === true
+  aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
+  aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
+  aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
+  siteName.value = settings.site_name || 'TokenKey'
+  linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
+  wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
+  oidcOAuthEnabled.value = settings.oidc_oauth_enabled
+  oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
+  githubOAuthEnabled.value = settings.github_oauth_enabled === true
+  googleOAuthEnabled.value = settings.google_oauth_enabled === true
+  registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
+    settings.registration_email_suffix_whitelist || []
+  )
+  emailDomainQuotaEnabled.value = settings.registration_email_domain_quota_enabled === true
+  applyLoginAgreementSettings(settings)
+}
+
+watch(() => appStore.cachedPublicSettings, settings => {
+  if (settings) applyRegistrationSettings(settings)
+}, { immediate: true, flush: 'sync' })
+
 // ==================== Lifecycle ====================
 
 onMounted(async () => {
   syncAffiliateReferralCode()
 
   try {
-    const settings = await getPublicSettings()
-    registrationEnabled.value = settings.registration_enabled
-    emailVerifyEnabled.value = settings.email_verify_enabled
-    promoCodeEnabled.value = settings.promo_code_enabled
-    invitationCodeEnabled.value = settings.invitation_code_enabled
-    affiliateEnabled.value = settings.affiliate_enabled
-    turnstileEnabled.value = settings.turnstile_enabled
-    turnstileSiteKey.value = settings.turnstile_site_key || ''
-    tencentCaptchaEnabled.value = settings.tencent_captcha_enabled === true
-    tencentCaptchaAppId.value = settings.tencent_captcha_app_id || ''
-    tencentCaptchaRegion.value = settings.tencent_captcha_region || 'cn'
-    aliyunCaptchaEnabled.value = settings.aliyun_captcha_enabled === true
-    aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
-    aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
-    aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
-    siteName.value = settings.site_name || 'TokenKey'
-    linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
-    wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
-    oidcOAuthEnabled.value = settings.oidc_oauth_enabled
-    oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
-    githubOAuthEnabled.value = settings.github_oauth_enabled === true
-    googleOAuthEnabled.value = settings.google_oauth_enabled === true
-    registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
-      settings.registration_email_suffix_whitelist || []
-    )
-    emailDomainQuotaEnabled.value = settings.registration_email_domain_quota_enabled === true
-    applyLoginAgreementSettings(settings)
+    const settings = await refreshRegistrationOffer()
+    if (!settings) throw new Error(t('onboarding.unavailable'))
 
     // Read promo code from URL parameter only if promo code is enabled
     if (promoCodeEnabled.value) {
@@ -947,8 +955,18 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleRegister(): Promise<void> {
-  // Clear previous error
+  if (isLoading.value) return
+  isLoading.value = true
+  try { await performRegistration() } finally { isLoading.value = false }
+}
+
+async function performRegistration(): Promise<void> {
   errorMessage.value = ''
+  await refreshRegistrationOffer()
+  if (!registrationEnabled.value) {
+    errorMessage.value = t(registrationOffer.value.state === 'closed' ? 'onboarding.closed' : 'onboarding.unavailable')
+    return
+  }
 
   // Validate form
   if (!validateForm()) {
@@ -1024,7 +1042,7 @@ async function handleRegister(): Promise<void> {
       )
 
       // Navigate to email verification page
-      await router.push('/email-verify')
+      await router.push({ path: '/email-verify', query: { redirect: safeInternalRedirect(router.currentRoute.value.query.redirect) } })
       return
     }
 
@@ -1046,9 +1064,10 @@ async function handleRegister(): Promise<void> {
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
 
     // Redirect to ?redirect= target or /quickstart for new users
-    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/quickstart'
+    const redirectTo = safeInternalRedirect(router.currentRoute.value.query.redirect)
     await router.push(redirectTo)
   } catch (error: unknown) {
+    await refreshRegistrationOffer()
     turnstileRef.value?.reset()
     turnstileToken.value = ''
     tencentCaptchaRandstr.value = ''

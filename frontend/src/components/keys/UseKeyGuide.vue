@@ -22,6 +22,8 @@
           {{ platformDescription }}
         </p>
 
+        <p v-if="preview" class="text-sm text-gray-500 dark:text-gray-400" data-tk="quickstart-preview">{{ t('onboarding.preview') }}</p>
+
         <!-- Key essentials: model picker + locked base URL + masked key + live test.
              These are the error-prone fields; here they are picked/locked/verified
              rather than hand-typed (data-driven redesign — see useTkUseKey.ts). -->
@@ -33,7 +35,7 @@
           </div>
 
           <!-- Model picker (single-model tabs only) -->
-          <div v-if="activeFlavor" class="flex items-center gap-3 flex-wrap">
+          <div v-if="activeFlavor && !preview" class="flex items-center gap-3 flex-wrap">
             <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.modelLabel') }}</label>
             <select
               data-tk="use-key-model-select"
@@ -89,8 +91,9 @@
           <!-- API key (masked + reveal + copy) -->
           <div class="flex items-center gap-3">
             <label class="w-14 text-sm font-medium text-gray-700 dark:text-gray-300 shrink-0">{{ t('keys.useKeyModal.keyLabel') }}</label>
-            <code class="flex-1 truncate rounded-lg border border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-900 px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-gray-200">{{ keyRevealed ? apiKey : maskedKey }}</code>
+            <code class="flex-1 truncate rounded-lg border border-gray-200 dark:border-dark-700 bg-white dark:bg-dark-900 px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-gray-200">{{ preview || keyRevealed ? apiKey : maskedKey }}</code>
             <button
+              v-if="!preview"
               @click="keyRevealed = !keyRevealed"
               class="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-dark-700 transition-colors"
               :title="keyRevealed ? t('keys.useKeyModal.hide') : t('keys.useKeyModal.reveal')"
@@ -107,7 +110,7 @@
           </div>
 
           <!-- Live test (single-model tabs only) -->
-          <div v-if="activeFlavor && !hideInlineTest" class="flex items-center gap-3 flex-wrap pt-1">
+          <div v-if="activeFlavor && !preview && !hideInlineTest" class="flex items-center gap-3 flex-wrap pt-1">
             <button
               data-tk="use-key-test"
               @click="onTest"
@@ -182,7 +185,7 @@
           </nav>
         </div>
 
-        <div v-if="showCodexCatalog" data-testid="codex-model-catalog" class="flex flex-wrap items-center gap-3 border-b border-gray-200 pb-3 dark:border-dark-700">
+        <div v-if="showCodexCatalog && !preview" data-testid="codex-model-catalog" class="flex flex-wrap items-center gap-3 border-b border-gray-200 pb-3 dark:border-dark-700">
           <code class="min-w-0 basis-full break-all text-xs sm:flex-1">{{ codexCatalogPath }}</code>
           <button type="button" data-testid="codex-model-catalog-fetch" class="btn btn-secondary" :disabled="manifestState === 'loading' || !apiKey" @click="loadCodexCatalog">
             <Icon name="refresh" size="sm" :class="{ 'animate-spin': manifestState === 'loading' }" />
@@ -284,6 +287,8 @@ import { TK_QUICKSTART_CLIENTS, codebuddyModelsJsonPath, generateCodebuddyModels
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI, PLATFORM_GROK, PLATFORM_NEWAPI, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
 
 interface Props {
+  /** Shared read-only guide, with placeholders and no credential operations. */
+  preview?: boolean
   apiKey: string
   baseUrl: string
   platform: GroupPlatform | null
@@ -333,6 +338,7 @@ interface FileConfig {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  preview: false,
   showClientTabs: true,
   hideInlineTest: false,
 })
@@ -343,7 +349,7 @@ const emit = defineEmits<{
 const showClientTabs = computed(() => props.showClientTabs)
 
 const hasGuideContext = computed(
-  () => props.routingMode === 'universal' || props.platform != null,
+  () => props.preview || props.routingMode === 'universal' || props.platform != null,
 )
 
 const { t } = useI18n()
@@ -361,7 +367,7 @@ const showCodexCatalog = computed(() => hasGuideContext.value && ['codex', 'code
 const codexCatalogPath = computed(() => activeTab.value === 'windows' ? '%userprofile%\\.codex\\codex-models.json' : '~/.codex/codex-models.json')
 async function loadCodexCatalog() {
   const preferred = selectedModel.value
-  if (await manifest.load()) tk.setModel('openai', preferred)
+  if (!props.preview && await manifest.load()) tk.setModel('openai', preferred)
 }
 const expandedFileIndex = ref<number | null>(null)
 const keyRevealed = ref(false)
@@ -456,7 +462,7 @@ const tk = useTkUseKey({
 watch(
   () => props.apiKeyId,
   async (id) => {
-    if (id == null) return
+    if (props.preview || id == null) return
     keyRevealed.value = false
     tk.testState.value = { status: 'idle' }
     await tk.loadModels()
@@ -497,7 +503,7 @@ const pickerModels = computed(() => (
     ? tk.modelsForFlavor(activeFlavor.value, activeDiscoveryProtocol.value)
     : []
 ))
-const selectedModel = computed(() => (
+const selectedModel = computed(() => props.preview ? 'YOUR_MODEL_ID' : (
   activeFlavor.value && activeDiscoveryProtocol.value
     ? tk.effectiveModel(activeFlavor.value, activeDiscoveryProtocol.value)
     : ''
@@ -551,7 +557,7 @@ function isCollapsible(file: FileConfig): boolean {
 }
 
 function onTest(): void {
-  if (activeFlavor.value && selectedModel.value) {
+  if (!props.preview && activeFlavor.value && selectedModel.value) {
     void tk.runTest(activeFlavor.value, {
       requireToolCall: requiresToolCallTest.value,
       protocol: activeDiscoveryProtocol.value ?? undefined,
@@ -566,7 +572,7 @@ async function retryModels(): Promise<void> {
 
 defineExpose({
   runTest: onTest,
-  warmupGateway: tk.warmupGateway,
+  warmupGateway: () => { if (!props.preview) return tk.warmupGateway() },
   testState: tkTestState,
 })
 
@@ -887,7 +893,7 @@ const string = (value: string) => wrapToken('text-amber-200', value)
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
-  if (props.routingMode === 'universal') {
+  if (!props.preview && props.routingMode === 'universal') {
     if (!tk.modelsLoaded.value) return []
     if (activeFlavor.value ? !selectedModel.value : tk.servableModels.value.length === 0) return []
   }
@@ -956,8 +962,8 @@ const currentFiles = computed((): FileConfig[] => {
   }
 
   if (activeClientTab.value === 'opencode') {
-    const allowedModels = tk.modelsLoaded.value ? tk.servableModels.value : undefined
-    const splitAllowedModels = props.routingMode === 'universal'
+    const allowedModels = props.preview ? [{ id: 'YOUR_MODEL_ID', capabilities: [] }] : tk.modelsLoaded.value ? tk.servableModels.value : undefined
+    const splitAllowedModels = !props.preview && props.routingMode === 'universal'
     switch (platformForFiles()) {
       case 'anthropic':
         return [generateOpenCodeConfig('anthropic', apiBase, apiKey, undefined, allowedModels, splitAllowedModels)]

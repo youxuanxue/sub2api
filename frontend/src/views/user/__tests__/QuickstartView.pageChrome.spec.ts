@@ -10,6 +10,9 @@ const { listKeys, replaceMock } = vi.hoisted(() => ({
   replaceMock: vi.fn(),
 }))
 
+const authenticated = ref(true)
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ get isAuthenticated() { return authenticated.value } }) }))
+
 const routeQuery = ref<Record<string, string>>({})
 
 vi.mock('vue-router', () => ({
@@ -27,13 +30,15 @@ vi.mock('vue-i18n', async () => {
     ...actual,
     useI18n: () => ({
       t: (key: string) => key,
+      locale: ref('en'),
     }),
   }
 })
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    cachedPublicSettings: { api_base_url: 'https://api.example.com' },
+    cachedPublicSettings: { api_base_url: 'https://api.example.com', registration_offer: { state: 'open' } },
+    fetchPublicSettings: vi.fn(),
   }),
 }))
 
@@ -101,6 +106,7 @@ async function mountView() {
 
 describe('QuickstartView page chrome', () => {
   beforeEach(() => {
+    authenticated.value = true
     routeQuery.value = {}
     listKeys.mockReset()
     replaceMock.mockReset()

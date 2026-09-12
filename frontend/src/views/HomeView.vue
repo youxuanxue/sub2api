@@ -1,6 +1,10 @@
 <template>
   <!-- Custom Home Content: Full Page Mode (upstream admin override) -->
   <div v-if="hasHomeContent" class="min-h-screen">
+    <nav class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 dark:border-dark-700 dark:bg-dark-900">
+      <router-link to="/quickstart" class="font-medium text-primary-600">{{ t('onboarding.guide') }}</router-link>
+      <RegistrationActionTk />
+    </nav>
     <!-- iframe mode -->
     <iframe
       v-if="isHomeContentUrl"
@@ -19,6 +23,8 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
 import { computed, onMounted, watch } from 'vue'
 import { useAppStore } from '@/stores'
 import HomeTkCompactLanding from '@/components/home/HomeTkCompactLanding.tk.vue'
@@ -27,6 +33,7 @@ import { applyHomepageSeo } from '@/features/home/homepageSeo.tk'
 import { resolveHomepageProfile } from '@/features/home/marketProfile.tk'
 
 const appStore = useAppStore()
+const { t } = useI18n()
 const homepageProfile = resolveHomepageProfile(window.location.hostname)
 
 // Admin-configurable custom home content (upstream feature). When empty, the

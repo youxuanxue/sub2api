@@ -178,6 +178,8 @@
 </template>
 
 <script setup lang="ts">
+import { safeInternalRedirect } from '@/utils/quickstartJourney.tk'
+import { useRegistrationOffer } from '@/composables/useRegistrationOffer.tk'
 import { computed, ref, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -192,7 +194,6 @@ const TurnstileWidget = defineAsyncComponent(
 )
 import {
   persistOAuthTokenContext,
-  getPublicSettings,
   isOAuthLoginCompletion,
   type PendingOAuthSendVerifyCodeResponse,
   sendPendingOAuthVerifyCode,
@@ -219,6 +220,7 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
 const appStore = useAppStore()
+const { canRegister, refresh: refreshRegistrationOffer } = useRegistrationOffer()
 
 // ==================== State ====================
 
@@ -367,7 +369,8 @@ onMounted(async () => {
 
   // Load public settings
   try {
-    const settings = await getPublicSettings()
+    const settings = await refreshRegistrationOffer()
+    if (!settings) throw new Error(t('onboarding.unavailable'))
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     tencentCaptchaEnabled.value = settings.tencent_captcha_enabled === true
@@ -724,6 +727,8 @@ async function handleVerify(): Promise<void> {
       authStore.clearPendingAuthSession?.()
     } else {
       // Register with verification code
+      await refreshRegistrationOffer()
+      if (!canRegister.value) throw new Error(t('onboarding.unavailable'))
       await authStore.register({
         email: email.value,
         password: password.value,
@@ -748,7 +753,7 @@ async function handleVerify(): Promise<void> {
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
 
     // Redirect: pending target → quickstart for new users → dashboard
-    await router.push(pendingRedirect.value || '/quickstart')
+    await router.push(safeInternalRedirect(pendingRedirect.value || router.currentRoute.value.query.redirect))
   } catch (error: unknown) {
     errorMessage.value = buildRegistrationErrorMessage(error, t('auth.verifyFailed'))
 

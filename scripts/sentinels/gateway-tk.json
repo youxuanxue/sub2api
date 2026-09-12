@@ -3,6 +3,42 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/registration_offer_tk.go",
+      "must_contain": [
+        "registrationOfferFromSettings",
+        "captchaProviderConfigFromSettings",
+        "parseTencentCaptchaCredentials",
+        "aliyunCaptchaCredentials",
+        "invitation_required"
+      ],
+      "rationale": "One public registration policy projection uses existing credential validators, omits uncertain signup credit and never emits private config."
+    },
+    {
+      "path": "backend/internal/service/setting_public.go",
+      "must_contain": [
+        "registrationOfferSettingKeys()",
+        "registrationOfferFromSettings(settings, out",
+        "settings.RegistrationOffer"
+      ],
+      "rationale": "Public JSON and HTML injection consume the same offer owner."
+    },
+    {
+      "path": "backend/internal/handler/setting_handler.go",
+      "must_contain": [
+        "RegistrationOffer:"
+      ],
+      "rationale": "Public settings handler forwards the shared offer."
+    },
+    {
+      "path": "backend/internal/service/registration_offer_tk_test.go",
+      "must_contain": [
+        "TestRegistrationOfferPublicPolicyAndInjection",
+        "TestRegistrationOfferReadFailureAndRequiredCaptcha",
+        "private-fixture"
+      ],
+      "rationale": "Policy, malformed settings and injection secrecy tests survive upstream merges."
+    },
+    {
       "path": "backend/internal/server/middleware/request_logger.go",
       "must_contain": [
         "requestID := uuid.NewString()"

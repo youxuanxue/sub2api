@@ -1,5 +1,7 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useAppStore as useRealAppStore } from '@/stores/app'
 import RegisterView from '@/views/auth/RegisterView.vue'
 
 const { getPublicSettingsMock, registerMock, showErrorMock } = vi.hoisted(() => ({
@@ -8,8 +10,11 @@ const { getPublicSettingsMock, registerMock, showErrorMock } = vi.hoisted(() => 
   showErrorMock: vi.fn()
 }))
 
+enableAutoUnmount(afterEach)
+
 const publicSettings = {
   registration_enabled: true,
+  registration_offer: { state: 'open' },
   email_verify_enabled: false,
   promo_code_enabled: false,
   invitation_code_enabled: false,
@@ -49,6 +54,7 @@ vi.mock('vue-i18n', () => ({
 vi.mock('@/stores', () => ({
   useAuthStore: () => ({ register: (...args: unknown[]) => registerMock(...args) }),
   useAppStore: () => ({
+    get cachedPublicSettings() { return useRealAppStore().cachedPublicSettings },
     showError: (...args: unknown[]) => showErrorMock(...args),
     showSuccess: vi.fn(),
     showWarning: vi.fn()
@@ -84,6 +90,7 @@ function mountRegister() {
 
 describe('RegisterView invitation layout', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     getPublicSettingsMock.mockReset()
     registerMock.mockReset()
     showErrorMock.mockReset()
@@ -107,8 +114,9 @@ describe('RegisterView invitation layout', () => {
   })
 
   it('uses the mandatory invitation field without duplicating the affiliate field', async () => {
-    getPublicSettingsMock.mockResolvedValueOnce({
+    getPublicSettingsMock.mockResolvedValue({
       ...publicSettings,
+      registration_offer: { state: 'invitation_required' },
       invitation_code_enabled: true
     })
 
@@ -120,7 +128,7 @@ describe('RegisterView invitation layout', () => {
   })
 
   it('submits a non-whitelist email domain so the backend can enforce its registration quota', async () => {
-    getPublicSettingsMock.mockResolvedValueOnce({
+    getPublicSettingsMock.mockResolvedValue({
       ...publicSettings,
       turnstile_enabled: false,
       registration_email_suffix_whitelist: ['allowed.com'],
@@ -141,7 +149,7 @@ describe('RegisterView invitation layout', () => {
   })
 
   it('shows the localized registration domain quota message returned by the backend', async () => {
-    getPublicSettingsMock.mockResolvedValueOnce({
+    getPublicSettingsMock.mockResolvedValue({
       ...publicSettings,
       turnstile_enabled: false,
       registration_email_suffix_whitelist: ['allowed.com'],
@@ -166,7 +174,7 @@ describe('RegisterView invitation layout', () => {
 
   // 域名限量注册开关默认关闭：恢复 PR5423 之前的客户端白名单预检，非白名单域名不发起注册请求。
   it('rejects a non-whitelist email domain locally when the domain quota switch is disabled', async () => {
-    getPublicSettingsMock.mockResolvedValueOnce({
+    getPublicSettingsMock.mockResolvedValue({
       ...publicSettings,
       turnstile_enabled: false,
       registration_email_suffix_whitelist: ['allowed.com']
@@ -186,7 +194,7 @@ describe('RegisterView invitation layout', () => {
   })
 
   it('still submits whitelisted email domains when the domain quota switch is disabled', async () => {
-    getPublicSettingsMock.mockResolvedValueOnce({
+    getPublicSettingsMock.mockResolvedValue({
       ...publicSettings,
       turnstile_enabled: false,
       registration_email_suffix_whitelist: ['allowed.com']
