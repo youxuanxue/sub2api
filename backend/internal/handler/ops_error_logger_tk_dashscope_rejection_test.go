@@ -20,6 +20,8 @@ func TestClassifyOpsDashScopeRequestRejections(t *testing.T) {
 	}{
 		{name: "embedding batch exceeds provider limit", status: 400, message: "InvalidParameter: <400> InternalError.Algo.InvalidParameter: Value error, batch size is invalid, it should not be larger than 10.: input.contents", client: true},
 		{name: "content inspection rejection", status: 400, message: "data_inspection_failed: Output data may contain inappropriate content.", client: true},
+		{name: "input text data inspection rejection", status: 400, message: "data_inspection_failed: Input text data may contain inappropriate content.", client: true},
+		{name: "structured input text inspection rejection", status: 400, body: `{"error":{"code":"data_inspection_failed","message":"Input text data may contain inappropriate content.","type":"data_inspection_failed"}}`, client: true},
 		{name: "structured content inspection rejection", status: 400, body: `{"error":{"code":"data_inspection_failed","message":"Output data may contain inappropriate content."}}`, client: true},
 		{name: "unknown invalid parameter can be adapter fault", status: 400, message: "InvalidParameter: Internal configuration is invalid"},
 		{name: "inspection service failure", status: 400, message: "data_inspection_failed: Inspection service unavailable"},

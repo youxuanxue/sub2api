@@ -175,9 +175,15 @@ func tkOpsDashScopeRequestRejection(body, message string) bool {
 		strings.Contains(message, "batch size is invalid, it should not be larger than") {
 		return true
 	}
-	return strings.Contains(message, "data_inspection_failed:") &&
-		(strings.Contains(message, "output data may contain inappropriate content") ||
-			strings.Contains(message, "input data may contain inappropriate content"))
+	// Content-policy rejections are caller-fault. DashScope variants include
+	// "Input/Output data" and "Input/Output text data" (prod P0 2026-09-12:
+	// "Input text data may contain inappropriate content" missed the old
+	// exact "input data" substring and flooded user_visible_failure_count).
+	// Keep "Inspection service unavailable" as provider-owned.
+	if !strings.Contains(message, "data_inspection_failed:") {
+		return false
+	}
+	return strings.Contains(message, "inappropriate content")
 }
 
 func tkOpsHasUpstreamEventKind(c *gin.Context, kind string) bool {
