@@ -14,42 +14,71 @@ from post_release_replay_check import main
 from test_prod_replay import server
 
 
-def catalog(*models):
-    return {'schema': 1, 'protocols': ['messages', 'chat_completions', 'responses', 'gemini_generate_content'],
-            'models': [{'id': name, 'mode': 'chat', 'vendor': 'openai', 'capabilities': ['tool_use']} for name in models]}
+def inventory(*models):
+    return {'schema': 1, 'kind': 'account-supply-representatives', 'classes': [{
+        'id': 'example-chat', 'platform': 'newapi', 'auth_type': 'apikey', 'channel_type': 1,
+        'dialect': 'standard', 'native_protocols': ['openai-chat'], 'exclusive_endpoints': False,
+        'branch_family': 'family-0', 'representatives': [
+            {'family': f'family-{i}', 'model': name, 'upstream_model': name, 'operation': 'generation',
+             'baseline_protocol': 'openai-chat', 'represented_models': [name]}
+            for i, name in enumerate(models or ('model-a',))]}]}
 
 
 def plan(*models):
-    return matrix.build(catalog(*(models or ['model-a'])), matrix.load())
+    return matrix.build(inventory(*models), matrix.load())
 
 
 class MatrixTests(unittest.TestCase):
-    def test_new_model_and_template_changes_create_delta_without_losing_key_type(self):
+    def test_new_family_and_template_changes_create_delta(self):
         before = plan('model-a')
         after = plan('model-a', 'model-z')
+        # Inventory semantics change all obligations of this class, including its new family.
         added = matrix.delta(after, before)
-        self.assertEqual({e['model'] for e in added}, {'model-z'})
-        self.assertEqual({e['key_type'] for e in added}, {'direct', 'universal'})
-        self.assertTrue(all(e['selection'] == 'model_baseline' for e in added))
+        self.assertIn('model-z', {e['model'] for e in added})
+        self.assertEqual({e['key_type'] for e in added}, {'universal'})
         profiles = matrix.load()
         profiles[0]['request']['body']['max_completion_tokens'] = 32
-        changed = matrix.build(catalog('model-a'), profiles)
-        self.assertEqual({e['profile'] for e in matrix.delta(changed, before)}, {profiles[0]['id']})
+        changed = matrix.build(inventory('model-a'), profiles)
+        self.assertEqual({e['profile'] for e in matrix.delta(changed, before)}, {'openai-chat.plain'})
         self.assertEqual(matrix.delta(before, before), [])
 
+    def test_account_class_is_part_of_case_identity(self):
+        value = inventory()
+        sibling = copy.deepcopy(value['classes'][0]); sibling['id'] = 'other-account-path'
+        value['classes'].append(sibling)
+        result = matrix.build(value, matrix.load())
+        self.assertEqual(len(result['entries']), 2 * len(plan()['entries']))
+        self.assertEqual(len({e['id'] for e in result['entries']}), len(result['entries']))
+
+    def test_reviewed_supply_replaces_catalog_and_has_no_direct_or_implicit_limit(self):
+        value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
+        self.assertEqual(len(value['entries']), 157)
+        self.assertEqual(len({e['account_class'] for e in value['entries']}), 15)
+        self.assertEqual(sum(e['selection'] == 'model-family-baseline' for e in value['entries']), 54)
+        self.assertEqual({e['key_type'] for e in value['entries']}, {'universal'})
+        usable = [e for e in value['entries'] if not e['blocked_reason']]
+        self.assertGreater(len(usable), 32)
+        self.assertEqual(len(matrix.select(value['entries'])), len(usable))
+        self.assertEqual(matrix.select(value['entries']), matrix.select(list(reversed(value['entries']))))
+        self.assertEqual(len(matrix.select(value['entries'], 2)), 2)
+        self.assertEqual(matrix.report(value)['total'], 157)
+        with self.assertRaises(ValueError):
+            matrix.select(value['entries'], 0)
+        # Missing media/tool-roundtrip executors stay visible rather than testing text as media.
+        image = next(e for e in value['entries'] if e['scenario'] == 'content-image')
+        self.assertIsNone(image['request'])
+        self.assertEqual(image['blocked_reason'], 'image_generation_fixture_required')
+        self.assertTrue(all(e['blocked_reason'] == 'tool_roundtrip_executor_required'
+                            for e in value['entries'] if e['scenario'] == 'tool-roundtrip'))
+
     def test_all_fixtures_bind_model_and_exact_actions(self):
-        profiles = matrix.load()
-        for p in profiles:
+        for p in matrix.load():
             if p['request']:
                 rendered = matrix.render(p['request'], 'vendor/model')
                 self.assertNotIn('${model}', json.dumps(rendered))
                 self.assertTrue(matrix.valid_path(rendered['path']))
                 if p['protocol'] == 'gemini-content':
                     self.assertIn('vendor%2Fmodel:', rendered['path'])
-        paths = {p['request']['path'] for p in profiles if p['request']}
-        self.assertIn('/v1/messages/count_tokens', paths)
-        self.assertIn('/v1/responses/input_tokens', paths)
-        self.assertIn('/v1beta/models/${model}:countTokens', paths)
 
     def test_no_execution_or_harness_result_never_claims_gateway_pass(self):
         value = plan()
@@ -60,27 +89,23 @@ class MatrixTests(unittest.TestCase):
             {'id': e['id'], 'case_sha256': e['case_sha256'], 'status': 'passed'} for e in value['entries']]}
         self.assertEqual(matrix.report(value, result)['verdict'], 'incomplete')
         result['execution_kind'] = 'isolated_gateway'
-        self.assertEqual(matrix.report(value, result)['verdict'], 'passed')
+        with self.assertRaisesRegex(ValueError, 'account_class_execution_binding_required'):
+            matrix.report(value, result)
         result['results'][0]['case_sha256'] = 'stale'
         with self.assertRaisesRegex(ValueError, 'stale fixture'):
             matrix.report(value, result)
 
-    def test_budget_does_not_shrink_coverage_and_unknown_modes_remain_gaps(self):
-        value = catalog('model-a')
-        value['models'][0]['mode'] = 'future-media'
-        result = matrix.report(matrix.build(value, matrix.load()))
-        self.assertEqual(result['coverage'], {'blocked-by-test-infrastructure': 2})
-        self.assertEqual({r['reason'] for r in result['entries']}, {'catalog_mode_has_no_profile'})
-        value = plan()
-        selected = matrix.select(value['entries'], 2)
-        self.assertEqual(len(selected), 2)
-        self.assertEqual(matrix.report(value)['total'], len(value['entries']))
-        with self.assertRaises(ValueError):
-            matrix.select(value['entries'], 0)
-
-    def test_invalid_declarations_and_future_protocols_fail_closed(self):
-        value = catalog('model-a'); value['protocols'].append('future')
-        with self.assertRaisesRegex(ValueError, 'protocol set changed'):
+    def test_invalid_inventory_and_unsafe_paths_fail_closed(self):
+        with self.assertRaisesRegex(ValueError, 'account supply inventory required'):
+            matrix.build({'schema': 1, 'models': [{'id': 'catalog-only'}]}, matrix.load())
+        value = inventory(); value['classes'][0]['account_id'] = 1
+        with self.assertRaisesRegex(ValueError, 'account class fields'):
+            matrix.build(value, matrix.load())
+        value = inventory(); value['classes'][0]['native_protocols'] = ['future']
+        with self.assertRaisesRegex(ValueError, 'invalid native protocols'):
+            matrix.build(value, matrix.load())
+        value = inventory(); value['classes'][0]['branch_family'] = 'missing'
+        with self.assertRaisesRegex(ValueError, 'branch representative'):
             matrix.build(value, matrix.load())
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'matrix.json'
@@ -92,15 +117,31 @@ class MatrixTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             matrix.validate_plan(value)
 
-    def test_offline_cli_reports_gaps_and_strict_gate_is_explicit(self):
+    def test_legacy_tag_without_account_supply_has_no_baseline(self):
+        completed = subprocess.CompletedProcess([], 0, stdout=b'', stderr=b'')
+        missing = subprocess.CompletedProcess([], 128, stdout=b'', stderr=b'')
+        with patch.object(matrix.subprocess, 'run', side_effect=[completed, missing, missing]):
+            self.assertIsNone(matrix.from_tag('1.2.3'))
+
+    def test_stripping_account_class_cannot_reenable_model_only_execution(self):
+        value = plan()
+        for case in value['entries']:
+            case.pop('account_class')
+            case['case_sha256'] = matrix.digest({k: v for k, v in case.items() if k != 'case_sha256'})
+        value['plan_sha256'] = matrix.digest({k: v for k, v in value.items() if k != 'plan_sha256'})
+        with self.assertRaisesRegex(ValueError, 'invalid case identity'):
+            matrix.validate_plan(value)
+
+    def test_offline_cli_reports_full_plan_and_strict_gate_is_explicit(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
-            root = Path(directory); cp = root/'catalog.json'; pp = root/'plan.json'; rp = root/'report.json'
-            cp.write_text(json.dumps(catalog('model-a')))
+            root = Path(directory); ip = root/'inventory.json'; pp = root/'plan.json'; rp = root/'report.json'
+            ip.write_text(json.dumps(inventory('model-a')))
             with patch('socket.socket', side_effect=AssertionError('offline must not open network')):
-                self.assertEqual(main(['plan', '--catalog', str(cp), '--out', str(pp)]), 0)
+                self.assertEqual(main(['plan', '--inventory', str(ip), '--out', str(pp)]), 0)
                 self.assertEqual(main(['report', '--plan', str(pp), '--out', str(rp)]), 0)
                 self.assertEqual(main(['report', '--plan', str(pp), '--out', str(rp), '--require-complete']), 1)
             self.assertFalse(json.loads(rp.read_text())['deployment_gate'])
+
 
 
 class ExecutionTests(unittest.TestCase):
@@ -146,41 +187,12 @@ class ExecutionTests(unittest.TestCase):
             with patch.object(check.replay, 'sql', return_value=json.dumps(value)):
                 self.assertEqual(check.binding_key(case, {'m': {'universal':9}}, box)[1], reason)
 
-    def test_isolated_run_uses_synthetic_body_and_checks_production_usage(self):
-        value = plan()
-        before = {'target': 'green', 'target_image': 'image'}
-        box = MagicMock(pg='sandbox-pg', database='sandbox', env={})
-        box.name = 'tk-replay-test'
-        body = b'{"choices":[{"message":{"content":"OK"}}],"usage":{"prompt_tokens":1}}'
-        with server(body=body) as (port, received):
-            box.start.return_value = port
-            with patch.object(check.replay, 'prepared', return_value=('sha', before)), \
-                 patch.object(check.replay, 'snapshot', return_value=before), \
-                 patch.object(check.replay, 'inspect'), patch.object(check.replay, 'Sandbox', return_value=box), \
-                 patch.object(check, 'binding_key', return_value=('probe-secret', None)), \
-                 patch.object(check.replay, 'sql', return_value='0') as sql:
-                # Choose the Chat baseline explicitly to match this HTTP response.
-                case = next(e for e in value['entries'] if e['profile'] == 'openai-chat.plain')
-                with patch.object(check, 'select', return_value=[case]):
-                    result = check.run(value, '1.2.3', {'*': {'direct':1}}, limit=1)
-                self.assertEqual(result['results'][0]['status'], 'passed')
-                self.assertEqual(result['production_usage_rows'], 0)
-                self.assertIn('usage_logs', sql.call_args.args[0])
-                self.assertNotIn('probe-secret', json.dumps(result))
-                self.assertEqual(json.loads(received[0][1]), case['request']['body'])
-                box.close.assert_called_once()
-
-    def test_sandbox_is_cleaned_on_execution_error(self):
-        value = plan()
-        before = {'target': 'green', 'target_image': 'image'}
-        box = MagicMock()
-        with patch.object(check.replay, 'prepared', return_value=('sha', before)), \
-             patch.object(check.replay, 'snapshot', return_value=before), \
-             patch.object(check.replay, 'inspect'), patch.object(check.replay, 'Sandbox', return_value=box), \
-             patch.object(check, 'binding_key', side_effect=RuntimeError('failed')):
-            with self.assertRaises(RuntimeError):
-                check.run(value, '1.2.3', {'*': {'direct':1}}, limit=1)
-            box.close.assert_called_once()
+    def test_account_class_plan_cannot_succeed_through_unrelated_fallback_account(self):
+        with patch.object(check.replay, 'Sandbox') as sandbox, patch.object(check.replay, 'prepared') as prepared:
+            with self.assertRaisesRegex(check.replay.ReplayError, 'account_class_execution_binding_required'):
+                check.run(plan(), '1.2.3', {'*': {'universal': 1}})
+            sandbox.assert_not_called()
+            prepared.assert_not_called()
 
     def test_optional_historical_receipt_does_not_block_normal_staged_approval(self):
         source = (matrix.ROOT/'ops/stage0/deploy_via_ssm_bluegreen.sh').read_text()

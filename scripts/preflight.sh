@@ -3639,8 +3639,8 @@ else
 fi
 
 echo ""
-echo "=== sub2api: gateway capability catalog projection ==="
-if ! python3 scripts/stage0/update-capability-catalog.py --check; then
+echo "=== sub2api: gateway account-supply plan ==="
+if ! python3 scripts/stage0/update-capability-plan.py --check; then
     errors=$((errors + 1))
 fi
 

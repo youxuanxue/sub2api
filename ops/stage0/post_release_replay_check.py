@@ -10,7 +10,7 @@ from pathlib import Path
 import signal
 import sys
 
-from gateway_capability_matrix import DEFAULT_MANIFEST, build, delta, from_tag, load, report, select
+from gateway_capability_matrix import DEFAULT_MANIFEST, DEFAULT_INVENTORY, build, delta, from_tag, load, report, select
 
 
 def read(path):
@@ -31,11 +31,11 @@ def main(argv=None):
     baseline.add_argument('--tag', required=True)
     baseline.add_argument('--out', required=True, type=Path)
     plan = subs.add_parser('plan')
-    plan.add_argument('--catalog', type=Path, required=True, help='gateway-capability-catalog output')
+    plan.add_argument('--inventory', type=Path, default=DEFAULT_INVENTORY, help='sanitized account-supply representatives')
     plan.add_argument('--manifest', type=Path, default=DEFAULT_MANIFEST)
     plan.add_argument('--previous', type=Path, help='previous generated plan; unchanged rows are not delta')
     plan.add_argument('--out', type=Path, required=True)
-    plan.add_argument('--limit', type=int, default=32)
+    plan.add_argument('--limit', type=int, help='optional explicit execution cap; default is the complete eligible set')
     evaluate = subs.add_parser('report')
     evaluate.add_argument('--plan', type=Path, required=True)
     evaluate.add_argument('--previous', type=Path)
@@ -47,8 +47,8 @@ def main(argv=None):
     execute.add_argument('--plan', type=Path, required=True)
     execute.add_argument('--previous', type=Path)
     execute.add_argument('--tag', required=True)
-    execute.add_argument('--bindings', type=Path, required=True, help='model -> direct/universal reserved probe key IDs; no secrets')
-    execute.add_argument('--limit', type=int, default=32)
+    execute.add_argument('--bindings', type=Path, required=True, help='reserved probe key IDs; account-class execution binding is not implemented')
+    execute.add_argument('--limit', type=int, help='optional explicit execution cap; default is the complete eligible set')
     execute.add_argument('--out', type=Path, required=True)
     execute.add_argument('--allow-upstream-quota', action='store_true', required=True)
     args = parser.parse_args(argv)
@@ -61,12 +61,13 @@ def main(argv=None):
         print(json.dumps({'baseline_available': value is not None, 'tag': args.tag}))
         return 0
     if args.command == 'plan':
-        value = build(read(args.catalog), load(args.manifest))
+        value = build(read(args.inventory), load(args.manifest))
         scope = delta(value, read(args.previous))
         chosen = select(scope, args.limit)
         write(args.out, value)
         print(json.dumps({'plan_sha256': value['plan_sha256'], 'total': len(value['entries']),
-                          'delta': len(scope), 'bounded_execution': len(chosen), 'execution': 'not_run',
+                          'delta': len(scope), 'fixture_ready': len(chosen), 'execution': 'not_run',
+                          'execution_blocker': 'account_class_execution_binding_required',
                           'cutover': False, 'deployment_gate': False}))
         return 0
     if args.command == 'report':

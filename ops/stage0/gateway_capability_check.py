@@ -82,8 +82,13 @@ def binding_key(case, bindings, box):
     return key['key'], None
 
 
-def run(plan, tag, bindings, limit=32, previous=None, root=replay.ROOT):
+def run(plan, tag, bindings, limit=None, previous=None, root=replay.ROOT):
     validate_plan(plan)
+    # Model-only key binding can silently route to a different account class.
+    # Keep the account-supply plan offline until class binding + usage attribution
+    # and canonical request planning are implemented together.
+    replay.require(not any(e.get('account_class') for e in plan['entries']),
+                   'account_class_execution_binding_required')
     selected = select(delta(plan, previous), limit)
     replay.require(re.fullmatch(r'\d+\.\d+\.\d+', tag), 'invalid_tag')
     replay.require(isinstance(bindings, dict) and bindings, 'test_key_bindings_required')

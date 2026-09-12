@@ -291,12 +291,12 @@
       },
       {
         "path": "ops/stage0/gateway_capability_matrix.py",
-        "must_contain": ["def build(", "def delta(", "def report(", "coverage status must be derived", "harness-passed"],
-        "rationale": "Capability coverage is derived from the compiled catalog and current fixture evidence; historical users and capture gaps never define its denominator."
+        "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "harness-passed"],
+        "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return."
       },
       {
         "path": "ops/stage0/gateway_capability_check.py",
-        "must_contain": ["dedicated_test_key_required", "test_key_type_mismatch", "production_usage_written", "box.close()"],
+        "must_contain": ["dedicated_test_key_required", "test_key_type_mismatch", "account_class_execution_binding_required", "production_usage_written", "box.close()"],
         "rationale": "Optional real checks use dedicated keys only in isolated snapshots, retain production usage isolation and always clean up."
       },
       {

@@ -16,26 +16,50 @@ risk: high
 
 | Owner | 职责 |
 |---|---|
-| `backend/cmd/gateway-capability-catalog` | 离线调用现有 `PricingCatalogService.BuildPublicCatalog` 导出模型、模态与能力；无数据库和网关启动 |
-| `ops/stage0/gateway-capability-matrix.json` | 验证形态、请求模板和抽样策略；不改变实际模型路由政策 |
-| `ops/stage0/fixtures/gateway/` | 短合成请求，保留 tool/thinking/stream/vision 等语义 |
-| `ops/stage0/gateway_capability_matrix.py` | 展开、去重、digest、增量选择、预算、结果派生 |
-| `ops/stage0/gateway_capability_check.py` | 复用隔离 Sandbox 与 HTTP transport；校验协议响应、终止、usage 和 tool call |
-| `ops/stage0/post_release_replay_check.py` | plan/report/run 单一 CLI；run 显式启用上游配额 |
-| `scripts/stage0/check-gateway-capabilities.sh` | 无付费调用的 post-release 计划与缺口报告 |
+| `ops/stage0/gateway-account-supply.json` | 脱敏账号执行类与已评审的模型族代表；不包含账号 ID、凭据、供应商 URL、用户数据或实时状态 |
+| `ops/stage0/gateway-capability-matrix.json` | universal 请求模板，不再参与模型全集生成 |
+| `ops/stage0/fixtures/gateway/` | 短合成请求；模板与完整场景执行能力分开记录 |
+| `ops/stage0/gateway_capability_matrix.py` | 账号类/模型族基础义务、类级协议和请求分支、稳定 ID、digest、增量与报告 |
+| `ops/stage0/gateway_capability_check.py` | HTTP 验证器；旧 model-only executor 在账号类计划上 fail closed |
+| `ops/stage0/post_release_replay_check.py` | plan/report/from-tag；默认读供应代表清单 |
+| `scripts/stage0/update-capability-plan.py` | 校验供应清单和生成 release artifact；preflight 通过 `--check` 校验 |
+| `scripts/stage0/check-gateway-capabilities.sh` | 无网络、无付费调用的 post-release 计划与缺口报告 |
 
 ## 有限集合和成本
 
-每个 catalog 模型保留 direct/universal 基础义务。其他协议和工具、思考、多模态、
-流式形态按 vendor、模态、能力标签选稳定代表模型；这只是成本抽样，不证明同类其余模型
-逐个实测通过，也不替代 `protocolrouter.Plan` 的合法性裁决。新模型自动进入基础集合，
-能力/fixture 变化改变 case digest。`--previous` 输入上一版计划，输出新增/变更义务；
-没有上一版则诚实地输出完整计划。默认真实执行上限为 32，未选条目仍是未测试。
+用户本会话确认：以实际账号供应归类，同类账号内同类模型取代表，发布主验证只用
+universal，去掉 direct 重复维度。公开 catalog 不是可服务全集；删除其 exporter 和快照。
 
-声明、fixture 存在、harness 通过和真实网关通过分别记录。只有匹配当前 plan/case digest
-的 isolated_gateway 实测结果才派生 passed；不允许在 manifest 手写 tested。
-图片模型参数、语音 voice、视频异步轮询、转录 multipart 尚未通用化的行明确记录
-`blocked-by-test-infrastructure`，不能降为产品不支持。
+供应清单记录 platform、auth type、channel type、执行方言、原生协议集合及 endpoint
+声明方式。相同执行路径的地区和账号数量不扩展 case；Kiro 镜像不得误归 Anthropic OAuth。
+每个账号类内模型版本/别名按评审后的模型族压缩；Fable、显式 thinking、Codex spark/review、
+Gemini 代际、vision 与独立媒体分支按当前试算保留。该等价划分是验证抽样，仍需核对
+各 adapter 分支，不能推导同族所有模型已经测试通过。
+
+每个模型族一个基础义务；每个聊天账号类另补未覆盖的 generation 协议入口和
+stream/tool roundtrip/thinking/vision/count tokens 请求分支。请求分支复用清单中显式的
+branch_family，不因线上调用频率变化自动改选代表。仓库内不保留原始流量计数。
+默认输出完整计划；`--limit` 仅显式限制有模板且无设施阻塞的选择数量，不缩小报告分母。
+不恢复默认抽样截断，不增加 direct smoke。
+
+`--previous` 只比较声明/fixture digest，不代表执行历史。模板、代表或账号类语义改变会
+使相应证据过期；case ID 包含账号类，同一模型在不同账号路径上的成功不能相互替代。
+新模型映射到已有等价类时更新 represented_models；新执行分支另增代表或账号类。
+供应刷新是显式脱敏盘点后评审清单，尚未实现线上 inventory 自动归类；post-release
+消费版本化清单，不谎称已自动发现最新线上账号变化。暂时冷却/无供应不是删除长期义务的依据。
+
+## 计划与执行的界限
+
+当前替换交付的是完整候选计划。每条保留 `plan_validation=required`，原生协议声明
+不能证明跨协议/特性的合法性。正式实测还需 canonical RequestPlan、账号类绑定及
+usage 归属核验；旧执行器只有 model → key，可能被其他账号类兜底，因此 `run` 在建
+Sandbox 前明确拒绝账号类计划，返回 `account_class_execution_binding_required`。
+这不是审批开关，也不能通过编辑 plan 绕过；后续实现需补真实归属验证后才能开放。
+
+tool roundtrip 不能用一次 tool call 代替；生成图片不能用文本 generateContent 代替；
+图片参数、voice、视频轮询、转录 multipart 以及不存在的 count-token 模板继续显示
+`blocked-by-test-infrastructure`。其余 `declared-but-untested` 只说明有模板，未证明可执行。
+coverage 不可由 manifest 手写 passed；harness 成功不算网关实测成功。
 
 ## 本次旧缺口的处理
 
@@ -43,7 +67,7 @@ risk: high
 |---|---|
 | body_missing_or_redacted（40） | 使用短合成模板，不扩大 QA capture 或修改脱敏 |
 | capture_endpoint_ambiguous（4） | 显式 count_tokens/input_tokens/Gemini action 模板，不猜历史路径 |
-| capability_not_declared（2） | 从当前 catalog 模态生成义务；媒体缺执行器保持可见 |
+| capability_not_declared（2） | 从账号映射及操作类型生成义务；媒体缺执行器保持可见 |
 | unsupported_path（3） | 用受支持模板路径；历史路径未逐项还原，不声称已定位为某特定协议 |
 | historical_response_error（1） | 错误/SSE 异常进入离线验证器负例，不使用失败请求作成功基线 |
 | key_quota_exhausted（4） | 专用测试 key ID 绑定；校验 snapshot 中真实 routing_mode，缺失/耗尽报设施缺口 |
@@ -52,26 +76,17 @@ risk: high
 
 ## 使用与验收
 
-离线：`bash scripts/stage0/check-gateway-capabilities.sh /tmp/gateway-check [previous-plan.json]`。
-post-release 使用目标 tag 的生成快照与 fixture，并从上一线上 tag 还原 baseline；旧 tag 尚无该检查时输出 baseline_available=false，建立完整基线。自动上传 plan/coverage artifact，不自动执行真实请求，不参与部署判定。
-
-模型声明变更后运行 `python3 scripts/stage0/update-capability-catalog.py`；preflight 的 `--check` 通过 Go owner 防止生成快照漂移。
-
-真实执行只在 prod host 上对已 prepared 的镜像进行：
-
 ```sh
-python3 ops/stage0/post_release_replay_check.py run \
-  --plan /private/plan.json --tag VERSION \
-  --bindings /private/probe-key-ids.json --limit 32 \
-  --allow-upstream-quota --out /private/results.json
-python3 ops/stage0/post_release_replay_check.py report \
-  --plan /private/plan.json --results /private/results.json --tag VERSION \
-  --out /private/coverage.json
+python3 scripts/stage0/update-capability-plan.py --check
+bash scripts/stage0/check-gateway-capabilities.sh /tmp/gateway-check
+python3 ops/stage0/post_release_replay_check.py plan \
+  --inventory ops/stage0/gateway-account-supply.json --out /tmp/plan.json
 ```
 
-bindings 形状是 `{"model-id":{"direct":123,"universal":456}}`，也支持显式 `*` fallback。
-只接收保留命名 `__tk_probe_` 且类型匹配的 key ID，secret 只在 snapshot 内取用；
-不换用户 key、不重置配额、不在生产创建测试资源。现有 probe key 默认 direct，
-universal 专用 key 未准备时必须报缺口。执行采用部署锁、loopback、隔离 DB/Redis、
-资源/时间限制及 finally 清理，核对 active 和 prepared 指纹；coverage 输出不写 replay 回执。
-本次提交只验证离线行为，不声称已经完成真实能力全覆盖。
+新供应清单可用 `--inventory` 或 shell 入口的 `CAPABILITY_INVENTORY` 指定；校验拒绝
+额外账号字段、未知操作/协议、重复模型族和不存在的代表。数目从输入计算，不把本轮规模
+当上限。CI 对本轮已接受的集合做回归断言，避免重新展开 catalog 或添加 direct。
+
+post-release 使用目标 tag 的供应清单与 fixture，从上一 tag 还原同格式 baseline；
+老 tag 尚无账号供应清单时报告 baseline_available=false，使用完整计划。
+自动上传 plan/coverage artifact，不自动执行上游请求，不参与切流审批。
