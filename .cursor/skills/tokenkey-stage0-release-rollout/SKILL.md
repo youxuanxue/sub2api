@@ -198,3 +198,4 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 - `.github/workflows/ops-stage0-host-mem-guard.yml` + `ops/stage0/sync-host-mem-guard-via-ssm.sh` — 同形状的 one-shot：把 #811 的 `/swapfile` 释放阀 + sysctl + `tokenkey-disk-metrics.sh` 内存压力告警从 `stage0-ec2-bootstrap.sh` 运行时抽取（单一源）推到 live prod（不重建 EC2，prod-only）。**发版本身不会落地这批 infra 改动**（deploy 只换镜像、不跑 bootstrap）——改了 bootstrap 的 swap/内存防御后，要么等下次换机，要么 dispatch 此 workflow 立刻生效。
 
 Replay capability owner: `ops/stage0/prod_replay_manifest.py` and `ops/stage0/prod-replay-capabilities.json` (explicit `operation=replay` only).
+Post-release capability check owner: `ops/stage0/post_release_replay_check.py` (explicit replay only).
