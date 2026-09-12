@@ -33,6 +33,8 @@ func (h *EdgeAdminSessionHandler) Mint(c *gin.Context) {
 }
 func (h *EdgeAdminSessionHandler) Configuration(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
+	// Release gate probes the serving prod through Caddy, even without trust configured.
+	c.Header("X-TokenKey-Handoff-Isolation", "1")
 	receiver := h.handoff.Receiver()
 	if receiver == nil {
 		response.Error(c, http.StatusServiceUnavailable, "edge handoff unavailable")

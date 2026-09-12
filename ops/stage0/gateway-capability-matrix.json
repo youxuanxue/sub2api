@@ -1,0 +1,376 @@
+{
+  "schema": 1,
+  "source": "Request fixture shapes for account-supply obligations; not routing policy",
+  "profiles": [
+    {
+      "id": "openai-chat.plain",
+      "protocol": "openai-chat",
+      "request_type": "plain",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-chat.plain.json"
+    },
+    {
+      "id": "openai-chat.plain.stream",
+      "protocol": "openai-chat",
+      "request_type": "plain",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-chat.plain.stream.json"
+    },
+    {
+      "id": "openai-chat.tool",
+      "protocol": "openai-chat",
+      "request_type": "tool",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-chat.tool.json"
+    },
+    {
+      "id": "openai-chat.tool.stream",
+      "protocol": "openai-chat",
+      "request_type": "tool",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-chat.tool.stream.json"
+    },
+    {
+      "id": "openai-chat.thinking",
+      "protocol": "openai-chat",
+      "request_type": "thinking",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-chat.thinking.json"
+    },
+    {
+      "id": "openai-chat.thinking.stream",
+      "protocol": "openai-chat",
+      "request_type": "thinking",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-chat.thinking.stream.json"
+    },
+    {
+      "id": "openai-chat.multimodal",
+      "protocol": "openai-chat",
+      "request_type": "multimodal",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-chat.multimodal.json"
+    },
+    {
+      "id": "openai-chat.multimodal.stream",
+      "protocol": "openai-chat",
+      "request_type": "multimodal",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-chat.multimodal.stream.json"
+    },
+    {
+      "id": "openai-responses.plain",
+      "protocol": "openai-responses",
+      "request_type": "plain",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.plain.json"
+    },
+    {
+      "id": "openai-responses.plain.stream",
+      "protocol": "openai-responses",
+      "request_type": "plain",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.plain.stream.json"
+    },
+    {
+      "id": "openai-responses.tool",
+      "protocol": "openai-responses",
+      "request_type": "tool",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.tool.json"
+    },
+    {
+      "id": "openai-responses.tool.stream",
+      "protocol": "openai-responses",
+      "request_type": "tool",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.tool.stream.json"
+    },
+    {
+      "id": "openai-responses.thinking",
+      "protocol": "openai-responses",
+      "request_type": "thinking",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.thinking.json"
+    },
+    {
+      "id": "openai-responses.thinking.stream",
+      "protocol": "openai-responses",
+      "request_type": "thinking",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.thinking.stream.json"
+    },
+    {
+      "id": "openai-responses.multimodal",
+      "protocol": "openai-responses",
+      "request_type": "multimodal",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.multimodal.json"
+    },
+    {
+      "id": "openai-responses.multimodal.stream",
+      "protocol": "openai-responses",
+      "request_type": "multimodal",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.multimodal.stream.json"
+    },
+    {
+      "id": "anthropic-messages.plain",
+      "protocol": "anthropic-messages",
+      "request_type": "plain",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.plain.json"
+    },
+    {
+      "id": "anthropic-messages.plain.stream",
+      "protocol": "anthropic-messages",
+      "request_type": "plain",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.plain.stream.json"
+    },
+    {
+      "id": "anthropic-messages.tool",
+      "protocol": "anthropic-messages",
+      "request_type": "tool",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.tool.json"
+    },
+    {
+      "id": "anthropic-messages.tool.stream",
+      "protocol": "anthropic-messages",
+      "request_type": "tool",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.tool.stream.json"
+    },
+    {
+      "id": "anthropic-messages.thinking",
+      "protocol": "anthropic-messages",
+      "request_type": "thinking",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.thinking.json"
+    },
+    {
+      "id": "anthropic-messages.thinking.stream",
+      "protocol": "anthropic-messages",
+      "request_type": "thinking",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.thinking.stream.json"
+    },
+    {
+      "id": "anthropic-messages.multimodal",
+      "protocol": "anthropic-messages",
+      "request_type": "multimodal",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.multimodal.json"
+    },
+    {
+      "id": "anthropic-messages.multimodal.stream",
+      "protocol": "anthropic-messages",
+      "request_type": "multimodal",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.multimodal.stream.json"
+    },
+    {
+      "id": "gemini-content.plain",
+      "protocol": "gemini-content",
+      "request_type": "plain",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.plain.json"
+    },
+    {
+      "id": "gemini-content.plain.stream",
+      "protocol": "gemini-content",
+      "request_type": "plain",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.plain.stream.json"
+    },
+    {
+      "id": "gemini-content.tool",
+      "protocol": "gemini-content",
+      "request_type": "tool",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.tool.json"
+    },
+    {
+      "id": "gemini-content.tool.stream",
+      "protocol": "gemini-content",
+      "request_type": "tool",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.tool.stream.json"
+    },
+    {
+      "id": "gemini-content.thinking",
+      "protocol": "gemini-content",
+      "request_type": "thinking",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.thinking.json"
+    },
+    {
+      "id": "gemini-content.thinking.stream",
+      "protocol": "gemini-content",
+      "request_type": "thinking",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.thinking.stream.json"
+    },
+    {
+      "id": "gemini-content.multimodal",
+      "protocol": "gemini-content",
+      "request_type": "multimodal",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.multimodal.json"
+    },
+    {
+      "id": "gemini-content.multimodal.stream",
+      "protocol": "gemini-content",
+      "request_type": "multimodal",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.multimodal.stream.json"
+    },
+    {
+      "id": "anthropic-messages.count_tokens",
+      "protocol": "anthropic-messages",
+      "request_type": "count_tokens",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/anthropic-messages.count_tokens.json"
+    },
+    {
+      "id": "openai-responses.count_tokens",
+      "protocol": "openai-responses",
+      "request_type": "count_tokens",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-responses.count_tokens.json"
+    },
+    {
+      "id": "gemini-content.count_tokens",
+      "protocol": "gemini-content",
+      "request_type": "count_tokens",
+      "mode": "chat",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/gemini-content.count_tokens.json"
+    },
+    {
+      "id": "openai-embeddings.plain",
+      "protocol": "openai-embeddings",
+      "request_type": "plain",
+      "mode": "embedding",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/openai-embeddings.plain.json"
+    },
+    {
+      "id": "openai-transcription.plain",
+      "protocol": "openai-transcription",
+      "request_type": "plain",
+      "mode": "stt",
+      "key_types": [
+        "universal"
+      ],
+      "fixture": "fixtures/gateway/transcription-audio.json"
+    }
+  ]
+}

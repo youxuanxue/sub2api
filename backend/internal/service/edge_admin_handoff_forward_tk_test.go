@@ -16,8 +16,8 @@ import (
 )
 
 func TestEdgeAdminHandoffForwardPinnedWithoutMirrorKeyOrRedirect(t *testing.T) {
-	for _, redirect := range []bool{false, true} {
-		t.Run(map[bool]string{false: "code only", true: "redirect blocked"}[redirect], func(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusTemporaryRedirect, http.StatusNotFound, http.StatusGone} {
+		t.Run(map[int]string{200: "code only", 307: "redirect blocked", 404: "old Edge has no new protocol", 410: "retired endpoint"}[status], func(t *testing.T) {
 			owner, _ := handoffTestOwner(t)
 			signer := owner.cfg.Signers["e1"]
 			signer.Origin = "https://api-e1.tokenkey.dev"
@@ -29,9 +29,13 @@ func TestEdgeAdminHandoffForwardPinnedWithoutMirrorKeyOrRedirect(t *testing.T) {
 				require.Empty(t, r.Header.Get("x-api-key"))
 				require.Empty(t, r.Header.Get("Authorization"))
 				require.Equal(t, "/api/v1/edge/admin-handoff/mint", r.URL.Path)
-				if redirect {
+				if status == http.StatusTemporaryRedirect {
 					w.Header().Set("Location", "https://api-e1.tokenkey.dev/redirected")
 					w.WriteHeader(307)
+					return
+				}
+				if status != http.StatusOK {
+					w.WriteHeader(status)
 					return
 				}
 				var envelope EdgeHandoffDelegation
@@ -62,7 +66,7 @@ func TestEdgeAdminHandoffForwardPinnedWithoutMirrorKeyOrRedirect(t *testing.T) {
 			require.True(t, target.Enabled)
 			require.Equal(t, signer.Origin+"/admin/edge-handoff", target.URL)
 			session, err := agg.MintAdminSession(context.Background(), "e1", 17, EdgeHandoffRequest{Challenge: EdgeHandoffDigest("v"), Attempt: EdgeHandoffDigest("a")})
-			if redirect {
+			if status != http.StatusOK {
 				require.Error(t, err)
 				require.Nil(t, session)
 			} else {

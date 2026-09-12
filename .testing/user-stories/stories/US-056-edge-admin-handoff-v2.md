@@ -21,6 +21,7 @@
 6. AC-006（撤销）：Edge 管理员被停用后无法兑换；签发后的会话族可按交接审计标识撤销。
 
 7. AC-007（故障隔离）：非法配置关闭交接但不阻断服务初始化和普通登录；交接基础设施失败用 503，不触发代理 502/504 的健康摘除策略。
+8. AC-008（发布隔离）：新版 Edge 部署前验证公开 prod 已具备故障隔离；旧版、重定向和探测失败阻止发布，配置未启用的新 prod 可先承流。
 
 ## Assertions
 
@@ -45,6 +46,7 @@
 
 - `backend/internal/service/edge_admin_handoff_tk_test.go`::`TestEdgeAdminHandoffBadConfigurationIsIsolated`：缺失、非法、不可读、权限及部分配置全拒绝，初始化继续。
 - `backend/internal/handler/admin/edge_accounts_handler_tk_test.go`::`TestMintAdminSession_EdgeFailureDoesNotMarkGatewayUnhealthy`：交接错误不返回代理故障状态。
+- `ops/stage0/test_edge_handoff_rollout.py`：真实 HTTP 探测契约、混合版本 gate、workflow 部署写入前置条件。
 - `frontend/e2e/edge-handoff.e2e.ts`：`EDGE_HANDOFF_E2E_INVALID=1` 配合 `--grep "invalid trust"` 验证坏配置下两个实例的普通登录。
 
 ## Evidence

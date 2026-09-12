@@ -28,6 +28,11 @@ authors: [codex]
 配置校验工具仍严格失败退出，部署启用交接前必须通过；普通健康检查不代表交接就绪。
 混合版本切换仍需单独安排窗口和直接登录验证，本修订不批准线上发布。
 
+发布隔离延伸到混合版本：新版 Edge 部署前，实际承流 prod 必须已支持交接故障隔离。
+`ops/stage0/check_edge_handoff_rollout.py` 是 release gate owner，Edge workflow 在部署
+写入前调用；configuration 的只读 `X-TokenKey-Handoff-Isolation: 1` 响应头标识该代码
+契约，即使交接信任未配置也返回。具体顺序与回滚边界以 ops runbook 为准。
+
 ## User experience
 
 管理员点击现有“进入 Edge”，同步打开干净的 `/admin/edge-handoff` 窗口。

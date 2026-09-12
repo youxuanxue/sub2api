@@ -1,0 +1,29 @@
+{
+  "method": "POST",
+  "path": "/v1beta/models/${model}:generateContent",
+  "body": {
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Work out 17 times 23 carefully, then reply with the number only."
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 2048,
+      "thinkingConfig": {
+        "thinkingBudget": 1024
+      }
+    }
+  },
+  "stream": false,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}

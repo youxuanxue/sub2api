@@ -1,0 +1,45 @@
+{
+  "method": "POST",
+  "path": "/v1/messages",
+  "body": {
+    "model": "${model}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Call echo with value OK."
+      }
+    ],
+    "max_tokens": 64,
+    "tools": [
+      {
+        "name": "echo",
+        "description": "Return the supplied value.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "tool",
+      "name": "echo"
+    },
+    "stream": false
+  },
+  "stream": false,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage",
+    "tool_call"
+  ]
+}

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Finite, deployment-owned capability matrix for prod replay.
+"""Legacy retained-request protocol filter for the optional replay experiment.
 
-This module is deliberately independent of the request path.  The manifest is
-the denominator for replay; live gateway traffic is never captured for it.
+This module is deliberately independent of the request path.  The historical collector still uses observed capture strata as its denominator.
+Gateway service coverage is owned by gateway_capability_matrix.py instead.
 """
 from __future__ import annotations
 

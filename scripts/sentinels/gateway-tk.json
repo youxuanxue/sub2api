@@ -73,7 +73,6 @@
     {
       "path": "backend/internal/observability/qa/sse_tee.go",
       "must_contain": [
-        "c.Set(contextKeyRequestPath, c.Request.URL.EscapedPath())",
         "p = p[:remaining]",
         "maxCapturedSSEChunks",
         "body[start:boundary.end:boundary.end]"
@@ -164,8 +163,6 @@
     {
       "path": "backend/internal/observability/qa/service.go",
       "must_contain": [
-        "c.GetString(contextKeyRequestPath)",
-        "requestPayload[\"original_path\"] = input.RequestPath",
         "restoreInternalThinkingBlockJSON(logredact.RedactJSON([]byte(raw)), []byte(raw))",
         "captureRequestedModel(metadataBody)", "captureToolCallsPresent(metadataBody)", "captureMultimodalPresent(metadataBody)"
       ],
@@ -290,12 +287,27 @@
           "STAGE0_BLUEGREEN_APPROVED_REPLAY:",
           "Validate human-approved replay receipt"
         ],
-        "rationale": "Replay dispatch must execute retained requests; reviewed continuation must bind the exact candidate to the existing deploy gates."
+        "rationale": "Replay dispatch executes account-supply cases without cutover; promotion remains separately authorized."
       },
       {
-        "path": "backend/internal/observability/qa/replay_path_tk_test.go",
-        "must_contain": ["TestBuildBlobPreservesReplayActionWithoutChangingProtocolFamily", "TestQAMiddlewareKeepsOriginalPathBeforeHandlerRewrite"],
-        "rationale": "Replay must retain the actual count_tokens/Gemini action instead of the normalized protocol family."
+        "path": "ops/stage0/gateway_capability_matrix.py",
+        "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "verification_sha256", "harness-passed"],
+        "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return."
+      },
+      {
+        "path": "ops/stage0/gateway_capability_host.py",
+        "must_contain": ["def account_guard(", "def run_locked(", "def verify_binding(", "def attribution(", "class HostPressure(replay.ReplayDeadline)", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "sandbox.close()", "production_usage_rows"],
+        "rationale": "Serial synthetic verification preserves live headroom checks, account attribution, isolated data, and cleanup."
+      },
+      {
+        "path": "ops/stage0/test_gateway_capability_host.py",
+        "must_contain": ["test_mutated_key_group_or_account_binding_is_rejected", "test_rate_limit_stops_the_full_plan_without_dropping_remaining_cases", "test_pressure_before_start_still_emits_all_obligations_and_cleans_up", "test_capacity_abort_is_not_swallowed_by_database_health_retry", "test_cleanup_reconciles_resources_even_without_creation_flags", "test_real_sql_resolves_billing_ids_and_detects_production_writes"],
+        "rationale": "Behavioral guards prevent account fallback, unsafe continuation and denominator truncation."
+      },
+      {
+        "path": "ops/stage0/gateway_capability_check.py",
+        "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing"],
+        "rationale": "Synthetic responses require protocol and media semantics; execution is owned by the isolated host runner."
       },
       {
         "path": "ops/stage0/prod_replay.py",
@@ -331,7 +343,7 @@
           "validate_replay_gate()",
           "  validate_replay_gate"
         ],
-        "rationale": "Direct promote must enforce the same reviewed replay receipt under the deployment lock."
+        "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate."
       },
     {
       "path": "backend/internal/service/openai_codex_models_service.go",
@@ -374,13 +386,23 @@
     },
     {
       "path": "backend/internal/service/account_tk_cursor.go",
-      "must_contain": ["tx.Account.Query().Where(entaccount.IDEQ(accountID)).ForUpdate().Only(opCtx)", "*stored.ErrorMessage == cursorOAuthReauthorizationRequired", "s.UpdateAccount(opCtx, accountID, update)"],
+      "must_contain": ["tx.Account.Query().Where(entaccount.IDEQ(accountID)).ForUpdate().Only(opCtx)", "*stored.ErrorMessage == cursorOAuthReauthorizationRequired", "s.UpdateAccount(opCtx, accountID, update)", "if hasMessagesDispatchRemapping(group) {", "if hasMessagesDispatchRemapping(&Group{"],
       "rationale": "Verified Cursor reauthorization clears only the refresh-owned failure inside the credential transaction and preserves operator pauses under the account lock."
     },
     {
       "path": "backend/internal/repository/account_repo_cursor_transaction_integration_test.go",
-      "must_contain": ["TestCursorReconnectPreservesPersistedPause", "operator investigation", "operator disabled", "scenario.replace", "loaded.ErrorMessage"],
-      "rationale": "Real persistence tests distinguish verified reauthorization from an expiry-only edit and retain unrelated errors and manual controls."
+      "must_contain": ["TestCursorReconnectPreservesPersistedPause", "operator investigation", "operator disabled", "scenario.replace", "loaded.ErrorMessage", "TestCursorBindsMixedChinaAfterExplicitMappingRemoval", "admin.UpdateGroup(ctx, group.ID", "admin.SaveCursorAccount(ctx, nil, &service.UpdateAccountInput{GroupIDs: &ids}, cursorAccount.ID)"],
+      "rationale": "Real persistence tests distinguish verified reauthorization from an expiry-only edit, retain manual controls, and bind Cursor alongside other supplies only after explicit china mapping removal."
+    },
+    {
+      "path": "backend/internal/service/messages_dispatch_family_registry_tk.go",
+      "must_contain": ["func hasMessagesDispatchRemapping(group *Group) bool", "if group.Platform == PlatformNewAPI && !hasMessagesDispatchRemapping(group) {"],
+      "rationale": "Group validation and Cursor import share effective remapping truth, including implicit defaults; family metadata alone must not block an empty mixed-supply group."
+    },
+    {
+      "path": "backend/internal/service/messages_dispatch_family_registry_tk_test.go",
+      "must_contain": ["TestChinaClearedMappingPreservesRequestedModelAndLegacyConfig", "group.ResolveMessagesDispatchModel(model)", "hasMessagesDispatchRemapping(group)"],
+      "rationale": "Behavioral regression rejects restoring china's implicit GLM substitutions while preserving explicit legacy configurations and other groups' defaults."
     },
     {
       "path": "backend/internal/integration/cursor/oauth_refresh.go",
@@ -11789,6 +11811,45 @@
         "no handoff receiver configured"
       ],
       "rationale": "Pre-activation local validation uses the same strict trust parser while rejecting missing required roles."
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_admin_session_handler.go",
+      "must_contain": [
+        "c.Header(\"X-TokenKey-Handoff-Isolation\", \"1\")"
+      ],
+      "rationale": "Serving prod advertises isolation independently of optional trust; release gate must not mistake health or inactive green for readiness."
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_admin_session_handler_test.go",
+      "must_contain": [
+        "TestEdgeHandoffConfigurationAdvertisesIsolationWithoutTrust"
+      ],
+      "rationale": "Release capability remains available with handoff disabled."
+    },
+    {
+      "path": "ops/stage0/check_edge_handoff_rollout.py",
+      "must_contain": [
+        "def requires_isolation(",
+        "def probe_serving_prod(",
+        "NoRedirect()",
+        "status in (200, 503)",
+        "response.headers.get(HEADER) == \"1\""
+      ],
+      "rationale": "Target release and actual serving prod jointly decide whether a new Edge is safe to deploy."
+    },
+    {
+      "path": ".github/workflows/deploy-edge-lightsail-stage0.yml",
+      "must_contain": [
+        "python3 ops/stage0/check_edge_handoff_rollout.py --tag \"$INPUT_TAG\""
+      ],
+      "rationale": "Direct workflow dispatch also fails closed before mixed-version Edge mutations."
+    },
+    {
+      "path": "scripts/preflight.sh",
+      "must_contain": [
+        "python3 ops/stage0/test_edge_handoff_rollout.py"
+      ],
+      "rationale": "Release-order contract and actual HTTP negative cases run at the mechanical exit gate."
     }
   ]
 }

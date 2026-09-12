@@ -35,7 +35,8 @@ def sample(user=1, model='m1', endpoint='/v1/messages'):
 
 
 @contextlib.contextmanager
-def server(status=200, body=b'{"content":[{"text":"ok"}]}', content_type='application/json', header_delay=0, body_delay=0, declared_length=None):
+def server(status=200, body=b'{"content":[{"text":"ok"}]}', content_type='application/json', header_delay=0,
+           body_delay=0, declared_length=None, response_id=None):
     requests = []
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
@@ -46,6 +47,8 @@ def server(status=200, body=b'{"content":[{"text":"ok"}]}', content_type='applic
             self.send_header('Content-Type', content_type)
             self.send_header('Content-Length', str(len(body) if declared_length is None else declared_length))
             self.send_header('Location', 'http://example.invalid/credential-sink')
+            if response_id:
+                self.send_header('X-Request-ID', response_id)
             self.end_headers()
             time.sleep(body_delay)
             try:
@@ -147,6 +150,19 @@ class CaptureTest(unittest.TestCase):
 
 
 class HTTPTest(unittest.TestCase):
+    def test_server_id_is_retained_before_body_timeout_or_abort(self):
+        retained = []
+        with server(body_delay=.15, response_id='server-id') as (port, _):
+            result = replay.execute(sample(), 'synthetic', port, 'test', budget=.05, on_response_id=retained.append)
+        self.assertEqual(result['reason'], 'request_deadline_exceeded')
+        self.assertEqual(retained, ['server-id'])
+        def abort(rid):
+            retained.append(rid)
+            raise replay.ReplayDeadline()
+        with server(response_id='interrupted-id') as (port, _), self.assertRaises(replay.ReplayDeadline):
+            replay.execute(sample(), 'synthetic', port, 'test', on_response_id=abort)
+        self.assertEqual(retained, ['server-id', 'interrupted-id'])
+
     def test_real_loopback_request_preserves_body_identity_and_hides_payload(self):
         request = sample()
         with server() as (port, received):
@@ -303,13 +319,20 @@ class ExecutionTest(unittest.TestCase):
 
 
 class OrchestrationTest(unittest.TestCase):
+    def receipt(self, tag='1.2.3', verdict='green'):
+        from gateway_capability_matrix import digest
+        details = {'tag': tag, 'verdict': verdict, 'cutover': False, 'results': [{'id': 'one-case'}]}
+        receipt = {k: v for k, v in details.items() if k != 'results'}
+        receipt.update(total=1, results_sha256=digest(details), receipt_sha256='a'*64)
+        return [receipt, {'tag': tag, 'rows': details['results']}]
+
     def test_prepare_cannot_inherit_cutover_and_execution_must_produce_receipt(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': True}, {'needs_prepare': False}, {'verdict': 'green', 'cutover': False, 'receipt_sha256': 'a'*64}]) as remote, patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {'STAGE0_BLUEGREEN_STAGE': 'deploy', 'STAGE0_BLUEGREEN_WAIT_PHASE': 'cutover'}):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': True}, {'needs_prepare': False}] + self.receipt()) as remote, patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {'STAGE0_BLUEGREEN_STAGE': 'deploy', 'STAGE0_BLUEGREEN_WAIT_PHASE': 'cutover'}):
             cli.run_replay('1.2.3', 'i-prod', Path(tmp))
             env = process.call_args.kwargs['env']
             self.assertEqual(env['STAGE0_BLUEGREEN_STAGE'], 'prepare')
             self.assertEqual(env['STAGE0_BLUEGREEN_WAIT_PHASE'], 'complete')
-            self.assertEqual([c.args[1] for c in remote.call_args_list], ['status', 'status', 'run'])
+            self.assertEqual([c.args[1] for c in remote.call_args_list], ['status', 'status', 'run', 'results'])
 
     def test_ssm_delivery_executes_the_shipped_source(self):
         delivered = {}
@@ -350,8 +373,7 @@ class OrchestrationTest(unittest.TestCase):
 
     def test_replacement_is_explicit_and_prepare_cannot_inherit_approval(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
-                {'needs_prepare': True}, {'needs_prepare': False},
-                {'verdict': 'green', 'cutover': False, 'receipt_sha256': 'c'*64}]) as remote, \
+                {'needs_prepare': True}, {'needs_prepare': False}] + self.receipt('1.2.4')) as remote, \
              patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {
                 'STAGE0_BLUEGREEN_APPROVED_REPLAY': 'a'*64, 'STAGE0_BLUEGREEN_REPLACE_RECEIPT': 'a'*64}):
             cli.run_replay('1.2.4', 'i-prod', Path(tmp), 'b'*64)
@@ -382,7 +404,7 @@ class OrchestrationTest(unittest.TestCase):
                     replay.prepare_status('1.2.4', expected, root)
 
     def test_prepared_retry_does_not_replace_candidate_and_red_fails(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': False}, {'needs_prepare': False}, {'verdict': 'red', 'cutover': False}]), patch.object(cli.subprocess, 'run') as process:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': False}, {'needs_prepare': False}] + self.receipt(verdict='red')), patch.object(cli.subprocess, 'run') as process:
             with self.assertRaisesRegex(RuntimeError, 'replay failed'):
                 cli.run_replay('1.2.3', 'i-prod', Path(tmp))
             process.assert_not_called()

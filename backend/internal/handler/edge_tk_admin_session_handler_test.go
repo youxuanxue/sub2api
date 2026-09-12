@@ -61,6 +61,14 @@ func TestEdgeAdminSession_LegacyAlwaysGone(t *testing.T) {
 	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 	require.NotContains(t, w.Body.String(), "access_token")
 }
+
+func TestEdgeHandoffConfigurationAdvertisesIsolationWithoutTrust(t *testing.T) {
+	h := NewEdgeAdminSessionHandler(nil, nil, nil)
+	w := handoffRequest(t, h.Configuration, nil, "")
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Equal(t, "1", w.Header().Get("X-TokenKey-Handoff-Isolation"))
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+}
 func TestEdgeAdminHandoff_ExchangeSecurity(t *testing.T) {
 	const edge = "https://edge.example"
 	pub, key, err := ed25519.GenerateKey(rand.Reader)

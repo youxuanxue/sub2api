@@ -1,0 +1,26 @@
+{
+  "method": "POST",
+  "path": "/v1/messages",
+  "body": {
+    "model": "${model}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with OK."
+      }
+    ],
+    "max_tokens": 2048,
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 1024
+    },
+    "stream": true
+  },
+  "stream": true,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}

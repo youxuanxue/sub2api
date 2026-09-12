@@ -1,0 +1,23 @@
+{
+  "method": "POST",
+  "path": "/v1/chat/completions",
+  "body": {
+    "model": "${model}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Work out 17 times 23 carefully, then reply with the number only."
+      }
+    ],
+    "max_completion_tokens": 2048,
+    "reasoning_effort": "low",
+    "stream": false
+  },
+  "stream": false,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}

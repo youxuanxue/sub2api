@@ -1,0 +1,925 @@
+{
+  "schema": 1,
+  "kind": "account-supply-representatives",
+  "source": "Reviewed prod account-supply equivalence classes; refreshed from sanitized inventory, not public pricing.",
+  "classes": [
+    {
+      "id": "anthropic.apikey.0.edge-kiro.messages.default",
+      "platform": "anthropic",
+      "auth_type": "apikey",
+      "channel_type": 0,
+      "dialect": "edge-kiro",
+      "native_protocols": [
+        "anthropic-messages"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "claude",
+      "representatives": [
+        {
+          "family": "claude",
+          "model": "claude-opus-4-8",
+          "upstream_model": "claude-opus-4-8",
+          "operation": "generation",
+          "baseline_protocol": "anthropic-messages",
+          "represented_models": [
+            "claude-haiku-4-5",
+            "claude-opus-4-5",
+            "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "antigravity.apikey.0.edge-antigravity.chat-completions-gemini-generate-content-messages.default",
+      "platform": "antigravity",
+      "auth_type": "apikey",
+      "channel_type": 0,
+      "dialect": "edge-antigravity",
+      "native_protocols": [
+        "openai-chat",
+        "gemini-content",
+        "anthropic-messages"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "gemini-3",
+      "representatives": [
+        {
+          "family": "claude",
+          "model": "claude-sonnet-4-6",
+          "upstream_model": "claude-sonnet-4-6",
+          "operation": "generation",
+          "baseline_protocol": "anthropic-messages",
+          "represented_models": [
+            "claude-sonnet-4-6"
+          ]
+        },
+        {
+          "family": "claude-explicit-thinking",
+          "model": "claude-opus-4-6",
+          "upstream_model": "claude-opus-4-6-thinking",
+          "operation": "generation",
+          "baseline_protocol": "anthropic-messages",
+          "represented_models": [
+            "claude-opus-4-6",
+            "claude-opus-4-6-thinking"
+          ]
+        },
+        {
+          "family": "gemini-2",
+          "model": "gemini-2.5-flash",
+          "upstream_model": "gemini-2.5-flash",
+          "operation": "generation",
+          "baseline_protocol": "gemini-content",
+          "represented_models": [
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash-thinking"
+          ]
+        },
+        {
+          "family": "gemini-3",
+          "model": "gemini-3.8-flash",
+          "upstream_model": "gemini-3.8-flash-medium",
+          "operation": "generation",
+          "baseline_protocol": "gemini-content",
+          "represented_models": [
+            "gemini-3-flash",
+            "gemini-3-flash-agent",
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-3.1-pro",
+            "gemini-3.1-pro-low",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-extra-low",
+            "gemini-3.5-flash-low",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-3.7-flash-high",
+            "gemini-3.7-flash-low",
+            "gemini-3.7-flash-medium",
+            "gemini-3.8-flash",
+            "gemini-pro-agent"
+          ]
+        },
+        {
+          "family": "gemini-image",
+          "model": "gemini-2.5-flash-image",
+          "upstream_model": "gemini-3.1-flash-image",
+          "operation": "content-image",
+          "baseline_protocol": "gemini-content",
+          "represented_models": [
+            "gemini-2.5-flash-image",
+            "gemini-3-pro-image",
+            "gemini-3.1-flash-image",
+            "gemini-3.1-flash-image-preview"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.1.nvidia-build.chat-completions.default",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 1,
+      "dialect": "nvidia-build",
+      "native_protocols": [
+        "openai-chat"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "deepseek",
+      "representatives": [
+        {
+          "family": "deepseek",
+          "model": "deepseek-v4-flash",
+          "upstream_model": "deepseek-ai/deepseek-v4-flash-0731",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "deepseek-v4-flash",
+            "deepseek-v4-flash-0731",
+            "deepseek-v4-pro",
+            "deepseek-v4-pro-0813"
+          ]
+        },
+        {
+          "family": "kimi",
+          "model": "kimi-k3",
+          "upstream_model": "moonshotai/kimi-k3",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "kimi-k3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.1.standard.media.exclusive",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 1,
+      "dialect": "standard",
+      "native_protocols": [],
+      "exclusive_endpoints": true,
+      "branch_family": null,
+      "representatives": [
+        {
+          "family": "gemini-image",
+          "model": "gemini-3.1-flash-image",
+          "upstream_model": "gemini-3.1-flash-image",
+          "operation": "content-image",
+          "baseline_protocol": "gemini-content",
+          "represented_models": [
+            "gemini-3-pro-image",
+            "gemini-3-pro-image-preview",
+            "gemini-3.1-flash-image",
+            "gemini-3.1-flash-image-preview"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.1.standard.chat-completions.exclusive",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 1,
+      "dialect": "standard",
+      "native_protocols": [
+        "openai-chat"
+      ],
+      "exclusive_endpoints": true,
+      "branch_family": "glm",
+      "representatives": [
+        {
+          "family": "claude-always-thinking",
+          "model": "claude-fable-5",
+          "upstream_model": "claude-fable-5",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "claude-fable-5"
+          ]
+        },
+        {
+          "family": "claude-explicit-thinking",
+          "model": "claude-opus-4-6",
+          "upstream_model": "claude-opus-4-6-thinking",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "claude-opus-4-6"
+          ]
+        },
+        {
+          "family": "gemini-3",
+          "model": "gemini-3-flash-preview",
+          "upstream_model": "gemini-3-flash-preview",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3.1-pro-preview"
+          ]
+        },
+        {
+          "family": "glm",
+          "model": "glm-5",
+          "upstream_model": "glm-5.3",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "glm-5",
+            "glm-5.1",
+            "glm-5.3"
+          ]
+        },
+        {
+          "family": "gpt",
+          "model": "gpt-5.4",
+          "upstream_model": "gpt-5.4",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5.1",
+            "gpt-5.2",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.5",
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-6-astra"
+          ]
+        },
+        {
+          "family": "kimi",
+          "model": "kimi-k3",
+          "upstream_model": "kimi-k3",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "kimi-k3"
+          ]
+        },
+        {
+          "family": "minimax",
+          "model": "MiniMax-M3",
+          "upstream_model": "MiniMax-M3",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "MiniMax-M3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.14.standard.messages.exclusive",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 14,
+      "dialect": "standard",
+      "native_protocols": [
+        "anthropic-messages"
+      ],
+      "exclusive_endpoints": true,
+      "branch_family": "claude",
+      "representatives": [
+        {
+          "family": "claude",
+          "model": "claude-opus-4-6",
+          "upstream_model": "claude-opus-4-6",
+          "operation": "generation",
+          "baseline_protocol": "anthropic-messages",
+          "represented_models": [
+            "claude-haiku-4-5",
+            "claude-haiku-4-5-20251001",
+            "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5"
+          ]
+        },
+        {
+          "family": "claude-always-thinking",
+          "model": "claude-fable-5",
+          "upstream_model": "claude-fable-5",
+          "operation": "generation",
+          "baseline_protocol": "anthropic-messages",
+          "represented_models": [
+            "claude-fable-5"
+          ]
+        },
+        {
+          "family": "claude-explicit-thinking",
+          "model": "claude-opus-4-6-thinking",
+          "upstream_model": "claude-opus-4-6-thinking",
+          "operation": "generation",
+          "baseline_protocol": "anthropic-messages",
+          "represented_models": [
+            "claude-opus-4-6-thinking"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.17.dashscope-token-plan.chat-completions-responses.default",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 17,
+      "dialect": "dashscope-token-plan",
+      "native_protocols": [
+        "openai-chat",
+        "openai-responses"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "qwen",
+      "representatives": [
+        {
+          "family": "image",
+          "model": "wan2.7-image",
+          "upstream_model": "wan2.7-image",
+          "operation": "image",
+          "baseline_protocol": "openai-images",
+          "represented_models": [
+            "wan2.7-image",
+            "wan2.7-image-pro"
+          ]
+        },
+        {
+          "family": "qwen",
+          "model": "qwen3.8-flash",
+          "upstream_model": "qwen3.8-flash",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "qwen-max",
+            "qwen-plus",
+            "qwen-turbo",
+            "qwen3-235b-a22b",
+            "qwen3-32b",
+            "qwen3-8b",
+            "qwen3.6-27b",
+            "qwen3.6-flash",
+            "qwen3.7-flash",
+            "qwen3.7-max",
+            "qwen3.7-plus",
+            "qwen3.8-flash",
+            "qwen3.8-max"
+          ]
+        },
+        {
+          "family": "tts",
+          "model": "qwen-audio-3.0-tts-plus",
+          "upstream_model": "qwen-audio-3.0-tts-plus",
+          "operation": "speech",
+          "baseline_protocol": "openai-audio",
+          "represented_models": [
+            "qwen-audio-3.0-tts-plus"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.17.standard.chat-completions.exclusive",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 17,
+      "dialect": "standard",
+      "native_protocols": [
+        "openai-chat"
+      ],
+      "exclusive_endpoints": true,
+      "branch_family": "qwen",
+      "representatives": [
+        {
+          "family": "deepseek",
+          "model": "deepseek-v4-pro",
+          "upstream_model": "deepseek-v4-pro",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro"
+          ]
+        },
+        {
+          "family": "embedding",
+          "model": "text-embedding-v4",
+          "upstream_model": "text-embedding-v4",
+          "operation": "embedding",
+          "baseline_protocol": "openai-embeddings",
+          "represented_models": [
+            "qwen3.7-text-embedding",
+            "qwen3.7-text-embedding-flash",
+            "text-embedding-v1",
+            "text-embedding-v2",
+            "text-embedding-v3",
+            "text-embedding-v4"
+          ]
+        },
+        {
+          "family": "glm",
+          "model": "glm-4.5-air",
+          "upstream_model": "glm-4.5-air",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "glm-4.5",
+            "glm-4.5-air",
+            "glm-4.6",
+            "glm-4.7",
+            "glm-5",
+            "glm-5.1",
+            "glm-5.2",
+            "glm-5.2-fast-preview"
+          ]
+        },
+        {
+          "family": "kimi",
+          "model": "kimi-k2.5",
+          "upstream_model": "kimi-k2.5",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "kimi-k2-thinking",
+            "kimi-k2.5",
+            "kimi-k2.6",
+            "kimi-k3"
+          ]
+        },
+        {
+          "family": "qwen",
+          "model": "qwen-plus",
+          "upstream_model": "qwen-plus",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "qwen-flash",
+            "qwen-max",
+            "qwen-plus",
+            "qwen-turbo",
+            "qwen3-14b",
+            "qwen3-235b-a22b",
+            "qwen3-32b",
+            "qwen3-8b",
+            "qwen3-coder-plus",
+            "qwen3-max",
+            "qwen3-max-preview",
+            "qwen3.5-122b-a10b",
+            "qwen3.5-27b",
+            "qwen3.5-35b-a3b",
+            "qwen3.5-flash",
+            "qwen3.5-plus",
+            "qwen3.6-27b",
+            "qwen3.6-35b-a3b",
+            "qwen3.6-flash",
+            "qwen3.6-max-preview",
+            "qwen3.6-plus",
+            "qwen3.7-flash",
+            "qwen3.7-max",
+            "qwen3.7-max-2026-05-17",
+            "qwen3.7-max-2026-05-20",
+            "qwen3.7-max-2026-06-08",
+            "qwen3.7-max-preview",
+            "qwen3.7-plus",
+            "qwen3.8-2.4t-a95b",
+            "qwen3.8-27b",
+            "qwen3.8-flash",
+            "qwen3.8-max"
+          ]
+        },
+        {
+          "family": "qwen-vision",
+          "model": "qwen-vl-max",
+          "upstream_model": "qwen-vl-max",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "qwen-vl-max",
+            "qwen-vl-plus",
+            "qwen3-vl-flash",
+            "qwen3-vl-plus"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.45.standard.chat-completions-responses.default",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 45,
+      "dialect": "standard",
+      "native_protocols": [
+        "openai-chat",
+        "openai-responses"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "deepseek",
+      "representatives": [
+        {
+          "family": "ark-code",
+          "model": "ark-code-latest",
+          "upstream_model": "ark-code-latest",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "ark-code-latest"
+          ]
+        },
+        {
+          "family": "asr",
+          "model": "doubao-seed-asr-2.0",
+          "upstream_model": "doubao-seed-asr-2.0",
+          "operation": "transcription",
+          "baseline_protocol": "openai-transcription",
+          "represented_models": [
+            "doubao-seed-asr-2.0"
+          ]
+        },
+        {
+          "family": "deepseek",
+          "model": "deepseek-v4-pro",
+          "upstream_model": "deepseek-v4-pro",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "deepseek-v4-flash",
+            "deepseek-v4-flash-0731",
+            "deepseek-v4-pro"
+          ]
+        },
+        {
+          "family": "doubao-seed",
+          "model": "doubao-seed-2.0-code",
+          "upstream_model": "doubao-seed-2.1-turbo",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "doubao-seed-2.0-code",
+            "doubao-seed-2.0-lite",
+            "doubao-seed-2.0-mini",
+            "doubao-seed-2.0-pro",
+            "doubao-seed-2.1-turbo",
+            "doubao-seed-evolving"
+          ]
+        },
+        {
+          "family": "embedding",
+          "model": "doubao-embedding-vision",
+          "upstream_model": "doubao-embedding-vision",
+          "operation": "embedding",
+          "baseline_protocol": "openai-embeddings",
+          "represented_models": [
+            "doubao-embedding-vision"
+          ]
+        },
+        {
+          "family": "glm",
+          "model": "glm-5.2",
+          "upstream_model": "glm-5.3",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "glm-4.5-air",
+            "glm-5.2",
+            "glm-5.3",
+            "glm-5.3-flash"
+          ]
+        },
+        {
+          "family": "image",
+          "model": "doubao-seedream-5.0-lite",
+          "upstream_model": "doubao-seedream-5.0-lite",
+          "operation": "image",
+          "baseline_protocol": "openai-images",
+          "represented_models": [
+            "doubao-seedream-5.0-lite"
+          ]
+        },
+        {
+          "family": "kimi",
+          "model": "kimi-k3",
+          "upstream_model": "kimi-k3",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "kimi-k2.6",
+            "kimi-k2.7-code",
+            "kimi-k3"
+          ]
+        },
+        {
+          "family": "minimax",
+          "model": "minimax-m2.7",
+          "upstream_model": "minimax-m3",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "minimax-m2.7",
+            "minimax-m3"
+          ]
+        },
+        {
+          "family": "tts",
+          "model": "doubao-seed-tts-2.0",
+          "upstream_model": "doubao-seed-tts-2.0",
+          "operation": "speech",
+          "baseline_protocol": "openai-audio",
+          "represented_models": [
+            "doubao-seed-tts-2.0"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.46.standard.chat-completions.default",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 46,
+      "dialect": "standard",
+      "native_protocols": [
+        "openai-chat"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "deepseek",
+      "representatives": [
+        {
+          "family": "deepseek",
+          "model": "deepseek-v4-flash",
+          "upstream_model": "deepseek-v4-flash",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "deepseek-v4-flash",
+            "deepseek-v4-flash-0731",
+            "deepseek-v4-pro",
+            "deepseek-v4-pro-0813"
+          ]
+        },
+        {
+          "family": "glm",
+          "model": "glm-4.5-air",
+          "upstream_model": "glm-5.2",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "glm-4.5-air",
+            "glm-4.7",
+            "glm-5.1",
+            "glm-5.2",
+            "glm-5.3-flash"
+          ]
+        },
+        {
+          "family": "kimi",
+          "model": "kimi-k2.6",
+          "upstream_model": "kimi-k2.6",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "kimi-k2.6"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.46.standard.chat-completions.exclusive",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 46,
+      "dialect": "standard",
+      "native_protocols": [
+        "openai-chat"
+      ],
+      "exclusive_endpoints": true,
+      "branch_family": "glm",
+      "representatives": [
+        {
+          "family": "glm",
+          "model": "glm-5.1",
+          "upstream_model": "glm-5.1",
+          "operation": "generation",
+          "baseline_protocol": "openai-chat",
+          "represented_models": [
+            "glm-5.1",
+            "glm-5.2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.apikey.54.fmgo.media.exclusive",
+      "platform": "newapi",
+      "auth_type": "apikey",
+      "channel_type": 54,
+      "dialect": "fmgo",
+      "native_protocols": [],
+      "exclusive_endpoints": true,
+      "branch_family": null,
+      "representatives": [
+        {
+          "family": "video",
+          "model": "doubao-seedance-2-0-260128",
+          "upstream_model": "feimiao-v2-431-720p-15s",
+          "operation": "video",
+          "baseline_protocol": "openai-video",
+          "represented_models": [
+            "doubao-seedance-2-0-260128",
+            "doubao-seedance-2-0-fast-260128",
+            "doubao-seedance-2-5-260628"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "newapi.service-account.41.standard.gemini-generate-content.default",
+      "platform": "newapi",
+      "auth_type": "service_account",
+      "channel_type": 41,
+      "dialect": "standard",
+      "native_protocols": [
+        "gemini-content"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "gemini-3",
+      "representatives": [
+        {
+          "family": "embedding",
+          "model": "gemini-embedding-001",
+          "upstream_model": "gemini-embedding-001",
+          "operation": "embedding",
+          "baseline_protocol": "openai-embeddings",
+          "represented_models": [
+            "gemini-embedding-001"
+          ]
+        },
+        {
+          "family": "gemini-2",
+          "model": "gemini-2.5-flash",
+          "upstream_model": "gemini-2.5-flash",
+          "operation": "generation",
+          "baseline_protocol": "gemini-content",
+          "represented_models": [
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-pro"
+          ]
+        },
+        {
+          "family": "gemini-3",
+          "model": "gemini-3.8-flash",
+          "upstream_model": "gemini-3.8-flash",
+          "operation": "generation",
+          "baseline_protocol": "gemini-content",
+          "represented_models": [
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-3.8-flash"
+          ]
+        },
+        {
+          "family": "image",
+          "model": "imagen-4.0-generate-001",
+          "upstream_model": "imagen-4.0-generate-001",
+          "operation": "image",
+          "baseline_protocol": "openai-images",
+          "represented_models": [
+            "imagen-4.0-fast-generate-001",
+            "imagen-4.0-generate-001",
+            "imagen-4.0-ultra-generate-001"
+          ]
+        },
+        {
+          "family": "video",
+          "model": "veo-3.1-generate-001",
+          "upstream_model": "veo-3.1-generate-001",
+          "operation": "video",
+          "baseline_protocol": "openai-video",
+          "represented_models": [
+            "veo-3.1-generate-001"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openai.apikey.0.edge-openai.chat-completions-responses.default",
+      "platform": "openai",
+      "auth_type": "apikey",
+      "channel_type": 0,
+      "dialect": "edge-openai",
+      "native_protocols": [
+        "openai-chat",
+        "openai-responses"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "gpt",
+      "representatives": [
+        {
+          "family": "codex-review",
+          "model": "codex-auto-review",
+          "upstream_model": "codex-auto-review",
+          "operation": "generation",
+          "baseline_protocol": "openai-responses",
+          "represented_models": [
+            "codex-auto-review"
+          ]
+        },
+        {
+          "family": "codex-spark",
+          "model": "gpt-5.3-codex-spark",
+          "upstream_model": "gpt-5.3-codex-spark",
+          "operation": "generation",
+          "baseline_protocol": "openai-responses",
+          "represented_models": [
+            "gpt-5.3-codex-spark"
+          ]
+        },
+        {
+          "family": "gpt",
+          "model": "gpt-5.6-sol",
+          "upstream_model": "gpt-5.6-sol",
+          "operation": "generation",
+          "baseline_protocol": "openai-responses",
+          "represented_models": [
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.5",
+            "gpt-5.6",
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-6",
+            "gpt-6-astra"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openai.apikey.0.edge-openai.responses.default",
+      "platform": "openai",
+      "auth_type": "apikey",
+      "channel_type": 0,
+      "dialect": "edge-openai",
+      "native_protocols": [
+        "openai-responses"
+      ],
+      "exclusive_endpoints": false,
+      "branch_family": "gpt",
+      "representatives": [
+        {
+          "family": "codex-review",
+          "model": "codex-auto-review",
+          "upstream_model": "codex-auto-review",
+          "operation": "generation",
+          "baseline_protocol": "openai-responses",
+          "represented_models": [
+            "codex-auto-review"
+          ]
+        },
+        {
+          "family": "codex-spark",
+          "model": "gpt-5.3-codex-spark",
+          "upstream_model": "gpt-5.3-codex-spark",
+          "operation": "generation",
+          "baseline_protocol": "openai-responses",
+          "represented_models": [
+            "gpt-5.3-codex-spark"
+          ]
+        },
+        {
+          "family": "gpt",
+          "model": "gpt-5.6-sol",
+          "upstream_model": "gpt-5.6-sol",
+          "operation": "generation",
+          "baseline_protocol": "openai-responses",
+          "represented_models": [
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.5",
+            "gpt-5.6",
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-6",
+            "gpt-6-astra"
+          ]
+        }
+      ]
+    }
+  ]
+}

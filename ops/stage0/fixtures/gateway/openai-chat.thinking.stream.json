@@ -1,0 +1,26 @@
+{
+  "method": "POST",
+  "path": "/v1/chat/completions",
+  "body": {
+    "model": "${model}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with OK."
+      }
+    ],
+    "max_completion_tokens": 2048,
+    "reasoning_effort": "low",
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    }
+  },
+  "stream": true,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}
