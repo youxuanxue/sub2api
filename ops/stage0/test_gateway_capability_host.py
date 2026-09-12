@@ -156,6 +156,36 @@ class ScenarioTests(unittest.TestCase):
             self.assertIn('173*29 + 47*83 - 61*37', json.dumps(fixture['body']))
             self.assertEqual(fixture['expected_answer'], '6661')
 
+    def test_video_pending_operation_and_inline_mp4_completion(self):
+        import base64
+        case = {**plan()['entries'][0], 'scenario': 'video'}
+        mp4 = base64.b64encode(b'\x00\x00\x00\x18ftypmp42' + b'0' * 40).decode()
+        completed = {'name': 'projects/test/operations/job', 'done': True,
+                     'response': {'videos': [{'bytesBase64Encoded': mp4, 'mimeType': 'video/mp4'}]}}
+        for obj in ({'name': 'projects/test/operations/job'}, completed):
+            self.assertIsNone(validate_response(case, 200, 'application/json', json.dumps(obj).encode(), False))
+        from gateway_capability_check import video_output_present
+        for bad in ('invalid!', __import__('base64').b64encode(b'not video').decode()):
+            self.assertFalse(video_output_present({'mimeType': 'video/mp4', 'bytesBase64Encoded': bad}))
+        for terminal, expected in ((completed, None),
+                                   ({**completed, 'response': {}}, 'video_output_missing'),
+                                   ({'name': 'operation', 'done': True, 'error': {'message': 'failed'}}, 'video_task_failed')):
+            replies = iter([{'id': 'vt_test', 'status': 'queued'}, {'name': 'operation'}, terminal])
+            def execute(request, key, port, marker, **kwargs):
+                obj = next(replies)
+                kwargs['on_response_id'](marker)
+                reason = kwargs['validator'](200, 'application/json', json.dumps(obj).encode(), False)
+                return {'response_request_id': marker, 'reason': reason}
+            with patch.object(host.replay, 'execute', side_effect=execute) as sender, \
+                 patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+                 patch.object(host.replay, 'inspect'), patch.object(host, 'candidate_address', return_value='10.0.0.2'), \
+                 patch.object(host, 'attribution', return_value=([59], None, ['submit'], True)) as attribute:
+                result = host.execute_case(case, {'key': 'test', 'api_key_id': 22}, '10.0.0.2',
+                                           {'target': 'green'}, lambda: None, inventory(), 'run', Path('/tmp'))
+                self.assertEqual(result['reason'], expected)
+                self.assertEqual(sender.call_count, 3)
+                self.assertEqual(len(attribute.call_args.args[1]), 1)
+
     def test_generated_requests_use_valid_operations_and_sufficient_budgets(self):
         value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
         self.assertFalse(any(c['protocol'] == 'openai-chat' and c['scenario'] == 'count-tokens' for c in value['entries']))
@@ -244,6 +274,24 @@ class ExecutionTests(unittest.TestCase):
             self.assertEqual(send.call_args.args[2], 8080)
             self.assertEqual(result['status'], 'failed')
             self.assertIsNone(result.get('stop_reason'))
+
+    def test_transcription_correlates_ordinary_session_to_usage(self):
+        case = {**plan()['entries'][0], 'scenario': 'transcription'}
+        with patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+             patch.object(host.replay, 'inspect', return_value={}), \
+             patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
+             patch.object(host, 'attribution', return_value=([144], None, ['grok_audio:upstream'], True)) as attribute, \
+             patch.object(host.replay, 'execute') as execute:
+            def send(*args, **kwargs):
+                kwargs['on_response_id']('gateway-id')
+                return {'reason': None, 'response_request_id': 'gateway-id'}
+            execute.side_effect = send
+            result = host.execute_case(case, {'key': 'secret', 'api_key_id': 334}, '172.18.0.5', {'target': 'green'},
+                                       lambda: None, inventory(), 'test', Path('/unused'))
+        self.assertEqual(result['status'], 'passed')
+        session = execute.call_args.kwargs['session_id']
+        self.assertTrue(session.startswith('test-'))
+        self.assertEqual(attribute.call_args.args[-1], {'gateway-id': session})
 
     def test_full_plan_uses_existing_candidate_and_keeps_failures(self):
         value = plan()

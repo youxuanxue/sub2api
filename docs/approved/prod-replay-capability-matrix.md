@@ -140,3 +140,17 @@ Qwen Token Plan 的参数适配在已选模型别名解析后执行，保留显�
 
 Antigravity 的 Gemini 非流式转换复用共享 parts 收集器，保留早期工具调用、思考、签名和媒体顺序；
 只合并不带元数据的连续文本，禁止把思考文本并入普通输出。
+
+后续复测修复沿用同一授权：ASR 音频帧按供应商二进制协议声明 raw bytes；
+初始化与音频阶段错误分别标记但不暴露供应商错误正文。转录与语音合成共用普通
+X-Session-Id 归因，prepare 入口固定使用 prod region SSOT，不继承操作者的其他 region。
+协议参考：https://docs.volcengine.com/docs/6561/1354869 （Audio only client request 示例）。
+
+原失败项复测确认后，视觉 fixture 预算提高到 16384，以容纳启用默认推理的供应模型；
+仍要求完整终态和正确颜色答案。音频/媒体共用 usage 提交 owner 补齐普通客户端 SessionID，
+不改变请求 ID、计量与结算。视频校验接受 Vertex pending operation 的 name，并继续轮询至终态；
+成功必须有 HTTPS 视频地址或有效 MP4 内联载荷，done+error 仍失败，不把提交成功当生成完成。
+
+Vertex embedding 的后续筛选误用 API-key-only 条件：允许已有 newapi/channel-41/service_account
+供给通过 embedding 类型门，仍遵守显式 capability、模型与可用性检查；不扩展到其他 OAuth 或
+service-account 类型，不改变线上账号绑定。

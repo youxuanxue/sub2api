@@ -55,7 +55,11 @@ func encodeVolcEngineASRFrame(kind byte, sequence int32, payload []byte) []byte 
 	if sequence < 0 {
 		flags = 3
 	}
-	frame := []byte{0x11, kind<<4 | flags, 0x10, 0}
+	serialization := byte(0x10) // JSON full request/response.
+	if kind == 2 {
+		serialization = 0 // Audio-only payloads are raw PCM, not JSON.
+	}
+	frame := []byte{0x11, kind<<4 | flags, serialization, 0}
 	frame = binary.BigEndian.AppendUint32(frame, uint32(sequence))
 	frame = binary.BigEndian.AppendUint32(frame, uint32(len(payload)))
 	return append(frame, payload...)
@@ -134,7 +138,7 @@ func runVolcEngineASR(ctx context.Context, conn volcEngineASRConn, pcm []byte, i
 		return decodeVolcEngineASRFrame(frame)
 	}
 	if _, terminal, err := read(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("agent plan ASR initial response: %w", err)
 	} else if terminal {
 		return nil, fmt.Errorf("agent plan ASR ended before audio")
 	}
@@ -171,7 +175,7 @@ func runVolcEngineASR(ctx context.Context, conn volcEngineASRConn, pcm []byte, i
 	for count := 0; count < 2048; count++ {
 		result, terminal, err := read()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("agent plan ASR audio response: %w", err)
 		}
 		if terminal {
 			// Joining the sender also prevents a premature provider terminal event

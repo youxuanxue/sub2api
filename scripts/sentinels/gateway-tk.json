@@ -295,6 +295,26 @@
         "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return. prepared_gateway receipts must surface account_class_coverage for approval."
       },
       {
+        "path": "backend/internal/service/account.go",
+        "must_contain": ["a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()"],
+        "rationale": "Vertex embedding service accounts must survive the same scheduler capability gate as discovery, without admitting other OAuth/service-account shapes."
+      },
+      {
+        "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason_test.go",
+        "must_contain": ["TestVertexEmbeddingEligibilityRetainsServiceAccount"],
+        "rationale": "Exercise the actual scheduler candidate filter including explicit capability denial and unavailable accounts."
+      },
+      {
+        "path": "backend/internal/handler/openai_gateway_handler_tk_forward_usage.go",
+        "must_contain": ["tkSubmitOpenAISimpleForwardUsage", "SessionID:          sessionID,"],
+        "rationale": "Simple audio/media usage must snapshot the ordinary client session before async recording."
+      },
+      {
+        "path": "backend/internal/handler/openai_gateway_simple_usage_session_tk_test.go",
+        "must_contain": ["TestOpenAISimpleForwardUsagePersistsClientSession"],
+        "rationale": "Exercise handler submission through RecordUsage to the persisted usage row, including absent-session behavior."
+      },
+      {
         "path": "ops/stage0/gateway_capability_host.py",
         "must_contain": ["def test_key(", "def run_locked(", "def candidate_address(", "def attribution(", "prepared_gateway", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "route_unchanged", "normal_universal"],
         "must_not_contain": ["replay.Sandbox", "pg_dump", "pg_restore", "host_guard", "getloadavg", "/proc/pressure", "INSERT INTO", "UPDATE api_keys", "docker run"],
@@ -302,12 +322,12 @@
       },
       {
         "path": "ops/stage0/test_gateway_capability_host.py",
-        "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation"],
+        "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation", "test_video_pending_operation_and_inline_mp4_completion"],
         "rationale": "Behavioral guards preserve candidate-only sends, test-key attribution and the full denominator without creating extra resources."
       },
       {
         "path": "ops/stage0/gateway_capability_check.py",
-        "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing"],
+        "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing", "def video_output_present("],
         "rationale": "Synthetic responses require protocol and media semantics; execution targets the normal blue/green candidate."
       },
       {
@@ -806,7 +826,7 @@
     },
     {
       "path": "backend/internal/service/volcengine_plan_asr_tk.go",
-      "must_contain": ["volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
+      "must_contain": ["serialization = 0", "volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
       "rationale": "ASR must retain bounded binary decoding, terminal-only duration settlement and its dedicated Plan credential destination."
     },
     {
@@ -816,7 +836,7 @@
     },
     {
       "path": "backend/internal/service/volcengine_plan_asr_tk_test.go",
-      "must_contain": ["TestVolcEnginePlanASRDefaultTTSRoundTrip", "TestVolcEnginePlanASRBinaryWebSocketTransport", "TestVolcEnginePlanASRFailureAndCancellation", "TestVolcEnginePlanASRForwardSilentInputAndBilling", "TestVolcEnginePlanASRFrameValidation"],
+      "must_contain": ["TestVolcEngineASRAudioFrameUsesRawSerialization", "TestVolcEnginePlanASRDefaultTTSRoundTrip", "TestVolcEnginePlanASRBinaryWebSocketTransport", "TestVolcEnginePlanASRFailureAndCancellation", "TestVolcEnginePlanASRForwardSilentInputAndBilling", "TestVolcEnginePlanASRFrameValidation"],
       "rationale": "Preserve recording, cancellation, metering and malformed-frame regression coverage."
     },
     {
