@@ -3,78 +3,272 @@
   "rationale": "Load-bearing TokenKey-only frontend surfaces that anchor admin-UI behavior diverging from upstream defaults — sidebar geometry (TK uses a narrower w-44 rail vs upstream w-64), the fluid table mode used on /admin/accounts (no horizontal scroll, cells wrap), per-page sticky-edge-hints opt-out, and the control-plane login policy that does not depend on Turnstile. These are the kinds of small TK changes that get silently reverted by upstream merges precisely because they're small and local; the registry upgrades the rule from `agent must remember` to `merge will fail`. Source-of-truth read by both `scripts/preflight.sh` (frontend TK sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (frontend TK sentinels check, on `merge/upstream-*` PRs). Adding a new TK-only frontend surface that must survive upstream merges MUST add a sentinel here in the same commit. Sibling registries: `newapi-sentinels.json` (fifth-platform integration), `brand-sentinels.json` (outward TK brand surfaces). This file now also guards upstream payment-surface carry-ins that touch shared admin/i18n/style hotspots during upstream merges; updating those hotspots in merge PRs requires explicit sentinel-registry rationale refresh or a `sentinel-registry-reviewed` / `upstream-merge` commit marker to keep the gate mechanical.",
   "sentinels": [
     {
+      "path": "frontend/vite.config.ts",
+      "must_contain": [
+        "onlyExplicitManualChunks: true",
+        "vendor-airwallex"
+      ],
+      "rationale": "Shared dependencies must not promote console chrome or payment SDK side effects into public entrypoints."
+    },
+    {
+      "path": "frontend/src/composables/useRegistrationOffer.tk.ts",
+      "must_contain": [
+        "createSharedComposable",
+        "registration_offer",
+        "app.fetchPublicSettings(true)",
+        "visibilitychange",
+        "60_000"
+      ],
+      "rationale": "One registration-policy lifecycle for all CTA consumers; failed public refresh cannot retain a historical promise."
+    },
+    {
+      "path": "frontend/src/components/auth/RegistrationActionTk.vue",
+      "must_contain": [
+        "useRegistrationOffer()",
+        "safeInternalRedirect",
+        "registration-primary"
+      ],
+      "rationale": "Shared registration/login/invitation/retry presentation consumes only the public offer."
+    },
+    {
+      "path": "frontend/src/utils/quickstartJourney.tk.ts",
+      "must_contain": [
+        "safeInternalRedirect",
+        "new URLSearchParams({ client })"
+      ],
+      "rationale": "Authentication return paths preserve client choices without copying credential state."
+    },
+    {
+      "path": "frontend/src/views/user/QuickstartView.vue",
+      "must_contain": [
+        "RegistrationActionTk",
+        ":preview=\"preview\"",
+        "if (!authStore.isAuthenticated)",
+        "epoch !== keyLoadEpoch",
+        "keysAPI.create('Quick Start'"
+      ],
+      "rationale": "One public/authenticated guide; no visitor key calls, explicit creation, stale responses discarded on logout."
+    },
+    {
+      "path": "frontend/src/components/keys/UseKeyGuide.vue",
+      "must_contain": [
+        "preview?: boolean",
+        "activeFlavor && !preview && !hideInlineTest",
+        "if (!props.preview) return tk.warmupGateway()",
+        "YOUR_MODEL_ID"
+      ],
+      "rationale": "Preview shares existing generators while blocking model discovery, manifest, warmup and test calls."
+    },
+    {
+      "path": "frontend/src/stores/app.ts",
+      "must_contain": [
+        "registration_offer: { state: 'unavailable' }"
+      ],
+      "rationale": "Public settings failures invalidate signup promises while preserving unrelated page configuration."
+    },
+    {
+      "path": "frontend/src/views/auth/RegisterView.vue",
+      "must_contain": [
+        "refreshRegistrationOffer()",
+        "applyRegistrationSettings",
+        "safeInternalRedirect"
+      ],
+      "rationale": "Submission revalidates the shared policy and form settings; email verification retains the local return path."
+    },
+    {
+      "path": "frontend/src/views/auth/EmailVerifyView.vue",
+      "must_contain": [
+        "refreshRegistrationOffer()",
+        "safeInternalRedirect"
+      ],
+      "rationale": "Email completion uses the same policy and safe destination."
+    },
+    {
+      "path": "frontend/src/components/auth/__tests__/RegistrationActionTk.spec.ts",
+      "must_contain": [
+        "removes stale credit after failure",
+        "legacy flags"
+      ],
+      "rationale": "Behavior tests reject stale and missing offer promises across consumers."
+    },
+    {
+      "path": "frontend/e2e/public-quickstart.e2e.ts",
+      "must_contain": [
+        "await chooseQwen(page)",
+        "explicit key creation",
+        "changed email requirements"
+      ],
+      "rationale": "Real browser journeys anchor anonymous browsing, auth return, explicit side effects and live policy changes."
+    },
+    {
+      "path": ".github/workflows/backend-ci.yml",
+      "must_contain": [
+        "playwright test --config playwright.quickstart.config.ts"
+      ],
+      "rationale": "Public Quickstart browser journeys run in frontend CI."
+    },
+    {
+      "path": "frontend/src/components/home/HomeTkLanding.tk.vue",
+      "must_contain": [
+        "RegistrationActionTk"
+      ],
+      "rationale": "Registration CTAs share one policy and presentation owner."
+    },
+    {
+      "path": "frontend/src/views/HomeView.vue",
+      "must_contain": [
+        "RegistrationActionTk"
+      ],
+      "rationale": "Registration CTAs share one policy and presentation owner."
+    },
+    {
+      "path": "frontend/src/views/PricingView.vue",
+      "must_contain": [
+        "RegistrationActionTk"
+      ],
+      "rationale": "Registration CTAs share one policy and presentation owner."
+    },
+    {
+      "path": "frontend/src/views/ModelMarketplaceCatalog.vue",
+      "must_contain": [
+        "RegistrationActionTk"
+      ],
+      "rationale": "Registration CTAs share one policy and presentation owner."
+    },
+    {
       "path": "frontend/src/views/admin/AccountsView.vue",
-      "must_contain": ["CursorConnectModal", "cursorAPI.capabilities"],
+      "must_contain": [
+        "CursorConnectModal",
+        "cursorAPI.capabilities"
+      ],
       "rationale": "Cursor authorization and reconnection are delivered through the existing accounts page and shared modal."
     },
     {
       "path": "frontend/src/components/account/CursorConnectModal.tk.vue",
-      "must_contain": ["useCursorAuthorization(t)", "save(name.value.trim()"],
+      "must_contain": [
+        "useCursorAuthorization(t)",
+        "save(name.value.trim()"
+      ],
       "rationale": "Initial login and reconnect use one lifecycle and persistence owner."
     },
     {
       "path": "frontend/src/composables/__tests__/useCursorAuthorization.tk.spec.ts",
-      "must_contain": ["reuses the import idempotency key", "allows correcting a rejected import", "ignores a stale poll", "recovers a pending authorization after a transient poll failure", "stops retrying when the authorization expires"],
+      "must_contain": [
+        "reuses the import idempotency key",
+        "allows correcting a rejected import",
+        "ignores a stale poll",
+        "recovers a pending authorization after a transient poll failure",
+        "stops retrying when the authorization expires"
+      ],
       "rationale": "Lifecycle tests cover late polling, identical-payload retries and changed-payload corrections after a rejected import."
     },
     {
       "path": "frontend/src/composables/useCodexModelManifest.ts",
-      "must_contain": ["current !== generation", "controller?.abort()", "watch([baseUrl, apiKey], reset, { flush: 'sync' })", "onBeforeUnmount(reset)", "if (state.value !== 'ready') return"],
+      "must_contain": [
+        "current !== generation",
+        "controller?.abort()",
+        "watch([baseUrl, apiKey], reset, { flush: 'sync' })",
+        "onBeforeUnmount(reset)",
+        "if (state.value !== 'ready') return"
+      ],
       "rationale": "Credential changes, endpoint changes and unmount invalidate pending manifest requests; only the current authorized manifest may be downloaded."
     },
     {
       "path": "frontend/src/components/keys/UseKeyGuide.vue",
-      "must_contain": ["useCodexModelManifest(toRef(props, 'baseUrl'), toRef(props, 'apiKey'))"],
+      "must_contain": [
+        "useCodexModelManifest(toRef(props, 'baseUrl'), toRef(props, 'apiKey'))"
+      ],
       "rationale": "Quickstart and key guidance share one manifest lifecycle through UseKeyGuide."
     },
     {
       "path": "frontend/src/composables/__tests__/useCodexModelManifest.spec.ts",
-      "must_contain": ["useCodexModelManifest", "unmount", "download", "aborted"],
+      "must_contain": [
+        "useCodexModelManifest",
+        "unmount",
+        "download",
+        "aborted"
+      ],
       "rationale": "Keep stale request, credential change, disposal and download guard regressions with the shared owner."
     },
     {
       "path": "frontend/src/components/account/EditAccountModal.vue",
-      "must_contain": ["v-for=\"option in codexImageToolOptions\"", "switch (codexImageToolMode.value)", "delete newExtra.codex_image_generation_bridge_enabled"],
+      "must_contain": [
+        "v-for=\"option in codexImageToolOptions\"",
+        "switch (codexImageToolMode.value)",
+        "delete newExtra.codex_image_generation_bridge_enabled"
+      ],
       "rationale": "One Codex image policy control owns inherited, enabled, disabled and blocked states and migrates the legacy key on save."
     },
     {
       "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
-      "must_contain": ["persists the single Codex image control in %s mode"],
+      "must_contain": [
+        "persists the single Codex image control in %s mode"
+      ],
       "rationale": "Keep the four-mode save regression and duplicate-control assertion."
     },
     {
       "path": "frontend/src/components/catalog/CatalogEmbeddingPrice.tk.vue",
-      "must_contain": ["formatCatalogTokenPrice(props.perImageInputToken * 1000)", "t('pricing.modality.image')", "<CatalogTieredPriceGrid"],
+      "must_contain": [
+        "formatCatalogTokenPrice(props.perImageInputToken * 1000)",
+        "t('pricing.modality.image')",
+        "<CatalogTieredPriceGrid"
+      ],
       "rationale": "One shared embedding component displays both text and image input rates in million-token units across catalog views."
     },
     {
       "path": "frontend/e2e/volcengine-plan-audio-catalog.e2e.ts",
-      "must_contain": ["multimodal embedding prices", "['$0.111', '$0.285']"],
+      "must_contain": [
+        "multimodal embedding prices",
+        "['$0.111', '$0.285']"
+      ],
       "rationale": "Real UI regressions cover both embedding input prices in cards and the pricing table on mobile and desktop."
     },
     {
       "path": "frontend/src/components/catalog/CatalogAudioPrice.tk.vue",
-      "must_contain": ["catalogAudioPrice(props.mode, props.perCharacter, props.perInputSecond)", "formatCatalogMediaPrice(price.value)", "t(price.unit)"],
+      "must_contain": [
+        "catalogAudioPrice(props.mode, props.perCharacter, props.perInputSecond)",
+        "formatCatalogMediaPrice(price.value)",
+        "t(price.unit)"
+      ],
       "rationale": "Shared audio price rendering keeps character and duration units consistent across both catalog views."
     },
     {
       "path": "frontend/src/views/ModelMarketplaceCatalog.vue",
-      "must_contain": ["<CatalogAudioPrice", ":per-input-second=\"model.pricing.input_cost_per_second\"", "<CatalogEmbeddingPrice", ":per-image-input-token=\"model.pricing.input_cost_per_image_token\""],
+      "must_contain": [
+        "<CatalogAudioPrice",
+        ":per-input-second=\"model.pricing.input_cost_per_second\"",
+        "<CatalogEmbeddingPrice",
+        ":per-image-input-token=\"model.pricing.input_cost_per_image_token\""
+      ],
       "rationale": "Marketplace cards consume shared audio and embedding components, preserving duration and image-token rates."
     },
     {
       "path": "frontend/src/views/PricingView.vue",
-      "must_contain": ["<CatalogAudioPrice", "perInputSecond: m.your_price.per_input_second ?? null", "<CatalogEmbeddingPrice", "perImageInputToken: m.your_price.per_image_input_token ?? null"],
+      "must_contain": [
+        "<CatalogAudioPrice",
+        "perInputSecond: m.your_price.per_input_second ?? null",
+        "<CatalogEmbeddingPrice",
+        "perImageInputToken: m.your_price.per_image_input_token ?? null"
+      ],
       "rationale": "Group pricing preserves audio duration and embedding image-token rates through its shared presentation."
     },
     {
       "path": "frontend/src/composables/useTkPricingExport.ts",
-      "must_contain": ["price_per_character_USD", "price_per_input_second_USD", "unitUsd(p.output_cost_per_character)", "unitUsd(p.input_cost_per_second)", "image_input_per_1M", "p.input_cost_per_image_token * 1000"],
+      "must_contain": [
+        "price_per_character_USD",
+        "price_per_input_second_USD",
+        "unitUsd(p.output_cost_per_character)",
+        "unitUsd(p.input_cost_per_second)",
+        "image_input_per_1M",
+        "p.input_cost_per_image_token * 1000"
+      ],
       "rationale": "CSV export carries both audio price units and the separate embedding image input price."
     },
     {
       "path": "frontend/src/utils/studioMediaCatalog.tk.ts",
-      "must_contain": ["if (billingMode !== 'image' && billingMode !== 'video') return undefined"],
+      "must_contain": [
+        "if (billingMode !== 'image' && billingMode !== 'video') return undefined"
+      ],
       "rationale": "Audio catalog entries must not become unusable image/video Studio choices."
     },
     {
@@ -363,7 +557,11 @@
     },
     {
       "path": "frontend/src/components/account/UsageProgressBar.vue",
-      "must_contain": ["UsageStatsRow", "!utilizationUnknown", "windowStatsLabel || label"],
+      "must_contain": [
+        "UsageStatsRow",
+        "!utilizationUnknown",
+        "windowStatsLabel || label"
+      ],
       "rationale": "Local statistics and unknown upstream quotas must remain separate in all usage windows."
     },
     {
@@ -1409,7 +1607,7 @@
         "testStateChange: [state: TestState]",
         "defineExpose({",
         "formatProbeLatencyDetail",
-        "warmupGateway: tk.warmupGateway",
+        "warmupGateway: () => { if (!props.preview) return tk.warmupGateway() }",
         "generateQwenCodeFiles",
         "generateCompatibleClientFields",
         "data-tk=\"quickstart-environment-picker\""

@@ -1,6 +1,48 @@
+import { createServer, type Server } from 'node:http'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 const UI_BASE = process.env.E2E_BASE_URL || 'http://127.0.0.1:4173'
+
+// The browser downloads an artifact built by the production Bundle exporter.
+// HTTP services are isolated fixtures; ZIP contents are not hand-written mocks.
+let exportFixtureDirectory = ''
+let exportFixture: Buffer
+let artifactServer: Server
+let artifactURL = ''
+
+test.beforeAll(async () => {
+  exportFixtureDirectory = mkdtempSync(join(tmpdir(), 'qa-session-e2e-'))
+  const output = join(exportFixtureDirectory, 'export.zip')
+  const backend = resolve(process.cwd(), '../backend')
+  const version = readFileSync(join(backend, 'go.mod'), 'utf8').match(/^go (\S+)$/m)?.[1]
+  if (!version) throw new Error('backend Go toolchain is missing')
+  execFileSync('go', ['-C', backend, 'test', '-tags=unit', './internal/observability/qa/bundle',
+    '-run', '^TestUS055_BundleSessionZip$', '-count=1'], {
+    env: { ...process.env, GOTOOLCHAIN: `go${version}`, TK_QA_SESSION_E2E_FIXTURE: output },
+    timeout: 120_000,
+  })
+  exportFixture = readFileSync(output)
+  artifactServer = createServer((_request, response) => {
+    response.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': 'attachment; filename="qa-QA_E2E_Key-2026-08-15.zip"',
+    })
+    response.end(exportFixture)
+  })
+  await new Promise<void>(resolve => artifactServer.listen(0, '127.0.0.1', resolve))
+  const address = artifactServer.address()
+  if (!address || typeof address === 'string') throw new Error('artifact server did not bind')
+  artifactURL = `http://127.0.0.1:${address.port}/export.zip`
+})
+
+test.afterAll(async () => {
+  if (artifactServer) await new Promise<void>((resolve, reject) => artifactServer.close(error => error ? reject(error) : resolve()))
+  if (exportFixtureDirectory) rmSync(exportFixtureDirectory, { recursive: true, force: true })
+})
 
 const user = {
   id: 7,
@@ -144,6 +186,8 @@ async function installMocks(page: Page, options: MockOptions = {}) {
     },
   })
 
+  await page.route('**/setup/status', route => json(route, { code: 0, data: { needs_setup: false, step: '' } }))
+
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -193,7 +237,7 @@ async function installMocks(page: Page, options: MockOptions = {}) {
         bundle_job_id: readyBundle.job_id,
         status: 'ready',
         record_count: readyBundle.record_count,
-        download_url: `${UI_BASE}/__qa_bundle/qa-e2e.zip`,
+        download_url: artifactURL,
         expires_at: '2026-08-16T00:00:00Z',
       } })
       return
@@ -206,12 +250,7 @@ async function installMocks(page: Page, options: MockOptions = {}) {
     bundlePageFetches += 1
     await json(route, bundlePage)
   })
-  await page.route('**/__qa_bundle/qa-e2e.zip', route => route.fulfill({
-    status: 200,
-    contentType: 'application/zip',
-    headers: { 'Content-Disposition': 'attachment; filename="qa-e2e.zip"' },
-    body: 'PK\u0003\u0004qa-e2e',
-  }))
+
 
   return {
     apiRequests,
@@ -252,6 +291,20 @@ test('QA Bundle list, detail, watermark and ZIP export stay on Bundle/S3 paths',
   await page.getByRole('button', { name: 'Export ZIP' }).click()
   const download = await downloadPromise
   expect(download.suggestedFilename()).toMatch(/^qa-QA_E2E_Key-2026-08-15\.zip$/)
+  await expect(page.getByText('Includes conversations, tool links and captured request evidence.')).toBeVisible()
+  const downloadedPath = await download.path()
+  expect(downloadedPath).not.toBeNull()
+  const artifact = JSON.parse(execFileSync('python3', ['-c',
+    'import json,sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({"sessions":[json.loads(x) for x in z.read("sessions.jsonl").splitlines()],"manifest":json.loads(z.read("export-manifest.json")),"records":[json.loads(x) for x in z.read("qa-records.jsonl").splitlines()]}))',
+    downloadedPath!], { encoding: 'utf8' }))
+  expect(artifact.manifest.session_schema).toBe('tk-session/v1')
+  expect(artifact.manifest.record_count).toBe(2)
+  expect(artifact.sessions).toHaveLength(1)
+  expect(artifact.sessions[0].turns).toHaveLength(4)
+  expect(artifact.sessions[0].turns[1].message.content[0].signature).toBe('QA_SIGNATURE')
+  expect(artifact.sessions[0].turns[2].tool_links[0].call.request_id).toBe(artifact.records[0].request_id)
+  expect(artifact.sessions[0].turns[3].message.content[0].text).toBe('final QA response')
+
 
   expect(mock.bundleAttempts).toBe(1)
   expect(mock.bundlePageFetches).toBe(1)

@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "rationale": "Snapshot of the gateway trajectory / QA capture hook contract. Main gateway surfaces must keep both trajectory_id assignment and QA capture middleware, and the QA middleware must still terminate in Service.CaptureFromContext so request evidence remains on by default. v3 adds the upstream-request divergence contract: the gateway must keep stashing the final (post-rewrite) upstream request body under the ops_upstream_request_body gin key, and the qa consumer must keep reading it by the identical duplicated literal.",
+  "version": 4,
+  "rationale": "Gateway evidence capture, entitled QA Bundle access and faithful session export hooks. Pins request divergence, committed-Bundle ZIP call sites and focused session behavior tests; the contract and owner roster live in docs/approved/qa-bundle-session-export.md.",
   "route_source": "backend/internal/server/routes/gateway.go",
   "capture_source": "backend/internal/observability/qa/sse_tee.go",
   "required_route_hooks": [
@@ -28,7 +28,7 @@
       "must_contain": [
         "OpsUpstreamRequestBodyKey = \"ops_upstream_request_body\""
       ],
-      "rationale": "qa capture reads this gin key by duplicated literal (qa cannot import service without an import cycle); renaming the key here silently kills upstream-request divergence capture for traj opt-in records"
+      "rationale": "qa capture reads this gin key by duplicated literal (qa cannot import service without an import cycle); renaming the key here silently kills upstream-request divergence capture for opted-in QA records"
     },
     {
       "source": "backend/internal/observability/qa/service.go",
@@ -43,7 +43,7 @@
       "must_contain": [
         "setOpsUpstreamRequestBody(c, body)"
       ],
-      "rationale": "pre-flight stash of the final upstream request body on the native anthropic path; an upstream merge dropping this call disables both ops_error_logs body context and traj divergence capture"
+      "rationale": "pre-flight stash of the final upstream request body on the native anthropic path; an upstream merge dropping this call disables both ops_error_logs body context and QA divergence capture"
     },
     {
       "source": "backend/internal/handler/qa_handler_bundle.go",
@@ -72,19 +72,108 @@
         "func TrajProjectablePlatforms"
       ],
       "rationale": "Single source for platforms eligible for the per-key QA Bundle entry; surfaced through /auth/me and rechecked by the Bundle service. Removing it would split frontend gating from backend authorization."
+    },
+    {
+      "source": "backend/internal/observability/qa/bundle/publisher.go",
+      "rationale": "Every current-version ZIP projects the same committed records and publishes sessions before immutable ZIP publication.",
+      "must_contain": [
+        "projector.Add(ctx, sessionInput(record))",
+        "writeSessionExport(ctx, zipWriter, projector, manifest)"
+      ]
+    },
+    {
+      "source": "backend/internal/observability/trajectory/session.go",
+      "rationale": "Single session association, provenance and tool-link owner; payloads and indexes use a bounded buffer with a single-file spill.",
+      "must_contain": [
+        "func (e *SessionExporter) Add(",
+        "func (e *SessionExporter) WriteTo(",
+        "func (e *SessionExporter) appendTurn("
+      ]
+    },
+    {
+      "source": "backend/internal/observability/qa/bundle/session_export_test.go",
+      "rationale": "Behavior anchors prevent a green test command with no session ZIP coverage.",
+      "must_contain": [
+        "func TestUS055_BundleSessionZip(",
+        "func TestUS055_BundleSessionZipRejectsCorruptPageAndCancellation(",
+        "func TestUS055_ExportVersionIsImmutableAndLegacyJobsRemainReadable("
+      ]
+    },
+    {
+      "source": "backend/internal/observability/trajectory/session_test.go",
+      "rationale": "Core session, reasoning fidelity and isolation regression anchors.",
+      "must_contain": [
+        "func TestUS055_SessionsReconstructInterleavedToolChain(",
+        "func TestUS055_ResponsesReasoningAndNativeFieldsSurvive(",
+        "func TestUS055_SessionsNeverGuessAcrossScopeRetriesOrAmbiguity(",
+        "func TestUS055_SessionStoreSpillPreservesBytesAndBoundsFiles(",
+        "func TestUS055_HistoryCacheRemainsBounded(",
+        "func TestUS055_CompactFragmentsKeepBudgetAndRejectCorruption("
+      ]
+    },
+    {
+      "source": "backend/internal/observability/trajectory/session_store.go",
+      "rationale": "Bound the session export buffer and centralize spill storage; avoid per-record files and unbounded day indexes.",
+      "must_contain": [
+        "const sessionBufferBytes = 8 << 20",
+        "func (s *sessionStore) spill(",
+        "PRAGMA cache_size=-2048"
+      ]
     }
   ],
   "semantic_route_contracts": [
     {
       "source": "backend/internal/server/routes/gateway.go",
       "required_calls": [
-        { "name": "gatewayRoutes.Register", "args": ["raw:http.MethodPost", "/messages"] },
-        { "name": "gatewayRoutes.Register", "args": ["raw:http.MethodPost", "/chat/completions"] },
-        { "name": "gatewayRoutes.Register", "args": ["raw:http.MethodPost", "/responses"] },
-        { "name": "geminiRoutes.Register", "args": ["raw:http.MethodPost", "/models/*modelAction"] },
-        { "name": "codexRoutes.Register", "args": ["raw:http.MethodPost", "/responses"] },
-        { "name": "antigravityV1Routes.Register", "args": ["raw:http.MethodPost", "/messages"] },
-        { "name": "antigravityV1BetaRoutes.Register", "args": ["raw:http.MethodPost", "/models/*modelAction"] }
+        {
+          "name": "gatewayRoutes.Register",
+          "args": [
+            "raw:http.MethodPost",
+            "/messages"
+          ]
+        },
+        {
+          "name": "gatewayRoutes.Register",
+          "args": [
+            "raw:http.MethodPost",
+            "/chat/completions"
+          ]
+        },
+        {
+          "name": "gatewayRoutes.Register",
+          "args": [
+            "raw:http.MethodPost",
+            "/responses"
+          ]
+        },
+        {
+          "name": "geminiRoutes.Register",
+          "args": [
+            "raw:http.MethodPost",
+            "/models/*modelAction"
+          ]
+        },
+        {
+          "name": "codexRoutes.Register",
+          "args": [
+            "raw:http.MethodPost",
+            "/responses"
+          ]
+        },
+        {
+          "name": "antigravityV1Routes.Register",
+          "args": [
+            "raw:http.MethodPost",
+            "/messages"
+          ]
+        },
+        {
+          "name": "antigravityV1BetaRoutes.Register",
+          "args": [
+            "raw:http.MethodPost",
+            "/models/*modelAction"
+          ]
+        }
       ]
     }
   ]

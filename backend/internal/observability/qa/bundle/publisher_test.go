@@ -222,7 +222,7 @@ func TestBuildExportZipReadsOnlyCommittedBundlePages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(zr.File) != 1 || zr.File[0].Name != "qa-records.jsonl" {
+	if len(zr.File) != 3 || zr.File[0].Name != "qa-records.jsonl" || zr.File[1].Name != "sessions.jsonl" || zr.File[2].Name != "export-manifest.json" {
 		t.Fatalf("zip files=%v", zr.File)
 	}
 	file, err := zr.File[0].Open()

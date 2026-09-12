@@ -94,7 +94,7 @@ Owner：`ops/stage0/prod_replay.py`；入口 `scripts/stage0/replay-prod-release
 
 ## 验证 owner
 
-US-054：`.testing/user-stories/stories/US-054-prod-replay-complete-evidence.md`。
+US-056：`.testing/user-stories/stories/US-056-prod-replay-complete-evidence.md`。
 Go crypto/store/response、middleware 与 helper 的测试，Python 固定清单/HTTP/门禁测试，
 真实 PostgreSQL SQL 执行，以及本地 Docker 共享 none 命名空间实验组成验证。
 后台采集默认关闭，无 Web/API 返回契约修改；本次后端/API 测试不称为 UI e2e。

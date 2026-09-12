@@ -24,6 +24,8 @@
         </button>
       </div>
 
+      <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.qaBundle.exportContents') }}</p>
+
       <div v-if="qa.loading.value && !qa.records.value.length" class="flex h-64 items-center justify-center text-sm text-gray-500">
         <Icon name="refresh" size="sm" class="mr-2 animate-spin" />
         {{ t('common.loading') }}

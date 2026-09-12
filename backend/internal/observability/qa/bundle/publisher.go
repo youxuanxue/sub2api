@@ -2,6 +2,7 @@ package bundle
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -282,6 +283,10 @@ func publishRecordSource(ctx context.Context, store Store, input PublishInput, s
 }
 
 func BuildExportZip(ctx context.Context, store Store, manifestKey, outputKey string) (ExportReceipt, error) {
+	return buildExportZip(ctx, store, manifestKey, outputKey, ExportVersion)
+}
+
+func buildExportZip(ctx context.Context, store Store, manifestKey, outputKey, version string) (ExportReceipt, error) {
 	var receipt ExportReceipt
 	manifestKey, err := validateObjectKey(manifestKey)
 	if err != nil {
@@ -303,13 +308,25 @@ func BuildExportZip(ctx context.Context, store Store, manifestKey, outputKey str
 		return receipt, errors.New("invalid committed qa bundle manifest")
 	}
 	prefix := path.Dir(manifestKey) + "/pages/"
-	tmp, err := os.CreateTemp("", "qa-bundle-export-*.zip")
+	workDir, err := os.MkdirTemp("", "qa-bundle-export-*")
+	if err != nil {
+		return receipt, err
+	}
+	defer func() { _ = os.RemoveAll(workDir) }()
+	projector, err := newBundleSessionExporter(workDir)
+	if err != nil {
+		return receipt, err
+	}
+	defer func() { _ = projector.Close() }()
+	tmp, err := os.CreateTemp(workDir, "export-*.zip")
 	if err != nil {
 		return receipt, err
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
-	zipWriter := zip.NewWriter(tmp)
+	// Deflate emits small writes; coalesce them before crossing into the filesystem.
+	zipOutput := bufio.NewWriterSize(tmp, 256<<10)
+	zipWriter := zip.NewWriter(zipOutput)
 	jsonl, err := zipWriter.Create("qa-records.jsonl")
 	if err != nil {
 		_ = tmp.Close()
@@ -317,6 +334,10 @@ func BuildExportZip(ctx context.Context, store Store, manifestKey, outputKey str
 	}
 	writtenRecords := 0
 	for index, descriptor := range manifest.Pages {
+		if err := ctx.Err(); err != nil {
+			_ = tmp.Close()
+			return receipt, err
+		}
 		if descriptor.Page != index+1 || !strings.HasPrefix(descriptor.Key, prefix) || path.Dir(descriptor.Key) != strings.TrimSuffix(prefix, "/") {
 			_ = tmp.Close()
 			return receipt, errors.New("qa bundle manifest page key is outside the committed generation")
@@ -340,6 +361,12 @@ func BuildExportZip(ctx context.Context, store Store, manifestKey, outputKey str
 			return receipt, errors.New("qa bundle page count mismatch")
 		}
 		for _, record := range page.Records {
+			if version != "" {
+				if err := projector.Add(ctx, sessionInput(record)); err != nil {
+					_ = tmp.Close()
+					return receipt, err
+				}
+			}
 			encoded, err := json.Marshal(record)
 			if err != nil {
 				_ = tmp.Close()
@@ -356,7 +383,17 @@ func BuildExportZip(ctx context.Context, store Store, manifestKey, outputKey str
 		_ = tmp.Close()
 		return receipt, errors.New("qa bundle export aggregate count mismatch")
 	}
+	if version != "" {
+		if err := writeSessionExport(ctx, zipWriter, projector, manifest); err != nil {
+			_ = tmp.Close()
+			return receipt, err
+		}
+	}
 	if err := zipWriter.Close(); err != nil {
+		_ = tmp.Close()
+		return receipt, err
+	}
+	if err := zipOutput.Flush(); err != nil {
 		_ = tmp.Close()
 		return receipt, err
 	}

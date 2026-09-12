@@ -3,10 +3,14 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
 import type { ApiKey } from '@/types'
 
-const { listKeys, replaceMock } = vi.hoisted(() => ({
+const { listKeys, replaceMock, createKeyMock } = vi.hoisted(() => ({
   listKeys: vi.fn(),
+  createKeyMock: vi.fn(),
   replaceMock: vi.fn(),
 }))
+
+const authenticated = ref(true)
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ get isAuthenticated() { return authenticated.value } }) }))
 
 const routeQuery = ref<Record<string, string>>({})
 enableAutoUnmount(afterEach)
@@ -28,19 +32,21 @@ vi.mock('vue-i18n', async () => {
     ...actual,
     useI18n: () => ({
       t: (key: string) => key,
+      locale: ref('en'),
     }),
   }
 })
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    cachedPublicSettings: { api_base_url: 'https://api.example.com' },
+    cachedPublicSettings: { api_base_url: 'https://api.example.com', registration_offer: { state: 'open' } },
+    fetchPublicSettings: vi.fn(),
   }),
 }))
 
 vi.mock('@/api/keys', () => ({
   list: (...args: unknown[]) => listKeys(...args),
-  create: vi.fn(),
+  create: (...args: unknown[]) => createKeyMock(...args),
 }))
 
 vi.mock('@/api/playground', async importOriginal => ({
@@ -128,8 +134,10 @@ const mountView = async () => {
 
 describe('QuickstartView', () => {
   beforeEach(() => {
+    authenticated.value = true
     routeQuery.value = {}
     listKeys.mockReset()
+    createKeyMock.mockReset()
     replaceMock.mockReset()
     listKeys.mockResolvedValue({
       items: [universalKey()],
@@ -138,6 +146,42 @@ describe('QuickstartView', () => {
       page_size: 100,
       pages: 1,
     })
+  })
+
+  it('lets visitors choose tools without reading keys, importing or testing', async () => {
+    authenticated.value = false
+    const wrapper = await mountView()
+    expect(listKeys).not.toHaveBeenCalled()
+    expect(createKeyMock).not.toHaveBeenCalled()
+    await wrapper.get('[data-tk="quickstart-client-codex-cli"]').trigger('click')
+    expect(wrapper.getComponent({ name: 'UseKeyGuide' }).props('apiKey')).toBe('YOUR_TOKENKEY_API_KEY')
+    expect(wrapper.text()).toContain('onboarding.registerAndTest')
+    expect(wrapper.find('[data-tk="quickstart-key-select"]').exists()).toBe(false)
+    expect(wrapper.find('[data-tk="quickstart-ccs-import"]').exists()).toBe(false)
+    expect(wrapper.find('[data-tk="quickstart-send-test"]').exists()).toBe(false)
+  })
+
+  it('creates a missing key only on explicit action and selects the result', async () => {
+    listKeys.mockResolvedValue({ items: [] })
+    createKeyMock.mockResolvedValue(universalKey())
+    const wrapper = await mountView()
+    expect(createKeyMock).not.toHaveBeenCalled()
+    await wrapper.get('[data-tk="quickstart-key-action"] button').trigger('click')
+    await flushPromises()
+    expect(createKeyMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.getComponent({ name: 'UseKeyGuide' }).props('apiKey')).toBe(universalKey().key)
+  })
+
+  it('discards a pending key response after logout', async () => {
+    let resolve!: (value: unknown) => void
+    listKeys.mockReturnValue(new Promise(r => { resolve = r }))
+    const wrapper = await mountView()
+    authenticated.value = false
+    await nextTick()
+    resolve({ items: [universalKey()] })
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'UseKeyGuide' }).props('apiKey')).toBe('YOUR_TOKENKEY_API_KEY')
+    expect(wrapper.find('[data-tk="quickstart-key-select"]').exists()).toBe(false)
   })
 
   it('shows the client picker before the config workspace', async () => {

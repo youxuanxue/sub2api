@@ -341,6 +341,7 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	RegistrationOffer                   RegistrationOffer `json:"registration_offer"`
 	RegistrationEnabled                 bool
 	EmailVerifyEnabled                  bool
 	ForceEmailOnThirdPartySignup        bool

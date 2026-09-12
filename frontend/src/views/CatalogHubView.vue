@@ -25,6 +25,7 @@
             </svg>
             {{ t('pricing.nav.home') }}
           </router-link>
+          <router-link to="/quickstart" class="text-sm font-medium text-primary-600">{{ t('onboarding.guide') }}</router-link>
           <CatalogViewSwitcher />
         </div>
       </div>

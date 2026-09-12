@@ -1,7 +1,5 @@
 package service
 
-import "strconv"
-
 // TokenKey: public signup-bonus + pricing-catalog preview fields for
 // GetPublicSettings / HTML injection. Isolated so setting_public.go stays
 // upstream-shaped (keys append + thin apply calls only).
@@ -26,10 +24,7 @@ type tkPublicSignupPricing struct {
 
 func tkParsePublicSignupPricing(settings map[string]string) tkPublicSignupPricing {
 	signupBonusEnabled := !isFalseSettingValue(settings[SettingKeySignupBonusEnabled])
-	signupBonusBalance := defaultSignupBonusBalanceUSD
-	if v, err := strconv.ParseFloat(settings[SettingKeySignupBonusBalance], 64); err == nil && v >= 0 {
-		signupBonusBalance = v
-	}
+	signupBonusBalance := parseSignupBonusBalance(settings[SettingKeySignupBonusBalance])
 	if !signupBonusEnabled {
 		signupBonusBalance = 0
 	}

@@ -46,6 +46,7 @@
           <!-- Language Switcher -->
           <LocaleSwitcher />
 
+          <router-link to="/quickstart" class="text-sm font-medium text-primary-600 dark:text-primary-400">{{ t('onboarding.guide') }}</router-link>
           <!-- Doc Link -->
           <a
             v-if="docUrl"
@@ -163,24 +164,9 @@
               </span>
             </p>
 
-            <!-- Free Trial Badge -->
-            <div class="mb-6">
-              <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-primary-200 bg-primary-50/80 px-4 py-1.5 text-sm font-medium text-primary-700 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300"
-              >
-                {{ t('home.freeTrial.badge') }}
-              </span>
-            </div>
-
             <!-- CTA Buttons -->
             <div class="flex flex-wrap items-center justify-center gap-3 lg:justify-start">
-              <router-link
-                :to="isAuthenticated ? '/quickstart' : '/register?redirect=/quickstart'"
-                class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
-              >
-                {{ isAuthenticated ? t('quickstart.title') : t('home.getStarted') }}
-                <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
-              </router-link>
+              <RegistrationActionTk />
               <router-link
                 to="/models"
                 class="btn btn-secondary px-6 py-3 text-base"
@@ -490,16 +476,10 @@
           class="rounded-2xl border border-primary-200/60 bg-gradient-to-br from-primary-50 to-white p-10 text-center backdrop-blur-sm dark:border-primary-800/60 dark:from-dark-800/80 dark:to-dark-900/60"
         >
           <div class="mb-4">
-            <router-link
-              :to="isAuthenticated ? '/quickstart' : '/register?redirect=/quickstart'"
-              class="btn btn-primary px-8 py-3 text-lg font-semibold shadow-lg shadow-primary-500/30"
-            >
-              {{ t('home.cta.title') }}
-              <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
-            </router-link>
+            <RegistrationActionTk class="justify-center" />
           </div>
           <p class="text-base text-gray-600 dark:text-dark-300">
-            {{ t('home.cta.description') }}
+            {{ t('onboarding.subtitle') }}
           </p>
         </div>
       </div>
@@ -527,7 +507,7 @@
                 class="btn btn-primary px-6 py-3 text-base shadow-lg shadow-primary-500/30"
                 data-testid="china-export-primary-cta"
               >
-                {{ isAuthenticated ? t('home.chinaExport.openQuickstart') : t('home.chinaExport.startFree') }}
+                {{ t('onboarding.guide') }}
                 <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
               </a>
               <a
@@ -666,11 +646,11 @@
               {{ t('home.chinaExport.faqTitle') }}
             </h2>
             <a :href="primaryCtaUrl" class="mt-7 inline-flex items-center font-semibold text-primary-600 hover:underline dark:text-primary-400">
-              {{ t('home.chinaExport.startFree') }}
+              {{ t('onboarding.guide') }}
               <Icon name="arrowRight" size="sm" class="ml-2" />
             </a>
             <p class="mt-3 max-w-sm text-sm leading-6 text-gray-500 dark:text-gray-400">
-              {{ t('home.chinaExport.creditDisclaimer') }}
+              {{ t('onboarding.subtitle') }}
             </p>
           </div>
 
@@ -724,6 +704,7 @@
 </template>
 
 <script setup lang="ts">
+import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
 import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
@@ -758,7 +739,7 @@ function absoluteProductUrl(path: string): string {
 const primaryCtaUrl = computed(() =>
   isAuthenticated.value
     ? absoluteProductUrl(CHINA_EXPORT_QUICKSTART)
-    : `${PRODUCT_ORIGIN}/register?redirect=${encodeURIComponent(CHINA_EXPORT_QUICKSTART)}`,
+    : `${PRODUCT_ORIGIN}${CHINA_EXPORT_QUICKSTART}`,
 )
 
 const seedanceProof = {

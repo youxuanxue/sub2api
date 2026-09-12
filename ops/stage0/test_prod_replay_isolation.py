@@ -1,4 +1,4 @@
-"""Real Docker isolation regression; no production resources (US-054)."""
+"""Real Docker isolation regression; no production resources (US-056)."""
 import json
 import secrets
 import shutil

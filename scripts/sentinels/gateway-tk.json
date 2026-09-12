@@ -3,6 +3,42 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/registration_offer_tk.go",
+      "must_contain": [
+        "registrationOfferFromSettings",
+        "captchaProviderConfigFromSettings",
+        "parseTencentCaptchaCredentials",
+        "aliyunCaptchaCredentials",
+        "invitation_required"
+      ],
+      "rationale": "One public registration policy projection uses existing credential validators, omits uncertain signup credit and never emits private config."
+    },
+    {
+      "path": "backend/internal/service/setting_public.go",
+      "must_contain": [
+        "registrationOfferSettingKeys()",
+        "registrationOfferFromSettings(settings, out",
+        "settings.RegistrationOffer"
+      ],
+      "rationale": "Public JSON and HTML injection consume the same offer owner."
+    },
+    {
+      "path": "backend/internal/handler/setting_handler.go",
+      "must_contain": [
+        "RegistrationOffer:"
+      ],
+      "rationale": "Public settings handler forwards the shared offer."
+    },
+    {
+      "path": "backend/internal/service/registration_offer_tk_test.go",
+      "must_contain": [
+        "TestRegistrationOfferPublicPolicyAndInjection",
+        "TestRegistrationOfferReadFailureAndRequiredCaptcha",
+        "private-fixture"
+      ],
+      "rationale": "Policy, malformed settings and injection secrecy tests survive upstream merges."
+    },
+    {
       "path": "backend/internal/server/middleware/request_logger.go",
       "must_contain": [
         "requestID := uuid.NewString()"
@@ -6565,7 +6601,7 @@
       "rationale": "GetUserGroupRates (GET /groups/rates) must short-circuit to an empty map for non-admin requesters so per-user rate-override values never reach customer-facing pages (API key badges / group selector / available channels). The helper lives in api_key_handler_tk_rate_visibility.go (TK-owned); an upstream merge that restores the bare handler silently re-exposes every customer's negotiated multiplier."
     },
     {
-      "rationale": "The native anthropic Forward path must stash the final (post-rewrite) upstream request body before the retry loop AND re-stash after a successful filtered-thinking / tool-downgrade retry. Two consumers depend on it: ops_error_logs per-attempt body context, and the traj v2 upstream-request divergence capture (qa reads the same gin key for opt-in records; see scripts/sentinels/trajectory.json required_file_hooks). An upstream merge dropping any of these calls silently corrupts exported training pairs instead of failing loudly.",
+      "rationale": "The native anthropic Forward path must stash the final (post-rewrite) upstream request body before the retry loop AND re-stash after a successful filtered-thinking / tool-downgrade retry. Two consumers depend on it: ops_error_logs per-attempt body context, and the QA evidence upstream-request divergence capture (qa reads the same gin key for opt-in records; see scripts/sentinels/trajectory.json required_file_hooks). An upstream merge dropping any of these calls silently corrupts exported training pairs instead of failing loudly.",
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
         "setOpsUpstreamRequestBody(c, body)",
@@ -6573,7 +6609,7 @@
       ]
     },
     {
-      "rationale": "The native anthropic Forward path must stash the final (post-rewrite) upstream request body before the retry loop AND re-stash after a successful filtered-thinking / tool-downgrade retry. Two consumers depend on it: ops_error_logs per-attempt body context, and the traj v2 upstream-request divergence capture (qa reads the same gin key for opt-in records; see scripts/sentinels/trajectory.json required_file_hooks). An upstream merge dropping any of these calls silently corrupts exported training pairs instead of failing loudly.",
+      "rationale": "The native anthropic Forward path must stash the final (post-rewrite) upstream request body before the retry loop AND re-stash after a successful filtered-thinking / tool-downgrade retry. Two consumers depend on it: ops_error_logs per-attempt body context, and the QA evidence upstream-request divergence capture (qa reads the same gin key for opt-in records; see scripts/sentinels/trajectory.json required_file_hooks). An upstream merge dropping any of these calls silently corrupts exported training pairs instead of failing loudly.",
       "path": "backend/internal/service/gateway_anthropic_passthrough_tk.go",
       "must_contain": [
         "setOpsUpstreamRequestBody(c, retryWireBody)"
@@ -11638,7 +11674,7 @@
         "gcm.Open",
         "e.CreatedAt.Add(Retention)"
       ],
-      "rationale": "US-054: preserve encrypted capture and fixed fail-closed replay acceptance."
+      "rationale": "US-056: preserve encrypted capture and fixed fail-closed replay acceptance."
     },
     {
       "path": "backend/internal/observability/qa/replaycapture/store.go",
@@ -11648,7 +11684,7 @@
         "unix.Flock(int(f.Fd()), unix.LOCK_EX)",
         "len(same) >= PerCombination"
       ],
-      "rationale": "US-054: preserve encrypted capture and fixed fail-closed replay acceptance."
+      "rationale": "US-056: preserve encrypted capture and fixed fail-closed replay acceptance."
     },
     {
       "path": "ops/stage0/test_prod_replay_corpus.py",
@@ -11657,7 +11693,7 @@
         "test_frozen_corpus_ignores_new_traffic_and_fails_tamper_missing_expiry",
         "test_revoked_auth_requires_real_positive_business_coverage"
       ],
-      "rationale": "US-054: preserve encrypted capture and fixed fail-closed replay acceptance."
+      "rationale": "US-056: preserve encrypted capture and fixed fail-closed replay acceptance."
     }
   ]
 }

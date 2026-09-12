@@ -111,6 +111,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`design-data-layer-phase1-closeout.md`](design-data-layer-phase1-closeout.md) | Phase1 closeout |
 | [`design-phase1-prod-activation-gates.md`](design-phase1-prod-activation-gates.md) | Phase1 activation gates |
 | [`design-prod-archive-bucket.md`](design-prod-archive-bucket.md) | 长期 archive 桶 |
+| [`qa-bundle-session-export.md`](qa-bundle-session-export.md) | QA Bundle 保真会话导出与 traj SSOT |
 | [`design-prod-qa-24h-s3-lifecycle.md`](design-prod-qa-24h-s3-lifecycle.md) | QA 24h S3 lifecycle |
 | [`security-capture-and-ingress.md`](security-capture-and-ingress.md) | QA capture protection, trusted ingress and public image download boundary |
 | [`design-fleet-pgdump-restore-canary.md`](design-fleet-pgdump-restore-canary.md) | Fleet pgdump restore canary |
@@ -129,6 +130,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |
 | [`user-cold-start.md`](user-cold-start.md) | New-user cold start |
+| [`public-quickstart-registration-offer.md`](public-quickstart-registration-offer.md) | Public Quickstart and shared registration offer |
 | [`usage-balance-fallback.md`](usage-balance-fallback.md) | Usage balance fallback |
 | [`design-dual-market-homepage.md`](design-dual-market-homepage.md) | 双市场首页与统一产品矩阵 |
 

@@ -184,16 +184,11 @@
     </div>
 
     <!-- Footer -->
-    <template v-if="!backendModeEnabled && publicSettingsLoaded && registrationEnabled" #footer>
-      <p class="text-gray-500 dark:text-dark-400">
-        {{ t('auth.dontHaveAccount') }}
-        <router-link
-          to="/register"
-          class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-        >
-          {{ t('auth.signUp') }}
-        </router-link>
-      </p>
+    <template #footer>
+      <div class="space-y-4">
+        <RegistrationActionTk v-if="canRegister" :return-to="safeInternalRedirect(router.currentRoute.value.query.redirect)" />
+        <router-link to="/quickstart" class="text-sm font-medium text-primary-600">{{ t('onboarding.guide') }}</router-link>
+      </div>
     </template>
   </AuthLayout>
 
@@ -209,10 +204,13 @@
 </template>
 
 <script setup lang="ts">
+import { useRegistrationOffer } from '@/composables/useRegistrationOffer.tk'
+import { safeInternalRedirect } from '@/utils/quickstartJourney.tk'
+import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
 import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { AuthLayout } from '@/components/layout'
+import AuthLayout from '@/components/layout/AuthLayout.vue'
 import LinuxDoOAuthSection from '@/components/auth/LinuxDoOAuthSection.vue'
 import DingTalkOAuthSection from '@/components/auth/DingTalkOAuthSection.vue'
 import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
@@ -225,7 +223,6 @@ import Icon from '@/components/icons/Icon.vue'
 import { useAuthStore, useAppStore } from '@/stores'
 import {
   buildOAuthLoginStartURL,
-  getPublicSettings,
   isTotp2FARequired,
   isWeChatWebOAuthEnabled,
   startOAuthLogin,
@@ -254,7 +251,7 @@ const publicSettingsLoaded = ref<boolean>(false)
 
 // Public settings
 const publicSettings = ref<PublicSettings | null>(null)
-const registrationEnabled = computed(() => publicSettings.value?.registration_enabled === true)
+const { canRegister, refresh: refreshRegistrationOffer } = useRegistrationOffer()
 const linuxdoOAuthEnabled = ref<boolean>(false)
 const dingtalkOAuthEnabled = ref<boolean>(false)
 const wechatOAuthEnabled = ref<boolean>(false)
@@ -334,7 +331,8 @@ onMounted(async () => {
   }
 
   try {
-    const settings = await getPublicSettings()
+    const settings = await refreshRegistrationOffer()
+    if (!settings) throw new Error(t('onboarding.unavailable'))
     publicSettings.value = settings
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     dingtalkOAuthEnabled.value = settings.dingtalk_oauth_enabled ?? false
@@ -496,7 +494,7 @@ async function handleLogin(): Promise<void> {
     appStore.showSuccess(t('auth.loginSuccess'))
 
     // Redirect to dashboard or intended route
-    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
+    const redirectTo = safeInternalRedirect(router.currentRoute.value.query.redirect, '/dashboard')
     await router.push(redirectTo)
   } catch (error: unknown) {
     errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed'))
@@ -525,7 +523,7 @@ async function handlePasskeyLogin(): Promise<void> {
     await authStore.loginWithPasskey(proof)
     clearAllAffiliateReferralCodes()
     appStore.showSuccess(t('auth.loginSuccess'))
-    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
+    const redirectTo = safeInternalRedirect(router.currentRoute.value.query.redirect, '/dashboard')
     await router.push(redirectTo)
   } catch (error: unknown) {
     const fallback = error instanceof DOMException && error.name === 'NotAllowedError'
@@ -583,7 +581,7 @@ async function handle2FAVerify(code: string): Promise<void> {
     appStore.showSuccess(t('auth.loginSuccess'))
 
     // Redirect to dashboard or intended route
-    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
+    const redirectTo = safeInternalRedirect(router.currentRoute.value.query.redirect, '/dashboard')
     await router.push(redirectTo)
   } catch (error: unknown) {
     const err = error as { message?: string; response?: { data?: { message?: string } } }

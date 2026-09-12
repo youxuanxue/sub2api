@@ -10,6 +10,7 @@
           <span class="min-w-0 truncate text-base font-semibold">{{ siteName }}</span>
         </div>
         <div class="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+          <router-link to="/quickstart" class="text-sm font-medium text-primary-600">{{ t('onboarding.guide') }}</router-link>
           <LocaleSwitcher />
           <a
             v-if="docUrl"

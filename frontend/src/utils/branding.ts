@@ -22,6 +22,11 @@ export function updateFavicon(logoUrl: string): void {
     document.head.appendChild(link)
   }
 
-  link.type = sanitizedLogoUrl.endsWith('.svg') ? 'image/svg+xml' : 'image/png'
-  link.href = sanitizedLogoUrl
+  const type = sanitizedLogoUrl.endsWith('.svg') ? 'image/svg+xml' : 'image/png'
+  if (link.type !== type) link.type = type
+  // Bootstrap and reactive settings both call this owner. Reassigning the same
+  // href can make the browser download the favicon again.
+  if (link.href !== new URL(sanitizedLogoUrl, document.baseURI).href) {
+    link.href = sanitizedLogoUrl
+  }
 }

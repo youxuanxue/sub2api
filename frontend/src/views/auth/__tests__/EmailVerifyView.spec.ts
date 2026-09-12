@@ -1,7 +1,10 @@
+import { createPinia, setActivePinia } from 'pinia'
 import { defineComponent, h } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EmailVerifyView from '@/views/auth/EmailVerifyView.vue'
+
+enableAutoUnmount(afterEach)
 
 const {
   pushMock,
@@ -50,6 +53,7 @@ const {
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     push: pushMock,
+    currentRoute: { value: { query: {} } },
   }),
 }))
 
@@ -106,6 +110,7 @@ vi.mock('@/api/client', () => ({
 
 describe('EmailVerifyView', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     pushMock.mockReset()
     showSuccessMock.mockReset()
     showErrorMock.mockReset()
@@ -125,6 +130,7 @@ describe('EmailVerifyView', () => {
     localStorage.clear()
 
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -137,6 +143,7 @@ describe('EmailVerifyView', () => {
 
   it('acquires a fresh Tencent proof for each resend action', async () => {
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       tencent_captcha_enabled: true,
@@ -233,6 +240,7 @@ describe('EmailVerifyView', () => {
 
   it('requires a fresh captcha proof after the initial send-code request fails', async () => {
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: true,
       turnstile_site_key: 'site-key',
       site_name: 'Sub2API',
@@ -277,6 +285,7 @@ describe('EmailVerifyView', () => {
       redirect: '/profile',
     }
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -312,6 +321,7 @@ describe('EmailVerifyView', () => {
 
   it('sends a verification code for a non-whitelist email domain', async () => {
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -347,6 +357,7 @@ describe('EmailVerifyView', () => {
 
   it('shows the localized domain quota message when sending a verification code is rejected', async () => {
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -385,6 +396,7 @@ describe('EmailVerifyView', () => {
 
   it('shows the localized domain quota message when verified registration is rejected', async () => {
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -428,6 +440,7 @@ describe('EmailVerifyView', () => {
   // 域名限量注册开关默认关闭：恢复 PR5423 之前的客户端白名单预检，非白名单域名不发送验证码。
   it('blocks sending a verification code for a non-whitelist email domain when the quota switch is disabled', async () => {
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -466,6 +479,7 @@ describe('EmailVerifyView', () => {
       redirect: '/profile',
     }
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -508,6 +522,7 @@ describe('EmailVerifyView', () => {
       redirect: '/profile/security',
     }
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -615,6 +630,7 @@ describe('EmailVerifyView', () => {
       redirect: '/profile',
     }
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: true,
       turnstile_site_key: 'site-key',
       site_name: 'Sub2API',
@@ -687,6 +703,7 @@ describe('EmailVerifyView', () => {
       redirect: '/profile',
     }
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: true,
       turnstile_site_key: 'site-key',
       site_name: 'Sub2API',
@@ -744,6 +761,7 @@ describe('EmailVerifyView', () => {
       redirect: '/profile/security',
     }
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       site_name: 'Sub2API',
@@ -844,6 +862,7 @@ describe('EmailVerifyView', () => {
 
   it('does not require another Tencent proof for final email registration', async () => {
     getPublicSettingsMock.mockResolvedValue({
+      registration_offer: { state: 'open' },
       turnstile_enabled: false,
       turnstile_site_key: '',
       tencent_captcha_enabled: true,

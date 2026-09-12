@@ -20,13 +20,7 @@
         </span>
       </p>
       <div class="flex shrink-0 flex-wrap items-center gap-2">
-        <router-link
-          v-if="bonusCtaVisible"
-          to="/register"
-          class="hidden rounded-lg bg-primary-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 sm:inline-flex"
-        >
-          {{ t('pricing.ctaBonus', { amount: signupBonusFormatted }) }}
-        </router-link>
+        <RegistrationActionTk v-if="!isAuthenticated" />
         <button
           v-if="canExportPricing && !loading && !errorMessage && rowTotal > 0"
           type="button"
@@ -615,6 +609,7 @@
 </template>
 
 <script setup lang="ts">
+import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
 /**
  * Model + pricing catalog page.
  *
@@ -628,7 +623,7 @@
  * Both sources feed one normalized row shape so the table markup stays identical
  * while the UI avoids separate "group catalog" vs "public catalog" modes.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import CatalogAudioPrice from '@/components/catalog/CatalogAudioPrice.tk.vue'
 import CatalogEmbeddingPrice from '@/components/catalog/CatalogEmbeddingPrice.tk.vue'
 import { useI18n } from 'vue-i18n'
@@ -645,7 +640,6 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import CatalogViewSwitcher from '@/components/catalog/CatalogViewSwitcher.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { formatCurrency } from '@/utils/format'
 import {
   filterPricingCatalogByModel,
   type PricingCatalogSearchMode
@@ -726,19 +720,6 @@ interface NormalizedRow {
  * rendered on the /models cards cannot drift (pricingVariants.tk.ts is the owner).
  */
 type NormalizedTier = PricingVariantTier
-
-const signupBonusFormatted = computed(() =>
-  formatCurrency(appStore.cachedPublicSettings?.signup_bonus_balance_usd ?? 0, 'USD')
-)
-
-const bonusCtaVisible = computed(() => {
-  const s = appStore.cachedPublicSettings
-  if (!s?.registration_enabled) return false
-  if (s.backend_mode_enabled) return false
-  if (!s.signup_bonus_enabled) return false
-  const amt = s.signup_bonus_balance_usd ?? 0
-  return amt > 0 && !authStore.isAuthenticated
-})
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
@@ -1285,7 +1266,7 @@ function reload(): void {
   void load()
 }
 
-/** Deep link from /models marketplace cards: ?model=<id> pre-fills exact search. */
+let appliedModelDeepLink: string | null = null
 async function applyModelDeepLinkFromRoute(): Promise<void> {
   const raw = route.query.model
   const modelId =
@@ -1294,7 +1275,15 @@ async function applyModelDeepLinkFromRoute(): Promise<void> {
       : Array.isArray(raw)
         ? (raw[0]?.trim() ?? '')
         : ''
-  if (!modelId) return
+  if (!modelId) {
+    if (appliedModelDeepLink !== null) {
+      modelSearchQuery.value = ''
+      modelSearchMode.value = 'fuzzy'
+      appliedModelDeepLink = null
+    }
+    return
+  }
+  appliedModelDeepLink = modelId
   viewMode.value = 'public'
   selectedKeyId.value = 0
   selectedGroupId.value = 0
@@ -1306,6 +1295,21 @@ async function applyModelDeepLinkFromRoute(): Promise<void> {
     await loadPublicCatalog()
   }
 }
+
+// KeepAlive reuses this view after the user returns from a model card. Observe
+// the active pricing URL as well as the initial mount; other routes may also
+// carry a model query and must not change the cached pricing filters.
+watch(
+  () => [route.path, route.query.view, route.query.model],
+  () => {
+    if (route.path === '/models' && route.query.view === 'pricing') {
+      void applyModelDeepLinkFromRoute().catch((error: { message?: string }) => {
+        errorMessage.value = error.message || 'Network error'
+      })
+    }
+  },
+)
+
 
 onMounted(async () => {
   await load()
