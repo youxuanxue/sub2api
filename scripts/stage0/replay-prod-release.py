@@ -117,7 +117,8 @@ def main():
     p.add_argument('--tag', required=True)
     p.add_argument('--target', choices=('prod',), default='prod')
     p.add_argument('--out', type=Path, default=Path('replay-output'))
-    p.add_argument('--test-key-name', default='TK_FULLTEST_KEY', help='existing active universal test key; resolved only on prod')
+    p.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
+                   help='prod api_keys.name of an active universal test key (not secrets.TK_FULLTEST_KEY material)')
     p.add_argument('--replace-receipt', default='', help='existing prepared fingerprint; replace inactive candidate only')
     p.add_argument('--approved-replay', default='', help='reviewed receipt SHA; validate only, never cut over')
     args = p.parse_args()

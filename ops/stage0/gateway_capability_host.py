@@ -12,7 +12,6 @@ import fcntl
 import json
 import ipaddress
 import os
-from pathlib import Path
 import re
 import secrets
 import signal
@@ -276,6 +275,7 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY'):
         replay.write_json(root / 'bluegreen-capability-results.json', result)
         summary = {k: v for k, v in result.items() if k != 'results'}
         summary['coverage'] = coverage['coverage']
+        summary['account_class_coverage'] = coverage['account_class_coverage']
         summary['total'] = coverage['total']
         summary['results_sha256'] = matrix.digest(result)
         replay.write_json(root / 'bluegreen-capability-replay.json', replay.seal(summary))
@@ -297,7 +297,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('run', 'results'))
     parser.add_argument('--tag', required=True)
-    parser.add_argument('--test-key-name', default='TK_FULLTEST_KEY')
+    parser.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
+                        help='prod api_keys.name of an active universal test key (not secrets.TK_FULLTEST_KEY material)')
     parser.add_argument('--offset', type=int, default=0)
     args = parser.parse_args()
     replay.require(re.fullmatch(r'\d+\.\d+\.\d+', args.tag), 'invalid_tag')

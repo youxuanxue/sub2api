@@ -184,7 +184,8 @@ class ExecutionTests(unittest.TestCase):
              patch.object(host.replay, 'inspect', return_value={}), \
              patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
              patch.object(host, 'test_key', return_value={'api_key_id': 334, 'key': 'secret'}), \
-             patch.object(host, 'execute_case', return_value={'status': 'failed', 'reason': 'http_status_error'}) as execute, \
+             patch.object(host, 'execute_case', return_value={'status': 'failed', 'reason': 'http_status_error',
+                 'execution_proof': {'account_class_matched': False}}) as execute, \
              patch.object(host.replay, 'run', side_effect=AssertionError('must not create resources')):
             result = host.run(value, inventory(), '1.2.3', Path(directory))
             details = json.loads(Path(directory, 'bluegreen-capability-results.json').read_text())
@@ -194,6 +195,8 @@ class ExecutionTests(unittest.TestCase):
         self.assertTrue(result['route_unchanged'])
         self.assertFalse(result['cutover'])
         self.assertTrue(result['approval_pending'])
+        self.assertEqual(result['account_class_coverage'],
+                         {'matched': 0, 'unmatched': 0, 'unmetered_or_absent': 0})
         self.assertNotIn('secret', json.dumps(details))
 
     def test_missing_test_key_retains_every_obligation(self):

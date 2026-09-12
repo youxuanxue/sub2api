@@ -1,6 +1,7 @@
 ---
 title: Gateway capability verification independent of deployment
-status: draft
+status: approved
+approved_by: "user (本会话明确要求：日常蓝绿部署准备候选，用测试 universal key 执行完整用例，汇总结果交审批，禁止擅自切流)"
 risk: high
 ---
 
@@ -53,22 +54,25 @@ branch_family，不因线上调用频率变化自动改选代表。仓库内不�
 
 ## 计划与执行的界限
 
-用户在本会话继续授权实现并验证，附加约束为禁止切流、控制并发、不影响线上用户。
+用户在本会话继续授权实现并验证，附加约束为禁止切流、控制并发、降低对线上共享池的冲击。
 `plan_validation=required` 仍不因原生协议声明而消失：文本请求经过候选网关的正常
 universal routing，媒体经过现有 handler。执行器不强制账号绑定、不修改账号供给。
 响应正确且 usage 归属测试 key 才记录功能通过；另记实际账号和 account_class_matched，
-正常调度命中其他账号类时不冒称原计划账号类已覆盖。count-token endpoint 本身不计费时
-标记 unmetered_endpoint，不假称有账号归因证据。
+正常调度命中其他账号类时不冒称原计划账号类已覆盖。回执必须汇总 `account_class_coverage`
+（matched / unmatched / unmetered_or_absent），审批时同时看功能 verdict 与账号类命中，
+不能只看 green。count-token endpoint 本身不计费时标记 unmetered_endpoint，不假称有账号归因证据。
 
 执行流程只有：正常 blue/green prepare → 测试候选 → 汇总回执 → 等用户审批。
 候选复用现有 PostgreSQL/Redis，执行器直连其 Docker 内部地址，不经过线上 Caddy。
-使用现成的 `TK_FULLTEST_KEY`，也可通过 `--test-key-name` 指定已有测试 universal key。
-仅在生产主机内读取凭据，不把 key 传入命令参数或回执。请求按正常流程计费和记录 usage；
+使用现成的测试 universal key（默认按 `api_keys.name='TK_FULLTEST_KEY'` 在生产主机内解析；
+可用 `--test-key-name` 指定其他已有名称）。该名称不是 GitHub `secrets.TK_FULLTEST_KEY`
+密钥材料；仅在生产主机内读取凭据，不把 key 传入命令参数或回执。请求按正常流程计费和记录 usage；
 执行器自身只读数据库，不创建用户、key、分组、绑定或额外容器，不导出/恢复快照。
 候选准备沿用普通蓝绿部署，不设 replay 专属 load/PSI 门槛。
 
 并发为一，所有请求（包括工具续轮和视频轮询）共享至少十秒的启动间隔，不自动重试。
-HTTP 错误、超时、协议及场景失败逐条记录，关闭本次连接后继续下一条，不自动重试。
+这会降低但对线上账号并发槽位的竞争，不能消除：候选与线上共享同一账号池与 Redis 租约，
+仍可能与真实流量争用。HTTP 错误、超时、协议及场景失败逐条记录，关闭本次连接后继续下一条，不自动重试。
 每次请求前及结束时核对 active/candidate/Caddy 指纹；变化立即停止并保留剩余义务。
 测试 usage 按响应 ID 的真实计费命名空间关联，只能归属本次测试 key；不再要求 usage 为零。
 

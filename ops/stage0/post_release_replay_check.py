@@ -47,7 +47,8 @@ def main(argv=None):
     execute.add_argument('--inventory', type=Path, default=DEFAULT_INVENTORY)
     execute.add_argument('--limit', type=int, help='optional explicit execution cap; default is the complete eligible set')
     execute.add_argument('--out', type=Path)
-    execute.add_argument('--test-key-name', default='TK_FULLTEST_KEY')
+    execute.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
+                         help='prod api_keys.name of an active universal test key (not secrets.TK_FULLTEST_KEY material)')
     execute.add_argument('--allow-upstream-quota', action='store_true')
     args = parser.parse_args(argv)
     if args.command == 'from-tag':

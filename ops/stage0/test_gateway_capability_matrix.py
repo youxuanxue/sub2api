@@ -259,8 +259,11 @@ class ExecutionTests(unittest.TestCase):
                     'execution_proof': {'test_api_key_id': 334, 'key_type': 'universal',
                       'observed_account_ids': [2], 'request_ids': ['r1'], 'usage_request_ids': ['local:r1'],
                       'account_class_matched': False, 'routing_validation': 'normal_universal'}}]}
-        self.assertEqual(matrix.report(value, result)['coverage']['passed'], 1)
-        self.assertIsNone(matrix.report(value, result)['execution_blocker'])
+        report = matrix.report(value, result)
+        self.assertEqual(report['coverage']['passed'], 1)
+        self.assertIsNone(report['execution_blocker'])
+        self.assertEqual(report['account_class_coverage'], {'matched': 0, 'unmatched': 1, 'unmetered_or_absent': 0})
+        self.assertFalse(next(r for r in report['entries'] if r['id'] == case['id'])['account_class_matched'])
         result['route_unchanged'] = False
         with self.assertRaisesRegex(ValueError, 'prepared_route_not_verified'):
             matrix.report(value, result)
@@ -272,6 +275,10 @@ class ExecutionTests(unittest.TestCase):
         proof['test_api_key_id'] = 334
         proof['usage_request_ids'] = []
         with self.assertRaisesRegex(ValueError, 'account_attribution_missing'):
+            matrix.report(value, result)
+        proof['usage_request_ids'] = ['local:r1']
+        del proof['account_class_matched']
+        with self.assertRaisesRegex(ValueError, 'account_class_match_required'):
             matrix.report(value, result)
 
     def test_optional_historical_receipt_does_not_block_normal_staged_approval(self):
