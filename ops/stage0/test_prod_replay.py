@@ -319,6 +319,18 @@ class ExecutionTest(unittest.TestCase):
 
 
 class OrchestrationTest(unittest.TestCase):
+    def test_observation_timeout_reconnects_without_resubmitting_requests(self):
+        complete = subprocess.CompletedProcess([], 0, json.dumps({'Status': 'Success', 'ResponseCode': 0,
+            'StandardOutputContent': '{"total":157}'}), '')
+        with patch.object(cli.subprocess, 'check_output', return_value='same-command') as send, \
+             patch.object(cli.subprocess, 'run', side_effect=[subprocess.TimeoutExpired('aws', 30), complete]) as poll, \
+             patch.object(cli.time, 'sleep'):
+            self.assertEqual(cli.remote('i-prod', 'run', '1.2.3'), {'total': 157})
+        send.assert_called_once()
+        self.assertEqual(poll.call_count, 2)
+        for call in poll.call_args_list:
+            self.assertIn('same-command', call.args[0])
+
     def receipt(self, tag='1.2.3', verdict='green'):
         from gateway_capability_matrix import digest
         details = {'tag': tag, 'verdict': verdict, 'cutover': False, 'results': [{'id': 'one-case'}]}

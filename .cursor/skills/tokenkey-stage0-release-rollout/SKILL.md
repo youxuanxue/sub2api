@@ -33,7 +33,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 发版前 smoke 模型校验 | 机械 | `python3 scripts/stage0/check_smoke_config.py`（`TK_SMOKE_ANTHROPIC_MODELS` / `TK_SMOKE_GEMINI_MODELS` / `TK_SMOKE_OPENAI_OAUTH_MODELS` 均 ∈ `TK_SMOKE_API_KEY` 的 `/v1/models`）。**完整校验需要 smoke key，只在 CI 可跑**；本地降级为 `bash ops/stage0/load_smoke_github_env.sh --check prod`（只验 secret/vars 已配置） |
 | 发版后跟进档位（skip / single） | 机械 | `bash scripts/release-impact-files.sh PREV NEW` → `.followup.tier`（是否值得人工再跟；**实测检查不走这里**） |
 | 发版后控制面探活（prod + deployable edge） | 机械 | `bash ops/observability/probe-release-control-plane.sh`（prod `/health` + `/api/v1/settings/public`，deployable Edge `/health`，JSON lines + summary） |
-| **prod replay（只准备 inactive color，不切流）** | 机械 | `scripts/stage0/replay-prod-release.py --tag X.Y.Z` → prod SSM `prepare` → `ops/stage0/gateway_capability_host.py` 按账号供给计划串行执行短合成请求；复用独立 PostgreSQL/Redis 和同 image ID 副本，核对账号归因、线上容量、路由与清理 → 脱敏 receipt/results（不读取历史 capture） |
+| **prod replay（只准备 inactive color，不切流）** | 机械 | `scripts/stage0/replay-prod-release.py --tag X.Y.Z` → prod SSM 正常蓝绿 `prepare` → `ops/stage0/gateway_capability_host.py` 用现有测试 universal key 直连候选，串行执行完整短合成请求；核对响应、测试 usage 和线上路由 → 脱敏 receipt/results（不读取历史 capture） |
 | **发版后两阶段实测（live tag→本次 tag 的全部 PR）** | 机械 | `deploy-stage0.yml` 同一 `deploy` job：蓝绿脚本在 Caddy reload 成功的真实切流点输出 `cutover_at`；`Check PR hooks immediately` 查该时刻起的 PR observables，workflow 只补足到 `cutover_at + 300s`，再由 `Check traffic and 5xx after 5 minutes` 查累计流量/5xx；两阶段复用 `plan.json` 与已批的 prod Environment |
 | **发版后 Anthropic OAuth 配置检查（snapshot → check）** | 机械 | `python3 ops/anthropic/manage-anthropic-config.py snapshot` + `check --snapshot`（canonical：`tokenkey-anthropic-oauth-config`） |
 | **发版后健康账号分组合理性检查（只读 advisory）** | 机械 | `bash ops/observability/check-account-group-bindings.sh --target prod`；从健康、可调度账号的显式 `model_mapping` 与 peer 分组证据派生，不硬编码模型→分组表；`review` / 探针失败均不阻塞 rollout |
@@ -53,7 +53,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 参数 | 语义 |
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
-| `operation=replay` | **仅允许 `target=prod`**：以 `STAGE0_BLUEGREEN_STAGE=prepare` 部署 inactive color，再独立执行账号供给用例。并发、间隔和容量守卫由 host runner 固定；每条用例均生成结果，停止时保留剩余义务。不得调用 promote、Caddy reload 或 edge rollout；回执交用户审核，不是切流授权。 |
+| `operation=replay` | **仅允许 `target=prod`**：以 `STAGE0_BLUEGREEN_STAGE=prepare` 部署 inactive color，再用测试 universal key 对该候选执行完整用例。请求并发与间隔由 host runner 固定；每条用例均生成结果，停止时保留剩余义务。不得调用 promote、Caddy reload 或 edge rollout；回执交用户审核，不是切流授权。 |
 | `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。 |
 | `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（edges 均为 Lightsail，路由到 `deploy-edge-lightsail-stage0.yml`）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_instance。 |
 | `target=all` | release 一次 → canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。`main_via_edge=true` 才跑可选段。 |
@@ -69,18 +69,21 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 preflight 的版本化工作区运行同一个 `scripts/stage0/replay-prod-release.py`，验证已有镜像。
 
 入口默认执行版本化账号供给清单及合成 fixture，不再用历史 capture 定义覆盖分母。
-`gateway_capability_host.py` 负责隔离测试用户/universal key、精确账号类绑定、usage 归因、
-工具续轮/媒体语义、串行限速、生产容量守卫和清理。生产数据库/Redis 只读。
-缺供给、能力不支持、真实错误、安全停止均保留逐条原因，不能猜路径、改 verdict 或删分母。
+`gateway_capability_host.py` 直连正常蓝绿候选内部地址，按生产库 `api_keys.name`
+解析测试 universal key（默认名 `TK_FULLTEST_KEY`，可用 `--test-key-name` 指定；
+这不是 GitHub `secrets.TK_FULLTEST_KEY` 密钥材料），执行工具续轮/媒体语义、串行限速和 usage 归因。
+不创建额外网关/PostgreSQL/Redis，不复制数据库，不创建或重绑测试身份，不设 replay 专属 load/PSI 门槛。
+请求正常计费和记录 usage；SQL 查询只读。账号由正常 universal 路由选择，结果记录实际账号、
+是否匹配计划账号类，以及回执中的 `account_class_coverage`。能力不支持、真实错误和未执行项均保留逐条原因，不删分母。
 
 workflow 上传 `replay-receipt.json` 与 `replay-results.json`；本地入口输出相同工件。
-执行器的 `green/red` 是唯一验收结论。任何结果都停在 `approval_pending=true`，
+执行器的 `green/red` 是唯一功能验收结论，审批须同时看 `account_class_coverage`。任何结果都停在 `approval_pending=true`，
 **不是切流授权**。账号供给 receipt 的 `deployment_gate=false`，不能传给历史
 `replay_receipt` promote 入口。历史实验回执保留原文件和原校验契约，不回填新结果。
 
 替换不同 tag 候选必须传当前 prepared fingerprint（`--replace-receipt` / workflow
 `replace_receipt`），走 bluegreen owner 的替换门禁。验证结束向用户交付结果、覆盖限制、
-清理与线上指纹对比；禁止自动继续 prod deploy、smoke 或 edge rollout。
+账号类命中、测试 key usage 与线上指纹对比；禁止自动继续 prod deploy、smoke 或 edge rollout。
 
 如果用户只说“发版 / deploy 最新 / ship production”，默认 `target=prod operation=release`。如果用户说“全部 / 所有网关 / prod + edge / all”，默认 `target=all operation=release`。如果用户说“检查 / 预判 / 评估上线影响 / release check”，默认 `operation=check target=all`。
 
@@ -181,7 +184,7 @@ Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci �
 - `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `ops/stage0/pg_dump_refresh_via_ssm.sh` — in-place 同步 `deploy/aws/cloudformation/stage0-single-ec2.yaml` 里的 `tokenkey-pgdump.*` systemd unit 到 live 实例（不重建 EC2）；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。
 - `.github/workflows/ops-stage0-host-mem-guard.yml` + `ops/stage0/sync-host-mem-guard-via-ssm.sh` — 同形状的 one-shot：把 #811 的 `/swapfile` 释放阀 + sysctl + `tokenkey-disk-metrics.sh` 内存压力告警从 `stage0-ec2-bootstrap.sh` 运行时抽取（单一源）推到 live prod（不重建 EC2，prod-only）。**发版本身不会落地这批 infra 改动**（deploy 只换镜像、不跑 bootstrap）——改了 bootstrap 的 swap/内存防御后，要么等下次换机，要么 dispatch 此 workflow 立刻生效。
 
-Gateway verification owners: `gateway_capability_host.py` (isolated execution),
+Gateway verification owners: `gateway_capability_host.py` (prepared candidate requests),
 `gateway_capability_matrix.py` (account-supply plan/report), `gateway_capability_scenarios.py`
 (synthetic scenarios), `gateway_capability_check.py` (response semantics), all under `ops/stage0/`.
 Legacy historical replay remains in `prod_replay.py`; it is not the default deployment verification.

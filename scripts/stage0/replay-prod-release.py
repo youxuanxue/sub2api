@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prod-only replay orchestrator; remote evidence is produced by prod_replay.py."""
+"""Prepare the normal blue/green candidate, test it with a universal key, never cut over."""
 from __future__ import annotations
 
 import argparse
@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / 'ops/stage0'))
 from ssm_execution import PROD_REGION, resolve_prod_instance  # noqa: E402
 
 
-def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='', offset=0):
+def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='', offset=0, key_name='TK_FULLTEST_KEY'):
     files = {name: (ROOT / 'ops/stage0' / name).read_text() for name in
              ('prod_replay.py', 'prod_replay_manifest.py', 'prod-replay-capabilities.json',
               'gateway_capability_host.py', 'gateway_capability_check.py', 'gateway_capability_matrix.py',
@@ -36,6 +36,8 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
     entry = 'gateway_capability_host.py' if operation in ('run', 'results') else 'prod_replay.py'
     arguments = ([operation, '--tag', tag, '--offset', str(offset)] if operation in ('run', 'results') else
                  [operation, '--tag', tag, '--receipt', receipt, '--replace-receipt', replace_receipt])
+    if operation == 'run':
+        arguments += ['--test-key-name', key_name]
     script = ('set -euo pipefail\numask 077\n'
               'replay_dir=$(mktemp -d /tmp/tk-prod-replay.XXXXXX)\n'
               'trap \'python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$replay_dir"\' EXIT\n'
@@ -53,8 +55,14 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
     print('replay SSM command=' + cid, file=sys.stderr)
     deadline = time.monotonic() + timeout + 60
     while time.monotonic() < deadline:
-        proc = subprocess.run(base + ['get-command-invocation', '--command-id', cid,
-            '--instance-id', instance, '--output', 'json'], capture_output=True, text=True, timeout=30)
+        try:
+            proc = subprocess.run(base + ['get-command-invocation', '--command-id', cid,
+                '--instance-id', instance, '--output', 'json'], capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            # The host run continues independently. Reconnect to the same command;
+            # never submit another paid suite after a local observation timeout.
+            time.sleep(5)
+            continue
         if proc.returncode:
             if 'InvocationDoesNotExist' not in proc.stderr:
                 raise RuntimeError('cannot read replay SSM invocation')
@@ -71,7 +79,7 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
     raise RuntimeError('replay observation timed out; host command=' + cid + ' may still be running; do not promote')
 
 
-def run_replay(tag, instance, out, replace_receipt=''):
+def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY'):
     (out / 'replay-receipt.json').write_text(json.dumps({'tag': tag, 'verdict': 'red', 'reason': 'execution_pending'}) + '\n')
     state = remote(instance, 'status', tag, timeout=60, replace_receipt=replace_receipt)
     if state['needs_prepare']:
@@ -84,7 +92,7 @@ def run_replay(tag, instance, out, replace_receipt=''):
         subprocess.run(['bash', str(ROOT / 'ops/stage0/deploy_via_ssm_bluegreen.sh'), tag,
                         instance, 'prod replay prepare; no cutover'], env=env, check=True)
     remote(instance, 'status', tag, timeout=60)  # Require a matching durable prepared candidate.
-    receipt = remote(instance, 'run', tag)
+    receipt = remote(instance, 'run', tag, key_name=key_name)
     (out / 'replay-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     results = []
     for offset in range(0, receipt['total'], 5):
@@ -109,6 +117,8 @@ def main():
     p.add_argument('--tag', required=True)
     p.add_argument('--target', choices=('prod',), default='prod')
     p.add_argument('--out', type=Path, default=Path('replay-output'))
+    p.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
+                   help='prod api_keys.name of an active universal test key (not secrets.TK_FULLTEST_KEY material)')
     p.add_argument('--replace-receipt', default='', help='existing prepared fingerprint; replace inactive candidate only')
     p.add_argument('--approved-replay', default='', help='reviewed receipt SHA; validate only, never cut over')
     args = p.parse_args()
@@ -127,7 +137,7 @@ def main():
                 output.write('prepared_receipt=' + state['prepared_receipt'] + '\n')
         print(json.dumps(state))
     else:
-        run_replay(args.tag, instance, args.out, args.replace_receipt)
+        run_replay(args.tag, instance, args.out, args.replace_receipt, args.test_key_name)
 
 
 if __name__ == '__main__':

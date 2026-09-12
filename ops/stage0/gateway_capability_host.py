@@ -1,19 +1,17 @@
-"""Serial account-supply verification on an isolated prepared-image replica.
+"""Run synthetic requests with an existing universal test key on the blue/green candidate.
 
-Only this host process sees snapshot credentials. Production SQL and Redis are
-read-only; all test identities and bindings are created before replica startup.
+Uses normal gateway routing and billing. Never creates resources or changes routing.
 """
 from __future__ import annotations
 
 import argparse
 import base64
 import collections
-from contextlib import contextmanager
 import copy
 import fcntl
 import json
+import ipaddress
 import os
-from pathlib import Path
 import re
 import secrets
 import signal
@@ -32,17 +30,33 @@ PROTOCOL_NAMES = {'messages': 'anthropic-messages', 'chat_completions': 'openai-
                   'responses': 'openai-responses', 'gemini_generate_content': 'gemini-content'}
 
 
-class HostPressure(replay.ReplayDeadline):
-    """Abort the run; ordinary ReplayError health retries must not catch this."""
-
-
 def literal(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def rows(query, sandbox=None):
-    args = (sandbox.pg, sandbox.database) if sandbox else ()
-    return [json.loads(line) for line in replay.sql(query, *args).splitlines() if line]
+def rows(query):
+    return [json.loads(line) for line in replay.sql(query).splitlines() if line]
+
+
+def test_key(name):
+    # The configured test key stays on the prod host; never send it through SSM output.
+    found = rows(f"""SELECT json_build_object('api_key_id',k.id,'key',k.key) FROM api_keys k
+      JOIN users u ON u.id=k.user_id WHERE k.name={literal(name)}
+      AND k.deleted_at IS NULL AND u.deleted_at IS NULL AND k.routing_mode='universal'
+      AND k.status='active' AND u.status='active' AND u.balance>0
+      AND (k.expires_at IS NULL OR k.expires_at>now()) AND (k.quota=0 OR k.quota_used<k.quota);""")
+    replay.require(len(found) == 1, 'unique_active_universal_test_key_required')
+    return found[0]
+
+
+def candidate_address(candidate):
+    replay.require(candidate['State']['Running'] and
+                   candidate['State'].get('Health', {}).get('Status') == 'healthy', 'candidate_not_healthy')
+    networks = candidate['NetworkSettings']['Networks']
+    replay.require(len(networks) == 1, 'candidate_network_ambiguous')
+    address = next(iter(networks.values()))['IPAddress']
+    replay.require(ipaddress.ip_address(address).is_private, 'candidate_address_not_private')
+    return address
 
 
 def account_matches(account, cls, case):
@@ -72,137 +86,6 @@ def account_matches(account, cls, case):
             and (creds.get('model_mapping') or {}).get(case['model']) == case['upstream_model'])
 
 
-class CapabilitySandbox(replay.Sandbox):
-    app_cpus = '0.5'
-    postgres_cpus = '0.25'
-    def __init__(self, candidate, plan, inventory, root=replay.ROOT):
-        super().__init__(candidate, root)
-        self.plan, self.inventory = plan, inventory
-        self.bindings = {}
-        self.response_ids = []
-
-    def configure_database(self):
-        # Called by Sandbox.start only after pg_restore and before app startup.
-        accounts = rows("""SELECT row_to_json(t) FROM (
-          SELECT a.id,a.platform,a.type,a.channel_type,a.credentials,a.concurrency,
-                 COALESCE(c.supported_protocols,'[]'::jsonb) supported_protocols
-          FROM accounts a LEFT JOIN protocol_endpoint_capabilities c ON c.id=a.protocol_endpoint_capability_id
-          WHERE a.deleted_at IS NULL AND a.status='active' AND a.schedulable=true
-            AND (a.expires_at IS NULL OR a.expires_at>now())
-            AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at<=now())
-            AND (a.overload_until IS NULL OR a.overload_until<=now())
-            AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until<=now())
-            AND EXISTS(SELECT 1 FROM account_groups ag JOIN groups g ON g.id=ag.group_id
-                       WHERE ag.account_id=a.id AND g.status='active' AND g.deleted_at IS NULL)
-          ORDER BY a.id) t;""", self)
-        classes = {c['id']: c for c in self.inventory['classes']}
-        identities = {}
-        # Original user keys cannot authenticate to this replica.
-        replay.sql("UPDATE api_keys SET status='inactive';", self.pg, self.database)
-        for case in self.plan['entries']:
-            candidates = [a for a in accounts if account_matches(a, classes[case['account_class']], case)]
-            if not candidates:
-                continue
-            # Prefer unused spare capacity; do not reset cooldowns or fabricate model mappings.
-            account = min(candidates, key=lambda a: (live_occupancy(a['id'], self.candidate), a['id']))
-            aid = account['id']
-            if aid not in identities:
-                name = self.name + '-' + str(aid)
-                key = 'sk-' + secrets.token_hex(24)
-                q = f"""WITH u AS (
-                  INSERT INTO users(email,password_hash,role,balance,concurrency,status,restrict_public_groups)
-                  VALUES ({literal(name+'@example.invalid')},'!','user',1000,1,'active',true) RETURNING id
-                ), g AS (
-                  INSERT INTO groups(name,description,platform,rate_multiplier,is_exclusive,status,
-                    subscription_type,claude_code_only,allow_messages_dispatch,supported_model_scopes,
-                    allow_image_generation,rpm_limit)
-                  VALUES ({literal(name)},'isolated capability verification',{literal(account['platform'])},
-                    1,true,'active','standard',false,true,'["claude","gemini_text","gemini_image"]'::jsonb,true,6)
-                  RETURNING id
-                ), entitled AS (
-                  INSERT INTO user_allowed_groups(user_id,group_id,created_at) SELECT u.id,g.id,now() FROM u,g
-                ), bound AS (
-                  INSERT INTO account_groups(account_id,group_id,priority,created_at) SELECT {aid},g.id,1,now() FROM g
-                ), k AS (
-                  INSERT INTO api_keys(user_id,key,name,status,routing_mode,quota,quota_used)
-                  SELECT u.id,{literal(key)},{literal(name)},'active','universal',0,0 FROM u RETURNING id,user_id
-                ) SELECT json_build_object('api_key_id',k.id,'user_id',k.user_id,'group_id',g.id) FROM k,g;"""
-                identity = rows(q, self)[0]
-                identities[aid] = {**identity, 'key': key, 'account_id': aid}
-            self.bindings[case['id']] = identities[aid]
-
-    def verify_binding(self, binding):
-        q = f"""SELECT json_build_object('routing_mode',k.routing_mode,'restricted',u.restrict_public_groups,
-          'groups',(SELECT json_agg(group_id ORDER BY group_id) FROM user_allowed_groups WHERE user_id=u.id),
-          'accounts',(SELECT json_agg(account_id ORDER BY account_id) FROM account_groups WHERE group_id={binding['group_id']}))
-          FROM api_keys k JOIN users u ON u.id=k.user_id WHERE k.id={binding['api_key_id']} AND k.deleted_at IS NULL AND u.deleted_at IS NULL;"""
-        found = rows(q, self)
-        replay.require(len(found) == 1 and found[0] == {
-            'routing_mode': 'universal', 'restricted': True, 'groups': [binding['group_id']],
-            'accounts': [binding['account_id']]}, 'isolated_binding_changed')
-
-
-def live_occupancy(aid, candidate):
-    source = replay.environment(candidate)
-    script = "return redis.call('ZCARD',KEYS[1])+redis.call('ZCARD',KEYS[2])"
-    # ZCARD includes stale leases, deliberately overestimating production usage.
-    value = replay.run(['docker', 'exec', '-e', 'REDISCLI_AUTH=' + source.get('REDIS_PASSWORD', ''),
-                        'tokenkey-redis', 'redis-cli', '-n', source.get('REDIS_DB', '0'), '--raw',
-                        'EVAL', script, '2', f'concurrency:account:{aid}', f'concurrency:live:account:{aid}'])
-    return int(value.strip())
-
-
-def host_guard():
-    def require(condition, reason):
-        if not condition:
-            raise HostPressure(reason)
-    available = int(re.search(r'MemAvailable:\s+(\d+)', Path('/proc/meminfo').read_text())[1])
-    require(available >= 1024 * 1024, 'host_memory_headroom')
-    require(os.getloadavg()[0] < (os.cpu_count() or 1) * .75, 'host_load_headroom')
-    pressure = Path('/proc/pressure/memory').read_text()
-    full = re.search(r'full avg10=([\d.]+)', pressure)
-    require(full is not None and float(full[1]) < .1, 'host_memory_pressure')
-
-
-@contextmanager
-def guarded_setup():
-    """Interrupt dump/restore/startup on pressure, preserving the run deadline."""
-    previous_handler = signal.getsignal(signal.SIGALRM)
-    previous_timer = signal.getitimer(signal.ITIMER_REAL)
-    started = time.monotonic()
-
-    def check(_sig, _frame):
-        if previous_timer[0] and time.monotonic() - started >= previous_timer[0]:
-            raise replay.ReplayDeadline()
-        host_guard()
-
-    signal.signal(signal.SIGALRM, check)
-    signal.setitimer(signal.ITIMER_REAL, 2, 2)
-    try:
-        yield
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous_handler)
-        if previous_timer[0]:
-            signal.setitimer(signal.ITIMER_REAL,
-                            max(.001, previous_timer[0] - (time.monotonic() - started)), previous_timer[1])
-
-
-def account_guard(aid, candidate):
-    data = rows(f"""SELECT json_build_object('healthy',status='active' AND schedulable=true
-      AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at>now())
-      AND (rate_limit_reset_at IS NULL OR rate_limit_reset_at<=now())
-      AND (overload_until IS NULL OR overload_until<=now())
-      AND (temp_unschedulable_until IS NULL OR temp_unschedulable_until<=now()),
-      'concurrency',concurrency) FROM accounts WHERE id={int(aid)} AND deleted_at IS NULL;""")
-    if not data or not data[0]['healthy']:
-        return 'account_not_healthy'
-    occupied = live_occupancy(aid, candidate)
-    if data[0]['concurrency'] - occupied < 2:
-        return 'account_headroom_insufficient'
-    return None
-
-
 def request_wire(request):
     if request['path'] != '/v1/audio/transcriptions':
         return matrix.encoded(request['body']), 'application/json'
@@ -219,49 +102,51 @@ def request_wire(request):
     return b''.join(chunks), 'multipart/form-data; boundary=' + boundary
 
 
-def attribution(sandbox, binding, request_ids, case):
+def attribution(binding, request_ids, case, inventory):
+    if case['request_type'] == 'count_tokens':
+        return [], None, [], None
     expected = {rid: set(replay.usage_request_ids([rid])) for rid in request_ids}
-    quoted = ','.join(literal(rid) for rid in replay.usage_request_ids(request_ids))
+    quoted = ','.join(literal(rid) for rid in replay.usage_request_ids(request_ids)) or 'NULL'
     query = f"""SELECT json_build_object('account_id',account_id,'request_id',request_id,'api_key_id',api_key_id)
         FROM usage_logs WHERE request_id IN ({quoted});"""
     for _ in range(10):
-        usage = rows(query, sandbox)
+        usage = rows(query)
         recorded = {u['request_id'] for u in usage}
-        complete = all(ids & recorded for ids in expected.values())
-        if case['request_type'] == 'count_tokens' or complete:
+        complete = bool(expected) and all(ids & recorded for ids in expected.values())
+        if complete:
             break
         time.sleep(1)
-    observed = sorted({u['account_id'] for u in usage})
-    if any(u['account_id'] != binding['account_id'] or u['api_key_id'] != binding['api_key_id'] for u in usage):
-        return observed, 'wrong_account_or_key', sorted(recorded)
-    if case['request_type'] != 'count_tokens' and not complete:
-        return observed, 'usage_attribution_missing', sorted(recorded)
-    return observed, None, sorted(recorded)
+    observed = sorted({u['account_id'] for u in usage if u['account_id'] is not None})
+    if any(u['api_key_id'] != binding['api_key_id'] for u in usage):
+        return observed, 'wrong_test_key_attribution', sorted(recorded), None
+    if not complete or not observed:
+        return observed, 'usage_attribution_missing', sorted(recorded), None
+    accounts = rows(f"""SELECT row_to_json(t) FROM (
+      SELECT a.id,a.platform,a.type,a.channel_type,a.credentials,
+        COALESCE(c.supported_protocols,'[]'::jsonb) supported_protocols
+      FROM accounts a LEFT JOIN protocol_endpoint_capabilities c ON c.id=a.protocol_endpoint_capability_id
+      WHERE a.deleted_at IS NULL AND a.id IN ({','.join(str(int(a)) for a in observed)})) t;""")
+    cls = next(c for c in inventory['classes'] if c['id'] == case['account_class'])
+    # Normal universal routing chooses the account. Report actual class coverage;
+    # never force bindings or pretend a different class was exercised.
+    matched = len(accounts) == len(observed) and all(account_matches(a, cls, case) for a in accounts)
+    return observed, None, sorted(recorded), matched
 
 
-def production_usage_count(response_ids, prefix, started_at):
-    quoted = ','.join(literal(rid) for rid in replay.usage_request_ids(response_ids)) or 'NULL'
-    return int(replay.sql(f"SELECT count(*) FROM usage_logs WHERE created_at>=to_timestamp({float(started_at)}) AND (request_id IN ({quoted}) OR request_id LIKE {literal(prefix+'%')});").strip())
-
-
-def execute_case(case, binding, sandbox, port, before, throttle):
+def execute_case(case, binding, address, before, throttle, inventory, run_id, root):
     observations = []
-    sandbox.current_observations = observations
     request_ids = []
     final_reason = None
 
     def retain_id(rid):
         request_ids.append(rid)
-        sandbox.response_ids.append(rid)
 
     def send(request, *, method='POST', validation_case=case):
         nonlocal final_reason
         throttle()
-        host_guard()
-        replay.require(replay.snapshot(sandbox.root) == before, 'public_or_prepared_state_changed')
-        sandbox.verify(replay.inspect(sandbox.app), sandbox.env)
-        sandbox.verify_binding(binding)
-        replay.require(account_guard(binding['account_id'], sandbox.candidate) is None, 'account_headroom_changed')
+        replay.require(replay.snapshot(root) == before, 'public_or_prepared_state_changed')
+        candidate = replay.inspect('tokenkey-' + before['target'])
+        replay.require(candidate_address(candidate) == address, 'candidate_address_changed')
         payload, content_type = request_wire(request)
         captured = {}
 
@@ -271,9 +156,9 @@ def execute_case(case, binding, sandbox, port, before, throttle):
             return validate_response(validation_case, status, ctype, raw, stream)
 
         obs = replay.execute({'path': request['path'], 'body': payload, 'row': {'stream': request['stream']}},
-            binding['key'], port, sandbox.name + '-' + case['id'][:16] + '-' + str(len(observations)),
+            binding['key'], 8080, run_id + '-' + case['id'][:16] + '-' + str(len(observations)),
             validator=validator, budget=REQUEST_SECONDS, method=method, content_type=content_type,
-            on_response_id=retain_id)
+            on_response_id=retain_id, host=address)
         observations.append(obs)
         final_reason = obs['reason']
         raw = captured.get('raw', b'')
@@ -312,38 +197,34 @@ def execute_case(case, binding, sandbox, port, before, throttle):
                 break
             if final_reason:
                 break
-        replay.require(terminal, 'video_task_still_running')
+        if not terminal:
+            final_reason = final_reason or 'video_task_still_running'
         # Poll requests are unmetered. Submit attribution owns the generated video.
         request_ids[:] = request_ids[:1]
-    observed, reason, usage_ids = attribution(sandbox, binding, request_ids, case) if request_ids else ([], 'response_request_id_missing', [])
+    observed, reason, usage_ids, matched = attribution(binding, request_ids, case, inventory) if request_ids else ([], 'response_request_id_missing', [], None)
     final_reason = final_reason or reason
     proof = {'account_class': case['account_class'], 'key_type': 'universal',
-             'bound_account_id': binding['account_id'], 'observed_account_ids': observed,
-             'request_ids': request_ids, 'usage_request_ids': usage_ids, 'routing_validation':
-             'tokenizer_endpoint' if case['request_type'] == 'count_tokens' else
-             'media_handler' if case['scenario'] in ('image', 'content-image', 'speech', 'video', 'transcription', 'embedding') else
-             'canonical_gateway', 'attribution': 'unmetered_endpoint' if case['request_type'] == 'count_tokens' else 'usage_rows'}
-    stop = any(o['http_status'] in (429, 502, 503, 504) or o['reason'] in (
-        'request_deadline_exceeded', 'remote_disconnected', 'transport_error',
-        'response_incomplete', 'response_byte_budget_exceeded', 'http_protocol_error') for o in observations)
+             'test_api_key_id': binding['api_key_id'], 'observed_account_ids': observed,
+             'account_class_matched': matched, 'request_ids': request_ids, 'usage_request_ids': usage_ids,
+             'routing_validation': 'normal_universal',
+             'attribution': 'unmetered_endpoint' if case['request_type'] == 'count_tokens' else 'usage_rows'}
     return {'status': 'failed' if final_reason else 'passed', 'reason': final_reason,
-            'stop_reason': 'upstream_pressure_or_unfinished_request' if stop else None,
             'execution_proof': proof, 'observations': observations}
 
 
-def run(plan, inventory, tag, root=replay.ROOT):
+def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY'):
     matrix.validate_plan(plan)
     replay.require(plan == matrix.build(inventory, matrix.load()), 'plan_not_current')
     prepared_sha, before = replay.prepared(tag, root)
-    sandbox = CapabilitySandbox(replay.inspect('tokenkey-' + before['target']), plan, inventory, root)
     result = {'schema': 1, 'kind': 'account-supply-replay', 'tag': tag,
               'plan_sha256': plan['plan_sha256'], 'prepared_receipt': prepared_sha,
-              'execution_kind': 'isolated_gateway', 'concurrency': 1, 'interval_seconds': INTERVAL_SECONDS,
+              'execution_kind': 'prepared_gateway', 'concurrency': 1, 'interval_seconds': INTERVAL_SECONDS,
               'cutover': False, 'approval_pending': True, 'deployment_gate': False,
-              'isolation_verified': False, 'cleanup_verified': False,
-              'production_usage_rows': None, 'started_at': time.time(), 'results': []}
+              'route_unchanged': False, 'billing': 'normal_test_key',
+              'started_at': time.time(), 'results': []}
     reason = None
     next_request = 0.0
+    run_id = 'tk-capability-' + secrets.token_hex(8)
 
     def throttle():
         nonlocal next_request
@@ -351,33 +232,27 @@ def run(plan, inventory, tag, root=replay.ROOT):
         next_request = time.monotonic() + INTERVAL_SECONDS
 
     try:
-        host_guard()
-        with guarded_setup():
-            port = sandbox.start()
+        binding = test_key(key_name)
+        result['test_api_key_id'] = binding['api_key_id']
+        address = candidate_address(replay.inspect('tokenkey-' + before['target']))
         for case in plan['entries']:
             item = {'id': case['id'], 'case_sha256': case['case_sha256']}
             if case['blocked_reason']:
                 item.update(status='unsupported' if case['blocked_reason'] == 'protocol_operation_not_defined'
                             else 'blocked-by-test-infrastructure', reason=case['blocked_reason'])
-            elif case['id'] not in sandbox.bindings:
-                item.update(status='blocked-by-test-infrastructure', reason='matching_live_supply_unavailable')
-            elif block := account_guard(sandbox.bindings[case['id']]['account_id'], sandbox.candidate):
-                item.update(status='blocked-by-test-infrastructure', reason=block)
             else:
                 try:
-                    item.update(execute_case(case, sandbox.bindings[case['id']], sandbox, port, before, throttle))
+                    item.update(execute_case(case, binding, address, before, throttle, inventory, run_id, root))
                 except replay.ReplayError as exc:
-                    observations = getattr(sandbox, 'current_observations', [])
-                    item.update(status='failed' if observations else 'blocked-by-test-infrastructure',
-                                reason=str(exc), stop_reason=str(exc), observations=observations)
+                    item.update(status='failed', reason=str(exc), stop_reason=str(exc))
             result['results'].append(item)
             replay.write_json(root / 'bluegreen-capability-progress.json', {'tag': tag,
-                'completed': len(result['results']), 'total': len(plan['entries']),
+                'started_at': result['started_at'], 'completed': len(result['results']), 'total': len(plan['entries']),
                 'counts': dict(collections.Counter(r['status'] for r in result['results'])), 'cutover': False})
             if item.get('stop_reason'):
                 raise replay.ReplayError(item['stop_reason'])
     except (replay.ReplayError, replay.ReplayDeadline, OSError, ValueError, KeyError, TypeError) as exc:
-        reason = str(exc) if isinstance(exc, (replay.ReplayError, HostPressure)) else 'execution_stopped'
+        reason = str(exc) if isinstance(exc, replay.ReplayError) else 'execution_stopped'
     finally:
         signal.alarm(0)
         finished = {r['id'] for r in result['results']}
@@ -385,36 +260,29 @@ def run(plan, inventory, tag, root=replay.ROOT):
             'status': 'blocked-by-test-infrastructure', 'reason': reason or 'execution_not_completed'}
             for c in plan['entries'] if c['id'] not in finished)
         try:
-            # Lookup both echoed server IDs and the unique client prefix.
-            result['production_usage_rows'] = production_usage_count(sandbox.response_ids, sandbox.name, result['started_at'])
-            unchanged = replay.snapshot(root) == before
-            result['cutover'] = False if unchanged else None
-            result['isolation_verified'] = result['production_usage_rows'] == 0 and unchanged
+            result['route_unchanged'] = replay.snapshot(root) == before
+            result['cutover'] = False if result['route_unchanged'] else None
         except (replay.ReplayError, OSError, ValueError):
-            reason = 'isolation_verification_failed'
-        try:
-            sandbox.close()
-            result['cleanup_verified'] = True
-        except (replay.ReplayError, OSError):
-            reason = 'replay_cleanup_failed'
-        result['finished_at'] = time.time()
-        result['reason'] = reason
-        if not result['isolation_verified'] or not result['cleanup_verified']:
+            reason = 'route_verification_failed'
+        if not result['route_unchanged']:
             for item in result['results']:
                 if item['status'] == 'passed':
-                    item.update(status='failed', reason='execution_safety_not_verified')
+                    item.update(status='failed', reason='route_verification_failed')
+        result['finished_at'] = time.time()
+        result['reason'] = reason
         coverage = matrix.report(plan, result)
         result['verdict'] = 'green' if coverage['scope_complete'] else 'red'
         replay.write_json(root / 'bluegreen-capability-results.json', result)
         summary = {k: v for k, v in result.items() if k != 'results'}
         summary['coverage'] = coverage['coverage']
+        summary['account_class_coverage'] = coverage['account_class_coverage']
         summary['total'] = coverage['total']
         summary['results_sha256'] = matrix.digest(result)
         replay.write_json(root / 'bluegreen-capability-replay.json', replay.seal(summary))
     return replay.seal(summary)
 
 
-def run_locked(plan, inventory, tag):
+def run_locked(plan, inventory, tag, key_name='TK_FULLTEST_KEY'):
     def timeout(_sig, _frame):
         raise replay.ReplayDeadline()
     with (replay.ROOT / 'bluegreen-deploy.lock').open('a') as lock:
@@ -422,13 +290,15 @@ def run_locked(plan, inventory, tag):
         signal.signal(signal.SIGALRM, timeout)
         signal.signal(signal.SIGTERM, timeout)
         signal.alarm(RUN_SECONDS)
-        return run(plan, inventory, tag)
+        return run(plan, inventory, tag, key_name=key_name)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('run', 'results'))
     parser.add_argument('--tag', required=True)
+    parser.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
+                        help='prod api_keys.name of an active universal test key (not secrets.TK_FULLTEST_KEY material)')
     parser.add_argument('--offset', type=int, default=0)
     args = parser.parse_args()
     replay.require(re.fullmatch(r'\d+\.\d+\.\d+', args.tag), 'invalid_tag')
@@ -440,7 +310,7 @@ def main():
         return
     inventory = json.loads(matrix.DEFAULT_INVENTORY.read_text())
     plan = matrix.build(inventory, matrix.load())
-    print(json.dumps(run_locked(plan, inventory, args.tag), separators=(',', ':')))
+    print(json.dumps(run_locked(plan, inventory, args.tag, args.test_key_name), separators=(',', ':')))
 
 
 if __name__ == '__main__':

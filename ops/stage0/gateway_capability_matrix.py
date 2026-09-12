@@ -249,7 +249,7 @@ def report(plan, results=None, previous=None):
     records = {}
     if results is not None:
         require(results.get('plan_sha256') == plan['plan_sha256'], 'results belong to a different plan')
-        require(results.get('execution_kind') in ('isolated_gateway', 'harness'), 'result execution kind required')
+        require(results.get('execution_kind') in ('prepared_gateway', 'isolated_gateway', 'harness'), 'result execution kind required')
         for result in results.get('results', []):
             require(result['id'] not in records, 'duplicate result')
             records[result['id']] = result
@@ -274,22 +274,56 @@ def report(plan, results=None, previous=None):
                 require(proof.get('observed_account_ids') == [proof['bound_account_id']]
                         or case['request_type'] == 'count_tokens' and proof.get('attribution') == 'unmetered_endpoint',
                         'account_attribution_missing')
+            if status == 'passed' and results['execution_kind'] == 'prepared_gateway':
+                proof = result.get('execution_proof', {})
+                require(results.get('route_unchanged') is True and results.get('cutover') is False,
+                        'prepared_route_not_verified')
+                require(type(results.get('test_api_key_id')) is int and results['test_api_key_id'] > 0 and
+                        proof.get('test_api_key_id') == results['test_api_key_id'] and
+                        proof.get('key_type') == 'universal' and proof.get('request_ids') and
+                        proof.get('routing_validation') == 'normal_universal', 'test_key_execution_required')
+                require(proof.get('observed_account_ids') and proof.get('usage_request_ids') or
+                        case['request_type'] == 'count_tokens' and proof.get('attribution') == 'unmetered_endpoint',
+                        'account_attribution_missing')
+                # Functional pass allows universal fallback; matched must still be explicit for approval.
+                require(case['request_type'] == 'count_tokens' and proof.get('account_class_matched') is None or
+                        type(proof.get('account_class_matched')) is bool, 'account_class_match_required')
             if status == 'passed' and results['execution_kind'] == 'harness':
                 status = 'harness-passed'  # Never gateway service evidence.
         else:
             status = 'blocked-by-test-infrastructure' if case.get('blocked_reason') else 'declared-but-untested'
-        output.append({k: case[k] for k in ('id', 'account_class', 'model_family', 'model', 'protocol', 'request_type', 'key_type', 'profile', 'scenario')} |
-                      {'status': status, 'reason': result.get('reason') if result else case.get('blocked_reason')})
+        row = {k: case[k] for k in ('id', 'account_class', 'model_family', 'model', 'protocol', 'request_type', 'key_type', 'profile', 'scenario')} | {
+            'status': status, 'reason': result.get('reason') if result else case.get('blocked_reason')}
+        if result and results and results.get('execution_kind') == 'prepared_gateway':
+            proof = result.get('execution_proof') or {}
+            if 'account_class_matched' in proof:
+                row['account_class_matched'] = proof['account_class_matched']
+        output.append(row)
     scope_ids = {e['id'] for e in scope}
     counts = {}
     for row in output:
         counts[row['status']] = counts.get(row['status'], 0) + 1
+    class_coverage = None
+    if results and results.get('execution_kind') == 'prepared_gateway':
+        class_coverage = {'matched': 0, 'unmatched': 0, 'unmetered_or_absent': 0}
+        for case in plan['entries']:
+            item = records.get(case['id'])
+            if not item or item.get('status') != 'passed':
+                continue
+            matched = (item.get('execution_proof') or {}).get('account_class_matched')
+            if matched is True:
+                class_coverage['matched'] += 1
+            elif matched is False:
+                class_coverage['unmatched'] += 1
+            else:
+                class_coverage['unmetered_or_absent'] += 1
     complete = all(r['status'] == 'passed' for r in output if r['id'] in scope_ids)
     return {'schema': 1, 'plan_sha256': plan['plan_sha256'], 'coverage': counts,
+            'account_class_coverage': class_coverage,
             'total': len(output), 'delta': len(scope), 'scope_complete': complete,
             'verdict': 'no_changes' if not scope else 'passed' if complete else 'incomplete',
             'cutover': False, 'deployment_gate': False,
-            'execution_blocker': None if results and results['execution_kind'] == 'isolated_gateway' else EXECUTION_BLOCKER,
+            'execution_blocker': None if results and results['execution_kind'] in ('prepared_gateway', 'isolated_gateway') else EXECUTION_BLOCKER,
             'entries': output}
 
 

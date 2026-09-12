@@ -353,10 +353,10 @@ def usage_request_ids(response_ids):
 
 
 def execute(sample, key, port, replay_id, *, validator=None, budget=None, method='POST',
-            content_type='application/json', on_response_id=None):
+            content_type='application/json', on_response_id=None, host='127.0.0.1'):
     # No proxy or redirects: a response cannot redirect credentials elsewhere.
     budget = request_seconds(sample) if budget is None else budget
-    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=budget)
+    connection = http.client.HTTPConnection(host, port, timeout=budget)
     started = time.monotonic()
     deadline = started + budget
     status, response_id, reason = 0, None, 'request_deadline_exceeded'
