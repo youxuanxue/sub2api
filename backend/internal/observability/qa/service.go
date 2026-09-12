@@ -25,6 +25,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/bundle"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/captureledger"
 	"github.com/Wei-Shaw/sub2api/internal/observability/qa/lifecycle"
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/replaycapture"
 	"github.com/Wei-Shaw/sub2api/internal/observability/trajectory"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -39,6 +40,8 @@ import (
 )
 
 type Service struct {
+	replay            *replaycapture.Store
+	replayDir         string
 	client            *ent.Client
 	cfg               config.QACaptureConfig
 	store             BlobStore
@@ -131,8 +134,22 @@ func NewService(cfg *config.Config, client *ent.Client, sqlDB *sql.DB) (*Service
 		bodyMaxBytes:      cfg.QACapture.BodyMaxBytes,
 		optInBodyMaxBytes: cfg.QACapture.OptInBodyMaxBytes,
 		dlqDir:            filepath.Join(dataDir, "qa_dlq"),
+		replayDir:         filepath.Join(dataDir, "release_replay"),
+	}
+	if cfg.QACapture.Replay.Enabled {
+		publicKey, err := os.ReadFile(cfg.QACapture.Replay.PublicKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("replay public key unavailable")
+		}
+		svc.replay, err = replaycapture.Open(svc.replayDir, publicKey)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := svc.configureBundle(context.Background(), cfg, sqlDB); err != nil {
+		if svc.replay != nil {
+			_ = svc.replay.Close()
+		}
 		return nil, err
 	}
 	svc.captureLedger, svc.ledgerInitErr = captureledger.Open(
@@ -143,7 +160,8 @@ func NewService(cfg *config.Config, client *ent.Client, sqlDB *sql.DB) (*Service
 	)
 	if svc.ledgerInitErr != nil {
 		logger.L().Warn("qa capture ledger unavailable", zap.Error(svc.ledgerInitErr))
-	} else {
+	}
+	if svc.captureLedger != nil || svc.replayDir != "" {
 		svc.startCaptureLedgerLoop()
 	}
 	svc.pool = pond.NewPool(cfg.QACapture.WorkerCount, pond.WithQueueSize(cfg.QACapture.QueueSize))
@@ -161,6 +179,9 @@ func (s *Service) Stop() {
 	if s.pool != nil {
 		s.pool.StopAndWait()
 	}
+	if s.replay != nil {
+		_ = s.replay.Close()
+	}
 	if s.captureLedger != nil {
 		if err := s.captureLedger.Drain(); err != nil {
 			logger.L().Warn("qa capture ledger drain failed", zap.Error(err))
@@ -169,7 +190,7 @@ func (s *Service) Stop() {
 }
 
 func (s *Service) startCaptureLedgerLoop() {
-	if s == nil || s.captureLedger == nil || s.ledgerStop != nil {
+	if s == nil || (s.captureLedger == nil && s.replayDir == "") || s.ledgerStop != nil {
 		return
 	}
 	s.ledgerStop = make(chan struct{})
@@ -190,6 +211,16 @@ func (s *Service) startCaptureLedgerLoop() {
 }
 
 func (s *Service) captureLedgerTick() {
+	if s != nil && s.replay != nil {
+		if err := s.replay.Prune(s.captureNow()); err != nil {
+			logger.L().Warn("release replay cleanup failed")
+		}
+	}
+	if s != nil && s.replay == nil && s.replayDir != "" {
+		if err := replaycapture.PruneDirectory(s.replayDir, s.captureNow()); err != nil {
+			logger.L().Warn("release replay cleanup failed")
+		}
+	}
 	if s == nil || s.captureLedger == nil {
 		return
 	}
@@ -359,7 +390,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		Platform:                   strings.TrimSpace(platform),
 		Provider:                   provider,
 		ChannelType:                channelType,
-		RequestedModel:             captureRequestedModel(metadataBody),
+		RequestedModel:             captureRequestModel(c, metadataBody),
 		UpstreamModel:              captureUpstreamModel(c),
 		InboundEndpoint:            inboundEndpoint,
 		UpstreamEndpoint:           upstreamEndpoint,
@@ -369,6 +400,8 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		FirstTokenMs:               firstTokenMs,
 		Stream:                     captureStreamFlag(c, streamChunks),
 		RequestBody:                requestBody,
+		RequestMethod:              c.Request.Method,
+		RequestPath:                replayRequestPath(c.Request.URL),
 		UpstreamRequestBody:        upstreamRequestBody,
 		ResponseBody:               responseBody,
 		ResponseHeaders:            captureResponseHeaders(c),
@@ -389,6 +422,15 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		SynthEngineerLevel:         synthLevel,
 		DialogSynth:                dialogSynth,
 	}
+	if method := c.GetString("qa_ingress_method"); method != "" {
+		input.RequestMethod = method
+	}
+	if path, ok := c.Get("qa_ingress_path"); ok {
+		if value, ok := path.(string); ok {
+			input.RequestPath = value
+		}
+	}
+	s.captureReplay(c, &input)
 	s.Submit(input)
 }
 
@@ -598,8 +640,10 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	}
 
 	requestPayload := map[string]any{
-		"path": input.InboundEndpoint,
-		"body": requestValue,
+		"path":          input.InboundEndpoint,
+		"method":        input.RequestMethod,
+		"original_path": input.RequestPath,
+		"body":          requestValue,
 	}
 	// 非 passthrough 网关路径（如 cc-edges）转发前可能改写请求体（normalize /
 	// alias strip / signature-preempt 剥 thinking 等）。改写发生时，「捕获的客户端

@@ -35,7 +35,7 @@ OPS_DIR = OPS_ANTHROPIC.parent
 # RAISEs otherwise); tls_fingerprint_profiles.id auto-generates + name is unique
 # (generate_sql INSERT ... ON CONFLICT (name)).
 SCHEMA = """
-CREATE TABLE api_keys(id bigint, user_id bigint, status text, deleted_at timestamptz, expires_at timestamptz);
+CREATE TABLE api_keys(id bigint, user_id bigint, key text, status text, deleted_at timestamptz, expires_at timestamptz);
 CREATE TABLE qa_records(request_id text, user_id bigint, api_key_id bigint, requested_model text,
   inbound_endpoint text, stream boolean, tool_calls_present boolean, multimodal_present boolean,
   blob_uri text, created_at timestamptz, duration_ms bigint, success boolean);
@@ -172,7 +172,7 @@ class OpsSqlExecuteTest(unittest.TestCase):
     def test_replay_selection_covers_window_ends_and_keeps_revoked_strata(self):
         replay = _load(OPS_DIR / "stage0" / "prod_replay.py")
         self.assertEqual(self._run_sql("""
-INSERT INTO api_keys VALUES (71,71,'active',NULL,NULL), (72,72,'disabled',now(),NULL);
+INSERT INTO api_keys (id,user_id,status,deleted_at,expires_at) VALUES (71,71,'active',NULL,NULL), (72,72,'disabled',now(),NULL);
 INSERT INTO qa_records
 SELECT 'req-'||n,71,71,'m','/v1/messages',false,false,false,'file:///retained',
        now()-n*interval '1 minute',5000,true FROM generate_series(1,200) n;
@@ -186,11 +186,40 @@ INSERT INTO qa_records VALUES ('revoked',72,72,'m','/v1/messages',false,false,fa
             rows = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
             active = [r for r in rows if r['user_id'] == 71]
             self.assertEqual(len(active), 50)
+            self.assertTrue(all(r["key_replayable"] and r["key_state"] == "active" for r in active))
             self.assertEqual({r['request_id'] for r in active},
                              {'req-'+str(i) for i in (*range(1,26), *range(176,201))})
             revoked = [r for r in rows if r['user_id'] == 72]
             self.assertEqual(len(revoked), 1)
             self.assertFalse(revoked[0]['key_replayable'])
+        finally:
+            self.assertEqual(self._run_sql('DELETE FROM qa_records; DELETE FROM api_keys;').returncode, 0)
+
+    def test_replay_key_state_matches_auth_precedence_and_introspection(self):
+        import json
+        replay = _load(OPS_DIR / "stage0" / "prod_replay.py")
+        self.assertEqual(self._run_sql("""
+INSERT INTO api_keys (id,user_id,status,deleted_at,expires_at) VALUES
+(901,901,'disabled',NULL,now()-interval '1 hour'),
+(902,902,'quota_exhausted',NULL,now()-interval '1 hour'),
+(903,903,'active',NULL,now()-interval '1 hour'),
+(904,904,'active',now(),NULL);
+INSERT INTO qa_records
+SELECT 'auth-state-'||id,user_id,id,'m','/v1/models',false,false,false,'file:///retained',now(),1,true
+FROM api_keys WHERE id BETWEEN 901 AND 904;
+""").returncode, 0)
+        try:
+            expected = {901:'disabled',902:'quota_exhausted',903:'expired',904:'deleted'}
+            for query in (replay.capture_query(), replay.credential_snapshot_query()):
+                proc = self._run_sql(query)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                rows = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+                for r in rows:
+                    if r['user_id'] not in expected:
+                        continue
+                    self.assertEqual(r['key_state'], expected[r['user_id']])
+                    if 'key_replayable' in r:
+                        self.assertEqual(r['key_replayable'], r['user_id'] in (902,903))
         finally:
             self.assertEqual(self._run_sql('DELETE FROM qa_records; DELETE FROM api_keys;').returncode, 0)
 

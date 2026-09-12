@@ -26,6 +26,8 @@ type CaptureInput struct {
 	DurationMs       int64
 	FirstTokenMs     *int64
 	Stream           bool
+	RequestMethod    string
+	RequestPath      string
 	RequestBody      []byte
 	// UpstreamRequestBody 仅在 traj/synth opt-in 且网关真的改写过请求体时非空
 	//（转发到上游的最终请求与客户端原始请求字节不等）。进 blob 的

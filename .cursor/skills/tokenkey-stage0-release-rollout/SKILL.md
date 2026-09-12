@@ -66,16 +66,22 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 用户说“回放 / 只部署 prod，不切流”时，使用 `operation=replay target=prod`。
 先完成 release/build，然后 dispatch `deploy-stage0.yml -f operation=replay -f tag=X.Y.Z`。
 这一阶段跳过 canary 和全部 Edge。workflow 会准备 inactive color（已有同 tag 且指纹一致的
-prepare 可重试复用），从过去 24 小时保留的成功请求中按用户 × 模型 × endpoint × stream ×
-tool × multimodal 选择完整请求体，以原用户 key 向 loopback 隔离副本发送真实请求。
+prepare 可重试复用），首次采集按保留的成功请求固定用户 × 模型 × endpoint × stream ×
+tool × multimodal 观察清单；补采不移除旧缺口。齐备后固定完整请求与指纹，以原用户 key
+向隔离副本发送真实请求；重试不得滚动换样本。缺口未清零时不会开始付费请求。
 隔离副本复用 prepared 容器的 image ID；可供 promote 的容器仍使用原生产数据层。
 生产 `prepare` 的兼容性 migration 门禁仍执行。原始请求和凭证不上传 CI artifact。
 
-验收由脚本决定：每个观测组合须有成功响应；JSON/SSE 必须完整，无执行失败、覆盖缺口、
+验收由脚本决定：有效 key 的每个观测组合须有成功响应；失效 key 须精确通过鉴权拒绝负例，
+且另有同业务能力的真实正向回放。负例在共享 Docker network=none 命名空间中由容器内 helper
+执行，须零 usage 和余额变化，不恢复 key。JSON/SSE 必须完整，无执行失败、覆盖缺口、
 候选指纹/路由漂移或生产 usage 写入，且用户、模型、协议各至少两类，才能为 green。
 采样预算或本地 capture 缺失（包括已归档 S3）、脱敏/截断 body、缺失的 Gemini action
 均如实报告 gap，禁止 agent 补造 prompt、猜 path 或手改 verdict。
-现有 capture 不保留请求头，协议/鉴权头由执行器重建，此限制写入 receipt。
+新加密证据保留 allowlist 协议头和原始 business path；鉴权头从原 key 重建，旧 QA 的头部
+保真限制仍写入 receipt。完整证据采集默认关闭，其生产部署必须单独审批。
+`--collect-only` 只补采/固定，不 prepare、不付费；`--reset-corpus <原清单 SHA>` 显式重建
+观察清单并撤销旧 receipt。安全边界与新 schema 见 `docs/approved/prod-replay-complete-evidence.md`。
 回放消耗真实上游/edge 配额；主网关用户余额与 usage 只写隔离数据库。
 临时数据层、请求体和凭证在结束时清理，清理失败也判 red。
 

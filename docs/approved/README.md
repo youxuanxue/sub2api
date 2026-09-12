@@ -65,6 +65,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | --- | --- |
 | [`admin-ui-newapi-platform-end-to-end.md`](admin-ui-newapi-platform-end-to-end.md) | Admin UI newapi lifecycle |
 | [`deploy-stage0-workflow.md`](deploy-stage0-workflow.md) | Cloud-agent tag/deploy workflow |
+| [`prod-replay-complete-evidence.md`](prod-replay-complete-evidence.md) | 完整加密采集、固定回放集与鉴权负例 |
 | [`messages-compaction-policy.md`](messages-compaction-policy.md) | Messages auto-compaction |
 | [`newapi-allow-image-generation-ops.md`](newapi-allow-image-generation-ops.md) | newapi image-generation ops switch |
 | [`newapi-as-fifth-platform.md`](newapi-as-fifth-platform.md) | NewAPI as fifth platform |

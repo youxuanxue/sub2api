@@ -447,3 +447,10 @@ Validation owner: `ops/stage0/test_prod_replay.py` (real loopback HTTP transport
 revoked-key alternatives, retained alias and missing-action checks, partial HTTP,
 stream errors, sanitized timeouts, namespace audit and fail-closed receipts).
 Run: `python3 -m unittest discover -s ops/stage0 -p test_prod_replay.py`.
+
+### 10.1 完整证据修订（2026-09-12）
+
+用户已批准按顺序实现完整采集、固定样本和失效凭证验收，提交 PR 后另审采集补丁部署。
+具体授权、owner、负例与正向覆盖关系及新 receipt 契约见
+[`prod-replay-complete-evidence.md`](prod-replay-complete-evidence.md)。它取代本节旧的
+失效 key 只能保持正向采集缺口的规则，历史 red 不变；禁止切流继续生效。

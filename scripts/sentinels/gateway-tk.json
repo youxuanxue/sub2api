@@ -39,7 +39,9 @@
       "must_contain": [
         "p = p[:remaining]",
         "maxCapturedSSEChunks",
-        "body[start:boundary.end:boundary.end]"
+        "body[start:boundary.end:boundary.end]",
+        "svc.replay.Acquire()",
+        "w.replay.Fail()"
       ],
       "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
     },
@@ -126,7 +128,15 @@
     },
     {
       "path": "backend/internal/observability/qa/service.go",
-      "must_contain": ["restoreInternalThinkingBlockJSON(logredact.RedactJSON([]byte(raw)), []byte(raw))", "captureRequestedModel(metadataBody)", "captureToolCallsPresent(metadataBody)", "captureMultimodalPresent(metadataBody)"],
+      "must_contain": [
+        "restoreInternalThinkingBlockJSON(logredact.RedactJSON([]byte(raw)), []byte(raw))",
+        "captureRequestModel(c, metadataBody)",
+        "captureToolCallsPresent(metadataBody)",
+        "captureMultimodalPresent(metadataBody)",
+        "s.captureReplay(c, &input)",
+        "replaycapture.Open",
+        "s.replay.Prune"
+      ],
       "rationale": "Bounded content capture must preserve metadata from the already-read request and retain only thinking-block signatures after redaction."
     },
     {
@@ -253,12 +263,18 @@
       {
         "path": "ops/stage0/prod_replay.py",
         "must_contain": [
-          "def validate_receipt(",
-          "def execute(",
-          "def replay(",
-          "all(r['passed'] for r in results)",
-          "sandbox.close()"
-        ],
+        "def validate_receipt(",
+        "def execute(",
+        "def replay(",
+        "all(r['passed'] for r in results)",
+        "sandbox.close()",
+        "pin_observations=True",
+        "collection_not_ready",
+        "positive_capability_missing",
+        "negative_auth_network_not_none",
+        "frozen_capture_changed",
+        "replay_policy_outdated"
+      ],
         "rationale": "Preserve fail-closed replay evidence, actual HTTP execution, and isolated-resource cleanup."
       },
       {
@@ -11613,6 +11629,35 @@
         "telemetry_run = _timestamp(telemetry.get(\"last_run_at\"))"
       ],
       "rationale": "Cumulative shadow loss counters amplify one failed upload into three findings; the loss finding owns its derived error/stale-clean-heartbeat, and liveness stays on last_run_at so a dead publisher still fails closed."
+    },
+    {
+      "path": "backend/internal/observability/qa/replaycapture/capsule.go",
+      "must_contain": [
+        "rsa.EncryptOAEP",
+        "gcm.Seal",
+        "gcm.Open",
+        "e.CreatedAt.Add(Retention)"
+      ],
+      "rationale": "US-054: preserve encrypted capture and fixed fail-closed replay acceptance."
+    },
+    {
+      "path": "backend/internal/observability/qa/replaycapture/store.go",
+      "must_contain": [
+        "s.root.Rename(\".pending\", name)",
+        "case s.queue <- req:",
+        "unix.Flock(int(f.Fd()), unix.LOCK_EX)",
+        "len(same) >= PerCombination"
+      ],
+      "rationale": "US-054: preserve encrypted capture and fixed fail-closed replay acceptance."
+    },
+    {
+      "path": "ops/stage0/test_prod_replay_corpus.py",
+      "must_contain": [
+        "test_observed_gaps_do_not_disappear_when_window_moves",
+        "test_frozen_corpus_ignores_new_traffic_and_fails_tamper_missing_expiry",
+        "test_revoked_auth_requires_real_positive_business_coverage"
+      ],
+      "rationale": "US-054: preserve encrypted capture and fixed fail-closed replay acceptance."
     }
   ]
 }

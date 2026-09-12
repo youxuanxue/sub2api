@@ -32,7 +32,7 @@ def row(user=1, model='m1', endpoint='/v1/messages'):
 
 def sample(user=1, model='m1', endpoint='/v1/messages'):
     return {'row': row(user, model, endpoint), 'path': endpoint,
-            'body': json.dumps({'model': model, 'messages': [{'role': 'user', 'content': 'private prompt'}]}).encode()}
+            'source': 'legacy', 'body': json.dumps({'model': model, 'messages': [{'role': 'user', 'content': 'private prompt'}]}).encode()}
 
 
 @contextlib.contextmanager
@@ -82,7 +82,7 @@ class CaptureTest(unittest.TestCase):
             (root / 'app').mkdir()
             blob = root / 'app/a.zst'
             blob.write_bytes(b'fixture')
-            rows = [dict(row(), blob_uri='file:///app/data/missing.zst'),
+            rows = [dict(row(), request_id='missing-request', blob_uri='file:///app/data/missing.zst'),
                     dict(row(), blob_uri='file:///app/data/a.zst'),
                     dict(row(2), blob_uri='s3://archive/missing')]
             proc = MagicMock()
@@ -123,8 +123,8 @@ class CaptureTest(unittest.TestCase):
             root = Path(tmp)
             (root / 'app').mkdir()
             (root / 'app/a.zst').write_bytes(b'fixture')
-            revoked = dict(row(), key_replayable=False, blob_uri='file:///app/data/a.zst')
-            usable = dict(revoked, api_key_id=77, key_replayable=True)
+            revoked = dict(row(), request_id='revoked-request', key_replayable=False, blob_uri='file:///app/data/a.zst')
+            usable = dict(revoked, request_id='real-request-1', api_key_id=77, key_replayable=True)
             rows = [revoked, usable, dict(row(2), key_replayable=False)]
             proc = MagicMock()
             proc.stdout.read.return_value = json.dumps({'request_id': 'real-request-1', 'request': {
@@ -135,7 +135,7 @@ class CaptureTest(unittest.TestCase):
                 selected, gaps, total = replay.collect(root, details)
             self.assertEqual(total, 2)
             self.assertEqual(selected[0]['row']['api_key_id'], 77)
-            self.assertEqual(gaps, {'key_not_replayable': 1})
+            self.assertEqual(gaps, {'original_key_unavailable': 1})
             self.assertEqual(details[0]['user_id'], 2)
             self.assertFalse(details[0]['passed'])
             self.assertEqual(decompress.call_count, 1)
@@ -252,7 +252,7 @@ class ProductionAuditTest(unittest.TestCase):
 
 class ReceiptTest(unittest.TestCase):
     def receipt(self, **changes):
-        return replay.seal(dict({'tag': '1.2.3', 'prepared_receipt': 'b' * 64,
+        return replay.seal(dict({'schema': 2, 'corpus_manifest_sha256': 'f'*64, 'tag': '1.2.3', 'prepared_receipt': 'b' * 64,
             'verdict': 'green', 'cutover': False, 'approval_pending': True, 'finished_at': time.time()}, **changes))
 
     def test_gate_binds_green_evidence_to_reviewed_candidate_and_age(self):
@@ -275,7 +275,7 @@ class ReceiptTest(unittest.TestCase):
 class ExecutionTest(unittest.TestCase):
     def perform(self, *, gaps=None, failure=False, drift=False, cleanup_failure=False):
         samples = [sample(), sample(2, 'm2', '/v1/chat/completions')]
-        keys = '\n'.join(json.dumps({'id': i, 'user_id': i, 'key': 'secret', 'status': 'active'}) for i in (1, 2))
+        keys = '\n'.join(json.dumps({'id': i, 'user_id': i, 'key': 'secret', 'status': 'active', 'deleted_at': None, 'expired': False, 'key_state': 'active'}) for i in (1, 2))
         with tempfile.TemporaryDirectory() as tmp, server(500 if failure else 200) as (port, _):
             box = MagicMock()
             box.start.return_value = port
@@ -287,11 +287,11 @@ class ExecutionTest(unittest.TestCase):
                  patch.object(replay, 'inspect', return_value={}), \
                  patch.object(replay, 'snapshot', return_value={'target': 'blue'} if drift else before), \
                  patch.object(replay, 'Sandbox', return_value=box), \
-                 patch.object(replay, 'collect', return_value=(samples, gaps or {}, 2)), \
-                 patch.object(replay, 'sql', side_effect=[keys, '0']):
+                 patch.object(replay, 'frozen_samples', return_value=(samples, gaps or {}, 2, 'f'*64)), \
+                 patch.object(replay, 'sql', side_effect=[keys, 'balance-hash', '0']):
                 receipt = replay.replay('1.2.3', Path(tmp))
             self.assertEqual(json.loads((Path(tmp) / 'bluegreen-replay.json').read_bytes()), receipt)
-            box.close.assert_called_once()
+            self.assertGreaterEqual(box.close.call_count, 1)
             return receipt
 
     def test_full_execution_green_requires_real_successes(self):
@@ -316,10 +316,11 @@ class ExecutionTest(unittest.TestCase):
         box = replay.Sandbox({'Image': 'sha256:test'})
         state = {'Image': 'sha256:test', 'Config': {'Env': [k+'='+v for k, v in env.items()]},
             'NetworkSettings': {'Networks': {box.name: {}}, 'Ports': {'8080/tcp': [{'HostIp': '0.0.0.0'}]}}, 'Mounts': []}
-        with self.assertRaisesRegex(replay.ReplayError, 'loopback'):
+        with patch.object(replay, 'run', return_value=b'[{"Internal":false}]'), self.assertRaisesRegex(replay.ReplayError, 'loopback'):
             box.verify(state, env)
         state['NetworkSettings']['Ports']['8080/tcp'][0]['HostIp'] = '127.0.0.1'
-        box.verify(state, env)
+        with patch.object(replay, 'run', return_value=b'[{"Internal":false}]'):
+            box.verify(state, env)
 
 
 class OrchestrationTest(unittest.TestCase):

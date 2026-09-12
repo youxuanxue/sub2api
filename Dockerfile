@@ -94,6 +94,8 @@ RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
 # Copy backend source first
 COPY sub2api/backend/ ./
 
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -trimpath -o /build/replay-capsule ./cmd/replay-capsule
+
 # Copy frontend dist from previous stage (must be after backend copy to avoid being overwritten)
 COPY --from=frontend-builder /build/sub2api/backend/internal/web/dist ./internal/web/dist
 
@@ -158,6 +160,7 @@ RUN addgroup -g 1000 sub2api && \
 WORKDIR /app
 
 # Copy binary/resources with ownership to avoid extra full-layer chown copy
+COPY --from=backend-builder /build/replay-capsule /app/replay-capsule
 COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
 COPY --from=backend-builder --chown=sub2api:sub2api /app/qa-archive /app/qa-archive
 COPY --from=backend-builder --chown=sub2api:sub2api /build/sub2api/backend/resources /app/resources

@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / 'ops/stage0'))
 from ssm_execution import PROD_REGION, resolve_prod_instance  # noqa: E402
 
 
-def remote(instance, operation, tag, receipt='', timeout=6000):
+def remote(instance, operation, tag, receipt='', timeout=6000, corpus=''):
     source = (ROOT / 'ops/stage0/prod_replay.py').read_bytes()
     payload = base64.b64encode(zlib.compress(source)).decode()
     # Private per-command path: concurrent delivery cannot replace another run's
@@ -28,7 +28,7 @@ def remote(instance, operation, tag, receipt='', timeout=6000):
               'replay_script=$(mktemp /tmp/tk-prod-replay.XXXXXX.py)\n'
               'trap \'rm -f "$replay_script"\' EXIT\n'
               f'printf %s {shlex.quote(payload)} | python3 -c \"import base64,sys,zlib; sys.stdout.buffer.write(zlib.decompress(base64.b64decode(sys.stdin.buffer.read())))\" > \"$replay_script\"\n'
-              'python3 "$replay_script" ' + shlex.join([operation, '--tag', tag, '--receipt', receipt]) + '\n')
+              'python3 "$replay_script" ' + shlex.join([operation, '--tag', tag, '--receipt', receipt, '--corpus', corpus]) + '\n')
     parameters = json.dumps({'commands': [script], 'executionTimeout': [str(timeout)]})
     region = PROD_REGION
     base = ['aws', '--region', region, 'ssm']
@@ -79,15 +79,22 @@ def main():
     p.add_argument('--tag', required=True)
     p.add_argument('--target', choices=('prod',), default='prod')
     p.add_argument('--out', type=Path, default=Path('replay-output'))
-    p.add_argument('--approved-replay', default='', help='reviewed receipt SHA; validate only, never cut over')
+    modes = p.add_mutually_exclusive_group()
+    modes.add_argument('--collect-only', action='store_true', help='collect/freeze evidence without paid replay or prepare')
+    modes.add_argument('--reset-corpus', default='', help='exact manifest SHA to explicitly start a new collection')
+    modes.add_argument('--approved-replay', default='', help='reviewed receipt SHA; validate only, never cut over')
     args = p.parse_args()
     if not re.fullmatch(r'\d+\.\d+\.\d+', args.tag):
         p.error('invalid release tag')
-    if args.approved_replay and not re.fullmatch(r'[a-f0-9]{64}', args.approved_replay):
+    if any(value and not re.fullmatch(r'[a-f0-9]{64}', value) for value in (args.approved_replay, args.reset_corpus)):
         p.error('approved replay must be SHA256')
     args.out.mkdir(parents=True, exist_ok=True)
     instance = resolve_prod_instance()  # No arbitrary EC2/edge override.
-    if args.approved_replay:
+    if args.collect_only:
+        print(json.dumps(remote(instance, 'collect', args.tag)))
+    elif args.reset_corpus:
+        print(json.dumps(remote(instance, 'reset-corpus', args.tag, corpus=args.reset_corpus, timeout=60)))
+    elif args.approved_replay:
         state = remote(instance, 'gate', args.tag, args.approved_replay, timeout=60)
         if os.environ.get('GITHUB_OUTPUT'):
             with open(os.environ['GITHUB_OUTPUT'], 'a') as output:

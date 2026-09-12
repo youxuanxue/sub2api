@@ -11,6 +11,7 @@ import (
 
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 
+	"github.com/Wei-Shaw/sub2api/internal/observability/qa/replaycapture"
 	"github.com/gin-gonic/gin"
 )
 
@@ -20,6 +21,7 @@ const (
 )
 
 type teeResponseWriter struct {
+	replay *replaycapture.ResponseObserver
 	gin.ResponseWriter
 	startedAt    time.Time
 	maxBodyBytes int
@@ -40,12 +42,26 @@ func newTeeResponseWriter(rw gin.ResponseWriter, maxBodyBytes int) *teeResponseW
 
 func (w *teeResponseWriter) Write(p []byte) (int, error) {
 	w.capture(p)
-	return w.ResponseWriter.Write(p)
+	n, err := w.ResponseWriter.Write(p)
+	if w.replay != nil {
+		w.replay.Write(w.Header().Get("Content-Type"), p[:n])
+		if err != nil || n != len(p) {
+			w.replay.Fail()
+		}
+	}
+	return n, err
 }
 
 func (w *teeResponseWriter) WriteString(s string) (int, error) {
 	w.capture([]byte(s))
-	return w.ResponseWriter.WriteString(s)
+	n, err := w.ResponseWriter.WriteString(s)
+	if w.replay != nil {
+		w.replay.Write(w.Header().Get("Content-Type"), []byte(s[:n]))
+		if err != nil || n != len(s) {
+			w.replay.Fail()
+		}
+	}
+	return n, err
 }
 
 // A boundary references the bounded response buffer rather than retaining a
@@ -110,6 +126,8 @@ func Middleware(svc *Service) gin.HandlerFunc {
 			return
 		}
 
+		c.Set("qa_ingress_method", c.Request.Method)
+		c.Set("qa_ingress_path", replayRequestPath(c.Request.URL))
 		// traj/synth opt-in 请求用更高的捕获上限，避免长 thinking 被截断；
 		// opt-in 信号同 captureSynthHeaders（X-Synth-Session / X-Synth-Pipeline）。
 		maxBytes := svc.BodyMaxBytes()
@@ -118,26 +136,41 @@ func Middleware(svc *Service) gin.HandlerFunc {
 		}
 		// Capture only bytes consumed downstream. In particular, rejected auth
 		// requests must not be eagerly read or decompressed by observability.
+		captureLimit := maxBytes
+		var replayIn *replayIngress
+		if svc.replay != nil && svc.replay.Acquire() {
+			defer svc.replay.Release()
+			replayIn = &replayIngress{method: c.Request.Method, path: replayRequestPath(c.Request.URL), headers: replayHeaders(c.Request.Header), observer: &replaycapture.ResponseObserver{AllowText: replayAudioPath(replayRequestPath(c.Request.URL))}}
+			captureLimit = max(captureLimit, replaycapture.MaxBodyBytes+1)
+		}
 		var requestCapture *requestCaptureReader
 		var captureRequest *http.Request
 		if c.Request != nil && c.Request.Body != nil {
 			// Handlers may remove Content-Encoding after decompressing the wire body.
-			captureRequest = &http.Request{Header: c.Request.Header.Clone()}
-			requestCapture = &requestCaptureReader{ReadCloser: c.Request.Body, limit: maxBytes}
+			captureRequest = &http.Request{Header: c.Request.Header.Clone(), ContentLength: c.Request.ContentLength}
+			requestCapture = &requestCaptureReader{ReadCloser: c.Request.Body, limit: captureLimit}
 			c.Request.Body = requestCapture
 		}
 		tee := newTeeResponseWriter(c.Writer, maxBytes)
+		if replayIn != nil {
+			replayIn.reader = requestCapture
+			replayIn.request = captureRequest
+			tee.replay = replayIn.observer
+			c.Set(replayIngressKey, replayIn)
+		}
 		c.Writer = tee
 		c.Set(contextKeyTeeWriter, tee)
 		c.Next()
 		if requestCapture != nil {
-			c.Set(contextKeyRequestBytes, qaRequestCaptureBytes(captureRequest, requestCapture.body.Bytes(), maxBytes))
+			c.Set(contextKeyRequestBytes, qaRequestCaptureBytes(captureRequest, requestCapture.body.Bytes()[:min(requestCapture.body.Len(), maxBytes)], maxBytes))
 		}
 		svc.CaptureFromContext(c)
 	}
 }
 
 type requestCaptureReader struct {
+	total int64
+	eof   bool
 	io.ReadCloser
 	body  bytes.Buffer
 	limit int
@@ -145,6 +178,10 @@ type requestCaptureReader struct {
 
 func (r *requestCaptureReader) Read(p []byte) (int, error) {
 	n, err := r.ReadCloser.Read(p)
+	r.total += int64(n)
+	if err == io.EOF {
+		r.eof = true
+	}
 	if remaining := r.limit - r.body.Len(); remaining > 0 && n > 0 {
 		_, _ = r.body.Write(p[:min(n, remaining)])
 	}

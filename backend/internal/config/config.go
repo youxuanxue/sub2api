@@ -198,7 +198,13 @@ type UpdateConfig struct {
 	ProxyURL string `mapstructure:"proxy_url"`
 }
 
+type QAReplayCaptureConfig struct {
+	Enabled       bool   `mapstructure:"enabled"`
+	PublicKeyFile string `mapstructure:"public_key_file"`
+}
+
 type QACaptureConfig struct {
+	Replay            QAReplayCaptureConfig  `mapstructure:"replay"`
 	Enabled           bool                   `mapstructure:"enabled"`
 	BodyMaxBytes      int                    `mapstructure:"body_max_bytes"`
 	OptInBodyMaxBytes int                    `mapstructure:"opt_in_body_max_bytes"`
@@ -2568,6 +2574,8 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
 	// QA capture
+	viper.SetDefault("qa_capture.replay.enabled", false)
+	viper.SetDefault("qa_capture.replay.public_key_file", "")
 	viper.SetDefault("qa_capture.enabled", true)
 	viper.SetDefault("qa_capture.body_max_bytes", 256*1024)
 	// traj/synth opt-in 记录用更高上限，避免长 thinking 被截断。
@@ -3549,6 +3557,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Idempotency.CleanupBatchSize <= 0 {
 		return fmt.Errorf("idempotency.cleanup_batch_size must be positive")
+	}
+	if c.QACapture.Replay.Enabled && (!c.QACapture.Enabled || strings.TrimSpace(c.QACapture.Replay.PublicKeyFile) == "") {
+		return fmt.Errorf("qa_capture.replay requires QA capture and an encryption public key file")
 	}
 	if c.QACapture.BodyMaxBytes <= 0 {
 		return fmt.Errorf("qa_capture.body_max_bytes must be positive")
