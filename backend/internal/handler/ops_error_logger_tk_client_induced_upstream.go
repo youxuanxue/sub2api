@@ -167,23 +167,34 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 // InvalidParameter code, which can also describe an adapter/provider fault.
 func tkOpsDashScopeRequestRejection(body, message string) bool {
 	message = strings.ToLower(strings.TrimSpace(message))
+	code, typ := "", ""
 	if gjson.Valid(body) {
-		message += "\n" + strings.ToLower(gjson.Get(body, "error.code").String()) + ": " +
-			strings.ToLower(gjson.Get(body, "error.message").String())
+		code = strings.ToLower(strings.TrimSpace(gjson.Get(body, "error.code").String()))
+		typ = strings.ToLower(strings.TrimSpace(gjson.Get(body, "error.type").String()))
+		message += "\n" + code + ": " + strings.ToLower(gjson.Get(body, "error.message").String())
 	}
 	if strings.Contains(message, "invalidparameter:") &&
 		strings.Contains(message, "batch size is invalid, it should not be larger than") {
 		return true
 	}
-	// Content-policy rejections are caller-fault. DashScope variants include
-	// "Input/Output data" and "Input/Output text data" (prod P0 2026-09-12:
-	// "Input text data may contain inappropriate content" missed the old
-	// exact "input data" substring and flooded user_visible_failure_count).
-	// Keep "Inspection service unavailable" as provider-owned.
-	if !strings.Contains(message, "data_inspection_failed:") {
+	// Content-policy: data_inspection_failed is caller-fault by default.
+	// Prefer structured error.code/type so Input/Output/(text) data and future
+	// wording variants do not re-open P0 false pages. Message "code:" prefix is
+	// a fallback when the bridge only preserved text. Carve out inspection
+	// *service* failures — those are provider health, not caller content.
+	isInspection := code == "data_inspection_failed" ||
+		typ == "data_inspection_failed" ||
+		strings.Contains(message, "data_inspection_failed:")
+	if !isInspection {
 		return false
 	}
-	return strings.Contains(message, "inappropriate content")
+	return !tkOpsDashScopeInspectionServiceFailure(message)
+}
+
+func tkOpsDashScopeInspectionServiceFailure(lower string) bool {
+	return strings.Contains(lower, "inspection service unavailable") ||
+		strings.Contains(lower, "inspection service timeout") ||
+		strings.Contains(lower, "inspection timed out")
 }
 
 func tkOpsHasUpstreamEventKind(c *gin.Context, kind string) bool {

@@ -23,8 +23,11 @@ func TestClassifyOpsDashScopeRequestRejections(t *testing.T) {
 		{name: "input text data inspection rejection", status: 400, message: "data_inspection_failed: Input text data may contain inappropriate content.", client: true},
 		{name: "structured input text inspection rejection", status: 400, body: `{"error":{"code":"data_inspection_failed","message":"Input text data may contain inappropriate content.","type":"data_inspection_failed"}}`, client: true},
 		{name: "structured content inspection rejection", status: 400, body: `{"error":{"code":"data_inspection_failed","message":"Output data may contain inappropriate content."}}`, client: true},
+		// Code-first: wording without "inappropriate content" still client-owned.
+		{name: "structured code without english content phrase", status: 400, body: `{"error":{"code":"data_inspection_failed","message":"请求内容未通过安全审核","type":"data_inspection_failed"}}`, client: true},
 		{name: "unknown invalid parameter can be adapter fault", status: 400, message: "InvalidParameter: Internal configuration is invalid"},
 		{name: "inspection service failure", status: 400, message: "data_inspection_failed: Inspection service unavailable"},
+		{name: "structured inspection service timeout stays provider", status: 400, body: `{"error":{"code":"data_inspection_failed","message":"Inspection service timeout"}}`},
 		{name: "provider 503 remains visible", status: 503, message: "InvalidParameter: batch size is invalid, it should not be larger than 10."},
 		{name: "account health wins", status: 400, message: "InvalidParameter: batch size is invalid, it should not be larger than 10.; credit balance exhausted"},
 		{name: "echoed input is not an error signal", status: 400, body: `{"error":{"message":"Internal service failed"},"input":"data_inspection_failed: Output data may contain inappropriate content."}`},
