@@ -12,7 +12,9 @@ from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = Path(__file__).with_name('gateway-capability-matrix.json')
-KEY_TYPES = {'direct', 'universal'}
+DEFAULT_INVENTORY = Path(__file__).with_name('gateway-account-supply.json')
+KEY_TYPES = {'universal'}
+EXECUTION_BLOCKER = 'account_class_execution_binding_required'
 PROTOCOLS = {'openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-content',
              'openai-images', 'openai-embeddings', 'openai-audio', 'openai-video', 'openai-transcription'}
 REQUEST_TYPES = {'plain', 'tool', 'thinking', 'multimodal', 'count_tokens'}
@@ -56,7 +58,7 @@ def load(path=DEFAULT_MANIFEST):
         seen.add(ident)
         require(profile.get('protocol') in PROTOCOLS and profile.get('request_type') in REQUEST_TYPES,
                 'unknown profile dimensions')
-        require(profile.get('key_types') == ['direct', 'universal'], 'both key types are required')
+        require(profile.get('key_types') == ['universal'], 'universal-only profiles required')
         require(isinstance(profile.get('mode'), str), 'missing model mode')
         require(not {'status', 'tested', 'passed'} & profile.keys(), 'coverage status must be derived')
         fixture = None
@@ -73,7 +75,7 @@ def load(path=DEFAULT_MANIFEST):
             require('${model}' in json.dumps(fixture), 'fixture must bind a concrete model')
         else:
             require(bool(profile.get('blocked_reason')), 'missing fixture must remain an infrastructure gap')
-        out.append({**profile, 'request': fixture, 'baseline_protocol_by_vendor': raw['baseline_protocol_by_vendor']})
+        out.append({**profile, 'request': fixture})
     return out
 
 
@@ -93,60 +95,122 @@ def render(fixture, model):
     return result
 
 
-def build(catalog, profiles):
-    require(isinstance(catalog, dict) and catalog.get('schema') == 1, 'invalid catalog schema')
-    require(set(catalog.get('protocols', [])) == {'messages', 'chat_completions', 'responses', 'gemini_generate_content'},
-            'router protocol set changed; update capability profiles')
-    models = catalog.get('models')
-    require(isinstance(models, list) and models, 'empty catalog')
-    entries, seen, representatives = [], set(), set()
-    for model in sorted(models, key=lambda m: m['id']):
-        ident = model.get('id')
-        require(isinstance(ident, str) and ident.strip() and ident not in seen, 'invalid or duplicate model')
-        require(isinstance(model.get('capabilities'), list), 'model capabilities missing')
-        seen.add(ident)
-        matched = [p for p in profiles if p['mode'] == model.get('mode') and
-                   (not p.get('requires_capability') or p['requires_capability'] in model['capabilities'])]
-        if not matched:
-            matched = [{'id': 'unmapped-mode', 'protocol': 'unmapped', 'request_type': 'plain',
-                        'key_types': ['direct', 'universal'], 'request': None,
-                        'blocked_reason': 'catalog_mode_has_no_profile'}]
-        for profile in matched:
-            # Every concrete model gets a baseline for both key types. Feature and
-            # cross-protocol tests use a representative per vendor/capability class.
-            # This is an explicit sampling policy, not a new routing legality table.
-            baseline = profile.get('baseline_protocol_by_vendor', {})
-            native = baseline.get(model.get('vendor'), baseline.get('default'))
-            is_baseline = (profile['request_type'] == 'plain' and profile.get('request')
-                           and not profile['request']['stream']
-                           and (model.get('mode') != 'chat' or profile['protocol'] == native))
-            group = (model.get('vendor'), model.get('mode'), tuple(sorted(model['capabilities'])), profile['id'])
-            if not is_baseline and not profile.get('blocked_reason'):
-                if group in representatives:
-                    continue
-                representatives.add(group)
-            for key_type in profile['key_types']:
-                entry = {'model': ident, 'vendor': model.get('vendor', ''), 'profile': profile['id'],
-                         'protocol': profile['protocol'], 'request_type': profile['request_type'],
-                         'key_type': key_type, 'request': render(profile['request'], ident) if profile['request'] else None,
-                         'blocked_reason': profile.get('blocked_reason'),
-                         'selection': 'model_baseline' if is_baseline else 'capability_representative'}
-                # Stable identity independent of template changes; request digest invalidates old evidence.
-                entry['id'] = digest([ident, profile['id'], key_type])
-                entry['case_sha256'] = digest(entry)
-                entries.append(entry)
-    result = {'schema': 1, 'catalog_sha256': digest(catalog), 'entries': entries}
+def validate_inventory(inventory):
+    require(isinstance(inventory, dict) and inventory.get('schema') == 1 and
+            inventory.get('kind') == 'account-supply-representatives', 'account supply inventory required')
+    require(set(inventory) <= {'schema', 'kind', 'source', 'classes'}, 'unknown inventory fields')
+    classes = inventory.get('classes')
+    require(isinstance(classes, list) and classes, 'empty account supply inventory')
+    seen = set()
+    for cls in classes:
+        require(set(cls) == {'id', 'platform', 'auth_type', 'channel_type', 'dialect', 'native_protocols',
+                             'exclusive_endpoints', 'branch_family', 'representatives'}, 'invalid account class fields')
+        require(isinstance(cls['id'], str) and re.fullmatch(r'[a-z0-9.-]+', cls['id']) and
+                cls['id'] not in seen, 'invalid or duplicate account class')
+        seen.add(cls['id'])
+        require(type(cls['channel_type']) is int and cls['channel_type'] >= 0 and
+                type(cls['exclusive_endpoints']) is bool, 'invalid account class declaration')
+        require(isinstance(cls['native_protocols'], list) and
+                set(cls['native_protocols']) <= GENERATION_PROTOCOLS, 'invalid native protocols')
+        require(isinstance(cls['representatives'], list) and cls['representatives'], 'empty representatives')
+        families = set()
+        generation_families = set()
+        for rep in cls['representatives']:
+            require(set(rep) == {'family', 'model', 'upstream_model', 'operation', 'baseline_protocol',
+                                 'represented_models'}, 'invalid representative fields')
+            for field in ('family', 'model', 'upstream_model'):
+                require(isinstance(rep[field], str) and re.fullmatch(r'[a-zA-Z0-9_./:+@\[\]-]+', rep[field]),
+                        'invalid representative identity')
+            require(rep['family'] not in families, 'duplicate model family')
+            families.add(rep['family'])
+            require(rep['operation'] in OPERATION_PROTOCOLS and
+                    rep['baseline_protocol'] in OPERATION_PROTOCOLS[rep['operation']],
+                    'unknown operation or protocol')
+            require(isinstance(rep['represented_models'], list) and rep['model'] in rep['represented_models'] and
+                    all(isinstance(m, str) for m in rep['represented_models']), 'representative missing from model set')
+            if rep['operation'] == 'generation':
+                generation_families.add(rep['family'])
+                require(rep['baseline_protocol'] in cls['native_protocols'], 'baseline must use declared native protocol')
+        require(cls['branch_family'] in generation_families if generation_families else cls['branch_family'] is None,
+                'branch representative must be a generation family')
+    # These lists represent sets, not selection priority. Reordering a reviewed
+    # inventory must not invalidate release evidence or create a false delta.
+    return {**inventory, 'classes': [
+        {**cls, 'native_protocols': sorted(set(cls['native_protocols'])), 'representatives': [
+            {**rep, 'represented_models': sorted(set(rep['represented_models']))}
+            for rep in sorted(cls['representatives'], key=lambda r: r['family'])]}
+        for cls in sorted(classes, key=lambda c: c['id'])]}
+
+
+GENERATION_PROTOCOLS = {'anthropic-messages', 'openai-chat', 'openai-responses', 'gemini-content'}
+OPERATION_PROTOCOLS = {'generation': GENERATION_PROTOCOLS, 'embedding': {'openai-embeddings'},
+                       'image': {'openai-images'}, 'video': {'openai-video'}, 'speech': {'openai-audio'},
+                       'transcription': {'openai-transcription'}, 'content-image': {'gemini-content'}}
+
+
+def build(inventory, profiles):
+    """One representative per account/model family, with class-level branch coverage.
+
+    Inventory is a reviewed, sanitized projection, not a live availability claim.
+    No account IDs, credentials, traffic counters or public catalog are needed.
+    """
+    inventory = validate_inventory(inventory)
+    fixtures = {p['id']: p for p in profiles}
+    entries = []
+
+    def emit(cls, rep, protocol, scenario, layer):
+        suffix = {'plain-stream': 'plain.stream', 'tool-roundtrip': 'tool', 'thinking': 'thinking',
+                  'vision': 'multimodal', 'count-tokens': 'count_tokens'}.get(scenario, 'plain')
+        profile_id = protocol + '.' + suffix
+        profile = fixtures.get(profile_id)
+        request = render(profile['request'], rep['model']) if profile and profile.get('request') else None
+        reason = profile.get('blocked_reason') if profile else 'fixture_required'
+        if scenario == 'tool-roundtrip':
+            reason = 'tool_roundtrip_executor_required'
+        if scenario == 'content-image':
+            reason = 'image_generation_fixture_required'
+            request = None  # A text generateContent fixture does not test image output.
+        entry = {'account_class': cls['id'], 'model_family': rep['family'], 'model': rep['model'],
+                 'upstream_model': rep['upstream_model'], 'profile': profile_id, 'protocol': protocol,
+                 'request_type': {'plain-stream': 'plain', 'tool-roundtrip': 'tool', 'thinking': 'thinking',
+                                  'vision': 'multimodal', 'count-tokens': 'count_tokens'}.get(scenario, 'plain'),
+                 'scenario': scenario, 'key_type': 'universal', 'request': request,
+                 'blocked_reason': reason, 'selection': layer, 'plan_validation': 'required'}
+        # Equivalence semantics invalidate evidence even if the chosen model is unchanged.
+        entry['supply_sha256'] = digest(cls)
+        entry['id'] = digest([cls['id'], rep['family'], protocol, scenario, 'universal'])
+        entry['case_sha256'] = digest(entry)
+        entries.append(entry)
+
+    for cls in sorted(inventory['classes'], key=lambda c: c['id']):
+        representatives = sorted(cls['representatives'], key=lambda r: r['family'])
+        for rep in representatives:
+            emit(cls, rep, rep['baseline_protocol'],
+                 'plain-buffered' if rep['operation'] == 'generation' else rep['operation'], 'model-family-baseline')
+        if cls['branch_family'] is None:
+            continue
+        branch = next(r for r in representatives if r['family'] == cls['branch_family'])
+        for protocol in sorted(GENERATION_PROTOCOLS):
+            if not any(e['account_class'] == cls['id'] and e['protocol'] == protocol and
+                       e['scenario'] == 'plain-buffered' for e in entries):
+                emit(cls, branch, protocol, 'plain-buffered', 'protocol-branch')
+        for scenario in ('plain-stream', 'tool-roundtrip', 'thinking', 'vision', 'count-tokens'):
+            emit(cls, branch, branch['baseline_protocol'], scenario, 'request-branch')
+    result = {'schema': 1, 'inventory_sha256': digest(inventory), 'entries': entries}
     result['plan_sha256'] = digest(result)
-    return result
+    return validate_plan(result)
 
 
 def validate_plan(plan):
-    require(isinstance(plan, dict) and plan.get('schema') == 1, 'invalid plan')
+    require(isinstance(plan, dict) and plan.get('schema') == 1 and
+            isinstance(plan.get('inventory_sha256'), str), 'account-supply plan required')
     require(plan.get('plan_sha256') == digest({k: v for k, v in plan.items() if k != 'plan_sha256'}), 'plan hash mismatch')
     require(isinstance(plan.get('entries'), list) and plan['entries'], 'empty plan')
     seen = set()
     for case in plan['entries']:
-        require(case['id'] not in seen and case['key_type'] in KEY_TYPES, 'invalid case identity')
+        require(case['id'] not in seen and case['key_type'] in KEY_TYPES and
+                isinstance(case.get('account_class'), str) and bool(case['account_class']) and
+                case.get('plan_validation') == 'required', 'invalid case identity')
         require(case['case_sha256'] == digest({k: v for k, v in case.items() if k != 'case_sha256'}), 'case hash mismatch')
         require(case['request'] is None and case.get('blocked_reason') or isinstance(case['request'], dict) and
                 valid_path(case['request'].get('path', '')) and isinstance(case['request'].get('body'), dict),
@@ -164,25 +228,11 @@ def delta(plan, previous=None):
     return [e for e in plan['entries'] if old.get(e['id']) != e['case_sha256']]
 
 
-def select(cases, limit):
-    """Deterministic bounded plan. Unselected cases remain untested in the report."""
-    require(type(limit) is int and 0 < limit <= 200, 'request limit must be 1..200')
-    selected, remaining = [], sorted(cases, key=lambda e: (e['profile'], e['model'], e['key_type']))
-    # Cover each profile/key shape before spending the remaining budget on models.
-    shapes = set()
-    for case in remaining:
-        shape = (case['profile'], case['key_type'])
-        if not case.get('blocked_reason') and shape not in shapes and len(selected) < limit:
-            shapes.add(shape)
-            selected.append(case)
-    selected_ids = {e['id'] for e in selected}
-    for case in remaining:
-        if len(selected) == limit:
-            break
-        if not case.get('blocked_reason') and case['id'] not in selected_ids:
-            selected.append(case)
-            selected_ids.add(case['id'])
-    return selected
+def select(cases, limit=None):
+    """Default to the full executable set; only an explicit limit permits truncation."""
+    require(limit is None or type(limit) is int and limit > 0, 'request limit must be positive')
+    selected = sorted((c for c in cases if not c.get('blocked_reason')), key=lambda c: c['id'])
+    return selected if limit is None else selected[:limit]
 
 
 def report(plan, results=None, previous=None):
@@ -202,11 +252,13 @@ def report(plan, results=None, previous=None):
             require(result.get('case_sha256') == case['case_sha256'], 'stale fixture result')
             require(result.get('status') in ('passed', 'failed', 'blocked-by-test-infrastructure'), 'invalid result status')
             status = result['status']
+            require(status != 'passed' or results['execution_kind'] == 'harness',
+                    EXECUTION_BLOCKER)
             if status == 'passed' and results['execution_kind'] == 'harness':
                 status = 'harness-passed'  # Never gateway service evidence.
         else:
             status = 'blocked-by-test-infrastructure' if case.get('blocked_reason') else 'declared-but-untested'
-        output.append({k: case[k] for k in ('id', 'model', 'protocol', 'request_type', 'key_type', 'profile')} |
+        output.append({k: case[k] for k in ('id', 'account_class', 'model_family', 'model', 'protocol', 'request_type', 'key_type', 'profile', 'scenario')} |
                       {'status': status, 'reason': result.get('reason') if result else case.get('blocked_reason')})
     scope_ids = {e['id'] for e in scope}
     counts = {}
@@ -216,7 +268,8 @@ def report(plan, results=None, previous=None):
     return {'schema': 1, 'plan_sha256': plan['plan_sha256'], 'coverage': counts,
             'total': len(output), 'delta': len(scope), 'scope_complete': complete,
             'verdict': 'no_changes' if not scope else 'passed' if complete else 'incomplete',
-            'cutover': False, 'deployment_gate': False, 'entries': output}
+            'cutover': False, 'deployment_gate': False,
+            'execution_blocker': EXECUTION_BLOCKER, 'entries': output}
 
 
 def from_tag(tag):
@@ -232,12 +285,17 @@ def from_tag(tag):
                 return None
             raise ValueError('previous release fixture missing')
         return result.stdout
-    catalog = blob('ops/stage0/generated/gateway-catalog.json', optional=True)
+    inventory = blob('ops/stage0/gateway-account-supply.json', optional=True)
     manifest = blob('ops/stage0/gateway-capability-matrix.json', optional=True)
-    if catalog is None or manifest is None:
+    if inventory is None or manifest is None:
         return None  # Older release predates this check; current full plan is the baseline.
+    generator = blob('ops/stage0/gateway_capability_matrix.py', optional=True)
+    if generator != Path(__file__).read_bytes():
+        # Rebuilding with changed rules would retrofit new obligations into the
+        # previous release and silently erase their delta. Use a full baseline.
+        return None
     with tempfile.TemporaryDirectory(prefix='tk-capability-baseline-') as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         (root / 'matrix.json').write_bytes(manifest)
         for profile in json.loads(manifest)['profiles']:
             fixture = profile.get('fixture')
@@ -246,4 +304,4 @@ def from_tag(tag):
                 require(path.is_relative_to(root), 'baseline fixture escapes directory')
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(blob('ops/stage0/' + fixture))
-        return build(json.loads(catalog), load(root / 'matrix.json'))
+        return build(json.loads(inventory), load(root / 'matrix.json'))
