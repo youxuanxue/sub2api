@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -101,10 +104,10 @@ func TestMintAdminSession_UnknownEdgeIs404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestMintAdminSession_EdgeFailureIsBadGateway(t *testing.T) {
+func TestMintAdminSession_EdgeFailureDoesNotMarkGatewayUnhealthy(t *testing.T) {
 	h := NewEdgeAccountsHandler(&aggregatorStub{err: context.DeadlineExceeded})
 	w := performMintRequest(t, h, "us1")
-	require.Equal(t, http.StatusBadGateway, w.Code)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestMintAdminSession_MissingEdgeIs400(t *testing.T) {
@@ -224,5 +227,47 @@ func TestMintAdminSessionRejectsNonJWTInitiator(t *testing.T) {
 		c.Set("auth_method", method)
 		h.MintAdminSession(c)
 		require.Equal(t, http.StatusUnauthorized, w.Code)
+	}
+}
+
+func TestHandoffTargetFailureDoesNotMarkGatewayUnhealthy(t *testing.T) {
+	h := NewEdgeAccountsHandler(&aggregatorStub{err: context.DeadlineExceeded})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	h.HandoffTarget(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+}
+
+// Match the actual serving proxy policy rather than assuming every 5xx is local.
+func TestHandoffUnavailableExcludedFromCaddyPassiveHealth(t *testing.T) {
+	w := performMintRequest(t, NewEdgeAccountsHandler(&aggregatorStub{err: context.DeadlineExceeded}), "us1")
+	for _, file := range []string{"Caddyfile", "Caddyfile.edge"} {
+		raw, err := os.ReadFile(filepath.Join("../../../../deploy/aws/stage0", file))
+		require.NoError(t, err)
+		policies := 0
+		for _, line := range strings.Split(string(raw), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) == 0 || fields[0] != "unhealthy_status" {
+				continue
+			}
+			policies++
+			for _, value := range fields[1:] {
+				if strings.HasPrefix(value, "#") {
+					break
+				}
+				if strings.HasSuffix(value, "xx") {
+					class, err := strconv.Atoi(strings.TrimSuffix(value, "xx"))
+					require.NoError(t, err)
+					require.NotEqual(t, class, w.Code/100, file)
+				} else {
+					code, err := strconv.Atoi(value)
+					require.NoError(t, err)
+					require.NotEqual(t, code, w.Code, file)
+				}
+			}
+		}
+		require.Positive(t, policies, "must exercise actual proxy policy")
 	}
 }

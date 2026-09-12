@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -57,12 +58,15 @@ type EdgeAdminHandoff struct {
 	now   func() time.Time
 }
 
-func NewEdgeAdminHandoff(cfg *config.Config, cache EdgeHandoffCache) (*EdgeAdminHandoff, error) {
+func NewEdgeAdminHandoff(cfg *config.Config, cache EdgeHandoffCache) *EdgeAdminHandoff {
 	trust, err := config.LoadEdgeHandoffConfig(cfg.EdgeHandoffFile)
 	if err != nil {
-		return nil, err
+		// A bad optional admin integration must not prevent gateway startup.
+		// Do not log the parser error: configuration may contain private material.
+		slog.Error("edge_admin_handoff_disabled", "reason", "invalid_or_unreadable_configuration")
+		trust = &config.EdgeHandoffConfig{}
 	}
-	return &EdgeAdminHandoff{cfg: trust, cache: cache, now: time.Now}, nil
+	return &EdgeAdminHandoff{cfg: trust, cache: cache, now: time.Now}
 }
 func EdgeHandoffProof(value string) bool {
 	decoded, err := base64.RawURLEncoding.Strict().DecodeString(value)

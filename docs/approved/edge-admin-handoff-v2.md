@@ -18,6 +18,16 @@ authors: [codex]
 会话；控制台把二者放入 URL fragment。fragment 不随 HTTP/Referer 发送，但父页面和
 浏览器 URL 表面仍经过凭据。这是代码风险，不是已发生线上泄露的结论。
 
+## Failure isolation (approved revision)
+
+用户在本会话确认“交接故障只影响交接，网关持续服务”。缺失、不可读或非法配置
+均关闭交接；非法配置记录 `edge_admin_handoff_disabled` 错误事件，不输出配置内容。
+整份配置拒绝，不部分启用其中的 signer/receiver；初始化不返回中断主进程的错误。
+运行时交接基础设施失败返回 503，签名/proof 无效返回 403；控制台保留输入 400、
+目标不存在 404。不得用交接失败的 502/504 触发 Caddy 的整实例被动健康摘除。
+配置校验工具仍严格失败退出，部署启用交接前必须通过；普通健康检查不代表交接就绪。
+混合版本切换仍需单独安排窗口和直接登录验证，本修订不批准线上发布。
+
 ## User experience
 
 管理员点击现有“进入 Edge”，同步打开干净的 `/admin/edge-handoff` 窗口。

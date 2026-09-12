@@ -156,7 +156,8 @@ func handoffError(c *gin.Context, err error) {
 		response.Error(c, http.StatusBadRequest, "invalid handoff request")
 		return
 	}
-	response.Error(c, http.StatusBadGateway, "edge handoff unavailable")
+	// Caddy treats 502/504 as a failed gateway instance; this is only an admin feature failure.
+	response.Error(c, http.StatusServiceUnavailable, "edge handoff unavailable")
 }
 func (h *EdgeAccountsHandler) MintAdminSession(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")

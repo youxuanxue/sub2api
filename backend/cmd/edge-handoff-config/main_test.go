@@ -34,3 +34,21 @@ func TestPrepareRejectsAmbiguousTargets(t *testing.T) {
 	_, err := os.Stat(out)
 	require.True(t, os.IsNotExist(err))
 }
+
+func TestCheckRequiresValidConfigurationForExpectedRole(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "bundle")
+	require.Error(t, check(filepath.Join(out, "missing"), "signer"))
+	m := manifest{Issuer: "https://prod.example", Edges: []edgeSpec{{ID: "e1", Origin: "https://edge.example", AdminUserID: 1, KeyID: "v1"}}}
+	require.NoError(t, prepare(m, out))
+	prod := filepath.Join(out, "prod.json")
+	edge := filepath.Join(out, "edge-e1.json")
+	require.NoError(t, check(prod, "signer"))
+	require.NoError(t, check(edge, "receiver"))
+	require.Error(t, check(prod, "receiver"))
+	require.Error(t, check(edge, "signer"))
+	require.Error(t, check(prod, ""))
+	require.NoError(t, os.Chmod(prod, 0644))
+	require.Error(t, check(prod, "signer"))
+	require.NoError(t, os.WriteFile(edge, []byte("malformed"), 0600))
+	require.Error(t, check(edge, "receiver"))
+}

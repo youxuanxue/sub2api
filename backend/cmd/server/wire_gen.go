@@ -304,10 +304,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	tkChannelAdminHandler := admin.NewTKChannelAdminHandler(gatewayService, adminService, pricingCatalogService, pricingAvailabilityService)
 	tierHandler := admin.NewTierHandler(tierService)
 	edgeHandoffCache := repository.NewEdgeAdminHandoffCache(redisClient)
-	edgeAdminHandoff, err := service.NewEdgeAdminHandoff(configConfig, edgeHandoffCache)
-	if err != nil {
-		return nil, err
-	}
+	edgeAdminHandoff := service.NewEdgeAdminHandoff(configConfig, edgeHandoffCache)
 	edgeAccountsAggregator := service.ProvideEdgeAccountsAggregator(accountRepository, edgeAdminHandoff)
 	edgeAccountsHandler := handler.ProvideTKEdgeAccountsAdminHandler(edgeAccountsAggregator)
 	edgeAccountOpsHandler := handler.ProvideTKEdgeAccountOpsAdminHandler(edgeAccountsAggregator)

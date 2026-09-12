@@ -54,7 +54,7 @@ func (f *fleet) AggregateByStubFresh(context.Context) (*service.EdgeAccountsAggr
 	return inventory(), nil
 }
 func (f *fleet) HandoffTarget(context.Context, string) (*service.EdgeHandoffTarget, error) {
-	return &service.EdgeHandoffTarget{EdgeID: "local", URL: edge + "/admin/edge-handoff", Enabled: true}, nil
+	return &service.EdgeHandoffTarget{EdgeID: "local", URL: edge + "/admin/edge-handoff", Enabled: f.handoff.CanSign("local", edge)}, nil
 }
 func (f *fleet) MintAdminSession(ctx context.Context, id string, subject int64, input service.EdgeHandoffRequest) (*service.EdgeAdminSession, error) {
 	envelope, err := f.handoff.Sign(id, edge, subject, input)
@@ -104,12 +104,14 @@ func main() {
 	raw, err := json.Marshal(trust)
 	must(err)
 	file := filepath.Join(dir, "trust.json")
+	if os.Getenv("EDGE_HANDOFF_E2E_INVALID") == "1" {
+		raw = []byte("invalid-trust-fixture")
+	}
 	must(os.WriteFile(file, raw, 0600))
 	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:4323"})
 	defer rdb.Close()
 	must(rdb.Ping(context.Background()).Err())
-	handoff, err := service.NewEdgeAdminHandoff(&config.Config{EdgeHandoffFile: file}, repository.NewEdgeAdminHandoffCache(rdb))
-	must(err)
+	handoff := service.NewEdgeAdminHandoff(&config.Config{EdgeHandoffFile: file}, repository.NewEdgeAdminHandoffCache(rdb))
 	for _, isProd := range []bool{true, false} {
 		id := int64(9)
 		port := "127.0.0.1:4322"

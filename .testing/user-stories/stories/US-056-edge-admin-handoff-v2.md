@@ -20,6 +20,8 @@
 5. AC-005（回归）：控制台两个入口共享同一生命周期 owner；失败提供重试和直接登录。
 6. AC-006（撤销）：Edge 管理员被停用后无法兑换；签发后的会话族可按交接审计标识撤销。
 
+7. AC-007（故障隔离）：非法配置关闭交接但不阻断服务初始化和普通登录；交接基础设施失败用 503，不触发代理 502/504 的健康摘除策略。
+
 ## Assertions
 
 断言返回凭据的接收窗口、URL、错误返回、消费次数、重放和伪造窗口消息的实际拒绝行为。
@@ -40,6 +42,10 @@
 - `backend/internal/service/auth_service_tk_edge_session_test.go`：初次/轮转族索引失败关闭。
 - `backend/internal/server/middleware/audit_log_test.go`：交接请求体不落审计日志。
 - `backend/internal/config/edge_handoff_tk_test.go` + `backend/cmd/edge-handoff-config/main_test.go`：信任配置、独立密钥、私有权限与禁止覆盖。
+
+- `backend/internal/service/edge_admin_handoff_tk_test.go`::`TestEdgeAdminHandoffBadConfigurationIsIsolated`：缺失、非法、不可读、权限及部分配置全拒绝，初始化继续。
+- `backend/internal/handler/admin/edge_accounts_handler_tk_test.go`::`TestMintAdminSession_EdgeFailureDoesNotMarkGatewayUnhealthy`：交接错误不返回代理故障状态。
+- `frontend/e2e/edge-handoff.e2e.ts`：`EDGE_HANDOFF_E2E_INVALID=1` 配合 `--grep "invalid trust"` 验证坏配置下两个实例的普通登录。
 
 ## Evidence
 

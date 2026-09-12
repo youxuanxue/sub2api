@@ -1,8 +1,9 @@
 # Edge 一键管理：信任配置与发布
 
 实现与 owner 以 [审批设计](../approved/edge-admin-handoff-v2.md) 为准。
-无配置时服务正常启动，管理入口提供直接登录。配置存在但格式/权限不合法时启动失败，
-避免无声降级。配置在启动时加载，修改后须重启对应实例。
+无配置时服务正常启动，管理入口提供直接登录。配置不可读或格式/权限不合法时，
+关闭整份交接信任并记录 `edge_admin_handoff_disabled` 错误事件，网关继续启动。
+不得将交接就绪与进程健康混为一谈。配置在启动时加载，修改后须重启对应实例。
 
 ## 本地生成待部署包
 
@@ -25,6 +26,18 @@
 `prod.json` 含全部签名私钥，`edge-<id>.json` 只含该 Edge 的受信公钥与固定管理员映射。
 生成包只写本地，不推送配置、不调用远端。
 
+## 本地配置校验
+
+在 backend 目录执行，返回非零即不允许启用该实例的交接配置：
+
+```bash
+go run ./cmd/edge-handoff-config --check /absolute/prod.json --role signer
+go run ./cmd/edge-handoff-config --check /absolute/edge-e1.json --role receiver
+```
+
+该命令复用运行时严格解析 owner，检查存在性、格式、签名文件权限及所需角色；
+只读、不打印密钥。它不证明远端版本、管理员状态、公私钥配对和浏览器访问已就绪。
+
 ## 接入现有 Stage0 owner
 
 沿用 Stage0 的 `/var/lib/tokenkey/app` → `/app/data` 数据卷。
@@ -32,6 +45,12 @@
 `/var/lib/tokenkey/app/edge-handoff.json`，文件 owner 必须是应用 UID/GID 1000:1000，权限 0600。
 容器默认读取 `/app/data/edge-handoff.json`；自定义路径使用 `EDGE_HANDOFF_FILE`。
 文件不进入镜像账号记录、公开设置或 compose 明文环境变量。
+
+发布前必须单独批准交接切换窗口，并先验证操作者确实能直接登录每个 Edge。
+Edge 先升级会拒绝旧 prod 的 mint，prod 先升级也不能在旧 Edge 上完成新协议；
+不能把这次切换称为无缝滚动发布。现有 gateway smoke 不验收交接。
+本 PR 仅完成故障隔离；配置分发、逐实例就绪检查接入 release owner 和真实域名 UI
+验收仍属上线前工作，不能凭 `/health` 通过就宣布交接恢复。
 
 发布顺序：先部署支持新协议的 Edge 并安装公钥信任，验证配置/管理员可用；
 再部署控制台并安装对应私钥。记录每个实例版本、origin、kid、配置文件权限与管理员 ID，

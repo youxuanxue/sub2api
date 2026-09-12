@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -49,7 +50,7 @@ func (h *EdgeAdminSessionHandler) MintCode(c *gin.Context) {
 	}
 	result, err := h.handoff.Mint(c.Request.Context(), input)
 	if err != nil {
-		response.Error(c, http.StatusForbidden, "handoff unavailable or invalid")
+		edgeHandoffError(c, err)
 		return
 	}
 	response.Success(c, result)
@@ -74,7 +75,7 @@ func (h *EdgeAdminSessionHandler) Exchange(c *gin.Context) {
 	}
 	claims, err := h.handoff.Exchange(c.Request.Context(), input)
 	if err != nil {
-		response.Error(c, http.StatusForbidden, "invalid or expired handoff")
+		edgeHandoffError(c, err)
 		return
 	}
 	user, err := h.users.GetByID(c.Request.Context(), receiver.AdminUserID)
@@ -90,4 +91,12 @@ func (h *EdgeAdminSessionHandler) Exchange(c *gin.Context) {
 	}
 	slog.Info("edge_admin_handoff", "initiator", claims.Initiator, "issuer", claims.Issuer, "edge_user_id", user.ID, "attempt", claims.Attempt, "family", family, "key_id", claims.KeyID)
 	response.Success(c, pair)
+}
+
+func edgeHandoffError(c *gin.Context, err error) {
+	if errors.Is(err, service.ErrEdgeHandoffInvalid) {
+		response.Error(c, http.StatusForbidden, "invalid or expired handoff")
+		return
+	}
+	response.Error(c, http.StatusServiceUnavailable, "edge handoff unavailable")
 }

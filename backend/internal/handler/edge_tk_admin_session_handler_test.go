@@ -73,8 +73,7 @@ func TestEdgeAdminHandoff_ExchangeSecurity(t *testing.T) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	owner, err := service.NewEdgeAdminHandoff(&config.Config{EdgeHandoffFile: file}, repository.NewEdgeAdminHandoffCache(client))
-	require.NoError(t, err)
+	owner := service.NewEdgeAdminHandoff(&config.Config{EdgeHandoffFile: file}, repository.NewEdgeAdminHandoffCache(client))
 	for _, tc := range []struct {
 		name, role, status, origin string
 		wrongProof                 bool
@@ -123,5 +122,19 @@ func TestEdgeAdminHandoff_ExchangeSecurity(t *testing.T) {
 			}
 			require.Equal(t, 403, handoffRequest(t, h.MintCode, envelope, "").Code, "signed attempt cannot mint another code")
 		})
+	}
+}
+
+func TestEdgeHandoffErrorsRemainLocalToFeature(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+	}{
+		{service.ErrEdgeHandoffInvalid, 403}, {service.ErrEdgeHandoffUnavailable, 503}, {context.DeadlineExceeded, 503},
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		edgeHandoffError(c, tc.err)
+		require.Equal(t, tc.status, w.Code)
 	}
 }

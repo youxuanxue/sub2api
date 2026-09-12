@@ -94,3 +94,23 @@ test('timeout during user hydration leaves no local Edge session', async ({ page
     releaseUser()
   }
 })
+
+
+test('invalid trust leaves both deployments available for normal login', async ({ page }) => {
+  test.skip(process.env.EDGE_HANDOFF_E2E_INVALID !== '1', 'isolated invalid-configuration run')
+  await login(page)
+  await page.goto('/admin/edge-accounts')
+  await page.getByRole('button', { name: 'Manage accounts', exact: true }).click()
+  const direct = page.getByRole('alert').getByRole('link', { name: 'Sign in directly' })
+  await expect(direct).toBeVisible()
+  const popup = page.waitForEvent('popup')
+  await direct.click()
+  const child = await popup
+  await expect(child.locator('input[type=email]')).toBeVisible()
+  await child.locator('input[type=email]').fill('admin@example.test')
+  await child.locator('input[type=password]').fill('LocalUITest123!')
+  await child.locator('button[type=submit]').click()
+  await child.waitForURL(url => !url.pathname.includes('/login'))
+  await page.goto('/admin/accounts')
+  await expect(page.getByRole('button', { name: /Manage all edge accounts/i }).first()).toBeVisible()
+})

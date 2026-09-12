@@ -399,6 +399,7 @@ jobs:
           sudo apt-get install -y redis-server
           pnpm --dir frontend build
           pnpm --dir frontend exec playwright test --config playwright.edge-handoff.config.ts
+          EDGE_HANDOFF_E2E_INVALID=1 pnpm --dir frontend exec playwright test --config playwright.edge-handoff.config.ts --grep "invalid trust"
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

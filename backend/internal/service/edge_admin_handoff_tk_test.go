@@ -8,6 +8,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -101,4 +103,46 @@ func TestEdgeAdminHandoff_TargetPinnedAndDisabled(t *testing.T) {
 	require.False(t, disabled.CanSign("e1", "https://edge.example"))
 	_, err = disabled.Mint(context.Background(), EdgeHandoffDelegation{})
 	require.ErrorIs(t, err, ErrEdgeHandoffUnavailable)
+}
+
+func TestEdgeAdminHandoffBadConfigurationIsIsolated(t *testing.T) {
+	for _, kind := range []string{"missing", "malformed", "unreadable", "public signer", "partial"} {
+		t.Run(kind, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "trust.json")
+			owner, cache := handoffTestOwner(t)
+			cfg := *owner.cfg
+			cfg.Version = 1
+			raw, err := json.Marshal(cfg)
+			require.NoError(t, err)
+			switch kind {
+			case "malformed":
+				raw = []byte("invalid-private-material")
+			case "partial":
+				cfg.Receiver.AdminUserID = 0
+				raw, err = json.Marshal(cfg)
+				require.NoError(t, err)
+			}
+			switch kind {
+			case "missing":
+			case "unreadable":
+				require.NoError(t, os.Mkdir(path, 0700))
+			default:
+				require.NoError(t, os.WriteFile(path, raw, 0600))
+				if kind == "public signer" {
+					require.NoError(t, os.Chmod(path, 0644))
+				}
+			}
+			isolated := NewEdgeAdminHandoff(&config.Config{EdgeHandoffFile: path}, cache)
+			require.NotNil(t, isolated)
+			require.Nil(t, isolated.Receiver())
+			require.False(t, isolated.CanSign("e1", "https://edge.example"))
+			_, err = isolated.Sign("e1", "https://edge.example", 7, EdgeHandoffRequest{})
+			require.ErrorIs(t, err, ErrEdgeHandoffUnavailable)
+			_, err = isolated.Mint(context.Background(), EdgeHandoffDelegation{})
+			require.ErrorIs(t, err, ErrEdgeHandoffUnavailable)
+			_, err = isolated.Exchange(context.Background(), EdgeHandoffExchange{})
+			require.ErrorIs(t, err, ErrEdgeHandoffUnavailable)
+			require.Zero(t, cache.calls)
+		})
+	}
 }

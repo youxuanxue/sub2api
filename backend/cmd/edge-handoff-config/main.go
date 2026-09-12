@@ -71,10 +71,43 @@ func prepare(m manifest, out string) error {
 	}
 	return nil
 }
+func check(path, role string) error {
+	cfg, err := config.LoadEdgeHandoffConfig(path)
+	if err != nil {
+		return errors.New("invalid or unreadable handoff configuration")
+	}
+	switch role {
+	case "signer":
+		if len(cfg.Signers) == 0 {
+			return errors.New("no handoff signers configured")
+		}
+	case "receiver":
+		if cfg.Receiver == nil {
+			return errors.New("no handoff receiver configured")
+		}
+	default:
+		return errors.New("check requires role signer or receiver")
+	}
+	return nil
+}
 func main() {
 	input := flag.String("manifest", "", "public JSON manifest path")
 	out := flag.String("out", "", "new protected local directory")
+	checkPath := flag.String("check", "", "validate an existing local configuration without writing")
+	role := flag.String("role", "", "required configuration role for --check: signer or receiver")
 	flag.Parse()
+	if *checkPath != "" {
+		if *input != "" || *out != "" {
+			fmt.Fprintln(os.Stderr, "check cannot be combined with generation")
+			os.Exit(2)
+		}
+		if err := check(*checkPath, *role); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println("Local handoff configuration valid. Live readiness not verified.")
+		return
+	}
 	if *input == "" || *out == "" {
 		flag.Usage()
 		os.Exit(2)
