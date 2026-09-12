@@ -16,6 +16,7 @@ import (
 
 const (
 	contextKeyRequestBytes = "qa_request_bytes"
+	contextKeyRequestPath  = "qa_request_path"
 	contextKeyTeeWriter    = "qa_tee_writer"
 )
 
@@ -108,6 +109,11 @@ func Middleware(svc *Service) gin.HandlerFunc {
 		if svc == nil || !svc.Enabled() {
 			c.Next()
 			return
+		}
+
+		if c.Request != nil && c.Request.URL != nil {
+			// Capture before handlers can rewrite the action; never retain query credentials.
+			c.Set(contextKeyRequestPath, c.Request.URL.EscapedPath())
 		}
 
 		// traj/synth opt-in 请求用更高的捕获上限，避免长 thinking 被截断；

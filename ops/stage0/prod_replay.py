@@ -29,6 +29,8 @@ MAX_BYTES = 16 * 1024 * 1024
 MAX_SAMPLES = 200
 MAX_CORPUS_BYTES = 64 * 1024 * 1024
 REPLAY_SECONDS = 5400
+REQUEST_SECONDS = 600
+MAX_REQUEST_SECONDS = 1800
 
 
 class ReplayError(RuntimeError):
@@ -145,7 +147,14 @@ def sample_from_capture(row, payload):
     require(payload.get('request_id') == row['request_id'], 'capture_identity_mismatch')
     request = payload.get('request', {})
     body = request.get('body')
-    path = request.get('path')
+    path = request.get('original_path') or request.get('path')
+    historical = payload.get('response', {}).get('body')
+    # Older QA blobs stored the protocol family as path, losing count_tokens.
+    # Refuse ambiguous evidence; never invent the missing action from its body.
+    require(not (not request.get('original_path') and path == '/v1/messages'
+                 and isinstance(historical, dict) and 'input_tokens' in historical
+                 and 'content' not in historical), 'capture_endpoint_ambiguous')
+    require(not historical_response_error(historical), 'historical_response_error')
     require(isinstance(body, dict) and body and body_intact(body), 'body_missing_or_redacted')
     require(isinstance(path, str) and len(path) < 2048 and '\r' not in path and '\n' not in path,
             'path_missing')
@@ -168,7 +177,7 @@ def collect(root=ROOT):
     capabilities = load_capability_manifest(Path(__file__).with_name('prod-replay-capabilities.json'))
     query = """WITH ranked AS (
  SELECT request_id,user_id,api_key_id,requested_model,inbound_endpoint,stream,
- tool_calls_present,multimodal_present,blob_uri,created_at,
+ tool_calls_present,multimodal_present,blob_uri,created_at,duration_ms,
  row_number() OVER (PARTITION BY user_id,requested_model,inbound_endpoint,stream,
  tool_calls_present,multimodal_present ORDER BY created_at DESC,request_id) rn
  FROM qa_records WHERE created_at >= now()-interval '24 hours' AND success=true
@@ -176,6 +185,8 @@ def collect(root=ROOT):
  ORDER BY user_id,requested_model,inbound_endpoint,stream,rn LIMIT 5001;"""
     rows = [json.loads(line) for line in sql(query).splitlines()]
     require(0 < len(rows) <= 5000, 'capture_empty_or_scan_limit')
+    keys = {r['id']: r for r in (json.loads(line) for line in sql(
+        'SELECT row_to_json(t) FROM (SELECT id,user_id,status FROM api_keys WHERE deleted_at IS NULL) t;').splitlines())}
     groups = collections.defaultdict(list)
     for row in rows:
         groups[stratum(row)].append(row)
@@ -187,6 +198,8 @@ def collect(root=ROOT):
         reason = 'capture_missing'
         for row in values:
             try:
+                key_reason = key_failure(keys.get(row['api_key_id']), row)
+                require(key_reason is None, key_reason)
                 uri = urlsplit(row['blob_uri'] or '')
                 require(uri.scheme == 'file' and not uri.netloc, 'capture_not_local')
                 relative = Path(uri.path).relative_to('/app/data')
@@ -236,68 +249,161 @@ def protocol_hint(endpoint, protocol):
     }.get(protocol, False)
 
 
-def response_ok(status, ctype, raw, stream):
-    if not 200 <= status < 300 or not raw:
-        return False
+def key_failure(key, row):
+    if not key:
+        return 'key_missing_or_deleted'
+    if key['user_id'] != row['user_id']:
+        return 'key_owner_mismatch'
+    if key['status'] != 'active':
+        # Only fixed vocabulary leaves the host, never a credential or arbitrary status.
+        return 'key_quota_exhausted' if key['status'] == 'quota_exhausted' else 'key_not_active'
+    return None
+
+
+def sse_events(raw):
+    name, data = '', []
+    for line in raw.decode('utf-8').splitlines():
+        if not line:
+            if data or name:
+                yield name, '\n'.join(data)
+            name, data = '', []
+        elif not line.startswith(':'):
+            field, _, value = line.partition(':')
+            value = value.removeprefix(' ')
+            if field == 'data':
+                data.append(value)
+            elif field == 'event':
+                name = value
+    if data or name:
+        yield name, '\n'.join(data)
+
+
+def event_failed(name, event):
+    return (name in ('error', 'response.failed', 'response.incomplete')
+            or isinstance(event, dict) and (bool(event.get('error'))
+                or event.get('type') in ('error', 'response.failed', 'response.incomplete')))
+
+
+def historical_response_error(body):
+    if isinstance(body, dict):
+        return event_failed('', body)
+    if isinstance(body, str):
+        # QA response capture may be truncated. A missing terminal in that prefix
+        # is not a historical failure, but an explicit error is conclusive.
+        for name, data in sse_events(body.encode()):
+            if event_failed(name, None):
+                return True
+            try:
+                if event_failed(name, json.loads(data)):
+                    return True
+            except ValueError:
+                continue
+    return False
+
+
+def response_failure(status, ctype, raw, stream):
+    if not 200 <= status < 300:
+        return 'http_status_error'
+    if not raw:
+        return 'empty_response'
     try:
         if stream or 'text/event-stream' in ctype:
             if 'text/event-stream' not in ctype:
-                return False
+                return 'stream_content_type_mismatch'
             terminal = False
-            for line in raw.decode('utf-8').splitlines():
-                if not line.startswith('data:'):
-                    continue
-                data = line[5:].strip()
+            for name, data in sse_events(raw):
+                if event_failed(name, None):
+                    return 'sse_error_event'
                 if data == '[DONE]':
                     terminal = True
                 elif data:
                     event = json.loads(data)
-                    if not isinstance(event, dict) or event.get('error') or event.get('type') in ('error', 'response.failed', 'response.incomplete'):
-                        return False
+                    if not isinstance(event, dict):
+                        return 'invalid_sse_event'
+                    if event_failed(name, event):
+                        return 'sse_error_event'
                     terminal |= event.get('type') in ('message_stop', 'response.completed')
                     terminal |= any(c.get('finish_reason') for c in event.get('choices', []))
                     terminal |= any(c.get('finishReason') for c in event.get('candidates', []))
-            return bool(terminal)
+            return None if terminal else 'sse_terminal_missing'
         if 'json' in ctype:
             data = json.loads(raw)
-            return isinstance(data, (list, dict)) and bool(data) and not (isinstance(data, dict) and data.get('error'))
-        return ctype.startswith(('audio/', 'image/'))
+            if isinstance(data, dict) and data.get('error'):
+                return 'json_error_response'
+            return None if isinstance(data, (list, dict)) and data else 'invalid_json_response'
+        return None if ctype.startswith(('audio/', 'image/')) else 'unsupported_content_type'
     except (ValueError, TypeError, AttributeError):
-        return False
+        return 'invalid_response_encoding'
+
+
+def request_seconds(sample):
+    duration = sample['row'].get('duration_ms')
+    historical = duration / 1000 if isinstance(duration, (int, float)) and duration > 0 else 0
+    return min(MAX_REQUEST_SECONDS, max(REQUEST_SECONDS, 2 * historical + 30))
 
 
 def execute(sample, key, port, replay_id):
-    # http.client has no proxy or redirect handling: credentials cannot be sent
-    # to a Location supplied by a replayed response.
-    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=30)
-    status, ok, response_id = 0, False, None
+    # No proxy or redirects: a response cannot redirect credentials elsewhere.
+    budget = request_seconds(sample)
+    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=budget)
+    started = time.monotonic()
+    deadline = started + budget
+    status, response_id, reason = 0, None, 'request_deadline_exceeded'
+    phase, raw, headers_ms = 'request', bytearray(), None
+    response, transport_errno = None, None
     try:
         connection.request('POST', sample['path'], body=sample['body'], headers={
             'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key,
             'x-api-key': key, 'anthropic-version': '2023-06-01',
             'User-Agent': 'tokenkey-private-replay', 'X-Client-Request-ID': replay_id})
+        phase = 'response_headers'
         response = connection.getresponse()
+        headers_ms = round((time.monotonic() - started) * 1000)
         status = response.status
         response_id = response.getheader('X-Request-ID')
         if not response_id or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', response_id):
             response_id = None
-        raw = bytearray()
-        deadline = time.monotonic() + 120
-        while time.monotonic() < deadline:
-            part = response.read1(65536)
+        phase = 'response_body'
+        while (remaining := deadline - time.monotonic()) > 0:
+            # HTTPConnection clears sock for Connection: close responses; the
+            # HTTPResponse still owns it until EOF. Bound each read by remaining time.
+            if response.fp is not None:
+                response.fp.raw._sock.settimeout(remaining)
+            part = response.read1(min(65536, MAX_BYTES + 1 - len(raw)))
             if not part:
-                ok = response_ok(status, response.getheader('Content-Type', ''), raw,
-                                 sample['row']['stream'])
+                if response.length not in (None, 0):
+                    reason = 'response_incomplete'
+                    break
+                phase = 'validation'
+                reason = response_failure(status, response.getheader('Content-Type', ''), raw,
+                                          sample['row']['stream'])
                 break
             raw.extend(part)
             if len(raw) > MAX_BYTES:
+                reason = 'response_byte_budget_exceeded'
                 break
-    except (OSError, http.client.HTTPException):
-        pass  # Classified as a failed result, never as a successful replay.
+    except TimeoutError:
+        reason = 'request_deadline_exceeded'
+    except http.client.IncompleteRead:
+        reason = 'response_incomplete'
+    except http.client.RemoteDisconnected:
+        reason = 'remote_disconnected'
+    except http.client.HTTPException:
+        reason = 'http_protocol_error'
+    except OSError as exc:
+        reason = 'transport_error'
+        transport_errno = exc.errno
     finally:
+        if response is not None:
+            response.close()
         connection.close()
     return {'sample_sha256': digest(encoded(sample['row'])), 'http_status': status,
-            'passed': bool(ok), 'body_sha256': digest(sample['body']), 'response_request_id': response_id}
+            'passed': reason is None, 'reason': reason, 'phase': phase,
+            'elapsed_ms': round((time.monotonic() - started) * 1000),
+            'response_headers_ms': headers_ms, 'response_bytes': len(raw),
+            'request_budget_seconds': budget, 'client_request_id': replay_id,
+            'transport_errno': transport_errno,
+            'body_sha256': digest(sample['body']), 'response_request_id': response_id}
 
 
 def isolated_environment(source, name, password):
@@ -473,10 +579,14 @@ def replay(tag, root=ROOT):
             sandbox.verify(inspect(sandbox.app), sandbox.env)
             row = sample['row']
             key = keys.get(row['api_key_id'])
-            if not key or key['user_id'] != row['user_id'] or key['status'] != 'active':
-                results.append({'sample_sha256': digest(encoded(row)), 'passed': False, 'reason': 'key_not_replayable'})
+            key_reason = key_failure(key, row)
+            if key_reason:
+                results.append({'sample_sha256': digest(encoded(row)), 'passed': False,
+                                'reason': key_reason, 'phase': 'key_precheck'})
             else:
                 results.append(execute(sample, key['key'], port, prefix + str(i)))
+            results[-1].update({'source_request_id': row['request_id'], 'api_key_id': row['api_key_id'],
+                                'source_duration_ms': row.get('duration_ms')})
             results[-1].update({k: row[k] for k in ('user_id', 'requested_model', 'inbound_endpoint', 'stream',
                                                   'tool_calls_present', 'multimodal_present')})
         # Production user usage must not contain a replay request ID.

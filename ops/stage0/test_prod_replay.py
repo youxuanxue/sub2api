@@ -35,18 +35,23 @@ def sample(user=1, model='m1', endpoint='/v1/messages'):
 
 
 @contextlib.contextmanager
-def server(status=200, body=b'{"content":[{"text":"ok"}]}', content_type='application/json'):
+def server(status=200, body=b'{"content":[{"text":"ok"}]}', content_type='application/json', header_delay=0, body_delay=0, declared_length=None):
     requests = []
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
             raw = self.rfile.read(int(self.headers['Content-Length']))
             requests.append((self.path, raw, dict(self.headers)))
+            time.sleep(header_delay)
             self.send_response(status)
             self.send_header('Content-Type', content_type)
-            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Content-Length', str(len(body) if declared_length is None else declared_length))
             self.send_header('Location', 'http://example.invalid/credential-sink')
             self.end_headers()
-            self.wfile.write(body)
+            time.sleep(body_delay)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # Expected when testing client timeout/byte-limit cancellation.
         def log_message(self, *_):
             pass
     httpd = http.server.HTTPServer(('127.0.0.1', 0), Handler)
@@ -87,11 +92,58 @@ class CaptureTest(unittest.TestCase):
             proc = MagicMock()
             proc.stdout.read.return_value = json.dumps({'request_id': 'real-request-1', 'request': {'path': '/v1/messages', 'body': {'model': 'm1'}}}).encode()
             proc.wait.return_value = 0
-            with patch.object(replay, 'sql', return_value='\n'.join(map(json.dumps, rows))), patch.object(replay.subprocess, 'Popen', return_value=proc):
+            with patch.object(replay, 'sql', side_effect=['\n'.join(map(json.dumps, rows)), '\n'.join(json.dumps({'id': i, 'user_id': i, 'status': 'active'}) for i in (1, 2))]), patch.object(replay.subprocess, 'Popen', return_value=proc):
                 selected, gaps, total = replay.collect(root)
             self.assertEqual(total, 2)
             self.assertEqual(len(selected), 1)
             self.assertEqual(gaps, {'capture_not_local': 1})
+
+    def test_count_tokens_uses_original_path_and_legacy_ambiguity_stays_gap(self):
+        payload = {'request_id': 'real-request-1', 'request': {
+            'path': '/v1/messages', 'body': {'model': 'm1', 'messages': ['real']}},
+            'response': {'body': {'input_tokens': 123}}}
+        with self.assertRaisesRegex(replay.ReplayError, 'capture_endpoint_ambiguous'):
+            replay.sample_from_capture(row(), payload)
+        payload['request']['original_path'] = '/v1/messages/count_tokens'
+        request = replay.sample_from_capture(row(), payload)
+        with server(body=b'{"input_tokens":123}') as (port, received):
+            self.assertTrue(replay.execute(request, 'secret', port, 'id')['passed'])
+        self.assertEqual(received[0][0], '/v1/messages/count_tokens')
+        payload['request']['original_path'] = 'https://evil.invalid'
+        with self.assertRaisesRegex(replay.ReplayError, 'unsupported_path'):
+            replay.sample_from_capture(row(), payload)
+
+    def test_historical_sse_error_is_not_a_successful_baseline(self):
+        payload = {'request_id': 'real-request-1', 'request': {
+            'path': '/v1/messages', 'body': {'model': 'm1'}},
+            'response': {'body': 'data: {"type":"message_start"}\n\ndata: {"type":"error","error":{"type":"upstream_error"}}\n\n'}}
+        with self.assertRaisesRegex(replay.ReplayError, 'historical_response_error'):
+            replay.sample_from_capture(row(), payload)
+        # A bounded capture prefix may lack its terminal even for a successful request.
+        payload['response']['body'] = 'data: {"type":"message_start"}\n\ndata: {"partial'
+        self.assertEqual(replay.sample_from_capture(row(), payload)['path'], '/v1/messages')
+
+    def test_key_precheck_uses_alternative_capture_without_changing_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'app').mkdir()
+            (root / 'app/a.zst').write_bytes(b'fixture')
+            rows = [dict(row(), api_key_id=10, blob_uri='file:///app/data/a.zst'),
+                    dict(row(), api_key_id=11, request_id='older', blob_uri='file:///app/data/a.zst'),
+                    dict(row(2), api_key_id=10, blob_uri='file:///app/data/a.zst')]
+            keys = [{'id': 10, 'user_id': 1, 'status': 'quota_exhausted'},
+                    {'id': 11, 'user_id': 1, 'status': 'active'}]
+            proc = MagicMock()
+            proc.stdout.read.return_value = json.dumps({'request_id': 'older', 'request': {
+                'path': '/v1/messages', 'body': {'model': 'm1'}}}).encode()
+            proc.wait.return_value = 0
+            with patch.object(replay, 'sql', side_effect=['\n'.join(map(json.dumps, rows)),
+                    '\n'.join(map(json.dumps, keys))]), patch.object(replay.subprocess, 'Popen', return_value=proc):
+                selected, gaps, total = replay.collect(root)
+            self.assertEqual(total, 2)
+            self.assertEqual([(v['row']['request_id'], v['row']['api_key_id']) for v in selected], [('older', 11)])
+            self.assertEqual(gaps, {'key_owner_mismatch': 1})
+
 
 
 class HTTPTest(unittest.TestCase):
@@ -120,6 +172,54 @@ class HTTPTest(unittest.TestCase):
                 request['row']['stream'] = True
                 self.assertEqual(replay.execute(request, 'secret', port, 'id')['passed'], expected)
 
+    def test_delayed_headers_and_body_follow_request_budget(self):
+        request = sample()
+        # Shortened wall-clock fixtures exercise the actual socket, not a mocked response.
+        for options in ({'header_delay': .06}, {'body_delay': .06}):
+            with self.subTest(options=options), server(**options) as (port, _), \
+                    patch.object(replay, 'request_seconds', return_value=.5):
+                result = replay.execute(request, 'secret', port, 'id')
+            self.assertTrue(result['passed'], result)
+            self.assertGreaterEqual(result['elapsed_ms'], 50)
+        for options, phase, status in (({'header_delay': .1}, 'response_headers', 0),
+                                       ({'body_delay': .1}, 'response_body', 200)):
+            with self.subTest(phase=phase), server(**options) as (port, _), \
+                    patch.object(replay, 'request_seconds', return_value=.03):
+                result = replay.execute(request, 'secret', port, 'id')
+            self.assertEqual((result['passed'], result['reason'], result['phase'], result['http_status']),
+                             (False, 'request_deadline_exceeded', phase, status))
+            self.assertNotIn('secret', json.dumps(result))
+
+    def test_historical_long_requests_get_sufficient_bounded_budget(self):
+        for duration in (50055, 309535, 340322, 72275, 186744, 163283, 119459):
+            request = sample()
+            request['row']['duration_ms'] = duration
+            self.assertGreater(replay.request_seconds(request), duration / 1000)
+        request['row']['duration_ms'] = 10**9
+        self.assertEqual(replay.request_seconds(request), replay.MAX_REQUEST_SECONDS)
+        self.assertEqual(replay.request_seconds(sample()), replay.REQUEST_SECONDS)
+
+    def test_response_failures_are_distinct_and_payload_free(self):
+        cases = [(b'data: {"type":"content_block_delta"}\n\n', 'sse_terminal_missing'),
+                 (b'event: error\ndata: {"message":"private upstream detail"}\n\n', 'sse_error_event'),
+                 (b'data: bad-json\n\n', 'invalid_response_encoding')]
+        for body, reason in cases:
+            with self.subTest(reason=reason), server(body=body, content_type='text/event-stream') as (port, _):
+                result = replay.execute(sample(), 'secret', port, 'id')
+            self.assertEqual(result['reason'], reason)
+            self.assertFalse(result['passed'])
+            self.assertNotIn('private', json.dumps(result))
+        with server(body=b'{}', declared_length=30) as (port, _):
+            self.assertEqual(replay.execute(sample(), 'secret', port, 'id')['reason'], 'response_incomplete')
+        with server() as (port, _), patch.object(replay, 'MAX_BYTES', 4):
+            self.assertEqual(replay.execute(sample(), 'secret', port, 'id')['reason'], 'response_byte_budget_exceeded')
+
+    def test_multiline_sse_data_is_parsed_as_one_event(self):
+        body = b'event: message_stop\ndata: {\ndata: "type":"message_stop"}\n\n'
+        with server(body=body, content_type='text/event-stream') as (port, _):
+            self.assertTrue(replay.execute(sample(), 'secret', port, 'id')['passed'])
+
+
 
 class ReceiptTest(unittest.TestCase):
     def receipt(self, **changes):
@@ -144,9 +244,9 @@ class ReceiptTest(unittest.TestCase):
 
 
 class ExecutionTest(unittest.TestCase):
-    def perform(self, *, gaps=None, failure=False, drift=False, cleanup_failure=False):
+    def perform(self, *, gaps=None, failure=False, drift=False, cleanup_failure=False, key_status="active"):
         samples = [sample(), sample(2, 'm2', '/v1/chat/completions')]
-        keys = '\n'.join(json.dumps({'id': i, 'user_id': i, 'key': 'secret', 'status': 'active'}) for i in (1, 2))
+        keys = '\n'.join(json.dumps({'id': i, 'user_id': i, 'key': 'secret', 'status': key_status}) for i in (1, 2))
         with tempfile.TemporaryDirectory() as tmp, server(500 if failure else 200) as (port, _):
             box = MagicMock()
             box.start.return_value = port
@@ -163,6 +263,7 @@ class ExecutionTest(unittest.TestCase):
                 receipt = replay.replay('1.2.3', Path(tmp))
             self.assertEqual(json.loads((Path(tmp) / 'bluegreen-replay.json').read_bytes()), receipt)
             box.close.assert_called_once()
+            self.results = json.loads((Path(tmp) / 'bluegreen-replay-results.json').read_bytes())
             return receipt
 
     def test_full_execution_green_requires_real_successes(self):
@@ -178,6 +279,14 @@ class ExecutionTest(unittest.TestCase):
         for args in ({'gaps': {'missing': 1}}, {'failure': True}, {'drift': True}, {'cleanup_failure': True}):
             with self.subTest(args=args):
                 self.assertEqual(self.perform(**args)['verdict'], 'red')
+
+    def test_snapshot_key_recheck_stays_red_and_retains_source_identity(self):
+        receipt = self.perform(key_status='quota_exhausted')
+        self.assertEqual((receipt['verdict'], receipt['failed']), ('red', 2))
+        self.assertEqual([r['reason'] for r in self.results], ['key_quota_exhausted'] * 2)
+        self.assertEqual([r['phase'] for r in self.results], ['key_precheck'] * 2)
+        self.assertEqual([r['source_request_id'] for r in self.results], ['real-request-1', 'real-request-2'])
+        self.assertEqual([r['api_key_id'] for r in self.results], [1, 2])
 
     def test_isolation_overrides_live_credentials_and_rejects_public_port(self):
         env = replay.isolated_environment({'DATABASE_HOST': 'prod', 'DATABASE_PASSWORD': 'prod-secret', 'AWS_SECRET_ACCESS_KEY': 'cloud-secret'}, 'sandbox', 'random')
