@@ -1,0 +1,41 @@
+{
+  "method": "POST",
+  "path": "/v1/responses",
+  "body": {
+    "model": "${model}",
+    "input": "Call echo with value OK.",
+    "max_output_tokens": 64,
+    "tools": [
+      {
+        "type": "function",
+        "name": "echo",
+        "description": "Return the supplied value.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "function",
+      "name": "echo"
+    },
+    "stream": true
+  },
+  "stream": true,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage",
+    "tool_call"
+  ]
+}

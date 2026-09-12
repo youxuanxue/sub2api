@@ -1,0 +1,57 @@
+{
+  "method": "POST",
+  "path": "/v1beta/models/${model}:streamGenerateContent?alt=sse",
+  "body": {
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Call echo with value OK."
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 64
+    },
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "name": "echo",
+            "description": "Return the supplied value.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ],
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "ANY",
+        "allowedFunctionNames": [
+          "echo"
+        ]
+      }
+    }
+  },
+  "stream": true,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage",
+    "tool_call"
+  ]
+}

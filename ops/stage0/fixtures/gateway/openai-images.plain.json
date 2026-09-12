@@ -1,0 +1,16 @@
+{
+  "method": "POST",
+  "path": "/v1/images/generations",
+  "body": {
+    "model": "${model}",
+    "prompt": "A solid blue square.",
+    "n": 1
+  },
+  "stream": false,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}

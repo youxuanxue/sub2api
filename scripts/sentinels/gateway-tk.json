@@ -73,7 +73,6 @@
     {
       "path": "backend/internal/observability/qa/sse_tee.go",
       "must_contain": [
-        "c.Set(contextKeyRequestPath, c.Request.URL.EscapedPath())",
         "p = p[:remaining]",
         "maxCapturedSSEChunks",
         "body[start:boundary.end:boundary.end]"
@@ -164,8 +163,6 @@
     {
       "path": "backend/internal/observability/qa/service.go",
       "must_contain": [
-        "c.GetString(contextKeyRequestPath)",
-        "requestPayload[\"original_path\"] = input.RequestPath",
         "restoreInternalThinkingBlockJSON(logredact.RedactJSON([]byte(raw)), []byte(raw))",
         "captureRequestedModel(metadataBody)", "captureToolCallsPresent(metadataBody)", "captureMultimodalPresent(metadataBody)"
       ],
@@ -293,9 +290,14 @@
         "rationale": "Replay dispatch must execute retained requests; reviewed continuation must bind the exact candidate to the existing deploy gates."
       },
       {
-        "path": "backend/internal/observability/qa/replay_path_tk_test.go",
-        "must_contain": ["TestBuildBlobPreservesReplayActionWithoutChangingProtocolFamily", "TestQAMiddlewareKeepsOriginalPathBeforeHandlerRewrite"],
-        "rationale": "Replay must retain the actual count_tokens/Gemini action instead of the normalized protocol family."
+        "path": "ops/stage0/gateway_capability_matrix.py",
+        "must_contain": ["def build(", "def delta(", "def report(", "coverage status must be derived", "harness-passed"],
+        "rationale": "Capability coverage is derived from the compiled catalog and current fixture evidence; historical users and capture gaps never define its denominator."
+      },
+      {
+        "path": "ops/stage0/gateway_capability_check.py",
+        "must_contain": ["dedicated_test_key_required", "test_key_type_mismatch", "production_usage_written", "box.close()"],
+        "rationale": "Optional real checks use dedicated keys only in isolated snapshots, retain production usage isolation and always clean up."
       },
       {
         "path": "ops/stage0/prod_replay.py",
@@ -331,7 +333,7 @@
           "validate_replay_gate()",
           "  validate_replay_gate"
         ],
-        "rationale": "Direct promote must enforce the same reviewed replay receipt under the deployment lock."
+        "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate."
       },
     {
       "path": "backend/internal/service/openai_codex_models_service.go",

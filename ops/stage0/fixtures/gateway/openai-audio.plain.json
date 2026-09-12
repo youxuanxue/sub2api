@@ -1,0 +1,17 @@
+{
+  "method": "POST",
+  "path": "/v1/audio/speech",
+  "body": {
+    "model": "${model}",
+    "input": "OK",
+    "voice": "alloy",
+    "response_format": "mp3"
+  },
+  "stream": false,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}

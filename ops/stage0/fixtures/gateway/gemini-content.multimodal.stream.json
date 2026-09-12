@@ -1,0 +1,32 @@
+{
+  "method": "POST",
+  "path": "/v1beta/models/${model}:streamGenerateContent?alt=sse",
+  "body": {
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "inlineData": {
+              "mimeType": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+            }
+          },
+          {
+            "text": "Describe this image in one word."
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 64
+    }
+  },
+  "stream": true,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}

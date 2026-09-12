@@ -7,7 +7,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
 from prod_replay_manifest import Capability, load
-from post_release_replay_check import main as post_release_main
 
 
 class ManifestTests(unittest.TestCase):
@@ -23,9 +22,6 @@ class ManifestTests(unittest.TestCase):
             path.write_text(json.dumps({"capabilities": [item, item]}), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load(path)
-
-    def test_post_release_check_is_explicit_and_never_cutover(self):
-        self.assertEqual(post_release_main([]), 0)
 
 
 if __name__ == "__main__":

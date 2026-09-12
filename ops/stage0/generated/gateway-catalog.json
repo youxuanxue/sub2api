@@ -1,0 +1,3682 @@
+{
+  "models": [
+    {
+      "capabilities": [],
+      "id": "ark-code-latest",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "bge-large-en",
+      "mode": "embedding",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [],
+      "id": "bge-large-zh",
+      "mode": "embedding",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-3-5-haiku",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "claude-3-5-sonnet",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "claude-3-7-sonnet-20250219",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-3-haiku",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-3-haiku-20240307",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-3-opus",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-3-opus-20240229",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-4-opus-20250514",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "claude-4-sonnet-20250514",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-fable-5",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-haiku-4-5",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-haiku-4-5-20251001",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-mythos-5",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-1",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-1-20250805",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-20250514",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-5",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-5-20251101",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-6",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-6-20260205",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-6-thinking",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-7",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-7-20260416",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4-8",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4.5",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4.6",
+      "mode": "chat",
+      "vendor": "antigravity"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4.7",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-4.8",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-opus-5",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-sonnet-4",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-sonnet-4-20250514",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-sonnet-4-5",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "claude-sonnet-4-5-20250929",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-sonnet-4-5-20250929-v1:0",
+      "mode": "chat",
+      "vendor": "bedrock"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-sonnet-4-6",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "claude-sonnet-5",
+      "mode": "chat",
+      "vendor": "anthropic"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "codex-auto-review",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "composer-2",
+      "mode": "chat",
+      "vendor": "cursor"
+    },
+    {
+      "capabilities": [],
+      "id": "composer-2.5",
+      "mode": "chat",
+      "vendor": "cursor"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use"
+      ],
+      "id": "deepseek-chat",
+      "mode": "chat",
+      "vendor": "deepseek"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "deepseek-ocr",
+      "mode": "chat",
+      "vendor": "deepseek"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema"
+      ],
+      "id": "deepseek-reasoner",
+      "mode": "chat",
+      "vendor": "deepseek"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "deepseek-v3.2",
+      "mode": "chat",
+      "vendor": "deepseek"
+    },
+    {
+      "capabilities": [
+        "reasoning",
+        "tool_use"
+      ],
+      "id": "deepseek-v3.2-think",
+      "mode": "chat",
+      "vendor": "deepseek"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use"
+      ],
+      "id": "deepseek-v4-flash",
+      "mode": "chat",
+      "vendor": "deepseek"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "deepseek-v4-flash-vision-exp",
+      "mode": "chat",
+      "vendor": "deepseek"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use"
+      ],
+      "id": "deepseek-v4-pro",
+      "mode": "chat",
+      "vendor": "deepseek"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-1-5-lite-32k-250115",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-1-5-pro-32k-250115",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-1-5-pro-32k-character-250715",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-1-5-vision-pro-32k-250115",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "doubao-embedding-vision",
+      "mode": "embedding",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-1-6-250615",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-1-6-251015",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-1-6-flash-250615",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-1-6-flash-250828",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-1-6-vision-250815",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-1-8-251228",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2-0-code-preview-260215",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2-0-lite-260215",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2-0-lite-260428",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2-0-mini-260215",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2-0-mini-260428",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2-0-pro-260215",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2.0-code",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2.0-lite",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2.0-mini",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2.0-pro",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-2.1-turbo",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-asr-2.0",
+      "mode": "stt",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-character-251128",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-code-preview-251028",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-evolving",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seed-tts-2.0",
+      "mode": "tts",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedance-1-0-pro-250528",
+      "mode": "video",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedance-1-0-pro-fast-251015",
+      "mode": "video",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedance-1-5-pro-251215",
+      "mode": "video",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedance-2-0-260128",
+      "mode": "video",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedance-2-0-fast-260128",
+      "mode": "video",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedance-2-5-260628",
+      "mode": "video",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedance-2.0-mini",
+      "mode": "video",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedream-4-0-250828",
+      "mode": "image",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedream-4-5-251128",
+      "mode": "image",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedream-5-0-260128",
+      "mode": "image",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "doubao-seedream-5.0-lite",
+      "mode": "image",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [],
+      "id": "ernie-4.5-turbo-128k",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [],
+      "id": "ernie-4.5-turbo-20260402",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [],
+      "id": "ernie-4.5-turbo-32k",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "ernie-4.5-turbo-vl",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "tool_use",
+        "vision"
+      ],
+      "id": "ernie-4.5-turbo-vl-32k",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "ernie-5.0",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "reasoning",
+        "vision"
+      ],
+      "id": "ernie-5.0-thinking-preview",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [],
+      "id": "ernie-5.1",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "reasoning"
+      ],
+      "id": "ernie-x1.1",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "reasoning"
+      ],
+      "id": "ernie-x1.1-preview",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.0-flash",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.0-flash-001",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "gemini-2.0-flash-exp-image-generation",
+      "mode": "image",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.0-flash-lite",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.0-flash-lite-001",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-2.5-computer-use-preview-10-2025",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.5-flash",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-2.5-flash-image",
+      "mode": "image",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.5-flash-lite",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.5-flash-lite-preview-06-17",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.5-flash-lite-preview-09-2025",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [],
+      "id": "gemini-2.5-flash-native-audio-latest",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [],
+      "id": "gemini-2.5-flash-native-audio-preview-09-2025",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [],
+      "id": "gemini-2.5-flash-native-audio-preview-12-2025",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.5-flash-preview-09-2025",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [],
+      "id": "gemini-2.5-flash-preview-tts",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-2.5-flash-thinking",
+      "mode": "chat",
+      "vendor": "antigravity"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.5-pro",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-2.5-pro-preview-tts",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3-flash",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-3-flash-agent",
+      "mode": "chat",
+      "vendor": "antigravity"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3-flash-preview",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3-pro-image",
+      "mode": "image",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3-pro-image-preview",
+      "mode": "image",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3-pro-preview",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-flash-image",
+      "mode": "image",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-flash-image-preview",
+      "mode": "image",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-flash-lite",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-flash-lite-image",
+      "mode": "image",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-flash-lite-preview",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-flash-live-preview",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning"
+      ],
+      "id": "gemini-3.1-pro",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-pro-high",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-pro-low",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-pro-preview",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.1-pro-preview-customtools",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.5-flash",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-3.5-flash-extra-low",
+      "mode": "chat",
+      "vendor": "antigravity"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.5-flash-lite",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-3.5-flash-low",
+      "mode": "chat",
+      "vendor": "antigravity"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-3.6-flash",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-3.7-flash",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-3.8-flash",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [],
+      "id": "gemini-embedding-001",
+      "mode": "embedding",
+      "vendor": "vertex_ai-embedding-models"
+    },
+    {
+      "capabilities": [],
+      "id": "gemini-embedding-2",
+      "mode": "embedding",
+      "vendor": "vertex_ai-embedding-models"
+    },
+    {
+      "capabilities": [],
+      "id": "gemini-embedding-2-preview",
+      "mode": "embedding",
+      "vendor": "vertex_ai-embedding-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-exp-1206",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [],
+      "id": "gemini-flash-experimental",
+      "mode": "embedding",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-flash-latest",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-flash-lite-latest",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-live-2.5-flash-preview-native-audio-09-2025",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "reasoning",
+        "vision"
+      ],
+      "id": "gemini-omni-flash-preview",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-pro-agent",
+      "mode": "chat",
+      "vendor": "antigravity"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gemini-pro-latest",
+      "mode": "chat",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gemini-robotics-er-1.5-preview",
+      "mode": "chat",
+      "vendor": "vertex_ai-language-models"
+    },
+    {
+      "capabilities": [],
+      "id": "glm-4.5",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [],
+      "id": "glm-4.5-air",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [],
+      "id": "glm-4.6",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [],
+      "id": "glm-4.7",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [],
+      "id": "glm-5",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use"
+      ],
+      "id": "glm-5.1",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [],
+      "id": "glm-5.2",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [],
+      "id": "glm-5.2-fast-preview",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [],
+      "id": "glm-5.3",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "glm-5.3-flash",
+      "mode": "chat",
+      "vendor": "zhipu"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-3.5-turbo",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-3.5-turbo-0125",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-3.5-turbo-1106",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-3.5-turbo-16k",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-3.5-turbo-instruct",
+      "mode": "chat",
+      "vendor": "text-completion-openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-3.5-turbo-instruct-0914",
+      "mode": "chat",
+      "vendor": "text-completion-openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-4",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-4-0125-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4-0314",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-4-0613",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-4-1106-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4-turbo",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4-turbo-2024-04-09",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "tool_use"
+      ],
+      "id": "gpt-4-turbo-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-4.1",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-4.1-2025-04-14",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-4.1-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-4.1-mini-2025-04-14",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4.1-nano",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4.1-nano-2025-04-14",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4o",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4o-2024-05-13",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4o-2024-08-06",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4o-2024-11-20",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-audio-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-audio-preview-2024-12-17",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-audio-preview-2025-06-03",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4o-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4o-mini-2024-07-18",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-mini-audio-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-mini-audio-preview-2024-12-17",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-mini-realtime-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-mini-realtime-preview-2024-12-17",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-4o-mini-search-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4o-mini-search-preview-2025-03-11",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-4o-mini-transcribe",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-4o-mini-transcribe-2025-03-20",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-4o-mini-transcribe-2025-12-15",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-4o-mini-tts",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-4o-mini-tts-2025-03-20",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-4o-mini-tts-2025-12-15",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-realtime-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-realtime-preview-2024-12-17",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-4o-realtime-preview-2025-06-03",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-4o-search-preview",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-4o-search-preview-2025-03-11",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-4o-transcribe",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-4o-transcribe-diarize",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-2025-08-07",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "vision"
+      ],
+      "id": "gpt-5-chat",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "vision"
+      ],
+      "id": "gpt-5-chat-latest",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-codex",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-mini-2025-08-07",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-nano",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-nano-2025-08-07",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-pro",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-pro-2025-10-06",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-search-api",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5-search-api-2025-10-14",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.1",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.1-2025-11-13",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.1-chat-latest",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.1-codex",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.1-codex-max",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.1-codex-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.2",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.2-2025-12-11",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.2-chat-latest",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.2-codex",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.2-pro",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.2-pro-2025-12-11",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-5.3",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.3-chat-latest",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.3-codex",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.3-codex-spark",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-5.4",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "gpt-5.4-2026-03-05",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.4-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.4-mini-2026-03-17",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.4-nano",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.4-nano-2026-03-17",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.4-pro",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.4-pro-2026-03-05",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.5",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.5-2026-04-23",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.5-pro",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.5-pro-2026-04-23",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.6",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.6-chat-latest",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.6-luna",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.6-sol",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "gpt-5.6-terra",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching"
+      ],
+      "id": "gpt-6-astra",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-audio",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-audio-1.5",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-audio-2025-08-28",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-audio-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-audio-mini-2025-10-06",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-audio-mini-2025-12-15",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-image-1",
+      "mode": "image",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "gpt-image-1-mini",
+      "mode": "image",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "vision"
+      ],
+      "id": "gpt-image-1.5",
+      "mode": "image",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "vision"
+      ],
+      "id": "gpt-image-1.5-2025-12-16",
+      "mode": "image",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "vision"
+      ],
+      "id": "gpt-image-2",
+      "mode": "image",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "vision"
+      ],
+      "id": "gpt-image-2-2026-04-21",
+      "mode": "image",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime-1.5",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime-2",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime-2.1",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime-2.1-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime-2025-08-28",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime-mini-2025-10-06",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "gpt-realtime-mini-2025-12-15",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-4-fast-reasoning",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "grok-4.20-0309-non-reasoning",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "grok-4.20-0309-reasoning",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "grok-4.20-multi-agent-0309",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "grok-4.3",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-4.3-latest",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "grok-4.5",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-4.5-latest",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "grok-4.6",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "grok-build-0.1",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-build-latest",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-code-fast",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-code-fast-1",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-code-fast-1-0825",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-imagine-image",
+      "mode": "image",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-imagine-image-quality",
+      "mode": "image",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-imagine-video",
+      "mode": "video",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-imagine-video-1.5",
+      "mode": "video",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "grok-latest",
+      "mode": "chat",
+      "vendor": "xai"
+    },
+    {
+      "capabilities": [],
+      "id": "hy3",
+      "mode": "chat",
+      "vendor": "tencent"
+    },
+    {
+      "capabilities": [],
+      "id": "imagen-3.0-capability-001",
+      "mode": "image",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "imagen-3.0-fast-generate-001",
+      "mode": "image",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "imagen-3.0-generate-001",
+      "mode": "image",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "imagen-3.0-generate-002",
+      "mode": "image",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "imagen-4.0-fast-generate-001",
+      "mode": "image",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "imagen-4.0-generate-001",
+      "mode": "image",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "imagen-4.0-ultra-generate-001",
+      "mode": "image",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "internvl3-38b",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "kimi-k2.5",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "kimi-k2.6",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "kimi-k2.7-code",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "kimi-k2.7-code-highspeed",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "tool_use",
+        "vision"
+      ],
+      "id": "kimi-k3",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use"
+      ],
+      "id": "minimax-m2.7",
+      "mode": "chat",
+      "vendor": "minimax"
+    },
+    {
+      "capabilities": [],
+      "id": "minimax-m3",
+      "mode": "chat",
+      "vendor": "volcengine"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "moonshot-v1-128k",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "tool_use",
+        "vision"
+      ],
+      "id": "moonshot-v1-128k-vision-preview",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "moonshot-v1-32k",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "tool_use",
+        "vision"
+      ],
+      "id": "moonshot-v1-32k-vision-preview",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "moonshot-v1-8k",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "tool_use",
+        "vision"
+      ],
+      "id": "moonshot-v1-8k-vision-preview",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "tool_use"
+      ],
+      "id": "moonshot-v1-auto",
+      "mode": "chat",
+      "vendor": "moonshot"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "o1-2024-12-17",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "o1-pro",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision"
+      ],
+      "id": "o1-pro-2025-03-19",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o3",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o3-2025-04-16",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o3-deep-research",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o3-deep-research-2025-06-26",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use"
+      ],
+      "id": "o3-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use"
+      ],
+      "id": "o3-mini-2025-01-31",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o3-pro",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o3-pro-2025-06-10",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o4-mini",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "reasoning",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o4-mini-2025-04-16",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o4-mini-deep-research",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "pdf_input",
+        "prompt_caching",
+        "response_schema",
+        "tool_use",
+        "vision",
+        "web_search"
+      ],
+      "id": "o4-mini-deep-research-2025-06-26",
+      "mode": "chat",
+      "vendor": "openai"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "qianfan-ocr",
+      "mode": "chat",
+      "vendor": "wenxin"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen-audio-3.0-tts-plus",
+      "mode": "tts",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen-max",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen-plus",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen-turbo",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3-14b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3-235b-a22b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3-32b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3-8b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3-coder-plus",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3-embedding-0.6b",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3-embedding-4b",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3-embedding-8b",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "qwen3.5-122b-a10b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "qwen3.5-27b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "qwen3.5-35b-a3b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [
+        "vision"
+      ],
+      "id": "qwen3.5-397b-a17b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.6-27b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.6-flash",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-flash",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-flash-2026-07-15",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-max",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-max-2026-05-17",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-max-2026-05-20",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-max-2026-06-08",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-max-preview",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-plus",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-text-embedding",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.7-text-embedding-flash",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.8-2.4t-a95b",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.8-flash",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "qwen3.8-max",
+      "mode": "chat",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "text-embedding-v1",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "text-embedding-v2",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "text-embedding-v3",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "text-embedding-v4",
+      "mode": "embedding",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "veo-2.0-generate-001",
+      "mode": "video",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "veo-3.0-fast-generate-001",
+      "mode": "video",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "veo-3.0-generate-001",
+      "mode": "video",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "veo-3.1-fast-generate-001",
+      "mode": "video",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "veo-3.1-fast-generate-preview",
+      "mode": "video",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "veo-3.1-generate-001",
+      "mode": "video",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "veo-3.1-generate-preview",
+      "mode": "video",
+      "vendor": "vertex_ai"
+    },
+    {
+      "capabilities": [],
+      "id": "veo-3.1-lite-generate-preview",
+      "mode": "video",
+      "vendor": "gemini"
+    },
+    {
+      "capabilities": [],
+      "id": "wan2.7-image",
+      "mode": "image",
+      "vendor": "dashscope"
+    },
+    {
+      "capabilities": [],
+      "id": "wan2.7-image-pro",
+      "mode": "image",
+      "vendor": "dashscope"
+    }
+  ],
+  "protocols": [
+    "messages",
+    "chat_completions",
+    "responses",
+    "gemini_generate_content"
+  ],
+  "schema": 1
+}

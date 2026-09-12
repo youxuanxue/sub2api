@@ -1097,8 +1097,9 @@ validate_candidate_replacement() {
 }
 
 validate_replay_gate() {
-  # A replay attempt (including a failed one) cannot be bypassed by calling the
-  # low-level promote primitive. Recheck inside the same deployment host lock.
+  # Historical replay is optional. Only an explicitly requested continuation
+  # consumes its receipt; prepared-candidate approval remains mandatory above.
+  [[ -n "${APPROVED_REPLAY}" ]] || return 0
   if [[ -f "${ROOT}/bluegreen-replay.json" ]]; then
     python3 - "${TAG}" "${APPROVED_REPLAY}" <<'PYREPLAY'
 import base64, json, os, sys, zlib

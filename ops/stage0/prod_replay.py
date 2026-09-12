@@ -342,9 +342,9 @@ def request_seconds(sample):
     return min(MAX_REQUEST_SECONDS, max(REQUEST_SECONDS, 2 * historical + 30))
 
 
-def execute(sample, key, port, replay_id):
+def execute(sample, key, port, replay_id, *, validator=None, budget=None):
     # No proxy or redirects: a response cannot redirect credentials elsewhere.
-    budget = request_seconds(sample)
+    budget = request_seconds(sample) if budget is None else budget
     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=budget)
     started = time.monotonic()
     deadline = started + budget
@@ -375,7 +375,7 @@ def execute(sample, key, port, replay_id):
                     reason = 'response_incomplete'
                     break
                 phase = 'validation'
-                reason = response_failure(status, response.getheader('Content-Type', ''), raw,
+                reason = (validator or response_failure)(status, response.getheader('Content-Type', ''), raw,
                                           sample['row']['stream'])
                 break
             raw.extend(part)

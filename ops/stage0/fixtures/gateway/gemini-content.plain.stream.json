@@ -1,0 +1,26 @@
+{
+  "method": "POST",
+  "path": "/v1beta/models/${model}:streamGenerateContent?alt=sse",
+  "body": {
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Reply with OK."
+          }
+        ]
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 64
+    }
+  },
+  "stream": true,
+  "assertions": [
+    "protocol_envelope",
+    "no_error",
+    "terminal",
+    "usage"
+  ]
+}
