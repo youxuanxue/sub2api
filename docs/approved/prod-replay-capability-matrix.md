@@ -20,7 +20,7 @@ risk: high
 | `ops/stage0/gateway-capability-matrix.json` | universal 请求模板，不再参与模型全集生成 |
 | `ops/stage0/fixtures/gateway/` | 短合成请求；模板与完整场景执行能力分开记录 |
 | `ops/stage0/gateway_capability_matrix.py` | 账号类/模型族基础义务、类级协议和请求分支、稳定 ID、digest、增量与报告 |
-| `ops/stage0/gateway_capability_check.py` | HTTP 验证器；旧 model-only executor 在账号类计划上 fail closed |
+| `ops/stage0/gateway_capability_check.py` | HTTP 验证器；保留 HTTP 验证器；移除不可达的 model-only executor，run 明确拒绝执行 |
 | `ops/stage0/post_release_replay_check.py` | plan/report/from-tag；默认读供应代表清单 |
 | `scripts/stage0/update-capability-plan.py` | 校验供应清单和生成 release artifact；preflight 通过 `--check` 校验 |
 | `scripts/stage0/check-gateway-capabilities.sh` | 无网络、无付费调用的 post-release 计划与缺口报告 |
@@ -43,7 +43,7 @@ branch_family，不因线上调用频率变化自动改选代表。仓库内不�
 不恢复默认抽样截断，不增加 direct smoke。
 
 `--previous` 只比较声明/fixture digest，不代表执行历史。模板、代表或账号类语义改变会
-使相应证据过期；case ID 包含账号类，同一模型在不同账号路径上的成功不能相互替代。
+使相应证据过期；清单中的集合顺序不改变 digest；case ID 包含账号类，同一模型在不同账号路径上的成功不能相互替代。
 新模型映射到已有等价类时更新 represented_models；新执行分支另增代表或账号类。
 供应刷新是显式脱敏盘点后评审清单，尚未实现线上 inventory 自动归类；post-release
 消费版本化清单，不谎称已自动发现最新线上账号变化。暂时冷却/无供应不是删除长期义务的依据。
@@ -53,7 +53,7 @@ branch_family，不因线上调用频率变化自动改选代表。仓库内不�
 当前替换交付的是完整候选计划。每条保留 `plan_validation=required`，原生协议声明
 不能证明跨协议/特性的合法性。正式实测还需 canonical RequestPlan、账号类绑定及
 usage 归属核验；旧执行器只有 model → key，可能被其他账号类兜底，因此 `run` 在建
-Sandbox 前明确拒绝账号类计划，返回 `account_class_execution_binding_required`。
+Sandbox 前明确拒绝账号类计划；CLI 不写输出、不获取部署锁，直接返回结构化的 `account_class_execution_binding_required`。
 这不是审批开关，也不能通过编辑 plan 绕过；后续实现需补真实归属验证后才能开放。
 
 tool roundtrip 不能用一次 tool call 代替；生成图片不能用文本 generateContent 代替；
@@ -88,5 +88,6 @@ python3 ops/stage0/post_release_replay_check.py plan \
 当上限。CI 对本轮已接受的集合做回归断言，避免重新展开 catalog 或添加 direct。
 
 post-release 使用目标 tag 的供应清单与 fixture，从上一 tag 还原同格式 baseline；
-老 tag 尚无账号供应清单时报告 baseline_available=false，使用完整计划。
+老 tag 尚无账号供应清单，或 tag 中的生成器与当前不同，则报告 baseline_available=false，
+使用完整计划，避免以新规则重写旧义务而漏掉新增分支。
 自动上传 plan/coverage artifact，不自动执行上游请求，不参与切流审批。

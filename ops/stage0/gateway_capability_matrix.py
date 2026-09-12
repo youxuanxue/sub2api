@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = Path(__file__).with_name('gateway-capability-matrix.json')
 DEFAULT_INVENTORY = Path(__file__).with_name('gateway-account-supply.json')
 KEY_TYPES = {'universal'}
+EXECUTION_BLOCKER = 'account_class_execution_binding_required'
 PROTOCOLS = {'openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-content',
              'openai-images', 'openai-embeddings', 'openai-audio', 'openai-video', 'openai-transcription'}
 REQUEST_TYPES = {'plain', 'tool', 'thinking', 'multimodal', 'count_tokens'}
@@ -132,7 +133,13 @@ def validate_inventory(inventory):
                 require(rep['baseline_protocol'] in cls['native_protocols'], 'baseline must use declared native protocol')
         require(cls['branch_family'] in generation_families if generation_families else cls['branch_family'] is None,
                 'branch representative must be a generation family')
-    return inventory
+    # These lists represent sets, not selection priority. Reordering a reviewed
+    # inventory must not invalidate release evidence or create a false delta.
+    return {**inventory, 'classes': [
+        {**cls, 'native_protocols': sorted(set(cls['native_protocols'])), 'representatives': [
+            {**rep, 'represented_models': sorted(set(rep['represented_models']))}
+            for rep in sorted(cls['representatives'], key=lambda r: r['family'])]}
+        for cls in sorted(classes, key=lambda c: c['id'])]}
 
 
 GENERATION_PROTOCOLS = {'anthropic-messages', 'openai-chat', 'openai-responses', 'gemini-content'}
@@ -147,7 +154,7 @@ def build(inventory, profiles):
     Inventory is a reviewed, sanitized projection, not a live availability claim.
     No account IDs, credentials, traffic counters or public catalog are needed.
     """
-    validate_inventory(inventory)
+    inventory = validate_inventory(inventory)
     fixtures = {p['id']: p for p in profiles}
     entries = []
 
@@ -246,7 +253,7 @@ def report(plan, results=None, previous=None):
             require(result.get('status') in ('passed', 'failed', 'blocked-by-test-infrastructure'), 'invalid result status')
             status = result['status']
             require(status != 'passed' or results['execution_kind'] == 'harness',
-                    'account_class_execution_binding_required')
+                    EXECUTION_BLOCKER)
             if status == 'passed' and results['execution_kind'] == 'harness':
                 status = 'harness-passed'  # Never gateway service evidence.
         else:
@@ -262,7 +269,7 @@ def report(plan, results=None, previous=None):
             'total': len(output), 'delta': len(scope), 'scope_complete': complete,
             'verdict': 'no_changes' if not scope else 'passed' if complete else 'incomplete',
             'cutover': False, 'deployment_gate': False,
-            'execution_blocker': 'account_class_execution_binding_required', 'entries': output}
+            'execution_blocker': EXECUTION_BLOCKER, 'entries': output}
 
 
 def from_tag(tag):
@@ -282,8 +289,13 @@ def from_tag(tag):
     manifest = blob('ops/stage0/gateway-capability-matrix.json', optional=True)
     if inventory is None or manifest is None:
         return None  # Older release predates this check; current full plan is the baseline.
+    generator = blob('ops/stage0/gateway_capability_matrix.py', optional=True)
+    if generator != Path(__file__).read_bytes():
+        # Rebuilding with changed rules would retrofit new obligations into the
+        # previous release and silently erase their delta. Use a full baseline.
+        return None
     with tempfile.TemporaryDirectory(prefix='tk-capability-baseline-') as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
         (root / 'matrix.json').write_bytes(manifest)
         for profile in json.loads(manifest)['profiles']:
             fixture = profile.get('fixture')

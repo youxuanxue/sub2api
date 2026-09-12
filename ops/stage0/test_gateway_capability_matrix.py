@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import gateway_capability_matrix as matrix
 import gateway_capability_check as check
@@ -117,6 +117,43 @@ class MatrixTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             matrix.validate_plan(value)
 
+    def test_inventory_permutations_do_not_change_plan_or_delta(self):
+        original = json.loads(matrix.DEFAULT_INVENTORY.read_text())
+        shuffled = copy.deepcopy(original)
+        shuffled['classes'].reverse()
+        for cls in shuffled['classes']:
+            cls['representatives'].reverse()
+            cls['native_protocols'].reverse()
+            for rep in cls['representatives']:
+                rep['represented_models'].reverse()
+        before = matrix.build(original, matrix.load())
+        after = matrix.build(shuffled, matrix.load())
+        self.assertEqual(before, after)
+        self.assertEqual(matrix.delta(after, before), [])
+        self.assertNotEqual(original['classes'][0]['id'], shuffled['classes'][0]['id'])
+
+    def test_tag_baseline_is_reused_only_with_identical_generator(self):
+        def git_result(args, **kwargs):
+            if args[1] == 'rev-parse':
+                return subprocess.CompletedProcess(args, 0)
+            path = args[2].split(':', 1)[1]
+            payload = (matrix.ROOT / path).read_bytes()
+            return subprocess.CompletedProcess(args, 0, stdout=payload)
+        with patch.object(matrix.subprocess, 'run', side_effect=git_result):
+            baseline = matrix.from_tag('1.2.3')
+        current = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
+        self.assertEqual(current, baseline)
+
+        def old_generator(args, **kwargs):
+            result = git_result(args, **kwargs)
+            if args[1] == 'show' and args[2].endswith(':ops/stage0/gateway_capability_matrix.py'):
+                result.stdout += b'\n# previous generation rules\n'
+            return result
+        with patch.object(matrix.subprocess, 'run', side_effect=old_generator):
+            baseline = matrix.from_tag('1.2.3')
+        self.assertIsNone(baseline)
+        self.assertEqual(len(matrix.delta(current, baseline)), 157)
+
     def test_legacy_tag_without_account_supply_has_no_baseline(self):
         completed = subprocess.CompletedProcess([], 0, stdout=b'', stderr=b'')
         missing = subprocess.CompletedProcess([], 128, stdout=b'', stderr=b'')
@@ -174,18 +211,18 @@ class ExecutionTests(unittest.TestCase):
         raw = b'data: {"choices":[{"delta":{"content":"OK"}}],"usage":{"prompt_tokens":1}}\n\ndata: [DONE]\n\n'
         self.assertIsNone(check.validate_response({'protocol':'openai-chat','request_type':'plain'}, 200, 'text/event-stream', raw, True))
 
-    def test_key_bindings_require_reserved_key_and_actual_type_in_snapshot(self):
-        case = {'model': 'm', 'key_type': 'universal'}
-        box = MagicMock(pg='sandbox-pg', database='sandbox')
-        self.assertEqual(check.binding_key(case, {}, box), (None, 'test_key_binding_missing'))
-        key = {'id': 9, 'key': 'secret', 'name': '__tk_probe_check_key', 'status': 'active', 'routing_mode': 'direct'}
-        with patch.object(check.replay, 'sql', return_value=json.dumps(key)) as sql:
-            self.assertEqual(check.binding_key(case, {'m': {'universal':9}}, box), (None, 'test_key_type_mismatch'))
-            self.assertEqual(sql.call_args.args[1:], ('sandbox-pg', 'sandbox'))
-        for changes, reason in [({'routing_mode':'universal'}, None), ({'name':'customer'}, 'dedicated_test_key_required'), ({'status':'quota_exhausted'}, 'test_key_inactive')]:
-            value = {**key, 'routing_mode': 'universal', **changes}
-            with patch.object(check.replay, 'sql', return_value=json.dumps(value)):
-                self.assertEqual(check.binding_key(case, {'m': {'universal':9}}, box)[1], reason)
+    def test_disabled_cli_execution_is_structured_and_has_no_side_effects(self):
+        for args in (['run'], ['run', '--plan', '/missing/plan.json', '--tag', '1.2.3',
+                               '--bindings', '/missing/keys.json', '--out', '/must-not-write/results.json',
+                               '--allow-upstream-quota']):
+            with contextlib.redirect_stdout(io.StringIO()) as output, \
+                 patch('post_release_replay_check.write', side_effect=AssertionError('must not write')), \
+                 patch('pathlib.Path.open', side_effect=AssertionError('must not open files or locks')), \
+                 patch('socket.socket', side_effect=AssertionError('must not open network')):
+                self.assertEqual(main(args), 2)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result['execution_blocker'], 'account_class_execution_binding_required')
+            self.assertEqual(result['execution'], 'not_run')
 
     def test_account_class_plan_cannot_succeed_through_unrelated_fallback_account(self):
         with patch.object(check.replay, 'Sandbox') as sandbox, patch.object(check.replay, 'prepared') as prepared:

@@ -296,8 +296,8 @@
       },
       {
         "path": "ops/stage0/gateway_capability_check.py",
-        "must_contain": ["dedicated_test_key_required", "test_key_type_mismatch", "account_class_execution_binding_required", "production_usage_written", "box.close()"],
-        "rationale": "Optional real checks use dedicated keys only in isolated snapshots, retain production usage isolation and always clean up."
+        "must_contain": ["def validate_response(", "def run(", "raise replay.ReplayError(EXECUTION_BLOCKER)"],
+        "rationale": "Account-class execution must refuse explicitly until binding and attribution exist; HTTP fixture validation remains reusable."
       },
       {
         "path": "ops/stage0/prod_replay.py",
