@@ -295,6 +295,16 @@
         "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return. prepared_gateway receipts must surface account_class_coverage for approval."
       },
       {
+        "path": "backend/internal/service/account.go",
+        "must_contain": ["a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()"],
+        "rationale": "Vertex embedding service accounts must survive the same scheduler capability gate as discovery, without admitting other OAuth/service-account shapes."
+      },
+      {
+        "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason_test.go",
+        "must_contain": ["TestVertexEmbeddingEligibilityRetainsServiceAccount"],
+        "rationale": "Exercise the actual scheduler candidate filter including explicit capability denial and unavailable accounts."
+      },
+      {
         "path": "backend/internal/handler/openai_gateway_handler_tk_forward_usage.go",
         "must_contain": ["tkSubmitOpenAISimpleForwardUsage", "SessionID:          sessionID,"],
         "rationale": "Simple audio/media usage must snapshot the ordinary client session before async recording."

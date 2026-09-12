@@ -159,3 +159,36 @@ func TestAppendSelectionFailureReasonSampleIsCapped(t *testing.T) {
 	// with the bucket total.
 	require.Equal(t, "7(unspecified)", appendSelectionFailureReasonSample(nil, 7, "")[0])
 }
+
+func TestVertexEmbeddingEligibilityRetainsServiceAccount(t *testing.T) {
+	model := "gemini-embedding-001"
+	account := Account{ID: 59, Platform: PlatformNewAPI, Type: AccountTypeServiceAccount,
+		ChannelType: 41, Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{model: model}}}
+	scheduler := &defaultOpenAIAccountScheduler{service: &OpenAIGatewayService{}}
+	req := OpenAIAccountScheduleRequest{GroupPlatform: PlatformNewAPI, RequestedModel: model,
+		RequiredCapability: OpenAIEndpointCapabilityEmbeddings}
+	for _, tc := range []struct {
+		name     string
+		change   func(*Account)
+		admitted bool
+	}{
+		{"vertex_service_account", func(a *Account) {}, true},
+		{"unsupported_channel", func(a *Account) { a.ChannelType = 1 }, false},
+		{"oauth", func(a *Account) { a.Type = AccountTypeOAuth }, false},
+		{"explicitly_disabled", func(a *Account) { a.Credentials["openai_capabilities"] = []any{"chat_completions"} }, false},
+		{"cooling", func(a *Account) { a.Schedulable = false }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := account
+			a.Credentials = map[string]any{"model_mapping": map[string]any{model: model}}
+			tc.change(&a)
+			candidates, _ := scheduler.openAICandidates(context.Background(), []Account{a}, req)
+			if tc.admitted {
+				require.Len(t, candidates, 1)
+			} else {
+				require.Empty(t, candidates)
+			}
+		})
+	}
+}

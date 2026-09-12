@@ -150,3 +150,7 @@ X-Session-Id 归因，prepare 入口固定使用 prod region SSOT，不继承操
 仍要求完整终态和正确颜色答案。音频/媒体共用 usage 提交 owner 补齐普通客户端 SessionID，
 不改变请求 ID、计量与结算。视频校验接受 Vertex pending operation 的 name，并继续轮询至终态；
 成功必须有 HTTPS 视频地址或有效 MP4 内联载荷，done+error 仍失败，不把提交成功当生成完成。
+
+Vertex embedding 的后续筛选误用 API-key-only 条件：允许已有 newapi/channel-41/service_account
+供给通过 embedding 类型门，仍遵守显式 capability、模型与可用性检查；不扩展到其他 OAuth 或
+service-account 类型，不改变线上账号绑定。

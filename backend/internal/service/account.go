@@ -1915,7 +1915,8 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 			return false
 		}
 	case OpenAIEndpointCapabilityEmbeddings:
-		if a.Type != AccountTypeAPIKey {
+		// TK: Vertex embeddings use the existing service-account bridge.
+		if a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount() {
 			return false
 		}
 	default:
