@@ -7,7 +7,7 @@
         "role": "user",
         "parts": [
           {
-            "text": "Reply with OK."
+            "text": "Work out 17 times 23 carefully, then reply with the number only."
           }
         ]
       }

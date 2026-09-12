@@ -19,24 +19,32 @@ sys.path.insert(0, str(ROOT / 'ops/stage0'))
 from ssm_execution import PROD_REGION, resolve_prod_instance  # noqa: E402
 
 
-def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt=''):
+def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='', offset=0):
     files = {name: (ROOT / 'ops/stage0' / name).read_text() for name in
-             ('prod_replay.py', 'prod_replay_manifest.py', 'prod-replay-capabilities.json')}
-    payload = base64.b64encode(zlib.compress(json.dumps(files).encode())).decode()
+             ('prod_replay.py', 'prod_replay_manifest.py', 'prod-replay-capabilities.json',
+              'gateway_capability_host.py', 'gateway_capability_check.py', 'gateway_capability_matrix.py',
+              'gateway_capability_scenarios.py', 'gateway-account-supply.json', 'gateway-capability-matrix.json')}
+    for fixture in (ROOT / 'ops/stage0/fixtures/gateway').glob('*.json'):
+        files['fixtures/gateway/' + fixture.name] = fixture.read_text()
+    payload = base64.b64encode(zlib.compress(json.dumps(files).encode(), level=9)).decode()
     # Private per-command path: concurrent delivery cannot replace another run's
     # executor. The host module takes the blue/green deployment lock itself.
     unpack = ('import base64,json,pathlib,sys,zlib; '
-              'files=json.loads(zlib.decompress(base64.b64decode(sys.argv[1]))); '
-              '[pathlib.Path(sys.argv[2],name).write_text(data) for name,data in files.items()]')
+              'files=json.loads(zlib.decompress(base64.b64decode(pathlib.Path(sys.argv[1]).read_text()))); '
+              '[(pathlib.Path(sys.argv[2],name).parent.mkdir(parents=True,exist_ok=True),'
+              'pathlib.Path(sys.argv[2],name).write_text(data)) for name,data in files.items()]')
+    entry = 'gateway_capability_host.py' if operation in ('run', 'results') else 'prod_replay.py'
+    arguments = ([operation, '--tag', tag, '--offset', str(offset)] if operation in ('run', 'results') else
+                 [operation, '--tag', tag, '--receipt', receipt, '--replace-receipt', replace_receipt])
     script = ('set -euo pipefail\numask 077\n'
               'replay_dir=$(mktemp -d /tmp/tk-prod-replay.XXXXXX)\n'
-              'trap \'rm -f "$replay_dir/prod_replay.py" "$replay_dir/prod_replay_manifest.py" '
-              '"$replay_dir/prod-replay-capabilities.json"; rmdir "$replay_dir"\' EXIT\n'
-              'python3 -c ' + shlex.quote(unpack) + ' ' + shlex.quote(payload) + ' "$replay_dir"\n'
-              'PYTHONDONTWRITEBYTECODE=1 python3 "$replay_dir/prod_replay.py" '
-              + shlex.join([operation, '--tag', tag, '--receipt', receipt,
-                            '--replace-receipt', replace_receipt]) + '\n')
-    parameters = json.dumps({'commands': [script], 'executionTimeout': [str(timeout)]})
+              'trap \'python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$replay_dir"\' EXIT\n'
+              + ''.join('printf %s ' + shlex.quote(payload[i:i+8192]) + ' >> "$replay_dir/payload"\n'
+                        for i in range(0, len(payload), 8192))
+              + 'python3 -c ' + shlex.quote(unpack) + ' "$replay_dir/payload" "$replay_dir"\n'
+              'PYTHONDONTWRITEBYTECODE=1 python3 "$replay_dir/' + entry + '" '
+              + shlex.join(arguments) + '\n')
+    parameters = json.dumps({'commands': script.splitlines(), 'executionTimeout': [str(timeout)]})
     region = PROD_REGION
     base = ['aws', '--region', region, 'ssm']
     cid = subprocess.check_output(base + ['send-command', '--instance-ids', instance,
@@ -78,6 +86,19 @@ def run_replay(tag, instance, out, replace_receipt=''):
     remote(instance, 'status', tag, timeout=60)  # Require a matching durable prepared candidate.
     receipt = remote(instance, 'run', tag)
     (out / 'replay-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+    results = []
+    for offset in range(0, receipt['total'], 5):
+        page = remote(instance, 'results', tag, timeout=60, offset=offset)
+        if page.get('tag') != tag:
+            raise RuntimeError('replay result tag changed')
+        results.extend(page['rows'])
+    details = {k: v for k, v in receipt.items() if k not in ('receipt_sha256', 'results_sha256', 'coverage', 'total')}
+    details['results'] = results
+    sys.path.insert(0, str(ROOT / 'ops/stage0'))
+    from gateway_capability_matrix import digest
+    if digest(details) != receipt['results_sha256']:
+        raise RuntimeError('replay result fingerprint changed')
+    (out / 'replay-results.json').write_text(json.dumps(details, indent=2) + '\n')
     if receipt.get('verdict') != 'green' or receipt.get('cutover') is not False:
         raise RuntimeError('replay failed; see replay-receipt.json; cutover remains blocked')
     print('replay passed; user approval required: ' + receipt['receipt_sha256'])

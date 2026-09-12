@@ -10,17 +10,21 @@ import subprocess
 import tempfile
 from urllib.parse import quote
 
+from gateway_capability_scenarios import media_request
+
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MANIFEST = Path(__file__).with_name('gateway-capability-matrix.json')
 DEFAULT_INVENTORY = Path(__file__).with_name('gateway-account-supply.json')
 KEY_TYPES = {'universal'}
-EXECUTION_BLOCKER = 'account_class_execution_binding_required'
+EXECUTION_BLOCKER = 'upstream_execution_not_requested'
+VERIFICATION_SOURCES = ('gateway_capability_scenarios.py', 'gateway_capability_check.py',
+                        'gateway_capability_host.py', 'prod_replay.py')
 PROTOCOLS = {'openai-chat', 'openai-responses', 'anthropic-messages', 'gemini-content',
              'openai-images', 'openai-embeddings', 'openai-audio', 'openai-video', 'openai-transcription'}
 REQUEST_TYPES = {'plain', 'tool', 'thinking', 'multimodal', 'count_tokens'}
 PATHS = {'/v1/chat/completions', '/v1/responses', '/v1/responses/input_tokens',
          '/v1/messages', '/v1/messages/count_tokens', '/v1/images/generations',
-         '/v1/embeddings', '/v1/audio/speech'}
+         '/v1/embeddings', '/v1/audio/speech', '/v1/audio/transcriptions', '/v1/videos'}
 ASSERTIONS = {'protocol_envelope', 'no_error', 'terminal', 'usage', 'tool_call'}
 
 
@@ -156,6 +160,8 @@ def build(inventory, profiles):
     """
     inventory = validate_inventory(inventory)
     fixtures = {p['id']: p for p in profiles}
+    verification_sha256 = digest({name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+                                  for name in VERIFICATION_SOURCES})
     entries = []
 
     def emit(cls, rep, protocol, scenario, layer):
@@ -165,11 +171,13 @@ def build(inventory, profiles):
         profile = fixtures.get(profile_id)
         request = render(profile['request'], rep['model']) if profile and profile.get('request') else None
         reason = profile.get('blocked_reason') if profile else 'fixture_required'
-        if scenario == 'tool-roundtrip':
-            reason = 'tool_roundtrip_executor_required'
-        if scenario == 'content-image':
-            reason = 'image_generation_fixture_required'
-            request = None  # A text generateContent fixture does not test image output.
+        if scenario in ('image', 'content-image', 'speech', 'video', 'transcription'):
+            audio = next((p['request']['body']['audio_base64'] for p in profiles
+                          if p['id'] == 'openai-transcription.plain'), '')
+            request = media_request(scenario, rep['model'], audio)
+            reason = None
+        if scenario == 'count-tokens' and protocol == 'openai-chat':
+            reason = 'protocol_operation_not_defined'
         entry = {'account_class': cls['id'], 'model_family': rep['family'], 'model': rep['model'],
                  'upstream_model': rep['upstream_model'], 'profile': profile_id, 'protocol': protocol,
                  'request_type': {'plain-stream': 'plain', 'tool-roundtrip': 'tool', 'thinking': 'thinking',
@@ -178,6 +186,7 @@ def build(inventory, profiles):
                  'blocked_reason': reason, 'selection': layer, 'plan_validation': 'required'}
         # Equivalence semantics invalidate evidence even if the chosen model is unchanged.
         entry['supply_sha256'] = digest(cls)
+        entry['verification_sha256'] = verification_sha256
         entry['id'] = digest([cls['id'], rep['family'], protocol, scenario, 'universal'])
         entry['case_sha256'] = digest(entry)
         entries.append(entry)
@@ -250,10 +259,21 @@ def report(plan, results=None, previous=None):
         result = records.get(case['id'])
         if result:
             require(result.get('case_sha256') == case['case_sha256'], 'stale fixture result')
-            require(result.get('status') in ('passed', 'failed', 'blocked-by-test-infrastructure'), 'invalid result status')
+            require(result.get('status') in ('passed', 'failed', 'unsupported', 'blocked-by-test-infrastructure'), 'invalid result status')
             status = result['status']
-            require(status != 'passed' or results['execution_kind'] == 'harness',
-                    EXECUTION_BLOCKER)
+            if status == 'passed' and results['execution_kind'] == 'isolated_gateway':
+                proof = result.get('execution_proof', {})
+                require(results.get('isolation_verified') is True and results.get('cleanup_verified') is True
+                        and results.get('cutover') is False and results.get('production_usage_rows') == 0,
+                        'isolated_execution_not_verified')
+                require(proof.get('account_class') == case['account_class'] and
+                        proof.get('key_type') == 'universal' and type(proof.get('bound_account_id')) is int
+                        and proof['bound_account_id'] > 0 and proof.get('request_ids') and
+                        proof.get('routing_validation') in ('canonical_gateway', 'media_handler', 'tokenizer_endpoint'),
+                        'account_class_execution_binding_required')
+                require(proof.get('observed_account_ids') == [proof['bound_account_id']]
+                        or case['request_type'] == 'count_tokens' and proof.get('attribution') == 'unmetered_endpoint',
+                        'account_attribution_missing')
             if status == 'passed' and results['execution_kind'] == 'harness':
                 status = 'harness-passed'  # Never gateway service evidence.
         else:
@@ -269,7 +289,8 @@ def report(plan, results=None, previous=None):
             'total': len(output), 'delta': len(scope), 'scope_complete': complete,
             'verdict': 'no_changes' if not scope else 'passed' if complete else 'incomplete',
             'cutover': False, 'deployment_gate': False,
-            'execution_blocker': EXECUTION_BLOCKER, 'entries': output}
+            'execution_blocker': None if results and results['execution_kind'] == 'isolated_gateway' else EXECUTION_BLOCKER,
+            'entries': output}
 
 
 def from_tag(tag):
@@ -294,6 +315,9 @@ def from_tag(tag):
         # Rebuilding with changed rules would retrofit new obligations into the
         # previous release and silently erase their delta. Use a full baseline.
         return None
+    for name in VERIFICATION_SOURCES:
+        if blob('ops/stage0/' + name, optional=True) != Path(__file__).with_name(name).read_bytes():
+            return None
     with tempfile.TemporaryDirectory(prefix='tk-capability-baseline-') as directory:
         root = Path(directory).resolve()
         (root / 'matrix.json').write_bytes(manifest)

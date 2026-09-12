@@ -3,7 +3,7 @@
   "path": "/v1/responses",
   "body": {
     "model": "${model}",
-    "input": "Reply with OK.",
+    "input": "Work out 17 times 23 carefully, then reply with the number only.",
     "max_output_tokens": 2048,
     "reasoning": {
       "effort": "low"

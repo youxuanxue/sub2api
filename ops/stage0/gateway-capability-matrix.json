@@ -363,38 +363,6 @@
       "fixture": "fixtures/gateway/openai-embeddings.plain.json"
     },
     {
-      "id": "openai-images.plain",
-      "protocol": "openai-images",
-      "request_type": "plain",
-      "mode": "image",
-      "key_types": [
-        "universal"
-      ],
-      "fixture": "fixtures/gateway/openai-images.plain.json",
-      "blocked_reason": "media_model_parameters_require_review"
-    },
-    {
-      "id": "openai-audio.plain",
-      "protocol": "openai-audio",
-      "request_type": "plain",
-      "mode": "tts",
-      "key_types": [
-        "universal"
-      ],
-      "fixture": "fixtures/gateway/openai-audio.plain.json",
-      "blocked_reason": "voice_binding_requires_review"
-    },
-    {
-      "id": "openai-video.plain",
-      "protocol": "openai-video",
-      "request_type": "plain",
-      "mode": "video",
-      "key_types": [
-        "universal"
-      ],
-      "blocked_reason": "async_video_fixture_required"
-    },
-    {
       "id": "openai-transcription.plain",
       "protocol": "openai-transcription",
       "request_type": "plain",
@@ -402,7 +370,7 @@
       "key_types": [
         "universal"
       ],
-      "blocked_reason": "multipart_fixture_required"
+      "fixture": "fixtures/gateway/transcription-audio.json"
     }
   ]
 }
