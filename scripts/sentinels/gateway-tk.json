@@ -806,7 +806,7 @@
     },
     {
       "path": "backend/internal/service/volcengine_plan_asr_tk.go",
-      "must_contain": ["volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
+      "must_contain": ["serialization = 0", "volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
       "rationale": "ASR must retain bounded binary decoding, terminal-only duration settlement and its dedicated Plan credential destination."
     },
     {
@@ -816,7 +816,7 @@
     },
     {
       "path": "backend/internal/service/volcengine_plan_asr_tk_test.go",
-      "must_contain": ["TestVolcEnginePlanASRDefaultTTSRoundTrip", "TestVolcEnginePlanASRBinaryWebSocketTransport", "TestVolcEnginePlanASRFailureAndCancellation", "TestVolcEnginePlanASRForwardSilentInputAndBilling", "TestVolcEnginePlanASRFrameValidation"],
+      "must_contain": ["TestVolcEngineASRAudioFrameUsesRawSerialization", "TestVolcEnginePlanASRDefaultTTSRoundTrip", "TestVolcEnginePlanASRBinaryWebSocketTransport", "TestVolcEnginePlanASRFailureAndCancellation", "TestVolcEnginePlanASRForwardSilentInputAndBilling", "TestVolcEnginePlanASRFrameValidation"],
       "rationale": "Preserve recording, cancellation, metering and malformed-frame regression coverage."
     },
     {

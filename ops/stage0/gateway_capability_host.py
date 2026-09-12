@@ -169,7 +169,7 @@ def execute_case(case, binding, address, before, throttle, inventory, run_id, ro
         payload, content_type = request_wire(request)
         captured = {}
         marker = run_id + '-' + case['id'][:16] + '-' + str(len(observations))
-        session_id = marker if case['scenario'] == 'speech' else None
+        session_id = marker if case['scenario'] in ('speech', 'transcription') else None
 
         def validator(status, ctype, raw, stream):
             nonlocal reasoning_evidence

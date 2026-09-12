@@ -140,3 +140,8 @@ Qwen Token Plan 的参数适配在已选模型别名解析后执行，保留显�
 
 Antigravity 的 Gemini 非流式转换复用共享 parts 收集器，保留早期工具调用、思考、签名和媒体顺序；
 只合并不带元数据的连续文本，禁止把思考文本并入普通输出。
+
+后续复测修复沿用同一授权：ASR 音频帧按供应商二进制协议声明 raw bytes；
+初始化与音频阶段错误分别标记但不暴露供应商错误正文。转录与语音合成共用普通
+X-Session-Id 归因，prepare 入口固定使用 prod region SSOT，不继承操作者的其他 region。
+协议参考：https://docs.volcengine.com/docs/6561/1354869 （Audio only client request 示例）。

@@ -245,6 +245,24 @@ class ExecutionTests(unittest.TestCase):
             self.assertEqual(result['status'], 'failed')
             self.assertIsNone(result.get('stop_reason'))
 
+    def test_transcription_correlates_ordinary_session_to_usage(self):
+        case = {**plan()['entries'][0], 'scenario': 'transcription'}
+        with patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+             patch.object(host.replay, 'inspect', return_value={}), \
+             patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
+             patch.object(host, 'attribution', return_value=([144], None, ['grok_audio:upstream'], True)) as attribute, \
+             patch.object(host.replay, 'execute') as execute:
+            def send(*args, **kwargs):
+                kwargs['on_response_id']('gateway-id')
+                return {'reason': None, 'response_request_id': 'gateway-id'}
+            execute.side_effect = send
+            result = host.execute_case(case, {'key': 'secret', 'api_key_id': 334}, '172.18.0.5', {'target': 'green'},
+                                       lambda: None, inventory(), 'test', Path('/unused'))
+        self.assertEqual(result['status'], 'passed')
+        session = execute.call_args.kwargs['session_id']
+        self.assertTrue(session.startswith('test-'))
+        self.assertEqual(attribute.call_args.args[-1], {'gateway-id': session})
+
     def test_full_plan_uses_existing_candidate_and_keeps_failures(self):
         value = plan()
         with tempfile.TemporaryDirectory() as directory, \

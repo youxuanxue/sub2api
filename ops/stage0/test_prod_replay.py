@@ -340,9 +340,10 @@ class OrchestrationTest(unittest.TestCase):
         return [receipt, {'tag': tag, 'rows': details['results']}]
 
     def test_prepare_cannot_inherit_cutover_and_execution_must_produce_receipt(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': True}, {'needs_prepare': False}] + self.receipt()) as remote, patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {'STAGE0_BLUEGREEN_STAGE': 'deploy', 'STAGE0_BLUEGREEN_WAIT_PHASE': 'cutover'}):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': True}, {'needs_prepare': False}] + self.receipt()) as remote, patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {'STAGE0_BLUEGREEN_STAGE': 'deploy', 'STAGE0_BLUEGREEN_WAIT_PHASE': 'cutover', 'AWS_REGION': 'wrong-region'}):
             cli.run_replay('1.2.3', 'i-prod', Path(tmp))
             env = process.call_args.kwargs['env']
+            self.assertEqual(env['AWS_REGION'], cli.PROD_REGION)
             self.assertEqual(env['STAGE0_BLUEGREEN_STAGE'], 'prepare')
             self.assertEqual(env['STAGE0_BLUEGREEN_WAIT_PHASE'], 'complete')
             self.assertEqual([c.args[1] for c in remote.call_args_list], ['status', 'status', 'run', 'results'])
@@ -391,6 +392,7 @@ class OrchestrationTest(unittest.TestCase):
                 'STAGE0_BLUEGREEN_APPROVED_REPLAY': 'a'*64, 'STAGE0_BLUEGREEN_REPLACE_RECEIPT': 'a'*64}):
             cli.run_replay('1.2.4', 'i-prod', Path(tmp), 'b'*64)
             env = process.call_args.kwargs['env']
+            self.assertEqual(env['AWS_REGION'], cli.PROD_REGION)
             self.assertEqual(env['STAGE0_BLUEGREEN_STAGE'], 'prepare')
             self.assertEqual(env['STAGE0_BLUEGREEN_REPLACE_RECEIPT'], 'b'*64)
             self.assertNotIn('STAGE0_BLUEGREEN_APPROVED_REPLAY', env)

@@ -93,7 +93,7 @@ def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY
     if state['needs_prepare']:
         # No caller-supplied deploy environment can turn this into a cutover.
         env = {k: v for k, v in os.environ.items() if not k.startswith('STAGE0_BLUEGREEN_')}
-        env.update(STAGE0_BLUEGREEN_STAGE='prepare', STAGE0_BLUEGREEN_WAIT_PHASE='complete',
+        env.update(AWS_REGION=PROD_REGION, STAGE0_BLUEGREEN_STAGE='prepare', STAGE0_BLUEGREEN_WAIT_PHASE='complete',
                    STAGE0_SSM_OUTPUT_DIR=str(out / 'prepare'))
         if replace_receipt:
             env['STAGE0_BLUEGREEN_REPLACE_RECEIPT'] = replace_receipt
