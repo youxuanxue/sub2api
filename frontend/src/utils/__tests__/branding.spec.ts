@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SITE_LOGO, updateFavicon } from '@/utils/branding'
 
 describe('updateFavicon', () => {
@@ -19,5 +19,19 @@ describe('updateFavicon', () => {
     const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
     expect(link?.getAttribute('href')).toBe(DEFAULT_SITE_LOGO)
     expect(link?.getAttribute('href')).not.toBe('/logo.svg')
+  })
+
+  it('does not reload an unchanged favicon during settings initialization', () => {
+    updateFavicon('/logo.png')
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]')!
+    const setHref = vi.spyOn(link, 'href', 'set')
+
+    updateFavicon('/logo.png')
+    updateFavicon(new URL('/logo.png', document.baseURI).href)
+    expect(setHref).not.toHaveBeenCalled()
+
+    updateFavicon('/changed.png')
+    expect(setHref).toHaveBeenCalledTimes(1)
+    setHref.mockRestore()
   })
 })

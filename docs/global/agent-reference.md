@@ -2,6 +2,14 @@
 
 Long-form operational reference moved out of root `CLAUDE.md` to stay under the Claude Code memory limit. Hard rules remain in `CLAUDE.md`; load this file when you need gateway topology, Studio SSOT, or the full PR checklist.
 
+## Public signup offer SSOT
+
+`frontend/src/components/common/SignupBonusLink.tk.vue` owns the public homepage
+and pricing page's signup-credit visibility, amount and link. Both surfaces read
+the same public settings through this component; neither promises a fixed token
+allowance. The frontend sentinel registry and `e2e/public-pages.e2e.ts` guard the
+shared behavior.
+
 ## Studio SSOT (`/studio` Image / Video / BakeOff)
 
 `/studio` 三页（`ImageStudio` / `VideoStudio` / `BakeOff`）共享的历史、预览、下载、重载行为**禁止**在页面内各写一套。Owner 如下（#1092 视频 SSOT + 图片 SSOT 扩展）：

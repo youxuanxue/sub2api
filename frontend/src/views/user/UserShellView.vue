@@ -14,10 +14,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { RouterView } from 'vue-router'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
+
+// The public model catalog shares this shell but does not need console chrome.
+const AppLayout = defineAsyncComponent(() => import('@/components/layout/AppLayout.vue'))
 
 /**
  * User console views to keep alive across navigations within the user shell.

@@ -12,6 +12,7 @@
     "typecheck": "mkdir -p .cache/vue-tsc && vue-tsc --noEmit --incremental --tsBuildInfoFile .cache/vue-tsc/tsconfig.tsbuildinfo",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:e2e:public": "playwright test --config playwright.public.config.ts",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {

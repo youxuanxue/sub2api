@@ -86,6 +86,28 @@ describe('refreshAuthTokens', () => {
     expect(localStorage.getItem('refresh_token')).toBe('new-refresh')
   })
 
+  it('finishes guest bootstrap immediately when the server has no refresh cookie', async () => {
+    vi.useFakeTimers()
+    const error = { response: { status: 400 } }
+    mockedPost.mockRejectedValueOnce(error)
+    const { refreshAuthTokens } = await import('@/api/tokenRefresh')
+
+    await expect(refreshAuthTokens()).rejects.toBe(error)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(localStorage.getItem('auth_token')).toBeNull()
+  })
+
+  it('restores a guest bootstrap from a valid HttpOnly cookie', async () => {
+    mockedPost.mockResolvedValueOnce(refreshedResponse())
+    const { refreshAuthTokens } = await import('@/api/tokenRefresh')
+
+    await expect(refreshAuthTokens()).resolves.toMatchObject({ access_token: 'new-access' })
+    expect(mockedPost).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/refresh'), {}, expect.objectContaining({ withCredentials: true }),
+    )
+    expect(localStorage.getItem('refresh_token')).toBe('new-refresh')
+  })
+
   it('adopts tokens refreshed by another tab after acquiring the Web Lock', async () => {
     seedSession()
     const request = vi.fn(async (_name: string, callback: () => Promise<unknown>) => {

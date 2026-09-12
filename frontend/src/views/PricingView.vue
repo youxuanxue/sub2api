@@ -623,7 +623,7 @@ import RegistrationActionTk from '@/components/auth/RegistrationActionTk.vue'
  * Both sources feed one normalized row shape so the table markup stays identical
  * while the UI avoids separate "group catalog" vs "public catalog" modes.
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import CatalogAudioPrice from '@/components/catalog/CatalogAudioPrice.tk.vue'
 import CatalogEmbeddingPrice from '@/components/catalog/CatalogEmbeddingPrice.tk.vue'
 import { useI18n } from 'vue-i18n'
@@ -1266,7 +1266,7 @@ function reload(): void {
   void load()
 }
 
-/** Deep link from /models marketplace cards: ?model=<id> pre-fills exact search. */
+let appliedModelDeepLink: string | null = null
 async function applyModelDeepLinkFromRoute(): Promise<void> {
   const raw = route.query.model
   const modelId =
@@ -1275,7 +1275,15 @@ async function applyModelDeepLinkFromRoute(): Promise<void> {
       : Array.isArray(raw)
         ? (raw[0]?.trim() ?? '')
         : ''
-  if (!modelId) return
+  if (!modelId) {
+    if (appliedModelDeepLink !== null) {
+      modelSearchQuery.value = ''
+      modelSearchMode.value = 'fuzzy'
+      appliedModelDeepLink = null
+    }
+    return
+  }
+  appliedModelDeepLink = modelId
   viewMode.value = 'public'
   selectedKeyId.value = 0
   selectedGroupId.value = 0
@@ -1287,6 +1295,21 @@ async function applyModelDeepLinkFromRoute(): Promise<void> {
     await loadPublicCatalog()
   }
 }
+
+// KeepAlive reuses this view after the user returns from a model card. Observe
+// the active pricing URL as well as the initial mount; other routes may also
+// carry a model query and must not change the cached pricing filters.
+watch(
+  () => [route.path, route.query.view, route.query.model],
+  () => {
+    if (route.path === '/models' && route.query.view === 'pricing') {
+      void applyModelDeepLinkFromRoute().catch((error: { message?: string }) => {
+        errorMessage.value = error.message || 'Network error'
+      })
+    }
+  },
+)
+
 
 onMounted(async () => {
   await load()

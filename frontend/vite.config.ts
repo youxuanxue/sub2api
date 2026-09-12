@@ -137,6 +137,10 @@ export default defineConfig(({ mode }) => {
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        // Do not pull shared stores/utilities into the admin shell simply
+        // because the shell imports them. Public entrypoints also need these
+        // dependencies and would otherwise eagerly load the whole admin chunk.
+        onlyExplicitManualChunks: true,
         /**
          * 手动分包配置
          * 分离第三方库并按功能合并应用代码，避免循环依赖
@@ -159,6 +163,12 @@ export default defineConfig(({ mode }) => {
             // is actually evaluated — never on /home, /login, /dashboard, etc.
             if (id.includes('/@stripe/stripe-js/') || id.includes('/stripe-js/')) {
               return 'vendor-stripe'
+            }
+
+            // Airwallex also loads external SDK scripts when its module executes.
+            // Keep the payment route's dynamic import out of vendor-misc.
+            if (id.includes('/@airwallex/')) {
+              return 'vendor-airwallex'
             }
 
             // xlsx 仅 UsageView 导出时动态引入，单独成块，避免被绝大多数后台页面急切下载/解析（~430KB）

@@ -143,6 +143,6 @@ onMounted(async () => {
   <NavigationProgress />
   <RouterView />
   <Toast />
-  <AnnouncementPopup />
-  <AdminComplianceDialog />
+  <AnnouncementPopup v-if="authStore.isAuthenticated" />
+  <AdminComplianceDialog v-if="authStore.isAdmin" />
 </template>
