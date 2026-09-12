@@ -28,7 +28,7 @@ type replayIngress struct {
 // Keep only understood protocol queries. Credential query parameters are
 // deliberately reconstructed from APIKeyID; unknown business queries are gaps.
 func replayRequestPath(u *url.URL) string {
-	if u == nil {
+	if u == nil || len(u.Path) > 2048 || len(u.RawPath) > 2048 || len(u.RawQuery) > 2048 {
 		return ""
 	}
 	q, err := url.ParseQuery(u.RawQuery)
@@ -45,11 +45,11 @@ func replayRequestPath(u *url.URL) string {
 		}
 	}
 	path := u.EscapedPath()
-	if len(path) > 2048 {
-		return ""
-	}
 	if len(q) > 0 {
 		path += "?" + q.Encode()
+	}
+	if len(path) > 2048 {
+		return ""
 	}
 	return path
 }

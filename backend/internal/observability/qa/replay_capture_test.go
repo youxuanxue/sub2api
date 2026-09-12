@@ -87,6 +87,8 @@ func TestReplayIngressPreservesGETGeminiAndDropsCredentials(t *testing.T) {
 		{"/v1/models", "/v1/models"},
 		{"/v1beta/models/gemini-2.5:streamGenerateContent?key=secret&alt=sse", "/v1beta/models/gemini-2.5:streamGenerateContent?alt=sse"},
 		{"/v1/models?unknown=value", ""},
+		{"/v1/models?alt=" + strings.Repeat("x", 2040), ""},
+		{"/v1/models?alt=" + strings.Repeat("x", 4096), ""},
 	} {
 		u, err := url.Parse(tc.raw)
 		require.NoError(t, err)
