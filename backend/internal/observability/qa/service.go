@@ -361,6 +361,7 @@ func (s *Service) CaptureFromContext(c *gin.Context) {
 		ChannelType:                channelType,
 		RequestedModel:             captureRequestedModel(metadataBody),
 		UpstreamModel:              captureUpstreamModel(c),
+		RequestPath:                c.GetString(contextKeyRequestPath),
 		InboundEndpoint:            inboundEndpoint,
 		UpstreamEndpoint:           upstreamEndpoint,
 		StatusCode:                 status,
@@ -600,6 +601,9 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	requestPayload := map[string]any{
 		"path": input.InboundEndpoint,
 		"body": requestValue,
+	}
+	if input.RequestPath != "" {
+		requestPayload["original_path"] = input.RequestPath
 	}
 	// 非 passthrough 网关路径（如 cc-edges）转发前可能改写请求体（normalize /
 	// alias strip / signature-preempt 剥 thinking 等）。改写发生时，「捕获的客户端

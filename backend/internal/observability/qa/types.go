@@ -19,6 +19,7 @@ type CaptureInput struct {
 	ChannelType      *int
 	RequestedModel   string
 	UpstreamModel    string
+	RequestPath      string // Original path without query credentials; endpoint remains the protocol family.
 	InboundEndpoint  string
 	UpstreamEndpoint string
 	StatusCode       int
