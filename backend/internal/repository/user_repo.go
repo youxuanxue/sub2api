@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
+	"golang.org/x/sync/errgroup"
 
 	entsql "entgo.io/ent/dialect/sql"
 )
@@ -576,11 +577,6 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 		q = q.Where(dbuser.IDIn(allowedUserIDs...))
 	}
 
-	total, err := q.Clone().Count(userCtx)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	usersQuery := q.
 		Offset(params.Offset()).
 		Limit(params.Limit())
@@ -588,8 +584,23 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 		usersQuery = usersQuery.Order(order)
 	}
 
-	users, err := usersQuery.All(userCtx)
-	if err != nil {
+	// Count and page loading are independent read queries. Running them together
+	// removes one full database round trip from the admin users page while
+	// preserving the exact pagination semantics and response shape.
+	var total int
+	var users []*dbent.User
+	g, queryCtx := errgroup.WithContext(userCtx)
+	g.Go(func() error {
+		var err error
+		total, err = q.Clone().Count(queryCtx)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		users, err = usersQuery.All(queryCtx)
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return nil, nil, err
 	}
 
@@ -608,29 +619,38 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	}
 
 	shouldLoadSubscriptions := filters.IncludeSubscriptions == nil || *filters.IncludeSubscriptions
+	var (
+		subs                []*dbent.UserSubscription
+		allowedGroupsByUser map[int64][]int64
+	)
+	g, loadCtx := errgroup.WithContext(ctx)
 	if shouldLoadSubscriptions {
-		// Batch load active subscriptions with groups to avoid N+1.
-		subs, err := r.client.UserSubscription.Query().
-			Where(
-				usersubscription.UserIDIn(userIDs...),
-				usersubscription.StatusEQ(service.SubscriptionStatusActive),
-			).
-			WithGroup().
-			All(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-
+		g.Go(func() error {
+			var err error
+			subs, err = r.client.UserSubscription.Query().
+				Where(
+					usersubscription.UserIDIn(userIDs...),
+					usersubscription.StatusEQ(service.SubscriptionStatusActive),
+				).
+				WithGroup().
+				All(loadCtx)
+			return err
+		})
+	}
+	g.Go(func() error {
+		var err error
+		allowedGroupsByUser, err = r.loadAllowedGroups(loadCtx, userIDs)
+		return err
+	})
+	if err := g.Wait(); err != nil {
+		return nil, nil, err
+	}
+	if shouldLoadSubscriptions {
 		for i := range subs {
 			if u, ok := userMap[subs[i].UserID]; ok {
 				u.Subscriptions = append(u.Subscriptions, *userSubscriptionEntityToService(subs[i]))
 			}
 		}
-	}
-
-	allowedGroupsByUser, err := r.loadAllowedGroups(ctx, userIDs)
-	if err != nil {
-		return nil, nil, err
 	}
 	for id, u := range userMap {
 		if groups, ok := allowedGroupsByUser[id]; ok {
