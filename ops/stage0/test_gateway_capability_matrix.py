@@ -64,12 +64,14 @@ class MatrixTests(unittest.TestCase):
         self.assertEqual(matrix.report(value)['total'], 157)
         with self.assertRaises(ValueError):
             matrix.select(value['entries'], 0)
-        # Missing media/tool-roundtrip executors stay visible rather than testing text as media.
+        # Image output and a complete tool roundtrip now have real execution scenarios.
         image = next(e for e in value['entries'] if e['scenario'] == 'content-image')
-        self.assertIsNone(image['request'])
-        self.assertEqual(image['blocked_reason'], 'image_generation_fixture_required')
-        self.assertTrue(all(e['blocked_reason'] == 'tool_roundtrip_executor_required'
+        self.assertIn('IMAGE', image['request']['body']['generationConfig']['responseModalities'])
+        self.assertIsNone(image['blocked_reason'])
+        self.assertTrue(all(e['blocked_reason'] is None
                             for e in value['entries'] if e['scenario'] == 'tool-roundtrip'))
+        self.assertEqual({e['blocked_reason'] for e in value['entries'] if e['blocked_reason']},
+                         {'protocol_operation_not_defined'})
 
     def test_all_fixtures_bind_model_and_exact_actions(self):
         for p in matrix.load():
@@ -89,7 +91,7 @@ class MatrixTests(unittest.TestCase):
             {'id': e['id'], 'case_sha256': e['case_sha256'], 'status': 'passed'} for e in value['entries']]}
         self.assertEqual(matrix.report(value, result)['verdict'], 'incomplete')
         result['execution_kind'] = 'isolated_gateway'
-        with self.assertRaisesRegex(ValueError, 'account_class_execution_binding_required'):
+        with self.assertRaisesRegex(ValueError, 'isolated_execution_not_verified'):
             matrix.report(value, result)
         result['results'][0]['case_sha256'] = 'stale'
         with self.assertRaisesRegex(ValueError, 'stale fixture'):
@@ -211,25 +213,30 @@ class ExecutionTests(unittest.TestCase):
         raw = b'data: {"choices":[{"delta":{"content":"OK"}}],"usage":{"prompt_tokens":1}}\n\ndata: [DONE]\n\n'
         self.assertIsNone(check.validate_response({'protocol':'openai-chat','request_type':'plain'}, 200, 'text/event-stream', raw, True))
 
-    def test_disabled_cli_execution_is_structured_and_has_no_side_effects(self):
+    def test_cli_without_upstream_authorization_has_no_side_effects(self):
         for args in (['run'], ['run', '--plan', '/missing/plan.json', '--tag', '1.2.3',
-                               '--bindings', '/missing/keys.json', '--out', '/must-not-write/results.json',
-                               '--allow-upstream-quota']):
+                               '--out', '/must-not-write/results.json']):
             with contextlib.redirect_stdout(io.StringIO()) as output, \
                  patch('post_release_replay_check.write', side_effect=AssertionError('must not write')), \
                  patch('pathlib.Path.open', side_effect=AssertionError('must not open files or locks')), \
                  patch('socket.socket', side_effect=AssertionError('must not open network')):
                 self.assertEqual(main(args), 2)
             result = json.loads(output.getvalue())
-            self.assertEqual(result['execution_blocker'], 'account_class_execution_binding_required')
+            self.assertEqual(result['execution_blocker'], 'upstream_execution_not_requested')
             self.assertEqual(result['execution'], 'not_run')
 
     def test_account_class_plan_cannot_succeed_through_unrelated_fallback_account(self):
-        with patch.object(check.replay, 'Sandbox') as sandbox, patch.object(check.replay, 'prepared') as prepared:
-            with self.assertRaisesRegex(check.replay.ReplayError, 'account_class_execution_binding_required'):
-                check.run(plan(), '1.2.3', {'*': {'universal': 1}})
-            sandbox.assert_not_called()
-            prepared.assert_not_called()
+        value = plan(); case = value['entries'][0]
+        result = {'plan_sha256': value['plan_sha256'], 'execution_kind': 'isolated_gateway',
+                  'isolation_verified': True, 'cleanup_verified': True, 'cutover': False, 'production_usage_rows': 0,
+                  'results': [{'id': case['id'], 'case_sha256': case['case_sha256'], 'status': 'passed',
+                    'execution_proof': {'account_class': case['account_class'], 'key_type': 'universal',
+                      'bound_account_id': 1, 'observed_account_ids': [2], 'request_ids': ['r1'],
+                      'routing_validation': 'canonical_gateway'}}]}
+        with self.assertRaisesRegex(ValueError, 'account_attribution_missing'):
+            matrix.report(value, result)
+        result['results'][0]['execution_proof']['observed_account_ids'] = [1]
+        self.assertEqual(matrix.report(value, result)['coverage']['passed'], 1)
 
     def test_optional_historical_receipt_does_not_block_normal_staged_approval(self):
         source = (matrix.ROOT/'ops/stage0/deploy_via_ssm_bluegreen.sh').read_text()

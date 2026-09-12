@@ -6,7 +6,7 @@
     "messages": [
       {
         "role": "user",
-        "content": "Reply with OK."
+        "content": "Work out 17 times 23 carefully, then reply with the number only."
       }
     ],
     "max_tokens": 2048,

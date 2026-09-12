@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan/report capability coverage offline; account-class execution is unavailable."""
+"""Plan/report offline or execute the complete supply plan on an isolated prod replica."""
 from __future__ import annotations
 
 import argparse
@@ -40,11 +40,11 @@ def main(argv=None):
     evaluate.add_argument('--tag', help='require results from this release')
     evaluate.add_argument('--out', type=Path, required=True)
     evaluate.add_argument('--require-complete', action='store_true', help='explicit coverage gate only; never deploy/promote')
-    execute = subs.add_parser('run', help='not available: account-class execution binding is required')
+    execute = subs.add_parser('run', help='prod host only: serial isolated account-supply execution')
     execute.add_argument('--plan', type=Path)
     execute.add_argument('--previous', type=Path)
     execute.add_argument('--tag')
-    execute.add_argument('--bindings', type=Path, help='reserved probe key IDs; account-class execution binding is not implemented')
+    execute.add_argument('--inventory', type=Path, default=DEFAULT_INVENTORY)
     execute.add_argument('--limit', type=int, help='optional explicit execution cap; default is the complete eligible set')
     execute.add_argument('--out', type=Path)
     execute.add_argument('--allow-upstream-quota', action='store_true')
@@ -75,12 +75,18 @@ def main(argv=None):
         write(args.out, value)
         print(json.dumps({k: v for k, v in value.items() if k != 'entries'}))
         return 1 if args.require_complete and not value['scope_complete'] else 0
-    # All currently valid plans require account-class planning and attribution.
-    # Refuse explicitly without importing the executor, writing output, opening
-    # the deployment lock, or depending on a production-host filesystem.
-    print(json.dumps({'execution': 'not_run', 'execution_blocker': EXECUTION_BLOCKER,
-                      'cutover': False, 'deployment_gate': False}))
-    return 2
+    if not args.allow_upstream_quota:
+        print(json.dumps({'execution': 'not_run', 'execution_blocker': EXECUTION_BLOCKER,
+                          'cutover': False, 'deployment_gate': False}))
+        return 2
+    if not args.tag or not args.out or args.limit is not None or args.previous is not None:
+        raise ValueError('execution requires tag/output and the complete plan')
+    from gateway_capability_host import run_locked
+    inventory = read(args.inventory)
+    value = read(args.plan) if args.plan else build(inventory, load())
+    receipt = run_locked(value, inventory, args.tag)
+    write(args.out, receipt)
+    return 0 if receipt['verdict'] == 'green' else 1
 
 
 if __name__ == '__main__':

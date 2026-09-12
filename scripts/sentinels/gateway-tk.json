@@ -287,7 +287,7 @@
           "STAGE0_BLUEGREEN_APPROVED_REPLAY:",
           "Validate human-approved replay receipt"
         ],
-        "rationale": "Replay dispatch must execute retained requests; reviewed continuation must bind the exact candidate to the existing deploy gates."
+        "rationale": "Replay dispatch executes account-supply cases without cutover; promotion remains separately authorized."
       },
       {
         "path": "ops/stage0/gateway_capability_matrix.py",
@@ -295,9 +295,19 @@
         "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return."
       },
       {
+        "path": "ops/stage0/gateway_capability_host.py",
+        "must_contain": ["def account_guard(", "def run_locked(", "def verify_binding(", "def attribution(", "INTERVAL_SECONDS = 10", "sandbox.close()", "production_usage_rows"],
+        "rationale": "Serial synthetic verification preserves live headroom checks, account attribution, isolated data, and cleanup."
+      },
+      {
+        "path": "ops/stage0/test_gateway_capability_host.py",
+        "must_contain": ["test_mutated_key_group_or_account_binding_is_rejected", "test_rate_limit_stops_the_full_plan_without_dropping_remaining_cases", "test_pressure_before_start_still_emits_all_obligations_and_cleans_up"],
+        "rationale": "Behavioral guards prevent account fallback, unsafe continuation and denominator truncation."
+      },
+      {
         "path": "ops/stage0/gateway_capability_check.py",
-        "must_contain": ["def validate_response(", "def run(", "raise replay.ReplayError(EXECUTION_BLOCKER)"],
-        "rationale": "Account-class execution must refuse explicitly until binding and attribution exist; HTTP fixture validation remains reusable."
+        "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing"],
+        "rationale": "Synthetic responses require protocol and media semantics; execution is owned by the isolated host runner."
       },
       {
         "path": "ops/stage0/prod_replay.py",

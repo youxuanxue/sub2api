@@ -342,7 +342,7 @@ def request_seconds(sample):
     return min(MAX_REQUEST_SECONDS, max(REQUEST_SECONDS, 2 * historical + 30))
 
 
-def execute(sample, key, port, replay_id, *, validator=None, budget=None):
+def execute(sample, key, port, replay_id, *, validator=None, budget=None, method='POST', content_type='application/json'):
     # No proxy or redirects: a response cannot redirect credentials elsewhere.
     budget = request_seconds(sample) if budget is None else budget
     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=budget)
@@ -352,8 +352,8 @@ def execute(sample, key, port, replay_id, *, validator=None, budget=None):
     phase, raw, headers_ms = 'request', bytearray(), None
     response, transport_errno = None, None
     try:
-        connection.request('POST', sample['path'], body=sample['body'], headers={
-            'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key,
+        connection.request(method, sample['path'], body=sample['body'], headers={
+            'Content-Type': content_type, 'Authorization': 'Bearer ' + key,
             'x-api-key': key, 'anthropic-version': '2023-06-01',
             'User-Agent': 'tokenkey-private-replay', 'X-Client-Request-ID': replay_id})
         phase = 'response_headers'
@@ -430,6 +430,8 @@ def isolated_environment(source, name, password):
 
 
 class Sandbox:
+    app_cpus = '1'
+    postgres_cpus = '0.5'
     def __init__(self, candidate, root=ROOT):
         self.root = root
         self.candidate = candidate
@@ -437,6 +439,9 @@ class Sandbox:
         self.path = root / self.name
         self.created = []
         self.network_created = False
+
+    def configure_database(self):
+        """Optional isolated-database setup, before the gateway can cache any rows."""
 
     def start_container(self, suffix, arguments):
         name = self.name + suffix
@@ -461,7 +466,7 @@ class Sandbox:
         pg_env = self.path / 'postgres.env'
         pg_env.write_text(f'POSTGRES_USER=tokenkey\nPOSTGRES_DB={database}\nPOSTGRES_PASSWORD={password}\n')
         pg_env.chmod(0o600)
-        pg = self.start_container('-pg', ['--memory', '512m', '--cpus', '0.5', '--env-file', str(pg_env),
+        pg = self.start_container('-pg', ['--memory', '512m', '--cpus', self.postgres_cpus, '--env-file', str(pg_env),
                                         inspect('tokenkey-postgres')['Image']])
         self.pg, self.database = pg, database
         for _ in range(60):
@@ -485,6 +490,7 @@ class Sandbox:
             run(['docker', 'exec', '-i', pg, 'pg_restore', '-U', 'tokenkey', '-d', database,
                  '--no-owner', '--no-acl', '--exit-on-error'], stdin=source_file)
         sql('UPDATE users SET balance_notify_enabled=false; UPDATE accounts SET auto_pause_on_expired=false;', pg, database)
+        self.configure_database()
         self.start_container('-redis', ['--memory', '128m', '--cpus', '0.25', inspect('tokenkey-redis')['Image'],
                                       'redis-server', '--save', '', '--appendonly', 'no', '--requirepass', password,
                                       '--maxmemory', '96mb', '--maxmemory-policy', 'allkeys-lru'])
@@ -503,7 +509,7 @@ class Sandbox:
                 shutil.copy2(src, data / name)
                 os.chown(data / name, src.stat().st_uid, src.stat().st_gid)
         # The sandbox runs the prepared container's immutable image ID.
-        app = self.start_container('-app', ['--memory', '768m', '--cpus', '1', '--env-file', str(env_file),
+        app = self.start_container('-app', ['--memory', '768m', '--cpus', self.app_cpus, '--env-file', str(env_file),
                                           '-p', '127.0.0.1::8080', '-v', str(data) + ':/app/data', self.candidate['Image']])
         self.app = app
         state = inspect(app)

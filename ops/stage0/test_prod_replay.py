@@ -303,13 +303,20 @@ class ExecutionTest(unittest.TestCase):
 
 
 class OrchestrationTest(unittest.TestCase):
+    def receipt(self, tag='1.2.3', verdict='green'):
+        from gateway_capability_matrix import digest
+        details = {'tag': tag, 'verdict': verdict, 'cutover': False, 'results': [{'id': 'one-case'}]}
+        receipt = {k: v for k, v in details.items() if k != 'results'}
+        receipt.update(total=1, results_sha256=digest(details), receipt_sha256='a'*64)
+        return [receipt, {'tag': tag, 'rows': details['results']}]
+
     def test_prepare_cannot_inherit_cutover_and_execution_must_produce_receipt(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': True}, {'needs_prepare': False}, {'verdict': 'green', 'cutover': False, 'receipt_sha256': 'a'*64}]) as remote, patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {'STAGE0_BLUEGREEN_STAGE': 'deploy', 'STAGE0_BLUEGREEN_WAIT_PHASE': 'cutover'}):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': True}, {'needs_prepare': False}] + self.receipt()) as remote, patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {'STAGE0_BLUEGREEN_STAGE': 'deploy', 'STAGE0_BLUEGREEN_WAIT_PHASE': 'cutover'}):
             cli.run_replay('1.2.3', 'i-prod', Path(tmp))
             env = process.call_args.kwargs['env']
             self.assertEqual(env['STAGE0_BLUEGREEN_STAGE'], 'prepare')
             self.assertEqual(env['STAGE0_BLUEGREEN_WAIT_PHASE'], 'complete')
-            self.assertEqual([c.args[1] for c in remote.call_args_list], ['status', 'status', 'run'])
+            self.assertEqual([c.args[1] for c in remote.call_args_list], ['status', 'status', 'run', 'results'])
 
     def test_ssm_delivery_executes_the_shipped_source(self):
         delivered = {}
@@ -350,8 +357,7 @@ class OrchestrationTest(unittest.TestCase):
 
     def test_replacement_is_explicit_and_prepare_cannot_inherit_approval(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
-                {'needs_prepare': True}, {'needs_prepare': False},
-                {'verdict': 'green', 'cutover': False, 'receipt_sha256': 'c'*64}]) as remote, \
+                {'needs_prepare': True}, {'needs_prepare': False}] + self.receipt('1.2.4')) as remote, \
              patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {
                 'STAGE0_BLUEGREEN_APPROVED_REPLAY': 'a'*64, 'STAGE0_BLUEGREEN_REPLACE_RECEIPT': 'a'*64}):
             cli.run_replay('1.2.4', 'i-prod', Path(tmp), 'b'*64)
@@ -382,7 +388,7 @@ class OrchestrationTest(unittest.TestCase):
                     replay.prepare_status('1.2.4', expected, root)
 
     def test_prepared_retry_does_not_replace_candidate_and_red_fails(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': False}, {'needs_prepare': False}, {'verdict': 'red', 'cutover': False}]), patch.object(cli.subprocess, 'run') as process:
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': False}, {'needs_prepare': False}] + self.receipt(verdict='red')), patch.object(cli.subprocess, 'run') as process:
             with self.assertRaisesRegex(RuntimeError, 'replay failed'):
                 cli.run_replay('1.2.3', 'i-prod', Path(tmp))
             process.assert_not_called()

@@ -20,8 +20,11 @@ risk: high
 | `ops/stage0/gateway-capability-matrix.json` | universal 请求模板，不再参与模型全集生成 |
 | `ops/stage0/fixtures/gateway/` | 短合成请求；模板与完整场景执行能力分开记录 |
 | `ops/stage0/gateway_capability_matrix.py` | 账号类/模型族基础义务、类级协议和请求分支、稳定 ID、digest、增量与报告 |
-| `ops/stage0/gateway_capability_check.py` | HTTP 验证器；保留 HTTP 验证器；移除不可达的 model-only executor，run 明确拒绝执行 |
-| `ops/stage0/post_release_replay_check.py` | plan/report/from-tag；默认读供应代表清单 |
+| `ops/stage0/gateway_capability_check.py` | HTTP 响应、工具、图像、音频与转录语义校验 |
+| `ops/stage0/gateway_capability_scenarios.py` | 短媒体请求与保留真实调用 ID／思考签名的工具续轮 |
+| `ops/stage0/gateway_capability_host.py` | 隔离副本内创建受限测试用户与 universal key；账号类绑定、容量守卫、串行执行、usage 归因与清理 |
+| `ops/stage0/post_release_replay_check.py` | plan/report/from-tag；显式授权的 prod-host run 复用同一个执行器 |
+| `scripts/stage0/replay-prod-release.py` | prepare 后执行账号供给计划，取回带指纹的逐条结果；不调用历史 capture 收集 |
 | `scripts/stage0/update-capability-plan.py` | 校验供应清单和生成 release artifact；preflight 通过 `--check` 校验 |
 | `scripts/stage0/check-gateway-capabilities.sh` | 无网络、无付费调用的 post-release 计划与缺口报告 |
 
@@ -50,16 +53,33 @@ branch_family，不因线上调用频率变化自动改选代表。仓库内不�
 
 ## 计划与执行的界限
 
-当前替换交付的是完整候选计划。每条保留 `plan_validation=required`，原生协议声明
-不能证明跨协议/特性的合法性。正式实测还需 canonical RequestPlan、账号类绑定及
-usage 归属核验；旧执行器只有 model → key，可能被其他账号类兜底，因此 `run` 在建
-Sandbox 前明确拒绝账号类计划；CLI 不写输出、不获取部署锁，直接返回结构化的 `account_class_execution_binding_required`。
-这不是审批开关，也不能通过编辑 plan 绕过；后续实现需补真实归属验证后才能开放。
+用户在本会话继续授权实现并验证，附加约束为禁止切流、控制并发、不影响线上用户。
+`plan_validation=required` 仍不因原生协议声明而消失：文本请求实际经过候选网关的
+canonical routing；只在响应正确且真实 usage 属于绑定账号时记录通过。媒体走现有
+media handler；不另造 Python 协议路由策略。count-token endpoint 本身不计费时，
+结果明确标记 unmetered_endpoint，不能假称取得账号计费证据。
 
-tool roundtrip 不能用一次 tool call 代替；生成图片不能用文本 generateContent 代替；
-图片参数、voice、视频轮询、转录 multipart 以及不存在的 count-token 模板继续显示
-`blocked-by-test-infrastructure`。其余 `declared-but-untested` 只说明有模板，未证明可执行。
-coverage 不可由 manifest 手写 passed；harness 成功不算网关实测成功。
+运行时以 platform/type/channel/dialect/native protocols/exclusive endpoints 和代表的
+显式 model_mapping 匹配当前健康供给。缺供给、映射漂移不删用例、不修改线上账号。
+独立 PostgreSQL/Redis 复用 prepared image ID；启动应用前在副本建立每账号专属组和
+受限用户，测试 key 必须为 universal。用户仅获准对应组，组内仅绑定目标账号，
+每次调用前复核绑定；正确响应但命中其他账号或缺 usage 不得通过。
+
+并发固定为一，所有请求（包括工具续轮和视频轮询）共享最小间隔；主机余量和线上账号
+剩余槽位由执行器检查。生产 SQL/Redis 只读，副本数据库写测试用户、key、分组和 usage。
+遇到容量不足不重置线上 cooldown；限流、服务不可用、超时或未结束视频任务停止后续付费调用。
+所有剩余用例保留停止原因。生产 usage 必须没有本次响应 request ID，active/candidate/Caddy
+指纹必须一致，临时资源清理失败使通过证据失效。
+
+视觉场景使用本地生成的纯色图片并校验颜色答案；思考场景要求 reasoning/thinking 内容或 token 证据。
+工具场景执行真实 tool call 和 tool result 第二轮；Gemini 图片请求要求 IMAGE 输出；
+语音使用模型对应 voice；转录使用本地合成的 Hello WAV multipart；视频串行轮询到终态。
+OpenAI Chat 未定义 count-token 操作，该义务明确为 unsupported，不猜路径，也不算通过。
+coverage 不可由 manifest 手写 passed；harness 成功不算网关实测成功。真实错误和安全阻断
+均如实报告，本次授权不是要求把所有组合改成绿色。
+
+账号供给回执独立存于 bluegreen-capability-replay.json，旧历史回执不覆盖。
+新回执是审核材料、deployment_gate=false，不授权 promote，也不能冒充历史回执去切流。
 
 ## 本次旧缺口的处理
 
