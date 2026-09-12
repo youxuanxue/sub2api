@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "source": "tokenkey capability declarations plus reviewed historical requests",
+  "capabilities": [
+    {"model": "__catalog__", "protocol": "openai-chat", "request_type": "plain", "key_type": "direct"},
+    {"model": "__catalog__", "protocol": "openai-chat", "request_type": "stream", "key_type": "direct"},
+    {"model": "__catalog__", "protocol": "openai-chat", "request_type": "tool", "key_type": "universal"},
+    {"model": "__catalog__", "protocol": "openai-responses", "request_type": "thinking", "key_type": "universal"},
+    {"model": "__catalog__", "protocol": "anthropic-messages", "request_type": "plain", "key_type": "direct"},
+    {"model": "__catalog__", "protocol": "anthropic-messages", "request_type": "stream", "key_type": "universal"},
+    {"model": "__catalog__", "protocol": "gemini-content", "request_type": "multimodal", "key_type": "universal"}
+  ]
+}
