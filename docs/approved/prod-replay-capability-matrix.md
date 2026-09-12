@@ -66,7 +66,7 @@ media handler；不另造 Python 协议路由策略。count-token endpoint 本�
 每次调用前复核绑定；正确响应但命中其他账号或缺 usage 不得通过。
 
 并发固定为一，所有请求（包括工具续轮和视频轮询）共享最小间隔；主机余量和线上账号
-剩余槽位由执行器检查。生产 SQL/Redis 只读，副本数据库写测试用户、key、分组和 usage。
+剩余槽位由执行器检查。副本 dump/restore/startup 期间每两秒复核主机余量，超限中止并清理。生产 SQL/Redis 只读，副本数据库写测试用户、key、分组和 usage。
 遇到容量不足不重置线上 cooldown；限流、服务不可用、超时或未结束视频任务停止后续付费调用。
 所有剩余用例保留停止原因。生产 usage 必须没有本次响应 request ID，active/candidate/Caddy
 指纹必须一致，临时资源清理失败使通过证据失效。

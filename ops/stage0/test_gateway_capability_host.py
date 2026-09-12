@@ -111,6 +111,16 @@ class ScenarioTests(unittest.TestCase):
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_setup_pressure_interrupts_restore_and_restores_deadline_handler(self):
+        original = host.signal.getsignal(host.signal.SIGALRM)
+        with patch.object(host, 'host_guard', side_effect=host.replay.ReplayError('host_cpu_headroom')), \
+             self.assertRaisesRegex(host.replay.ReplayError, 'host_cpu_headroom'):
+            with host.guarded_setup():
+                handler = host.signal.getsignal(host.signal.SIGALRM)
+                handler(host.signal.SIGALRM, None)
+        self.assertEqual(host.signal.getsignal(host.signal.SIGALRM), original)
+        self.assertEqual(host.signal.getitimer(host.signal.ITIMER_REAL), (0, 0))
+
     def test_tool_continuation_rechecks_capacity_and_preserves_first_request(self):
         case = next(c for c in plan()['entries'] if c['scenario'] == 'tool-roundtrip')
         binding = {'key': 'synthetic', 'account_id': 1, 'api_key_id': 2}

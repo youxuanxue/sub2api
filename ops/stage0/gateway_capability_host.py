@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import base64
 import collections
+from contextlib import contextmanager
 import copy
 import fcntl
 import json
@@ -154,6 +155,30 @@ def host_guard():
     pressure = Path('/proc/pressure/memory').read_text()
     full = re.search(r'full avg10=([\d.]+)', pressure)
     replay.require(full is not None and float(full[1]) < .1, 'host_memory_pressure')
+
+
+@contextmanager
+def guarded_setup():
+    """Interrupt dump/restore/startup on pressure, preserving the run deadline."""
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    started = time.monotonic()
+
+    def check(_sig, _frame):
+        if previous_timer[0] and time.monotonic() - started >= previous_timer[0]:
+            raise replay.ReplayDeadline()
+        host_guard()
+
+    signal.signal(signal.SIGALRM, check)
+    signal.setitimer(signal.ITIMER_REAL, 2, 2)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0]:
+            signal.setitimer(signal.ITIMER_REAL,
+                            max(.001, previous_timer[0] - (time.monotonic() - started)), previous_timer[1])
 
 
 def account_guard(aid, candidate):
@@ -310,7 +335,8 @@ def run(plan, inventory, tag, root=replay.ROOT):
 
     try:
         host_guard()
-        port = sandbox.start()
+        with guarded_setup():
+            port = sandbox.start()
         for case in plan['entries']:
             item = {'id': case['id'], 'case_sha256': case['case_sha256']}
             if case['blocked_reason']:
