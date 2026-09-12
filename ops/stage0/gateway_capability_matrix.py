@@ -249,7 +249,7 @@ def report(plan, results=None, previous=None):
     records = {}
     if results is not None:
         require(results.get('plan_sha256') == plan['plan_sha256'], 'results belong to a different plan')
-        require(results.get('execution_kind') in ('isolated_gateway', 'harness'), 'result execution kind required')
+        require(results.get('execution_kind') in ('prepared_gateway', 'isolated_gateway', 'harness'), 'result execution kind required')
         for result in results.get('results', []):
             require(result['id'] not in records, 'duplicate result')
             records[result['id']] = result
@@ -274,6 +274,17 @@ def report(plan, results=None, previous=None):
                 require(proof.get('observed_account_ids') == [proof['bound_account_id']]
                         or case['request_type'] == 'count_tokens' and proof.get('attribution') == 'unmetered_endpoint',
                         'account_attribution_missing')
+            if status == 'passed' and results['execution_kind'] == 'prepared_gateway':
+                proof = result.get('execution_proof', {})
+                require(results.get('route_unchanged') is True and results.get('cutover') is False,
+                        'prepared_route_not_verified')
+                require(type(results.get('test_api_key_id')) is int and results['test_api_key_id'] > 0 and
+                        proof.get('test_api_key_id') == results['test_api_key_id'] and
+                        proof.get('key_type') == 'universal' and proof.get('request_ids') and
+                        proof.get('routing_validation') == 'normal_universal', 'test_key_execution_required')
+                require(proof.get('observed_account_ids') and proof.get('usage_request_ids') or
+                        case['request_type'] == 'count_tokens' and proof.get('attribution') == 'unmetered_endpoint',
+                        'account_attribution_missing')
             if status == 'passed' and results['execution_kind'] == 'harness':
                 status = 'harness-passed'  # Never gateway service evidence.
         else:
@@ -289,7 +300,7 @@ def report(plan, results=None, previous=None):
             'total': len(output), 'delta': len(scope), 'scope_complete': complete,
             'verdict': 'no_changes' if not scope else 'passed' if complete else 'incomplete',
             'cutover': False, 'deployment_gate': False,
-            'execution_blocker': None if results and results['execution_kind'] == 'isolated_gateway' else EXECUTION_BLOCKER,
+            'execution_blocker': None if results and results['execution_kind'] in ('prepared_gateway', 'isolated_gateway') else EXECUTION_BLOCKER,
             'entries': output}
 
 

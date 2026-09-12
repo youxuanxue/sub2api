@@ -251,6 +251,29 @@ class ExecutionTests(unittest.TestCase):
         result['results'][0]['execution_proof']['observed_account_ids'] = [1]
         self.assertEqual(matrix.report(value, result)['coverage']['passed'], 1)
 
+    def test_prepared_candidate_pass_requires_unchanged_route_and_test_key_usage(self):
+        value = plan(); case = value['entries'][0]
+        result = {'plan_sha256': value['plan_sha256'], 'execution_kind': 'prepared_gateway',
+                  'route_unchanged': True, 'cutover': False, 'test_api_key_id': 334,
+                  'results': [{'id': case['id'], 'case_sha256': case['case_sha256'], 'status': 'passed',
+                    'execution_proof': {'test_api_key_id': 334, 'key_type': 'universal',
+                      'observed_account_ids': [2], 'request_ids': ['r1'], 'usage_request_ids': ['local:r1'],
+                      'account_class_matched': False, 'routing_validation': 'normal_universal'}}]}
+        self.assertEqual(matrix.report(value, result)['coverage']['passed'], 1)
+        self.assertIsNone(matrix.report(value, result)['execution_blocker'])
+        result['route_unchanged'] = False
+        with self.assertRaisesRegex(ValueError, 'prepared_route_not_verified'):
+            matrix.report(value, result)
+        result['route_unchanged'] = True
+        proof = result['results'][0]['execution_proof']
+        proof['test_api_key_id'] = 1
+        with self.assertRaisesRegex(ValueError, 'test_key_execution_required'):
+            matrix.report(value, result)
+        proof['test_api_key_id'] = 334
+        proof['usage_request_ids'] = []
+        with self.assertRaisesRegex(ValueError, 'account_attribution_missing'):
+            matrix.report(value, result)
+
     def test_optional_historical_receipt_does_not_block_normal_staged_approval(self):
         source = (matrix.ROOT/'ops/stage0/deploy_via_ssm_bluegreen.sh').read_text()
         function = source[source.index('validate_replay_gate() {'):source.index('\npromote_prepared_color()')]
