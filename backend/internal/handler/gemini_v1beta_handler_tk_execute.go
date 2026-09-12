@@ -108,3 +108,13 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 	}
 	return result, executeErr
 }
+
+// CountTokens is a native, unmetered operation, outside the generation Plan.
+// Account selection and admission still run in GeminiV1BetaModels before this call.
+func (h *GatewayHandler) forwardGeminiCountTokens(c *gin.Context, ctx context.Context, account *service.Account, model string, body []byte) (*service.ForwardResult, error) {
+	model = service.CandidateEffectiveModel(ctx, model)
+	if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
+		return h.antigravityGatewayService.ForwardGemini(ctx, c, account, model, "countTokens", false, body, false)
+	}
+	return h.geminiCompatService.ForwardNative(ctx, c, account, model, "countTokens", false, body)
+}

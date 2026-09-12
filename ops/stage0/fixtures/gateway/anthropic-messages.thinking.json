@@ -6,10 +6,10 @@
     "messages": [
       {
         "role": "user",
-        "content": "Work out 17 times 23 carefully, then reply with the number only."
+        "content": "Compute 173*29 + 47*83 - 61*37 carefully. Reply with the final integer only."
       }
     ],
-    "max_tokens": 2048,
+    "max_tokens": 16384,
     "thinking": {
       "type": "enabled",
       "budget_tokens": 1024
@@ -22,5 +22,7 @@
     "no_error",
     "terminal",
     "usage"
-  ]
+  ],
+  "thinking_validation": "request_acceptance",
+  "expected_answer": "6661"
 }

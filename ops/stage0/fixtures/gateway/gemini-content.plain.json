@@ -13,7 +13,7 @@
       }
     ],
     "generationConfig": {
-      "maxOutputTokens": 64
+      "maxOutputTokens": 2048
     }
   },
   "stream": false,

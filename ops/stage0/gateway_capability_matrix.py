@@ -165,6 +165,9 @@ def build(inventory, profiles):
     entries = []
 
     def emit(cls, rep, protocol, scenario, layer):
+        # Chat Completions defines no standalone token-count operation.
+        if scenario == 'count-tokens' and protocol == 'openai-chat':
+            return
         suffix = {'plain-stream': 'plain.stream', 'tool-roundtrip': 'tool', 'thinking': 'thinking',
                   'vision': 'multimodal', 'count-tokens': 'count_tokens'}.get(scenario, 'plain')
         profile_id = protocol + '.' + suffix
@@ -176,8 +179,6 @@ def build(inventory, profiles):
                           if p['id'] == 'openai-transcription.plain'), '')
             request = media_request(scenario, rep['model'], audio)
             reason = None
-        if scenario == 'count-tokens' and protocol == 'openai-chat':
-            reason = 'protocol_operation_not_defined'
         entry = {'account_class': cls['id'], 'model_family': rep['family'], 'model': rep['model'],
                  'upstream_model': rep['upstream_model'], 'profile': profile_id, 'protocol': protocol,
                  'request_type': {'plain-stream': 'plain', 'tool-roundtrip': 'tool', 'thinking': 'thinking',
@@ -259,7 +260,7 @@ def report(plan, results=None, previous=None):
         result = records.get(case['id'])
         if result:
             require(result.get('case_sha256') == case['case_sha256'], 'stale fixture result')
-            require(result.get('status') in ('passed', 'failed', 'unsupported', 'blocked-by-test-infrastructure'), 'invalid result status')
+            require(result.get('status') in ('passed', 'failed', 'unsupported', 'blocked-by-test-infrastructure', 'declared-but-untested'), 'invalid result status')
             status = result['status']
             if status == 'passed' and results['execution_kind'] == 'isolated_gateway':
                 proof = result.get('execution_proof', {})

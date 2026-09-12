@@ -13,7 +13,7 @@ def media_request(operation, model, audio_base64=''):
         'speech': ('/v1/audio/speech', {'model': model, 'input': 'Hello.', 'response_format': 'mp3',
                    'voice': 'zh_female_vv_uranus_bigtts' if model == 'doubao-seed-tts-2.0' else 'longanlingxin'}),
         'video': ('/v1/videos', {'model': model, 'prompt': 'A static blue square on a white background.',
-                  'seconds': 8 if model.startswith('veo') else 15, 'size': '1280x720'}),
+                  'seconds': '8' if model.startswith('veo') else '15', 'size': '1280x720'}),
         'content-image': ('/v1beta/models/' + quote(model, safe='') + ':generateContent', {
             'contents': [{'role': 'user', 'parts': [{'text': 'Generate an image of a solid blue square.'}]}],
             'generationConfig': {'responseModalities': ['TEXT', 'IMAGE']}}),

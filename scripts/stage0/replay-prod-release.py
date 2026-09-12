@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / 'ops/stage0'))
 from ssm_execution import PROD_REGION, resolve_prod_instance  # noqa: E402
 
 
-def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='', offset=0, key_name='TK_FULLTEST_KEY'):
+def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='', offset=0, key_name='TK_FULLTEST_KEY', case_ids=None):
     files = {name: (ROOT / 'ops/stage0' / name).read_text() for name in
              ('prod_replay.py', 'prod_replay_manifest.py', 'prod-replay-capabilities.json',
               'gateway_capability_host.py', 'gateway_capability_check.py', 'gateway_capability_matrix.py',
@@ -38,6 +38,8 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
                  [operation, '--tag', tag, '--receipt', receipt, '--replace-receipt', replace_receipt])
     if operation == 'run':
         arguments += ['--test-key-name', key_name]
+        for case_id in case_ids or []:
+            arguments += ['--case-id', case_id]
     script = ('set -euo pipefail\numask 077\n'
               'replay_dir=$(mktemp -d /tmp/tk-prod-replay.XXXXXX)\n'
               'trap \'python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$replay_dir"\' EXIT\n'
@@ -79,8 +81,14 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
     raise RuntimeError('replay observation timed out; host command=' + cid + ' may still be running; do not promote')
 
 
-def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY'):
+def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY', case_ids=None):
     (out / 'replay-receipt.json').write_text(json.dumps({'tag': tag, 'verdict': 'red', 'reason': 'execution_pending'}) + '\n')
+    from gateway_capability_matrix import build, load, DEFAULT_INVENTORY
+    plan = build(json.loads(DEFAULT_INVENTORY.read_text()), load())
+    if case_ids is not None and (not case_ids or len(set(case_ids)) != len(case_ids) or
+                                not set(case_ids) <= {c['id'] for c in plan['entries']}):
+        raise RuntimeError('invalid case selection; candidate was not changed')
+    (out / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
     state = remote(instance, 'status', tag, timeout=60, replace_receipt=replace_receipt)
     if state['needs_prepare']:
         # No caller-supplied deploy environment can turn this into a cutover.
@@ -92,7 +100,7 @@ def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY
         subprocess.run(['bash', str(ROOT / 'ops/stage0/deploy_via_ssm_bluegreen.sh'), tag,
                         instance, 'prod replay prepare; no cutover'], env=env, check=True)
     remote(instance, 'status', tag, timeout=60)  # Require a matching durable prepared candidate.
-    receipt = remote(instance, 'run', tag, key_name=key_name)
+    receipt = remote(instance, 'run', tag, key_name=key_name, case_ids=case_ids)
     (out / 'replay-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     results = []
     for offset in range(0, receipt['total'], 5):
@@ -100,16 +108,16 @@ def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY
         if page.get('tag') != tag:
             raise RuntimeError('replay result tag changed')
         results.extend(page['rows'])
-    details = {k: v for k, v in receipt.items() if k not in ('receipt_sha256', 'results_sha256', 'coverage', 'total')}
+    details = {k: v for k, v in receipt.items() if k not in ('receipt_sha256', 'results_sha256', 'coverage', 'account_class_coverage', 'total')}
     details['results'] = results
     sys.path.insert(0, str(ROOT / 'ops/stage0'))
     from gateway_capability_matrix import digest
     if digest(details) != receipt['results_sha256']:
         raise RuntimeError('replay result fingerprint changed')
     (out / 'replay-results.json').write_text(json.dumps(details, indent=2) + '\n')
-    if receipt.get('verdict') != 'green' or receipt.get('cutover') is not False:
+    if receipt.get('selected_verdict', receipt.get('verdict')) != 'green' or receipt.get('cutover') is not False:
         raise RuntimeError('replay failed; see replay-receipt.json; cutover remains blocked')
-    print('replay passed; user approval required: ' + receipt['receipt_sha256'])
+    print('selected cases passed; full-plan verdict=' + receipt['verdict'] + '; approval pending: ' + receipt['receipt_sha256'])
 
 
 def main():
@@ -119,6 +127,7 @@ def main():
     p.add_argument('--out', type=Path, default=Path('replay-output'))
     p.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
                    help='prod api_keys.name of an active universal test key (not secrets.TK_FULLTEST_KEY material)')
+    p.add_argument('--case-id', action='append', help='rerun explicit stable case IDs; unselected cases remain untested')
     p.add_argument('--replace-receipt', default='', help='existing prepared fingerprint; replace inactive candidate only')
     p.add_argument('--approved-replay', default='', help='reviewed receipt SHA; validate only, never cut over')
     args = p.parse_args()
@@ -137,7 +146,7 @@ def main():
                 output.write('prepared_receipt=' + state['prepared_receipt'] + '\n')
         print(json.dumps(state))
     else:
-        run_replay(args.tag, instance, args.out, args.replace_receipt, args.test_key_name)
+        run_replay(args.tag, instance, args.out, args.replace_receipt, args.test_key_name, args.case_id)
 
 
 if __name__ == '__main__':

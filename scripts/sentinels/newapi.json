@@ -511,10 +511,10 @@
         "shouldFallbackNewAPIResponsesToChat(apiErr)",
         "forwardResponsesViaNewAPIBridgeChatCompletions",
         "isNewAPIResponsesProactiveChatFallbackModel(requestedModel)",
-        "applyNewAPIQwenNonStreamingShape",
+        "applyNewAPIQwenAccountShape",
         "applyNewAPIAliFixedSamplingShape"
       ],
-      "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Native chat dispatch must also normalize dense Qwen3 non-streaming requests through applyNewAPIQwenNonStreamingShape; otherwise DashScope rejects enable_thinking with a client-visible 400. Chat and account-test dispatch must also pin kimi-k3 fixed sampling via applyNewAPIAliFixedSamplingShape before the Ali adaptor coerces missing top_p to 0.001. Dropping either injection silently breaks a supported NewAPI path."
+      "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Native chat dispatch must also normalize dense Qwen3 non-streaming requests through applyNewAPIQwenAccountShape after planned alias resolution, retaining Token Plan thinking intent and the legacy DashScope buffered workaround. Chat and account-test dispatch must also pin kimi-k3 fixed sampling via applyNewAPIAliFixedSamplingShape before the Ali adaptor coerces missing top_p to 0.001. Dropping either injection silently breaks a supported NewAPI path."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
@@ -524,6 +524,7 @@
         "isNewAPIResponsesConvertNotImplemented",
         "applyNewAPIResponsesChatFallbackShape",
         "normalizeNewAPIQwenNonStreamingPayload",
+        "applyNewAPIQwenAccountShape",
         "applyNewAPIQwenNonStreamingShape",
         "applyNewAPIAliFixedSamplingShape",
         "bufferChatCompletionsAsResponses",

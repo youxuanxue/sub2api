@@ -237,7 +237,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini/antigravity 分组
 	// TK: platform allow — see gemini_v1beta_handler_tk_platform.go
 	if !middleware.HasForcePlatform(c) {
-		if !geminiV1BetaGroupPlatformAllowed(apiKey) {
+		if !geminiV1BetaRequestPlatformAllowed(c, apiKey) {
 			googleError(c, http.StatusBadRequest, "API key group cannot serve native Gemini requests")
 			return
 		}
@@ -608,9 +608,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		}
 		sessionGroupID := derefGroupID(apiKey.GroupID)
 		// TK: ProtocolExecutors wiring — see gemini_v1beta_handler_tk_execute.go
-		result, err = h.executeGeminiV1BetaSelectedProtocol(
-			c, requestCtx, selection, account, modelName, action, stream, hasBoundSession, sessionGroupID, sessionKey, cleanThoughtSignatures,
-		)
+		if action == "countTokens" {
+			result, err = h.forwardGeminiCountTokens(c, requestCtx, account, modelName, body)
+		} else {
+			result, err = h.executeGeminiV1BetaSelectedProtocol(
+				c, requestCtx, selection, account, modelName, action, stream, hasBoundSession, sessionGroupID, sessionKey, cleanThoughtSignatures,
+			)
+		}
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
@@ -629,7 +633,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 					return
 				}
 			}
-			// ForwardNative already wrote the response
+			// Transport errors may already have written a response; pre-send
+			// execution failures have not. Never turn those into empty HTTP 200.
+			if !c.Writer.Written() {
+				googleError(c, http.StatusBadGateway, "Failed to forward Gemini request")
+			}
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
 			TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, modelName, account.ID, err)

@@ -3,10 +3,10 @@
   "path": "/v1/responses",
   "body": {
     "model": "${model}",
-    "input": "Work out 17 times 23 carefully, then reply with the number only.",
-    "max_output_tokens": 2048,
+    "input": "Compute 173*29 + 47*83 - 61*37 carefully. Reply with the final integer only.",
+    "max_output_tokens": 16384,
     "reasoning": {
-      "effort": "low"
+      "effort": "medium"
     },
     "stream": false
   },
@@ -16,5 +16,7 @@
     "no_error",
     "terminal",
     "usage"
-  ]
+  ],
+  "thinking_validation": "request_acceptance",
+  "expected_answer": "6661"
 }

@@ -62,6 +62,28 @@ class BindingTests(unittest.TestCase):
             self.assertEqual(host.attribution({'api_key_id': 22}, ['server-id'], case, inventory())[1], 'usage_attribution_missing')
 
 
+    def test_audio_usage_requires_unique_session_and_same_test_key(self):
+        case = {**plan()['entries'][0], 'scenario': 'speech'}
+        usage = {'account_id': 11, 'api_key_id': 22, 'request_id': 'grok_audio:provider-id', 'session_id': 'unique-call'}
+        with patch.object(host, 'rows', side_effect=[[usage], []]) as query:
+            actual = host.attribution({'api_key_id': 22}, ['gateway-id'], case, inventory(), {'gateway-id': 'unique-call'})
+            self.assertEqual(actual[:3], ([11], None, ['grok_audio:provider-id']))
+            self.assertIn("created_at >= now() - interval '10 minutes'", query.call_args_list[0].args[0])
+            self.assertIn('UNION ALL SELECT', query.call_args_list[0].args[0])
+        for found, expected in [([{**usage, 'api_key_id': 23}], 'wrong_test_key_attribution'),
+                                ([usage, {**usage, 'request_id': 'grok_audio:another'}], 'ambiguous_usage_attribution'),
+                                ([{**usage, 'session_id': 'other-call'}], 'usage_attribution_missing')]:
+            with patch.object(host, 'rows', return_value=found), patch.object(host.time, 'sleep'):
+                self.assertEqual(host.attribution({'api_key_id': 22}, ['gateway-id'], case, inventory(),
+                                                 {'gateway-id': 'unique-call'})[1], expected)
+
+    def test_audio_session_is_sent_over_real_http(self):
+        from test_prod_replay import server
+        with server(response_id='gateway-id') as (port, received):
+            host.replay.execute({'row': {'stream': False}, 'path': '/test', 'body': b'{}'},
+                                'test-key', port, 'marker', session_id='unique-call')
+        self.assertEqual(received[0][2]['X-Session-Id'], 'unique-call')
+
 
 class ScenarioTests(unittest.TestCase):
     def test_truncated_or_missing_generation_terminal_cannot_pass(self):
@@ -104,6 +126,53 @@ class ScenarioTests(unittest.TestCase):
         response['choices'][0]['message']['content'] = 'Blue.'
         self.assertIsNone(check(case))
 
+
+    def test_thinking_acceptance_keeps_answer_and_terminal_checks_without_claiming_evidence(self):
+        from gateway_capability_check import thinking_evidence
+        response = {'object': 'response', 'status': 'completed',
+                    'output': [{'type': 'output_text', 'text': '6661'}],
+                    'usage': {'input_tokens': 1, 'output_tokens_details': {'reasoning_tokens': 0}}}
+        case = {'protocol': 'openai-responses', 'request_type': 'thinking',
+                'request': {'thinking_validation': 'request_acceptance', 'expected_answer': '6661'}}
+        wire = lambda: json.dumps(response).encode()
+        self.assertIsNone(validate_response(case, 200, 'application/json', wire(), False))
+        self.assertEqual(thinking_evidence(wire(), False), 'not_observed')
+        response['output'][0]['text'] = '16661'
+        self.assertEqual(validate_response(case, 200, 'application/json', wire(), False), 'thinking_answer_mismatch')
+        response['output'][0]['text'] = '6661'
+        response['status'] = 'incomplete'
+        self.assertEqual(validate_response(case, 200, 'application/json', wire(), False), 'generation_not_completed')
+        response['status'] = 'completed'
+        response['usage']['output_tokens_details']['reasoning_tokens'] = 12
+        self.assertEqual(thinking_evidence(wire(), False), 'observed')
+
+    def test_thinking_answer_joins_stream_tokens_and_excludes_hidden_reasoning(self):
+        from gateway_capability_check import answer_text
+        self.assertEqual(answer_text('openai-chat', [{'choices': [{'delta': {'content': x}}]} for x in ('66', '61')], True), '6661')
+        self.assertEqual(answer_text('gemini-content', [{'candidates': [{'content': {'parts': [
+            {'text': '6661', 'thought': True}, {'text': 'wrong'}]}}]}], False), 'wrong')
+        for path in Path(matrix.__file__).parent.glob('fixtures/gateway/*thinking*.json'):
+            fixture = json.loads(path.read_text())
+            self.assertIn('173*29 + 47*83 - 61*37', json.dumps(fixture['body']))
+            self.assertEqual(fixture['expected_answer'], '6661')
+
+    def test_generated_requests_use_valid_operations_and_sufficient_budgets(self):
+        value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
+        self.assertFalse(any(c['protocol'] == 'openai-chat' and c['scenario'] == 'count-tokens' for c in value['entries']))
+        for case in value['entries']:
+            body = case['request']['body']
+            if case['scenario'] == 'video':
+                self.assertIn(body['seconds'], ('8', '15'))
+            if case['request_type'] == 'thinking':
+                limit = next((body[k] for k in ('max_tokens', 'max_output_tokens', 'max_completion_tokens') if k in body),
+                             body.get('generationConfig', {}).get('maxOutputTokens'))
+                self.assertGreater(limit, 8192)
+                self.assertEqual(case['request']['expected_answer'], str(173*29 + 47*83 - 61*37))
+                self.assertIn('173*29 + 47*83 - 61*37', json.dumps(body))
+            elif case['scenario'] in ('plain-buffered', 'plain-stream', 'vision', 'tool-roundtrip'):
+                limit = next((body[k] for k in ('max_tokens', 'max_output_tokens', 'max_completion_tokens') if k in body),
+                             body.get('generationConfig', {}).get('maxOutputTokens'))
+                self.assertGreaterEqual(limit, 2048)
     def test_tool_roundtrip_uses_actual_call_id_and_validated_result(self):
         body = {'messages': [{'role': 'user', 'content': 'Call echo.'}], 'tools': [], 'tool_choice': 'required'}
         response = {'choices': [{'finish_reason': 'tool_calls', 'message': {'role': 'assistant', 'tool_calls': [
@@ -198,6 +267,30 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result['account_class_coverage'],
                          {'matched': 0, 'unmatched': 0, 'unmetered_or_absent': 0})
         self.assertNotIn('secret', json.dumps(details))
+
+    def test_selected_rerun_preserves_unselected_obligations(self):
+        value = plan()
+        selected = [value['entries'][0]['id']]
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
+             patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+             patch.object(host.replay, 'inspect', return_value={}), \
+             patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
+             patch.object(host, 'test_key', return_value={'api_key_id': 334, 'key': 'secret'}), \
+             patch.object(host, 'execute_case', return_value={'status': 'failed', 'reason': 'http_status_error'}) as execute:
+            result = host.run(value, inventory(), '1.2.3', Path(directory), case_ids=selected)
+            details = json.loads(Path(directory, 'bluegreen-capability-results.json').read_text())
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_args.args[0]['id'], selected[0])
+        self.assertEqual(result['selected_case_ids'], selected)
+        self.assertEqual(result['coverage']['declared-but-untested'], len(value['entries']) - 1)
+        self.assertEqual(len(details['results']), len(value['entries']))
+        self.assertEqual(result['verdict'], 'red')
+        self.assertFalse(result['cutover'])
+        for ids in ([], ['unknown'], selected * 2):
+            with patch.object(host.replay, 'prepared') as prepare, self.assertRaisesRegex(host.replay.ReplayError, 'invalid_case_selection'):
+                host.run(value, inventory(), '1.2.3', case_ids=ids)
+            prepare.assert_not_called()
 
     def test_missing_test_key_retains_every_obligation(self):
         value = plan()
