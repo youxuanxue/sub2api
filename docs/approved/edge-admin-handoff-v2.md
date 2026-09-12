@@ -1,19 +1,20 @@
 ---
 title: Edge admin handoff with one-time proof-bound exchange
-status: pending
-approved_by: pending
+status: approved
+approved_by: "用户（本会话：同意。继续。）"
+approved_at: "2026-09-12"
 created: '2026-09-12'
 authors: [codex]
 ---
 
 # Edge admin handoff
 
-## Decision to review
+## Approved decision
 
 用户已同意独立推进 Edge 安全交接，并保持管理员一键进入。本文将方向具体化为
-**每个 Edge 独立的签名信任关系 + 子窗口持有 PKCE 证明 + 一次性兑换**，待确认后进入生产实现。
+**每个 Edge 独立的签名信任关系 + 子窗口持有 PKCE 证明 + 一次性兑换**，用户已确认进入生产实现。
 
-当前 `EdgeAdminSessionHandler.Mint` 接受管理员拥有的镜像 Key，返回普通 access/refresh
+原有 `EdgeAdminSessionHandler.Mint` 接受管理员拥有的镜像 Key，返回普通 access/refresh
 会话；控制台把二者放入 URL fragment。fragment 不随 HTTP/Referer 发送，但父页面和
 浏览器 URL 表面仍经过凭据。这是代码风险，不是已发生线上泄露的结论。
 
@@ -24,7 +25,7 @@ authors: [codex]
 弹窗被拦截、Edge 不可达、授权过期时展示一个重试动作和直接登录入口。
 失败回退始终走现有登录页，不恢复 token URL 或镜像 Key 签发能力。
 
-## Trust and API contract (proposed)
+## Trust and API contract
 
 - 每个 Edge 使用独立 Ed25519 key pair。控制台仅在服务端持有该 Edge 私钥；Edge
   仅持有公钥。不能复用 JWT 签名密钥、镜像读取 Key 或供应商凭据。
@@ -35,7 +36,7 @@ authors: [codex]
   key ID、issuer、audience、purpose、时钟有效性和 proof 格式。
 - 每个 Edge 明确配置一个可交接的管理员主体；该主体必须仍为 active admin，不能由浏览器
   或授权中的任意 user ID 选择。控制台 initiator 与 Edge subject 分别审计，不能混为同一 ID。
-- 初始建议授权/code 有效期为 60 秒。`POST /api/v1/edge/admin-handoff/mint` 只接受签名
+- 授权/code 有效期为 60 秒。`POST /api/v1/edge/admin-handoff/mint` 只接受签名
   授权，返回 `{code, attempt}`；镜像 Key 单独不能调用。授权 attempt 也只能 mint 一次。
 - `POST /api/v1/edge/admin-handoff/exchange` 接受 `{code, attempt, verifier}`，在 Edge
   同源窗口内调用，验证实际 Origin 与内容类型，不开启跨域凭据交换。
@@ -87,10 +88,13 @@ attempt、challenge 后消费。错误 verifier/attempt 不得删除正确记录
 | --- | --- |
 | Target resolution and forwarding | existing `backend/internal/service/edge_accounts_aggregator_tk.go` |
 | Public admin endpoints | existing `backend/internal/handler/admin/edge_accounts_handler_tk.go` |
-| Delegation validation and exchange | proposed `backend/internal/service/edge_admin_handoff_tk.go` |
-| Redis atomic state | proposed `backend/internal/repository/edge_admin_handoff_cache_tk.go` |
-| Edge route handlers | proposed `backend/internal/handler/edge_admin_handoff_tk.go` |
-| Parent window lifecycle | proposed `frontend/src/composables/useEdgeAdminHandoff.tk.ts` |
+| Delegation validation and exchange | `backend/internal/service/edge_admin_handoff_tk.go` |
+| Redis atomic state | `backend/internal/repository/edge_admin_handoff_cache_tk.go` |
+| Edge route handlers | `backend/internal/handler/edge_tk_admin_session_handler.go` |
+| Parent window lifecycle | `frontend/src/composables/useEdgeAdminHandoff.tk.ts` |
+| Trust configuration | `backend/internal/config/edge_handoff_tk.go` |
+| Recovery presentation | `frontend/src/components/admin/account/EdgeHandoffRecoveryTk.vue` |
+| Session family | `backend/internal/service/auth_service_tk_edge_session.go` + existing AuthService refresh owner |
 | Child lifecycle | existing `frontend/src/views/admin/EdgeHandoffView.vue` |
 
 `EdgeAccountsView` 与 `EdgeAccountPanelTk` 共用父窗口 owner，不能复制第二套状态机。
@@ -105,22 +109,22 @@ attempt、challenge 后消费。错误 verifier/attempt 不得删除正确记录
 配置检查，并验证旧镜像 Key 请求明确失败。历史凭据处置依据独立证据清单决定。
 安全回滚是停用交接并直接登录，不能回滚到 token URL。
 
-## Executable prototype and evidence limits
+## Production validation and provisioning
 
-原型位于 `.testing/prototypes/edge-handoff/`，仅监听本机回环地址。
-`node .testing/prototypes/edge-handoff/server.mjs` 后打开 `http://127.0.0.1:4311`。
-两个不同源窗口执行真实 WebCrypto/postMessage/fetch；服务端使用临时 Ed25519 密钥。
+原型已收敛到现有 Vue 页面及 Go/Redis owner；审批原型可从历史提交读取。
+本地浏览器 fixture `backend/cmd/edge-handoff-e2e` 使用生产 handlers、AuthService、
+管理员鉴权和独立 Redis，固定用户/库存代替生产数据库与真实 Edge 发现。
+生产 aggregator 的固定 origin、禁重定向、禁转发镜像 Key 由 TLS HTTP 测试验证。
+这些验证覆盖本地实现，不代表已经部署或验证真实部署的网络、配置和历史会话。
 
-运行：
+运行生产浏览器旅程：先 `pnpm --dir frontend build`，再
+`pnpm --dir frontend exec playwright test --config playwright.edge-handoff.config.ts`。
+需要本机 `redis-server`；仅监听回环地址，临时 Redis 不持久化，测试退出即清理。
+禁用 traces/HAR/video，避免凭据进入工件。
 
-```sh
-node --test .testing/prototypes/edge-handoff/protocol.test.mjs
-pnpm --dir frontend exec playwright test --config ../.testing/prototypes/edge-handoff/playwright.config.mjs
-```
+配置生成与部署准备见 [Edge trust runbook](../ops/edge-admin-handoff.md)。
 
-协议测试覆盖签名、audience、期限、一次性消费、错误 proof 不消耗、并发单赢家。
-浏览器测试覆盖一键进入、干净 URL、父页面不接收 token pair、伪造窗口消息与失败回退。
-
-原型使用模拟管理员、内存 Map 和进程内签发调用；没有接入真实 JWT、Redis、网络转发、
-固定管理员映射、密钥轮换、刷新会话族撤销或生产日志守卫。
-它用于审定交互与协议边界，不能作为这些生产项已经安全实现的证据。
+刷新族 ID 来源于 issuer + attempt，初次与轮转签发都要求族索引成功；索引失败不返回会话。
+沿用 `RefreshTokenCache.DeleteTokenFamily` 定向撤销刷新能力，不影响其他登录。
+现有 access token 保持其原始有效期；立即禁用主体依赖现有管理员状态/TokenVersion 检查。
+本实现不新增“立即撤销单个 access token”的承诺或管理 API。

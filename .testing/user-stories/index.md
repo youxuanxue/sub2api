@@ -57,4 +57,4 @@
 
 | US-054 | Public Quickstart 与统一注册承诺 | Done | `.testing/user-stories/stories/US-054-public-quickstart-registration-offer.md` |
 
-| US-056 | Edge 管理会话安全交接 | Draft | `.testing/user-stories/stories/US-056-edge-admin-handoff-v2.md` |
+| US-056 | Edge 管理会话安全交接 | Done | `.testing/user-stories/stories/US-056-edge-admin-handoff-v2.md` |

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"net/http/httptest"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler"
@@ -90,5 +91,20 @@ func TestRegisterTKEdgeAccountsRoutes_ProxyOpsRegisteredNoConflict(t *testing.T)
 		{"GET", "/api/v1/admin/edge-accounts/:edge/accounts/:id/usage"},
 	} {
 		require.Truef(t, got[want], "prod proxy route not registered: %s %s", want.method, want.path)
+	}
+}
+
+func TestEdgeHandoffRoutesRejectLegacyAndDisableWithoutTrust(t *testing.T) {
+	r := gin.New()
+	RegisterTKEdgeRoutes(r.Group("/api/v1"), &handler.Handlers{EdgeAdminSession: handler.NewEdgeAdminSessionHandler(nil, nil, nil)}, nil, nil)
+	for _, tc := range []struct {
+		method, path string
+		status       int
+	}{{"POST", "/api/v1/edge/admin-session", 410}, {"GET", "/api/v1/edge/admin-handoff/configuration", 503}, {"POST", "/api/v1/edge/admin-handoff/exchange", 503}} {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req.Header.Set("x-api-key", "legacy-mirror-key")
+		r.ServeHTTP(w, req)
+		require.Equal(t, tc.status, w.Code)
 	}
 }

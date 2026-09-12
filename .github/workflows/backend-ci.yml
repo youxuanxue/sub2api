@@ -352,10 +352,6 @@ jobs:
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm exec playwright test --config playwright.quickstart.config.ts
-      - name: Edge handoff protocol prototype
-        run: |
-          node --test .testing/prototypes/edge-handoff/protocol.test.mjs
-          pnpm --dir frontend exec playwright test --config ../.testing/prototypes/edge-handoff/playwright.config.mjs
 
   candidate-browser:
     needs: changes
@@ -397,6 +393,12 @@ jobs:
       - name: Public pages against isolated production build
         working-directory: frontend
         run: pnpm test:e2e:public
+      - name: Edge handoff through existing admin UI
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y redis-server
+          pnpm --dir frontend build
+          pnpm --dir frontend exec playwright test --config playwright.edge-handoff.config.ts
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

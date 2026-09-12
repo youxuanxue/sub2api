@@ -1,3 +1,4 @@
+import { createPinia, setActivePinia } from 'pinia'
 import { defineComponent, h } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -102,6 +103,7 @@ function mountLogin() {
 
 describe('Tencent captcha action gate', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     loginMock.mockReset()
     loginWithPasskeyMock.mockReset()
     getPublicSettingsMock.mockReset()

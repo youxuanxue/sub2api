@@ -200,6 +200,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `DELETE /api/v1/admin/edge-accounts/:edge/accounts/:id/temp-unschedulable` from `backend/internal/server/routes/admin_tk_edge_accounts_routes.go`
 - `GET /api/v1/admin/edge-accounts/:edge/accounts/:id/usage` from `backend/internal/server/routes/admin_tk_edge_accounts_routes.go`
 - `POST /api/v1/admin/edge-accounts/:edge/admin-session` from `backend/internal/server/routes/admin_tk_edge_accounts_routes.go`
+- `GET /api/v1/admin/edge-accounts/:edge/handoff` from `backend/internal/server/routes/admin_tk_edge_accounts_routes.go`
 - `GET /api/v1/admin/error-passthrough-rules` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/error-passthrough-rules` from `backend/internal/server/routes/admin.go`
 - `DELETE /api/v1/admin/error-passthrough-rules/:id` from `backend/internal/server/routes/admin.go`
@@ -565,6 +566,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/edge/accounts/:id/schedulable` from `backend/internal/server/routes/edge_tk_routes.go`
 - `DELETE /api/v1/edge/accounts/:id/temp-unschedulable` from `backend/internal/server/routes/edge_tk_routes.go`
 - `GET /api/v1/edge/accounts/:id/usage` from `backend/internal/server/routes/edge_tk_routes.go`
+- `GET /api/v1/edge/admin-handoff/configuration` from `backend/internal/server/routes/edge_tk_routes.go`
+- `POST /api/v1/edge/admin-handoff/exchange` from `backend/internal/server/routes/edge_tk_routes.go`
+- `POST /api/v1/edge/admin-handoff/mint` from `backend/internal/server/routes/edge_tk_routes.go`
 - `POST /api/v1/edge/admin-session` from `backend/internal/server/routes/edge_tk_routes.go`
 - `GET /api/v1/edge/scheduling-capacity` from `backend/internal/server/routes/edge_tk_routes.go`
 - `GET /api/v1/groups/available` from `backend/internal/server/routes/user.go`

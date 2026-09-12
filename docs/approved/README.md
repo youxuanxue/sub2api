@@ -125,7 +125,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | File | Topic |
 | --- | --- |
 | [`ops-unified-contract.md`](ops-unified-contract.md) | Ops unified contract |
-| [`edge-admin-handoff-v2.md`](edge-admin-handoff-v2.md) | Pending: proof-bound Edge admin handoff |
+| [`edge-admin-handoff-v2.md`](edge-admin-handoff-v2.md) | Approved: proof-bound Edge admin handoff |
 | [`ops-sla-error-owner-scope.md`](ops-sla-error-owner-scope.md) | Ops SLA owner scope |
 | [`admin-dashboard-rollup-performance.md`](admin-dashboard-rollup-performance.md) | Admin dashboard rollups |
 | [`admin-ui-performance-rollups.md`](admin-ui-performance-rollups.md) | Admin UI rollup performance |

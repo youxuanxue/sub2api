@@ -7,11 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +23,8 @@ type edgeAccountsAggregator interface {
 	AggregateFresh(ctx context.Context, platform string) (*service.EdgeAccountsAggregate, error)
 	AggregateByStub(ctx context.Context) (*service.EdgeAccountsAggregate, error)
 	AggregateByStubFresh(ctx context.Context) (*service.EdgeAccountsAggregate, error)
-	MintAdminSession(ctx context.Context, edgeID string) (*service.EdgeAdminSession, error)
+	HandoffTarget(ctx context.Context, edgeID string) (*service.EdgeHandoffTarget, error)
+	MintAdminSession(ctx context.Context, edgeID string, initiator int64, input service.EdgeHandoffRequest) (*service.EdgeAdminSession, error)
 }
 
 // EdgeAccountsHandler serves the prod admin "Edge Accounts" read-only overview:
@@ -133,65 +133,57 @@ func buildEdgeAccountsETag(agg *service.EdgeAccountsAggregate) string {
 	return "\"" + hex.EncodeToString(sum[:]) + "\""
 }
 
-// adminSessionResponse is returned to the prod admin UI: a ready-to-open handoff
-// URL on the target edge that auto-logs-in and lands on its /admin/accounts page.
-type adminSessionResponse struct {
-	EdgeID     string `json:"edge_id"`
-	HandoffURL string `json:"handoff_url"`
-	ExpiresIn  int    `json:"expires_in"`
-}
-
-// MintAdminSession POST /api/v1/admin/edge-accounts/:edge/admin-session
-//
-// Forwards to the target edge to mint a short-lived admin JWT (using the
-// mirror-stub api-key prod already holds), then returns a handoff URL the UI
-// opens in a new tab. The token rides in the URL FRAGMENT so it never reaches an
-// edge access log / Referer. Admin-JWT gated (inherited from the /admin group):
-// only a prod admin can drive a cross-edge management jump.
-func (h *EdgeAccountsHandler) MintAdminSession(c *gin.Context) {
+// HandoffTarget exposes no credential and remains behind the existing admin guard.
+func (h *EdgeAccountsHandler) HandoffTarget(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if h == nil || h.aggregator == nil {
-		response.Error(c, http.StatusInternalServerError, "edge accounts handler unavailable")
+		handoffError(c, service.ErrEdgeHandoffUnavailable)
 		return
 	}
-	edgeID := strings.ToLower(strings.TrimSpace(c.Param("edge")))
+	target, err := h.aggregator.HandoffTarget(c.Request.Context(), c.Param("edge"))
+	if err != nil {
+		handoffError(c, err)
+		return
+	}
+	response.Success(c, target)
+}
+func handoffError(c *gin.Context, err error) {
+	if errors.Is(err, service.ErrEdgeNotFound) {
+		response.Error(c, http.StatusNotFound, "edge not found")
+		return
+	}
+	if errors.Is(err, service.ErrEdgeHandoffInvalid) {
+		response.Error(c, http.StatusBadRequest, "invalid handoff request")
+		return
+	}
+	response.Error(c, http.StatusBadGateway, "edge handoff unavailable")
+}
+func (h *EdgeAccountsHandler) MintAdminSession(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 || c.GetString("auth_method") != "jwt" {
+		response.Error(c, http.StatusUnauthorized, "administrator session required")
+		return
+	}
+	edgeID := strings.TrimSpace(c.Param("edge"))
 	if edgeID == "" {
 		response.Error(c, http.StatusBadRequest, "edge id required")
 		return
 	}
-
-	session, err := h.aggregator.MintAdminSession(c.Request.Context(), edgeID)
-	if err != nil {
-		if errors.Is(err, service.ErrEdgeNotFound) {
-			response.Error(c, http.StatusNotFound, "edge not found")
-			return
-		}
-		// Edge unreachable / non-2xx / decode failure — isolate as a bad gateway,
-		// never a prod-side 500 that masks "the edge said no".
-		response.Error(c, http.StatusBadGateway, "failed to mint edge admin session")
+	var input service.EdgeHandoffRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+	if c.ShouldBindJSON(&input) != nil || !service.EdgeHandoffProof(input.Challenge) || !service.EdgeHandoffProof(input.Attempt) {
+		response.Error(c, http.StatusBadRequest, "invalid handoff request")
 		return
 	}
-
-	response.Success(c, adminSessionResponse{
-		EdgeID:     session.EdgeID,
-		HandoffURL: buildEdgeHandoffURL(session.BaseURL, session.Token, session.RefreshToken, session.ExpiresIn),
-		ExpiresIn:  session.ExpiresIn,
-	})
-}
-
-// buildEdgeHandoffURL assembles the edge SPA handoff entry. The access token,
-// refresh token, expires_in, and next all live in the FRAGMENT (after #) so they
-// are never sent to the server, logged, or leaked via Referer; the edge's
-// EdgeHandoffView consumes them, establishes a self-renewing session, and scrubs
-// the fragment on load. refresh_token / expires_in are omitted when empty so an
-// older edge (single-token mint) still produces a valid, if non-renewing, URL.
-func buildEdgeHandoffURL(baseURL, token, refreshToken string, expiresIn int) string {
-	base := strings.TrimRight(baseURL, "/")
-	frag := "tk_session=" + url.QueryEscape(token) + "&next=" + url.QueryEscape("/admin/accounts")
-	if refreshToken != "" {
-		frag += "&refresh_token=" + url.QueryEscape(refreshToken)
+	if h == nil || h.aggregator == nil {
+		handoffError(c, service.ErrEdgeHandoffUnavailable)
+		return
 	}
-	if expiresIn > 0 {
-		frag += "&expires_in=" + strconv.Itoa(expiresIn)
+	session, err := h.aggregator.MintAdminSession(c.Request.Context(), edgeID, subject.UserID, input)
+	if err != nil {
+		handoffError(c, err)
+		return
 	}
-	return base + "/admin/edge-handoff#" + frag
+	response.Success(c, session)
 }

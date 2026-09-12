@@ -8,6 +8,7 @@
        render (outside .table-wrapper). Inner overflow-x keeps a busy edge's sub-table
        scrolling internally rather than overflowing. -->
   <div class="dt-edge-panel ml-[calc(var(--select-col-width,0px)_+_1.5rem)] mr-2 my-1 overflow-hidden rounded-lg border border-primary-200 bg-primary-50/40 shadow-sm dark:border-dark-600 dark:bg-dark-800/60">
+    <EdgeHandoffRecoveryTk :edge-id="failedEdge" :login-url="loginURL" @retry="retry" />
     <!-- Edge header -->
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-primary-100 px-4 py-1.5 dark:border-dark-700">
       <div class="flex min-w-0 items-center gap-2.5">
@@ -217,6 +218,9 @@
 </template>
 
 <script setup lang="ts">
+import { useEdgeAdminHandoff } from '@/composables/useEdgeAdminHandoff.tk'
+import EdgeHandoffRecoveryTk from '@/components/admin/account/EdgeHandoffRecoveryTk.vue'
+
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
@@ -401,23 +405,7 @@ watch(
   }
 )
 
-// --- "manage on edge" handoff (edge-level; credential-class management lives here) ---
-const managing = ref(false)
-async function openEdgeManage() {
-  if (managing.value || !edgeId.value) return
-  managing.value = true
-  // Open the tab synchronously inside the click so the post-await navigation is not
-  // treated as a popup (mirrors EdgeAccountsView.openEdgeManage).
-  const tab = window.open('', '_blank')
-  try {
-    const res = await adminAPI.edgeAccounts.adminSession(edgeId.value)
-    if (tab) tab.location.href = res.handoff_url
-    else window.location.href = res.handoff_url
-  } catch {
-    if (tab) tab.close()
-    appStore.showError(t('admin.edgeAccounts.manageFailed'))
-  } finally {
-    managing.value = false
-  }
-}
+const { managingEdge, failedEdge, loginURL, openEdgeManage: openHandoff, retry } = useEdgeAdminHandoff()
+const managing = computed(() => managingEdge.value !== null)
+function openEdgeManage() { void openHandoff(edgeId.value) }
 </script>

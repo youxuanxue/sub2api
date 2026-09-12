@@ -105,6 +105,15 @@
         "supplierSourceHandler := admin.NewSupplierSourceHandler(supplierSourceService)"
       ],
       "rationale": "Generated production graph for the final supplier-source chain: one repository, account-domain commands, an account store with no group dependency, the real in-memory probe adapter, existing secret encryption, and the admin handler. Provider declarations alone do not prove the deployed server retained this isolated graph after Wire regeneration or an upstream merge."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "repository.NewEdgeAdminHandoffCache(redisClient)",
+        "service.NewEdgeAdminHandoff(configConfig, edgeHandoffCache)",
+        "handler.ProvideEdgeAdminSessionHandler(edgeAdminHandoff, userService, authService)"
+      ],
+      "rationale": "Edge handoff must retain production injection, strict refresh-family indexing and credential-safe audit bodies."
     }
   ]
 }

@@ -46,8 +46,8 @@ class ChangedSurfacesTest(unittest.TestCase):
             },
         )
 
-    def test_edge_handoff_prototype_runs_browser_job(self) -> None:
-        result = changed_surfaces.classify([".testing/prototypes/edge-handoff/browser.mjs"])
+    def test_edge_handoff_ui_runs_browser_job(self) -> None:
+        result = changed_surfaces.classify(["frontend/e2e/edge-handoff.e2e.ts"])
         self.assertTrue(result["frontend"])
         self.assertFalse(result["backend"])
         self.assertFalse(result["all"])

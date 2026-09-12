@@ -16,9 +16,11 @@ package service
 //     credential-free DTO, and prod only ever decodes that sanitized shape.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"io"
 	"log/slog"
 	"net/http"
@@ -170,8 +172,10 @@ type cachedAggregate struct {
 // A per-platform stale-while-revalidate cache fronts the fan-out: see Aggregate.
 // The fan-out itself (discover + concurrent edge reads + sort) is in fanout.
 type EdgeAccountsAggregator struct {
-	accounts edgeAccountsStore
-	http     httpDoer
+	handoff     *EdgeAdminHandoff
+	handoffHTTP *http.Client
+	accounts    edgeAccountsStore
+	http        httpDoer
 
 	// now is injectable so tests can drive the soft-TTL clock; defaults to time.Now.
 	now func() time.Time
@@ -185,11 +189,12 @@ type EdgeAccountsAggregator struct {
 // Aggregate return an empty (non-error) result, keeping wire wiring safe.
 func NewEdgeAccountsAggregator(accounts edgeAccountsStore, client httpDoer) *EdgeAccountsAggregator {
 	return &EdgeAccountsAggregator{
-		accounts:   accounts,
-		http:       client,
-		now:        time.Now,
-		cache:      make(map[string]cachedAggregate),
-		refreshing: make(map[string]bool),
+		accounts:    accounts,
+		handoffHTTP: &http.Client{Timeout: edgeAccountsHTTPTO, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
+		http:        client,
+		now:         time.Now,
+		cache:       make(map[string]cachedAggregate),
+		refreshing:  make(map[string]bool),
 	}
 }
 
@@ -799,15 +804,16 @@ func (a *EdgeAccountsAggregator) fetchEdgeAccounts(ctx context.Context, t edgeTa
 	return res
 }
 
-// EdgeAdminSession is the minted handoff result for one edge: the renewable admin
-// session (access + refresh) plus the edge's base_url so the caller can build the
-// handoff URL.
+// EdgeAdminSession carries only a proof-bound, one-time code to the parent UI.
 type EdgeAdminSession struct {
-	EdgeID       string `json:"edge_id"`
-	BaseURL      string `json:"base_url"`
-	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
+	EdgeID  string `json:"edge_id"`
+	Code    string `json:"code"`
+	Attempt string `json:"attempt"`
+}
+type EdgeHandoffTarget struct {
+	EdgeID  string `json:"edge_id"`
+	URL     string `json:"handoff_url"`
+	Enabled bool   `json:"enabled"`
 }
 
 // resolveTarget discovers the mirror-stub edges and returns the one whose derived
@@ -817,9 +823,13 @@ func (a *EdgeAccountsAggregator) resolveTarget(ctx context.Context, edgeID strin
 	if a == nil || a.accounts == nil || edgeID == "" {
 		return edgeTarget{}, ErrEdgeNotFound
 	}
-	stubs, err := a.accounts.ListByPlatform(ctx, PlatformAnthropic)
-	if err != nil {
-		return edgeTarget{}, err
+	var stubs []Account
+	for _, platform := range edgeStubPlatforms {
+		rows, err := a.accounts.ListByPlatform(ctx, platform)
+		if err != nil {
+			return edgeTarget{}, err
+		}
+		stubs = append(stubs, rows...)
 	}
 	_, re, err := baseline.LoadStubPoolBaseline()
 	if err != nil {
@@ -833,57 +843,55 @@ func (a *EdgeAccountsAggregator) resolveTarget(ctx context.Context, edgeID strin
 	return edgeTarget{}, ErrEdgeNotFound
 }
 
-// MintAdminSession resolves the edge by id and POSTs to its /api/v1/edge/admin-session
-// with the mirror-stub x-api-key, returning the short-lived admin JWT + base_url.
-// This is the write-direction sibling of fetchEdgeAccounts: same discovery, same
-// x-api-key auth, same per-call timeout and failure isolation.
-func (a *EdgeAccountsAggregator) MintAdminSession(ctx context.Context, edgeID string) (*EdgeAdminSession, error) {
+// HandoffTarget returns a credential-free, validated target before opening it.
+func (a *EdgeAccountsAggregator) HandoffTarget(ctx context.Context, edgeID string) (*EdgeHandoffTarget, error) {
 	t, err := a.resolveTarget(ctx, edgeID)
 	if err != nil {
 		return nil, err
 	}
-	if a.http == nil {
-		return nil, errors.New("no http client")
+	origin := strings.TrimRight(t.baseURL, "/")
+	if !config.EdgeHandoffOrigin(origin) {
+		return nil, ErrEdgeHandoffUnavailable
 	}
-	endpoint := t.baseURL + "/api/v1/edge/admin-session"
+	return &EdgeHandoffTarget{EdgeID: t.edgeID, URL: origin + "/admin/edge-handoff", Enabled: a.handoff.CanSign(t.edgeID, origin)}, nil
+}
+func (a *EdgeAccountsAggregator) MintAdminSession(ctx context.Context, edgeID string, initiator int64, input EdgeHandoffRequest) (*EdgeAdminSession, error) {
+	t, err := a.resolveTarget(ctx, edgeID)
+	if err != nil {
+		return nil, err
+	}
+	origin := strings.TrimRight(t.baseURL, "/")
+	delegation, err := a.handoff.Sign(t.edgeID, origin, initiator, input)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(delegation)
+	if err != nil {
+		return nil, err
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, edgeAccountsHTTPTO)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, origin+"/api/v1/edge/admin-handoff/mint", bytes.NewReader(raw))
 	if err != nil {
-		return nil, errors.New("build request failed")
+		return nil, ErrEdgeHandoffUnavailable
 	}
-	req.Header.Set("x-api-key", t.apiKey)
-
-	resp, err := a.http.Do(req)
+	req.Header.Set("Content-Type", "application/json")
+	if a.handoffHTTP == nil {
+		return nil, ErrEdgeHandoffUnavailable
+	}
+	resp, err := a.handoffHTTP.Do(req)
 	if err != nil {
-		return nil, errors.New("request failed: " + err.Error())
+		return nil, ErrEdgeHandoffUnavailable
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, errors.New("edge returned http " + strconv.Itoa(resp.StatusCode))
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if err != nil {
-		return nil, errors.New("read body failed")
+	if resp.StatusCode != http.StatusOK {
+		return nil, ErrEdgeHandoffUnavailable
 	}
 	var env struct {
-		Data struct {
-			Token        string `json:"token"`
-			RefreshToken string `json:"refresh_token"`
-			ExpiresIn    int    `json:"expires_in"`
-		} `json:"data"`
+		Data EdgeHandoffCode `json:"data"`
 	}
-	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, errors.New("decode body failed")
+	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&env) != nil || !EdgeHandoffProof(env.Data.Code) || env.Data.Attempt != input.Attempt {
+		return nil, ErrEdgeHandoffUnavailable
 	}
-	if env.Data.Token == "" {
-		return nil, errors.New("edge returned empty token")
-	}
-	return &EdgeAdminSession{
-		EdgeID:       t.edgeID,
-		BaseURL:      t.baseURL,
-		Token:        env.Data.Token,
-		RefreshToken: env.Data.RefreshToken,
-		ExpiresIn:    env.Data.ExpiresIn,
-	}, nil
+	return &EdgeAdminSession{EdgeID: t.edgeID, Code: env.Data.Code, Attempt: env.Data.Attempt}, nil
 }

@@ -8,6 +8,7 @@
       <div
         class="sticky top-16 z-20 -mx-4 space-y-4 bg-gray-50/95 px-4 pb-4 pt-1 backdrop-blur md:-mx-6 md:px-6 lg:-mx-8 lg:px-8 dark:bg-dark-950/95"
       >
+        <EdgeHandoffRecoveryTk :edge-id="failedEdge" :login-url="loginURL" @retry="retry" />
         <!-- Header -->
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -371,41 +372,17 @@ import {
 } from '@/utils/edgeAccounts.tk'
 import { GATEWAY_PLATFORMS } from '@/constants/gatewayPlatforms'
 import { adminAPI } from '@/api/admin'
-import { useAppStore } from '@/stores/app'
+import { useEdgeAdminHandoff } from '@/composables/useEdgeAdminHandoff.tk'
+import EdgeHandoffRecoveryTk from '@/components/admin/account/EdgeHandoffRecoveryTk.vue'
+
 
 const { t } = useI18n()
-const appStore = useAppStore()
 
 function loadEdgeActiveUsage(edgeId: string, accountId: number) {
   return adminAPI.edgeAccounts.getUsage(edgeId, accountId, 'active', true)
 }
 
-// Which edge is currently minting a handoff (disables its button). Opening the
-// edge's own /admin/accounts in a new tab keeps this read-only overview open for
-// managing several edges in sequence.
-const managingEdge = ref<string | null>(null)
-
-async function openEdgeManage(edgeId: string) {
-  if (managingEdge.value) return
-  managingEdge.value = edgeId
-  // Open the tab synchronously inside the click so the browser doesn't treat the
-  // post-await window.open as a popup; navigate it once the URL is minted.
-  const tab = window.open('', '_blank')
-  try {
-    const res = await adminAPI.edgeAccounts.adminSession(edgeId)
-    if (tab) {
-      tab.location.href = res.handoff_url
-    } else {
-      // Popup blocked — fall back to same-tab navigation.
-      window.location.href = res.handoff_url
-    }
-  } catch {
-    if (tab) tab.close()
-    appStore.showError(t('admin.edgeAccounts.manageFailed'))
-  } finally {
-    managingEdge.value = null
-  }
-}
+const { managingEdge, failedEdge, loginURL, openEdgeManage, retry } = useEdgeAdminHandoff()
 
 // Concrete platforms the filter offers besides "all". Sourced from the canonical
 // GATEWAY_PLATFORMS list (single source of truth, mirrors the backend allowlist

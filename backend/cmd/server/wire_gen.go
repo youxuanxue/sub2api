@@ -303,7 +303,12 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	complianceHandler := admin.NewComplianceHandler(settingService)
 	tkChannelAdminHandler := admin.NewTKChannelAdminHandler(gatewayService, adminService, pricingCatalogService, pricingAvailabilityService)
 	tierHandler := admin.NewTierHandler(tierService)
-	edgeAccountsAggregator := service.ProvideEdgeAccountsAggregator(accountRepository)
+	edgeHandoffCache := repository.NewEdgeAdminHandoffCache(redisClient)
+	edgeAdminHandoff, err := service.NewEdgeAdminHandoff(configConfig, edgeHandoffCache)
+	if err != nil {
+		return nil, err
+	}
+	edgeAccountsAggregator := service.ProvideEdgeAccountsAggregator(accountRepository, edgeAdminHandoff)
 	edgeAccountsHandler := handler.ProvideTKEdgeAccountsAdminHandler(edgeAccountsAggregator)
 	edgeAccountOpsHandler := handler.ProvideTKEdgeAccountOpsAdminHandler(edgeAccountsAggregator)
 	trialProvisionHandler := handler.ProvideTrialProvisionHandler(subscriptionService, apiKeyService, settingService, userRepository, userGroupRateRepository, groupRepository, redeemCodeRepository, client)
@@ -349,7 +354,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	qaHandler := handler.NewQAHandler(qaService)
 	edgeCapacityHandler := handler.ProvideEdgeCapacityHandler(accountRepository)
 	handlerEdgeAccountsHandler := handler.ProvideEdgeAccountsHandler(adminService, concurrencyService, sessionLimitCache, rpmCache, accountUsageService)
-	edgeAdminSessionHandler := handler.ProvideEdgeAdminSessionHandler(apiKeyService, userService, authService)
+	edgeAdminSessionHandler := handler.ProvideEdgeAdminSessionHandler(edgeAdminHandoff, userService, authService)
 	handlerEdgeAccountOpsHandler := handler.ProvideEdgeAccountOpsHandler(rateLimitService, adminService, accountUsageService)
 	imageTaskStore := repository.NewImageTaskStore(redisClient)
 	imageTaskService := service.ProvideImageTaskService(imageTaskStore, imageStorageSettingService)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -187,4 +188,28 @@ func TestOllamaCloudUsageSessionRouteOmitsAuditBody(t *testing.T) {
 	require.Len(t, logs, 1)
 	require.Equal(t, "<credential-bearing body omitted>", logs[0].RequestBody)
 	require.NotContains(t, logs[0].RequestBody, "audit-canary")
+}
+
+func TestEdgeHandoffAuditOmitsProofAndCode(t *testing.T) {
+	repository := &auditCaptureRepository{}
+	audit := service.NewAuditLogService(repository, nil)
+	audit.Start()
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set(string(ContextKeyUser), AuthSubject{UserID: 7}); c.Next() }, gin.HandlerFunc(NewAuditLogMiddleware(audit)))
+	paths := []string{"/api/v1/admin/edge-accounts/:edge/admin-session", "/api/v1/edge/admin-handoff/mint", "/api/v1/edge/admin-handoff/exchange"}
+	for _, path := range paths {
+		router.POST(path, func(c *gin.Context) { c.Status(200) })
+	}
+	for _, path := range paths {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("POST", strings.ReplaceAll(path, ":edge", "us1"), strings.NewReader(`{"verifier":"proof-canary","code":"code-canary","payload":"signed-canary"}`)))
+		require.Equal(t, 200, w.Code)
+	}
+	audit.Stop()
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	require.Len(t, repository.logs, 3)
+	for _, entry := range repository.logs {
+		require.Equal(t, "<credential-bearing body omitted>", entry.RequestBody)
+	}
 }

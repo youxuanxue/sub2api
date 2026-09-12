@@ -225,24 +225,24 @@ export async function listWithEtag(
   return { notModified: false, etag: etagHeader, data: response.data }
 }
 
-/**
- * Mint result for the "manage accounts" handoff: a ready-to-open URL on the
- * target edge that auto-logs-in and lands on its own /admin/accounts page. The
- * short-lived token rides in the URL fragment (see backend buildEdgeHandoffURL).
- */
+/** The parent receives a one-time proof-bound code, never an Edge session. */
 export interface EdgeAdminSessionResult {
   edge_id: string
-  handoff_url: string
-  expires_in: number
+  code: string
+  attempt: string
 }
-
-/**
- * Request a one-shot admin-session handoff URL for a specific edge. Prod forwards
- * to the edge (mirror-stub api-key) which mints a short-lived admin JWT.
- */
-export async function adminSession(edgeId: string): Promise<EdgeAdminSessionResult> {
+export interface EdgeHandoffTarget {
+  edge_id: string
+  handoff_url: string
+  enabled: boolean
+}
+export async function handoffTarget(edgeId: string): Promise<EdgeHandoffTarget> {
+  const { data } = await apiClient.get<EdgeHandoffTarget>(`/admin/edge-accounts/${encodeURIComponent(edgeId)}/handoff`)
+  return data
+}
+export async function adminSession(edgeId: string, input: { challenge: string; attempt: string }): Promise<EdgeAdminSessionResult> {
   const { data } = await apiClient.post<EdgeAdminSessionResult>(
-    `/admin/edge-accounts/${encodeURIComponent(edgeId)}/admin-session`
+    `/admin/edge-accounts/${encodeURIComponent(edgeId)}/admin-session`, input
   )
   return data
 }
@@ -312,6 +312,7 @@ export const edgeAccountsAPI = {
   list,
   listWithEtag,
   adminSession,
+  handoffTarget,
   clearRateLimit,
   resetQuota,
   clearTempUnschedulable,
