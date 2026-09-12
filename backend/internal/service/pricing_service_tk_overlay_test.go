@@ -559,3 +559,63 @@ func TestTKPricingOverlay_FillsRetiredQwen25Coder(t *testing.T) {
 	require.NotNil(t, base7.InputPrice)
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), *base7.InputPrice, 1e-13)
 }
+
+// TestTKPricingOverlay_FillsQwenVisionFamily pins the 2026-09-12 served-zero-cost
+// fix: qwen-vl-max (and the same supply-family siblings) had live newapi mapping /
+// account supply but no registry owner, so billing recorded TotalCost==0 with
+// reason unpriced. Official China-mainland DashScope list ÷ 6.7 must inject a
+// positive chat price so GetModelPricing succeeds and CalculateCost is non-zero.
+func TestTKPricingOverlay_FillsQwenVisionFamily(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"gpt-5.4": {
+			"input_cost_per_token": 0.0000025,
+			"output_cost_per_token": 0.000015,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		}
+	}`)
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	max := data["qwen-vl-max"]
+	require.NotNil(t, max, "overlay must inject qwen-vl-max")
+	require.False(t, tkIsEffectivelyUnpriced(max))
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.6), max.InputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), max.OutputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.6), max.CacheReadInputTokenCost, 1e-13)
+	require.True(t, max.SupportsVision)
+
+	plus := data["qwen-vl-plus"]
+	require.NotNil(t, plus)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.8), plus.InputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(2), plus.OutputCostPerToken, 1e-13)
+
+	flash := data["qwen3-vl-flash"]
+	require.NotNil(t, flash)
+	require.Len(t, flash.Intervals, 3)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.15), flash.InputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), flash.OutputCostPerToken, 1e-13)
+	topFlash := flash.Intervals[len(flash.Intervals)-1]
+	require.Nil(t, topFlash.MaxTokens)
+	require.NotNil(t, topFlash.InputPrice)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.6), *topFlash.InputPrice, 1e-13)
+
+	vlPlus3 := data["qwen3-vl-plus"]
+	require.NotNil(t, vlPlus3)
+	require.Len(t, vlPlus3.Intervals, 3)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), vlPlus3.InputCostPerToken, 1e-13)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(10), vlPlus3.OutputCostPerToken, 1e-13)
+
+	billing := NewBillingService(nil, nil)
+	for _, model := range []string{"qwen-vl-max", "qwen-vl-plus", "qwen3-vl-flash", "qwen3-vl-plus"} {
+		pricing, err := billing.GetModelPricing(model)
+		require.NoError(t, err, model)
+		require.NotNil(t, pricing, model)
+		require.Greater(t, pricing.InputPricePerToken, 0.0, model)
+		require.Greater(t, pricing.OutputPricePerToken, 0.0, model)
+		cost, err := billing.CalculateCost(model, UsageTokens{InputTokens: 10, OutputTokens: 4}, 1.0)
+		require.NoError(t, err, model)
+		require.Greater(t, cost.TotalCost, 0.0, "14-unit alert sample must bill >$0 for %s", model)
+	}
+}
