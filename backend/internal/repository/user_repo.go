@@ -33,6 +33,14 @@ type userRepository struct {
 	sql    sqlExecutor
 }
 
+// entTxDriver is the transaction-bound Ent driver shape. Its underlying
+// connection is single-threaded, so queries must remain serial when a caller
+// supplies a transaction-bound client (notably repository integration tests).
+type entTxDriver interface {
+	Commit() error
+	Rollback() error
+}
+
 var _ service.RedeemUserAdjustmentRepository = (*userRepository)(nil)
 
 func NewUserRepository(client *dbent.Client, sqlDB *sql.DB) service.UserRepository {
@@ -589,19 +597,34 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	// preserving the exact pagination semantics and response shape.
 	var total int
 	var users []*dbent.User
-	g, queryCtx := errgroup.WithContext(userCtx)
-	g.Go(func() error {
+	if _, transactionBound := r.client.Driver().(entTxDriver); transactionBound {
+		// Ent's txDriver explicitly is not goroutine-safe. Keep the old serial
+		// order for transaction-bound clients while using parallel reads for the
+		// normal pooled database client.
 		var err error
-		total, err = q.Clone().Count(queryCtx)
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		users, err = usersQuery.All(queryCtx)
-		return err
-	})
-	if err := g.Wait(); err != nil {
-		return nil, nil, err
+		total, err = q.Clone().Count(userCtx)
+		if err != nil {
+			return nil, nil, err
+		}
+		users, err = usersQuery.All(userCtx)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		g, queryCtx := errgroup.WithContext(userCtx)
+		g.Go(func() error {
+			var err error
+			total, err = q.Clone().Count(queryCtx)
+			return err
+		})
+		g.Go(func() error {
+			var err error
+			users, err = usersQuery.All(queryCtx)
+			return err
+		})
+		if err := g.Wait(); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	outUsers := make([]service.User, 0, len(users))
@@ -623,27 +646,44 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 		subs                []*dbent.UserSubscription
 		allowedGroupsByUser map[int64][]int64
 	)
-	g, loadCtx := errgroup.WithContext(ctx)
-	if shouldLoadSubscriptions {
-		g.Go(func() error {
+	if _, transactionBound := r.client.Driver().(entTxDriver); transactionBound {
+		if shouldLoadSubscriptions {
 			var err error
 			subs, err = r.client.UserSubscription.Query().
-				Where(
-					usersubscription.UserIDIn(userIDs...),
-					usersubscription.StatusEQ(service.SubscriptionStatusActive),
-				).
-				WithGroup().
-				All(loadCtx)
+				Where(usersubscription.UserIDIn(userIDs...), usersubscription.StatusEQ(service.SubscriptionStatusActive)).
+				WithGroup().All(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		var err error
+		allowedGroupsByUser, err = r.loadAllowedGroups(ctx, userIDs)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		g, loadCtx := errgroup.WithContext(ctx)
+		if shouldLoadSubscriptions {
+			g.Go(func() error {
+				var err error
+				subs, err = r.client.UserSubscription.Query().
+					Where(
+						usersubscription.UserIDIn(userIDs...),
+						usersubscription.StatusEQ(service.SubscriptionStatusActive),
+					).
+					WithGroup().
+					All(loadCtx)
+				return err
+			})
+		}
+		g.Go(func() error {
+			var err error
+			allowedGroupsByUser, err = r.loadAllowedGroups(loadCtx, userIDs)
 			return err
 		})
-	}
-	g.Go(func() error {
-		var err error
-		allowedGroupsByUser, err = r.loadAllowedGroups(loadCtx, userIDs)
-		return err
-	})
-	if err := g.Wait(); err != nil {
-		return nil, nil, err
+		if err := g.Wait(); err != nil {
+			return nil, nil, err
+		}
 	}
 	if shouldLoadSubscriptions {
 		for i := range subs {
