@@ -112,6 +112,21 @@ func tkMessagesDispatchModelMatchesFamily(model, family string) bool {
 	return false
 }
 
+// hasMessagesDispatchRemapping includes persisted substitutions and runtime defaults.
+// Family metadata alone is not a substitution (china keeps it for legacy configs).
+func hasMessagesDispatchRemapping(group *Group) bool {
+	cfg := group.MessagesDispatchModelConfig
+	if cfg.OpusMappedModel != "" || cfg.SonnetMappedModel != "" || cfg.HaikuMappedModel != "" || len(cfg.ExactModelMappings) > 0 {
+		return true
+	}
+	for _, family := range []string{"opus", "sonnet", "haiku"} {
+		if tkMessagesDispatchTierDefaultsForGroup(group.Name, group.Platform, family) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func validateGroupMessagesDispatchModelConfig(group *Group) error {
 	if group == nil || !group.AllowMessagesDispatch || !tkGroupKeepsDispatchConfig(group) {
 		return nil
@@ -121,9 +136,7 @@ func validateGroupMessagesDispatchModelConfig(group *Group) error {
 	family, registered := tkMessagesDispatchFamilyForGroup(groupName)
 	// Native mixed-model supplies need protocol admission without translating
 	// Claude model names into another family. Empty config means identity.
-	if group.Platform == PlatformNewAPI && !registered && group.MessagesDispatchModelConfig.OpusMappedModel == "" &&
-		group.MessagesDispatchModelConfig.SonnetMappedModel == "" && group.MessagesDispatchModelConfig.HaikuMappedModel == "" &&
-		len(group.MessagesDispatchModelConfig.ExactModelMappings) == 0 {
+	if group.Platform == PlatformNewAPI && !hasMessagesDispatchRemapping(group) {
 		return nil
 	}
 	if !registered {

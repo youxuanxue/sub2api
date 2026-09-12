@@ -374,13 +374,23 @@
     },
     {
       "path": "backend/internal/service/account_tk_cursor.go",
-      "must_contain": ["tx.Account.Query().Where(entaccount.IDEQ(accountID)).ForUpdate().Only(opCtx)", "*stored.ErrorMessage == cursorOAuthReauthorizationRequired", "s.UpdateAccount(opCtx, accountID, update)"],
+      "must_contain": ["tx.Account.Query().Where(entaccount.IDEQ(accountID)).ForUpdate().Only(opCtx)", "*stored.ErrorMessage == cursorOAuthReauthorizationRequired", "s.UpdateAccount(opCtx, accountID, update)", "if hasMessagesDispatchRemapping(group) {", "if hasMessagesDispatchRemapping(&Group{"],
       "rationale": "Verified Cursor reauthorization clears only the refresh-owned failure inside the credential transaction and preserves operator pauses under the account lock."
     },
     {
       "path": "backend/internal/repository/account_repo_cursor_transaction_integration_test.go",
-      "must_contain": ["TestCursorReconnectPreservesPersistedPause", "operator investigation", "operator disabled", "scenario.replace", "loaded.ErrorMessage"],
-      "rationale": "Real persistence tests distinguish verified reauthorization from an expiry-only edit and retain unrelated errors and manual controls."
+      "must_contain": ["TestCursorReconnectPreservesPersistedPause", "operator investigation", "operator disabled", "scenario.replace", "loaded.ErrorMessage", "TestCursorBindsMixedChinaAfterExplicitMappingRemoval", "admin.UpdateGroup(ctx, group.ID", "admin.SaveCursorAccount(ctx, nil, &service.UpdateAccountInput{GroupIDs: &ids}, cursorAccount.ID)"],
+      "rationale": "Real persistence tests distinguish verified reauthorization from an expiry-only edit, retain manual controls, and bind Cursor alongside other supplies only after explicit china mapping removal."
+    },
+    {
+      "path": "backend/internal/service/messages_dispatch_family_registry_tk.go",
+      "must_contain": ["func hasMessagesDispatchRemapping(group *Group) bool", "if group.Platform == PlatformNewAPI && !hasMessagesDispatchRemapping(group) {"],
+      "rationale": "Group validation and Cursor import share effective remapping truth, including implicit defaults; family metadata alone must not block an empty mixed-supply group."
+    },
+    {
+      "path": "backend/internal/service/messages_dispatch_family_registry_tk_test.go",
+      "must_contain": ["TestChinaClearedMappingPreservesRequestedModelAndLegacyConfig", "group.ResolveMessagesDispatchModel(model)", "hasMessagesDispatchRemapping(group)"],
+      "rationale": "Behavioral regression rejects restoring china's implicit GLM substitutions while preserving explicit legacy configurations and other groups' defaults."
     },
     {
       "path": "backend/internal/integration/cursor/oauth_refresh.go",

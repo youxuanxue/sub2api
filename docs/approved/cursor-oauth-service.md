@@ -16,7 +16,7 @@ local tool execution, Bridge secret or cross-request connection affinity.
 The native protocol implementation does not require a new-api upgrade or a
 video task adaptor migration; the dependency pin follows the main branch.
 
-Cursor is the supply source and service group; accounts remain
+Cursor is the supply source; accounts remain
 `platform=newapi`, `type=apikey`, channel type 14. Model family, supply and public
 protocol remain separate dimensions.
 The native adapter follows the MIT protocol subset from can1357/oh-my-pi
@@ -42,7 +42,9 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   Reauthorization clears the Cursor refresh failure atomically with replacement
   credentials, while preserving manual pauses, disabled status and other errors.
 - Account creation/update, group binding and probes use existing owners.
-  A dedicated Cursor group may contain multiple Cursor accounts.
+  Cursor imports bind one newapi group without explicit or default model
+  substitutions. The group may also contain other supplies; model eligibility
+  and credential lifecycle remain account-owned.
 - The authenticated catalog supplies exact base IDs, default regular-speed
   parameters and legacy wire slugs. Imported catalog entries do not bypass
   pricing, activation, candidate eligibility or protocol capability gates.
@@ -154,3 +156,19 @@ chained renewal. The real background service updated PostgreSQL expiry and Redis
 credentials, followed by a successful Playwright Composer call. This proves
 renewal before expiry, not recovery of already-expired or revoked credentials.
 Production deployment status belongs to release records, not this design.
+
+## Shared china group (2026-09-12)
+
+The user instructed removal of china's model substitutions and binding the
+Cursor account to that group. This supersedes the dedicated-group restriction.
+The registry no longer supplies china's implicit GLM defaults; its GLM family
+metadata remains solely to validate explicitly configured legacy mappings.
+Existing persisted mappings continue to work until an administrator clears them.
+Other groups retain their defaults. Cursor import still rejects any effective
+remapping and keeps the atomic credential/group transaction and one-group input.
+Mixed membership does not confer model capability on another account or bypass
+`protocolrouter.Plan`. No account is duplicated to represent model families.
+
+Apply the empty china mapping through the admin API after deploying this change,
+then authorize/import Cursor and verify real gateway usage identifies that account.
+Code tests alone do not establish production configuration or inference success.

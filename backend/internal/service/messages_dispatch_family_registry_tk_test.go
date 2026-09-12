@@ -126,3 +126,25 @@ func TestValidateGroupMessagesDispatchModelConfig_GeminiPlatformImplicitFamily(t
 	})
 	require.NoError(t, err)
 }
+
+func TestChinaClearedMappingPreservesRequestedModelAndLegacyConfig(t *testing.T) {
+	group := &Group{Name: "china", Platform: PlatformNewAPI, AllowMessagesDispatch: true}
+	// Fixed regression boundary: china is a mixed supply group, not a GLM default.
+	for _, model := range []string{"claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"} {
+		require.Empty(t, group.ResolveMessagesDispatchModel(model))
+	}
+	require.NoError(t, validateGroupMessagesDispatchModelConfig(group))
+	require.False(t, hasMessagesDispatchRemapping(group))
+
+	// Existing persisted GLM substitutions remain valid until explicitly cleared.
+	legacy := requireTkMessagesDispatchGroupDefaults(t, "glm")
+	group.MessagesDispatchModelConfig = legacy
+	require.NoError(t, validateGroupMessagesDispatchModelConfig(group))
+	require.True(t, hasMessagesDispatchRemapping(group))
+	require.Equal(t, legacy.OpusMappedModel, group.ResolveMessagesDispatchModel("claude-opus-4-6"))
+
+	group.MessagesDispatchModelConfig = OpenAIMessagesDispatchModelConfig{}
+	group.Name = "Google-Vertex"
+	require.True(t, hasMessagesDispatchRemapping(group), "other groups retain implicit defaults")
+	require.Error(t, validateGroupMessagesDispatchModelConfig(group))
+}

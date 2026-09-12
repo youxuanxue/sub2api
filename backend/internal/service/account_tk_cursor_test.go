@@ -30,7 +30,7 @@ func (s *cursorAdminStub) SaveCursorAccount(_ context.Context, c *CreateAccountI
 }
 
 func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T) {
-	for _, scenario := range []string{"create", "reconnect", "save_failure", "expired", "wrong_group", "multiple_groups", "wrong_account"} {
+	for _, scenario := range []string{"create", "reconnect", "save_failure", "expired", "wrong_group", "multiple_groups", "wrong_account", "china", "explicit_mapping", "default_mapping"} {
 		t.Run(scenario, func(t *testing.T) {
 			admin := &cursorAdminStub{group: &Group{Name: "Cursor", Platform: PlatformNewAPI}}
 			input := CursorAccountInput{SessionID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Name: "Cursor", GroupIDs: []int64{2}}
@@ -57,15 +57,24 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 			if scenario == "multiple_groups" {
 				input.GroupIDs = []int64{2, 3}
 			}
+			if scenario == "china" || scenario == "explicit_mapping" {
+				admin.group.Name = "china"
+			}
+			if scenario == "explicit_mapping" {
+				admin.group.MessagesDispatchModelConfig = requireTkMessagesDispatchGroupDefaults(t, "glm")
+			}
+			if scenario == "default_mapping" {
+				admin.group.Name = "Google-Vertex"
+			}
 			client := &cursorClaimStub{claim: claim}
 			_, err := ImportCursorAccount(context.Background(), admin, client, "admin:7", input)
-			success := scenario == "create" || scenario == "reconnect"
+			success := scenario == "create" || scenario == "reconnect" || scenario == "china"
 			if success {
 				require.NoError(t, err)
 			} else {
 				require.Error(t, err)
 			}
-			if scenario == "wrong_group" || scenario == "wrong_account" || scenario == "multiple_groups" {
+			if scenario == "wrong_group" || scenario == "wrong_account" || scenario == "multiple_groups" || scenario == "explicit_mapping" || scenario == "default_mapping" {
 				require.Zero(t, client.claims)
 				require.Zero(t, client.settlements)
 				return
