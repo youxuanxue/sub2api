@@ -65,9 +65,11 @@ class BindingTests(unittest.TestCase):
     def test_audio_usage_requires_unique_session_and_same_test_key(self):
         case = {**plan()['entries'][0], 'scenario': 'speech'}
         usage = {'account_id': 11, 'api_key_id': 22, 'request_id': 'grok_audio:provider-id', 'session_id': 'unique-call'}
-        with patch.object(host, 'rows', side_effect=[[usage], []]):
+        with patch.object(host, 'rows', side_effect=[[usage], []]) as query:
             actual = host.attribution({'api_key_id': 22}, ['gateway-id'], case, inventory(), {'gateway-id': 'unique-call'})
             self.assertEqual(actual[:3], ([11], None, ['grok_audio:provider-id']))
+            self.assertIn("created_at >= now() - interval '10 minutes'", query.call_args_list[0].args[0])
+            self.assertIn('UNION ALL SELECT', query.call_args_list[0].args[0])
         for found, expected in [([{**usage, 'api_key_id': 23}], 'wrong_test_key_attribution'),
                                 ([usage, {**usage, 'request_id': 'grok_audio:another'}], 'ambiguous_usage_attribution'),
                                 ([{**usage, 'session_id': 'other-call'}], 'usage_attribution_missing')]:

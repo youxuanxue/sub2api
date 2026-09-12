@@ -110,10 +110,17 @@ def attribution(binding, request_ids, case, inventory, sessions=None):
     # Audio uses an upstream-owned durable billing ID, independent of X-Request-ID.
     # A unique ordinary client session ties that one call to its existing usage row.
     sessions = sessions or {}
-    session_filter = (" OR session_id IN (" + ','.join(literal(v) for v in sessions.values()) + ")") if sessions else ''
-    query = f"""SELECT json_build_object('account_id',account_id,'request_id',request_id,
-        'api_key_id',api_key_id,'session_id',session_id)
-        FROM usage_logs WHERE request_id IN ({quoted}){session_filter};"""
+    projection = "json_build_object('account_id',account_id,'request_id',request_id,'api_key_id',api_key_id,'session_id',session_id)"
+    query = f"SELECT {projection} FROM usage_logs WHERE request_id IN ({quoted})"
+    if sessions:
+        # session_id has no index: bound its scan by the existing created_at index,
+        # separately from the exact request-ID lookup so that lookup stays indexed.
+        query += f""" UNION ALL SELECT {projection} FROM usage_logs
+            WHERE created_at >= now() - interval '10 minutes'
+            AND session_id IN ({','.join(literal(v) for v in sessions.values())})
+            AND request_id NOT IN ({quoted})"""
+    query += ';'
+
     for _ in range(10):
         usage = rows(query)
         recorded = {u['request_id'] for u in usage}
