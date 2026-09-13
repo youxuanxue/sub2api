@@ -138,6 +138,8 @@ def validate_response(case, status, ctype, raw, stream):
             if not isinstance(expected, str) or not expected.strip():
                 return 'vision_answer_mismatch'
             colors = re.findall(r'\b(?:blue|red|green|yellow|pink|brown|white|black|orange|purple)\b', text, re.IGNORECASE)
+            if re.search(r'\b(?:cannot|can\'t|unable|guess|not sure|do not see)\b', text, re.IGNORECASE):
+                return 'vision_answer_mismatch'
             if not colors or any(color.lower() != expected.strip().lower() for color in colors):
                 return 'vision_answer_mismatch'
         return None
