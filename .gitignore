@@ -221,6 +221,7 @@ __pycache__/
 .agents/*
 !.agents/skills
 .tls_list/
+.kiro_tls/
 frontend/e2e/artifacts/
 frontend/e2e/report/
 ssm-params.json
