@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -159,4 +160,59 @@ func TestOpenAIShouldDispatchToNewAPIBridge_RespectsKillSwitch(t *testing.T) {
 	if svc.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {
 		t.Fatalf("expected bridge dispatch disabled by setting")
 	}
+}
+
+func TestChatBridgeImageCountSettlementRouting(t *testing.T) {
+	groupID := int64(999)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.resolver = newOpenAIImageChannelPricingResolverForTest(t, groupID, "gemini-2.5-flash-image", 0.05)
+
+	t.Run("ImageCount > 0 enters image billing", func(t *testing.T) {
+		err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+			Result: &OpenAIForwardResult{
+				RequestID:  "resp_image_positive",
+				Model:      "gemini-2.5-flash-image",
+				ImageCount: 2,
+				Duration:   time.Second,
+			},
+			APIKey: &APIKey{
+				ID:      10999,
+				GroupID: i64p(groupID),
+				Group:   &Group{ID: groupID, RateMultiplier: 1.0},
+			},
+			User:    &User{ID: 20999},
+			Account: &Account{ID: 30999},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, usageRepo.lastLog)
+		require.Equal(t, 2, usageRepo.lastLog.ImageCount)
+		require.NotNil(t, usageRepo.lastLog.BillingMode)
+		require.Equal(t, string(BillingModeImage), *usageRepo.lastLog.BillingMode)
+	})
+
+	t.Run("ImageCount == 0 enters token billing", func(t *testing.T) {
+		svc.resolver = newOpenAITokenImageChannelPricingResolverForTest(t, groupID, "gemini-chat")
+		err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+			Result: &OpenAIForwardResult{
+				RequestID:  "resp_image_zero",
+				Model:      "gemini-chat",
+				ImageCount: 0,
+				Usage:      OpenAIUsage{InputTokens: 100, OutputTokens: 50},
+				Duration:   time.Second,
+			},
+			APIKey: &APIKey{
+				ID:      10999,
+				GroupID: i64p(groupID),
+				Group:   &Group{ID: groupID, RateMultiplier: 1.0},
+			},
+			User:    &User{ID: 20999},
+			Account: &Account{ID: 30999},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, usageRepo.lastLog)
+		require.Equal(t, 0, usageRepo.lastLog.ImageCount)
+		require.NotNil(t, usageRepo.lastLog.BillingMode)
+		require.Equal(t, string(BillingModeToken), *usageRepo.lastLog.BillingMode)
+	})
 }
