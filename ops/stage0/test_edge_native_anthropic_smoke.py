@@ -17,6 +17,7 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
         self,
         models: str,
         account_rows: str = "66|kiro",
+        consume_stdin: bool = False,
     ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory(prefix="edge-native-smoke-test-") as td:
             tmpdir = pathlib.Path(td)
@@ -57,6 +58,7 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
                 textwrap.dedent(
                     """\
                     #!/usr/bin/env bash
+                    if [[ "${CONSUME_STDIN:-0}" == "1" ]]; then cat >/dev/null; fi
                     printf '%s\n' "${MODEL:-}" >> "${PROBE_MODEL_LOG}"
                     printf '{"verdict":"servable","http_code":200}\n'
                     """
@@ -74,6 +76,7 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
                 "SMOKE_ANTHROPIC_REALISTIC_PY": str(realistic),
                 "PROBE_MODEL_LOG": str(model_log),
                 "FAKE_ACCOUNT_ROWS": account_rows,
+                "CONSUME_STDIN": "1" if consume_stdin else "0",
             }
             proc = subprocess.run(
                 ["bash", str(_SCRIPT)],
@@ -116,6 +119,18 @@ class EdgeNativeAnthropicSmokeTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, msg=proc.stderr)
         self.assertEqual(logged_models, [])
         self.assertIn("SKIPPED no eligible accounts", proc.stdout)
+
+    def test_probe_reading_stdin_does_not_consume_remaining_accounts(self) -> None:
+        proc, logged_models = self._run_smoke(
+            "claude-a,claude-b", "16|kiro\n17|kiro\n18|kiro", consume_stdin=True,
+        )
+
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        self.assertEqual(logged_models, ["claude-a", "claude-b"] * 3)
+        for account_id in (16, 17, 18):
+            for model in ("claude-a", "claude-b"):
+                self.assertIn(f"probe account_id={account_id} platform=kiro model={model}", proc.stdout)
+        self.assertIn("OK served=6", proc.stdout)
 
 
 if __name__ == "__main__":
