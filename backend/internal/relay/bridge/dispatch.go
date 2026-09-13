@@ -100,6 +100,10 @@ func DispatchChatCompletions(ctx context.Context, c *gin.Context, in ChannelCont
 	}
 
 	start := time.Now()
+	originalWriter := c.Writer
+	observer := &chatImageObserver{ResponseWriter: originalWriter}
+	c.Writer = observer
+	defer func() { c.Writer = originalWriter }()
 	relayInfo.DisablePing = in.BoundedChatAttempt
 	usage, apiErr := RunOpenAITextRelay(c, relayInfo)
 	dur := time.Since(start)
@@ -125,6 +129,7 @@ func DispatchChatCompletions(ctx context.Context, c *gin.Context, in ChannelCont
 		Duration:        dur,
 		AdaptorRelayFmt: types.RelayFormatOpenAI,
 		AdaptorAPIType:  apiType,
+		ImageCount:      observer.imageCount(),
 	}, nil
 }
 

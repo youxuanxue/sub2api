@@ -3,6 +3,21 @@
   "rationale": "Load-bearing tap injection points and companion files that anchor the pricing-availability passive observability system (docs/approved/pricing-availability-source-of-truth.md). Each entry is a 1-line TK injection in an upstream-shaped file that could be silently dropped by a future `git merge upstream/main`. Without these taps the model_availability table receives no data, availability status stays 'untested' forever, and the /pricing endpoint never decorates responses with real availability. This file is the single source of truth read by both scripts/preflight.sh and the upstream-merge-pr-shape workflow.",
   "sentinels": [
     {
+      "path": "backend/internal/repository/model_availability_repo_tk.go",
+      "must_contain": ["tx.ModelAvailability.Create()", "DoNothing().Exec(ctx)", "ForUpdate().Only(ctx)", "tx.ModelAvailability.Update()", "tx.Rollback()"],
+      "rationale": "Use one PostgreSQL transaction for first-writer arbitration, row locking and evidence writes; context bounds DB waits without process-local locks."
+    },
+    {
+      "path": "backend/internal/repository/model_availability_atomic_tk_integration_test.go",
+      "must_contain": ["TestModelAvailabilityAtomicAcrossInstances", "TestModelAvailabilitySingleConnectionAndRollback", "TestModelAvailabilityContendedWriteDeadline"],
+      "rationale": "Real PostgreSQL regressions prevent lost observations, first-insert races, connection starvation and leaked transaction locks."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_selfheal_tk_test.go",
+      "must_contain": ["TestPublicCatalogBatchEvidencePreservesProjectionAndFailures"],
+      "rationale": "Public catalog batch reads preserve pruning, expiration, missing evidence, order and fail-open behavior."
+    },
+    {
       "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
       "must_contain": ["!isNewAPILongTailCatalogVendor(m.Vendor) || !isTkCuratedNewAPIModelDisplayed(m.ModelID)"],
       "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models."
@@ -200,7 +215,7 @@
         "supportedCatalogModelIDsForPlatform(platform)",
         "tkAvailabilityStructurallyGone(st)"
       ],
-      "rationale": "R-003 single self-healing candidate source, shared by the admin model-whitelist selector (admin_service.GetGroupModelsListCandidates) and the per-user menu fallback (me_pricing). tkServableCandidateIDs draws anthropic/openai/gemini from the empirical allowlist and prunes structurally-gone models (model_not_found -> unreachable) via live model_availability (tkPruneStructurallyGoneIDs / tkAvailabilityStructurallyGone); antigravity/newapi keep canonical defaults. If an upstream merge or refactor drops this file, BOTH surfaces silently revert to the canonical defaults (claude.DefaultModels etc.) that still list retired / access-gated models like claude-fable-5 — exactly the hand-maintenance toil R-003 removed. Pins the function and its self-healing primitives."
+      "rationale": "R-003 single self-healing candidate source, shared by the admin model-whitelist selector (admin_service.GetGroupModelsListCandidates) and the per-user menu fallback (me_pricing). tkServableCandidateIDs draws anthropic/openai/gemini from the empirical allowlist and prunes structurally-gone models (confirmed provider retirement -> unreachable) via live model_availability (tkPruneStructurallyGoneIDs / tkAvailabilityStructurallyGone); antigravity/newapi keep canonical defaults. If an upstream merge or refactor drops this file, BOTH surfaces silently revert to the canonical defaults (claude.DefaultModels etc.) that still list retired / access-gated models like claude-fable-5 — exactly the hand-maintenance toil R-003 removed. Pins the function and its self-healing primitives."
     },
     {
       "path": "backend/internal/service/admin_group.go",

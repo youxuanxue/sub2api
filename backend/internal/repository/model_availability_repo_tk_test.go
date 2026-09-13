@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sync"
 	"testing"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -30,7 +29,7 @@ func newModelAvailabilityRepoSQLite(t *testing.T) (*modelAvailabilityRepository,
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
 	t.Cleanup(func() { _ = client.Close() })
 
-	return &modelAvailabilityRepository{client: client, muCells: make(map[string]*sync.Mutex)}, client
+	return &modelAvailabilityRepository{client: client}, client
 }
 
 func TestModelAvailabilityRepositoryGetBatchFiltersPlatformAndMissingModels(t *testing.T) {
