@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/modelavailability"
@@ -89,12 +90,34 @@ func (r *modelAvailabilityRepository) Upsert(ctx context.Context, platform, mode
 		return errors.New("model availability repo: nil client")
 	}
 	mu := r.lockFor(platform, modelID)
-	mu.Lock()
+	for !mu.TryLock() {
+		t := time.NewTimer(2 * time.Millisecond)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		}
+	}
 	defer mu.Unlock()
 
-	cur, err := r.Get(ctx, platform, modelID)
+	// Serializable transactions make the read-modify-write atomic across
+	// repository instances (the process-local mutex only covers one instance).
+	tx, err := r.client.Tx(ctx)
 	if err != nil {
 		return err
+	}
+	rollback := func(e error) error { _ = tx.Rollback(); return e }
+
+	row, err := tx.ModelAvailability.Query().Where(modelavailability.PlatformEQ(modelavailability.Platform(platform))).Where(modelavailability.ModelID(modelID)).Only(ctx)
+	cur := service.AvailabilityState{}
+	if dbent.IsNotFound(err) {
+		err = nil
+	} else if err == nil {
+		cur = entRowToState(row)
+	}
+	if err != nil {
+		return rollback(err)
 	}
 	next := fn(cur)
 	next.Platform = platform
@@ -131,7 +154,10 @@ func (r *modelAvailabilityRepository) Upsert(ctx context.Context, platform, mode
 			c.SetLastAccountID(*next.LastAccountID)
 		}
 		_, err = c.Save(ctx)
-		return err
+		if err != nil {
+			return rollback(err)
+		}
+		return tx.Commit()
 	}
 
 	// Update existing row.
@@ -173,7 +199,10 @@ func (r *modelAvailabilityRepository) Upsert(ctx context.Context, platform, mode
 		u.ClearLastAccountID()
 	}
 	_, err = u.Save(ctx)
-	return err
+	if err != nil {
+		return rollback(err)
+	}
+	return tx.Commit()
 }
 
 func entRowToState(row *dbent.ModelAvailability) service.AvailabilityState {

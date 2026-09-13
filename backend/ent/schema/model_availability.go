@@ -22,9 +22,8 @@ import (
 //     forward errors, classifying the failure (model_not_found vs rate_limited
 //     vs upstream_5xx etc.) so we don't conflate "Google rate-limited us" with
 //     "model is unreachable".
-//   - Active backstop: pricing_availability_seeder_tk.go enables a
-//     channel_monitors row with kind=system_availability for catalog cells that
-//     have been silent >24h. Reuses ChannelMonitorRunner; no new scheduler.
+//   - Active probes, when configured, use the same PricingAvailabilityService
+//     writer; this table does not own scheduling or serving decisions.
 //
 // Status and failure-kind semantics are owned by PricingAvailabilityService and
 // docs/approved/pricing-availability-source-of-truth.md. This table stores
