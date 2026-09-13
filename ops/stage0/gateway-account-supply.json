@@ -36,9 +36,9 @@
       ],
       "branches": {
         "gemini-content": {
-          "status": "unsupported",
+          "status": "unknown",
           "family": "claude",
-          "evidence": "1.8.225 / 2026-09-13: http_status_error; request cce4901d-b4c6-4361-b831-4759659f52db; protocolrouter registry has no Gemini to Messages converter; model substitution is not Claude coverage"
+          "evidence": "1.8.225 / 2026-09-13: http_status_error; request cce4901d-b4c6-4361-b831-4759659f52db; protocolrouter registry has no Gemini to Messages converter; model substitution is not Claude coverage; Gemini→Messages implemented in this follow-up; native Messages supply verified, but Gemini live candidate validation remains pending."
         },
         "openai-chat": {
           "status": "supported",
@@ -261,7 +261,7 @@
         "tool-roundtrip": {
           "status": "unknown",
           "family": "deepseek",
-          "evidence": "1.8.225 / 2026-09-13: transport_error; request "
+          "evidence": "1.8.225 / 2026-09-13: transport_error; request ; 2026-09-13: same account 138 direct max_completion_tokens=2048 timed out before headers at 90s; max_tokens=2048 returned echo(OK) in 0.36s. Gateway corrected first turn request 926b4607-3755-4821-bf03-40f1548dc772 passed in 2.57s; result turn timed out at 90s, identical history direct passed in 3.13s. Budget alias fixed in code, complete roundtrip remains unverified."
         },
         "thinking": {
           "status": "unknown",
@@ -779,9 +779,9 @@
           "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 0742ffe4-1d77-45d8-864b-19c0f9b8a3f5"
         },
         "vision": {
-          "status": "unknown",
+          "status": "supported",
           "family": "qwen-vision",
-          "evidence": "Reviewed supply includes qwen-vl-max; no matched image probe retained. Previous qwen-plus vision success used a different account class."
+          "evidence": "2026-09-13: reserved gateway account 110 matched class/model; distinct orange and purple PNG answers both correct; requests 6560412c-bb17-43db-8eeb-deb946cbc278,aab9ec35-cb55-4f81-b090-b41fbb04b41d. Diagnostic expected field corrected by retained final-answer comparison; no paid repeat. Historical: Reviewed supply includes qwen-vl-max; no matched image probe retained. Previous qwen-plus vision success used a different account class."
         }
       }
     },
@@ -832,8 +832,8 @@
         },
         {
           "family": "doubao-seed",
-          "model": "doubao-seed-2.0-code",
-          "upstream_model": "doubao-seed-2.1-turbo",
+          "model": "doubao-seed-2.0-lite",
+          "upstream_model": "doubao-seed-2.0-lite",
           "operation": "generation",
           "baseline_protocol": "openai-chat",
           "represented_models": [
@@ -944,9 +944,9 @@
           "evidence": "1.8.225 / 2026-09-13: matched class success; request c1904a5e-68ff-4e51-8f02-bc0c6b2ca9ea"
         },
         "vision": {
-          "status": "unknown",
-          "family": "deepseek",
-          "evidence": "1.8.225 / 2026-09-13: matched class success; request 2c35c27d-280d-437e-81fb-3c573551aec5; Matched deepseek-v4-pro returned Brown; direct stream guessed blue while stating no image; visual support unproven."
+          "status": "supported",
+          "family": "doubao-seed",
+          "evidence": "2026-09-13: reserved gateway account 142 matched class/model; distinct orange and purple PNG answers both correct; requests a228e04b-e6e2-4746-9d5f-fa346cf52c45,ed9add6a-35fa-4ddf-a5d3-9d3397f9c8c9. Diagnostic expected field corrected by retained final-answer comparison; no paid repeat. Historical: 1.8.225 / 2026-09-13: matched class success; request 2c35c27d-280d-437e-81fb-3c573551aec5; Matched deepseek-v4-pro returned Brown; direct stream guessed blue while stating no image; visual support unproven."
         }
       }
     },

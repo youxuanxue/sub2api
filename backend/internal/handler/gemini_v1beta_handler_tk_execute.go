@@ -81,6 +81,10 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 				return h.openAIGatewayService.ForwardGeminiViaChat(executionCtx, c, account, request)
 			},
+			GeminiToMessages: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
+				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+				return h.gatewayService.ForwardGeminiViaMessages(executionCtx, c, account, request, h.openAIGatewayService, &sessionGroupID)
+			},
 			GeminiIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 				forwardBody := request.Body()

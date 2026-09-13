@@ -51,3 +51,25 @@ No production mapping, capability, catalog or pricing activation is included.
 ## Status
 
 - InTest
+
+## Messages follow-up (2026-09-13)
+
+Trace: docs/approved/gemini-messages-conversion.md; user approval 按推荐顺序推进.
+
+AC-006 (positive): Gemini Messages target preserves text, inline images, function
+history, explicit thinking budgets and Messages-origin signed thoughts; JSON/SSE
+uses the actual account transport, endpoint, mapped model and authentication.
+AC-007 (negative/runtime): Unknown fields, native signatures, ambiguous tool
+results and incompatible thinking/tool choice fail admission; truncated streams
+never emit STOP and retain known partial usage. Native Gemini remains unchanged.
+
+Linked Tests:
+- `backend/internal/pkg/apicompat/gemini_messages_tk_test.go`::`TestGeminiMessagesRequestPreservesFeatures`
+- `backend/internal/pkg/apicompat/gemini_messages_tk_test.go`::`TestGeminiMessagesRejectsLossyRequests`
+- `backend/internal/pkg/apicompat/gemini_messages_tk_test.go`::`TestMessagesGeminiResponseAndSignedThinkingRoundTrip`
+- `backend/internal/pkg/apicompat/gemini_messages_tk_test.go`::`TestMessagesGeminiStreamRequiresCompleteSequence`
+- `backend/internal/engine/protocolrouter/gemini_chat_conversion_tk_test.go`::`TestGeminiToMessagesPlanUsesBodyAndKeepsNativePolicy`
+- `backend/internal/service/gemini_messages_forward_tk_test.go`::`TestGeminiMessagesForwardTransportUsageAndFailure`
+- `backend/internal/handler/gemini_messages_conversion_tk_test.go`::`TestGeminiMessagesSelectedHTTPTransport`
+
+Run command: `cd backend && go test -tags=unit ./internal/pkg/apicompat ./internal/engine/protocolrouter ./internal/service ./internal/handler -run 'Test(Gemini|MessagesGemini|AntigravityMirror|ProtocolRouteRegistryRealAdapters)' -count=1`

@@ -974,3 +974,44 @@ func TestRoutingSupportedProtocolsClampsKiroMirrorToMessages(t *testing.T) {
 		t.Fatalf("capability owner list was rewritten: %v", got)
 	}
 }
+
+func TestAntigravityMirrorConvertsBeforeNativeOnlyEdge(t *testing.T) {
+	account := &Account{ID: 62, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"base_url": "https://api-us4.tokenkey.dev", "api_key": "test", "model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"},
+	}}
+	stored := []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolGeminiGenerateContent}
+	attachTestProtocolCapability(account, stored...)
+	for index, body := range []string{
+		`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hello"}]}`,
+		`{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hello"}],"thinking":{"type":"enabled","budget_tokens":1024}}`,
+	} {
+		request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone, "claude-opus-4-6", false, []byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := protocolAccountSnapshotForRequest(account, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := NewProtocolRouter().Plan(request, snapshot)
+		if index == 1 {
+			if err == nil {
+				t.Fatalf("thinking must not bypass converter admission: %v", plan.AdapterID())
+			}
+		} else {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.AdapterID() != protocolrouter.AdapterMessagesToGemini {
+				t.Fatalf("adapter = %s", plan.AdapterID())
+			}
+		}
+	}
+	if !reflect.DeepEqual(account.SupportedProtocols(), stored) {
+		t.Fatal("stored probe evidence changed")
+	}
+	account.Credentials["base_url"] = "https://external.example"
+	if got := routingSupportedProtocols(account); !reflect.DeepEqual(got, stored) {
+		t.Fatalf("external provider protocols changed: %v", got)
+	}
+}

@@ -110,6 +110,7 @@ func allTestAdapters() AdapterCatalog {
 		AdapterResponsesToGemini:   &recordingAdapter{},
 		AdapterGeminiIdentity:      &recordingAdapter{},
 		AdapterGeminiToChat:        &recordingAdapter{},
+		AdapterGeminiToMessages:    &recordingAdapter{},
 	}
 }
 

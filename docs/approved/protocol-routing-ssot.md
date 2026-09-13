@@ -285,7 +285,7 @@ routes, identity precedes conversions, whose registry order is:
 | `messages` | `responses`, then `chat_completions`, then `gemini_generate_content` |
 | `chat_completions` | `responses`, then `messages`, then `gemini_generate_content` |
 | `responses` | `chat_completions`, then `messages`, then `gemini_generate_content` |
-| `gemini_generate_content` | `chat_completions` within the [Gemini conversion contract](gemini-chat-conversion.md) |
+| `gemini_generate_content` | `chat_completions` within the [Chat contract](gemini-chat-conversion.md), then `messages` within the [Messages contract](gemini-messages-conversion.md) |
 
 The first legal entry at the best compatibility level wins. An exact conversion
 can therefore precede an adjusted identity route. Endpoint conversion permission

@@ -848,11 +848,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			result, _ := value.(*service.OpenAIForwardResult)
 			return result, executeErr
 		}()
-		var cyberBlockBodyHTTP []byte
-		if service.GetOpsCyberPolicy(c) != nil {
-			cyberBlockBodyHTTP = sessionHashBody
-		}
-		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockBodyHTTP, clientRequestedUsageFields(c, channelMapping, reqModel, ""), service.HashUsageRequestPayload(body))
+		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, sessionHashBody, clientRequestedUsageFields(c, channelMapping, reqModel, ""), service.HashUsageRequestPayload(body))
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
@@ -1471,11 +1467,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			result, _ := value.(*service.OpenAIForwardResult)
 			return result, executeErr
 		}()
-		var cyberBlockBodyMsg []byte
-		if service.GetOpsCyberPolicy(c) != nil {
-			cyberBlockBodyMsg = body
-		}
-		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, cyberBlockBodyMsg, clientRequestedUsageFields(c, channelMappingMsg, reqModel, ""), service.HashUsageRequestPayload(body))
+		h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, reqModel, err != nil, body, clientRequestedUsageFields(c, channelMappingMsg, reqModel, ""), service.HashUsageRequestPayload(body))
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
@@ -2982,7 +2974,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					turnUpstreamModel = turnRequestedModel
 				}
 				turnUsageFields := turnMapping.ToUsageFields(turnRequestedModel, turnUpstreamModel)
-				cyberMarked := service.GetOpsCyberPolicy(c) != nil
+				cyberMarked := service.GetOpsCyberPolicy(c) != nil || service.GetOpsUsagePolicy(c) != nil
 				h.recordCyberPolicyIfMarked(c, apiKey, account, subscription, turnRequestedModel, turnErr != nil, cyberBlockBody, turnUsageFields, requestPayloadHash)
 				cyberBlockedThisConn, cyberBlockPendingAfterFailover = advanceOpenAIWSCyberBlockState(
 					cyberBlockedThisConn,

@@ -79,6 +79,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	}
 	body = applyNewAPIQwenAccountShape(account, gjson.GetBytes(body, "model").String(), body)
 	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
+	body = applyNVIDIABuildChatTokenLimit(account, body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
@@ -137,6 +138,7 @@ func dispatchNewAPIAccountTestChatCompletions(
 	recordBridgeDispatch()
 	body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
+	body = applyNVIDIABuildChatTokenLimit(account, body)
 	in := newAPIBridgeChannelInputForBody(account, 0, "", body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()

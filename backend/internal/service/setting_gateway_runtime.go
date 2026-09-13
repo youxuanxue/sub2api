@@ -217,7 +217,8 @@ const openAIQuotaAutoPauseSettingsRefreshKey = "openai_quota_auto_pause_settings
 // GetCyberSessionBlockRuntime 返回 (开关, TTL)，进程内缓存 ~60s，
 // 供网关热路径读取时避免 DB 往返。
 // 两个 setting key 在单次 singleflight 里一起读取，减少 DB 往返。
-// 默认值：开关 false，TTL 1h（与粘性会话对齐）。
+// 默认值：开关 true（NotFound / 空值），TTL 1h（与粘性会话对齐）。
+// 显式 "false" 可关；DB 读失败仍 fail-open（false），避免缓存故障放大拒绝面。
 func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool, time.Duration) {
 	if cached, ok := s.cyberSessionBlockRuntimeCache.Load().(*cachedCyberSessionBlockRuntime); ok && cached != nil {
 		if time.Now().UnixNano() < cached.expiresAt {
@@ -247,7 +248,10 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 			return entry, nil
 		}
 
-		enabled := enabledErr == nil && strings.TrimSpace(enabledVal) == "true"
+		enabled := true // NotFound / unset → on
+		if enabledErr == nil {
+			enabled = !isFalseSettingValue(enabledVal)
+		}
 
 		ttl := time.Hour
 		if ttlErr == nil {
@@ -267,7 +271,7 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 	if entry, ok := result.(*cachedCyberSessionBlockRuntime); ok && entry != nil {
 		return entry.enabled, entry.ttl
 	}
-	return false, time.Hour
+	return true, time.Hour
 }
 
 // GetAntigravityUserAgentVersion 返回 Antigravity 上游请求使用的版本号。

@@ -36,6 +36,8 @@ func protocolExecutorsForTest(plan protocolrouter.Plan, execute ProtocolExecutio
 		executors.ChatToGemini = execute
 	case protocolrouter.AdapterResponsesToGemini:
 		executors.ResponsesToGemini = execute
+	case protocolrouter.AdapterGeminiToMessages:
+		executors.GeminiToMessages = execute
 	case protocolrouter.AdapterGeminiToChat:
 		executors.GeminiToChat = execute
 	case protocolrouter.AdapterGeminiIdentity:

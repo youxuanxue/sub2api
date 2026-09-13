@@ -308,6 +308,9 @@ func TestOpsErrorLoggerMiddleware_DedicatedCyberSessionBlockRecordsExactlyOnce(t
 	job := <-opsErrorLogQueue
 	require.Equal(t, "cyber_policy_session_blocked", job.entry.ErrorType)
 	require.Equal(t, http.StatusForbidden, job.entry.StatusCode)
+	require.Equal(t, service.OpsErrorOwnerClient, job.entry.ErrorOwner)
+	require.Equal(t, "gateway_local", job.entry.ErrorSource)
+	require.False(t, service.IsOpsSLAFaultOwner(job.entry.ErrorOwner))
 }
 
 func TestOpsErrorLoggerMiddleware_OrdinaryPermissionStillRecords(t *testing.T) {

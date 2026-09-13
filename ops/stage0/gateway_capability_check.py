@@ -127,7 +127,7 @@ def validate_response(case, status, ctype, raw, stream):
             request = case.get('request', {})
             answer = request.get('expected_answer')
             text = answer_text(protocol, events, stream)
-            if answer and not re.search(r'(?<![\w.])' + re.escape(answer) + r'(?![\w.])', text):
+            if answer and text.strip() != answer:
                 return 'thinking_answer_mismatch'
             if not has_thinking_evidence(dictionaries) and request.get('thinking_validation') != 'request_acceptance':
                 return 'thinking_evidence_missing'
