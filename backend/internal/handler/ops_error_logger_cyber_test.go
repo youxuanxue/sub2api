@@ -30,4 +30,3 @@ func TestOpsErrorLoggerMiddlewareSkipsUsagePolicy(t *testing.T) {
 	require.NotNil(t, service.GetOpsUsagePolicy(c))
 	require.True(t, shouldSkipOpsErrorLogForCyber(c), "usage_policy mark 命中应跳过中间件落库")
 }
-
