@@ -64,6 +64,10 @@ func ClearOpsUsagePolicy(c *gin.Context) {
 // Only structured error fields / upstreamMsg are scanned — never the raw body —
 // so echoed user prompts cannot false-trigger session isolation.
 func detectOpenAIUsagePolicy(upstreamMsg string, payload []byte) (bool, string) {
+	// Structured credential-state evidence takes precedence over policy wording.
+	if isOpenAIUpstreamAccessStateError(upstreamMsg, payload) {
+		return false, ""
+	}
 	msg := strings.TrimSpace(upstreamMsg)
 	bodyMsg := strings.TrimSpace(gjson.GetBytes(payload, "error.message").String())
 	if bodyMsg == "" {

@@ -130,6 +130,7 @@ type ProtocolExecutors struct {
 	ResponsesToGemini   ProtocolExecutionFunc
 	GeminiIdentity      ProtocolExecutionFunc
 	GeminiToChat        ProtocolExecutionFunc
+	GeminiToMessages    ProtocolExecutionFunc
 }
 
 type protocolExecutorsContextKey struct{}
@@ -342,6 +343,7 @@ func NewProtocolRouter() *protocolrouter.Router {
 		protocolrouter.AdapterResponsesToGemini:   responsesToGeminiAdapter{},
 		protocolrouter.AdapterGeminiIdentity:      geminiIdentityAdapter{},
 		protocolrouter.AdapterGeminiToChat:        geminiToChatAdapter{},
+		protocolrouter.AdapterGeminiToMessages:    geminiToMessagesAdapter{},
 	})
 }
 
@@ -598,4 +600,10 @@ type geminiToChatAdapter struct{}
 
 func (geminiToChatAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
 	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterGeminiToChat, protocolrouter.ProtocolGeminiGenerateContent, protocolrouter.ProtocolChatCompletions, protocolExecutorsFromContext(ctx).GeminiToChat)
+}
+
+type geminiToMessagesAdapter struct{}
+
+func (geminiToMessagesAdapter) Execute(ctx context.Context, execution protocolrouter.Execution) (protocolrouter.Result, error) {
+	return executeBoundProtocolAdapter(ctx, execution, protocolrouter.AdapterGeminiToMessages, protocolrouter.ProtocolGeminiGenerateContent, protocolrouter.ProtocolMessages, protocolExecutorsFromContext(ctx).GeminiToMessages)
 }

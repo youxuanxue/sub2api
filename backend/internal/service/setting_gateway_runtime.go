@@ -250,10 +250,7 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 
 		enabled := true // NotFound / unset → on
 		if enabledErr == nil {
-			v := strings.ToLower(strings.TrimSpace(enabledVal))
-			if v == "false" || v == "0" || v == "off" || v == "no" {
-				enabled = false
-			}
+			enabled = !isFalseSettingValue(enabledVal)
 		}
 
 		ttl := time.Hour

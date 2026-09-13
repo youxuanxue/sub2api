@@ -1,10 +1,14 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -120,4 +124,49 @@ func TestGetCyberSessionBlockRuntimeDefaultsOnWhenUnset(t *testing.T) {
 	}}}
 	enabled, _ = svc2.GetCyberSessionBlockRuntime(t.Context())
 	require.False(t, enabled, "explicit false must stay off")
+}
+
+func TestOpenAIUsagePolicyPreservesCredentialFaults(t *testing.T) {
+	body := []byte(`{"error":{"code":"account_deactivated","message":"Your account has been deactivated due to a violation of our usage policy."}}`)
+	hit, _ := detectOpenAIUsagePolicy("", body)
+	require.False(t, hit, "credential deactivation must not isolate the caller session")
+	require.True(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusForbidden, "", body))
+	require.True(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeOAuth}, http.StatusForbidden, body))
+	require.True(t, openAIStreamFailedEventShouldFailover(body, ""))
+}
+
+func TestOpenAIPassthroughSafetyPolicyKeepsClientError(t *testing.T) {
+	for _, code := range []string{"cyber_policy", "invalid_prompt"} {
+		for _, status := range []int{400, 403, 502} {
+			t.Run(code+http.StatusText(status), func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				upstreamError := gin.H{"code": code, "type": "invalid_request_error", "message": "Invalid prompt: violating our usage policy"}
+				envelope := gin.H{"error": upstreamError, "internal": "private-provider-detail"}
+				if status == http.StatusBadGateway {
+					envelope = gin.H{"response": gin.H{"error": upstreamError}, "internal": "private-provider-detail"}
+				}
+				body, err := json.Marshal(envelope)
+				require.NoError(t, err)
+				svc := &OpenAIGatewayService{}
+				err = svc.handleErrorResponsePassthrough(context.Background(), &http.Response{StatusCode: status, Header: http.Header{"Set-Cookie": []string{"private-cookie"}}}, c, &Account{ID: 1, Platform: PlatformOpenAI}, nil, body)
+				require.Error(t, err)
+				require.Equal(t, status, c.Writer.Status())
+				require.JSONEq(t, `{"error":{"code":"`+code+`","type":"invalid_request_error","message":"Invalid prompt: violating our usage policy"}}`, rec.Body.String())
+				require.Empty(t, rec.Header().Get("Set-Cookie"))
+			})
+		}
+	}
+}
+
+func TestCyberSessionBlockSettingsMatchRuntime(t *testing.T) {
+	for _, value := range []string{"", "true", "false", "0", "off", "disabled", "no"} {
+		t.Run(value, func(t *testing.T) {
+			settings := map[string]string{SettingKeyCyberSessionBlockEnabled: value}
+			svc := NewSettingService(&fakeSettingRepo{vals: settings}, &config.Config{})
+			enabled, _ := svc.GetCyberSessionBlockRuntime(t.Context())
+			require.Equal(t, svc.parseSettings(settings).CyberSessionBlockEnabled, enabled)
+		})
+	}
 }

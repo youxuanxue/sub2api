@@ -125,6 +125,13 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *ope
 }
 
 func TestOpenAIResponsesWebSocketV2PassthroughCyberMarkIsConsumedAfterTurn(t *testing.T) {
+	for _, code := range []string{"cyber_policy", "usage_policy"} {
+		t.Run(code, func(t *testing.T) { testOpenAISafetyPolicyBlocksWSFollowup(t, code) })
+	}
+}
+
+func testOpenAISafetyPolicyBlocksWSFollowup(t *testing.T, code string) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 
 	upstreamDone := make(chan struct{})
@@ -140,7 +147,7 @@ func TestOpenAIResponsesWebSocketV2PassthroughCyberMarkIsConsumedAfterTurn(t *te
 		cancelRead()
 		require.NoError(t, err)
 
-		failed := []byte(`{"type":"response.failed","response":{"id":"resp_cyber_handler","model":"gpt-5.1","error":{"code":"cyber_policy","message":"blocked by upstream policy"},"usage":{"input_tokens":11,"output_tokens":3}}}`)
+		failed := []byte(`{"type":"response.failed","response":{"id":"resp_cyber_handler","model":"gpt-5.1","error":{"code":"` + code + `","message":"blocked by upstream usage policy"},"usage":{"input_tokens":11,"output_tokens":3}}}`)
 		writeCtx, cancelWrite := context.WithTimeout(r.Context(), 3*time.Second)
 		err = conn.Write(writeCtx, coderws.MessageText, failed)
 		cancelWrite()
@@ -175,11 +182,13 @@ func TestOpenAIResponsesWebSocketV2PassthroughCyberMarkIsConsumedAfterTurn(t *te
 	require.NoError(t, err)
 	require.Equal(t, "response.failed", gjson.GetBytes(event, "type").String())
 
-	require.Eventually(t, func() bool {
-		logs := harness.moderationRepo.logSnapshot()
-		return len(logs) == 1 && logs[0].Action == service.ContentModerationActionCyberPolicy &&
-			strings.Contains(logs[0].Error, "upstream_usage=in:11,out:3")
-	}, 3*time.Second, 10*time.Millisecond, "handler AfterTurn must call recordCyberPolicyIfMarked and write the risk-control event")
+	if code == "cyber_policy" {
+		require.Eventually(t, func() bool {
+			logs := harness.moderationRepo.logSnapshot()
+			return len(logs) == 1 && logs[0].Action == service.ContentModerationActionCyberPolicy &&
+				strings.Contains(logs[0].Error, "upstream_usage=in:11,out:3")
+		}, 3*time.Second, 10*time.Millisecond, "handler AfterTurn must call recordCyberPolicyIfMarked and write the risk-control event")
+	}
 
 	keyCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	keyCtx.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(requestPayload))

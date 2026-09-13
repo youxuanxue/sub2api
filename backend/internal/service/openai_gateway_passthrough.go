@@ -832,6 +832,26 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 			!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 		)
 	}
+	if cyberHit || GetOpsUsagePolicy(c) != nil {
+		// Preserve the actionable safety rejection without exposing unrelated provider
+		// fields or headers. A policy 403 must not become a retryable gateway 502.
+		upstreamError := gjson.GetBytes(body, "error")
+		if !upstreamError.IsObject() {
+			upstreamError = gjson.GetBytes(body, "response.error")
+		}
+		clientError := gin.H{"message": sanitizeUpstreamErrorMessage(upstreamError.Get("message").String())}
+		for _, field := range []string{"code", "type"} {
+			if value := upstreamError.Get(field); value.Type == gjson.String {
+				clientError[field] = sanitizeUpstreamErrorMessage(value.String())
+			}
+		}
+		clientBody, _ := json.Marshal(gin.H{"error": clientError})
+		if !writeOpenAICompactSSEBridge(c, resp.StatusCode, clientBody) {
+			writeOpenAIPassthroughErrorHeaders(c.Writer.Header(), resp.Header)
+			c.Data(resp.StatusCode, "application/json; charset=utf-8", clientBody)
+		}
+		return fmt.Errorf("openai safety policy: %s", upstreamMsg)
+	}
 	// context-window 超限是确定性请求失败（shouldFailoverOpenAIPassthroughResponse
 	// 已保证不切号），其文案对客户端可操作（如触发自动压缩）；在净化信封内保留
 	// 脱敏后的上游消息，而不是抹成通用文案。

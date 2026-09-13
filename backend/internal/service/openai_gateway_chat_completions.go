@@ -784,6 +784,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 					}
 					clientDisconnected = true
 				}
+				streamNonFailoverErr = fmt.Errorf("openai %s forwarded to client", kind)
 				return true
 			}
 			shouldFailover := openAIStreamFailedEventShouldFailover(payloadBytes, message)

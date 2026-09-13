@@ -1011,6 +1011,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 						}
 						clientDisconnected = true
 					}
+					streamNonFailoverErr = fmt.Errorf("openai %s forwarded to client", kind)
 					return true
 				}
 				message := extractOpenAISSEErrorMessage(payloadBytes)

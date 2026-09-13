@@ -11768,7 +11768,8 @@
         "func detectOpenAIUsagePolicy(",
         "func isOpenAISafetySessionBlockFault(",
         "func markOpenAISafetyPolicyEvent(",
-        "Never scan the"
+        "Never scan the",
+        "isOpenAIUpstreamAccessStateError(upstreamMsg, payload)"
       ],
       "rationale": "OpenAI usage_policy / cyber_policy session-isolation owner: detect only structured error fields, SharedFault classification helper, and mark helper. Upstream merges that drop this companion re-enable same-prompt failover and lose usage session isolation."
     },
@@ -11778,7 +11779,10 @@
         "TestDetectOpenAIUsagePolicy",
         "TestOpenAIUsagePolicyNeverFailsOver",
         "wrapper_msg_still_reads_body_message",
-        "echoed_user_prompt_in_body_not_enough"
+        "echoed_user_prompt_in_body_not_enough",
+        "TestOpenAIUsagePolicyPreservesCredentialFaults",
+        "TestOpenAIPassthroughSafetyPolicyKeepsClientError",
+        "TestCyberSessionBlockSettingsMatchRuntime"
       ],
       "rationale": "Pins positive usage_policy detect, SharedFault hard-stop, wrapper upstreamMsg body.message coverage, and echoed-prompt non-false-positive."
     },
@@ -11846,6 +11850,148 @@
         "usage_policy mark must write cyber session block keys"
       ],
       "rationale": "Handler behavior test: usage_policy mark must write session-block keys when the feature is enabled."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "err != nil, sessionHashBody,",
+        "cyberMarked := service.GetOpsCyberPolicy(c) != nil || service.GetOpsUsagePolicy(c) != nil"
+      ],
+      "rationale": "Safety-policy HTTP writes retain the original session body; WS connection isolation consumes both safety marks."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "err != nil, body, clientRequestedUsageFields"
+      ],
+      "rationale": "Chat policy isolation must retain body session signals as well as header sessions."
+    },
+    {
+      "path": "backend/internal/handler/openai_usage_policy_session_tk_test.go",
+      "must_contain": [
+        "TestOpenAIUsagePolicyHTTPSessionIsolation",
+        "blocked session must not reach upstream again"
+      ],
+      "rationale": "Real HTTP handler regression covers Responses, Chat, Messages and body-only session signals."
+    },
+    {
+      "path": "backend/internal/handler/openai_ws_v2_passthrough_cyber_test.go",
+      "must_contain": [
+        "TestOpenAIResponsesWebSocketV2PassthroughCyberMarkIsConsumedAfterTurn",
+        "[]string{\"cyber_policy\", \"usage_policy\"}",
+        "blocked follow-up reached upstream"
+      ],
+      "rationale": "Real WS handler regression requires connection-local isolation for both safety classes."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_compat_cyber_test.go",
+      "must_contain": [
+        "TestForwardCompatUsagePolicyStreamReturnsFailure",
+        "a policy rejection must not be treated as successful generation"
+      ],
+      "rationale": "Compat safety SSE terminates with an error rather than a billable successful result."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": [
+        "adapterID: AdapterGeminiToMessages",
+        "apicompat.GeminiToMessagesRequest("
+      ],
+      "rationale": "Gemini Messages admission must use the strict body converter."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": [
+        "protocolrouter.AdapterGeminiToMessages:",
+        "protocolExecutorsFromContext(ctx).GeminiToMessages"
+      ],
+      "rationale": "Bind Gemini Messages execution to the selected Plan."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
+      "must_contain": [
+        "GeminiToMessages: func(",
+        "h.gatewayService.ForwardGeminiViaMessages("
+      ],
+      "rationale": "Execute the Messages conversion from the Gemini handler."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": [
+        "selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToMessages"
+      ],
+      "rationale": "Known partial Messages conversion usage must reach settlement on error."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/gemini_messages_request_tk.go",
+      "must_contain": [
+        "func GeminiToMessagesRequest(",
+        "d.DisallowUnknownFields()",
+        "decodeMessagesThoughtSignature("
+      ],
+      "rationale": "Plan and Execute share actual Gemini field admission and signed history conversion."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/gemini_messages_response_tk.go",
+      "must_contain": [
+        "func MessagesToGeminiResponse(",
+        "func (s *MessagesToGeminiStream) Convert(",
+        "case \"message_stop\":"
+      ],
+      "rationale": "Convert Messages JSON/SSE without synthetic completion."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_forward_tk.go",
+      "must_contain": [
+        "func (s *GatewayService) ForwardGeminiViaMessages(",
+        "compat.ForwardAsAnthropic(",
+        "s.Forward(ctx, c, account, parsed)",
+        "if !originalWriter.Written() && errors.As(forwardErr, &retry)"
+      ],
+      "rationale": "Reuse each account native credential/transport owner and preserve pre-output retry."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols_test.go",
+      "must_contain": [
+        "TestAntigravityMirrorConvertsBeforeNativeOnlyEdge"
+      ],
+      "rationale": "Prevent compatibility ingress claims from bypassing native Gemini converter admission."
+    },
+    {
+      "path": "backend/internal/handler/gemini_messages_conversion_tk_test.go",
+      "must_contain": [
+        "TestGeminiMessagesSelectedHTTPTransport"
+      ],
+      "rationale": "Real HTTP request/response, account auth, Plan and model evidence for both Messages transports."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_forward_tk_test.go",
+      "must_contain": [
+        "TestGeminiMessagesForwardTransportUsageAndFailure"
+      ],
+      "rationale": "JSON/SSE, retry, rejection and partial usage regression."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "applyNVIDIABuildChatTokenLimit(account, body)"
+      ],
+      "rationale": "Apply NVIDIA token budget alias before bridge transport."
+    },
+    {
+      "path": "backend/internal/service/newapi_nvidia_chat_tk.go",
+      "must_contain": [
+        "func applyNVIDIABuildChatTokenLimit(",
+        "isNewAPINVIDIABuildAccount(account)"
+      ],
+      "rationale": "Scope equal-value token limit translation to NVIDIA Build."
+    },
+    {
+      "path": "backend/internal/service/newapi_nvidia_chat_tk_test.go",
+      "must_contain": [
+        "TestNVIDIATokenLimitUsesOriginalBudgetOnChatDispatch"
+      ],
+      "rationale": "Preserve budget and forced tools while leaving caller body and other providers intact."
     }
   ]
 }

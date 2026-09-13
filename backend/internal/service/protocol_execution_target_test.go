@@ -423,7 +423,8 @@ func TestProtocolChatIdentityAntigravityRelayPreservesPublicModelForHop(t *testi
 		},
 		Extra: map[string]any{},
 	}
-	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolGeminiGenerateContent)
+	// Legacy Chat-only mirrors retain their public-model hop until native Gemini is verified.
+	attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
 	value, err := protocolTargetTestExecution(t, protocolrouter.ProtocolChatCompletions, body, account, func(
 		ctx context.Context, account *Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest,
 	) (any, error) {
@@ -979,6 +980,9 @@ func TestProtocolRouteRegistryRealAdaptersHonorWireContract(t *testing.T) {
 					return svc.ForwardAsChatCompletionsDispatched(executionCtx, c, account, request.Body(), "", "")
 				case protocolrouter.AdapterChatToResponses, protocolrouter.AdapterChatToMessages:
 					return svc.ForwardAsChatCompletions(executionCtx, c, account, request.Body(), "", "")
+				case protocolrouter.AdapterGeminiToMessages:
+					native := &GatewayService{cfg: svc.cfg, httpUpstream: upstream, responseHeaderFilter: compileResponseHeaderFilter(svc.cfg), rateLimitService: &RateLimitService{}, deferredService: &DeferredService{}}
+					return native.ForwardGeminiViaMessages(executionCtx, c, account, request, svc, nil)
 				case protocolrouter.AdapterGeminiToChat:
 					return svc.ForwardGeminiViaChat(executionCtx, c, account, request)
 				case protocolrouter.AdapterResponsesIdentity:
@@ -1078,7 +1082,7 @@ func protocolRouteContractResponse(route protocolrouter.RouteSpec) *http.Respons
 	contentType := "application/json"
 	switch route.TargetProtocol() {
 	case protocolrouter.ProtocolMessages:
-		if route.InboundProtocol() == protocolrouter.ProtocolMessages {
+		if route.InboundProtocol() == protocolrouter.ProtocolMessages || route.InboundProtocol() == protocolrouter.ProtocolGeminiGenerateContent {
 			body = `{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}`
 		} else {
 			contentType = "text/event-stream"
