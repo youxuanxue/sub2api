@@ -71,7 +71,8 @@ func TestTkAntigravityDefaultModels_ScopeIsAntigravityOnly(t *testing.T) {
 func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 	ctx := context.Background()
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
-	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
+	now := time.Now()
+	availSvc := service.NewPricingAvailabilityService(repo, func() time.Time { return now })
 	ownerIDs := service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, nil)
 	targetID, survivorID := firstTwoIDsForHandlerTest(t, ownerIDs)
 
@@ -82,6 +83,8 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 	// Drive target model to unreachable
 	require.NoError(t, repo.Upsert(ctx, service.PlatformAntigravity, targetID, func(s service.AvailabilityState) service.AvailabilityState {
 		s.Status, s.LastFailureKind = service.AvailabilityStatusUnreachable, service.FailureKindProviderModelRetired
+		observedAt := now
+		s.LastFailureAt = &observedAt
 		return s
 	}))
 
@@ -95,6 +98,11 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 	resultIDs := modelIDsFromAntigravityModels(h.tkAntigravityDefaultModels(ctx))
 	require.NotContains(t, resultIDs, targetID, "unreachable model must not appear in output")
 	require.Contains(t, resultIDs, survivorID, "an unaffected SSOT sibling must remain in output")
+	now = now.Add(service.AvailabilityRollingWindow)
+	restored := modelIDsFromAntigravityModels(h.tkAntigravityDefaultModels(ctx))
+	require.Contains(t, restored, targetID, "expired retirement proof cannot hide the model")
+	require.Contains(t, restored, survivorID)
+
 }
 
 func TestTkAntigravityDefaultModels_NilFilterIsFailOpen(t *testing.T) {
@@ -183,7 +191,8 @@ func TestTkGeminiFallbackModelsList_NilFilterIsFailOpen(t *testing.T) {
 
 func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 	repo := &capturedRepo2{rows: map[string]service.AvailabilityState{}}
-	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
+	now := time.Now()
+	availSvc := service.NewPricingAvailabilityService(repo, func() time.Time { return now })
 
 	ctx := context.Background()
 	servableGemini := service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil)
@@ -194,6 +203,8 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 
 	require.NoError(t, repo.Upsert(context.Background(), service.PlatformGemini, targetID, func(s service.AvailabilityState) service.AvailabilityState {
 		s.Status, s.LastFailureKind = service.AvailabilityStatusUnreachable, service.FailureKindProviderModelRetired
+		observedAt := now
+		s.LastFailureAt = &observedAt
 		return s
 	}))
 
@@ -209,6 +220,11 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 		"structurally-gone model must not appear in fallback response")
 	require.Contains(t, resultNames, "models/"+survivorID,
 		"an unaffected SSOT sibling must remain in fallback response")
+	now = now.Add(service.AvailabilityRollingWindow)
+	restored := modelNamesFromGeminiModels(h.tkGeminiFallbackModelsList(ctx).Models)
+	require.Contains(t, restored, "models/"+targetID, "expired retirement proof cannot hide the model")
+	require.Contains(t, restored, "models/"+survivorID)
+
 }
 
 func modelIDsFromAntigravityModels(models []antigravity.ClaudeModel) []string {
