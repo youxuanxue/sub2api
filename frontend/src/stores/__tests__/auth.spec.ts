@@ -158,6 +158,57 @@ describe('useAuthStore', () => {
     })
   })
 
+  describe('setToken cancellation', () => {
+    it('clears the pending handoff immediately and ignores late user hydration', async () => {
+      const store = useAuthStore()
+      const controller = new AbortController()
+      let resolve!: (value: unknown) => void
+      mockGetCurrentUser.mockReturnValue(new Promise(r => { resolve = r }))
+      localStorage.setItem('refresh_token', 'handoff-refresh')
+      localStorage.setItem('token_expires_at', String(Date.now() + 3600000))
+      const pending = store.setToken('handoff-access', controller.signal)
+      const rejected = expect(pending).rejects.toThrow()
+      controller.abort()
+      expect(store.token).toBeNull()
+      expect(localStorage.getItem('auth_token')).toBeNull()
+      expect(localStorage.getItem('refresh_token')).toBeNull()
+      resolve({ data: fakeAdminUser })
+      await rejected
+      expect(store.user).toBeNull()
+      expect(localStorage.getItem('auth_user')).toBeNull()
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(mockGetCurrentUser).toHaveBeenCalledTimes(1)
+      expect(mockRefreshToken).not.toHaveBeenCalled()
+    })
+
+    it('does not clear a newer login when a cancelled handoff settles late', async () => {
+      const store = useAuthStore()
+      const controller = new AbortController()
+      let resolve!: (value: unknown) => void
+      mockGetCurrentUser.mockReturnValue(new Promise(r => { resolve = r }))
+      const pending = store.setToken('handoff-access', controller.signal)
+      const rejected = expect(pending).rejects.toThrow()
+      controller.abort()
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      await store.login({ email: 'test@example.com', password: '123456' })
+      resolve({ data: fakeAdminUser })
+      await rejected
+      expect(store.token).toBe(fakeAuthResponse.access_token)
+      expect(store.user).toEqual(fakeUser)
+      expect(localStorage.getItem('refresh_token')).toBe(fakeAuthResponse.refresh_token)
+    })
+
+    it('releases cancellation after the session is fully installed', async () => {
+      const store = useAuthStore()
+      const controller = new AbortController()
+      mockGetCurrentUser.mockResolvedValue({ data: fakeAdminUser })
+      await store.setToken('handoff-access', controller.signal)
+      controller.abort()
+      expect(store.token).toBe('handoff-access')
+      expect(store.user).toEqual(fakeAdminUser)
+    })
+  })
+
   // --- checkAuth ---
 
   describe('checkAuth', () => {

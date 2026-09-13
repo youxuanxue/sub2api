@@ -56,3 +56,5 @@
 | US-055 | QA Bundle 保真会话导出 | Done | `.testing/user-stories/stories/US-055-qa-bundle-session-export.md` |
 
 | US-054 | Public Quickstart 与统一注册承诺 | Done | `.testing/user-stories/stories/US-054-public-quickstart-registration-offer.md` |
+
+| US-056 | Edge 管理会话安全交接 | Done | `.testing/user-stories/stories/US-056-edge-admin-handoff-v2.md` |

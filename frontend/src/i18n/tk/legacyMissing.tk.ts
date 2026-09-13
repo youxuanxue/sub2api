@@ -534,7 +534,8 @@ const en: LocaleOverlay = {
       "handoff": {
         "signingIn": "Signing in to this edge…",
         "failed": "Sign-in failed or the link expired.",
-        "goLogin": "Go to login"
+        "goLogin": "Sign in directly",
+        "retry": "Try again"
       },
       "noEdges": "No edges discovered (no anthropic mirror stubs configured on this deployment).",
       "edgeEmpty": "No accounts on this edge.",
@@ -1497,7 +1498,8 @@ const zh: LocaleOverlay = {
       "handoff": {
         "signingIn": "正在登录该 edge…",
         "failed": "登录失败或链接已过期。",
-        "goLogin": "去登录"
+        "goLogin": "直接登录 Edge",
+        "retry": "重试"
       },
       "noEdges": "未发现任何 edge（本部署未配置 anthropic mirror stub）。",
       "edgeEmpty": "该 edge 下没有账号。",

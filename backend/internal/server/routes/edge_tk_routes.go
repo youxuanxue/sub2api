@@ -1,9 +1,14 @@
 package routes
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/middleware"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,22 +25,24 @@ import (
 // Mounted behind a dedicated lightweight api-key middleware — NOT the gateway
 // billing/concurrency chain — so the cross-deployment read carries no scheduling
 // side effects. Kept in a *_tk_* companion so router.go takes a single call.
-func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyService *service.APIKeyService, userService *service.UserService) {
+func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyService *service.APIKeyService, userService *service.UserService, redisClient *redis.Client) {
+	// Signed handoff is independent of mirror-key middleware and gateway billing.
+	if v1 != nil && h != nil && h.EdgeAdminSession != nil {
+		v1.GET("/edge/admin-handoff/configuration", h.EdgeAdminSession.Configuration)
+		// Match public login protection before signature verification or code consumption.
+		limiter := middleware.NewRateLimiter(redisClient)
+		options := middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose, FailureStatusCode: http.StatusServiceUnavailable}
+		v1.POST("/edge/admin-handoff/mint", limiter.LimitWithOptions("edge-handoff-mint", 20, time.Minute, options), h.EdgeAdminSession.MintCode)
+		v1.POST("/edge/admin-handoff/exchange", limiter.LimitWithOptions("edge-handoff-exchange", 20, time.Minute, options), h.EdgeAdminSession.Exchange)
+		v1.POST("/edge/admin-session", h.EdgeAdminSession.Mint)
+	}
 	if v1 == nil || h == nil || h.EdgeCapacity == nil || apiKeyService == nil {
 		return
 	}
 	edge := v1.Group("/edge")
 	edge.Use(middleware2.NewEdgeCapacityAuthMiddleware(apiKeyService))
-	// TK security hardening (REVERTIBLE — see below): require the api-key OWNER to be
-	// an admin for ALL edge endpoints, not just the writes. Closes the pre-existing
-	// gap where any active (even non-admin) api-key could enumerate the cross-edge
-	// fleet inventory / capacity. Safe because prod's reconciler + aggregator reach
-	// every edge with the mirror-stub relay key, which is admin-owned BY CONSTRUCTION
-	// — the /admin-session handoff already requires user.IsAdmin() on that exact key
-	// and works in prod, so a non-admin stub key would already have a broken handoff.
-	// To revert (if some edge's stub key is unexpectedly non-admin and its capacity
-	// mirror starts 403ing): delete this single block — the write-ops subgroup below
-	// keeps its OWN admin-owner gate, so reverting never weakens write protection.
+	// Existing mirror inventory and operational writes require an active admin
+	// owner. These relay keys never authorize the independent session handoff.
 	if userService != nil {
 		edge.Use(middleware2.NewEdgeAdminOwnerMiddleware(apiKeyService, userService))
 	}
@@ -48,20 +55,13 @@ func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyServic
 		edge.GET("/accounts", h.EdgeAccounts.ListAccounts)
 	}
 
-	// Mint a short-lived admin JWT for prod's "manage accounts" handoff. Same
-	// lightweight api-key auth, but the handler additionally requires the key's
-	// owner to be an admin before minting — see edge_tk_admin_session_handler.go.
-	if h.EdgeAdminSession != nil {
-		edge.POST("/admin-session", h.EdgeAdminSession.Mint)
-	}
-
 	// Least-privilege account WRITE ops the prod /accounts page proxies to for
 	// inline edge-account management (clear-rate-limit / reset-quota /
 	// temp-unschedulable / schedulable / active usage query). A WHITELIST that
 	// never touches credentials — credential-class ops stay behind the
-	// admin-session handoff above. Layered on the active-key check with an extra
-	// admin-owner gate (NewEdgeAdminOwnerMiddleware): a plain relay key can read
-	// the inventory but only an admin-owned key may mutate. :id is the edge-LOCAL
+	// signed handoff above. Layered on the active-key check with an extra
+	// admin-owner gate (NewEdgeAdminOwnerMiddleware): only an admin-owned relay key may read
+	// the inventory or mutate. :id is the edge-LOCAL
 	// account id. See edge_tk_account_ops_handler.go.
 	//
 	// Path note: GET /edge/accounts (the inventory leaf above) and the

@@ -1574,6 +1574,14 @@ elif ! (cd backend && go test -tags=unit ./internal/observability/trajectory -ru
     errors=$((errors + 1))
 fi
 
+# ---- sub2api: Edge handoff mixed-version release safety ---------------------
+echo ""
+echo "=== sub2api: Edge handoff release order ==="
+if ! python3 ops/stage0/test_edge_handoff_rollout.py; then
+    echo "  FAIL: Edge handoff release-order regression"
+    errors=$((errors + 1))
+fi
+
 # ---- sub2api: terminal event registry ---------------------------------------
 # Source of truth: scripts/sentinels/terminal.json. Verifies that the stable
 # terminal-event helpers, `[DONE]` emission, and focused terminal assertions stay

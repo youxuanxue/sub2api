@@ -106,11 +106,11 @@ func ProvideEdgeAccountsHandler(
 // admin-session mint handler. A dedicated provider avoids wire.Bind for the
 // unexported interfaces; mirrors ProvideEdgeAccountsHandler in shape.
 func ProvideEdgeAdminSessionHandler(
-	apiKeyService *service.APIKeyService,
+	handoff *service.EdgeAdminHandoff,
 	userService *service.UserService,
 	authService *service.AuthService,
 ) *EdgeAdminSessionHandler {
-	return NewEdgeAdminSessionHandler(apiKeyService, userService, authService)
+	return NewEdgeAdminSessionHandler(handoff, userService, authService)
 }
 
 // ProvideEdgeAccountOpsHandler adapts the wire-provided concrete services (which

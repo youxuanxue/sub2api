@@ -3,130 +3,146 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
-
-type apiKeyLookupStub struct {
-	apiKey *service.APIKey
-	err    error
-}
-
-func (s apiKeyLookupStub) GetByKey(_ context.Context, _ string) (*service.APIKey, error) {
-	return s.apiKey, s.err
-}
 
 type userLookupStub struct {
 	user *service.User
 	err  error
 }
 
-func (s userLookupStub) GetByID(_ context.Context, _ int64) (*service.User, error) {
-	return s.user, s.err
-}
+func (s userLookupStub) GetByID(context.Context, int64) (*service.User, error) { return s.user, s.err }
 
 type sessionMinterStub struct {
-	pair *service.TokenPair
-	err  error
+	family string
+	calls  int
 }
 
-func (s sessionMinterStub) GenerateEdgeAdminSessionTokenPair(_ context.Context, _ *service.User) (*service.TokenPair, error) {
-	return s.pair, s.err
+func (s *sessionMinterStub) GenerateEdgeAdminSessionTokenPair(_ context.Context, _ *service.User, family string) (*service.TokenPair, error) {
+	s.family = family
+	s.calls++
+	return &service.TokenPair{AccessToken: "edge-only-access", RefreshToken: "edge-only-refresh", ExpiresIn: 1800}, nil
 }
-
-func mintedPair() *service.TokenPair {
-	return &service.TokenPair{AccessToken: "minted.jwt.value", RefreshToken: "rt_minted", ExpiresIn: 3600}
-}
-
-func performAdminSessionRequest(t *testing.T, h *EdgeAdminSessionHandler, apiKey string) *httptest.ResponseRecorder {
+func handoffRequest(t *testing.T, f gin.HandlerFunc, body any, origin string) *httptest.ResponseRecorder {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/edge/admin-session", nil)
-	if apiKey != "" {
-		c.Request.Header.Set("x-api-key", apiKey)
-	}
-	h.Mint(c)
+	c.Request = httptest.NewRequest("POST", "/", bytes.NewReader(raw))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("Origin", origin)
+	f(c)
 	return w
 }
-
-func adminUser() *service.User {
-	return &service.User{ID: 1, Email: "admin@edge", Role: service.RoleAdmin, Status: service.StatusActive}
+func TestEdgeAdminSession_LegacyAlwaysGone(t *testing.T) {
+	h := NewEdgeAdminSessionHandler(nil, nil, nil)
+	w := handoffRequest(t, h.Mint, nil, "")
+	require.Equal(t, http.StatusGone, w.Code)
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	require.NotContains(t, w.Body.String(), "access_token")
 }
 
-func TestEdgeAdminSession_AdminKeyMintsRenewableSession(t *testing.T) {
-	h := NewEdgeAdminSessionHandler(
-		apiKeyLookupStub{apiKey: &service.APIKey{UserID: 1}},
-		userLookupStub{user: adminUser()},
-		sessionMinterStub{pair: mintedPair()},
-	)
-	w := performAdminSessionRequest(t, h, "admin-key")
-	require.Equal(t, http.StatusOK, w.Code)
-
-	var env struct {
-		Data edgeAdminSessionResponse `json:"data"`
+func TestEdgeHandoffConfigurationAdvertisesIsolationWithoutTrust(t *testing.T) {
+	h := NewEdgeAdminSessionHandler(nil, nil, nil)
+	w := handoffRequest(t, h.Configuration, nil, "")
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Equal(t, "1", w.Header().Get("X-TokenKey-Handoff-Isolation"))
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+}
+func TestEdgeAdminHandoff_ExchangeSecurity(t *testing.T) {
+	const edge = "https://edge.example"
+	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	cfg := config.EdgeHandoffConfig{Version: 1, Issuer: "https://prod.example", Signers: map[string]config.EdgeHandoffSigner{"test": {Origin: edge, KeyID: "k1", Seed: base64.RawURLEncoding.EncodeToString(key.Seed())}}, Receiver: &config.EdgeHandoffReceiver{Origin: edge, Issuer: "https://prod.example", AdminUserID: 9, PublicKeys: map[string]string{"k1": base64.RawURLEncoding.EncodeToString(pub)}}}
+	raw, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	file := filepath.Join(t.TempDir(), "trust.json")
+	require.NoError(t, os.WriteFile(file, raw, 0600))
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	owner := service.NewEdgeAdminHandoff(&config.Config{EdgeHandoffFile: file}, repository.NewEdgeAdminHandoffCache(client))
+	for _, tc := range []struct {
+		name, role, status, origin string
+		wrongProof                 bool
+		want                       int
+	}{
+		{"success", service.RoleAdmin, service.StatusActive, edge, false, 200},
+		{"role revoked", service.RoleUser, service.StatusActive, edge, false, 403},
+		{"disabled", service.RoleAdmin, service.StatusDisabled, edge, false, 403},
+		{"foreign origin", service.RoleAdmin, service.StatusActive, "https://prod.example", false, 403},
+		{"wrong proof", service.RoleAdmin, service.StatusActive, edge, true, 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			verifier := strings.Repeat("A", 43)
+			attemptBytes := make([]byte, 32)
+			_, err := rand.Read(attemptBytes)
+			require.NoError(t, err)
+			attempt := base64.RawURLEncoding.EncodeToString(attemptBytes)
+			envelope, err := owner.Sign("test", edge, 7, service.EdgeHandoffRequest{Attempt: attempt, Challenge: service.EdgeHandoffDigest(verifier)})
+			require.NoError(t, err)
+			minter := &sessionMinterStub{}
+			h := NewEdgeAdminSessionHandler(owner, userLookupStub{user: &service.User{ID: 9, Role: tc.role, Status: tc.status}}, minter)
+			minted := handoffRequest(t, h.MintCode, envelope, "")
+			require.Equal(t, 200, minted.Code)
+			require.NotContains(t, minted.Body.String(), "token")
+			var env struct {
+				Data service.EdgeHandoffCode `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(minted.Body.Bytes(), &env))
+			input := service.EdgeHandoffExchange{Code: env.Data.Code, Verifier: verifier, Attempt: attempt}
+			if tc.wrongProof {
+				input.Verifier = strings.Repeat("B", 42) + "A"
+			}
+			result := handoffRequest(t, h.Exchange, input, tc.origin)
+			require.Equal(t, tc.want, result.Code)
+			if tc.want == 200 {
+				require.Contains(t, result.Body.String(), "edge-only-refresh")
+				require.True(t, strings.HasPrefix(minter.family, "edge-handoff-"))
+				require.Equal(t, 403, handoffRequest(t, h.Exchange, input, edge).Code)
+			} else {
+				require.Zero(t, minter.calls)
+				require.NotContains(t, result.Body.String(), "edge-only")
+			}
+			if tc.wrongProof {
+				input.Verifier = verifier
+				require.Equal(t, 200, handoffRequest(t, h.Exchange, input, edge).Code)
+			}
+			require.Equal(t, 403, handoffRequest(t, h.MintCode, envelope, "").Code, "signed attempt cannot mint another code")
+		})
 	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	require.Equal(t, "minted.jwt.value", env.Data.Token)
-	require.Equal(t, "rt_minted", env.Data.RefreshToken)
-	require.Greater(t, env.Data.ExpiresIn, 0)
 }
 
-func TestEdgeAdminSession_NonAdminForbidden(t *testing.T) {
-	nonAdmin := &service.User{ID: 2, Role: service.RoleUser, Status: service.StatusActive}
-	h := NewEdgeAdminSessionHandler(
-		apiKeyLookupStub{apiKey: &service.APIKey{UserID: 2}},
-		userLookupStub{user: nonAdmin},
-		sessionMinterStub{pair: &service.TokenPair{AccessToken: "should-not-be-minted"}},
-	)
-	w := performAdminSessionRequest(t, h, "user-key")
-	require.Equal(t, http.StatusForbidden, w.Code)
-	require.NotContains(t, w.Body.String(), "should-not-be-minted")
-}
-
-func TestEdgeAdminSession_DisabledAdminForbidden(t *testing.T) {
-	disabled := &service.User{ID: 1, Role: service.RoleAdmin, Status: service.StatusDisabled}
-	h := NewEdgeAdminSessionHandler(
-		apiKeyLookupStub{apiKey: &service.APIKey{UserID: 1}},
-		userLookupStub{user: disabled},
-		sessionMinterStub{pair: mintedPair()},
-	)
-	w := performAdminSessionRequest(t, h, "k")
-	require.Equal(t, http.StatusForbidden, w.Code)
-}
-
-func TestEdgeAdminSession_MissingKeyUnauthorized(t *testing.T) {
-	h := NewEdgeAdminSessionHandler(apiKeyLookupStub{}, userLookupStub{}, sessionMinterStub{})
-	w := performAdminSessionRequest(t, h, "")
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestEdgeAdminSession_InvalidKeyUnauthorized(t *testing.T) {
-	h := NewEdgeAdminSessionHandler(
-		apiKeyLookupStub{err: errors.New("not found")},
-		userLookupStub{user: adminUser()},
-		sessionMinterStub{pair: mintedPair()},
-	)
-	w := performAdminSessionRequest(t, h, "bad")
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestEdgeAdminSession_MinterErrorIsInternal(t *testing.T) {
-	h := NewEdgeAdminSessionHandler(
-		apiKeyLookupStub{apiKey: &service.APIKey{UserID: 1}},
-		userLookupStub{user: adminUser()},
-		sessionMinterStub{err: errors.New("sign failed")},
-	)
-	w := performAdminSessionRequest(t, h, "k")
-	require.Equal(t, http.StatusInternalServerError, w.Code)
+func TestEdgeHandoffErrorsRemainLocalToFeature(t *testing.T) {
+	for _, tc := range []struct {
+		err    error
+		status int
+	}{
+		{service.ErrEdgeHandoffInvalid, 403}, {service.ErrEdgeHandoffUnavailable, 503}, {context.DeadlineExceeded, 503},
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		edgeHandoffError(c, tc.err)
+		require.Equal(t, tc.status, w.Code)
+	}
 }

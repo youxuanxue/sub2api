@@ -430,7 +430,8 @@ export const useAuthStore = defineStore('auth', () => {
    * 会自动读取 localStorage 中已设置的 refresh_token 和 token_expires_in
    * @param newToken - 后端签发的 JWT access token
    */
-  async function setToken(newToken: string): Promise<User> {
+  async function setToken(newToken: string, signal?: AbortSignal): Promise<User> {
+    signal?.throwIfAborted()
     // Clear any previous state first (avoid mixing sessions)
     // Note: Don't clear localStorage here as OAuth callback may have set refresh_token
     stopAutoRefresh()
@@ -452,8 +453,16 @@ export const useAuthStore = defineStore('auth', () => {
       tokenExpiresAt.value = parseInt(savedExpiresAt, 10)
     }
 
+    // A cancelled callback must only clear the token it is still installing.
+    const cancelPendingToken = () => {
+      if (token.value === newToken && localStorage.getItem(AUTH_TOKEN_KEY) === newToken) {
+        clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
+      }
+    }
+    signal?.addEventListener('abort', cancelPendingToken, { once: true })
     try {
-      const userData = await refreshUser()
+      const userData = await refreshUser(signal)
+      signal?.throwIfAborted()
       startAutoRefresh()
 
       // Start proactive token refresh if we have refresh token and expiry info
@@ -465,8 +474,10 @@ export const useAuthStore = defineStore('auth', () => {
       clearPendingAuthSession()
       return userData
     } catch (error) {
-      clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
+      cancelPendingToken()
       throw error
+    } finally {
+      signal?.removeEventListener('abort', cancelPendingToken)
     }
   }
 
@@ -508,13 +519,15 @@ export const useAuthStore = defineStore('auth', () => {
    * @returns Promise resolving to the updated user
    * @throws Error if not authenticated or request fails
    */
-  async function refreshUser(): Promise<User> {
+  async function refreshUser(signal?: AbortSignal): Promise<User> {
+    signal?.throwIfAborted()
     if (!token.value) {
       throw new Error('Not authenticated')
     }
 
     try {
-      const response = await authAPI.getCurrentUser()
+      const response = await (signal ? authAPI.getCurrentUser(signal) : authAPI.getCurrentUser())
+      signal?.throwIfAborted()
       if (response.data.run_mode) {
         runMode.value = response.data.run_mode
       }
@@ -526,6 +539,7 @@ export const useAuthStore = defineStore('auth', () => {
 
       return userData
     } catch (error) {
+      signal?.throwIfAborted()
       // If refresh fails with 401, clear auth state
       if ((error as { status?: number }).status === 401) {
         clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })

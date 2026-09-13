@@ -123,6 +123,10 @@ jobs:
             *) echo "::error::unsupported operation=$INPUT_OPERATION"; exit 1 ;;
           esac
 
+      - name: Require serving prod handoff isolation before Edge changes
+        if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
+        run: python3 ops/stage0/check_edge_handoff_rollout.py --tag "$INPUT_TAG"
+
       - name: Verify GHCR multi-arch manifest
         if: inputs.operation == 'provision' || inputs.operation == 'upgrade' || inputs.operation == 'rollback'
         env:

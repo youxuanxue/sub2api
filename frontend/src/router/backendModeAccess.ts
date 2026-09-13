@@ -8,6 +8,7 @@ const BACKEND_MODE_ALLOWED_PATHS = [
 ]
 
 const BACKEND_MODE_CALLBACK_PATHS = [
+  '/admin/edge-handoff',
   '/auth/callback',
   '/auth/linuxdo/callback',
   '/auth/dingtalk/callback',

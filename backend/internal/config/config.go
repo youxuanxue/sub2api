@@ -66,6 +66,7 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 const DefaultModelsListReadMaxBytes int64 = 8 * 1024 * 1024
 
 type Config struct {
+	EdgeHandoffFile         string                        `mapstructure:"edge_handoff_file"`
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`
 	CORS                    CORSConfig                    `mapstructure:"cors"`
@@ -2456,6 +2457,7 @@ func setDefaults() {
 	// decodes keys present in AllKeys(), so a credential that is supplied purely
 	// via IMAGE_STORAGE_* and never appears in config.yaml would be dropped and
 	// silently disable the whole async image feature.
+	viper.SetDefault("edge_handoff_file", DefaultEdgeHandoffFile)
 	viper.SetDefault("image_storage.endpoint", "")
 	viper.SetDefault("image_storage.bucket", "")
 	viper.SetDefault("image_storage.access_key_id", "")

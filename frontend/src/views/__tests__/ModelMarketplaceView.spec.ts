@@ -1,3 +1,4 @@
+import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
@@ -106,6 +107,7 @@ function mountMarketplace() {
 
 describe('CatalogHubView', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     getPublicPricing.mockReset()
     authState.isAuthenticated = false
   })

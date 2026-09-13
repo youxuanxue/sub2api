@@ -16,6 +16,7 @@ import (
 // Composed into ProviderSet so upstream-shaped wire.go stays free of TK
 // provider listings (CLAUDE.md §5 companion pattern).
 var TKProviderSet = wire.NewSet(
+	NewEdgeAdminHandoff,
 	NewMePricingCatalogService,
 	ProvideSchedulerRateLimitReaper,
 	ProvideAnthropicConfigReconciler,

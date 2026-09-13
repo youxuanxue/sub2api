@@ -71,3 +71,9 @@ QA Bundle 是用户会话导出的唯一数据来源；采集/归档/授权沿�
 公开与登录态接入指南、注册入口和返回路径的 owner 清单见
 [`docs/approved/public-quickstart-registration-offer.md`](docs/approved/public-quickstart-registration-offer.md)。
 页面只做编排；配置生成和注册承诺必须复用该文档中的共享 owner。
+
+## Edge 管理交接 SSOT
+
+两个管理入口的交接、恢复 UI、签名/Redis/会话 owner 清单唯一位于
+[`docs/approved/edge-admin-handoff-v2.md`](docs/approved/edge-admin-handoff-v2.md) 的 Owners 表。
+现有镜像 Key 不授权管理会话；不得恢复 URL token 交接。

@@ -1796,6 +1796,10 @@ func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, fami
 
 	// 添加到家族Token集合
 	if err := s.refreshTokenCache.AddToFamilyTokenSet(ctx, familyID, tokenHash, ttl); err != nil {
+		if isEdgeHandoffFamily(familyID) {
+			_ = s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash)
+			return "", errors.New("could not index edge session family")
+		}
 		logger.LegacyPrintf("service.auth", "[Auth] Failed to add token to family set: %v", err)
 		// 不影响主流程
 	}

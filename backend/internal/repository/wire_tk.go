@@ -6,6 +6,7 @@ import "github.com/google/wire"
 // Composed into ProviderSet so upstream-shaped wire.go stays free of TK
 // provider listings (CLAUDE.md §5 companion pattern).
 var TKProviderSet = wire.NewSet(
+	NewEdgeAdminHandoffCache,
 	NewTierRepository,
 	NewModelAvailabilityRepository,
 	NewRateLimitExpiryRepository,

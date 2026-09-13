@@ -7,9 +7,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -58,8 +62,12 @@ func (s *aggregatorStub) AggregateByStubFresh(_ context.Context) (*service.EdgeA
 	return &service.EdgeAccountsAggregate{}, nil
 }
 
-func (s *aggregatorStub) MintAdminSession(_ context.Context, _ string) (*service.EdgeAdminSession, error) {
+func (s *aggregatorStub) MintAdminSession(_ context.Context, _ string, _ int64, _ service.EdgeHandoffRequest) (*service.EdgeAdminSession, error) {
 	return s.session, s.err
+}
+
+func (s *aggregatorStub) HandoffTarget(_ context.Context, _ string) (*service.EdgeHandoffTarget, error) {
+	return &service.EdgeHandoffTarget{}, s.err
 }
 
 func performMintRequest(t *testing.T, h *EdgeAccountsHandler, edge string) *httptest.ResponseRecorder {
@@ -68,61 +76,26 @@ func performMintRequest(t *testing.T, h *EdgeAccountsHandler, edge string) *http
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{{Key: "edge", Value: edge}}
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/edge-accounts/"+edge+"/admin-session", nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/edge-accounts/"+edge+"/admin-session", strings.NewReader(`{"attempt":"`+strings.Repeat("A", 43)+`","challenge":"`+strings.Repeat("A", 43)+`"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+	c.Set("auth_method", "jwt")
 	h.MintAdminSession(c)
 	return w
 }
 
 func TestMintAdminSession_Success(t *testing.T) {
-	h := NewEdgeAccountsHandler(&aggregatorStub{session: &service.EdgeAdminSession{
-		EdgeID:       "us1",
-		BaseURL:      "https://api-us1.tokenkey.dev",
-		Token:        "jwt.token.value",
-		RefreshToken: "rt_handoff_value",
-		ExpiresIn:    3600,
-	}})
+	h := NewEdgeAccountsHandler(&aggregatorStub{session: &service.EdgeAdminSession{EdgeID: "us1", Code: strings.Repeat("A", 43), Attempt: strings.Repeat("A", 43)}})
 	w := performMintRequest(t, h, "us1")
 	require.Equal(t, http.StatusOK, w.Code)
-
 	var env struct {
-		Data adminSessionResponse `json:"data"`
+		Data service.EdgeAdminSession `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	require.Equal(t, "us1", env.Data.EdgeID)
-	require.Equal(t, 3600, env.Data.ExpiresIn)
-	// Access token, refresh token, expires_in MUST all ride in the fragment
-	// (after #), never as a query param.
-	require.Contains(t, env.Data.HandoffURL, "https://api-us1.tokenkey.dev/admin/edge-handoff#")
-	require.Contains(t, env.Data.HandoffURL, "tk_session=jwt.token.value")
-	require.Contains(t, env.Data.HandoffURL, "refresh_token=rt_handoff_value")
-	require.Contains(t, env.Data.HandoffURL, "expires_in=3600")
-	hashIdx := strings.Index(env.Data.HandoffURL, "#")
-	frag := env.Data.HandoffURL[hashIdx:]
-	require.Contains(t, frag, "tk_session=")
-	require.Contains(t, frag, "refresh_token=")
-	path := env.Data.HandoffURL[:hashIdx]
-	require.NotContains(t, path, "tk_session")
-	require.NotContains(t, path, "refresh_token")
-}
-
-func TestMintAdminSession_OmitsRefreshWhenEmpty(t *testing.T) {
-	// Backward-compat: an older edge that mints a single token (no refresh) still
-	// yields a valid URL without dangling refresh_token=/expires_in= keys.
-	h := NewEdgeAccountsHandler(&aggregatorStub{session: &service.EdgeAdminSession{
-		EdgeID:  "us1",
-		BaseURL: "https://api-us1.tokenkey.dev",
-		Token:   "jwt.token.value",
-	}})
-	w := performMintRequest(t, h, "us1")
-	require.Equal(t, http.StatusOK, w.Code)
-
-	var env struct {
-		Data adminSessionResponse `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
-	require.Contains(t, env.Data.HandoffURL, "tk_session=jwt.token.value")
-	require.NotContains(t, env.Data.HandoffURL, "refresh_token=")
-	require.NotContains(t, env.Data.HandoffURL, "expires_in=")
+	require.Equal(t, strings.Repeat("A", 43), env.Data.Code)
+	require.NotContains(t, w.Body.String(), "token")
+	require.NotContains(t, w.Body.String(), "handoff_url")
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
 }
 
 func TestMintAdminSession_UnknownEdgeIs404(t *testing.T) {
@@ -131,10 +104,10 @@ func TestMintAdminSession_UnknownEdgeIs404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestMintAdminSession_EdgeFailureIsBadGateway(t *testing.T) {
+func TestMintAdminSession_EdgeFailureDoesNotMarkGatewayUnhealthy(t *testing.T) {
 	h := NewEdgeAccountsHandler(&aggregatorStub{err: context.DeadlineExceeded})
 	w := performMintRequest(t, h, "us1")
-	require.Equal(t, http.StatusBadGateway, w.Code)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestMintAdminSession_MissingEdgeIs400(t *testing.T) {
@@ -242,4 +215,59 @@ func TestList_ByStubStillSupportsETagAfterFreshFanout(t *testing.T) {
 	require.Equal(t, 0, stub.byStubCalls)
 	require.Equal(t, 2, stub.byStubFreshCalls, "by-stub must re-fan-out before deciding 304")
 	require.Empty(t, second.Body.Bytes())
+}
+
+func TestMintAdminSessionRejectsNonJWTInitiator(t *testing.T) {
+	h := NewEdgeAccountsHandler(&aggregatorStub{})
+	for _, method := range []string{"", "admin_api_key"} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/", strings.NewReader(`{}`))
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+		c.Set("auth_method", method)
+		h.MintAdminSession(c)
+		require.Equal(t, http.StatusUnauthorized, w.Code)
+	}
+}
+
+func TestHandoffTargetFailureDoesNotMarkGatewayUnhealthy(t *testing.T) {
+	h := NewEdgeAccountsHandler(&aggregatorStub{err: context.DeadlineExceeded})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	h.HandoffTarget(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+}
+
+// Match the actual serving proxy policy rather than assuming every 5xx is local.
+func TestHandoffUnavailableExcludedFromCaddyPassiveHealth(t *testing.T) {
+	w := performMintRequest(t, NewEdgeAccountsHandler(&aggregatorStub{err: context.DeadlineExceeded}), "us1")
+	for _, file := range []string{"Caddyfile", "Caddyfile.edge"} {
+		raw, err := os.ReadFile(filepath.Join("../../../../deploy/aws/stage0", file))
+		require.NoError(t, err)
+		policies := 0
+		for _, line := range strings.Split(string(raw), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) == 0 || fields[0] != "unhealthy_status" {
+				continue
+			}
+			policies++
+			for _, value := range fields[1:] {
+				if strings.HasPrefix(value, "#") {
+					break
+				}
+				if strings.HasSuffix(value, "xx") {
+					class, err := strconv.Atoi(strings.TrimSuffix(value, "xx"))
+					require.NoError(t, err)
+					require.NotEqual(t, class, w.Code/100, file)
+				} else {
+					code, err := strconv.Atoi(value)
+					require.NoError(t, err)
+					require.NotEqual(t, code, w.Code, file)
+				}
+			}
+		}
+		require.Positive(t, policies, "must exercise actual proxy policy")
+	}
 }

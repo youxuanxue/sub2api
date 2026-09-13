@@ -4446,20 +4446,28 @@
         "func RegisterTKEdgeRoutes(",
         "edge.GET(\"/scheduling-capacity\", h.EdgeCapacity.GetSchedulingCapacity)",
         "edge.GET(\"/accounts\", h.EdgeAccounts.ListAccounts)",
-        "edge.POST(\"/admin-session\", h.EdgeAdminSession.Mint)",
+        "v1.POST(\"/edge/admin-session\", h.EdgeAdminSession.Mint)",
         "NewEdgeAdminOwnerMiddleware",
-        "h.EdgeAccountOps.ClearRateLimit"
+        "h.EdgeAccountOps.ClearRateLimit",
+        "limiter.LimitWithOptions(\"edge-handoff-mint\"",
+        "limiter.LimitWithOptions(\"edge-handoff-exchange\"",
+        "FailureStatusCode: http.StatusServiceUnavailable"
       ],
-      "rationale": "Mounts the edge capacity endpoint, the read-only edge accounts endpoint, AND the admin-session mint endpoint behind the same lightweight api-key middleware, called once from router.go. Silent upstream-merge deletion of any call site would unregister the surface-C concurrency-mirror read (/scheduling-capacity), the cross-edge account-overview read (/accounts), or the prod→edge 'manage accounts' handoff mint (/admin-session)."
+      "rationale": "Mirror inventory keeps existing authorization. Signed handoff is independent; legacy session mint permanently rejects."
     },
     {
       "path": "backend/internal/handler/edge_tk_admin_session_handler.go",
       "must_contain": [
         "func (h *EdgeAdminSessionHandler) Mint(",
         "user.IsAdmin()",
-        "GenerateEdgeAdminSessionTokenPair("
+        "GenerateEdgeAdminSessionTokenPair(",
+        "http.StatusGone",
+        "h.handoff.Exchange",
+        "receiver.AdminUserID",
+        "user.IsActive()",
+        "c.GetHeader(\"Origin\") != receiver.Origin"
       ],
-      "rationale": "Edge admin-session mint endpoint (POST /api/v1/edge/admin-session): turns the read-only cross-edge overview into a jump-and-manage console. Prod holds this edge's mirror-stub api-key and POSTs here to mint a RENEWABLE admin session (access + refresh), then opens the edge's own /admin/accounts already logged in — so account create/edit/delete + OAuth run natively on the edge (prod re-implements nothing). The renewable session (GenerateEdgeAdminSessionTokenPair) is intentional: a single short-lived token hard-expired mid-task and bounced the operator to the edge login page. LOAD-BEARING SECURITY: this endpoint ELEVATES the edge api-key group (read-only for capacity/accounts) into one that can obtain an admin session, so the `user.IsAdmin()` gate is the irreducible guard — a plain relay key must NOT mint a session. Dropping the IsAdmin check is a privilege-escalation regression that must be caught (the session being renewable does not widen WHO can obtain it; the refresh token rides the URL fragment, scrubbed on load, same exposure as the OAuth login callbacks)."
+      "rationale": "Only signed, one-time, proof-bound exchange on the exact Edge origin establishes an active admin session. Legacy mirror-key mint always returns 410."
     },
     {
       "path": "backend/internal/handler/edge_tk_accounts_handler.go",
@@ -4523,16 +4531,18 @@
       "must_contain": [
         "func (h *EdgeAccountsHandler) List(",
         "func (h *EdgeAccountsHandler) MintAdminSession(",
-        "func buildEdgeHandoffURL(",
         "func NewEdgeAccountsHandler(",
         "func buildEdgeAccountsETag(",
         "if ifNoneMatchMatched(c.GetHeader(\"If-None-Match\"), etag) {",
         "force := truthyQuery(c.Query(\"force\"))",
         "agg, err = h.aggregator.AggregateByStubFresh(ctx)",
         "agg, err = h.aggregator.AggregateFresh(ctx, platform)",
-        "func truthyQuery(v string) bool"
+        "func truthyQuery(v string) bool",
+        "c.GetString(\"auth_method\") != \"jwt\"",
+        "input.Challenge",
+        "subject.UserID"
       ],
-      "rationale": "Prod admin handler for GET /api/v1/admin/edge-accounts (overview) and POST /api/v1/admin/edge-accounts/:edge/admin-session (manage-accounts handoff). Sits behind the admin JWT (the /admin group), NOT the lightweight edge api-key: the broad cross-fleet view + the jump-to-manage mint are admin-only. Credentials never traverse the read path (the aggregator only decodes the edges' already-sanitized DTOs). buildEdgeHandoffURL is load-bearing: the short-lived token MUST ride in the URL FRAGMENT (after #) so it never reaches an edge access log / Referer — moving it to a query param is a token-leak regression. The List ETag/304 path is also load-bearing: buildEdgeAccountsETag hashes Platform+Edges but DELIBERATELY EXCLUDES the per-fan-out EdgeAccountsAggregate.TS, so an unchanged inventory keeps a stable ETag and the page's periodic auto-refresh gets a cheap 304 (via the same-package ifNoneMatchMatched) instead of a full re-render; reintroducing TS into the hash would silently defeat the 304 path. The force query is the explicit manual-refresh path: normal polling still uses Aggregate/AggregateByStub, but force routes overview and by-stub inline panels to AggregateFresh/AggregateByStubFresh so the operator button is not delayed by stale cache. Silent upstream-merge deletion would remove the prod overview backend, the manage handoff, the ETag/304 fast-path, or the manual fresh path."
+      "rationale": "Current admin JWT subject initiates code-only handoff. Preserve credential-free inventory, TS-independent ETag and explicit fresh refresh."
     },
     {
       "path": "backend/internal/server/routes/admin_tk_edge_accounts_routes.go",
@@ -11702,6 +11712,158 @@
       "rationale": "Cumulative shadow loss counters amplify one failed upload into three findings; the loss finding owns its derived error/stale-clean-heartbeat, and liveness stays on last_run_at so a dead publisher still fails closed."
     },
     {
+      "path": "backend/internal/service/edge_admin_handoff_tk.go",
+      "must_contain": [
+        "ed25519.Verify",
+        "EdgeHandoffFamily",
+        "claims.Audience != receiver.Origin",
+        "EdgeHandoffDigest(request.Verifier)"
+      ],
+      "rationale": "Edge handoff SSOT owner and behavioral regression coverage; see docs/approved/edge-admin-handoff-v2.md."
+    },
+    {
+      "path": "backend/internal/repository/edge_admin_handoff_cache_tk.go",
+      "must_contain": [
+        "row.attempt ~= ARGV[1] or row.challenge ~= ARGV[2]",
+        "redis.call('DEL', KEYS[1])"
+      ],
+      "rationale": "Edge handoff SSOT owner and behavioral regression coverage; see docs/approved/edge-admin-handoff-v2.md."
+    },
+    {
+      "path": "backend/internal/config/edge_handoff_tk.go",
+      "must_contain": [
+        "LoadEdgeHandoffConfig",
+        "DefaultEdgeHandoffFile",
+        "private file permissions"
+      ],
+      "rationale": "Edge handoff SSOT owner and behavioral regression coverage; see docs/approved/edge-admin-handoff-v2.md."
+    },
+    {
+      "path": "backend/internal/repository/edge_admin_handoff_cache_tk_integration_test.go",
+      "must_contain": [
+        "TestEdgeAdminHandoffRedis"
+      ],
+      "rationale": "Edge handoff SSOT owner and behavioral regression coverage; see docs/approved/edge-admin-handoff-v2.md."
+    },
+    {
+      "path": "backend/internal/service/edge_admin_handoff_tk_test.go",
+      "must_contain": [
+        "TestEdgeAdminHandoff_DelegationValidation"
+      ],
+      "rationale": "Edge handoff SSOT owner and behavioral regression coverage; see docs/approved/edge-admin-handoff-v2.md."
+    },
+    {
+      "path": "backend/internal/service/wire_tk.go",
+      "must_contain": [
+        "NewEdgeAdminHandoff"
+      ],
+      "rationale": "Edge handoff SSOT owner and behavioral regression coverage; see docs/approved/edge-admin-handoff-v2.md."
+    },
+    {
+      "path": "backend/internal/repository/wire_tk.go",
+      "must_contain": [
+        "NewEdgeAdminHandoffCache"
+      ],
+      "rationale": "Edge handoff SSOT owner and behavioral regression coverage; see docs/approved/edge-admin-handoff-v2.md."
+    },
+    {
+      "path": "backend/internal/service/auth_service.go",
+      "must_contain": [
+        "if isEdgeHandoffFamily(familyID) {",
+        "could not index edge session family"
+      ],
+      "rationale": "Edge handoff must retain production injection, strict refresh-family indexing and credential-safe audit bodies."
+    },
+    {
+      "path": "backend/internal/service/auth_service_tk_edge_session.go",
+      "must_contain": [
+        "isEdgeHandoffFamily",
+        "user.IsActive()"
+      ],
+      "rationale": "Edge handoff must retain production injection, strict refresh-family indexing and credential-safe audit bodies."
+    },
+    {
+      "path": "backend/internal/server/middleware/audit_log.go",
+      "must_contain": [
+        "POST /api/v1/admin/edge-accounts/:edge/admin-session",
+        "POST /api/v1/edge/admin-handoff/mint",
+        "POST /api/v1/edge/admin-handoff/exchange"
+      ],
+      "rationale": "Edge handoff must retain production injection, strict refresh-family indexing and credential-safe audit bodies."
+    },
+    {
+      "path": "backend/internal/service/edge_admin_handoff_tk.go",
+      "must_contain": [
+        "func NewEdgeAdminHandoff(cfg *config.Config, cache EdgeHandoffCache) *EdgeAdminHandoff",
+        "edge_admin_handoff_disabled",
+        "trust = &config.EdgeHandoffConfig{}"
+      ],
+      "rationale": "Bad optional handoff trust must disable the feature without aborting gateway startup; no partial trust may survive."
+    },
+    {
+      "path": "backend/internal/handler/admin/edge_accounts_handler_tk.go",
+      "must_contain": [
+        "http.StatusServiceUnavailable, \"edge handoff unavailable\""
+      ],
+      "rationale": "Handoff unavailability must not produce a 502/504 that Caddy treats as failure of the shared gateway upstream."
+    },
+    {
+      "path": "backend/internal/service/edge_admin_handoff_tk_test.go",
+      "must_contain": [
+        "TestEdgeAdminHandoffBadConfigurationIsIsolated"
+      ],
+      "rationale": "Regression coverage for missing, malformed, unreadable and partially invalid trust without gateway startup failure."
+    },
+    {
+      "path": "backend/cmd/edge-handoff-config/main.go",
+      "must_contain": [
+        "func check(path, role string) error",
+        "config.LoadEdgeHandoffConfig(path)",
+        "no handoff signers configured",
+        "no handoff receiver configured"
+      ],
+      "rationale": "Pre-activation local validation uses the same strict trust parser while rejecting missing required roles."
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_admin_session_handler.go",
+      "must_contain": [
+        "c.Header(\"X-TokenKey-Handoff-Isolation\", \"1\")"
+      ],
+      "rationale": "Serving prod advertises isolation independently of optional trust; release gate must not mistake health or inactive green for readiness."
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_admin_session_handler_test.go",
+      "must_contain": [
+        "TestEdgeHandoffConfigurationAdvertisesIsolationWithoutTrust"
+      ],
+      "rationale": "Release capability remains available with handoff disabled."
+    },
+    {
+      "path": "ops/stage0/check_edge_handoff_rollout.py",
+      "must_contain": [
+        "def requires_isolation(",
+        "def probe_serving_prod(",
+        "NoRedirect()",
+        "status in (200, 503)",
+        "response.headers.get(HEADER) == \"1\""
+      ],
+      "rationale": "Target release and actual serving prod jointly decide whether a new Edge is safe to deploy."
+    },
+    {
+      "path": ".github/workflows/deploy-edge-lightsail-stage0.yml",
+      "must_contain": [
+        "python3 ops/stage0/check_edge_handoff_rollout.py --tag \"$INPUT_TAG\""
+      ],
+      "rationale": "Direct workflow dispatch also fails closed before mixed-version Edge mutations."
+    },
+    {
+      "path": "scripts/preflight.sh",
+      "must_contain": [
+        "python3 ops/stage0/test_edge_handoff_rollout.py"
+      ],
+      "rationale": "Release-order contract and actual HTTP negative cases run at the mechanical exit gate."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_qwen_token_plan_tk_test.go",
       "must_contain": [
         "TestQwenTokenPlanPreservesThinkingIntent",
@@ -11720,6 +11882,11 @@
       "path": "backend/internal/repository/setting_repo.go",
       "must_contain": ["defaultSettingCacheTTL", "type settingCacheEntry struct", "r.allCached = true", "r.allCached = false"],
       "rationale": "Keep the in-process setting cache and write-through invalidation anchored across upstream merges."
+    },
+    {
+      "path": "backend/internal/server/routes/edge_handoff_rate_limit_tk_test.go",
+      "must_contain": ["TestEdgeHandoffRateLimitProtectsExchangeAndIsolatesFailure", "cache.calls"],
+      "rationale": "Exercise actual route admission, client isolation, recovery and Redis failure without permitting excess code consumption."
     }
   ]
 }

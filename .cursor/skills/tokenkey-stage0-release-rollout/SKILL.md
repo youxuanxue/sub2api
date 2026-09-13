@@ -22,6 +22,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | 读取 deployable edge 矩阵 | 机械 | `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
 | **canary Edge 选择（容量合格 → 低流量 → 高内存余量 → 矩阵顺序）** | 机械 | `python3 scripts/stage0/pick_release_canary_edge.py`（SSM 探测全部 deployable Edge；硬门禁为内存/磁盘，按近 30 分钟完成请求数和内存余量排序；native OAuth/Kiro 池仅作 audit/smoke applicability；`--json` 带完整 audit） |
 | Edge dispatch 路由（edges 均为 Lightsail） | 机械 | `scripts/stage0/resolve-edge-deploy-route.py --edge-id <id> --json` |
+| Edge 交接协议发布顺序门禁 | 机械 | `python3 ops/stage0/check_edge_handoff_rollout.py --tag X.Y.Z`（目标 tag 含新交接协议时检查公开 prod 的隔离能力；Edge workflow 在部署写入前强制执行） |
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
 | **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
 | dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
@@ -60,6 +61,14 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | `main_via_edge` | 默认 **false**。`target=all` 时不跑 prod→Edge 中转 smoke；缺 key 或 by-design 503 不得据此 rollback。 |
 | `anthropic_config_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `/tokenkey-anthropic-oauth-config` 的 **Stage 1–2 only**（snapshot + check，只读）。`anthropic_config_check=false` 跳过。`operation=check/smoke/rollback` 默认不跑。 |
 | `account_model_mapping_check` | 默认 **true**（`operation=release` 且 smoke 验收通过后）。跑 `manage-account-model-mapping-runtime.py check-accounts --json`（默认 prod only），只读 diff prod 显式 `model_mapping` 与 Go SSOT floor/policy metadata。violation 或 SSM/OIDC 失败记 **yellow**，不 rollback 镜像。`account_model_mapping_check=false` 跳过。edge 空 mapping 不纳入 post-release 检查；需显式 `--include-edges` 才查 edge。 |
+
+### Edge 交接协议首次切换
+
+对目标 Edge tag 先执行上表的交接发布门禁。若返回 `blocked`，暂停 Edge，按
+`docs/ops/edge-admin-handoff.md` 先完成 prod 准备、验证和切流，再重跑门禁；此时覆盖
+`target=all` 的默认 canary-first 顺序。`pass` / `not_required` 才可继续 Edge 部署。
+该门禁只证明当前承流代码隔离交接失败；信任启用、UI 验收与混合版本回滚边界以
+同一 runbook 为准。不得把门禁失败改成 warn 或以准备好的 inactive 容器替代。
 
 ### 回放与审核
 

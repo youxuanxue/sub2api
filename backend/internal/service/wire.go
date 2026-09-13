@@ -611,8 +611,10 @@ func ProvideUpstreamBalanceSentinel(
 // account aggregator. It owns its own short-timeout HTTP client (constructed
 // here rather than wired) to avoid colliding with other *http.Client providers
 // in the type graph. accountRepo satisfies the narrow edgeAccountsStore.
-func ProvideEdgeAccountsAggregator(accountRepo AccountRepository) *EdgeAccountsAggregator {
-	return NewEdgeAccountsAggregator(accountRepo, &http.Client{Timeout: edgeAccountsHTTPTO})
+func ProvideEdgeAccountsAggregator(accountRepo AccountRepository, handoff *EdgeAdminHandoff) *EdgeAccountsAggregator {
+	a := NewEdgeAccountsAggregator(accountRepo, &http.Client{Timeout: edgeAccountsHTTPTO})
+	a.handoff = handoff
+	return a
 }
 
 // ProvideRateLimitService creates RateLimitService with optional dependencies.
