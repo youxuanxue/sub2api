@@ -11,7 +11,7 @@ func tkAvailabilityStructurallyGone(s AvailabilityState) bool {
 
 // DecorateAndPruneByAvailability overlays per-model availability badges AND
 // removes structurally-gone models (tkAvailabilityStructurallyGone) from the
-// catalog response, in a single pass (one GetAvailability per model). It is the
+// catalog response using one batch read per platform. It is the
 // sole availability pass on the public /pricing path. Only confirmed provider
 // retirement hides a row; account restrictions and transient failures retain it.
 //
@@ -28,17 +28,37 @@ func DecorateAndPruneByAvailability(ctx context.Context, resp *PublicCatalogResp
 		UpdatedAt: resp.UpdatedAt,
 		Data:      make([]PublicCatalogModel, 0, len(resp.Data)),
 	}
+	// Fetch evidence in one query per platform; preserve fail-open behavior when
+	// a batch read fails. This keeps the public catalog bounded as the registry grows.
+	groups := make(map[string][]string)
+	for _, model := range resp.Data {
+		if platform := inferPlatformFromVendor(model.Vendor); platform != "" {
+			groups[platform] = append(groups[platform], model.ModelID)
+		}
+	}
+	states := make(map[string]AvailabilityState)
+	failed := make(map[string]bool)
+	for platform, ids := range groups {
+		batch, err := svc.GetAvailabilityBatch(ctx, platform, ids)
+		if err != nil {
+			failed[platform] = true
+			continue
+		}
+		for id, state := range batch {
+			states[platform+"\x00"+id] = state
+		}
+	}
 	for _, model := range resp.Data {
 		platform := inferPlatformFromVendor(model.Vendor)
 		if platform == "" {
 			out.Data = append(out.Data, model)
 			continue
 		}
-		state, err := svc.GetAvailability(ctx, platform, model.ModelID)
-		if err != nil {
+		if failed[platform] {
 			out.Data = append(out.Data, model)
 			continue
 		}
+		state := states[platform+"\x00"+model.ModelID]
 		if tkAvailabilityStructurallyGone(state) {
 			continue // gone upstream → hide from the storefront
 		}

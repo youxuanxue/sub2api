@@ -46,7 +46,7 @@ func tkServableCandidateIDs(ctx context.Context, platform string, availability M
 }
 
 // tkPruneStructurallyGoneIDs drops model IDs that live model_availability reports
-// as structurally gone (model_not_found → unreachable; see
+// as structurally gone (confirmed provider retirement; see
 // tkAvailabilityStructurallyGone). Shared by the admin selector and the per-user
 // menu fallback. Nil-safe: availability == nil (tests / Phase-1) → passthrough.
 func tkPruneStructurallyGoneIDs(ctx context.Context, platform string, ids []string, availability MePricingAvailability) []string {
