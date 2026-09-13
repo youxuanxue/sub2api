@@ -17,44 +17,22 @@ import (
 	"strings"
 )
 
-// IsModelPriced reports whether modelID has a pricing entry in the catalog.
-// The platform parameter is currently ignored because catalog membership is
-// platform-agnostic. Note: <vendor>/<model>-style ids already carry their own
-// per-vendor signal via the "/" prefix, which the fallback below consumes
-// without needing the platform argument.
-//
-// Behavior:
-//   - nil receiver, empty modelID, or empty/cold catalog → false (callers
-//     interpret false as "not priced", which the upstream-discovery filter
-//     uses to tag pricing_status="missing" and the client model-list filter
-//     uses for fail-open semantics — see ModelListFilter.FilterClientFacing).
-//
-// Vendor-namespaced fallback: OpenRouter (and Azure/Vertex/Bedrock-style
-// proxies) report model ids as "<vendor>/<family-version>" — e.g.
-// "anthropic/claude-3-haiku", "anthropic/claude-opus-4.5". The catalog
-// (LiteLLM-shaped JSON) keys models on the bare name and uses "-" instead of
-// "." in version segments — e.g. "claude-3-haiku-20240307",
-// "claude-opus-4-5-20251001". When the literal lookup fails AND the id
-// contains a single "/", we strip the vendor prefix, normalize "." → "-",
-// and try again: first as an exact match against the catalog, then as a
-// version-suffix prefix match ("<tail>-*"). The prefix match requires tail
-// to contain at least one "-" to prevent a family-level id (e.g.
-// "openai/gpt") from being treated as priced just because some specific
-// variant exists.
+// IsModelPriced reports catalog price membership, independent of platform.
+// Qualified IDs reuse billing's exact key spellings and the catalog snapshot's
+// aliases before legacy vendor/date-prefix compatibility. Missing membership
+// filters client model lists and tags admin discovery as missing pricing.
 func (s *PricingCatalogService) IsModelPriced(modelID, platform string) bool {
 	_, ok := s.findCatalogModel(modelID)
 	return ok
 }
 
-// findCatalogModel resolves modelID to its PublicCatalogModel using the literal
-// + vendor-prefix-fallback lookup shared by IsModelPriced and the serving-gate
-// effective-priced predicate. Returns (nil, false) for a nil receiver, empty
-// id, cold catalog, or no match.
+// findCatalogModel resolves a price row from one immutable catalog snapshot.
+// Request admission continues to use billing's oracle, not catalog membership.
 func (s *PricingCatalogService) findCatalogModel(modelID string) (*PublicCatalogModel, bool) {
 	if s == nil {
 		return nil, false
 	}
-	id := strings.TrimSpace(modelID)
+	id := strings.ToLower(strings.TrimSpace(modelID))
 	if id == "" {
 		return nil, false
 	}
@@ -66,11 +44,13 @@ func (s *PricingCatalogService) findCatalogModel(modelID string) (*PublicCatalog
 	if index == nil {
 		return nil, false
 	}
-	if i, ok := index.literal[id]; ok {
-		if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, resp.Data[i].ModelID) {
-			return nil, false
+	for _, candidate := range catalogModelLookupCandidates(id) {
+		if i, ok := index.literal[candidate]; ok {
+			if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, resp.Data[i].ModelID) {
+				return nil, false
+			}
+			return &resp.Data[i], true
 		}
-		return &resp.Data[i], true
 	}
 	if tail, ok := stripVendorPrefixForCatalogLookup(id); ok {
 		if i, found := index.fallback[tail]; found {
@@ -120,30 +100,23 @@ func buildCatalogMembershipIndex(models []PublicCatalogModel) *catalogMembership
 	return index
 }
 
-// NOTE: the runtime priced-serving gate (docs/approved/priced-or-it-doesnt-ship.md)
-// does NOT use a catalog predicate. It asks billing's own oracle
-// (BillingService.GetModelPricing → ErrModelPricingUnavailable) on the exact key
-// billing will charge, so "gate ⟺ billing" holds by construction (no shadow
-// predicate to drift). An earlier draft had a stricter catalog predicate here; it
-// was removed once the gate moved to the billing oracle (R3 dissolved). findCatalogModel
-// above stays — it backs IsModelPriced (model-list / discovery membership).
+// catalogModelLookupCandidates preserves the catalog's single-namespace boundary.
+// Exact owner/alias spellings come from billing; dotted-to-dashed compatibility
+// is attempted only after those exact candidates, never instead of them.
+func catalogModelLookupCandidates(modelID string) []string {
+	id := strings.ToLower(strings.TrimSpace(modelID))
+	if _, ok := stripVendorPrefixForCatalogLookup(id); !ok {
+		return []string{id}
+	}
+	return buildModelLookupCandidates(id)
+}
 
-// stripVendorPrefixForCatalogLookup converts an OpenRouter/Azure-style
-// "<vendor>/<model>" id into the bare catalog form, normalizing "." → "-"
-// in the model segment (LiteLLM catalog uses "-" everywhere). Returns
-// (tail, true) only when exactly one "/" is present and both sides are
-// non-empty — multi-segment ids ("a/b/c") are too ambiguous to map safely.
+// stripVendorPrefixForCatalogLookup is the legacy spelling fallback, after
+// exact owners and aliases. Only a nonempty single namespace is accepted.
 func stripVendorPrefixForCatalogLookup(id string) (string, bool) {
 	slash := strings.IndexByte(id, '/')
-	if slash <= 0 || slash >= len(id)-1 {
+	if slash <= 0 || slash >= len(id)-1 || strings.Contains(id[slash+1:], "/") {
 		return "", false
 	}
-	if strings.IndexByte(id[slash+1:], '/') >= 0 {
-		return "", false
-	}
-	tail := strings.ReplaceAll(id[slash+1:], ".", "-")
-	if tail == "" {
-		return "", false
-	}
-	return tail, true
+	return strings.ReplaceAll(id[slash+1:], ".", "-"), true
 }

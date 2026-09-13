@@ -7,7 +7,7 @@ test.skip(!backend, 'Started by TestCandidatePricingBrowser with a real catalog 
 for (const width of [1280, 390]) {
   test(`US050 real candidate catalog at ${width}px`, async ({ page, request }, testInfo) => {
     const fixture = await (await request.get(`${backend}/fixture`)).json()
-    const [directModel, alias, universalModel] = fixture.models as string[]
+    const [directModel, alias, universalModel, ...namespacedModels] = fixture.models as string[]
     const user = { id: fixture.user_id, username: 'candidate-test', email: 'candidate@test.invalid',
       role: 'user', status: 'active', balance: 100, concurrency: 5,
       onboarding_tour_seen_at: '2026-09-11T00:00:00Z' }
@@ -44,6 +44,7 @@ for (const width of [1280, 390]) {
     await keySelect.selectOption('42')
     await expect(row(directModel)).toHaveCount(1)
     await expect(row(alias)).toHaveCount(1)
+    for (const model of namespacedModels) await expect(row(model)).toHaveCount(1)
     await expect(row(universalModel)).toHaveCount(0)
     await expect(row(directModel)).toContainText('Cross-platform billing')
     await keySelect.selectOption('43')
@@ -69,6 +70,7 @@ for (const width of [1280, 390]) {
       }
       await expect(row(directModel)).toHaveCount(expected)
       await expect(row(universalModel)).toHaveCount(expected)
+      for (const model of namespacedModels) await expect(row(model)).toHaveCount(expected)
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath('candidate-service-catalog.png'), fullPage: true })

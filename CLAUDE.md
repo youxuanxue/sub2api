@@ -65,9 +65,12 @@ gaps; implementation is not deployment.
 
 ### 1. PostgreSQL Only
 
-All DB code targets PostgreSQL 16+ exclusively. Ent ORM for all data access; raw SQL only in migrations or perf-critical paths.
+Business persistence targets PostgreSQL 16+ exclusively. Ent ORM for business data access; raw SQL only in migrations or perf-critical paths.
 
-**NEVER** introduce SQLite or MySQL compatibility.
+**NEVER** introduce SQLite or MySQL compatibility for business persistence.
+The approved [QA Bundle session export](docs/approved/qa-bundle-session-export.md)
+uses a private, temporary SQLite spill buffer for bounded export processing;
+that exception does not create another business database or QA source of truth.
 
 ### 2. Ent Schema Is Source of Truth
 

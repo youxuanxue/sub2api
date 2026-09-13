@@ -18,6 +18,8 @@ Long-form operational reference moved out of root `CLAUDE.md` to stay under the 
 | 图片历史 mount（IDB hydrate → s3Key presign → thumb error 回退） | `composables/useStudioImageLibrary.ts` | ImageStudio, BakeOff |
 | 视频历史 mount（IDB hydrate） | `composables/useStudioVideoLibrary.ts` | VideoStudio, BakeOff |
 | 图片 lightbox 状态 | `composables/useStudioImagePreview.ts` + `components/StudioImagePreviewLightbox.vue` | ImageStudio |
+| 图片卡片／预览下载与批量下载 | `composables/useStudioImageCardActions.ts` | ImageStudio, BakeOff |
+| 视频提交选项 | `composables/useStudioVideoSubmitOptions.ts` | VideoStudio, BakeOff |
 | 图片 history id / ephemeral src / revised_prompt tooltip | `utils/studioImageHistory.tk.ts` | useMediaLibrary, ImageStudio, BakeOff |
 | 视频 lightbox 状态 + 过期播放守卫 | `composables/useStudioVideoPreview.ts` + `components/StudioVideoPreviewLightbox.vue` | VideoStudio, BakeOff |
 | 视频卡片 copy-link / 下载 | `composables/useStudioVideoCardActions.ts`（`createStudioVideoActionHandlers` 共享 toast）+ `utils/studioMedia.tk.ts`（`videoCopyLinkAvailable` / `videoTaskCopyLinkAvailable`）+ `utils/studioDownload.tk.ts` | VideoStudio, BakeOff |

@@ -36,7 +36,7 @@ func (s *PricingService) tkGetModelPricing(modelName string) *LiteLLMModelPricin
 
 	// 标准化模型名称（同时兼容 "models/xxx"、VertexAI 资源名等前缀）
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
-	lookupCandidates := s.buildModelLookupCandidates(modelLower)
+	lookupCandidates := buildModelLookupCandidates(modelLower)
 
 	// 1. 精确匹配
 	for _, candidate := range lookupCandidates {
@@ -133,7 +133,7 @@ func (s *PricingService) tkGetIdentifiedModelPricing(modelName string) *LiteLLMM
 		return nil
 	}
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
-	lookupCandidates := s.buildModelLookupCandidates(modelLower)
+	lookupCandidates := buildModelLookupCandidates(modelLower)
 	for _, candidate := range lookupCandidates {
 		if candidate == "" {
 			continue
@@ -158,7 +158,8 @@ func (s *PricingService) tkGetIdentifiedModelPricing(modelName string) *LiteLLMM
 	return nil
 }
 
-func (s *PricingService) buildModelLookupCandidates(modelLower string) []string {
+// buildModelLookupCandidates owns exact price-key spelling for billing and catalog lookups.
+func buildModelLookupCandidates(modelLower string) []string {
 	rawCandidates := []string{
 		modelLower,
 		strings.TrimPrefix(modelLower, "models/"),
