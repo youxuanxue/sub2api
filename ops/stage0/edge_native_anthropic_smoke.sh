@@ -90,7 +90,7 @@ while IFS='|' read -r account_id account_platform; do
     ACCOUNT_ID="$account_id" \
     MODEL="$model" \
     ENDPOINT=messages \
-    bash "$PROBE_SCRIPT"
+    bash "$PROBE_SCRIPT" </dev/null
   )"
     verdict="$(jq -r '.verdict // empty' <<<"$probe_json")"
     http_code="$(jq -r '.http_code // empty' <<<"$probe_json")"
