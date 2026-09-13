@@ -47,10 +47,24 @@ class ComponentPlanTest(unittest.TestCase):
                                 self.state if state is None else state, ROOT / "ops/qa/deploy_rollout.yaml")
 
     def test_us051_gateway_only_never_restarts_or_runs_qa(self):
-        result = self.resolve(["backend/internal/service/gateway_service.go"])
-        self.assertTrue(result["deploy_gateway"])
+        for path in (
+            "backend/internal/service/gateway_service.go",
+            "backend/internal/pkg/apicompat/gemini_messages_request_tk.go",
+            "backend/ent/schema/model_availability.go",
+            "backend/internal/service/ops_user_error.go",
+        ):
+            with self.subTest(path=path):
+                result = self.resolve([path])
+                self.assertTrue(result["deploy_gateway"])
+                self.assertFalse(result["deploy_worker"])
+                self.assertFalse(result["deploy_maintenance"])
+                self.assertFalse(result["run_canary"])
+
+    def test_us051_qa_schema_triggers_maintenance(self):
+        result = self.resolve(["backend/ent/schema/qa_record.go"])
+        self.assertFalse(result["deploy_gateway"])
         self.assertFalse(result["deploy_worker"])
-        self.assertFalse(result["deploy_maintenance"])
+        self.assertTrue(result["deploy_maintenance"])
         self.assertFalse(result["run_canary"])
 
     def test_us051_old_worker_does_not_repeat_verified_publisher_canary(self):
