@@ -450,21 +450,26 @@ DMTEOF
 
 cat > /etc/systemd/system/tokenkey-pgdump.service <<'PSEOF'
 [Unit]
-Description=tokenkey pg_dump (hourly)
+Description=tokenkey pg_dump (every 2 hours)
 After=tokenkey.service
 Requires=tokenkey.service
 
 [Service]
 Type=oneshot
+Nice=19
+CPUSchedulingPolicy=other
+CPUQuota=40%
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
 ExecStart=/usr/local/bin/tokenkey-pgdump.sh
 PSEOF
 
 cat > /etc/systemd/system/tokenkey-pgdump.timer <<'PTEOF'
 [Unit]
-Description=Run tokenkey-pgdump hourly
+Description=Run tokenkey-pgdump every 2 hours
 
 [Timer]
-OnCalendar=*-*-* *:00:00
+OnCalendar=*-*-* 00/2:00:00
 Persistent=true
 RandomizedDelaySec=2min
 

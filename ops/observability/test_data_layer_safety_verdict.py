@@ -129,7 +129,7 @@ class DataLayerSafetyVerdictTest(unittest.TestCase):
     def test_capacity_independent_failures_are_separate_findings(self) -> None:
         signals = _signals()
         signals["PARTITIONSTATS"]["usage_logs_future_covered"] = False
-        signals["BACKUPSTATS"]["latest_pgdump_at"] = (NOW - dt.timedelta(hours=3)).isoformat()
+        signals["BACKUPSTATS"]["latest_pgdump_at"] = (NOW - dt.timedelta(hours=5)).isoformat()
         signals["ARCHIVESTATS"]["closeout_complete"] = False
         signals["ARCHIVESTATS"]["tail_export_complete"] = False
         signals["ARCHIVESTATS"]["ledgers"][0]["more_cold_rows_remaining"] = True
