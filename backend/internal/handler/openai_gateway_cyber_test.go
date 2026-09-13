@@ -155,8 +155,9 @@ func TestBuildCyberSessionBlockedOpsEntry(t *testing.T) {
 	require.Equal(t, 403, entry.StatusCode)
 	require.Equal(t, "cyber_policy_session_blocked", entry.ErrorType)
 	require.Equal(t, "request", entry.ErrorPhase)
-	require.Equal(t, "platform", entry.ErrorOwner)
+	require.Equal(t, service.OpsErrorOwnerClient, entry.ErrorOwner)
 	require.Equal(t, "gateway_local", entry.ErrorSource)
+	require.False(t, service.IsOpsSLAFaultOwner(entry.ErrorOwner))
 	require.Empty(t, entry.ErrorBody, "no session block key → ErrorBody must be empty")
 
 	entryWithKey := buildCyberSessionBlockedOpsEntry(cyberPolicyOpsErrorMeta{
@@ -224,6 +225,9 @@ func TestBuildUsagePolicyOpsErrorEntry_StatusCode(t *testing.T) {
 	require.Equal(t, 400, entry.StatusCode)
 	require.Equal(t, "usage_policy", entry.ErrorType)
 	require.Equal(t, "request", entry.ErrorPhase)
+	require.Equal(t, service.OpsErrorOwnerClient, entry.ErrorOwner)
+	require.Equal(t, "upstream_http", entry.ErrorSource)
+	require.False(t, service.IsOpsSLAFaultOwner(entry.ErrorOwner))
 	require.Contains(t, entry.ErrorMessage, "usage_policy")
 }
 
@@ -299,6 +303,9 @@ func TestBuildCyberPolicyOpsErrorEntry_StatusCode(t *testing.T) {
 			require.Equal(t, tc.upstreamStatus, entry.StatusCode)
 			require.Equal(t, "cyber_policy", entry.ErrorType)
 			require.Equal(t, "request", entry.ErrorPhase)
+			require.Equal(t, service.OpsErrorOwnerClient, entry.ErrorOwner)
+			require.Equal(t, "upstream_http", entry.ErrorSource)
+			require.False(t, service.IsOpsSLAFaultOwner(entry.ErrorOwner))
 		})
 	}
 }

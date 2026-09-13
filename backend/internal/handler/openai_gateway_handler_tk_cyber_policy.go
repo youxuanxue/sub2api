@@ -68,7 +68,9 @@ type cyberPolicyOpsErrorMeta struct {
 
 // buildCyberPolicyOpsErrorEntry builds the ops_error_logs entry for an upstream
 // cyber_policy hit. StatusCode mirrors what the codex client actually received
-// (400 non-stream / 200 stream), per F6.
+// (400 non-stream / 200 stream), per F6. Ownership is client: upstream only
+// classifies the prompt/session; responsibility stays with the caller so the
+// row is excluded from SLA (IsOpsSLAFaultOwner).
 func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.CyberPolicyMark) *service.OpsInsertErrorLogInput {
 	rt := int16(service.RequestTypeCyberBlocked)
 	entry := &service.OpsInsertErrorLogInput{
@@ -90,8 +92,8 @@ func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.C
 		ErrorMessage:      "cyber_policy: " + mark.Message,
 		// 原始 body 直接入队；ops service 落库前统一走 sanitizeErrorBodyForStorage 脱敏与截断。
 		ErrorBody:   mark.Body,
-		ErrorSource: "upstream_http",
-		ErrorOwner:  "provider",
+		ErrorSource: "upstream_http", // classifier signal from upstream
+		ErrorOwner:  service.OpsErrorOwnerClient,
 		CreatedAt:   meta.CreatedAt,
 	}
 	if meta.UserID > 0 {
@@ -112,7 +114,8 @@ func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.C
 
 // buildUsagePolicyOpsErrorEntry builds the ops_error_logs entry for an upstream
 // OpenAI usage_policy hit. Distinct error_type from cyber_policy; same request
-// phase / severity so dashboards can filter either safety rejection.
+// phase / severity so dashboards can filter either safety rejection. Ownership
+// is client (upstream classifies; caller owns the prompt) so SLA excludes it.
 func buildUsagePolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.UsagePolicyMark) *service.OpsInsertErrorLogInput {
 	rt := int16(service.RequestTypeCyberBlocked)
 	entry := &service.OpsInsertErrorLogInput{
@@ -133,8 +136,8 @@ func buildUsagePolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.U
 		IsBusinessLimited: true,
 		ErrorMessage:      "usage_policy: " + mark.Message,
 		ErrorBody:         mark.Body,
-		ErrorSource:       "upstream_http",
-		ErrorOwner:        "provider",
+		ErrorSource:       "upstream_http", // classifier signal from upstream
+		ErrorOwner:        service.OpsErrorOwnerClient,
 		CreatedAt:         meta.CreatedAt,
 	}
 	if meta.UserID > 0 {
@@ -159,7 +162,8 @@ const cyberSessionBlockedClientMsg = "该会话已被网络安全策略屏蔽，
 // buildCyberSessionBlockedOpsEntry builds the ops_error_logs entry for a request
 // rejected locally by the cyber session block (F5a). Distinct error_type from
 // upstream `cyber_policy`; never feeds moderation logs / violation counting
-// (the request never reached upstream — see spec).
+// (the request never reached upstream — see spec). Ownership is client: the
+// session was previously blocked for the caller's content/policy hit.
 func buildCyberSessionBlockedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.OpsInsertErrorLogInput {
 	rt := int16(service.RequestTypeCyberBlocked)
 	entry := &service.OpsInsertErrorLogInput{
@@ -180,7 +184,7 @@ func buildCyberSessionBlockedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.Ops
 		IsBusinessLimited: true,
 		ErrorMessage:      "cyber_policy_session_blocked: request rejected locally by session block",
 		ErrorSource:       "gateway_local",
-		ErrorOwner:        "platform",
+		ErrorOwner:        service.OpsErrorOwnerClient,
 		CreatedAt:         meta.CreatedAt,
 		// AccountID 有意不设：请求在账号选择前即被拒绝。
 	}
@@ -218,7 +222,7 @@ func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKe
 	if h == nil || h.gatewayService == nil || apiKey == nil {
 		return false
 	}
-	// 开关默认关：先走 ~ns 级缓存开关检查，再付出 key 派生(gjson+sha256)成本。
+	// 开关默认开：先走 ~ns 级缓存开关检查，再付出 key 派生(gjson+sha256)成本。
 	if enabled, _ := h.gatewayService.CyberSessionBlockRuntime(c.Request.Context()); !enabled {
 		return false
 	}
