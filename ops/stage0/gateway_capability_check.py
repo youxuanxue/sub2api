@@ -132,15 +132,12 @@ def validate_response(case, status, ctype, raw, stream):
             if not has_thinking_evidence(dictionaries) and request.get('thinking_validation') != 'request_acceptance':
                 return 'thinking_evidence_missing'
         if case['request_type'] == 'multimodal':
-            text = ' '.join(obj[field] for obj in dictionaries for field in ('text', 'content')
-                            if isinstance(obj.get(field), str))
+            text = answer_text(protocol, events, stream)
             expected = (case.get('request') or {}).get('expected_visual_answer', 'blue')
             if not isinstance(expected, str) or not expected.strip():
                 return 'vision_answer_mismatch'
-            colors = re.findall(r'\b(?:blue|red|green|yellow|pink|brown|white|black|orange|purple)\b', text, re.IGNORECASE)
-            if re.search(r'\b(?:cannot|can\'t|unable|guess|not sure|do not see)\b', text, re.IGNORECASE):
-                return 'vision_answer_mismatch'
-            if not colors or any(color.lower() != expected.strip().lower() for color in colors):
+            # The fixture asks for one word; tolerate case and a final period.
+            if not re.fullmatch(re.escape(expected.strip()) + r'\.?', text.strip(), re.IGNORECASE):
                 return 'vision_answer_mismatch'
         return None
     except (ValueError, TypeError, AttributeError):

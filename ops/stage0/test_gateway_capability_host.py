@@ -131,9 +131,57 @@ class ScenarioTests(unittest.TestCase):
                 'usage': {'prompt_tokens': 1}}
         for answer, expected in [('The image is red, not blue.', 'vision_answer_mismatch'),
                                  ('I cannot see the image; blue is only a guess.', 'vision_answer_mismatch'),
-                                 ('blue', None)]:
+                                 ('It is not blue.', 'vision_answer_mismatch'),
+                                 ('Maybe blue.', 'vision_answer_mismatch'),
+                                 ('blue?', 'vision_answer_mismatch'),
+                                 ('blue', None), (' Blue.\n', None)]:
             value = json.loads(json.dumps(base)); value['choices'][0]['message']['content'] = answer
             self.assertEqual(validate_response(case, 200, 'application/json', json.dumps(value).encode(), False), expected)
+
+    def test_vision_checks_visible_answer_across_protocols(self):
+        responses = {
+            'openai-chat': {'choices': [{'finish_reason': 'stop', 'message': {'content': 'blue'}}],
+                            'usage': {'prompt_tokens': 1}},
+            'anthropic-messages': {'type': 'message', 'stop_reason': 'end_turn',
+                                   'content': [{'type': 'text', 'text': 'blue'}], 'usage': {'input_tokens': 1}},
+            'openai-responses': {'object': 'response', 'status': 'completed',
+                                 'output': [{'type': 'output_text', 'text': 'blue'}], 'usage': {'input_tokens': 1}},
+            'gemini-content': {'candidates': [{'finishReason': 'STOP', 'content': {'parts': [
+                {'thought': True, 'text': 'It could be red or green.'}, {'text': 'blue'}]}}],
+                'usageMetadata': {'promptTokenCount': 1}},
+        }
+        for protocol, response in responses.items():
+            case = {'protocol': protocol, 'request_type': 'multimodal'}
+            with self.subTest(protocol=protocol):
+                self.assertIsNone(validate_response(case, 200, 'application/json', json.dumps(response).encode(), False))
+        response = responses['gemini-content']
+        case = {'protocol': 'gemini-content', 'request_type': 'multimodal'}
+        response['candidates'][0]['content']['parts'] = [
+            {'thought': True, 'text': 'blue'}, {'text': 'I do not know.'}]
+        self.assertEqual(validate_response(case, 200, 'application/json', json.dumps(response).encode(), False),
+                         'vision_answer_mismatch')
+
+    def test_vision_joins_streamed_visible_answer(self):
+        streams = {
+            'openai-chat': [{'choices': [{'delta': {'content': text}}]} for text in ('bl', 'ue')],
+            'anthropic-messages': [{'type': 'message_start', 'message': {'usage': {'input_tokens': 1}}},
+                                   *[{'type': 'content_block_delta', 'delta': {'text': text}} for text in ('bl', 'ue')]],
+            'openai-responses': [{'type': 'response.output_text.delta', 'delta': text} for text in ('bl', 'ue')],
+            'gemini-content': [{'candidates': [{'content': {'parts': [{'text': text}]}}]} for text in ('bl', 'ue')],
+        }
+        for protocol, events in streams.items():
+            case = {'protocol': protocol, 'request_type': 'multimodal'}
+            terminal = {
+                'openai-chat': {'choices': [{'delta': {}, 'finish_reason': 'stop'}], 'usage': {'prompt_tokens': 1}},
+                'anthropic-messages': {'type': 'message_stop'},
+                'openai-responses': {'type': 'response.completed', 'response': {'object': 'response',
+                    'status': 'completed', 'output': [{'type': 'output_text', 'text': 'blue'}], 'usage': {'input_tokens': 1}}},
+                'gemini-content': {'candidates': [{'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 1}},
+            }[protocol]
+            events.append(terminal)
+            raw = (''.join('data: ' + json.dumps(event) + '\n\n' for event in events) + 'data: [DONE]\n\n').encode()
+            with self.subTest(protocol=protocol):
+                self.assertIsNone(validate_response(case, 200, 'text/event-stream', raw, True))
 
     def test_thinking_and_vision_cannot_pass_with_generic_text(self):
         response = {'choices': [{'finish_reason': 'stop', 'message': {'content': 'OK'}}], 'usage': {'prompt_tokens': 1}}
