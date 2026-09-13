@@ -22,7 +22,7 @@
         ]
       }
     ],
-    "max_tokens": 64,
+    "max_tokens": 16384,
     "stream": false
   },
   "stream": false,

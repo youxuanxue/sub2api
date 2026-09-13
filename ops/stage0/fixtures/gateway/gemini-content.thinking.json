@@ -7,13 +7,13 @@
         "role": "user",
         "parts": [
           {
-            "text": "Work out 17 times 23 carefully, then reply with the number only."
+            "text": "Compute 173*29 + 47*83 - 61*37 carefully. Reply with the final integer only."
           }
         ]
       }
     ],
     "generationConfig": {
-      "maxOutputTokens": 2048,
+      "maxOutputTokens": 16384,
       "thinkingConfig": {
         "thinkingBudget": 1024
       }
@@ -25,5 +25,7 @@
     "no_error",
     "terminal",
     "usage"
-  ]
+  ],
+  "thinking_validation": "request_acceptance",
+  "expected_answer": "6661"
 }

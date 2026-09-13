@@ -237,3 +237,47 @@ test('Codex reset patches account state without duplicate reset or usage request
   expect(state.errors).toEqual([])
   await page.screenshot({ path: 'e2e/artifacts/maintenance-codex-reset.png' })
 })
+
+test('NewAPI image billing controls survive create, edit and reload', async ({ page }) => {
+  const state = await prepare(page)
+  let group: Record<string, unknown> | null = null
+  await page.route('**/api/v1/admin/groups', async route => {
+    if (route.request().method() === 'POST') {
+      group = { ...route.request().postDataJSON(), id: 1, account_count: 0, sort_order: 0, status: 'active' }
+      await route.fulfill({ json: { code: 0, data: group } })
+    } else {
+      await route.fulfill({ json: { code: 0, data: { items: group ? [group] : [], total: group ? 1 : 0, page: 1, page_size: 20 } } })
+    }
+  })
+  await page.route('**/api/v1/admin/groups?*', route => route.fulfill({ json: {
+    code: 0, data: { items: group ? [group] : [], total: group ? 1 : 0, page: 1, page_size: 20 },
+  } }))
+  await page.route('**/api/v1/admin/groups/1', async route => {
+    if (route.request().method() === 'PUT') group = { ...group, ...route.request().postDataJSON() }
+    await route.fulfill({ json: { code: 0, data: group } })
+  })
+  await page.goto('/admin/groups')
+  await page.getByRole('button', { name: 'Create Group', exact: true }).first().click()
+  const create = page.locator('#create-group-form')
+  await create.locator('[data-tour="group-form-name"]').fill('NewAPI image fixture')
+  await expect(create.getByRole('checkbox', { name: /Allow Image Generation/i })).toHaveCount(0)
+  await create.locator('[data-tour="group-form-platform"] button').click()
+  await expect(page.getByRole('option', { name: 'Kiro', exact: true })).toBeVisible()
+  await page.getByRole('option', { name: 'Extension Engine', exact: true }).click()
+  await create.getByRole('checkbox', { name: /Allow Image Generation/i }).check()
+  await page.locator('button[form="create-group-form"]').click()
+  await expect(create).toHaveCount(0)
+  expect(group).toMatchObject({ platform: 'newapi', allow_image_generation: true })
+  await page.reload()
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  const edit = page.locator('#edit-group-form')
+  await expect(edit.getByRole('checkbox', { name: /Allow Image Generation/i })).toBeChecked()
+  await edit.getByRole('checkbox', { name: /Allow Image Generation/i }).uncheck()
+  await page.locator('button[form="edit-group-form"]').click()
+  await expect(edit).toHaveCount(0)
+  expect(group).toMatchObject({ allow_image_generation: false })
+  await page.reload()
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  await expect(page.locator('#edit-group-form').getByRole('checkbox', { name: /Allow Image Generation/i })).not.toBeChecked()
+  expect(state.errors).toEqual([])
+})

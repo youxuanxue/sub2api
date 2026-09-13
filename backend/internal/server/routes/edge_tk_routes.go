@@ -1,9 +1,14 @@
 package routes
 
 import (
+	"net/http"
+	"time"
+
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/middleware"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,12 +25,15 @@ import (
 // Mounted behind a dedicated lightweight api-key middleware — NOT the gateway
 // billing/concurrency chain — so the cross-deployment read carries no scheduling
 // side effects. Kept in a *_tk_* companion so router.go takes a single call.
-func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyService *service.APIKeyService, userService *service.UserService) {
+func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyService *service.APIKeyService, userService *service.UserService, redisClient *redis.Client) {
 	// Signed handoff is independent of mirror-key middleware and gateway billing.
 	if v1 != nil && h != nil && h.EdgeAdminSession != nil {
 		v1.GET("/edge/admin-handoff/configuration", h.EdgeAdminSession.Configuration)
-		v1.POST("/edge/admin-handoff/mint", h.EdgeAdminSession.MintCode)
-		v1.POST("/edge/admin-handoff/exchange", h.EdgeAdminSession.Exchange)
+		// Match public login protection before signature verification or code consumption.
+		limiter := middleware.NewRateLimiter(redisClient)
+		options := middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose, FailureStatusCode: http.StatusServiceUnavailable}
+		v1.POST("/edge/admin-handoff/mint", limiter.LimitWithOptions("edge-handoff-mint", 20, time.Minute, options), h.EdgeAdminSession.MintCode)
+		v1.POST("/edge/admin-handoff/exchange", limiter.LimitWithOptions("edge-handoff-exchange", 20, time.Minute, options), h.EdgeAdminSession.Exchange)
 		v1.POST("/edge/admin-session", h.EdgeAdminSession.Mint)
 	}
 	if v1 == nil || h == nil || h.EdgeCapacity == nil || apiKeyService == nil {

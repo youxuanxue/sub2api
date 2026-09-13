@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -242,6 +243,7 @@ class RunProbePollingTest(unittest.TestCase):
         date_step: int = 1,
         expected_instance_id: str | None = None,
         compressed_output: bool = False,
+        companions: tuple[pathlib.Path, ...] = (),
     ) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(
@@ -267,7 +269,31 @@ class RunProbePollingTest(unittest.TestCase):
             args.extend(["--expected-instance-id", expected_instance_id])
         if compressed_output:
             args.append("--compressed-output")
+        for companion in companions:
+            args.extend(["--with", str(companion)])
         return _run(*args, env=env)
+
+    def test_native_smoke_bundle_fits_ssm_and_restores_exact_sources(self) -> None:
+        repo = _SCRIPT.parents[2]
+        self.probe = repo / "ops/stage0/edge_native_anthropic_smoke.sh"
+        companions = tuple(repo / name for name in (
+            "ops/stage0/probe_account_model.sh",
+            "ops/pricing/probe_reserved_resources.sh",
+            "ops/stage0/probe_account_model_verdict.py",
+            "ops/stage0/smoke_anthropic_realistic.py",
+        ))
+        proc = self._run_scenario("eventual-success", companions=companions)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        params = self.aws_params_log.read_text()
+        # Leave room for the AWS document metadata within its 97 KB limit.
+        self.assertLess(len(params.encode()), 90_000)
+        command = json.loads(params)["commands"][1]
+        decoded = {}
+        for match in re.finditer(r"(echo [A-Za-z0-9+/=]+ \| base64 -d(?: \| gzip -d)?) > (\S+)", command):
+            content = subprocess.check_output(["bash", "-o", "pipefail", "-c", match[1]])
+            decoded[pathlib.Path(match[2]).name] = content
+        for source in (self.probe, *companions):
+            self.assertEqual(decoded[source.name], source.read_bytes())
 
     def _aws_calls(self) -> list[tuple[str, str]]:
         calls: list[tuple[str, str]] = []

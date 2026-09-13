@@ -72,13 +72,13 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	if !protocolExecutionBound(ctx) {
 		body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	}
-	body = applyNewAPIQwenNonStreamingShape(gjson.GetBytes(body, "model").String(), body)
-	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
 	auth := bridgeAuthFromGin(c)
 	body, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, body, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAI)
 	if err != nil {
 		return nil, err
 	}
+	body = applyNewAPIQwenAccountShape(account, gjson.GetBytes(body, "model").String(), body)
+	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
 	if strings.TrimSpace(in.APIKey) == "" {
 		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}

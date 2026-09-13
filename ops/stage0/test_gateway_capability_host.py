@@ -31,74 +31,58 @@ class BindingTests(unittest.TestCase):
             changed = copy.deepcopy(account); changed['credentials'][field] = value
             self.assertFalse(host.account_matches(changed, cls, case))
 
-    def test_mutated_key_group_or_account_binding_is_rejected(self):
-        box = host.CapabilitySandbox({'Image': 'test'}, plan(), inventory())
-        binding = {'account_id': 11, 'api_key_id': 22, 'group_id': 33}
-        expected = {'routing_mode': 'universal', 'restricted': True, 'groups': [33], 'accounts': [11]}
-        for field, wrong in [('routing_mode', 'direct'), ('restricted', False), ('groups', [33, 34]), ('accounts', [11, 12])]:
-            with patch.object(host, 'rows', return_value=[{**expected, field: wrong}]), \
-                 self.assertRaisesRegex(host.replay.ReplayError, 'isolated_binding_changed'):
-                box.verify_binding(binding)
-        with patch.object(host, 'rows', return_value=[expected]):
-            box.verify_binding(binding)
+    def test_key_requires_one_active_universal_identity(self):
+        for found in ([], [{'api_key_id': 1}, {'api_key_id': 2}]):
+            with patch.object(host, 'rows', return_value=found), self.assertRaisesRegex(host.replay.ReplayError, 'unique_active'):
+                host.test_key('test')
+        with patch.object(host, 'rows', return_value=[{'api_key_id': 1, 'key': 'secret'}]) as query:
+            self.assertEqual(host.test_key("test'key")['api_key_id'], 1)
+            sql = query.call_args.args[0]
+            self.assertIn("k.routing_mode='universal'", sql)
+            self.assertIn("k.name='test''key'", sql)
+            self.assertTrue(sql.startswith('SELECT'))
 
-    def test_healthy_response_without_correct_usage_cannot_pass(self):
-        binding = {'account_id': 11, 'api_key_id': 22}
-        good = {'account_id': 11, 'api_key_id': 22, 'request_id': 'server-id'}
-        with patch.object(host, 'rows', return_value=[good]):
-            self.assertEqual(host.attribution(None, binding, ['server-id'], {'request_type': 'plain'}), ([11], None, ['server-id']))
-        with patch.object(host, 'rows', return_value=[{**good, 'account_id': 12}]):
-            self.assertEqual(host.attribution(None, binding, ['server-id'], {'request_type': 'plain'})[1], 'wrong_account_or_key')
+    def test_usage_verifies_test_key_and_reports_normal_account_selection(self):
+        cls = inventory()['classes'][0]; case = plan()['entries'][0]
+        account = {'id': 11, 'platform': 'newapi', 'type': 'apikey', 'channel_type': 1,
+                   'supported_protocols': ['chat_completions'],
+                   'credentials': {'base_url': 'https://supplier.example/v1', 'model_mapping': {'model-a': 'model-a'}}}
+        usage = {'account_id': 11, 'api_key_id': 22, 'request_id': 'local:server-id'}
+        with patch.object(host, 'rows', side_effect=[[usage], [account]]):
+            self.assertEqual(host.attribution({'api_key_id': 22}, ['server-id'], case, inventory()),
+                             ([11], None, ['local:server-id'], True))
+        account['channel_type'] = 17
+        with patch.object(host, 'rows', side_effect=[[usage], [account]]):
+            observed, reason, ids, matched = host.attribution({'api_key_id': 22}, ['server-id'], case, inventory())
+            self.assertIsNone(reason)  # Ordinary universal fallback remains a functional success.
+            self.assertFalse(matched)  # It cannot prove the originally planned account class.
+        with patch.object(host, 'rows', return_value=[{**usage, 'api_key_id': 23}]):
+            self.assertEqual(host.attribution({'api_key_id': 22}, ['server-id'], case, inventory())[1], 'wrong_test_key_attribution')
         with patch.object(host, 'rows', return_value=[]), patch.object(host.time, 'sleep'):
-            self.assertEqual(host.attribution(None, binding, ['server-id'], {'request_type': 'plain'})[1], 'usage_attribution_missing')
-
-    def test_spare_capacity_is_required_and_live_state_is_not_reset(self):
-        with patch.object(host, 'rows', return_value=[{'healthy': True, 'concurrency': 3}]), \
-             patch.object(host, 'live_occupancy', return_value=2):
-            self.assertEqual(host.account_guard(11, {}), 'account_headroom_insufficient')
-        with patch.object(host, 'rows', return_value=[{'healthy': False, 'concurrency': 30}]), \
-             patch.object(host, 'live_occupancy') as occupancy:
-            self.assertEqual(host.account_guard(11, {}), 'account_not_healthy')
-            occupancy.assert_not_called()
+            self.assertEqual(host.attribution({'api_key_id': 22}, ['server-id'], case, inventory())[1], 'usage_attribution_missing')
 
 
-@unittest.skipUnless(os.environ.get('CAPABILITY_TEST_POSTGRES_CONTAINER'), 'requires disposable local PostgreSQL')
-class LocalIntegrationTests(unittest.TestCase):
-    def setUp(self):
-        self.container = os.environ['CAPABILITY_TEST_POSTGRES_CONTAINER']
-        self.assertTrue(self.container.startswith('tk-xj-review-'))
-        def sql(query, *args):
-            return subprocess.check_output(['docker', 'exec', '-i', self.container, 'psql', '-X', '-U', 'postgres',
-                '-v', 'ON_ERROR_STOP=1', '-At'], input=query.encode()).decode()
-        self.sql = sql
+    def test_audio_usage_requires_unique_session_and_same_test_key(self):
+        case = {**plan()['entries'][0], 'scenario': 'speech'}
+        usage = {'account_id': 11, 'api_key_id': 22, 'request_id': 'grok_audio:provider-id', 'session_id': 'unique-call'}
+        with patch.object(host, 'rows', side_effect=[[usage], []]) as query:
+            actual = host.attribution({'api_key_id': 22}, ['gateway-id'], case, inventory(), {'gateway-id': 'unique-call'})
+            self.assertEqual(actual[:3], ([11], None, ['grok_audio:provider-id']))
+            self.assertIn("created_at >= now() - interval '10 minutes'", query.call_args_list[0].args[0])
+            self.assertIn('UNION ALL SELECT', query.call_args_list[0].args[0])
+        for found, expected in [([{**usage, 'api_key_id': 23}], 'wrong_test_key_attribution'),
+                                ([usage, {**usage, 'request_id': 'grok_audio:another'}], 'ambiguous_usage_attribution'),
+                                ([{**usage, 'session_id': 'other-call'}], 'usage_attribution_missing')]:
+            with patch.object(host, 'rows', return_value=found), patch.object(host.time, 'sleep'):
+                self.assertEqual(host.attribution({'api_key_id': 22}, ['gateway-id'], case, inventory(),
+                                                 {'gateway-id': 'unique-call'})[1], expected)
 
-    def test_real_sql_resolves_billing_ids_and_detects_production_writes(self):
-        self.sql('CREATE TABLE IF NOT EXISTS usage_logs(account_id bigint, api_key_id bigint, request_id text, created_at timestamptz DEFAULT now()); TRUNCATE usage_logs;')
-        self.sql("INSERT INTO usage_logs(account_id,api_key_id,request_id) VALUES (11,22,'local:s1'),(11,22,'grok-video:local:s2');")
-        with patch.object(host.replay, 'sql', side_effect=self.sql), patch.object(host.time, 'sleep'):
-            self.assertEqual(host.attribution(None, {'account_id': 11, 'api_key_id': 22}, ['s1', 's2'], {'request_type': 'plain'}),
-                             ([11], None, ['grok-video:local:s2', 'local:s1']))
-            self.assertEqual(host.production_usage_count(['s1', 's2'], 'tk-replay-test', 0), 2)
-            self.assertEqual(host.production_usage_count(['unrelated'], 'tk-replay-test', 0), 0)
-            self.sql("UPDATE usage_logs SET account_id=12 WHERE request_id='local:s1';")
-            self.assertEqual(host.attribution(None, {'account_id': 11, 'api_key_id': 22}, ['s1'], {'request_type': 'plain'})[1],
-                             'wrong_account_or_key')
-            self.assertEqual(host.attribution(None, {'account_id': 11, 'api_key_id': 22}, ['absent'], {'request_type': 'plain'})[1],
-                             'usage_attribution_missing')
-
-    def test_real_orphan_network_is_removed_without_touching_other_containers(self):
-        with tempfile.TemporaryDirectory() as directory:
-            box = host.CapabilitySandbox({}, plan(), inventory(), Path(directory))
-            box.path.mkdir()
-            host.replay.run(['docker', 'network', 'create', '--label', 'tokenkey.release-replay=' + box.name, box.name])
-            try:
-                self.assertFalse(getattr(box, 'network_created', False))
-                box.close()
-                check = subprocess.run(['docker', 'network', 'inspect', box.name], capture_output=True)
-                self.assertNotEqual(check.returncode, 0)
-                self.assertEqual(self.sql('SELECT 1;').strip(), '1')
-            finally:
-                box.close()
+    def test_audio_session_is_sent_over_real_http(self):
+        from test_prod_replay import server
+        with server(response_id='gateway-id') as (port, received):
+            host.replay.execute({'row': {'stream': False}, 'path': '/test', 'body': b'{}'},
+                                'test-key', port, 'marker', session_id='unique-call')
+        self.assertEqual(received[0][2]['X-Session-Id'], 'unique-call')
 
 
 class ScenarioTests(unittest.TestCase):
@@ -142,6 +126,83 @@ class ScenarioTests(unittest.TestCase):
         response['choices'][0]['message']['content'] = 'Blue.'
         self.assertIsNone(check(case))
 
+
+    def test_thinking_acceptance_keeps_answer_and_terminal_checks_without_claiming_evidence(self):
+        from gateway_capability_check import thinking_evidence
+        response = {'object': 'response', 'status': 'completed',
+                    'output': [{'type': 'output_text', 'text': '6661'}],
+                    'usage': {'input_tokens': 1, 'output_tokens_details': {'reasoning_tokens': 0}}}
+        case = {'protocol': 'openai-responses', 'request_type': 'thinking',
+                'request': {'thinking_validation': 'request_acceptance', 'expected_answer': '6661'}}
+        wire = lambda: json.dumps(response).encode()
+        self.assertIsNone(validate_response(case, 200, 'application/json', wire(), False))
+        self.assertEqual(thinking_evidence(wire(), False), 'not_observed')
+        response['output'][0]['text'] = '16661'
+        self.assertEqual(validate_response(case, 200, 'application/json', wire(), False), 'thinking_answer_mismatch')
+        response['output'][0]['text'] = '6661'
+        response['status'] = 'incomplete'
+        self.assertEqual(validate_response(case, 200, 'application/json', wire(), False), 'generation_not_completed')
+        response['status'] = 'completed'
+        response['usage']['output_tokens_details']['reasoning_tokens'] = 12
+        self.assertEqual(thinking_evidence(wire(), False), 'observed')
+
+    def test_thinking_answer_joins_stream_tokens_and_excludes_hidden_reasoning(self):
+        from gateway_capability_check import answer_text
+        self.assertEqual(answer_text('openai-chat', [{'choices': [{'delta': {'content': x}}]} for x in ('66', '61')], True), '6661')
+        self.assertEqual(answer_text('gemini-content', [{'candidates': [{'content': {'parts': [
+            {'text': '6661', 'thought': True}, {'text': 'wrong'}]}}]}], False), 'wrong')
+        for path in Path(matrix.__file__).parent.glob('fixtures/gateway/*thinking*.json'):
+            fixture = json.loads(path.read_text())
+            self.assertIn('173*29 + 47*83 - 61*37', json.dumps(fixture['body']))
+            self.assertEqual(fixture['expected_answer'], '6661')
+
+    def test_video_pending_operation_and_inline_mp4_completion(self):
+        import base64
+        case = {**plan()['entries'][0], 'scenario': 'video'}
+        mp4 = base64.b64encode(b'\x00\x00\x00\x18ftypmp42' + b'0' * 40).decode()
+        completed = {'name': 'projects/test/operations/job', 'done': True,
+                     'response': {'videos': [{'bytesBase64Encoded': mp4, 'mimeType': 'video/mp4'}]}}
+        for obj in ({'name': 'projects/test/operations/job'}, completed):
+            self.assertIsNone(validate_response(case, 200, 'application/json', json.dumps(obj).encode(), False))
+        from gateway_capability_check import video_output_present
+        for bad in ('invalid!', __import__('base64').b64encode(b'not video').decode()):
+            self.assertFalse(video_output_present({'mimeType': 'video/mp4', 'bytesBase64Encoded': bad}))
+        for terminal, expected in ((completed, None),
+                                   ({**completed, 'response': {}}, 'video_output_missing'),
+                                   ({'name': 'operation', 'done': True, 'error': {'message': 'failed'}}, 'video_task_failed')):
+            replies = iter([{'id': 'vt_test', 'status': 'queued'}, {'name': 'operation'}, terminal])
+            def execute(request, key, port, marker, **kwargs):
+                obj = next(replies)
+                kwargs['on_response_id'](marker)
+                reason = kwargs['validator'](200, 'application/json', json.dumps(obj).encode(), False)
+                return {'response_request_id': marker, 'reason': reason}
+            with patch.object(host.replay, 'execute', side_effect=execute) as sender, \
+                 patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+                 patch.object(host.replay, 'inspect'), patch.object(host, 'candidate_address', return_value='10.0.0.2'), \
+                 patch.object(host, 'attribution', return_value=([59], None, ['submit'], True)) as attribute:
+                result = host.execute_case(case, {'key': 'test', 'api_key_id': 22}, '10.0.0.2',
+                                           {'target': 'green'}, lambda: None, inventory(), 'run', Path('/tmp'))
+                self.assertEqual(result['reason'], expected)
+                self.assertEqual(sender.call_count, 3)
+                self.assertEqual(len(attribute.call_args.args[1]), 1)
+
+    def test_generated_requests_use_valid_operations_and_sufficient_budgets(self):
+        value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
+        self.assertFalse(any(c['protocol'] == 'openai-chat' and c['scenario'] == 'count-tokens' for c in value['entries']))
+        for case in value['entries']:
+            body = case['request']['body']
+            if case['scenario'] == 'video':
+                self.assertIn(body['seconds'], ('8', '15'))
+            if case['request_type'] == 'thinking':
+                limit = next((body[k] for k in ('max_tokens', 'max_output_tokens', 'max_completion_tokens') if k in body),
+                             body.get('generationConfig', {}).get('maxOutputTokens'))
+                self.assertGreater(limit, 8192)
+                self.assertEqual(case['request']['expected_answer'], str(173*29 + 47*83 - 61*37))
+                self.assertIn('173*29 + 47*83 - 61*37', json.dumps(body))
+            elif case['scenario'] in ('plain-buffered', 'plain-stream', 'vision', 'tool-roundtrip'):
+                limit = next((body[k] for k in ('max_tokens', 'max_output_tokens', 'max_completion_tokens') if k in body),
+                             body.get('generationConfig', {}).get('maxOutputTokens'))
+                self.assertGreaterEqual(limit, 2048)
     def test_tool_roundtrip_uses_actual_call_id_and_validated_result(self):
         body = {'messages': [{'role': 'user', 'content': 'Call echo.'}], 'tools': [], 'tool_choice': 'required'}
         response = {'choices': [{'finish_reason': 'tool_calls', 'message': {'role': 'assistant', 'tool_calls': [
@@ -180,106 +241,114 @@ class ScenarioTests(unittest.TestCase):
 
 
 class ExecutionTests(unittest.TestCase):
-    def test_capacity_abort_is_not_swallowed_by_database_health_retry(self):
-        with tempfile.TemporaryDirectory() as directory:
-            box = host.CapabilitySandbox({'Config': {'Env': []}, 'Image': 'test'}, plan(), inventory(), Path(directory))
-            with patch.object(Path, 'read_text', return_value='MemAvailable: 8000000'), \
-                 patch.object(host.os, 'getloadavg', return_value=(1000, 0, 0)), \
-                 patch.object(host.replay.shutil, 'disk_usage', return_value=SimpleNamespace(free=10*1024**3)), \
-                 patch.object(host.replay, 'inspect', return_value={'Image': 'test'}), \
-                 patch.object(host.replay, 'run'), patch.object(box, 'start_container', return_value='test-pg'), \
-                 patch.object(host.time, 'sleep'), \
-                 patch.object(host.replay, 'sql', side_effect=lambda *args: host.host_guard()) as sql, \
-                 self.assertRaisesRegex(host.HostPressure, 'host_load_headroom'):
-                box.start()
-            self.assertEqual(sql.call_count, 1)
+    def test_candidate_address_requires_healthy_single_private_network(self):
+        candidate = {'State': {'Running': True, 'Health': {'Status': 'healthy'}},
+                     'NetworkSettings': {'Networks': {'private': {'IPAddress': '172.18.0.5'}}}}
+        self.assertEqual(host.candidate_address(candidate), '172.18.0.5')
+        candidate['NetworkSettings']['Networks']['private']['IPAddress'] = '8.8.8.8'
+        with self.assertRaisesRegex(host.replay.ReplayError, 'candidate_address_not_private'):
+            host.candidate_address(candidate)
+        candidate['State']['Running'] = False
+        with self.assertRaisesRegex(host.replay.ReplayError, 'candidate_not_healthy'):
+            host.candidate_address(candidate)
 
-    def test_cleanup_reconciles_resources_even_without_creation_flags(self):
-        with tempfile.TemporaryDirectory() as directory:
-            box = host.CapabilitySandbox({}, plan(), inventory(), Path(directory))
-            box.path.mkdir()
-            box.created = [box.name + '-pg']  # Container creation never completed.
-            box.network_created = False  # Network creation completed, but its client was interrupted.
-            with patch.object(host.replay, 'run', side_effect=[b'', (box.name+'\n').encode(), b'', b'', b'']) as run:
-                box.close()
-            self.assertIn(['docker', 'network', 'rm', box.name], [c.args[0] for c in run.call_args_list])
-            self.assertFalse(any(c.args[0][:3] == ['docker', 'rm', '-f'] for c in run.call_args_list))
-            self.assertFalse(box.path.exists())
+    def test_route_change_blocks_send_before_key_leaves_host(self):
+        case = plan()['entries'][0]
+        with patch.object(host.replay, 'snapshot', return_value={'target': 'blue'}), \
+             patch.object(host.replay, 'execute') as send, self.assertRaisesRegex(host.replay.ReplayError, 'public_or_prepared'):
+            host.execute_case(case, {'key': 'secret', 'api_key_id': 1}, '172.18.0.5', {'target': 'green'},
+                              lambda: None, inventory(), 'test', Path('/unused'))
+        send.assert_not_called()
 
-    def test_setup_pressure_interrupts_restore_and_restores_deadline_handler(self):
-        original = host.signal.getsignal(host.signal.SIGALRM)
-        with patch.object(host, 'host_guard', side_effect=host.replay.ReplayError('host_cpu_headroom')), \
-             self.assertRaisesRegex(host.replay.ReplayError, 'host_cpu_headroom'):
-            with host.guarded_setup():
-                handler = host.signal.getsignal(host.signal.SIGALRM)
-                handler(host.signal.SIGALRM, None)
-        self.assertEqual(host.signal.getsignal(host.signal.SIGALRM), original)
-        self.assertEqual(host.signal.getitimer(host.signal.ITIMER_REAL), (0, 0))
+    def test_http_errors_and_timeouts_are_recorded_without_skipping_suite(self):
+        case = plan()['entries'][0]
+        for observation in ({'reason': 'http_status_error', 'http_status': 503},
+                            {'reason': 'request_deadline_exceeded', 'http_status': 0}):
+            with patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+                 patch.object(host.replay, 'inspect', return_value={}), \
+                 patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
+                 patch.object(host.replay, 'execute', return_value=observation) as send:
+                result = host.execute_case(case, {'key': 'secret', 'api_key_id': 1}, '172.18.0.5', {'target': 'green'},
+                                           lambda: None, inventory(), 'test', Path('/unused'))
+            self.assertEqual(send.call_args.kwargs['host'], '172.18.0.5')
+            self.assertEqual(send.call_args.args[2], 8080)
+            self.assertEqual(result['status'], 'failed')
+            self.assertIsNone(result.get('stop_reason'))
 
-    def test_tool_continuation_rechecks_capacity_and_preserves_first_request(self):
-        case = next(c for c in plan()['entries'] if c['scenario'] == 'tool-roundtrip')
-        binding = {'key': 'synthetic', 'account_id': 1, 'api_key_id': 2}
-        box = SimpleNamespace(root=Path('/tmp'), app='test', env={}, candidate={},
-            name='tk-replay-test', verify=Mock(), verify_binding=Mock(), response_ids=[])
-        response = {'choices': [{'finish_reason': 'tool_calls', 'message': {'role': 'assistant', 'tool_calls': [
-            {'id': 'real-call', 'function': {'name': 'echo', 'arguments': '{"value":"OK"}'}}]}}],
-            'usage': {'prompt_tokens': 1}}
-        def execute(*args, **kwargs):
-            self.assertIsNone(kwargs['validator'](200, 'application/json', json.dumps(response).encode(), False))
-            kwargs['on_response_id']('first-server-id')
-            return {'http_status': 200, 'reason': None, 'response_request_id': 'first-server-id'}
-        throttle = Mock()
-        with patch.object(host, 'host_guard'), patch.object(host.replay, 'snapshot', return_value={}), \
+    def test_transcription_correlates_ordinary_session_to_usage(self):
+        case = {**plan()['entries'][0], 'scenario': 'transcription'}
+        with patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
              patch.object(host.replay, 'inspect', return_value={}), \
-             patch.object(host, 'account_guard', side_effect=[None, 'account_headroom_insufficient']), \
-             patch.object(host.replay, 'execute', side_effect=execute) as send, \
-             self.assertRaisesRegex(host.replay.ReplayError, 'account_headroom_changed'):
-            host.execute_case(case, binding, box, 1234, {}, throttle)
-        send.assert_called_once()
-        self.assertEqual(throttle.call_count, 2)
-        self.assertEqual(box.response_ids, ['first-server-id'])
-        self.assertEqual(len(box.current_observations), 1)
+             patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
+             patch.object(host, 'attribution', return_value=([144], None, ['grok_audio:upstream'], True)) as attribute, \
+             patch.object(host.replay, 'execute') as execute:
+            def send(*args, **kwargs):
+                kwargs['on_response_id']('gateway-id')
+                return {'reason': None, 'response_request_id': 'gateway-id'}
+            execute.side_effect = send
+            result = host.execute_case(case, {'key': 'secret', 'api_key_id': 334}, '172.18.0.5', {'target': 'green'},
+                                       lambda: None, inventory(), 'test', Path('/unused'))
+        self.assertEqual(result['status'], 'passed')
+        session = execute.call_args.kwargs['session_id']
+        self.assertTrue(session.startswith('test-'))
+        self.assertEqual(attribute.call_args.args[-1], {'gateway-id': session})
 
-    def test_rate_limit_stops_the_full_plan_without_dropping_remaining_cases(self):
+    def test_full_plan_uses_existing_candidate_and_keeps_failures(self):
         value = plan()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            box = SimpleNamespace(start=Mock(return_value=1234), close=Mock(), name='tk-replay-test',
-                candidate={}, response_ids=['server-first'],
-                bindings={c['id']: {'account_id': 1} for c in value['entries']})
-            with patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
-                 patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
-                 patch.object(host.replay, 'inspect', return_value={}), \
-                 patch.object(host.replay, 'sql', return_value='0'), \
-                 patch.object(host, 'CapabilitySandbox', return_value=box), \
-                 patch.object(host, 'host_guard'), patch.object(host, 'account_guard', return_value=None), \
-                 patch.object(host, 'execute_case', return_value={'status': 'failed', 'reason': 'http_status_429',
-                     'stop_reason': 'upstream_pressure_or_unfinished_request'}) as execute:
-                result = host.run(value, inventory(), '1.2.3', root)
-            execute.assert_called_once()
-            box.close.assert_called_once()
-            self.assertEqual(result['verdict'], 'red')
-            self.assertEqual(result['coverage']['failed'], 1)
-            self.assertEqual(sum(result['coverage'].values()), len(value['entries']))
-            details = json.loads((root/'bluegreen-capability-results.json').read_text())
-            self.assertEqual({r['id'] for r in details['results']}, {c['id'] for c in value['entries']})
-            self.assertTrue(result['cleanup_verified'])
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
+             patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+             patch.object(host.replay, 'inspect', return_value={}), \
+             patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
+             patch.object(host, 'test_key', return_value={'api_key_id': 334, 'key': 'secret'}), \
+             patch.object(host, 'execute_case', return_value={'status': 'failed', 'reason': 'http_status_error',
+                 'execution_proof': {'account_class_matched': False}}) as execute, \
+             patch.object(host.replay, 'run', side_effect=AssertionError('must not create resources')):
+            result = host.run(value, inventory(), '1.2.3', Path(directory))
+            details = json.loads(Path(directory, 'bluegreen-capability-results.json').read_text())
+        self.assertEqual(execute.call_count, sum(not c['blocked_reason'] for c in value['entries']))
+        self.assertEqual(len(details['results']), len(value['entries']))
+        self.assertEqual(result['execution_kind'], 'prepared_gateway')
+        self.assertTrue(result['route_unchanged'])
+        self.assertFalse(result['cutover'])
+        self.assertTrue(result['approval_pending'])
+        self.assertEqual(result['account_class_coverage'],
+                         {'matched': 0, 'unmatched': 0, 'unmetered_or_absent': 0})
+        self.assertNotIn('secret', json.dumps(details))
 
-    def test_pressure_before_start_still_emits_all_obligations_and_cleans_up(self):
+    def test_selected_rerun_preserves_unselected_obligations(self):
         value = plan()
-        with tempfile.TemporaryDirectory() as directory:
-            box = SimpleNamespace(start=Mock(), close=Mock(), name='tk-replay-test', response_ids=[])
-            with patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
-                 patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
-                 patch.object(host.replay, 'inspect', return_value={}), \
-                 patch.object(host.replay, 'sql', return_value='0'), \
-                 patch.object(host, 'CapabilitySandbox', return_value=box), \
-                 patch.object(host, 'host_guard', side_effect=host.replay.ReplayError('host_memory_headroom')):
-                result = host.run(value, inventory(), '1.2.3', Path(directory))
-            box.start.assert_not_called()
-            box.close.assert_called_once()
-            self.assertEqual(result['coverage'], {'blocked-by-test-infrastructure': len(value['entries'])})
-            self.assertEqual(result['reason'], 'host_memory_headroom')
+        selected = [value['entries'][0]['id']]
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
+             patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+             patch.object(host.replay, 'inspect', return_value={}), \
+             patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
+             patch.object(host, 'test_key', return_value={'api_key_id': 334, 'key': 'secret'}), \
+             patch.object(host, 'execute_case', return_value={'status': 'failed', 'reason': 'http_status_error'}) as execute:
+            result = host.run(value, inventory(), '1.2.3', Path(directory), case_ids=selected)
+            details = json.loads(Path(directory, 'bluegreen-capability-results.json').read_text())
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_args.args[0]['id'], selected[0])
+        self.assertEqual(result['selected_case_ids'], selected)
+        self.assertEqual(result['coverage']['declared-but-untested'], len(value['entries']) - 1)
+        self.assertEqual(len(details['results']), len(value['entries']))
+        self.assertEqual(result['verdict'], 'red')
+        self.assertFalse(result['cutover'])
+        for ids in ([], ['unknown'], selected * 2):
+            with patch.object(host.replay, 'prepared') as prepare, self.assertRaisesRegex(host.replay.ReplayError, 'invalid_case_selection'):
+                host.run(value, inventory(), '1.2.3', case_ids=ids)
+            prepare.assert_not_called()
+
+    def test_missing_test_key_retains_every_obligation(self):
+        value = plan()
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
+             patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+             patch.object(host, 'test_key', side_effect=host.replay.ReplayError('unique_active_universal_test_key_required')):
+            result = host.run(value, inventory(), '1.2.3', Path(directory))
+        self.assertEqual(result['coverage'], {'blocked-by-test-infrastructure': len(value['entries'])})
+        self.assertFalse(result['cutover'])
 
 
 if __name__ == '__main__':

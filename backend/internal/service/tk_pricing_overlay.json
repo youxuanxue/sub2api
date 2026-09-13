@@ -10241,5 +10241,87 @@
       "text"
     ],
     "source": "GPT-6 Astra commercial rates from Wei-Shaw/sub2api upstream static fallback (billing_service/pricing_service: $10/$50 per MTok standard, priority 2x, cache write $12.5/MTok, cache read $1/MTok, 272k long-context in×2/out×1.5). No flex/batches/regional tiers published in that evidence; omitted intentionally. Captured 2026-09-06."
+  },
+  "qwen-vl-max": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000002388059701492537,
+    "output_cost_per_token": 0.0000005970149253731343,
+    "cache_read_input_token_cost": 0.0000002388059701492537,
+    "supports_vision": true,
+    "source": "Alibaba DashScope qwen-vl-max official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥1.6/M out ¥4/M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-09-12: fix served-zero-cost alert for newapi Qwen group (qwen-vl-* already live via account supply / mapping but missing registry owner). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen-vl-plus": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000011940298507462686,
+    "output_cost_per_token": 0.00000029850746268656716,
+    "cache_read_input_token_cost": 0.00000011940298507462686,
+    "supports_vision": true,
+    "source": "Alibaba DashScope qwen-vl-plus official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥0.8/M out ¥2/M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-09-12: fix served-zero-cost alert for newapi Qwen group (qwen-vl-* already live via account supply / mapping but missing registry owner). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+  },
+  "qwen3-vl-flash": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 0.000000022388059701492537,
+    "output_cost_per_token": 0.00000022388059701492537,
+    "cache_read_input_token_cost": 0.000000022388059701492537,
+    "supports_vision": true,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 0.000000022388059701492537,
+        "output_cost_per_token": 0.00000022388059701492537,
+        "cache_read_input_token_cost": 0.000000022388059701492537
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 0.000000044776119402985075,
+        "output_cost_per_token": 0.00000044776119402985074,
+        "cache_read_input_token_cost": 0.000000044776119402985075
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 0.00000008955223880597015,
+        "output_cost_per_token": 0.0000008955223880597015,
+        "cache_read_input_token_cost": 0.00000008955223880597015
+      }
+    ],
+    "source": "Alibaba DashScope qwen3-vl-flash official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=32K ¥0.15/¥1.5, 32K<=128K ¥0.3/¥3, 128K+ ¥0.6/¥6 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-09-12: same qwen-vision supply family as qwen-vl-max zero-cost alert — price before next leak. 非思考和思考模式同价 on official list. List price only — Batch/context-cache discounts not modeled (cache_read = input). International/US/EU deployments higher and intentionally NOT modeled; prod uses China-mainland."
+  },
+  "qwen3-vl-plus": {
+    "litellm_provider": "dashscope",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000014925373134328358,
+    "output_cost_per_token": 0.0000014925373134328358,
+    "cache_read_input_token_cost": 0.00000014925373134328358,
+    "supports_vision": true,
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 32000,
+        "input_cost_per_token": 0.00000014925373134328358,
+        "output_cost_per_token": 0.0000014925373134328358,
+        "cache_read_input_token_cost": 0.00000014925373134328358
+      },
+      {
+        "min_tokens": 32000,
+        "max_tokens": 128000,
+        "input_cost_per_token": 0.00000022388059701492537,
+        "output_cost_per_token": 0.000002238805970149254,
+        "cache_read_input_token_cost": 0.00000022388059701492537
+      },
+      {
+        "min_tokens": 128000,
+        "max_tokens": null,
+        "input_cost_per_token": 0.00000044776119402985074,
+        "output_cost_per_token": 0.000004477611940298508,
+        "cache_read_input_token_cost": 0.00000044776119402985074
+      }
+    ],
+    "source": "Alibaba DashScope qwen3-vl-plus official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=32K ¥1/¥10, 32K<=128K ¥1.5/¥15, 128K+ ¥3/¥30 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-09-12: same qwen-vision supply family as qwen-vl-max zero-cost alert — price before next leak. 非思考和思考模式同价 on official list. List price only — Batch/context-cache discounts not modeled (cache_read = input). International/US/EU deployments higher and intentionally NOT modeled; prod uses China-mainland."
   }
 }

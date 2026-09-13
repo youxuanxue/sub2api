@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan/report offline or execute the complete supply plan on an isolated prod replica."""
+"""Plan/report offline or execute the complete supply plan on the prepared blue/green candidate."""
 from __future__ import annotations
 
 import argparse
@@ -40,13 +40,15 @@ def main(argv=None):
     evaluate.add_argument('--tag', help='require results from this release')
     evaluate.add_argument('--out', type=Path, required=True)
     evaluate.add_argument('--require-complete', action='store_true', help='explicit coverage gate only; never deploy/promote')
-    execute = subs.add_parser('run', help='prod host only: serial isolated account-supply execution')
+    execute = subs.add_parser('run', help='prod host only: serial candidate verification with the existing universal test key')
     execute.add_argument('--plan', type=Path)
     execute.add_argument('--previous', type=Path)
     execute.add_argument('--tag')
     execute.add_argument('--inventory', type=Path, default=DEFAULT_INVENTORY)
     execute.add_argument('--limit', type=int, help='optional explicit execution cap; default is the complete eligible set')
     execute.add_argument('--out', type=Path)
+    execute.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
+                         help='prod api_keys.name of an active universal test key (not secrets.TK_FULLTEST_KEY material)')
     execute.add_argument('--allow-upstream-quota', action='store_true')
     args = parser.parse_args(argv)
     if args.command == 'from-tag':
@@ -84,7 +86,7 @@ def main(argv=None):
     from gateway_capability_host import run_locked
     inventory = read(args.inventory)
     value = read(args.plan) if args.plan else build(inventory, load())
-    receipt = run_locked(value, inventory, args.tag)
+    receipt = run_locked(value, inventory, args.tag, args.test_key_name)
     write(args.out, receipt)
     return 0 if receipt['verdict'] == 'green' else 1
 

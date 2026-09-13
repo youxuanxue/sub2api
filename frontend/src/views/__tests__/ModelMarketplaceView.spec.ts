@@ -97,6 +97,7 @@ function mountMarketplace() {
   return mount(CatalogHubView, {
     global: {
       stubs: {
+        RegistrationActionTk: true,
         AppLayout: { template: '<div data-test="app-layout"><slot /></div>' },
         RouterLink: { props: ['to'], template: '<a :data-to="JSON.stringify(to)"><slot /></a>' },
       },

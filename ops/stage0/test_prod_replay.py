@@ -319,17 +319,44 @@ class ExecutionTest(unittest.TestCase):
 
 
 class OrchestrationTest(unittest.TestCase):
+    def test_class_coverage_summary_does_not_change_result_fingerprint(self):
+        receipt, page = self.receipt()
+        receipt['account_class_coverage'] = {'matched': 1, 'unmatched': 0, 'unmetered_or_absent': 0}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
+                {'needs_prepare': False}, {'needs_prepare': False}, receipt, page]):
+            cli.run_replay('1.2.3', 'i-prod', Path(tmp))
+            saved = json.loads(Path(tmp, 'replay-receipt.json').read_text())
+            details = json.loads(Path(tmp, 'replay-results.json').read_text())
+        self.assertEqual(saved['account_class_coverage'], receipt['account_class_coverage'])
+        self.assertNotIn('account_class_coverage', details)
+        from gateway_capability_matrix import digest
+        self.assertEqual(digest(details), receipt['results_sha256'])
+
+    def test_observation_timeout_reconnects_without_resubmitting_requests(self):
+        complete = subprocess.CompletedProcess([], 0, json.dumps({'Status': 'Success', 'ResponseCode': 0,
+            'StandardOutputContent': '{"total":157}'}), '')
+        with patch.object(cli.subprocess, 'check_output', return_value='same-command') as send, \
+             patch.object(cli.subprocess, 'run', side_effect=[subprocess.TimeoutExpired('aws', 30), complete]) as poll, \
+             patch.object(cli.time, 'sleep'):
+            self.assertEqual(cli.remote('i-prod', 'run', '1.2.3'), {'total': 157})
+        send.assert_called_once()
+        self.assertEqual(poll.call_count, 2)
+        for call in poll.call_args_list:
+            self.assertIn('same-command', call.args[0])
+
     def receipt(self, tag='1.2.3', verdict='green'):
         from gateway_capability_matrix import digest
         details = {'tag': tag, 'verdict': verdict, 'cutover': False, 'results': [{'id': 'one-case'}]}
         receipt = {k: v for k, v in details.items() if k != 'results'}
-        receipt.update(total=1, results_sha256=digest(details), receipt_sha256='a'*64)
+        receipt.update(total=1, account_class_coverage={'matched': 1, 'unmatched': 0, 'unmetered_or_absent': 0},
+                       results_sha256=digest(details), receipt_sha256='a'*64)
         return [receipt, {'tag': tag, 'rows': details['results']}]
 
     def test_prepare_cannot_inherit_cutover_and_execution_must_produce_receipt(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': True}, {'needs_prepare': False}] + self.receipt()) as remote, patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {'STAGE0_BLUEGREEN_STAGE': 'deploy', 'STAGE0_BLUEGREEN_WAIT_PHASE': 'cutover'}):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[{'needs_prepare': True}, {'needs_prepare': False}] + self.receipt()) as remote, patch.object(cli.subprocess, 'run') as process, patch.dict(os.environ, {'STAGE0_BLUEGREEN_STAGE': 'deploy', 'STAGE0_BLUEGREEN_WAIT_PHASE': 'cutover', 'AWS_REGION': 'wrong-region'}):
             cli.run_replay('1.2.3', 'i-prod', Path(tmp))
             env = process.call_args.kwargs['env']
+            self.assertEqual(env['AWS_REGION'], cli.PROD_REGION)
             self.assertEqual(env['STAGE0_BLUEGREEN_STAGE'], 'prepare')
             self.assertEqual(env['STAGE0_BLUEGREEN_WAIT_PHASE'], 'complete')
             self.assertEqual([c.args[1] for c in remote.call_args_list], ['status', 'status', 'run', 'results'])
@@ -378,6 +405,7 @@ class OrchestrationTest(unittest.TestCase):
                 'STAGE0_BLUEGREEN_APPROVED_REPLAY': 'a'*64, 'STAGE0_BLUEGREEN_REPLACE_RECEIPT': 'a'*64}):
             cli.run_replay('1.2.4', 'i-prod', Path(tmp), 'b'*64)
             env = process.call_args.kwargs['env']
+            self.assertEqual(env['AWS_REGION'], cli.PROD_REGION)
             self.assertEqual(env['STAGE0_BLUEGREEN_STAGE'], 'prepare')
             self.assertEqual(env['STAGE0_BLUEGREEN_REPLACE_RECEIPT'], 'b'*64)
             self.assertNotIn('STAGE0_BLUEGREEN_APPROVED_REPLAY', env)

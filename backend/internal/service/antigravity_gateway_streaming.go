@@ -337,8 +337,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 	var firstTokenMs *int
 	var last map[string]any
 	var lastWithParts map[string]any
-	var collectedImageParts []map[string]any // 收集所有包含图片的 parts
-	var collectedTextParts []string          // 收集所有文本片段
+	var collectedParts []map[string]any
 
 	type scanEvent struct {
 		line string
@@ -457,16 +456,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 			// 保留最后一个有 parts 的响应
 			if parts := extractGeminiParts(parsed); len(parts) > 0 {
 				lastWithParts = parsed
-				// 收集包含图片和文本的 parts
-				for _, part := range parts {
-					if inlineData, ok := part["inlineData"].(map[string]any); ok {
-						collectedImageParts = append(collectedImageParts, part)
-						_ = inlineData // 避免 unused 警告
-					}
-					if text, ok := part["text"].(string); ok && text != "" {
-						collectedTextParts = append(collectedTextParts, text)
-					}
-				}
+				collectedParts = append(collectedParts, parts...)
 			}
 
 		case <-intervalCh:
@@ -493,15 +483,8 @@ returnResponse:
 		}
 	}
 
-	// 如果收集到了图片 parts，需要合并到最终响应中
-	if len(collectedImageParts) > 0 {
-		finalResponse = mergeImagePartsToResponse(finalResponse, collectedImageParts)
-	}
-
-	// 如果收集到了文本，需要合并到最终响应中
-	if len(collectedTextParts) > 0 {
-		finalResponse = mergeTextPartsToResponse(finalResponse, collectedTextParts)
-	}
+	// TK: Preserve tools, thought signatures and ordered media via the shared collector.
+	finalResponse = mergeCollectedPartsToResponse(finalResponse, collectedParts)
 
 	respBody, err := json.Marshal(finalResponse)
 	if err != nil {
@@ -584,8 +567,8 @@ func mergeCollectedPartsToResponse(response map[string]any, collectedParts []map
 	for _, part := range collectedParts {
 		// 检查是否是普通 text part
 		if text, ok := part["text"].(string); ok {
-			// 检查是否有 thought 标记
-			if thought, _ := part["thought"].(bool); thought {
+			// Preserve signatures and other metadata; only bare text can be coalesced.
+			if len(part) > 1 {
 				// thinking part，先刷新 text buffer，然后保留原样
 				flushTextBuffer()
 				mergedParts = append(mergedParts, part)
@@ -604,72 +587,6 @@ func mergeCollectedPartsToResponse(response map[string]any, collectedParts []map
 	flushTextBuffer()
 
 	setParts(mergedParts)
-	return result
-}
-
-// mergeImagePartsToResponse 将收集到的图片 parts 合并到 Gemini 响应中
-func mergeImagePartsToResponse(response map[string]any, imageParts []map[string]any) map[string]any {
-	if len(imageParts) == 0 {
-		return response
-	}
-
-	result, existingParts, setParts := getOrCreateGeminiParts(response)
-
-	// 检查现有 parts 中是否已经有图片
-	for _, p := range existingParts {
-		if pm, ok := p.(map[string]any); ok {
-			if _, hasInline := pm["inlineData"]; hasInline {
-				return result // 已有图片，不重复添加
-			}
-		}
-	}
-
-	// 添加收集到的图片 parts
-	for _, imgPart := range imageParts {
-		existingParts = append(existingParts, imgPart)
-	}
-	setParts(existingParts)
-	return result
-}
-
-// mergeTextPartsToResponse 将收集到的文本合并到 Gemini 响应中
-func mergeTextPartsToResponse(response map[string]any, textParts []string) map[string]any {
-	if len(textParts) == 0 {
-		return response
-	}
-
-	mergedText := strings.Join(textParts, "")
-	result, existingParts, setParts := getOrCreateGeminiParts(response)
-
-	// 查找并更新第一个 text part，或创建新的
-	newParts := make([]any, 0, len(existingParts)+1)
-	textUpdated := false
-
-	for _, p := range existingParts {
-		pm, ok := p.(map[string]any)
-		if !ok {
-			newParts = append(newParts, p)
-			continue
-		}
-		if _, hasText := pm["text"]; hasText && !textUpdated {
-			// 用累积的文本替换
-			newPart := make(map[string]any)
-			for k, v := range pm {
-				newPart[k] = v
-			}
-			newPart["text"] = mergedText
-			newParts = append(newParts, newPart)
-			textUpdated = true
-		} else {
-			newParts = append(newParts, pm)
-		}
-	}
-
-	if !textUpdated {
-		newParts = append([]any{map[string]any{"text": mergedText}}, newParts...)
-	}
-
-	setParts(newParts)
 	return result
 }
 

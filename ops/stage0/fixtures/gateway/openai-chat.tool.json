@@ -9,7 +9,7 @@
         "content": "Call echo with value OK."
       }
     ],
-    "max_completion_tokens": 64,
+    "max_completion_tokens": 2048,
     "tools": [
       {
         "type": "function",

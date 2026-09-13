@@ -9,7 +9,7 @@
         "content": "Call echo with value OK."
       }
     ],
-    "max_tokens": 64,
+    "max_tokens": 2048,
     "tools": [
       {
         "name": "echo",

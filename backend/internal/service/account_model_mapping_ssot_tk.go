@@ -31,6 +31,8 @@ type accountModelMappingRuntime struct {
 	newAPIChannelTypes map[int]map[string]string
 }
 
+var canonicalAntigravityModelScopes = []string{"claude", "gemini_text", "gemini_image"}
+
 type accountModelMappingRuntimeDoc struct {
 	Platforms          map[string]map[string]string `json:"platforms"`
 	NewAPIChannelTypes map[string]map[string]string `json:"newapi_channel_types"`
@@ -802,35 +804,4 @@ func reconciledAccountModelMapping(account *Account, required map[string]string)
 		out[key] = target
 	}
 	return out
-}
-
-func modelMappingsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, av := range a {
-		if b[k] != av {
-			return false
-		}
-	}
-	return true
-}
-
-func modelMappingSignatureString(mapping map[string]string) string {
-	if len(mapping) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(mapping))
-	for k := range mapping {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		_, _ = b.WriteString(k)
-		_ = b.WriteByte('=')
-		_, _ = b.WriteString(mapping[k])
-		_ = b.WriteByte('\n')
-	}
-	return b.String()
 }

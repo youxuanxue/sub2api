@@ -1,10 +1,11 @@
 ---
 title: Gateway capability verification independent of deployment
-status: draft
+status: approved
+approved_by: "user (本会话明确要求：日常蓝绿部署准备候选，用测试 universal key 执行完整用例，汇总结果交审批，禁止擅自切流)"
 risk: high
 ---
 
-本会话用户已同意能力验证与部署解耦；代码合并、真实上游执行、切流仍是不同动作。
+用户在本会话明确要求：日常蓝绿部署准备候选，用测试 universal key 执行完整用例，汇总结果交审批，禁止擅自切流。此指令替代此前的隔离副本执行设计。
 
 ## 边界与 owners
 
@@ -22,7 +23,7 @@ risk: high
 | `ops/stage0/gateway_capability_matrix.py` | 账号类/模型族基础义务、类级协议和请求分支、稳定 ID、digest、增量与报告 |
 | `ops/stage0/gateway_capability_check.py` | HTTP 响应、工具、图像、音频与转录语义校验 |
 | `ops/stage0/gateway_capability_scenarios.py` | 短媒体请求与保留真实调用 ID／思考签名的工具续轮 |
-| `ops/stage0/gateway_capability_host.py` | 隔离副本内创建受限测试用户与 universal key；账号类绑定、容量守卫、串行执行、usage 归因与清理 |
+| `ops/stage0/gateway_capability_host.py` | 直接访问正常蓝绿候选；现有测试 universal key、串行请求、usage 归因与路由指纹核验 |
 | `ops/stage0/post_release_replay_check.py` | plan/report/from-tag；显式授权的 prod-host run 复用同一个执行器 |
 | `scripts/stage0/replay-prod-release.py` | prepare 后执行账号供给计划，取回带指纹的逐条结果；不调用历史 capture 收集 |
 | `scripts/stage0/update-capability-plan.py` | 校验供应清单和生成 release artifact；preflight 通过 `--check` 校验 |
@@ -53,26 +54,32 @@ branch_family，不因线上调用频率变化自动改选代表。仓库内不�
 
 ## 计划与执行的界限
 
-用户在本会话继续授权实现并验证，附加约束为禁止切流、控制并发、不影响线上用户。
-`plan_validation=required` 仍不因原生协议声明而消失：文本请求实际经过候选网关的
-canonical routing；只在响应正确且真实 usage 属于绑定账号时记录通过。媒体走现有
-media handler；不另造 Python 协议路由策略。count-token endpoint 本身不计费时，
-结果明确标记 unmetered_endpoint，不能假称取得账号计费证据。
+用户在本会话继续授权实现并验证，附加约束为禁止切流、控制并发、降低对线上共享池的冲击。
+`plan_validation=required` 仍不因原生协议声明而消失：文本请求经过候选网关的正常
+universal routing，媒体经过现有 handler。执行器不强制账号绑定、不修改账号供给。
+响应正确且 usage 归属测试 key 才记录功能通过；另记实际账号和 account_class_matched，
+正常调度命中其他账号类时不冒称原计划账号类已覆盖。回执必须汇总 `account_class_coverage`
+（matched / unmatched / unmetered_or_absent），审批时同时看功能 verdict 与账号类命中，
+不能只看 green。count-token endpoint 本身不计费时标记 unmetered_endpoint，不假称有账号归因证据。
 
-运行时以 platform/type/channel/dialect/native protocols/exclusive endpoints 和代表的
-显式 model_mapping 匹配当前健康供给。缺供给、映射漂移不删用例、不修改线上账号。
-独立 PostgreSQL/Redis 复用 prepared image ID；启动应用前在副本建立每账号专属组和
-受限用户，测试 key 必须为 universal。用户仅获准对应组，组内仅绑定目标账号，
-每次调用前复核绑定；正确响应但命中其他账号或缺 usage 不得通过。
+执行流程只有：正常 blue/green prepare → 测试候选 → 汇总回执 → 等用户审批。
+候选复用现有 PostgreSQL/Redis，执行器直连其 Docker 内部地址，不经过线上 Caddy。
+使用现成的测试 universal key（默认按 `api_keys.name='TK_FULLTEST_KEY'` 在生产主机内解析；
+可用 `--test-key-name` 指定其他已有名称）。该名称不是 GitHub `secrets.TK_FULLTEST_KEY`
+密钥材料；仅在生产主机内读取凭据，不把 key 传入命令参数或回执。请求按正常流程计费和记录 usage；
+执行器自身只读数据库，不创建用户、key、分组、绑定或额外容器，不导出/恢复快照。
+候选准备沿用普通蓝绿部署，不设 replay 专属 load/PSI 门槛。
 
-并发固定为一，所有请求（包括工具续轮和视频轮询）共享最小间隔；主机余量和线上账号
-剩余槽位由执行器检查。副本 dump/restore/startup 期间每两秒复核主机余量，超限异常不得被健康重试吞掉，清理以实际运行标签核对资源。load 是保守负载门禁，不是 CPU 使用率，也不单独证明线上影响。生产 SQL/Redis 只读，副本数据库写测试用户、key、分组和 usage。
-遇到容量不足不重置线上 cooldown；限流、服务不可用、超时或未结束视频任务停止后续付费调用。
-所有剩余用例保留停止原因。生产 usage 按响应 request ID 对应的真实计费 ID（含 local 和视频命名空间）检查，必须没有本次写入；active/candidate/Caddy
-指纹必须一致，临时资源清理失败使通过证据失效。
+并发为一，所有请求（包括工具续轮和视频轮询）共享至少十秒的启动间隔，不自动重试。
+这会降低但对线上账号并发槽位的竞争，不能消除：候选与线上共享同一账号池与 Redis 租约，
+仍可能与真实流量争用。HTTP 错误、超时、协议及场景失败逐条记录，关闭本次连接后继续下一条，不自动重试。
+每次请求前及结束时核对 active/candidate/Caddy 指纹；变化立即停止并保留剩余义务。
+测试 usage 按响应 ID 的真实计费命名空间关联，只能归属本次测试 key；不再要求 usage 为零。
 
 生成响应必须有对应协议的正常终态，截断和内容过滤不计通过。
-视觉场景使用本地生成的纯色图片并校验颜色答案；思考场景要求 reasoning/thinking 内容或 token 证据。
+视觉场景使用本地生成的纯色图片并校验颜色答案；思考场景验证带思考参数的请求正常完成且答案正确，
+独立记录实际 reasoning/thinking 内容或 token 证据。供应端隐藏思考或本次 reasoning tokens 为零时，
+只证明请求接受，不冒称已观测到思考输出；未声明 request_acceptance 的测试仍要求思考证据。
 工具场景执行真实 tool call 和 tool result 第二轮；Gemini 图片请求要求 IMAGE 输出；
 语音使用模型对应 voice；转录使用本地合成的 Hello WAV multipart；视频串行轮询到终态。
 OpenAI Chat 未定义 count-token 操作，该义务明确为 unsupported，不猜路径，也不算通过。
@@ -91,7 +98,7 @@ coverage 不可由 manifest 手写 passed；harness 成功不算网关实测成�
 | capability_not_declared（2） | 从账号映射及操作类型生成义务；媒体缺执行器保持可见 |
 | unsupported_path（3） | 用受支持模板路径；历史路径未逐项还原，不声称已定位为某特定协议 |
 | historical_response_error（1） | 错误/SSE 异常进入离线验证器负例，不使用失败请求作成功基线 |
-| key_quota_exhausted（4） | 专用测试 key ID 绑定；校验 snapshot 中真实 routing_mode，缺失/耗尽报设施缺口 |
+| key_quota_exhausted（4） | 专用测试 key ID 绑定；校验现有 key 的真实 routing_mode，缺失/耗尽报设施缺口 |
 
 这里是旧聚合的处理映射，不是虚构的逐条 54 行审计。媒体类别不能从旧计数推断。
 
@@ -112,3 +119,38 @@ post-release 使用目标 tag 的供应清单与 fixture，从上一 tag 还原�
 老 tag 尚无账号供应清单，或 tag 中的生成器与当前不同，则报告 baseline_available=false，
 使用完整计划，避免以新规则重写旧义务而漏掉新增分支。
 自动上传 plan/coverage artifact，不自动执行上游请求，不参与切流审批。
+
+## 失败用例修正与复测
+
+用户本会话已授权修复已确认的测试及代码问题、提交 PR、审核、合并、部署 prod 候选并循环复测；
+反复明确禁止切流，保持当前线上服务不变。此授权不包含账号池、模型映射或 Edge 配置变更。
+
+Chat 没有独立 count-tokens 操作，因此不生成这个非法协议组合；供应暂不可用的合法用例仍保留。
+fixture 使用足以完成短任务的输出预算，视频时长遵循服务接口字符串类型；音频沿用普通
+X-Session-Id 关联唯一测试调用与既有 grok_audio usage，不改计费实现。
+
+默认仍执行完整计划。显式 `--case-id` 可仅复测指定稳定 ID，拒绝空、重复或未知 ID；
+完整计划的 digest 和覆盖分母不变，未选择项记 declared-but-untested。回执分别记录
+selected_verdict 与全计划 verdict，局部通过不等于全量通过，任何结果都不授权切流。
+
+Gemini countTokens 沿原账号选择、准入与原生计数接口执行，不套用 generation Plan；
+generateContent 仍以 CandidateRequest 和已选 Plan 裁决，计费分组平台不能提前否决合法转换。
+Qwen Token Plan 的参数适配在已选模型别名解析后执行，保留显式 thinking/effort；
+未显式要求思考的强制工具请求关闭供应端默认思考，避免互斥参数组合。
+
+Antigravity 的 Gemini 非流式转换复用共享 parts 收集器，保留早期工具调用、思考、签名和媒体顺序；
+只合并不带元数据的连续文本，禁止把思考文本并入普通输出。
+
+后续复测修复沿用同一授权：ASR 音频帧按供应商二进制协议声明 raw bytes；
+初始化与音频阶段错误分别标记但不暴露供应商错误正文。转录与语音合成共用普通
+X-Session-Id 归因，prepare 入口固定使用 prod region SSOT，不继承操作者的其他 region。
+协议参考：https://docs.volcengine.com/docs/6561/1354869 （Audio only client request 示例）。
+
+原失败项复测确认后，视觉 fixture 预算提高到 16384，以容纳启用默认推理的供应模型；
+仍要求完整终态和正确颜色答案。音频/媒体共用 usage 提交 owner 补齐普通客户端 SessionID，
+不改变请求 ID、计量与结算。视频校验接受 Vertex pending operation 的 name，并继续轮询至终态；
+成功必须有 HTTPS 视频地址或有效 MP4 内联载荷，done+error 仍失败，不把提交成功当生成完成。
+
+Vertex embedding 的后续筛选误用 API-key-only 条件：允许已有 newapi/channel-41/service_account
+供给通过 embedding 类型门，仍遵守显式 capability、模型与可用性检查；不扩展到其他 OAuth 或
+service-account 类型，不改变线上账号绑定。

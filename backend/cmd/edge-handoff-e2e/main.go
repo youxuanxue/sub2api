@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/server/routes"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -167,10 +168,7 @@ func main() {
 		})
 		r.GET("/api/v1/auth/me", gin.HandlerFunc(middleware.NewJWTAuthMiddleware(auth, userService, nil, nil)), func(c *gin.Context) { response.Success(c, userDTO) })
 		h := handler.NewEdgeAdminSessionHandler(handoff, userRepo, auth)
-		r.GET("/api/v1/edge/admin-handoff/configuration", h.Configuration)
-		r.POST("/api/v1/edge/admin-handoff/mint", h.MintCode)
-		r.POST("/api/v1/edge/admin-handoff/exchange", h.Exchange)
-		r.POST("/api/v1/edge/admin-session", h.Mint)
+		routes.RegisterTKEdgeRoutes(r.Group("/api/v1"), &handler.Handlers{EdgeAdminSession: h}, nil, nil, rdb)
 		admin := r.Group("/api/v1/admin", gin.HandlerFunc(middleware.NewAdminAuthMiddleware(auth, userService, nil, nil)))
 		a := adminhandler.NewEdgeAccountsHandler(&fleet{handoff: handoff})
 		admin.GET("/edge-accounts", a.List)

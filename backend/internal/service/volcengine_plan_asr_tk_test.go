@@ -93,6 +93,15 @@ func (d *asrTestDialer) Dial(_ context.Context, url string, headers http.Header,
 	return d.conn, 101, http.Header{}, nil
 }
 
+// Wire examples from https://docs.volcengine.com/docs/6561/1354869:
+// full requests use JSON; audio-only payloads use serialization=none.
+func TestVolcEngineASRAudioFrameUsesRawSerialization(t *testing.T) {
+	pcm := []byte{0x01, 0x02, 0x03, 0x04}
+	require.Equal(t, []byte{0x11, 0x21, 0x00, 0, 0, 0, 0, 2, 0, 0, 0, 4, 1, 2, 3, 4}, encodeVolcEngineASRFrame(2, 2, pcm))
+	require.Equal(t, []byte{0x11, 0x23, 0x00, 0, 0xff, 0xff, 0xff, 0xfe, 0, 0, 0, 4, 1, 2, 3, 4}, encodeVolcEngineASRFrame(2, -2, pcm))
+	require.Equal(t, []byte{0x11, 0x11, 0x10, 0, 0, 0, 0, 1, 0, 0, 0, 2, '{', '}'}, encodeVolcEngineASRFrame(1, 1, []byte(`{}`)))
+}
+
 func TestVolcEnginePlanASRDefaultTTSRoundTrip(t *testing.T) {
 	data, err := os.ReadFile("../pkg/audio/testdata/tts-default-24k.mp3")
 	require.NoError(t, err)

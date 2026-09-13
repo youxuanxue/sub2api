@@ -120,8 +120,8 @@ attempt、challenge 后消费。错误 verifier/attempt 不得删除正确记录
 ## Rollout and rollback
 
 先在隔离环境验证生产 Go handlers + Redis + 真实浏览器完整路径，再准备各 Edge trust
-配置与独立发布。Edge 先具备新兑换协议，控制台再切换入口；旧 mint/旧 token-fragment
-消费必须停用。版本不匹配时显示直接登录，不自动尝试旧协议。
+配置与独立发布。首次部署必须先升级并切流具备故障隔离的 prod，再升级 Edge；具体门禁与回滚顺序由
+`docs/ops/edge-admin-handoff.md` 拥有。旧 mint/旧 token-fragment 消费必须停用。版本不匹配时显示直接登录，不自动尝试旧协议。
 具体部署、密钥写入、历史会话撤销均不由本文或原型执行；上线前列出每个实例的版本与
 配置检查，并验证旧镜像 Key 请求明确失败。历史凭据处置依据独立证据清单决定。
 安全回滚是停用交接并直接登录，不能回滚到 token URL。

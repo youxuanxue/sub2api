@@ -50,6 +50,27 @@ def generation_terminal(protocol, events, stream):
     return None
 
 
+def answer_text(protocol, events, stream):
+    # Read user-visible output only, and join incremental tokens without spaces.
+    if protocol == 'openai-chat':
+        return ''.join(choice.get('delta' if stream else 'message', {}).get('content') or ''
+                       for event in events for choice in event.get('choices', []))
+    if protocol == 'anthropic-messages':
+        if stream:
+            return ''.join(event.get('delta', {}).get('text', '') for event in events)
+        return ''.join(part.get('text', '') for event in events for part in event.get('content', [])
+                       if part.get('type') == 'text')
+    if protocol == 'gemini-content':
+        return ''.join(part.get('text', '') for event in events for candidate in event.get('candidates', [])
+                       for part in candidate.get('content', {}).get('parts', []) if not part.get('thought'))
+    if protocol == 'openai-responses':
+        if stream:
+            return ''.join(event.get('delta', '') for event in events if event.get('type') == 'response.output_text.delta')
+        return ''.join(obj.get('text', '') for event in events for obj in objects(event)
+                       if obj.get('type') == 'output_text')
+    return ''
+
+
 def validate_response(case, status, ctype, raw, stream):
     failure = replay.response_failure(status, ctype, raw, stream)
     if failure:
@@ -73,7 +94,7 @@ def validate_response(case, status, ctype, raw, stream):
                     return None
             return 'image_payload_missing'
         if case.get('scenario') == 'video':
-            return None if any(obj.get('id') or obj.get('task_id') or obj.get('status') for obj in dictionaries) else 'video_task_missing'
+            return None if any(obj.get('id') or obj.get('task_id') or obj.get('status') or obj.get('name') for obj in dictionaries) else 'video_task_missing'
         if case.get('scenario') == 'transcription':
             return None if any(isinstance(obj.get('text'), str) and obj['text'].strip() for obj in dictionaries) else 'transcription_text_missing'
         if case['request_type'] == 'count_tokens':
@@ -103,14 +124,12 @@ def validate_response(case, status, ctype, raw, stream):
             if not tool:
                 return 'tool_call_missing'
         if case['request_type'] == 'thinking':
-            evidence = any(
-                (isinstance(obj.get(field), str) and obj[field].strip())
-                for obj in dictionaries for field in ('thinking', 'reasoning_content', 'reasoning'))
-            evidence |= any(type(obj.get(field)) is int and obj[field] > 0 for obj in dictionaries
-                            for field in ('reasoning_tokens', 'thoughtsTokenCount'))
-            evidence |= any(obj.get('type') in ('reasoning', 'redacted_thinking') or
-                            obj.get('thought') is True for obj in dictionaries)
-            if not evidence:
+            request = case.get('request', {})
+            answer = request.get('expected_answer')
+            text = answer_text(protocol, events, stream)
+            if answer and not re.search(r'(?<![\w.])' + re.escape(answer) + r'(?![\w.])', text):
+                return 'thinking_answer_mismatch'
+            if not has_thinking_evidence(dictionaries) and request.get('thinking_validation') != 'request_acceptance':
                 return 'thinking_evidence_missing'
         if case['request_type'] == 'multimodal':
             text = ' '.join(obj[field] for obj in dictionaries for field in ('text', 'content')
@@ -120,3 +139,40 @@ def validate_response(case, status, ctype, raw, stream):
         return None
     except (ValueError, TypeError, AttributeError):
         return 'invalid_response_encoding'
+
+
+def video_output_present(response):
+    for obj in objects(response):
+        for key in ('url', 'video_url', 'uri'):
+            url = obj.get(key)
+            if isinstance(url, str) and urlsplit(url).scheme == 'https' and urlsplit(url).hostname:
+                return True
+        encoded = obj.get('bytesBase64Encoded')
+        if obj.get('mimeType') == 'video/mp4' and isinstance(encoded, str):
+            try:
+                decoded = base64.b64decode(encoded, validate=True)
+                if len(decoded) > 32 and decoded[4:8] == b'ftyp':
+                    return True
+            except ValueError:
+                continue
+    return False
+
+
+def has_thinking_evidence(dictionaries):
+    """Actual reasoning output/usage, not an echoed reasoning configuration."""
+    return any(
+        any(isinstance(obj.get(field), str) and obj[field].strip()
+            for field in ('thinking', 'reasoning_content', 'reasoning')) or
+        any(type(obj.get(field)) is int and obj[field] > 0
+            for field in ('reasoning_tokens', 'thoughtsTokenCount')) or
+        obj.get('type') in ('reasoning', 'redacted_thinking') or obj.get('thought') is True
+        for obj in dictionaries)
+
+
+def thinking_evidence(raw, stream):
+    try:
+        events = ([json.loads(data) for _, data in replay.sse_events(raw) if data and data != '[DONE]']
+                  if stream else [json.loads(raw)])
+        return 'observed' if has_thinking_evidence([obj for event in events for obj in objects(event)]) else 'not_observed'
+    except (ValueError, TypeError):
+        return 'not_observed'

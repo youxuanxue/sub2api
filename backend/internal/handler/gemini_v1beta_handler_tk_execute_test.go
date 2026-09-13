@@ -4,6 +4,7 @@ package handler
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,5 +104,52 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestGeminiCountTokensBypassesGenerationPlanWithOriginalBody(t *testing.T) {
+	for _, platform := range []string{service.PlatformGemini, service.PlatformAntigravity} {
+		t.Run(platform, func(t *testing.T) {
+			const body = `{"contents":[{"role":"user","parts":[{"text":"count this input"}]}]}`
+			calls := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				require.True(t, strings.HasSuffix(r.URL.Path, "/gemini-3.8-flash:countTokens"), r.URL.Path)
+				raw, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				require.Equal(t, "count this input", gjson.GetBytes(raw, "contents.0.parts.0.text").String())
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"totalTokens":17}`)
+			}))
+			defer upstream.Close()
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+			cfg.Security.URLAllowlist.AllowPrivateHosts = true
+			account := &service.Account{ID: 62, Platform: platform, Type: service.AccountTypeAPIKey,
+				Credentials: map[string]any{"base_url": "https://api-us4.tokenkey.dev", "api_key": "test-key"}}
+			if platform == service.PlatformAntigravity {
+				attachHandlerTestProtocolCapability(t, account, protocolrouter.ProtocolGeminiGenerateContent)
+			}
+			h := &GatewayHandler{protocolRouter: service.NewProtocolRouter(),
+				geminiCompatService: service.NewGeminiMessagesCompatService(nil, nil, nil, nil, nil, nil, candidateNativeHTTPUpstream{baseURL: upstream.URL}, nil, cfg)}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest("POST", "/v1beta/models/gemini-3.8-flash:countTokens", strings.NewReader(body))
+			result, err := h.forwardGeminiCountTokens(c, c.Request.Context(), account, "gemini-3.8-flash", []byte(body))
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 1, calls)
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.JSONEq(t, `{"totalTokens":17}`, rec.Body.String())
+			// Invalid input retains the native error envelope instead of empty 200.
+			rec = httptest.NewRecorder()
+			c, _ = gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest("POST", "/v1beta/models/gemini-3.8-flash:countTokens", nil)
+			_, err = h.forwardGeminiCountTokens(c, c.Request.Context(), account, "gemini-3.8-flash", nil)
+			require.Error(t, err)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Contains(t, rec.Body.String(), "Request body is empty")
+			require.Equal(t, 1, calls)
+		})
 	}
 }

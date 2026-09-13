@@ -44,7 +44,7 @@ func TestRegisterTKEdgeRoutes_OpsRegisteredNoConflict(t *testing.T) {
 	}
 
 	require.NotPanics(t, func() {
-		RegisterTKEdgeRoutes(v1, h, &service.APIKeyService{}, &service.UserService{})
+		RegisterTKEdgeRoutes(v1, h, &service.APIKeyService{}, &service.UserService{}, nil)
 	})
 
 	got := registeredRoutes(t, r)
@@ -95,8 +95,9 @@ func TestRegisterTKEdgeAccountsRoutes_ProxyOpsRegisteredNoConflict(t *testing.T)
 }
 
 func TestEdgeHandoffRoutesRejectLegacyAndDisableWithoutTrust(t *testing.T) {
+	_, client := handoffRateLimitRedis(t)
 	r := gin.New()
-	RegisterTKEdgeRoutes(r.Group("/api/v1"), &handler.Handlers{EdgeAdminSession: handler.NewEdgeAdminSessionHandler(nil, nil, nil)}, nil, nil)
+	RegisterTKEdgeRoutes(r.Group("/api/v1"), &handler.Handlers{EdgeAdminSession: handler.NewEdgeAdminSessionHandler(nil, nil, nil)}, nil, nil, client)
 	for _, tc := range []struct {
 		method, path string
 		status       int

@@ -291,23 +291,44 @@
       },
       {
         "path": "ops/stage0/gateway_capability_matrix.py",
-        "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "verification_sha256", "harness-passed"],
-        "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return."
+        "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "verification_sha256", "harness-passed", "account_class_coverage"],
+        "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return. prepared_gateway receipts must surface account_class_coverage for approval."
+      },
+      {
+        "path": "backend/internal/service/account.go",
+        "must_contain": ["a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()"],
+        "rationale": "Vertex embedding service accounts must survive the same scheduler capability gate as discovery, without admitting other OAuth/service-account shapes."
+      },
+      {
+        "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason_test.go",
+        "must_contain": ["TestVertexEmbeddingEligibilityRetainsServiceAccount"],
+        "rationale": "Exercise the actual scheduler candidate filter including explicit capability denial and unavailable accounts."
+      },
+      {
+        "path": "backend/internal/handler/openai_gateway_handler_tk_forward_usage.go",
+        "must_contain": ["tkSubmitOpenAISimpleForwardUsage", "SessionID:          sessionID,"],
+        "rationale": "Simple audio/media usage must snapshot the ordinary client session before async recording."
+      },
+      {
+        "path": "backend/internal/handler/openai_gateway_simple_usage_session_tk_test.go",
+        "must_contain": ["TestOpenAISimpleForwardUsagePersistsClientSession"],
+        "rationale": "Exercise handler submission through RecordUsage to the persisted usage row, including absent-session behavior."
       },
       {
         "path": "ops/stage0/gateway_capability_host.py",
-        "must_contain": ["def account_guard(", "def run_locked(", "def verify_binding(", "def attribution(", "class HostPressure(replay.ReplayDeadline)", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "sandbox.close()", "production_usage_rows"],
-        "rationale": "Serial synthetic verification preserves live headroom checks, account attribution, isolated data, and cleanup."
+        "must_contain": ["def test_key(", "def run_locked(", "def candidate_address(", "def attribution(", "prepared_gateway", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "route_unchanged", "normal_universal"],
+        "must_not_contain": ["replay.Sandbox", "pg_dump", "pg_restore", "host_guard", "getloadavg", "/proc/pressure", "INSERT INTO", "UPDATE api_keys", "docker run"],
+        "rationale": "Normal blue/green candidate verification uses an existing universal test key, serial requests, real usage and unchanged routing; no parallel sandbox deployment."
       },
       {
         "path": "ops/stage0/test_gateway_capability_host.py",
-        "must_contain": ["test_mutated_key_group_or_account_binding_is_rejected", "test_rate_limit_stops_the_full_plan_without_dropping_remaining_cases", "test_pressure_before_start_still_emits_all_obligations_and_cleans_up", "test_capacity_abort_is_not_swallowed_by_database_health_retry", "test_cleanup_reconciles_resources_even_without_creation_flags", "test_real_sql_resolves_billing_ids_and_detects_production_writes"],
-        "rationale": "Behavioral guards prevent account fallback, unsafe continuation and denominator truncation."
+        "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation", "test_video_pending_operation_and_inline_mp4_completion"],
+        "rationale": "Behavioral guards preserve candidate-only sends, test-key attribution and the full denominator without creating extra resources."
       },
       {
         "path": "ops/stage0/gateway_capability_check.py",
-        "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing"],
-        "rationale": "Synthetic responses require protocol and media semantics; execution is owned by the isolated host runner."
+        "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing", "def video_output_present("],
+        "rationale": "Synthetic responses require protocol and media semantics; execution targets the normal blue/green candidate."
       },
       {
         "path": "ops/stage0/prod_replay.py",
@@ -805,7 +826,7 @@
     },
     {
       "path": "backend/internal/service/volcengine_plan_asr_tk.go",
-      "must_contain": ["volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
+      "must_contain": ["serialization = 0", "volc.seedasr.sauc.duration", "runVolcEngineASR", "decodeVolcEngineASRFrame", "volcEngineASRFrameLimit", "AudioUsage{Mode: \"stt\""],
       "rationale": "ASR must retain bounded binary decoding, terminal-only duration settlement and its dedicated Plan credential destination."
     },
     {
@@ -815,7 +836,7 @@
     },
     {
       "path": "backend/internal/service/volcengine_plan_asr_tk_test.go",
-      "must_contain": ["TestVolcEnginePlanASRDefaultTTSRoundTrip", "TestVolcEnginePlanASRBinaryWebSocketTransport", "TestVolcEnginePlanASRFailureAndCancellation", "TestVolcEnginePlanASRForwardSilentInputAndBilling", "TestVolcEnginePlanASRFrameValidation"],
+      "must_contain": ["TestVolcEngineASRAudioFrameUsesRawSerialization", "TestVolcEnginePlanASRDefaultTTSRoundTrip", "TestVolcEnginePlanASRBinaryWebSocketTransport", "TestVolcEnginePlanASRFailureAndCancellation", "TestVolcEnginePlanASRForwardSilentInputAndBilling", "TestVolcEnginePlanASRFrameValidation"],
       "rationale": "Preserve recording, cancellation, metering and malformed-frame regression coverage."
     },
     {
@@ -3857,7 +3878,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
-      "must_contain": ["account.GetPoolModeRetryCount(), failoverErr", "selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToChat"],
+      "must_contain": ["geminiV1BetaRequestPlatformAllowed(c, apiKey)", "h.forwardGeminiCountTokens(c, requestCtx, account, modelName, body)", "account.GetPoolModeRetryCount(), failoverErr", "selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToChat"],
       "rationale": "Gemini /v1beta gateway must thread account.GetPoolModeRetryCount() into the shared failover loop — same contract that unifies pool_mode retry behavior across platforms."
     },
     {
@@ -4428,7 +4449,9 @@
         "v1.POST(\"/edge/admin-session\", h.EdgeAdminSession.Mint)",
         "NewEdgeAdminOwnerMiddleware",
         "h.EdgeAccountOps.ClearRateLimit",
-        "v1.POST(\"/edge/admin-handoff/exchange\", h.EdgeAdminSession.Exchange)"
+        "limiter.LimitWithOptions(\"edge-handoff-mint\"",
+        "limiter.LimitWithOptions(\"edge-handoff-exchange\"",
+        "FailureStatusCode: http.StatusServiceUnavailable"
       ],
       "rationale": "Mirror inventory keeps existing authorization. Signed handoff is independent; legacy session mint permanently rejects."
     },
@@ -4542,18 +4565,6 @@
       "rationale": "Per-node in-process self-healer that drops the ops/anthropic high-frequency safe-item writes into the backend: operator-Σ alignment, prod stub pool_mode, edge balance floor, and the surface-C concurrency mirror — plus REPORT-ONLY tier drift (never silently rewrites a UI-set tier). The surface-C 'never write 0 on a failed edge read' invariant and the report-only tier-drift boundary are load-bearing correctness properties; a silent upstream-merge deletion or weakening must be caught."
     },
     {
-      "path": "backend/internal/service/account_model_mapping_reconciler.go",
-      "must_contain": [
-        "type AccountModelMappingReconciler struct",
-        "func (r *AccountModelMappingReconciler) runtimeOverride(",
-        "func (r *AccountModelMappingReconciler) reconcileAccounts(",
-        "PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformNewAPI, PlatformKiro, PlatformGrok",
-        "func (r *AccountModelMappingReconciler) reconcileAntigravityGroupScopes(",
-        "canonicalAntigravityModelScopes"
-      ],
-      "rationale": "One-shot all-platform account model_mapping applier. It can rewrite active managed-platform accounts to explicit credentials.model_mapping derived from the compiled/runtime SSOT and align Antigravity groups to the canonical Go-owned scope projection, but production servers must not start it as a background self-healer. Empty native mappings are no longer a target operator state; they are surfaced by ops/pricing/manage-account-model-mapping-runtime.py check-accounts and corrected only after an explicit apply. If this file, the platform loop, the runtime settings read, or the Antigravity group-scope apply logic disappears, reviewed apply-accounts can no longer converge live config."
-    },
-    {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
         "func parseAccountModelMappingRuntime(",
@@ -4564,6 +4575,7 @@
         "BaseURL",
         "ModelSurfaceBundleSchemaVersion",
         "func ModelSurfaceBundleForOps(",
+        "canonicalAntigravityModelScopes",
         "func canonicalModelSurfaceFloorJSON(",
         "func accountModelMappingForAccount(",
         "case PlatformOpenAI:",
@@ -4596,7 +4608,7 @@
       "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from CatalogPolicy projections, platform compatibility owners, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops owner-declared compatibility aliases. ModelSurfaceBundleForOps emits the deterministic checksummed release projection once; rollout tools consume that artifact instead of compiling this package. Tokensea relay scopes (openai_tokensea_relay / anthropic_tokensea_relay) and CloudWise relay scope (openai_cloudwise_relay) must stay wired so prod relay accounts keep probe-curated floors. The isNewAPIXRTokenAccount branch routes ch54 XRToken accounts through its base_url-scoped five-model manifest projection instead of the generic channel-type fallback; otherwise apply-accounts would lose the three shared rows indexed under ch45 or leak XRToken-only rows into plain ch54 accounts."
     },
     {
-      "path": "backend/internal/service/account_model_mapping_reconciler_test.go",
+      "path": "backend/internal/service/account_model_mapping_floor_test.go",
       "must_contain": [
         "TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset",
         "expectedAntigravityModelMappingForReconcilerTest",
@@ -4649,7 +4661,7 @@
         "func AntigravityUnpricedModelMappingKeys() []string",
         "func IsAntigravityStructuralDeadModelMappingKey("
       ],
-      "rationale": "DefaultAntigravityModelMapping is the compatibility owner for Antigravity account mappings; the account model_mapping SSOT filters it through CatalogPolicy IDs and the structural-dead/unpriced predicates before an explicit ops apply persists account credentials.model_mapping. The sentinel anchors owner and policy APIs rather than current dynamic model ids; complete projection coverage lives in account_model_mapping_reconciler_test.go."
+      "rationale": "DefaultAntigravityModelMapping is the compatibility owner for Antigravity account mappings; the account model_mapping SSOT filters it through CatalogPolicy IDs and the structural-dead/unpriced predicates before an explicit ops apply persists account credentials.model_mapping. The sentinel anchors owner and policy APIs rather than current dynamic model ids; complete projection coverage lives in account_model_mapping_floor_test.go."
     },
     {
       "path": "backend/internal/domain/constants_test.go",
@@ -7509,7 +7521,7 @@
     },
     {
       "path": "backend/internal/service/antigravity_gateway_streaming.go",
-      "must_contain": [
+      "must_contain": ["finalResponse = mergeCollectedPartsToResponse(finalResponse, collectedParts)",
         "return antigravity.IsImageModel(model)"
       ],
       "rationale": "isImageGenerationModel delegates to the canonical antigravity.IsImageModel (single source of truth for gemini-native image detection; #814 R-002 consolidation). antigravity_gateway_service.go is a large gateway file that attracts upstream merges; one that rewrites this helper could silently restore the old hardcoded gemini-image allowlist body, re-forking the predicate into 3 divergent copies and silently failing to bill future gemini image models (imageCount never fires). Pinning the one-line delegation keeps the dedup mechanical. Pairs with the antigravity.IsImageModel definition sentinel (antigravity.json) and the TestIsImageGenerationModel_DelegatesToCanonical behavioral guard."
@@ -9016,7 +9028,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_platform.go",
-      "must_contain": [
+      "must_contain": ["func geminiV1BetaRequestPlatformAllowed(",
         "return apiKey.IsUniversal()"
       ],
       "rationale": "P3 companion: native Gemini group platform allowlist returns apiKey.IsUniversal() for newapi universal keys."
@@ -11514,7 +11526,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
-      "must_contain": ["if cleanThoughtSignatures", "forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)", "GeminiToChat: func(", "h.openAIGatewayService.ForwardGeminiViaChat("],
+      "must_contain": ["func (h *GatewayHandler) forwardGeminiCountTokens(", "if cleanThoughtSignatures", "forwardBody = service.CleanGeminiNativeThoughtSignatures(forwardBody)", "GeminiToChat: func(", "h.openAIGatewayService.ForwardGeminiViaChat("],
       "rationale": "Apply signature repair to the validated canonical request's transport copy without replacing the immutable route plan."
     },
     {
@@ -11544,7 +11556,7 @@
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute_test.go",
-      "must_contain": ["TestGeminiSelectedProtocolRepairsTransportSignature", "upstream.body", "request.Digest()"],
+      "must_contain": ["TestGeminiCountTokensBypassesGenerationPlanWithOriginalBody", "TestGeminiSelectedProtocolRepairsTransportSignature", "upstream.body", "request.Digest()"],
       "rationale": "Exercise actual native, planned edge, and Vertex forwarding to prove repaired wire signatures and immutable canonical history."
     },
     {
@@ -11850,6 +11862,31 @@
         "python3 ops/stage0/test_edge_handoff_rollout.py"
       ],
       "rationale": "Release-order contract and actual HTTP negative cases run at the mechanical exit gate."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_qwen_token_plan_tk_test.go",
+      "must_contain": [
+        "TestQwenTokenPlanPreservesThinkingIntent",
+        "TestQwenPlannedAliasIsResolvedBeforeProviderShaping"
+      ],
+      "rationale": "Pin corrected candidate request execution and preserve provider output with focused regression tests."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gemini_collect_tk_test.go",
+      "must_contain": [
+        "TestAntigravityGeminiCollectPreservesEarlyToolsAndThinking"
+      ],
+      "rationale": "Pin corrected candidate request execution and preserve provider output with focused regression tests."
+    },
+    {
+      "path": "backend/internal/repository/setting_repo.go",
+      "must_contain": ["defaultSettingCacheTTL", "type settingCacheEntry struct", "r.allCached = true", "r.allCached = false"],
+      "rationale": "Keep the in-process setting cache and write-through invalidation anchored across upstream merges."
+    },
+    {
+      "path": "backend/internal/server/routes/edge_handoff_rate_limit_tk_test.go",
+      "must_contain": ["TestEdgeHandoffRateLimitProtectsExchangeAndIsolatesFailure", "cache.calls"],
+      "rationale": "Exercise actual route admission, client isolation, recovery and Redis failure without permitting excess code consumption."
     }
   ]
 }

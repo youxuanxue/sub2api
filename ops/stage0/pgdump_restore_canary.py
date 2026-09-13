@@ -28,7 +28,7 @@ from pgdump_restore_canary_contract import PRECIOUS_TABLES, precious_counts_vali
 TARGET_RE = re.compile(r"(?:prod|edge:[a-z][a-z0-9]{1,15})")
 OBJECT_RE = re.compile(r"tokenkey-\d{8}T\d{6}Z\.sql\.gz")
 LIVE_POSTGRES = "tokenkey-postgres"
-FRESHNESS = dt.timedelta(hours=3)
+FRESHNESS = dt.timedelta(hours=4)
 CAPACITY_HEADROOM_BYTES = 1024**3
 POSTGRES_READY_ATTEMPTS = 180
 POSTGRES_READY_SLEEP_SECONDS = 1

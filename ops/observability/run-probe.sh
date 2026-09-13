@@ -305,15 +305,16 @@ for kv in "${ENVS[@]+"${ENVS[@]}"}"; do
   ENV_PREFIX="$ENV_PREFIX $K='${V//\'/\'\\\'\'}'"
 done
 
-# Pack the local script (and optional --with companions) as base64 and assemble a remote one-liner
+# Compress before base64: native smoke and its companions exceed SSM's 97 KB
+# document limit uncompressed. -n keeps the payload independent of file timestamps.
 REMOTE_PARTS=()
 for extra in "${WITH_FILES[@]+"${WITH_FILES[@]}"}"; do
-  EB64=$(base64 < "$extra" | tr -d '\n')
+  EB64=$(gzip -cn < "$extra" | base64 | tr -d '\n')
   EP="/tmp/$(basename "$extra")"
-  REMOTE_PARTS+=("echo $EB64 | base64 -d > $EP")
+  REMOTE_PARTS+=("echo $EB64 | base64 -d | gzip -d > $EP")
 done
-B64=$(base64 < "$SCRIPT_PATH" | tr -d '\n')
-REMOTE_PARTS+=("echo $B64 | base64 -d > $REMOTE_PATH && chmod +x $REMOTE_PATH")
+B64=$(gzip -cn < "$SCRIPT_PATH" | base64 | tr -d '\n')
+REMOTE_PARTS+=("echo $B64 | base64 -d | gzip -d > $REMOTE_PATH && chmod +x $REMOTE_PATH")
 if [ "$COMPRESSED_OUTPUT" = "1" ]; then
   REMOTE_PARTS+=("env $ENV_PREFIX python3 /tmp/probe_output_transport.py encode -- bash $REMOTE_PATH")
 else

@@ -25,6 +25,9 @@ const (
 // RateLimitOptions 限流可选配置
 type RateLimitOptions struct {
 	FailureMode RateLimitFailureMode
+	// FailureStatusCode may select 503 for an unavailable optional integration.
+	// Existing authentication routes retain their default 429 contract.
+	FailureStatusCode int
 }
 
 var rateLimitScript = redis.NewScript(`
@@ -140,6 +143,10 @@ func (r *RateLimiter) LimitWithOptions(key string, limit int, window time.Durati
 		if err != nil {
 			log.Printf("[RateLimit] redis error: key=%s mode=%s err=%v", r.prefix+key, failureModeLabel(failureMode), err)
 			if failureMode == RateLimitFailClose {
+				if opts.FailureStatusCode == http.StatusServiceUnavailable {
+					c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "rate limit unavailable", "message": "Service temporarily unavailable"})
+					return
+				}
 				abortRateLimit(c, window)
 				return
 			}

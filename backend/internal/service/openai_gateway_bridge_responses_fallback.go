@@ -13,6 +13,7 @@ import (
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/apipath"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
@@ -405,4 +406,33 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		result.EnableThinking = tkThinkingModeActiveFromBody(body)
 	}
 	return result, handleErr
+}
+
+// Token Plan supports buffered thinking. DashScope's historical non-streaming
+// workaround must not disable an explicitly requested reasoning effort there.
+func applyNewAPIQwenAccountShape(account *Account, model string, body []byte) []byte {
+	if account == nil || !newapiintegration.IsAliTokenPlanBaseURL(account.ChannelType, account.GetBaseURL()) || !isNewAPIQwen3Model(model) {
+		return applyNewAPIQwenNonStreamingShape(model, body)
+	}
+	if gjson.GetBytes(body, "enable_thinking").Exists() {
+		return body // Explicit provider settings retain the client's semantics.
+	}
+	effort := strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
+	if effort != "" {
+		shaped, err := sjson.SetBytes(body, "enable_thinking", effort != "none")
+		if err == nil {
+			return shaped
+		}
+		return body
+	}
+	choice := gjson.GetBytes(body, "tool_choice")
+	if choice.String() == "required" || choice.Get("type").String() == "function" {
+		// No thinking was requested: honor the forced tool instead of implicitly
+		// enabling the upstream default that cannot coexist with forced choice.
+		shaped, err := sjson.SetBytes(body, "enable_thinking", false)
+		if err == nil {
+			return shaped
+		}
+	}
+	return body
 }
