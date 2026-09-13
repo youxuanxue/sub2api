@@ -11763,6 +11763,135 @@
       "rationale": "Real HTTP handler failover observes attempts without duplicate billing-path samples."
     },
     {
+      "path": "backend/internal/service/openai_usage_policy_tk.go",
+      "must_contain": [
+        "func detectOpenAIUsagePolicy(",
+        "func isOpenAISafetySessionBlockFault(",
+        "func markOpenAISafetyPolicyEvent(",
+        "Never scan the",
+        "isOpenAIUpstreamAccessStateError(upstreamMsg, payload)"
+      ],
+      "rationale": "OpenAI usage_policy / cyber_policy session-isolation owner: detect only structured error fields, SharedFault classification helper, and mark helper. Upstream merges that drop this companion re-enable same-prompt failover and lose usage session isolation."
+    },
+    {
+      "path": "backend/internal/service/openai_usage_policy_tk_test.go",
+      "must_contain": [
+        "TestDetectOpenAIUsagePolicy",
+        "TestOpenAIUsagePolicyNeverFailsOver",
+        "wrapper_msg_still_reads_body_message",
+        "echoed_user_prompt_in_body_not_enough",
+        "TestOpenAIUsagePolicyPreservesCredentialFaults",
+        "TestOpenAIPassthroughSafetyPolicyKeepsClientError",
+        "TestCyberSessionBlockSettingsMatchRuntime"
+      ],
+      "rationale": "Pins positive usage_policy detect, SharedFault hard-stop, wrapper upstreamMsg body.message coverage, and echoed-prompt non-false-positive."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "isOpenAISafetySessionBlockFault(upstreamMsg, upstreamBody)",
+        "markOpenAISafetyPolicyEvent(c, body, resp.StatusCode, nil)"
+      ],
+      "rationale": "HTTP OpenAI error paths must classify usage/cyber as SharedFault and mark both before early return; dropping either reintroduces account rotation on safety blocks."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
+      "must_contain": [
+        "isOpenAISafetySessionBlockFault(\"\", responseBody)",
+        "isOpenAISafetySessionBlockFault(message, payload)"
+      ],
+      "rationale": "Passthrough HTTP + SSE terminal failover adapters must treat usage_policy like cyber_policy (SharedFault)."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler_tk_cyber_policy.go",
+      "must_contain": [
+        "GetOpsUsagePolicy(c)",
+        "buildUsagePolicyOpsErrorEntry",
+        "ClearOpsUsagePolicy(c)",
+        "Session isolation for both cyber_policy and usage_policy hits"
+      ],
+      "rationale": "Handler post-forward path writes session block + ops rows for usage_policy as well as cyber_policy, and clears both marks per WS turn."
+    },
+    {
+      "path": "backend/internal/service/setting_gateway_runtime.go",
+      "must_contain": [
+        "enabled := true // NotFound / unset → on",
+        "return true, time.Hour"
+      ],
+      "rationale": "Cyber/usage session auto-block defaults on when the setting key is unset; DB read failure remains fail-open false."
+    },
+    {
+      "path": "backend/internal/service/setting_parse.go",
+      "must_contain": [
+        "SettingKeyCyberSessionBlockEnabled:    \"true\"",
+        "result.CyberSessionBlockEnabled = !isFalseSettingValue(settings[SettingKeyCyberSessionBlockEnabled])"
+      ],
+      "rationale": "Admin settings defaults and parse path keep cyber_session_block_enabled on unless explicitly false."
+    },
+    {
+      "path": "backend/internal/service/ops_user_error.go",
+      "must_contain": [
+        "case \"cyber_policy\", \"usage_policy\":",
+        "[]string{\"cyber_policy\", \"usage_policy\"}"
+      ],
+      "rationale": "User error category cyber includes usage_policy so session-isolation hits remain visible in the user error view."
+    },
+    {
+      "path": "backend/internal/service/openai_cyber_session_block.go",
+      "must_contain": [
+        "开关默认开（NotFound / unset）"
+      ],
+      "rationale": "Runtime comment stays aligned with default-on session block policy."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_cyber_test.go",
+      "must_contain": [
+        "TestRecordCyberPolicyIfMarked_UsagePolicyWritesSessionBlock",
+        "usage_policy mark must write cyber session block keys"
+      ],
+      "rationale": "Handler behavior test: usage_policy mark must write session-block keys when the feature is enabled."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "err != nil, sessionHashBody,",
+        "cyberMarked := service.GetOpsCyberPolicy(c) != nil || service.GetOpsUsagePolicy(c) != nil"
+      ],
+      "rationale": "Safety-policy HTTP writes retain the original session body; WS connection isolation consumes both safety marks."
+    },
+    {
+      "path": "backend/internal/handler/openai_chat_completions.go",
+      "must_contain": [
+        "err != nil, body, clientRequestedUsageFields"
+      ],
+      "rationale": "Chat policy isolation must retain body session signals as well as header sessions."
+    },
+    {
+      "path": "backend/internal/handler/openai_usage_policy_session_tk_test.go",
+      "must_contain": [
+        "TestOpenAIUsagePolicyHTTPSessionIsolation",
+        "blocked session must not reach upstream again"
+      ],
+      "rationale": "Real HTTP handler regression covers Responses, Chat, Messages and body-only session signals."
+    },
+    {
+      "path": "backend/internal/handler/openai_ws_v2_passthrough_cyber_test.go",
+      "must_contain": [
+        "TestOpenAIResponsesWebSocketV2PassthroughCyberMarkIsConsumedAfterTurn",
+        "[]string{\"cyber_policy\", \"usage_policy\"}",
+        "blocked follow-up reached upstream"
+      ],
+      "rationale": "Real WS handler regression requires connection-local isolation for both safety classes."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_compat_cyber_test.go",
+      "must_contain": [
+        "TestForwardCompatUsagePolicyStreamReturnsFailure",
+        "a policy rejection must not be treated as successful generation"
+      ],
+      "rationale": "Compat safety SSE terminates with an error rather than a billable successful result."
+    },
+    {
       "path": "backend/internal/engine/protocolrouter/registry.go",
       "must_contain": [
         "adapterID: AdapterGeminiToMessages",

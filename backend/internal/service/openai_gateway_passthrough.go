@@ -764,14 +764,20 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	MarkResponseCommitted(c)
 	body := s.redactAgentIdentitySensitiveBody(ctx, account, responseBody)
 
-	// cyber_policy 仍按原始 body 打内部标记，供 handler 事后写风控/邮件；面向客户端的
-	// 错误体在下方统一重建。cyber 是上游网络安全策略拦截，不冷却账号，
-	// 故下方跳过 handleOpenAIAccountUpstreamError（避免自定义 temp-unschedulable 规则误冷却）。
+	// cyber_policy / usage_policy 仍按原始 body 打内部标记，供 handler 事后写风控/邮件/
+	// 会话屏蔽；面向客户端的错误体在下方统一重建。二者均不冷却账号。
 	cyberHit, cyberCode, cyberMsg := detectOpenAICyberPolicy(body)
 	if cyberHit {
 		MarkOpsCyberPolicy(c, CyberPolicyMark{
 			Code:           cyberCode,
 			Message:        cyberMsg,
+			Body:           truncateString(string(body), 4096),
+			UpstreamStatus: resp.StatusCode,
+		})
+	} else if usageHit, usageMsg := detectOpenAIUsagePolicy("", body); usageHit {
+		MarkOpsUsagePolicy(c, UsagePolicyMark{
+			Code:           "usage_policy",
+			Message:        usageMsg,
 			Body:           truncateString(string(body), 4096),
 			UpstreamStatus: resp.StatusCode,
 		})
@@ -790,9 +796,9 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
 	// 错误体虽不会原样透传，运行态账号状态仍需更新，避免粘性路由继续复用
-	// 刚被限流的账号。cyber 例外：不冷却账号。
+	// 刚被限流的账号。cyber / usage_policy 例外：不冷却账号。
 	shouldDisable := false
-	if !cyberHit {
+	if !cyberHit && GetOpsUsagePolicy(c) == nil {
 		reqModel, _, _ := extractOpenAIRequestMetaFromBody(requestBody)
 		canonicalModel := canonicalOpenAIAccountSchedulingModel(account, reqModel)
 		shouldDisable = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
@@ -825,6 +831,26 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 			shouldDisable,
 			!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 		)
+	}
+	if cyberHit || GetOpsUsagePolicy(c) != nil {
+		// Preserve the actionable safety rejection without exposing unrelated provider
+		// fields or headers. A policy 403 must not become a retryable gateway 502.
+		upstreamError := gjson.GetBytes(body, "error")
+		if !upstreamError.IsObject() {
+			upstreamError = gjson.GetBytes(body, "response.error")
+		}
+		clientError := gin.H{"message": sanitizeUpstreamErrorMessage(upstreamError.Get("message").String())}
+		for _, field := range []string{"code", "type"} {
+			if value := upstreamError.Get(field); value.Type == gjson.String {
+				clientError[field] = sanitizeUpstreamErrorMessage(value.String())
+			}
+		}
+		clientBody, _ := json.Marshal(gin.H{"error": clientError})
+		if !writeOpenAICompactSSEBridge(c, resp.StatusCode, clientBody) {
+			writeOpenAIPassthroughErrorHeaders(c.Writer.Header(), resp.Header)
+			c.Data(resp.StatusCode, "application/json; charset=utf-8", clientBody)
+		}
+		return fmt.Errorf("openai safety policy: %s", upstreamMsg)
 	}
 	// context-window 超限是确定性请求失败（shouldFailoverOpenAIPassthroughResponse
 	// 已保证不切号），其文案对客户端可操作（如触发自动压缩）；在净化信封内保留

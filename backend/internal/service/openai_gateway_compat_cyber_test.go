@@ -134,3 +134,32 @@ func TestForwardAsAnthropic_StreamCyberPolicyNoFailover(t *testing.T) {
 	require.NotNil(t, GetOpsCyberPolicy(c), "cyber mark must be set")
 	require.Contains(t, rec.Body.String(), "event: error", "must emit anthropic SSE error event")
 }
+
+func TestForwardCompatUsagePolicyStreamReturnsFailure(t *testing.T) {
+	for _, endpoint := range []string{"chat", "messages"} {
+		t.Run(endpoint, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := []byte(`{"model":"gpt-5.5","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"stream":true}`)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/"+endpoint, bytes.NewReader(body))
+			payload := strings.ReplaceAll(compatCyberUpstreamSSE(), `"code":"cyber_policy","message":"flagged for cyber policy"`, `"code":"invalid_prompt","message":"Invalid prompt: violating our usage policy"`)
+			svc := &OpenAIGatewayService{httpUpstream: &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(payload)),
+			}}}
+			var result *OpenAIForwardResult
+			var err error
+			if endpoint == "chat" {
+				result, err = svc.ForwardAsChatCompletions(context.Background(), c, compatCyberOAuthAccount(), body, "", "gpt-5.5")
+			} else {
+				result, err = svc.ForwardAsAnthropic(context.Background(), c, compatCyberOAuthAccount(), body, "", "gpt-5.5")
+			}
+			require.Error(t, err, "a policy rejection must not be treated as successful generation")
+			require.NotNil(t, result, "terminal errors retain observed usage metadata")
+			var failoverErr *UpstreamFailoverError
+			require.False(t, errors.As(err, &failoverErr))
+			require.NotNil(t, GetOpsUsagePolicy(c))
+			require.Contains(t, rec.Body.String(), "violating our usage policy")
+		})
+	}
+}

@@ -68,7 +68,9 @@ type cyberPolicyOpsErrorMeta struct {
 
 // buildCyberPolicyOpsErrorEntry builds the ops_error_logs entry for an upstream
 // cyber_policy hit. StatusCode mirrors what the codex client actually received
-// (400 non-stream / 200 stream), per F6.
+// (400 non-stream / 200 stream), per F6. Ownership is client: upstream only
+// classifies the prompt/session; responsibility stays with the caller so the
+// row is excluded from SLA (IsOpsSLAFaultOwner).
 func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.CyberPolicyMark) *service.OpsInsertErrorLogInput {
 	rt := int16(service.RequestTypeCyberBlocked)
 	entry := &service.OpsInsertErrorLogInput{
@@ -90,9 +92,53 @@ func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.C
 		ErrorMessage:      "cyber_policy: " + mark.Message,
 		// 原始 body 直接入队；ops service 落库前统一走 sanitizeErrorBodyForStorage 脱敏与截断。
 		ErrorBody:   mark.Body,
-		ErrorSource: "upstream_http",
-		ErrorOwner:  "provider",
+		ErrorSource: "upstream_http", // classifier signal from upstream
+		ErrorOwner:  service.OpsErrorOwnerClient,
 		CreatedAt:   meta.CreatedAt,
+	}
+	if meta.UserID > 0 {
+		entry.UserID = &meta.UserID
+	}
+	if meta.APIKeyID > 0 {
+		entry.APIKeyID = &meta.APIKeyID
+	}
+	if meta.AccountID > 0 {
+		entry.AccountID = &meta.AccountID
+	}
+	entry.GroupID = meta.GroupID
+	if meta.ClientIP != "" {
+		entry.ClientIP = &meta.ClientIP
+	}
+	return entry
+}
+
+// buildUsagePolicyOpsErrorEntry builds the ops_error_logs entry for an upstream
+// OpenAI usage_policy hit. Distinct error_type from cyber_policy; same request
+// phase / severity so dashboards can filter either safety rejection. Ownership
+// is client (upstream classifies; caller owns the prompt) so SLA excludes it.
+func buildUsagePolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.UsagePolicyMark) *service.OpsInsertErrorLogInput {
+	rt := int16(service.RequestTypeCyberBlocked)
+	entry := &service.OpsInsertErrorLogInput{
+		RequestID:         meta.RequestID,
+		ClientRequestID:   meta.ClientRequestID,
+		Platform:          meta.Platform,
+		Model:             meta.Model,
+		RequestPath:       meta.RequestPath,
+		Stream:            meta.Stream,
+		InboundEndpoint:   meta.InboundEndpoint,
+		RequestType:       &rt,
+		UserAgent:         meta.UserAgent,
+		APIKeyPrefix:      meta.APIKeyPrefix,
+		ErrorPhase:        "request",
+		ErrorType:         "usage_policy",
+		Severity:          "P3",
+		StatusCode:        mark.UpstreamStatus,
+		IsBusinessLimited: true,
+		ErrorMessage:      "usage_policy: " + mark.Message,
+		ErrorBody:         mark.Body,
+		ErrorSource:       "upstream_http", // classifier signal from upstream
+		ErrorOwner:        service.OpsErrorOwnerClient,
+		CreatedAt:         meta.CreatedAt,
 	}
 	if meta.UserID > 0 {
 		entry.UserID = &meta.UserID
@@ -116,7 +162,8 @@ const cyberSessionBlockedClientMsg = "该会话已被网络安全策略屏蔽，
 // buildCyberSessionBlockedOpsEntry builds the ops_error_logs entry for a request
 // rejected locally by the cyber session block (F5a). Distinct error_type from
 // upstream `cyber_policy`; never feeds moderation logs / violation counting
-// (the request never reached upstream — see spec).
+// (the request never reached upstream — see spec). Ownership is client: the
+// session was previously blocked for the caller's content/policy hit.
 func buildCyberSessionBlockedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.OpsInsertErrorLogInput {
 	rt := int16(service.RequestTypeCyberBlocked)
 	entry := &service.OpsInsertErrorLogInput{
@@ -137,7 +184,7 @@ func buildCyberSessionBlockedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.Ops
 		IsBusinessLimited: true,
 		ErrorMessage:      "cyber_policy_session_blocked: request rejected locally by session block",
 		ErrorSource:       "gateway_local",
-		ErrorOwner:        "platform",
+		ErrorOwner:        service.OpsErrorOwnerClient,
 		CreatedAt:         meta.CreatedAt,
 		// AccountID 有意不设：请求在账号选择前即被拒绝。
 	}
@@ -175,7 +222,7 @@ func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKe
 	if h == nil || h.gatewayService == nil || apiKey == nil {
 		return false
 	}
-	// 开关默认关：先走 ~ns 级缓存开关检查，再付出 key 派生(gjson+sha256)成本。
+	// 开关默认开：先走 ~ns 级缓存开关检查，再付出 key 派生(gjson+sha256)成本。
 	if enabled, _ := h.gatewayService.CyberSessionBlockRuntime(c.Request.Context()); !enabled {
 		return false
 	}
@@ -289,13 +336,13 @@ func (h *OpenAIGatewayHandler) enqueueCyberSessionBlockedOpsEntry(c *gin.Context
 	enqueueOpsErrorLog(h.opsService, buildCyberSessionBlockedOpsEntry(meta))
 }
 
-// recordCyberPolicyIfMarked 在 gateway forward 返回后检查 cyber 标记，异步写风控日志/邮件，
-// 并在 forward 返回错误时写一条 tokens=0 用量行。标记由 gateway 服务层在透传 cyber 后设置；
-// 当前请求已发给用户，本方法只做事后记录，不影响响应。forwardErrored 为 true 时才写用量行，
-// 避免与正常 RecordUsage(forward 成功路径)重复。每请求至多记录一次。
+// recordCyberPolicyIfMarked 在 gateway forward 返回后检查 cyber / usage_policy 标记，
+// 异步写风控日志/邮件，写入会话屏蔽表，并在 forward 返回错误时写一条 tokens=0 用量行。
+// 每请求至多记录一次。
 func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey *service.APIKey, account *service.Account, subscription *service.UserSubscription, model string, forwardErrored bool, cyberBlockBody []byte, channelFields service.ChannelUsageFields, requestPayloadHash string) {
-	mark := service.GetOpsCyberPolicy(c)
-	if mark == nil {
+	cyberMark := service.GetOpsCyberPolicy(c)
+	usageMark := service.GetOpsUsagePolicy(c)
+	if cyberMark == nil && usageMark == nil {
 		return
 	}
 	if c.GetBool(cyberPolicyRecordedKey) {
@@ -353,7 +400,6 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 		userAgent = c.GetHeader("User-Agent")
 		clientIPStr = strings.TrimSpace(ip.GetClientIP(c))
 	}
-	// 提前拍成标量，避免在下方 goroutine 内访问 gin.Context。
 	sessionID := service.ExtractClientSessionID(c)
 	apiKeyPrefix := ""
 	if apiKey != nil {
@@ -376,6 +422,7 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 		ClientIP:        clientIPStr,
 		CreatedAt:       time.Now(),
 	}
+	// Session isolation for both cyber_policy and usage_policy hits.
 	if gwSvc != nil && apiKey != nil {
 		plan := buildCyberSessionBlockWritePlan(apiKey.ID, c, cyberBlockBody)
 		if len(plan.keys) > 0 {
@@ -387,7 +434,7 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if cmSvc != nil {
+		if cyberMark != nil && cmSvc != nil {
 			cmSvc.RecordCyberPolicyEvent(ctx, service.CyberPolicyRecordInput{
 				RequestID:       requestID,
 				UserID:          userID,
@@ -398,14 +445,20 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 				GroupName:       groupName,
 				Endpoint:        inboundEndpoint,
 				Model:           model,
-				UpstreamMessage: mark.Message,
-				UpstreamBody:    mark.Body,
-				UpstreamStatus:  mark.UpstreamStatus,
-				UpstreamInTok:   mark.UpstreamInTok,
-				UpstreamOutTok:  mark.UpstreamOutTok,
+				UpstreamMessage: cyberMark.Message,
+				UpstreamBody:    cyberMark.Body,
+				UpstreamStatus:  cyberMark.UpstreamStatus,
+				UpstreamInTok:   cyberMark.UpstreamInTok,
+				UpstreamOutTok:  cyberMark.UpstreamOutTok,
 			})
 		}
-		if forwardErrored && gwSvc != nil {
+		inTok, outTok := 0, 0
+		if cyberMark != nil {
+			inTok, outTok = cyberMark.UpstreamInTok, cyberMark.UpstreamOutTok
+		} else if usageMark != nil {
+			inTok, outTok = usageMark.UpstreamInTok, usageMark.UpstreamOutTok
+		}
+		if forwardErrored && gwSvc != nil && cyberMark != nil {
 			gwSvc.RecordCyberPolicyUsageLog(ctx, service.CyberPolicyUsageInput{
 				APIKey:             apiKey,
 				Account:            account,
@@ -413,8 +466,8 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 				RequestID:          requestID,
 				Model:              model,
 				Stream:             stream,
-				InputTokens:        mark.UpstreamInTok,
-				OutputTokens:       mark.UpstreamOutTok,
+				InputTokens:        inTok,
+				OutputTokens:       outTok,
 				InboundEndpoint:    inboundEndpoint,
 				UpstreamEndpoint:   upstreamEndpoint,
 				UserAgent:          userAgent,
@@ -426,14 +479,19 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 			})
 		}
 		if opsSvc != nil {
-			enqueueOpsErrorLog(opsSvc, buildCyberPolicyOpsErrorEntry(opsMeta, mark))
+			if cyberMark != nil {
+				enqueueOpsErrorLog(opsSvc, buildCyberPolicyOpsErrorEntry(opsMeta, cyberMark))
+			} else if usageMark != nil {
+				enqueueOpsErrorLog(opsSvc, buildUsagePolicyOpsErrorEntry(opsMeta, usageMark))
+			}
 		}
 	}()
 }
 
-// clearCyberPolicyTurnState resets the cyber mark and the per-request recorded
-// guard. WS-only: called at the END of AfterTurn, after recordCyberPolicyIfMarked
-// and RecordUsage (which reads CyberBlocked) have both consumed the mark.
+// clearCyberPolicyTurnState resets cyber / usage_policy marks and the per-request
+// recorded guard. WS-only: called at the END of AfterTurn, after
+// recordCyberPolicyIfMarked and RecordUsage (which reads CyberBlocked) have both
+// consumed the mark.
 func clearCyberPolicyTurnState(c *gin.Context) {
 	clearCyberPolicyAttemptState(c, true)
 }
@@ -443,6 +501,7 @@ func clearCyberPolicyAttemptState(c *gin.Context, resetRecorded bool) {
 		return
 	}
 	service.ClearOpsCyberPolicy(c)
+	service.ClearOpsUsagePolicy(c)
 	if resetRecorded {
 		c.Set(cyberPolicyRecordedKey, false)
 	}

@@ -304,7 +304,7 @@ const (
 	SettingKeyRiskControlEnabled                  = "risk_control_enabled"                    // 是否启用风控中心入口与审计链路
 	SettingKeyAuditLogRetentionDays               = "audit_log_retention_days"                // 审计日志保留天数（<=0 永久保留），默认 180
 	SettingKeyContentModerationConfig             = "content_moderation_config"               // 内容审计配置（JSON）
-	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"             // cyber 命中后会话级自动屏蔽总开关(默认关)
+	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"             // cyber/usage_policy 命中后会话级自动屏蔽总开关(默认开)
 	SettingKeyCyberSessionBlockTTLSeconds         = "cyber_session_block_ttl_seconds"         // 会话屏蔽 TTL 秒数(默认 3600)
 	SettingKeyLoginAgreementEnabled               = "login_agreement_enabled"                 // 登录前是否要求同意条款
 	SettingKeyLoginAgreementMode                  = "login_agreement_mode"                    // 条款确认展示模式：modal / checkbox

@@ -1510,7 +1510,7 @@ func openAIWSPassthroughRelayClientClose(exit openaiwsv2.RelayExit, completedTur
 func markOpenAIWSV2PassthroughCyberPolicy(c *gin.Context, payload []byte) bool {
 	usage := OpenAIUsage{}
 	parseOpenAIWSResponseUsageFromCompletedEvent(payload, &usage)
-	return markOpenAICyberPolicyEvent(c, payload, http.StatusOK, &usage)
+	return markOpenAISafetyPolicyEvent(c, payload, http.StatusOK, &usage) != ""
 }
 
 func (s *OpenAIGatewayService) mapOpenAIWSPassthroughDialError(
