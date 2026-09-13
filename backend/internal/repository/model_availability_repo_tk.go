@@ -78,8 +78,6 @@ func (r *modelAvailabilityRepository) Upsert(ctx context.Context, platform, mode
 	err = tx.ModelAvailability.Create().SetPlatform(plat).SetModelID(modelID).
 		OnConflictColumns(modelavailability.FieldPlatform, modelavailability.FieldModelID).
 		DoNothing().Exec(ctx)
-	inserted := err == nil
-	// Ent scans RETURNING id; DO NOTHING returns no row for an existing cell.
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
@@ -90,9 +88,6 @@ func (r *modelAvailabilityRepository) Upsert(ctx context.Context, platform, mode
 		return err
 	}
 	cur := entRowToState(row)
-	if inserted {
-		cur = service.AvailabilityState{}
-	}
 	next := fn(cur)
 	next.Platform = platform
 	next.ModelID = modelID
