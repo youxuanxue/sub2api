@@ -216,11 +216,11 @@ describe('admin AccountsView lite account list', () => {
   it('keeps lite=1 on automatic ETag refreshes', async () => {
     vi.useFakeTimers()
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
-    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 15 }))
     const wrapper = mountView()
     await flushPromises()
 
-    await vi.advanceTimersByTimeAsync(6000)
+    await vi.advanceTimersByTimeAsync(16000)
     await flushPromises()
 
     expect(listWithEtag).toHaveBeenCalledWith(

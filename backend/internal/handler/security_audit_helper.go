@@ -15,6 +15,22 @@ import (
 const securityAuditCompletedContextKey = "sub2api.security_audit.completed"
 const securityAuditWSTurnContextKey = "sub2api.security_audit.ws_turn"
 const securityAuditWSDedupeContextKey = "sub2api.security_audit.ws_dedupe"
+const requestBodySHA256ContextKey = "sub2api.request_body_sha256"
+
+func getOrComputeBodySHA256(c *gin.Context, body []byte) [32]byte {
+	if c != nil {
+		if val, exists := c.Get(requestBodySHA256ContextKey); exists {
+			if h, ok := val.([32]byte); ok {
+				return h
+			}
+		}
+	}
+	h := sha256.Sum256(body)
+	if c != nil {
+		c.Set(requestBodySHA256ContextKey, h)
+	}
+	return h
+}
 
 type securityAuditWSDedupeEntry struct {
 	stage    string
@@ -94,10 +110,11 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 		}
 		return &decision
 	}
+
 	request := buildSecurityAuditRequest(c, apiKey, subject, protocol, model, body, stage)
 	if isSecurityAuditWebSocketStage(request.Stage) {
 		if turnNo, ok := securityAuditWSTurn(c); ok {
-			bodyHash := sha256.Sum256(body)
+			bodyHash := getOrComputeBodySHA256(c, body)
 			if cached, exists := c.Get(securityAuditWSDedupeContextKey); exists {
 				if entry, ok := cached.(securityAuditWSDedupeEntry); ok &&
 					entry.stage == request.Stage && entry.turn == turnNo && entry.bodyHash == bodyHash {

@@ -29,7 +29,7 @@ import {
 // Selectable auto-refresh cadences (seconds), matching the admin accounts page. The
 // backend fronts the fan-out with a stale-while-revalidate cache + ETag, so even a
 // 5s cadence is cheap (cache hit / 304) — no longer "hammering the fan-out".
-export const EDGE_AUTO_REFRESH_INTERVALS = [5, 10, 15, 30] as const
+export const EDGE_AUTO_REFRESH_INTERVALS = [15, 30, 60] as const
 export type EdgeAutoRefreshInterval = (typeof EDGE_AUTO_REFRESH_INTERVALS)[number]
 
 const AUTO_REFRESH_STORAGE_KEY = 'edge-accounts-auto-refresh'
