@@ -12,6 +12,7 @@ func TestCountChatImageOutputs(t *testing.T) {
 		{"text", `{"choices":[{"message":{"content":"hello"}}]}`, 0},
 		{"sse dedupe", "data: {\"x\":\"data:image/png;base64,abc\"}\ndata: {\"x\":\"data:image/png;base64,abc\"}\n", 1},
 		{"two", `{"a":"data:image/png;base64,a","b":"data:image/png;base64,b"}`, 2},
+		{"identical two", `{"a":"data:image/png;base64,a","b":"data:image/png;base64,a"}`, 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

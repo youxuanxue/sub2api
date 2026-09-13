@@ -58,6 +58,7 @@ func countChatImageOutputs(body []byte) int {
 		return 0
 	}
 	seen := map[[32]byte]struct{}{}
+	jsonCount := 0
 	var walk func(any)
 	walk = func(v any) {
 		switch x := v.(type) {
@@ -72,6 +73,7 @@ func countChatImageOutputs(body []byte) int {
 		case string:
 			s := strings.TrimSpace(x)
 			if strings.HasPrefix(strings.ToLower(s), "data:image/") {
+				jsonCount++
 				h := sha256.Sum256([]byte(s))
 				seen[h] = struct{}{}
 			}
@@ -80,7 +82,7 @@ func countChatImageOutputs(body []byte) int {
 	var v any
 	if json.Unmarshal(body, &v) == nil {
 		walk(v)
-		return len(seen)
+		return jsonCount
 	}
 	// SSE may contain multiple JSON envelopes; dedupe identical data URIs.
 	for _, line := range bytes.Split(body, []byte("\n")) {
