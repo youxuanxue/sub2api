@@ -13,18 +13,9 @@ import (
 // ModelAvailability is the per-(platform, model) verified-availability state
 // that backs the public catalog at /api/v1/public/pricing.
 //
-// Population sources (see docs/approved/pricing-availability-source-of-truth.md):
-//   - Passive: every successful gateway forward writes (platform, upstream_model,
-//     status, account_id) here via a 1-line hook in
-//     gateway_service.go recordUsageCore. 真实 OPC 流量是免费样本来源。
-//   - Passive (failure): handlers (gateway_handler_chat_completions /
-//     gateway_handler_responses / gemini_v1beta_handler) call RecordOutcome on
-//     forward errors, classifying the failure (model_not_found vs rate_limited
-//     vs upstream_5xx etc.) so we don't conflate "Google rate-limited us" with
-//     "model is unreachable".
-//   - Active backstop: pricing_availability_seeder_tk.go enables a
-//     channel_monitors row with kind=system_availability for catalog cells that
-//     have been silent >24h. Reuses ChannelMonitorRunner; no new scheduler.
+// Protocol execution and the legacy billing fallback share the observation
+// writer in PricingAvailabilityService; this table owns neither scheduling nor
+// serving policy. See docs/approved/pricing-availability-source-of-truth.md.
 //
 // Status and failure-kind semantics are owned by PricingAvailabilityService and
 // docs/approved/pricing-availability-source-of-truth.md. This table stores
@@ -90,7 +81,7 @@ func (ModelAvailability) Indexes() []ent.Index {
 	return []ent.Index{
 		// 主查询：catalog handler 按 (platform, model_id) 取最新 availability
 		index.Fields("platform", "model_id").Unique(),
-		// seeder 选 cold-tail：先按 status 筛 untested/stale 再按 last_checked_at 排序
+		// Support status/time evidence queries.
 		index.Fields("status", "last_checked_at"),
 	}
 }

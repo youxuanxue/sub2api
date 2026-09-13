@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 	"time"
@@ -99,4 +100,54 @@ func firstNPlatformServableIDsForSelfHealTest(t *testing.T, platform string, n i
 	sort.Strings(ids)
 	require.GreaterOrEqual(t, len(ids), n, "platform %s SSOT must have enough ids for this test", platform)
 	return append([]string{}, ids[:n]...)
+}
+
+// The public surface must use the same batch evidence owner as discovery.
+type catalogBatchEvidenceRepo struct {
+	states       map[string]map[string]AvailabilityState
+	calls        map[string]int
+	failPlatform string
+}
+
+func (r *catalogBatchEvidenceRepo) Get(context.Context, string, string) (AvailabilityState, error) {
+	return AvailabilityState{}, errors.New("unexpected single read")
+}
+func (r *catalogBatchEvidenceRepo) Upsert(context.Context, string, string, func(AvailabilityState) AvailabilityState) error {
+	return errors.New("read only")
+}
+func (r *catalogBatchEvidenceRepo) GetBatch(_ context.Context, platform string, _ []string) (map[string]AvailabilityState, error) {
+	r.calls[platform]++
+	if platform == r.failPlatform {
+		return nil, errors.New("unavailable")
+	}
+	return r.states[platform], nil
+}
+func TestPublicCatalogBatchEvidencePreservesProjectionAndFailures(t *testing.T) {
+	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	old := now.Add(-48 * time.Hour)
+	current := AvailabilityState{Platform: PlatformAnthropic, ModelID: "gone", Status: AvailabilityStatusUnreachable, LastFailureKind: FailureKindProviderModelRetired, LastFailureAt: &now, RollingWindowStartedAt: &now, SampleTotal24h: 2}
+	expired := current
+	expired.ModelID = "expired"
+	expired.LastFailureAt = &old
+	expired.RollingWindowStartedAt = &old
+	repo := &catalogBatchEvidenceRepo{calls: map[string]int{}, failPlatform: PlatformOpenAI, states: map[string]map[string]AvailabilityState{PlatformAnthropic: {"gone": current, "expired": expired}}}
+	resp := &PublicCatalogResponse{Object: "list", UpdatedAt: now, Data: []PublicCatalogModel{
+		{ModelID: "gone", Vendor: "anthropic"}, {ModelID: "expired", Vendor: "anthropic"}, {ModelID: "unknown", Vendor: "anthropic"},
+		{ModelID: "failed", Vendor: "openai"}, {ModelID: "vendor", Vendor: "unmapped"}, {ModelID: "expired", Vendor: "anthropic"},
+	}}
+	out := DecorateAndPruneByAvailability(context.Background(), resp, NewPricingAvailabilityService(repo, func() time.Time { return now }))
+	require.Equal(t, map[string]int{PlatformAnthropic: 1, PlatformOpenAI: 1}, repo.calls)
+	require.Len(t, out.Data, 5)
+	require.Equal(t, resp.UpdatedAt, out.UpdatedAt)
+	require.Equal(t, "expired", out.Data[0].ModelID)
+	require.Equal(t, AvailabilityStatusStale, out.Data[0].Availability.Status)
+	require.Zero(t, out.Data[0].Availability.SampleCount24h)
+	require.Equal(t, AvailabilityStatusUntested, out.Data[1].Availability.Status)
+	require.Nil(t, out.Data[2].Availability, "failed batch retains rows without badges")
+	require.Nil(t, out.Data[3].Availability, "unknown vendor remains untouched")
+	require.Equal(t, out.Data[0], out.Data[4], "duplicate rows retain order and identical evidence")
+	require.Len(t, resp.Data, 6)
+	for _, m := range resp.Data {
+		require.Nil(t, m.Availability, "base catalog is immutable")
+	}
 }
