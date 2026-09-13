@@ -115,3 +115,20 @@ func TestProtocolAvailabilityBillingFallbackDoesNotDoubleCountPartialOrCanceledR
 		}
 	}
 }
+
+func TestProtocolAvailabilityLegacyMediaFallbackRecordsOnceAcrossConversions(t *testing.T) {
+	availability, repo, _ := newAvailabilityTestService(t)
+	gateway := &GatewayService{tkPricingAvailability: availability}
+	account := &Account{ID: 12, Platform: PlatformGemini}
+	// Media callers outside ExecuteSelectedProtocol still enter through usage
+	// recording. The result may cross both OpenAI/native accounting adapters.
+	result := &ForwardResult{UpstreamModel: "imagen-4.0-generate-001", ImageCount: 1}
+	gateway.tkRecordAvailabilitySuccessOutcome(context.Background(), account, result)
+	converted := ForwardResultFromOpenAI(OpenAIForwardResultFromForward(result))
+	gateway.tkRecordAvailabilitySuccessOutcome(context.Background(), account, converted)
+	state, err := repo.Get(context.Background(), PlatformGemini, result.UpstreamModel)
+	require.NoError(t, err)
+	require.Equal(t, 1, state.SampleTotal24h, "one media generation must remain one observation across accounting adapters")
+	require.Equal(t, 1, state.SampleOK24h)
+	require.Equal(t, account.ID, *state.LastAccountID)
+}
