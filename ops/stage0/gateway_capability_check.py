@@ -134,7 +134,11 @@ def validate_response(case, status, ctype, raw, stream):
         if case['request_type'] == 'multimodal':
             text = ' '.join(obj[field] for obj in dictionaries for field in ('text', 'content')
                             if isinstance(obj.get(field), str))
-            if not re.search(r'\bblue\b', text, re.IGNORECASE):
+            expected = (case.get('request') or {}).get('expected_visual_answer', 'blue')
+            if not isinstance(expected, str) or not expected.strip():
+                return 'vision_answer_mismatch'
+            colors = re.findall(r'\b(?:blue|red|green|yellow|pink|brown|white|black|orange|purple)\b', text, re.IGNORECASE)
+            if not colors or any(color.lower() != expected.strip().lower() for color in colors):
                 return 'vision_answer_mismatch'
         return None
     except (ValueError, TypeError, AttributeError):

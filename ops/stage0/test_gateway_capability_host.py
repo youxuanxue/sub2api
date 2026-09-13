@@ -124,6 +124,17 @@ class ScenarioTests(unittest.TestCase):
             self.assertEqual(validate_response(case, 200, 'application/json', json.dumps(response).encode(), False),
                              'generation_terminal_missing')
 
+    def test_vision_requires_expected_answer_not_just_blue_mention(self):
+        case = {'protocol': 'openai-chat', 'request_type': 'multimodal',
+                'request': {'expected_visual_answer': 'blue'}}
+        base = {'choices': [{'finish_reason': 'stop', 'message': {'content': ''}}],
+                'usage': {'prompt_tokens': 1}}
+        for answer, expected in [('The image is red, not blue.', 'vision_answer_mismatch'),
+                                 ('I cannot see the image; blue is only a guess.', 'vision_answer_mismatch'),
+                                 ('blue', None)]:
+            value = json.loads(json.dumps(base)); value['choices'][0]['message']['content'] = answer
+            self.assertEqual(validate_response(case, 200, 'application/json', json.dumps(value).encode(), False), expected)
+
     def test_thinking_and_vision_cannot_pass_with_generic_text(self):
         response = {'choices': [{'finish_reason': 'stop', 'message': {'content': 'OK'}}], 'usage': {'prompt_tokens': 1}}
         case = {'protocol': 'openai-chat', 'request_type': 'thinking'}
