@@ -22,7 +22,10 @@ TAG = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?
 SHARED = (
     "Dockerfile", ".new-api-ref", "backend/go.mod", "backend/go.sum",
     "backend/docker-entrypoint.sh", "backend/cmd/server/main.go",
-    "backend/internal/config/", "backend/internal/pkg/", "backend/ent/",
+    "backend/internal/config/",
+    "backend/internal/pkg/pgpartition/",
+    "backend/internal/pkg/logger/",
+    "backend/internal/pkg/ctxkey/",
     "backend/migrations/", "ops/qa/policy.yaml", "ops/qa/deploy_rollout.yaml",
     "backend/internal/observability/qa/bundle/",
     "backend/internal/observability/qa/lifecycle/",
@@ -32,8 +35,9 @@ SHARED = (
 MAINTENANCE = (
     "backend/cmd/server/qa_maintenance", "backend/cmd/server/qa_single_owner",
     "backend/cmd/server/qa_bundle_canary.go", "backend/cmd/qa-archive/",
+    "backend/ent/schema/qa_",
     "backend/internal/observability/qa/", "backend/internal/repository/ops_repo",
-    "backend/internal/service/ops_",
+    "backend/internal/service/ops_port.go",
     "deploy/aws/stage0/tokenkey-qa-", "deploy/aws/stage0/qa-runtime",
     "ops/stage0/sync-qa-", "ops/stage0/qa-runtime", "ops/stage0/prod_release_state.py",
     "ops/stage0/run-qa-maintenance", "ops/stage0/run-qa-bundle-canary",
@@ -41,7 +45,9 @@ MAINTENANCE = (
 QA_ONLY = (
     "backend/cmd/server/qa_maintenance", "backend/cmd/server/qa_single_owner",
     "backend/cmd/server/qa_bundle_worker.go", "backend/cmd/server/qa_bundle_canary.go",
-    "backend/cmd/qa-archive/", "backend/internal/observability/qa/archive/",
+    "backend/cmd/qa-archive/",
+    "backend/ent/schema/qa_",
+    "backend/internal/observability/qa/archive/",
     "backend/internal/observability/qa/bundle/", "backend/internal/observability/qa/lifecycle/",
     "backend/internal/observability/qa/service_bundle_canary.go",
     "deploy/aws/stage0/tokenkey-qa-", "deploy/aws/stage0/qa-runtime",
