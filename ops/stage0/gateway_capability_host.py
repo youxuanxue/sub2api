@@ -254,9 +254,7 @@ def execute_case(case, binding, address, before, throttle, inventory, run_id, ro
 def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY', case_ids=None):
     matrix.validate_plan(plan)
     replay.require(plan == matrix.build(inventory, matrix.load()), 'plan_not_current')
-    selected = set(case_ids) if case_ids is not None else {c['id'] for c in plan['entries']}
-    replay.require(bool(selected) and (case_ids is None or len(selected) == len(case_ids)) and
-                   selected <= {c['id'] for c in plan['entries']}, 'invalid_case_selection')
+    selected = matrix.selected_case_ids(plan, case_ids)
     prepared_sha, before = replay.prepared(tag, root)
     result = {'schema': 1, 'kind': 'account-supply-replay', 'tag': tag,
               'plan_sha256': plan['plan_sha256'], 'prepared_receipt': prepared_sha,
@@ -319,12 +317,7 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY', case
         result['selected_verdict'] = 'green' if result['route_unchanged'] and all(
             r['status'] == 'passed' for r in result['results'] if r['id'] in selected) else 'red'
         replay.write_json(root / 'bluegreen-capability-results.json', result)
-        summary = {k: v for k, v in result.items() if k != 'results'}
-        summary['coverage'] = coverage['coverage']
-        summary['account_class_coverage'] = coverage['account_class_coverage']
-        summary['capability_coverage'] = coverage['capability_coverage']
-        summary['total'] = coverage['total']
-        summary['results_sha256'] = matrix.digest(result)
+        summary = matrix.replay_summary(result, coverage)
         replay.write_json(root / 'bluegreen-capability-replay.json', replay.seal(summary))
     return replay.seal(summary)
 

@@ -17,9 +17,10 @@ import zlib
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'ops/stage0'))
 from ssm_execution import PROD_REGION, resolve_prod_instance  # noqa: E402
+import gateway_capability_matrix as matrix  # noqa: E402
 
 
-def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='', offset=0, key_name='TK_FULLTEST_KEY'):
+def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='', offset=0, key_name='TK_FULLTEST_KEY', case_ids=None):
     files = {name: (ROOT / 'ops/stage0' / name).read_text() for name in
              ('prod_replay.py', 'prod_replay_manifest.py', 'prod-replay-capabilities.json',
               'gateway_capability_host.py', 'gateway_capability_check.py', 'gateway_capability_matrix.py',
@@ -38,6 +39,8 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
                  [operation, '--tag', tag, '--receipt', receipt, '--replace-receipt', replace_receipt])
     if operation == 'run':
         arguments += ['--test-key-name', key_name]
+        for case_id in case_ids or ():
+            arguments += ['--case-id', case_id]
     script = ('set -euo pipefail\numask 077\n'
               'replay_dir=$(mktemp -d /tmp/tk-prod-replay.XXXXXX)\n'
               'trap \'python3 -c "import shutil,sys; shutil.rmtree(sys.argv[1])" "$replay_dir"\' EXIT\n'
@@ -79,7 +82,7 @@ def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='
     raise RuntimeError('replay observation timed out; host command=' + cid + ' may still be running; do not promote')
 
 
-def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY'):
+def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY', case_ids=None):
     (out / 'replay-receipt.json').write_text(json.dumps({'tag': tag, 'verdict': 'red', 'reason': 'execution_pending'}) + '\n')
     state = remote(instance, 'status', tag, timeout=60, replace_receipt=replace_receipt)
     if state['needs_prepare']:
@@ -92,7 +95,7 @@ def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY
         subprocess.run(['bash', str(ROOT / 'ops/stage0/deploy_via_ssm_bluegreen.sh'), tag,
                         instance, 'prod replay prepare; no cutover'], env=env, check=True)
     remote(instance, 'status', tag, timeout=60)  # Require a matching durable prepared candidate.
-    receipt = remote(instance, 'run', tag, key_name=key_name)
+    receipt = remote(instance, 'run', tag, key_name=key_name, case_ids=case_ids)
     (out / 'replay-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     results = []
     for offset in range(0, receipt['total'], 5):
@@ -100,22 +103,26 @@ def run_replay(tag, instance, out, replace_receipt='', key_name='TK_FULLTEST_KEY
         if page.get('tag') != tag:
             raise RuntimeError('replay result tag changed')
         results.extend(page['rows'])
-    details = {k: v for k, v in receipt.items() if k not in (
-        'receipt_sha256', 'results_sha256', 'coverage', 'account_class_coverage', 'total')}
-    details['results'] = results
-    sys.path.insert(0, str(ROOT / 'ops/stage0'))
-    from gateway_capability_matrix import digest
-    if digest(details) != receipt['results_sha256']:
-        raise RuntimeError('replay result fingerprint changed')
+    try:
+        details = matrix.replay_details(receipt, results)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    if case_ids is not None and sorted(case_ids) != receipt.get('selected_case_ids'):
+        raise RuntimeError('replay case selection changed')
     (out / 'replay-results.json').write_text(json.dumps(details, indent=2) + '\n')
-    if receipt.get('verdict') != 'green' or receipt.get('cutover') is not False:
+    verdict = 'selected_verdict' if case_ids is not None else 'verdict'
+    if receipt.get(verdict) != 'green' or receipt.get('cutover') is not False:
         raise RuntimeError('replay failed; see replay-receipt.json; cutover remains blocked')
-    print('replay passed; user approval required: ' + receipt['receipt_sha256'])
+    if case_ids is not None:
+        print('selected replay passed; full plan verdict=' + receipt['verdict'] + '; cutover remains blocked')
+    else:
+        print('replay passed; user approval required: ' + receipt['receipt_sha256'])
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--tag', required=True)
+    p.add_argument('--case-id', action='append', help='rerun explicit stable case IDs; retain full plan coverage')
     p.add_argument('--target', choices=('prod',), default='prod')
     p.add_argument('--out', type=Path, default=Path('replay-output'))
     p.add_argument('--test-key-name', default='TK_FULLTEST_KEY',
@@ -129,6 +136,14 @@ def main():
         p.error('replacement requires SHA256 and cannot accompany approval')
     if args.approved_replay and not re.fullmatch(r'[a-f0-9]{64}', args.approved_replay):
         p.error('approved replay must be SHA256')
+    if args.case_id is not None:
+        if args.approved_replay:
+            p.error('case selection cannot accompany approval')
+        try:
+            plan = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
+            matrix.selected_case_ids(plan, args.case_id)
+        except ValueError as exc:
+            p.error(str(exc))
     args.out.mkdir(parents=True, exist_ok=True)
     instance = resolve_prod_instance()  # No arbitrary EC2/edge override.
     if args.approved_replay:
@@ -138,7 +153,7 @@ def main():
                 output.write('prepared_receipt=' + state['prepared_receipt'] + '\n')
         print(json.dumps(state))
     else:
-        run_replay(args.tag, instance, args.out, args.replace_receipt, args.test_key_name)
+        run_replay(args.tag, instance, args.out, args.replace_receipt, args.test_key_name, args.case_id)
 
 
 if __name__ == '__main__':

@@ -27,6 +27,8 @@ PATHS = {'/v1/chat/completions', '/v1/responses', '/v1/responses/input_tokens',
          '/v1/messages', '/v1/messages/count_tokens', '/v1/images/generations',
          '/v1/embeddings', '/v1/audio/speech', '/v1/audio/transcriptions', '/v1/videos'}
 ASSERTIONS = {'protocol_envelope', 'no_error', 'terminal', 'usage', 'tool_call'}
+# Summary-only projections never enter the detailed result fingerprint.
+REPLAY_COVERAGE_FIELDS = ('coverage', 'account_class_coverage', 'capability_coverage', 'total')
 
 
 def encoded(value):
@@ -40,6 +42,31 @@ def digest(value):
 def require(condition, reason):
     if not condition:
         raise ValueError(reason)
+
+
+def replay_summary(result, coverage):
+    summary = {k: v for k, v in result.items() if k != 'results'}
+    summary.update({k: coverage[k] for k in REPLAY_COVERAGE_FIELDS})
+    summary['results_sha256'] = digest(result)
+    return summary
+
+
+def replay_details(receipt, rows):
+    details = {k: v for k, v in receipt.items()
+               if k not in (*REPLAY_COVERAGE_FIELDS, 'receipt_sha256', 'results_sha256')}
+    details['results'] = rows
+    require(digest(details) == receipt['results_sha256'], 'replay result fingerprint changed')
+    return details
+
+
+def selected_case_ids(plan, case_ids=None):
+    available = {c['id'] for c in plan['entries']}
+    if case_ids is None:
+        return available
+    selected = set(case_ids)
+    require(bool(selected) and len(selected) == len(case_ids) and selected <= available,
+            'invalid_case_selection')
+    return selected
 
 
 def valid_path(path):

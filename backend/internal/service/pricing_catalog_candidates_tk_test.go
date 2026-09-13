@@ -104,7 +104,7 @@ func TestServableClientFacingIDs_PrunesStructurallyGone(t *testing.T) {
 	require.Contains(t, baseline, target, "SSOT-derived prune target must exist before availability changes")
 	require.Contains(t, baseline, survivor, "SSOT-derived survivor must exist before availability changes")
 
-	seedAvail(repo, PlatformAnthropic, target, AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
+	seedAvail(repo, PlatformAnthropic, target, AvailabilityStatusUnreachable, FailureKindProviderModelRetired, svc.clock())
 	got := ServableClientFacingIDs(ctx, PlatformAnthropic, svc, pricing)
 	require.NotContains(t, got, target, "structurally-gone model must be pruned from the CatalogPolicy candidate source")
 	require.Contains(t, got, survivor, "an unaffected SSOT sibling must remain servable")
@@ -116,8 +116,8 @@ func TestModelListFilter_PrunesOnlyStructurallyGoneAvailability(t *testing.T) {
 	const gone = "model-gone"
 	const degraded = "model-degraded"
 	pricing := tkBuildPricedServiceForTest(t, []string{gone, degraded})
-	seedAvail(repo, PlatformOpenAI, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
-	seedAvail(repo, PlatformOpenAI, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
+	seedAvail(repo, PlatformOpenAI, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired, availability.clock())
+	seedAvail(repo, PlatformOpenAI, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx, availability.clock())
 	filter := NewModelListFilter(pricing, availability)
 
 	got := filter.FilterClientFacing(ctx, PlatformOpenAI, []string{gone, degraded})
@@ -159,8 +159,8 @@ func TestTkServableCandidateIDs(t *testing.T) {
 		require.Contains(t, baseline, gone, "SSOT-derived prune target must exist before availability changes")
 		require.Contains(t, baseline, degraded, "SSOT-derived degraded survivor must exist before availability changes")
 
-		seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
-		seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
+		seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired, svc.clock())
+		seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx, svc.clock())
 		ids := tkServableCandidateIDs(ctx, PlatformAnthropic, svc)
 		require.False(t, contains(ids, gone), "model_not_found→unreachable auto-drops (self-heal)")
 		require.True(t, contains(ids, degraded), "transient 5xx-unreachable stays")

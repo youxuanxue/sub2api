@@ -695,9 +695,26 @@
       "path": "backend/internal/service/pricing_availability_service_tk.go",
       "must_contain": [
         "outcome.ProviderModelRetired && outcome.AccountID == 0",
-        "now.After(*cur.LastFailureAt)"
+        "now.After(*cur.LastFailureAt)",
+        "availabilityStateAt(state, s.clock().UTC())",
+        "out[modelID] = availabilityStateAt(state, now)"
       ],
       "rationale": "Request failures cannot acquire provider-wide retirement authority; repeated evidence must have distinct timestamps."
+    },
+    {
+      "path": "backend/internal/service/pricing_availability_predicate_tk.go",
+      "must_contain": ["s.GetAvailability(ctx, platform, modelID)"],
+      "rationale": "Single-model structural pruning must consume the same time-bounded read projection as catalog and batch discovery."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_model_list_test.go",
+      "must_contain": ["TestTkAntigravityDefaultModels_FilterDropsUnreachable", "TestTkGeminiFallbackModelsList_FilterDropsUnreachable", "expired retirement proof cannot hide the model"],
+      "rationale": "Handler fallback model lists must prune fresh provider retirement and restore models when that proof expires."
+    },
+    {
+      "path": "backend/internal/service/pricing_availability_expiry_tk_test.go",
+      "must_contain": ["TestAvailabilityReadExpiresWithoutNewTraffic", "TestAvailabilityReadExpiresFailuresAndRetirementProof"],
+      "rationale": "Exercise expiration across single, batch, cached and catalog reads, with unknown and first/confirmed retirement evidence and no storage mutation."
     },
     {
       "path": "backend/internal/service/pricing_catalog_availability_tk.go",

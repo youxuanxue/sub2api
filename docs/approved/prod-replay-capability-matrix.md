@@ -135,6 +135,10 @@ X-Session-Id 关联唯一测试调用与既有 grok_audio usage，不改计费�
 默认执行完整计划中的可执行项，unsupported / unknown 始终进入回执且不计成功。显式 `--case-id` 可仅复测指定稳定 ID，拒绝空、重复或未知 ID；
 完整计划的 digest 和覆盖分母不变，未选择项记 declared-but-untested。回执分别记录
 selected_verdict 与全计划 verdict，局部通过不等于全量通过，任何结果都不授权切流。
+CLI 与 host 共用 `gateway_capability_matrix.py` 的 case-ID 校验和回执/明细投影；
+coverage 汇总只进入回执，原始结果摘要独立校验。显式局部复测按 selected_verdict
+返回执行结果，同时保留完整 verdict；不得与 `--approved-replay` 混用。
+
 
 Gemini countTokens 沿原账号选择、准入与原生计数接口执行，不套用 generation Plan；
 generateContent 仍以 CandidateRequest 和已选 Plan 裁决，计费分组平台不能提前否决合法转换。

@@ -126,6 +126,11 @@ provider 下线调查。它只能触发 owner 的正常写路径，不能直接�
 
 ### 实现接线
 
+- 单条、批量及请求缓存读取由 `availabilityStateAt` 按当前时钟投影；过期窗口
+  不再计入 `sample_count_24h` / `success_rate_24h`，历史观测时间保持原值。
+  无新流量也会从正常/故障证据转为陈旧，未观测模型保持未知；过期的 provider
+  退役证明不再裁剪目录，读取不能把首次证明升级成重复确认。
+
 - `protocol_availability_tk.go` 的 `TKRecordProtocolOutcome` 在执行器返回后、handler
   换号前记录一次尝试；成功和失败都使用实际执行模型。协议发送前校验失败、调用方取消
   不计入模型健康样本；带 usage 的部分失败只计失败，计费兼容入口不重复计成功。
