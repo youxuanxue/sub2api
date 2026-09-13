@@ -31,7 +31,7 @@ func (s *PricingAvailabilityService) IsStructurallyGone(ctx context.Context, pla
 	if platform == "" || modelID == "" {
 		return false
 	}
-	state, err := s.repo.Get(ctx, platform, modelID)
+	state, err := s.GetAvailability(ctx, platform, modelID)
 	if err != nil {
 		return false
 	}

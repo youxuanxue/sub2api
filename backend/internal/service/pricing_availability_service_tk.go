@@ -244,7 +244,11 @@ func (s *PricingAvailabilityService) GetAvailability(ctx context.Context, platfo
 	if s == nil || s.repo == nil {
 		return AvailabilityState{}, ErrAvailabilityRepoNil
 	}
-	return s.repo.Get(ctx, strings.TrimSpace(platform), strings.TrimSpace(modelID))
+	state, err := s.repo.Get(ctx, strings.TrimSpace(platform), strings.TrimSpace(modelID))
+	if err != nil {
+		return AvailabilityState{}, err
+	}
+	return availabilityStateAt(state, s.clock().UTC()), nil
 }
 
 // GetAvailabilityBatch returns the current states for the requested model IDs.
@@ -271,10 +275,24 @@ func (s *PricingAvailabilityService) GetAvailabilityBatch(ctx context.Context, p
 	if len(unique) == 0 {
 		return map[string]AvailabilityState{}, nil
 	}
+	var states map[string]AvailabilityState
+	var err error
 	if cache, ok := ctx.Value(modelAvailabilityRequestCacheContextKey{}).(*modelAvailabilityRequestCache); ok && cache != nil {
-		return s.getAvailabilityBatchCached(ctx, cache, platform, unique)
+		states, err = s.getAvailabilityBatchCached(ctx, cache, platform, unique)
+	} else {
+		states, err = s.getAvailabilityBatchUncached(ctx, platform, unique)
 	}
-	return s.getAvailabilityBatchUncached(ctx, platform, unique)
+	if err != nil {
+		return nil, err
+	}
+	// Cache raw evidence, then derive at read time. Even a cache hit crossing
+	// the window boundary must not keep an expired badge or sample count.
+	now := s.clock().UTC()
+	out := make(map[string]AvailabilityState, len(states))
+	for modelID, state := range states {
+		out[modelID] = availabilityStateAt(state, now)
+	}
+	return out, nil
 }
 
 func (s *PricingAvailabilityService) getAvailabilityBatchCached(
@@ -343,6 +361,26 @@ func (a AvailabilityState) SuccessRate24h() float64 {
 
 // --- internal helpers ---
 
+// availabilityStateAt projects time-bounded evidence without changing stored
+// counters or observation timestamps. An empty row remains never-tested.
+func availabilityStateAt(s AvailabilityState, now time.Time) AvailabilityState {
+	if s == (AvailabilityState{}) {
+		return s
+	}
+	if s.RollingWindowStartedAt == nil || now.Sub(*s.RollingWindowStartedAt) >= AvailabilityRollingWindow {
+		s.SampleOK24h, s.SampleTotal24h = 0, 0
+	}
+	if s.LastFailureKind == FailureKindProviderModelRetired {
+		// Reads cannot promote a first attestation or renew expired proof.
+		if !tkAvailabilityStructurallyGone(s) || s.LastFailureAt == nil || now.Sub(*s.LastFailureAt) >= AvailabilityRollingWindow {
+			s.Status = AvailabilityStatusStale
+		}
+		return s
+	}
+	s.Status = deriveStatus(s, now)
+	return s
+}
+
 func applySuccess(s AvailabilityState, now time.Time) AvailabilityState {
 	s.SampleOK24h = s.SampleOK24h + 1
 	s.SampleTotal24h = s.SampleTotal24h + 1
@@ -366,7 +404,10 @@ func rollWindowIfStale(s AvailabilityState, now time.Time) AvailabilityState {
 // counters + last_seen_ok_at. Only attested provider retirement uses a separate
 // repeated-evidence decision; request-level model-not-found is a soft sample.
 func deriveStatus(s AvailabilityState, now time.Time) string {
-	if s.SampleTotal24h <= 0 && s.LastSeenOKAt == nil {
+	if s.SampleTotal24h <= 0 {
+		if s.LastSeenOKAt != nil || s.LastFailureAt != nil {
+			return AvailabilityStatusStale
+		}
 		return AvailabilityStatusUntested
 	}
 	rate := s.SuccessRate24h()

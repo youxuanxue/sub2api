@@ -3,6 +3,7 @@
 import contextlib
 import http.server
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -331,6 +332,122 @@ class OrchestrationTest(unittest.TestCase):
         self.assertNotIn('account_class_coverage', details)
         from gateway_capability_matrix import digest
         self.assertEqual(digest(details), receipt['results_sha256'])
+
+    def host_receipt(self, case_ids=None):
+        import gateway_capability_host as host
+        import gateway_capability_matrix as matrix
+        from test_gateway_capability_matrix import inventory
+        source = inventory()
+        plan = matrix.build(source, matrix.load())
+
+        def execute(case, *_args):
+            return {'status': 'passed', 'reason': None, 'execution_proof': {
+                'account_class': case['account_class'], 'test_api_key_id': 334,
+                'key_type': 'universal', 'request_ids': ['fixture-request'],
+                'routing_validation': 'normal_universal', 'observed_account_ids': [12],
+                'usage_request_ids': ['fixture-request'], 'account_class_matched': True}}
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
+             patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+             patch.object(host.replay, 'inspect', return_value={}), \
+             patch.object(host, 'candidate_address', return_value='172.18.0.5'), \
+             patch.object(host, 'test_key', return_value={'api_key_id': 334, 'key': 'local-fixture'}), \
+             patch.object(host, 'execute_case', side_effect=execute):
+            receipt = host.run(plan, source, '1.2.3', Path(directory), case_ids=case_ids)
+            details = json.loads(Path(directory, 'bluegreen-capability-results.json').read_text())
+        pages = [{'tag': '1.2.3', 'rows': details['results'][i:i+5]}
+                 for i in range(0, receipt['total'], 5)]
+        return receipt, details, pages
+
+    def test_cli_consumes_real_host_summary_and_rejects_tampered_results(self):
+        receipt, details, pages = self.host_receipt()
+        self.assertEqual(receipt['verdict'], 'green')
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
+                {'needs_prepare': False}, {'needs_prepare': False}, receipt, *pages]):
+            cli.run_replay('1.2.3', 'i-fixture', Path(tmp))
+            self.assertEqual(json.loads(Path(tmp, 'replay-results.json').read_text()), details)
+            self.assertEqual(json.loads(Path(tmp, 'replay-receipt.json').read_text()), receipt)
+        pages[0]['rows'][0]['status'] = 'failed'
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
+                {'needs_prepare': False}, {'needs_prepare': False}, receipt, *pages]):
+            with self.assertRaisesRegex(RuntimeError, 'replay result fingerprint changed'):
+                cli.run_replay('1.2.3', 'i-fixture', Path(tmp))
+
+    def test_cli_selected_rerun_keeps_full_verdict_and_denominator(self):
+        from test_gateway_capability_matrix import plan
+        value = plan()
+        selected = [value['entries'][0]['id']]
+        receipt, details, pages = self.host_receipt(selected)
+        self.assertEqual(receipt['selected_verdict'], 'green')
+        self.assertEqual(receipt['verdict'], 'red')
+        self.assertEqual(receipt['plan_sha256'], value['plan_sha256'])
+        self.assertEqual(receipt['total'], len(value['entries']))
+        self.assertTrue(all(r['status'] == 'declared-but-untested' for r in details['results']
+                            if r['id'] not in selected))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
+                {'needs_prepare': False}, {'needs_prepare': False}, receipt, *pages]) as remote:
+            cli.run_replay('1.2.3', 'i-fixture', Path(tmp), case_ids=selected)
+            self.assertEqual(remote.call_args_list[2].kwargs['case_ids'], selected)
+            self.assertEqual(json.loads(Path(tmp, 'replay-results.json').read_text()), details)
+            self.assertFalse(json.loads(Path(tmp, 'replay-receipt.json').read_text())['cutover'])
+        for selection, message in ((None, 'replay failed'), ([value['entries'][1]['id']], 'selection changed')):
+            with tempfile.TemporaryDirectory() as tmp, patch.object(cli, 'remote', side_effect=[
+                    {'needs_prepare': False}, {'needs_prepare': False}, receipt, *pages]):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    cli.run_replay('1.2.3', 'i-fixture', Path(tmp), case_ids=selection)
+
+    def test_case_selection_is_validated_before_aws_or_prepare(self):
+        plan = cli.matrix.build(json.loads(cli.matrix.DEFAULT_INVENTORY.read_text()), cli.matrix.load())
+        ident = plan['entries'][0]['id']
+        for extra in (['--case-id', ''], ['--case-id', 'unknown'],
+                      ['--case-id', ident, '--case-id', ident],
+                      ['--case-id', ident, '--approved-replay', 'a'*64]):
+            with self.subTest(extra=extra), patch.object(sys, 'argv', ['replay', '--tag', '1.2.3', *extra]), \
+                 patch.object(cli, 'resolve_prod_instance') as resolve, patch.object(cli, 'run_replay') as run, \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exc:
+                    cli.main()
+                self.assertEqual(exc.exception.code, 2)
+                resolve.assert_not_called()
+                run.assert_not_called()
+        with tempfile.TemporaryDirectory() as tmp, patch.object(sys, 'argv', [
+                'replay', '--tag', '1.2.3', '--case-id', ident, '--out', tmp]), \
+             patch.object(cli, 'resolve_prod_instance', return_value='i-fixture'), \
+             patch.object(cli, 'run_replay') as run:
+            cli.main()
+            self.assertEqual(run.call_args.args[-1], [ident])
+
+    def test_ssm_delivery_preserves_case_selection(self):
+        delivered = {}
+        real_run = subprocess.run
+
+        def send(args, **_kwargs):
+            parameters = json.loads(args[args.index('--parameters') + 1])
+            result = real_run(['bash', '-c', '\n'.join(parameters['commands'])], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            delivered['stdout'] = result.stdout
+            return 'command-id'
+
+        def invocation(*_args, **_kwargs):
+            return subprocess.CompletedProcess([], 0, json.dumps({'Status': 'Success', 'ResponseCode': 0,
+                'StandardOutputContent': delivered['stdout']}), '')
+
+        source = ('import argparse,json; p=argparse.ArgumentParser(); p.add_argument("operation"); '
+                  'p.add_argument("--tag"); p.add_argument("--offset"); p.add_argument("--test-key-name"); '
+                  'p.add_argument("--case-id",action="append"); print(json.dumps(vars(p.parse_args())))')
+        read_text = Path.read_text
+
+        def shipped(path, *args, **kwargs):
+            return source if path.name == 'gateway_capability_host.py' else read_text(path, *args, **kwargs)
+
+        with patch.object(Path, 'read_text', shipped), \
+             patch.object(cli.subprocess, 'check_output', side_effect=send), \
+             patch.object(cli.subprocess, 'run', side_effect=invocation):
+            result = cli.remote('i-fixture', 'run', '1.2.3', case_ids=['case-one', 'case-two'])
+        self.assertEqual(result['case_id'], ['case-one', 'case-two'])
+        self.assertEqual(result['operation'], 'run')
+        self.assertEqual(result['test_key_name'], 'TK_FULLTEST_KEY')
 
     def test_observation_timeout_reconnects_without_resubmitting_requests(self):
         complete = subprocess.CompletedProcess([], 0, json.dumps({'Status': 'Success', 'ResponseCode': 0,

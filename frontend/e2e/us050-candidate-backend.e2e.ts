@@ -28,10 +28,12 @@ for (const width of [1280, 390]) {
     await page.route('**/api/v1/public/pricing**', route => route.fulfill({ json: { object: 'list', data: [] } }))
     // Forward the request to the Go service; do not manufacture its response.
     let failureKind = ''
+    let evidenceExpired = false
     await page.route('**/api/v1/me/pricing-catalog**', async route => {
       const url = new URL(route.request().url())
       const response = await route.fetch({ url: `${backend}${url.pathname}${url.search}`,
-        headers: { ...route.request().headers(), 'X-Test-Failure-Kind': failureKind } })
+        headers: { ...route.request().headers(), 'X-Test-Failure-Kind': failureKind,
+          'X-Test-Evidence-Expired': String(evidenceExpired) } })
       await route.fulfill({ response })
     })
     await page.goto('/models?view=pricing')
@@ -47,14 +49,19 @@ for (const width of [1280, 390]) {
     await keySelect.selectOption('43')
     await expect(row(universalModel)).toHaveCount(1)
     await expect(row(directModel)).toHaveCount(1)
-    for (const kind of ['rate_limited', 'auth_failure', 'upstream_5xx', 'model_not_found', 'provider_model_retired', '']) {
+    for (const [kind, expired] of [
+      ['rate_limited', false], ['auth_failure', false], ['upstream_5xx', false],
+      ['model_not_found', false], ['provider_model_retired', false],
+      ['provider_model_retired', true], ['', false],
+    ] as const) {
       failureKind = kind
+      evidenceExpired = expired
       const catalogLoaded = page.waitForResponse(response => response.url().includes('/api/v1/me/pricing-catalog'))
       await page.reload()
       expect((await catalogLoaded).ok()).toBe(true)
       await expect(keySelect).toBeVisible()
       await keySelect.selectOption('43')
-      const expected = kind === 'provider_model_retired' ? 0 : 1
+      const expected = kind === 'provider_model_retired' && !expired ? 0 : 1
       if (expected === 0) {
         await expect(page.getByText('This group has no models yet', { exact: true })).toBeVisible()
       } else {
