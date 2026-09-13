@@ -19,6 +19,10 @@ import {
 } from "../groupsImagePricing";
 
 describe("groups image pricing platform support", () => {
+  it("keeps NewAPI media groups configurable through the active form owner", () => {
+    expect(supportsImagePricingPlatform("newapi")).toBe(true);
+  });
+
   it("includes Grok image groups", () => {
     expect(supportsImagePricingPlatform("grok")).toBe(true);
     expect(imagePricingPlatforms.has("grok")).toBe(true);

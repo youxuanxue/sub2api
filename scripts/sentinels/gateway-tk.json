@@ -4555,18 +4555,6 @@
       "rationale": "Per-node in-process self-healer that drops the ops/anthropic high-frequency safe-item writes into the backend: operator-Σ alignment, prod stub pool_mode, edge balance floor, and the surface-C concurrency mirror — plus REPORT-ONLY tier drift (never silently rewrites a UI-set tier). The surface-C 'never write 0 on a failed edge read' invariant and the report-only tier-drift boundary are load-bearing correctness properties; a silent upstream-merge deletion or weakening must be caught."
     },
     {
-      "path": "backend/internal/service/account_model_mapping_reconciler.go",
-      "must_contain": [
-        "type AccountModelMappingReconciler struct",
-        "func (r *AccountModelMappingReconciler) runtimeOverride(",
-        "func (r *AccountModelMappingReconciler) reconcileAccounts(",
-        "PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformNewAPI, PlatformKiro, PlatformGrok",
-        "func (r *AccountModelMappingReconciler) reconcileAntigravityGroupScopes(",
-        "canonicalAntigravityModelScopes"
-      ],
-      "rationale": "One-shot all-platform account model_mapping applier. It can rewrite active managed-platform accounts to explicit credentials.model_mapping derived from the compiled/runtime SSOT and align Antigravity groups to the canonical Go-owned scope projection, but production servers must not start it as a background self-healer. Empty native mappings are no longer a target operator state; they are surfaced by ops/pricing/manage-account-model-mapping-runtime.py check-accounts and corrected only after an explicit apply. If this file, the platform loop, the runtime settings read, or the Antigravity group-scope apply logic disappears, reviewed apply-accounts can no longer converge live config."
-    },
-    {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
         "func parseAccountModelMappingRuntime(",
@@ -4577,6 +4565,7 @@
         "BaseURL",
         "ModelSurfaceBundleSchemaVersion",
         "func ModelSurfaceBundleForOps(",
+        "canonicalAntigravityModelScopes",
         "func canonicalModelSurfaceFloorJSON(",
         "func accountModelMappingForAccount(",
         "case PlatformOpenAI:",
@@ -4609,7 +4598,7 @@
       "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from CatalogPolicy projections, platform compatibility owners, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops owner-declared compatibility aliases. ModelSurfaceBundleForOps emits the deterministic checksummed release projection once; rollout tools consume that artifact instead of compiling this package. Tokensea relay scopes (openai_tokensea_relay / anthropic_tokensea_relay) and CloudWise relay scope (openai_cloudwise_relay) must stay wired so prod relay accounts keep probe-curated floors. The isNewAPIXRTokenAccount branch routes ch54 XRToken accounts through its base_url-scoped five-model manifest projection instead of the generic channel-type fallback; otherwise apply-accounts would lose the three shared rows indexed under ch45 or leak XRToken-only rows into plain ch54 accounts."
     },
     {
-      "path": "backend/internal/service/account_model_mapping_reconciler_test.go",
+      "path": "backend/internal/service/account_model_mapping_floor_test.go",
       "must_contain": [
         "TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset",
         "expectedAntigravityModelMappingForReconcilerTest",
@@ -4662,7 +4651,7 @@
         "func AntigravityUnpricedModelMappingKeys() []string",
         "func IsAntigravityStructuralDeadModelMappingKey("
       ],
-      "rationale": "DefaultAntigravityModelMapping is the compatibility owner for Antigravity account mappings; the account model_mapping SSOT filters it through CatalogPolicy IDs and the structural-dead/unpriced predicates before an explicit ops apply persists account credentials.model_mapping. The sentinel anchors owner and policy APIs rather than current dynamic model ids; complete projection coverage lives in account_model_mapping_reconciler_test.go."
+      "rationale": "DefaultAntigravityModelMapping is the compatibility owner for Antigravity account mappings; the account model_mapping SSOT filters it through CatalogPolicy IDs and the structural-dead/unpriced predicates before an explicit ops apply persists account credentials.model_mapping. The sentinel anchors owner and policy APIs rather than current dynamic model ids; complete projection coverage lives in account_model_mapping_floor_test.go."
     },
     {
       "path": "backend/internal/domain/constants_test.go",

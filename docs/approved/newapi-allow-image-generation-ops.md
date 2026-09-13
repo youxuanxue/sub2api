@@ -22,7 +22,7 @@ Admin 后端字段、API 与 `GroupsView`「图片生成计费」区块覆盖
 
 ## 变更
 
-1. **Admin UI**：`supportsGroupImagePricing()` 将 `newapi` 纳入图片生成计费开关（与 openai/gemini/antigravity 一致）。
+1. **Admin UI**：`frontend/src/views/admin/groupsImagePricing.ts` 的 `supportsImagePricingPlatform()` 将 `newapi` 纳入图片生成计费开关（与 openai/gemini/antigravity 一致）。
 2. **一次性迁移 `tk_049`**：为已有 Vertex/Seedream 账号绑定的 `newapi` 分组 `UPDATE allow_image_generation=true`。
 3. **全能 Key 路由**：`/v1/images/generations` 形状在 pick 前过滤 `allow_image_generation=false` 的分组。
 

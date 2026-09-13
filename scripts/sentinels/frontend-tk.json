@@ -1467,13 +1467,38 @@
       "rationale": "Playground media modality table + tolerant response parsing. /v1/models returns bare ids and the public catalog has no image/video capability tag, so this frontend table is the only thing routing gpt-image-*/imagen-*/seedream prompts to /v1/images/generations and veo-*/seedance/grok-imagine-video prompts to the vt_ video task flow. The gpt-image- prefix mirrors the backend's own intent predicate (openai_images.go isOpenAIImageGenerationModel) — if either side changes family patterns the other must follow. isGeminiNativeImageModel classifies gemini-*-image / nano-banana ids as 'image' (mirrors backend isImageGenerationModel) — they are served via /v1/chat/completions (verified prod: the image returns as ![image](data:…) markdown for antigravity + newapi groups), so extractChatImageItems is the ONLY parser pulling that inline image out of the chat response; dropping either silently regresses gemini-native image in the Studio."
     },
     {
-      "path": "frontend/src/constants/groupImagePricing.tk.ts",
+      "path": "frontend/src/constants/platforms.ts",
       "must_contain": [
-        "GROUP_IMAGE_PRICING_PLATFORMS",
-        "'newapi'",
-        "supportsGroupImagePricing"
+        "value: 'newapi'",
+        "value: 'kiro'",
+        "...CONCRETE_PLATFORM_OPTIONS"
       ],
-      "rationale": "Admin GroupsView gates the 图片生成计费 section (allow_image_generation + image price tiers) through supportsGroupImagePricing. newapi media groups (Vertex imagen/veo, Seedream) need the same toggle migration 134 gave openai/gemini/antigravity; omitting newapi here hides the only operator-facing control and forces SQL backfills for every new media group."
+      "rationale": "The active shared selector must preserve TokenKey platforms across upstream updates; otherwise existing NewAPI and Kiro groups lose create/filter/edit access."
+    },
+    {
+      "path": "frontend/src/views/admin/groupsImagePricing.ts",
+      "must_contain": [
+        "imagePricingPlatforms.has(platform)",
+        "\"newapi\"",
+        "supportsImagePricingPlatform"
+      ],
+      "rationale": "Protect the active group form's image-pricing owner. NewAPI media groups need the same allow_image_generation control as native image groups; checking a disconnected platform table can stay green while the UI hides that control."
+    },
+    {
+      "path": "frontend/src/views/admin/GroupsView.vue",
+      "must_contain": [
+        "supportsImagePricingPlatform(createForm.platform)",
+        "supportsImagePricingPlatform(editForm.platform)",
+        "from \"./groupsImagePricing\""
+      ],
+      "rationale": "Both create and edit forms must consume the guarded image-pricing owner."
+    },
+    {
+      "path": "frontend/src/views/admin/__tests__/groupsImagePricing.spec.ts",
+      "must_contain": [
+        "supportsImagePricingPlatform(\"newapi\")).toBe(true)"
+      ],
+      "rationale": "Exercise NewAPI support through the production owner so an upstream platform-table replacement cannot strand the regression test on dead code."
     },
     {
       "path": "frontend/src/views/user/studio/ChatStudio.vue",

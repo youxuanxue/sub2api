@@ -188,13 +188,12 @@ describe('AccountActionMenu — anchored positioning', () => {
     )
 
     try {
-      await new Promise(resolve => window.setTimeout(resolve, 0))
-      await flushPromises()
-
-      const style = wrapper.get('.action-menu-content').attributes('style') || ''
-      expect(style).toContain(`right: ${window.innerWidth - 560}px`)
-      expect(style).toContain('top: 108px')
-      expect(style).toContain('left: auto')
+      await vi.waitFor(() => {
+        const style = wrapper.get('.action-menu-content').attributes('style') || ''
+        expect(style).toContain(`right: ${window.innerWidth - 560}px`)
+        expect(style).toContain('top: 108px')
+        expect(style).toContain('left: auto')
+      })
     } finally {
       widthSpy.mockRestore()
       heightSpy.mockRestore()

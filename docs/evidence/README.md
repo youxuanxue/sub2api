@@ -11,3 +11,5 @@ Use evidence files for provenance, then link the current runbook or SSOT from
 | Directory | Contents |
 | --- | --- |
 | [`pricing/`](pricing/) | Captured vendor pricing pages and pricing derivation evidence. |
+
+Fingerprint provenance: [`fingerprint/antigravity-spawn-20260629.json`](fingerprint/antigravity-spawn-20260629.json) backs the spawn-validation decision in the Antigravity changelog. Generated release-watch state and unreferenced version snapshots stay in ignored `.cache/`.
