@@ -121,6 +121,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 		Stream:         out.Stream,
 		Duration:       out.Duration,
 		Usage:          openAIUsageFromNewAPIDTO(out.Usage),
+		ImageCount:     out.ImageCount,
 		EnableThinking: tkThinkingModeActiveFromBody(body),
 	}, nil
 }

@@ -141,6 +141,7 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 		Stream:        out.Stream,
 		Duration:      out.Duration,
 		Usage:         claudeUsageFromNewAPIDTO(out.Usage),
+		ImageCount:    out.ImageCount,
 	}, nil
 }
 
