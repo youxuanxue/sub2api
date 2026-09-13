@@ -573,21 +573,23 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 
 	if strings.TrimSpace(finalResponse.Status) == "failed" {
 		payload, _ := json.Marshal(gin.H{"type": "response.failed", "response": finalResponse})
-		if hit, code, msg := detectOpenAICyberPolicy(payload); hit {
-			MarkOpsCyberPolicy(c, CyberPolicyMark{
-				Code:           code,
-				Message:        msg,
-				Body:           truncateString(string(payload), 4096),
-				UpstreamStatus: http.StatusOK,
-				UpstreamInTok:  usage.InputTokens,
-				UpstreamOutTok: usage.OutputTokens,
-			})
+		if kind := markOpenAISafetyPolicyEvent(c, payload, http.StatusOK, &usage); kind != "" {
+			msg := ""
+			defaultMsg := "Request blocked by upstream safety policy"
+			if kind == "cyber_policy" {
+				defaultMsg = "Request blocked by upstream cyber-security policy"
+				if m := GetOpsCyberPolicy(c); m != nil {
+					msg = m.Message
+				}
+			} else if m := GetOpsUsagePolicy(c); m != nil {
+				msg = m.Message
+			}
 			clientMsg := msg
 			if clientMsg == "" {
-				clientMsg = "Request blocked by upstream cyber-security policy"
+				clientMsg = defaultMsg
 			}
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", clientMsg)
-			return nil, fmt.Errorf("openai cyber_policy: %s", msg)
+			return nil, fmt.Errorf("openai %s: %s", kind, msg)
 		}
 		return s.openAICompatBufferedFailedResponseResult(c, account, requestID, finalResponse, openAICompatBufferedRouteMessages)
 	}
@@ -983,24 +985,26 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			if event.Usage != nil {
 				usage = copyOpenAIUsageFromResponsesUsage(event.Usage)
 			}
-			// cyber_policy 致命不可重试：标记供 handler 事后记录；以 Anthropic SSE error 事件
-			// 回写让客户端感知并停止重试（F4），丢弃后续转换输出。
+			// cyber_policy / usage_policy 致命不可重试：标记供 handler 事后记录；以
+			// Anthropic SSE error 事件回写让客户端感知并停止重试，丢弃后续转换输出。
 			if eventType == "response.failed" || isBareErrorEvent {
 				payloadBytes := []byte(payload)
-				if hit, code, msg := detectOpenAICyberPolicy(payloadBytes); hit {
-					MarkOpsCyberPolicy(c, CyberPolicyMark{
-						Code:           code,
-						Message:        msg,
-						Body:           truncateString(payload, 4096),
-						UpstreamStatus: http.StatusOK,
-						UpstreamInTok:  usage.InputTokens,
-						UpstreamOutTok: usage.OutputTokens,
-					})
+				if kind := markOpenAISafetyPolicyEvent(c, payloadBytes, http.StatusOK, &usage); kind != "" {
 					if !clientDisconnected {
 						writeStreamHeaders()
+						msg := ""
+						defaultMsg := "Request blocked by upstream safety policy"
+						if kind == "cyber_policy" {
+							defaultMsg = "Request blocked by upstream cyber-security policy"
+							if m := GetOpsCyberPolicy(c); m != nil {
+								msg = m.Message
+							}
+						} else if m := GetOpsUsagePolicy(c); m != nil {
+							msg = m.Message
+						}
 						clientMsg := msg
 						if clientMsg == "" {
-							clientMsg = "Request blocked by upstream cyber-security policy"
+							clientMsg = defaultMsg
 						}
 						if _, err := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE("invalid_request_error", clientMsg)); err == nil {
 							c.Writer.Flush()

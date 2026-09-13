@@ -687,7 +687,7 @@ readLoop:
 		imageCounter.AddSSEData(message)
 
 		if eventType == "error" || eventType == "response.failed" {
-			markOpenAICyberPolicyEvent(c, message, http.StatusOK, usage)
+			markOpenAISafetyPolicyEvent(c, message, http.StatusOK, usage)
 		}
 
 		if eventType == "error" {

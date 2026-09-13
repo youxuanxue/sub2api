@@ -206,6 +206,33 @@ func TestRecordCyberPolicyIfMarked_BlockKeyPlumbed(t *testing.T) {
 	})
 }
 
+// TestBuildUsagePolicyOpsErrorEntry_StatusCode verifies usage_policy ops rows
+// keep upstream status and distinct error_type.
+func TestBuildUsagePolicyOpsErrorEntry_StatusCode(t *testing.T) {
+	mark := &service.UsagePolicyMark{
+		Code:           "usage_policy",
+		Message:        "violating our usage policy",
+		UpstreamStatus: 400,
+	}
+	entry := buildUsagePolicyOpsErrorEntry(cyberPolicyOpsErrorMeta{
+		RequestID: "req-u1", Model: "gpt-5", RequestPath: "/openai/v1/responses",
+	}, mark)
+	require.Equal(t, 400, entry.StatusCode)
+	require.Equal(t, "usage_policy", entry.ErrorType)
+	require.Equal(t, "request", entry.ErrorPhase)
+	require.Contains(t, entry.ErrorMessage, "usage_policy")
+}
+
+func TestRecordCyberPolicyIfMarked_UsagePolicyMarksRecorded(t *testing.T) {
+	c := newTestGinContext()
+	service.MarkOpsUsagePolicy(c, service.UsagePolicyMark{Message: "violating our usage policy", UpstreamStatus: 400})
+	h := &OpenAIGatewayHandler{}
+	require.NotPanics(t, func() {
+		h.recordCyberPolicyIfMarked(c, nil, nil, nil, "gpt-5", true, []byte(`{"input":"x"}`), service.ChannelUsageFields{}, "")
+	})
+	require.True(t, c.GetBool(cyberPolicyRecordedKey))
+}
+
 // TestBuildCyberPolicyOpsErrorEntry_StatusCode verifies F6: the ops error log
 // records the status the codex client actually received (400 non-stream / 200 stream),
 // not a hardcoded 403.

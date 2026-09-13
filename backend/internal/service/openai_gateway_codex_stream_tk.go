@@ -157,16 +157,8 @@ func (in tkCodexStreamFailureInput) handleFailureEvent(
 		out.failedMessage = "Upstream response failed"
 	}
 	in.s.parseSSEUsageBytesWithType(in.dataBytes, in.eventType, in.usage)
-	if hit, code, msg := detectOpenAICyberPolicy(in.dataBytes); hit {
+	if kind := markOpenAISafetyPolicyEvent(in.c, in.dataBytes, http.StatusOK, in.usage); kind != "" {
 		out.cyberHit = true
-		MarkOpsCyberPolicy(in.c, CyberPolicyMark{
-			Code:           code,
-			Message:        msg,
-			Body:           truncateString(string(in.dataBytes), 4096),
-			UpstreamStatus: http.StatusOK,
-			UpstreamInTok:  in.usage.InputTokens,
-			UpstreamOutTok: in.usage.OutputTokens,
-		})
 	}
 	outputStarted := openAIStreamClientOutputStarted(in.c, in.clientOutputStarted)
 	if !outputStarted && !out.cyberHit {

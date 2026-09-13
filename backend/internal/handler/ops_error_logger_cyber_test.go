@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cyber mark 存在时，中间件必须跳过自身落库（由 recordCyberPolicyIfMarked 统一落 403）。
+// cyber mark 存在时，中间件必须跳过自身落库（由 recordCyberPolicyIfMarked 统一落库）。
 func TestOpsErrorLoggerMiddlewareSkipsCyber(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -20,3 +20,14 @@ func TestOpsErrorLoggerMiddlewareSkipsCyber(t *testing.T) {
 	require.NotNil(t, service.GetOpsCyberPolicy(c), "前置：mark 已设置")
 	require.True(t, shouldSkipOpsErrorLogForCyber(c), "cyber mark 命中应跳过中间件落库")
 }
+
+func TestOpsErrorLoggerMiddlewareSkipsUsagePolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	service.MarkOpsUsagePolicy(c, service.UsagePolicyMark{Message: "violating our usage policy", UpstreamStatus: http.StatusBadRequest})
+
+	require.NotNil(t, service.GetOpsUsagePolicy(c))
+	require.True(t, shouldSkipOpsErrorLogForCyber(c), "usage_policy mark 命中应跳过中间件落库")
+}
+

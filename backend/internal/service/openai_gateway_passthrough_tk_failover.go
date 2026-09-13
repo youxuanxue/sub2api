@@ -9,7 +9,7 @@ import (
 
 func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, responseBody []byte) bool {
 	semantic := gatewayFailureSemanticUnclassified
-	if hit, _, _ := detectOpenAICyberPolicy(responseBody); hit {
+	if isOpenAISafetySessionBlockFault("", responseBody) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError("", responseBody) {
 		semantic = gatewayFailureSemanticSharedFault
@@ -57,7 +57,7 @@ func openAIStreamFailedClientResponse(payload []byte, message string, default5xx
 
 func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
 	semantic := gatewayFailureSemanticTransientFault
-	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
+	if isOpenAISafetySessionBlockFault(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
@@ -107,7 +107,7 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 
 func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 	semantic := gatewayFailureSemanticSharedFault
-	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
+	if isOpenAISafetySessionBlockFault(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIContextWindowError(message, payload) {
 		semantic = gatewayFailureSemanticSharedFault

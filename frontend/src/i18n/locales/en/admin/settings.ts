@@ -67,8 +67,8 @@ export default {
           configureLink: 'Configure content moderation in Risk Control',
           enabled: 'Enable Risk Control',
           enabledHint: 'When off, the admin sidebar entry is hidden and gateway moderation is skipped.',
-          cyberSessionBlock: 'Cyber session auto-block',
-          cyberSessionBlockHint: 'When enabled, sessions hit by upstream cyber_policy are blocked locally for the TTL and no longer forwarded. Only the offending session is blocked; other sessions on the same key are unaffected.',
+          cyberSessionBlock: 'Safety-policy session auto-block',
+          cyberSessionBlockHint: 'When enabled, sessions hit by upstream cyber_policy or usage_policy are blocked locally for the TTL and no longer forwarded. Only the offending session is blocked; other sessions on the same key are unaffected.',
           cyberSessionBlockTTL: 'Block TTL (seconds)',
         },
         affiliate: {
