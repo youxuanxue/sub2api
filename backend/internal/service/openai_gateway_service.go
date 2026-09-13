@@ -127,8 +127,10 @@ const openAIUpstreamEndpointContextKey = string(ctxkey.ActualOpenAIUpstreamEndpo
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
-	RequestID  string
-	ResponseID string
+	// Suppress the legacy billing tap after attempt-level observation (also on partial failures).
+	availabilityObserved bool
+	RequestID            string
+	ResponseID           string
 	// UpstreamHeaders 是直接上游的响应头，用于按账户配置解析上游请求标识。
 	UpstreamHeaders http.Header
 	Usage           OpenAIUsage

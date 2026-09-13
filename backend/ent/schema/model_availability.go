@@ -26,19 +26,9 @@ import (
 //     channel_monitors row with kind=system_availability for catalog cells that
 //     have been silent >24h. Reuses ChannelMonitorRunner; no new scheduler.
 //
-// Status semantics:
-//   - ok           — verified within 24h AND 24h success rate >=95%
-//   - stale        — 24h success rate 80-95%, OR last_seen_ok >24h ago
-//   - unreachable  — last_failure_kind=model_not_found (single sample) OR
-//                    24h success rate <80%
-//   - untested     — no samples ever
-//
-// last_failure_kind taxonomy (kept narrow, do not invent):
-//   - "" (cleared on success)
-//   - model_not_found  / not_found  — strong / medium signal, model-level
-//   - rate_limited / auth_failure   — INCONCLUSIVE, account-level; do not flip
-//                                     status, only refresh last_checked_at
-//   - upstream_5xx / network_error / bad_response_shape — soft signal, accumulate
+// Status and failure-kind semantics are owned by PricingAvailabilityService and
+// docs/approved/pricing-availability-source-of-truth.md. This table stores
+// observations; a request-level model_not_found is not provider-wide retirement.
 type ModelAvailability struct {
 	ent.Schema
 }

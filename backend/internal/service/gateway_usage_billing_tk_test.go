@@ -8,24 +8,25 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
-func TestTkRecordAvailabilitySuccessOutcome_NilSafe(t *testing.T) {
+func TestProtocolAvailabilitySuccess_NilSafe(t *testing.T) {
 	s := &GatewayService{}
 	require.NotPanics(t, func() {
-		s.tkRecordAvailabilitySuccessOutcome(context.Background(), nil, nil)
+		s.TKRecordProtocolOutcome(context.Background(), nil, protocolrouter.Plan{}, "", nil, nil)
 	})
 }
 
-func TestTkRecordAvailabilitySuccessOutcome_RecordsSuccess(t *testing.T) {
+func TestProtocolAvailabilitySuccess_RecordsSuccess(t *testing.T) {
 	avail, repo, _ := newAvailabilityTestService(t)
 	s := &GatewayService{tkPricingAvailability: avail}
 	account := &Account{ID: 9, Platform: PlatformAnthropic}
 	result := &ForwardResult{UpstreamModel: "claude-sonnet-4-5"}
 
-	s.tkRecordAvailabilitySuccessOutcome(context.Background(), account, result)
+	s.TKRecordProtocolOutcome(context.Background(), account, protocolrouter.Plan{}, "", result, nil)
 
 	st, err := repo.Get(context.Background(), PlatformAnthropic, "claude-sonnet-4-5")
 	require.NoError(t, err)

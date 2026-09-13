@@ -17,18 +17,9 @@ import (
 //
 // Design: docs/approved/pricing-availability-source-of-truth.md
 //
-// Population (PR-1): passive only — gateway forward path success/failure
-// emits RecordOutcome via 1-line hook in gateway_service.go recordUsageCore
-// + 3 handler taps. Active probes (PR-2) reuse ChannelMonitorRunner with
-// kind=system_availability rows.
-//
-// Failure-classification matrix (§1.3 of the approved doc) is the single
-// place that decides whether an upstream error reflects on the model
-// (model_not_found / not_found / 5xx / network) or on the account
-// (rate_limited / auth_failure). Account-level failures DO NOT pollute
-// sample counts — they only refresh last_checked_at to avoid reprobing
-// soon. This invariant is co-implemented with Account.RateLimitService;
-// do not duplicate cooldown logic here.
+// Protocol execution records one sample per completed forward attempt. Account
+// auth/quota is inconclusive; other failures describe observations, not global
+// model retirement. Only explicitly scoped, repeated provider evidence may prune.
 type PricingAvailabilityService struct {
 	repo  ModelAvailabilityRepository
 	clock func() time.Time // injected for tests
@@ -53,19 +44,24 @@ type AvailabilityOutcome struct {
 	Success            bool
 	UpstreamStatusCode int    // upstream HTTP status (0 if network error before response)
 	UpstreamErrorBody  string // truncated upstream error body, used to classify model_not_found
-	NetworkError       bool   // true on timeout / DNS / TLS errors (no HTTP response received)
+	// ProviderModelRetired is an attestation from provider-wide discovery/review,
+	// never inferred from a request on one account (including account-less probes).
+	// Two observations at distinct times are required before catalog pruning.
+	ProviderModelRetired bool
+	NetworkError         bool // true on timeout / DNS / TLS errors (no HTTP response received)
 }
 
 // FailureKind values are the canonical taxonomy. Any new kind requires
-// updating §1.3 of the approved doc.
+// updating the signal classification in the approved doc.
 const (
-	FailureKindModelNotFound = "model_not_found"
-	FailureKindNotFound      = "not_found"
-	FailureKindRateLimited   = "rate_limited"
-	FailureKindAuthFailure   = "auth_failure"
-	FailureKindUpstream5xx   = "upstream_5xx"
-	FailureKindNetworkError  = "network_error"
-	FailureKindBadRespShape  = "bad_response_shape"
+	FailureKindModelNotFound        = "model_not_found"
+	FailureKindProviderModelRetired = "provider_model_retired"
+	FailureKindNotFound             = "not_found"
+	FailureKindRateLimited          = "rate_limited"
+	FailureKindAuthFailure          = "auth_failure"
+	FailureKindUpstream5xx          = "upstream_5xx"
+	FailureKindNetworkError         = "network_error"
+	FailureKindBadRespShape         = "bad_response_shape"
 )
 
 // AvailabilityStatus is the canonical 4-value enum mirrored in the DB.
@@ -197,6 +193,9 @@ func (s *PricingAvailabilityService) RecordOutcome(ctx context.Context, outcome 
 
 		default:
 			kind := classifyFailureKind(outcome)
+			if kind == FailureKindModelNotFound && outcome.ProviderModelRetired && outcome.AccountID == 0 {
+				kind = FailureKindProviderModelRetired
+			}
 			next.LastFailureKind = kind
 			next.LastFailureAt = availabilityPtrTime(now)
 
@@ -206,10 +205,17 @@ func (s *PricingAvailabilityService) RecordOutcome(ctx context.Context, outcome 
 				// pollute sample counts; only the last_checked_at refresh
 				// (above) prevents the seeder from reprobing too eagerly.
 				// Status remains whatever it was.
-			case FailureKindModelNotFound:
-				// STRONG signal: single sample is enough.
-				next.SampleTotal24h = next.SampleTotal24h + 1
-				next.Status = AvailabilityStatusUnreachable
+			case FailureKindProviderModelRetired:
+				// The persistent kind separates an attested provider observation from
+				// legacy account 404 rows. Never promote accumulated request failures.
+				next.SampleTotal24h++
+				next.LastAccountID = nil
+				next.Status = AvailabilityStatusStale
+				if cur.LastFailureKind == kind && cur.LastFailureAt != nil &&
+					(now.After(*cur.LastFailureAt) || cur.Status == AvailabilityStatusUnreachable) &&
+					!now.Before(*cur.LastFailureAt) && now.Sub(*cur.LastFailureAt) < AvailabilityRollingWindow {
+					next.Status = AvailabilityStatusUnreachable
+				}
 			default:
 				// not_found / upstream_5xx / network_error / bad_response_shape:
 				// soft accumulators. Re-derive status from rolling counters.
@@ -357,8 +363,8 @@ func rollWindowIfStale(s AvailabilityState, now time.Time) AvailabilityState {
 }
 
 // deriveStatus computes the canonical 4-value status from rolling window
-// counters + last_seen_ok_at. ModelNotFound is handled at the call site
-// (it short-circuits to unreachable before deriveStatus is consulted).
+// counters + last_seen_ok_at. Only attested provider retirement uses a separate
+// repeated-evidence decision; request-level model-not-found is a soft sample.
 func deriveStatus(s AvailabilityState, now time.Time) string {
 	if s.SampleTotal24h <= 0 && s.LastSeenOKAt == nil {
 		return AvailabilityStatusUntested
@@ -398,7 +404,7 @@ func classifyFailureKind(o AvailabilityOutcome) string {
 			(strings.Contains(body, "model") && strings.Contains(body, "not supported")) ||
 			// 通用 "model ... not found" / "model not found"
 			(strings.Contains(body, "model") &&
-				(strings.Contains(body, "not found") || strings.Contains(body, "not_found")))):
+				(strings.Contains(body, "not found") || strings.Contains(body, "not_found") || strings.Contains(body, "retired")))):
 		return FailureKindModelNotFound
 	case o.UpstreamStatusCode == 404:
 		return FailureKindNotFound

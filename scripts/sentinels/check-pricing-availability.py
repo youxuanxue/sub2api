@@ -21,13 +21,9 @@ Usage:
   python3 scripts/sentinels/check-pricing-availability.py --json
 
 Why this exists:
-  The pricing-availability failure taps (TkRecordFailureFromErr calls) and the
-  success tap (gateway_service.go RecordOutcome) are 1-line injections in
-  upstream-shaped files. A future `git merge upstream/main` that modifies the
-  error-handling sections could silently drop these hooks without any test
-  failure, because the injections are in production control flow that unit tests
-  don't exercise end-to-end. This script upgrades the protection from
-  "code-reviewer must remember" to "preflight will fail".
+  The shared protocol outcome writer and its executor/legacy call sites must
+  survive upstream merges. Focused HTTP tests exercise failover reachability;
+  this registry also protects the production wiring and evidence-scope owners.
 
   See docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner and
   CLAUDE.md §「升级原则」.

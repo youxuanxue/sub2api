@@ -72,7 +72,7 @@ func TestMePricingMenuBatchesAvailabilityAndReusesInputs(t *testing.T) {
 		accounts[i] = Account{ID: int64(i + 1), Platform: PlatformOpenAI, Type: "apikey", Credentials: map[string]any{"model_mapping": mapping}}
 	}
 	repo := &countedMenuAvailabilityRepo{memoryAvailabilityRepo: newMemoryRepo()}
-	seedAvail(repo.memoryAvailabilityRepo, PlatformOpenAI, ids[0], AvailabilityStatusUnreachable, FailureKindModelNotFound)
+	seedAvail(repo.memoryAvailabilityRepo, PlatformOpenAI, ids[0], AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
 	seedAvail(repo.memoryAvailabilityRepo, PlatformOpenAI, ids[1], AvailabilityStatusUnreachable, FailureKindUpstream5xx)
 	svc := newServiceWithAccounts(&fakeKeyAccess{groups: groups}, nil, nil, &fakeAccountSource{accounts: accounts})
 	svc.catalog, svc.channels = catalog, channels
@@ -87,7 +87,7 @@ func TestMePricingMenuBatchesAvailabilityAndReusesInputs(t *testing.T) {
 	for _, model := range response.Models {
 		require.Len(t, model.AuthorizedGroups, len(groups))
 	}
-	seedAvail(repo.memoryAvailabilityRepo, PlatformOpenAI, ids[2], AvailabilityStatusUnreachable, FailureKindModelNotFound)
+	seedAvail(repo.memoryAvailabilityRepo, PlatformOpenAI, ids[2], AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
 	response, err = svc.BuildForUser(context.Background(), 1, MePricingCatalogOptions{})
 	require.NoError(t, err)
 	require.Equal(t, []string{ids[1]}, modelIDsOf(response.Models), "the next request must see updated retirement evidence")

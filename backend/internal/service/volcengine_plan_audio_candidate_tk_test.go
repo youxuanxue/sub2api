@@ -64,9 +64,6 @@ func TestVolcEnginePlanASRHoldMatchesDurationSettlement(t *testing.T) {
 
 func TestVolcEnginePlanAudioCatalogUsesSettlementUnits(t *testing.T) {
 	catalog := &PricingCatalogService{}
-	catalog.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return tkPricingOverlayRaw, time.Now(), true
-	})
 	response := catalog.BuildPublicCatalog(context.Background())
 	found := false
 	for _, model := range response.Data {
@@ -87,9 +84,6 @@ func TestVolcEnginePlanAudioCatalogUsesSettlementUnits(t *testing.T) {
 
 func TestVolcEnginePlanEmbeddingCatalogPreservesBothInputPrices(t *testing.T) {
 	catalog := &PricingCatalogService{}
-	catalog.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return tkPricingOverlayRaw, time.Now(), true
-	})
 	for _, model := range catalog.BuildPublicCatalog(context.Background()).Data {
 		if model.ModelID != "doubao-embedding-vision" {
 			continue

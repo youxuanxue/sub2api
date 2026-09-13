@@ -11,14 +11,14 @@ import (
 )
 
 // TK (us7 P0 2026-06-13): the catalog self-heal. A model the upstream rejects as
-// not-found (model_not_found → unreachable) is "structurally gone" and must drop
+// not-found (provider_model_retired → unreachable) is "structurally gone" and must drop
 // from the servable surfaces (public /pricing + Your-Menu) WITHOUT a manual
 // allowlist edit; a model with TRANSIENT trouble (5xx/network) is "degraded" and
 // must STAY listed with its badge so the storefront does not flap.
 func TestTkAvailabilityStructurallyGone(t *testing.T) {
 	require.True(t, tkAvailabilityStructurallyGone(AvailabilityState{
-		Status: AvailabilityStatusUnreachable, LastFailureKind: FailureKindModelNotFound,
-	}), "unreachable via model_not_found = gone")
+		Status: AvailabilityStatusUnreachable, LastFailureKind: FailureKindProviderModelRetired,
+	}), "confirmed provider retirement = gone")
 
 	require.False(t, tkAvailabilityStructurallyGone(AvailabilityState{
 		Status: AvailabilityStatusUnreachable, LastFailureKind: FailureKindUpstream5xx,
@@ -32,7 +32,7 @@ func TestTkAvailabilityStructurallyGone(t *testing.T) {
 		"untested (zero value) = keep, never hide an unprobed model")
 
 	require.False(t, tkAvailabilityStructurallyGone(AvailabilityState{
-		Status: AvailabilityStatusStale, LastFailureKind: FailureKindModelNotFound,
+		Status: AvailabilityStatusStale, LastFailureKind: FailureKindProviderModelRetired,
 	}), "stale (not unreachable) = keep — only a current unreachable hides")
 }
 
@@ -46,7 +46,7 @@ func TestDecorateAndPruneByAvailability(t *testing.T) {
 	svc, repo, _ := newAvailabilityTestService(t)
 	anthropic := firstNPlatformServableIDsForSelfHealTest(t, PlatformAnthropic, 3)
 	gone, degraded, untested := anthropic[0], anthropic[1], anthropic[2]
-	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindModelNotFound)
+	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
 	seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
 
 	resp := &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{
@@ -76,7 +76,7 @@ func TestMePricingPruneStructurallyGoneIDs(t *testing.T) {
 	svc, repo, _ := newAvailabilityTestService(t)
 	anthropic := firstNPlatformServableIDsForSelfHealTest(t, PlatformAnthropic, 3)
 	gone, degraded, untested := anthropic[0], anthropic[1], anthropic[2]
-	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindModelNotFound)
+	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
 	seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
 
 	// *PricingAvailabilityService satisfies MePricingAvailability.

@@ -10,30 +10,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/stretchr/testify/require"
 )
 
-// TestTkRecordFailureFromErr_NilGuards proves the nil receivers must not panic
+// TestProtocolAvailabilityFailure_NilGuards proves the nil receivers must not panic
 // (callers in production share the helper across many handler paths; one
 // segfault in a forward error path would brick that handler).
-func TestTkRecordFailureFromErr_NilGuards(t *testing.T) {
+func TestProtocolAvailabilityFailure_NilGuards(t *testing.T) {
 	require.NotPanics(t, func() {
-		TkRecordFailureFromErr(nil, context.Background(), "openai", "gpt-4o", 1, errors.New("any"))
+		recordProtocolFailureForTest(nil, context.Background(), "openai", "gpt-4o", 1, errors.New("any"))
 	})
 	// non-nil svc + nil err = no-op (no spurious record)
 	require.NotPanics(t, func() {
-		TkRecordFailureFromErr(&service.GatewayService{}, context.Background(), "openai", "gpt-4o", 1, nil)
+		recordProtocolFailureForTest(&service.GatewayService{}, context.Background(), "openai", "gpt-4o", 1, nil)
 	})
 }
 
-// TestTkRecordFailureFromErr_ExtractsAndClassifies is the regression pin for
-// R-004. End-to-end: handler helper → real PricingAvailabilityService →
-// in-memory repo. Verifies that a real Gemini 404 model_not_found body wrapped
-// in *UpstreamFailoverError flips the cell to unreachable in a single sample,
-// which is the §1.3 invariant the previous statusCode=0 implementation broke.
-func TestTkRecordFailureFromErr_ExtractsAndClassifies(t *testing.T) {
+// Preserve upstream status/body classification through wrapped executor errors.
+func TestProtocolAvailabilityFailure_ExtractsAndClassifies(t *testing.T) {
 	cases := []struct {
 		name              string
 		statusCode        int
@@ -81,7 +78,7 @@ func TestTkRecordFailureFromErr_ExtractsAndClassifies(t *testing.T) {
 			}
 			wrapped := fmt.Errorf("forward failed at attempt 2: %w", foErr)
 
-			TkRecordFailureFromErr(gw, context.Background(), "openai", "gpt-9", 42, wrapped)
+			recordProtocolFailureForTest(gw, context.Background(), "openai", "gpt-9", 42, wrapped)
 
 			state := repo.get("openai", "gpt-9")
 			require.Equal(t, tc.expectedStatus, state.Status, "availability status")
@@ -93,21 +90,18 @@ func TestTkRecordFailureFromErr_ExtractsAndClassifies(t *testing.T) {
 	}
 }
 
-// TestTkRecordFailureFromErr_FallbackForNonFailoverError documents the
-// pre-flight / before-forward error path: the err did not observe any upstream
-// response, so statusCode stays 0. The classifier falls through to upstream_5xx
-// (default soft path) — correct "no upstream signal" behavior.
-func TestTkRecordFailureFromErr_FallbackForNonFailoverError(t *testing.T) {
+// Local errors without upstream evidence must not affect model health.
+func TestProtocolAvailabilityFailure_FallbackForNonFailoverError(t *testing.T) {
 	repo := newCapturedRepo()
 	availSvc := service.NewPricingAvailabilityService(repo, time.Now)
 	gw := &service.GatewayService{}
 	gw.SetPricingAvailabilityService(availSvc)
 
 	plain := errors.New("connection refused before forward")
-	TkRecordFailureFromErr(gw, context.Background(), "openai", "gpt-9", 7, plain)
+	recordProtocolFailureForTest(gw, context.Background(), "openai", "gpt-9", 7, plain)
 
 	state := repo.get("openai", "gpt-9")
-	require.Equal(t, service.FailureKindUpstream5xx, state.LastFailureKind)
+	require.Equal(t, "", state.LastFailureKind)
 	// No upstream status was observed → UpstreamStatusCodeLast must remain unset.
 	require.Nil(t, state.UpstreamStatusCodeLast)
 }
@@ -143,4 +137,9 @@ func (r *capturedRepo) get(p, m string) service.AvailabilityState {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.rows[r.key(p, m)]
+}
+
+func recordProtocolFailureForTest(svc *service.GatewayService, ctx context.Context, platform, model string, accountID int64, err error) {
+	request, _ := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{InboundProtocol: protocolrouter.ProtocolChatCompletions, RequestedModel: model, Body: []byte(`{}`)})
+	svc.TKRecordProtocolOutcome(ctx, &service.Account{ID: accountID, Platform: platform}, protocolrouter.Plan{}, request.RequestedModel(), nil, err)
 }

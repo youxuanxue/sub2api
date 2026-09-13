@@ -8,25 +8,11 @@ package service
 // deferred to a follow-up PR per the design v1 deferred section, because they
 // require an Ent schema migration (visible_in_catalog on Group).
 //
-// Why a separate service rather than reusing PricingService directly?
-//   - The file-source parser supplies compatibility metadata, while the complete
-//     registry snapshot always owns displayed price dimensions. This keeps
-//     billing and display on the same atomic price decision.
-//   - Catalog has its own caching cadence (mtime-based) and its own DTO shape;
-//     keeping it isolated minimizes upstream merge conflicts (rule §5).
-//
-// Source resolution:
-//   1) cfg.Pricing.DataDir/model_pricing.json (live data refreshed by PricingService)
-//   2) cfg.Pricing.FallbackFile (bundled at backend/resources/model-pricing/...)
-//   3) Empty list (never 500) — see US-028 AC-005.
+// The DTO and presentation policies are separate from billing, but both read
+// the same complete registry snapshot. External price feeds are sensors only.
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"io"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -67,7 +53,7 @@ type PublicCatalogAvailability struct {
 	// Status is the canonical 4-value verdict:
 	//   ok          — verified within StaleAfter AND success rate >=95%
 	//   stale       — verified but >StaleAfter ago, OR success rate 80-95%
-	//   unreachable — model_not_found or rate < 80%
+	//   unreachable — confirmed provider retirement or success rate < 80%
 	//   untested    — no samples yet (gray dot in UI)
 	Status         string     `json:"status"`
 	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
@@ -194,127 +180,67 @@ type catalogRichEntry struct {
 	SupportsWebSearch           bool     `json:"supports_web_search"`
 }
 
-// CatalogSource returns the raw pricing JSON bytes plus the modification time
-// of the underlying file (or zero when unknown). Returning ok=false signals an
-// empty/degraded source — the catalog will be an empty list (200 OK), never a
-// 500, per US-028 AC-005.
-type CatalogSource func() (data []byte, modTime time.Time, ok bool)
-
-// PricingCatalogService produces the public catalog DTO and caches the result
-// keyed by source mtime. Safe for concurrent use.
+// PricingCatalogService projects one immutable active registry snapshot. Prices,
+// metadata, aliases and membership rotate together; sensor files are not inputs.
 type PricingCatalogService struct {
-	source CatalogSource
-
-	mu         sync.RWMutex
-	cached     *PublicCatalogResponse
-	cachedMt   time.Time
-	cachedTk   *tkPricingOverlaySnapshot
-	cachedData []byte
+	mu       sync.RWMutex
+	cached   *PublicCatalogResponse
+	cachedTk *tkPricingOverlaySnapshot
 }
 
-// NewPricingCatalogService wires the default source: live data file in
-// cfg.Pricing.DataDir, falling back to the bundled fallback file. cfg may be
-// nil — the source then degrades to "no data", and BuildPublicCatalog returns
-// an empty list (which is the correct behavior per AC-005).
-func NewPricingCatalogService(cfg *config.Config) *PricingCatalogService {
-	return &PricingCatalogService{source: defaultCatalogSource(cfg)}
+// Keep the constructor signature stable for Wire; registry loading is owned by
+// PricingService, including embedded fallback and runtime replacement.
+func NewPricingCatalogService(_ *config.Config) *PricingCatalogService {
+	return &PricingCatalogService{}
 }
 
-// SetSourceForTesting overrides the source provider. This is the seam tests
-// use to inject fixture pricing JSON without touching the filesystem.
-func (s *PricingCatalogService) SetSourceForTesting(src CatalogSource) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.source = src
-	s.cached = nil
-	s.cachedMt = time.Time{}
-	s.cachedTk = nil
-	s.cachedData = nil
-	s.mu.Unlock()
-}
-
-// InvalidateCache drops the cached catalog so the next BuildPublicCatalog
-// re-parses + re-applies the active registry. The cache keys on the compatibility
-// source file's mtime, so a registry hot change would otherwise serve stale prices.
-// The runtime registry
-// reload (pricing_service_tk_overlay_runtime.go) calls this after a swap. Nil-safe.
 func (s *PricingCatalogService) InvalidateCache() {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
-	s.cached = nil
-	s.cachedMt = time.Time{}
-	s.cachedTk = nil
-	s.cachedData = nil
+	s.cached, s.cachedTk = nil, nil
 	s.mu.Unlock()
 }
 
-// BuildPublicCatalog returns the catalog DTO. Callers must not mutate the
-// returned response — it may be shared across requests via the internal cache.
-//
-// Behavior:
-//   - source unavailable / unreadable / empty bytes → returns empty list (never error).
-//   - source mtime unchanged since last build → returns cached response.
-//   - source mtime advanced or first call → re-parse, cache, return.
-func (s *PricingCatalogService) BuildPublicCatalog(ctx context.Context) *PublicCatalogResponse {
+// BuildPublicCatalog returns a shared immutable DTO. Registry absence produces
+// an empty list; missing or malformed sensor files cannot empty a healthy catalog.
+func (s *PricingCatalogService) BuildPublicCatalog(_ context.Context) *PublicCatalogResponse {
 	if s == nil {
 		return emptyPublicCatalog(time.Now().UTC())
 	}
-	_ = ctx
-
 	for {
+		snapshot := loadTKPricingOverlaySnapshot()
 		s.mu.RLock()
-		src := s.source
+		cached, cachedTk := s.cached, s.cachedTk
 		s.mu.RUnlock()
-
-		if src == nil {
-			return emptyPublicCatalog(time.Now().UTC())
-		}
-
-		data, modTime, ok := src()
-		if !ok || len(data) == 0 {
-			return emptyPublicCatalog(time.Now().UTC())
-		}
-
-		registrySnapshot := loadTKPricingOverlaySnapshot()
-		s.mu.RLock()
-		cached := s.cached
-		cachedMt := s.cachedMt
-		cachedTk := s.cachedTk
-		cachedData := s.cachedData
-		s.mu.RUnlock()
-		if cached != nil && cachedTk == registrySnapshot && !modTime.IsZero() && modTime.Equal(cachedMt) && bytes.Equal(data, cachedData) {
+		if cached != nil && cachedTk == snapshot {
 			return cached
 		}
-
-		resp := buildCatalogFromBytes(data, modTime)
-		// Enrich only a healthy (non-degraded) catalog: a garbage/empty source yields
-		// an empty list and must STAY empty (AC-005 degraded→empty / 200-not-500
-		// contract) rather than surfacing a partial registry-only catalog.
-		if len(resp.Data) > 0 {
-			applyCatalogRegistrySnapshot(resp, registrySnapshot)
-		}
+		resp := emptyPublicCatalog(time.Now().UTC())
+		applyCatalogRegistrySnapshot(resp, snapshot)
 		resp.membership = buildCatalogMembershipIndex(resp.Data)
-
-		if s.storeCatalogIfSnapshotCurrent(resp, modTime, registrySnapshot, data) {
+		if snapshot != nil {
+			for alias, owner := range snapshot.Aliases {
+				if i, ok := resp.membership.literal[owner]; ok {
+					resp.membership.literal[alias] = i
+					resp.membership.fallback[alias] = i
+				}
+			}
+		}
+		if s.storeCatalogIfSnapshotCurrent(resp, snapshot) {
 			return resp
 		}
 	}
 }
 
-func (s *PricingCatalogService) storeCatalogIfSnapshotCurrent(resp *PublicCatalogResponse, modTime time.Time, snapshot *tkPricingOverlaySnapshot, sourceData []byte) bool {
+func (s *PricingCatalogService) storeCatalogIfSnapshotCurrent(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if loadTKPricingOverlaySnapshot() != snapshot {
 		return false
 	}
-	s.cached = resp
-	s.cachedMt = modTime
-	s.cachedTk = snapshot
-	s.cachedData = sourceData
+	s.cached, s.cachedTk = resp, snapshot
 	return true
 }
 
@@ -326,81 +252,27 @@ func emptyPublicCatalog(updatedAt time.Time) *PublicCatalogResponse {
 	}
 }
 
-// buildCatalogFromBytes is the pure parsing function — exported via package
-// boundaries only for testing in pricing_catalog_tk_test.go. Robust to JSON
-// malformations: an unparseable top-level returns empty; per-entry parse
-// failures are skipped silently.
-func buildCatalogFromBytes(data []byte, modTime time.Time) *PublicCatalogResponse {
-	updatedAt := modTime
-	if updatedAt.IsZero() {
-		updatedAt = time.Now().UTC()
-	} else {
-		updatedAt = updatedAt.UTC()
-	}
-
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return emptyPublicCatalog(updatedAt)
-	}
-
-	models := make([]PublicCatalogModel, 0, len(raw))
-	for name, rawEntry := range raw {
-		if name == "" || name == "sample_spec" {
-			continue
-		}
-		var e catalogRichEntry
-		if err := json.Unmarshal(rawEntry, &e); err != nil {
-			continue
-		}
-		// Keep token-priced entries AND true media entries (per-image / per-second).
-		// Media has no token price, so the original token-only guard dropped the
-		// entire imagen-*/veo-*/seedream/seedance family. Chat rows may also
-		// carry image-related price fields; those must not surface as empty
-		// catalog rows unless they have token prices.
-		if e.InputCostPerToken == nil && e.OutputCostPerToken == nil && catalogMediaBillingMode(&e) == "" {
-			continue
-		}
-		models = append(models, catalogModelFromEntry(name, &e))
-	}
-
-	sort.Slice(models, func(i, j int) bool {
-		return models[i].ModelID < models[j].ModelID
-	})
-
-	return &PublicCatalogResponse{
-		Object:    "list",
-		Data:      models,
-		UpdatedAt: updatedAt,
-	}
-}
-
 // applyCatalogOverlayPricingFromSnapshot projects the active complete registry onto the
-// public catalog. The file source may still supply compatibility rows, but it is
-// sensor evidence only: even a non-zero external price cannot override the
-// registry. Channel pricing remains a separately scoped higher-priority tier in
+// public catalog. Replacement is exact: removed registry rows cannot survive
+// as executable prices from a legacy sensor file. Channel pricing remains a separately scoped higher-priority tier in
 // the per-user menu and billing resolver.
 func applyCatalogOverlayPricingFromSnapshot(resp *PublicCatalogResponse, snapshot *tkPricingOverlaySnapshot) {
 	if resp == nil {
 		return
 	}
+	resp.Data = nil
 	if snapshot == nil {
+		resp.Data = []PublicCatalogModel{}
 		return
 	}
 	overlay := snapshot.Models
-	if len(overlay) == 0 {
-		return
-	}
-	seen := make(map[string]int, len(resp.Data))
-	for i := range resp.Data {
-		seen[resp.Data[i].ModelID] = i
-	}
+	resp.Data = make([]PublicCatalogModel, 0, len(overlay))
 	names := make([]string, 0, len(overlay))
 	for name := range overlay {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
-	appended := false
 	for _, name := range names {
 		p := overlay[name]
 		if p == nil {
@@ -414,18 +286,7 @@ func applyCatalogOverlayPricingFromSnapshot(resp *PublicCatalogResponse, snapsho
 			continue
 		}
 		projected := catalogModelFromRegistry(name, p)
-		if idx, ok := seen[name]; ok {
-			projected.Availability = resp.Data[idx].Availability
-			resp.Data[idx] = projected
-			continue
-		}
 		resp.Data = append(resp.Data, projected)
-		appended = true
-	}
-	if appended {
-		sort.Slice(resp.Data, func(i, j int) bool {
-			return resp.Data[i].ModelID < resp.Data[j].ModelID
-		})
 	}
 }
 
@@ -717,56 +578,4 @@ func catalogCapabilities(e *catalogRichEntry) []string {
 		caps = append(caps, "web_search")
 	}
 	return caps
-}
-
-// defaultCatalogSource returns a CatalogSource that resolves the live data
-// file first, then the bundled fallback. cfg may be nil during unusual
-// bootstrap; in that case the source returns ok=false (empty catalog).
-func defaultCatalogSource(cfg *config.Config) CatalogSource {
-	var mu sync.Mutex
-	var cachedPath string
-	var cachedInfo os.FileInfo
-	var cachedBody []byte
-	return func() ([]byte, time.Time, bool) {
-		if cfg == nil {
-			return nil, time.Time{}, false
-		}
-		candidates := make([]string, 0, 2)
-		if cfg.Pricing.DataDir != "" {
-			candidates = append(candidates, filepath.Join(cfg.Pricing.DataDir, "model_pricing.json"))
-		}
-		if cfg.Pricing.FallbackFile != "" {
-			candidates = append(candidates, cfg.Pricing.FallbackFile)
-		}
-		mu.Lock()
-		defer mu.Unlock()
-		for _, p := range candidates {
-			// Open every time so deleted or unreadable sources still fall back
-			// immediately; unchanged files need no full-file read or allocation.
-			file, err := os.Open(p)
-			if err != nil {
-				continue
-			}
-			info, statErr := file.Stat()
-			if statErr == nil && cachedInfo != nil && p == cachedPath &&
-				os.SameFile(info, cachedInfo) && info.ModTime().Equal(cachedInfo.ModTime()) &&
-				info.Size() == cachedInfo.Size() && info.Mode() == cachedInfo.Mode() {
-				_ = file.Close()
-				return cachedBody, info.ModTime(), true
-			}
-			body, err := io.ReadAll(file)
-			_ = file.Close()
-			if err != nil {
-				continue
-			}
-			var modTime time.Time
-			if statErr == nil {
-				modTime = info.ModTime()
-			}
-			cachedPath, cachedInfo, cachedBody = p, info, body
-			return body, modTime, true
-		}
-		cachedPath, cachedInfo, cachedBody = "", nil, nil
-		return nil, time.Time{}, false
-	}
 }

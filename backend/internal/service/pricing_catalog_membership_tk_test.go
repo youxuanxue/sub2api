@@ -4,7 +4,6 @@ package service
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -29,29 +28,14 @@ func TestIsModelPriced_EmptyModelID(t *testing.T) {
 		"whitespace-only modelID must return false")
 }
 
-func TestIsModelPriced_ColdCatalog(t *testing.T) {
-	// nil config → defaultCatalogSource → ok=false → empty catalog
+func TestIsModelPriced_EmbeddedRegistryWithoutConfig(t *testing.T) {
+	// Embedded registry remains authoritative without a sensor config.
 	svc := NewPricingCatalogService(nil)
-	require.False(t, svc.IsModelPriced("claude-3-opus-20240229", "anthropic"),
-		"cold catalog (no data source) must return false")
+	require.True(t, svc.IsModelPriced("claude-3-opus-20240229", "anthropic"))
 }
 
 func TestIsModelPriced_WithFixtureData(t *testing.T) {
 	svc := NewPricingCatalogService(nil)
-	svc.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{
-			"claude-3-opus-20240229": {
-				"input_cost_per_token": 0.000015,
-				"output_cost_per_token": 0.000075,
-				"litellm_provider": "anthropic"
-			},
-			"gpt-4o": {
-				"input_cost_per_token": 0.000005,
-				"output_cost_per_token": 0.000015,
-				"litellm_provider": "openai"
-			}
-		}`), time.Now(), true
-	})
 
 	require.True(t, svc.IsModelPriced("claude-3-opus-20240229", "anthropic"))
 	require.True(t, svc.IsModelPriced("gpt-4o", "openai"))
@@ -68,25 +52,6 @@ func TestIsModelPriced_WithFixtureData(t *testing.T) {
 // upstream models" UI.
 func TestIsModelPriced_VendorPrefixFallback(t *testing.T) {
 	svc := NewPricingCatalogService(nil)
-	svc.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{
-			"claude-3-haiku-20240307": {
-				"input_cost_per_token": 0.00000025,
-				"output_cost_per_token": 0.00000125,
-				"litellm_provider": "anthropic"
-			},
-			"claude-opus-4-5-20251001": {
-				"input_cost_per_token": 0.000015,
-				"output_cost_per_token": 0.000075,
-				"litellm_provider": "anthropic"
-			},
-			"gpt-4o-mini": {
-				"input_cost_per_token": 0.00000015,
-				"output_cost_per_token": 0.0000006,
-				"litellm_provider": "openai"
-			}
-		}`), time.Now(), true
-	})
 
 	// Vendor prefix + date-suffix prefix match.
 	require.True(t, svc.IsModelPriced("anthropic/claude-3-haiku", "newapi"),
@@ -118,20 +83,6 @@ func TestIsModelPriced_VendorPrefixFallback(t *testing.T) {
 // concrete model id).
 func TestIsModelPriced_VendorPrefixDoesNotLeakAcrossFamilies(t *testing.T) {
 	svc := NewPricingCatalogService(nil)
-	svc.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{
-			"gpt-4o-mini": {
-				"input_cost_per_token": 0.00000015,
-				"output_cost_per_token": 0.0000006,
-				"litellm_provider": "openai"
-			},
-			"claude-3-haiku-20240307": {
-				"input_cost_per_token": 0.00000025,
-				"output_cost_per_token": 0.00000125,
-				"litellm_provider": "anthropic"
-			}
-		}`), time.Now(), true
-	})
 
 	// Family-only tails (no "-") must not prefix-match any catalog id.
 	require.False(t, svc.IsModelPriced("openai/gpt", "newapi"),
@@ -151,15 +102,8 @@ func TestIsModelPriced_VendorPrefixDoesNotLeakAcrossFamilies(t *testing.T) {
 }
 
 func TestIsModelPriced_RejectsUnlistedNewAPILongTail(t *testing.T) {
-	const fixture = `{
-	  "deepseek-v4-pro": {"input_cost_per_token":0.000000435,"output_cost_per_token":0.00000087,"litellm_provider":"deepseek"},
-	  "deepseek-v3-2-251201": {"input_cost_per_token":0.0,"output_cost_per_token":0.0,"litellm_provider":"volcengine"},
-	  "glm-4-32b-0414-128k": {"input_cost_per_token":0.0000001,"output_cost_per_token":0.0000001,"litellm_provider":"zhipu"}
-	}`
+
 	svc := &PricingCatalogService{}
-	svc.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), true
-	})
 
 	require.True(t, svc.IsModelPriced("deepseek-v4-pro", "newapi"))
 	require.False(t, svc.IsModelPriced("deepseek-v3-2-251201", "newapi"),

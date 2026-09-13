@@ -47,14 +47,14 @@ for (const width of [1280, 390]) {
     await keySelect.selectOption('43')
     await expect(row(universalModel)).toHaveCount(1)
     await expect(row(directModel)).toHaveCount(1)
-    for (const kind of ['rate_limited', 'auth_failure', 'upstream_5xx', 'model_not_found', '']) {
+    for (const kind of ['rate_limited', 'auth_failure', 'upstream_5xx', 'model_not_found', 'provider_model_retired', '']) {
       failureKind = kind
       const catalogLoaded = page.waitForResponse(response => response.url().includes('/api/v1/me/pricing-catalog'))
       await page.reload()
       expect((await catalogLoaded).ok()).toBe(true)
       await expect(keySelect).toBeVisible()
       await keySelect.selectOption('43')
-      const expected = kind === 'model_not_found' ? 0 : 1
+      const expected = kind === 'provider_model_retired' ? 0 : 1
       if (expected === 0) {
         await expect(page.getByText('This group has no models yet', { exact: true })).toBeVisible()
       } else {

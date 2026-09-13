@@ -4,7 +4,7 @@ package service
 
 // US-028 service-level coverage for PricingCatalogService.
 // The handler tests (backend/internal/handler/us028_*) cover the HTTP contract;
-// these tests cover the parser and mtime-cache behaviors that the handler
+// these tests cover registry projections and snapshot caching that the handler
 // can't see through its interface seam.
 
 import (
@@ -153,9 +153,6 @@ func TestPublicCatalog_SurfacesEmbeddingBillingMode(t *testing.T) {
 func TestPublicCatalog_EmbeddingsFollowManifestDisplayIntent(t *testing.T) {
 	t.Parallel()
 	catalog := &PricingCatalogService{}
-	catalog.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(litellmFixtureJSON), time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC), true
-	})
 	full := catalog.BuildPublicCatalog(context.Background())
 	require.NotNil(t, full)
 	public := FilterPublicCatalogToServable(full)
@@ -258,31 +255,8 @@ func TestUS043_PublicCatalogSurfacesImageTokenSettlementDimensions(t *testing.T)
 func TestPricingCatalogService_AppliesTKOverlayPricing(t *testing.T) {
 	// Healthy source: one base model + deepseek-v4-flash at a deliberately absurd
 	// price so the assertion proves the registry wins over provider evidence.
-	const fixture = `{
-	  "claude-opus-5": {
-	    "input_cost_per_token": 0.000005,
-	    "output_cost_per_token": 0.000025,
-	    "cache_creation_input_token_cost": 0.00000625,
-	    "cache_read_input_token_cost": 0.0000005,
-	    "litellm_provider": "anthropic",
-	    "mode": "chat",
-	    "max_input_tokens": 1000000,
-	    "max_output_tokens": 128000,
-	    "supports_prompt_caching": true,
-	    "supports_function_calling": true,
-	    "supports_tool_choice": true,
-	    "supports_vision": true,
-	    "supports_pdf_input": true,
-	    "supports_reasoning": true,
-	    "supports_response_schema": true
-	  },
-	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-	  "deepseek-v4-flash": {"input_cost_per_token":0.999,"output_cost_per_token":0.999,"litellm_provider":"deepseek"}
-	}`
+
 	s := &PricingCatalogService{}
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), true
-	})
 
 	resp := s.BuildPublicCatalog(context.Background())
 	require.NotNil(t, resp)
@@ -394,14 +368,7 @@ func TestUS043_CatalogCacheKeysActiveRegistrySnapshot(t *testing.T) {
 		tkOverlayMu.Unlock()
 	}
 
-	const fixture = `{
-	  "gpt-5.4": {"input_cost_per_token":0.99,"output_cost_per_token":0.99,"litellm_provider":"openai","mode":"chat"}
-	}`
-	modTime := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
 	service := &PricingCatalogService{}
-	service.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), modTime, true
-	})
 
 	setActive(snapshot(1e-6, "old"))
 	oldCatalog := service.BuildPublicCatalog(context.Background())
@@ -434,7 +401,7 @@ func TestUS043_CatalogProjectionUsesOneRegistrySnapshot(t *testing.T) {
 				}},
 			},
 			"veo-3.1-generate-001": {
-				LiteLLMProvider:     "deepseek",
+				LiteLLMProvider:     "gemini",
 				Mode:                "video_generation",
 				OutputCostPerSecond: 0.1,
 				VideoPriceTiers: []PricingVideoTier{{
@@ -449,6 +416,9 @@ func TestUS043_CatalogProjectionUsesOneRegistrySnapshot(t *testing.T) {
 			Rules: []tkOfficialListBaseTaxRule{{
 				Provider:      "deepseek",
 				ModelContains: []string{"deepseek"},
+			}, {
+				Provider:      "gemini",
+				ModelContains: []string{"veo"},
 			}},
 		},
 		DeepSeekPeakValley: &tkDeepSeekPeakValleyPolicy{
@@ -516,9 +486,7 @@ func TestUS043_CatalogRejectsCacheWriteFromSupersededSnapshot(t *testing.T) {
 	service := &PricingCatalogService{}
 	stored := service.storeCatalogIfSnapshotCurrent(
 		&PublicCatalogResponse{Data: []PublicCatalogModel{{ModelID: "old"}}},
-		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
 		oldSnapshot,
-		nil,
 	)
 	require.False(t, stored)
 	require.Nil(t, service.cached)
@@ -526,9 +494,7 @@ func TestUS043_CatalogRejectsCacheWriteFromSupersededSnapshot(t *testing.T) {
 
 	stored = service.storeCatalogIfSnapshotCurrent(
 		&PublicCatalogResponse{Data: []PublicCatalogModel{{ModelID: "new"}}},
-		time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC),
 		newSnapshot,
-		nil,
 	)
 	require.True(t, stored)
 	require.Equal(t, "new", service.cached.Data[0].ModelID)
@@ -539,19 +505,8 @@ func TestUS043_CatalogRejectsCacheWriteFromSupersededSnapshot(t *testing.T) {
 // stale litellm USD guesses for manifest-listed GLM models do not win over the
 // BigModel-sourced overlay (prod symptom: glm-5.2 at $1.4/$4.4 per Mtok).
 func TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay(t *testing.T) {
-	const fixture = `{
-	  "glm-5.2": {
-	    "input_cost_per_token": 1.4e-06,
-	    "output_cost_per_token": 4.4e-06,
-	    "cache_read_input_token_cost": 2.6e-07,
-	    "litellm_provider": "zhipu",
-	    "mode": "chat"
-	  }
-	}`
+
 	s := &PricingCatalogService{}
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC), true
-	})
 
 	resp := s.BuildPublicCatalog(context.Background())
 	require.NotNil(t, resp)
@@ -575,13 +530,8 @@ func TestPricingCatalogService_GLMLitellmMirrorOverriddenByBigModelOverlay(t *te
 // left untouched as the first-tier base. doubao-seed-2-0-pro-260215 carries a 3-tier
 // ladder in the compiled-in overlay.
 func TestPricingCatalogService_AttachesOverlayTiers(t *testing.T) {
-	const fixture = `{
-	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"}
-	}`
+
 	s := &PricingCatalogService{}
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC), true
-	})
 
 	resp := s.BuildPublicCatalog(context.Background())
 	require.NotNil(t, resp)
@@ -616,13 +566,8 @@ func TestPricingCatalogService_AttachesOverlayTiers(t *testing.T) {
 }
 
 func TestPricingCatalogService_AntigravityThinkingOverlaySurfaces(t *testing.T) {
-	const fixture = `{
-	  "gemini-2.5-flash": {"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000025,"cache_read_input_token_cost":0.00000003,"litellm_provider":"vertex_ai-language-models"}
-	}`
+
 	s := &PricingCatalogService{}
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), time.Date(2026, 6, 23, 0, 0, 0, 0, time.UTC), true
-	})
 
 	resp := FilterPublicCatalogToServable(s.BuildPublicCatalog(context.Background()))
 	require.NotNil(t, resp)
@@ -644,14 +589,8 @@ func TestPricingCatalogService_AntigravityThinkingOverlaySurfaces(t *testing.T) 
 // unknown-zero source row is replaced by the complete registry row, including
 // its catalog metadata.
 func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) {
-	const fixture = `{
-	  "gpt-5.4": {"input_cost_per_token":0.0000005,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-	  "deepseek-v4-pro": {"input_cost_per_token":0.0,"output_cost_per_token":0.0,"litellm_provider":"deepseek","max_input_tokens":65536,"max_output_tokens":8192}
-	}`
+
 	s := &PricingCatalogService{}
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC), true
-	})
 
 	resp := s.BuildPublicCatalog(context.Background())
 	require.NotNil(t, resp)
@@ -704,10 +643,7 @@ func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
 	  "glm-5-turbo":               {"input_cost_per_token":0.0000012,"output_cost_per_token":0.000004,"litellm_provider":"zhipu"},
 	  "minimax-m2.7":              {"input_cost_per_token":0.000001,"output_cost_per_token":0.000008,"litellm_provider":"minimax"}
 	}`, anthropicServable, openAIServable, geminiServable, deepSeekDisplayID)
-	s := &PricingCatalogService{}
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC), true
-	})
+	s := catalogFixtureForTest([]byte(fixture))
 	// BuildPublicCatalog is the full priced set (also backs IsModelPriced); the
 	// public /pricing presentation filter is FilterPublicCatalogToServable.
 	full := s.BuildPublicCatalog(context.Background())
@@ -749,10 +685,7 @@ func TestPublicCatalog_RetiredNativeIDsRequireAnotherDeclaredSupply(t *testing.T
 	  "gpt-5.6-terra": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
 	  "gpt-5.6-luna": {"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}
 	}`
-	s := &PricingCatalogService{}
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(fixture), time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC), true
-	})
+	s := catalogFixtureForTest([]byte(fixture))
 	full := s.BuildPublicCatalog(context.Background())
 	require.NotNil(t, full)
 	public := FilterPublicCatalogToServable(full)
@@ -780,9 +713,6 @@ func TestPublicCatalog_RetiredNativeIDsRequireAnotherDeclaredSupply(t *testing.T
 func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) {
 	t.Parallel()
 	s := &PricingCatalogService{}
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{"gpt-5.5":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}}`), time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC), true
-	})
 	full := s.BuildPublicCatalog(context.Background())
 	require.NotNil(t, full)
 	public := FilterPublicCatalogToServable(full)
@@ -965,62 +895,13 @@ func TestSupportedCatalogModelIDsForPlatform(t *testing.T) {
 	})
 }
 
-func TestPricingCatalogService_EmptyOrUnparseableSourceReturnsEmptyList(t *testing.T) {
-	cases := []struct {
-		name string
-		src  CatalogSource
-	}{
-		{
-			name: "ok=false (no data file)",
-			src:  func() ([]byte, time.Time, bool) { return nil, time.Time{}, false },
-		},
-		{
-			name: "ok=true but empty bytes",
-			src:  func() ([]byte, time.Time, bool) { return []byte{}, time.Now(), true },
-		},
-		{
-			name: "ok=true with garbage JSON",
-			src:  func() ([]byte, time.Time, bool) { return []byte(`not-json`), time.Now(), true },
-		},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			s := &PricingCatalogService{}
-			s.SetSourceForTesting(tc.src)
-			resp := s.BuildPublicCatalog(context.Background())
-			require.NotNil(t, resp, "must never return nil — handler depends on this for AC-005 200-not-500 path")
-			assert.Equal(t, "list", resp.Object)
-			assert.Empty(t, resp.Data, "degraded source must yield empty data, not 500")
-		})
-	}
-}
-
-func TestPricingCatalogService_CachesByMTime(t *testing.T) {
-	s := &PricingCatalogService{}
-	ts1 := time.Date(2026, 4, 22, 10, 0, 0, 0, time.UTC)
-	calls := 0
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		calls++
-		return []byte(litellmFixtureJSON), ts1, true
-	})
-
+func TestPricingCatalogService_CachesRegistrySnapshot(t *testing.T) {
+	s := NewPricingCatalogService(nil)
 	first := s.BuildPublicCatalog(context.Background())
-	second := s.BuildPublicCatalog(context.Background())
-
-	// Same mtime → second call must reuse the cached pointer (not just equal contents).
-	assert.Same(t, first, second, "same mtime must hit the in-memory cache (pointer equality)")
-	assert.Equal(t, 2, calls, "source closure is cheap and is still invoked to read mtime; cache decision is downstream")
-
-	// Bumping mtime invalidates the cache and produces a fresh response.
-	ts2 := ts1.Add(5 * time.Minute)
-	s.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(litellmFixtureJSON), ts2, true
-	})
-	third := s.BuildPublicCatalog(context.Background())
-	assert.NotSame(t, first, third, "advancing source mtime must invalidate cache")
-	assert.Equal(t, ts2, third.UpdatedAt)
+	require.NotEmpty(t, first.Data)
+	require.Same(t, first, s.BuildPublicCatalog(context.Background()))
+	s.InvalidateCache()
+	require.NotSame(t, first, s.BuildPublicCatalog(context.Background()))
 }
 
 func TestPricingCatalogService_NilReceiverIsSafe(t *testing.T) {

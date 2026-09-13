@@ -134,6 +134,8 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				transport := candidateNativeHTTPUpstream{baseURL: upstream.URL}
 				openai := service.NewOpenAIGatewayService(repo, usage, nil, userRepo, subRepo, nil, nil, cfg, nil, concurrency, billing, nil, billingCache, transport, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
 				gateway := service.NewGatewayService(repo, groupRepo, usage, nil, userRepo, subRepo, nil, nil, cfg, nil, concurrency, billing, nil, billingCache, nil, transport, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+				availabilityRepo := newCapturedRepo()
+				gateway.SetPricingAvailabilityService(service.NewPricingAvailabilityService(availabilityRepo, time.Now))
 				keyService := service.NewAPIKeyService(nil, userRepo, groupRepo, subRepo, nil, nil, cfg)
 				pr := service.NewProtocolRouter()
 				service.ProvideTKUniversalModelsProvider(keyService, gateway, nil, openai, pr)
@@ -172,6 +174,16 @@ func TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce(t *testing.T) {
 				case <-handlerDone:
 				case <-time.After(time.Second):
 					t.Fatal("handler did not finish after response")
+				}
+				if strings.HasPrefix(scenario, "overloaded") || scenario == "exhausted" {
+					evidence := availabilityRepo.get(service.PlatformNewAPI, "gpt-5.4")
+					if strings.HasSuffix(scenario, "exhausted") {
+						require.Equal(t, 3, evidence.SampleTotal24h, "every failed executor must be observed before failover returns")
+						require.Zero(t, evidence.SampleOK24h)
+					} else {
+						require.Equal(t, 2, evidence.SampleTotal24h, "one failed and one successful attempt; billing must not count again")
+						require.Equal(t, 1, evidence.SampleOK24h)
+					}
 				}
 				if strings.HasSuffix(scenario, "exhausted") {
 					require.GreaterOrEqual(t, res.StatusCode, 500, string(response))
