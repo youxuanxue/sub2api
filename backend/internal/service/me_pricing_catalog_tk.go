@@ -488,6 +488,12 @@ func (s *MePricingCatalogService) BuildForUser(
 			for _, model := range catalog.Data {
 				metadata[model.ModelID] = model
 			}
+			// Alias rows reference the same snapshot as their prices and metadata.
+			if catalog.membership != nil {
+				for alias, index := range catalog.membership.literal {
+					metadata[alias] = catalog.Data[index]
+				}
+			}
 		}
 	}
 	var channels []AvailableChannel
@@ -1156,12 +1162,13 @@ func buildChannelServedEntry(m SupportedModel, rate float64, metaByID map[string
 }
 
 func lookupMePricingCatalogModel(modelID string, metaByID map[string]PublicCatalogModel) (PublicCatalogModel, bool) {
-	meta, ok := metaByID[modelID]
-	if ok {
-		return meta, true
+	for _, candidate := range catalogModelLookupCandidates(modelID) {
+		if meta, ok := metaByID[candidate]; ok {
+			return meta, true
+		}
 	}
-	if stripped, stripOK := stripVendorPrefixForCatalogLookup(modelID); stripOK {
-		meta, ok = metaByID[stripped]
+	if stripped, stripOK := stripVendorPrefixForCatalogLookup(strings.ToLower(strings.TrimSpace(modelID))); stripOK {
+		meta, ok := metaByID[stripped]
 		if ok {
 			return meta, true
 		}

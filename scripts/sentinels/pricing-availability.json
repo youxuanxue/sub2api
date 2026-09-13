@@ -39,8 +39,8 @@
     },
     {
       "path": "backend/internal/service/me_pricing_catalog_tk.go",
-      "must_contain": ["entry.YourPrice.PerImageInputToken = scaleCatalogPrice(meta.Pricing.InputCostPerImageToken, rate)"],
-      "rationale": "Group catalog rows must retain the embedding image input rate, not just the lower text rate."
+      "must_contain": ["entry.YourPrice.PerImageInputToken = scaleCatalogPrice(meta.Pricing.InputCostPerImageToken, rate)", "range catalog.membership.literal", "range catalogModelLookupCandidates(modelID)"],
+      "rationale": "Menu rows retain the embedding image input rate and consume aliases from the same catalog snapshot, sharing exact price-key spelling with catalog membership and billing."
     },
     {
       "path": "backend/internal/service/volcengine_plan_media_tk_test.go",
@@ -297,11 +297,21 @@
       "rationale": "Provider model listing must read the immutable active registry in production. GetModelPricing must resolve overlay `_aliases` before OpenAI family fallback (else public aliases like gpt-5.6-chat-latest inherit the gpt-5.4 default card), and GPT-5.6 fixture/fallback folds must share normalizeOpenAIBillingModel with BillingService rather than a parallel hardcode in normalizeModelNameForPricing."
     },
     {
+      "path": "backend/internal/service/pricing_namespace_ssot_tk_test.go",
+      "must_contain": [
+        "TestPricingNamespaceCatalogBillingParity",
+        "TestPricingNamespaceMenuFollowsRegistryAliasRotation"
+      ],
+      "rationale": "Namespace price membership and menu enrichment must agree with billing across registry alias rotation, while unknown and ambiguous names remain excluded."
+    },
+    {
       "path": "backend/internal/service/pricing_service_tk_lookup.go",
       "must_contain": [
         "owner, ok := snapshot.Aliases[candidate]",
         "func (s *PricingService) tkGetModelPricing",
-        "func (s *PricingService) tkGetIdentifiedModelPricing"
+        "func (s *PricingService) tkGetIdentifiedModelPricing",
+        "func buildModelLookupCandidates(",
+        "lookupCandidates := buildModelLookupCandidates(modelLower)"
       ],
       "rationale": "GetModelPricing alias resolution (_aliases before OpenAI family fallback) lives in the TK lookup companion. Public aliases like gpt-5.6-chat-latest must not inherit the gpt-5.4 default card."
     },

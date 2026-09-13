@@ -25,20 +25,21 @@ func TestCandidatePricingBrowser(t *testing.T) {
 	}
 	groups := []Group{grp(11, PlatformAnthropic, 0, false), grp(12, PlatformOpenAI, 1, false)}
 	groups[0].Name, groups[1].Name = "Cross-platform billing", "Universal peer"
-	models := []string{"ssot-direct", "ssot-alias", "ssot-universal"}
+	models := []string{"ssot-direct", "ssot-alias", "ssot-universal", "openai/gpt-5.4", "openai/gpt-5.6"}
 	accounts := []Account{globalCandidateAccount(1, 1, 11), globalCandidateAccount(2, 1, 12)}
-	accounts[0].Credentials["model_mapping"] = map[string]any{models[0]: "gpt-5.4", models[1]: "gpt-5.4"}
+	accounts[0].Credentials["model_mapping"] = map[string]any{models[0]: "gpt-5.4", models[1]: "gpt-5.4", models[3]: "gpt-5.4", models[4]: "gpt-5.6-sol"}
 	accounts[1].Credentials["model_mapping"] = map[string]any{models[2]: "gpt-5.4"}
 	for i := range groups {
-		groups[i].ModelPricing = []ChannelModelPricing{{Platform: PlatformOpenAI, Models: models, InputPrice: ptrF(.001), OutputPrice: ptrF(.002)}}
+		groups[i].ModelPricing = []ChannelModelPricing{{Platform: PlatformOpenAI, Models: models[:3], InputPrice: ptrF(.001), OutputPrice: ptrF(.002)}}
 	}
 	capabilities, key := candidateDiscoveryFixture(groups, accounts)
 	capabilities.resolver.candidateGateway.billingService = NewBillingService(nil, nil)
 	direct := *key
 	direct.ID, direct.Name, direct.RoutingMode, direct.GroupID, direct.Group = 42, "Direct", RoutingModeDirect, &groups[0].ID, &groups[0]
 	key.ID, key.Name = 43, "Universal"
-	public := &PublicCatalogResponse{}
-	for _, model := range models {
+	public := *NewPricingCatalogService(nil).BuildPublicCatalog(context.Background())
+	public.Data = append([]PublicCatalogModel(nil), public.Data...)
+	for _, model := range models[:3] {
 		public.Data = append(public.Data, mkPublicCatalogModel(model, "openai", 1, 2, 0))
 	}
 	// Construct per request: no concurrent mutation of fake repository objects.
@@ -53,7 +54,7 @@ func TestCandidatePricingBrowser(t *testing.T) {
 			return
 		}
 		svc := newServiceWithAccounts(&fakeKeyAccess{groups: groups, keys: []APIKey{direct, *key}},
-			&fakeChannelLister{}, &fakeCatalogProvider{resp: public}, &fakeAccountSource{})
+			&fakeChannelLister{}, &fakeCatalogProvider{resp: &public}, &fakeAccountSource{})
 		kind := req.Header.Get("X-Test-Failure-Kind")
 		repo := &batchAvailabilityRepoStub{states: map[string]AvailabilityState{}}
 		observedAt := time.Now()
