@@ -380,7 +380,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result['verdict'], 'red')
         self.assertFalse(result['cutover'])
         for ids in ([], ['unknown'], selected * 2):
-            with patch.object(host.replay, 'prepared') as prepare, self.assertRaisesRegex(host.replay.ReplayError, 'invalid_case_selection'):
+            with patch.object(host.replay, 'prepared') as prepare, self.assertRaisesRegex(ValueError, 'invalid_case_selection'):
                 host.run(value, inventory(), '1.2.3', case_ids=ids)
             prepare.assert_not_called()
 

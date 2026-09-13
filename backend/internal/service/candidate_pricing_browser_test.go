@@ -56,8 +56,12 @@ func TestCandidatePricingBrowser(t *testing.T) {
 			&fakeChannelLister{}, &fakeCatalogProvider{resp: public}, &fakeAccountSource{})
 		kind := req.Header.Get("X-Test-Failure-Kind")
 		repo := &batchAvailabilityRepoStub{states: map[string]AvailabilityState{}}
+		observedAt := time.Now()
+		if req.Header.Get("X-Test-Evidence-Expired") == "true" {
+			observedAt = observedAt.Add(-7 * 24 * time.Hour)
+		}
 		for _, model := range models {
-			repo.states[PlatformOpenAI+"/"+model] = AvailabilityState{Status: AvailabilityStatusUnreachable, LastFailureKind: kind}
+			repo.states[PlatformOpenAI+"/"+model] = AvailabilityState{Status: AvailabilityStatusUnreachable, LastFailureKind: kind, LastFailureAt: &observedAt}
 		}
 		availability := NewPricingAvailabilityService(repo, time.Now)
 		requestCapabilities := *capabilities

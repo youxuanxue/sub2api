@@ -4,11 +4,9 @@ Long-form operational reference moved out of root `CLAUDE.md` to stay under the 
 
 ## Public signup offer SSOT
 
-`frontend/src/components/common/SignupBonusLink.tk.vue` owns the public homepage
-and pricing page's signup-credit visibility, amount and link. Both surfaces read
-the same public settings through this component; neither promises a fixed token
-allowance. The frontend sentinel registry and `e2e/public-pages.e2e.ts` guard the
-shared behavior.
+注册承诺、公开与登录态接入指南的唯一 owner 清单与共享行为契约见
+[Public Quickstart 与注册承诺](../approved/public-quickstart-registration-offer.md)。
+本导航不复制组件名、金额来源或页面行为规则。
 
 ## Studio SSOT (`/studio` Image / Video / BakeOff)
 
@@ -76,9 +74,11 @@ Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth ca
 `tokenkey-modelops-planner`，命令索引见 `ops/pricing/README.md`，CLI 参数以 argparse
 及生成的 `docs/agent_integration.md` 为准。本文件不复制判定表、账号信息或命令手册。
 
-必须保持的边界：probe、traffic、availability 与日志只是证据；prod mapping 必须收敛到
-compiled Go floor；Edge relay 账号不复制 prod mapping；generic deploy/rollback 不依赖 live
-mapping 收敛。
+账号 mapping 的写入范围见
+[模型激活契约](../approved/model-surface-activation-contract.md) 与
+[供应源受管账号所有权](../approved/model-supplier-source-management.md)：
+受管账号由 Supplier Sync 拥有，不能按普通账号灌入 compiled floor。
+证据、Edge relay 与发布边界沿用上述契约。
 
 ## PR Checklist
 

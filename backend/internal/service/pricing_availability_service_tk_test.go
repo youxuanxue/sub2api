@@ -234,11 +234,8 @@ func TestRecordOutcome_RollingWindow_24hReset(t *testing.T) {
 	require.Equal(t, AvailabilityStatusOK, got.Status)
 }
 
-// TestRecordOutcome_OkBecomesStaleAfter24h 钉住 last_seen_ok_at staleness 推导：
-// 即使 24h 内成功率 100%，但 last_seen_ok_at >24h ago 时也应翻 stale。
-// 对应 cold-tail 场景 —— 上次成功在 25h 前，从那之后一个样本都没（包括无失败），
-// 这种 cell 主动探测进 24h 周期重置后也合理地表现为 stale。
-func TestRecordOutcome_OkBecomesStaleAfter24h(t *testing.T) {
+// A fresh success after the previous window restores current evidence and counts.
+func TestRecordOutcome_FreshSuccessAfter24hRollover(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, clk := newAvailabilityTestService(t)
 

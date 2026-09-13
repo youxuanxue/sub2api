@@ -6,6 +6,7 @@ import (
 	"context"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -36,9 +37,10 @@ func TestTkAvailabilityStructurallyGone(t *testing.T) {
 	}), "stale (not unreachable) = keep — only a current unreachable hides")
 }
 
-func seedAvail(repo *memoryAvailabilityRepo, platform, modelID, status, kind string) {
+func seedAvail(repo *memoryAvailabilityRepo, platform, modelID, status, kind string, now time.Time) {
 	repo.rows[repo.key(platform, modelID)] = AvailabilityState{
 		Platform: platform, ModelID: modelID, Status: status, LastFailureKind: kind,
+		LastFailureAt: &now, LastCheckedAt: &now, RollingWindowStartedAt: &now, SampleTotal24h: 1,
 	}
 }
 
@@ -46,8 +48,8 @@ func TestDecorateAndPruneByAvailability(t *testing.T) {
 	svc, repo, _ := newAvailabilityTestService(t)
 	anthropic := firstNPlatformServableIDsForSelfHealTest(t, PlatformAnthropic, 3)
 	gone, degraded, untested := anthropic[0], anthropic[1], anthropic[2]
-	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
-	seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
+	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired, svc.clock())
+	seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx, svc.clock())
 
 	resp := &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{
 		{ModelID: gone, Vendor: "anthropic"},
@@ -76,8 +78,8 @@ func TestMePricingPruneStructurallyGoneIDs(t *testing.T) {
 	svc, repo, _ := newAvailabilityTestService(t)
 	anthropic := firstNPlatformServableIDsForSelfHealTest(t, PlatformAnthropic, 3)
 	gone, degraded, untested := anthropic[0], anthropic[1], anthropic[2]
-	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired)
-	seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx)
+	seedAvail(repo, PlatformAnthropic, gone, AvailabilityStatusUnreachable, FailureKindProviderModelRetired, svc.clock())
+	seedAvail(repo, PlatformAnthropic, degraded, AvailabilityStatusUnreachable, FailureKindUpstream5xx, svc.clock())
 
 	// *PricingAvailabilityService satisfies MePricingAvailability.
 	mps := &MePricingCatalogService{availability: svc}

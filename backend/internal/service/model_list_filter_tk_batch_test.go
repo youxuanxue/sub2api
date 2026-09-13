@@ -44,6 +44,7 @@ func TestModelListFilterStrict_BatchesPricedAvailabilityReads(t *testing.T) {
 			ModelID:         "model-b",
 			Status:          AvailabilityStatusUnreachable,
 			LastFailureKind: FailureKindProviderModelRetired,
+			LastFailureAt:   availabilityPtrTime(time.Now()),
 		},
 		"openai/model-c": {
 			Platform:        "openai",

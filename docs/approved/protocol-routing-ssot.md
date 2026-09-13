@@ -275,8 +275,10 @@ result, err := router.Execute(ctx, plan, request)
 `Plan` is pure and performs no network I/O. `Execute` follows the immutable
 plan and cannot select, improve, or replace its route.
 
-Identity is always attempted first. If identity is illegal, conversions are
-tried in this fixed order:
+Route compatibility follows the approved
+[thinking/tool policy](candidate-eligibility-ssot.md#thinking-and-tool-compatibility-2026-09-10-approval):
+an unadjusted legal route precedes an adjusted route. Among equally compatible
+routes, identity precedes conversions, whose registry order is:
 
 | Inbound protocol | Conversion targets |
 | --- | --- |
@@ -285,7 +287,10 @@ tried in this fixed order:
 | `responses` | `chat_completions`, then `messages`, then `gemini_generate_content` |
 | `gemini_generate_content` | `chat_completions` within the [Gemini conversion contract](gemini-chat-conversion.md) |
 
-The first legal entry wins. Each registry entry names its target protocol,
+The first legal entry at the best compatibility level wins. An exact conversion
+can therefore precede an adjusted identity route. Endpoint conversion permission
+still constrains the admitted routes before this comparison, as specified by the
+same candidate policy. Each registry entry names its target protocol,
 allowed Responses paths, model policy, feature constraints, endpoint/profile
 resolver, one route adapter, and one transport. Conversion routes are
 deny-by-default and open only for semantics proven lossless by adapter contract
@@ -340,7 +345,9 @@ Responses URL from the channel base.
 
 ## 6. Scheduling and execution
 
-Protocol legality is a scheduler hard gate, not a ranking signal:
+Protocol legality is a scheduler hard gate. Ordering among admitted Plans belongs
+to [Candidate Eligibility SSOT](candidate-eligibility-ssot.md), including its
+thinking/tool compatibility and payment-tier policy:
 
 ```text
 construct immutable CanonicalRequest
@@ -348,7 +355,7 @@ construct immutable CanonicalRequest
   -> discard candidates with no legal plan
   -> apply independent account-runtime hard gates
      (authorization, schedulable, cooldown, quota, concurrency, capacity)
-  -> apply existing priority/sticky ordering unchanged
+  -> apply candidate-owned compatibility, priority and sticky ordering
   -> Execute the selected candidate's already-created plan
 ```
 
