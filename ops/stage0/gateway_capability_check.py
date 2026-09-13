@@ -132,9 +132,12 @@ def validate_response(case, status, ctype, raw, stream):
             if not has_thinking_evidence(dictionaries) and request.get('thinking_validation') != 'request_acceptance':
                 return 'thinking_evidence_missing'
         if case['request_type'] == 'multimodal':
-            text = ' '.join(obj[field] for obj in dictionaries for field in ('text', 'content')
-                            if isinstance(obj.get(field), str))
-            if not re.search(r'\bblue\b', text, re.IGNORECASE):
+            text = answer_text(protocol, events, stream)
+            expected = (case.get('request') or {}).get('expected_visual_answer', 'blue')
+            if not isinstance(expected, str) or not expected.strip():
+                return 'vision_answer_mismatch'
+            # The fixture asks for one word; tolerate case and a final period.
+            if not re.fullmatch(re.escape(expected.strip()) + r'\.?', text.strip(), re.IGNORECASE):
                 return 'vision_answer_mismatch'
         return None
     except (ValueError, TypeError, AttributeError):

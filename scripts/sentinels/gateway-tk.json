@@ -322,12 +322,12 @@
       },
       {
         "path": "ops/stage0/test_gateway_capability_host.py",
-        "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation", "test_video_pending_operation_and_inline_mp4_completion", "test_blocked_capabilities_cannot_execute_even_when_called_directly", "test_thinking_proof_separates_acceptance_reasoning_and_quality"],
+        "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation", "test_video_pending_operation_and_inline_mp4_completion", "test_blocked_capabilities_cannot_execute_even_when_called_directly", "test_thinking_proof_separates_acceptance_reasoning_and_quality", "test_vision_requires_expected_answer_not_just_blue_mention", "test_vision_checks_visible_answer_across_protocols", "test_vision_joins_streamed_visible_answer"],
         "rationale": "Behavioral guards preserve candidate-only sends, test-key attribution and the full denominator without creating extra resources."
       },
       {
         "path": "ops/stage0/gateway_capability_check.py",
-        "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing", "def video_output_present("],
+        "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing", "def video_output_present(", "text = answer_text(protocol, events, stream)", "re.fullmatch(re.escape(expected.strip())", "vision_answer_mismatch"],
         "rationale": "Synthetic responses require protocol and media semantics; execution targets the normal blue/green candidate."
       },
       {
