@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 )
 
 // edgeAccountsMaxPageSize bounds the single-page listing. Edges host a handful
@@ -466,18 +467,24 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		accountIDs[i] = accounts[i].ID
 	}
 
-	// Concurrency: cheap Redis ZCARD, all accounts.
+	// The live gauges are independent reads. Fetch the Redis and SQL batches in
+	// parallel so the overview pays the slower call once instead of their sum.
+	readGroup, readCtx := errgroup.WithContext(ctx)
 	if h.concurrency != nil {
-		if cc, err := h.concurrency.GetAccountConcurrencyBatch(ctx, accountIDs); err == nil && cc != nil {
-			g.concurrency = cc
-		}
+		readGroup.Go(func() error {
+			if cc, err := h.concurrency.GetAccountConcurrencyBatch(readCtx, accountIDs); err == nil && cc != nil {
+				g.concurrency = cc
+			}
+			return nil
+		})
 	}
-
-	// Today stats: batch SQL, all accounts.
 	if h.usage != nil {
-		if ts, err := h.usage.GetTodayStatsBatch(ctx, accountIDs); err == nil && ts != nil {
-			g.today = ts
-		}
+		readGroup.Go(func() error {
+			if ts, err := h.usage.GetTodayStatsBatch(readCtx, accountIDs); err == nil && ts != nil {
+				g.today = ts
+			}
+			return nil
+		})
 	}
 
 	// Gate sessions / rpm by anthropic OAuth/setup-token + cap.
@@ -499,14 +506,20 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 	}
 
 	if len(rpmIDs) > 0 && h.rpm != nil {
-		if m, err := h.rpm.GetRPMBatch(ctx, rpmIDs); err == nil {
-			g.rpm = m
-		}
+		readGroup.Go(func() error {
+			if m, err := h.rpm.GetRPMBatch(readCtx, rpmIDs); err == nil {
+				g.rpm = m
+			}
+			return nil
+		})
 	}
 	if len(sessionIDs) > 0 && h.sessions != nil {
-		if m, err := h.sessions.GetActiveSessionCountBatch(ctx, sessionIDs, idleTimeouts); err == nil {
-			g.sessions = m
-		}
+		readGroup.Go(func() error {
+			if m, err := h.sessions.GetActiveSessionCountBatch(readCtx, sessionIDs, idleTimeouts); err == nil {
+				g.sessions = m
+			}
+			return nil
+		})
 	}
 
 	// Passive usage windows: pass every account to the AccountUsageService adapter
@@ -518,10 +531,14 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 		for i := range accounts {
 			ids = append(ids, accounts[i].ID)
 		}
-		if usage := h.usage.GetPassiveUsageBatch(ctx, ids); len(usage) > 0 {
-			g.usageWindows = usage
-		}
+		readGroup.Go(func() error {
+			if usage := h.usage.GetPassiveUsageBatch(readCtx, ids); len(usage) > 0 {
+				g.usageWindows = usage
+			}
+			return nil
+		})
 	}
+	_ = readGroup.Wait()
 
 	return g
 }
