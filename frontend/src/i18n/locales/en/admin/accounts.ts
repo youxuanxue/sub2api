@@ -17,6 +17,7 @@ export default {
       refreshInterval10s: '10 seconds',
       refreshInterval15s: '15 seconds',
       refreshInterval30s: '30 seconds',
+      refreshInterval60s: '60 seconds',
       autoRefreshCountdown: 'Auto refresh: {seconds}s',
       listPendingSyncHint: 'List changes are pending sync. Click sync to load latest rows.',
       listPendingSyncAction: 'Sync now',

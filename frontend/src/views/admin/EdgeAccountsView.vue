@@ -445,10 +445,9 @@ const autoRefreshDropdownRef = ref<HTMLElement | null>(null)
 
 // Interval option labels, reusing the admin accounts page's i18n keys.
 const autoRefreshIntervalLabel = (sec: number) => {
-  if (sec === 5) return t('admin.accounts.refreshInterval5s')
-  if (sec === 10) return t('admin.accounts.refreshInterval10s')
   if (sec === 15) return t('admin.accounts.refreshInterval15s')
   if (sec === 30) return t('admin.accounts.refreshInterval30s')
+  if (sec === 60) return t('admin.accounts.refreshInterval60s')
   return `${sec}s`
 }
 

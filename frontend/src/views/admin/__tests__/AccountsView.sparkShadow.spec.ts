@@ -602,7 +602,7 @@ describe('admin AccountsView — 账号行展示', () => {
   it('replaces a Grok row when auto refresh returns a changed canonical usage snapshot', async () => {
     vi.useFakeTimers()
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
-    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 15 }))
 
     const initialAccount = {
       id: 213,
@@ -626,7 +626,7 @@ describe('admin AccountsView — 账号行展示', () => {
     await flushPromises()
     expect(wrapper.findComponent(PlatformTypeBadge).props('planType')).toBe('Free')
 
-    await vi.advanceTimersByTimeAsync(6000)
+    await vi.advanceTimersByTimeAsync(16000)
     await flushPromises()
 
     expect(listWithEtag).toHaveBeenCalledTimes(1)

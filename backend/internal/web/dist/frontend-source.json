@@ -1,7 +1,7 @@
 {
   "algorithm": "sha256(git-ls-files:path,size,content)",
   "file_count": 742,
-  "hash": "77254396f3b04575774eff599ca3a63669be1c3f346a5f107cd4918d8322d4e1",
+  "hash": "bc750247ff1a0063e0bf3775cb8fa9c04f76177db07ecc5664d5e7a2a7f1382c",
   "schema": 1,
   "source": "frontend/"
 }
