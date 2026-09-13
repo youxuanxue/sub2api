@@ -1532,6 +1532,37 @@ func TestContentModerationCheck_HashBlockLogsDoNotIncreaseNextViolationCount(t *
 	require.Equal(t, 1, logs[1].ViolationCount)
 }
 
+func TestContentModerationDisabledCheckLogsOnlyAtDebug(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+		mode    string
+	}{
+		{name: "config_disabled", mode: ContentModerationModePreBlock},
+		{name: "mode_off", enabled: true, mode: ContentModerationModeOff},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := defaultContentModerationConfig()
+			cfg.Enabled, cfg.Mode = tc.enabled, tc.mode
+			svc, _ := newContentModerationModelFilterTestService(t, cfg)
+			previousLogger := slog.Default()
+			t.Cleanup(func() { slog.SetDefault(previousLogger) })
+			for _, level := range []slog.Level{slog.LevelInfo, slog.LevelDebug} {
+				var output bytes.Buffer
+				slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: level})))
+				decision, err := svc.Check(context.Background(), ContentModerationCheckInput{})
+				require.NoError(t, err)
+				require.True(t, decision.Allowed)
+				if level == slog.LevelInfo {
+					require.Empty(t, output.String())
+				} else {
+					require.Contains(t, output.String(), "content_moderation.skip_"+tc.name)
+				}
+			}
+		})
+	}
+}
+
 func TestContentModerationAutoBanSkipsAdminAccount(t *testing.T) {
 	var slogOutput bytes.Buffer
 	previousLogger := slog.Default()

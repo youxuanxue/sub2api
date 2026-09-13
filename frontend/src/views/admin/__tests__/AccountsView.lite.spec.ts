@@ -213,14 +213,17 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
-  it('keeps lite=1 on automatic ETag refreshes', async () => {
+  it.each([15, 60, 5, 10])('keeps lite=1 and honors the migrated cadence for saved interval %s', async (savedInterval) => {
     vi.useFakeTimers()
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
-    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: savedInterval }))
     const wrapper = mountView()
     await flushPromises()
 
-    await vi.advanceTimersByTimeAsync(6000)
+    const interval = savedInterval < 15 ? 30 : savedInterval
+    await vi.advanceTimersByTimeAsync(interval * 1000)
+    expect(listWithEtag).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
 
     expect(listWithEtag).toHaveBeenCalledWith(

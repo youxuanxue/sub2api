@@ -814,7 +814,7 @@ func (s *ContentModerationService) TestAPIKeys(ctx context.Context, input TestCo
 func (s *ContentModerationService) Check(ctx context.Context, input ContentModerationCheckInput) (*ContentModerationDecision, error) {
 	allow := &ContentModerationDecision{Allowed: true, Action: ContentModerationActionAllow}
 	if s == nil || s.settingRepo == nil || s.repo == nil {
-		slog.Info("content_moderation.skip_unavailable",
+		slog.Debug("content_moderation.skip_unavailable",
 			"user_id", input.UserID,
 			"api_key_id", input.APIKeyID,
 			"group_id", contentModerationLogGroupID(input.GroupID),
@@ -834,7 +834,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		return allow, nil
 	}
 	if !runtimeSnapshot.riskControlEnabled {
-		slog.Info("content_moderation.skip_feature_disabled",
+		slog.Debug("content_moderation.skip_feature_disabled",
 			"user_id", input.UserID,
 			"api_key_id", input.APIKeyID,
 			"group_id", contentModerationLogGroupID(input.GroupID),
@@ -845,7 +845,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 	cfg := runtimeSnapshot.config
 	inGroupScope := cfg.includesGroup(input.GroupID)
 	inModelScope := cfg.includesModel(input.Model)
-	slog.Info("content_moderation.config_loaded",
+	slog.Debug("content_moderation.config_loaded",
 		"user_id", input.UserID,
 		"api_key_id", input.APIKeyID,
 		"group_id", contentModerationLogGroupID(input.GroupID),
@@ -867,7 +867,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		"pre_hash_check_enabled", cfg.PreHashCheckEnabled,
 		"record_non_hits", cfg.RecordNonHits)
 	if !cfg.Enabled {
-		slog.Info("content_moderation.skip_config_disabled",
+		slog.Debug("content_moderation.skip_config_disabled",
 			"user_id", input.UserID,
 			"api_key_id", input.APIKeyID,
 			"group_id", contentModerationLogGroupID(input.GroupID),
@@ -876,7 +876,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 		return allow, nil
 	}
 	if cfg.Mode == ContentModerationModeOff {
-		slog.Info("content_moderation.skip_mode_off",
+		slog.Debug("content_moderation.skip_mode_off",
 			"user_id", input.UserID,
 			"api_key_id", input.APIKeyID,
 			"group_id", contentModerationLogGroupID(input.GroupID),

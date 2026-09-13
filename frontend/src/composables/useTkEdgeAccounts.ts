@@ -4,7 +4,7 @@
  * Owns all state + the API call for the read-only cross-edge account view, and
  * keeps the data live with the same auto-refresh engine the admin accounts page
  * uses (views/admin/AccountsView.vue): a 1s countdown tick, a configurable
- * interval (5/10/15/30s) persisted to localStorage, an enable toggle, ETag/304 so
+ * interval persisted to localStorage, an enable toggle, ETag/304 so
  * an unchanged poll is a no-op, and an incremental edge merge so unchanged edge
  * cards keep their reference (no full-table flicker). Without auto-refresh the page
  * would only fetch once on mount and could show a stale snapshot — e.g. a
@@ -26,10 +26,8 @@ import {
   collectStubGroupNames
 } from '@/utils/edgeAccounts.tk'
 
-// Selectable auto-refresh cadences (seconds), matching the admin accounts page. The
-// backend fronts the fan-out with a stale-while-revalidate cache + ETag, so even a
-// 5s cadence is cheap (cache hit / 304) — no longer "hammering the fan-out".
-export const EDGE_AUTO_REFRESH_INTERVALS = [5, 10, 15, 30] as const
+// Selectable auto-refresh cadences (seconds), matching the admin accounts page.
+export const EDGE_AUTO_REFRESH_INTERVALS = [15, 30, 60] as const
 export type EdgeAutoRefreshInterval = (typeof EDGE_AUTO_REFRESH_INTERVALS)[number]
 
 const AUTO_REFRESH_STORAGE_KEY = 'edge-accounts-auto-refresh'

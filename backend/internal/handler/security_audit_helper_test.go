@@ -80,6 +80,31 @@ func TestRunSecurityAuditDeduplicatesRepeatedPayloadWithinWebSocketTurn(t *testi
 	require.Equal(t, int64(2), engine.evaluates.Load())
 }
 
+func TestRunSecurityAuditRechecksChangedPayloadWithinWebSocketTurn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := &turnCountingEngine{
+		mode: securityaudit.ModeBlocking,
+		decisions: []*securityaudit.PromptDecision{
+			{Kind: securityaudit.DecisionAllow, AllowNextStage: true},
+			{Kind: securityaudit.DecisionBlock, AllowNextStage: false},
+		},
+	}
+	coordinator := securityaudit.NewCoordinator(nil, engine)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set(securityAuditWSTurnContextKey, 2)
+	payload := []byte(`{"input":"benign"}`)
+	first := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	require.True(t, first.AllowNextStage)
+
+	// Reusing the same buffer and length must not reuse the old allow decision.
+	copy(payload, []byte(`{"input":"unsafe"}`))
+	second := runSecurityAudit(c, nil, coordinator, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", payload, "subsequent_turn")
+	require.False(t, second.AllowNextStage)
+	require.Equal(t, securityaudit.DecisionBlock, second.Kind)
+	require.Equal(t, int64(2), engine.evaluates.Load())
+}
+
 func TestRunSecurityAuditDoesNotCacheFailedWebSocketDecision(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := &turnCountingEngine{
