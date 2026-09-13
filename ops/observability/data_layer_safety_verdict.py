@@ -12,7 +12,7 @@ from typing import Any
 
 HEARTBEAT_MAX_AGE = dt.timedelta(hours=26)
 TELEMETRY_HEARTBEAT_MAX_AGE = dt.timedelta(minutes=3)
-PGDUMP_MAX_AGE = dt.timedelta(hours=2)
+PGDUMP_MAX_AGE = dt.timedelta(hours=4)
 SNAPSHOT_MAX_AGE = dt.timedelta(hours=36)
 HOLD_MAX_AGE = dt.timedelta(days=14)
 RESTORE_MAX_AGE = dt.timedelta(days=30)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# tokenkey Stage0 pg_dump (hourly). Installed by stage0-ec2-bootstrap.sh.
+# tokenkey Stage0 pg_dump (every 2 hours). Installed by stage0-ec2-bootstrap.sh.
 # PRECIOUS-CLASS dump: schema for all tables + data for everything EXCEPT the
 # bulky reconstructible log tables (see EXCLUDE_DATA_GLOBS below). A restore is
 # structurally complete; the excluded log tables come back empty and refill from
@@ -17,6 +17,7 @@
 set -euo pipefail
 DUMP_DIR=/var/lib/tokenkey/pgdump
 KEEP="${TOKENKEY_PGDUMP_KEEP:-6}"   # newest local rolling copies to retain
+GZIP_LEVEL="${TOKENKEY_PGDUMP_GZIP_LEVEL:-1}" # fast compression to bound CPU time
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 OUT="${DUMP_DIR}/tokenkey-${TS}.sql.gz"
 PART="${OUT}.part"
@@ -69,18 +70,18 @@ if command -v ionice >/dev/null 2>&1; then
   priority_prefix+=(ionice -c2 -n7)
 fi
 if command -v nice >/dev/null 2>&1; then
-  priority_prefix+=(nice -n 10)
+  priority_prefix+=(nice -n 19)
 fi
 if ! docker exec tokenkey-postgres sh -c '
     if command -v ionice >/dev/null 2>&1 && command -v nice >/dev/null 2>&1; then
-      exec ionice -c2 -n7 nice -n 10 pg_dump "$@"
+      exec ionice -c2 -n7 nice -n 19 pg_dump "$@"
     elif command -v nice >/dev/null 2>&1; then
-      exec nice -n 10 pg_dump "$@"
+      exec nice -n 19 pg_dump "$@"
     else
       exec pg_dump "$@"
     fi
   ' sh -U tokenkey -d tokenkey --format=plain --no-owner "${exclude_args[@]}" \
-    | "${priority_prefix[@]}" gzip -9 > "${PART}"; then
+    | "${priority_prefix[@]}" gzip -"${GZIP_LEVEL}" > "${PART}"; then
   rm -f "${PART}"
   exit 1
 fi

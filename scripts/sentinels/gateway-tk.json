@@ -11715,6 +11715,11 @@
         "TestAntigravityGeminiCollectPreservesEarlyToolsAndThinking"
       ],
       "rationale": "Pin corrected candidate request execution and preserve provider output with focused regression tests."
+    },
+    {
+      "path": "backend/internal/repository/setting_repo.go",
+      "must_contain": ["defaultSettingCacheTTL", "type settingCacheEntry struct", "r.allCached = true", "r.allCached = false"],
+      "rationale": "Keep the in-process setting cache and write-through invalidation anchored across upstream merges."
     }
   ]
 }
