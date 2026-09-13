@@ -44,6 +44,17 @@ func TestDetectOpenAIUsagePolicy(t *testing.T) {
 			want:    false,
 		},
 		{
+			name:    "echoed_user_prompt_in_body_not_enough",
+			payload: `{"error":{"code":"invalid_request_error","message":"bad request"},"echo":{"prompt":"explain usage policy to me"}}`,
+			want:    false,
+		},
+		{
+			name:    "wrapper_msg_still_reads_body_message",
+			msg:     "wrapped upstream failure",
+			payload: `{"error":{"message":"Invalid prompt: your prompt was flagged as violating our usage policy."}}`,
+			want:    true,
+		},
+		{
 			name:    "empty",
 			payload: `{}`,
 			want:    false,

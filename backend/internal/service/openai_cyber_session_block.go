@@ -86,7 +86,7 @@ func (s *OpenAIGatewayService) cyberSessionBlockStore() CyberSessionBlockStore {
 	return store
 }
 
-// CyberSessionBlockRuntime 返回 (开关, TTL)。开关默认关。
+// CyberSessionBlockRuntime 返回 (开关, TTL)。开关默认开（NotFound / unset）。
 // 委托给 SettingService.GetCyberSessionBlockRuntime，进程内缓存避免热路径 DB 往返。
 func (s *OpenAIGatewayService) CyberSessionBlockRuntime(ctx context.Context) (bool, time.Duration) {
 	if s == nil || s.settingService == nil {

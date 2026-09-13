@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -231,6 +235,44 @@ func TestRecordCyberPolicyIfMarked_UsagePolicyMarksRecorded(t *testing.T) {
 		h.recordCyberPolicyIfMarked(c, nil, nil, nil, "gpt-5", true, []byte(`{"input":"x"}`), service.ChannelUsageFields{}, "")
 	})
 	require.True(t, c.GetBool(cyberPolicyRecordedKey))
+}
+
+func TestRecordCyberPolicyIfMarked_UsagePolicyWritesSessionBlock(t *testing.T) {
+	gatewayCache := testutil.NewRedisGatewayCache(t)
+	settingRepo := &contentModerationHandlerSettingRepo{values: map[string]string{
+		service.SettingKeyCyberSessionBlockEnabled:    "true",
+		service.SettingKeyCyberSessionBlockTTLSeconds: "60",
+	}}
+	settingSvc := service.NewSettingService(settingRepo, nil)
+	cfg := &config.Config{}
+	gatewaySvc := service.NewOpenAIGatewayService(
+		nil, nil, nil, nil, nil, nil, gatewayCache, cfg, nil, nil,
+		service.NewBillingService(cfg, nil), nil, nil, nil, &service.DeferredService{},
+		nil, nil, nil, nil, nil, settingSvc, nil,
+	)
+
+	body := []byte(`{"messages":[{"role":"user","content":"hello usage isolate"}]}`)
+	c := newTestGinContext()
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(string(body)))
+	c.Request.RemoteAddr = "203.0.113.55:4444"
+	c.Request.Header.Set("User-Agent", "codex-review/1.0")
+	c.Request.Header.Set("session_id", "sess-usage-isolate")
+	service.MarkOpsUsagePolicy(c, service.UsagePolicyMark{
+		Message:        "Invalid prompt: violating our usage policy",
+		UpstreamStatus: http.StatusBadRequest,
+	})
+
+	h := &OpenAIGatewayHandler{gatewayService: gatewaySvc}
+	apiKey := &service.APIKey{ID: 77, Key: "sk-test-usage-block"}
+	h.recordCyberPolicyIfMarked(c, apiKey, nil, nil, "gpt-5", true, body, service.ChannelUsageFields{}, "")
+	require.True(t, c.GetBool(cyberPolicyRecordedKey))
+
+	require.Eventually(t, func() bool {
+		hit := gatewaySvc.FindCyberSessionBlockedForRequest(
+			context.Background(), apiKey.ID, c, body, "203.0.113.55", "codex-review/1.0",
+		)
+		return hit != ""
+	}, 2*time.Second, 20*time.Millisecond, "usage_policy mark must write cyber session block keys")
 }
 
 // TestBuildCyberPolicyOpsErrorEntry_StatusCode verifies F6: the ops error log

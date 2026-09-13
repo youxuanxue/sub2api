@@ -61,13 +61,16 @@ func ClearOpsUsagePolicy(c *gin.Context) {
 // detectOpenAIUsagePolicy identifies OpenAI "Invalid prompt … usage policy"
 // rejections. Returns (hit, message). Deliberately tight: requires "usage policy"
 // / "violating our usage" text, or invalid_prompt + violat — not bare "policy".
+// Only structured error fields / upstreamMsg are scanned — never the raw body —
+// so echoed user prompts cannot false-trigger session isolation.
 func detectOpenAIUsagePolicy(upstreamMsg string, payload []byte) (bool, string) {
 	msg := strings.TrimSpace(upstreamMsg)
-	if msg == "" {
-		msg = gjson.GetBytes(payload, "error.message").String()
+	bodyMsg := strings.TrimSpace(gjson.GetBytes(payload, "error.message").String())
+	if bodyMsg == "" {
+		bodyMsg = strings.TrimSpace(gjson.GetBytes(payload, "response.error.message").String())
 	}
 	if msg == "" {
-		msg = gjson.GetBytes(payload, "response.error.message").String()
+		msg = bodyMsg
 	}
 	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
 	if code == "" {
@@ -77,16 +80,24 @@ func detectOpenAIUsagePolicy(upstreamMsg string, payload []byte) (bool, string) 
 	if errType == "" {
 		errType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String()))
 	}
-	lower := strings.ToLower(strings.TrimSpace(msg + " " + code + " " + errType + " " + string(payload)))
+	// Match only structured fields + caller-supplied upstreamMsg. Never scan the
+	// raw body (echoed prompts must not false-trigger session isolation).
+	lower := strings.ToLower(strings.TrimSpace(strings.Join([]string{msg, bodyMsg, code, errType}, " ")))
 	if lower == "" {
 		return false, ""
 	}
 	if strings.Contains(lower, "usage policy") ||
 		strings.Contains(lower, "violating our usage") ||
 		strings.Contains(lower, "violate our usage") {
+		if strings.TrimSpace(msg) == "" {
+			return true, bodyMsg
+		}
 		return true, strings.TrimSpace(msg)
 	}
 	if (code == "invalid_prompt" || errType == "invalid_prompt") && strings.Contains(lower, "violat") {
+		if strings.TrimSpace(msg) == "" {
+			return true, bodyMsg
+		}
 		return true, strings.TrimSpace(msg)
 	}
 	return false, ""
