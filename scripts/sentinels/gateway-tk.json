@@ -11761,6 +11761,32 @@
         "one failed and one successful attempt; billing must not count again"
       ],
       "rationale": "Real HTTP handler failover observes attempts without duplicate billing-path samples."
+    },
+    {
+      "path": "backend/internal/handler/security_audit_helper.go",
+      "must_contain": [
+        "bodyHash := sha256.Sum256(body)",
+        "entry.stage == request.Stage && entry.turn == turnNo && entry.bodyHash == bodyHash",
+        "if decision.Kind == securityaudit.DecisionAllow {"
+      ],
+      "rationale": "WebSocket audit dedupe must match the actual payload within a stage and turn and cache only allow decisions; connection-scoped hashes can reuse an allow for changed content."
+    },
+    {
+      "path": "backend/internal/handler/security_audit_helper_test.go",
+      "must_contain": [
+        "func TestRunSecurityAuditRechecksChangedPayloadWithinWebSocketTurn(",
+        "func TestRunSecurityAuditDeduplicatesRepeatedPayloadWithinWebSocketTurn(",
+        "func TestRunSecurityAuditDoesNotCacheFailedWebSocketDecision("
+      ],
+      "rationale": "Keep changed-payload rejection, same-payload dedupe, and failed-decision retry regression coverage alongside the WebSocket audit owner."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "c.Set(securityAuditWSTurnContextKey, turn)",
+        "h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload, \"subsequent_turn\")"
+      ],
+      "rationale": "Preserve ingress turn identity and actual payload delivery to the shared WebSocket security audit before forwarding."
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { defineComponent, nextTick } from 'vue'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mergeEdges, useTkEdgeAccounts } from '@/composables/useTkEdgeAccounts'
 import type { EdgeAccountsResult } from '@/api/admin/edgeAccounts'
 
@@ -30,6 +30,7 @@ async function flushPromises() {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   mocks.listWithEtag.mockReset()
   mocks.listWithEtag.mockResolvedValue({
     notModified: false,
@@ -37,6 +38,35 @@ beforeEach(() => {
     data: { platform: '__by_stub__', edges: [], ts: 1 }
   })
   Object.defineProperty(document, 'hidden', { value: false, configurable: true })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  localStorage.clear()
+})
+
+describe('useTkEdgeAccounts refresh cadence', () => {
+  it.each([15, 60, 5, 10])('honors the migrated cadence for saved interval %s', async (savedInterval) => {
+    vi.useFakeTimers()
+    localStorage.setItem('edge-accounts-auto-refresh', JSON.stringify({ enabled: true, interval: savedInterval }))
+    const wrapper = mount(defineComponent({
+      setup() {
+        useTkEdgeAccounts()
+        return () => null
+      }
+    }))
+    try {
+      await flushPromises()
+      mocks.listWithEtag.mockClear()
+      const interval = savedInterval < 15 ? 30 : savedInterval
+      await vi.advanceTimersByTimeAsync(interval * 1000)
+      expect(mocks.listWithEtag).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(mocks.listWithEtag).toHaveBeenCalledTimes(1)
+    } finally {
+      wrapper.unmount()
+    }
+  })
 })
 
 describe('mergeEdges', () => {
