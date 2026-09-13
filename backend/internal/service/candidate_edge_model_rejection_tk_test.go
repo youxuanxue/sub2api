@@ -56,6 +56,65 @@ func TestCandidateEdgeModelRejectionReselectsAuthorizedOrigin(t *testing.T) {
 	}
 }
 
+func TestCandidateEdgeModelRejectionMappedPlan(t *testing.T) {
+	const clientModel = "claude-opus-4-6"
+	const wireModel = "claude-opus-4-6-thinking"
+	for _, direct := range []bool{false, true} {
+		groups := []Group{grp(21, PlatformAntigravity, 1, false)}
+		relay := globalCandidateAccount(62, 1, 21)
+		relay.Platform = PlatformAntigravity
+		relay.Credentials["base_url"] = "https://api-us4.tokenkey.dev"
+		relay.Credentials["model_mapping"] = map[string]any{clientModel: wireModel}
+		attachTestProtocolCapability(&relay, protocolrouter.ProtocolMessages)
+		peer := globalCandidateAccount(69, 2, 21)
+		peer.Platform = PlatformAntigravity
+		peer.Credentials["base_url"] = "https://api-us3.tokenkey.dev"
+		peer.Credentials["model_mapping"] = map[string]any{clientModel: clientModel}
+		attachTestProtocolCapability(&peer, protocolrouter.ProtocolMessages)
+		router, _, key := globalCandidateFixture(groups, []Account{relay, peer})
+		if direct {
+			key.RoutingMode, key.Group, key.GroupID = RoutingModeDirect, &groups[0], &groups[0].ID
+		}
+		body := []byte(`{"model":"claude-opus-4-6","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`)
+		ctx, state, err := router.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicMessages, "/v1/messages", clientModel, body, "", "")
+		require.NoError(t, err)
+		require.Equal(t, int64(62), state.current.account.ID)
+		require.Equal(t, clientModel, state.current.model)
+		require.NotNil(t, state.current.plan)
+		require.Equal(t, wireModel, state.current.plan.ResolvedModel())
+		// The selected immutable plan, not later account mapping edits, owns the wire identity.
+		state.current.account.Credentials["model_mapping"] = map[string]any{clientModel: "claude-unrelated"}
+
+		payload := `{"error":{"type":"invalid_request_error","message":"Unsupported model: ` + wireModel + `"}}`
+		for _, compat := range []bool{false, true} {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(ctx)
+			response := &http.Response{StatusCode: 400, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(payload))}
+			var failure *UpstreamFailoverError
+			if compat {
+				failure = (&OpenAIGatewayService{}).failoverNativeMessagesUpstreamHTTPError(ctx, c, state.current.account, response, []byte(payload), TkUnsupportedModelMessage(wireModel), wireModel)
+			} else {
+				_, err := (&GatewayService{}).handleErrorResponse(ctx, response, c, state.current.account, wireModel)
+				require.ErrorAs(t, err, &failure)
+			}
+			require.NotNil(t, failure)
+			require.True(t, failure.ShouldRetryNextAccount())
+			require.False(t, c.Writer.Written())
+			require.Empty(t, recorder.Body.String())
+		}
+		for _, model := range []string{clientModel, "claude-unrelated"} {
+			payload := []byte(`{"error":{"type":"invalid_request_error","message":"Unsupported model: ` + model + `"}}`)
+			require.Nil(t, candidateEdgeModelRejection(ctx, state.current.account, 400, nil, payload, model))
+		}
+		selected, err := state.selectAccount(ctx, candidateSelectOptions{excluded: map[int64]struct{}{62: {}}, acquire: true})
+		require.NoError(t, err)
+		require.Equal(t, int64(69), selected.Account.ID)
+		selected.ReleaseFunc()
+		require.Equal(t, body, state.body)
+	}
+}
+
 func TestCandidateEdgeModelRejectionBoundaries(t *testing.T) {
 	const model = "claude-sonnet-4-6"
 	const body = `{"error":{"type":"invalid_request_error","message":"Unsupported model: claude-sonnet-4-6"}}`

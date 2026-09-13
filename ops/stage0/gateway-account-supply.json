@@ -33,7 +33,49 @@
             "claude-sonnet-5"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "gemini-content": {
+          "status": "unsupported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: http_status_error; request cce4901d-b4c6-4361-b831-4759659f52db; protocolrouter registry has no Gemini to Messages converter; model substitution is not Claude coverage"
+        },
+        "openai-chat": {
+          "status": "supported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request b9869d96-c285-4cd8-8e57-46f0fb0fd48f"
+        },
+        "openai-responses": {
+          "status": "supported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 94314ae7-890a-4f0f-8b30-f88815756ee7"
+        },
+        "plain-stream": {
+          "status": "supported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request ce882dcd-3a75-412a-8a99-f5a673e7f457"
+        },
+        "tool-roundtrip": {
+          "status": "supported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 04b53a01-5c4b-45a1-94c4-cb3f64017b05,2c6292d8-8dbb-4a70-b5ab-9bf967a514e7"
+        },
+        "thinking": {
+          "status": "supported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 27547486-016f-4bbb-a50e-eed90ee839d9"
+        },
+        "vision": {
+          "status": "supported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request ec853a95-b478-45b5-a418-63a59be1efea"
+        },
+        "count-tokens": {
+          "status": "supported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: unmetered endpoint success; request 721fe4a1-65cd-4df2-8900-4683bc113626"
+        }
+      }
     },
     {
       "id": "antigravity.apikey.0.edge-antigravity.chat-completions-gemini-generate-content-messages.default",
@@ -120,7 +162,44 @@
             "gemini-3.1-flash-image-preview"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "openai-chat": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 76618e7c-a0b9-4f29-86f0-39d8e19e8e32"
+        },
+        "openai-responses": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 4d9d5593-174a-4235-9b63-f3835ee2daa9"
+        },
+        "plain-stream": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 72acab6f-201d-426f-8f81-97404f4645e6"
+        },
+        "tool-roundtrip": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request fb4748b5-f96f-4e1d-a603-1ab5c9eea38e,f6883264-b617-4ac2-9723-379c44d9f052"
+        },
+        "thinking": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 7d79faf9-5aa1-4d39-bbb8-8aaeaa627ac7"
+        },
+        "vision": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request e5564313-2ca3-42b3-a611-f1a09b426924"
+        },
+        "count-tokens": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: unmetered endpoint success; request 3e0b2c64-1f95-4a6c-af32-98be9091b7bb"
+        }
+      }
     },
     {
       "id": "newapi.apikey.1.nvidia-build.chat-completions.default",
@@ -157,7 +236,44 @@
             "kimi-k3"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request a5e02015-88b7-4645-bb03-8a59c8bb6868"
+        },
+        "gemini-content": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 544d68b7-5d63-48ce-90b4-6ab0ab2b8640"
+        },
+        "openai-responses": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 4c9fbad6-4bc5-42a3-a42a-84af827a0a6c"
+        },
+        "plain-stream": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 858b04e3-6bd0-43c5-b456-967b9b827b4f"
+        },
+        "tool-roundtrip": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: transport_error; request "
+        },
+        "thinking": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request b2506667-3215-488b-bd63-4e1031236a09"
+        },
+        "vision": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: transport_error; request ; Original timeout used another class; direct deepseek-v4-flash on that supplier stalls while analyzing base64, not proven visual support."
+        }
+      }
     },
     {
       "id": "newapi.apikey.1.standard.media.exclusive",
@@ -182,7 +298,8 @@
             "gemini-3.1-flash-image-preview"
           ]
         }
-      ]
+      ],
+      "branches": {}
     },
     {
       "id": "newapi.apikey.1.standard.chat-completions.exclusive",
@@ -280,7 +397,44 @@
             "MiniMax-M3"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "unknown",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request ffb09d96-5253-485a-870e-15b86b7835bc"
+        },
+        "gemini-content": {
+          "status": "unknown",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 0c3b7927-202c-4439-8592-8984d0266121"
+        },
+        "openai-responses": {
+          "status": "unknown",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 3cd9ae17-69d3-4d51-8373-bfc427155564"
+        },
+        "plain-stream": {
+          "status": "unknown",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 5b66d68a-911f-423f-af99-6c97436cdf27"
+        },
+        "tool-roundtrip": {
+          "status": "unknown",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request dd4d9602-2bf6-4f6c-8310-ed4b841b14ea,b0df6a3a-9322-43f3-9af9-9314503be332"
+        },
+        "thinking": {
+          "status": "unknown",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 1bea9201-e109-41f6-a8f7-9d2d1d5c0f12"
+        },
+        "vision": {
+          "status": "unknown",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: vision_answer_mismatch; request 933ab2cb-c9d8-431d-b41b-0d0e76516e71; Original fallback returned Pink; same supplier direct glm-5.2 returned White and stated no image; visual support unproven."
+        }
+      }
     },
     {
       "id": "newapi.apikey.14.standard.messages.exclusive",
@@ -331,7 +485,49 @@
             "claude-opus-4-6-thinking"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "gemini-content": {
+          "status": "unknown",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 72a4f2f6-b5cd-4162-a044-46075dd73e97"
+        },
+        "openai-chat": {
+          "status": "unknown",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 39814f34-062c-474b-bf41-3cadbc203b2a"
+        },
+        "openai-responses": {
+          "status": "unknown",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request ad028ca1-cc7a-41b5-99c3-dbe133e9a186"
+        },
+        "plain-stream": {
+          "status": "unknown",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 2ed50a76-19af-4fc8-9628-169020cab10d"
+        },
+        "tool-roundtrip": {
+          "status": "unknown",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: http_status_error; request 7e674dab-a26f-4ee6-8612-d53d04a04103"
+        },
+        "thinking": {
+          "status": "unknown",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: http_status_error; request 7f2c71da-922a-4fd9-9d39-95e00c2e95a0"
+        },
+        "vision": {
+          "status": "unknown",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: http_status_error; request 697df43c-1325-4d37-9a63-1eab01553013"
+        },
+        "count-tokens": {
+          "status": "supported",
+          "family": "claude",
+          "evidence": "1.8.225 / 2026-09-13: unmetered endpoint success; request ffb25e35-735a-4022-807d-f8bc0bb8726e"
+        }
+      }
     },
     {
       "id": "newapi.apikey.17.dashscope-token-plan.chat-completions-responses.default",
@@ -389,7 +585,44 @@
             "qwen-audio-3.0-tts-plus"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "supported",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request c1dfcdba-37e5-46f9-9b43-e0748e53a93e"
+        },
+        "gemini-content": {
+          "status": "supported",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request c2801225-b179-4952-8607-142b8f5a27ff"
+        },
+        "openai-responses": {
+          "status": "supported",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 2149a995-3747-4ce0-a6d4-6394161f255a"
+        },
+        "plain-stream": {
+          "status": "supported",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 6f21fbeb-28b7-4ca4-ac1e-087116030318"
+        },
+        "tool-roundtrip": {
+          "status": "supported",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request f6779124-e1bb-4e81-87ae-c1705e1b0b2a,05fea864-ba44-4105-80b5-c88003d74205"
+        },
+        "thinking": {
+          "status": "supported",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 9dc00168-2999-473d-88b0-3a69e8c72c28"
+        },
+        "vision": {
+          "status": "supported",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 22be6fc5-6989-424b-afe0-32eae4e1a667"
+        }
+      }
     },
     {
       "id": "newapi.apikey.17.standard.chat-completions.exclusive",
@@ -513,7 +746,44 @@
             "qwen3-vl-plus"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "unknown",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 60e6438b-63ae-495d-9655-295e59eda5cd"
+        },
+        "gemini-content": {
+          "status": "unknown",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 5c308295-f788-40f0-9ace-311614d558ae"
+        },
+        "openai-responses": {
+          "status": "unknown",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request e3515f49-9498-4208-80b6-28ae52d10732"
+        },
+        "plain-stream": {
+          "status": "unknown",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request a710bb8b-681e-4078-bb5f-b8de1dd638ac"
+        },
+        "tool-roundtrip": {
+          "status": "unknown",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request f4d7368f-8d6d-465d-aaaf-a33976635548,f8e432ab-6a89-48e5-8881-0ce3da21c388"
+        },
+        "thinking": {
+          "status": "unknown",
+          "family": "qwen",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 0742ffe4-1d77-45d8-864b-19c0f9b8a3f5"
+        },
+        "vision": {
+          "status": "unknown",
+          "family": "qwen-vision",
+          "evidence": "Reviewed supply includes qwen-vl-max; no matched image probe retained. Previous qwen-plus vision success used a different account class."
+        }
+      }
     },
     {
       "id": "newapi.apikey.45.standard.chat-completions-responses.default",
@@ -641,7 +911,44 @@
             "doubao-seed-tts-2.0"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "supported",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 63291ff5-464c-4203-a601-305b70b330e6"
+        },
+        "gemini-content": {
+          "status": "supported",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 9adf3b60-9c4f-4309-b693-4fb9cf342036"
+        },
+        "openai-responses": {
+          "status": "supported",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 1846a35d-2bf0-48ab-b68d-3ee0e6d49542"
+        },
+        "plain-stream": {
+          "status": "supported",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request a18637cd-73e0-425d-a0c6-8bdc68ee1c04"
+        },
+        "tool-roundtrip": {
+          "status": "supported",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 1b1c4f6d-3099-4750-abe1-3ecc101a8b55,19942b63-62d4-40b1-9c6a-5c215d31c1a5"
+        },
+        "thinking": {
+          "status": "supported",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request c1904a5e-68ff-4e51-8f02-bc0c6b2ca9ea"
+        },
+        "vision": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 2c35c27d-280d-437e-81fb-3c573551aec5; Matched deepseek-v4-pro returned Brown; direct stream guessed blue while stating no image; visual support unproven."
+        }
+      }
     },
     {
       "id": "newapi.apikey.46.standard.chat-completions.default",
@@ -692,7 +999,44 @@
             "kimi-k2.6"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 2fb0686c-65a6-4b64-b248-499c74f34b7e"
+        },
+        "gemini-content": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request a765b579-a04d-4379-842a-711b741114ba"
+        },
+        "openai-responses": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 343b215a-be28-4702-b50b-8ebf554bdb18"
+        },
+        "plain-stream": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 2175b9a1-cad0-43bc-9887-4fdd2a8ccd66"
+        },
+        "tool-roundtrip": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request dcfadf55-7404-4942-9084-8ca7e668db6d,f899222a-3685-4e82-adfa-b96c29e0b757"
+        },
+        "thinking": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request f770ccd6-10b3-4220-b59e-7f5df01d1c41"
+        },
+        "vision": {
+          "status": "unknown",
+          "family": "deepseek",
+          "evidence": "1.8.225 / 2026-09-13: transport_error; request ; Direct deepseek-v4-flash buffered timeout; streaming analyzed base64 without final answer; visual support unproven."
+        }
+      }
     },
     {
       "id": "newapi.apikey.46.standard.chat-completions.exclusive",
@@ -717,7 +1061,44 @@
             "glm-5.2"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "supported",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 1e14e6c6-3976-4e47-9962-e433ebca5a58"
+        },
+        "gemini-content": {
+          "status": "supported",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request eb5d1d74-9ef6-498b-ac63-409cb5e9a245"
+        },
+        "openai-responses": {
+          "status": "supported",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 0fb9c5f3-ce11-49e9-8c67-c009a0326618"
+        },
+        "plain-stream": {
+          "status": "supported",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request a2388893-3005-41d9-b181-9f2cb074eb97"
+        },
+        "tool-roundtrip": {
+          "status": "supported",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request ab02a26e-bda1-4dd5-a4d8-c4623efd01ae,68f14d31-4dd0-49d2-9bc9-d37c5d51dd3b"
+        },
+        "thinking": {
+          "status": "supported",
+          "family": "glm",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 1a23b396-df41-467f-ae0c-5433a728c0d1"
+        },
+        "vision": {
+          "status": "unsupported",
+          "family": "glm",
+          "evidence": "2026-09-13 direct same-model glm-5.1 probe: HTTP 400 image_url is only supported by certain models; no evidenced visual representative in this class"
+        }
+      }
     },
     {
       "id": "newapi.apikey.54.fmgo.media.exclusive",
@@ -741,7 +1122,8 @@
             "doubao-seedance-2-5-260628"
           ]
         }
-      ]
+      ],
+      "branches": {}
     },
     {
       "id": "newapi.service-account.41.standard.gemini-generate-content.default",
@@ -814,7 +1196,49 @@
             "veo-3.1-generate-001"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 53816d2c-7569-4bed-aa9a-2ad1ed95f537"
+        },
+        "openai-chat": {
+          "status": "unknown",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request de081c9d-d557-41c5-87ac-da5a62fbf9e8"
+        },
+        "openai-responses": {
+          "status": "unknown",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request afd7443a-871e-4388-adbb-3f98c1317f63"
+        },
+        "plain-stream": {
+          "status": "unknown",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 1baf88f6-13a4-4ca5-86c6-4fd14be3df5c"
+        },
+        "tool-roundtrip": {
+          "status": "unknown",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 12529cf5-6b4a-4d70-8d58-753371561067,c6ed7097-423e-42d8-87b0-a5110a510b1a"
+        },
+        "thinking": {
+          "status": "unknown",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 1c466472-c0cf-4aaf-8054-410bf6e4b5f1"
+        },
+        "vision": {
+          "status": "unknown",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request b4e45a2a-8563-4304-b366-76530ace5b62"
+        },
+        "count-tokens": {
+          "status": "supported",
+          "family": "gemini-3",
+          "evidence": "1.8.225 / 2026-09-13: unmetered endpoint success; request 2df28408-e06e-457f-bce6-474cc29319cd"
+        }
+      }
     },
     {
       "id": "openai.apikey.0.edge-openai.chat-completions-responses.default",
@@ -867,7 +1291,49 @@
             "gpt-6-astra"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "unknown",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request b30adf43-2488-4a0d-a662-9259e6341699"
+        },
+        "gemini-content": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 40f81b41-1505-42c8-8899-e5a61ca94a30"
+        },
+        "openai-chat": {
+          "status": "unknown",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 2d5ba18a-d48f-406c-aba0-3eed43aa6780"
+        },
+        "plain-stream": {
+          "status": "unknown",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 027eb8ab-6d5a-489b-921d-9342b62b931e"
+        },
+        "tool-roundtrip": {
+          "status": "unknown",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 399f4a02-17a9-4b38-84a5-0bdef42e2845,db59b8e4-3cad-477c-a04e-7ffd0423d33c"
+        },
+        "thinking": {
+          "status": "unknown",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 55748957-c9c1-49f3-8145-d164d3a24058"
+        },
+        "vision": {
+          "status": "unknown",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request 31e57260-e0d2-4df3-b5f0-3dba68531fda"
+        },
+        "count-tokens": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: unmetered endpoint success; request b837adab-1256-452b-ab72-8b5af5ba27d8"
+        }
+      }
     },
     {
       "id": "openai.apikey.0.edge-openai.responses.default",
@@ -919,7 +1385,49 @@
             "gpt-6-astra"
           ]
         }
-      ]
+      ],
+      "branches": {
+        "anthropic-messages": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request d8ddf08c-6636-4452-8f63-9e3f25f254f1"
+        },
+        "gemini-content": {
+          "status": "unknown",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: fallback-only success; request f5d59e8e-3d7d-4963-ad00-4e897f558a90"
+        },
+        "openai-chat": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 40f00654-7346-4dd3-9d1e-1d24155c73f0"
+        },
+        "plain-stream": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request fec2de9a-6381-4177-b980-d8ad4a3b8bc1"
+        },
+        "tool-roundtrip": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 25cf42ac-81e9-43ae-a1ca-b1d99f47dd68,24cc4ce1-b292-4804-831f-2b023d5d6635"
+        },
+        "thinking": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: matched class request accepted; answer quality failed and must be retested; reasoning not observed; request 928591cd-7b45-4874-9c96-da1b3d94a9e7"
+        },
+        "vision": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: matched class success; request 30bce03a-f517-42f3-8ae9-5ebd4704d936"
+        },
+        "count-tokens": {
+          "status": "supported",
+          "family": "gpt",
+          "evidence": "1.8.225 / 2026-09-13: unmetered endpoint success; request 29cb0da0-136a-4904-ba76-522e5b8ae3bf"
+        }
+      }
     }
   ]
 }

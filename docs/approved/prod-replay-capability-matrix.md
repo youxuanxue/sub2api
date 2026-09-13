@@ -41,9 +41,12 @@ Gemini 代际、vision 与独立媒体分支按当前试算保留。该等价划
 各 adapter 分支，不能推导同族所有模型已经测试通过。
 
 每个模型族一个基础义务；每个聊天账号类另补未覆盖的 generation 协议入口和
-stream/tool roundtrip/thinking/vision/count tokens 请求分支。请求分支复用清单中显式的
-branch_family，不因线上调用频率变化自动改选代表。仓库内不保留原始流量计数。
-默认输出完整计划；`--limit` 仅显式限制有模板且无设施阻塞的选择数量，不缩小报告分母。
+stream/tool roundtrip/thinking/vision/count tokens 请求分支。`branch_family` 是缺省代表；
+类内 `branches` 按协议名或请求场景记录 `status / family / evidence`，允许视觉等功能
+选择不同的现有模型族。supported 来自该供应路径的声明或实测证据，不等于本版本测试通过；
+unsupported 保留为不适用，unknown（含缺少声明）保留为证据缺口，两者均不发付费请求。
+未知字段、无效模型族和未使用的分支声明直接拒绝。仓库内不保留原始流量计数。
+默认输出完整计划；`--limit` 仅显式限制已支持且有模板、无设施阻塞的选择数量，不缩小报告分母。
 不恢复默认抽样截断，不增加 direct smoke。
 
 `--previous` 只比较声明/fixture digest，不代表执行历史。模板、代表、账号类或验证器／执行器源码改变会
@@ -82,7 +85,7 @@ universal routing，媒体经过现有 handler。执行器不强制账号绑定�
 只证明请求接受，不冒称已观测到思考输出；未声明 request_acceptance 的测试仍要求思考证据。
 工具场景执行真实 tool call 和 tool result 第二轮；Gemini 图片请求要求 IMAGE 输出；
 语音使用模型对应 voice；转录使用本地合成的 Hello WAV multipart；视频串行轮询到终态。
-OpenAI Chat 未定义 count-token 操作，该义务明确为 unsupported，不猜路径，也不算通过。
+OpenAI Chat 未定义 count-token 操作，因此不生成这一非法组合，不猜路径，也不算通过。
 coverage 不可由 manifest 手写 passed；harness 成功不算网关实测成功。真实错误和安全阻断
 均如实报告，本次授权不是要求把所有组合改成绿色。
 
@@ -129,7 +132,7 @@ Chat 没有独立 count-tokens 操作，因此不生成这个非法协议组合�
 fixture 使用足以完成短任务的输出预算，视频时长遵循服务接口字符串类型；音频沿用普通
 X-Session-Id 关联唯一测试调用与既有 grok_audio usage，不改计费实现。
 
-默认仍执行完整计划。显式 `--case-id` 可仅复测指定稳定 ID，拒绝空、重复或未知 ID；
+默认执行完整计划中的可执行项，unsupported / unknown 始终进入回执且不计成功。显式 `--case-id` 可仅复测指定稳定 ID，拒绝空、重复或未知 ID；
 完整计划的 digest 和覆盖分母不变，未选择项记 declared-but-untested。回执分别记录
 selected_verdict 与全计划 verdict，局部通过不等于全量通过，任何结果都不授权切流。
 
@@ -154,3 +157,23 @@ X-Session-Id 归因，prepare 入口固定使用 prod region SSOT，不继承操
 Vertex embedding 的后续筛选误用 API-key-only 条件：允许已有 newapi/channel-41/service_account
 供给通过 embedding 类型门，仍遵守显式 capability、模型与可用性检查；不扩展到其他 OAuth 或
 service-account 类型，不改变线上账号绑定。
+
+## 能力证据修正（1.8.225 后）
+
+用户同意先修复深挖中确认的代码和测试问题。清单中的分支证据来自 2026-09-13 的
+1.8.225 完整 universal 实测及同日定向对照；成功记录保留请求 ID，只有命中相同账号类的
+结果才作为该类能力证据。count-token 仅证明不计费端点，不提供账号命中证据。
+原 150 条的 135 成功 / 15 失败不回写；暂时超时、供应缺货、答案错误不自动改为不支持。
+
+Gemini→Kiro Messages 没有 converter，千帆 glm-5.1 明确拒绝 image_url，保留为 unsupported。
+无法确认视觉能力的 GLM / DeepSeek 路径保持 unknown；Ali Chat 类改选清单里已有的
+qwen-vl-max 视觉代表，但缺相同账号类的视觉证据，仍不能作为正向实测基线。
+不能用模型名称、一次猜对颜色或其他账号 fallback 通过自动认证视觉支持。
+
+思考回执分开记录 thinking_request_accepted、thinking_evidence 和 answer_quality。
+请求接受只表示响应通过协议/终态检查，不证明网关保留了上游未回显的参数；
+算术答案仍严格校验，reasoning_tokens=0 不等于请求失败，也不等于已观察到思考。
+
+计划 schema 2 将分支能力与证据纳入 case digest。schema 1 的历史计划仍可报告和比较，
+不会因新规则自动变绿；tag 中生成器发生变化时仍使用完整 baseline。
+整个分母仍保留 unsupported / unknown，全部可执行项通过也不代表所有能力缺口关闭。

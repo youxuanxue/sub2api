@@ -18,7 +18,10 @@ def inventory(*models):
     return {'schema': 1, 'kind': 'account-supply-representatives', 'classes': [{
         'id': 'example-chat', 'platform': 'newapi', 'auth_type': 'apikey', 'channel_type': 1,
         'dialect': 'standard', 'native_protocols': ['openai-chat'], 'exclusive_endpoints': False,
-        'branch_family': 'family-0', 'representatives': [
+        'branch_family': 'family-0', 'branches': {
+            key: {'status': 'supported', 'family': 'family-0', 'evidence': 'local test supplier contract'}
+            for key in ('anthropic-messages', 'gemini-content', 'openai-responses',
+                        'plain-stream', 'tool-roundtrip', 'thinking', 'vision')}, 'representatives': [
             {'family': f'family-{i}', 'model': name, 'upstream_model': name, 'operation': 'generation',
              'baseline_protocol': 'openai-chat', 'represented_models': [name]}
             for i, name in enumerate(models or ('model-a',))]}]}
@@ -81,10 +84,76 @@ class MatrixTests(unittest.TestCase):
         image = next(e for e in value['entries'] if e['scenario'] == 'content-image')
         self.assertIn('IMAGE', image['request']['body']['generationConfig']['responseModalities'])
         self.assertIsNone(image['blocked_reason'])
-        self.assertTrue(all(e['blocked_reason'] is None
-                            for e in value['entries'] if e['scenario'] == 'tool-roundtrip'))
         self.assertEqual({e['blocked_reason'] for e in value['entries'] if e['blocked_reason']},
-                         set())
+                         {'capability_unknown', 'capability_unsupported'})
+        self.assertTrue(all(e['capability']['status'] == 'supported' for e in usable))
+
+    def test_legacy_saved_plan_remains_reportable_and_is_a_full_delta(self):
+        current = plan()
+        legacy = copy.deepcopy(current)
+        legacy['schema'] = 1
+        for case in legacy['entries']:
+            case.pop('capability')
+            case['case_sha256'] = matrix.digest({k: v for k, v in case.items() if k != 'case_sha256'})
+        legacy['plan_sha256'] = matrix.digest({k: v for k, v in legacy.items() if k != 'plan_sha256'})
+        self.assertEqual(len(matrix.delta(current, legacy)), len(current['entries']))
+        self.assertEqual(matrix.report(legacy)['total'], len(legacy['entries']))
+        legacy['schema'] = 2
+        legacy['plan_sha256'] = matrix.digest({k: v for k, v in legacy.items() if k != 'plan_sha256'})
+        with self.assertRaisesRegex(ValueError, 'capability declaration'):
+            matrix.validate_plan(legacy)
+
+    def test_missing_branch_evidence_stays_visible_without_running(self):
+        source = inventory()
+        source['classes'][0].pop('branches')
+        value = matrix.build(source, matrix.load())
+        self.assertEqual(len(matrix.select(value['entries'])), 1)
+        self.assertEqual(len(value['entries']), len(plan()['entries']))
+        summary = matrix.report(value)
+        branches = [e for e in summary['entries'] if e['reason'] == 'capability_unknown']
+        self.assertEqual(len(branches), len(value['entries']) - 1)
+        self.assertTrue(all(e['status'] == 'declared-but-untested' for e in branches))
+        self.assertFalse(summary['scope_complete'])
+
+    def test_feature_uses_its_own_representative_and_capability_changes_invalidate_evidence(self):
+        source = inventory('text-model', 'visual-model')
+        cls = source['classes'][0]
+        cls['branches']['vision'] = {'status': 'supported', 'family': 'family-1',
+                                     'evidence': 'supplier declares image input on visual-model'}
+        before = matrix.build(source, matrix.load())
+        vision = next(e for e in before['entries'] if e['scenario'] == 'vision')
+        text = next(e for e in before['entries'] if e['scenario'] == 'thinking')
+        self.assertEqual(vision['request']['body']['model'], 'visual-model')
+        self.assertEqual(text['request']['body']['model'], 'text-model')
+        cls['branches']['vision']['status'] = 'unsupported'
+        after = matrix.build(source, matrix.load())
+        self.assertEqual(len(matrix.delta(after, before)), len(after['entries']))
+        blocked = next(e for e in after['entries'] if e['scenario'] == 'vision')
+        self.assertNotIn(blocked, matrix.select(after['entries']))
+        self.assertEqual(matrix.report(after)['coverage']['unsupported'], 1)
+        fake = {'plan_sha256': after['plan_sha256'], 'execution_kind': 'harness', 'results': [
+            {'id': blocked['id'], 'case_sha256': blocked['case_sha256'], 'status': 'passed'}]}
+        with self.assertRaisesRegex(ValueError, 'blocked_case_cannot_pass'):
+            matrix.report(after, fake)
+        for field, value in [('status', 'passed'), ('evidence', ''), ('family', 'missing')]:
+            invalid = copy.deepcopy(source)
+            invalid['classes'][0]['branches']['vision'][field] = value
+            with self.assertRaisesRegex(ValueError, 'capability status'):
+                matrix.build(invalid, matrix.load())
+        invalid = copy.deepcopy(source)
+        invalid['classes'][0]['branches']['openai-chat'] = cls['branches']['vision']
+        with self.assertRaisesRegex(ValueError, 'unused capability'):
+            matrix.build(invalid, matrix.load())
+
+    def test_count_tokens_override_cannot_silently_remove_the_obligation(self):
+        source = inventory('messages-model', 'chat-model')
+        cls = source['classes'][0]
+        cls['native_protocols'].append('anthropic-messages')
+        cls['representatives'][0]['baseline_protocol'] = 'anthropic-messages'
+        cls['branches'] = {'count-tokens': {'status': 'supported', 'family': 'family-1',
+                                           'evidence': 'invalid chat-only representative'}}
+        with self.assertRaisesRegex(ValueError, 'token-count endpoint'):
+            matrix.build(source, matrix.load())
 
     def test_all_fixtures_bind_model_and_exact_actions(self):
         for p in matrix.load():

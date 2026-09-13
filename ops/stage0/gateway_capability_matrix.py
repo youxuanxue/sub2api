@@ -2,6 +2,7 @@
 """Finite verification obligations; no gateway imports, captures, credentials or I/O to prod."""
 from __future__ import annotations
 
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -107,7 +108,7 @@ def validate_inventory(inventory):
     require(isinstance(classes, list) and classes, 'empty account supply inventory')
     seen = set()
     for cls in classes:
-        require(set(cls) == {'id', 'platform', 'auth_type', 'channel_type', 'dialect', 'native_protocols',
+        require(set(cls) - {'branches'} == {'id', 'platform', 'auth_type', 'channel_type', 'dialect', 'native_protocols',
                              'exclusive_endpoints', 'branch_family', 'representatives'}, 'invalid account class fields')
         require(isinstance(cls['id'], str) and re.fullmatch(r'[a-z0-9.-]+', cls['id']) and
                 cls['id'] not in seen, 'invalid or duplicate account class')
@@ -137,6 +138,14 @@ def validate_inventory(inventory):
                 require(rep['baseline_protocol'] in cls['native_protocols'], 'baseline must use declared native protocol')
         require(cls['branch_family'] in generation_families if generation_families else cls['branch_family'] is None,
                 'branch representative must be a generation family')
+        branches = cls.get('branches', {})
+        require(isinstance(branches, dict) and set(branches) <= GENERATION_PROTOCOLS | set(BRANCH_SCENARIOS),
+                'invalid capability branches')
+        for capability in branches.values():
+            require(isinstance(capability, dict) and set(capability) == {'status', 'family', 'evidence'} and
+                    capability['status'] in CAPABILITY_STATUSES and capability['family'] in generation_families and
+                    isinstance(capability['evidence'], str) and bool(capability['evidence'].strip()),
+                    'capability status, generation representative and evidence required')
     # These lists represent sets, not selection priority. Reordering a reviewed
     # inventory must not invalidate release evidence or create a false delta.
     return {**inventory, 'classes': [
@@ -146,6 +155,8 @@ def validate_inventory(inventory):
         for cls in sorted(classes, key=lambda c: c['id'])]}
 
 
+CAPABILITY_STATUSES = {'supported', 'unsupported', 'unknown'}
+BRANCH_SCENARIOS = ('plain-stream', 'tool-roundtrip', 'thinking', 'vision', 'count-tokens')
 GENERATION_PROTOCOLS = {'anthropic-messages', 'openai-chat', 'openai-responses', 'gemini-content'}
 OPERATION_PROTOCOLS = {'generation': GENERATION_PROTOCOLS, 'embedding': {'openai-embeddings'},
                        'image': {'openai-images'}, 'video': {'openai-video'}, 'speech': {'openai-audio'},
@@ -164,10 +175,10 @@ def build(inventory, profiles):
                                   for name in VERIFICATION_SOURCES})
     entries = []
 
-    def emit(cls, rep, protocol, scenario, layer):
+    def emit(cls, rep, protocol, scenario, layer, capability=None):
         # Chat Completions defines no standalone token-count operation.
-        if scenario == 'count-tokens' and protocol == 'openai-chat':
-            return
+        require(scenario != 'count-tokens' or protocol != 'openai-chat',
+                'count-tokens representative must expose a token-count endpoint')
         suffix = {'plain-stream': 'plain.stream', 'tool-roundtrip': 'tool', 'thinking': 'thinking',
                   'vision': 'multimodal', 'count-tokens': 'count_tokens'}.get(scenario, 'plain')
         profile_id = protocol + '.' + suffix
@@ -179,7 +190,11 @@ def build(inventory, profiles):
                           if p['id'] == 'openai-transcription.plain'), '')
             request = media_request(scenario, rep['model'], audio)
             reason = None
-        entry = {'account_class': cls['id'], 'model_family': rep['family'], 'model': rep['model'],
+        capability = capability or {'status': 'supported', 'family': rep['family'],
+                                    'evidence': 'reviewed account supply baseline declaration'}
+        if capability['status'] != 'supported':
+            reason = 'capability_' + capability['status']
+        entry = {'capability': dict(capability), 'account_class': cls['id'], 'model_family': rep['family'], 'model': rep['model'],
                  'upstream_model': rep['upstream_model'], 'profile': profile_id, 'protocol': protocol,
                  'request_type': {'plain-stream': 'plain', 'tool-roundtrip': 'tool', 'thinking': 'thinking',
                                   'vision': 'multimodal', 'count-tokens': 'count_tokens'}.get(scenario, 'plain'),
@@ -198,21 +213,33 @@ def build(inventory, profiles):
             emit(cls, rep, rep['baseline_protocol'],
                  'plain-buffered' if rep['operation'] == 'generation' else rep['operation'], 'model-family-baseline')
         if cls['branch_family'] is None:
+            require(not cls.get('branches'), 'unused capability branch declaration')
             continue
         branch = next(r for r in representatives if r['family'] == cls['branch_family'])
+        used = set()
+
+        def emit_branch(key, protocol, scenario, layer):
+            used.add(key)
+            capability = cls.get('branches', {}).get(key, {
+                'status': 'unknown', 'family': branch['family'], 'evidence': 'capability evidence missing'})
+            representative = next(r for r in representatives if r['family'] == capability['family'])
+            emit(cls, representative, protocol or representative['baseline_protocol'], scenario, layer, capability)
+
         for protocol in sorted(GENERATION_PROTOCOLS):
             if not any(e['account_class'] == cls['id'] and e['protocol'] == protocol and
                        e['scenario'] == 'plain-buffered' for e in entries):
-                emit(cls, branch, protocol, 'plain-buffered', 'protocol-branch')
-        for scenario in ('plain-stream', 'tool-roundtrip', 'thinking', 'vision', 'count-tokens'):
-            emit(cls, branch, branch['baseline_protocol'], scenario, 'request-branch')
-    result = {'schema': 1, 'inventory_sha256': digest(inventory), 'entries': entries}
+                emit_branch(protocol, protocol, 'plain-buffered', 'protocol-branch')
+        for scenario in BRANCH_SCENARIOS:
+            if scenario != 'count-tokens' or branch['baseline_protocol'] != 'openai-chat':
+                emit_branch(scenario, None, scenario, 'request-branch')
+        require(set(cls.get('branches', {})) <= used, 'unused capability branch declaration')
+    result = {'schema': 2, 'inventory_sha256': digest(inventory), 'entries': entries}
     result['plan_sha256'] = digest(result)
     return validate_plan(result)
 
 
 def validate_plan(plan):
-    require(isinstance(plan, dict) and plan.get('schema') == 1 and
+    require(isinstance(plan, dict) and plan.get('schema') in (1, 2) and
             isinstance(plan.get('inventory_sha256'), str), 'account-supply plan required')
     require(plan.get('plan_sha256') == digest({k: v for k, v in plan.items() if k != 'plan_sha256'}), 'plan hash mismatch')
     require(isinstance(plan.get('entries'), list) and plan['entries'], 'empty plan')
@@ -221,6 +248,15 @@ def validate_plan(plan):
         require(case['id'] not in seen and case['key_type'] in KEY_TYPES and
                 isinstance(case.get('account_class'), str) and bool(case['account_class']) and
                 case.get('plan_validation') == 'required', 'invalid case identity')
+        if plan['schema'] == 2:
+            capability = case.get('capability', {})
+            require(capability.get('status') in CAPABILITY_STATUSES and
+                    capability.get('family') == case.get('model_family') and
+                    isinstance(capability.get('evidence'), str) and bool(capability['evidence'].strip()),
+                    'case capability declaration required')
+            require(capability['status'] == 'supported' or
+                    case.get('blocked_reason') == 'capability_' + capability['status'],
+                    'unverified capability must remain blocked')
         require(case['case_sha256'] == digest({k: v for k, v in case.items() if k != 'case_sha256'}), 'case hash mismatch')
         require(case['request'] is None and case.get('blocked_reason') or isinstance(case['request'], dict) and
                 valid_path(case['request'].get('path', '')) and isinstance(case['request'].get('body'), dict),
@@ -245,6 +281,15 @@ def select(cases, limit=None):
     return selected if limit is None else selected[:limit]
 
 
+def blocked_status(case):
+    reason = case.get('blocked_reason')
+    if reason in ('capability_unsupported', 'protocol_operation_not_defined'):
+        return 'unsupported'
+    if reason == 'capability_unknown':
+        return 'declared-but-untested'
+    return 'blocked-by-test-infrastructure' if reason else None
+
+
 def report(plan, results=None, previous=None):
     scope = delta(plan, previous)
     records = {}
@@ -262,6 +307,7 @@ def report(plan, results=None, previous=None):
             require(result.get('case_sha256') == case['case_sha256'], 'stale fixture result')
             require(result.get('status') in ('passed', 'failed', 'unsupported', 'blocked-by-test-infrastructure', 'declared-but-untested'), 'invalid result status')
             status = result['status']
+            require(not case.get('blocked_reason') or status != 'passed', 'blocked_case_cannot_pass')
             if status == 'passed' and results['execution_kind'] == 'isolated_gateway':
                 proof = result.get('execution_proof', {})
                 require(results.get('isolation_verified') is True and results.get('cleanup_verified') is True
@@ -292,9 +338,11 @@ def report(plan, results=None, previous=None):
             if status == 'passed' and results['execution_kind'] == 'harness':
                 status = 'harness-passed'  # Never gateway service evidence.
         else:
-            status = 'blocked-by-test-infrastructure' if case.get('blocked_reason') else 'declared-but-untested'
+            status = 'declared-but-untested'
+        status = blocked_status(case) or status
         row = {k: case[k] for k in ('id', 'account_class', 'model_family', 'model', 'protocol', 'request_type', 'key_type', 'profile', 'scenario')} | {
-            'status': status, 'reason': result.get('reason') if result else case.get('blocked_reason')}
+            'status': status, 'capability': case.get('capability'),
+            'reason': case.get('blocked_reason') or (result.get('reason') if result else None)}
         if result and results and results.get('execution_kind') == 'prepared_gateway':
             proof = result.get('execution_proof') or {}
             if 'account_class_matched' in proof:
@@ -321,6 +369,8 @@ def report(plan, results=None, previous=None):
     complete = all(r['status'] == 'passed' for r in output if r['id'] in scope_ids)
     return {'schema': 1, 'plan_sha256': plan['plan_sha256'], 'coverage': counts,
             'account_class_coverage': class_coverage,
+            'capability_coverage': dict(Counter((c.get('capability') or {}).get('status', 'legacy-undeclared')
+                                                for c in plan['entries'])),
             'total': len(output), 'delta': len(scope), 'scope_complete': complete,
             'verdict': 'no_changes' if not scope else 'passed' if complete else 'incomplete',
             'cutover': False, 'deployment_gate': False,
