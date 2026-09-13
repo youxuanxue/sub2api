@@ -192,6 +192,7 @@
       "path": "backend/internal/service/candidate_pricing_browser_test.go",
       "must_contain": [
         "func TestCandidatePricingBrowser(",
+        "public := *NewPricingCatalogService(nil).BuildPublicCatalog(",
         "requestCapabilities.modelFilter = NewModelListFilter(",
         "svc.BuildForUser(",
         "exec.CommandContext("
@@ -204,7 +205,8 @@
         "[1280, 390]",
         "route.fetch(",
         "'model_not_found'",
-        "await keySelect.selectOption"
+        "await keySelect.selectOption",
+        "for (const model of namespacedModels)"
       ],
       "rationale": "Real UI regression covers Direct/Universal scope, cross-platform aliases and structural versus transient retirement with actual service responses."
     },
