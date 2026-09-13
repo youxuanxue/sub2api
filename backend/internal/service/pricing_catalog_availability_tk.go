@@ -11,7 +11,7 @@ func tkAvailabilityStructurallyGone(s AvailabilityState) bool {
 
 // DecorateAndPruneByAvailability overlays per-model availability badges AND
 // removes structurally-gone models (tkAvailabilityStructurallyGone) from the
-// catalog response, in a single pass (one GetAvailability per model). It is the
+// catalog response using one batch read per platform. It is the
 // sole availability pass on the public /pricing path. Only confirmed provider
 // retirement hides a row; account restrictions and transient failures retain it.
 //

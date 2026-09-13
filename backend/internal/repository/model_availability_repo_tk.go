@@ -2,9 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
-	"sync"
-	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/modelavailability"
@@ -13,37 +12,15 @@ import (
 
 // modelAvailabilityRepository implements service.ModelAvailabilityRepository.
 //
-// PR-1 synchronous implementation — one PG round-trip per RecordOutcome.
-// Redis write-buffer optimisation is deferred to PR-2 / PR-3 (see
-// docs/approved/pricing-availability-source-of-truth.md#availability-catalog-decoration).
+// The production PostgreSQL row lock serializes state transitions across app
+// instances. Lock acquisition and all reads/writes share the caller's deadline.
 type modelAvailabilityRepository struct {
 	client *dbent.Client
-
-	// per-(platform, model) cell mutex serialises the read-modify-write
-	// inside Upsert. The map grows to at most catalog_size × platform_count
-	// ≈ 600 entries; memory is negligible.
-	cellMu  sync.Mutex
-	muCells map[string]*sync.Mutex
 }
 
 // NewModelAvailabilityRepository constructs the ent-backed repository.
 func NewModelAvailabilityRepository(client *dbent.Client) service.ModelAvailabilityRepository {
-	return &modelAvailabilityRepository{
-		client:  client,
-		muCells: make(map[string]*sync.Mutex),
-	}
-}
-
-func (r *modelAvailabilityRepository) lockFor(platform, modelID string) *sync.Mutex {
-	r.cellMu.Lock()
-	defer r.cellMu.Unlock()
-	key := platform + "::" + modelID
-	mu, ok := r.muCells[key]
-	if !ok {
-		mu = &sync.Mutex{}
-		r.muCells[key] = mu
-	}
-	return mu
+	return &modelAvailabilityRepository{client: client}
 }
 
 func (r *modelAvailabilityRepository) Get(ctx context.Context, platform, modelID string) (service.AvailabilityState, error) {
@@ -89,79 +66,40 @@ func (r *modelAvailabilityRepository) Upsert(ctx context.Context, platform, mode
 	if r == nil || r.client == nil {
 		return errors.New("model availability repo: nil client")
 	}
-	mu := r.lockFor(platform, modelID)
-	for !mu.TryLock() {
-		t := time.NewTimer(2 * time.Millisecond)
-		select {
-		case <-t.C:
-		case <-ctx.Done():
-			t.Stop()
-			return ctx.Err()
-		}
-	}
-	defer mu.Unlock()
-
-	// Serializable transactions make the read-modify-write atomic across
-	// repository instances (the process-local mutex only covers one instance).
 	tx, err := r.client.Tx(ctx)
 	if err != nil {
 		return err
 	}
-	rollback := func(e error) error { _ = tx.Rollback(); return e }
-
-	row, err := tx.ModelAvailability.Query().Where(modelavailability.PlatformEQ(modelavailability.Platform(platform))).Where(modelavailability.ModelID(modelID)).Only(ctx)
-	cur := service.AvailabilityState{}
-	if dbent.IsNotFound(err) {
-		err = nil
-	} else if err == nil {
-		cur = entRowToState(row)
+	// Also release the connection if the state callback panics.
+	defer func() { _ = tx.Rollback() }()
+	plat := modelavailability.Platform(platform)
+	// Materialize an empty cell before locking it, so competing first writers
+	// serialize on the same unique key without losing an observation.
+	err = tx.ModelAvailability.Create().SetPlatform(plat).SetModelID(modelID).
+		OnConflictColumns(modelavailability.FieldPlatform, modelavailability.FieldModelID).
+		DoNothing().Exec(ctx)
+	inserted := err == nil
+	// Ent scans RETURNING id; DO NOTHING returns no row for an existing cell.
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
 	}
+	row, err := tx.ModelAvailability.Query().
+		Where(modelavailability.PlatformEQ(plat), modelavailability.ModelID(modelID)).
+		ForUpdate().Only(ctx)
 	if err != nil {
-		return rollback(err)
+		return err
+	}
+	cur := entRowToState(row)
+	if inserted {
+		cur = service.AvailabilityState{}
 	}
 	next := fn(cur)
 	next.Platform = platform
 	next.ModelID = modelID
 
 	status := modelavailability.Status(orDefault(next.Status, "untested"))
-	plat := modelavailability.Platform(platform)
-
-	if cur.Platform == "" {
-		// Insert new row.
-		c := r.client.ModelAvailability.Create().
-			SetPlatform(plat).
-			SetModelID(modelID).
-			SetStatus(status).
-			SetLastFailureKind(next.LastFailureKind).
-			SetSampleOk24h(next.SampleOK24h).
-			SetSampleTotal24h(next.SampleTotal24h)
-		if next.LastSeenOKAt != nil {
-			c.SetLastSeenOkAt(*next.LastSeenOKAt)
-		}
-		if next.LastFailureAt != nil {
-			c.SetLastFailureAt(*next.LastFailureAt)
-		}
-		if next.LastCheckedAt != nil {
-			c.SetLastCheckedAt(*next.LastCheckedAt)
-		}
-		if next.UpstreamStatusCodeLast != nil {
-			c.SetUpstreamStatusCodeLast(*next.UpstreamStatusCodeLast)
-		}
-		if next.RollingWindowStartedAt != nil {
-			c.SetRollingWindowStartedAt(*next.RollingWindowStartedAt)
-		}
-		if next.LastAccountID != nil {
-			c.SetLastAccountID(*next.LastAccountID)
-		}
-		_, err = c.Save(ctx)
-		if err != nil {
-			return rollback(err)
-		}
-		return tx.Commit()
-	}
-
 	// Update existing row.
-	u := r.client.ModelAvailability.Update().
+	u := tx.ModelAvailability.Update().
 		Where(modelavailability.PlatformEQ(plat)).
 		Where(modelavailability.ModelID(modelID)).
 		SetStatus(status).
@@ -200,7 +138,7 @@ func (r *modelAvailabilityRepository) Upsert(ctx context.Context, platform, mode
 	}
 	_, err = u.Save(ctx)
 	if err != nil {
-		return rollback(err)
+		return err
 	}
 	return tx.Commit()
 }
