@@ -14,9 +14,17 @@ import (
 func candidateEdgeModelRejection(ctx context.Context, account *Account, status int, headers http.Header, body []byte, model string) *UpstreamFailoverError {
 	r := CandidateRequestFromContext(ctx)
 	model = strings.TrimSpace(model)
-	if r == nil || r.current == nil || account == nil || r.current.account.ID != account.ID ||
-		model == "" || r.current.model != model || status != http.StatusBadRequest ||
+	if r == nil || r.current == nil || r.current.account == nil || account == nil || r.current.account.ID != account.ID ||
+		model == "" || status != http.StatusBadRequest ||
 		account.Type != AccountTypeAPIKey || !isEdgeMirrorStub(account, edgeIDPattern) {
+		return nil
+	}
+	selectedModel := r.current.model
+	if r.current.plan != nil {
+		// Forwarders use this immutable plan after applying account aliases.
+		selectedModel = r.current.plan.ResolvedModel()
+	}
+	if selectedModel != model {
 		return nil
 	}
 	if !gjson.ValidBytes(body) || gjson.GetBytes(body, "error.type").String() != TkUnsupportedModelErrType ||

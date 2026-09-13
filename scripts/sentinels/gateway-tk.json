@@ -291,7 +291,7 @@
       },
       {
         "path": "ops/stage0/gateway_capability_matrix.py",
-        "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "verification_sha256", "harness-passed", "account_class_coverage"],
+        "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "verification_sha256", "harness-passed", "account_class_coverage", "unverified capability must remain blocked", "blocked_case_cannot_pass"],
         "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return. prepared_gateway receipts must surface account_class_coverage for approval."
       },
       {
@@ -316,13 +316,13 @@
       },
       {
         "path": "ops/stage0/gateway_capability_host.py",
-        "must_contain": ["def test_key(", "def run_locked(", "def candidate_address(", "def attribution(", "prepared_gateway", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "route_unchanged", "normal_universal"],
+        "must_contain": ["def test_key(", "def run_locked(", "def candidate_address(", "def attribution(", "prepared_gateway", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "route_unchanged", "normal_universal", "matrix.blocked_status(case)", "thinking_request_accepted"],
         "must_not_contain": ["replay.Sandbox", "pg_dump", "pg_restore", "host_guard", "getloadavg", "/proc/pressure", "INSERT INTO", "UPDATE api_keys", "docker run"],
         "rationale": "Normal blue/green candidate verification uses an existing universal test key, serial requests, real usage and unchanged routing; no parallel sandbox deployment."
       },
       {
         "path": "ops/stage0/test_gateway_capability_host.py",
-        "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation", "test_video_pending_operation_and_inline_mp4_completion"],
+        "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation", "test_video_pending_operation_and_inline_mp4_completion", "test_blocked_capabilities_cannot_execute_even_when_called_directly", "test_thinking_proof_separates_acceptance_reasoning_and_quality"],
         "rationale": "Behavioral guards preserve candidate-only sends, test-key attribution and the full denominator without creating extra resources."
       },
       {
@@ -11556,7 +11556,7 @@
     },
     {
       "path": "backend/internal/service/candidate_edge_model_rejection_tk.go",
-      "must_contain": ["func candidateEdgeModelRejection", "r.current.model != model", "isEdgeMirrorStub(account, edgeIDPattern)", "TkUnsupportedModelMessage(model)", "gatewayFailureSemanticTransientFault"],
+      "must_contain": ["func candidateEdgeModelRejection", "selectedModel = r.current.plan.ResolvedModel()", "selectedModel != model", "isEdgeMirrorStub(account, edgeIDPattern)", "TkUnsupportedModelMessage(model)", "gatewayFailureSemanticTransientFault"],
       "rationale": "A known edge's exact model-path rejection cannot terminate other authorized candidate paths or become an account credential penalty."
     },
     {
@@ -11571,7 +11571,7 @@
     },
     {
       "path": "backend/internal/service/candidate_edge_model_rejection_tk_test.go",
-      "must_contain": ["TestCandidateEdgeModelRejectionBoundaries", "TestCandidateEdgeModelRejectionBeforeResponseCommit", "TestCandidateEdgeModelRejectionReselectsAuthorizedOrigin"],
+      "must_contain": ["TestCandidateEdgeModelRejectionMappedPlan", "TestCandidateEdgeModelRejectionBoundaries", "TestCandidateEdgeModelRejectionBeforeResponseCommit", "TestCandidateEdgeModelRejectionReselectsAuthorizedOrigin"],
       "rationale": "Keep strict error matching, response-commit safety, authorized retry and billing rebinding regression coverage."
     },
     {

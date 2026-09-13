@@ -151,11 +151,15 @@ def attribution(binding, request_ids, case, inventory, sessions=None):
 
 
 def execute_case(case, binding, address, before, throttle, inventory, run_id, root):
+    if matrix.blocked_status(case):
+        return {'status': matrix.blocked_status(case), 'reason': case['blocked_reason']}
     observations = []
     request_ids = []
     final_reason = None
     sessions = {}
     reasoning_evidence = None
+    thinking_acceptance = False
+    answer_quality = 'not_evaluated'
 
     def retain_id(rid):
         request_ids.append(rid)
@@ -172,12 +176,17 @@ def execute_case(case, binding, address, before, throttle, inventory, run_id, ro
         session_id = marker if case['scenario'] in ('speech', 'transcription') else None
 
         def validator(status, ctype, raw, stream):
-            nonlocal reasoning_evidence
+            nonlocal reasoning_evidence, thinking_acceptance, answer_quality
             if validation_case['request_type'] == 'thinking':
                 reasoning_evidence = thinking_evidence(raw, stream)
             # Only the synthetic response remains in host memory for the next tool turn.
             captured['raw'] = bytes(raw)
-            return validate_response(validation_case, status, ctype, raw, stream)
+            reason = validate_response(validation_case, status, ctype, raw, stream)
+            if validation_case['request_type'] == 'thinking':
+                thinking_acceptance = reason in (None, 'thinking_answer_mismatch', 'thinking_evidence_missing')
+                answer_quality = ('failed' if reason == 'thinking_answer_mismatch' else
+                                  'passed' if thinking_acceptance else 'not_evaluated')
+            return reason
 
         obs = replay.execute({'path': request['path'], 'body': payload, 'row': {'stream': request['stream']}},
             binding['key'], 8080, marker,
@@ -234,6 +243,8 @@ def execute_case(case, binding, address, before, throttle, inventory, run_id, ro
              'routing_validation': 'normal_universal',
              'attribution': 'unmetered_endpoint' if case['request_type'] == 'count_tokens' else 'usage_rows'}
     if case['request_type'] == 'thinking':
+        proof['thinking_request_accepted'] = thinking_acceptance
+        proof['answer_quality'] = answer_quality
         proof['thinking_evidence'] = reasoning_evidence or 'not_observed'
         proof['thinking_validation'] = case['request'].get('thinking_validation', 'evidence_required')
     return {'status': 'failed' if final_reason else 'passed', 'reason': final_reason,
@@ -268,11 +279,10 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY', case
         address = candidate_address(replay.inspect('tokenkey-' + before['target']))
         for case in plan['entries']:
             item = {'id': case['id'], 'case_sha256': case['case_sha256']}
-            if case['id'] not in selected:
+            if matrix.blocked_status(case):
+                item.update(status=matrix.blocked_status(case), reason=case['blocked_reason'])
+            elif case['id'] not in selected:
                 item.update(status='declared-but-untested', reason='not_selected_for_rerun')
-            elif case['blocked_reason']:
-                item.update(status='unsupported' if case['blocked_reason'] == 'protocol_operation_not_defined'
-                            else 'blocked-by-test-infrastructure', reason=case['blocked_reason'])
             else:
                 try:
                     item.update(execute_case(case, binding, address, before, throttle, inventory, run_id, root))
@@ -290,8 +300,8 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY', case
         signal.alarm(0)
         finished = {r['id'] for r in result['results']}
         result['results'].extend({'id': c['id'], 'case_sha256': c['case_sha256'],
-            'status': 'blocked-by-test-infrastructure' if c['id'] in selected else 'declared-but-untested',
-            'reason': (reason or 'execution_not_completed') if c['id'] in selected else 'not_selected_for_rerun'}
+            'status': matrix.blocked_status(c) or ('blocked-by-test-infrastructure' if c['id'] in selected else 'declared-but-untested'),
+            'reason': c.get('blocked_reason') or ((reason or 'execution_not_completed') if c['id'] in selected else 'not_selected_for_rerun')}
             for c in plan['entries'] if c['id'] not in finished)
         try:
             result['route_unchanged'] = replay.snapshot(root) == before
@@ -312,6 +322,7 @@ def run(plan, inventory, tag, root=replay.ROOT, key_name='TK_FULLTEST_KEY', case
         summary = {k: v for k, v in result.items() if k != 'results'}
         summary['coverage'] = coverage['coverage']
         summary['account_class_coverage'] = coverage['account_class_coverage']
+        summary['capability_coverage'] = coverage['capability_coverage']
         summary['total'] = coverage['total']
         summary['results_sha256'] = matrix.digest(result)
         replay.write_json(root / 'bluegreen-capability-replay.json', replay.seal(summary))

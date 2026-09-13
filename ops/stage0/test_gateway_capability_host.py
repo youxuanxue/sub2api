@@ -16,6 +16,16 @@ from test_gateway_capability_matrix import inventory, plan
 
 
 class BindingTests(unittest.TestCase):
+    def test_blocked_capabilities_cannot_execute_even_when_called_directly(self):
+        for status in ('unknown', 'unsupported'):
+            source = inventory()
+            source['classes'][0]['branches']['vision']['status'] = status
+            case = next(e for e in matrix.build(source, matrix.load())['entries'] if e['scenario'] == 'vision')
+            with patch.object(host.replay, 'execute', side_effect=AssertionError('must not send')) as send:
+                result = host.execute_case(case, {}, '', {}, Mock(), source, 'test', Path('/tmp'))
+            self.assertEqual(result, {'status': matrix.blocked_status(case), 'reason': 'capability_' + status})
+            send.assert_not_called()
+
     def test_same_model_cannot_substitute_another_account_class_or_mapping(self):
         cls = inventory()['classes'][0]
         case = plan()['entries'][0]
@@ -186,6 +196,32 @@ class ScenarioTests(unittest.TestCase):
                 self.assertEqual(sender.call_count, 3)
                 self.assertEqual(len(attribute.call_args.args[1]), 1)
 
+    def test_thinking_proof_separates_acceptance_reasoning_and_quality(self):
+        case = next(e for e in plan()['entries'] if e['scenario'] == 'thinking')
+        for answer, tokens, reason, accepted, quality in (
+                ('6661', 0, None, True, 'passed'),
+                ('6663', 0, 'thinking_answer_mismatch', True, 'failed'),
+                ('6661', 8, None, True, 'passed'),
+                ('6661', 0, 'http_status_error', False, 'not_evaluated')):
+            def execute(request, key, port, marker, **kwargs):
+                wire = {'choices': [{'finish_reason': 'stop', 'message': {'content': answer}}],
+                        'usage': {'prompt_tokens': 10, 'completion_tokens': 10,
+                                  'completion_tokens_details': {'reasoning_tokens': tokens}}}
+                kwargs['on_response_id'](marker)
+                return {'reason': kwargs['validator'](400 if reason == 'http_status_error' else 200,
+                                                      'application/json', json.dumps(wire).encode(), False)}
+            with patch.object(host.replay, 'execute', side_effect=execute), \
+                 patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
+                 patch.object(host.replay, 'inspect'), patch.object(host, 'candidate_address', return_value='10.0.0.2'), \
+                 patch.object(host, 'attribution', return_value=([59], None, ['submit'], True)):
+                result = host.execute_case(case, {'key': 'test', 'api_key_id': 22}, '10.0.0.2',
+                                           {'target': 'green'}, lambda: None, inventory(), 'run', Path('/tmp'))
+            self.assertEqual(result['reason'], reason)
+            self.assertEqual(result['status'], 'failed' if reason else 'passed')
+            self.assertEqual(result['execution_proof']['thinking_request_accepted'], accepted)
+            self.assertEqual(result['execution_proof']['answer_quality'], quality)
+            self.assertEqual(result['execution_proof']['thinking_evidence'], 'observed' if tokens else 'not_observed')
+
     def test_generated_requests_use_valid_operations_and_sufficient_budgets(self):
         value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
         self.assertFalse(any(c['protocol'] == 'openai-chat' and c['scenario'] == 'count-tokens' for c in value['entries']))
@@ -294,7 +330,10 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(attribute.call_args.args[-1], {'gateway-id': session})
 
     def test_full_plan_uses_existing_candidate_and_keeps_failures(self):
-        value = plan()
+        source = inventory()
+        source['classes'][0]['branches']['vision']['status'] = 'unsupported'
+        source['classes'][0]['branches']['thinking']['status'] = 'unknown'
+        value = matrix.build(source, matrix.load())
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
              patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
@@ -304,7 +343,7 @@ class ExecutionTests(unittest.TestCase):
              patch.object(host, 'execute_case', return_value={'status': 'failed', 'reason': 'http_status_error',
                  'execution_proof': {'account_class_matched': False}}) as execute, \
              patch.object(host.replay, 'run', side_effect=AssertionError('must not create resources')):
-            result = host.run(value, inventory(), '1.2.3', Path(directory))
+            result = host.run(value, source, '1.2.3', Path(directory))
             details = json.loads(Path(directory, 'bluegreen-capability-results.json').read_text())
         self.assertEqual(execute.call_count, sum(not c['blocked_reason'] for c in value['entries']))
         self.assertEqual(len(details['results']), len(value['entries']))
@@ -315,6 +354,11 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result['account_class_coverage'],
                          {'matched': 0, 'unmatched': 0, 'unmetered_or_absent': 0})
         self.assertNotIn('secret', json.dumps(details))
+
+        self.assertEqual(result['coverage']['unsupported'], 1)
+        self.assertEqual(result['capability_coverage']['unknown'], 1)
+        self.assertEqual({r['status'] for r in details['results']},
+                         {'failed', 'unsupported', 'declared-but-untested'})
 
     def test_selected_rerun_preserves_unselected_obligations(self):
         value = plan()
@@ -341,13 +385,17 @@ class ExecutionTests(unittest.TestCase):
             prepare.assert_not_called()
 
     def test_missing_test_key_retains_every_obligation(self):
-        value = plan()
+        source = inventory()
+        source['classes'][0]['branches']['vision']['status'] = 'unsupported'
+        source['classes'][0]['branches']['thinking']['status'] = 'unknown'
+        value = matrix.build(source, matrix.load())
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(host.replay, 'prepared', return_value=('p'*64, {'target': 'green'})), \
              patch.object(host.replay, 'snapshot', return_value={'target': 'green'}), \
              patch.object(host, 'test_key', side_effect=host.replay.ReplayError('unique_active_universal_test_key_required')):
-            result = host.run(value, inventory(), '1.2.3', Path(directory))
-        self.assertEqual(result['coverage'], {'blocked-by-test-infrastructure': len(value['entries'])})
+            result = host.run(value, source, '1.2.3', Path(directory))
+        self.assertEqual(result['coverage'], {'blocked-by-test-infrastructure': len(value['entries']) - 2,
+                                              'unsupported': 1, 'declared-but-untested': 1})
         self.assertFalse(result['cutover'])
 
 

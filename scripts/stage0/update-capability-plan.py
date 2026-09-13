@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'ops/stage0'))
-from gateway_capability_matrix import DEFAULT_INVENTORY, build, load  # noqa: E402
+from gateway_capability_matrix import DEFAULT_INVENTORY, build, load, select  # noqa: E402
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
             parser.error('--out is required unless --check is used')
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(text)
-    print(f"account-supply plan: {len(value['entries'])} universal obligations; no upstream requests")
+    print(f"account-supply plan: {len(value['entries'])} universal obligations; {len(select(value['entries']))} executable; no upstream requests")
 
 
 if __name__ == '__main__':

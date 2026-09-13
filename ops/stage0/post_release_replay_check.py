@@ -66,6 +66,7 @@ def main(argv=None):
         write(args.out, value)
         print(json.dumps({'plan_sha256': value['plan_sha256'], 'total': len(value['entries']),
                           'delta': len(scope), 'fixture_ready': len(chosen), 'execution': 'not_run',
+                          'capability_coverage': report(value)['capability_coverage'],
                           'execution_blocker': EXECUTION_BLOCKER,
                           'cutover': False, 'deployment_gate': False}))
         return 0
