@@ -11761,6 +11761,108 @@
         "one failed and one successful attempt; billing must not count again"
       ],
       "rationale": "Real HTTP handler failover observes attempts without duplicate billing-path samples."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/registry.go",
+      "must_contain": [
+        "adapterID: AdapterGeminiToMessages",
+        "apicompat.GeminiToMessagesRequest("
+      ],
+      "rationale": "Gemini Messages admission must use the strict body converter."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": [
+        "protocolrouter.AdapterGeminiToMessages:",
+        "protocolExecutorsFromContext(ctx).GeminiToMessages"
+      ],
+      "rationale": "Bind Gemini Messages execution to the selected Plan."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
+      "must_contain": [
+        "GeminiToMessages: func(",
+        "h.gatewayService.ForwardGeminiViaMessages("
+      ],
+      "rationale": "Execute the Messages conversion from the Gemini handler."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler.go",
+      "must_contain": [
+        "selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToMessages"
+      ],
+      "rationale": "Known partial Messages conversion usage must reach settlement on error."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/gemini_messages_request_tk.go",
+      "must_contain": [
+        "func GeminiToMessagesRequest(",
+        "d.DisallowUnknownFields()",
+        "decodeMessagesThoughtSignature("
+      ],
+      "rationale": "Plan and Execute share actual Gemini field admission and signed history conversion."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/gemini_messages_response_tk.go",
+      "must_contain": [
+        "func MessagesToGeminiResponse(",
+        "func (s *MessagesToGeminiStream) Convert(",
+        "case \"message_stop\":"
+      ],
+      "rationale": "Convert Messages JSON/SSE without synthetic completion."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_forward_tk.go",
+      "must_contain": [
+        "func (s *GatewayService) ForwardGeminiViaMessages(",
+        "compat.ForwardAsAnthropic(",
+        "s.Forward(ctx, c, account, parsed)",
+        "if !originalWriter.Written() && errors.As(forwardErr, &retry)"
+      ],
+      "rationale": "Reuse each account native credential/transport owner and preserve pre-output retry."
+    },
+    {
+      "path": "backend/internal/service/account_supported_protocols_test.go",
+      "must_contain": [
+        "TestAntigravityMirrorConvertsBeforeNativeOnlyEdge"
+      ],
+      "rationale": "Prevent compatibility ingress claims from bypassing native Gemini converter admission."
+    },
+    {
+      "path": "backend/internal/handler/gemini_messages_conversion_tk_test.go",
+      "must_contain": [
+        "TestGeminiMessagesSelectedHTTPTransport"
+      ],
+      "rationale": "Real HTTP request/response, account auth, Plan and model evidence for both Messages transports."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_forward_tk_test.go",
+      "must_contain": [
+        "TestGeminiMessagesForwardTransportUsageAndFailure"
+      ],
+      "rationale": "JSON/SSE, retry, rejection and partial usage regression."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch.go",
+      "must_contain": [
+        "applyNVIDIABuildChatTokenLimit(account, body)"
+      ],
+      "rationale": "Apply NVIDIA token budget alias before bridge transport."
+    },
+    {
+      "path": "backend/internal/service/newapi_nvidia_chat_tk.go",
+      "must_contain": [
+        "func applyNVIDIABuildChatTokenLimit(",
+        "isNewAPINVIDIABuildAccount(account)"
+      ],
+      "rationale": "Scope equal-value token limit translation to NVIDIA Build."
+    },
+    {
+      "path": "backend/internal/service/newapi_nvidia_chat_tk_test.go",
+      "must_contain": [
+        "TestNVIDIATokenLimitUsesOriginalBudgetOnChatDispatch"
+      ],
+      "rationale": "Preserve budget and forced tools while leaving caller body and other providers intact."
     }
   ]
 }

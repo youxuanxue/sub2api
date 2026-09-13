@@ -88,6 +88,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`cursor-oauth-service.md`](cursor-oauth-service.md) | Cursor native OAuth, credential renewal, billing and the shared unsupported-output-limit owner |
 | [`continuation-gemini-repair.md`](continuation-gemini-repair.md) | Responses continuation and Gemini Chat tools repair |
 | [`gemini-chat-conversion.md`](gemini-chat-conversion.md) | Gemini generateContent → Chat conversion edge and its capability contract |
+| [`gemini-messages-conversion.md`](gemini-messages-conversion.md) | Gemini → Messages conversion, native Edge routing and capability follow-up |
 | [`kiro-claude-code-completion-continuity.md`](kiro-claude-code-completion-continuity.md) | Kiro Claude Code completion |
 | [`kiro-content-filter-outcome.md`](kiro-content-filter-outcome.md) | Kiro content-filter outcome |
 | [`kiro-turn-boundary.md`](kiro-turn-boundary.md) | Kiro client-owned turn boundary |
