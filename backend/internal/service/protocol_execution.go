@@ -110,6 +110,10 @@ func routeFactsFromPlan(plan protocolrouter.Plan) RouteFacts {
 }
 
 type ProtocolExecutors struct {
+	// ObserveOutcome runs once per invoked forward executor, before handler
+	// failover. Validation failures that never invoke an executor are excluded.
+	ObserveOutcome func(context.Context, *Account, protocolrouter.Plan, string, any, error)
+
 	NonGoverned ProtocolExecutionFunc
 
 	MessagesIdentity    ProtocolExecutionFunc
@@ -233,6 +237,9 @@ func executeBoundProtocolAdapter(
 		slog.InfoContext(ctx, "gateway.request_capability_adjusted", "account_id", plan.AccountID(), "model", plan.ResolvedModel(), "target_protocol", plan.TargetProtocol(), "reason", plan.Adjustment())
 	}
 	value, err := execute(withProtocolExecutionPlan(ctx, plan), executionAccount, plan, execution.Request())
+	if observe := protocolExecutorsFromContext(ctx).ObserveOutcome; observe != nil {
+		observe(ctx, executionAccount, plan, execution.Request().RequestedModel(), value, err)
+	}
 	return protocolrouter.Result{Value: value}, err
 }
 
@@ -363,6 +370,9 @@ func ExecuteSelectedProtocol(
 			return nil, ErrProtocolExecutorMissing
 		}
 		value, err := executors.NonGoverned(ctx, account, protocolrouter.Plan{}, request)
+		if executors.ObserveOutcome != nil {
+			executors.ObserveOutcome(ctx, account, protocolrouter.Plan{}, request.RequestedModel(), value, err)
+		}
 		if candidate := CandidateRequestFromContext(ctx); candidate != nil {
 			err = candidate.observeFailure(ctx, account, protocolrouter.Plan{}, err)
 		}
@@ -512,7 +522,8 @@ func ForwardResultFromOpenAI(result *OpenAIForwardResult) *ForwardResult {
 		imageSizeBreakdown[size] = count
 	}
 	return &ForwardResult{
-		RequestID: result.RequestID,
+		RequestID:            result.RequestID,
+		availabilityObserved: result.availabilityObserved,
 		Usage: ClaudeUsage{
 			InputTokens:              max(0, result.Usage.InputTokens-result.Usage.CacheReadInputTokens-result.Usage.CacheCreationInputTokens),
 			OutputTokens:             result.Usage.OutputTokens,
@@ -557,6 +568,7 @@ func OpenAIForwardResultFromForward(result *ForwardResult) *OpenAIForwardResult 
 	}
 	return &OpenAIForwardResult{
 		RequestID:                     result.RequestID,
+		availabilityObserved:          result.availabilityObserved,
 		Usage:                         claudeUsageToOpenAIUsage(&result.Usage),
 		Model:                         result.Model,
 		BillingModel:                  result.Model,

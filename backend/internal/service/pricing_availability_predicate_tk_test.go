@@ -44,11 +44,11 @@ func TestIsStructurallyGone_RepoError_FailOpen(t *testing.T) {
 		"repo error must be fail-open (return false, not panic)")
 }
 
-func TestIsStructurallyGone_ModelNotFound_ReturnsTrue(t *testing.T) {
+func TestIsStructurallyGone_AccountModelNotFoundStaysVisible(t *testing.T) {
 	repo := newMemoryRepo()
 	svc := NewPricingAvailabilityService(repo, time.Now)
 
-	// Drive the cell to unreachable via single model_not_found sample
+	// Request evidence has no authority to declare provider-wide retirement.
 	svc.RecordOutcome(context.Background(), AvailabilityOutcome{
 		Platform:           "gemini",
 		ModelID:            "gemini-old-model",
@@ -57,8 +57,8 @@ func TestIsStructurallyGone_ModelNotFound_ReturnsTrue(t *testing.T) {
 		UpstreamErrorBody:  `{"error": {"message": "Requested entity was not found."}}`,
 	})
 
-	require.True(t, svc.IsStructurallyGone(context.Background(), "gemini", "gemini-old-model"),
-		"model_not_found must be treated as structurally gone")
+	require.False(t, svc.IsStructurallyGone(context.Background(), "gemini", "gemini-old-model"),
+		"an account-less probe is not proof of provider-wide retirement")
 }
 
 func TestIsStructurallyGone_TransientUnreachable_ReturnsFalse(t *testing.T) {

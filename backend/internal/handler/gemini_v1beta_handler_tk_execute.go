@@ -73,6 +73,7 @@ func (h *GatewayHandler) executeGeminiV1BetaSelectedProtocol(
 		h.gatewayService.ValidateProtocolEndpoint,
 		h.gatewayService.LoadProtocolExecutionAccount,
 		service.ProtocolExecutors{
+			ObserveOutcome: h.gatewayService.TKRecordProtocolOutcome,
 			NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				return forwardNonGoverned(executionCtx, account, request)
 			},

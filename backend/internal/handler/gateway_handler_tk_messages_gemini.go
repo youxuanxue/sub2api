@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -214,6 +215,7 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 			c.Set(service.TKGeminiDispatchGroupContextKey, apiKey.Group)
 			result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
 		}
+		h.gatewayService.TKRecordProtocolOutcome(requestCtx, account, protocolrouter.Plan{}, reqModel, result, err)
 		tkRecordForwardResponseTail(c, forwardStart)
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
@@ -263,7 +265,6 @@ func (h *GatewayHandler) tkMessagesGeminiPlatform(
 			}
 			reqLog.Error("gateway.forward_failed", forwardFailedFields...)
 			// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
-			TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 			return
 		}
 

@@ -116,7 +116,7 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 - `backend/internal/service/me_pricing_performance_tk_test.go`::`TestMePricingMenuBatchesAvailabilityAndReusesInputs`
 - `backend/internal/service/me_pricing_performance_tk_test.go`::`TestMenuBatchAvailabilityFailureKeepsModelsWithoutQueryStorm`
 - `backend/internal/service/candidate_discovery_snapshot_tk_test.go`::`TestCandidateDiscoveryPlanCacheAvoidsRepeatedSnapshotsAndRefreshesNextRequest`
-- `backend/internal/service/pricing_catalog_lookup_perf_tk_test.go`::`TestCatalogMembershipAtomicReplacementWithSameMTime`
+- `backend/internal/service/pricing_ssot_regression_tk_test.go`::`TestPricingSSOTRegistryDeletionRotatesCatalogAliasesAndBilling`
 - `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitNativeMessagesRejectsBeforeReservation`
 - `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitReselectionUsesActualBillingOrigin`
 - `backend/internal/service/candidate_profit_tk_test.go`::`TestCandidateProfitFreshCostAfterSlotReleasesAndReselects`

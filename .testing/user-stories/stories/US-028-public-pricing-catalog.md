@@ -26,7 +26,7 @@
 2. **AC-002 (正向 / 字段形状)**：Given 上述请求，When 取 `data[0]`，Then 至少包含 `model_id`（string，非空）、`pricing.currency == "USD"`、`pricing.input_per_1k_tokens`（number，>= 0）、`pricing.output_per_1k_tokens`（number，>= 0）；可选 `vendor`、`context_window`、`max_output_tokens`、`capabilities[]` 在源数据具备时透出。
 3. **AC-003 (负向 / setting 关闭 → 404)**：Given setting `pricing_catalog_public=false`，When GET `/api/v1/public/pricing`，Then 返回 404，响应 body 不含 `"object":"list"`（不得用 200 + 空 body 暗示路由存在）。
 4. **AC-004 (负向 / 安全字段不泄漏)**：Given 任意配置，When 解析响应 JSON 字符串，Then **不**包含子串 `account_id`、`channel_type`、`api_key`、`access_token`、`organization`、`base_url`、`cost_per_token`（精确字符串匹配；防御性，确保未来新加字段时审视一次）。
-5. **AC-005 (负向 / PricingService 未加载 → 空集合不 500)**：Given `PricingService.pricingData` 为空（启动期 / 加载失败 fallback），When GET `/api/v1/public/pricing`，Then 返回 200，`data == []`，不抛 500。
+5. **AC-005 (负向 / PricingService 未加载 → 空集合不 500)**：Given 完整 pricing registry 不可用（嵌入 fallback 也不可用），When GET `/api/v1/public/pricing`，Then 返回 200，`data == []`，不抛 500。
 6. **AC-006 (回归 / 鉴权 `/v1/models` 行为不变)**：Given 本 PR 落地，When 持有效 API Key GET `/v1/models`，Then 响应结构、字段、模型集合与 baseline 完全一致（沿用现有 `TestGetAvailableModels_*`）。
 7. **AC-007 (回归 / 单元测试全绿)**：Given 本 PR 落地，When 执行 `go test -tags=unit -count=1 ./internal/...`，Then 全部包通过。
 
@@ -46,8 +46,8 @@
 - `backend/internal/handler/us028_public_pricing_catalog_test.go`::`TestUS028_NoSensitiveFieldsInPayload`
 - `backend/internal/handler/us028_public_pricing_catalog_test.go`::`TestUS028_EmptyCatalogReturnsEmptyList`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_ParsesLiteLLMShape`
-- `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_EmptyOrUnparseableSourceReturnsEmptyList`
-- `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_CachesByMTime`
+- `backend/internal/service/pricing_ssot_regression_tk_test.go`::`TestPricingSSOTRegistryOwnsCatalogWithoutSensors`
+- `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_CachesRegistrySnapshot`
 - `backend/internal/service/pricing_catalog_tk_test.go`::`TestPricingCatalogService_NilReceiverIsSafe`
 
 运行命令：
@@ -55,7 +55,7 @@
 ```bash
 # Handler-level (5 tests, 1:1 with AC-001..AC-005)
 go test -tags=unit -count=1 -v -run 'TestUS028_' ./internal/handler/...
-# Service-level parser + mtime cache coverage
+# Service-level registry projection + snapshot cache coverage
 go test -tags=unit -count=1 -v -run 'TestPricingCatalogService_' ./internal/service/...
 ```
 
@@ -66,3 +66,10 @@ go test -tags=unit -count=1 -v -run 'TestPricingCatalogService_' ./internal/serv
 ## Status
 
 - [x] InTest — handler + service tests landed and green (9 tests across two files); awaiting frontend bundle (Step 4) before flipping to Done.
+
+## SSOT 回归
+
+- 旧 `model_pricing.json` 缺失、损坏或残留价格不能改变健康 registry 的目录；价格、metadata、alias 与 membership 同快照切换。
+- 完整 registry 删除模型及 alias 后，公共目录和结算一起停止接受旧价格。
+- 单账号 model-not-found 只显示失败证据，不删除公共模型；仅明确的 provider 范围重复退役证据可裁剪。
+- 回归：`pricing_ssot_regression_tk_test.go`；真实 UI：`TestCandidatePricingBrowser` / `us050-candidate-backend.e2e.ts`。

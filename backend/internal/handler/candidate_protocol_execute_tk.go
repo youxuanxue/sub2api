@@ -11,6 +11,7 @@ import (
 // A retry can select a native account after ingress entered the OpenAI handler.
 // Keep credential preparation and forwarding with that account's existing owner.
 func (h *OpenAIGatewayHandler) candidateProtocolExecutors(c *gin.Context, executors service.ProtocolExecutors) service.ProtocolExecutors {
+	executors.ObserveOutcome = h.nativeGatewayService.TKRecordProtocolOutcome
 	wrap := func(original service.ProtocolExecutionFunc) service.ProtocolExecutionFunc {
 		return func(ctx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 			if service.CandidateRequestFromContext(ctx) == nil || service.IsOpenAICompatPlatform(account.Platform) {

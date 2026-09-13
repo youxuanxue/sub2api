@@ -2,29 +2,18 @@ package service
 
 import "context"
 
-// tkAvailabilityStructurallyGone reports whether availability says the model
-// does NOT EXIST upstream — `model_not_found` having flipped status to
-// `unreachable`. This is the "gone" half of the gone-vs-degraded split (us7 P0
-// 2026-06-13): a model the upstream rejects as not-found is structurally gone
-// (it will not self-recover) and is hidden from the servable surfaces, whereas
-// a model with TRANSIENT trouble (5xx / network / rate-limit → stale or
-// soft-unreachable) keeps its badge and stays listed — so a normal model having
-// a bad few minutes never flaps in and out of the storefront. model_not_found
-// is platform-wide (the model exists or it doesn't), which matches
-// model_availability's (platform, model) global keying; account-level signals
-// (rate_limit / auth) never set this kind, so they cannot hide a model here.
+// tkAvailabilityStructurallyGone requires repeated, explicitly provider-wide
+// retirement evidence. Legacy model_not_found rows contain no scope proof and
+// must remain visible, even if a single account previously made them unreachable.
 func tkAvailabilityStructurallyGone(s AvailabilityState) bool {
-	return s.Status == AvailabilityStatusUnreachable && s.LastFailureKind == FailureKindModelNotFound
+	return s.Status == AvailabilityStatusUnreachable && s.LastFailureKind == FailureKindProviderModelRetired && s.LastAccountID == nil
 }
 
 // DecorateAndPruneByAvailability overlays per-model availability badges AND
 // removes structurally-gone models (tkAvailabilityStructurallyGone) from the
 // catalog response, in a single pass (one GetAvailability per model). It is the
-// sole availability pass on the public /pricing path. This is the catalog
-// self-heal: a model the upstream stops serving (e.g. an access-gated
-// claude-fable-5 answering 404 model_not_found) auto-disappears from the public
-// /pricing storefront without a manual servable-allowlist edit, while
-// degraded-but-present models keep their badge.
+// sole availability pass on the public /pricing path. Only confirmed provider
+// retirement hides a row; account restrictions and transient failures retain it.
 //
 // Mapping: /pricing models carry no platform dimension, so platform is inferred
 // from the vendor/litellm_provider field; an unknown vendor yields no badge and

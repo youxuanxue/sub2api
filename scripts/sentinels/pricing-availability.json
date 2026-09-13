@@ -35,17 +35,16 @@
     {
       "path": "backend/internal/handler/gateway_handler.go",
       "must_contain": [
-        "TkRecordFailureFromErr",
         "TkEvalBodyGuard("
       ],
-      "rationale": "gateway_handler.go has TK injection points across multiple flows: (1) failure tap at the Anthropic /v1/messages error path (TkRecordFailureFromErr; Gemini /v1/messages tap lives in gateway_handler_tk_messages_gemini.go after P2 extract), (2) the CatalogPolicy model-list projection moved to gateway_handler_tk_models_catalog.go (tkFilterModelIDs / tkGeminiDefaultModelsList), and (3) the pre-flight body-size guard on Messages + CountTokens entries (TkEvalBodyGuard) that fail-fast oversize requests before forward — see edge:us1 production data where opus-4-7 upstream rejects body >= ~940 KB with raw 403. Antigravity default-model projection and 403 enrichment live in TK companions (gateway_handler_tk_model_list.go / gateway_handler_tk_forward_error.go)."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_messages_gemini.go",
       "must_contain": [
-        "TkRecordFailureFromErr("
+        "service.TKGeminiDispatchGroupContextKey"
       ],
-      "rationale": "Gemini /v1/messages forward-failure path records upstream errors via TkRecordFailureFromErr. P2: extracted with the Gemini platform loop from gateway_handler.go; without this tap Gemini model_not_found/5xx stay invisible to availability."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_model_list.go",
@@ -57,25 +56,23 @@
     {
       "path": "backend/internal/handler/gateway_handler_chat_completions.go",
       "must_contain": [
-        "TkRecordFailureFromErr"
+        "h.executeChatCompletionsSelectedProtocol("
       ],
-      "rationale": "The OpenAI chat completions forward-failure path (line ~247) records upstream 404/model_not_found errors. Without this tap, model_not_found failures from OpenAI-compat and newapi platform accounts are never classified, and those models stay 'untested' or 'stale' in the availability table instead of flipping to 'unreachable'. The test TestTkRecordFailureFromErr_ExtractsAndClassifies verifies the logic works but does NOT verify the tap call-site still exists in this handler. This PR also touches the OpenAI-compat sticky-session preparation hook in this upstream-shaped file; keeping this entry in the diff records that the availability tap was explicitly re-checked while routing code moved into the TK companion helper."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
     },
     {
       "path": "backend/internal/handler/gateway_handler_responses.go",
       "must_contain": [
-        "TkRecordFailureFromErr",
         "TkEvalBodyGuard("
       ],
-      "rationale": "The Responses API forward-failure path records upstream errors for the /v1/responses endpoint. Without this tap, model failures on the Responses pathway are invisible to the availability system. Same regression risk as chat_completions: upstream could refactor the error path and silently drop the TK line. This entry also locks the TkEvalBodyGuard pre-flight hook so upstream churn on the /v1/responses entry cannot quietly remove body-size protection for OpenAI compat clients."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler.go",
       "must_contain": [
-        "TkRecordFailureFromErr",
         "TkEvalBodyGuard("
       ],
-      "rationale": "gemini_v1beta_handler.go TK injection points retained in the upstream-shaped file after P2/P3: (1) failure tap TkRecordFailureFromErr, (2) pre-flight TkEvalBodyGuard. TkEnrichForbiddenMessage for upstream 403 moved to gemini_v1beta_handler_tk_failover.go; filtered Gemini fallback list lives in gemini_v1beta_handler_tk_platform.go."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
     },
     {
       "path": "backend/internal/handler/gemini_v1beta_handler_tk_failover.go",
@@ -101,9 +98,9 @@
     {
       "path": "backend/internal/service/gateway_usage_billing_tk.go",
       "must_contain": [
-        "s.tkPricingAvailability.RecordOutcome(ctx, AvailabilityOutcome{"
+        "func (s *GatewayService) tkRecordUsagePostCostObservability("
       ],
-      "rationale": "Success-path availability tap split from gateway_service.go into gateway_usage_billing.go."
+      "rationale": "Post-cost price observability remains separate from attempt-level availability."
     },
     {
       "path": "backend/internal/service/gateway_service_tk_upstream_error_msg.go",
@@ -115,11 +112,10 @@
     {
       "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
       "must_contain": [
-        "TkRecordFailureFromErr",
         "UpstreamFailoverError",
         "TkEnrichForbiddenMessage("
       ],
-      "rationale": "This TK companion file is the single implementation of TkRecordFailureFromErr — the helper that extracts upstream HTTP status from UpstreamFailoverError and forwards it to the availability classifier. If this file is lost (e.g. an upstream merge that removes all untracked files), all 5 tap call sites compile against a missing function and the build fails. The file also contains the UpstreamFailoverError unwrap logic that makes model_not_found classification work correctly (R-004 fix from review-20260506), plus the Messages-path TkEnrichForbiddenMessage call site for actionable 403 enrichment."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
     },
     {
       "path": "backend/internal/handler/pricing_catalog_handler_tk.go",
@@ -307,8 +303,8 @@
     {
       "path": "backend/internal/service/pricing_catalog_tk.go",
       "must_contain": [
-        "applyCatalogRegistrySnapshot(resp, registrySnapshot)",
-        "storeCatalogIfSnapshotCurrent(resp, modTime, registrySnapshot, data)",
+        "applyCatalogRegistrySnapshot(resp, snapshot)",
+        "storeCatalogIfSnapshotCurrent(resp, snapshot)",
         "func applyCatalogRegistrySnapshot(",
         "applyCatalogOverlayPricingFromSnapshot(resp, snapshot)",
         "attachCatalogDeepSeekPeakValleyFromSnapshot(resp, snapshot)",
@@ -615,6 +611,114 @@
         "tkGeminiDefaultModelsList"
       ],
       "rationale": "gateway_handler.go has TK injection points across multiple flows: (1) failure taps at the Anthropic /v1/messages + Gemini /v1/messages error paths (TkRecordFailureFromErr), (2) the CatalogPolicy model-list projection on the whitelist path (tkFilterModelIDs), (3) the gemini /v1/models fallback re-point to the CatalogPolicy projection (tkGeminiDefaultModelsList) so the list converges with /pricing instead of returning the raw geminicli.DefaultModels (which still carried advertised_dead gemini-2.0-"
+    },
+    {
+      "path": "backend/internal/service/protocol_availability_tk.go",
+      "must_contain": [
+        "func (s *GatewayService) TKRecordProtocolOutcome(",
+        "candidateFailureScope(",
+        "s.tkPricingAvailability.RecordOutcome(recordCtx, outcome)",
+        "errors.Is(err, context.Canceled)"
+      ],
+      "rationale": "One attempt-level availability writer owns upstream model identity and excludes cancellation/local errors."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": [
+        "observe(ctx, executionAccount, plan, execution.Request().RequestedModel(), value, err)",
+        "executors.ObserveOutcome(ctx, account, protocolrouter.Plan{}, request.RequestedModel(), value, err)"
+      ],
+      "rationale": "Both governed and non-governed executors report before failover; validation does not create samples."
+    },
+    {
+      "path": "backend/internal/service/pricing_ssot_regression_tk_test.go",
+      "must_contain": [
+        "TestPricingSSOTRegistryDeletionRotatesCatalogAliasesAndBilling",
+        "TestPricingSSOTSingleAccountFailureCannotRetireModel",
+        "TestPricingSSOTProviderRetirementRequiresScopedRepeatedEvidence"
+      ],
+      "rationale": "Protect registry deletion/alias parity and provider versus account evidence scope."
+    },
+    {
+      "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
+      "must_contain": [
+        "evidence.SampleTotal24h",
+        "one failed and one successful attempt; billing must not count again"
+      ],
+      "rationale": "Real HTTP handler failover observes attempts without duplicate billing-path samples."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_chat_completions_execute.go",
+      "must_contain": [
+        "h.gatewayService.TKRecordProtocolOutcome"
+      ],
+      "rationale": "Production handler wires the shared observer into selected protocol execution."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_protocol_execute.go",
+      "must_contain": [
+        "h.gatewayService.TKRecordProtocolOutcome"
+      ],
+      "rationale": "Production handler wires the shared observer into selected protocol execution."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_responses_execute.go",
+      "must_contain": [
+        "h.gatewayService.TKRecordProtocolOutcome"
+      ],
+      "rationale": "Production handler wires the shared observer into selected protocol execution."
+    },
+    {
+      "path": "backend/internal/handler/gemini_v1beta_handler_tk_execute.go",
+      "must_contain": [
+        "h.gatewayService.TKRecordProtocolOutcome"
+      ],
+      "rationale": "Production handler wires the shared observer into selected protocol execution."
+    },
+    {
+      "path": "backend/internal/handler/candidate_protocol_execute_tk.go",
+      "must_contain": [
+        "executors.ObserveOutcome = h.nativeGatewayService.TKRecordProtocolOutcome"
+      ],
+      "rationale": "OpenAI direct/universal execution shares the same availability writer."
+    },
+    {
+      "path": "backend/internal/service/protocol_availability_tk_test.go",
+      "must_contain": [
+        "TestProtocolAvailabilityMappedExecutorOutcomes",
+        "TestProtocolAvailabilityAdmissionAndCancellationHaveNoSamples",
+        "TestProtocolAvailabilityBillingFallbackDoesNotDoubleCountPartialOrCanceledResult"
+      ],
+      "rationale": "Protect shared executor reachability, mapped-model identity and partial/canceled-result deduplication."
+    },
+    {
+      "path": "backend/internal/service/pricing_availability_service_tk.go",
+      "must_contain": [
+        "outcome.ProviderModelRetired && outcome.AccountID == 0",
+        "now.After(*cur.LastFailureAt)"
+      ],
+      "rationale": "Request failures cannot acquire provider-wide retirement authority; repeated evidence must have distinct timestamps."
+    },
+    {
+      "path": "backend/internal/service/pricing_catalog_availability_tk.go",
+      "must_contain": [
+        "s.LastFailureKind == FailureKindProviderModelRetired && s.LastAccountID == nil"
+      ],
+      "rationale": "Historical unscoped 404 rows and account-scoped evidence cannot prune a platform-wide model."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_messages_gemini.go",
+      "must_contain": [
+        "h.gatewayService.TKRecordProtocolOutcome(requestCtx, account, protocolrouter.Plan{}, reqModel, result, err)"
+      ],
+      "rationale": "The legacy Gemini Messages branch reports at the same attempt boundary before failover."
+    },
+    {
+      "path": "backend/internal/service/gateway_usage_billing.go",
+      "must_contain": [
+        "s.tkRecordAvailabilitySuccessOutcome(ctx, account, result)"
+      ],
+      "rationale": "Legacy media/non-protocol callers retain the deduplicated success fallback."
     }
   ]
 }

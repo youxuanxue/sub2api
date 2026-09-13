@@ -124,6 +124,18 @@ provider 下线调查。它只能触发 owner 的正常写路径，不能直接�
 - availability 写 price、alias、mapping 或 group entitlement 必须失败。
 - 本文只能声明 availability Evidence owner，不得声明 serving SSOT。
 
+### 实现接线
+
+- `protocol_availability_tk.go` 的 `TKRecordProtocolOutcome` 在执行器返回后、handler
+  换号前记录一次尝试；成功和失败都使用实际执行模型。协议发送前校验失败、调用方取消
+  不计入模型健康样本；带 usage 的部分失败只计失败，计费兼容入口不重复计成功。
+- 旧 Gemini Messages 直转路径调用同一 writer；其余选定协议路径通过
+  `ProtocolExecutors.ObserveOutcome` 接线。普通媒体路径保留去重的计费后成功兼容入口。
+- `model_not_found` 保留原始请求证据，不能证明平台退役，历史同名行也不得裁剪。
+  只有显式 `ProviderModelRetired`、无单账号作用域且不同时间的重复观测，才生成
+  `provider_model_retired` / `unreachable`。普通网关及账号 probe 不设置该证明；
+  当前无 provider 范围证据的来源保持未知，不自动升级。成功或过期会撤销确认链。
+
 ## 8. 验收
 
 - 运营能看到最新证据和证据时间；

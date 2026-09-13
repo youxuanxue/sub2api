@@ -74,6 +74,7 @@ func (h *GatewayHandler) executeResponsesSelectedProtocol(
 		h.gatewayService.ValidateProtocolEndpoint,
 		h.gatewayService.LoadProtocolExecutionAccount,
 		service.ProtocolExecutors{
+			ObserveOutcome: h.gatewayService.TKRecordProtocolOutcome,
 			NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				forwardBody := request.Body()
 				if channelMapping.Mapped {

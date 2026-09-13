@@ -67,7 +67,7 @@ func (s *PricingCatalogService) findCatalogModel(modelID string) (*PublicCatalog
 		return nil, false
 	}
 	if i, ok := index.literal[id]; ok {
-		if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, id) {
+		if !isTkCuratedNewAPICatalogRowListed(resp.Data[i].Vendor, resp.Data[i].ModelID) {
 			return nil, false
 		}
 		return &resp.Data[i], true

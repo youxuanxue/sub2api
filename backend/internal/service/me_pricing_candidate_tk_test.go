@@ -5,7 +5,6 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -57,9 +56,6 @@ func TestCandidatePricingMenuDoesNotRestoreHiddenManifestRows(t *testing.T) {
 	account.Credentials["model_mapping"] = map[string]any{model: "gpt-5.4"}
 	capabilities, key := candidateDiscoveryFixture([]Group{group}, []Account{account})
 	catalog := NewPricingCatalogService(nil)
-	catalog.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{"doubao-seed-2.0-code":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"volcengine"}}`), time.Unix(1, 0), true
-	})
 	capabilities.modelFilter = NewModelListFilter(catalog, nil)
 	require.True(t, catalog.IsModelPriced(model, PlatformOpenAI))
 	svc := newServiceWithAccounts(&fakeKeyAccess{groups: []Group{group}, keys: []APIKey{*key}}, &fakeChannelLister{}, &fakeCatalogProvider{resp: catalog.BuildPublicCatalog(context.Background())}, &fakeAccountSource{})
@@ -141,7 +137,7 @@ func TestCandidatePricingMenuPrunesEveryPriceSource(t *testing.T) {
 				&fakeCatalogProvider{resp: &PublicCatalogResponse{Data: []PublicCatalogModel{mkPublicCatalogModel(model, "openai", 1, 2, 0)}}}, accounts)
 			state := AvailabilityState{Status: AvailabilityStatusUnreachable}
 			if gone {
-				state.LastFailureKind = FailureKindModelNotFound
+				state.LastFailureKind = FailureKindProviderModelRetired
 			}
 			svc.availability = pricingMenuAvailabilityFixture{state: state}
 			resp, err := svc.BuildForUser(context.Background(), 7, MePricingCatalogOptions{})

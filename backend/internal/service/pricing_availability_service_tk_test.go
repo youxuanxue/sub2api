@@ -73,10 +73,8 @@ func TestRecordOutcome_SuccessTransitionsToOK(t *testing.T) {
 	require.Equal(t, int64(7), *got.LastAccountID)
 }
 
-// TestRecordOutcome_ModelNotFoundFlipsToUnreachable_SingleSample 钉住强信号：
-// 上游 4xx + body 含 "model ... not found" → 单条样本立即翻 unreachable。
-// 这是 PR #121 schema-cleanup 之外另一种"模型在 Google 那侧不可用"的运维信号。
-func TestRecordOutcome_ModelNotFoundFlipsToUnreachable_SingleSample(t *testing.T) {
+// A sole failed request produces a degraded badge, never global retirement.
+func TestRecordOutcome_ModelNotFoundIsSoftEvidence(t *testing.T) {
 	ctx := context.Background()
 	svc, repo, _ := newAvailabilityTestService(t)
 
@@ -91,6 +89,7 @@ func TestRecordOutcome_ModelNotFoundFlipsToUnreachable_SingleSample(t *testing.T
 	require.Equal(t, FailureKindModelNotFound, got.LastFailureKind)
 	require.Equal(t, 1, got.SampleTotal24h)
 	require.Equal(t, 0, got.SampleOK24h)
+	require.False(t, tkAvailabilityStructurallyGone(got))
 }
 
 // TestRecordOutcome_RateLimited_DoesNotPolluteSamples 钉住§1.3 关键不变量：

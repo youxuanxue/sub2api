@@ -816,8 +816,8 @@
     },
     {
       "path": "backend/internal/service/pricing_catalog_lookup_perf_tk_test.go",
-      "must_contain": ["TestCatalogFileSourceReusesBytesAndTracksSourceChanges", "TestCatalogMembershipAtomicReplacementWithSameMTime", "TestCatalogMembershipIndexRotatesWithRegistryAndFile", "BenchmarkCatalogFileMembership"],
-      "rationale": "Catalog byte reuse and membership indexes must rotate on file replacement and registry changes instead of trading speed for stale prices."
+      "must_contain": ["TestCatalogMembershipIndexKeepsOriginalScanOrder", "TestCatalogMembershipIndexRotatesWithRegistryAndFile"],
+      "rationale": "Registry changes rotate membership and prices together; malformed sensor files cannot invalidate a healthy registry."
     },
     {
       "path": "backend/internal/service/me_pricing_candidate_tk_test.go",
@@ -6234,11 +6234,9 @@
     {
       "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
       "must_contain": [
-        "func (h *GatewayHandler) ensureForwardErrorResponseForError(c *gin.Context, err error, streamStarted bool) bool",
-        "if isClientClosedRequest(c, err) {",
-        "markClientClosedForwardRequest(c)"
+        "TkEnrichForbiddenMessage("
       ],
-      "rationale": "Client-cancel terminal response wiring: every Forward failure must pass the actual error chain into the shared fallback owner so a wrapped context.Canceled is classified as caller-owned even when the inbound request context has not yet observed cancellation. The compatibility wrapper remains for existing call sites, while native Anthropic, Gemini, Responses, and compatibility surfaces converge on markClientClosedForwardRequest instead of writing a generic 502."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
     },
     {
       "path": "backend/internal/handler/client_closed_request_tk.go",
@@ -6262,9 +6260,9 @@
     {
       "path": "backend/internal/handler/gateway_handler_tk_forward_error.go",
       "must_contain": [
-        "func TkRecordFailureFromErr(",
-        "if errors.Is(err, context.Canceled) {",
-        "svc.TKRecordForwardFailure(ctx, platform, model, accountID, statusCode, body, network)"
+        "func (h *GatewayHandler) tkHandleFailoverClientStatus(",
+        "func (h *GatewayHandler) ensureForwardErrorResponseForError(",
+        "service.IsResponseCommitted(c)"
       ],
       "rationale": "Single passive availability failure tap owner. Caller-owned context cancellation must return before recording any model-health sample; real failover errors still preserve upstream status/body for canonical availability classification."
     },
@@ -8427,10 +8425,9 @@
       "must_contain": [
         "service.TKGeminiDispatchGroupContextKey",
         "h.geminiCompatService.Forward(",
-        "h.antigravityGatewayService.ForwardGemini(",
-        "TkRecordFailureFromErr("
+        "h.antigravityGatewayService.ForwardGemini("
       ],
-      "rationale": "Gemini-platform /v1/messages failover loop must set TKGeminiDispatchGroupContextKey before geminiCompat Forward, branch Antigravity via ForwardGemini, and tap availability failures. P2: extracted from gateway_handler.go Messages."
+      "rationale": "Preserve the remaining handler behavior; availability observation is owned by protocol execution before handler failover."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_messages_prompt_too_long.go",
@@ -11720,6 +11717,41 @@
       "path": "backend/internal/repository/setting_repo.go",
       "must_contain": ["defaultSettingCacheTTL", "type settingCacheEntry struct", "r.allCached = true", "r.allCached = false"],
       "rationale": "Keep the in-process setting cache and write-through invalidation anchored across upstream merges."
+    },
+    {
+      "path": "backend/internal/service/protocol_availability_tk.go",
+      "must_contain": [
+        "func (s *GatewayService) TKRecordProtocolOutcome(",
+        "candidateFailureScope(",
+        "s.tkPricingAvailability.RecordOutcome(recordCtx, outcome)",
+        "errors.Is(err, context.Canceled)"
+      ],
+      "rationale": "One attempt-level availability writer owns upstream model identity and excludes cancellation/local errors."
+    },
+    {
+      "path": "backend/internal/service/protocol_execution.go",
+      "must_contain": [
+        "observe(ctx, executionAccount, plan, execution.Request().RequestedModel(), value, err)",
+        "executors.ObserveOutcome(ctx, account, protocolrouter.Plan{}, request.RequestedModel(), value, err)"
+      ],
+      "rationale": "Both governed and non-governed executors report before failover; validation does not create samples."
+    },
+    {
+      "path": "backend/internal/service/pricing_ssot_regression_tk_test.go",
+      "must_contain": [
+        "TestPricingSSOTRegistryDeletionRotatesCatalogAliasesAndBilling",
+        "TestPricingSSOTSingleAccountFailureCannotRetireModel",
+        "TestPricingSSOTProviderRetirementRequiresScopedRepeatedEvidence"
+      ],
+      "rationale": "Protect registry deletion/alias parity and provider versus account evidence scope."
+    },
+    {
+      "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
+      "must_contain": [
+        "evidence.SampleTotal24h",
+        "one failed and one successful attempt; billing must not count again"
+      ],
+      "rationale": "Real HTTP handler failover observes attempts without duplicate billing-path samples."
     }
   ]
 }

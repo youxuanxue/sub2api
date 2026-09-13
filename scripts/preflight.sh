@@ -864,7 +864,7 @@ fi
 # ---- sub2api: pricing-availability sentinel registry ------------------------
 # Source of truth: scripts/sentinels/pricing-availability.json. Verifies that
 # the 1-line TK availability-tap injections in upstream-shaped handler and
-# service files (TkRecordFailureFromErr call sites, RecordOutcome hook) are
+# service files (protocol outcome observer wiring and legacy fallback) are
 # still present after any upstream merge. Without these taps the model_availability
 # table receives no data and the /pricing availability decoration silently stops
 # working. See docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner and

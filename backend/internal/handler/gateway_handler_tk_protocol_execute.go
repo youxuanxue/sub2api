@@ -69,6 +69,7 @@ func (h *GatewayHandler) executeMessagesSelectedProtocol(
 		h.gatewayService.ValidateProtocolEndpoint,
 		h.gatewayService.LoadProtocolExecutionAccount,
 		service.ProtocolExecutors{
+			ObserveOutcome: h.gatewayService.TKRecordProtocolOutcome,
 			NonGoverned: func(executionCtx context.Context, account *service.Account, _ protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 				executionParsedReq, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
 				if prepareErr != nil {

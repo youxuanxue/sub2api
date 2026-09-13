@@ -37,20 +37,13 @@ func (s *batchAvailabilityRepoStub) GetBatch(_ context.Context, platform string,
 }
 
 func TestModelListFilterStrict_BatchesPricedAvailabilityReads(t *testing.T) {
-	pricing := NewPricingCatalogService(nil)
-	pricing.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{
-			"model-a":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-			"model-b":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-			"model-c":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}
-		}`), time.Unix(1, 0), true
-	})
+	pricing := catalogFixtureForTest([]byte(`{"model-a":{"input_cost_per_token":0.001},"model-b":{"input_cost_per_token":0.001},"model-c":{"input_cost_per_token":0.001}}`))
 	repo := &batchAvailabilityRepoStub{states: map[string]AvailabilityState{
 		"openai/model-b": {
 			Platform:        "openai",
 			ModelID:         "model-b",
 			Status:          AvailabilityStatusUnreachable,
-			LastFailureKind: FailureKindModelNotFound,
+			LastFailureKind: FailureKindProviderModelRetired,
 		},
 		"openai/model-c": {
 			Platform:        "openai",
@@ -75,14 +68,7 @@ func TestModelListFilterStrict_BatchesPricedAvailabilityReads(t *testing.T) {
 }
 
 func TestModelListFilterStrict_ReusesAvailabilityReadsWithinDiscoveryRequest(t *testing.T) {
-	pricing := NewPricingCatalogService(nil)
-	pricing.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{
-			"model-a":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-			"model-b":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"},
-			"model-c":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}
-		}`), time.Unix(1, 0), true
-	})
+	pricing := catalogFixtureForTest([]byte(`{"model-a":{"input_cost_per_token":0.001},"model-b":{"input_cost_per_token":0.001},"model-c":{"input_cost_per_token":0.001}}`))
 	repo := &batchAvailabilityRepoStub{states: map[string]AvailabilityState{}}
 	filter := NewModelListFilter(pricing, NewPricingAvailabilityService(repo, time.Now))
 	ctx := withModelAvailabilityRequestCache(context.Background())

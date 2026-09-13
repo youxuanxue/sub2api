@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -85,7 +86,7 @@ func TestGatewayWrappedForwardCancellationDoesNotRecordAvailabilityFailure(t *te
 
 	h := &GatewayHandler{}
 	wrote := h.ensureForwardErrorResponseForError(c, forwardErr, false)
-	TkRecordFailureFromErr(gateway, c.Request.Context(), service.PlatformAnthropic, "claude-opus-5", 18, forwardErr)
+	gateway.TKRecordProtocolOutcome(c.Request.Context(), &service.Account{ID: 18, Platform: service.PlatformAnthropic}, protocolrouter.Plan{}, "claude-opus-5", nil, forwardErr)
 
 	require.False(t, wrote)
 	require.Equal(t, statusClientClosedRequest, c.Writer.Status())

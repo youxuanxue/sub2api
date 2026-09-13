@@ -4,7 +4,6 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -81,17 +80,14 @@ func TestTkAntigravityDefaultModels_FilterDropsUnreachable(t *testing.T) {
 	require.Contains(t, baseline, survivorID, "SSOT-derived survivor must exist before availability changes")
 
 	// Drive target model to unreachable
-	availSvc.RecordOutcome(ctx, service.AvailabilityOutcome{
-		Platform:           service.PlatformAntigravity,
-		ModelID:            targetID,
-		Success:            false,
-		UpstreamStatusCode: 404,
-		UpstreamErrorBody:  `{"error":{"message":"Requested entity was not found."}}`,
-	})
+	require.NoError(t, repo.Upsert(ctx, service.PlatformAntigravity, targetID, func(s service.AvailabilityState) service.AvailabilityState {
+		s.Status, s.LastFailureKind = service.AvailabilityStatusUnreachable, service.FailureKindProviderModelRetired
+		return s
+	}))
 
 	// FilterClientFacing requires a non-nil pricing service (pricing=nil → fail-open, skip availability check too).
 	// Use a PricingCatalogService with all antigravity models priced so the availability filter runs.
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(ownerIDs))
+	pricingSvc := service.NewPricingCatalogService(nil)
 
 	filter := service.NewModelListFilter(pricingSvc, availSvc)
 	h := &GatewayHandler{tkModelListFilter: filter}
@@ -122,12 +118,11 @@ func TestTkAntigravityDefaultModels_PricedServableSetIncludesReprobedGeminiIDs(t
 	ctx := context.Background()
 	allow := service.ServableClientFacingIDs(ctx, service.PlatformAntigravity, nil, nil)
 	allowSet := stringBoolSetForHandlerTest(allow)
-	// Price every Antigravity SSOT id, plus a Gemini-only candidate, to prove the
-	// filter is controlled by the Antigravity owner instead of the pricing owner.
+	// Both platform catalogs use the registry; the Antigravity owner must still
+	// exclude a priced Gemini-only candidate.
 	geminiOnly := firstIDOutsideSetForHandlerTest(t,
 		service.ServableClientFacingIDs(ctx, service.PlatformGemini, nil, nil), allowSet)
-	pricingIDs := append(append([]string{}, allow...), geminiOnly)
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(pricingIDs))
+	pricingSvc := service.NewPricingCatalogService(nil)
 	filter := service.NewModelListFilter(pricingSvc, nil)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
@@ -197,17 +192,14 @@ func TestTkGeminiFallbackModelsList_FilterDropsUnreachable(t *testing.T) {
 	require.Contains(t, baseline, "models/"+targetID, "SSOT-derived prune target must exist before availability changes")
 	require.Contains(t, baseline, "models/"+survivorID, "SSOT-derived survivor must exist before availability changes")
 
-	availSvc.RecordOutcome(context.Background(), service.AvailabilityOutcome{
-		Platform:           service.PlatformGemini,
-		ModelID:            targetID,
-		Success:            false,
-		UpstreamStatusCode: 404,
-		UpstreamErrorBody:  `{"error":{"message":"Requested entity was not found."}}`,
-	})
+	require.NoError(t, repo.Upsert(context.Background(), service.PlatformGemini, targetID, func(s service.AvailabilityState) service.AvailabilityState {
+		s.Status, s.LastFailureKind = service.AvailabilityStatusUnreachable, service.FailureKindProviderModelRetired
+		return s
+	}))
 
 	// Price the servable gemini candidates so ∩priced keeps them and the
 	// structurally-gone prune is what removes the target.
-	pricingSvc := buildTestPricingService(t, buildPricingJSONFromIDs(servableGemini))
+	pricingSvc := service.NewPricingCatalogService(nil)
 	filter := service.NewModelListFilter(pricingSvc, availSvc)
 	h := &GatewayHandler{tkModelListFilter: filter}
 
@@ -280,25 +272,6 @@ func firstTwoIDsForHandlerTest(t *testing.T, candidates []string) (string, strin
 
 // buildPricingJSONFromIDs builds a pricing JSON where each provided model ID
 // has a non-nil input+output cost (required for PricingCatalogService to include it).
-func buildPricingJSONFromIDs(ids []string) string {
-	entries := make([]string, len(ids))
-	for i, id := range ids {
-		entries[i] = fmt.Sprintf(`%q: {"input_cost_per_token": 0.000001, "output_cost_per_token": 0.000002, "litellm_provider": "test"}`, id)
-	}
-	return "{" + strings.Join(entries, ",") + "}"
-}
-
-// buildTestPricingService creates a PricingCatalogService with the given JSON as its source.
-func buildTestPricingService(t *testing.T, json string) *service.PricingCatalogService {
-	t.Helper()
-	svc := service.NewPricingCatalogService(nil)
-	data := []byte(json)
-	svc.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return data, time.Now(), true
-	})
-	return svc
-}
-
 // capturedRepo2 mirrors capturedRepo from gateway_handler_tk_forward_error_test.go
 // to avoid cross-test-file symbol collision (both are in package handler).
 type capturedRepo2 struct {

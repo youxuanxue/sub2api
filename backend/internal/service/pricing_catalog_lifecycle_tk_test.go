@@ -71,9 +71,6 @@ func TestCatalogLifecycleNewAPIProvisioningSurvivesWithdrawal(t *testing.T) {
 
 func TestCatalogLifecycleWithdrawnNewAPIModelsKeepSettlementPricing(t *testing.T) {
 	pricing := &PricingCatalogService{}
-	pricing.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{"gpt-5.5":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}}`), time.Now(), true
-	})
 	for id := range catalogWithdrawnModelIDs {
 		if isTkCuratedNewAPIModelListed(id) {
 			require.True(t, pricing.IsModelPriced(id, PlatformNewAPI), "withdrawal must keep %s priced", id)

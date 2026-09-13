@@ -323,9 +323,6 @@ func TestUS046_CapabilitiesPropagateAvailabilityFailure(t *testing.T) {
 		},
 	}}}
 	pricing := NewPricingCatalogService(nil)
-	pricing.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-		return []byte(`{"gpt-4o":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}}`), time.Unix(1, 0), true
-	})
 	wantErr := errors.New("availability database unavailable")
 	filter := NewModelListFilter(pricing, NewPricingAvailabilityService(&us046AvailabilityRepoStub{err: wantErr}, time.Now))
 	svc := NewUniversalCapabilityService(&APIKeyService{}, &GatewayService{accountRepo: repo}, filter)

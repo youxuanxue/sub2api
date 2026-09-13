@@ -761,7 +761,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				reqLog.Error("gateway.forward_failed", forwardFailedFields...)
 				// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
-				TkRecordFailureFromErr(h.gatewayService, c.Request.Context(), account.Platform, reqModel, account.ID, err)
 				// Forward 与错误一起返回的部分结果：流中断前上游已计量的 usage 照常入账，
 				// 避免上游已产生消耗的请求完全漏记（#5148）。failover 错误恒定 result=nil，
 				// 不会走到这里重复计费。

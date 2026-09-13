@@ -112,9 +112,6 @@ func TestUS050_CandidateDiscoveryPreservesDirectMappingOnly(t *testing.T) {
 	for _, universal := range []bool{false, true} {
 		svc, key := candidateDiscoveryFixture([]Group{group}, []Account{globalCandidateAccount(115, 1, 10)})
 		catalog := NewPricingCatalogService(nil)
-		catalog.SetSourceForTesting(func() ([]byte, time.Time, bool) {
-			return []byte(`{"gpt-5.4":{"input_cost_per_token":0.000001,"output_cost_per_token":0.000002,"litellm_provider":"openai"}}`), time.Unix(1, 0), true
-		})
 		svc.modelFilter = NewModelListFilter(catalog, nil)
 		if !universal {
 			key.RoutingMode, key.Group, key.GroupID = RoutingModeDirect, &group, &group.ID
