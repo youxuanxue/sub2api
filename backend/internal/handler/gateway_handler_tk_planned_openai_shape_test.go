@@ -95,8 +95,11 @@ func TestGatewayPlannedAntigravityOpenAIShapeKeepsPlannedWire(t *testing.T) {
 				},
 			}
 			protocols := []protocolrouter.Protocol{tc.target}
-			if tc.target != protocolrouter.ProtocolGeminiGenerateContent {
-				protocols = append(protocols, protocolrouter.ProtocolGeminiGenerateContent)
+			// OpenAI-only legacy declarations still use their proven hop. Once
+			// native Gemini is verified, compatibility ingress claims must not
+			// take precedence over conversion before the edge native-only key.
+			if tc.target == protocolrouter.ProtocolGeminiGenerateContent {
+				protocols = append(protocols, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses)
 			}
 			attachHandlerTestProtocolCapability(t, account, protocols...)
 			body := []byte(`{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hello"}],"max_tokens":32}`)

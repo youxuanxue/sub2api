@@ -85,6 +85,7 @@ type geminiChatWriter struct {
 	buffer       []byte
 	event        []byte
 	pendingUsage *apicompat.GeminiChatUsage
+	messages     *apicompat.MessagesToGeminiStream
 	terminal     bool
 	done         bool
 	err          error
@@ -143,6 +144,17 @@ func (w *geminiChatWriter) flushEvent() error {
 	if len(data) == 0 {
 		return nil
 	}
+	if w.messages != nil {
+		response, err := w.messages.Convert(data)
+		if err != nil {
+			return err
+		}
+		w.terminal = w.messages.Done()
+		if response == nil {
+			return nil
+		}
+		return w.emit(response)
+	}
 	if string(data) == "[DONE]" {
 		if !w.terminal {
 			return fmt.Errorf("chat stream ended without finish_reason")
@@ -179,7 +191,7 @@ func (w *geminiChatWriter) flushEvent() error {
 	return w.emit(response)
 }
 
-func (w *geminiChatWriter) emit(response *apicompat.GeminiChatResponse) error {
+func (w *geminiChatWriter) emit(response any) error {
 	body, err := json.Marshal(response)
 	if err != nil {
 		return err
@@ -228,6 +240,13 @@ func (w *geminiChatWriter) finish() error {
 			return fmt.Errorf("chat stream ended without finish_reason")
 		}
 		return nil
+	}
+	if w.messages != nil {
+		response, err := apicompat.MessagesToGeminiResponse(w.buffer)
+		if err != nil {
+			return err
+		}
+		return w.emit(response)
 	}
 	response, err := apicompat.ChatToGeminiResponse(w.buffer, false)
 	if err != nil {

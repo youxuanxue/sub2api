@@ -215,6 +215,20 @@ class ScenarioTests(unittest.TestCase):
         response['usage']['output_tokens_details']['reasoning_tokens'] = 12
         self.assertEqual(thinking_evidence(wire(), False), 'observed')
 
+    def test_thinking_requires_one_final_integer(self):
+        case = {'protocol': 'openai-chat', 'request_type': 'thinking',
+                'request': {'expected_answer': '6661', 'thinking_validation': 'request_acceptance'}}
+        for answer, expected in [('6661', None), (' 6661\n', None),
+                                 ('Not 6661, the answer is 6663', 'thinking_answer_mismatch'),
+                                 ('6661 or 6663', 'thinking_answer_mismatch'),
+                                 ('6661.5', 'thinking_answer_mismatch'),
+                                 ('16661', 'thinking_answer_mismatch')]:
+            response = {'choices': [{'finish_reason': 'stop', 'message': {'content': answer}}],
+                        'usage': {'prompt_tokens': 1}}
+            with self.subTest(answer=answer):
+                self.assertEqual(validate_response(case, 200, 'application/json',
+                                                  json.dumps(response).encode(), False), expected)
+
     def test_thinking_answer_joins_stream_tokens_and_excludes_hidden_reasoning(self):
         from gateway_capability_check import answer_text
         self.assertEqual(answer_text('openai-chat', [{'choices': [{'delta': {'content': x}}]} for x in ('66', '61')], True), '6661')

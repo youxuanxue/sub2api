@@ -641,7 +641,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			// TK: passive availability failure tap (R-004 — extracts upstream HTTP status from UpstreamFailoverError)
 			// A started conversion cannot retry, but known partial usage must settle.
-			if result == nil || selection.ProtocolPlan == nil || selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToChat {
+			if result == nil || selection.ProtocolPlan == nil || (selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToChat && selection.ProtocolPlan.AdapterID() != protocolrouter.AdapterGeminiToMessages) {
 				return
 			}
 		}
