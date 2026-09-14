@@ -71,6 +71,28 @@ REQUIRED = {
         "deploy_qa_raw_archive_cfn.sh",
         "verify_qa_bundle_infra.sh",
         "run-qa-bundle-canary-via-ssm.sh",
+        'bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" false',
+        "run: bash qa-target-release/ops/qa/deploy_qa_raw_archive_cfn.sh",
+        "--target-rollout qa-target-release/ops/qa/deploy_rollout.yaml",
+        "JOB_STATUS: ${{ job.status }}",
+    ),
+    ".github/workflows/deploy-stage0.yml": (
+        "python3 ops/qa/resolve_qa_bundle_coordinates.py",
+        "QA_BUNDLE_QUEUE_URL: ${{ steps.qa_coordinates.outputs.queue_url }}",
+        "QA_BUNDLE_STORAGE_BUCKET: ${{ steps.qa_coordinates.outputs.bucket }}",
+    ),
+    "ops/qa/resolve_qa_bundle_coordinates.py": (
+        '"cloudformation", "describe-stacks"',
+        'coordinates(json.loads(response), args.region)',
+    ),
+    "ops/qa/test_resolve_qa_bundle_coordinates.py": (
+        "test_worker_update_does_not_block_stable_producer_coordinates",
+        "test_cli_only_describes_stack_and_never_writes_output_on_aws_failure",
+    ),
+    "ops/stage0/test_deploy_qa_bundle_workflow.py": (
+        "test_requested_tag_artifacts_and_manifest_precede_aws_mutation",
+        "test_instance_resolver_executes_complete_aws_command_and_propagates_failure",
+        "test_summaries_render_literal_values_and_actual_status",
     ),
     "ops/stage0/prod_release_plan.py": (
         "from qa_bundle_release_surface import",
@@ -587,6 +609,16 @@ def self_test() -> int:
             print("self-test failed to detect a hardcoded QA Bundle coordinate")
             return 1
         shutil.copy2(ROOT / ".github/workflows/deploy-qa-bundle.yml", workflow)
+        for rel, marker in (
+            (".github/workflows/deploy-stage0.yml", "QA_BUNDLE_QUEUE_URL: ${{ steps.qa_coordinates.outputs.queue_url }}"),
+            (".github/workflows/deploy-qa-bundle.yml", 'bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" false'),
+        ):
+            target = fixture / rel
+            target.write_text(target.read_text().replace(marker, "removed-by-refactor"))
+            if not any(marker in item for item in scan(fixture)):
+                print(f"self-test failed to detect removed QA deploy wiring: {marker}")
+                return 1
+            shutil.copy2(ROOT / rel, target)
         deploy_doc = fixture / "docs/deploy/aws-us-openai-gateway-deployment.md"
         deploy_doc.write_text(
             deploy_doc.read_text(encoding="utf-8")

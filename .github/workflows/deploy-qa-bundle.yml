@@ -3,7 +3,7 @@ name: QA Bundle Deploy
 # Standalone workflow for QA Raw Archive / Bundle Worker CloudFormation deployment,
 # verification, and canary execution. Separated from deploy-stage0.yml per
 # docs/approved/design-split-deploy-qa-bundle.md so gateway releases remain
-# rapid (~5.5m) and decoupled from asynchronous QA worker lifecycles.
+# focused on gateway acceptance and decoupled from asynchronous QA worker lifecycles.
 
 on:
   workflow_dispatch:
@@ -121,17 +121,19 @@ jobs:
 
       - name: Job summary
         env:
+          DEPLOYMENT_ROLE: ${{ steps.qa_roles.outputs.deployment_role }}
+          SERVICE_ROLE: ${{ steps.qa_roles.outputs.service_role }}
           CALLER_ARN: ${{ steps.qa_access.outputs.caller_arn }}
           STACK_STATUS: ${{ steps.qa_access.outputs.stack_status }}
           READINESS: ${{ steps.qa_access.outputs.readiness }}
         run: |
           {
             echo "## QA infrastructure OIDC check"
-            echo "- deployment role: `${{ steps.qa_roles.outputs.deployment_role }}`"
-            echo "- service role: `${{ steps.qa_roles.outputs.service_role }}`"
-            echo "- assumed caller: `${CALLER_ARN}`"
-            echo "- QA stack: `${QA_STACK_NAME}` (${STACK_STATUS})"
-            echo "- readiness: `${READINESS}`"
+            printf -- '- deployment role: `%s`\n' "$DEPLOYMENT_ROLE"
+            printf -- '- service role: `%s`\n' "$SERVICE_ROLE"
+            printf -- '- assumed caller: `%s`\n' "$CALLER_ARN"
+            printf -- '- QA stack: `%s` (%s)\n' "$QA_STACK_NAME" "$STACK_STATUS"
+            printf -- '- readiness: `%s`\n' "$READINESS"
             echo "- safety: read-only; no change set, SSM command, host sync, canary, or app mutation"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -150,9 +152,6 @@ jobs:
       QA_INFRA_OIDC_ROLE_ARN: ${{ vars.QA_INFRA_OIDC_ROLE_ARN }}
       INPUT_TAG: ${{ inputs.tag }}
       QA_RAW_ARCHIVE_STACK: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
-      QA_BUNDLE_ENABLED: "true"
-      QA_BUNDLE_STORAGE_DRIVER: "s3"
-      QA_BUNDLE_STORAGE_PREFIX: "user-qa"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -164,6 +163,22 @@ jobs:
           bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
           test -n "${OIDC_ROLE_ARN:-}" || { echo "::error::AWS_OIDC_ROLE_ARN is unset"; exit 1; }
           test -n "${QA_INFRA_OIDC_ROLE_ARN:-}" || { echo "::error::QA_INFRA_OIDC_ROLE_ARN is unset"; exit 1; }
+
+      - name: Checkout requested QA release artifacts
+        uses: actions/checkout@v6
+        with:
+          ref: v${{ inputs.tag }}
+          path: qa-target-release
+          fetch-depth: 1
+
+      - name: Verify requested QA release before mutation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash ops/stage0/verify_ghcr_manifest.sh "$INPUT_TAG" false
+          python3 ops/qa/resolve_qa_bundle_worker_image.py \
+            --target-tag "$INPUT_TAG" --target-rollout qa-target-release/ops/qa/deploy_rollout.yaml
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6
@@ -179,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           read -r ID API_URL < <(
-            aws cloudformation describe-stacks --stack-name "$STACK_NAME" 
+            aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
               --query 'Stacks[0].Outputs' --output json |
             python3 -c 'import json, sys; rows=json.load(sys.stdin); m={r.get("OutputKey"): r.get("OutputValue", "") for r in rows}; print(m.get("InstanceId", ""), m.get("ApiUrl", ""))'
           )
@@ -217,12 +232,39 @@ jobs:
           role-to-assume: ${{ env.QA_INFRA_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Preserve QA recovery principal
+        if: inputs.operation == 'deploy'
+        id: qa_recovery
+        env:
+          CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN: ${{ vars.QA_OPS_RECOVERY_PRINCIPAL_ARN }}
+        run: |
+          set -euo pipefail
+          STACK_ERROR="$(mktemp)"
+          trap 'rm -f "$STACK_ERROR"' EXIT
+          if STACK_JSON="$(aws cloudformation describe-stacks --stack-name "$QA_RAW_ARCHIVE_STACK" --output json 2>"$STACK_ERROR")"; then
+            PRINCIPAL="$(jq -r '.Stacks[0].Parameters[]? | select(.ParameterKey == "OpsRecoveryPrincipalArn") | .ParameterValue' <<<"$STACK_JSON")"
+          else
+            describe_rc=$?
+            STACK_ERROR_TEXT="$(<"$STACK_ERROR")"
+            if [[ "$STACK_ERROR_TEXT" == *"(ValidationError)"* && "$STACK_ERROR_TEXT" == *"does not exist"* ]]; then
+              PRINCIPAL="$CONFIGURED_OPS_RECOVERY_PRINCIPAL_ARN"
+            else
+              cat "$STACK_ERROR" >&2
+              exit "$describe_rc"
+            fi
+          fi
+          [[ "$PRINCIPAL" =~ ^arn:[a-z0-9-]+:iam::[0-9]{12}:(user|role)/[A-Za-z0-9+=,.@_/-]+$ ]] || {
+            echo "::error::QA stack recovery principal is missing or invalid; configure QA_OPS_RECOVERY_PRINCIPAL_ARN only for stack creation"
+            exit 1
+          }
+          printf 'principal=%s\n' "$PRINCIPAL" >> "$GITHUB_OUTPUT"
+
       - name: Deploy QA Bundle infrastructure
         if: inputs.operation == 'deploy'
         env:
           QA_RAW_ARCHIVE_STACK: ${{ env.QA_RAW_ARCHIVE_STACK }}
           APP_INSTANCE_ROLE_ARN: ${{ steps.instance.outputs.app_role_arn }}
-          OPS_RECOVERY_PRINCIPAL_ARN: ${{ vars.QA_OPS_RECOVERY_PRINCIPAL_ARN }}
+          OPS_RECOVERY_PRINCIPAL_ARN: ${{ steps.qa_recovery.outputs.principal }}
           QA_RAW_ARCHIVE_VPC_ID: ${{ steps.instance.outputs.vpc_id }}
           QA_RAW_ARCHIVE_ROUTE_TABLE_IDS: ${{ steps.instance.outputs.route_table_id }}
           QA_BUNDLE_WORKER_PUBLIC_SUBNET_IDS: ${{ steps.instance.outputs.subnet_id }}
@@ -231,7 +273,7 @@ jobs:
           QA_BUNDLE_BROWSER_ALLOWED_ORIGIN: ${{ steps.instance.outputs.browser_origin }}
           QA_CLOUDFORMATION_SERVICE_ROLE_ARN: ${{ steps.instance.outputs.qa_cfn_service_role_arn }}
           QA_RAW_ARCHIVE_CONFIRM: "yes"
-        run: bash ops/qa/deploy_qa_raw_archive_cfn.sh
+        run: bash qa-target-release/ops/qa/deploy_qa_raw_archive_cfn.sh
 
       - name: Verify QA Bundle infrastructure
         id: qa_bundle
@@ -261,12 +303,13 @@ jobs:
           STACK_NAME: ${{ env.QA_RAW_ARCHIVE_STACK }}
           INPUT_TAG: ${{ inputs.tag }}
           OPERATION: ${{ inputs.operation }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           {
             echo "## deploy-qa-bundle"
-            echo "- environment: `prod`"
-            echo "- operation: `${OPERATION}`"
-            echo "- worker image: `ghcr.io/youxuanxue/sub2api:${INPUT_TAG}`"
-            echo "- stack: `${STACK_NAME}`"
-            echo "- status: success"
+            printf '%s\n' '- environment: `prod`'
+            printf -- '- operation: `%s`\n' "$OPERATION"
+            printf -- '- worker image: `ghcr.io/youxuanxue/sub2api:%s`\n' "$INPUT_TAG"
+            printf -- '- stack: `%s`\n' "$STACK_NAME"
+            printf -- '- status: %s\n' "$JOB_STATUS"
           } >> "$GITHUB_STEP_SUMMARY"

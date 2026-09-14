@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "deploy changes prod; replay prepares inactive prod color and serially verifies account-supply cases without cutover; smoke-only probes the API; qa-infra-check verifies QA OIDC/IAM readiness without mutation."
+        description: "deploy changes prod; replay prepares inactive prod color and serially verifies account-supply cases without cutover; smoke-only probes the API."
         required: true
         type: choice
         options:
@@ -229,11 +229,13 @@ jobs:
           path: qa-target-release
           fetch-depth: 1
 
-      - name: Restore Stage0 deployment credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+      - name: Resolve QA producer coordinates (read-only)
+        id: qa_coordinates
+        env:
+          QA_STACK_NAME: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
+        run: |
+          python3 ops/qa/resolve_qa_bundle_coordinates.py --stack "$QA_STACK_NAME" \
+            --region "$AWS_REGION" --github-output "$GITHUB_OUTPUT"
 
       - name: Validate human-approved replay receipt
         if: inputs.replay_receipt != ''
@@ -249,6 +251,12 @@ jobs:
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STAGE0_SSM_OUTPUT_DIR: .
+          QA_BUNDLE_ENABLED: "true"
+          QA_BUNDLE_QUEUE_URL: ${{ steps.qa_coordinates.outputs.queue_url }}
+          QA_BUNDLE_STORAGE_DRIVER: s3
+          QA_BUNDLE_STORAGE_REGION: ${{ env.AWS_REGION }}
+          QA_BUNDLE_STORAGE_BUCKET: ${{ steps.qa_coordinates.outputs.bucket }}
+          QA_BUNDLE_STORAGE_PREFIX: user-qa
           STAGE0_BLUEGREEN_WAIT_PHASE: cutover
           STAGE0_BLUEGREEN_STAGE: ${{ inputs.replay_receipt != '' && 'promote' || 'deploy' }}
           STAGE0_BLUEGREEN_APPROVED_RECEIPT: ${{ steps.replay_gate.outputs.prepared_receipt }}

@@ -27,7 +27,7 @@ The 2026-09-10 component release revision (`docs/approved/prod-component-release
   - QA host systemd maintenance verification.
   - Post-deploy QA Bundle canary (`Post-deploy QA Bundle canary`).
   - Read-only `qa-infra-check` operation mode (moved to dedicated workflow).
-- **Elapsed Time**: Strictly bounded to ~5.5 minutes.
+- **Elapsed Time**: Approximately 5.5 minutes is an optimization target, not a hard bound. The five-minute observation starts after cutover; image preparation, smoke and request drain add time. Actual elapsed time requires production rollout evidence.
 
 ### Dedicated QA Bundle Workflow (`.github/workflows/deploy-qa-bundle.yml`)
 - **Responsibility**: Standalone management of the QA Raw Archive / Bundle Worker CloudFormation stack and worker verification.

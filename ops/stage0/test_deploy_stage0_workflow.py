@@ -45,6 +45,19 @@ def step_run(name: str) -> str:
 
 
 class DeployStage0WorkflowTest(unittest.TestCase):
+    def test_gateway_passes_live_stack_coordinates_before_bluegreen_mutation(self) -> None:
+        steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        resolve = by_name["Resolve QA producer coordinates (read-only)"]
+        deploy = by_name["Deploy via SSM Run-Command"]
+        self.assertLess(steps.index(resolve), steps.index(deploy))
+        self.assertEqual(resolve["id"], "qa_coordinates")
+        self.assertIn("ops/qa/resolve_qa_bundle_coordinates.py", resolve["run"])
+        self.assertEqual(deploy["env"]["QA_BUNDLE_ENABLED"], "true")
+        self.assertEqual(deploy["env"]["QA_BUNDLE_QUEUE_URL"], "${{ steps.qa_coordinates.outputs.queue_url }}")
+        self.assertEqual(deploy["env"]["QA_BUNDLE_STORAGE_BUCKET"], "${{ steps.qa_coordinates.outputs.bucket }}")
+        self.assertNotIn("continue-on-error", resolve)
+
     def test_us051_selected_components_and_drain_join_preserve_gateway_acceptance_order(self) -> None:
         steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
         names = [step.get("name", "") for step in steps]
