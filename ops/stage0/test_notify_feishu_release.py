@@ -12,6 +12,15 @@ SCRIPT = pathlib.Path(__file__).with_name("notify-feishu-release.sh")
 
 
 class NotifyFeishuReleaseTest(unittest.TestCase):
+    def test_qa_notice_reports_component_acceptance_and_handles_first_install(self):
+        proc = self.run_script("1.8.228", "https://api.example.com", "--component", "qa", "--dry-run")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("QA 验收通过", proc.stdout)
+        self.assertIn("首次安装", proc.stdout)
+        self.assertNotIn("发版上线", proc.stdout)
+        proc = self.run_script("1.8.228", "https://api.example.com", "--component", "unknown", "--dry-run")
+        self.assertNotEqual(proc.returncode, 0)
+
     def run_script(self, *args: str) -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "GITHUB_REPOSITORY": "youxuanxue/sub2api"}
         return subprocess.run(

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import pathlib
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 import yaml
 
@@ -45,6 +48,46 @@ def step_run(name: str) -> str:
 
 
 class DeployStage0WorkflowTest(unittest.TestCase):
+    def test_failed_legacy_summary_reports_actual_safety_step_outcomes(self) -> None:
+        steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
+        step = next(step for step in steps if step.get("name") == "Job summary")
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "summary"
+            values = {key: "fixture" for key in step["env"]}
+            values.update(RELEASE_MODE="legacy_rollback", LEGACY_WORKER_OUTCOME="failure",
+                          LEGACY_PAUSE_OUTCOME="skipped", LEGACY_BOUNDARY_OUTCOME="skipped",
+                          GITHUB_STEP_SUMMARY=str(output))
+            result = subprocess.run(["bash", "-euc", step["run"]],
+                                    env={**os.environ, **values}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Worker verification=failure; DROP pause=skipped; Boundary disable=skipped", output.read_text())
+
+    def test_legacy_safety_is_fail_closed_and_excluded_from_normal_gateway_path(self) -> None:
+        workflow = yaml.safe_load(workflow_text())
+        job = workflow["jobs"]["deploy"]
+        self.assertEqual(job["needs"], "release-contract")
+        self.assertNotIn("QA_INFRA_OIDC_ROLE_ARN", job["env"])
+        steps = job["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        ordered = ["Read legacy rollback maintenance pin", "Validate legacy QA credentials",
+                   "Configure QA credentials for legacy Worker verification", "Verify preserved legacy Worker",
+                   "Plan legacy rollback without changing QA pins", "Restore Stage0 credentials for legacy host safety",
+                   "Pause DROP before legacy gateway mutation", "Disable Boundary before legacy gateway mutation"]
+        indexes = [steps.index(by_name[name]) for name in ordered]
+        self.assertEqual(indexes, sorted(indexes))
+        self.assertLess(indexes[-1], steps.index(by_name["Deploy via SSM Run-Command"]))
+        for name in ordered:
+            self.assertEqual(by_name[name]["if"], "needs.release-contract.outputs.mode == 'legacy_rollback'")
+            self.assertNotIn("continue-on-error", by_name[name])
+        self.assertEqual(by_name[ordered[-1]]["env"]["QA_BOUNDARY_TIMER_STATE"], "disabled")
+        self.assertEqual(by_name[ordered[3]]["env"]["QA_BUNDLE_VERIFY_MODE"], "discovery")
+        qa = yaml.safe_load((WORKFLOW.parent / "deploy-qa-bundle.yml").read_text())["jobs"]["deploy-qa"]
+        self.assertEqual(qa["concurrency"]["group"], "prod-qa-lifecycle")
+        self.assertEqual(job["concurrency"]["group"],
+                         "${{ needs.release-contract.outputs.mode == 'legacy_rollback' && 'prod-qa-lifecycle' || 'prod-gateway-compatible' }}")
+        self.assertFalse(qa["concurrency"]["cancel-in-progress"])
+        self.assertFalse(job["concurrency"]["cancel-in-progress"])
+
     def test_gateway_passes_live_stack_coordinates_before_bluegreen_mutation(self) -> None:
         steps = yaml.safe_load(workflow_text())["jobs"]["deploy"]["steps"]
         by_name = {step.get("name"): step for step in steps}

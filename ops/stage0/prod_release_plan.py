@@ -79,9 +79,9 @@ def changed(repo: Path, before: str, after: str) -> list[str]:
     return [path for path in result.stdout.splitlines() if runtime_path(path)]
 
 
-def plan(repo: Path, target: str, gateway: str, worker: str, state: dict, rollout: Path) -> dict:
-    if not TAG.fullmatch(target) or not TAG.fullmatch(gateway):
-        raise ValueError("invalid target or gateway tag")
+def release_mode(rollout: Path) -> str:
+    if not rollout.exists():
+        return "legacy_rollback"
     contract = release_contract(rollout)
     component = yaml.safe_load(rollout.read_text())["prod"].get("component_release", {})
     if not isinstance(component, dict):
@@ -89,6 +89,26 @@ def plan(repo: Path, target: str, gateway: str, worker: str, state: dict, rollou
     independent = component.get("runtime_contract")
     if independent not in (None, "independent_v1"):
         raise ValueError("unsupported independent runtime contract")
+    return "phase3" if contract and independent == "independent_v1" else "legacy_rollback"
+
+
+def qa_plan(target: str, gateway: str, rollout: Path, gateway_rollout: Path) -> dict:
+    if not TAG.fullmatch(target) or not TAG.fullmatch(gateway):
+        raise ValueError("invalid target or gateway tag")
+    if release_mode(rollout) != "phase3" or release_mode(gateway_rollout) != "phase3":
+        raise ValueError("QA acceptance requires compatible target and serving gateway releases")
+    return {"schema_version": SCHEMA, "mode": "phase3", "target_tag": target,
+            "gateway_tag": gateway, "deploy_gateway": False, "deploy_worker": True,
+            "deploy_maintenance": True, "run_canary": True, "legacy_rollback": False,
+            "worker_image": f"{REPOSITORY}:{target}", "maintenance_tag": target,
+            "canary_tag": gateway, "host_runtime_mode": "independent_maintenance",
+            "reason": "standalone_qa_acceptance"}
+
+
+def plan(repo: Path, target: str, gateway: str, worker: str, state: dict, rollout: Path) -> dict:
+    if not TAG.fullmatch(target) or not TAG.fullmatch(gateway):
+        raise ValueError("invalid target or gateway tag")
+    mode = release_mode(rollout)
     pinned = state.get("runtime", {})
     receipt = state.get("verified", {})
     maintenance_tag = pinned.get("tag", "")
@@ -100,8 +120,13 @@ def plan(repo: Path, target: str, gateway: str, worker: str, state: dict, rollou
                       and receipt.get("runtime_id") == pinned.get("id")
                       and receipt.get("runtime_host_sha") == pinned.get("host_sha")
                       and receipt.get("gateway_tag") == gateway)
-    if contract is None or independent != "independent_v1":
-        if not verified_worker_image(worker) or not pinned:
+    if mode == "legacy_rollback":
+        maintenance_verified = (receipt.get("schema_version") == SCHEMA
+                                and receipt.get("maintenance_tag") == maintenance_tag
+                                and receipt.get("runtime_id") == pinned.get("id")
+                                and receipt.get("runtime_host_sha") == pinned.get("host_sha"))
+        if (not verified_worker_image(worker) or not TAG.fullmatch(maintenance_tag)
+                or not pinned.get("id") or not pinned.get("host_sha") or not maintenance_verified):
             raise ValueError("legacy rollback requires verified worker and pinned maintenance")
         return {"schema_version": SCHEMA, "mode": "legacy_rollback", "target_tag": target, "gateway_tag": target,
                 "deploy_gateway": True, "deploy_worker": False, "deploy_maintenance": False,
@@ -136,16 +161,30 @@ def plan(repo: Path, target: str, gateway: str, worker: str, state: dict, rollou
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", required=True)
-    parser.add_argument("--gateway", required=True)
+    parser.add_argument("--operation", choices=("auto", "classify", "qa"), default="auto")
+    parser.add_argument("--target")
+    parser.add_argument("--gateway")
     parser.add_argument("--worker", default="")
-    parser.add_argument("--state", type=Path, required=True)
+    parser.add_argument("--state", type=Path)
     parser.add_argument("--rollout", type=Path, required=True)
+    parser.add_argument("--gateway-rollout", type=Path)
     parser.add_argument("--repo", type=Path, default=Path("."))
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = plan(args.repo, args.target, args.gateway, args.worker,
-                  json.loads(args.state.read_text()), args.rollout)
+    if args.operation == "classify":
+        print("mode=" + release_mode(args.rollout))
+        return
+    if not args.target or not args.gateway or not args.output:
+        parser.error("planning requires --target, --gateway and --output")
+    if args.operation == "qa":
+        if not args.gateway_rollout:
+            parser.error("QA acceptance requires --gateway-rollout")
+        result = qa_plan(args.target, args.gateway, args.rollout, args.gateway_rollout)
+    else:
+        if not args.state:
+            parser.error("component planning requires --state")
+        result = plan(args.repo, args.target, args.gateway, args.worker,
+                      json.loads(args.state.read_text()), args.rollout)
     result["plan_id"] = hashlib.sha256(json.dumps(result, sort_keys=True).encode()).hexdigest()
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, sort_keys=True))

@@ -33,6 +33,29 @@ def job_block(name: str) -> str:
 
 
 class DeployQABundleWorkflowTest(unittest.TestCase):
+    def test_maintenance_acceptance_order_and_canary_only_never_mutates_release_state(self):
+        steps = yaml.safe_load(workflow_text())["jobs"]["deploy-qa"]["steps"]
+        names = [step.get("name") for step in steps]
+        ordered = ["Plan compatible QA acceptance", "Pause DROP until QA acceptance succeeds",
+                   "Deploy QA Bundle infrastructure", "Verify QA Bundle infrastructure",
+                   "Sync QA maintenance host runner", "Sync QA boundary host runner and durable owner",
+                   "Bind selected QA runtime for acceptance", "Verify QA maintenance systemd execution",
+                   "Post-deploy QA Bundle canary", "Record verified QA component combination", "Notify Feishu (QA acceptance)"]
+        indexes = [names.index(name) for name in ordered]
+        self.assertEqual(indexes, sorted(indexes))
+        for name in ordered:
+            step = self.step(name)
+            if name not in ("Verify QA Bundle infrastructure", "Post-deploy QA Bundle canary"):
+                self.assertEqual(step["if"], "inputs.operation == 'deploy'")
+            if name != "Notify Feishu (QA acceptance)":
+                self.assertNotIn("continue-on-error", step)
+        maint = self.step("Sync QA maintenance host runner")["env"]
+        self.assertEqual(maint["QA_MAINTENANCE_IMAGE"], "ghcr.io/youxuanxue/sub2api:${{ inputs.tag }}")
+        self.assertEqual(maint["QA_HOST_ARTIFACT_ROOT"], "qa-target-release")
+        self.assertEqual(maint["QA_BUNDLE_QUEUE_URL"], "${{ steps.qa_bundle.outputs.queue_url }}")
+        self.assertEqual(self.step("Post-deploy QA Bundle canary")["env"]["QA_CANARY_IMAGE"],
+                         "ghcr.io/youxuanxue/sub2api:${{ steps.qa_baseline.outputs.gateway_tag || inputs.tag }}")
+
     def test_workflow_inputs_and_concurrency(self) -> None:
         data = yaml.safe_load(workflow_text())
         inputs = (data.get("on") or data[True])["workflow_dispatch"]["inputs"]

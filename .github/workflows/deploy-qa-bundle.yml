@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "deploy updates the QA Bundle Worker stack and executes canary; canary-only executes only the post-deploy QA bundle canary; qa-infra-check performs read-only OIDC/IAM verification."
+        description: "deploy updates the QA stack and maintenance runtime, then verifies health and canary; canary-only executes only the post-deploy QA bundle canary; qa-infra-check performs read-only OIDC/IAM verification."
         required: true
         type: choice
         options:
@@ -144,7 +144,10 @@ jobs:
       contents: read
       id-token: write
       packages: read
-    timeout-minutes: 30
+    concurrency:
+      group: prod-qa-lifecycle
+      cancel-in-progress: false
+    timeout-minutes: 90
     environment: prod
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
@@ -226,6 +229,47 @@ jobs:
           echo "app_role_arn=arn:aws:iam::${ACCOUNT_ID}:role/${INSTANCE_ROLE_NAME}" >> "$GITHUB_OUTPUT"
           echo "qa_cfn_service_role_arn=$SERVICE_ROLE_ARN" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve serving gateway and previous QA runtime
+        if: inputs.operation == 'deploy'
+        id: qa_baseline
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          set -euo pipefail
+          GATEWAY_TAG="$(bash ops/stage0/resolve-prod-running-tag-via-ssm.sh --instance-id "$INSTANCE_ID")"
+          printf 'gateway_tag=%s\n' "$GATEWAY_TAG" >> "$GITHUB_OUTPUT"
+          python3 ops/stage0/prod_release_state.py read --instance-id "$INSTANCE_ID" --output .prod-release-state.json
+          jq -r '"maintenance_tag=" + (.runtime.tag // "")' .prod-release-state.json >> "$GITHUB_OUTPUT"
+
+      - name: Checkout serving gateway contract
+        if: inputs.operation == 'deploy'
+        uses: actions/checkout@v6
+        with:
+          ref: v${{ steps.qa_baseline.outputs.gateway_tag }}
+          path: qa-gateway-release
+          fetch-depth: 1
+
+      - name: Plan compatible QA acceptance
+        if: inputs.operation == 'deploy'
+        id: qa_plan
+        env:
+          GATEWAY_TAG: ${{ steps.qa_baseline.outputs.gateway_tag }}
+        run: |
+          set -euo pipefail
+          python3 ops/stage0/prod_release_plan.py --operation qa --target "$INPUT_TAG" --gateway "$GATEWAY_TAG" \
+            --rollout qa-target-release/ops/qa/deploy_rollout.yaml \
+            --gateway-rollout qa-gateway-release/ops/qa/deploy_rollout.yaml --output .prod-release-plan.json
+          for artifact in tokenkey-qa-maintenance.sh tokenkey-qa-boundary.sh qa-runtime.sh qa-runtime-compose.yml qa-runtime-transaction.sh tokenkey-qa-maintenance-health-gate.sh; do
+            test -f "qa-target-release/deploy/aws/stage0/$artifact"
+          done
+          printf 'sha=%s\n' "$(git -C qa-target-release rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Pause DROP until QA acceptance succeeds
+        if: inputs.operation == 'deploy'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: python3 ops/stage0/prod_release_state.py pause --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
+
       - name: Configure QA infrastructure credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -290,12 +334,66 @@ jobs:
           role-to-assume: ${{ env.OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Sync QA maintenance host runner
+        if: inputs.operation == 'deploy'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_MAINTENANCE_TIMER_STATE: enabled
+          QA_HOST_ARTIFACT_ROOT: qa-target-release
+          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_plan.outputs.sha }}
+          QA_MAINTENANCE_IMAGE: ghcr.io/youxuanxue/sub2api:${{ inputs.tag }}
+          QA_BUNDLE_QUEUE_URL: ${{ steps.qa_bundle.outputs.queue_url }}
+          QA_BUNDLE_STORAGE_BUCKET: ${{ steps.qa_bundle.outputs.bucket }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-sync
+        run: bash ops/stage0/sync-qa-maintenance-timer-via-ssm.sh "$INSTANCE_ID" "QA maintenance release"
+
+      - name: Sync QA boundary host runner and durable owner
+        if: inputs.operation == 'deploy'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_BOUNDARY_TIMER_STATE: auto
+          QA_HOST_ARTIFACT_ROOT: qa-target-release
+          QA_HOST_ARTIFACT_SHA: ${{ steps.qa_plan.outputs.sha }}
+          STAGE0_SSM_OUTPUT_DIR: .qa-boundary-sync
+        run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "QA boundary release"
+
+      - name: Bind selected QA runtime for acceptance
+        if: inputs.operation == 'deploy'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: python3 ops/stage0/prod_release_state.py bind --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
+
+      - name: Verify QA maintenance systemd execution
+        if: inputs.operation == 'deploy'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_HOST_ARTIFACT_ROOT: qa-target-release
+          STAGE0_SSM_OUTPUT_DIR: .qa-maintenance-health-gate
+        run: bash ops/stage0/run-qa-maintenance-health-gate-via-ssm.sh "$INSTANCE_ID" "QA maintenance health gate"
+
       - name: Post-deploy QA Bundle canary
         env:
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
-          QA_CANARY_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}
+          QA_CANARY_IMAGE: ghcr.io/youxuanxue/sub2api:${{ steps.qa_baseline.outputs.gateway_tag || inputs.tag }}
           STAGE0_SSM_OUTPUT_DIR: .qa-bundle-canary
         run: bash ops/stage0/run-qa-bundle-canary-via-ssm.sh "$INSTANCE_ID" "deploy-qa-bundle canary"
+
+      - name: Record verified QA component combination
+        if: inputs.operation == 'deploy'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: python3 ops/stage0/prod_release_state.py record --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
+
+      - name: Notify Feishu (QA acceptance)
+        if: inputs.operation == 'deploy'
+        continue-on-error: true  # preflight-allow: best-effort notification after all acceptance gates
+        env:
+          TK_FEISHU_WEBHOOK_URL: ${{ secrets.TK_FEISHU_WEBHOOK_URL }}
+          TK_FEISHU_SIGNING_SECRET: ${{ secrets.TK_FEISHU_SIGNING_SECRET }}
+          API_URL: ${{ steps.instance.outputs.api_url }}
+          PREVIOUS_TAG: ${{ steps.qa_baseline.outputs.maintenance_tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash ops/stage0/notify-feishu-release.sh "$INPUT_TAG" "$API_URL" --component qa --previous-tag "$PREVIOUS_TAG" --run-url "$RUN_URL"
 
       - name: Job summary
         if: always()
@@ -304,6 +402,7 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
           OPERATION: ${{ inputs.operation }}
           JOB_STATUS: ${{ job.status }}
+          GATEWAY_TAG: ${{ steps.qa_baseline.outputs.gateway_tag }}
         run: |
           {
             echo "## deploy-qa-bundle"
@@ -312,4 +411,9 @@ jobs:
             printf -- '- worker image: `ghcr.io/youxuanxue/sub2api:%s`\n' "$INPUT_TAG"
             printf -- '- stack: `%s`\n' "$STACK_NAME"
             printf -- '- status: %s\n' "$JOB_STATUS"
+            if [ "$OPERATION" = deploy ]; then
+              printf -- '- maintenance image: `ghcr.io/youxuanxue/sub2api:%s`\n' "$INPUT_TAG"
+              printf -- '- gateway observed at acceptance start: `%s`\n' "$GATEWAY_TAG"
+              echo '- DROP resumes only after successful component acceptance; failures retain the pause.'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

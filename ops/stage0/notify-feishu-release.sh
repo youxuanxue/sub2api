@@ -25,7 +25,7 @@ set -euo pipefail
 # Usage:
 #   TK_FEISHU_WEBHOOK_URL=... [TK_FEISHU_SIGNING_SECRET=...] \
 #     bash ops/stage0/notify-feishu-release.sh <tag> <api_url> \
-#       --previous-tag TAG [--run-url URL] [--notes TEXT] [--dry-run]
+#       --previous-tag TAG [--run-url URL] [--notes TEXT] [--component gateway|qa] [--dry-run]
 #
 #   <tag>      released image tag WITHOUT leading v (e.g. 1.7.83). A leading v is
 #              tolerated and stripped.
@@ -46,7 +46,7 @@ usage() {
 Usage:
   TK_FEISHU_WEBHOOK_URL=... [TK_FEISHU_SIGNING_SECRET=...] \
     bash ops/stage0/notify-feishu-release.sh <tag> <api_url> \
-      --previous-tag TAG [--run-url URL] [--notes TEXT] [--dry-run]
+      --previous-tag TAG [--run-url URL] [--notes TEXT] [--component gateway|qa] [--dry-run]
 EOF
 }
 
@@ -56,6 +56,7 @@ PREVIOUS_TAG=""
 RUN_URL=""
 NOTES=""
 DRY_RUN=0
+COMPONENT=gateway
 
 # Flags that take a value: require the value to be present so a trailing
 # `--run-url` (no arg) fails loudly instead of `shift 2` erroring under set -e.
@@ -63,6 +64,7 @@ need_val() { [ "$2" -ge 2 ] || { echo "[error] $1 needs a value" >&2; usage; exi
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --component) need_val "$1" "$#"; COMPONENT="$2"; shift 2 ;;
     --previous-tag) need_val "$1" "$#"; PREVIOUS_TAG="$2"; shift 2 ;;
     --previous-tag=*) PREVIOUS_TAG="${1#*=}"; shift ;;
     --run-url) need_val "$1" "$#"; RUN_URL="$2"; shift 2 ;;
@@ -89,7 +91,11 @@ if [ -z "$TAG" ] || [ -z "$API_URL" ]; then
   usage
   exit 2
 fi
-if [[ ! "$PREVIOUS_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$ ]]; then
+case "$COMPONENT" in
+  gateway|qa) ;;
+  *) echo "[error] --component must be gateway or qa" >&2; exit 2 ;;
+esac
+if [[ !( "$COMPONENT" = qa && -z "$PREVIOUS_TAG" ) && ! "$PREVIOUS_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|-beta\.[0-9]+)?$ ]]; then
   echo "[error] --previous-tag must be a Stage0 release tag" >&2
   usage
   exit 2
@@ -113,6 +119,7 @@ fi
 # payload to stdout (sanitized when NF_DRY_RUN=1).
 PAYLOAD_JSON="$(
   NF_TAG="$TAG" \
+  NF_COMPONENT="$COMPONENT" \
   NF_PREVIOUS_TAG="$PREVIOUS_TAG" \
   NF_API_URL="$API_URL" \
   NF_RUN_URL="$RUN_URL" \
@@ -129,6 +136,7 @@ import os
 import time
 
 tag = os.environ["NF_TAG"]
+component = os.environ["NF_COMPONENT"]
 previous_tag = os.environ["NF_PREVIOUS_TAG"]
 api_url = os.environ["NF_API_URL"]
 run_url = os.environ.get("NF_RUN_URL", "").strip()
@@ -150,6 +158,15 @@ lines = [
     f"**上线时间**  {when}",
     "**烟测**  ✅ 通过",
 ]
+if component == "qa":
+    lines = [
+        f"**QA Worker / Maintenance**  v{tag}",
+        f"**维护基线**  {'v' + previous_tag if previous_tag else '首次安装'}",
+        "**环境**  prod",
+        f"**API**  {api_url}",
+        f"**验收时间**  {when}",
+        "**验收**  ✅ 维护健康检查与 Bundle canary 通过",
+    ]
 links = []
 if repo:
     links.append(f"[GitHub Release](https://github.com/{repo}/releases/tag/v{tag})")
@@ -223,7 +240,7 @@ payload = {
     "card": {
         "header": {
             "template": "green",
-            "title": {"tag": "plain_text", "content": f"🚀 TokenKey 发版上线 v{tag}"},
+            "title": {"tag": "plain_text", "content": f"✅ TokenKey QA 验收通过 v{tag}" if component == "qa" else f"🚀 TokenKey 发版上线 v{tag}"},
         },
         "elements": elements,
     },

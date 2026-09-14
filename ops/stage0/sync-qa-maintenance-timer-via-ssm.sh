@@ -16,6 +16,12 @@ DRAIN_TIMEOUT_SECONDS="${QA_SYNC_DRAIN_TIMEOUT_SECONDS:-300}"
 OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.}"
 TIMER_STATE="${QA_MAINTENANCE_TIMER_STATE:-disabled}"
 
+if { [ -n "${QA_BUNDLE_QUEUE_URL:-}" ] && [ -z "${QA_BUNDLE_STORAGE_BUCKET:-}" ]; } ||
+   { [ -z "${QA_BUNDLE_QUEUE_URL:-}" ] && [ -n "${QA_BUNDLE_STORAGE_BUCKET:-}" ]; }; then
+  echo "QA Bundle queue and bucket overrides must be supplied together" >&2
+  exit 1
+fi
+
 if [ -z "${INSTANCE_ID}" ]; then
   echo "sync_qa_maintenance_timer_via_ssm: instance id is required" >&2
   exit 1
@@ -72,6 +78,9 @@ jq -n \
   --arg runtime_install "${RUNTIME_INSTALL_B64}" \
   --arg runtime_transaction "${RUNTIME_TRANSACTION_B64}" \
   --arg runtime_image "${QA_MAINTENANCE_IMAGE:-}" \
+  --arg bundle_queue "${QA_BUNDLE_QUEUE_URL:-}" \
+  --arg bundle_bucket "${QA_BUNDLE_STORAGE_BUCKET:-}" \
+  --arg bundle_region "${AWS_REGION:-us-east-1}" \
   --arg sha "${TEMPLATE_SHA}" \
   --arg timer_command "${timer_command}" \
   --arg timer_state "${TIMER_STATE}" \
@@ -96,7 +105,7 @@ jq -n \
       "sudo chmod 0644 /usr/local/lib/tokenkey/qa-runtime.sh",
       ("echo " + $runtime_template + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-runtime-compose.yml > /dev/null"),
       ("echo " + $runtime_install + " | base64 -d | sudo tee /usr/local/lib/tokenkey/qa-runtime-install.py > /dev/null"),
-      (if $runtime_image != "" then "sudo python3 /usr/local/lib/tokenkey/qa-runtime-install.py --keep-previous --template /usr/local/lib/tokenkey/qa-runtime-compose.yml --image " + ($runtime_image | @sh) else "sudo docker inspect tokenkey-qa-runtime >/dev/null" end),
+      (if $runtime_image != "" then "sudo env " + (if $bundle_queue != "" and $bundle_bucket != "" then "QA_BUNDLE_QUEUE_URL=" + ($bundle_queue | @sh) + " QA_BUNDLE_STORAGE_BUCKET=" + ($bundle_bucket | @sh) + " QA_BUNDLE_STORAGE_REGION=" + ($bundle_region | @sh) + " " else "" end) + "python3 /usr/local/lib/tokenkey/qa-runtime-install.py --keep-previous --template /usr/local/lib/tokenkey/qa-runtime-compose.yml --image " + ($runtime_image | @sh) else "sudo docker inspect tokenkey-qa-runtime >/dev/null" end),
       "sudo test -e /var/lib/tokenkey/app/qa_archive_tmp || sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_archive_tmp",
       "sudo test -e /var/lib/tokenkey/app/qa_blobs || sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_blobs",
       "sudo test -e /var/lib/tokenkey/app/qa_dlq || sudo install -d -m 0700 -o 1000 -g 1000 /var/lib/tokenkey/app/qa_dlq",

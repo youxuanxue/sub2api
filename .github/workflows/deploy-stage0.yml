@@ -52,6 +52,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-contract:
+    if: inputs.operation == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.contract.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate release tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: bash ops/stage0/validate-deploy-tag.sh "$INPUT_TAG"
+      - uses: actions/checkout@v6
+        with:
+          ref: v${{ inputs.tag }}
+          path: qa-target-release
+          fetch-depth: 1
+      - name: Classify target runtime contract
+        id: contract
+        run: python3 ops/stage0/prod_release_plan.py --operation classify --rollout qa-target-release/ops/qa/deploy_rollout.yaml >> "$GITHUB_OUTPUT"
+
   replay:
     if: inputs.operation == 'replay'
     runs-on: ubuntu-latest
@@ -96,6 +117,10 @@ jobs:
 
   deploy:
     if: inputs.operation == 'deploy'
+    needs: release-contract
+    concurrency:
+      group: ${{ needs.release-contract.outputs.mode == 'legacy_rollback' && 'prod-qa-lifecycle' || 'prod-gateway-compatible' }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -228,6 +253,66 @@ jobs:
           ref: v${{ inputs.tag }}
           path: qa-target-release
           fetch-depth: 1
+
+      - name: Read legacy rollback maintenance pin
+        if: needs.release-contract.outputs.mode == 'legacy_rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: python3 ops/stage0/prod_release_state.py read --instance-id "$INSTANCE_ID" --output .prod-release-state.json
+
+      - name: Validate legacy QA credentials
+        if: needs.release-contract.outputs.mode == 'legacy_rollback'
+        env:
+          QA_INFRA_OIDC_ROLE_ARN: ${{ vars.QA_INFRA_OIDC_ROLE_ARN }}
+        run: test -n "$QA_INFRA_OIDC_ROLE_ARN"
+
+      - name: Configure QA credentials for legacy Worker verification
+        if: needs.release-contract.outputs.mode == 'legacy_rollback'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.QA_INFRA_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify preserved legacy Worker
+        if: needs.release-contract.outputs.mode == 'legacy_rollback'
+        id: legacy_worker
+        env:
+          QA_RAW_ARCHIVE_STACK: ${{ vars.QA_RAW_ARCHIVE_STACK || 'tokenkey-prod-qa-raw-archive' }}
+          QA_BUNDLE_VERIFY_MODE: discovery
+        run: bash ops/qa/verify_qa_bundle_infra.sh
+
+      - name: Plan legacy rollback without changing QA pins
+        if: needs.release-contract.outputs.mode == 'legacy_rollback'
+        env:
+          PREVIOUS_GATEWAY_TAG: ${{ steps.previous_runtime.outputs.tag }}
+          VERIFIED_WORKER_IMAGE: ${{ steps.legacy_worker.outputs.worker_image }}
+        run: |
+          python3 ops/stage0/prod_release_plan.py --target "$INPUT_TAG" --gateway "$PREVIOUS_GATEWAY_TAG" \
+            --worker "$VERIFIED_WORKER_IMAGE" --state .prod-release-state.json \
+            --rollout qa-target-release/ops/qa/deploy_rollout.yaml --output .prod-release-plan.json
+
+      - name: Restore Stage0 credentials for legacy host safety
+        if: needs.release-contract.outputs.mode == 'legacy_rollback'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Pause DROP before legacy gateway mutation
+        id: legacy_pause
+        if: needs.release-contract.outputs.mode == 'legacy_rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: python3 ops/stage0/prod_release_state.py pause --instance-id "$INSTANCE_ID" --plan .prod-release-plan.json
+
+      - name: Disable Boundary before legacy gateway mutation
+        id: legacy_boundary
+        if: needs.release-contract.outputs.mode == 'legacy_rollback'
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+          QA_BOUNDARY_TIMER_STATE: disabled
+          STAGE0_SSM_OUTPUT_DIR: .qa-boundary-legacy-safety
+        run: bash ops/stage0/sync-qa-boundary-timer-via-ssm.sh "$INSTANCE_ID" "legacy gateway rollback safety"
 
       - name: Resolve QA producer coordinates (read-only)
         id: qa_coordinates
@@ -458,6 +543,10 @@ jobs:
       - name: Job summary
         if: always()
         env:
+          RELEASE_MODE: ${{ needs.release-contract.outputs.mode }}
+          LEGACY_WORKER_OUTCOME: ${{ steps.legacy_worker.outcome }}
+          LEGACY_PAUSE_OUTCOME: ${{ steps.legacy_pause.outcome }}
+          LEGACY_BOUNDARY_OUTCOME: ${{ steps.legacy_boundary.outcome }}
           API_URL: ${{ steps.instance.outputs.api_url }}
           INSTANCE_ID: ${{ steps.instance.outputs.id }}
           STACK_NAME: ${{ steps.stack.outputs.name }}
@@ -466,6 +555,10 @@ jobs:
         run: |
           {
             echo "## deploy-stage0"
+            if [ "$RELEASE_MODE" = legacy_rollback ]; then
+              printf -- '- legacy safety: Worker verification=%s; DROP pause=%s; Boundary disable=%s\n' "$LEGACY_WORKER_OUTCOME" "$LEGACY_PAUSE_OUTCOME" "$LEGACY_BOUNDARY_OUTCOME"
+              echo '- Successful legacy rollback keeps QA degraded until compatible QA acceptance.'
+            fi
             echo "- environment: \`prod\`"
             echo "- app image: \`ghcr.io/youxuanxue/sub2api:${INPUT_TAG}\`"
             echo "- stack: \`$STACK_NAME\`"
