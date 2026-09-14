@@ -47,7 +47,7 @@ func (s *OpenAIGatewayService) openAICompatBufferedMissingTerminalResult(
 
 // openAICompatBufferedFailedResponseResult mirrors the streaming response.failed
 // policy. Both paths call openAIStreamFailedEventShouldFailover, which is only a
-// semantic-status adapter over shouldFailoverOpenAIUpstreamError. Retryable
+// semantic-status adapter over the shared failover classifier. Retryable
 // (transient / capacity) → failover; non-retryable (content_policy, safety,
 // invalid_request, …) → surface the upstream message with no sibling replay.
 // cyber_policy is handled by the caller before reaching here.

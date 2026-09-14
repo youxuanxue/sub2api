@@ -42,7 +42,6 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	}
 
 	startTime := time.Now()
-	recordBridgeDispatch()
 
 	// 1. Parse Anthropic request
 	var anthropicReq apicompat.AnthropicRequest
@@ -74,7 +73,6 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 		return nil, err
 	}
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 
@@ -114,7 +112,6 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 	}
 
 	if apiErr != nil {
-		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_anthropic_dispatch",
 			zap.String("endpoint", "messages_via_chat_completions"),
 			zap.Int("channel_type", account.ChannelType),

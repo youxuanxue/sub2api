@@ -57,7 +57,7 @@ NOT CHANGED:
 
 ## Migration
 
-Forward migration targets only edge-host Grok relay stubs:
+The completed forward migration targeted only edge-host Grok relay stubs:
 
 - `accounts.platform='newapi'`
 - `accounts.type='apikey'`
@@ -71,8 +71,10 @@ Changes:
 - `accounts.credentials.mirror_platform='grok'`
 - bound Grok relay groups move to `groups.platform='grok'`
 
-Rollback restores the captured previous platform/channel values for the same
-account and group IDs.
+The one-time migrator has been retired: the production read-only audit on
+2026-09-14 found no remaining matching legacy relay accounts. New Grok accounts
+use the maintained `ops/accounts/import-accounts.sh` import workflow. The
+published platform behavior and historical migration criteria above remain.
 
 ## Validation
 

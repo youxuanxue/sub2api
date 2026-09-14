@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import pathlib
 import subprocess
 import sys
@@ -10,6 +11,9 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts/stage0/resolve-edge-deploy-route.py"
+sys.path.insert(0, str(REPO_ROOT / "ops/stage0"))
+from edge_routing_matrix import load_lightsail_targets, resolve_route_tab
+
 LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
 
 
@@ -47,12 +51,6 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
         self.assertEqual(route["confirm_value"], expected_instance)
         self.assertTrue(expected_instance)
 
-    # NOTE: us1 was the last EC2 edge; it is being retired (deployable=false →
-    # decommission, replaced by the us6 Lightsail edge). With no deployable EC2 edge
-    # left in the matrix there is no live fixture for the EC2 routing branch, so the
-    # former `test_us1_routes_to_ec2` happy-path test is dropped. The rejection path
-    # below still exercises non-deployable resolution.
-
     def test_non_deployable_edge_fails(self) -> None:
         proc = subprocess.run(
             [sys.executable, str(SCRIPT), "--edge-id", "fra1", "--json"],
@@ -61,7 +59,38 @@ class ResolveEdgeDeployRouteTest(unittest.TestCase):
             text=True,
         )
         self.assertNotEqual(proc.returncode, 0)
-        self.assertIn("not effectively deployable", proc.stderr)
+        self.assertIn("not deployable", proc.stderr)
+
+
+class EdgeRoutingBoundaryTest(unittest.TestCase):
+    def test_missing_or_corrupt_matrix_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            matrix = root / "deploy/aws/lightsail/edge-targets-lightsail.json"
+            with self.assertRaises(OSError):
+                load_lightsail_targets(root)
+            matrix.parent.mkdir(parents=True)
+            for invalid in ('{broken', '{"targets":[]}', '{"targets":{"us3":null}}'):
+                matrix.write_text(invalid)
+                with self.assertRaises(ValueError):
+                    load_lightsail_targets(root)
+
+    def test_planned_edge_requires_explicit_lightsail_preference(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            matrix = root / "deploy/aws/lightsail/edge-targets-lightsail.json"
+            matrix.parent.mkdir(parents=True)
+            matrix.write_text(json.dumps({"targets": {"pilot": {
+                "deployable": False, "lightsail_region": "us-east-1", "ssm_prefix": "/pilot",
+            }}}))
+            with self.assertRaisesRegex(SystemExit, "not deployable"):
+                resolve_route_tab(root, "pilot")
+            self.assertEqual(resolve_route_tab(root, "pilot", "lightsail"),
+                             ("lightsail", "us-east-1", None))
+            with self.assertRaisesRegex(SystemExit, "retired"):
+                resolve_route_tab(root, "pilot", "ec2")
+            with self.assertRaisesRegex(SystemExit, "unknown"):
+                resolve_route_tab(root, "missing")
 
 
 if __name__ == "__main__":

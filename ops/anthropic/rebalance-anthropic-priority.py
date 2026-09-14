@@ -83,7 +83,6 @@ import sys
 from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-EDGE_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 TIER_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
 TEMPLATE_DIR = REPO_ROOT / "deploy/aws/stage0"
 APPLY_TEMPLATE_NAME = "anthropic-oauth-priority-rebalance-apply-template.sql"
@@ -349,32 +348,28 @@ WHERE a.platform = 'anthropic'
 
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
-    edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
     ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
-    ec2_targets = edge_matrix.get("targets") or {}
 
     edges: dict[str, dict] = {}
 
-    merged = _EDGE_ROUTING.merged_edge_ids(edge_matrix, ls_targets)
-    for eid in merged:
-        ec2_t = ec2_targets.get(eid)
+    for eid in sorted(ls_targets):
         ls_t = ls_targets.get(eid)
-        deploy = _EDGE_ROUTING.edge_effective_deployable(ec2_t, ls_t)
+        deploy = _EDGE_ROUTING.edge_deployable(ls_t)
 
         if not deploy and not args.allow_planned:
             edges[eid] = {
                 "deployable": False,
                 "skipped_reason": f"edge {eid} is planned; pass --allow-planned to include",
-                "region": (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region"),
-                "stack": (ec2_t or {}).get("stack") or "",
+                "region": (ls_t or {}).get("lightsail_region"),
+                "stack": "",
             }
             continue
         if not deploy and args.allow_planned:
             edges[eid] = {
                 "deployable": False,
                 "skipped_reason": f"edge {eid} is planned (--allow-planned)",
-                "region": (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region"),
-                "stack": (ec2_t or {}).get("stack") or "",
+                "region": (ls_t or {}).get("lightsail_region"),
+                "stack": "",
             }
             continue
         try:
@@ -394,7 +389,7 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
             "deployable": True,
             "instance_id": ident.instance_id,
             "region": ident.region,
-            "stack": ident.ec2_stack or (ec2_t or {}).get("stack") or "",
+            "stack": ident.ec2_stack,
             "domain": ident.domain,
             "ssm_routing": ident.routing,
             "oauth_accounts": json.loads(accts_raw) if accts_raw else [],
@@ -982,7 +977,7 @@ def main() -> int:
     )
     sp.add_argument("--out", help="write snapshot JSON (otherwise stdout)")
     sp.add_argument("--allow-planned", action="store_true",
-                    help="include planned edges from merged EC2 + Lightsail matrix keys")
+                    help="include planned edges from the Lightsail matrix")
     sp.set_defaults(handler=cmd_snapshot)
 
     sp = sub.add_parser(

@@ -106,13 +106,13 @@ func TestUS055_BundleSessionZipRejectsCorruptPageAndCancellation(t *testing.T) {
 	store, manifest := sessionBundleFixture(t)
 	key := "exports/failed/export.zip"
 	store.objects[manifest.Pages[1].Key] = []byte("corrupt")
-	_, err := BuildExportZip(context.Background(), store, manifest.ManifestKey, key)
+	_, err := buildExportZip(context.Background(), store, manifest.ManifestKey, key, ExportVersion)
 	require.ErrorContains(t, err, "checksum")
 	_, exists := store.objects[key]
 	require.False(t, exists)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = BuildExportZip(ctx, store, manifest.ManifestKey, key)
+	_, err = buildExportZip(ctx, store, manifest.ManifestKey, key, ExportVersion)
 	require.ErrorIs(t, err, context.Canceled)
 	_, exists = store.objects[key]
 	require.False(t, exists)

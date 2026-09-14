@@ -2156,15 +2156,6 @@ else
     echo "  ok: edge disk remediation + recovery anchors pass"
 fi
 
-echo "=== sub2api: shadow small restore count compare ==="
-if ! python3 -m unittest ops/lightsail/test_shadow_count_compare.py -q; then
-    echo "  FAIL: shadow restore count compare"
-    echo "        — run: python3 -m unittest ops/lightsail/test_shadow_count_compare.py -v"
-    errors=$((errors + 1))
-else
-    echo "  ok: shadow identity + billing-dedup slack compare"
-fi
-
 echo "=== sub2api: env secret backup fail-closed contract ==="
 if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
    ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \
@@ -2865,29 +2856,6 @@ elif ! python3 ./scripts/checks/diagnostics-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
 fi
 
-# ---- sub2api: edge platform exclusivity -------------------------------------
-# EC2 Edge and Lightsail Edge intentionally share the same <edge_id> namespace,
-# the same GitHub Environment edge-<id>, and the same DNS domain
-# api-<id>.tokenkey.dev. AWS resources are fully namespaced (stack name, SSM
-# prefix, Static IP name), so the two stacks can co-exist without colliding
-# inside AWS. The single hard conflict is DNS: only one A record can point at
-# one IP. If both matrices declare the same edge_id as deployable=true at the
-# same time, operators get undefined behaviour (whichever stack DNS currently
-# points at "wins"; the other silently runs as a phantom). The README warning
-# "不要对同一 edge 混跑两种 provision" is now this mechanical gate.
-echo ""
-echo "=== sub2api: edge platform exclusivity (EC2 ↔ Lightsail) ==="
-if ! command -v python3 >/dev/null 2>&1; then
-    echo "  FAIL: python3 not on PATH (required for edge platform exclusivity check)"
-    errors=$((errors + 1))
-elif ! python3 ./scripts/checks/edge-platform-exclusivity.py; then
-    # edge-platform-exclusivity.py already printed the actionable failure.
-    errors=$((errors + 1))
-else
-    echo "  ok: no edge_id is deployable=true on both EC2 and Lightsail"
-fi
-
-echo ""
 echo "=== sub2api: public group aggregator channel (OpenRouter provider scheme C) ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for public group aggregator channel check)"
@@ -2976,11 +2944,9 @@ else
 fi
 
 # ---- sub2api: ops tool orphan check -----------------------------------------
-# Every tool under ops/ must be wired — referenced from a skill / workflow /
-# preflight / sibling script / deploy asset / doc. An orphan (referenced
-# nowhere) is dead weight the next operator/agent never discovers and re-hand-
-# writes. A god-view audit (PR #663) found 7 such orphans and wired them; this
-# gate stops new ones. Source: scripts/checks/ops-tool-orphan.py (+ --selftest).
+# Reachability starts at maintained skills/workflows/runbooks/preflight. Tests
+# and unrooted reference cycles cannot establish an operational consumer.
+# Source: scripts/checks/ops-tool-orphan.py (+ --selftest).
 echo ""
 echo "=== sub2api: ops tool orphan check ==="
 if ! command -v python3 >/dev/null 2>&1; then
@@ -3063,8 +3029,8 @@ else
 fi
 
 # Headless agent stream redactor: scripts/agent/redact-stream.py sits between
-# `claude -p` and `tee` in pr-repair-agent.yml / upstream-issue-watchdog.yml
-# /agent-draft-pr/action.yml, scrubbing secrets out of the agent's stdout
+# `claude -p` and `tee` in the shared run-headless-agent action, scrubbing
+# secrets out of the agent's stdout
 # before the bytes hit the artifact file. GitHub Actions live-log masking
 # does NOT apply to bytes a step writes to disk via tee, so the artifact
 # can leak secrets that the rendered log hides. Guard the redactor itself

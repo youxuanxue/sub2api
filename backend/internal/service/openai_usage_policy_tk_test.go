@@ -96,7 +96,7 @@ func TestOpenAIUsagePolicyNeverFailsOver(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 
 	require.True(t, isOpenAISafetySessionBlockFault("", body))
-	require.False(t, shouldFailoverOpenAIUpstreamError(http.StatusBadRequest, "", body))
+	require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(nil, http.StatusBadRequest, "", body))
 	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "wrapped", body))
 	require.False(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeOAuth}, http.StatusBadGateway, body))
 	require.False(t, openAIStreamFailedEventShouldFailover(body, "violating our usage policy"))

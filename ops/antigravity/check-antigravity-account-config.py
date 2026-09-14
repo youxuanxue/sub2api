@@ -284,9 +284,8 @@ def _check_target(label: str, region: str, instance_id: str) -> list[dict]:
 
 
 def _resolve_targets(skip_prod: bool) -> list[tuple[str, str, str]]:
-    ec2_matrix = _ROUTING.load_matrix(REPO_ROOT / "deploy/aws/stage0/edge-targets.json")
     ls_targets = _ROUTING.load_lightsail_targets(REPO_ROOT)
-    edge_ids = _ROUTING.iter_effective_deployable_edge_ids(ec2_matrix, ls_targets)
+    edge_ids = _ROUTING.deployable_edge_ids(ls_targets)
     targets: list[tuple[str, str, str]] = []
     for eid in edge_ids:
         ident = _SSM.resolve_edge_execution_identity(REPO_ROOT, eid)

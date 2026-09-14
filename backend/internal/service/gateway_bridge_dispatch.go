@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/Wei-Shaw/sub2api/internal/engine"
@@ -23,23 +22,6 @@ const (
 	BridgeEndpointEmbeddings      = engine.BridgeEndpointEmbeddings
 	BridgeEndpointImages          = engine.BridgeEndpointImages
 )
-
-var (
-	bridgeDispatchTotal  atomic.Int64
-	bridgeDispatchErrors atomic.Int64
-)
-
-func BridgeDispatchStats() (total int64, errors int64) {
-	return bridgeDispatchTotal.Load(), bridgeDispatchErrors.Load()
-}
-
-func recordBridgeDispatch() {
-	bridgeDispatchTotal.Add(1)
-}
-
-func recordBridgeDispatchError() {
-	bridgeDispatchErrors.Add(1)
-}
 
 // accountUsesNewAPIAdaptorBridge is the single gate for Tier1 New API adaptor dispatch.
 // True when the account has a channel type (channel_type > 0)—required for the fifth
@@ -97,7 +79,6 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {
 		return s.ForwardAsChatCompletions(ctx, c, account, body, parsed)
 	}
-	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	if !protocolExecutionBound(ctx) {
 		body = rewriteNewAPIBridgeBodyModel(account, body, "")
@@ -109,12 +90,10 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 		return nil, err
 	}
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	out, apiErr := bridge.DispatchChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
-		recordBridgeDispatchError()
 		logger.L().Info("gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointChatCompletions),
 			zap.Int("channel_type", account.ChannelType),
@@ -159,7 +138,6 @@ func (s *GatewayService) ForwardAsResponsesDispatched(
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointResponses) {
 		return s.ForwardAsResponses(ctx, c, account, body, parsed)
 	}
-	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	if !protocolExecutionBound(ctx) {
 		body = rewriteNewAPIBridgeBodyModel(account, body, "")
@@ -170,12 +148,10 @@ func (s *GatewayService) ForwardAsResponsesDispatched(
 		return nil, err
 	}
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	out, apiErr := bridge.DispatchResponses(ctx, c, in, body)
 	if apiErr != nil {
-		recordBridgeDispatchError()
 		logger.L().Info("gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointResponses),
 			zap.Int("channel_type", account.ChannelType),

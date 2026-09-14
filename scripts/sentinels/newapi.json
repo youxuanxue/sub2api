@@ -305,7 +305,7 @@
         "BridgeEndpointVideoSubmit",
         "BridgeEndpointVideoFetch"
       ],
-      "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService. Endpoint eligibility now flows through backend/internal/engine/* via BuildDispatchPlan + BridgeEndpointEnabled, so the old tkBridgeEndpointEnabled helper is intentionally gone. These symbols still guard the load-bearing video submit/fetch bridge entry points; removing them silently regresses async video routing for newapi-backed channels."
+      "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService. Endpoint eligibility now flows through backend/internal/engine/* via BuildDispatchPlan + CapabilityForEndpoint, so the old tkBridgeEndpointEnabled helper is intentionally gone. These symbols still guard the load-bearing video submit/fetch bridge entry points; removing them silently regresses async video routing for newapi-backed channels."
     },
     {
       "path": "backend/internal/integration/newapi/fusion.go",

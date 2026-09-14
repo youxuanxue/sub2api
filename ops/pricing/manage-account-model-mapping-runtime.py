@@ -313,9 +313,8 @@ def _resolve_check_targets(
     if not skip_prod:
         targets.append(("prod", _SSM.PROD_REGION, prod_instance_id or _SSM.resolve_prod_instance()))
     if skip_prod or include_edges:
-        ec2_matrix = _ROUTING.load_matrix(REPO_ROOT / "deploy/aws/stage0/edge-targets.json")
         ls_targets = _ROUTING.load_lightsail_targets(REPO_ROOT)
-        for eid in _ROUTING.iter_effective_deployable_edge_ids(ec2_matrix, ls_targets):
+        for eid in _ROUTING.deployable_edge_ids(ls_targets):
             ident = _EDGE_SSM.resolve_edge_execution_identity(REPO_ROOT, eid)
             targets.append((f"edge:{eid}", ident.region, ident.instance_id))
     return targets

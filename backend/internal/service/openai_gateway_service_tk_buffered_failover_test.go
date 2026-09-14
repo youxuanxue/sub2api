@@ -344,7 +344,7 @@ func TestOpenAIStreamFailedEventShouldFailover_OverloadedNotMaskedByEchoedContex
 
 	require.False(t, isOpenAIContextWindowError(message, payload),
 		"capacity overloaded must not be treated as a context-window rejection just because the echoed body mentions those words")
-	require.True(t, shouldFailoverOpenAIUpstreamError(http.StatusBadRequest, message, payload),
+	require.True(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(nil, http.StatusBadRequest, message, payload),
 		"HTTP SSOT must failover capacity overloaded even when the failed response echoes context-window text")
 	require.True(t, openAIStreamFailedEventShouldFailover(payload, message),
 		"SSE adapter must reuse the HTTP SSOT for the same payload")

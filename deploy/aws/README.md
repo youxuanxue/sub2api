@@ -4,11 +4,11 @@
 > 「部署侧产品身份」（stack 名、容器名、`/var/lib/tokenkey/`、systemd 单元、CW namespace、PG 用户/库默认）统一用 `tokenkey`；
 > 应用环境变量名（`DATABASE_*`/`REDIS_*`/`JWT_*`）与 GHCR 镜像名 `sub2api`（`ghcr.io/<owner>/sub2api:<tag>`）是代码侧约定，**保持不变**。
 
-本目录是 Stage 0 的可执行 IaC + 运行配置。完整方案、成本表、规格选型、备份策略、升级触发条件、所有 CFN 参数详表都在主文档：
-
-- `**docs/deploy/aws-us-openai-gateway-deployment.md`** ← 权威，本 README 不重复
-
-当前实现：**Stage 0**（单台 EC2 全栈，约 25–40/月，覆盖 100 同时活跃用户）。Stage 1/2/3 触发后再实施。
+本目录维护 Stage0 可执行 IaC、运行配置及日常操作入口。
+Prod 使用 EC2/CloudFormation，Edge 使用 Lightsail。
+首次 bootstrap 见 [部署入口](../../docs/deploy/aws-us-openai-gateway-deployment.md)；
+应用发布行为以 [审批契约](../../docs/approved/deploy-stage0-workflow.md) 为准，
+资源规格和备份参数直接读取模板与脚本。
 
 ## 目录布局
 
@@ -22,7 +22,6 @@ deploy/aws/
     ├── docker-compose.yml            源真：Caddy + tokenkey + PostgreSQL + Redis（主站与 Edge 共用）
     ├── Caddyfile                     主站/test Caddy：LE 自动签证书 + 反代到 tokenkey:8080
     ├── Caddyfile.edge                Edge Caddy：/v1/*、/api/* 默认只允许主网关出口；Lightsail edge 复用
-    ├── edge-targets.json             EC2 edge 矩阵（2026-06-07 已清空：edges 改 Lightsail，见 deploy/aws/lightsail/edge-targets-lightsail.json；文件保留为空 stub 供 resolver 不致缺文件 hard-fail）
     ├── resolve-edge-target.py        workflow 解析 Edge 目标并 fail-before-AWS（合并读 Lightsail 矩阵）
     ├── .env.example                  环境变量模板（生产 .env 由 Cloud-Init 自动生成；本地调试可复制使用）
     └── build-cfn.sh                  把 compose/Caddy + QA 生命周期 / GHCR prune 等 payload 注入 CFN（含 SSM 段）
@@ -233,7 +232,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' "https://${DOMAIN}/health"
 
 ## Edge Stage 0（Lightsail-only）
 
-> **2026-06-07：edges 改为 Lightsail 唯一路径。** EC2/CFN 的 **Edge** 矩阵已退役（`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除，`edge-targets.json` 清空为 stub）。**prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不受影响**——本节只讲 edge。
+> **2026-06-07：edges 改为 Lightsail 唯一路径。** EC2/CFN 的 **Edge** 矩阵已退役（`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除；旧空矩阵与 EC2 edge fallback 也已移除）。**prod 主网关仍是 EC2/CFN（`tokenkey-prod-stage0`），不受影响**——本节只讲 edge。
 
 Edge 子网关不是第二个用户入口。区域域名（如 `api-us3.tokenkey.dev`、`api-us4.tokenkey.dev`）只作为 `api.tokenkey.dev` 背后的区域资源节点，默认 API 路径只允许主网关出口访问。
 
@@ -872,7 +871,7 @@ sudo journalctl -u tokenkey -n 200 --no-pager
 sudo systemctl list-timers tokenkey-pgdump.timer
 sudo systemctl list-timers tokenkey-disk-metrics.timer   # → CloudWatch tokenkey/EC2 DataVolumeUsedPercent + RootVolumeUsedPercent
 ls -lh /var/lib/tokenkey/pgdump/ 2>/dev/null || echo '(no dumps yet — first dump runs on next scheduled timer tick)'
-# pg_dump 每小时一次，本地只滚动保留最近 6 份 tokenkey-*.sql.gz（S3 TOKENKEY_PGDUMP_S3_URI 才是归档源，本地仅供快速恢复）；清理在 dump 之前先跑以自愈满盘死锁。卷使用率告警：CFN DataVolumeDiskAlarm + RootVolumeDiskAlarm（探测）和 tokenkey-disk-metrics timer 的 on-box 飞书告警（通知）/ 主文档 §3.8。live root alarm 用 `bash ops/stage0/sync-instance-root-disk-alarm.sh --stack tokenkey-prod-stage0` 单独 upsert，避免整栈更新。CPU 持续高负载：CloudWatch `tokenkey-prod-cpu-sustained-high`（AWS/EC2 CPUUtilization 5m Average >80% 连续 15min；`ops/stage0/sync-instance-cpu-alarm.sh` 可不经全栈 CFN 单独同步）。
+# pg_dump 每小时一次，本地只滚动保留最近 6 份 tokenkey-*.sql.gz（S3 TOKENKEY_PGDUMP_S3_URI 才是归档源，本地仅供快速恢复）；清理在 dump 之前先跑以自愈满盘死锁。卷使用率告警：CFN DataVolumeDiskAlarm + RootVolumeDiskAlarm（探测）和 tokenkey-disk-metrics timer 的 on-box 飞书告警（通知）。live root alarm 用 `bash ops/stage0/sync-instance-root-disk-alarm.sh --stack tokenkey-prod-stage0` 单独 upsert，避免整栈更新。CPU 持续高负载：CloudWatch `tokenkey-prod-cpu-sustained-high`（AWS/EC2 CPUUtilization 5m Average >80% 连续 15min；`ops/stage0/sync-instance-cpu-alarm.sh` 可不经全栈 CFN 单独同步）。
 
 # 现有 Caddy json log 无界时，用带 prod Environment 门禁的 workflow 同步 canonical compose 并仅重建 Caddy；Postgres/Redis/active app 不重启：
 # gh workflow run ops-stage0-container-log-policy.yml -f target=prod -f confirm=recreate-caddy-for-bounded-logs
@@ -966,7 +965,7 @@ GitHub Actions 不再用长期 AWS 凭证，**OIDC 临时换 STS** → `ssm:Send
 ### Workflow 行为
 
 - 触发：每天 02:00 UTC cron + 手动 `workflow_dispatch`。
-- 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true` 的 Lightsail Edge（edges 均为 Lightsail；`deploy/aws/stage0/edge-targets.json` 已清空为 stub）。
+- 默认 operation：`diagnostics`，覆盖 prod + `deploy/aws/lightsail/edge-targets-lightsail.json` 里 `deployable=true` 的 Lightsail Edge（edges 均为 Lightsail）。
 - 手动 target selector：`all`、`prod`、`edge:*`、`edge:<id>`；`deployable=false` 的 Edge 只进入 excluded summary。
 - 输出：每个目标上传 `prod-ops-target-<target>-<run_id>` artifact，汇总上传 `prod-ops-report-<run_id>`。
 - Issue 决策：账号容量与 provider health 异常保留在日报并由现有飞书链路告警，不创建 GitHub Issue；Caddy error-level access 粗计数仅作 report-only 证据，由 canonical daily ledger 负责可行动错误分类；其余 `issue_candidate` / `manual_ops` findings 才创建或更新 Issue，并使用 `ops-sig:*`、`target:*`、`finding:*` label 去重。开放签名追加评论，最近 7 天内已关闭的签名处于冷却期，不重新建单。
@@ -1105,3 +1104,31 @@ IAM 信任面：
 - **应用更新 / 滚动 / 回滚** → 主文档 §3.6
 - **Stage 1/2/3 升级触发条件** → 主文档 §二、§3.9
 - **CFN 全部 18 个参数详表** → 主文档 §3.5「全部参数总表」
+
+### 磁盘与保留策略诊断
+
+通过现行 probe 入口只读核对表分区、QA 文件及 retention 配置：
+
+```bash
+bash ops/observability/run-probe.sh --target prod --script ops/observability/probe-data-layer-retention-inventory.sh
+```
+
+Edge 根盘告警后，先用以下命令预览目标；需要实际应急回收时去掉
+`--dry-run`。该工具清理旧镜像、容器日志、journald 及符合现行 QA stale
+规则的数据，保留 SSM 不可用时的 Lightsail SSH 恢复路径。
+
+```bash
+bash ops/stage0/remediate-edge-disk-via-ssm.sh --edge-id us3 --dry-run
+```
+
+### 手动触发 QA maintenance
+
+需要立即执行一次生产 QA maintenance 时运行：
+
+```bash
+python3 ops/qa/prod_qa_maintenance.py
+```
+
+该入口经 SSM 调用与 timer 相同的 host runner，并校验 operator receipt；
+不会启用历史 backfill 或另设 cleanup owner。已完成的一次性建表与历史窗口
+closeout 脚本已退役，数据库迁移与归档证据仍保留。

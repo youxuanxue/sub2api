@@ -39,7 +39,7 @@ func TestNewAPIBridgeChannelInput_WiresForwardingCredentials(t *testing.T) {
 		},
 	}
 
-	in := newAPIBridgeChannelInput(account, 42, "moonshot-default")
+	in := newAPIBridgeChannelInputForModel(account, 42, "moonshot-default", "")
 
 	if in.ChannelType != 25 {
 		t.Fatalf("ChannelType: want 25, got %d", in.ChannelType)
@@ -87,7 +87,7 @@ func TestNewAPIBridgeChannelInput_OmitsEmptyForwardingCredentials(t *testing.T) 
 		},
 	}
 
-	in := newAPIBridgeChannelInput(account, 1, "deepseek-default")
+	in := newAPIBridgeChannelInputForModel(account, 1, "deepseek-default", "")
 
 	if in.ModelMappingJSON != "" {
 		t.Fatalf("ModelMappingJSON should be empty when no mapping configured, got %q", in.ModelMappingJSON)
@@ -112,7 +112,7 @@ func TestUS048_UnmanagedNewAPIOpenAIBaseURLRemainsUntouched(t *testing.T) {
 		},
 	}
 
-	in := newAPIBridgeChannelInput(account, 1, "ordinary")
+	in := newAPIBridgeChannelInputForModel(account, 1, "ordinary", "")
 
 	require.Equal(t, "https://ordinary.example/v1", in.BaseURL,
 		"supplier-source support must not rewrite unmanaged NewAPI account transport")
@@ -136,7 +136,7 @@ func TestNewAPIBridgeChannelInput_VertexServiceAccount(t *testing.T) {
 			"location":             "us-central1",
 		},
 	}
-	in := newAPIBridgeChannelInput(account, 1, "google")
+	in := newAPIBridgeChannelInputForModel(account, 1, "google", "")
 	if in.ChannelType != 41 {
 		t.Fatalf("ChannelType: want 41, got %d", in.ChannelType)
 	}
@@ -178,7 +178,7 @@ func TestNewAPIBridgeChannelInput_NonVertexUntouched(t *testing.T) {
 		ChannelType: 24,
 		Credentials: map[string]any{"base_url": "https://generativelanguage.googleapis.com", "api_key": "sk-x"},
 	}
-	in := newAPIBridgeChannelInput(account, 1, "google")
+	in := newAPIBridgeChannelInputForModel(account, 1, "google", "")
 	if in.VertexKeyType != "" {
 		t.Fatalf("VertexKeyType must be empty for non-vertex, got %q", in.VertexKeyType)
 	}

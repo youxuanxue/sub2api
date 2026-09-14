@@ -64,7 +64,6 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointChatCompletions) {
 		return s.ForwardAsChatCompletions(ctx, c, account, body, promptCacheKey, defaultMappedModel)
 	}
-	recordBridgeDispatch()
 	// Sticky routing for newapi bridge: derive a key (or accept client-sent one),
 	// inject prompt_cache_key into body AND set X-Session-Id header on the gin
 	// request so GLM-style adaptors can pick it up. See docs/approved/sticky-routing.md.
@@ -81,7 +80,6 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
 	body = applyNVIDIABuildChatTokenLimit(account, body)
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	in.BoundedChatAttempt = finishAttempt != nil
@@ -95,7 +93,6 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletionsDispatched(
 				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Scope: GatewayFailureScopeAccount, Reason: "upstream_transport_failure"}
 			}
 		}
-		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointChatCompletions),
 			zap.Int("channel_type", account.ChannelType),
@@ -135,18 +132,15 @@ func dispatchNewAPIAccountTestChatCompletions(
 	account *Account,
 	body []byte,
 ) error {
-	recordBridgeDispatch()
 	body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
 	body = applyNVIDIABuildChatTokenLimit(account, body)
 	in := newAPIBridgeChannelInputForBody(account, 0, "", body)
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	_, apiErr := dispatchNewAPIChatCompletions(ctx, c, in, body)
 	if apiErr != nil {
-		recordBridgeDispatchError()
 		return &NewAPIRelayError{Err: apiErr}
 	}
 	return nil
@@ -165,7 +159,6 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointResponses) {
 		return s.Forward(ctx, c, account, body)
 	}
-	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	if !protocolExecutionBound(ctx) {
 		body = rewriteNewAPIBridgeBodyModel(account, body, "")
@@ -176,7 +169,6 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 		return nil, err
 	}
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	requestedModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
@@ -201,7 +193,6 @@ func (s *OpenAIGatewayService) ForwardAsResponsesDispatched(
 			)
 			return s.forwardResponsesViaNewAPIBridgeChatCompletions(ctx, c, account, body, in)
 		}
-		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointResponses),
 			zap.Int("channel_type", account.ChannelType),
@@ -249,18 +240,15 @@ func (s *OpenAIGatewayService) ForwardAsEmbeddingsDispatched(
 		}
 		return s.ForwardEmbeddings(ctx, c, account, body, defaultMappedModel)
 	}
-	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	out, apiErr := bridge.DispatchEmbeddings(ctx, c, in, body)
 	if apiErr != nil {
-		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointEmbeddings),
 			zap.Int("channel_type", account.ChannelType),
@@ -301,18 +289,15 @@ func (s *OpenAIGatewayService) ForwardAsImageGenerationsDispatched(
 	if !s.ShouldDispatchToNewAPIBridge(account, BridgeEndpointImages) {
 		return s.ForwardAsImageGenerations(ctx, c, account, body, defaultMappedModel)
 	}
-	recordBridgeDispatch()
 	body = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, body, "")
 	body = rewriteNewAPIBridgeBodyModel(account, body, defaultMappedModel)
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 	out, apiErr := bridge.DispatchImageGenerations(ctx, c, in, body)
 	if apiErr != nil {
-		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointImages),
 			zap.Int("channel_type", account.ChannelType),

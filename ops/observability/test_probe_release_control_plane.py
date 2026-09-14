@@ -44,7 +44,6 @@ class ProbeReleaseControlPlaneTest(unittest.TestCase):
             matrix = tmp / "aws"
             (matrix / "stage0").mkdir(parents=True)
             (matrix / "lightsail").mkdir(parents=True)
-            (matrix / "stage0/edge-targets.json").write_text('{"targets":{}}')
             (matrix / "lightsail/edge-targets-lightsail.json").write_text(
                 json.dumps({
                     "targets": {

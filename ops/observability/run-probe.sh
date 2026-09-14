@@ -36,12 +36,8 @@
 #
 #   --target prod        resolves region+instance from CloudFormation
 #                        (stack=tokenkey-prod-stage0, region=us-east-1)
-#   --target edge:<id>   resolves via ops/stage0/edge_ssm_execution.py when
-#                        ALLOW_PLANNED is unset (EC2 CFN or Lightsail MI from
-#                        Parameter Store — same auto rule as admin reset).
-#                        If ALLOW_PLANNED=1, falls back to
-#                        deploy/aws/stage0/resolve-edge-target.py + CloudFormation
-#                        (planned edges; EC2-matrix shaped only).
+#   --target edge:<id>   resolves a deployable Lightsail managed instance via
+#                        ops/stage0/edge_ssm_execution.py and Parameter Store.
 #
 #   --timeout-seconds    30..2592000; passed to SSM and also used as the local
 #                        polling budget. Polling never resubmits the command.
@@ -234,47 +230,16 @@ elif [[ "$TARGET" == edge:* ]]; then
     echo "[run-probe] ERROR: --target edge: requires an edge id" >&2
     exit 1
   fi
-  if [ "${ALLOW_PLANNED:-0}" = "1" ]; then
-    MATRIX="$REPO_ROOT/deploy/aws/stage0/edge-targets.json"
-    ALLOW_PLANNED_FLAG="--allow-planned"
-    RESOLVED=$(python3 "$REPO_ROOT/deploy/aws/stage0/resolve-edge-target.py" \
-      --edge-id "$EDGE_ID" --matrix "$MATRIX" $ALLOW_PLANNED_FLAG 2>&1) || {
-      echo "[run-probe] ERROR: resolve-edge-target.py failed for edge_id=$EDGE_ID" >&2
-      printf '%s\n' "$RESOLVED" >&2
-      exit 1
-    }
-    REGION=$(printf '%s\n' "$RESOLVED" | awk -F= '/^region=/{print $2; exit}')
-    STACK=$(printf '%s\n' "$RESOLVED" | awk -F= '/^stack=/{print $2; exit}')
-    if [ -z "$REGION" ] || [ -z "$STACK" ]; then
-      echo "[run-probe] ERROR: could not parse region/stack from resolve-edge-target output" >&2
-      exit 1
-    fi
-    INSTANCE_ID=$(aws cloudformation describe-stacks \
-      --region "$REGION" --stack-name "$STACK" \
-      --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" \
-      --output text 2>&1) || {
-      echo "[run-probe] ERROR: describe-stacks failed for $STACK in $REGION" >&2
-      printf '%s\n' "$INSTANCE_ID" >&2
-      exit 2
-    }
-    if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-      INSTANCE_ID=$(aws cloudformation describe-stack-resources \
-        --region "$REGION" --stack-name "$STACK" \
-        --query "StackResources[?ResourceType=='AWS::EC2::Instance']|[0].PhysicalResourceId" \
-        --output text 2>/dev/null || true)
-    fi
-  else
-    PYERR=$(mktemp)
-    if ! RES_LINES=$(python3 "$REPO_ROOT/ops/stage0/edge_ssm_execution.py" \
-        --repo-root "$REPO_ROOT" --edge-id "$EDGE_ID" --format env 2>"$PYERR"); then
-      echo "[run-probe] ERROR: edge_ssm_execution.py failed for edge_id=$EDGE_ID" >&2
-      cat "$PYERR" >&2
-      rm -f "$PYERR"
-      exit 1
-    fi
+  PYERR=$(mktemp)
+  if ! RES_LINES=$(python3 "$REPO_ROOT/ops/stage0/edge_ssm_execution.py" \
+      --repo-root "$REPO_ROOT" --edge-id "$EDGE_ID" --format env 2>"$PYERR"); then
+    echo "[run-probe] ERROR: edge_ssm_execution.py failed for edge_id=$EDGE_ID" >&2
+    cat "$PYERR" >&2
     rm -f "$PYERR"
-    eval "$RES_LINES"
+    exit 1
   fi
+  rm -f "$PYERR"
+  eval "$RES_LINES"
 fi
 
 if [ -z "${INSTANCE_ID:-}" ] || [ "$INSTANCE_ID" = "None" ]; then

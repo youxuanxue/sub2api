@@ -282,10 +282,6 @@ func publishRecordSource(ctx context.Context, store Store, input PublishInput, s
 	return manifest, nil
 }
 
-func BuildExportZip(ctx context.Context, store Store, manifestKey, outputKey string) (ExportReceipt, error) {
-	return buildExportZip(ctx, store, manifestKey, outputKey, ExportVersion)
-}
-
 func buildExportZip(ctx context.Context, store Store, manifestKey, outputKey, version string) (ExportReceipt, error) {
 	var receipt ExportReceipt
 	manifestKey, err := validateObjectKey(manifestKey)

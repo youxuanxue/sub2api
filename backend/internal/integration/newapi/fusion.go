@@ -1,21 +1,13 @@
 package newapi
 
 import (
-	"sync/atomic"
-
 	newapiaffinity "github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
-)
-
-var (
-	affinityLookupTotal atomic.Int64
-	affinityHitTotal    atomic.Int64
 )
 
 // GetPreferredAccountByAffinity returns an affinity-preferred account ID.
 // It wraps New API channel-affinity cache/matcher with Sub2API account semantics.
 func GetPreferredAccountByAffinity(c *gin.Context, modelName string, groupName string) (int64, bool) {
-	affinityLookupTotal.Add(1)
 	if c == nil {
 		return 0, false
 	}
@@ -23,12 +15,7 @@ func GetPreferredAccountByAffinity(c *gin.Context, modelName string, groupName s
 	if !ok || id <= 0 {
 		return 0, false
 	}
-	affinityHitTotal.Add(1)
 	return int64(id), true
-}
-
-func AffinityHitStats() (lookups int64, hits int64) {
-	return affinityLookupTotal.Load(), affinityHitTotal.Load()
 }
 
 // MarkAffinitySelected records selected account for affinity diagnostics.

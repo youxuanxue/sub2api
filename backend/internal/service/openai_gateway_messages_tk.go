@@ -286,11 +286,6 @@ func (s *OpenAIGatewayService) tkPrepareOpenAICompatMessagesSession(
 			out.compatReplayTrimmedByPolicy = out.compatReplayTrimmed
 		}
 	}
-	SetOpenAICompatMessagesOpsContext(c, OpenAICompatMessagesOpsSnapshot{
-		PreviousResponseIDAttached: out.previousResponseID != "",
-		MessagesCompactionApplied:  out.compatReplayTrimmedByPolicy,
-		EstimatedInputTokens:       estimateAnthropicRequestInputTokens(anthropicReq),
-	})
 	return out
 }
 

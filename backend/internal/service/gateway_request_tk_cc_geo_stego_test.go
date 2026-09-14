@@ -87,7 +87,7 @@ func TestTkNormalizeAnthropicCCGeoStegoMessagesSystemReminder(t *testing.T) {
 			{"type":"text","text":"<system-reminder>\n# currentDate\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}
 		]}]
 	}`)
-	out, changed := tkNormalizeAnthropicCCGeoStego(in)
+	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "")
 	require.True(t, changed)
 	got := gjson.GetBytes(out, "messages.0.content.0.text").String()
 	require.Contains(t, got, "Today's date is 2026-06-30.")
@@ -99,14 +99,14 @@ func TestTkNormalizeAnthropicCCGeoStegoDateChangeAttachment(t *testing.T) {
 	in := []byte(`{"messages":[{"role":"user","content":[
 		{"type":"text","text":"hi","attachment":{"type":"date_change","newDate":"2026/06/30"}}
 	]}]}`)
-	out, changed := tkNormalizeAnthropicCCGeoStego(in)
+	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "")
 	require.True(t, changed)
 	require.Equal(t, "2026-06-30", gjson.GetBytes(out, "messages.0.content.0.attachment.newDate").String())
 }
 
 func TestTkNormalizeAnthropicCCGeoStegoNoOpWhenClean(t *testing.T) {
 	in := []byte(`{"messages":[{"role":"user","content":"Today's date is 2026-06-30."}]}`)
-	out, changed := tkNormalizeAnthropicCCGeoStego(in)
+	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "")
 	require.False(t, changed)
 	require.Equal(t, string(in), string(out))
 }

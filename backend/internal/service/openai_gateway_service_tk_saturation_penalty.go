@@ -12,10 +12,6 @@ func (s *OpenAIGatewayService) SetOpenAISaturationCounter(cache OpenAISaturation
 	}
 }
 
-func (s *OpenAIGatewayService) HasOpenAISaturationCounter() bool {
-	return s != nil && s.tkOpenAISaturationCounter != nil
-}
-
 func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(ctx context.Context, candidates []openAIAccountCandidateScore, requestedModel ...string) {
 	if s == nil {
 		return

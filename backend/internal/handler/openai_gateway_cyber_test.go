@@ -96,7 +96,7 @@ func TestClearCyberPolicyTurnState(t *testing.T) {
 	h.recordCyberPolicyIfMarked(c, nil, nil, nil, "gpt-5", false, nil, service.ChannelUsageFields{}, "")
 	require.True(t, c.GetBool(cyberPolicyRecordedKey))
 
-	clearCyberPolicyTurnState(c)
+	clearCyberPolicyAttemptState(c, true)
 	require.Nil(t, service.GetOpsCyberPolicy(c))
 	require.False(t, c.GetBool(cyberPolicyRecordedKey))
 

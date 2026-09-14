@@ -90,14 +90,13 @@ func TestShouldFailoverOpenAIUpstreamError_HTTPAndSSEShareDecision(t *testing.T)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, shouldFailoverOpenAIUpstreamError(tc.status, tc.message, tc.body))
 			require.Equal(t, tc.want, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(nil, tc.status, tc.message, tc.body))
 			if len(tc.ssePayload) == 0 {
 				return
 			}
 			sseWant := openAIStreamFailedEventShouldFailover(tc.ssePayload, tc.message)
 			require.Equal(t, tc.want, sseWant, "SSE adapter must match the HTTP SSOT for this payload")
-			require.Equal(t, shouldFailoverOpenAIUpstreamError(
+			require.Equal(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(nil,
 				openAIStreamFailedEventSemanticStatus(tc.ssePayload, tc.message),
 				tc.message,
 				tc.ssePayload,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve SSM ``--instance-ids`` targets for Stage0 edges (EC2 vs Lightsail MI)."""
+"""Resolve SSM ``--instance-ids`` targets for Stage0 edges (Lightsail managed instances)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from edge_routing_matrix import load_lightsail_targets, resolve_route_tab
 @dataclass(frozen=True)
 class EdgeExecutionIdentity:
     edge_id: str
-    routing: str  # ec2 | lightsail
+    routing: str  # lightsail
     region: str
     instance_id: str
     domain: str
@@ -111,46 +111,20 @@ def resolve_edge_execution_identity(
 ) -> EdgeExecutionIdentity:
     root = pathlib.Path(repo_root).resolve()
     eid = edge_id.strip()
-    mode, region, stack = resolve_route_tab(
+    mode, region, _ = resolve_route_tab(
         root,
         eid,
         platform=platform,  # type: ignore[arg-type]
     )
-    ec2_path = root / "deploy/aws/stage0/edge-targets.json"
-    ec2_data = json.loads(ec2_path.read_text(encoding="utf-8"))
-    ec2_tgt = (ec2_data.get("targets") or {}).get(eid) or {}
-    ls_tgt = load_lightsail_targets(root).get(eid) or {}
-
-    if mode == "lightsail":
-        prefix = str(ls_tgt.get("ssm_prefix") or "")
-        dom = str(ls_tgt.get("domain") or "")
-        if not prefix:
-            raise SystemExit(f"lightsail matrix entry {eid} missing ssm_prefix")
-        if not dom:
-            raise SystemExit(f"lightsail matrix entry {eid} missing domain")
-        mi = ssm_parameter_managed_instance_id(region, prefix)
-        return EdgeExecutionIdentity(
-            edge_id=eid,
-            routing="lightsail",
-            region=region,
-            instance_id=mi,
-            domain=dom,
-            ec2_stack="",
-            ssm_prefix=prefix,
-        )
-
-    assert stack
-    inst = cfn_resolve_instance_id(region, stack)
-    dom = str(ec2_tgt.get("domain") or "")
-    prefix = str(ec2_tgt.get("ssm_prefix") or "")
+    target = load_lightsail_targets(root)[eid]
+    prefix = str(target.get("ssm_prefix") or "")
+    domain = str(target.get("domain") or "")
+    if not prefix or not domain:
+        raise SystemExit(f"lightsail matrix entry {eid} missing ssm_prefix/domain")
     return EdgeExecutionIdentity(
-        edge_id=eid,
-        routing="ec2",
-        region=region,
-        instance_id=inst,
-        domain=dom,
-        ec2_stack=stack,
-        ssm_prefix=prefix,
+        edge_id=eid, routing=mode, region=region,
+        instance_id=ssm_parameter_managed_instance_id(region, prefix),
+        domain=domain, ec2_stack="", ssm_prefix=prefix,
     )
 
 

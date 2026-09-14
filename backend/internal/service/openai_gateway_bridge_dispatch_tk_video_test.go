@@ -8,7 +8,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/engine"
 )
 
-func TestBridgeEndpointEnabled_Truth(t *testing.T) {
+func TestCapabilityForEndpointSupported_Truth(t *testing.T) {
 	cases := []struct {
 		name     string
 		endpoint string
@@ -25,8 +25,8 @@ func TestBridgeEndpointEnabled_Truth(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := engine.BridgeEndpointEnabled(tc.endpoint); got != tc.want {
-				t.Fatalf("BridgeEndpointEnabled(%q)=%v want %v", tc.endpoint, got, tc.want)
+			if _, got := engine.CapabilityForEndpoint(tc.endpoint); got != tc.want {
+				t.Fatalf("CapabilityForEndpointSupported(%q)=%v want %v", tc.endpoint, got, tc.want)
 			}
 		})
 	}

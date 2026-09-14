@@ -1629,33 +1629,6 @@ exit 0
         self.assertNotIn("backfillOnce", go_owner)
         self.assertNotIn("qa-maintenance-backfill-once", go_owner)
 
-    def test_historical_closeout_has_fixed_targets_and_safety_guards(self) -> None:
-        module = _load_module(
-            "prod_qa_historical_closeout", "ops/qa/prod_qa_historical_closeout.py"
-        )
-        plan = module._remote_script(apply=False)
-        apply = module._remote_script(apply=True)
-        for script in (plan, apply):
-            self.assertIn("2026-08-07 01:00:00+00", script)
-            self.assertIn("2026-08-04 04:00:00+00", script)
-            self.assertIn("commit_mismatch", script)
-            self.assertIn("missing_evidence", script)
-            self.assertIn("tokenkey-qa-maintenance.timer", script)
-            self.assertNotIn("tokenkey-qa-stale-cleanup.timer", script)
-            self.assertIn("ops:cleanup:leader", script)
-            self.assertNotIn("$WINDOW", script)
-        self.assertNotIn("UPDATE qa_archive_shards", plan)
-        self.assertIn("UPDATE qa_archive_shards", apply)
-        self.assertIn("pg_try_advisory_xact_lock", apply)
-        self.assertIn("cleanup_eligible=false", apply)
-        self.assertIn("deletion_authorized", apply)
-
-    def test_historical_closeout_rejects_wrong_confirmation_before_aws(self) -> None:
-        module = _load_module(
-            "prod_qa_historical_closeout", "ops/qa/prod_qa_historical_closeout.py"
-        )
-        with self.assertRaisesRegex(module.HistoricalCloseoutError, "confirmation"):
-            module.run("apply", "wrong")
 
     def test_us045_qa_archive_closeout_rejects_repair_apply_before_aws(self) -> None:
         module = _load_closeout_module()
@@ -1677,7 +1650,6 @@ exit 0
     def test_qa_maintenance_ops_scripts_compile(self) -> None:
         for rel in (
             "ops/qa/prod_qa_maintenance.py",
-            "ops/qa/prod_apply_tk069_migration.py",
             "ops/qa/prod_qa_archive_closeout.py",
         ):
             proc = subprocess.run(

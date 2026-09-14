@@ -62,10 +62,6 @@ func openAIUsageFromNewAPIDTO(u *dto.Usage) OpenAIUsage {
 	}
 }
 
-func newAPIBridgeChannelInput(account *Account, userID int64, groupLabel string) bridge.ChannelContextInput {
-	return newAPIBridgeChannelInputForModel(account, userID, groupLabel, "")
-}
-
 func newAPIBridgeChannelInputForBody(account *Account, userID int64, groupLabel string, body []byte) bridge.ChannelContextInput {
 	return newAPIBridgeChannelInputForModel(account, userID, groupLabel, gjson.GetBytes(body, "model").String())
 }

@@ -169,10 +169,10 @@
     {
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
-        "if tkIsGrokEntitlement403(statusCode, upstreamBody) {",
+        "if account != nil && account.IsGrok() && tkIsGrokEntitlement403(resp.StatusCode, body) {",
         "tkGrokEntitlement403ClientMessage(upstreamMsg)"
       ],
-      "rationale": "The shared OpenAI-compatible failover classifier must keep Grok entitlement 403 terminal, and both native/compat error handlers must surface the clean permission_error without invoking account error side effects. Losing either anchor re-arms pool-wide failover or account cooling."
+      "rationale": "The shared OpenAI-compatible error handler must surface Grok entitlement 403 as a clean permission_error before account side effects. Terminal failover is owned by grok_upstream_errors.go and the production CC pipeline, both anchored below."
     },
     {
       "path": "backend/internal/service/openai_gateway_cc_pipeline.go",

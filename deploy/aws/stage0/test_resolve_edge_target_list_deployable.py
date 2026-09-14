@@ -19,17 +19,12 @@ def _run_with_matrix(matrix: dict, *args: str) -> subprocess.CompletedProcess:
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
         json.dump(matrix, fh)
         path = fh.name
-    with tempfile.NamedTemporaryFile("w", suffix="-ls.json", delete=False) as ls_fh:
-        json.dump({"targets": {}}, ls_fh)
-        ls_path = ls_fh.name
     try:
         return subprocess.run(
             [
                 sys.executable,
                 str(_SCRIPT),
                 "--lightsail-matrix",
-                ls_path,
-                "--matrix",
                 path,
                 *args,
             ],
@@ -39,28 +34,14 @@ def _run_with_matrix(matrix: dict, *args: str) -> subprocess.CompletedProcess:
         )
     finally:
         pathlib.Path(path).unlink(missing_ok=True)
-        pathlib.Path(ls_path).unlink(missing_ok=True)
 
 
 class ListDeployableTest(unittest.TestCase):
-    MATRIX = {
-        "default_profile": "edge-minimal",
-        "max_monthly_budget_usd": 16,
-        "targets": {
-            "us1": {"deployable": True,  "region": "x", "domain": "x", "stack": "x",
-                    "instance_type": "x", "root_volume_gib": 1, "data_volume_gib": 1,
-                    "swap_gib": 1, "snapshot_schedule": "x", "monthly_budget_usd": 1,
-                    "ssm_prefix": "/x", "profile": "edge-minimal"},
-            "uk1": {"deployable": True,  "region": "x", "domain": "x", "stack": "x",
-                    "instance_type": "x", "root_volume_gib": 1, "data_volume_gib": 1,
-                    "swap_gib": 1, "snapshot_schedule": "x", "monthly_budget_usd": 1,
-                    "ssm_prefix": "/x", "profile": "edge-minimal"},
-            "fra1": {"deployable": False, "region": "x", "domain": "x", "stack": "x",
-                     "instance_type": "x", "root_volume_gib": 1, "data_volume_gib": 1,
-                     "swap_gib": 1, "snapshot_schedule": "x", "monthly_budget_usd": 1,
-                     "ssm_prefix": "/x", "profile": "edge-minimal"},
-        },
-    }
+    MATRIX = {"targets": {
+        "us1": {"deployable": True, "lightsail_region": "x", "ssm_prefix": "/us1"},
+        "uk1": {"deployable": True, "lightsail_region": "x", "ssm_prefix": "/uk1"},
+        "fra1": {"deployable": False, "lightsail_region": "x", "ssm_prefix": "/fra1"},
+    }}
 
     def test_lists_only_deployable_sorted(self) -> None:
         proc = _run_with_matrix(self.MATRIX, "--list-deployable")
@@ -68,8 +49,8 @@ class ListDeployableTest(unittest.TestCase):
         # Output: one id per line, sorted ascending
         self.assertEqual(proc.stdout.splitlines(), ["uk1", "us1"])
 
-    def test_mutually_exclusive_with_edge_id(self) -> None:
-        proc = _run_with_matrix(self.MATRIX, "--list-deployable", "--edge-id", "us1")
+    def test_mutually_exclusive_with_prod_ops_matrix(self) -> None:
+        proc = _run_with_matrix(self.MATRIX, "--list-deployable", "--prod-ops-matrix")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("mutually exclusive", proc.stderr)
 

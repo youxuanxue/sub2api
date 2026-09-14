@@ -298,8 +298,6 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		zap.String("upstream_model", upstreamModel),
 		zap.Bool("stream", clientStream),
 	)
-
-	recordBridgeDispatch()
 	var buf bytes.Buffer
 	captureWriter := newBridgeCaptureWriter(&buf)
 	origWriter := c.Writer
@@ -339,7 +337,6 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 		return nil, fmt.Errorf("bridge chat fallback dispatch panic: %v", dispatchPanic)
 	}
 	if apiErr != nil {
-		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", "responses_via_chat_completions"),
 			zap.Int("channel_type", account.ChannelType),

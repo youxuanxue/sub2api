@@ -76,16 +76,10 @@ root = pathlib.Path.cwd()
 matrix_dir = pathlib.Path(matrix_dir_arg)
 if not matrix_dir.is_absolute():
     matrix_dir = root / matrix_dir
-ec2_path = matrix_dir / "stage0/edge-targets.json"
 ls_path = matrix_dir / "lightsail/edge-targets-lightsail.json"
 domain = ""
 if ls_path.is_file():
     data = json.loads(ls_path.read_text(encoding="utf-8"))
-    target = (data.get("targets") or {}).get(edge) or {}
-    if target.get("deployable") is True:
-        domain = str(target.get("domain") or "")
-if not domain and ec2_path.is_file():
-    data = json.loads(ec2_path.read_text(encoding="utf-8"))
     target = (data.get("targets") or {}).get(edge) or {}
     if target.get("deployable") is True:
         domain = str(target.get("domain") or "")

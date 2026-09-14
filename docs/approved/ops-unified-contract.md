@@ -46,7 +46,7 @@ Compatibility rule:
 
 Required outcomes:
 
-- `Prod Ops` runs daily diagnostics for prod plus every deployable Edge target from `deploy/aws/stage0/edge-targets.json`.
+- `Prod Ops` runs daily diagnostics for prod plus every deployable Edge target from `deploy/aws/lightsail/edge-targets-lightsail.json`.
 - Runtime findings are normalized into `ops-report.{json,md}` and can create/update GitHub issue signals.
 - A sanitized `daily-error-report.{json,md}` combines SLA-equivalent totals from
   `usage_logs` and `ops_error_logs`, separates final failures from recovered

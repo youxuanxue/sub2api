@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resolve canonical Edge deploy workflow + confirm token for gh dispatch.
 
-Uses ``edge_routing_matrix`` (Lightsail deployable wins over EC2). stdout is JSON
+Uses the canonical Lightsail ``edge_routing_matrix``. stdout is JSON
 when ``--json`` is set; otherwise KEY=value lines for shell consumers.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "ops" / "stage0"))
 
 from edge_routing_matrix import (  # noqa: E402
-    edge_effective_deployable,
+    edge_deployable,
     load_lightsail_targets,
     resolve_route_tab,
 )
@@ -36,45 +36,21 @@ def main() -> int:
     if not edge_id:
         _fail("edge-id is required")
 
-    ec2_path = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
-    if not ec2_path.is_file():
-        _fail(f"EC2 edge matrix not found: {ec2_path}")
-
-    ec2_data = json.loads(ec2_path.read_text(encoding="utf-8"))
-    ls_targets = load_lightsail_targets(REPO_ROOT)
-    ec2_target = (ec2_data.get("targets") or {}).get(edge_id)
-    ls_target = ls_targets.get(edge_id)
-
-    if not edge_effective_deployable(ec2_target, ls_target):
-        _fail(
-            f"edge_id {edge_id} is not effectively deployable "
-            "(set deployable=true in exactly one EC2 or Lightsail matrix)"
-        )
-
-    mode, region, stack = resolve_route_tab(REPO_ROOT, edge_id, "auto")
-
-    if mode == "lightsail":
-        if not ls_target:
-            _fail(f"edge_id {edge_id} resolved to lightsail but lightsail matrix entry missing")
-        instance_name = str(ls_target.get("instance_name") or "")
-        if not instance_name:
-            _fail(f"edge_id {edge_id} missing instance_name in lightsail matrix")
-        payload = {
-            "edge_id": edge_id,
-            "platform": "lightsail",
-            "region": region,
-            "workflow_file": "deploy-edge-lightsail-stage0.yml",
-            "confirm_flag": "confirm_instance",
-            "confirm_value": instance_name,
-        }
-    else:
-        # The EC2 edge deploy path was removed 2026-06-07 (deploy-edge-stage0.yml
-        # deleted; edges are Lightsail-only). The EC2 matrix is empty so this branch
-        # is unreachable in practice — fail loud rather than emit a deleted workflow.
-        _fail(
-            f"edge_id {edge_id} resolved to the retired EC2 edge path; edges are "
-            "Lightsail-only (deploy-edge-stage0.yml was removed 2026-06-07)"
-        )
+    target = load_lightsail_targets(REPO_ROOT).get(edge_id)
+    if not edge_deployable(target):
+        _fail(f"edge_id {edge_id} is not deployable in the Lightsail matrix")
+    _, region, _ = resolve_route_tab(REPO_ROOT, edge_id)
+    instance_name = str(target.get("instance_name") or "")
+    if not instance_name:
+        _fail(f"edge_id {edge_id} missing instance_name in lightsail matrix")
+    payload = {
+        "edge_id": edge_id,
+        "platform": "lightsail",
+        "region": region,
+        "workflow_file": "deploy-edge-lightsail-stage0.yml",
+        "confirm_flag": "confirm_instance",
+        "confirm_value": instance_name,
+    }
 
     if args.json:
         json.dump(payload, sys.stdout, separators=(",", ":"), sort_keys=True)

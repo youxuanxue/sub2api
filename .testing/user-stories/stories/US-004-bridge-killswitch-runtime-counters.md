@@ -1,16 +1,16 @@
 # US-004-bridge-killswitch-runtime-counters
 
 - ID: US-004
-- Title: Bridge emergency kill switch and runtime counters
+- Title: Bridge emergency kill switch
 - Version: V1.0
 - Priority: P0
-- As a / I want / So that: 作为平台运维，我希望能在 settings 里一键关闭 NewAPI bridge 路径，并持续采集 bridge/affinity/支付失败计数，以便线上故障时可快速回退与诊断。
+- As a / I want / So that: 作为平台运维，我希望能在 settings 里一键关闭 NewAPI bridge 路径，以便线上故障时可快速回退与诊断。
 - Trace: [防御需求]
 - Risk Focus:
 - 逻辑错误：bridge 分流在 kill switch 关闭后仍继续命中。
 - 行为回归：已有 channel_type 分流条件被破坏，正常路径误判。
 - 安全问题：不适用：本次不涉及鉴权边界变更，仅为运行时开关与指标计数。
-- 运行时问题：故障时缺少可观测计数，导致恢复窗口延长。
+- 运行时问题：故障时关闭 bridge 后仍继续分流。
 
 ## Acceptance Criteria
 
@@ -21,9 +21,6 @@
 ## Assertions
 
 - `GatewayService` 与 `OpenAIGatewayService` 的 bridge 判定都受 `SettingKeyNewAPIBridgeEnabled` 控制。
-- bridge 分流总量计数器可通过 `BridgeDispatchStats()` 读取。
-- affinity 命中计数可通过 `AffinityHitStats()` 读取。
-- payment 失败计数器函数可调用且可读。
 
 ## Linked Tests
 

@@ -223,7 +223,7 @@ func TestMiniMaxDoesNotRefreshOAuth(t *testing.T) {
 	}
 }
 
-func TestBridgeEndpointEnabled(t *testing.T) {
+func TestCapabilityForEndpointSupported(t *testing.T) {
 	cases := []struct {
 		endpoint string
 		want     bool
@@ -239,8 +239,8 @@ func TestBridgeEndpointEnabled(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		if got := BridgeEndpointEnabled(tc.endpoint); got != tc.want {
-			t.Fatalf("BridgeEndpointEnabled(%q) = %v, want %v", tc.endpoint, got, tc.want)
+		if _, got := CapabilityForEndpoint(tc.endpoint); got != tc.want {
+			t.Fatalf("CapabilityForEndpointSupported(%q) = %v, want %v", tc.endpoint, got, tc.want)
 		}
 	}
 }
@@ -271,26 +271,6 @@ func TestCapabilityForEndpoint(t *testing.T) {
 	}
 }
 
-func TestBridgeCapabilities(t *testing.T) {
-	got := BridgeCapabilities()
-	want := []string{
-		BridgeEndpointChatCompletions,
-		BridgeEndpointResponses,
-		BridgeEndpointEmbeddings,
-		BridgeEndpointImages,
-		BridgeEndpointVideoSubmit,
-		BridgeEndpointVideoFetch,
-	}
-	if len(got) != len(want) {
-		t.Fatalf("BridgeCapabilities() len = %d, want %d", len(got), len(want))
-	}
-	for i, endpoint := range want {
-		if got[i].Endpoint != endpoint {
-			t.Fatalf("BridgeCapabilities()[%d].Endpoint = %q, want %q", i, got[i].Endpoint, endpoint)
-		}
-	}
-}
-
 func TestCapabilitySupportsSchedulingPlatform(t *testing.T) {
 	capability, ok := CapabilityForEndpoint(BridgeEndpointChatCompletions)
 	if !ok {
@@ -304,21 +284,6 @@ func TestCapabilitySupportsSchedulingPlatform(t *testing.T) {
 	}
 	if capability.SupportsSchedulingPlatform(domain.PlatformAnthropic) {
 		t.Fatal("chat_completions must not support anthropic scheduling platform")
-	}
-}
-
-func TestEndpointRequiresTaskAdaptor(t *testing.T) {
-	if !EndpointRequiresTaskAdaptor(BridgeEndpointVideoSubmit) {
-		t.Fatal("video_submit must require task adaptor")
-	}
-	if !EndpointRequiresTaskAdaptor(BridgeEndpointVideoFetch) {
-		t.Fatal("video_fetch must require task adaptor")
-	}
-	if EndpointRequiresTaskAdaptor(BridgeEndpointChatCompletions) {
-		t.Fatal("chat_completions must not require task adaptor")
-	}
-	if EndpointRequiresTaskAdaptor("unknown") {
-		t.Fatal("unknown endpoint must not require task adaptor")
 	}
 }
 

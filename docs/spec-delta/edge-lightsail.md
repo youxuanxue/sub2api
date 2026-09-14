@@ -2,7 +2,7 @@
 
 > **2026-06-07 更新：Lightsail 是 edge 的唯一路径。** EC2/CFN 的 edge 路径已移除
 > （`deploy-edge-stage0.yml`、`stage0-edge-ec2.yaml`、EIP 轮换工具已删除，
-> `edge-targets.json` 清空为 stub）。本 delta 此前把 Lightsail 描述为「与 EC2 并行的
+> 旧空矩阵与 EC2 edge fallback 也已移除）。本 delta 此前把 Lightsail 描述为「与 EC2 并行的
 > 实验路径」——该定位已废止；现在它是 edge 的唯一实现。**prod 主网关仍是 EC2/CFN，不受影响。**
 
 ## Background
@@ -57,7 +57,7 @@ Lightsail 成为唯一 edge 实现（与 prod 仍共享上述 SSM/smoke/diagnost
    `edge_post_deploy_smoke.sh` 通过
 3. **daily diagnostics**：`ops-daily-diagnostics.yml` 自动把 deployable Lightsail
    edge 接入矩阵，复用 SSM SendCommand 跑 docker ps / 健康 / 日志信号计数；同
-   一份 ops-report 同时覆盖 prod + EC2 edge + Lightsail edge
+   一份 ops-report 同时覆盖 EC2 prod + Lightsail edge
 4. **IP rotation**：`ops/lightsail/rotate-static-ip.sh <edge_id> --apply` 三步换 IP、
    拒绝落在 exclusion registry 的候选 IP、自动 append 旧 IP 到
    `deploy/aws/stage0/edge-polluted-ips.json`，并把 `${ssm_prefix}/public_ip` 同步更新
