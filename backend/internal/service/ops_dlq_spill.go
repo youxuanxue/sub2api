@@ -36,14 +36,6 @@ var (
 	opsDLQRateCount  int
 )
 
-func resetOpsDLQSpillForTest() {
-	opsDLQSpillPolicyOnce = sync.Once{}
-	opsDLQRateMu.Lock()
-	opsDLQRateWindow = time.Time{}
-	opsDLQRateCount = 0
-	opsDLQRateMu.Unlock()
-}
-
 func loadOpsDLQSpillLimits() opsDLQSpillLimits {
 	opsDLQSpillPolicyOnce.Do(func() {
 		opsDLQSpillLimitsVal = opsDLQSpillLimits{

@@ -122,13 +122,6 @@ func LegacySupportedProtocolsProjection(account *Account) []protocolrouter.Proto
 	return normalized
 }
 
-func applySupportedProtocolsUpdate(account *Account, update map[string]any) {
-	if account.Extra == nil {
-		account.Extra = make(map[string]any)
-	}
-	account.Extra[SupportedProtocolsExtraKey] = update[SupportedProtocolsExtraKey]
-}
-
 func SeedOfficialSupportedProtocols(account *Account) bool {
 	if account == nil {
 		return false

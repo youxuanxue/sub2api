@@ -1015,3 +1015,10 @@ func TestAntigravityMirrorConvertsBeforeNativeOnlyEdge(t *testing.T) {
 		t.Fatalf("external provider protocols changed: %v", got)
 	}
 }
+
+func applySupportedProtocolsUpdate(account *Account, update map[string]any) {
+	if account.Extra == nil {
+		account.Extra = make(map[string]any)
+	}
+	account.Extra[SupportedProtocolsExtraKey] = update[SupportedProtocolsExtraKey]
+}

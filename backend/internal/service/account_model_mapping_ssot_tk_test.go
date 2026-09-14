@@ -401,3 +401,11 @@ func requireIdentityMappingForIDs(t *testing.T, mapping map[string]string, ids [
 		require.Equal(t, id, mapping[id], "mapping for %s must be identity", id)
 	}
 }
+
+func modelMappingToAny(in map[string]string) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}

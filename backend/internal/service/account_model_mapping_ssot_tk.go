@@ -753,14 +753,6 @@ func cloneStringMap(in map[string]string) map[string]string {
 	return out
 }
 
-func modelMappingToAny(in map[string]string) map[string]any {
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
 func accountRawModelMapping(account *Account) map[string]string {
 	if account == nil || account.Credentials == nil {
 		return nil

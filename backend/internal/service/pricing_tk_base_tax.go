@@ -77,10 +77,6 @@ func loadTkOfficialListBaseTaxPolicy() tkOfficialListBaseTaxPolicy {
 	return snapshot.BaseTax
 }
 
-func tkOfficialListBaseTaxMultiplier() float64 {
-	return loadTkOfficialListBaseTaxPolicy().Multiplier
-}
-
 func (p tkOfficialListBaseTaxPolicy) multiplierForProvider(provider string) (float64, bool) {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	for _, rule := range p.Rules {

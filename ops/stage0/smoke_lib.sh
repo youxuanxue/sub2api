@@ -228,27 +228,4 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
         ;;
     esac
   }
-
-  # smoke_pick_model_from_list FILE [OVERRIDE]
-  # Prints model id: prefer OVERRIDE when listed; else warn and keep auto pick (claude regex, else first).
-  smoke_pick_model_from_list() {
-    local models_file="$1"
-    local override="${2:-}"
-    local auto
-    auto="$(jq -r '(.data // []) as $d | ($d | map(select(.id|test("claude";"i"))) | .[0].id) // $d[0].id // empty' "${models_file}")"
-    if [[ -z "${auto}" || "${auto}" == "null" ]]; then
-      echo "tk_post_deploy_smoke: no model id in /v1/models" >&2
-      jq . "${models_file}" >&2 || true
-      return 1
-    fi
-    if [[ -n "${override}" ]]; then
-      if jq -e --arg m "${override}" '(.data // []) | any(.id == $m)' "${models_file}" >/dev/null 2>&1; then
-        printf '%s' "${override}"
-        return 0
-      fi
-      echo "::warning::tk_post_deploy_smoke: configured chat model '${override}' not listed for this key; using auto-selected model=${auto}" >&2
-      jq -r '(.data // [])[] | .id' "${models_file}" >&2 || true
-    fi
-    printf '%s' "${auto}"
-  }
 fi
