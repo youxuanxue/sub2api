@@ -6,14 +6,8 @@
 # full preflight. This catches missing `no-web-impact` declarations before
 # CI, avoiding wasted CI cycles.
 #
-# Install:  ln -sf ../../scripts/pre-push-web-surface.sh .git/hooks/pre-push
-# Or:       bash dev-rules/templates/install-hooks.sh  (if updated to install pre-push)
-#
-# Why separate from pre-commit?
-# The pre-commit hook runs the full preflight which may fail for unrelated
-# reasons (branch naming, env vars, etc.), causing developers to --no-verify
-# and bypass ALL checks including this one. A focused pre-push hook survives
-# that bypass because pre-push is a separate hook.
+# Install through the shared hook owner:
+#   bash dev-rules/templates/install-hooks.sh
 
 set -euo pipefail
 
@@ -31,6 +25,5 @@ if ! "$PYTHON_BIN" "$CHECK_SCRIPT" --base "${PREFLIGHT_BASE:-origin/main}" 2>&1;
     echo ""
     echo "pre-push: web surface alignment check failed."
     echo "If this is a backend-only change, add 'no-web-impact' to a commit message."
-    echo "Bypass with: git push --no-verify (discouraged)"
     exit 1
 fi

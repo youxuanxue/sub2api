@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -164,4 +165,12 @@ func listDLQNames(t *testing.T, dir string) []string {
 		}
 	}
 	return out
+}
+
+func resetOpsDLQSpillForTest() {
+	opsDLQSpillPolicyOnce = sync.Once{}
+	opsDLQRateMu.Lock()
+	opsDLQRateWindow = time.Time{}
+	opsDLQRateCount = 0
+	opsDLQRateMu.Unlock()
 }

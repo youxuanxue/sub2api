@@ -619,3 +619,7 @@ func TestTKPricingOverlay_FillsQwenVisionFamily(t *testing.T) {
 		require.Greater(t, cost.TotalCost, 0.0, "14-unit alert sample must bill >$0 for %s", model)
 	}
 }
+
+func tkOfficialListBaseTaxMultiplier() float64 {
+	return loadTkOfficialListBaseTaxPolicy().Multiplier
+}

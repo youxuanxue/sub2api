@@ -9,68 +9,49 @@ import subprocess
 import tempfile
 import unittest
 
-from scripts.stage0.smoke_suite import (
-    edge_phase_gateway_suite,
-    edge_phase_runs_native_oauth,
-    needs_chat_model,
-    normalize_suite,
-    pick_model,
-    suite_runs,
-)
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SMOKE_LIB = REPO_ROOT / "ops" / "stage0" / "smoke_lib.sh"
 
 
 class SmokeSuiteTest(unittest.TestCase):
+    """Execute the Bash owner so runtime changes cannot leave a green mirror."""
+
+    @staticmethod
+    def _run(suite: str, section: str | None = None) -> subprocess.CompletedProcess[str]:
+        command = 'source "$1"; '
+        command += 'smoke_suite_runs "$2"' if section is not None else 'printf "%s" "$GATEWAY_SMOKE_SUITE"'
+        return subprocess.run(
+            ["bash", "-c", command, "smoke-test", str(SMOKE_LIB), section or ""],
+            env={"PATH": os.environ["PATH"], "GATEWAY_SMOKE_SUITE": suite},
+            capture_output=True, text=True, check=False,
+        )
+
     def test_normalize_aliases(self) -> None:
-        self.assertEqual(normalize_suite("prod"), "full")
-        self.assertEqual(normalize_suite("edge-via-prod"), "main-via-edge")
-        self.assertEqual(normalize_suite("minimal"), "quick")
+        for alias, expected in (("prod", "full"), ("edge-via-prod", "main-via-edge"), ("minimal", "quick"), ("", "full")):
+            with self.subTest(alias=alias):
+                proc = self._run(alias)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout, expected)
 
-    def test_main_via_edge_skips_chat(self) -> None:
-        self.assertTrue(suite_runs("messages", "main-via-edge"))
-        self.assertFalse(suite_runs("chat", "main-via-edge"))
-        self.assertFalse(suite_runs("gemini", "main-via-edge"))
+    def test_unknown_suite_fails(self) -> None:
+        proc = self._run("unknown")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("unknown GATEWAY_SMOKE_SUITE", proc.stderr)
 
-    def test_full_runs_all_sections(self) -> None:
-        for section in (
-            "public",
-            "frontend",
-            "models",
-            "chat",
-            "messages",
-            "gemini",
-            "openai_oauth",
+    def test_scoped_suites(self) -> None:
+        for suite, allowed, blocked in (
+            ("main-via-edge", "messages", "chat"),
+            ("quick", "chat", "messages"),
         ):
-            self.assertTrue(suite_runs(section, "full"))
+            with self.subTest(suite=suite):
+                self.assertEqual(self._run(suite, allowed).returncode, 0)
+                self.assertEqual(self._run(suite, blocked).returncode, 1)
+                self.assertEqual(self._run(suite, "responses").returncode, 1)
 
-    def test_pick_model_fallback_when_override_missing(self) -> None:
-        models = [{"id": "gpt-4o"}, {"id": "claude-sonnet-4-6"}]
-        model, warn = pick_model(models, "claude-sonnet-4-6")
-        self.assertEqual(model, "claude-sonnet-4-6")
-        self.assertIsNone(warn)
-
-        model, warn = pick_model(models, "claude-opus-4")
-        self.assertEqual(model, "claude-sonnet-4-6")
-        self.assertIn("not listed", warn or "")
-
-    def test_edge_chat_model_gate(self) -> None:
-        self.assertFalse(needs_chat_model("main-via-edge", "infra"))
-        self.assertFalse(needs_chat_model("main-via-edge", "api"))
-        self.assertFalse(needs_chat_model("infra", "api"))
-        self.assertFalse(needs_chat_model("full", "infra"))
-
-    def test_edge_phase_gateway_suite(self) -> None:
-        self.assertEqual(edge_phase_gateway_suite("main-via-edge"), "main-via-edge")
-        self.assertIsNone(edge_phase_gateway_suite("full"))
-        self.assertIsNone(edge_phase_gateway_suite("infra"))
-
-    def test_edge_phase_native_oauth(self) -> None:
-        self.assertTrue(edge_phase_runs_native_oauth("full"))
-        self.assertTrue(edge_phase_runs_native_oauth("edge-native-oauth"))
-        self.assertFalse(edge_phase_runs_native_oauth("infra"))
-        self.assertFalse(edge_phase_runs_native_oauth("main-via-edge"))
+    def test_full_runs_responses(self) -> None:
+        # The removed Python mirror silently omitted this live smoke section.
+        proc = self._run("full", "responses")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
 
 class SoftDegradeOrExitTest(unittest.TestCase):
