@@ -541,6 +541,15 @@ echo "=== sub2api: upstream SSOT impact report ==="
 python3 ./scripts/checks/upstream-ssot-impact.py --base "${PREFLIGHT_BASE:-origin/main}" --upstream upstream/main
 
 echo ""
+echo "=== sub2api: model owner manifest ==="
+if ! python3 ./scripts/checks/model-owner-manifest.py; then
+    echo "  FAIL: served-model manifest has duplicate IDs or missing price owners"
+    errors=$((errors + 1))
+else
+    echo "  ok: served-model declaration has one price owner per model"
+fi
+
+echo ""
 echo "=== sub2api: approved-doc index and anchors ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by approved-doc index check)"
