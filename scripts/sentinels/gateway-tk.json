@@ -473,7 +473,7 @@
     },
     {
       "path": "backend/internal/integration/cursor/agent_test.go",
-      "must_contain": ["TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire"],
+      "must_contain": ["TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire", "TestAgentHistoryReconstructsNativeToolTurns"],
       "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history."
     },
     {

@@ -137,9 +137,17 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 		state.RootPromptMessagesJson = append(state.RootPromptMessagesJson, id)
 		return nil
 	}
-	// Cursor owns these two slots. Real history follows them.
-	for _, role := range []string{"system", "user"} {
-		if err := root(map[string]any{"role": role, "content": ""}); err != nil {
+	// UserMessageAction populates Cursor's reserved prompt slots. ResumeAction
+	// replays the supplied roots as-is: empty slots become empty provider messages
+	// and Claude rejects continuation with provider 400 (Cursor supplier error 57).
+	if input.Messages[len(input.Messages)-1].Role == "user" {
+		for _, role := range []string{"system", "user"} {
+			if err := root(map[string]any{"role": role, "content": ""}); err != nil {
+				return nil, nil, err
+			}
+		}
+	} else {
+		if err := root(map[string]any{"role": "system", "content": "You are a helpful assistant."}); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -490,7 +498,8 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		}
 		if flag&2 != 0 {
 			var trailer struct {
-				Error *struct {
+				Metadata map[string][]string `json:"metadata"`
+				Error    *struct {
 					Code    string               `json:"code"`
 					Message string               `json:"message"`
 					Details []agentConnectDetail `json:"details"`
@@ -514,7 +523,9 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 				case "invalid_argument":
 					status = 400
 				}
-				return result, newAgentRejection(status, trailer.Error.Code, trailer.Error.Message, token, req.Header.Get("X-Request-Id"), trailer.Error.Details...)
+				rejection := newAgentRejection(status, trailer.Error.Code, trailer.Error.Message, token, req.Header.Get("X-Request-Id"), trailer.Error.Details...)
+				rejection.Metadata = agentDiagnosticJSON(map[string]any{"trailer": trailer.Metadata, "inference_error_type": resp.Header.Get("x-cursor-inference-request-error-type")}, token, 2048)
+				return result, rejection
 			}
 			return result, errors.New("cursor stream ended without terminal usage")
 		}

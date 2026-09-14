@@ -25,6 +25,11 @@ func TestAgentHistoryReconstructsNativeToolTurns(t *testing.T) {
 	}}
 	run, blobs, err := buildAgentRun(input)
 	require.NoError(t, err)
+	for _, id := range run.ConversationState.RootPromptMessagesJson {
+		var message map[string]any
+		require.NoError(t, json.Unmarshal(blobs.data[string(id)], &message))
+		require.NotEmpty(t, message["content"], "ResumeAction must never replay empty provider messages")
+	}
 	require.NotNil(t, run.Action.ResumeAction)
 	require.Nil(t, run.Action.UserMessageAction, "tool results must not synthesize an empty user message")
 	require.Len(t, run.ConversationState.Turns, 1)

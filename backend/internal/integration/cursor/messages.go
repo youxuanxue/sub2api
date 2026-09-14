@@ -316,7 +316,7 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		if runErr != nil {
 			var rejection *AgentRejection
 			if errors.As(runErr, &rejection) {
-				slog.Error("cursor_messages_run_agent_failed", "err", runErr, "native_request_id", rejection.RequestID, "messages_request_id", id, "connect_code", rejection.Code, "upstream_message", rejection.Diagnostic)
+				slog.Error("cursor_messages_run_agent_failed", "err", runErr, "native_request_id", rejection.RequestID, "messages_request_id", id, "connect_code", rejection.Code, "upstream_message", rejection.Diagnostic, "upstream_metadata", rejection.Metadata, "upstream_details", rejection.DetailInventory)
 			} else {
 				slog.Error("cursor_messages_run_agent_failed", "err", runErr, "messages_request_id", id)
 			}

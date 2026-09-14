@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"io"
 	"net/http"
 	"strings"
@@ -52,7 +53,7 @@ func TestAgentConnectStructuredDetails(t *testing.T) {
 	require.NotContains(t, rejection.Diagnostic, "secret")
 	require.NotContains(t, rejection.Error(), "Quota")
 	for _, detail := range []agentConnectDetail{{Type: "unknown", Value: base64.StdEncoding.EncodeToString(raw)}, {Type: "aiserver.v1.ErrorDetails", Value: "%%%"}, {Type: "aiserver.v1.ErrorDetails", Value: base64.StdEncoding.EncodeToString([]byte{0xff})}} {
-		require.Empty(t, agentErrorDetailsText([]agentConnectDetail{detail}))
+		require.Empty(t, agentErrorDetailsText([]agentConnectDetail{detail}, ""))
 	}
 }
 
@@ -71,4 +72,28 @@ func TestMessagesFailureRetainsCorrelation(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(body), `"type":"invalid_request_error"`)
 	require.NotContains(t, string(body), "invalid fixture")
+}
+
+func TestAgentExpandedDiagnosticsRedactMetadataAndAdditionalInfo(t *testing.T) {
+	const token = "private-oauth-fixture-token"
+	entry := protowire.AppendTag(nil, 1, protowire.BytesType)
+	entry = protowire.AppendString(entry, "provider_response")
+	entry = protowire.AppendTag(entry, 2, protowire.BytesType)
+	entry = protowire.AppendString(entry, "invalid tool history "+token)
+	custom := protowire.AppendTag(nil, 7, protowire.BytesType)
+	custom = protowire.AppendBytes(custom, entry)
+	raw := protowire.AppendTag(nil, 2, protowire.BytesType)
+	raw = protowire.AppendBytes(raw, custom)
+	rejection := newAgentRejection(400, "invalid_argument", "Error", token, "fixture-id",
+		agentConnectDetail{Type: "aiserver.v1.ErrorDetails", Value: base64.StdEncoding.EncodeToString(raw)},
+		agentConnectDetail{Type: "unknown.detail", Value: base64.StdEncoding.EncodeToString([]byte(token))})
+	require.Contains(t, rejection.Diagnostic, "invalid tool history")
+	require.NotContains(t, rejection.Diagnostic, token)
+	require.Contains(t, rejection.DetailInventory, "unknown.detail")
+	require.NotContains(t, rejection.DetailInventory, base64.StdEncoding.EncodeToString([]byte(token)))
+	require.NotContains(t, rejection.Error(), "invalid tool history")
+	metadata := agentDiagnosticJSON(map[string]any{"authorization": []string{"Bearer hidden"}, "reason": []string{strings.Repeat("x", 2040) + token}}, token, 2048)
+	require.NotContains(t, metadata, "hidden")
+	require.NotContains(t, metadata, "private-oauth")
+	require.LessOrEqual(t, len(metadata), 2051)
 }
