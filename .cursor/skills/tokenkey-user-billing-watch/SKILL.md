@@ -31,9 +31,11 @@ bash ops/observability/run-probe.sh \
   --target prod \
   --script ops/observability/probe-user-billing-watch.sh \
   --env WINDOW_MINUTES=30 \
-  --comment "active-user billing watch"
+  --comment "active-user billing watch" \
+  --compressed-output
 ```
 
+- `--compressed-output` 用 gzip + 长度/SHA-256 校验承载完整 stdout，避免活跃用户清单和基线明细触发 SSM 输出截断；若压缩帧或校验失败，仍按失败处理，不使用部分结果。
 - `probe-user-billing-watch.sh` 会先读当前活跃用户清单，再继续请求 / 用量 / 错误统计；若活跃用户为空，直接报空窗。
 - 需要盯固定子集时，才额外传 `--env USER_IDS=1,6,16,38` 覆盖默认活跃清单。
 - 若 `run-probe.sh` 在本机 `aws/pyexpat` 启动阶段就失败（macOS/Homebrew 常见），先运行：`python3 scripts/checks/check-local-aws-pyexpat.py --apply`，再重试本命令。
