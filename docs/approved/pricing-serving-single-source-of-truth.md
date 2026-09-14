@@ -58,6 +58,7 @@ image poll 读 `ImageTaskRecord`，video fetch/status 读 `VideoTaskRecord`。�
 
 ```text
 catalog candidate
+AND 推荐策略允许展示
 AND 能解析到 direct price owner 或 `_aliases`
 AND 没有 structurally-gone 证据
 = 可公开展示
@@ -65,8 +66,26 @@ AND 没有 structurally-gone 证据
 
 `display=false` 不等于 API 禁止。`priced` 不能推出 Plan 或容量。
 `model_availability`、probe、upstream `/models`、流量只是 Evidence。
-只有明确 `model_not_found/retired` 可裁目录；5xx/429/auth/普通 unreachable 不能裁目录，
+观测证据中，只有明确且满足下述 Evidence 契约的退役事实可裁目录；5xx/429/auth/普通 unreachable 不能裁目录，
 也不能当 scheduler gate。证据分类见 `docs/approved/pricing-availability-source-of-truth.md`。
+
+### 目录 owner 与写入边界
+
+| 事实 | Owner 与写入入口 | 消费边界 |
+| --- | --- | --- |
+| NewAPI 目录声明、渠道及属性 scope、价格 owner、display 意图 | `backend/internal/service/tk_served_models.json`；canonical parser 为 `ops/pricing/served_models_manifest.py` | manifest runtime loader 生成声明及展示投影；缺省 `price_owner` 为自身 ID，实际价格及 alias 解析由价格 owner 校验 |
+| 原生平台目录候选 | `backend/internal/service/pricing_catalog_supported_models_tk.go` 中的平台集合；`refresh-servable-allowlist.py` 更新其支持的 marker 块，其余集合沿用各平台审核入口 | 公共目录及原生 fallback 消费平台投影；这些集合不声明请求合法性或当前容量 |
+| 推荐撤下 | `backend/internal/service/pricing_catalog_lifecycle_tk.go` 的 `isCatalogModelRecommended`，复用既有原生 deprecation owner | 公共价格、用户菜单及 NewAPI display 投影共用；审核公告后立即撤下推荐，精确 snapshot 不撤下整个稳定 family alias |
+| 可用性观测及结构性退役 | `pricing-availability-source-of-truth.md`；共享 `tkAvailabilityStructurallyGone` predicate | 目录、model-list 及 admin discovery 消费相同证据分类；瞬态错误不撤下 |
+| 展示投影 | 公共目录 `FilterPublicCatalogToServable`；用户菜单 `projectCandidateCatalog`；前端消费目录价格和已授权能力 | 公共目录与授权菜单的候选范围不同；复用上述事实，不把展示结果作为执行许可 |
+
+推荐撤下不更改计费、原生经验集合或账号 mapping；模型即使仍可通过其他 endpoint 调用，
+也可以不再推荐。NewAPI manifest membership 保留 provisioning，display 意图再经过推荐 gate；
+probe/refresh 成功不能覆盖撤下决策。移动这些 owner 时保留 pricing/menu/provisioning 回归和 sentinel。
+
+以上是分工后的声明与投影，没有要求所有模型迁入 NewAPI manifest。价格只经受保护 main
+发布完整 registry；账号 mapping 写入遵循模型激活及 Supplier Sync 契约。generated bundle
+是 mapping 的派生产物，不是原生目录刷新或价格热发布的统一写入入口。
 
 ## 4. 价格与 alias
 

@@ -9900,14 +9900,18 @@
       "must_contain": [
         "func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {",
         "if account.IsKiroMirrorStub() {",
-        "return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}"
+        "protocols := account.SupportedProtocols()",
+        "if protocol == protocolrouter.ProtocolMessages {"
       ],
-      "rationale": "The Plan-facing protocol projection is the execution SSOT for Kiro mirror stubs. Stored probe evidence may include compatibility endpoints, but mirror_platform=kiro must expose only native Messages so Chat/Responses ingress converts before the prod-to-edge hop."
+      "rationale": "Kiro mirror restrictions only remove targets from the persisted endpoint capability owner. Messages must be present there before Chat/Responses ingress may convert to the native prod-to-edge hop."
     },
     {
       "path": "backend/internal/service/account_supported_protocols_test.go",
       "must_contain": [
         "func TestRoutingSupportedProtocolsClampsKiroMirrorToMessages(",
+        "func TestKiroMirrorPlanRequiresPersistedMessages(",
+        "protocolrouter.ErrNoLegalRoute",
+        "ExecuteSelectedProtocol(",
         "protocolrouter.ProtocolChatCompletions",
         "protocolrouter.ProtocolResponses",
         "capability owner list was rewritten"

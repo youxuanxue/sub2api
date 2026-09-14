@@ -96,6 +96,14 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 
 ## Linked Tests
 
+- `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsPreferAuthorizedExactOrigin`
+- `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsRespectConversionPermission`
+- `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestExecuteSelectedProtocolRejectsChangedThinkingCapability`
+- `backend/internal/service/candidate_thinking_tools_tk_test.go`::`TestCandidateThinkingToolsPreferExactAndFallbackOnCapacity`
+- `backend/internal/service/account_supported_protocols_test.go`::`TestKiroMirrorPlanRequiresPersistedMessages`
+
+- `scripts/checks/test_protocol_routing_ssot.py`::`ProtocolRoutingSSOTTest.test_rejects_forward_bypass_outside_selected_protocol_execution`
+- `scripts/checks/test_protocol_routing_ssot.py`::`ProtocolRoutingSSOTTest.test_rejects_removed_owner`
 - `backend/internal/service/cursor_content_consistency_tk_test.go`::`TestCursorNativeHistoryPlanAndForwardAgree`
 - `backend/internal/service/cursor_content_consistency_tk_test.go`::`TestCursorContentCacheKeepsRequestModelAndAccountBoundaries`
 - `backend/internal/service/cursor_content_consistency_tk_test.go`::`TestCursorCachedContentDoesNotCopyLongRequest`
@@ -280,7 +288,7 @@ python3 .testing/user-stories/verify_quality.py
 
 ## Status
 
-逐 AC 的机器状态见 [`ops/observability/candidate-eligibility-acceptance-ledger.json`](../../ops/observability/candidate-eligibility-acceptance-ledger.json)。`contract-tested` 表示可重复的契约证据，`live-verified` 表示独立线上证据，`blocked` 表示仍缺证据；汇总 billing-watch 不得关闭单项 AC。
+逐 AC 的机器状态与测试引用见 [`ops/observability/candidate-eligibility-acceptance-ledger.json`](../../ops/observability/candidate-eligibility-acceptance-ledger.json)。检查器与本文 Acceptance Criteria 完整对账，并验证引用属于 Linked Tests 且测试符号仍有效；它不替代测试执行结果或人审证据语义。`contract-tested` 表示可重复的契约证据，`live-verified` 另需本文链接的独立线上 receipt，`blocked` 必须说明缺口。运营观察只通过 Coverage Boundaries 指针维护，不另设一个全局 blocked 状态；汇总 billing-watch 不得关闭单项 AC。
 
 - [x] Done
 

@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
-"""Ensure the served-model manifest is the sole catalog declaration source."""
-import json
+"""Validate NewAPI catalog declarations through the canonical manifest parser.
+
+Price-owner resolution stays in catalog-serving-drift.py. Native catalog sets
+and recommendation withdrawals retain their own owners.
+"""
+import sys
 from pathlib import Path
+
 ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / "backend/internal/service/tk_served_models.json"
-def check():
-    try: data=json.loads(MANIFEST.read_text())
-    except Exception as exc: return [f"cannot read model manifest: {exc}"]
-    rows=[dict(v, model_id=k, price_owner=v.get("price_owner", k)) for k,v in data.get("entries", {}).items()] if isinstance(data, dict) and isinstance(data.get("entries"), dict) else data
-    errors=[]; ids=set()
-    if not isinstance(rows,list): return ["model manifest must contain a list"]
-    for i,row in enumerate(rows):
-        if not isinstance(row,dict): errors.append(f"row {i} is not an object"); continue
-        mid=row.get("model_id") or row.get("id")
-        if not mid or mid in ids: errors.append(f"duplicate or missing model id: {mid}")
-        ids.add(mid)
-        if not row.get("price_owner"): errors.append(f"{mid}: missing price_owner")
-    return errors
+sys.path.insert(0, str(ROOT / 'ops/pricing'))
+from served_models_manifest import ManifestError, load_manifest
+
+
+def main() -> int:
+    try:
+        manifest = load_manifest()
+    except ManifestError as exc:
+        for failure in exc.errors:
+            print(f'FAIL: {failure}')
+        return 1
+    print(f'model owner manifest: ok ({len(manifest.entries)} NewAPI declarations)')
+    return 0
+
+
 if __name__ == '__main__':
-    failures=check()
-    if failures: print('\n'.join(f"FAIL: {x}" for x in failures)); raise SystemExit(1)
-    print(f"model owner manifest: ok ({len(json.loads(MANIFEST.read_text()).get('entries', json.loads(MANIFEST.read_text()).get('models', [])))} rows)")
+    raise SystemExit(main())

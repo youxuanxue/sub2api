@@ -975,6 +975,50 @@ func TestRoutingSupportedProtocolsClampsKiroMirrorToMessages(t *testing.T) {
 	}
 }
 
+func TestKiroMirrorPlanRequiresPersistedMessages(t *testing.T) {
+	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone,
+		"claude-sonnet-4-6", false, []byte(`{"model":"claude-sonnet-4-6","max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewProtocolRouter()
+	for _, native := range protocolrouter.AllProtocols() {
+		t.Run(string(native), func(t *testing.T) {
+			account := &Account{ID: 66, Name: "kiro-us6", Platform: PlatformAnthropic, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "test", "base_url": "https://api-us6.tokenkey.dev", "mirror_platform": PlatformKiro}}
+			attachTestProtocolCapability(account, native)
+			snapshot, err := protocolAccountSnapshotForRequest(account, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := router.Plan(request, snapshot)
+			if native != protocolrouter.ProtocolMessages {
+				if !errors.Is(err, protocolrouter.ErrNoLegalRoute) {
+					t.Fatalf("persisted %v must reject Messages, got plan=%v err=%v", native, plan, err)
+				}
+				return
+			}
+			if err != nil || plan.TargetProtocol() != native {
+				t.Fatalf("persisted Messages must remain usable: plan=%v err=%v", plan, err)
+			}
+
+			// Revoking Messages after selection must also stop authoritative pre-send validation.
+			attachTestProtocolCapability(account, protocolrouter.ProtocolChatCompletions)
+			calls := 0
+			_, err = ExecuteSelectedProtocol(WithProtocolRouting(context.Background(), router, request), router,
+				&AccountSelectionResult{Account: account, ProtocolPlan: &plan}, account,
+				func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(account),
+				protocolExecutorsForTest(plan, func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+					calls++
+					return nil, nil
+				}))
+			if err == nil || calls != 0 {
+				t.Fatalf("revoked Messages reached transport: calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}
+
 func TestAntigravityMirrorConvertsBeforeNativeOnlyEdge(t *testing.T) {
 	account := &Account{ID: 62, Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
 		"base_url": "https://api-us4.tokenkey.dev", "api_key": "test", "model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"},
