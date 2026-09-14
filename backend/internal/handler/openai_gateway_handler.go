@@ -3642,6 +3642,10 @@ func (h *OpenAIGatewayHandler) ensureForwardErrorResponseForError(c *gin.Context
 		return false
 	}
 	if c.Writer.Written() && !imageKeepalivePaddingOnly {
+		// A committed JSON response cannot be repaired by appending SSE.
+		if !strings.HasPrefix(strings.ToLower(c.Writer.Header().Get("Content-Type")), "text/event-stream") {
+			return false
+		}
 		streamStarted = true
 	}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", streamStarted)

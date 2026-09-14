@@ -107,10 +107,13 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	defer func() { cursorResponseOutcome(account, resp, result, &forwardErr) }()
+	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
+			return nil, errOpenAICyberPolicyForwarded
+		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
@@ -266,6 +269,10 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	if forwardNativeMessagesPolicy(c, body, resp.StatusCode, nil, "messages", false, "", "") {
+		return nil, errOpenAICyberPolicyForwarded
+	}
+
 	observer.ObserveAnthropic(body)
 
 	var raw json.RawMessage
@@ -317,7 +324,8 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	upstreamModel string,
 	reasoningEffort *string,
 	startTime time.Time,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, forwardErr error) {
+	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -354,6 +362,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	var firstTokenMs *int
 	clientDisconnected := false
 	sawTerminalEvent := false
+	terminalErrorWritten := false
+	policyBlocked := false
+	var upstreamErr *tkAnthropicBufferedUpstreamError
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -440,6 +451,12 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 		select {
 		case ev, ok := <-events:
 			if !ok {
+				if policyBlocked {
+					return nil, errOpenAICyberPolicyForwarded
+				}
+				if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+					return nil, nativeErr
+				}
 				if !clientDisconnected {
 					flusher.Flush()
 				}
@@ -450,6 +467,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 			}
 			if ev.err != nil {
+				if policyBlocked {
+					return nil, errOpenAICyberPolicyForwarded
+				}
 				if sawTerminalEvent {
 					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 				}
@@ -473,6 +493,12 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				observer.ObserveAnthropic([]byte(trimmed))
+				if gjson.Get(trimmed, "type").String() == "error" {
+					terminalErrorWritten = true
+					upstreamErr, _ = tkParseAnthropicBufferedSSEError([]byte(trimmed), s.cfg)
+					u := claudeUsageToOpenAIUsage(usage)
+					policyBlocked = markOpenAISafetyPolicyEvent(c, []byte(trimmed), resp.StatusCode, &u) != ""
+				}
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
 				}
@@ -498,12 +524,24 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
 				} else if line == "" {
 					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
+					if terminalErrorWritten {
+						MarkResponseCommitted(c)
+					}
 					flusher.Flush()
 					lastDataAt = time.Now()
 					resetKeepaliveTimer()
 					inPartialEvent = false
 				} else {
 					inPartialEvent = true
+				}
+			}
+
+			if line == "" && policyBlocked {
+				return nil, errOpenAICyberPolicyForwarded
+			}
+			if line == "" && terminalErrorWritten {
+				if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+					return nil, nativeErr
 				}
 			}
 

@@ -106,21 +106,28 @@ func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUps
 	return cursor.Messages(req.Context(), account.GetCredential("api_key"), body, parameters, wireModel, func(native *http.Request) (*http.Response, error) {
 		ctx := WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(native.Context(), HTTPUpstreamProfileCursor))
 		return upstream.Do(native.WithContext(ctx), proxyURL, account.ID, account.Concurrency)
-	})
+	}, cursorPublicPolicyError)
 }
 
-func cursorResponseOutcome(account *Account, resp *http.Response, result *OpenAIForwardResult, err *error) {
+func cursorResponseOutcome(account *Account, resp *http.Response, result **OpenAIForwardResult, err *error) {
 	if !account.IsCursor() || resp == nil {
 		return
 	}
 	if body, ok := resp.Body.(*cursor.MessagesBody); ok {
 		tier, nativeErr := body.Outcome()
-		if result != nil {
-			result.BillingTier = tier
+		if *result != nil {
+			(*result).BillingTier = tier
 		}
 		if *err == nil && nativeErr != nil {
 			*err = nativeErr
 		}
+		if *err != nil && tier == "" {
+			*result = nil
+		}
+	} else if *err != nil {
+		// Edge responses have no in-process outcome. A failed Cursor stream
+		// cannot use the ordinary supplier partial-usage settlement contract.
+		*result = nil
 	}
 }
 
@@ -136,4 +143,48 @@ func cursorBillingTier(tier string) string {
 // Cursor planning and every native execution path consume the same history.
 func normalizeCursorMessagesContent(body []byte, model string) []byte {
 	return FilterWebSearchHistoryBlocks(StripEmptyTextBlocks(body), model)
+}
+
+// Buffered converters must inspect native settlement before committing success.
+// A partial native answer without terminal usage is not a billable completion.
+func cursorMessagesResponseError(account *Account, resp *http.Response, failure *tkAnthropicBufferedUpstreamError) error {
+	if account == nil || !account.IsCursor() {
+		return nil
+	}
+	if resp != nil {
+		if body, ok := resp.Body.(*cursor.MessagesBody); ok {
+			_, err := body.Outcome()
+			if err == nil && failure != nil {
+				err = errors.New(failure.Message)
+			}
+			return err
+		}
+	}
+	if failure != nil {
+		return errors.New(failure.Message)
+	}
+	return nil
+}
+
+// Translate only native structured evidence into the existing policy vocabulary.
+// Classification, retry decisions, isolation and accounting remain shared owners.
+func cursorPublicPolicyError(err error) (string, string) {
+	var rejection *cursor.AgentRejection
+	if !errors.As(err, &rejection) {
+		return "", ""
+	}
+	code := ""
+	if rejection.ActionRequired == "cyber_policy_review" {
+		code = "cyber_policy"
+	}
+	payload, _ := json.Marshal(gin.H{"error": gin.H{"code": code, "message": rejection.ProviderMessage}})
+	kind := markOpenAISafetyPolicyEvent(nil, payload, http.StatusBadRequest, nil)
+	switch kind {
+	case "cyber_policy":
+		return kind, "Request blocked by upstream cyber-security policy"
+	case "usage_policy":
+		return kind, "Request blocked by upstream usage policy"
+	default:
+		return "", ""
+	}
 }

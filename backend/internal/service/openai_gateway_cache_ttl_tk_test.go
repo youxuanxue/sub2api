@@ -59,19 +59,19 @@ func TestNativeAnthropicCacheTTLReachesSettlement(t *testing.T) {
 					switch endpoint {
 					case "messages":
 						if stream {
-							result, err = svc.streamNativeAnthropicMessages(c, resp, model, model, model, time.Now())
+							result, err = svc.streamNativeAnthropicMessages(c, resp, account, model, model, model, time.Now())
 						} else {
 							result, err = svc.bufferNativeAnthropicMessages(c, resp, model, model, model, time.Now())
 						}
 					case "chat":
 						if stream {
-							result, err = svc.handleCCStreamingFromNativeAnthropic(resp, c, model, model, model, nil, time.Now(), true)
+							result, err = svc.handleCCStreamingFromNativeAnthropic(resp, c, account, model, model, model, nil, time.Now(), true)
 						} else {
 							result, err = svc.handleCCBufferedFromNativeAnthropic(resp, c, account, model, model, model, nil, time.Now())
 						}
 					case "responses":
 						if stream {
-							result, err = svc.handleResponsesStreamingFromNativeAnthropic(resp, c, model, model, model, nil, time.Now(), apicompat.ResponsesClientToolMapping{})
+							result, err = svc.handleResponsesStreamingFromNativeAnthropic(resp, c, account, model, model, model, nil, time.Now(), apicompat.ResponsesClientToolMapping{})
 						} else {
 							result, err = svc.handleResponsesBufferedFromNativeAnthropic(resp, c, account, model, model, model, nil, time.Now(), apicompat.ResponsesClientToolMapping{})
 						}

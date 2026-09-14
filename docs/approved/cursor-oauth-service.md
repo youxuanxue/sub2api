@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14)"
 created: 2026-09-07
 ---
 
@@ -55,6 +55,15 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   `doNativeMessagesRequest`; native completion errors and billing provenance
   also reach the Chat/Responses settlement result. Cursor has no separate
   selection or conversion fallback.
+- Native policy evidence (provider title/detail and typed analytics action) is
+  translated at the service boundary into the existing
+  `markOpenAISafetyPolicyEvent` vocabulary. `cyber_policy_review` maps to
+  `cyber_policy`; usage wording remains classified by the shared detector.
+  Native HTTP/SSE and relayed Messages errors preserve policy classification
+  through Chat/Responses converters. The existing handler owns session isolation
+  and zero-token error usage: no policy retry, account failover or cooldown,
+  and no successful settlement on a rejected run. Diagnostic maps and echoed
+  prompts are not policy evidence; operator details stay bounded/redacted.
 - Every request supplies its complete history. Tools are returned to the client
   for execution, and the native call is canceled at handoff. A later request
   reconstructs history on a fresh connection. Native filesystem/shell callbacks
@@ -172,3 +181,38 @@ Mixed membership does not confer model capability on another account or bypass
 Apply the empty china mapping through the admin API after deploying this change,
 then authorize/import Cursor and verify real gateway usage identifies that account.
 Code tests alone do not establish production configuration or inference success.
+
+## Messages completion and converter repair (2026-09-14)
+
+The user approved completing the native Messages text/tool contract and the
+existing Chat/Responses converters. Protocol routing remains owned by Plan;
+there is no separate Cursor Chat or Responses upstream implementation.
+
+- Native tool-result prompt messages carry both the outer message ID and the
+  matching tool-call ID. Foreign/composite IDs are normalized consistently in
+  prompt blobs and display/history protobufs, preserving call/result pairing.
+- Connect error codes, bounded/redacted messages and the known ErrorDetails
+  diagnostic fields retain native request correlation. Supplier diagnostics stay
+  in operator logs; public errors expose the protocol code and mapped status.
+  HTTP transport statuses remain distinguishable from translated Connect codes.
+- Buffered Cursor conversions inspect terminal settlement before writing JSON.
+  Partial output followed by rejection, timeout or incomplete EOF is a failure,
+  with no synthetic successful completion or usage record. The same rule applies
+  to Cursor Messages forwarded over an Edge HTTP response.
+- Streaming conversion failures do not fabricate stop/completed events. The
+  handler owns the terminal failure if none has been sent; native Messages marks
+  its emitted terminal error to prevent a duplicate fallback. A committed JSON
+  response can never receive an appended SSE error.
+- Text, tool handoff and stateless continuation remain supported within the
+  feature boundaries above. Images, thinking-history replay and forced tool
+  choice are not silently promoted to supported capabilities by these fixes.
+
+Regression owners are the native agent/messages tests,
+`cursor_native_transport_regression_test.go`,
+`cursor_buffered_failure_regression_test.go`,
+`cursor_relay_billing_regression_test.go` and handler response-commit tests.
+`TestCursorMessagesConvertersLive` is an opt-in real upstream integration probe
+using a protected `TOKENKEY_CURSOR_ACCOUNT_FILE` with a `credentials` object and
+an optional `TOKENKEY_CURSOR_LIVE_MODEL` / `TOKENKEY_CURSOR_LIVE_PROTOCOL`.
+It stops on the first failure, does not write production account settings, and
+is not proof of production routing, persisted billing or UI e2e acceptance.

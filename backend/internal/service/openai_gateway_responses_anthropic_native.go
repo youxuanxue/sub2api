@@ -123,10 +123,13 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	defer func() { cursorResponseOutcome(account, resp, result, &forwardErr) }()
+	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "responses", false, "", "") {
+			return nil, errOpenAICyberPolicyForwarded
+		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
@@ -135,7 +138,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	}
 
 	if clientStream {
-		return s.handleResponsesStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping)
+		return s.handleResponsesStreamingFromNativeAnthropic(resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping)
 	}
 	return s.handleResponsesBufferedFromNativeAnthropic(resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, clientToolMapping)
 }
@@ -225,6 +228,10 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 		}
 
 		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
+			u := claudeUsageToOpenAIUsage(&usage)
+			if forwardNativeMessagesPolicy(c, parsed.Payload, resp.StatusCode, &u, "responses", false, "", originalModel) {
+				return nil, errOpenAICyberPolicyForwarded
+			}
 			upstreamErr = parsed
 			break
 		}
@@ -270,6 +277,10 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 
 	if !streamCompleted && upstreamErr == nil {
 		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
+	}
+	if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+		tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
+		return nil, nativeErr
 	}
 	if upstreamErr != nil {
 		if !tkAnthropicBufferedHasUsableContent(finalResp) {
@@ -330,6 +341,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -352,6 +364,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	state.Model = originalModel
 	clientToolRestorer := apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
 
+	var upstreamErr *tkAnthropicBufferedUpstreamError
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
@@ -403,6 +416,9 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 			zap.String("request_id", requestID),
 			zap.Duration("interval", streamInterval),
 		)
+		if nativeErr := cursorMessagesResponseError(account, resp, tkAnthropicBufferedSyntheticFailure("stream_timeout", "Upstream stream data interval timeout")); nativeErr != nil {
+			return nil, nativeErr
+		}
 		return resultWithUsage(), fmt.Errorf("stream data interval timeout")
 	}
 
@@ -477,12 +493,31 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 			continue
 		}
 
+		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
+			u := claudeUsageToOpenAIUsage(&usage)
+			if forwardNativeMessagesPolicy(c, parsed.Payload, resp.StatusCode, &u, "responses", true, state.ResponseID, originalModel) {
+				return nil, errOpenAICyberPolicyForwarded
+			}
+			upstreamErr = parsed
+			break
+		}
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
 		}
 
 		processAnthropicEvent(&event)
+	}
+
+	if !state.CompletedSent && upstreamErr == nil && account != nil && account.IsCursor() {
+		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
+	}
+	if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+		return nil, nativeErr
+	}
+
+	if upstreamErr != nil {
+		return resultWithUsage(), errors.New(upstreamErr.Message)
 	}
 
 	// Finalize state machine（客户端已断开时仍推进，保证 usage 汇总完整；仅在
