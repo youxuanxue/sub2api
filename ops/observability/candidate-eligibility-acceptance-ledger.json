@@ -1,0 +1,17 @@
+{
+  "contract": "US-050",
+  "schema_version": 1,
+  "statuses": ["contract-tested", "live-verified", "blocked"],
+  "criteria": {
+    "AC-001": "contract-tested",
+    "AC-002": "contract-tested",
+    "AC-003": "contract-tested",
+    "AC-004": "contract-tested",
+    "AC-005": "contract-tested",
+    "AC-006": "contract-tested",
+    "AC-007": "contract-tested",
+    "AC-008": "contract-tested",
+    "AC-009": "contract-tested"
+  },
+  "live_observation": {"status": "blocked", "reason": "Per-criterion live evidence is still required.", "owner": "US-050 Coverage Boundaries"}
+}

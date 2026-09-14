@@ -519,6 +519,28 @@ else
 fi
 
 echo ""
+echo "=== sub2api: candidate acceptance ledger ==="
+if ! python3 ./scripts/checks/candidate-acceptance-ledger.py; then
+    echo "  FAIL: US-050 acceptance ledger is invalid"
+    errors=$((errors + 1))
+else
+    echo "  ok: US-050 acceptance states use the single machine-readable ledger"
+fi
+
+echo ""
+echo "=== sub2api: advisory ledger ==="
+if ! python3 ./scripts/checks/advisory-ledger.py; then
+    echo "  FAIL: structured advisory ledger is invalid"
+    errors=$((errors + 1))
+else
+    echo "  ok: advisory findings have owner, expiry, and remediation"
+fi
+
+echo ""
+echo "=== sub2api: upstream SSOT impact report ==="
+python3 ./scripts/checks/upstream-ssot-impact.py --base "${PREFLIGHT_BASE:-origin/main}" --upstream upstream/main
+
+echo ""
 echo "=== sub2api: approved-doc index and anchors ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by approved-doc index check)"
@@ -3556,7 +3578,10 @@ fi
 # worktrees without upstream fetch). When present, reports whether HEAD
 # introduces NEW conflict files against upstream/main vs the PR base.
 # CI runs this as a blocking gate (upstream-conflict-surface.yml); here it is
-# advisory (warn only) to keep local preflight fast and non-blocking.
+# advisory (warn only) to keep local preflight fast and non-blocking. The
+# baseline conflict set is informational; CI blocks only when a PR introduces
+# new conflict files. This prevents a long-lived known upstream fork surface
+# from becoming recurring warning noise.
 echo ""
 echo "=== sub2api: upstream conflict surface (advisory) ==="
 if ! git remote get-url upstream >/dev/null 2>&1; then

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "statuses": ["active", "accepted", "resolved"],
+  "items": [
+    {"id": "upstream-known-conflicts", "status": "accepted", "owner": "release", "expires_at": "2026-12-31", "remediation": "only escalate newly introduced conflict files"},
+    {"id": "go-cache-over-budget", "status": "active", "owner": "ci", "expires_at": "2026-10-31", "remediation": "run go_cache_prune.py --heal and report delete_plan"},
+    {"id": "caddy-format", "status": "active", "owner": "deploy", "expires_at": "2026-10-31", "remediation": "install caddy and run caddy fmt on deploy Caddyfiles"}
+  ]
+}
