@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,8 +21,14 @@ func forwardNativeMessagesPolicy(c *gin.Context, payload []byte, status int, usa
 	if message == "" {
 		message = "Request blocked by upstream usage policy"
 	}
+	// Header-wait keepalive can commit SSE before an upstream HTTP rejection.
+	// Continue that wire format even though the upstream itself never streamed.
+	stream = stream || (c.Writer.Written() && strings.HasPrefix(strings.ToLower(c.Writer.Header().Get("Content-Type")), "text/event-stream"))
 	if stream {
 		switch protocol {
+		case "messages":
+			canonical, _ := json.Marshal(gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "code": kind, "message": message}})
+			_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", canonical)
 		case "chat":
 			_, _ = fmt.Fprint(c.Writer, buildChatStreamErrorSSE(kind, message), "data: [DONE]\n\n")
 		case "responses":

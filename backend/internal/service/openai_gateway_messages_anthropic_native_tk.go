@@ -324,7 +324,8 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	upstreamModel string,
 	reasoningEffort *string,
 	startTime time.Time,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, forwardErr error) {
+	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -363,6 +364,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	sawTerminalEvent := false
 	terminalErrorWritten := false
 	policyBlocked := false
+	var upstreamErr *tkAnthropicBufferedUpstreamError
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -452,6 +454,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				if policyBlocked {
 					return nil, errOpenAICyberPolicyForwarded
 				}
+				if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+					return nil, nativeErr
+				}
 				if !clientDisconnected {
 					flusher.Flush()
 				}
@@ -490,6 +495,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				observer.ObserveAnthropic([]byte(trimmed))
 				if gjson.Get(trimmed, "type").String() == "error" {
 					terminalErrorWritten = true
+					upstreamErr, _ = tkParseAnthropicBufferedSSEError([]byte(trimmed), s.cfg)
 					u := claudeUsageToOpenAIUsage(usage)
 					policyBlocked = markOpenAISafetyPolicyEvent(c, []byte(trimmed), resp.StatusCode, &u) != ""
 				}
@@ -532,6 +538,11 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 
 			if line == "" && policyBlocked {
 				return nil, errOpenAICyberPolicyForwarded
+			}
+			if line == "" && terminalErrorWritten {
+				if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+					return nil, nativeErr
+				}
 			}
 
 		case <-intervalCh:

@@ -52,19 +52,19 @@ func TestNativeMessagesCacheUsageReachesBillingOnce(t *testing.T) {
 				resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
 				var result *OpenAIForwardResult
 				var err error
+				account := cursorTestAccount()
+				if !cursor {
+					delete(account.Extra, CursorSourceExtraKey)
+				}
 				const model = "claude-sonnet-4-6"
 				if stream {
-					result, err = svc.streamNativeAnthropicMessages(c, resp, model, model, model, time.Now())
+					result, err = svc.streamNativeAnthropicMessages(c, resp, account, model, model, model, time.Now())
 				} else {
 					result, err = svc.bufferNativeAnthropicMessages(c, resp, model, model, model, time.Now())
 				}
 				require.NoError(t, err)
 				result.RequestID = "cache-billing-regression"
 				require.Equal(t, "cursor-oauth-reported", result.BillingTier, "the Messages relay must carry provenance without an in-process Cursor body")
-				account := cursorTestAccount()
-				if !cursor {
-					delete(account.Extra, CursorSourceExtraKey)
-				}
 				err = svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, APIKey: &APIKey{ID: 2}, User: &User{ID: 1}, Account: account})
 				require.NoError(t, err)
 				require.Equal(t, 1, billingRepo.calls)

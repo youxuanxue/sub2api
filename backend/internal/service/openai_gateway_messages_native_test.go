@@ -43,7 +43,7 @@ func TestNativeMessagesUsageKeepsCacheOutOfUncachedInput(t *testing.T) {
 		var result *OpenAIForwardResult
 		var err error
 		if stream {
-			result, err = svc.streamNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
+			result, err = svc.streamNativeAnthropicMessages(c, resp, tokenseaNativeMessagesAccount(), "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
 		} else {
 			result, err = svc.bufferNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
 		}

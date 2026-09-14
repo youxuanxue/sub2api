@@ -167,7 +167,7 @@ func TestNativeMessagesPolicyRelayTerminatesWithoutSettlement(t *testing.T) {
 					var err error
 					switch {
 					case path == "native" && stream:
-						result, err = svc.streamNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
+						result, err = svc.streamNativeAnthropicMessages(c, resp, account, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
 					case path == "native":
 						result, err = svc.bufferNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
 					case stream:
@@ -185,6 +185,61 @@ func TestNativeMessagesPolicyRelayTerminatesWithoutSettlement(t *testing.T) {
 						require.Nil(t, GetOpsUsagePolicy(c))
 					} else {
 						require.NotNil(t, GetOpsUsagePolicy(c))
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestCursorMessagesRelayFailureDoesNotSettle(t *testing.T) {
+	for _, path := range []string{"native", "passthrough"} {
+		for _, terminal := range []string{"error", "eof", "complete"} {
+			for _, isCursor := range []bool{true, false} {
+				t.Run(fmt.Sprintf("%s/%s/cursor=%t", path, terminal, isCursor), func(t *testing.T) {
+					wire := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-relay\",\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\n" +
+						"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n"
+					switch terminal {
+					case "error":
+						wire += "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream unavailable\"}}\n\n"
+					case "complete":
+						wire += "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2,\"tk_billing_tier\":\"cursor-oauth-reported\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+					}
+					resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(wire))}
+					recorder := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(recorder)
+					c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+					svc := protocolTargetTestService(nil)
+					account := cursorCandidateAccount("composer-2.5")
+					if !isCursor {
+						delete(account.Extra, CursorSourceExtraKey)
+					}
+					var result *OpenAIForwardResult
+					var err error
+					if path == "native" {
+						result, err = svc.streamNativeAnthropicMessages(c, resp, account, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
+					} else {
+						result, err = svc.handleNativeAnthropicStreamingResponse(t.Context(), resp, c, account, "composer-2.5", "composer-2.5", "composer-2.5", nil, time.Now())
+					}
+					if terminal == "complete" {
+						require.NoError(t, err)
+						require.NotNil(t, result)
+						require.Equal(t, 10, result.Usage.InputTokens)
+						require.Equal(t, 2, result.Usage.OutputTokens)
+						require.Equal(t, "cursor-oauth-reported", result.BillingTier)
+						return
+					}
+					if !isCursor {
+						require.NotNil(t, result, "ordinary supplies retain their partial-usage settlement contract")
+						require.Equal(t, 10, result.Usage.InputTokens)
+						return
+					}
+					require.Error(t, err)
+					require.Nil(t, result, "a failed Cursor relay must not submit partial usage for settlement")
+					require.NotContains(t, recorder.Body.String(), "message_stop")
+					if terminal == "error" {
+						require.True(t, IsResponseCommitted(c))
+						require.Equal(t, 1, strings.Count(recorder.Body.String(), `"error":`))
 					}
 				})
 			}

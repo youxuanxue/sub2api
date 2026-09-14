@@ -59,7 +59,7 @@ func TestNativeAnthropicCacheTTLReachesSettlement(t *testing.T) {
 					switch endpoint {
 					case "messages":
 						if stream {
-							result, err = svc.streamNativeAnthropicMessages(c, resp, model, model, model, time.Now())
+							result, err = svc.streamNativeAnthropicMessages(c, resp, account, model, model, model, time.Now())
 						} else {
 							result, err = svc.bufferNativeAnthropicMessages(c, resp, model, model, model, time.Now())
 						}

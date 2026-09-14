@@ -520,6 +520,11 @@
       "rationale": "Native Messages policy errors reuse shared safety classification and emit the selected endpoint's terminal error without account retry or successful settlement."
     },
     {
+      "path": "backend/internal/service/openai_native_messages_policy_tk_test.go",
+      "must_contain": ["TestNativeMessagesPolicyAfterHeaderKeepalive"],
+      "rationale": "Policy rejection after header keepalive must preserve SSE framing and deliver one visible terminal error."
+    },
+    {
       "path": "backend/internal/service/cursor_buffered_failure_regression_test.go",
       "must_contain": ["TestCursorRegressionBufferedPartialBeforeNativeError", "TestCursorRegressionResponsesPartialBeforeNativeError"],
       "rationale": "Native partial failure must precede buffered JSON commitment and cannot create successful usage."
@@ -545,7 +550,7 @@
     },
     {
       "path": "backend/internal/service/cursor_relay_billing_regression_test.go",
-      "must_contain": ["TestCursorRelayConversionsRetainBillingProvenance", "TestCursorRelayFailuresNeverCompleteOrSettle", "TestNativeMessagesPolicyRelayTerminatesWithoutSettlement"],
+      "must_contain": ["TestCursorRelayConversionsRetainBillingProvenance", "TestCursorRelayFailuresNeverCompleteOrSettle", "TestNativeMessagesPolicyRelayTerminatesWithoutSettlement", "TestCursorMessagesRelayFailureDoesNotSettle"],
       "rationale": "Exercise Chat and Responses, streaming and buffered, from Edge wire usage through durable settlement, including rejection of unknown billing labels."
     },
     {
@@ -655,7 +660,7 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
-      "must_contain": ["forwardNativeMessagesPolicy", "markOpenAISafetyPolicyEvent", "s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel)"],
+      "must_contain": ["forwardNativeMessagesPolicy", "markOpenAISafetyPolicyEvent", "cursorMessagesResponseError(account, resp, upstreamErr)", "s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel)"],
       "rationale": "Native Messages and Chat-to-Messages must share supplier capability refusal failover."
     },
     {

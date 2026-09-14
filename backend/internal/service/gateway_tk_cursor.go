@@ -124,6 +124,10 @@ func cursorResponseOutcome(account *Account, resp *http.Response, result **OpenA
 		if *err != nil && tier == "" {
 			*result = nil
 		}
+	} else if *err != nil {
+		// Edge responses have no in-process outcome. A failed Cursor stream
+		// cannot use the ordinary supplier partial-usage settlement contract.
+		*result = nil
 	}
 }
 

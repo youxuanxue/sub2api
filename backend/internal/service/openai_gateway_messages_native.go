@@ -96,7 +96,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 	}
 
 	if clientStream {
-		return s.streamNativeAnthropicMessages(c, resp, originalModel, billingModel, upstreamModel, startTime)
+		return s.streamNativeAnthropicMessages(c, resp, account, originalModel, billingModel, upstreamModel, startTime)
 	}
 	return s.bufferNativeAnthropicMessages(c, resp, originalModel, billingModel, upstreamModel, startTime)
 }
@@ -217,6 +217,7 @@ func (s *OpenAIGatewayService) bufferNativeAnthropicMessages(
 func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -250,14 +251,20 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 
 	terminalError := false
 	policyBlocked := false
+	streamCompleted := false
+	var upstreamErr *tkAnthropicBufferedUpstreamError
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data:") {
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload != "" && payload != "[DONE]" {
 				parseSSEUsagePassthrough(payload, &usage)
+				if gjson.Get(payload, "type").String() == "message_stop" {
+					streamCompleted = true
+				}
 				if gjson.Get(payload, "type").String() == "error" {
 					terminalError = true
+					upstreamErr, _ = tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg)
 					u := claudeUsageToOpenAIUsage(&usage)
 					policyBlocked = markOpenAISafetyPolicyEvent(c, []byte(payload), resp.StatusCode, &u) != ""
 				}
@@ -277,9 +284,20 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 		if line == "" && policyBlocked {
 			return nil, errOpenAICyberPolicyForwarded
 		}
+		if line == "" && terminalError {
+			if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+				return nil, nativeErr
+			}
+		}
 	}
 	if policyBlocked {
 		return nil, errOpenAICyberPolicyForwarded
+	}
+	if !streamCompleted && upstreamErr == nil {
+		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
+	}
+	if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+		return nil, nativeErr
 	}
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
