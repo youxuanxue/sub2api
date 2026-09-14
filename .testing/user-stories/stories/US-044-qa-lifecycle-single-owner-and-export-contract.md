@@ -47,9 +47,9 @@
 - `ops/qa/test_qa_bundle_release_surface.py`::`QABundleReleaseSurfaceTest.test_gateway_only_change_is_not_bundle_surface`
 - `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_missing_contract_is_legacy_and_preserves_verified_tag`
 - `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_legacy_without_verified_worker_fails_closed`
-- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_worker_discovery_precedes_resolution_and_all_mutation`
-- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_rollback_converges_safe_control_plane_before_app_mutation`
-- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_qa_infra_check_is_read_only_and_verifies_oidc_binding`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_us051_selected_components_and_drain_join_preserve_gateway_acceptance_order`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_bundle_coordinates_are_not_hardcoded_in_deploy_owners`
+- `ops/stage0/test_deploy_qa_bundle_workflow.py`::`DeployQABundleWorkflowTest.test_qa_infra_check_is_read_only_and_verifies_oidc_binding`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle list, detail, watermark and ZIP export stay on Bundle/S3 paths`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle entitlement denial removes the entry and never starts a job`
 - `frontend/e2e/qa-bundle.e2e.ts`::`temporary unavailability is recoverable from the visible retry action`

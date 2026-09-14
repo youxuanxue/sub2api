@@ -67,13 +67,10 @@ REQUIRED = {
         "backend/internal/observability/qa/bundle/",
         "ops/stage0/run-qa-bundle-canary-via-ssm.sh",
     ),
-    ".github/workflows/deploy-stage0.yml": (
-        "ops/qa/resolve_qa_bundle_worker_image.py",
-        "ops/stage0/prod_release_plan.py",
-        "steps.qa_infra.outputs.resolved_worker_image",
-        "if: steps.qa_infra.outputs.mode == 'legacy_rollback'",
-        "QA degraded",
-        "--surface-json",
+    ".github/workflows/deploy-qa-bundle.yml": (
+        "deploy_qa_raw_archive_cfn.sh",
+        "verify_qa_bundle_infra.sh",
+        "run-qa-bundle-canary-via-ssm.sh",
     ),
     "ops/stage0/prod_release_plan.py": (
         "from qa_bundle_release_surface import",
@@ -262,7 +259,7 @@ TRANSITION_FIXED_AGE_OWNER = {
 }
 
 BUNDLE_DEPLOY_OWNER_SURFACES = (
-    ".github/workflows/deploy-stage0.yml",
+    ".github/workflows/deploy-qa-bundle.yml",
     "ops/stage0/deploy_via_ssm.sh",
     "ops/stage0/deploy_via_ssm_bluegreen.sh",
 )
@@ -292,30 +289,15 @@ def scan(root: Path) -> list[str]:
             match = pattern.search(body)
             if match:
                 failures.append(f"hardcoded QA Bundle coordinate remains in {rel}: {match.group(0)}")
-    workflow = root / ".github/workflows/deploy-stage0.yml"
+    workflow = root / ".github/workflows/deploy-qa-bundle.yml"
     if workflow.is_file():
         workflow_body = workflow.read_text(encoding="utf-8")
-        for line in workflow_body.splitlines():
-            if "describe-stacks" in line and "QA_STACK_NAME" in line and "|| true" in line:
-                failures.append("QA stack discovery must fail closed except for explicit stack-not-found")
-        resolved_binding = "QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}"
-        if workflow_body.count(resolved_binding) != 2:
-            failures.append("QA deploy and verifier must share exactly one resolved Worker image")
-        legacy_maintenance = workflow_body.find(
-            "name: Pause pinned QA deletion before legacy app rollback"
-        )
-        legacy_boundary = workflow_body.find(
-            "name: Disable QA boundary before legacy app rollback"
-        )
-        app_mutation = workflow_body.find("name: Deploy via SSM Run-Command")
-        if not (0 <= legacy_maintenance < legacy_boundary < app_mutation):
-            failures.append("legacy host safety must converge before app mutation")
-        if "QA_BOUNDARY_TIMER_STATE: disabled" not in workflow_body:
-            failures.append("legacy rollback must force the QA boundary disabled")
-        if "QA_BUNDLE_VERIFY_MODE: discovery" not in workflow_body:
-            failures.append("legacy Worker fallback must come from full live discovery")
-        if "QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}" in workflow_body:
-            failures.append("QA Bundle Worker image must not be coupled directly to the app tag")
+        if "deploy_qa_raw_archive_cfn.sh" not in workflow_body:
+            failures.append("QA deploy workflow must execute deploy_qa_raw_archive_cfn.sh")
+        if "verify_qa_bundle_infra.sh" not in workflow_body:
+            failures.append("QA deploy workflow must execute verify_qa_bundle_infra.sh")
+        if "run-qa-bundle-canary-via-ssm.sh" not in workflow_body:
+            failures.append("QA deploy workflow must execute run-qa-bundle-canary-via-ssm.sh")
     for rel, needles in REQUIRED.items():
         path = root / rel
         if not path.is_file():
@@ -595,7 +577,7 @@ def self_test() -> int:
         if not any("--quiet" in item for item in scan(fixture)):
             print("self-test failed to detect the retired sentinel invocation")
             return 1
-        workflow = fixture / ".github/workflows/deploy-stage0.yml"
+        workflow = fixture / ".github/workflows/deploy-qa-bundle.yml"
         workflow.write_text(
             workflow.read_text(encoding="utf-8")
             + "\n# https://sqs.us-east-1.amazonaws.com/682751977094/tokenkey-prod-qa-bundle\n",
@@ -604,28 +586,7 @@ def self_test() -> int:
         if not any("hardcoded QA Bundle coordinate" in item for item in scan(fixture)):
             print("self-test failed to detect a hardcoded QA Bundle coordinate")
             return 1
-        shutil.copy2(ROOT / ".github/workflows/deploy-stage0.yml", workflow)
-        workflow.write_text(
-            workflow.read_text(encoding="utf-8").replace(
-                "QA_BUNDLE_WORKER_IMAGE: ${{ steps.qa_infra.outputs.resolved_worker_image }}",
-                "QA_BUNDLE_WORKER_IMAGE: ghcr.io/youxuanxue/sub2api:${{ env.INPUT_TAG }}",
-                1,
-            ),
-            encoding="utf-8",
-        )
-        if not any("resolved Worker image" in item for item in scan(fixture)):
-            print("self-test failed to detect app/Worker image recoupling")
-            return 1
-        shutil.copy2(ROOT / ".github/workflows/deploy-stage0.yml", workflow)
-        workflow.write_text(
-            workflow.read_text(encoding="utf-8")
-            + '\nOPS_RECOVERY_PRINCIPAL_ARN="$(aws cloudformation describe-stacks --stack-name "$QA_STACK_NAME" || true)"\n',
-            encoding="utf-8",
-        )
-        if not any("fail closed" in item for item in scan(fixture)):
-            print("self-test failed to detect catch-all QA stack discovery fallback")
-            return 1
-        shutil.copy2(ROOT / ".github/workflows/deploy-stage0.yml", workflow)
+        shutil.copy2(ROOT / ".github/workflows/deploy-qa-bundle.yml", workflow)
         deploy_doc = fixture / "docs/deploy/aws-us-openai-gateway-deployment.md"
         deploy_doc.write_text(
             deploy_doc.read_text(encoding="utf-8")

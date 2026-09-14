@@ -120,6 +120,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`edge-bluegreen-release-safety.md`](edge-bluegreen-release-safety.md) | Edge blue/green safety |
 | [`design-apex-domain-phase2.md`](design-apex-domain-phase2.md) | Apex domain phase2 |
 | [`prod-component-release.md`](prod-component-release.md) | Independent prod component releases |
+| [`design-split-deploy-qa-bundle.md`](design-split-deploy-qa-bundle.md) | Physical separation of prod gateway and QA bundle workflows |
 
 ### Ops / admin / misc
 
