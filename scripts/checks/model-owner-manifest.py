@@ -7,7 +7,7 @@ MANIFEST = ROOT / "backend/internal/service/tk_served_models.json"
 def check():
     try: data=json.loads(MANIFEST.read_text())
     except Exception as exc: return [f"cannot read model manifest: {exc}"]
-    rows=data.get("entries", data.get("models", data)) if isinstance(data, dict) else data
+    rows=list(data.get("entries", {}).values()) if isinstance(data, dict) else data
     errors=[]; ids=set()
     if not isinstance(rows,list): return ["model manifest must contain a list"]
     for i,row in enumerate(rows):
