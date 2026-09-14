@@ -21,7 +21,10 @@
 6. rollout 将 repository readiness 与 `single_owner_not_activated` observed state 分开记录。
 7. single-owner activation 在锁内拒绝最近 24 个已完成小时及当前到未来 72 小时的 catalog 缺口和非精确 UTC-hour bounds；
    首次 Bundle 部署所需 IAM bootstrap 有唯一运维入口且 app image 切换前 fail closed。
-8. app rollback 与 Bundle Worker/host runners 解耦：目标 release tree 显式声明 Bundle runtime contract；legacy app 只保留 fully verified live Worker，在 app mutation 前收敛当前 maintenance 并禁用 boundary，跳过 canary、暂停 DROP、明确报告 degraded；无 verified Worker 则在任何 mutation 前失败。
+8. app rollback 与 Bundle Worker/host runners 解耦：目标 release tree 显式声明 Bundle runtime contract；legacy app 只保留 fully verified live Worker，验证独立 maintenance pin，在 app mutation 前暂停 DROP 并禁用 boundary，跳过 canary、暂停 DROP、明确报告 degraded；无 verified Worker 则在任何 mutation 前失败。
+
+9. 常规 gateway 发布只读解析 QA producer 地址，不切换 QA role 或等待 Worker；仅 legacy rollback 与独立 QA 工作流互斥。
+10. 独立 QA 发布更新 target-tag maintenance runtime，绑定 pin 后完成 systemd health/canary 才记录实际 gateway/publisher/Worker/maintenance 组合并解除 DROP 暂停；任一验收失败或运行版本漂移保留旧记录与暂停。`canary-only` 不更新 pin/验收记录。
 
 ## Linked Tests
 
@@ -47,9 +50,13 @@
 - `ops/qa/test_qa_bundle_release_surface.py`::`QABundleReleaseSurfaceTest.test_gateway_only_change_is_not_bundle_surface`
 - `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_missing_contract_is_legacy_and_preserves_verified_tag`
 - `ops/qa/test_resolve_qa_bundle_worker_image.py`::`ResolveQABundleWorkerImageTest.test_legacy_without_verified_worker_fails_closed`
-- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_worker_discovery_precedes_resolution_and_all_mutation`
-- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_rollback_converges_safe_control_plane_before_app_mutation`
-- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_qa_infra_check_is_read_only_and_verifies_oidc_binding`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_us051_selected_components_and_drain_join_preserve_gateway_acceptance_order`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_bundle_coordinates_are_not_hardcoded_in_deploy_owners`
+- `ops/stage0/test_deploy_qa_bundle_workflow.py`::`DeployQABundleWorkflowTest.test_qa_infra_check_is_read_only_and_verifies_oidc_binding`
+- `ops/stage0/test_deploy_stage0_workflow.py`::`DeployStage0WorkflowTest.test_legacy_safety_is_fail_closed_and_excluded_from_normal_gateway_path`
+- `ops/stage0/test_deploy_qa_bundle_workflow.py`::`DeployQABundleWorkflowTest.test_maintenance_acceptance_order_and_canary_only_never_mutates_release_state`
+- `ops/stage0/test_prod_component_release.py`::`ComponentPlanTest.test_standalone_qa_acceptance_preserves_and_tests_actual_gateway`
+- `ops/stage0/test_prod_component_release.py`::`ReleaseStateTest.test_qa_acceptance_records_tested_publisher_not_requested_worker`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle list, detail, watermark and ZIP export stay on Bundle/S3 paths`
 - `frontend/e2e/qa-bundle.e2e.ts`::`QA Bundle entitlement denial removes the entry and never starts a job`
 - `frontend/e2e/qa-bundle.e2e.ts`::`temporary unavailability is recoverable from the visible retry action`

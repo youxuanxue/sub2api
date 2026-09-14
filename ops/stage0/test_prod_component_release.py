@@ -29,6 +29,42 @@ _install_spec.loader.exec_module(installer)
 
 
 class ComponentPlanTest(unittest.TestCase):
+    def test_split_release_classification_is_contract_based_and_unknown_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            rollout = Path(directory) / "rollout.yaml"
+            self.assertEqual(planner.release_mode(rollout), "legacy_rollback")
+            rollout.write_text("prod: {}\n")
+            self.assertEqual(planner.release_mode(rollout), "legacy_rollback")
+            rollout.write_text("prod: {user_export: {bundle_runtime_contract: unknown}}\n")
+            with self.assertRaisesRegex(ValueError, "unsupported"):
+                planner.release_mode(rollout)
+            rollout.write_text("prod: {component_release: {runtime_contract: unknown}}\n")
+            with self.assertRaisesRegex(ValueError, "unsupported"):
+                planner.release_mode(rollout)
+            rollout.write_text("[malformed")
+            with self.assertRaises(ValueError):
+                planner.release_mode(rollout)
+        self.assertEqual(planner.release_mode(ROOT / "ops/qa/deploy_rollout.yaml"), "phase3")
+
+    def test_standalone_qa_acceptance_preserves_and_tests_actual_gateway(self):
+        rollout = ROOT / "ops/qa/deploy_rollout.yaml"
+        result = planner.qa_plan("1.8.228", "1.8.227", rollout, rollout)
+        self.assertFalse(result["deploy_gateway"])
+        self.assertEqual(result["gateway_tag"], "1.8.227")
+        self.assertEqual(result["canary_tag"], "1.8.227")
+        self.assertEqual(result["maintenance_tag"], "1.8.228")
+        self.assertEqual(result["worker_image"], planner.REPOSITORY + ":1.8.228")
+        for target, gateway in ((Path("/missing"), rollout), (rollout, Path("/missing"))):
+            with self.subTest(target=target, gateway=gateway), self.assertRaisesRegex(ValueError, "compatible"):
+                planner.qa_plan("1.8.228", "1.8.227", target, gateway)
+
+    def test_legacy_rollback_rejects_a_pin_left_unverified_by_failed_qa_deploy(self):
+        state = copy.deepcopy(self.state)
+        state["runtime"]["id"] = "unaccepted-pin"
+        with self.assertRaisesRegex(ValueError, "verified worker and pinned maintenance"):
+            planner.plan(ROOT, "1.8.150", "1.8.214", planner.REPOSITORY + ":1.8.183",
+                         state, Path("/missing-legacy-rollout"))
+
     def setUp(self):
         self.state = {"runtime": {"tag": "1.8.200", "id": "pin", "host_sha": "host"},
                       "verified": {"schema_version": planner.SCHEMA, "gateway_tag": "1.8.214",
@@ -196,6 +232,44 @@ tk_resolve_qa_runtime
 
 
 class QARuntimeInstallTest(unittest.TestCase):
+    def test_sync_passes_verified_coordinates_to_config_render_without_gateway_redeploy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            for name, body in {
+                "aws": "#!/bin/bash\ncase \"$*\" in *send-command*) echo command;; *'--query Status'*) echo Success;; *'--query ResponseCode'*) echo 0;; esac\n",
+                "sleep": "#!/bin/bash\nexit 0\n",
+                "sudo": "#!/bin/bash\nexec \"$@\"\n",
+            }.items():
+                command = fake_bin / name
+                command.write_text(body)
+                command.chmod(0o755)
+            queue = "https://sqs.example.test/queue'$(exit 42)"
+            env = {**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"],
+                   "QA_BUNDLE_QUEUE_URL": queue, "QA_BUNDLE_STORAGE_BUCKET": "new-bucket",
+                   "QA_MAINTENANCE_IMAGE": planner.REPOSITORY + ":1.8.228",
+                   "AWS_REGION": "us-east-1", "STAGE0_SSM_OUTPUT_DIR": str(root / "output")}
+            result = subprocess.run(["bash", str(ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"), "i-test"],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            commands = json.loads((root / "output/ssm-params.json").read_text())["commands"]
+            install = next(command for command in commands if command.startswith("sudo env "))
+            capture = fake_bin / "python3"
+            capture.write_text(f"#!{sys.executable}\nimport os, json\nprint(json.dumps(dict(os.environ)))\n")
+            capture.chmod(0o755)
+            result = subprocess.run(["bash", "-c", install], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            received = json.loads(result.stdout)
+            self.assertEqual(received["QA_BUNDLE_QUEUE_URL"], queue)
+            self.assertEqual(received["QA_BUNDLE_STORAGE_BUCKET"], "new-bucket")
+            self.assertEqual(received["QA_BUNDLE_STORAGE_REGION"], "us-east-1")
+            env.pop("QA_BUNDLE_STORAGE_BUCKET")
+            result = subprocess.run(["bash", str(ROOT / "ops/stage0/sync-qa-maintenance-timer-via-ssm.sh"), "i-test"],
+                                    env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("supplied together", result.stderr)
+
     def run_install(self, *, fail_promotion=False, keep_previous=False):
         image = planner.REPOSITORY + ":1.8.215"
         names = {"tokenkey-qa-runtime": "old"}
@@ -310,6 +384,32 @@ class ReleaseStateTest(unittest.TestCase):
         result = subprocess.run(["bash"], input=release_state.remote_script("read", {}, "tk_resolve_app_container() { return 42; }"),
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 42)
+
+    def test_qa_acceptance_records_tested_publisher_not_requested_worker(self):
+        self.run_remote("pause", {"reason": "standalone_qa_acceptance"})
+        pin = self.run_remote("read")["runtime"]
+        plan = {"gateway_tag": "1.8.215", "target_tag": "1.8.228", "canary_tag": "1.8.215",
+                "maintenance_tag": "1.8.200", "runtime_id": pin["id"],
+                "runtime_host_sha": pin["host_sha"], "legacy_rollback": False}
+        result = self.run_remote("record", plan)
+        self.assertFalse(result["pause_drop"])
+        self.assertEqual(result["verified"]["publisher_tag"], "1.8.215")
+        self.assertEqual(result["verified"]["target_tag"], "1.8.228")
+        self.run_remote("pause")
+        plan["gateway_tag"] = "1.8.214"
+        with self.assertRaisesRegex(ValueError, "gateway changed"):
+            self.run_remote("record", plan)
+        self.assertTrue(self.run_remote("read")["pause_drop"])
+        self.assertEqual(self.run_remote("read")["verified"], result["verified"])
+
+    def test_record_takes_gateway_lock_before_resolving_active_color(self):
+        script = release_state.remote_script("record", {}, "tk_resolve_app_container() { echo reached-resolver >&2; return 42; }")
+        script = script.replace("/var/lib/tokenkey", str(self.root))
+        result = subprocess.run(["bash", "-c", "flock() { return 1; };\n" + script],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gateway deployment in progress", result.stderr)
+        self.assertNotIn("reached-resolver", result.stderr)
 
 
 class QARuntimeTransactionTest(unittest.TestCase):

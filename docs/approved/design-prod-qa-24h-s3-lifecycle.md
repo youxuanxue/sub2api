@@ -548,21 +548,22 @@ Bundle 基础设施 bootstrap 与普通 app 发布分属两个权限边界。首
   `QAInfraDeploymentRoleArn`；
 - deployment role 只信任 `repo:youxuanxue/sub2api:environment:prod` 的 GitHub OIDC subject，
   CloudFormation service role 只信任 `cloudformation.amazonaws.com`，且 live policy 与当前模板一致；
-- bootstrap 后按 `ops/qa/README.md` 只读核对上述事实，普通 deploy 继续由现有 workflow 前置门禁验证 outputs、
-  variable、role assumption 与 CloudFormation 权限，不新增第二套 bootstrap workflow。旧 raw-archive stack 暂无
-  Bundle outputs 不是 blocker，首次 deploy 可以在 app image 切换前更新它；OIDC outputs、IAM trust/policy 或
-  GitHub variable 缺失则必须在任何 QA stack/app mutation 前失败。
+- bootstrap 后按 `ops/qa/README.md` 只读核对上述事实，独立 `deploy-qa-bundle.yml` 验证 outputs、
+  variable、role assumption 与 CloudFormation 权限。旧 raw-archive stack 暂无 Bundle outputs 时，
+  先运行独立 QA 部署完成基础设施，再发布 gateway；常规 gateway 只读解析现有 producer 地址。
+  QA OIDC outputs、IAM trust/policy 或 GitHub variable 缺失必须在 QA mutation 前失败。
 
-2026-09-10 用户批准的 [组件发布修订](prod-component-release.md) 更新本节的发布边界：gateway、
-Bundle Worker 和 maintenance 各自固定版本与已验收基线，仍通过同一个 prod deploy 入口自动选择。
+2026-09-14 用户确认的 [独立发布与旧版回滚修订](design-split-deploy-qa-bundle.md) 更新本节的发布边界：
+gateway 与 QA 各自发布；Bundle Worker 和 maintenance 由独立 QA 入口更新并完成组合验收。
+独立 runtime 契约继续遵循 [组件发布修订](prod-component-release.md)。
 目标 release tree 必须同时声明 `bundle_runtime_contract: phase3_v1` 与
 `component_release.runtime_contract: independent_v1`；不根据 semver 下限猜测能力。
 
-`prod_release_plan.py` 消费真实 gateway tag、完整 discovery 验证的 Worker、独立 QA pin，以及已通过
-验收的 publisher 基线。共享依赖联动发布，未知 Git 证据失败退出，验收回执缺失或漂移则重新验收 QA。
+`prod_release_plan.py` 从目标契约选择常规/legacy 路径，独立 QA 验收记录真实 gateway/publisher、
+Worker 与独立 QA pin。未知契约失败退出，验收回执缺失或漂移不能作为旧版回滚的维护基线。
 gateway-only 变更不滚动 Worker、不替换 maintenance、不执行 maintenance 或完整 Bundle canary。
 discovery 仍必须验证 stack complete、CORS、AES256、lifecycle、queue/DLQ、ECS capacity 与实际 task
-image 精确等于 stack parameter。infra deploy 与 verifier 消费同一个 `resolved_worker_image`。
+image 精确等于 stack parameter。infra deploy 与 verifier 使用同一个 requested-tag Worker image。
 
 maintenance 通过独立停止容器固定镜像与配置，复用 PostgreSQL data network，不再读取活动网关的
 配置或 network namespace。旧 contract 回滚保留已验证 Worker 和独立 QA pin，在切换网关前写入

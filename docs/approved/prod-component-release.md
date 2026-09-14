@@ -7,18 +7,17 @@ scope: "prod component classification, independent QA runtime, parallel gateway 
 
 # Independent Prod Component Releases
 
-The single `deploy-stage0.yml` entry selects components automatically. A gateway-only
-change does not update QA infrastructure, replace QA runners, execute maintenance,
-or run the full Bundle canary. A QA-only change preserves the serving gateway.
-Shared build, schema, and QA protocol changes coordinate the necessary components.
-General cleanup/aggregation services remain in the gateway in this change.
+Production workflow ownership is now split by the approved
+[`design-split-deploy-qa-bundle.md`](design-split-deploy-qa-bundle.md) revision.
+`deploy-stage0.yml` performs gateway acceptance and the legacy-only safety exception;
+`deploy-qa-bundle.yml` owns Worker and independent maintenance deployment and acceptance.
+General cleanup/aggregation services remain in the gateway.
 
-`ops/stage0/prod_release_plan.py` owns classification. It consumes the Bundle
-worker/publisher paths from `ops/qa/qa_bundle_release_surface.py`, shared runtime
-dependencies, the actual serving gateway, verified live ECS worker, and pinned
-maintenance tag. Publisher comparison starts from the last verified publisher
-baseline, never implicitly from the worker tag. Unknown Git evidence fails closed;
-missing or drifted verification state requires QA acceptance.
+`ops/stage0/prod_release_plan.py` owns target runtime-contract classification and QA
+acceptance planning. Its component-diff mode remains available for release analysis,
+consuming the Bundle worker/publisher paths from `ops/qa/qa_bundle_release_surface.py`.
+The standalone QA plan preserves the observed gateway version and tests that publisher
+against the requested Worker/maintenance version. Unknown contract evidence fails closed.
 
 `/var/lib/tokenkey/qa-release/verified.json` records the accepted component versions,
 runtime container ID, host artifact fingerprint, plan ID, and verification timestamp.

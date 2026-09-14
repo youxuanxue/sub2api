@@ -25,7 +25,7 @@ description: Drive TokenKey Stage0 release, prod deploy, edge rollout, smoke, ro
 | Edge upgrade/smoke/rollback dispatch | 机械 | `bash scripts/stage0/dispatch-edge-deploy.sh --edge-id … --operation …` |
 | **其余 Edge rollout（bounded parallel fail-stop + smoke 标记验收）** | 机械 | `bash scripts/stage0/rollout-edges.sh --tag X.Y.Z --skip <canary>`（**默认 `--parallel 1` 顺序**，降低并发换容器对线上的影响；`N>1` 仅在可接受该影响时用） |
 | dispatch release.yml / deploy-stage0.yml + watch | 机械 | `gh workflow run` + `gh run watch --exit-status` |
-| **prod pricing registry runtime audit** | 机械 | `deploy-stage0.yml` 在镜像切换 + external health 后只读执行 `ops/pricing/manage-overlay-runtime.py check`；价格发布独立由 registry 合并到 protected main 后触发 `pricing-registry-publish.yml` |
+| **prod pricing registry runtime audit** | 机械 | `ops-daily-diagnostics.yml` 经 `ops/observability/prod-config-audit.sh` 只读执行 `ops/pricing/manage-overlay-runtime.py check`；价格发布独立由 registry 合并到 protected main 后触发 `pricing-registry-publish.yml` |
 | prod 镜像预热（deploy 前，把 ~150s pull 移出关键路径） | 机械 | `gh workflow run warm-image-stage0.yml` + `approve-github-run-env.sh` + watch（只读、非致命） |
 | prod / warm Environment approval | 机械 | `bash scripts/stage0/approve-github-run-env.sh --run-id <id> --comment "…"`（批不批、何时批是判断） |
 | prod 完整 smoke（CI 唯一验收源） | 机械 | `deploy-stage0.yml` job log 内 `tk_post_deploy_smoke: OK`（`GATEWAY_SMOKE_SUITE=full`） |
@@ -189,3 +189,8 @@ Gateway verification owners: `gateway_capability_host.py` (prepared candidate re
 (synthetic scenarios), `gateway_capability_check.py` (response semantics), all under `ops/stage0/`.
 Legacy historical replay remains in `prod_replay.py`; it is not the default deployment verification.
 See `docs/approved/prod-replay-capability-matrix.md`.
+
+
+独立 QA 发布入口：`.github/workflows/deploy-qa-bundle.yml`（`deploy` / `canary-only` / `qa-infra-check`）。
+普通 gateway/all rollout 不自动 dispatch QA；target contract 由 `ops/stage0/prod_release_plan.py`
+自动选择 legacy-only 回滚安全分支。发布与验收边界见 `docs/approved/design-split-deploy-qa-bundle.md`。

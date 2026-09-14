@@ -10,7 +10,8 @@ OUTPUT_DIR="${STAGE0_SSM_OUTPUT_DIR:-.qa-maintenance-health-gate}"
 
 [[ "${INSTANCE_ID}" =~ ^i-[0-9a-f]{17}$ ]] || { echo "valid instance id required" >&2; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GATE_SRC="$(cd "${SCRIPT_DIR}/../.." && pwd)/deploy/aws/stage0/tokenkey-qa-maintenance-health-gate.sh"
+ARTIFACT_ROOT="${QA_HOST_ARTIFACT_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+GATE_SRC="${ARTIFACT_ROOT}/deploy/aws/stage0/tokenkey-qa-maintenance-health-gate.sh"
 [[ -f "${GATE_SRC}" ]] || { echo "missing ${GATE_SRC}" >&2; exit 1; }
 
 mkdir -p "${OUTPUT_DIR}"

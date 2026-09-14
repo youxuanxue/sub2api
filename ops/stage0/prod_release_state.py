@@ -61,7 +61,7 @@ else:
                     raise TimeoutError('QA lifecycle busy; release state was not changed')
                 time.sleep(1)
         if operation == 'pause':
-            atomic('pause-drop', {'reason': 'legacy_gateway_rollback'})
+            atomic('pause-drop', {'reason': plan.get('reason', 'legacy_gateway_rollback')})
         elif operation == 'record':
             pin = runtime()
             gateway = json.loads(docker('inspect', os.environ['TK_RELEASE_ACTIVE_CONTAINER']))[0]
@@ -71,7 +71,7 @@ else:
                 raise ValueError('maintenance changed during component acceptance')
             if pin.get('id') != plan.get('runtime_id') or pin.get('host_sha') != plan.get('runtime_host_sha'):
                 raise ValueError('QA runtime changed after acceptance started')
-            receipt = dict(plan, runtime_id=pin['id'], runtime_host_sha=pin['host_sha'], publisher_tag=plan['target_tag'],
+            receipt = dict(plan, runtime_id=pin['id'], runtime_host_sha=pin['host_sha'], publisher_tag=plan.get('canary_tag', plan['target_tag']),
                            verified_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
             atomic('verified.json', receipt)
             if not plan['legacy_rollback']:
@@ -85,7 +85,10 @@ else:
 def remote_script(operation: str, payload: dict, resolver: str) -> str:
     encoded = base64.b64encode(REMOTE.encode()).decode()
     data = base64.b64encode(json.dumps(payload).encode()).decode()
-    return ("set -euo pipefail\n" + resolver
+    lock = ("exec 7>/var/lib/tokenkey/bluegreen-deploy.lock\n"
+            "flock -n 7 || { echo 'gateway deployment in progress; QA acceptance was not recorded' >&2; exit 1; }\n"
+            if operation == "record" else "")
+    return ("set -euo pipefail\n" + lock + resolver
             + "\nTK_RELEASE_ACTIVE_CONTAINER=$(tk_resolve_app_container auto)\nexport TK_RELEASE_ACTIVE_CONTAINER\n"
             + f"printf %s {shlex.quote(encoded)} | base64 -d | python3 - {shlex.quote(operation)} {shlex.quote(data)}\n")
 
