@@ -280,6 +280,8 @@ python3 .testing/user-stories/verify_quality.py
 
 ## Status
 
+逐 AC 的机器状态见 [`ops/observability/candidate-eligibility-acceptance-ledger.json`](../../ops/observability/candidate-eligibility-acceptance-ledger.json)。`contract-tested` 表示可重复的契约证据，`live-verified` 表示独立线上证据，`blocked` 表示仍缺证据；汇总 billing-watch 不得关闭单项 AC。
+
 - [x] Done
 
 The approved candidate implementation is merged and released as recorded below.
