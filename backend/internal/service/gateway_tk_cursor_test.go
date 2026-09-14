@@ -43,3 +43,22 @@ func TestCursorDoesNotEnableNonClaudeModelsForOrdinaryAnthropic(t *testing.T) {
 	delete(account.Extra, CursorSourceExtraKey)
 	require.False(t, cursorMappedModelAllowed(account, "composer-2.5", "composer-2.5"))
 }
+
+func TestCursorPolicyBridgeUsesOnlyStructuredEvidence(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		rejection cursor.AgentRejection
+		want      string
+	}{
+		{name: "cyber action takes precedence", rejection: cursor.AgentRejection{ActionRequired: "cyber_policy_review", ProviderMessage: "blocked by usage policy"}, want: "cyber_policy"},
+		{name: "usage wording uses shared detector", rejection: cursor.AgentRejection{ProviderMessage: "Invalid prompt: violating our usage policy"}, want: "usage_policy"},
+		{name: "diagnostic echo is not evidence", rejection: cursor.AgentRejection{Diagnostic: "additional_info=usage policy action_required=cyber_policy_review", Metadata: "CONTENT_POLICY"}},
+		{name: "unknown action is not cyber", rejection: cursor.AgentRejection{ActionRequired: "unknown_review"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, message := cursorPublicPolicyError(&tt.rejection)
+			require.Equal(t, tt.want, got)
+			require.NotContains(t, message, "cyber_policy_review")
+		})
+	}
+}

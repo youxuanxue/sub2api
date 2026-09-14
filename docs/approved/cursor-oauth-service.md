@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, 2026-09-14)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14)"
 created: 2026-09-07
 ---
 
@@ -55,6 +55,15 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   `doNativeMessagesRequest`; native completion errors and billing provenance
   also reach the Chat/Responses settlement result. Cursor has no separate
   selection or conversion fallback.
+- Native policy evidence (provider title/detail and typed analytics action) is
+  translated at the service boundary into the existing
+  `markOpenAISafetyPolicyEvent` vocabulary. `cyber_policy_review` maps to
+  `cyber_policy`; usage wording remains classified by the shared detector.
+  Native HTTP/SSE and relayed Messages errors preserve policy classification
+  through Chat/Responses converters. The existing handler owns session isolation
+  and zero-token error usage: no policy retry, account failover or cooldown,
+  and no successful settlement on a rejected run. Diagnostic maps and echoed
+  prompts are not policy evidence; operator details stay bounded/redacted.
 - Every request supplies its complete history. Tools are returned to the client
   for execution, and the native call is canceled at handoff. A later request
   reconstructs history on a fresh connection. Native filesystem/shell callbacks

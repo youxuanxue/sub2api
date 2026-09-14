@@ -223,7 +223,7 @@ func messageContent(result AgentResult) []map[string]any {
 
 // Messages translates the supplier's native protocol once. The gateway keeps
 // ownership of Chat/Responses conversion, candidate selection and billing.
-func Messages(ctx context.Context, token string, body []byte, parameters []Parameter, wireModel string, do func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+func Messages(ctx context.Context, token string, body []byte, parameters []Parameter, wireModel string, do func(*http.Request) (*http.Response, error), formatError ...func(error) (code, message string)) (*http.Response, error) {
 	input, stream, err := parseMessages(body, parameters, wireModel)
 	if err != nil {
 		return messagesError(http.StatusBadRequest, err.Error()), nil
@@ -320,17 +320,23 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 			} else {
 				slog.Error("cursor_messages_run_agent_failed", "err", runErr, "messages_request_id", id)
 			}
+			code, message := "", runErr.Error()
+			if len(formatError) > 0 && formatError[0] != nil {
+				if mappedCode, mappedMessage := formatError[0](runErr); mappedCode != "" {
+					code, message = mappedCode, mappedMessage
+				}
+			}
 			if !started {
 				status := http.StatusBadGateway
 				var upstream *Error
 				if errors.As(runErr, &upstream) {
 					status = upstream.Status
 				}
-				response := messagesError(status, runErr.Error())
+				response := messagesError(status, message, code)
 				response.Header.Set("X-Request-Id", id)
 				ready <- response
 			} else {
-				_ = event("error", map[string]any{"error": map[string]any{"type": messagesErrorType(runErr), "message": runErr.Error()}})
+				_ = event("error", map[string]any{"error": map[string]any{"type": messagesErrorType(runErr), "message": message, "code": code}})
 			}
 			_ = writer.CloseWithError(runErr)
 			return
@@ -375,8 +381,12 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		return nil, ctx.Err()
 	}
 }
-func messagesError(status int, message string) *http.Response {
-	raw, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": messagesStatusErrorType(status), "message": message}})
+func messagesError(status int, message string, code ...string) *http.Response {
+	errorBody := map[string]any{"type": messagesStatusErrorType(status), "message": message}
+	if len(code) > 0 && code[0] != "" {
+		errorBody["code"] = code[0]
+	}
+	raw, _ := json.Marshal(map[string]any{"type": "error", "error": errorBody})
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(bytes.NewReader(raw))}
 }
 

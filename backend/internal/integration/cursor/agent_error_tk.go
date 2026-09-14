@@ -19,6 +19,9 @@ type AgentRejection struct {
 	RequestID       string
 	Metadata        string
 	DetailInventory string
+	// Structured supplier facts; never derived from echoed additional_info.
+	ProviderMessage string
+	ActionRequired  string
 }
 
 func (e *AgentRejection) Error() string { return e.Cause.Error() }
@@ -30,7 +33,10 @@ func newAgentRejection(status int, code, message, token, requestID string, detai
 	default:
 		code = "unknown"
 	}
-	message += agentErrorDetailsText(details, token)
+	facts := &AgentRejection{}
+	message += agentErrorDetailsText(details, token, facts)
+	facts.ProviderMessage = agentBoundedErrorText(facts.ProviderMessage, token)
+	facts.ActionRequired = agentBoundedErrorText(facts.ActionRequired, token)
 	if token != "" {
 		message = strings.ReplaceAll(message, token, "[redacted]")
 	}
@@ -39,7 +45,7 @@ func newAgentRejection(status int, code, message, token, requestID string, detai
 	if len(message) > 2048 {
 		message = strings.ToValidUTF8(message[:2048], "") + "…"
 	}
-	return &AgentRejection{Cause: &Error{Status: status, Message: fmt.Sprintf("cursor upstream rejected request (Connect %s, mapped HTTP %d)", code, status)}, Code: code, Diagnostic: message, RequestID: requestID, DetailInventory: agentDetailInventory(details, token)}
+	return &AgentRejection{Cause: &Error{Status: status, Message: fmt.Sprintf("cursor upstream rejected request (Connect %s, mapped HTTP %d)", code, status)}, Code: code, Diagnostic: message, RequestID: requestID, DetailInventory: agentDetailInventory(details, token), ProviderMessage: facts.ProviderMessage, ActionRequired: facts.ActionRequired}
 }
 
 // Only decode the diagnostic fields from the pinned CLI's ErrorDetails schema.
@@ -47,13 +53,13 @@ func newAgentRejection(status int, code, message, token, requestID string, detai
 // Known diagnostic maps and metadata are redacted and bounded separately.
 // Wire owner: CLI 2026.09.02-c22c1a3, aiserver.v1.ErrorDetails (1=enum,
 // 2=CustomErrorDetails); CustomErrorDetails (1=title, 2=detail, 4=is_retryable,
-// 7=additional_info map<string,string>).
+// 7=additional_info map<string,string>, 10=ErrorAnalyticsMetadata (1=action_required)).
 type agentConnectDetail struct {
 	Type  string `json:"type"`
 	Value string `json:"value"`
 }
 
-func agentErrorDetailsText(details []agentConnectDetail, token string) string {
+func agentErrorDetailsText(details []agentConnectDetail, token string, facts ...*AgentRejection) string {
 	var out strings.Builder
 	for i, detail := range details {
 		if i >= 8 {
@@ -85,14 +91,14 @@ func agentErrorDetailsText(details []agentConnectDetail, token string) string {
 			}
 			if num == 2 && typ == protowire.BytesType {
 				nested, _ := protowire.ConsumeBytes(raw)
-				_, _ = out.WriteString(agentCustomErrorText(nested, token))
+				_, _ = out.WriteString(agentCustomErrorText(nested, token, facts...))
 			}
 			raw = raw[size:]
 		}
 	}
 	return out.String()
 }
-func agentCustomErrorText(raw []byte, token string) string {
+func agentCustomErrorText(raw []byte, token string, facts ...*AgentRejection) string {
 	var out strings.Builder
 	additional := make(map[string]string)
 	for len(raw) > 0 {
@@ -112,12 +118,24 @@ func agentCustomErrorText(raw []byte, token string) string {
 				label = "detail"
 			}
 			fmt.Fprintf(&out, "; %s=%s", label, value)
+			if len(facts) > 0 {
+				facts[0].ProviderMessage += " " + string(value)
+			}
 		}
 		if num == 7 && typ == protowire.BytesType && len(additional) < 32 {
 			entry, _ := protowire.ConsumeBytes(raw)
 			key, value := agentDiagnosticMapEntry(entry)
 			if key != "" {
 				additional[key] = value
+			}
+		}
+		if num == 10 && typ == protowire.BytesType {
+			nested, _ := protowire.ConsumeBytes(raw)
+			if action := agentAnalyticsActionRequired(nested); action != "" {
+				fmt.Fprintf(&out, "; action_required=%s", action)
+				if len(facts) > 0 {
+					facts[0].ActionRequired = action
+				}
 			}
 		}
 		if num == 4 && typ == protowire.VarintType {
@@ -182,4 +200,39 @@ func agentDetailInventory(details []agentConnectDetail, token string) string {
 		inventory = append(inventory, map[string]any{"type": detail.Type, "encoded_bytes": len(detail.Value), "sha256": fmt.Sprintf("%x", sha256.Sum256([]byte(detail.Value))), "known_schema": detail.Type == "aiserver.v1.ErrorDetails"})
 	}
 	return agentDiagnosticJSON(map[string]any{"count": len(details), "details": inventory}, token, 2048)
+}
+
+// ErrorAnalyticsMetadata belongs to the pinned official ErrorDetails schema.
+// Decode only the action label; redaction and bounds remain with the diagnostic
+// owner. No supplier-provided action is executed or treated as retry permission.
+func agentAnalyticsActionRequired(raw []byte) string {
+	var action string
+	for len(raw) > 0 {
+		num, typ, n := protowire.ConsumeTag(raw)
+		if n < 0 {
+			break
+		}
+		raw = raw[n:]
+		size := protowire.ConsumeFieldValue(num, typ, raw)
+		if size < 0 {
+			break
+		}
+		if num == 1 && typ == protowire.BytesType {
+			value, _ := protowire.ConsumeBytes(raw)
+			action = string(value)
+		}
+		raw = raw[size:]
+	}
+	return action
+}
+
+func agentBoundedErrorText(value, token string) string {
+	if token != "" {
+		value = strings.ReplaceAll(value, token, "[redacted]")
+	}
+	value = strings.Join(strings.Fields(logredact.RedactText(value)), " ")
+	if len(value) > 2048 {
+		value = strings.ToValidUTF8(value[:2048], "") + "…"
+	}
+	return value
 }

@@ -117,6 +117,9 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "chat", false, "", "") {
+			return nil, errOpenAICyberPolicyForwarded
+		}
 		if foErr := s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
@@ -218,6 +221,10 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 		}
 
 		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
+			u := claudeUsageToOpenAIUsage(&usage)
+			if forwardNativeMessagesPolicy(c, parsed.Payload, resp.StatusCode, &u, "chat", false, "", originalModel) {
+				return nil, errOpenAICyberPolicyForwarded
+			}
 			upstreamErr = parsed
 			break
 		}
@@ -487,6 +494,10 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 		}
 
 		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
+			u := claudeUsageToOpenAIUsage(&usage)
+			if forwardNativeMessagesPolicy(c, parsed.Payload, resp.StatusCode, &u, "chat", true, anthState.ResponseID, originalModel) {
+				return nil, errOpenAICyberPolicyForwarded
+			}
 			upstreamErr = parsed
 			break
 		}

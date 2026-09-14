@@ -79,7 +79,7 @@ func TestCursorRelayConversionsRetainBillingProvenance(t *testing.T) {
 func TestCursorRelayFailuresNeverCompleteOrSettle(t *testing.T) {
 	for _, protocol := range []string{"chat", "responses"} {
 		for _, stream := range []bool{false, true} {
-			for _, terminal := range []string{"error", "eof"} {
+			for _, terminal := range []string{"error", "eof", "cyber_policy", "usage_policy"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", protocol, stream, terminal), func(t *testing.T) {
 					frames := []string{
 						`{"type":"message_start","message":{"id":"msg-relay","type":"message","role":"assistant","content":[],"usage":{"input_tokens":0,"output_tokens":0}}}`,
@@ -88,6 +88,9 @@ func TestCursorRelayFailuresNeverCompleteOrSettle(t *testing.T) {
 					}
 					if terminal == "error" {
 						frames = append(frames, `{"type":"error","error":{"type":"rate_limit_error","message":"upstream unavailable"}}`)
+					}
+					if terminal == "cyber_policy" || terminal == "usage_policy" {
+						frames = append(frames, fmt.Sprintf(`{"type":"error","error":{"type":"invalid_request_error","code":%q,"message":"blocked by upstream usage policy"}}`, terminal))
 					}
 					var wire strings.Builder
 					for _, frame := range frames {
@@ -112,7 +115,16 @@ func TestCursorRelayFailuresNeverCompleteOrSettle(t *testing.T) {
 					}
 					require.Error(t, err)
 					require.Nil(t, result, "no native settlement evidence")
-					if !stream {
+					if terminal == "cyber_policy" || terminal == "usage_policy" {
+						require.ErrorIs(t, err, errOpenAICyberPolicyForwarded)
+						require.True(t, IsResponseCommitted(c))
+						if terminal == "cyber_policy" {
+							require.NotNil(t, GetOpsCyberPolicy(c))
+							require.Nil(t, GetOpsUsagePolicy(c))
+						} else {
+							require.NotNil(t, GetOpsUsagePolicy(c))
+						}
+					} else if !stream {
 						require.False(t, c.Writer.Written(), "buffered failure must leave error response ownership with the handler")
 					}
 				})
@@ -133,4 +145,49 @@ func TestCursorChatDisconnectStillSettlesTerminalUsage(t *testing.T) {
 	require.NotNil(t, result)
 	require.True(t, result.ClientDisconnect)
 	require.Equal(t, 5, result.Usage.OutputTokens)
+}
+
+func TestNativeMessagesPolicyRelayTerminatesWithoutSettlement(t *testing.T) {
+	for _, path := range []string{"native", "passthrough"} {
+		for _, stream := range []bool{false, true} {
+			for _, kind := range []string{"cyber_policy", "usage_policy"} {
+				t.Run(fmt.Sprintf("%s/stream=%t/%s", path, stream, kind), func(t *testing.T) {
+					payload := fmt.Sprintf(`{"type":"error","error":{"type":"invalid_request_error","code":%q,"message":"blocked by upstream usage policy"}}`, kind)
+					wire := payload
+					if stream {
+						wire = "event: error\ndata: " + payload + "\n\n"
+					}
+					resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(wire))}
+					recorder := httptest.NewRecorder()
+					c, _ := gin.CreateTestContext(recorder)
+					c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+					svc := protocolTargetTestService(nil)
+					account := cursorCandidateAccount("composer-2.5")
+					var result *OpenAIForwardResult
+					var err error
+					switch {
+					case path == "native" && stream:
+						result, err = svc.streamNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
+					case path == "native":
+						result, err = svc.bufferNativeAnthropicMessages(c, resp, "composer-2.5", "composer-2.5", "composer-2.5", time.Now())
+					case stream:
+						result, err = svc.handleNativeAnthropicStreamingResponse(t.Context(), resp, c, account, "composer-2.5", "composer-2.5", "composer-2.5", nil, time.Now())
+					default:
+						result, err = svc.handleNativeAnthropicBufferedResponse(t.Context(), resp, c, account, "composer-2.5", "composer-2.5", "composer-2.5", nil, time.Now())
+					}
+					require.ErrorIs(t, err, errOpenAICyberPolicyForwarded)
+					require.Nil(t, result)
+					require.True(t, IsResponseCommitted(c))
+					require.Equal(t, 1, strings.Count(recorder.Body.String(), `"error":`))
+					require.Contains(t, recorder.Body.String(), `"code":"`+kind+`"`)
+					if kind == "cyber_policy" {
+						require.NotNil(t, GetOpsCyberPolicy(c))
+						require.Nil(t, GetOpsUsagePolicy(c))
+					} else {
+						require.NotNil(t, GetOpsUsagePolicy(c))
+					}
+				})
+			}
+		}
+	}
 }

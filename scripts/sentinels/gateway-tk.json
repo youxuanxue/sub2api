@@ -503,14 +503,21 @@
         "cursor.Messages",
         "HTTPUpstreamProfileCursor",
         "CursorWireModelsKey",
-        "func cursorMessagesResponseError"
+        "func cursorMessagesResponseError",
+        "cursorPublicPolicyError",
+        "markOpenAISafetyPolicyEvent(nil, payload"
       ],
       "rationale": "Cursor executes natively using the account catalog and HTTP/2 transport; all protocol call sites share one adapter."
     },
     {
       "path": "backend/internal/integration/cursor/agent_error_tk.go",
-      "must_contain": ["agentErrorDetailsText", "logredact.RedactText", "aiserver.v1.ErrorDetails"],
+      "must_contain": ["agentErrorDetailsText", "logredact.RedactText", "aiserver.v1.ErrorDetails", "ActionRequired", "ProviderMessage"],
       "rationale": "Preserve bounded, credential-redacted native rejection diagnostics without exposing opaque supplier details."
+    },
+    {
+      "path": "backend/internal/service/openai_native_messages_policy_tk.go",
+      "must_contain": ["forwardNativeMessagesPolicy", "markOpenAISafetyPolicyEvent(c, payload", "buildChatStreamErrorSSE", "buildOpenAIResponseFailedSSE", "MarkResponseCommitted"],
+      "rationale": "Native Messages policy errors reuse shared safety classification and emit the selected endpoint's terminal error without account retry or successful settlement."
     },
     {
       "path": "backend/internal/service/cursor_buffered_failure_regression_test.go",
@@ -519,7 +526,7 @@
     },
     {
       "path": "backend/internal/service/cursor_native_transport_regression_test.go",
-      "must_contain": ["TestCursorProtocolRoutesUseNativeTransportAndSettlement"],
+      "must_contain": ["TestCursorProtocolRoutesUseNativeTransportAndSettlement", "cursorPolicyConnectFrame", "upstream.calls", "errOpenAICyberPolicyForwarded"],
       "rationale": "All public protocol routes must reach native Cursor transport and preserve reported, estimated and failed-run settlement."
     },
     {
@@ -538,7 +545,7 @@
     },
     {
       "path": "backend/internal/service/cursor_relay_billing_regression_test.go",
-      "must_contain": ["TestCursorRelayConversionsRetainBillingProvenance", "TestCursorRelayFailuresNeverCompleteOrSettle"],
+      "must_contain": ["TestCursorRelayConversionsRetainBillingProvenance", "TestCursorRelayFailuresNeverCompleteOrSettle", "TestNativeMessagesPolicyRelayTerminatesWithoutSettlement"],
       "rationale": "Exercise Chat and Responses, streaming and buffered, from Edge wire usage through durable settlement, including rejection of unknown billing labels."
     },
     {
@@ -553,12 +560,12 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
-      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, &result, &forwardErr)", "BillingTier:      usage.BillingTier"],
+      "must_contain": ["forwardNativeMessagesPolicy", "s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, &result, &forwardErr)", "BillingTier:      usage.BillingTier"],
       "rationale": "Chat conversion must execute the native supply adapter and retain its terminal billing outcome."
     },
     {
       "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
-      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, &result, &forwardErr)", "BillingTier:      usage.BillingTier"],
+      "must_contain": ["forwardNativeMessagesPolicy", "s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, &result, &forwardErr)", "BillingTier:      usage.BillingTier"],
       "rationale": "Responses conversion must execute the native supply adapter and retain its terminal billing outcome."
     },
     {
@@ -648,7 +655,7 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
-      "must_contain": ["s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel)"],
+      "must_contain": ["forwardNativeMessagesPolicy", "markOpenAISafetyPolicyEvent", "s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel)"],
       "rationale": "Native Messages and Chat-to-Messages must share supplier capability refusal failover."
     },
     {
@@ -9884,7 +9891,7 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
-      "must_contain": [
+      "must_contain": ["forwardNativeMessagesPolicy", "markOpenAISafetyPolicyEvent",
         "apiKey := nativeAnthropicAPIKeyForAccount(account)",
         "func nativeAnthropicAPIKeyForAccount(account *Account) string {",
         "account.Type != AccountTypeAPIKey",

@@ -5,10 +5,17 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
+	"google.golang.org/protobuf/proto"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,11 +29,105 @@ import (
 
 type cursorLiveTransport struct {
 	protocolTargetHTTPUpstream
-	client *http.Client
+	client   *http.Client
+	t        *testing.T
+	resumes  [][]byte
+	sequence int
 }
 
 func (u *cursorLiveTransport) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+
+	var header [5]byte
+	if _, err := io.ReadFull(req.Body, header[:]); err != nil {
+		return nil, err
+	}
+	size := binary.BigEndian.Uint32(header[1:])
+	if size > 4<<20 {
+		return nil, fmt.Errorf("oversize live request")
+	}
+	raw := make([]byte, size)
+	if _, err := io.ReadFull(req.Body, raw); err != nil {
+		return nil, err
+	}
+	var message pb.AgentClientMessage
+	if err := proto.Unmarshal(raw, &message); err != nil {
+		return nil, err
+	}
+	run := message.RunRequest
+	if run == nil {
+		return nil, fmt.Errorf("missing live Run request")
+	}
+	blobs := map[string][]byte{}
+	for _, b := range run.PreFetchedBlobs {
+		blobs[string(b.Id)] = b.Value
+	}
+	roots := []json.RawMessage{}
+	for _, id := range run.ConversationState.RootPromptMessagesJson {
+		roots = append(roots, json.RawMessage(blobs[string(id)]))
+	}
+	snapshot, err := json.Marshal(map[string]any{"roots": roots, "tools": run.McpTools, "model": run.RequestedModel, "system": run.SystemPromptSpec})
+	if err != nil {
+		return nil, err
+	}
+	u.sequence++
+	if run.Action.ResumeAction != nil {
+		u.resumes = append(u.resumes, snapshot)
+		u.t.Logf("native_resume=%d prompt_sha256=%x", u.sequence, sha256.Sum256(snapshot))
+	}
+	if dir := os.Getenv("TOKENKEY_CURSOR_TRACE_DIR"); dir != "" {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%02d-prompt.json", u.sequence)), snapshot, 0600); err != nil {
+			return nil, err
+		}
+	}
+	req.Body = &cursorLiveReplayBody{Reader: io.MultiReader(bytes.NewReader(header[:]), bytes.NewReader(raw), req.Body), Closer: req.Body}
+
+	if dir := os.Getenv("TOKENKEY_CURSOR_TRACE_DIR"); dir != "" {
+		outgoing, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf("%02d-request.bin", u.sequence)), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+		if err != nil {
+			return nil, err
+		}
+		u.t.Cleanup(func() { _ = outgoing.Close() })
+		req.Body = &cursorLiveReplayBody{Reader: io.TeeReader(req.Body, &cursorLiveTraceWriter{file: outgoing, remaining: 16 << 20}), Closer: req.Body}
+		resp, err := u.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		incoming, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf("%02d-response.bin", u.sequence)), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+		if err != nil {
+			_ = resp.Body.Close()
+			return nil, err
+		}
+		u.t.Cleanup(func() { _ = incoming.Close() })
+		resp.Body = &cursorLiveReplayBody{Reader: io.TeeReader(resp.Body, &cursorLiveTraceWriter{file: incoming, remaining: 16 << 20}), Closer: resp.Body}
+		return resp, nil
+	}
 	return u.client.Do(req)
+}
+
+type cursorLiveTraceWriter struct {
+	file      *os.File
+	remaining int
+}
+
+func (w *cursorLiveTraceWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	if w.remaining > 0 {
+		part := p[:min(n, w.remaining)]
+		written, err := w.file.Write(part)
+		w.remaining -= written
+		if err != nil {
+			return 0, err
+		}
+	}
+	return n, nil
+}
+
+type cursorLiveReplayBody struct {
+	io.Reader
+	io.Closer
 }
 
 // Opt-in integration probe of the actual native adapter and registered converters.
@@ -53,7 +154,8 @@ func TestCursorMessagesConvertersLive(t *testing.T) {
 	transport := &http.Transport{ForceAttemptHTTP2: true}
 	defer transport.CloseIdleConnections()
 	svc := protocolTargetTestService(nil)
-	svc.httpUpstream = &cursorLiveTransport{client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	liveUpstream := &cursorLiveTransport{t: t, client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	svc.httpUpstream = liveUpstream
 	call := func(inbound protocolrouter.Protocol, payload map[string]any) []byte {
 		t.Helper()
 		time.Sleep(2 * time.Second)
@@ -107,6 +209,73 @@ func TestCursorMessagesConvertersLive(t *testing.T) {
 	}
 	schema := map[string]any{"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"}, "additionalProperties": false}
 	prompt := "Call read_fixture with path fixture.txt. After receiving the result, return its exact contents. Do not guess."
+
+	if os.Getenv("TOKENKEY_CURSOR_LIVE_FIXED_HISTORY") != "" {
+		var first []byte
+		var fixedNonce string
+		if path := os.Getenv("TOKENKEY_CURSOR_FIXED_FIXTURE"); path != "" {
+			raw, err := os.ReadFile(path)
+			require.NoError(t, err)
+			var fixture struct {
+				Prompt string          `json:"prompt"`
+				First  json.RawMessage `json:"first"`
+				Nonce  string          `json:"nonce"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &fixture))
+			require.NotEmpty(t, fixture.Nonce)
+			prompt = fixture.Prompt
+			first = fixture.First
+			fixedNonce = fixture.Nonce
+		} else {
+			first = call(protocolrouter.ProtocolMessages, map[string]any{"stream": true, "messages": []any{map[string]any{"role": "user", "content": prompt}}, "tools": []any{map[string]any{"name": "read_fixture", "description": "Read a local fixture.", "input_schema": schema}}})
+		}
+		var text strings.Builder
+		calls := gjson.GetBytes(first, `content.#(type=="tool_use")#`).Array()
+		require.Len(t, calls, 1)
+		for _, b := range gjson.GetBytes(first, "content").Array() {
+			if b.Get("type").String() == "text" {
+				text.WriteString(b.Get("text").String())
+			}
+		}
+		tool := calls[0]
+		nonce := fixedNonce
+		if nonce == "" {
+			nonce = "CURSOR_TOOL_" + uuid.NewString()
+		}
+		order := []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses}
+		modes := []bool{false, true}
+		if os.Getenv("TOKENKEY_CURSOR_LIVE_FIXED_HISTORY") == "reverse" {
+			order = []protocolrouter.Protocol{protocolrouter.ProtocolResponses, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolMessages}
+			modes = []bool{true, false}
+		}
+		for _, inbound := range order {
+			for _, stream := range modes {
+				payload := map[string]any{"stream": stream}
+				user := map[string]any{"role": "user", "content": prompt}
+				switch inbound {
+				case protocolrouter.ProtocolMessages:
+					payload["messages"] = []any{user, map[string]any{"role": "assistant", "content": json.RawMessage(gjson.GetBytes(first, "content").Raw)}, map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": tool.Get("id").String(), "content": nonce}}}}
+					payload["tools"] = []any{map[string]any{"name": "read_fixture", "description": "Read a local fixture.", "input_schema": schema}}
+				case protocolrouter.ProtocolChatCompletions:
+					payload["messages"] = []any{user, map[string]any{"role": "assistant", "content": text.String(), "tool_calls": []any{map[string]any{"id": tool.Get("id").String(), "type": "function", "function": map[string]any{"name": "read_fixture", "arguments": tool.Get("input").Raw}}}}, map[string]any{"role": "tool", "tool_call_id": tool.Get("id").String(), "content": nonce}}
+					payload["tools"] = []any{map[string]any{"type": "function", "function": map[string]any{"name": "read_fixture", "description": "Read a local fixture.", "parameters": schema}}}
+				default:
+					input := []any{user}
+					if text.Len() > 0 {
+						input = append(input, map[string]any{"role": "assistant", "content": text.String()})
+					}
+					payload["input"] = append(input, map[string]any{"type": "function_call", "call_id": tool.Get("id").String(), "name": "read_fixture", "arguments": tool.Get("input").Raw}, map[string]any{"type": "function_call_output", "call_id": tool.Get("id").String(), "output": nonce})
+					payload["tools"] = []any{map[string]any{"type": "function", "name": "read_fixture", "description": "Read a local fixture.", "parameters": schema}}
+				}
+				result := call(inbound, payload)
+				require.Contains(t, string(result), nonce)
+			}
+		}
+		for _, snapshot := range liveUpstream.resumes {
+			require.JSONEq(t, string(liveUpstream.resumes[0]), string(snapshot), "fixed history must produce the same native prompt")
+		}
+		return
+	}
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		if selected := os.Getenv("TOKENKEY_CURSOR_LIVE_PROTOCOL"); selected != "" && selected != string(inbound) {
 			continue
@@ -130,7 +299,11 @@ func TestCursorMessagesConvertersLive(t *testing.T) {
 				payload["input"] = history
 				payload["tools"] = []any{map[string]any{"type": "function", "name": "read_fixture", "description": "Read a local fixture.", "parameters": schema}}
 			}
+
 			first := call(inbound, payload)
+			if dir := os.Getenv("TOKENKEY_CURSOR_TRACE_DIR"); dir != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("%s-%t-handoff.json", inbound, stream)), first, 0600))
+			}
 			nonce := "CURSOR_TOOL_" + uuid.NewString()
 			switch inbound {
 			case protocolrouter.ProtocolMessages:

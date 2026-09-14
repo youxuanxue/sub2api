@@ -5,7 +5,10 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,11 +21,13 @@ import (
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
 
 type cursorNativeTestUpstream struct {
 	protocolTargetHTTPUpstream
+	calls    int
 	run      *pb.AgentRunRequest
 	response []byte
 }
@@ -31,6 +36,7 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 	if req.URL.String() != cursor.AgentBaseURL+"/agent.v1.AgentService/Run" || HTTPUpstreamProfileFromContext(req.Context()) != HTTPUpstreamProfileCursor {
 		return nil, fmt.Errorf("request bypassed Cursor native transport")
 	}
+	u.calls++
 	var header [5]byte
 	if _, err := io.ReadFull(req.Body, header[:]); err != nil {
 		return nil, err
@@ -50,7 +56,7 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		for _, stream := range []bool{false, true} {
-			for _, outcome := range []string{"reported", "handoff", "resumed", "incomplete"} {
+			for _, outcome := range []string{"reported", "handoff", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", inbound, stream, outcome), func(t *testing.T) {
 					const model = "composer-2.5"
 					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
@@ -61,7 +67,7 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						body = []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_output_tokens":1,"input":"lookup","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}`, model, stream))
 						path = protocolrouter.ResponsesPathRoot
 					}
-					if outcome == "resumed" {
+					if outcome == "resumed" || strings.Contains(outcome, "_early") || strings.Contains(outcome, "_late") {
 						switch inbound {
 						case protocolrouter.ProtocolMessages:
 							body = []byte(strings.Replace(string(body), `"messages":[{"role":"user","content":"lookup"}]`, `"messages":[{"role":"user","content":"lookup"},{"role":"assistant","content":[{"type":"tool_use","id":"call_native","name":"lookup","input":{"key":"demo"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_native","content":"NATIVE_NONCE_739281"}]}]`, 1))
@@ -89,14 +95,18 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					}
 					if outcome == "handoff" {
 						frame(&pb.AgentServerMessage{ExecServerMessage: &pb.ExecServerMessage{McpArgs: &pb.McpArgs{Name: "mcp__tokenkey__lookup", ToolCallId: "call_native"}}})
-					} else {
+					} else if !strings.HasSuffix(outcome, "_early") {
 						frame(&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "NATIVE_OK"}}})
 					}
 					usage := &pb.TurnEndedUpdate{}
 					if outcome == "reported" || outcome == "resumed" {
 						usage = &pb.TurnEndedUpdate{InputTokens: proto.Int64(11), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}
 					}
-					frame(&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: usage}})
+					if strings.HasPrefix(outcome, "cyber_") || strings.HasPrefix(outcome, "usage_") {
+						response.Write(cursorPolicyConnectFrame(t, strings.HasPrefix(outcome, "cyber_")))
+					} else {
+						frame(&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: usage}})
+					}
 					upstream := &cursorNativeTestUpstream{response: response.Bytes()}
 					svc := protocolTargetTestService(nil)
 					svc.httpUpstream = upstream
@@ -118,6 +128,27 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 							}
 							return result, err
 						}))
+					if strings.HasPrefix(outcome, "cyber_") || strings.HasPrefix(outcome, "usage_") {
+						require.ErrorIs(t, err, errOpenAICyberPolicyForwarded)
+						require.Nil(t, result)
+						var failover *UpstreamFailoverError
+						require.False(t, errors.As(err, &failover))
+						require.Equal(t, 1, upstream.calls)
+						require.True(t, IsResponseCommitted(c))
+						if strings.HasPrefix(outcome, "cyber_") {
+							require.NotNil(t, GetOpsCyberPolicy(c))
+							require.Nil(t, GetOpsUsagePolicy(c))
+						} else {
+							require.NotNil(t, GetOpsUsagePolicy(c))
+							require.Nil(t, GetOpsCyberPolicy(c))
+						}
+						require.Equal(t, 1, strings.Count(recorder.Body.String(), `"error":`))
+						require.NotContains(t, recorder.Body.String(), `"status":"completed"`)
+						require.NotContains(t, recorder.Body.String(), `"finish_reason":"stop"`)
+						require.NotContains(t, recorder.Body.String(), "cyber_policy_review")
+						require.NotContains(t, recorder.Body.String(), "message_stop")
+						return
+					}
 					if outcome == "incomplete" {
 						require.Error(t, err, "an incomplete native run must not be billed as successful")
 						require.Nil(t, result, "missing native settlement must not create usage")
@@ -165,4 +196,23 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 			}
 		}
 	}
+}
+
+// The cyber fixture is the retained supplier 13 detail. Usage-only removes just
+// the analytics action, exercising the existing structured-text policy owner.
+func cursorPolicyConnectFrame(t *testing.T, cyber bool) []byte {
+	t.Helper()
+	detail := "CA0SlgEKHFJlcXVlc3QgYmxvY2tlZCBieSBBbnRocm9waWMSXVdlIGFyZSB1bmFibGUgdG8gY29tcGxldGUgdGhpcyByZXF1ZXN0IGJlY2F1c2UgaXQgd2FzIGJsb2NrZWQgdW5kZXIgQW50aHJvcGljJ3MgVXNhZ2UgUG9saWN5LiAAUhUKE2N5YmVyX3BvbGljeV9yZXZpZXcYAQ"
+	if !cyber {
+		custom := protowire.AppendTag(nil, 2, protowire.BytesType)
+		custom = protowire.AppendString(custom, "Request blocked under Anthropic's Usage Policy.")
+		raw := protowire.AppendTag(nil, 2, protowire.BytesType)
+		raw = protowire.AppendBytes(raw, custom)
+		detail = base64.RawStdEncoding.EncodeToString(raw)
+	}
+	raw, err := json.Marshal(gin.H{"error": gin.H{"code": "invalid_argument", "message": "Error", "details": []any{gin.H{"type": "aiserver.v1.ErrorDetails", "value": detail}}}})
+	require.NoError(t, err)
+	header := [5]byte{2}
+	binary.BigEndian.PutUint32(header[1:], uint32(len(raw)))
+	return append(header[:], raw...)
 }

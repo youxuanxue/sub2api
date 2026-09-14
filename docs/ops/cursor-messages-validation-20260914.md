@@ -12,12 +12,20 @@ The final read-only snapshot shows `schedulable=false`, priority 100 and concurr
 
 ## Latest outcome
 
-The original supplier 57 / provider 400 continuation defect is reproduced and
-fixed locally. For Opus 5, Messages passes text, initial tools and continuation
-in both response modes. Chat and Responses pass text and initial tools in both
-modes and buffered continuation. Their streaming continuation remains rejected
-with supplier 13 / CONTENT_POLICY, so complete three-protocol acceptance is still
-blocked. Nothing in this report is deployment or production billing acceptance.
+The supplier 57 / provider 400 continuation defect is reproduced and fixed
+locally. All 18 Opus 5 protocol/mode/scenario cells now have passing evidence,
+including Chat and Responses streaming continuation. Equivalent native history
+can also receive supplier 13 / CONTENT_POLICY: the retained ErrorDetails explicitly
+says Anthropic Usage Policy, `isRetryable=false`, and
+`analyticsMetadata.actionRequired=cyber_policy_review`. This is a supplier policy
+refusal, not evidence of a Chat/Responses-specific converter defect. The supplier's
+internal trigger and whether any account review is required remain unproven.
+
+The repair maps native structured facts to the existing shared usage/cyber policy
+owner. Policy refusals terminate once, without retry, failover, account cooldown
+or successful settlement. Existing handler session isolation and zero-token error
+usage remain the owners. No new live policy retries were made for this repair.
+Nothing in this report is deployment or production billing acceptance.
 
 ## Confirmed code repairs
 
@@ -57,9 +65,8 @@ Correlated native requests:
 The original production `invalid_argument`/Fable failures did not retain native
 ErrorDetails. Their exact rejected fields cannot be reconstructed from those logs.
 The new generic Provider Error does not prove whether the supplier fault was
-triggered by request shape or a supplier incident. Full Claude tool continuation
-and changed-code Chat/Responses live acceptance remain unverified; do not label
-this account fully accepted or resume production scheduling on this evidence.
+triggered by request shape or a supplier incident. Those early samples alone did not validate continuation; the later controlled
+evidence below supersedes that uncertainty. Production scheduling remains paused.
 
 ## Reproducible local checks
 
@@ -114,7 +121,8 @@ Recommended next bounded investigation: replay a captured successful official
 checkpoint and blob set in a fresh Run, then reduce that state one variable at a
 time. This distinguishes a missing state requirement from inability to resume
 across connections before proposing any production session-storage architecture.
-Messages continuation and the Chat/Responses live matrix remain unaccepted.
+At that checkpoint, Messages continuation and the converter matrix were unaccepted;
+the subsequent sections record the resumed investigation.
 
 Current diagnostic additions retain redacted bounded additional-info, trailer
 metadata and an opaque-detail inventory. The opt-in native probe is
@@ -160,12 +168,12 @@ nonce. Streaming output must carry the protocol's successful terminal marker.
 | Protocol | Buffered text | Buffered tool call | Buffered continuation | Streaming text | Streaming tool call | Streaming continuation |
 | --- | --- | --- | --- | --- | --- | --- |
 | Messages | Pass | Pass | Pass | Pass | Pass | Pass |
-| Chat | Pass | Pass | Pass | Pass | Pass | Supplier 13 / CONTENT_POLICY |
-| Responses | Pass | Pass | Pass | Pass | Pass | Supplier 13 / CONTENT_POLICY |
+| Chat | Pass | Pass | Pass | Pass | Pass | Pass; also policy refusals |
+| Responses | Pass | Pass | Pass | Pass | Pass | Pass; also policy refusals |
 
-Thus 16 of 18 distinct matrix cells have passing evidence. Chat streaming
-continuation reproduced the policy rejection twice; Responses then reproduced
-it as well. Correlated requests:
+The initial matrix had 16 of 18 passing cells. Before the later fixed-history
+comparison, Chat and Responses streaming continuation returned policy refusals.
+Correlated requests:
 
 - Chat: `8c92bce2-1011-4958-a813-d2a0cc07482d` and
   `6cbaf2f8-37f6-459f-872e-1921b31b4906`.
@@ -173,10 +181,9 @@ it as well. Correlated requests:
 
 These failures carry Connect `invalid_argument`, supplier 13 and metadata
 `CONTENT_POLICY`; they are not the earlier supplier 57 / provider 400.
-The supplier supplies no detailed rejected-field explanation. A converter defect
-versus an upstream policy decision is not established by these logs alone.
-Three repeated failures triggered the repository pause rule; further upstream
-experiments require renewed operator direction. Account scheduling stays paused.
+These initial logs did not decode the analytics action. Three repeated failures
+triggered the pause rule; the user subsequently authorized the bounded comparison
+below. Account scheduling stays paused.
 
 Local validation for the empty-slot repair and diagnostic additions:
 `make -C backend test` passed (all backend unit tests and lint, zero issues).
@@ -187,3 +194,48 @@ use the approved estimated tier; final completions use the reported tier.
 
 Repository preflight passed after the code changes; final documentation/sentinel
 updates are checked again before the local commit. No deployment was performed.
+
+## Fixed-history policy comparison and SSOT repair
+
+One synthetic handoff/history/nonce was held fixed across all three protocols
+and both modes. Every resumed normalized prompt had SHA-256
+`230b99f5ae4c64d882348b50ea48d0425589e21f4023ce31c48f0f6acadeaf45`.
+Full native comparisons additionally covered root history, steps, model, tool
+schemas and request context. Fresh UUIDs and protobuf map serialization order
+differed; semantic content matched. This is not a byte-identical wire claim.
+
+- Messages → Chat → Responses order: Messages both passed, Chat both passed,
+  Responses buffered passed, Responses streaming refused
+  (`07e4f1b4-bc26-4a87-8110-8433859d6d2e`).
+- Responses → Chat → Messages order, same fixture: Responses both passed,
+  Chat streaming refused (`cf20c700-1955-4e75-9ab7-88120602ea91`); stopped there.
+
+Both remaining cells therefore have successful native usage and nonce evidence.
+The differing outcomes for equivalent history do not justify policy retries or
+wire-order manipulation. No further live refusal probes followed the user's
+instruction to use existing usage/cyber policy and no-retry SSOT.
+
+Pinned CLI ErrorDetails field 2 / CustomErrorDetails field 10 /
+ErrorAnalyticsMetadata field 1 provides the structured `cyber_policy_review`
+action. Only title/detail and this action feed the bridge; arbitrary echoed
+additional-info, opaque details and raw prompts cannot classify a session.
+Supplier metadata remains bounded/redacted operator evidence, with fixed safe
+public error text.
+
+`cursorPublicPolicyError` translates these native facts into the existing
+`markOpenAISafetyPolicyEvent` vocabulary. Native HTTP and SSE consumers mark the
+same request context before returning the existing forwarded-policy sentinel.
+Chat emits one error chunk, Responses one response.failed, and Messages retains
+one native error. Canonical error codes survive the Messages relay wire. No new
+session store, policy detector, account punishment, retry loop or billing path
+was introduced. Existing handler policy tests cover isolation and zero-token
+error accounting; the new native matrix covers early/late policy rejection in
+all three protocols and both modes, one native attempt and no successful result.
+
+Local policy validation: `make -C backend test` passed (backend unit suite and
+lint, zero issues). The final Messages JSON/SSE relay additions also passed
+`go -C backend test -tags=unit ./internal/service -run
+'Test(Cursor|NativeMessagesPolicy)' -count=1`. These are offline tests; no further
+policy-rejected requests were sent upstream. Remote account snapshots, probe
+binary and signed URL, the private S3 transport object, and local probe artifacts
+were removed; protected synthetic traces remain for audit.

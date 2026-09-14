@@ -111,6 +111,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
+			return nil, errOpenAICyberPolicyForwarded
+		}
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
@@ -266,6 +269,10 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	if forwardNativeMessagesPolicy(c, body, resp.StatusCode, nil, "messages", false, "", "") {
+		return nil, errOpenAICyberPolicyForwarded
+	}
+
 	observer.ObserveAnthropic(body)
 
 	var raw json.RawMessage
@@ -355,6 +362,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	clientDisconnected := false
 	sawTerminalEvent := false
 	terminalErrorWritten := false
+	policyBlocked := false
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -441,6 +449,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 		select {
 		case ev, ok := <-events:
 			if !ok {
+				if policyBlocked {
+					return nil, errOpenAICyberPolicyForwarded
+				}
 				if !clientDisconnected {
 					flusher.Flush()
 				}
@@ -451,6 +462,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 			}
 			if ev.err != nil {
+				if policyBlocked {
+					return nil, errOpenAICyberPolicyForwarded
+				}
 				if sawTerminalEvent {
 					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 				}
@@ -476,6 +490,8 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				observer.ObserveAnthropic([]byte(trimmed))
 				if gjson.Get(trimmed, "type").String() == "error" {
 					terminalErrorWritten = true
+					u := claudeUsageToOpenAIUsage(usage)
+					policyBlocked = markOpenAISafetyPolicyEvent(c, []byte(trimmed), resp.StatusCode, &u) != ""
 				}
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
@@ -512,6 +528,10 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				} else {
 					inPartialEvent = true
 				}
+			}
+
+			if line == "" && policyBlocked {
+				return nil, errOpenAICyberPolicyForwarded
 			}
 
 		case <-intervalCh:

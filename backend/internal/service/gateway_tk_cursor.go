@@ -106,7 +106,7 @@ func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUps
 	return cursor.Messages(req.Context(), account.GetCredential("api_key"), body, parameters, wireModel, func(native *http.Request) (*http.Response, error) {
 		ctx := WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(native.Context(), HTTPUpstreamProfileCursor))
 		return upstream.Do(native.WithContext(ctx), proxyURL, account.ID, account.Concurrency)
-	})
+	}, cursorPublicPolicyError)
 }
 
 func cursorResponseOutcome(account *Account, resp *http.Response, result **OpenAIForwardResult, err *error) {
@@ -160,4 +160,27 @@ func cursorMessagesResponseError(account *Account, resp *http.Response, failure 
 		return errors.New(failure.Message)
 	}
 	return nil
+}
+
+// Translate only native structured evidence into the existing policy vocabulary.
+// Classification, retry decisions, isolation and accounting remain shared owners.
+func cursorPublicPolicyError(err error) (string, string) {
+	var rejection *cursor.AgentRejection
+	if !errors.As(err, &rejection) {
+		return "", ""
+	}
+	code := ""
+	if rejection.ActionRequired == "cyber_policy_review" {
+		code = "cyber_policy"
+	}
+	payload, _ := json.Marshal(gin.H{"error": gin.H{"code": code, "message": rejection.ProviderMessage}})
+	kind := markOpenAISafetyPolicyEvent(nil, payload, http.StatusBadRequest, nil)
+	switch kind {
+	case "cyber_policy":
+		return kind, "Request blocked by upstream cyber-security policy"
+	case "usage_policy":
+		return kind, "Request blocked by upstream usage policy"
+	default:
+		return "", ""
+	}
 }

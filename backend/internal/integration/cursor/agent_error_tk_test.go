@@ -87,6 +87,8 @@ func TestAgentExpandedDiagnosticsRedactMetadataAndAdditionalInfo(t *testing.T) {
 	rejection := newAgentRejection(400, "invalid_argument", "Error", token, "fixture-id",
 		agentConnectDetail{Type: "aiserver.v1.ErrorDetails", Value: base64.StdEncoding.EncodeToString(raw)},
 		agentConnectDetail{Type: "unknown.detail", Value: base64.StdEncoding.EncodeToString([]byte(token))})
+	require.Empty(t, rejection.ProviderMessage)
+	require.Empty(t, rejection.ActionRequired)
 	require.Contains(t, rejection.Diagnostic, "invalid tool history")
 	require.NotContains(t, rejection.Diagnostic, token)
 	require.Contains(t, rejection.DetailInventory, "unknown.detail")
@@ -96,4 +98,27 @@ func TestAgentExpandedDiagnosticsRedactMetadataAndAdditionalInfo(t *testing.T) {
 	require.NotContains(t, metadata, "hidden")
 	require.NotContains(t, metadata, "private-oauth")
 	require.LessOrEqual(t, len(metadata), 2051)
+}
+
+func TestAgentPolicyReviewDiagnosticIsRetainedAndRedacted(t *testing.T) {
+	// Captured supplier 13 carries an explicit action, not a tool-validation field.
+	const detail = "CA0SlgEKHFJlcXVlc3QgYmxvY2tlZCBieSBBbnRocm9waWMSXVdlIGFyZSB1bmFibGUgdG8gY29tcGxldGUgdGhpcyByZXF1ZXN0IGJlY2F1c2UgaXQgd2FzIGJsb2NrZWQgdW5kZXIgQW50aHJvcGljJ3MgVXNhZ2UgUG9saWN5LiAAUhUKE2N5YmVyX3BvbGljeV9yZXZpZXcYAQ"
+	err := newAgentRejection(400, "invalid_argument", "Error", "", "fixture", agentConnectDetail{Type: "aiserver.v1.ErrorDetails", Value: detail})
+	require.Equal(t, "cyber_policy_review", err.ActionRequired)
+	require.Contains(t, err.ProviderMessage, "Usage Policy")
+	require.Contains(t, err.Diagnostic, "supplier_error=13")
+	require.Contains(t, err.Diagnostic, "action_required=cyber_policy_review")
+	require.NotContains(t, err.Error(), "cyber_policy_review", "operator metadata must not leak through the public error")
+	const token = "private-action-fixture-token"
+	analytics := protowire.AppendTag(nil, 1, protowire.BytesType)
+	analytics = protowire.AppendString(analytics, "review-"+token)
+	custom := protowire.AppendTag(nil, 10, protowire.BytesType)
+	custom = protowire.AppendBytes(custom, analytics)
+	raw := protowire.AppendTag(nil, 2, protowire.BytesType)
+	raw = protowire.AppendBytes(raw, custom)
+	rejected := newAgentRejection(400, "invalid_argument", "Error", token, "fixture", agentConnectDetail{Type: "aiserver.v1.ErrorDetails", Value: base64.StdEncoding.EncodeToString(raw)})
+	require.Contains(t, rejected.Diagnostic, "action_required=review-")
+	require.NotContains(t, rejected.ActionRequired, token)
+	require.NotContains(t, rejected.Diagnostic, token)
+	require.Empty(t, agentAnalyticsActionRequired([]byte{0xff}))
 }

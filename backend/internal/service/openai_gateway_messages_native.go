@@ -86,6 +86,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
+			return nil, errOpenAICyberPolicyForwarded
+		}
 		if foErr := s.failoverNativeMessagesUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
@@ -182,6 +185,10 @@ func (s *OpenAIGatewayService) bufferNativeAnthropicMessages(
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
+	if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
+		return nil, errOpenAICyberPolicyForwarded
+	}
+
 	usage := parseClaudeUsageFromResponseBody(respBody)
 
 	if s.responseHeaderFilter != nil {
@@ -242,6 +249,7 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 	}
 
 	terminalError := false
+	policyBlocked := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data:") {
@@ -250,6 +258,8 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 				parseSSEUsagePassthrough(payload, &usage)
 				if gjson.Get(payload, "type").String() == "error" {
 					terminalError = true
+					u := claudeUsageToOpenAIUsage(&usage)
+					policyBlocked = markOpenAISafetyPolicyEvent(c, []byte(payload), resp.StatusCode, &u) != ""
 				}
 				if firstTokenMs == nil && anthropicStreamPayloadHasOutput(payload) {
 					elapsed := int(time.Since(startTime).Milliseconds())
@@ -264,6 +274,12 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 			}
 			c.Writer.Flush()
 		}
+		if line == "" && policyBlocked {
+			return nil, errOpenAICyberPolicyForwarded
+		}
+	}
+	if policyBlocked {
+		return nil, errOpenAICyberPolicyForwarded
 	}
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
