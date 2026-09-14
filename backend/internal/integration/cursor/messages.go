@@ -314,16 +314,23 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		}
 		output.mu.Unlock()
 		if runErr != nil {
-			slog.Error("cursor_messages_run_agent_failed", "err", runErr)
+			var rejection *AgentRejection
+			if errors.As(runErr, &rejection) {
+				slog.Error("cursor_messages_run_agent_failed", "err", runErr, "native_request_id", rejection.RequestID, "messages_request_id", id, "connect_code", rejection.Code, "upstream_message", rejection.Diagnostic)
+			} else {
+				slog.Error("cursor_messages_run_agent_failed", "err", runErr, "messages_request_id", id)
+			}
 			if !started {
 				status := http.StatusBadGateway
 				var upstream *Error
 				if errors.As(runErr, &upstream) {
 					status = upstream.Status
 				}
-				ready <- messagesError(status, runErr.Error())
+				response := messagesError(status, runErr.Error())
+				response.Header.Set("X-Request-Id", id)
+				ready <- response
 			} else {
-				_ = event("error", map[string]any{"error": map[string]any{"type": "api_error", "message": "Cursor upstream stream failed"}})
+				_ = event("error", map[string]any{"error": map[string]any{"type": messagesErrorType(runErr), "message": runErr.Error()}})
 			}
 			_ = writer.CloseWithError(runErr)
 			return
@@ -369,6 +376,30 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 	}
 }
 func messagesError(status int, message string) *http.Response {
-	raw, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "api_error", "message": message}})
+	raw, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": messagesStatusErrorType(status), "message": message}})
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(bytes.NewReader(raw))}
+}
+
+func messagesErrorType(err error) string {
+	var upstream *Error
+	if errors.As(err, &upstream) {
+		return messagesStatusErrorType(upstream.Status)
+	}
+	return "api_error"
+}
+func messagesStatusErrorType(status int) string {
+	switch status {
+	case 400:
+		return "invalid_request_error"
+	case 401:
+		return "authentication_error"
+	case 403:
+		return "permission_error"
+	case 404:
+		return "not_found_error"
+	case 429:
+		return "rate_limit_error"
+	default:
+		return "api_error"
+	}
 }

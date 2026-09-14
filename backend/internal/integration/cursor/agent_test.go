@@ -230,3 +230,63 @@ func TestAgentLiveCatalog(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentToolPromptHistoryKeepsWireIdentity(t *testing.T) {
+	for _, id := range []string{"call_safe", "call_a|item_b", "functions.lookup:0"} {
+		input := AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{
+			{Role: "user", Text: "lookup"},
+			{Role: "assistant", ToolCalls: []AgentToolCall{{ID: id, Name: "lookup", Arguments: map[string]any{"key": "demo"}}}},
+			{Role: "tool", ToolCallID: id, Text: "nonce"},
+		}}
+		run, blobs, err := buildAgentRun(input)
+		require.NoError(t, err)
+		var assistantID, resultID string
+		for _, ref := range run.ConversationState.RootPromptMessagesJson {
+			var entry struct {
+				Role    string          `json:"role"`
+				ID      string          `json:"id"`
+				Content json.RawMessage `json:"content"`
+			}
+			require.NoError(t, json.Unmarshal(blobs.data[string(ref)], &entry))
+			if entry.Role != "tool" && entry.Role != "assistant" {
+				continue
+			}
+			var blocks []struct {
+				Type string `json:"type"`
+				ID   string `json:"toolCallId"`
+			}
+			require.NoError(t, json.Unmarshal(entry.Content, &blocks))
+			require.Len(t, blocks, 1)
+			if entry.Role == "assistant" {
+				assistantID = blocks[0].ID
+			} else {
+				resultID = blocks[0].ID
+				require.Equal(t, resultID, entry.ID, "Cursor tool messages require their outer id")
+			}
+		}
+		require.Equal(t, assistantID, resultID)
+		require.Regexp(t, `^[a-zA-Z0-9_-]{1,64}$`, resultID)
+		if id == "call_safe" {
+			require.Equal(t, id, resultID)
+		}
+		var turn pb.ConversationTurnStructure
+		require.NoError(t, proto.Unmarshal(blobs.data[string(run.ConversationState.Turns[0])], &turn))
+		var step pb.ConversationStep
+		require.NoError(t, proto.Unmarshal(blobs.data[string(turn.AgentConversationTurn.Steps[0])], &step))
+		require.Equal(t, resultID, step.ToolCall.ToolCallId)
+		require.Equal(t, resultID, step.ToolCall.McpToolCall.Args.ToolCallId)
+	}
+	require.NotEqual(t, cursorHistoryToolCallID("call:a"), cursorHistoryToolCallID("call|a"))
+}
+
+func TestAgentRejectsNormalizedHistoryIDCollision(t *testing.T) {
+	foreign := "call:a"
+	normalized := cursorHistoryToolCallID(foreign)
+	_, _, err := buildAgentRun(AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{
+		{Role: "user", Text: "lookup"},
+		{Role: "assistant", ToolCalls: []AgentToolCall{{ID: foreign, Name: "lookup"}, {ID: normalized, Name: "lookup"}}},
+		{Role: "tool", ToolCallID: foreign, Text: "first"},
+		{Role: "tool", ToolCallID: normalized, Text: "second"},
+	}})
+	require.ErrorContains(t, err, "colliding wire ids")
+}

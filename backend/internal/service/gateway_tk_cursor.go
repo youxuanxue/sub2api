@@ -109,17 +109,20 @@ func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUps
 	})
 }
 
-func cursorResponseOutcome(account *Account, resp *http.Response, result *OpenAIForwardResult, err *error) {
+func cursorResponseOutcome(account *Account, resp *http.Response, result **OpenAIForwardResult, err *error) {
 	if !account.IsCursor() || resp == nil {
 		return
 	}
 	if body, ok := resp.Body.(*cursor.MessagesBody); ok {
 		tier, nativeErr := body.Outcome()
-		if result != nil {
-			result.BillingTier = tier
+		if *result != nil {
+			(*result).BillingTier = tier
 		}
 		if *err == nil && nativeErr != nil {
 			*err = nativeErr
+		}
+		if *err != nil && tier == "" {
+			*result = nil
 		}
 	}
 }
@@ -136,4 +139,25 @@ func cursorBillingTier(tier string) string {
 // Cursor planning and every native execution path consume the same history.
 func normalizeCursorMessagesContent(body []byte, model string) []byte {
 	return FilterWebSearchHistoryBlocks(StripEmptyTextBlocks(body), model)
+}
+
+// Buffered converters must inspect native settlement before committing success.
+// A partial native answer without terminal usage is not a billable completion.
+func cursorMessagesResponseError(account *Account, resp *http.Response, failure *tkAnthropicBufferedUpstreamError) error {
+	if account == nil || !account.IsCursor() {
+		return nil
+	}
+	if resp != nil {
+		if body, ok := resp.Body.(*cursor.MessagesBody); ok {
+			_, err := body.Outcome()
+			if err == nil && failure != nil {
+				err = errors.New(failure.Message)
+			}
+			return err
+		}
+	}
+	if failure != nil {
+		return errors.New(failure.Message)
+	}
+	return nil
 }

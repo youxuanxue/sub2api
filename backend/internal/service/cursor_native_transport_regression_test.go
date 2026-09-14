@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -49,7 +50,7 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		for _, stream := range []bool{false, true} {
-			for _, outcome := range []string{"reported", "handoff", "incomplete"} {
+			for _, outcome := range []string{"reported", "handoff", "resumed", "incomplete"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", inbound, stream, outcome), func(t *testing.T) {
 					const model = "composer-2.5"
 					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
@@ -59,6 +60,16 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					} else if inbound == protocolrouter.ProtocolResponses {
 						body = []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_output_tokens":1,"input":"lookup","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}`, model, stream))
 						path = protocolrouter.ResponsesPathRoot
+					}
+					if outcome == "resumed" {
+						switch inbound {
+						case protocolrouter.ProtocolMessages:
+							body = []byte(strings.Replace(string(body), `"messages":[{"role":"user","content":"lookup"}]`, `"messages":[{"role":"user","content":"lookup"},{"role":"assistant","content":[{"type":"tool_use","id":"call_native","name":"lookup","input":{"key":"demo"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_native","content":"NATIVE_NONCE_739281"}]}]`, 1))
+						case protocolrouter.ProtocolChatCompletions:
+							body = []byte(strings.Replace(string(body), `"messages":[{"role":"user","content":"lookup"}]`, `"messages":[{"role":"user","content":"lookup"},{"role":"assistant","tool_calls":[{"id":"call_native","type":"function","function":{"name":"lookup","arguments":"{\"key\":\"demo\"}"}}]},{"role":"tool","tool_call_id":"call_native","content":"NATIVE_NONCE_739281"}]`, 1))
+						default:
+							body = []byte(strings.Replace(string(body), `"input":"lookup"`, `"input":[{"role":"user","content":"lookup"},{"type":"function_call","call_id":"call_native","name":"lookup","arguments":"{\"key\":\"demo\"}"},{"type":"function_call_output","call_id":"call_native","output":"NATIVE_NONCE_739281"}]`, 1))
+						}
 					}
 					request, err := protocolrouter.ParseCanonicalRequest(inbound, path, model, stream, body)
 					require.NoError(t, err)
@@ -82,7 +93,7 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						frame(&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "NATIVE_OK"}}})
 					}
 					usage := &pb.TurnEndedUpdate{}
-					if outcome == "reported" {
+					if outcome == "reported" || outcome == "resumed" {
 						usage = &pb.TurnEndedUpdate{InputTokens: proto.Int64(11), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}
 					}
 					frame(&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: usage}})
@@ -109,13 +120,37 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						}))
 					if outcome == "incomplete" {
 						require.Error(t, err, "an incomplete native run must not be billed as successful")
+						require.Nil(t, result, "missing native settlement must not create usage")
+						require.NotContains(t, recorder.Body.String(), `"status":"completed"`)
+						require.NotContains(t, recorder.Body.String(), `"finish_reason":"stop"`)
+						if stream && inbound == protocolrouter.ProtocolMessages {
+							require.True(t, IsResponseCommitted(c), "native terminal error must not receive a second handler error")
+						}
+						if !stream && inbound != protocolrouter.ProtocolMessages {
+							require.False(t, c.Writer.Written())
+						}
 						return
 					}
 					require.NoError(t, err)
 					require.Equal(t, model, upstream.run.GetRequestedModel().GetModelId())
 					require.Equal(t, "mcp__tokenkey__lookup", upstream.run.GetMcpTools().GetMcpTools()[0].GetName())
+					if outcome == "resumed" {
+						require.NotNil(t, upstream.run.GetAction().GetResumeAction())
+						blobs := make(map[string][]byte)
+						for _, blob := range upstream.run.PreFetchedBlobs {
+							blobs[string(blob.Id)] = blob.Value
+						}
+						require.Len(t, upstream.run.ConversationState.Turns, 1)
+						var turn pb.ConversationTurnStructure
+						require.NoError(t, proto.Unmarshal(blobs[string(upstream.run.ConversationState.Turns[0])], &turn))
+						require.Len(t, turn.AgentConversationTurn.Steps, 1)
+						var step pb.ConversationStep
+						require.NoError(t, proto.Unmarshal(blobs[string(turn.AgentConversationTurn.Steps[0])], &step))
+						require.Equal(t, "NATIVE_NONCE_739281", step.ToolCall.McpToolCall.Result.Success.Content[0].Text.Text)
+						require.Equal(t, "demo", step.ToolCall.McpToolCall.Args.Args["key"].GetStringValue())
+					}
 					require.NotNil(t, result)
-					if outcome == "reported" {
+					if outcome == "reported" || outcome == "resumed" {
 						require.Equal(t, cursor.ReportedBillingTier, result.BillingTier)
 						require.Equal(t, 20, result.Usage.InputTokens, "OpenAI input includes fresh and cached buckets")
 						require.Equal(t, 7, result.Usage.CacheReadInputTokens)

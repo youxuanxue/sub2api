@@ -342,7 +342,7 @@ func TestOpenAIEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-	c.String(http.StatusTeapot, "already written")
+	c.Data(http.StatusTeapot, "text/event-stream", []byte("already written"))
 
 	h := &OpenAIGatewayHandler{}
 	wrote := h.ensureForwardErrorResponse(c, false)
@@ -362,6 +362,7 @@ func TestOpenAIEnsureForwardErrorResponse_ResponsesRouteAfterWrittenEmitsRespons
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
+	c.Header("Content-Type", "text/event-stream")
 	// 模拟 ping 已 flush 的状态：Writer 已写过 1 个字节
 	_, _ = c.Writer.WriteString(":\n\n")
 
@@ -383,6 +384,7 @@ func TestOpenAIEnsureForwardErrorResponse_AfterDeltaAppendsSingleValidResponseFa
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
 
+	c.Header("Content-Type", "text/event-stream")
 	delta := `{"type":"response.output_text.delta","delta":"ok","sequence_number":1}`
 	_, err := c.Writer.WriteString("event: response.output_text.delta\ndata: " + delta + "\n\n")
 	require.NoError(t, err)
@@ -610,7 +612,7 @@ func TestOpenAIRecoverResponsesPanic_AppendsResponseFailedAfterWritten(t *testin
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	c.String(http.StatusTeapot, "already written")
+	c.Data(http.StatusTeapot, "text/event-stream", []byte("already written"))
 
 	h := &OpenAIGatewayHandler{}
 	streamStarted := false
@@ -680,7 +682,7 @@ func TestOpenAIEnsureResponsesDependencies(t *testing.T) {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-		c.String(http.StatusTeapot, "already written")
+		c.Data(http.StatusTeapot, "text/event-stream", []byte("already written"))
 
 		h := &OpenAIGatewayHandler{}
 		ok := h.ensureResponsesDependencies(c, nil)
@@ -3278,4 +3280,16 @@ data: {"type":"response.failed","error":{"message":"This content was flagged"}}
 
 		require.False(t, openAIForwardErrorAlreadyCommunicated(c, c.Writer.Size(), errors.New("openai cyber_policy: blocked")))
 	})
+}
+
+func TestOpenAIEnsureForwardErrorResponse_PreservesCommittedJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.JSON(http.StatusOK, gin.H{"id": "partial"})
+	before := w.Body.String()
+	h := &OpenAIGatewayHandler{}
+	require.False(t, h.ensureForwardErrorResponse(c, false))
+	require.Equal(t, before, w.Body.String())
+	require.True(t, json.Valid(w.Body.Bytes()))
 }

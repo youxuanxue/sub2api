@@ -502,9 +502,20 @@
         "func (s *OpenAIGatewayService) doNativeMessagesRequest",
         "cursor.Messages",
         "HTTPUpstreamProfileCursor",
-        "CursorWireModelsKey"
+        "CursorWireModelsKey",
+        "func cursorMessagesResponseError"
       ],
       "rationale": "Cursor executes natively using the account catalog and HTTP/2 transport; all protocol call sites share one adapter."
+    },
+    {
+      "path": "backend/internal/integration/cursor/agent_error_tk.go",
+      "must_contain": ["agentErrorDetailsText", "logredact.RedactText", "aiserver.v1.ErrorDetails"],
+      "rationale": "Preserve bounded, credential-redacted native rejection diagnostics without exposing opaque supplier details."
+    },
+    {
+      "path": "backend/internal/service/cursor_buffered_failure_regression_test.go",
+      "must_contain": ["TestCursorRegressionBufferedPartialBeforeNativeError", "TestCursorRegressionResponsesPartialBeforeNativeError"],
+      "rationale": "Native partial failure must precede buffered JSON commitment and cannot create successful usage."
     },
     {
       "path": "backend/internal/service/cursor_native_transport_regression_test.go",
@@ -527,7 +538,7 @@
     },
     {
       "path": "backend/internal/service/cursor_relay_billing_regression_test.go",
-      "must_contain": ["TestCursorRelayConversionsRetainBillingProvenance"],
+      "must_contain": ["TestCursorRelayConversionsRetainBillingProvenance", "TestCursorRelayFailuresNeverCompleteOrSettle"],
       "rationale": "Exercise Chat and Responses, streaming and buffered, from Edge wire usage through durable settlement, including rejection of unknown billing labels."
     },
     {
@@ -542,12 +553,12 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_anthropic_native.go",
-      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, result, &forwardErr)", "BillingTier:      usage.BillingTier"],
+      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, &result, &forwardErr)", "BillingTier:      usage.BillingTier"],
       "rationale": "Chat conversion must execute the native supply adapter and retain its terminal billing outcome."
     },
     {
       "path": "backend/internal/service/openai_gateway_responses_anthropic_native.go",
-      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, result, &forwardErr)", "BillingTier:      usage.BillingTier"],
+      "must_contain": ["s.doNativeMessagesRequest(upstreamReq, account)", "cursorResponseOutcome(account, resp, &result, &forwardErr)", "BillingTier:      usage.BillingTier"],
       "rationale": "Responses conversion must execute the native supply adapter and retain its terminal billing outcome."
     },
     {

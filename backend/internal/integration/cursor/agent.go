@@ -113,7 +113,7 @@ func agentCallArgs(call AgentToolCall) (*pb.McpArgs, error) {
 		return nil, errors.New("invalid Cursor tool arguments")
 	}
 	return &pb.McpArgs{Name: cursorWireToolName(call.Name), ToolName: call.Name,
-		ProviderIdentifier: "tokenkey", ToolCallId: call.ID, Args: args.Fields}, nil
+		ProviderIdentifier: "tokenkey", ToolCallId: cursorHistoryToolCallID(call.ID), Args: args.Fields}, nil
 }
 
 func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error) {
@@ -219,6 +219,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 		return nil
 	}
 	paired := make(map[string]string)
+	wireIDs := make(map[string]string)
 	for index, message := range input.Messages {
 		if index == active {
 			if strings.TrimSpace(message.Text) == "" {
@@ -258,12 +259,17 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 				if !ok || call.ID == "" || paired[call.ID] != "" || !validAgentToolName(call.Name) {
 					return nil, nil, errors.New("cursor tool history requires unique paired calls and results")
 				}
+				wireID := cursorHistoryToolCallID(call.ID)
+				if previous, ok := wireIDs[wireID]; ok && previous != call.ID {
+					return nil, nil, errors.New("cursor tool history has colliding wire ids")
+				}
+				wireIDs[wireID] = call.ID
 				paired[call.ID] = call.Name
 				args, err := agentCallArgs(call)
 				if err != nil {
 					return nil, nil, err
 				}
-				step := &pb.ConversationStep{ToolCall: &pb.ToolCall{ToolCallId: call.ID, McpToolCall: &pb.McpToolCall{
+				step := &pb.ConversationStep{ToolCall: &pb.ToolCall{ToolCallId: cursorHistoryToolCallID(call.ID), McpToolCall: &pb.McpToolCall{
 					Args: args, Result: &pb.McpResult{Success: &pb.McpSuccess{IsError: result.IsError,
 						Content: []*pb.McpToolResultContentItem{{Text: &pb.McpTextContent{Text: result.Text}}}}}}}}
 				id, err := blobs.storeProto(step)
@@ -271,7 +277,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 					return nil, nil, err
 				}
 				turn.Steps = append(turn.Steps, id)
-				content = append(content, map[string]any{"type": "tool-call", "toolCallId": call.ID,
+				content = append(content, map[string]any{"type": "tool-call", "toolCallId": cursorHistoryToolCallID(call.ID),
 					"toolName": cursorWireToolName(call.Name), "args": call.Arguments})
 			}
 		case "tool":
@@ -279,12 +285,16 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 			if name == "" {
 				return nil, nil, errors.New("cursor tool result has no preceding call")
 			}
-			content = append(content, map[string]any{"type": "tool-result", "toolCallId": message.ToolCallID,
+			content = append(content, map[string]any{"type": "tool-result", "toolCallId": cursorHistoryToolCallID(message.ToolCallID),
 				"toolName": cursorWireToolName(name), "result": message.Text, "isError": message.IsError})
 		default:
 			return nil, nil, errors.New("unsupported Cursor history role")
 		}
-		if err := root(map[string]any{"role": message.Role, "content": content}); err != nil {
+		entry := map[string]any{"role": message.Role, "content": content}
+		if message.Role == "tool" {
+			entry["id"] = cursorHistoryToolCallID(message.ToolCallID)
+		}
+		if err := root(entry); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -435,7 +445,10 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return result, &Error{Status: resp.StatusCode, Message: fmt.Sprintf("cursor upstream returned HTTP %d", resp.StatusCode)}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+		rejection := newAgentRejection(resp.StatusCode, "unknown", string(raw), token, req.Header.Get("X-Request-Id"))
+		rejection.Cause.Message = fmt.Sprintf("cursor upstream returned HTTP %d", resp.StatusCode)
+		return result, rejection
 	}
 	if resp.ProtoMajor != 2 {
 		return result, errors.New("cursor requires HTTP/2 duplex transport")
@@ -478,7 +491,9 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		if flag&2 != 0 {
 			var trailer struct {
 				Error *struct {
-					Code string `json:"code"`
+					Code    string               `json:"code"`
+					Message string               `json:"message"`
+					Details []agentConnectDetail `json:"details"`
 				} `json:"error"`
 			}
 			if json.Unmarshal(data, &trailer) != nil {
@@ -499,7 +514,7 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 				case "invalid_argument":
 					status = 400
 				}
-				return result, &Error{Status: status, Message: fmt.Sprintf("cursor upstream rejected request (HTTP %d)", status)}
+				return result, newAgentRejection(status, trailer.Error.Code, trailer.Error.Message, token, req.Header.Get("X-Request-Id"), trailer.Error.Details...)
 			}
 			return result, errors.New("cursor stream ended without terminal usage")
 		}
@@ -597,4 +612,14 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		}
 	}
 	return result, errors.New("cursor frame count limit exceeded")
+}
+
+// Cursor's model prompt accepts only alphanumeric, underscore and hyphen IDs.
+// Hash foreign/composite IDs consistently in both history projections; never
+// strip punctuation, which can collapse distinct call/result pairs.
+func cursorHistoryToolCallID(id string) string {
+	if len(id) <= 64 && validAgentToolName(id) {
+		return id
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(id)))
 }

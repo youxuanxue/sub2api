@@ -113,7 +113,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	defer func() { cursorResponseOutcome(account, resp, result, &forwardErr) }()
+	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -128,7 +128,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
 
 	if clientStream {
-		return s.handleCCStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, includeUsage)
+		return s.handleCCStreamingFromNativeAnthropic(resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, includeUsage)
 	}
 	return s.handleCCBufferedFromNativeAnthropic(resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
 }
@@ -264,6 +264,10 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 	if !streamCompleted && upstreamErr == nil {
 		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
 	}
+	if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+		tkAnthropicBufferedPartialFailure(c, account, requestID, upstreamErr)
+		return nil, nativeErr
+	}
 	if upstreamErr != nil {
 		if !tkAnthropicBufferedHasUsableContent(finalResp) {
 			return nil, s.tkAnthropicBufferedFailoverError(c, account, resp, requestID, upstreamModel, upstreamErr)
@@ -319,6 +323,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -343,6 +348,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	ccState.Model = originalModel
 	ccState.IncludeUsage = includeUsage
 
+	var upstreamErr *tkAnthropicBufferedUpstreamError
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
@@ -398,6 +404,9 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 				zap.Duration("interval", streamInterval),
 			)
 		}
+		if nativeErr := cursorMessagesResponseError(account, resp, tkAnthropicBufferedSyntheticFailure("stream_timeout", "Upstream stream data interval timeout")); nativeErr != nil {
+			return nil, nativeErr
+		}
 		return resultWithUsage(), fmt.Errorf("stream data interval timeout")
 	}
 
@@ -434,11 +443,10 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 
 		// 客户端已断开：跳过转换与写出，继续读上游直到流结束（usage 完整、
 		// 连接及时归还），不再提前 return。
+		responsesEvents := apicompat.AnthropicEventToResponsesEvents(event, anthState)
 		if clientDisconnected {
 			return false
 		}
-
-		responsesEvents := apicompat.AnthropicEventToResponsesEvents(event, anthState)
 		for _, resEvt := range responsesEvents {
 			ccChunks := apicompat.ResponsesEventToChatChunks(&resEvt, ccState)
 			for _, chunk := range ccChunks {
@@ -478,6 +486,10 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 			continue
 		}
 
+		if parsed, ok := tkParseAnthropicBufferedSSEError([]byte(payload), s.cfg); ok {
+			upstreamErr = parsed
+			break
+		}
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			continue
@@ -486,6 +498,17 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 		if processAnthropicEvent(&event) {
 			return resultWithUsage(), nil
 		}
+	}
+
+	if !anthState.CompletedSent && upstreamErr == nil && account != nil && account.IsCursor() {
+		upstreamErr = tkAnthropicBufferedSyntheticFailure("stream_incomplete", "Upstream stream ended before response completion")
+	}
+	if nativeErr := cursorMessagesResponseError(account, resp, upstreamErr); nativeErr != nil {
+		return nil, nativeErr
+	}
+
+	if upstreamErr != nil {
+		return resultWithUsage(), errors.New(upstreamErr.Message)
 	}
 
 	// Finalize both state machines（客户端已断开时仍执行，保证 usage 汇总完整）。

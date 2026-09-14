@@ -82,7 +82,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	defer func() { cursorResponseOutcome(account, resp, result, &forwardErr) }()
+	defer func() { cursorResponseOutcome(account, resp, &result, &forwardErr) }()
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -241,12 +241,16 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 		}
 	}
 
+	terminalError := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data:") {
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload != "" && payload != "[DONE]" {
 				parseSSEUsagePassthrough(payload, &usage)
+				if gjson.Get(payload, "type").String() == "error" {
+					terminalError = true
+				}
 				if firstTokenMs == nil && anthropicStreamPayloadHasOutput(payload) {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
@@ -255,6 +259,9 @@ func (s *OpenAIGatewayService) streamNativeAnthropicMessages(
 		}
 		writeChunk(line + "\n")
 		if !clientDisconnected {
+			if line == "" && terminalError {
+				MarkResponseCommitted(c)
+			}
 			c.Writer.Flush()
 		}
 	}
