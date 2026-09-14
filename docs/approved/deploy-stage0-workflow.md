@@ -394,7 +394,11 @@ Step 6.
       upstream handling, SSM timeout, and migration-safety guard.
 - [x] 2026-08-28 Edge reuse design approved: one shared primitive, two hard
       capacity gates, two-state cutover, and traffic-first canary selection.
-- [ ] 2026-08-28 Edge reuse implementation merged and released.
+- [x] 2026-08-28 Edge reuse implementation merged and released. The shared
+      Lightsail deployment primitive and Edge workflow are live; production
+      diagnostics currently discover `edge-us3/4/5/6-ls` targets through the
+      Lightsail matrix. The current rollout entry is
+      `.github/workflows/deploy-edge-lightsail-stage0.yml`.
 
 ### Adversarial gate verified
 
