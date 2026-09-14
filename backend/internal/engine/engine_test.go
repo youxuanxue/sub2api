@@ -225,23 +225,29 @@ func TestMiniMaxDoesNotRefreshOAuth(t *testing.T) {
 
 func TestCapabilityForEndpointSupported(t *testing.T) {
 	cases := []struct {
-		endpoint string
-		want     bool
+		endpoint    string
+		enabled     bool
+		taskAdaptor bool
 	}{
-		{BridgeEndpointChatCompletions, true},
-		{BridgeEndpointResponses, true},
-		{BridgeEndpointEmbeddings, true},
-		{BridgeEndpointImages, true},
-		{BridgeEndpointVideoSubmit, true},
-		{BridgeEndpointVideoFetch, true},
-		{"", false},
-		{"unknown", false},
+		{BridgeEndpointChatCompletions, true, false},
+		{BridgeEndpointResponses, true, false},
+		{BridgeEndpointEmbeddings, true, false},
+		{BridgeEndpointImages, true, false},
+		{BridgeEndpointVideoSubmit, true, true},
+		{BridgeEndpointVideoFetch, true, true},
+		{"", false, false},
+		{"unknown", false, false},
 	}
-
 	for _, tc := range cases {
-		if _, got := CapabilityForEndpoint(tc.endpoint); got != tc.want {
-			t.Fatalf("CapabilityForEndpointSupported(%q) = %v, want %v", tc.endpoint, got, tc.want)
-		}
+		t.Run(tc.endpoint, func(t *testing.T) {
+			capability, enabled := CapabilityForEndpoint(tc.endpoint)
+			if enabled != tc.enabled {
+				t.Fatalf("CapabilityForEndpoint(%q) enabled = %v, want %v", tc.endpoint, enabled, tc.enabled)
+			}
+			if enabled && capability.RequiresTaskAdaptor != tc.taskAdaptor {
+				t.Fatalf("CapabilityForEndpoint(%q) RequiresTaskAdaptor = %v, want %v", tc.endpoint, capability.RequiresTaskAdaptor, tc.taskAdaptor)
+			}
+		})
 	}
 }
 

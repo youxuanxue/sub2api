@@ -78,11 +78,12 @@ def is_entry(path: str) -> bool:
 
 def references(content: str, path: str) -> bool:
     name = os.path.basename(path)
+    if path.startswith(".github/actions/") and name in ("action.yml", "action.yaml"):
+        action_dir = re.escape(str(Path(path).parent))
+        return bool(re.search(r"(?<![\w/-])(?:\./)?" + action_dir
+                              + r"(?:/" + re.escape(name) + r")?(?=[\s\"\'`)\]]|$)", content))
     if name in content:
         return True
-    if path.startswith(".github/actions/") and name in ("action.yml", "action.yaml"):
-        return bool(re.search(r"(?<![\w/-])(?:\./)?" + re.escape(str(Path(path).parent))
-                              + r"(?=[\s\"\']|$)", content))
     # importlib and normal imports both use module names without .py.
     return path.endswith(".py") and bool(
         re.search(r"(?<![\w-])" + re.escape(Path(path).stem) + r"(?![\w-])", content)
@@ -167,8 +168,16 @@ def _selftest() -> int:
                 ".github/actions/unused/action.yml": "run: ops/old.sh",  # script-ref-allow-missing: in-memory graph fixture
                 "ops/old.sh": "true",  # script-ref-allow-missing: in-memory graph fixture
             }
-            self.assertEqual(scan(["ops/cleanup.sh", "ops/old.sh"], corpus, {}),  # script-ref-allow-missing: in-memory graph fixture
-                             (["ops/old.sh"], []))  # script-ref-allow-missing: in-memory graph fixture
+            for reference in (
+                "uses: ./.github/actions/maintain\n",
+                "see .github/actions/maintain/action.yml\n",
+                "see `.github/actions/maintain/action.yml`",
+                "[action](.github/actions/maintain/action.yml)",
+            ):
+                corpus[".github/workflows/ci.yml"] = reference
+                with self.subTest(reference=reference):
+                    self.assertEqual(scan(["ops/cleanup.sh", "ops/old.sh"], corpus, {}),  # script-ref-allow-missing: in-memory graph fixture
+                                     (["ops/old.sh"], []))  # script-ref-allow-missing: in-memory graph fixture
 
         def test_tests_and_mutual_mentions_do_not_make_tools_live(self):
             corpus = {
