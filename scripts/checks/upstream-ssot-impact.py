@@ -6,7 +6,9 @@ HINTS={"protocol":("protocolrouter","protocol-routing","protocol_endpoint_capabi
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--base',default='origin/main'); ap.add_argument('--upstream',default='upstream/main'); a=ap.parse_args(); groups=defaultdict(int)
     try: raw=subprocess.check_output(['git','diff','--name-only',f'{a.base}...{a.upstream}'],text=True)
-    except subprocess.CalledProcessError: print('upstream SSOT impact: unavailable'); return 0
+    except subprocess.CalledProcessError as exc:
+        print(f'upstream SSOT impact: unavailable ({exc})')
+        return 1
     for p in raw.splitlines():
         low=p.lower(); hit=False
         for owner,hs in HINTS.items():
