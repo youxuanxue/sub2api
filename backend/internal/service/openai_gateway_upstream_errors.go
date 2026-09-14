@@ -298,7 +298,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 	} else if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) ||
 		isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
 		semantic = gatewayFailureSemanticAccountFault
-	} else if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() && statusCode == http.StatusBadRequest && isOpenAICompatibleModelNotFound400(upstreamBody) {
+	} else if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() &&
+		((statusCode == http.StatusBadRequest && isOpenAICompatibleModelNotFound400(upstreamBody)) ||
+			isOpenAICompatibleModelRetired(statusCode, upstreamMsg, upstreamBody)) {
 		semantic = gatewayFailureSemanticAccountFault
 	} else if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
 		semantic = gatewayFailureSemanticTransientFault
@@ -308,6 +310,16 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		Semantic:   semantic,
 		StatusCode: statusCode,
 	}).RetryNextAccount
+}
+
+func isOpenAICompatibleModelRetired(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	return isUpstreamModelRetiredError(statusCode, upstreamBody, upstreamMsg)
+}
+
+// IsOpenAICompatibleModelRetired reports whether an upstream response indicates
+// the requested model is retired or has reached its end of life.
+func IsOpenAICompatibleModelRetired(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	return isOpenAICompatibleModelRetired(statusCode, upstreamMsg, upstreamBody)
 }
 
 func isOpenAICompatibleModelNotFound400(respBody []byte) bool {

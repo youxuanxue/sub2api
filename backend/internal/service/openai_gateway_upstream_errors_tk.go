@@ -25,8 +25,10 @@ func tkShouldPassthroughOpenAINativeClientError(statusCode int, upstreamMsg stri
 	case http.StatusNotFound:
 		return isUpstreamModelNotFoundError(statusCode, body) ||
 			IsOpenAICompatModelNotFound404(body, upstreamMsg)
+	case http.StatusGone:
+		return true
 	default:
-		return false
+		return isUpstreamModelRetiredError(statusCode, body, upstreamMsg)
 	}
 }
 
@@ -40,7 +42,7 @@ func tkWriteOpenAINativeClientError(c *gin.Context, statusCode int, body []byte,
 
 	defaultType := openAIUpstreamClientErrorFallbackType
 	switch statusCode {
-	case http.StatusNotFound:
+	case http.StatusNotFound, http.StatusGone:
 		defaultType = "not_found_error"
 	case http.StatusUnprocessableEntity:
 		defaultType = "invalid_request_error"

@@ -159,6 +159,18 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "client", errorOwner)
 	})
 
+	t.Run("upstream 410 model EOL is client-induced", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		eolMsg := "The model 'deepseek-ai/deepseek-v4-pro-0813' has reached its end of life on 2026-09-14T08:00:00Z and is no longer available."
+		service.SetOpsUpstreamError(c, http.StatusGone, eolMsg, "bad_response_status_code")
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "api_error", eolMsg, "", http.StatusGone)
+
+		require.Equal(t, "request", phase)
+		require.Equal(t, "client", errorOwner)
+	})
+
 	t.Run("upstream 400 invalid_request_error via message substring", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)

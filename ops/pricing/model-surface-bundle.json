@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "769e42f9003dbbbedddf45a19764bf503097fcad40e56060ca67e70c9946b21c",
+  "floor_sha256": "95ea13c71848ef6cb0aeb668f019a6895e7cdf3cd608cf50fdcc22ff8d587e29",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -351,8 +351,6 @@
         "model_mapping": {
           "deepseek-v4-flash": "deepseek-ai/deepseek-v4-flash-0731",
           "deepseek-v4-flash-0731": "deepseek-ai/deepseek-v4-flash-0731",
-          "deepseek-v4-pro": "deepseek-ai/deepseek-v4-pro-0813",
-          "deepseek-v4-pro-0813": "deepseek-ai/deepseek-v4-pro-0813",
           "kimi-k3": "moonshotai/kimi-k3"
         }
       },

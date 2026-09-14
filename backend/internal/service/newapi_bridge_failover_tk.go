@@ -31,6 +31,9 @@ func tkBridgeFailureSemantic(apiErr *newapitypes.NewAPIError) gatewayFailureSema
 	if tkIsBridgeUpstreamArrears(apiErr) {
 		return gatewayFailureSemanticAccountFault
 	}
+	if apiErr != nil && isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr), tkBridgeUpstreamRelayMessage(apiErr)) {
+		return gatewayFailureSemanticAccountFault
+	}
 	if apiErr != nil {
 		if upstream, ok := tkBridgeUpstreamOpenAIError(apiErr); ok && tkSupplierThinkingToolPreflight(apiErr.StatusCode, upstream.Message) {
 			// A supplier preflight rejected this model/feature combination before

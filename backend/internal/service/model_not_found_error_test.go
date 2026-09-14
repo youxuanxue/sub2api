@@ -138,3 +138,70 @@ func TestIsOpenAICompatibleModelNotFound400(t *testing.T) {
 		})
 	}
 }
+
+func TestIsUpstreamModelRetiredError(t *testing.T) {
+	nvidiaBuild410 := `{"error":{"code":"bad_response_status_code","message":"The model 'deepseek-ai/deepseek-v4-pro-0813' has reached its end of life on 2026-09-14T08:00:00Z and is no longer available.","param":"","type":"bad_response_status_code"}}`
+
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		msg        string
+		want       bool
+	}{
+		{
+			name:       "nvidia build 410 EOL body",
+			statusCode: http.StatusGone,
+			body:       nvidiaBuild410,
+			want:       true,
+		},
+		{
+			name:       "bare 410 without body",
+			statusCode: http.StatusGone,
+			body:       "",
+			want:       true,
+		},
+		{
+			name:       "400 with reached its end of life phrase",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error":{"message":"The model gpt-legacy has reached its end of life and is no longer available."}}`,
+			want:       true,
+		},
+		{
+			name:       "400 with model has been retired phrase",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error":{"message":"This model has been retired. Please use v2."}}`,
+			want:       true,
+		},
+		{
+			name:       "message parameter carries retirement phrase",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error":{"code":"bad_response_status_code"}}`,
+			msg:        "The model deepseek-v4-pro has reached its end of life",
+			want:       true,
+		},
+		{
+			name:       "generic 400 parameter error is not retired",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error":{"code":"invalid_request_error","message":"Invalid value for temperature"}}`,
+			want:       false,
+		},
+		{
+			name:       "generic 500 is not retired",
+			statusCode: http.StatusInternalServerError,
+			body:       `{"error":{"message":"Internal server error"}}`,
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isUpstreamModelRetiredError(tt.statusCode, []byte(tt.body), tt.msg); got != tt.want {
+				t.Fatalf("isUpstreamModelRetiredError() = %v, want %v", got, tt.want)
+			}
+			if got := IsOpenAICompatibleModelRetired(tt.statusCode, tt.msg, []byte(tt.body)); got != tt.want {
+				t.Fatalf("IsOpenAICompatibleModelRetired() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

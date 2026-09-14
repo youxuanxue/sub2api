@@ -46,6 +46,40 @@ func isOpenAICodexPlanGatedModelError(statusCode int, body []byte) bool {
 	return strings.Contains(normalized, openAICodexPlanGatedModelPhrase)
 }
 
+var upstreamModelRetiredKeywords = []string{
+	"reached its end of life",
+	"end of life",
+	"no longer available",
+	"model has been retired",
+	"model is retired",
+	"model retired",
+}
+
+func isUpstreamModelRetiredError(statusCode int, body []byte, message ...string) bool {
+	if statusCode == http.StatusGone {
+		return true
+	}
+	combined := strings.ToLower(string(body))
+	if len(message) > 0 && strings.TrimSpace(message[0]) != "" {
+		combined += " " + strings.ToLower(message[0])
+	}
+	if combined == "" {
+		return false
+	}
+	for _, kw := range upstreamModelRetiredKeywords {
+		if strings.Contains(combined, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsUpstreamModelRetiredError reports whether an upstream response indicates
+// the requested model is retired or has reached its end of life.
+func IsUpstreamModelRetiredError(statusCode int, body []byte, message ...string) bool {
+	return isUpstreamModelRetiredError(statusCode, body, message...)
+}
+
 func containsModelNotFoundKeyword(normalizedBody string) bool {
 	if normalizedBody == "" {
 		return false
