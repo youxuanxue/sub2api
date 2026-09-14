@@ -207,7 +207,7 @@ func TestBuildExportZipReadsOnlyCommittedBundlePages(t *testing.T) {
 		t.Fatal(err)
 	}
 	zipKey := "exports/e-1/export.zip"
-	receipt, err := BuildExportZip(context.Background(), store, manifest.ManifestKey, zipKey)
+	receipt, err := buildExportZip(context.Background(), store, manifest.ManifestKey, zipKey, ExportVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestBuildExportZipReadsOnlyCommittedBundlePages(t *testing.T) {
 		t.Fatalf("zip body=%s", body)
 	}
 
-	repeated, err := BuildExportZip(context.Background(), store, manifest.ManifestKey, zipKey)
+	repeated, err := buildExportZip(context.Background(), store, manifest.ManifestKey, zipKey, ExportVersion)
 	if err != nil {
 		t.Fatal(err)
 	}

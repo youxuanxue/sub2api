@@ -1,31 +1,15 @@
 #!/usr/bin/env python3
-"""Gate: ops/ tool orphan check.
+"""Require ops tools to be discoverable from a maintained entry point.
 
-Every tool under ops/ must be *wired* — referenced from at least one skill,
-workflow, preflight check, sibling ops script, deploy asset, or doc. An orphan
-tool (referenced nowhere) is dead weight: the next operator/agent never
-discovers it and re-hand-writes the same SQL / SSM glue, defeating the dev-rules
-determinism baseline ("mechanizable steps must be script-borne AND invoked").
-A god-view audit in PR #663 found 7 such orphans and wired them into their
-owning skills; this check stops new ones from accreting.
-
-A tool is "referenced" if its basename appears (substring) in any file under the
-search roots other than the tool itself. Substring matching is deliberately
-lenient — it biases toward false-negatives (counting something as wired), so the
-gate never blocks a legitimate PR over an incidental name; it only fires on a
-tool nothing mentions at all.
-
-Legit zero-reference entry tools go in EXEMPT with a reason (forced
-classification, like ops-sql-coverage's SELF_CHECK_EXEMPT): a stale EXEMPT key
-(tool now referenced, or no longer an ops tool) fails the check too, so the
-registry cannot rot.
-
-Exit codes: 0 ok · 1 orphan / stale-exempt found · 2 git/IO error.
-stdlib-only. Run --selftest to verify the scan logic without touching git.
+Trace non-test references from skills, workflows, runbooks, preflight and
+explicit standalone CLI exemptions. Test references and unrooted cycles do not
+prove an operational consumer. Python imports may omit the .py extension.
+This is a discoverability gate, not proof of production execution frequency.
 """
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -35,12 +19,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # Files under these roots may legitimately reference an ops tool. Backend/
 # frontend never call ops glue, so they are intentionally excluded (keeps the
 # corpus small and fast).
-CORPUS_ROOTS = [".cursor/skills", ".github/workflows", "scripts", "ops", "deploy", "docs"]
+CORPUS_ROOTS = [".cursor/skills", ".github/workflows", ".github/actions", "scripts", "ops", "deploy", "docs"]
 CORPUS_ROOT_GLOBS = ["*.md"]  # repo-root docs (CLAUDE.md, README*.md)
 
 # Tools are enumerated from here.
 TOOL_GLOBS = ["ops/**/*.sh", "ops/**/*.py"]
-_TEST_MARKERS = ("test_", "_test.")
+_TEST_MARKERS = ("test_", "test-", "_test.")
 
 # Legit zero-reference tools (basename -> reason). Forced classification:
 # a stale key (now referenced, or no longer an ops tool) fails the check.
@@ -84,19 +68,55 @@ def collect_corpus() -> dict[str, str]:
     return corpus
 
 
+def is_entry(path: str) -> bool:
+    return (
+        path.startswith((".cursor/skills/", ".github/workflows/", "docs/"))
+        or ("/" not in path and path.endswith(".md"))
+        or path == "scripts/preflight.sh"
+    )
+
+
+def references(content: str, path: str) -> bool:
+    name = os.path.basename(path)
+    if path.startswith(".github/actions/") and name in ("action.yml", "action.yaml"):
+        action_dir = re.escape(str(Path(path).parent))
+        return bool(re.search(r"(?<![\w/-])(?:\./)?" + action_dir
+                              + r"(?:/" + re.escape(name) + r")?(?=[\s\"\'`)\]]|$)", content))
+    if name in content:
+        return True
+    # importlib and normal imports both use module names without .py.
+    return path.endswith(".py") and bool(
+        re.search(r"(?<![\w-])" + re.escape(Path(path).stem) + r"(?![\w-])", content)
+    )
+
+
+def reachable_files(corpus: dict[str, str], entrypoints: set[str]) -> set[str]:
+    candidates = {p: text for p, text in corpus.items() if is_tool(p)}
+    reached = entrypoints & candidates.keys()
+    pending = list(reached)
+    while pending:
+        source = pending.pop()
+        for target in candidates.keys() - reached:
+            if references(candidates[source], target):
+                reached.add(target)
+                pending.append(target)
+    return reached
+
+
 def scan(tools: list[str], corpus: dict[str, str], exempt: dict[str, str]):
-    """Pure core: returns (orphans, stale_exempt). corpus maps path -> content."""
-    orphans: list[str] = []
-    referenced: set[str] = set()
-    for t in tools:
-        b = os.path.basename(t)
-        if any(b in content for path, content in corpus.items() if path != t):
-            referenced.add(b)
-        elif b not in exempt:
-            orphans.append(t)
+    """Return unreachable tools and exemptions that are unnecessary or stale."""
+    roots = {p for p in corpus if is_entry(p)}
+    wired = reachable_files(corpus, roots)
     tool_basenames = {os.path.basename(t) for t in tools}
-    stale = sorted(k for k in exempt if k not in tool_basenames or k in referenced)
-    return orphans, stale
+    stale = sorted(
+        k for k in exempt
+        if k not in tool_basenames
+        or any(os.path.basename(t) == k and t in wired for t in tools)
+        or not exempt[k].strip()
+    )
+    declared = {t for t in tools if os.path.basename(t) in exempt}
+    reached = reachable_files(corpus, roots | declared)
+    return [t for t in tools if t not in reached], stale
 
 
 def main() -> int:
@@ -111,7 +131,7 @@ def main() -> int:
         print("FAIL: ops/ tool orphan check", file=sys.stderr)
         for t in orphans:
             print(
-                f"  - ORPHAN: {t} — referenced nowhere. Wire it into the owning "
+                f"  - ORPHAN: {t} — no maintained non-test entry reaches this tool. Wire it into the owning "
                 f"skill tool-table / workflow / preflight / sibling script, or add "
                 f"its basename to EXEMPT with a reason.",
                 file=sys.stderr,
@@ -128,32 +148,64 @@ def main() -> int:
 
 
 def _selftest() -> int:
-    tools = ["demo/a/foo.sh", "demo/b/bar.py", "demo/c/baz.sh"]
-    corpus = {
-        "skills/s.md": "see demo/a/foo.sh for caps",   # foo wired via skill
-        "demo/b/bar.py": "self mention bar.py ignored",  # self-ref must NOT count
-        "demo/x/caller.sh": "python3 bar.py --go",       # bar wired via sibling
-        # baz.sh referenced nowhere -> orphan
-    }
-    cases = []
-    o, s = scan(tools, corpus, {})
-    cases.append(("baz is orphan", o == ["demo/c/baz.sh"]))
-    cases.append(("no stale by default", s == []))
-    o2, _ = scan(tools, corpus, {"baz.sh": "entry tool"})
-    cases.append(("exempt clears orphan", o2 == []))
-    _, s3 = scan(tools, corpus, {"foo.sh": "x"})
-    cases.append(("referenced-yet-exempt is stale", s3 == ["foo.sh"]))
-    _, s4 = scan(tools, corpus, {"ghost.sh": "x"})
-    cases.append(("nonexistent exempt is stale", s4 == ["ghost.sh"]))
-    ok = True
-    for name, passed in cases:
-        print(f"  {'PASS' if passed else 'FAIL'} {name}")
-        ok = ok and passed
-    if ok:
-        print("ok: ops-tool-orphan self-test (5/5 cases passed)")
-        return 0
-    print("FAIL: ops-tool-orphan self-test", file=sys.stderr)
-    return 1
+    import unittest
+
+    class WiringTests(unittest.TestCase):
+        def test_rooted_transitive_import_is_discoverable(self):
+            corpus = {
+                "docs/ops.md": "run ops/entry.sh",  # script-ref-allow-missing: in-memory graph fixture
+                "ops/entry.sh": "python3 worker.py",  # script-ref-allow-missing: in-memory graph fixture
+                "ops/worker.py": "from helper import run",  # script-ref-allow-missing: in-memory graph fixture
+                "ops/helper.py": "def run(): pass",  # script-ref-allow-missing: in-memory graph fixture
+            }
+            self.assertEqual(scan(list(corpus)[1:], corpus, {}), ([], []))
+
+        def test_composite_action_directory_reaches_its_tools(self):
+            corpus = {
+                ".github/workflows/ci.yml": "uses: ./.github/actions/maintain\n",
+                ".github/actions/maintain/action.yml": "run: ops/cleanup.sh",  # script-ref-allow-missing: in-memory graph fixture
+                "ops/cleanup.sh": "true",  # script-ref-allow-missing: in-memory graph fixture
+                ".github/actions/unused/action.yml": "run: ops/old.sh",  # script-ref-allow-missing: in-memory graph fixture
+                "ops/old.sh": "true",  # script-ref-allow-missing: in-memory graph fixture
+            }
+            for reference in (
+                "uses: ./.github/actions/maintain\n",
+                "see .github/actions/maintain/action.yml\n",
+                "see `.github/actions/maintain/action.yml`",
+                "[action](.github/actions/maintain/action.yml)",
+            ):
+                corpus[".github/workflows/ci.yml"] = reference
+                with self.subTest(reference=reference):
+                    self.assertEqual(scan(["ops/cleanup.sh", "ops/old.sh"], corpus, {}),  # script-ref-allow-missing: in-memory graph fixture
+                                     (["ops/old.sh"], []))  # script-ref-allow-missing: in-memory graph fixture
+
+        def test_tests_and_mutual_mentions_do_not_make_tools_live(self):
+            corpus = {
+                "scripts/preflight.sh": "python3 ops/test_cycle.py",  # script-ref-allow-missing: in-memory graph fixture
+                "ops/test_cycle.py": "import a",  # script-ref-allow-missing: in-memory graph fixture
+                "ops/a.py": "import b",  # script-ref-allow-missing: in-memory graph fixture
+                "ops/b.py": "import a",  # script-ref-allow-missing: in-memory graph fixture
+            }
+            self.assertEqual(scan(["ops/a.py", "ops/b.py"], corpus, {}),  # script-ref-allow-missing: in-memory graph fixture
+                             (["ops/a.py", "ops/b.py"], []))  # script-ref-allow-missing: in-memory graph fixture
+
+        def test_standalone_cli_roots_dependencies(self):
+            corpus = {"ops/a.py": "import b", "ops/b.py": "pass"}  # script-ref-allow-missing: in-memory graph fixture
+            self.assertEqual(scan(list(corpus), corpus, {"a.py": "recovery CLI"}), ([], []))
+
+        def test_exemption_must_be_needed_and_nonempty(self):
+            corpus = {"docs/ops.md": "a.py", "ops/a.py": "pass", "ops/b.py": "pass"}  # script-ref-allow-missing: in-memory graph fixture
+            _, stale = scan(["ops/a.py", "ops/b.py"], corpus,  # script-ref-allow-missing: in-memory graph fixture
+                            {"a.py": "old", "b.py": "", "gone.py": "removed"})
+            self.assertEqual(stale, ["a.py", "b.py", "gone.py"])
+
+        def test_self_mention_does_not_create_entry(self):
+            corpus = {"ops/a.py": "a.py"}  # script-ref-allow-missing: in-memory graph fixture
+            self.assertEqual(scan(list(corpus), corpus, {}), (["ops/a.py"], []))  # script-ref-allow-missing: in-memory graph fixture
+
+    return 0 if unittest.TextTestRunner().run(
+        unittest.defaultTestLoader.loadTestsFromTestCase(WiringTests)
+    ).wasSuccessful() else 1
 
 
 if __name__ == "__main__":

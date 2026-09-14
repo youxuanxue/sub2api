@@ -29,9 +29,8 @@ run_backend_smoke() {
   (
     cd "${REPO_ROOT}/backend"
     go build ./...
-    go test -tags=unit ./internal/engine -run 'TestOpenAICompatPlatforms|TestIsOpenAICompatPlatform|TestIsOpenAICompatPoolMember|TestBridgeEndpointEnabled' -count=1
-    go test -tags=unit ./internal/relay/bridge -run 'TestDispatchVideoSubmit_VolcEngine_OK|TestDispatchVideoFetch_VolcEngine_OK|TestIsVideoSupportedChannelType_Truth' -count=1
-    go test -tags=unit ./internal/service -run 'TestBridgeEndpointEnabled_Truth' -count=1
+    go test -tags=unit ./internal/engine -count=1
+    go test -tags=unit ./internal/relay/bridge -run 'TestDispatchVideoSubmit_VolcEngine_OK|TestDispatchVideoFetch_VolcEngine_OK' -count=1
     go test -tags=unit ./internal/server/routes -run 'TestGatewayRoutesNewAPICompatPathsAreRegistered|TestGatewayRoutesVideoGenerationPathsAreRegistered' -count=1
   )
 }

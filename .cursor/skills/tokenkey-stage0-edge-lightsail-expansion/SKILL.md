@@ -15,7 +15,7 @@ description: >-
 | 步骤 | 类型 | 承载 |
 |---|---|---|
 | 解析 edge → 区域/AZ/bundle/SSM 前缀 | 机械 | `deploy/aws/lightsail/resolve-edge-lightsail-target.py` |
-| Stage0 routing / 统一 SSM（与 EC2 路径同源 primitive） | 机械 | `ops/stage0/edge_routing_matrix.py` + `ops/stage0/edge_ssm_execution.py`（admin：`edge_admin_resolve_target.py`）；可部署矩阵：`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
+| Stage0 Lightsail routing / 统一 SSM | 机械 | `ops/stage0/edge_routing_matrix.py` + `ops/stage0/edge_ssm_execution.py`（admin：`edge_admin_resolve_target.py`）；可部署矩阵：`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
 | 渲染 user-data（launch script） | 机械 | `deploy/aws/lightsail/render-bootstrap.sh`（drift gate 已接入 preflight） |
 | Provision dispatch + watch | 机械 | `gh workflow run deploy-edge-lightsail-stage0.yml` + `gh run watch --exit-status` |
 | 升级/回滚/烟测 dispatch | 机械 | 同上（operation 参数化） |

@@ -18,7 +18,7 @@ description: >-
 
 | 步骤 | 类型 | 承载 |
 |---|---|---|
-| 解析 target（region / instance_id） | 机械 | `deploy/aws/stage0/resolve-edge-target.py` + describe-stacks |
+| 解析 target（region / instance_id） | 机械 | `ops/stage0/edge_admin_resolve_target.py`（prod CFN；edge Lightsail SSM） |
 | SSM base64 投递 + send + poll（probe-caps.sh / probe-traffic-logs.sh / profile-traffic.py 都通过它发） | 机械 | `ops/observability/run-probe.sh` |
 | caps + 不可调度证据 + Redis 快照 + 近 2h 错误聚类 | 机械 | `ops/observability/probe-caps.sh`（输出每行一 JSON，`row_to_json`） |
 | 拉 access log + sticky.scheduler_entry → /tmp/acc.txt / /tmp/sse.txt | 机械 | `ops/observability/probe-traffic-logs.sh` |
@@ -39,14 +39,14 @@ description: >-
 
 | 参数 | 语义 |
 |---|---|
-| `target` | `prod`、`edge:us1`/`edge:uk1`/…、`all-edges`（= 双矩阵 merge 后所有 `deployable:true` 的 edge），或域名。决定 region/instance（EC2 `i-*` 或 Lightsail `mi-*`）。 |
+| `target` | `prod`、`edge:us1`/`edge:uk1`/…、`all-edges`（= Lightsail 矩阵中所有 `deployable:true` 的 edge），或域名。决定 region/instance（EC2 `i-*` 或 Lightsail `mi-*`）。 |
 | `hours` | 回看小时数。注意 docker logs 仅覆盖容器 `Up` 时长——先 `docker ps` 看 `tokenkey` 启动多久，超出部分日志不存在。 |
 | `minutes` | 亚小时窗口；用户说"过去 30 分钟"用 `minutes=30`，直接转 `docker logs --since 32m`（多拉 2min 缓冲让按 `completed_at` 过滤的边界分钟完整）。给了 `minutes` 就忽略 `hours`。 |
 | `account` | 账号 id 或 name；`all` 则先列该 platform 的可调度账号再画像。 |
 
 默认：`hours=1`、`account=all`、`path=/v1/messages`、`mode=只读`、桶=分钟。planned edge 不查除非 `allow_planned=true`。当前桶只支持分钟；需要 5-min 等更粗桶就在分钟输出上做 rollup，不要靠 `FMT` 偷桥（`strftime` 无法表达 5-min 桶）。
 
-> **target=all-edges 的解析**：可调度集 = `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`（**已合并 EC2 ∪ Lightsail**，Lightsail `deployable=true` 优先）。典型 deployable 集：`us1`（EC2）、`uk1`/`us2`/`us3`/`us4`（Lightsail）等——以 live 矩阵为准。**不要**对 `deployable:false` 的 planned edge 跑画像，除非 `allow_planned=true`。
+> **target=all-edges 的解析**：可调度集由 `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` 从 Lightsail 矩阵确定。不要对 `deployable:false` 的 planned edge 跑画像。
 
 > **Lightsail edge SSM**：`uk1` 等用 Hybrid managed instance（tag `EdgeId` + `Platform=lightsail`），**不要**查 `tokenkey-edge-uk1-stage0` CFN `InstanceId`。
 
@@ -126,7 +126,7 @@ bash ops/observability/run-probe.sh \
   --env PLATFORM=anthropic \
   --env ERR_HOURS=2
 
-# edge 同款（planned edge 需 ALLOW_PLANNED=1）
+# deployable Lightsail edge 同款
 bash ops/observability/run-probe.sh \
   --target edge:us1 \
   --script ops/observability/probe-caps.sh \

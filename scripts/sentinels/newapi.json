@@ -3,6 +3,16 @@
   "rationale": "Load-bearing files and symbols that anchor TokenKey's fifth platform `newapi`. The fifth-platform integration was silently regressed multiple times by upstream merges before this guard existed. If any sentinel below is missing, the platform either silently disappears from the UI/scheduling pool or fails at runtime. This file is the single source of truth read by both `scripts/preflight.sh` (newapi sentinel registry section, always) and `.github/workflows/upstream-merge-pr-shape.yml` (newapi sentinels check, on `merge/upstream-*` PRs). Adding a new load-bearing surface for newapi MUST add a sentinel here in the same commit.",
   "sentinels": [
     {
+      "path": "scripts/upstream/bump-new-api.sh",
+      "must_contain": ["go test -tags=unit ./internal/engine -count=1"],
+      "rationale": "Pin bump smoke runs the complete small engine suite so renaming capability tests cannot silently remove them from a hand-maintained -run expression."
+    },
+    {
+      "path": "backend/internal/engine/engine_test.go",
+      "must_contain": ["func TestCapabilityForEndpointSupported", "capability.RequiresTaskAdaptor != tc.taskAdaptor"],
+      "rationale": "The engine capability regression covers endpoint eligibility and both video and non-video task-adaptor requirements; callers must not maintain duplicate endpoint truth tables in service tests."
+    },
+    {
       "path": "backend/internal/service/protocol_endpoint_identity.go",
       "must_contain": ["json:\"model_capabilities,omitempty\""],
       "rationale": "Endpoint model capability evidence scopes thinking/tool policy without supplier-name or account-ID heuristics."
@@ -305,7 +315,7 @@
         "BridgeEndpointVideoSubmit",
         "BridgeEndpointVideoFetch"
       ],
-      "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService. Endpoint eligibility now flows through backend/internal/engine/* via BuildDispatchPlan + BridgeEndpointEnabled, so the old tkBridgeEndpointEnabled helper is intentionally gone. These symbols still guard the load-bearing video submit/fetch bridge entry points; removing them silently regresses async video routing for newapi-backed channels."
+      "rationale": "TK companion that wires the bridge's video submit/fetch into OpenAIGatewayService. Endpoint eligibility now flows through backend/internal/engine/* via BuildDispatchPlan + CapabilityForEndpoint, so the old tkBridgeEndpointEnabled helper is intentionally gone. These symbols still guard the load-bearing video submit/fetch bridge entry points; removing them silently regresses async video routing for newapi-backed channels."
     },
     {
       "path": "backend/internal/integration/newapi/fusion.go",

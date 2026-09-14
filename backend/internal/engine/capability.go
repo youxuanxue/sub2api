@@ -71,16 +71,6 @@ func (c Capability) SupportsSchedulingPlatform(platform string) bool {
 	return false
 }
 
-func BridgeEndpointEnabled(endpoint string) bool {
-	_, ok := CapabilityForEndpoint(endpoint)
-	return ok
-}
-
-func EndpointRequiresTaskAdaptor(endpoint string) bool {
-	capability, ok := CapabilityForEndpoint(endpoint)
-	return ok && capability.RequiresTaskAdaptor
-}
-
 func IsVideoSupportedChannelType(channelType int) bool {
 	return taskAdaptorRegistered(channelType)
 }

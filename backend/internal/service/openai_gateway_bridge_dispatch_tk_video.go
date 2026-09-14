@@ -68,17 +68,14 @@ func (s *OpenAIGatewayService) ForwardAsVideoSubmitDispatched(
 	if !engine.IsVideoSupportedChannelType(account.ChannelType) {
 		return nil, &NewAPIRelayError{Err: errBridgeVideoUnsupportedChannel(account.ChannelType)}
 	}
-	recordBridgeDispatch()
 	auth := bridgeAuthFromGin(c)
 	in := newAPIBridgeChannelInputForBody(account, auth.UserID, auth.GroupName, body)
 	if strings.TrimSpace(in.APIKey) == "" {
-		recordBridgeDispatchError()
 		return nil, &NewAPIRelayError{Err: errBridgeMissingCredential("api_key")}
 	}
 
 	out, apiErr := bridge.DispatchVideoSubmit(ctx, c, in, publicTaskID, body)
 	if apiErr != nil {
-		recordBridgeDispatchError()
 		logger.L().Info("openai_gateway.newapi_bridge_dispatch",
 			zap.String("endpoint", BridgeEndpointVideoSubmit),
 			zap.Int("channel_type", account.ChannelType),

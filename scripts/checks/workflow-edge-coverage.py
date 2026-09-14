@@ -3,7 +3,6 @@
 
 As the edge fleet grows, the hardcoded ``choice`` option lists in per-edge
 workflows silently drift: a new deployable edge in
-``deploy/aws/stage0/edge-targets.json`` (EC2) or
 ``deploy/aws/lightsail/edge-targets-lightsail.json`` (Lightsail) becomes
 un-dispatchable / un-covered with no error. GitHub Actions cannot compute choice
 options dynamically, so the only defence is a drift check.
@@ -24,15 +23,11 @@ import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 REGISTRY = pathlib.Path(__file__).resolve().parent / "workflow-edge-coverage.json"
-EC2_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
 
 
 def _deployable_ids(path: pathlib.Path) -> set[str]:
-    """Edge ids with deployable=true. Same matrix shape as
-    scripts/checks/edge-platform-exclusivity.py::_deployable_ids."""
-    if not path.is_file():
-        return set()
+    """Edge ids with deployable=true from the canonical Lightsail matrix."""
     targets = (json.loads(path.read_text(encoding="utf-8")).get("targets") or {})
     return {eid for eid, t in targets.items() if isinstance(t, dict) and t.get("deployable") is True}
 
@@ -61,16 +56,14 @@ def main() -> int:
 
     try:
         registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
-        ec2 = _deployable_ids(EC2_MATRIX)
         lightsail = _deployable_ids(LIGHTSAIL_MATRIX)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"FAIL: cannot read registry/matrix: {exc}", file=sys.stderr)
         return 2
 
     sets = {
-        "ec2-deployable": ec2,
         "lightsail-deployable": lightsail,
-        "all-deployable": ec2 | lightsail,
+        "all-deployable": lightsail,
     }
 
     failures: list[str] = []

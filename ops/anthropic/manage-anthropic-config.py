@@ -21,7 +21,7 @@ SQL):
      — action.kind = ``edge_operator_balance`` (edge only; when live balance < threshold → default)
 
 Topology (which edges exist, and which prod stub maps to which edge) is read
-from ``deploy/aws/stage0/edge-targets.json`` (each edge's ``domain`` field
+from ``deploy/aws/lightsail/edge-targets-lightsail.json`` (each edge's ``domain`` field
 is the authoritative prod-stub↔edge link) plus ``deploy/aws/lightsail/edge-targets-lightsail.json``
 when an edge is live on Lightsail (auto route: LS ``deployable=true`` wins per
 ``ops/stage0/edge_routing_matrix.py``). Prod is pinned separately as ``PROD_TARGET`` —
@@ -81,7 +81,7 @@ returns, and its basis changed from "Σ all anthropic concurrency" to
 (1) edge account tier config (surface A); (2) edge ``users.id=1`` =
 that edge's Σ schedulable; (3) each prod mirror stub's ``concurrency`` =
 its edge's Σ schedulable (edge resolved via the stub's ``base_url`` matched
-against ``edge-targets.json`` ``domain``); (4) prod ``users.id=1`` = prod's
+against ``edge-targets-lightsail.json`` ``domain``); (4) prod ``users.id=1`` = prod's
 Σ schedulable (computed after step 3 in the same prod transaction).
 
 Each successful edge ``apply`` transaction also sets ``users.id=1``
@@ -125,7 +125,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-EDGE_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
+EDGE_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
 TIER_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json"
 STUB_POOL_BASELINES = REPO_ROOT / "deploy/aws/stage0/anthropic-stub-pool-baselines.json"
 EDGE_OPERATOR_BALANCE_BASELINES = (
@@ -137,7 +137,7 @@ RUNTIME_SYNC_SETTING_KEY = "claude_code_user_agent_version"
 RUNTIME_SYNC_MIMICRY_SETTING_KEY = "claude_code_http_mimicry_manifest"
 OPS_DIR = REPO_ROOT / "ops/anthropic"
 
-# prod is not an entry in edge-targets.json (which is the edge matrix).
+# prod is not an entry in edge-targets-lightsail.json (which is the edge matrix).
 # Pin it explicitly so plan-stub-pool / apply / verify can resolve the prod
 # Postgres without operators discovering CFN stack names from memory.
 PROD_TARGET = {
@@ -1002,11 +1002,11 @@ def _capture_prod_bundle(region: str, prod_inst: str) -> dict[str, Any]:
     }
 
 
-def _snapshot_edge_task(task: tuple[str, dict | None, dict | None, bool, bool]) -> tuple[str, dict]:
-    """Worker for parallel snapshot: (eid, ec2_t, ls_t, deploy, allow_planned)."""
-    eid, ec2_t, ls_t, deploy, allow_planned = task
-    region = (ec2_t or {}).get("region") or (ls_t or {}).get("lightsail_region")
-    stack = (ec2_t or {}).get("stack") or ""
+def _snapshot_edge_task(task: tuple[str, dict | None, bool, bool]) -> tuple[str, dict]:
+    """Worker for parallel snapshot: (eid, ls_t, deploy, allow_planned)."""
+    eid, ls_t, deploy, allow_planned = task
+    region = (ls_t or {}).get("lightsail_region")
+    stack = ""
     if not deploy and not allow_planned:
         return eid, {
             "deployable": False,
@@ -1033,19 +1033,15 @@ def _snapshot_edge_task(task: tuple[str, dict | None, dict | None, bool, bool]) 
 
 
 def cmd_snapshot(args: argparse.Namespace) -> int:
-    edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
     ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
-    ec2_targets = edge_matrix.get("targets") or {}
 
     edges: dict[str, dict] = {}
-    merged = _EDGE_ROUTING.merged_edge_ids(edge_matrix, ls_targets)
     workers = _parallel_edges_workers(getattr(args, "parallel_edges", None))
-    tasks: list[tuple[str, dict | None, dict | None, bool, bool]] = []
-    for eid in merged:
-        ec2_t = ec2_targets.get(eid)
+    tasks: list[tuple[str, dict | None, bool, bool]] = []
+    for eid in sorted(ls_targets):
         ls_t = ls_targets.get(eid)
-        deploy = _EDGE_ROUTING.edge_effective_deployable(ec2_t, ls_t)
-        tasks.append((eid, ec2_t, ls_t, deploy, bool(args.allow_planned)))
+        deploy = _EDGE_ROUTING.edge_deployable(ls_t)
+        tasks.append((eid, ls_t, deploy, bool(args.allow_planned)))
     if tasks:
         print(f"snapshot: {len(tasks)} edge(s) parallel_workers={workers}", file=sys.stderr)
         for eid, edge in _run_parallel_ordered(
@@ -1800,11 +1796,10 @@ def _edge_ids_for_check(snapshot: dict | None, allow_planned: bool) -> list[str]
             eid for eid, e in snapshot.get("edges", {}).items()
             if e.get("deployable") is not False and "error" not in e
         ])
-    edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
     ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
     if allow_planned:
-        return _EDGE_ROUTING.merged_edge_ids(edge_matrix, ls_targets)
-    return _EDGE_ROUTING.iter_effective_deployable_edge_ids(edge_matrix, ls_targets)
+        return sorted(ls_targets)
+    return _EDGE_ROUTING.deployable_edge_ids(ls_targets)
 
 
 def _guard_items_from_batch(
@@ -2622,26 +2617,10 @@ def _normalize_base_url(base_url: str) -> str:
     return s.rstrip("/")
 
 
-def _build_domain_to_edge(
-    edge_matrix: dict,
-    ls_targets: dict[str, dict] | None = None,
-) -> dict[str, str]:
-    """Authoritative prod-stub↔edge link from EC2 + Lightsail edge matrices.
-
-    Map each edge's ``domain`` to its edge id. Lightsail-only edges (e.g. uk1
-    after EC2 decommission) contribute from the Lightsail matrix; EC2-only
-    edges (e.g. us1 before cutover) come from edge-targets.json. Never inferred
-    from account names or ad-hoc slugs."""
-    out: dict[str, str] = {}
-    for eid, tgt in (edge_matrix.get("targets") or {}).items():
-        dom = _normalize_base_url(tgt.get("domain") or "")
-        if dom:
-            out[dom] = eid
-    for eid, tgt in (ls_targets or {}).items():
-        dom = _normalize_base_url(tgt.get("domain") or "")
-        if dom:
-            out[dom] = eid
-    return out
+def _build_domain_to_edge(ls_targets: dict[str, dict]) -> dict[str, str]:
+    """Map canonical Lightsail domains to edges, never account names or slugs."""
+    return {domain: eid for eid, target in ls_targets.items()
+            if (domain := _normalize_base_url(target.get("domain") or ""))}
 
 
 def cmd_plan_concurrency_mirror(args: argparse.Namespace) -> int:
@@ -2655,14 +2634,13 @@ def cmd_plan_concurrency_mirror(args: argparse.Namespace) -> int:
       4. prod's ``users.id=1`` → prod's Σ schedulable, computed after hop 3 in the
          same prod transaction  (same prod_concurrency_mirror action)
 
-    Edge resolution for hop 3 is purely from edge-targets.json ``domain`` — no
+    Edge resolution for hop 3 is purely from edge-targets-lightsail.json ``domain`` — no
     name/slug inference. Idempotent: a second run after apply is noop. Safety
     rail: an edge whose Σ schedulable is 0 is skipped loud for hop 3 (we never
     write a stub concurrency of 0)."""
     snap = _load_snapshot_or_die(args.snapshot)
-    edge_matrix = load_json_file(EDGE_MATRIX, "edge matrix")
     ls_targets = _EDGE_ROUTING.load_lightsail_targets(REPO_ROOT)
-    domain_to_edge = _build_domain_to_edge(edge_matrix, ls_targets)
+    domain_to_edge = _build_domain_to_edge(ls_targets)
     force = bool(getattr(args, "force_template_rewrite", False))
 
     actions: list[dict] = []
@@ -2722,7 +2700,7 @@ def cmd_plan_concurrency_mirror(args: argparse.Namespace) -> int:
             prod_skipped_unmatched.append({
                 "id": stub.get("id"), "name": stub.get("name"),
                 "cred_base_url": stub.get("cred_base_url"),
-                "reason": "base_url does not match any edge domain in edge-targets.json",
+                "reason": "base_url does not match any edge domain in edge-targets-lightsail.json",
             })
             continue
         edge = snap.get("edges", {}).get(edge_id) or {}
@@ -3932,7 +3910,7 @@ def main() -> int:
                         help="pull each deployable edge's anthropic OAuth accounts + prod anthropic api-key stubs into one JSON")
     sp.add_argument("--out", help="write snapshot JSON to this path (otherwise stdout)")
     sp.add_argument("--allow-planned", action="store_true",
-                    help="include planned edges from merged EC2 + Lightsail matrix keys")
+                    help="include planned edges from the Lightsail matrix")
     sp.add_argument("--skip-prod", action="store_true",
                     help="skip the prod stub query (offline / lab runs that only need edge data)")
     _add_parallel_edges_arg(sp)

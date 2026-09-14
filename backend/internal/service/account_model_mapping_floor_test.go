@@ -127,23 +127,6 @@ func TestAccountModelMappingRuntimeOverride(t *testing.T) {
 		"runtime channel replacement must not erase the ch41 profile/shared capability contract")
 }
 
-func TestReconciledAccountModelMapping_RemovesForbiddenEntries(t *testing.T) {
-	t.Parallel()
-
-	account := &Account{
-		Platform: PlatformAntigravity,
-		Credentials: map[string]any{"model_mapping": map[string]any{
-			"required":                          "wrong-target",
-			"compatible-extra":                  "compatible-extra",
-			"gpt-oss-forbidden-prefix-boundary": "gpt-oss-forbidden-prefix-boundary",
-		}},
-	}
-	got := reconciledAccountModelMapping(account, map[string]string{"required": "required-target"})
-	require.Equal(t, "required-target", got["required"])
-	require.Equal(t, "compatible-extra", got["compatible-extra"])
-	require.NotContains(t, got, "gpt-oss-forbidden-prefix-boundary")
-}
-
 func expectedAntigravityModelMappingForReconcilerTest() map[string]string {
 	servable := stringSet(supportedCatalogModelIDsForPlatform(PlatformAntigravity))
 	expected := make(map[string]string)

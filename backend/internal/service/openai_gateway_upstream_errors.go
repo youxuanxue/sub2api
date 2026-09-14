@@ -255,31 +255,6 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 	}).RetryNextAccount
 }
 
-// shouldFailoverOpenAIUpstreamError adapts OpenAI payloads to the global
-// failover policy. HTTP callers pass the upstream status; SSE / buffered
-// callers first map the event to a semantic status.
-func shouldFailoverOpenAIUpstreamError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
-	semantic := gatewayFailureSemanticUnclassified
-	// cyber_policy / usage_policy are request-scoped safety blocks: never rotate
-	// accounts or auto-retry the same prompt.
-	if isOpenAISafetySessionBlockFault(upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticSharedFault
-	} else if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticTransientFault
-	} else if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
-		semantic = gatewayFailureSemanticSharedFault
-	} else if tkIsCapabilityScope401(statusCode, upstreamBody) {
-		semantic = gatewayFailureSemanticSharedFault
-	} else if tkIsGrokEntitlement403(statusCode, upstreamBody) {
-		semantic = gatewayFailureSemanticSharedFault
-	}
-	return classifyGatewayFailover(gatewayFailoverObservation{
-		Profile:    gatewayFailoverProfileOpenAI,
-		Semantic:   semantic,
-		StatusCode: statusCode,
-	}).RetryNextAccount
-}
-
 func isOpenAINonRetryableClientError(upstreamMsg string, upstreamBody []byte) bool {
 	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "response.error.code").String()))
 	if code == "" {

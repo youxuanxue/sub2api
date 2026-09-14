@@ -15,16 +15,15 @@ Usage:
 
 Examples:
   bash ops/stage0/reset-edge-admin-password.sh uk1              # auto: Lightsail when deployable=true in lightsail matrix
-  bash ops/stage0/reset-edge-admin-password.sh --platform ec2 fra1
   bash ops/stage0/reset-edge-admin-password.sh --platform lightsail uk1
   bash ops/stage0/reset-edge-admin-password.sh prod            # prod main gateway (tokenkey-prod-stage0, us-east-1)
 
 Behavior:
   - Target is an edge id (e.g. uk1, us6) or the literal "prod" (prod Stage0 gateway).
-  - Uses deploy/aws/lightsail/edge-targets-lightsail.json vs deploy/aws/stage0/edge-targets.json:
-      * Platform "auto": Lightsail region + Tag SSM targets when ls target exists and deployable=true;
-                        otherwise EC2 region + InstanceId from CloudFormation Outputs.
-      * EC2/Lightsail: force that resolution path via --platform.
+  - Uses deploy/aws/lightsail/edge-targets-lightsail.json for edges; prod uses CloudFormation:
+      * Platform "auto": deployable Lightsail target + SSM managed instance from Parameter Store.
+      * "lightsail": explicit Lightsail resolution, including planned targets.
+      * "ec2": rejected for edges (retired).
       * "prod": fixed EC2 stack tokenkey-prod-stage0 in us-east-1 (--platform ignored).
   - Reads ADMIN_EMAIL from /var/lib/tokenkey/.env on the instance (same stack layout EC2 vs Lightsail).
   - Resets admin password via PostgreSQL (pgcrypto bcrypt).

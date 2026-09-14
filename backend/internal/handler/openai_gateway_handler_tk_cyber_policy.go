@@ -488,14 +488,6 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 	}()
 }
 
-// clearCyberPolicyTurnState resets cyber / usage_policy marks and the per-request
-// recorded guard. WS-only: called at the END of AfterTurn, after
-// recordCyberPolicyIfMarked and RecordUsage (which reads CyberBlocked) have both
-// consumed the mark.
-func clearCyberPolicyTurnState(c *gin.Context) {
-	clearCyberPolicyAttemptState(c, true)
-}
-
 func clearCyberPolicyAttemptState(c *gin.Context, resetRecorded bool) {
 	if c == nil {
 		return

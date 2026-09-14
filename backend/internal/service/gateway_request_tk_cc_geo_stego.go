@@ -53,7 +53,3 @@ func tkNormalizeCCGeoDateToken(date string) (string, bool) {
 	}
 	return canon, true
 }
-
-func tkNormalizeAnthropicCCGeoStego(body []byte) ([]byte, bool) {
-	return tkNormalizeAnthropicCCPromptSurface(body, "")
-}

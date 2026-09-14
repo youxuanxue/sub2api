@@ -129,7 +129,7 @@ Lightsail Edge 启用后，沿用同一 **`edge_routing_matrix`/`edge_ssm_execut
   输出 SSM **`REGION`** + **`INSTANCE_ID`**（`mi-*` 来自 Parameter Store；EC2 为 `i-*`）。与 **`ops/stage0/edge_admin_resolve_target.py` auto** 规则一致。
 - **`ops/observability/run-probe.sh --target edge:<id>`**（默认 `ALLOW_PLANNED` 未设置）走上述脚本；若要探 **planned 仅 EC2 矩阵条目**，仍可设 **`ALLOW_PLANNED=1`** 走 **`resolve-edge-target.py` + CFN**。
 - **`ops/anthropic/manage-anthropic-config.py`**、**`rebalance-anthropic-priority.py`**、`snapshot`/`apply`/`check` **与 `check-edge-oauth-stability.py`**：**snapshot** / **护栏**在多矩阵下按 Lightsail **`deployable=true` 优先**解析实例（与 **`edge_routing_matrix.py`** 一致）。
-- **`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`**：列出 **EC2 ∪ Lightsail 有效 deployable** 的 edge id（可选 **`--lightsail-matrix`**）。
+- **`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable`**：列出 **Lightsail deployable** 的 edge id（可选 **`--lightsail-matrix`**）。
 
 ## 升级 / 回滚
 
@@ -188,8 +188,7 @@ SSM managed instance、SSM 参数、DNS A 记录、prod mirror account 均已删
 target 元数据，但必须保持 `deployable=false`；rollout、health、飞书配置同步和手动 edge
 deploy choice 都不应再指向这些 edge。
 
-对仍在线的 edge，同名域名只能由一个平台对外服务；两边的 `deployable` 同时为 `true` 会被
-**`scripts/checks/edge-platform-exclusivity.py`** 拦下。
+Edge resolver 只读取 Lightsail 矩阵；已删除旧 EC2 edge fallback 和双矩阵互斥检查。
 
 **不能与 EC2 EIP 混用：** 旧 EC2 Edge 的 Elastic IP（例如历史 **`16.61.87.51` / `eipalloc-03b2653ddd57b9c93`**）**无法挂到 Lightsail 实例**。若 Porkbun 仍指向已游离的 EC2 EIP，公网会超时。迁到 Lightsail 后必须把 A 记录改到 **Lightsail Static IP**；不再需要的老 EIP 可通过 `release-address` 回收。
 

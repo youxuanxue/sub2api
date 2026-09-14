@@ -130,32 +130,3 @@ func TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides(t *testing.T) 
 	require.True(t, foundAli, "Ali Token Plan account override must be exported in bundle floor")
 	require.True(t, foundQFPlan, "Qianfan Token Plan account override must be exported in bundle floor")
 }
-
-func TestTokenPlanReconciliationRemovesAliSharedFamiliesOnly(t *testing.T) {
-	t.Parallel()
-	for _, baseURL := range []string{newapiintegration.AliTokenPlanBaseURL, "https://dashscope.aliyuncs.com"} {
-		account := &Account{
-			Platform: PlatformNewAPI, ChannelType: newapiconstant.ChannelTypeAli,
-			Credentials: map[string]any{
-				"base_url": baseURL,
-				"model_mapping": map[string]string{
-					"deepseek-v4-pro-0813": "deepseek-v4-pro",
-					"glm-4.7":              "qwen3.7-plus",
-					"custom-compatible":    "qwen3.7-plus",
-				},
-			},
-		}
-		required, ok := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
-		require.True(t, ok)
-		got := reconciledAccountModelMapping(account, required)
-		require.Equal(t, "qwen3.7-plus", got["custom-compatible"])
-		if isNewAPIAliTokenPlanAccount(account) {
-			require.NotContains(t, got, "deepseek-v4-pro-0813")
-			require.NotContains(t, got, "glm-4.7", "GLM request names must not consume Ali even when targeting Qwen")
-		} else {
-			require.Contains(t, got, "deepseek-v4-pro-0813")
-			require.Contains(t, got, "glm-4.7")
-		}
-		require.Equal(t, got, reconciledAccountModelMapping(account, got))
-	}
-}

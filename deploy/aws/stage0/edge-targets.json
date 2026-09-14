@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "default_profile": "edge-minimal",
-  "max_monthly_budget_usd": 16,
-  "_retired": "EC2 edge path removed 2026-06-07; edges are Lightsail-only (deploy/aws/lightsail/edge-targets-lightsail.json). prod stays EC2/CFN (tokenkey-prod-stage0). Do NOT re-add EC2 edges here — the deploy-edge-stage0.yml workflow and stage0-edge-ec2.yaml template have been deleted. File kept (not removed) because edge_routing_matrix / resolve-edge-deploy-route / edge_ssm_execution hard-fail if it is missing.",
-  "targets": {}
-}

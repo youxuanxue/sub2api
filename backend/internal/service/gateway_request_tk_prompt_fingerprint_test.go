@@ -38,7 +38,7 @@ func TestTkExtractAnthropicPromptFingerprint_GeoStegoInReminder(t *testing.T) {
 
 func TestTkExtractAnthropicPromptFingerprint_CanonicalAfterNormalize(t *testing.T) {
 	in := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>\nToday\u2019s date is 2026/06/30.\n</system-reminder>"}]}]}`)
-	out, changed := tkNormalizeAnthropicCCGeoStego(in)
+	out, changed := tkNormalizeAnthropicCCPromptSurface(in, "")
 	require.True(t, changed)
 	fp := tkExtractAnthropicPromptFingerprint(out)
 	require.Equal(t, "ISO_DASH_ASCII", fp.ReminderDateLineClass)

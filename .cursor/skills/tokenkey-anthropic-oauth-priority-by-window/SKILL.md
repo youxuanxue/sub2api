@@ -157,7 +157,7 @@ remaining_score = min(remaining_5h, remaining_7d)
 
 | 现象 | 处理 |
 |---|---|
-| `snapshot` 失败 / SSM 拒绝 | 校验 EC2 instance 在跑 / `edge-targets.json` / OIDC 权限 |
+| `snapshot` 失败 / SSM 拒绝 | 校验 Lightsail instance 与 SSM managed instance / `edge-targets-lightsail.json` / OIDC 权限 |
 | `plan` 退出码 1（`any_stale=true`） | 检查 `plan.json` 的 `tier_summaries[*].ordering[*].stale_reasons`。常见：`never_sampled`（账号新建未跑过任何请求）、`session_window_expired`（账号长期无流量、窗口已 reset 但还没新请求触发头部采样）。可接受 → apply 即可（stale 账号已排到队尾）；不接受 → 跑几个 warmup 请求让 utilization 被采样后再 plan |
 | `plan` 退出码 2 + `account_count > MAX_PER_TIER_PER_EDGE` | 该 edge 该 tier 账号太多，offset 会越级。先用 tier baseline 流水线把部分账号挪到上下 tier，再回来跑本流水线 |
 | `apply --confirm` 拒绝 | 必须精确 `yes-rebalance-anthropic-priority` |

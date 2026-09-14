@@ -3,7 +3,7 @@
 config orchestrator — the four-hop schedulable-concurrency cascade:
 
   - _normalize_base_url / _build_domain_to_edge: the prod-stub↔edge link is
-    resolved ONLY from edge-targets.json ``domain`` (no slug inference)
+    resolved ONLY from edge-targets-lightsail.json ``domain`` (no slug inference)
   - render_edge_operator_concurrency_sql: operator sync filters schedulable=true
   - render_prod_concurrency_mirror_sql: per-stub safe WHERE, int/concurrency
     validation, name quoting, ordering (stubs before operator), operator
@@ -86,17 +86,15 @@ class NormalizeAndDomainMapTest(unittest.TestCase):
             "uk1": {"domain": "https://api-uk1.tokenkey.dev/"},
             "blank": {},
         }}
-        m = mgr._build_domain_to_edge(matrix)
+        m = mgr._build_domain_to_edge(matrix["targets"])
         self.assertEqual(m.get("api-us1.tokenkey.dev"), "us1")
         self.assertEqual(m.get("api-uk1.tokenkey.dev"), "uk1")
         # an edge with no domain contributes no key (cannot be matched).
         self.assertNotIn("", m)
 
     def test_real_edge_targets_domains_map(self) -> None:
-        # EC2 matrix owns us1; uk1 is Lightsail-only after EC2 decommission.
-        matrix = mgr.load_json_file(mgr.EDGE_MATRIX, "edge matrix")
         ls_targets = mgr._EDGE_ROUTING.load_lightsail_targets(mgr.REPO_ROOT)
-        m = mgr._build_domain_to_edge(matrix, ls_targets)
+        m = mgr._build_domain_to_edge(ls_targets)
         self.assertEqual(m.get("api-us1.tokenkey.dev"), "us1")
         self.assertEqual(m.get("api-uk1.tokenkey.dev"), "uk1")
 

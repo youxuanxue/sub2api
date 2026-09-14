@@ -14,11 +14,7 @@ _PROVISION = (
     / "lightsail"
     / "provision-edge.sh"
 )
-_SHADOW = (
-    pathlib.Path(__file__).resolve().parents[1]
-    / "lightsail"
-    / "provision-shadow-small.sh"
-)
+
 
 # Edge Lightsail hardened baseline port set (must stay in sync across provision + verify).
 _UDP_34567 = "fromPort=34567,toPort=34567,protocol=udp,cidrs=0.0.0.0/0"
@@ -52,7 +48,7 @@ class VerifyEdgeLightsailNetworkTest(unittest.TestCase):
 
     def test_baseline_includes_udp_34567(self) -> None:
         """Positive: enforce/provision declare UDP 34567 in the public port set."""
-        for path in (_SCRIPT, _PROVISION, _SHADOW):
+        for path in (_SCRIPT, _PROVISION):
             text = path.read_text(encoding="utf-8")
             self.assertIn(_TCP_443, text, msg=f"{path.name} missing TCP 443")
             self.assertIn(_TCP_8443, text, msg=f"{path.name} missing TCP 8443")
@@ -60,7 +56,7 @@ class VerifyEdgeLightsailNetworkTest(unittest.TestCase):
 
     def test_baseline_does_not_open_public_22_or_80(self) -> None:
         """Negative: put-instance-public-ports must not declare public TCP 22/80."""
-        for path in (_SCRIPT, _PROVISION, _SHADOW):
+        for path in (_SCRIPT, _PROVISION):
             text = path.read_text(encoding="utf-8")
             # Only look at put-instance-public-ports blocks (avoid comment noise).
             blocks = []

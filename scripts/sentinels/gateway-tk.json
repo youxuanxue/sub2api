@@ -4601,10 +4601,7 @@
         "func grokAccountModelMappingFloor(",
         "isNewAPIXRTokenAccount",
         "newAPIAliTokenPlanModelAliases()",
-        "newAPIQianfanTokenPlanModelAliases()",
-        "func reconciledAccountModelMapping(",
-        "keysByScope[scope]",
-        "prefixesByScope[scope]"
+        "newAPIQianfanTokenPlanModelAliases()"
       ],
       "rationale": "Single SSOT selector for account model_mapping. It applies runtime replacement scopes first, then derives explicit native mappings from CatalogPolicy projections, platform compatibility owners, Kiro presets, Bedrock defaults, and newapi channel display presets. Losing any branch silently breaks the all-platform explicit model_mapping policy or drops owner-declared compatibility aliases. ModelSurfaceBundleForOps emits the deterministic checksummed release projection once; rollout tools consume that artifact instead of compiling this package. Tokensea relay scopes (openai_tokensea_relay / anthropic_tokensea_relay) and CloudWise relay scope (openai_cloudwise_relay) must stay wired so prod relay accounts keep probe-curated floors. The isNewAPIXRTokenAccount branch routes ch54 XRToken accounts through its base_url-scoped five-model manifest projection instead of the generic channel-type fallback; otherwise apply-accounts would lose the three shared rows indexed under ch45 or leak XRToken-only rows into plain ch54 accounts."
     },
@@ -4752,6 +4749,10 @@
     {
       "path": "ops/pricing/manage-account-model-mapping-runtime.py",
       "must_contain": [
+        "def _account_plan(",
+        "def _forbidden_mapping_entries(",
+        "assert scoped_plan[\"diff\"][\"forbidden_keys\"] == [\"platform-forbidden\", \"retired-alias\"]",
+        "assert payg_plan[\"diff\"][\"forbidden_keys\"] == [\"platform-forbidden\"]",
         "APPLY_CONFIRM = \"yes-apply-account-model-mapping\"",
         "RUNTIME_MUTATION_CONFIRM = \"yes-change-account-model-mapping-runtime\"",
         "tk_account_model_mapping_runtime_doc",
@@ -5136,7 +5137,6 @@
         "TestNewAPIModelMappingPresetIDsForAliTokenPlanAccount",
         "TestNewAPIModelMappingPresetIDsForQianfanTokenPlanAccount",
         "TestAccountModelMappingFloorForOpsIncludesTokenPlanOverrides",
-        "TestTokenPlanReconciliationRemovesAliSharedFamiliesOnly",
         "PAYG-only ch17 floor ids must not leak into Token Plan override",
         "wan2.7-image"
       ],
@@ -5434,13 +5434,11 @@
     {
       "path": "backend/internal/service/gateway_request_tk_cc_geo_stego.go",
       "must_contain": [
-        "func tkNormalizeAnthropicCCGeoStego",
-        "tkNormalizeAnthropicCCPromptSurface",
         "tkPromptGeoSlashDateRE",
         "tkNormalizeChangeCCGeoStego",
         "Today's date is $1-$2-$3."
       ],
-      "rationale": "CC geo-stego date-line helpers; tkNormalizeAnthropicCCGeoStego delegates to gateway_request_tk_cc_prompt_surface.go; tkPromptGeoSlashDateRE stays for prompt-surface fingerprint detection."
+      "rationale": "CC geo-stego date helpers consumed by the shared prompt-surface normalizer; retain fingerprint detection and canonical date rewriting."
     },
     {
       "path": "backend/internal/service/account_tk_oauth_email.go",

@@ -1,5 +1,5 @@
 """Verify that --prod-ops-matrix surfaces deployable Lightsail edges alongside
-EC2/CFN ones, with platform=lightsail and ssm_prefix set from the lightsail
+the EC2/CFN production gateway, with platform=lightsail and ssm_prefix set from the lightsail
 matrix.
 
 stdlib-only.
@@ -14,13 +14,12 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "deploy/aws/stage0/resolve-edge-target.py"
-EC2_MATRIX = REPO_ROOT / "deploy/aws/stage0/edge-targets.json"
 LIGHTSAIL_MATRIX = REPO_ROOT / "deploy/aws/lightsail/edge-targets-lightsail.json"
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(SCRIPT), "--matrix", str(EC2_MATRIX), *args],
+        [sys.executable, str(SCRIPT), *args],
         capture_output=True,
         text=True,
         check=False,
@@ -46,15 +45,14 @@ class ProdOpsMatrixLightsailTests(unittest.TestCase):
             self.assertEqual(target_ids[ls_id]["stack"], "")
             self.assertTrue(target_ids[ls_id]["ssm_prefix"].startswith("/tokenkey/lightsail/"))
 
-    def test_ec2_entries_carry_platform_ec2(self):
+    def test_only_prod_uses_ec2(self):
         proc = _run("--prod-ops-matrix", "--target-selector", "all")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        payload = json.loads(proc.stdout)
-        for item in payload["matrix"]["include"]:
-            if item["target_id"].startswith("edge-") and not item["target_id"].endswith("-ls"):
-                self.assertEqual(item["platform"], "ec2", item)
-            if item["target_id"] == "prod":
-                self.assertEqual(item["platform"], "ec2")
+        include = json.loads(proc.stdout)["matrix"]["include"]
+        self.assertEqual([t["target_id"] for t in include if t["platform"] == "ec2"], ["prod"])
+        prod = next(t for t in include if t["target_id"] == "prod")
+        self.assertEqual(prod["stack"], "tokenkey-prod-stage0")
+        self.assertEqual(prod["region"], "us-east-1")
 
     def test_planned_lightsail_excluded_with_reason(self):
         proc = _run("--prod-ops-matrix", "--target-selector", "all")
