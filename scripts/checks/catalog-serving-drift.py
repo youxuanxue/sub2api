@@ -47,13 +47,14 @@ def _price_errors(label: str, owner: str, overlay_entries: dict[str, Any]) -> li
 
 
 def evaluate(
-    manifest: dict[str, Any],
+    manifest: dict[str, Any] | _MANIFEST.ServedModelsManifest,
     overlay: dict[str, Any],
     allowlists: dict[str, set[str]],
 ) -> list[str]:
     errors: list[str] = []
     try:
-        entries = _MANIFEST.parse_manifest_document(manifest).entries
+        entries = (manifest if isinstance(manifest, _MANIFEST.ServedModelsManifest)
+                   else _MANIFEST.parse_manifest_document(manifest)).entries
     except _MANIFEST.ManifestError as exc:
         return list(exc.errors)
 
@@ -126,10 +127,10 @@ def main() -> int:
     if args.selftest:
         return cmd_selftest()
     try:
-        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        manifest = _MANIFEST.load_manifest(MANIFEST)
         overlay = json.loads(OVERLAY.read_text(encoding="utf-8"))
         allowlists = parse_allowlist_maps(ALLOWLIST_GO.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, _MANIFEST.ManifestError) as exc:
         print(f"catalog-serving-drift: error: {exc}", file=sys.stderr)
         return 2
     errors = evaluate(manifest, overlay, allowlists)

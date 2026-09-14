@@ -231,9 +231,9 @@ section only records sub2api-specific choices.
 
 ## Catalog Recommendation SSOT
 
-- `backend/internal/service/pricing_catalog_lifecycle_tk.go` owns official withdrawal facts and the shared `isCatalogModelRecommended` presentation gate. Public pricing, every user-menu source and NewAPI manifest display projections consume it. Existing native deprecation owners are reused.
-- Recommendation withdrawals apply immediately after a reviewed announcement, including IDs still callable through another endpoint. They do not declare fleet-wide shutdown and must not change billing, empirical capability sets or account mappings. Exact snapshots do not retire an entire stable family alias.
-- Manifest membership owns NewAPI provisioning; `display` intent plus the lifecycle gate owns recommendations. Refresh/probe success cannot override a withdrawal. Preserve the sentinel and pricing/menu/provisioning regression tests when moving these owners.
+Catalog declaration owners, recommendation withdrawals and their consumer boundaries
+are maintained in [目录 owner 与写入边界](docs/approved/pricing-serving-single-source-of-truth.md#目录-owner-与写入边界).
+Keep this navigation as a pointer instead of copying the owner table or policy.
 
 ## Account Usage SSOT
 

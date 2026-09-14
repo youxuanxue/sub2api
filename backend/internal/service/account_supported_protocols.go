@@ -162,12 +162,17 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 // OpenAI mirror stubs similarly hide their compatibility-only Messages ingress.
 // Antigravity mirrors with a verified native Gemini hop likewise convert at
 // prod; an edge key may prohibit the compatibility ingress entirely.
-// The stored capability remains untouched as probe evidence.
+// Restrictions may only remove protocols from the persisted capability owner.
 func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
-	if account.IsKiroMirrorStub() {
-		return []protocolrouter.Protocol{protocolrouter.ProtocolMessages}
-	}
 	protocols := account.SupportedProtocols()
+	if account.IsKiroMirrorStub() {
+		for _, protocol := range protocols {
+			if protocol == protocolrouter.ProtocolMessages {
+				return []protocolrouter.Protocol{protocol}
+			}
+		}
+		return nil
+	}
 	if tkIsAntigravityEdgeRelayStub(account) {
 		for _, protocol := range protocols {
 			if protocol == protocolrouter.ProtocolGeminiGenerateContent {

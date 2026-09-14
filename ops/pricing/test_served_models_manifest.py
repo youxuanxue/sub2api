@@ -117,6 +117,22 @@ class ServedModelsManifestTest(unittest.TestCase):
         with self.assertRaisesRegex(manifest.ManifestError, "at least one channel_type"):
             manifest.parse_manifest_document(data)
 
+    def test_rejects_duplicate_model_and_policy_keys_before_overwrite(self) -> None:
+        for text in (
+            '{"schema_version":3,"entries":{"model":{"channel_type":17,"display":true},"model":{"channel_type":17,"display":false}}}',
+            '{"schema_version":3,"entries":{"model":{"channel_type":17,"display":true,"display":false}}}',
+            '{"schema_version":2,"schema_version":3,"entries":{"model":{"channel_type":17,"display":true}}}',
+        ):
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(manifest.ManifestError, "duplicate JSON key"):
+                    manifest.parse_manifest_text(text)
+
+    def test_text_parser_preserves_default_price_owner_and_hidden_intent(self) -> None:
+        parsed = manifest.parse_manifest_text(json.dumps(self.valid_document())).by_model()
+        self.assertEqual(parsed['shown-model'].price_owner, 'shown-model')
+        self.assertEqual(parsed['hidden-model'].price_owner, 'shown-model')
+        self.assertFalse(parsed['hidden-model'].display)
+
 
 if __name__ == "__main__":
     unittest.main()

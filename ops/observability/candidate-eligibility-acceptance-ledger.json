@@ -1,17 +1,340 @@
 {
   "contract": "US-050",
-  "schema_version": 1,
-  "statuses": ["contract-tested", "live-verified", "blocked"],
+  "schema_version": 2,
   "criteria": {
-    "AC-001": "contract-tested",
-    "AC-002": "contract-tested",
-    "AC-003": "contract-tested",
-    "AC-004": "contract-tested",
-    "AC-005": "contract-tested",
-    "AC-006": "contract-tested",
-    "AC-007": "contract-tested",
-    "AC-008": "contract-tested",
-    "AC-009": "contract-tested"
+    "AC-001": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilityGoogleBackends",
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateNativeConverterParityAndGoogleFailover"
+      ]
+    },
+    "AC-002": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilityCapacityIsNotEntitlement",
+        "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilityUnknownCapabilityIsNotEntitlement"
+      ]
+    },
+    "AC-003": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilityNativeAndConverterEqual",
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateNativeConverterParityAndGoogleFailover",
+        "backend/internal/service/account_supported_protocols_test.go::TestKiroMirrorPlanRequiresPersistedMessages"
+      ]
+    },
+    "AC-004": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/server/middleware/candidate_request_tk_test.go::TestUS050_GoogleAuthUsesCandidateActualAccount"
+      ]
+    },
+    "AC-005": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilitySaturationPreservesBillingTier",
+        "backend/internal/service/candidate_eligibility_test.go::TestCandidateEligibilityAntigravitySaturationScopeAndParity"
+      ]
+    },
+    "AC-006": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/server/middleware/universal_routing_tk_test.go::TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody"
+      ]
+    },
+    "AC-007": {
+      "status": "contract-tested",
+      "evidence": [
+        "scripts/checks/test_protocol_routing_ssot.py::ProtocolRoutingSSOTTest.test_rejects_removed_owner",
+        "scripts/checks/test_protocol_routing_ssot.py::ProtocolRoutingSSOTTest.test_rejects_forward_bypass_outside_selected_protocol_execution"
+      ]
+    },
+    "AC-008": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateAccountPriorityIgnoresGroupTopology"
+      ]
+    },
+    "AC-009": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/server/middleware/candidate_request_tk_test.go::TestUS050_HTTPAuthCarriesActualCandidateAndRebindsBillingContext"
+      ]
+    },
+    "AC-010": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateDeduplicatesMembershipBeforeSelection"
+      ]
+    },
+    "AC-011": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateModelGrantsCannotBeBorrowed"
+      ]
+    },
+    "AC-012": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/server/middleware/candidate_request_tk_test.go::TestUS050_HTTPAuthCarriesActualCandidateAndRebindsBillingContext"
+      ]
+    },
+    "AC-013": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_billing_tk_test.go::TestCandidateBillingSelectedOriginReachesHoldAndSettlement",
+        "backend/internal/repository/usage_billing_repo_tk_hold_integration_test.go::TestApply_ConsumesHandedOffHoldAtomically"
+      ]
+    },
+    "AC-014": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateFreshRevocationReleasesSlot",
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateWaitRechecksAuthorizationAndPlan",
+        "backend/internal/handler/candidate_media_tk_test.go::TestUS050_CandidateStoredVideoKeepsSubmissionRouteAcrossOrigins"
+      ]
+    },
+    "AC-015": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/universal_subscription_fallback_test.go::TestResolve_SubscriptionReadErrorFallback",
+        "backend/internal/service/universal_subscription_fallback_test.go::TestResolve_SubscriptionMaintenanceErrorFallsBack",
+        "backend/internal/service/universal_subscription_fallback_test.go::TestResolve_SubscriptionCandidateErrorFallback",
+        "backend/internal/server/middleware/universal_routing_tk_test.go::TestAuthMiddleware_SubscriptionReadFailureBalanceChecks"
+      ]
+    },
+    "AC-016": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/server/middleware/candidate_request_tk_test.go::TestUS050_GoogleAuthUsesCandidateActualAccount",
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateNativeMessagesDoesNotNeedConversionPermission"
+      ]
+    },
+    "AC-017": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_billing_tk_test.go::TestCandidateBillingOriginUsesUserPriceAndIgnoresGroupOrder",
+        "backend/internal/service/candidate_billing_tk_test.go::TestCandidateBillingPriceChangeBetweenHoldAndSettlement"
+      ]
+    },
+    "AC-018": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_billing_tk_test.go::TestCandidateBillingOriginRejectsUnequalApplicablePolicies",
+        "backend/internal/service/candidate_billing_tk_test.go::TestCandidateBillingOriginQueryFailureIsNeverTariffEquality"
+      ]
+    },
+    "AC-019": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateWindowRecoveryAndStickyAdmission",
+        "backend/internal/repository/gateway_cache_candidate_identity_test.go::TestGatewayCache_CandidateAffinityFollowsAccountAcrossBillingOrigins"
+      ]
+    },
+    "AC-020": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateReadyPeerAndSlotRace",
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateCapacityIsOnlyAnAdmissionLimit"
+      ]
+    },
+    "AC-021": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/repository/candidate_compatibility_integration_test.go::TestCandidatePersistentFormatUpgradeAndRollback",
+        "backend/internal/service/candidate_identity_tk_test.go::TestCandidateContinuation_LegacyReadsOnlyAuthorizedOrigins"
+      ]
+    },
+    "AC-022": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/user_group_rate_resolver_test.go::TestUserGroupRateResolverResolve_CanceledLeaderDoesNotCancelSharedRead",
+        "backend/internal/service/user_group_rate_resolver_test.go::TestUserGroupRateResolverResolve_QueryFailureUsesOneAndRecovers",
+        "backend/internal/service/user_group_rate_resolver_test.go::TestUserGroupRateResolverResolve_NoOverrideUsesGroupDefault"
+      ]
+    },
+    "AC-023": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateNativeMessagesDoesNotNeedConversionPermission",
+        "backend/internal/handler/candidate_protocol_execute_tk_test.go::TestUS050_CandidateNativeRetryUsesAccountTransport"
+      ]
+    },
+    "AC-024": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/handler/universal_group_model_mapping_test.go::TestGroupModelMappingRoutingMode",
+        "backend/internal/handler/universal_group_model_mapping_test.go::TestUniversalGroupDefaultModelCannotReenterThroughFallback",
+        "backend/internal/service/gemini_messages_compat_service_test.go::TestGeminiMessagesCompatServiceForward_UniversalKeepsAccountMapping"
+      ]
+    },
+    "AC-025": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/server/middleware/universal_body_tk_test.go::TestMaybeResolveUniversal_RejectsIncompleteBody",
+        "backend/internal/server/middleware/universal_body_tk_test.go::TestUniversalBodyPeek_PreservesCompletePayload",
+        "backend/internal/server/middleware/universal_body_tk_test.go::TestUniversalBodyPeek_PreservesFailureForDirectConsumer"
+      ]
+    },
+    "AC-026": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/server/middleware/candidate_request_tk_test.go::TestUS050_UniversalWebSocketDefersPaymentButEnforcesKeyLimits",
+        "backend/internal/handler/candidate_websocket_tk_test.go::TestCandidateWebSocket_FirstFrameAndEachTurnUseAuthorizedPlan",
+        "backend/internal/handler/candidate_websocket_tk_test.go::TestCandidateWebSocket_RechecksKeyAndEntitlementBeforeNextFrame"
+      ]
+    },
+    "AC-027": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_billing_tk_test.go::TestUniversalBillingAdmissionSkipsPlatformQuotaButKeepsBalance",
+        "backend/internal/service/candidate_billing_tk_test.go::TestUniversalUsageBillingNeverRevivesGroupPlatformQuota"
+      ]
+    },
+    "AC-028": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/channel_service_test.go::TestBuildCache_DBError",
+        "backend/internal/service/channel_service_test.go::TestBuildCache_GroupPlatformError",
+        "backend/internal/service/channel_service_test.go::TestBuildCache_QueryFailureRecovers"
+      ]
+    },
+    "AC-029": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_selection_tk_test.go::TestGlobalCandidateWindowRecoveryRunsAfterUnion"
+      ]
+    },
+    "AC-030": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/repository/candidate_supplier_integration_test.go::TestCandidateSupplierFaultPersistentSharingAndRecovery",
+        "backend/internal/service/supplier_credential_fault_test.go::TestUS050_SupplierCredentialFailureFromRotatedCredentialDoesNotBlockPeers"
+      ]
+    },
+    "AC-031": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_discovery_tk_test.go::TestUS050_CandidateDiscoveryRejectsConflictingOriginButKeepsPeer",
+        "backend/internal/handler/candidate_discovery_tk_test.go::TestUS050_DirectDiscoveryUsesSupportProjectionAndKeepsClientSchemas",
+        "backend/internal/handler/candidate_discovery_tk_test.go::TestUS050_CodexDiscoveryUsesActualAccountsAndPreservesManifest"
+      ]
+    },
+    "AC-032": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_failure_tk_test.go::TestCandidateFailurePriorityDirectUniversalAndModelIsolation",
+        "backend/internal/service/candidate_failure_tk_test.go::TestCandidateFailureNativeExecutionUsesForwardModel",
+        "backend/internal/service/candidate_failure_tk_test.go::TestCandidateTransportFailureAttribution"
+      ]
+    },
+    "AC-033": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/handler/candidate_chat_failover_tk_test.go::TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce"
+      ]
+    },
+    "AC-034": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_chat_attempt_tk_test.go::TestCandidateChatBudgetAndReplayBoundaries",
+        "backend/internal/handler/candidate_chat_failover_tk_test.go::TestUS050_CandidateChatHangFailoverCompletesAndMetersOnce"
+      ]
+    },
+    "AC-035": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_thinking_tools_tk_test.go::TestCandidateThinkingToolsPreferExactAndFallbackOnCapacity",
+        "backend/internal/service/candidate_thinking_tools_tk_test.go::TestExecuteSelectedProtocolRejectsChangedThinkingCapability",
+        "backend/internal/service/candidate_thinking_tools_tk_test.go::TestCandidateThinkingToolsRespectConversionPermission",
+        "backend/internal/service/candidate_thinking_tools_tk_test.go::TestCandidateThinkingToolsPreferAuthorizedExactOrigin"
+      ]
+    },
+    "AC-036": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_profit_tk_test.go::TestCandidateProfitNativeMessagesRejectsBeforeReservation",
+        "backend/internal/service/candidate_profit_tk_test.go::TestCandidateProfitReselectionUsesActualBillingOrigin",
+        "backend/internal/service/candidate_profit_tk_test.go::TestCandidateProfitFreshCostAfterSlotReleasesAndReselects",
+        "backend/internal/service/candidate_profit_tk_test.go::TestCandidateProfitWaitRechecksFreshCost",
+        "backend/internal/service/candidate_profit_tk_test.go::TestCandidateProfitWebSocketRevalidationRefreshesOriginGate"
+      ]
+    },
+    "AC-037": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/gateway_priced_serving_group_tk_test.go::TestPricedServingGroupPriceMatchesSettlement",
+        "backend/internal/service/gateway_priced_serving_group_tk_test.go::TestPricedServingUsesCurrentKeyBillingGroup"
+      ]
+    },
+    "AC-038": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_pricing_browser_test.go::TestCandidatePricingBrowser",
+        "backend/internal/service/me_pricing_candidate_tk_test.go::TestCandidatePricingMenuUsesAuthorizedSupport",
+        "backend/internal/service/me_pricing_candidate_tk_test.go::TestCandidatePricingMenuRejectsPhantomChannelAndConflictingOrigins"
+      ]
+    },
+    "AC-039": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_pricing_browser_test.go::TestCandidatePricingBrowser",
+        "backend/internal/service/me_pricing_candidate_tk_test.go::TestCandidatePricingMenuPrunesEveryPriceSource"
+      ]
+    },
+    "AC-040": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/me_pricing_performance_tk_test.go::TestMePricingMenuBatchesAvailabilityAndReusesInputs",
+        "backend/internal/service/candidate_discovery_snapshot_tk_test.go::TestCandidateDiscoveryPlanCacheAvoidsRepeatedSnapshotsAndRefreshesNextRequest",
+        "backend/internal/service/pricing_ssot_regression_tk_test.go::TestPricingSSOTRegistryDeletionRotatesCatalogAliasesAndBilling"
+      ]
+    },
+    "AC-041": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/candidate_thinking_tools_tk_test.go::TestCandidateThinkingToolsSlotRecheckPreservesConversionPermission"
+      ]
+    },
+    "AC-042": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/integration/cursor/messages_test.go::TestValidateMessagesContentSharesNativeParser",
+        "backend/internal/service/candidate_cursor_ssot_test.go::TestCursorPlanRejectsUnsupportedNativeContent",
+        "backend/internal/service/candidate_cursor_ssot_test.go::TestCursorNativeContentFailureDoesNotWinCandidateSelection",
+        "backend/internal/service/cursor_content_consistency_tk_test.go::TestCursorNativeHistoryPlanAndForwardAgree"
+      ]
+    },
+    "AC-043": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/pricing_scope_consistency_tk_test.go::TestPricingScopeImageGroupPriceGuardSettlementParity",
+        "backend/internal/service/pricing_scope_consistency_tk_test.go::TestPricingScopeImageEmptyCardsRemainBlocked"
+      ]
+    },
+    "AC-044": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/pricing_scope_consistency_tk_test.go::TestPricingScopeLiteralAndWildcardBeforeNormalized",
+        "backend/internal/service/pricing_scope_consistency_tk_test.go::TestPricingScopeEquivalentChannelCardsDoNotRejectCandidate",
+        "backend/internal/service/pricing_scope_consistency_tk_test.go::TestPricingScopeGroupNormalizedRecordUsage"
+      ]
+    },
+    "AC-045": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/pricing_scope_consistency_tk_test.go::TestPricingScopeImageRequestedSizeMatchesSettlement",
+        "backend/internal/handler/openai_images_controls_test.go::TestOpenAIImageHandlersRejectUnpricedRequestedSize"
+      ]
+    },
+    "AC-046": {
+      "status": "contract-tested",
+      "evidence": [
+        "backend/internal/service/cursor_content_consistency_tk_test.go::TestCursorContentCacheKeepsRequestModelAndAccountBoundaries",
+        "backend/internal/service/cursor_content_consistency_tk_test.go::TestCursorCachedContentDoesNotCopyLongRequest"
+      ]
+    }
   },
-  "live_observation": {"status": "blocked", "reason": "Per-criterion live evidence is still required.", "owner": "US-050 Coverage Boundaries"}
+  "operational_observations": ".testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#coverage-boundaries"
 }

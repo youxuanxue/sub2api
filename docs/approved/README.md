@@ -59,10 +59,10 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 [US-050](../../.testing/user-stories/stories/US-050-candidate-eligibility-ssot.md#coverage-boundaries)
 维护；契约索引不另存“已上线／已验收”状态。
 上游合并前使用 `scripts/checks/upstream-ssot-impact.py` 按 owner 聚合协议、候选、定价、目录和网关影响面。
-模型目录声明由 `backend/internal/service/tk_served_models.json` 承载；`scripts/checks/model-owner-manifest.py` 保证每个模型 ID 唯一且拥有明确 `price_owner`，协议与映射继续由既有 owner 裁决。
+目录声明、推荐撤下及展示投影的职责见[目录 owner 与写入边界](pricing-serving-single-source-of-truth.md#目录-owner-与写入边界)。`model-owner-manifest.py` 复用 canonical NewAPI manifest parser 检查声明；`catalog-serving-drift.py` 校验价格 owner 解析，协议与映射继续由既有 owner 裁决。
 逐 AC 的机器状态见 [`ops/observability/candidate-eligibility-acceptance-ledger.json`](../../ops/observability/candidate-eligibility-acceptance-ledger.json)，由 `scripts/checks/candidate-acceptance-ledger.py` 校验；它不替代 US-050 的解释性证据。
 
-模型目录的唯一写入链路为：`evidence → reviewed activation → manifest/overlay → generated bundle → runtime`。`CatalogPolicy` 是展示与目录准入的统一决策名；availability 只表示证据，前端 presentation helper 只负责格式化。长期 advisory 统一登记在 [`ops/observability/advisory-ledger.json`](../../ops/observability/advisory-ledger.json)，每项必须有 owner、到期日和 remediation。
+`CatalogPolicy` 由上述 owner 的投影组成；原生目录刷新、NewAPI 声明、价格发布和账号 mapping 激活各走自己的写入边界。availability 只表示证据，前端 presentation helper 消费后端目录与授权能力。长期 advisory 统一登记在 [`ops/observability/advisory-ledger.json`](../../ops/observability/advisory-ledger.json)，每项必须有 owner、到期日和 remediation。
 
 ## Shipped baselines
 

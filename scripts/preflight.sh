@@ -520,11 +520,14 @@ fi
 
 echo ""
 echo "=== sub2api: candidate acceptance ledger ==="
-if ! python3 ./scripts/checks/candidate-acceptance-ledger.py; then
+if ! python3 ./scripts/checks/test_candidate_acceptance_ledger.py; then
+    echo "  FAIL: US-050 acceptance ledger checker regressions"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/candidate-acceptance-ledger.py; then
     echo "  FAIL: US-050 acceptance ledger is invalid"
     errors=$((errors + 1))
 else
-    echo "  ok: US-050 acceptance states use the single machine-readable ledger"
+    echo "  ok: US-050 criteria and linked test evidence match the acceptance ledger"
 fi
 
 echo ""
@@ -543,10 +546,10 @@ python3 ./scripts/checks/upstream-ssot-impact.py --base "${PREFLIGHT_BASE:-origi
 echo ""
 echo "=== sub2api: model owner manifest ==="
 if ! python3 ./scripts/checks/model-owner-manifest.py; then
-    echo "  FAIL: served-model manifest has duplicate IDs or missing price owners"
+    echo "  FAIL: NewAPI manifest violates its canonical declaration contract"
     errors=$((errors + 1))
 else
-    echo "  ok: served-model declaration has one price owner per model"
+    echo "  ok: NewAPI manifest declarations pass canonical parsing"
 fi
 
 echo ""

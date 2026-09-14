@@ -183,11 +183,20 @@ def parse_manifest_document(
     return ServedModelsManifest(tuple(entries))
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ManifestError([f"duplicate JSON key: {key!r}"])
+        result[key] = value
+    return result
+
+
 def parse_manifest_text(
     text: str, *, source: str = "tk_served_models.json"
 ) -> ServedModelsManifest:
     try:
-        data = json.loads(text)
+        data = json.loads(text, object_pairs_hook=_unique_json_object)
     except json.JSONDecodeError as exc:
         raise ManifestError([f"{source}: invalid JSON: {exc}"]) from exc
     return parse_manifest_document(data, source=source)
