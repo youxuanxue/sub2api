@@ -171,13 +171,14 @@ func TestMessagesPreservesCancellationAfterResponseHeaders(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/%s/stream=%t", cause, phase, stream), func(t *testing.T) {
 					token := "private-token"
 					resp, err := Messages(t.Context(), token, []byte(fmt.Sprintf(`{"model":"composer-2.5","stream":%t,"messages":[{"role":"user","content":"hello"}]}`, stream)), nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
-						var reader io.Reader = iotest.ErrReader(&url.Error{Op: "Read", URL: "https://private-token@example.test", Err: cause})
+						reader := iotest.ErrReader(&url.Error{Op: "Read", URL: "https://private-token@example.test", Err: cause})
 						status := http.StatusOK
-						if phase == "frame_payload" {
+						switch phase {
+						case "frame_payload":
 							reader = io.MultiReader(bytes.NewReader([]byte{0, 0, 0, 0, 1}), reader)
-						} else if phase == "error_body" {
+						case "error_body":
 							status = http.StatusBadGateway
-						} else if phase == "after_text" {
+						case "after_text":
 							var frames bytes.Buffer
 							require.NoError(t, writeAgentFrame(&frames, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "hello"}}}))
 							reader = io.MultiReader(&frames, reader)
@@ -191,10 +192,13 @@ func TestMessagesPreservesCancellationAfterResponseHeaders(t *testing.T) {
 						require.ErrorIs(t, readErr, cause)
 						require.NotContains(t, string(payload), token)
 						require.NotContains(t, string(payload), "message_stop")
-						tier, nativeErr := resp.Body.(*MessagesBody).Outcome()
+						tier, nativeErr := resp.Body.(*MessagesBody).Outcome() //nolint:errcheck // asserted below
 						require.Empty(t, tier)
+						require.Error(t, nativeErr)
 						require.ErrorIs(t, nativeErr, cause)
-						require.NotContains(t, nativeErr.Error(), token)
+						if nativeErr != nil {
+							require.NotContains(t, nativeErr.Error(), token)
+						}
 						require.NoError(t, resp.Body.Close())
 						return
 					}
