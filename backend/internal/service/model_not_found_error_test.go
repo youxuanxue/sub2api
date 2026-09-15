@@ -156,10 +156,10 @@ func TestIsUpstreamModelRetiredError(t *testing.T) {
 			want:       true,
 		},
 		{
-			name:       "bare 410 without body",
+			name:       "bare 410 does not prove model retirement",
 			statusCode: http.StatusGone,
 			body:       "",
-			want:       true,
+			want:       false,
 		},
 		{
 			name:       "400 with reached its end of life phrase",
@@ -199,8 +199,29 @@ func TestIsUpstreamModelRetiredError(t *testing.T) {
 			if got := isUpstreamModelRetiredError(tt.statusCode, []byte(tt.body), tt.msg); got != tt.want {
 				t.Fatalf("isUpstreamModelRetiredError() = %v, want %v", got, tt.want)
 			}
-			if got := IsOpenAICompatibleModelRetired(tt.statusCode, tt.msg, []byte(tt.body)); got != tt.want {
-				t.Fatalf("IsOpenAICompatibleModelRetired() = %v, want %v", got, tt.want)
+			if got := IsUpstreamModelRetiredError(tt.statusCode, []byte(tt.body), tt.msg); got != tt.want {
+				t.Fatalf("IsUpstreamModelRetiredError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestModelRetirementRequiresModelDiagnostic(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"expired file", 410, `{"error":{"message":"The uploaded file is no longer available"}}`},
+		{"expired session", 400, `{"error":{"message":"The session has reached its end of life"}}`},
+		{"echoed prompt", 400, `{"error":{"message":"Invalid parameter"},"request":{"model":"current","input":"This model has been retired"}}`},
+		{"transient model capacity", 503, `{"error":{"message":"This model is temporarily no longer available"}}`},
+		{"credential expiration", 401, `{"error":{"message":"The API key for this model has reached its end of life"}}`},
+		{"success payload", 200, `{"message":"This model has been retired"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if isUpstreamModelRetiredError(tc.status, []byte(tc.body)) {
+				t.Fatal("non-retirement must not cool the model")
 			}
 		})
 	}

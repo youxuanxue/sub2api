@@ -80,3 +80,17 @@ func mapKeysForNVIDIATest(mapping map[string]string) []string {
 	}
 	return keys
 }
+
+// Fixed withdrawal boundary: these aliases remain valid on other suppliers.
+func TestNVIDIABuildRetiredModelExcludedFromProvisioning(t *testing.T) {
+	account := &Account{Platform: PlatformNewAPI, Type: AccountTypeAPIKey, ChannelType: newapiconstant.ChannelTypeOpenAI,
+		Credentials: map[string]any{"base_url": newapiintegration.NVIDIABuildBaseURL}}
+	mapping, ok := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
+	require.True(t, ok)
+	for _, retired := range []string{"deepseek-v4-pro", "deepseek-v4-pro-0813"} {
+		require.NotContains(t, mapping, retired)
+		require.NotContains(t, NewAPIModelMappingPresetIDsForAccount(account), retired)
+		require.NotContains(t, NewAPIModelDisplayIDsForAccount(account), retired)
+	}
+	require.Contains(t, mapping, "kimi-k3", "other NVIDIA models remain provisionable")
+}

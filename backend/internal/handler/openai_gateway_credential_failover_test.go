@@ -433,3 +433,24 @@ func TestOpsWebSocketCredentialFailoverExhaustedIsRecorded(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, job.entry.StatusCode)
 	require.Equal(t, service.GrokCredentialUnavailableClientMessage, job.entry.ErrorMessage)
 }
+
+func TestModelRetirementFailoverExhaustionRequiresDiagnostic(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		want       int
+	}{
+		{"retired", `{"error":{"code":"model_retired","message":"The model has reached its end of life"}}`, http.StatusGone},
+		{"expired file", `{"error":{"message":"The file is no longer available"}}`, http.StatusBadGateway},
+		{"bare gone", ``, http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			(&OpenAIGatewayHandler{}).handleFailoverExhausted(c, &service.UpstreamFailoverError{StatusCode: http.StatusGone, ResponseBody: []byte(tc.body)}, false)
+			require.Equal(t, tc.want, rec.Code)
+			if tc.want == http.StatusGone {
+				require.Equal(t, "model_retired", gjson.Get(rec.Body.String(), "error.code").String())
+			}
+		})
+	}
+}

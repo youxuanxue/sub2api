@@ -415,3 +415,13 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundImageModelStillCoolsD
 	require.Len(t, repo.modelRateLimitCalls, 1, "守卫只作用于 codex plan-gated 分支")
 	require.Equal(t, upstreamModelNotFoundReason, repo.modelRateLimitCalls[0].reason)
 }
+
+func TestModelRetirementDoesNotCoolUnrelatedGone(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	handled := svc.HandleUpstreamModelNotFound(context.Background(), openAIModelNotFoundTempAccount(), "gpt-5.4", http.StatusGone,
+		[]byte(`{"error":{"message":"The file is no longer available"},"request":{"model":"gpt-5.4"}}`))
+	require.False(t, handled)
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.tempCalls)
+}

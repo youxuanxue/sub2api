@@ -59,8 +59,7 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 	// 410 Gone / model end-of-life: upstream reports the model has reached its end of
 	// life and is no longer available. When failover is exhausted, requesting a retired
 	// model is caller-fault.
-	if status == http.StatusGone {
-		body, msg := tkOpsUpstreamErrorText(c)
+	if body, msg := tkOpsUpstreamErrorText(c); service.IsUpstreamModelRetiredError(status, []byte(body), msg) {
 		combined := strings.ToLower(strings.TrimSpace(msg + "\n" + body))
 		return !tkOpsIsAccountLevel4xx(combined)
 	}

@@ -374,3 +374,24 @@ func TestClassifyOpsBurstProtection429OwnedByClient(t *testing.T) {
 		require.False(t, service.IsOpsSLAFaultOwner(errorOwner))
 	})
 }
+
+func TestModelRetirementOpsAttributionRequiresDiagnostic(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		status         int
+		message, owner string
+	}{
+		{"model gone", 410, "The model has reached its end of life", "client"},
+		{"model retired 400", 400, "The model has been retired", "client"},
+		{"file gone", 410, "The file is no longer available", "provider"},
+		{"bare gone", 410, "", "provider"},
+		{"account disabled", 410, "The model has been retired; organization has been disabled", "provider"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			service.SetOpsUpstreamError(c, tc.status, tc.message, "bad_response_status_code")
+			_, _, owner, _ := classifyOpsErrorLog(c, "api_error", tc.message, "", tc.status)
+			require.Equal(t, tc.owner, owner)
+		})
+	}
+}

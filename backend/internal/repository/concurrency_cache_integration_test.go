@@ -609,8 +609,10 @@ func (s *ConcurrencyCacheSuite) TestCleanupExpiredAccountSlots() {
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), 3, cur)
 
-	// Manually set old timestamps for req1 and req2 (simulate expired slots)
-	now := time.Now().Unix()
+	// Use the same Redis clock as acquisition and cleanup, including when the
+	// Docker VM clock differs from the test runner.
+	now, err := s.rawCache.redisUnixSeconds(s.ctx)
+	require.NoError(s.T(), err)
 	expiredTime := now - int64(testSlotTTL.Seconds()) - 10 // 10 seconds past TTL
 	err = s.rdb.ZAdd(s.ctx, slotKey, redis.Z{Score: float64(expiredTime), Member: "req1"}).Err()
 	require.NoError(s.T(), err)

@@ -125,6 +125,13 @@ func bridgeWrapRelayErrorAfterPenalty(
 	account *Account,
 	apiErr *newapitypes.NewAPIError,
 ) error {
+	// Model retirement is scoped to the executed Plan, not the account. The
+	// legacy account-penalty allowlist deliberately excludes these statuses.
+	if apiErr != nil && isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr)) {
+		stateCtx, cancel := openAIAccountStateContext(ctx)
+		defer cancel()
+		rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, ""), apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr))
+	}
 	tkHandleBridgeUpstreamPenalty(ctx, rls, account, apiErr)
 	if tkBridgeUpstreamShouldFailoverAfterPenalty(apiErr) {
 		return tkNewAPIBridgeUpstreamFailoverError(c, apiErr)

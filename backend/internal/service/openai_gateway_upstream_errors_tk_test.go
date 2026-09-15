@@ -90,3 +90,11 @@ func TestHandleErrorResponse_TkOps404UnknownURLStays502(t *testing.T) {
 	require.Equal(t, "upstream_error", gjson.Get(rec.Body.String(), "error.type").String())
 	require.Equal(t, "Upstream request failed", gjson.Get(rec.Body.String(), "error.message").String())
 }
+
+func TestNativeModelRetirementPassthroughRequiresDiagnostic(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound, http.StatusGone} {
+		require.True(t, tkShouldPassthroughOpenAINativeClientError(status, "The model has been retired", nil))
+	}
+	require.False(t, tkShouldPassthroughOpenAINativeClientError(http.StatusGone, "The file is no longer available", nil))
+	require.False(t, tkShouldPassthroughOpenAINativeClientError(http.StatusGone, "", nil))
+}
