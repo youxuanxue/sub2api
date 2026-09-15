@@ -44,9 +44,9 @@ func TestTKPricingOverlay_FillsDeepseekV4(t *testing.T) {
 
 	flash := data["deepseek-v4-flash"]
 	require.NotNil(t, flash, "overlay must inject deepseek-v4-flash")
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), flash.InputCostPerToken, 1e-15)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), flash.OutputCostPerToken, 1e-15)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.05), flash.CacheReadInputTokenCost, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), flash.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), flash.OutputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.02), flash.CacheReadInputTokenCost, 1e-15)
 	require.True(t, flash.SupportsPromptCaching)
 	require.Equal(t, "deepseek", flash.LiteLLMProvider)
 	require.Equal(t, "chat", flash.Mode)
@@ -63,9 +63,9 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 
 	flash := overlay["deepseek-v4-flash"]
 	require.NotNil(t, flash)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), flash.InputCostPerToken, 1e-15)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), flash.OutputCostPerToken, 1e-15)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.05), flash.CacheReadInputTokenCost, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), flash.InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), flash.OutputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.02), flash.CacheReadInputTokenCost, 1e-15)
 	require.Equal(t, 1_000_000, flash.MaxInputTokens)
 	require.Equal(t, 384_000, flash.MaxOutputTokens)
 
@@ -87,6 +87,10 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 		require.Equal(t, flash.MaxOutputTokens, entry.MaxOutputTokens, alias)
 	}
 
+	owner, declared := tkPricingRegistryAliasOwner("deepseek-flash")
+	require.True(t, declared)
+	require.Equal(t, "deepseek-v4-flash", owner)
+
 	// Baidu Qianfan serving-account price variants were removed by policy: every
 	// account serving these shared client ids bills users from the single official
 	// owner above, and the official peak-valley policy applies uniformly. Upstream
@@ -96,7 +100,6 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 	for _, removed := range []string{
 		"deepseek-v4-flash.qianfan",
 		"deepseek-v4-pro.qianfan",
-		"deepseek-v4-flash-0731",
 	} {
 		require.Nil(t, overlay[removed],
 			"%s must not come back: shared ids use one global user price across serving accounts", removed)
@@ -186,8 +189,8 @@ func TestUS043_RegistryWinsOverNonZeroProviderPrice(t *testing.T) {
 
 	flash := data["deepseek-v4-flash"]
 	require.NotNil(t, flash)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), flash.InputCostPerToken, 1e-15, "registry must replace provider value")
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), flash.OutputCostPerToken, 1e-15, "registry must replace provider value")
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), flash.InputCostPerToken, 1e-15, "registry must replace provider value")
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), flash.OutputCostPerToken, 1e-15, "registry must replace provider value")
 }
 
 // TestTKPricingOverlay_FillsAntigravityGeminiThinking verifies the Antigravity

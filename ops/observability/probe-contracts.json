@@ -48,7 +48,7 @@
     "success_when": "http_status == 200; inspect reasoningContentEvent_count and frames_with_signature_key"
   },
   "probe_account_upstream_models.sh": {
-    "companions": [],
+    "companions": ["ops/lib/resolve_app_container.py"],
     "verdicts": [
       "servable",
       "upstream_rejected",

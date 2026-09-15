@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -273,13 +274,21 @@ func TestUS048_StartSupplierProbeJobProbesAllCandidatesAsynchronously(t *testing
 		entries = append(entries, SupplierUpstreamModelEntry{ID: id, Type: "chat"})
 		probeStatus[id] = SupplierProbeStatusPassed
 	}
-	lister := &supplierProbeFake{entries: entries, probeStatus: probeStatus}
+	// Hold the worker until the running snapshot is observed; a zero-latency fake
+	// can otherwise finish before StartSupplierProbeJob returns.
+	probeGate := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(probeGate) }) }
+	t.Cleanup(release)
+	lister := &supplierProbeFake{entries: entries, probeStatus: probeStatus, probeGate: probeGate}
 	svc := NewSupplierSourceService(repo, nil, lister, supplierSyncEncryptor{}, supplierSourceTestFingerprinter{})
 	started, err := svc.StartSupplierProbeJob(context.Background(), 8, SupplierDiscoverOptions{})
 	require.NoError(t, err)
 	require.Equal(t, SupplierProbeJobRunning, started.ProbeStatus)
 	require.Equal(t, 12, started.ProbeTotal)
 	require.NotEmpty(t, started.JobID)
+	require.Zero(t, lister.probeCalls.Load())
+	release()
 
 	deadline := time.Now().Add(2 * time.Second)
 	var result *SupplierSourceProbeResult
@@ -451,6 +460,7 @@ type supplierProbeFake struct {
 	probeStatus map[string]SupplierProbeStatus
 	listErr     error
 	probeCalls  atomic.Int64
+	probeGate   <-chan struct{}
 }
 
 func (f *supplierProbeFake) ListSupplierUpstreamModels(
@@ -464,7 +474,14 @@ func (f *supplierProbeFake) ListSupplierUpstreamModels(
 	return out, nil
 }
 
-func (f *supplierProbeFake) ProbeSupplierModel(_ context.Context, input SupplierProbeInput) SupplierProbeResult {
+func (f *supplierProbeFake) ProbeSupplierModel(ctx context.Context, input SupplierProbeInput) SupplierProbeResult {
+	if f.probeGate != nil {
+		select {
+		case <-f.probeGate:
+		case <-ctx.Done():
+			return SupplierProbeResult{Status: SupplierProbeStatusFailed}
+		}
+	}
 	f.probeCalls.Add(1)
 	status := SupplierProbeStatusFailed
 	if f.probeStatus != nil {

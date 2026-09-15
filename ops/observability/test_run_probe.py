@@ -393,6 +393,24 @@ class RunProbePollingTest(unittest.TestCase):
         self.assertIn("/tmp/probe_openai_upstream_model.sh", params)
         self.assertIn("/tmp/probe_grok_upstream_model.sh", params)
 
+    def test_upstream_account_probe_imports_delivered_resolver(self) -> None:
+        self.probe = pathlib.Path(__file__).resolve().parents[1] / "stage0" / "probe_account_upstream_models.sh"
+        proc = self._run_scenario("terminal-failure")
+        self.assertEqual(proc.returncode, 3, proc.stderr)
+        commands = json.loads(self.aws_params_log.read_text())["commands"][1]
+        delivered = self.root / "delivered"
+        delivered.mkdir()
+        for match in re.finditer(r"(echo [A-Za-z0-9+/=]+ \| base64 -d(?: \| gzip -d)?) > (\S+)", commands):
+            content = subprocess.check_output(["bash", "-o", "pipefail", "-c", match[1]])
+            (delivered / pathlib.Path(match[2]).name).write_bytes(content)
+        self._write_executable(self.bin_dir / "sudo", '#!/bin/sh\nprintf \'{"admin_key":"","account":null}\\n\'\n')
+        env = dict(os.environ, PATH=f"{self.bin_dir}:{os.environ['PATH']}", ACCOUNT_ID="39", MODEL="deepseek-flash")
+        env.pop("TK_LIB_DIR", None)
+        result = subprocess.run(["bash", str(delivered / self.probe.name)], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["verdict"], "setup_error")
+        self.assertIn("admin", json.loads(result.stdout)["error"])
+
     def test_unregistered_probe_is_still_delivered(self) -> None:
         unregistered = self.root / "probe_unregistered_obs.sh"
         self._write_executable(unregistered, "#!/usr/bin/env bash\necho unused\n")

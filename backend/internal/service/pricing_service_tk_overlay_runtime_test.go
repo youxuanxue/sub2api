@@ -257,7 +257,7 @@ func TestEmbeddedRegistryParsesAsCompleteFloor(t *testing.T) {
 	require.InDelta(t, 0.01, snapshot.WebSearchPrice, 1e-15)
 	require.True(t, snapshot.Models["glm-4.5-flash"].ExplicitFree)
 	require.NotContains(t, snapshot.Models, "deepseek-v3-2-251201")
-	require.Equal(t, "deepseek-v4-flash", snapshot.Aliases["deepseek-v4-flash-0731"])
+	require.Equal(t, "deepseek-v4-flash", snapshot.Aliases["deepseek-flash"])
 }
 
 func TestParseTKOverlayDocumentValidatesCanonicalAliases(t *testing.T) {

@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "95ea13c71848ef6cb0aeb668f019a6895e7cdf3cd608cf50fdcc22ff8d587e29",
+  "floor_sha256": "115806981059369936286c22c7399bdc1eeed8a02406a442bcfcb780e9097269",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -310,6 +310,7 @@
       },
       "43": {
         "deepseek-chat": "deepseek-chat",
+        "deepseek-flash": "deepseek-flash",
         "deepseek-reasoner": "deepseek-reasoner",
         "deepseek-v4-flash": "deepseek-v4-flash",
         "deepseek-v4-pro": "deepseek-v4-pro"

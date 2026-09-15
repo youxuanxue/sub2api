@@ -8,18 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// deepseek-v4-flash-0731 must keep billing from the deepseek-v4-flash owner (no
-// second owner, no $0) while NO LONGER raising the served_at_fallback convergence
-// alert — sharing that owner is a declared decision, not a gap. 2026-08-25: the
-// alert was firing on it and the digest printed the already-billed tokens as
-// "未计费", which is what sent an operator hunting a nonexistent revenue leak.
+// The stable official Flash alias shares the current owner without a fallback alert.
 func TestRegistryPricingAliasSuppressesFallbackAlertButKeepsPrice(t *testing.T) {
-	owner, declared := tkPricingRegistryAliasOwner("deepseek-v4-flash-0731")
-	require.True(t, declared, "0731 must be a declared alias")
+	owner, declared := tkPricingRegistryAliasOwner("deepseek-flash")
+	require.True(t, declared, "official Flash must be a declared alias")
 	require.Equal(t, "deepseek-v4-flash", owner)
 
 	// Case-insensitive and whitespace-tolerant, since it is keyed off client input.
-	owner, declared = tkPricingRegistryAliasOwner("  DeepSeek-V4-Flash-0731 ")
+	owner, declared = tkPricingRegistryAliasOwner("  DeepSeek-Flash ")
 	require.True(t, declared)
 	require.Equal(t, "deepseek-v4-flash", owner)
 

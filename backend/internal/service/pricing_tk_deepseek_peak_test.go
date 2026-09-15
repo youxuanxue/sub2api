@@ -205,7 +205,7 @@ func TestCalculateCostUnified_DeepSeekOfficialIdleCNYAndPeakDouble(t *testing.T)
 	require.NoError(t, err)
 
 	tax := tkOfficialListBaseTaxMultiplier()
-	wantIdle := tax * (tkCNYPerMTokToUSDPerToken(1.5) + tkCNYPerMTokToUSDPerToken(4.5) + tkCNYPerMTokToUSDPerToken(0.05)) * 1_000_000
+	wantIdle := tax * (tkCNYPerMTokToUSDPerToken(1) + tkCNYPerMTokToUSDPerToken(4) + tkCNYPerMTokToUSDPerToken(0.02)) * 1_000_000
 	require.InDelta(t, wantIdle, offPeak.ActualCost, 1e-12)
 
 	peak, err := billing.CalculateCostUnified(CostInput{

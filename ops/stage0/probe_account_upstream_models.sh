@@ -11,7 +11,13 @@ REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-60}"
 
 # Canonical app-container resolver (ops/lib). run-probe uploads lib next to this
 # script under /tmp; a repo checkout has it at ../lib.
-TK_LIB_DIR="${TK_LIB_DIR:-$(cd "$(dirname "$0")/../lib" && pwd)}"
+if [[ -z "${TK_LIB_DIR:-}" ]]; then
+  if [[ -f "$(dirname "$0")/resolve_app_container.py" ]]; then
+    TK_LIB_DIR="$(cd "$(dirname "$0")" && pwd)"
+  else
+    TK_LIB_DIR="$(cd "$(dirname "$0")/../lib" && pwd)"
+  fi
+fi
 export TK_LIB_DIR
 
 if [[ ! "$ACCOUNT_ID" =~ ^[0-9]+$ ]]; then

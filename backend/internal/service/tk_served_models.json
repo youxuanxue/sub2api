@@ -1,6 +1,11 @@
 {
   "schema_version": 3,
   "entries": {
+    "deepseek-flash": {
+      "display": true,
+      "channel_type": 43,
+      "price_owner": "deepseek-v4-flash"
+    },
     "deepseek-v4-pro": {
       "display": true,
       "channel_type": 43,

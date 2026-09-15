@@ -31,44 +31,33 @@ func TestTkQianfanScopedOverlayKeysAreRemoved(t *testing.T) {
 	}
 }
 
-// The dated Qianfan flash SKU is the same upstream model as the official
-// deepseek-v4-flash (the official price page itself names it V4-Flash-0731), so
-// it is an ALIAS, not an owner. It must resolve through the family matcher to
-// the official owner rather than carry a duplicate price row.
-func TestTkQianfanDatedFlashResolvesToOfficialFlashOwner(t *testing.T) {
+// Fixed 0731 requests share the current Flash selling price without changing routing.
+func TestTkQianfanDatedFlashSharesCurrentPrice(t *testing.T) {
 	t.Parallel()
-	overlay := loadTKPricingOverlay()
-	require.Nil(t, overlay["deepseek-v4-flash-0731"],
-		"dated SKU must not be its own registry owner")
-
 	svc := newTestBillingService()
 	dated, err := svc.GetModelPricing("deepseek-v4-flash-0731")
-	require.NoError(t, err, "dated alias must stay priced (else the priced-serving gate 404s it)")
-	official, err := svc.GetModelPricing("deepseek-v4-flash")
 	require.NoError(t, err)
-
-	require.InDelta(t, official.InputPricePerToken, dated.InputPricePerToken, 1e-15)
-	require.InDelta(t, official.OutputPricePerToken, dated.OutputPricePerToken, 1e-15)
+	tax := tkOfficialListBaseTaxMultiplier()
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1)*tax, dated.InputPricePerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4)*tax, dated.OutputPricePerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.02)*tax, dated.CacheReadPricePerToken, 1e-15)
+	stable, err := svc.GetModelPricing("deepseek-flash")
+	require.NoError(t, err)
+	require.Equal(t, dated.InputPricePerToken, stable.InputPricePerToken)
+	require.Equal(t, dated.OutputPricePerToken, stable.OutputPricePerToken)
+	require.Equal(t, dated.CacheReadPricePerToken, stable.CacheReadPricePerToken)
+	require.False(t, svc.IsServedViaFamilyFloor("deepseek-v4-flash-0731"), "a declared price alias must not raise fallback alerts")
 }
 
-// Peak-valley now applies to the dated alias exactly as it does to the official
-// owner it bills from: the alias no longer has a Qianfan price row to protect.
-func TestTkDeepSeekPeakValleyAppliesToDatedFlashAlias(t *testing.T) {
+// Fixed snapshots share the same Flash peak-window policy.
+func TestTkDeepSeekPeakValleyAppliesToDatedFlashSnapshot(t *testing.T) {
 	t.Parallel()
 	policy := loadTkDeepSeekPeakValleyPolicy()
 	require.NotNil(t, policy)
-
-	require.True(t, tkDeepSeekPeakValleyAppliesWithPolicy(policy, "deepseek-v4-flash-0731", PricingSourceLiteLLM),
-		"dated alias bills from the official owner, so official peak windows must apply")
-
-	// Windows are evaluated in the policy timezone (Asia/Shanghai), NOT the
-	// process timezone — build the instant there so the case is a real peak.
+	require.True(t, tkDeepSeekPeakValleyAppliesWithPolicy(policy, "deepseek-v4-flash-0731", PricingSourceLiteLLM))
 	shanghai, err := time.LoadLocation("Asia/Shanghai")
 	require.NoError(t, err)
-	peak := time.Date(2026, 7, 21, 10, 0, 0, 0, shanghai)
-	require.InDelta(t, policy.PeakMultiplier, tkDeepSeekPeakMultiplierAtWithPolicy(policy, peak), 1e-12,
-		"10:00 Asia/Shanghai must land inside the 09:00-12:00 window")
-
+	peak := time.Date(2026, 9, 15, 10, 0, 0, 0, shanghai)
 	base := &ModelPricing{InputPricePerToken: 0.0015, OutputPricePerToken: 0.0045}
 	scaled := tkApplyDeepSeekPeakValleyPricing("deepseek-v4-flash-0731", base, peak, PricingSourceLiteLLM)
 	require.InDelta(t, base.InputPricePerToken*policy.PeakMultiplier, scaled.InputPricePerToken, 1e-12)
