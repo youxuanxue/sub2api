@@ -2662,18 +2662,17 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
-				// Keepalive / done markers
-				if payload == "" || payload == "[DONE]" {
-					_, _ = io.WriteString(c.Writer, line)
-					flusher.Flush()
-				} else {
-					var rawToWrite string
-					rawToWrite = payload
+				// Drop empty keepalives and OpenAI-style [DONE]. Gemini CLI /
+				// @google/genai throws "Incomplete JSON segment at the end" when
+				// the stream closes with a residual unterminated SSE frame
+				// (e.g. "data: [DONE]\n" without a trailing blank line).
+				if payload != "" && payload != "[DONE]" {
+					rawToWrite := payload
 
 					var rawBytes []byte
 					if isOAuth {
-						innerBytes, err := unwrapGeminiResponse([]byte(payload))
-						if err == nil {
+						innerBytes, unwrapErr := unwrapGeminiResponse([]byte(payload))
+						if unwrapErr == nil {
 							rawToWrite = string(innerBytes)
 							rawBytes = innerBytes
 						}
@@ -2692,17 +2691,14 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 						firstTokenMs = &ms
 					}
 
-					if isOAuth {
-						// SSE format requires double newline (\n\n) to separate events
-						_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", rawToWrite)
-					} else {
-						// Pass-through for AI Studio responses.
-						_, _ = io.WriteString(c.Writer, line)
-					}
+					// Always emit a complete SSE frame. Pass-through of a single
+					// ReadString line can leave "data: ...\n" without the event
+					// delimiter when upstream omits the trailing blank line.
+					_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", rawToWrite)
 					flusher.Flush()
 				}
-			} else {
-				_, _ = io.WriteString(c.Writer, line)
+			} else if trimmed != "" {
+				_, _ = fmt.Fprintf(c.Writer, "%s\n\n", trimmed)
 				flusher.Flush()
 			}
 		}
