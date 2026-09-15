@@ -338,6 +338,11 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 				}
 			}
 			if !started {
+				if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+					ready <- responseResult{err: runErr}
+					_ = writer.CloseWithError(runErr)
+					return
+				}
 				var transport *agentTransportError
 				if errors.As(runErr, &transport) {
 					ready <- responseResult{err: runErr}
