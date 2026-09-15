@@ -68,6 +68,31 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit(t 
 	require.WithinDuration(t, time.Now().Add(upstreamModelNotFoundCooldown), call.resetAt, 5*time.Second)
 }
 
+func TestRateLimitService_HandleUpstreamError_ModelRetiredUsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+
+	body := []byte(`{"error":{"code":"bad_response_status_code","message":"The model 'deepseek-ai/deepseek-v4-pro-0813' has reached its end of life on 2026-09-14T08:00:00Z and is no longer available.","param":"","type":"bad_response_status_code"}}`)
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusGone,
+		http.Header{},
+		body,
+		"deepseek-v4-pro",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "deepseek-v4-pro", call.scope)
+	require.Equal(t, upstreamModelRetiredReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(upstreamModelRetiredCooldown), call.resetAt, 5*time.Second)
+}
+
 func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTempUnschedule(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{modelRateLimitErr: errors.New("write failed")}
 	svc := &RateLimitService{accountRepo: repo}
@@ -389,4 +414,14 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundImageModelStillCoolsD
 	require.True(t, handled)
 	require.Len(t, repo.modelRateLimitCalls, 1, "守卫只作用于 codex plan-gated 分支")
 	require.Equal(t, upstreamModelNotFoundReason, repo.modelRateLimitCalls[0].reason)
+}
+
+func TestModelRetirementDoesNotCoolUnrelatedGone(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	handled := svc.HandleUpstreamModelNotFound(context.Background(), openAIModelNotFoundTempAccount(), "gpt-5.4", http.StatusGone,
+		[]byte(`{"error":{"message":"The file is no longer available"},"request":{"model":"gpt-5.4"}}`))
+	require.False(t, handled)
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.tempCalls)
 }

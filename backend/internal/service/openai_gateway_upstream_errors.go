@@ -298,7 +298,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 	} else if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) ||
 		isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
 		semantic = gatewayFailureSemanticAccountFault
-	} else if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() && statusCode == http.StatusBadRequest && isOpenAICompatibleModelNotFound400(upstreamBody) {
+	} else if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() &&
+		((statusCode == http.StatusBadRequest && isOpenAICompatibleModelNotFound400(upstreamBody)) ||
+			isUpstreamModelRetiredError(statusCode, upstreamBody, upstreamMsg)) {
 		semantic = gatewayFailureSemanticAccountFault
 	} else if isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) {
 		semantic = gatewayFailureSemanticTransientFault

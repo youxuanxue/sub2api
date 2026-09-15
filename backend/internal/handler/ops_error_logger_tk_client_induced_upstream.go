@@ -56,6 +56,13 @@ func tkUpstreamClientInducedRejection(c *gin.Context, clientErrType string) bool
 	if status == 413 {
 		return true
 	}
+	// 410 Gone / model end-of-life: upstream reports the model has reached its end of
+	// life and is no longer available. When failover is exhausted, requesting a retired
+	// model is caller-fault.
+	if body, msg := tkOpsUpstreamErrorText(c); service.IsUpstreamModelRetiredError(status, []byte(body), msg) {
+		combined := strings.ToLower(strings.TrimSpace(msg + "\n" + body))
+		return !tkOpsIsAccountLevel4xx(combined)
+	}
 	// TK (prod P0 2026-06-06, edge us5): an upstream 404 model-not-found is
 	// caller-fault — the client asked for a model name that does not exist (e.g.
 	// the bare alias "opus" on an empty-mapping passthrough account, forwarded and
