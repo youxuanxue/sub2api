@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "115806981059369936286c22c7399bdc1eeed8a02406a442bcfcb780e9097269",
+  "floor_sha256": "8f24b13c713333cfe0b30306f3a2b87d9bd9e28b9356dcca7d6a3851dd878230",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -382,17 +382,6 @@
           "gemini-3.7-flash": "gemini-3.7-flash",
           "gemini-3.8-flash": "gemini-3.8-flash",
           "glm-5.2": "glm-5.2",
-          "gpt-5-mini": "gpt-5-mini",
-          "gpt-5.1": "gpt-5.1",
-          "gpt-5.2": "gpt-5.2",
-          "gpt-5.3-codex": "gpt-5.3-codex",
-          "gpt-5.4": "gpt-5.4",
-          "gpt-5.4-mini": "gpt-5.4-mini",
-          "gpt-5.4-nano": "gpt-5.4-nano",
-          "gpt-5.5": "gpt-5.5",
-          "gpt-5.6-luna": "gpt-5.6-luna",
-          "gpt-5.6-sol": "gpt-5.6-sol",
-          "gpt-5.6-terra": "gpt-5.6-terra",
           "grok-4.5": "grok-4.5",
           "grok-4.6": "grok-4.6",
           "kimi-k2.7-code": "kimi-k2.7-code",
@@ -627,6 +616,9 @@
       ]
     },
     "forbidden_model_mapping_prefixes": {
+      "account_override:newapi:14:https://agentn.global.api5.cursor.sh": [
+        "gpt-"
+      ],
       "account_override:newapi:17:https://token-plan.cn-beijing.maas.aliyuncs.com": [
         "deepseek-",
         "glm-"

@@ -789,6 +789,20 @@
         "s.tkRecordAvailabilitySuccessOutcome(ctx, account, result)"
       ],
       "rationale": "Legacy media/non-protocol callers retain the deduplicated success fallback."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
+      "must_contain": [
+        "): {cursorExcludedModelPrefix}"
+      ],
+      "rationale": "Export the Cursor-only GPT removal policy so account convergence cannot preserve GPT as compatible extras."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_cursor_tk_test.go",
+      "must_contain": [
+        "func TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders("
+      ],
+      "rationale": "Pin Cursor preset and generated floor exclusion without suppressing GPT on other providers."
     }
   ]
 }

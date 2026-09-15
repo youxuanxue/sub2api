@@ -12234,18 +12234,20 @@
         "if payload == \"\" || payload == \"[DONE]\" {",
         "Native Gemini wire format does not use [DONE].",
         "cw.Fprintf(\"%s\", geminiNativeSSEKeepaliveFrame)",
-        "Forwarding \":\" keepalives sticks the client buffer"
+        "if isGeminiNativeSSEKeepalive(trimmed) {",
+        "geminiNativeSSEErrorFrame(http.StatusBadGateway, reason)"
       ],
-      "rationale": "Gemini CLI / @google/genai throws Incomplete JSON segment at the end for unterminated data: [DONE] OR leading SSE comment heartbeats. Drop empty/[DONE]/non-data lines and emit whitespace-only keepalives so responseLineRE can drain the buffer at EOF."
+      "rationale": "Gemini CLI / @google/genai throws Incomplete JSON segment at the end for unterminated data: [DONE] OR leading SSE comment heartbeats. Drop empty data/[DONE], translate upstream heartbeats to whitespace, and emit data-only errors so responseLineRE can drain the buffer at EOF."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "if payload != \"\" && payload != \"[DONE]\" {",
         "_, _ = fmt.Fprintf(c.Writer, \"data: %s\\n\\n\", rawToWrite)",
-        "Drop blank lines, SSE comments (\":\"), and other non-data fields."
+        "else if isGeminiNativeSSEKeepalive(trimmed) {",
+        "geminiNativeSSEErrorFrame(http.StatusBadGateway, \"stream_read_error\")"
       ],
-      "rationale": "Native ForwardNative SSE must drop OpenAI-style [DONE] and SSE comment heartbeats, and always write complete data frames; comment pass-through left residual buffer for Gemini CLI."
+      "rationale": "Native ForwardNative SSE must drop [DONE], translate comment/blank keepalives, and emit complete data/error frames so Edge liveness survives the prod relay without blocking Gemini CLI parsing."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_service_test.go",
@@ -12271,7 +12273,30 @@
         "func (s *GeminiMessagesCompatService) beginGeminiNativeHeaderWaitKeepalive("
       ],
       "rationale": "Single owner for Gemini-CLI-safe native keepalive bytes and ForwardNative header-wait entry; must not regress to openaiSSECommentFrame on Google-native wire."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_sse_tk.go",
+      "must_contain": [
+        "func isGeminiNativeSSEKeepalive(",
+        "func geminiNativeSSEErrorFrame(",
+        "googleapi.ErrorResponse"
+      ],
+      "rationale": "Share native Gemini control-line and structured data-only error semantics across direct and relayed streams."
+    },
+    {
+      "path": "backend/internal/service/gemini_native_sse_tk_test.go",
+      "must_contain": [
+        "func TestGeminiNativeRelayPreservesHeartbeatBeforeContent(",
+        "func TestGeminiNativeTerminalErrorsAreDataFrames("
+      ],
+      "rationale": "Exercise legacy/updated Edge liveness before content and native read/timeout/line-limit errors against the Gemini SDK parser contract."
+    },
+    {
+      "path": "backend/internal/service/account_tk_cursor.go",
+      "must_contain": [
+        "strings.HasPrefix(model.ID, cursorExcludedModelPrefix)"
+      ],
+      "rationale": "Cursor import and reconnect must not reintroduce GPT mappings from upstream discovery."
     }
-
   ]
 }

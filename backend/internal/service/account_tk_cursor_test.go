@@ -30,17 +30,22 @@ func (s *cursorAdminStub) SaveCursorAccount(_ context.Context, c *CreateAccountI
 }
 
 func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T) {
-	for _, scenario := range []string{"create", "reconnect", "save_failure", "expired", "wrong_group", "multiple_groups", "wrong_account", "china", "explicit_mapping", "default_mapping"} {
+	for _, scenario := range []string{"create", "reconnect", "save_failure", "expired", "wrong_group", "multiple_groups", "wrong_account", "china", "explicit_mapping", "default_mapping", "gpt_only"} {
 		t.Run(scenario, func(t *testing.T) {
 			admin := &cursorAdminStub{group: &Group{Name: "Cursor", Platform: PlatformNewAPI}}
 			input := CursorAccountInput{SessionID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Name: "Cursor", GroupIDs: []int64{2}}
 			claim := cursor.CredentialClaim{APIKey: "private-test-key", Claim: "claim-test", Authorization: cursor.Authorization{
 				KeyExpiresAt: time.Now().Add(time.Hour), Models: []cursor.Model{{ID: "auto"}, {ID: "composer-2.5", Variants: []cursor.Variant{{IsDefault: true, Params: []cursor.Parameter{{ID: "fast", Value: "true"}}}, {LegacySlug: "composer-2.5", Params: []cursor.Parameter{{ID: "fast", Value: "false"}}}}}},
 			}}
+			claim.Models = append(claim.Models, cursor.Model{ID: "gpt-5.4"}, cursor.Model{ID: "gpt-future-model"})
+			if scenario == "gpt_only" {
+				claim.Models = []cursor.Model{{ID: "gpt-5.4"}}
+			}
 			if scenario == "reconnect" || scenario == "wrong_account" {
 				input.AccountID = 42
 				admin.existing = cursorTestAccount()
 				admin.existing.Credentials["custom_setting"] = "preserved"
+				admin.existing.Credentials["model_mapping"] = map[string]any{"gpt-5.4": "gpt-5.4"}
 				if scenario == "wrong_account" {
 					admin.existing.Extra = nil
 				}
@@ -82,6 +87,22 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 			require.Equal(t, 1, client.claims)
 			require.Equal(t, 1, client.settlements)
 			require.Equal(t, success, client.success)
+			if scenario == "create" || scenario == "reconnect" {
+				credentials := map[string]any{}
+				if scenario == "create" {
+					credentials = admin.created.Credentials
+				} else {
+					credentials = admin.updated.Credentials
+				}
+				for _, key := range []string{"model_mapping", CursorModelParametersKey, CursorWireModelsKey} {
+					require.Contains(t, credentials[key], "composer-2.5")
+					require.NotContains(t, credentials[key], "gpt-5.4")
+					require.NotContains(t, credentials[key], "gpt-future-model")
+				}
+			}
+			if scenario == "gpt_only" {
+				require.Nil(t, admin.created, "never persist an empty allow-all mapping")
+			}
 			if scenario == "create" {
 				require.Equal(t, PlatformNewAPI, admin.created.Platform)
 				require.Equal(t, AccountTypeAPIKey, admin.created.Type)

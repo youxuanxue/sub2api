@@ -217,7 +217,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			return
 		}
 		errorEventSent = true
-		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"error\":\"%s\"}\n\n", reason)
+		_, _ = fmt.Fprint(c.Writer, geminiNativeSSEErrorFrame(http.StatusBadGateway, reason))
 		flusher.Flush()
 	}
 
@@ -292,10 +292,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				continue
 			}
 
-			// Blank separators and SSE comments/event lines must not reach
-			// Gemini CLI: @google/genai only drains ^\s*data: ...\n\n frames.
-			// Forwarding ":" keepalives sticks the client buffer and throws
-			// "Incomplete JSON segment at the end" at EOF.
+			// Preserve upstream liveness without forwarding SSE control fields.
+			if isGeminiNativeSSEKeepalive(trimmed) {
+				cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame)
+			}
 			continue
 
 		case <-intervalCh:
