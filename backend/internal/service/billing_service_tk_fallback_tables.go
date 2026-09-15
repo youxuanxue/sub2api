@@ -201,24 +201,10 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 	// 覆盖逻辑见同文件 getFallbackPricing()
 	// ============================================================
 
-	// ---- DeepSeek V4 系列 ----
-	// Source: https://api-docs.deepseek.com/quick_start/pricing
-	// （9/14 12:00 起 deepseek-v4-pro 请求改走 V4.1 Flash 并按 Flash 价计费；deepseek-chat / deepseek-reasoner 为兼容别名）
-	flashPricing := &ModelPricing{
-		InputPricePerToken:     1.4e-7, // $0.14 per MTok (cache miss)
-		OutputPricePerToken:    2.8e-7, // $0.28 per MTok
-		CacheReadPricePerToken: 2.8e-9, // $0.0028 per MTok (cache hit)
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["deepseek-v4-pro"] = &ModelPricing{
-		InputPricePerToken:     4.35e-7,  // $0.435 per MTok (cache miss)
-		OutputPricePerToken:    8.7e-7,   // $0.87 per MTok
-		CacheReadPricePerToken: 3.625e-9, // $0.003625 per MTok (cache hit)
-		SupportsCacheBreakdown: false,
-	}
-	s.fallbackPrices["deepseek-v4-flash"] = flashPricing
-	s.fallbackPrices["deepseek-flash"] = flashPricing
-	s.fallbackPrices["deepseek-v4.1-flash"] = flashPricing
+	// DeepSeek prices come from the registry, including the historical 0731 snapshot.
+	s.fallbackPrices["deepseek-v4-pro"] = tkOverlayModelPricing("deepseek-v4-pro")
+	s.fallbackPrices["deepseek-v4-flash"] = tkOverlayModelPricing("deepseek-v4-flash")
+	s.fallbackPrices["deepseek-flash"] = s.fallbackPrices["deepseek-v4-flash"]
 
 	// ---- 智谱 GLM（Z.AI）----
 	// Source: https://docs.z.ai/guides/overview/pricing (USD per 1M tokens)

@@ -244,7 +244,6 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 // Keep the aliases scoped to Plan; other providers may still serve old versions.
 func newAPIVolcEngineAgentPlanModelAliases() map[string]string {
 	return map[string]string{
-		"deepseek-v4-pro":      "deepseek-v4-flash",
 		"doubao-seed-2.0-code": "doubao-seed-2.1-turbo",
 		"doubao-seed-2.0-pro":  "doubao-seed-2.1-turbo",
 		"glm-4.5-air":          "glm-5.3",
@@ -291,9 +290,8 @@ func newAPIQianfanTokenPlanModelMappingPresetIDs() []string {
 
 func newAPIQianfanTokenPlanModelAliases() map[string]string {
 	return map[string]string{
-		"deepseek-v4-pro": "deepseek-v4-flash",
-		"glm-4.5-air":     "glm-5.2",
-		"glm-4.7":         "glm-5.2",
+		"glm-4.5-air": "glm-5.2",
+		"glm-4.7":     "glm-5.2",
 	}
 }
 

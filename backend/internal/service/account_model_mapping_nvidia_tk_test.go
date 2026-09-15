@@ -22,7 +22,7 @@ func TestNVIDIABuildMappingScope(t *testing.T) {
 	require.Equal(t, ids, NewAPIModelMappingPresetIDsForAccount(account))
 	var displayIDs []string
 	for _, id := range ids {
-		if isCatalogModelRecommended(id) && isTkCuratedNewAPIModelDisplayed(id) {
+		if isCatalogModelRecommended(id) {
 			displayIDs = append(displayIDs, id)
 		}
 	}

@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "ae8c7dd72353e4f704bc3a9f811affdb790141855a65aba3cd9f40582dcce174",
+  "floor_sha256": "f953e744c0c329b75a8f24c4c45413ece784e3afa3bb6bd4ef2bc297e944702f",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -313,8 +313,7 @@
         "deepseek-flash": "deepseek-flash",
         "deepseek-reasoner": "deepseek-reasoner",
         "deepseek-v4-flash": "deepseek-v4-flash",
-        "deepseek-v4-pro": "deepseek-v4-pro",
-        "deepseek-v4.1-flash": "deepseek-v4.1-flash"
+        "deepseek-v4-pro": "deepseek-v4-pro"
       },
       "45": {
         "doubao-1-5-lite-32k-250115": "doubao-1-5-lite-32k-250115",
@@ -351,12 +350,10 @@
         "channel_type": 1,
         "base_url": "https://integrate.api.nvidia.com",
         "model_mapping": {
-          "deepseek-flash": "deepseek-ai/deepseek-v4-flash-0731",
           "deepseek-v4-flash": "deepseek-ai/deepseek-v4-flash-0731",
           "deepseek-v4-flash-0731": "deepseek-ai/deepseek-v4-flash-0731",
-          "deepseek-v4-pro": "deepseek-ai/deepseek-v4-flash-0731",
-          "deepseek-v4-pro-0813": "deepseek-ai/deepseek-v4-flash-0731",
-          "deepseek-v4.1-flash": "deepseek-ai/deepseek-v4-flash-0731",
+          "deepseek-v4-pro": "deepseek-ai/deepseek-v4-pro-0813",
+          "deepseek-v4-pro-0813": "deepseek-ai/deepseek-v4-pro-0813",
           "kimi-k3": "moonshotai/kimi-k3"
         }
       },
@@ -431,10 +428,8 @@
         "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
         "model_mapping": {
           "ark-code-latest": "ark-code-latest",
-          "deepseek-flash": "deepseek-flash",
           "deepseek-v4-flash": "deepseek-v4-flash",
-          "deepseek-v4-pro": "deepseek-v4-flash",
-          "deepseek-v4.1-flash": "deepseek-v4.1-flash",
+          "deepseek-v4-pro": "deepseek-v4-pro",
           "doubao-embedding-vision": "doubao-embedding-vision",
           "doubao-seed-2.0-code": "doubao-seed-2.1-turbo",
           "doubao-seed-2.0-lite": "doubao-seed-2.0-lite",
@@ -463,14 +458,12 @@
         "model_mapping": {
           "bge-large-en": "bge-large-en",
           "bge-large-zh": "bge-large-zh",
-          "deepseek-flash": "deepseek-flash",
           "deepseek-ocr": "deepseek-ocr",
           "deepseek-v3.2": "deepseek-v3.2",
           "deepseek-v3.2-think": "deepseek-v3.2-think",
           "deepseek-v4-flash": "deepseek-v4-flash",
           "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
           "deepseek-v4-pro": "deepseek-v4-pro",
-          "deepseek-v4.1-flash": "deepseek-v4.1-flash",
           "ernie-4.5-turbo-128k": "ernie-4.5-turbo-128k",
           "ernie-4.5-turbo-20260402": "ernie-4.5-turbo-20260402",
           "ernie-4.5-turbo-32k": "ernie-4.5-turbo-32k",
@@ -501,12 +494,10 @@
         "channel_type": 46,
         "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal",
         "model_mapping": {
-          "deepseek-flash": "deepseek-flash",
           "deepseek-v4-flash": "deepseek-v4-flash",
           "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
-          "deepseek-v4-pro": "deepseek-v4-flash",
+          "deepseek-v4-pro": "deepseek-v4-pro",
           "deepseek-v4-pro-0813": "deepseek-v4-pro-0813",
-          "deepseek-v4.1-flash": "deepseek-v4.1-flash",
           "glm-4.5-air": "glm-5.2",
           "glm-4.7": "glm-5.2",
           "glm-5.1": "glm-5.1",
@@ -609,10 +600,9 @@
         "byteplus/dreamina-seedance-2-0-260128",
         "byteplus/dreamina-seedance-2-0-fast-260128",
         "byteplus/dreamina-seedance-2-0-mini-260615",
-        "deepseek-flash",
         "deepseek-v3.2",
         "deepseek-v4-flash",
-        "deepseek-v4.1-flash",
+        "deepseek-v4-pro",
         "doubao-seedance-2-0-250428",
         "doubao-seedance-2.0",
         "gemini-3-pro-image-preview",

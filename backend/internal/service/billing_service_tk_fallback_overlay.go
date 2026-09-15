@@ -14,10 +14,12 @@ func (s *BillingService) tkResolveFallbackOverlayPricing(modelLower string) *Mod
 		return nil
 	}
 
-	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
-	// （deepseek-chat / deepseek-reasoner / deepseek-flash / deepseek-v4.1-flash → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
-	if strings.Contains(modelLower, "deepseek-v4-flash") || strings.Contains(modelLower, "deepseek-v4.1-flash") ||
-		modelLower == "deepseek-flash" || strings.HasPrefix(modelLower, "deepseek-flash-") {
+	// Keep the fixed 0731 snapshot on its historical price before the family fallback.
+	if modelLower == "deepseek-v4-flash-0731" || strings.HasSuffix(modelLower, "/deepseek-v4-flash-0731") {
+		return tkOverlayModelPricing("deepseek-v4-flash-0731")
+	}
+	// Stable Flash compatibility names use the current official Flash price.
+	if strings.Contains(modelLower, "deepseek-v4-flash") || modelLower == "deepseek-flash" {
 		return tkOverlayModelPricing("deepseek-v4-flash")
 	}
 	if strings.Contains(modelLower, "deepseek-v4-pro") {

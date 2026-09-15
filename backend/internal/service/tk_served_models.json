@@ -4,51 +4,10 @@
     "deepseek-flash": {
       "display": true,
       "channel_type": 43,
-      "price_owner": "deepseek-v4-flash",
-      "scopes": [
-        {
-          "channel_type": 1,
-          "base_url": "https://integrate.api.nvidia.com"
-        },
-        {
-          "channel_type": 45,
-          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
-        },
-        {
-          "channel_type": 46,
-          "base_url": "https://qianfan.baidubce.com"
-        },
-        {
-          "channel_type": 46,
-          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
-        }
-      ]
-    },
-    "deepseek-v4.1-flash": {
-      "display": true,
-      "channel_type": 43,
-      "price_owner": "deepseek-v4-flash",
-      "scopes": [
-        {
-          "channel_type": 1,
-          "base_url": "https://integrate.api.nvidia.com"
-        },
-        {
-          "channel_type": 45,
-          "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
-        },
-        {
-          "channel_type": 46,
-          "base_url": "https://qianfan.baidubce.com"
-        },
-        {
-          "channel_type": 46,
-          "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
-        }
-      ]
+      "price_owner": "deepseek-v4-flash"
     },
     "deepseek-v4-pro": {
-      "display": false,
+      "display": true,
       "channel_type": 43,
       "scopes": [
         {
@@ -638,7 +597,7 @@
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
       ],
-      "price_owner": "deepseek-v4-flash"
+      "price_owner": "deepseek-v4-flash-0731"
     },
     "deepseek-v3.2": {
       "display": true,

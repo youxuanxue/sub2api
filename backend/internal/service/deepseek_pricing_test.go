@@ -86,7 +86,7 @@ func TestCalculateCostUnified_DeepseekDefaultCardPeakMultiplier(t *testing.T) {
 	resolver := NewModelPricingResolver(nil, bs)
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
-	offPeakTotal := tkCNYPerMTokToUSDPerToken(1000*1.5+500*4.5+1000*0.05) * tkOfficialListBaseTaxMultiplier()
+	offPeakTotal := tkCNYPerMTokToUSDPerToken(1000*1+500*4+1000*0.02) * tkOfficialListBaseTaxMultiplier()
 
 	offPeak, err := bs.CalculateCostUnified(CostInput{
 		Ctx: context.Background(), Model: "deepseek-v4-flash", Tokens: tokens,
@@ -171,7 +171,7 @@ func TestCalculateCostUnified_DeepseekGroupPricingNotScaledByPeak(t *testing.T) 
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
 	// Custom input/output prices retain the registry's taxed cache-read price.
-	groupTotal := 1000*1e-6 + 500*2e-6 + 1000*tkCNYPerMTokToUSDPerToken(0.05)*tkOfficialListBaseTaxMultiplier()
+	groupTotal := 1000*1e-6 + 500*2e-6 + 1000*tkCNYPerMTokToUSDPerToken(0.02)*tkOfficialListBaseTaxMultiplier()
 
 	for _, pricingAt := range []time.Time{
 		time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC), // 低谷
@@ -244,22 +244,21 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 	}`))
 	require.NoError(t, err)
 	pricingSvc.pricingData = data
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), data["deepseek-v4-flash"].InputCostPerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), data["deepseek-v4-flash"].InputCostPerToken, 1e-15)
 	bs := NewBillingService(&config.Config{}, pricingSvc)
 
 	tests := []struct {
 		model                    string
 		input, output, cacheRead float64
 	}{
-		{"deepseek-v4-flash", 1.5, 4.5, 0.05},
-		{"deepseek-v4-flash-vision-exp", 1.5, 4.5, 0.05},
+		{"deepseek-v4-flash", 1, 4, 0.02},
+		{"deepseek-v4-flash-vision-exp", 1, 4, 0.02},
 		{"deepseek-v4-pro", 4.5, 13.5, 0.15},
-		{"deepseek-chat", 1.5, 4.5, 0.05},
-		{"deepseek-reasoner", 1.5, 4.5, 0.05},
+		{"deepseek-chat", 1, 4, 0.02},
+		{"deepseek-reasoner", 1, 4, 0.02},
 		{"deepseek-v4-pro-0813", 4.5, 13.5, 0.15},
 		{"deepseek-v4-flash-0731", 1.5, 4.5, 0.05},
-		{"deepseek-flash", 1.5, 4.5, 0.05},
-		{"deepseek-v4.1-flash", 1.5, 4.5, 0.05},
+		{"deepseek-flash", 1, 4, 0.02},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {
@@ -279,7 +278,7 @@ func TestGetModelPricing_UnknownDeepseekFailsClosed(t *testing.T) {
 	}}
 	bs := NewBillingService(&config.Config{}, pricingSvc)
 
-	for _, m := range []string{"deepseek-unknown", "deepseek-foo"} {
+	for _, m := range []string{"deepseek-unknown", "deepseek-foo", "deepseek-v4.1-flash", "deepseek-flash-unknown"} {
 		t.Run(m, func(t *testing.T) {
 			pricing, err := bs.GetModelPricing(m)
 			require.ErrorIs(t, err, ErrModelPricingUnavailable)
@@ -304,10 +303,10 @@ func TestDeepseekPricingFileMatchesOfficialRates(t *testing.T) {
 		model                    string
 		input, output, cacheRead float64
 	}{
-		{"deepseek-v4-flash", 1.5, 4.5, 0.05},
+		{"deepseek-v4-flash", 1, 4, 0.02},
 		{"deepseek-v4-pro", 4.5, 13.5, 0.15},
-		{"deepseek-chat", 1.5, 4.5, 0.05},
-		{"deepseek-reasoner", 1.5, 4.5, 0.05},
+		{"deepseek-chat", 1, 4, 0.02},
+		{"deepseek-reasoner", 1, 4, 0.02},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {

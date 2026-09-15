@@ -614,9 +614,10 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 	require.NotNil(t, filtered)
 	for _, m := range filtered.Data {
 		if m.ModelID == "deepseek-v4-pro" {
-			t.Fatal("hidden deepseek-v4-pro must not appear on the public /pricing storefront")
+			return
 		}
 	}
+	t.Fatal("manifest-listed deepseek-v4-pro must remain on the public /pricing storefront")
 }
 
 // TestPublicCatalog_FiltersUnservableClaudeAndGpt covers the support filter

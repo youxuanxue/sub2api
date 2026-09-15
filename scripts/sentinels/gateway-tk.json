@@ -5128,11 +5128,11 @@
       "path": "backend/internal/service/billing_service_tk_qianfan_test.go",
       "must_contain": [
         "TestTkQianfanScopedOverlayKeysAreRemoved",
-        "TestTkQianfanDatedFlashResolvesToOfficialFlashOwner",
-        "TestTkDeepSeekPeakValleyAppliesToDatedFlashAlias",
+        "TestTkQianfanDatedFlashKeepsHistoricalPrice",
+        "TestTkDeepSeekPeakValleyAppliesToDatedFlashSnapshot",
         "TestTkQianfanOnlyDeepSeekOwnersStayPeakExempt"
       ],
-      "rationale": "Focused regressions for the global-user-price decision: shared ids stay independent of the serving account and the .qianfan suffix owners stay out of the registry; the dated flash alias resolves to the official owner (and is therefore subject to official peak windows), while Qianfan-exclusive owners keep their flat rate."
+      "rationale": "Focused regressions for the global-user-price decision: shared ids stay independent of the serving account and the .qianfan suffix owners stay out of the registry; the fixed dated Flash snapshot retains its historical official price and peak windows, while Qianfan-exclusive owners keep their flat rate."
     },
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk_qianfan_test.go",
@@ -10016,10 +10016,15 @@
       "path": "backend/internal/service/tk_pricing_overlay.json",
       "must_contain": [
         "\"_aliases\":",
-        "\"deepseek-v4-flash-0731\": \"deepseek-v4-flash\"",
+        "\"deepseek-flash\": \"deepseek-v4-flash\"",
         "\"gpt-5.5-pro\": \"gpt-5.5\""
       ],
-      "rationale": "Public price aliases live only in the overlay _aliases map. An id listed here shares its owner's price by decision, so IsServedViaFamilyFloor must NOT raise served_at_fallback for it. Dropping the alias does not change any price (both paths resolve the same owner) but silently restores the false 'unbilled' Feishu card that sent an operator hunting a nonexistent revenue leak on 2026-08-25. The alias itself must never become a second overlay owner row."
+      "rationale": "Declared public aliases share one registry owner and must not raise served_at_fallback. Stable deepseek-flash follows the current Flash owner; the fixed 0731 snapshot has its own historical price and is covered by the DeepSeek boundary regression."
+    },
+    {
+      "path": "backend/internal/service/deepseek_flash_surface_tk_test.go",
+      "must_contain": ["TestDeepSeekFlashSurfacePreservesProviderModelIdentity", "TestDeepSeekFlashFallbackKeepsFixedSnapshotPrice"],
+      "rationale": "Keep V4.1 official API naming and scope, continuing Pro mappings, and fixed 0731 historical billing distinct across upstream merges."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias.go",
