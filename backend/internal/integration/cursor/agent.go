@@ -384,7 +384,13 @@ func readAgentFrame(reader io.Reader) (byte, []byte, error) {
 // A tool handoff is explicitly reported without fabricated provider usage.
 func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*http.Request) (*http.Response, error), emit func(AgentEvent) error) (result AgentResult, runErr error) {
 	var textOutput, thinkingOutput strings.Builder
-	defer func() { result.Text = textOutput.String(); result.Thinking = thinkingOutput.String() }()
+	defer func() {
+		result.Text = textOutput.String()
+		result.Thinking = thinkingOutput.String()
+		if runErr != nil && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) {
+			runErr = &agentTransportError{cause: runErr}
+		}
+	}()
 	run, blobs, err := buildAgentRun(input)
 	if err != nil {
 		return result, err
@@ -453,7 +459,10 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+		if readErr != nil && (errors.Is(readErr, context.Canceled) || errors.Is(readErr, context.DeadlineExceeded)) {
+			return result, readErr
+		}
 		rejection := newAgentHTTPRejection(resp.StatusCode, raw, token, req.Header.Get("X-Request-Id"))
 		rejection.Metadata = agentDiagnosticJSON(map[string]any{"inference_error_type": resp.Header.Get("x-cursor-inference-request-error-type")}, token, 2048)
 		return result, rejection
@@ -494,6 +503,9 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	for frames := 0; frames < 20000; frames++ {
 		flag, data, err := readAgentFrame(resp.Body)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return result, err
+			}
 			return result, fmt.Errorf("cursor stream interrupted: %w", err)
 		}
 		if flag&2 != 0 {

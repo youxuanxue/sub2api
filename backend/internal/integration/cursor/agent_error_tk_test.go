@@ -7,6 +7,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
+	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 	"io"
@@ -14,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestAgentConnectRejectionDiagnostics(t *testing.T) {
@@ -158,5 +161,51 @@ func TestAgentHTTPRejectionDoesNotClassifyUnstructuredBody(t *testing.T) {
 		require.Empty(t, rejection.ActionRequired)
 		require.NotContains(t, rejection.Diagnostic, "private-token")
 		require.NotContains(t, rejection.Error(), "usage policy")
+	}
+}
+
+func TestMessagesPreservesCancellationAfterResponseHeaders(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		for _, phase := range []string{"frame_header", "frame_payload", "error_body", "after_text"} {
+			for _, stream := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/stream=%t", cause, phase, stream), func(t *testing.T) {
+					token := "private-token"
+					resp, err := Messages(t.Context(), token, []byte(fmt.Sprintf(`{"model":"composer-2.5","stream":%t,"messages":[{"role":"user","content":"hello"}]}`, stream)), nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
+						var reader io.Reader = iotest.ErrReader(&url.Error{Op: "Read", URL: "https://private-token@example.test", Err: cause})
+						status := http.StatusOK
+						if phase == "frame_payload" {
+							reader = io.MultiReader(bytes.NewReader([]byte{0, 0, 0, 0, 1}), reader)
+						} else if phase == "error_body" {
+							status = http.StatusBadGateway
+						} else if phase == "after_text" {
+							var frames bytes.Buffer
+							require.NoError(t, writeAgentFrame(&frames, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "hello"}}}))
+							reader = io.MultiReader(&frames, reader)
+						}
+						return &http.Response{StatusCode: status, ProtoMajor: 2, Header: http.Header{}, Body: io.NopCloser(reader)}, nil
+					})
+					if stream && phase == "after_text" {
+						require.NoError(t, err)
+						require.NotNil(t, resp)
+						payload, readErr := io.ReadAll(resp.Body)
+						require.ErrorIs(t, readErr, cause)
+						require.NotContains(t, string(payload), token)
+						require.NotContains(t, string(payload), "message_stop")
+						tier, nativeErr := resp.Body.(*MessagesBody).Outcome()
+						require.Empty(t, tier)
+						require.ErrorIs(t, nativeErr, cause)
+						require.NotContains(t, nativeErr.Error(), token)
+						require.NoError(t, resp.Body.Close())
+						return
+					}
+					if resp != nil {
+						_ = resp.Body.Close()
+					}
+					require.Nil(t, resp, "cancellation must not become a synthetic HTTP rejection")
+					require.ErrorIs(t, err, cause)
+					require.NotContains(t, err.Error(), token)
+				})
+			}
+		}
 	}
 }
