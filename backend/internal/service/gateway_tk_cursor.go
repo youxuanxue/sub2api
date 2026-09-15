@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 func validateCursorBaseURL(account *Account, raw string, fallback func(string) (string, error)) (string, error) {
@@ -103,7 +105,9 @@ func executeCursorMessages(req *http.Request, account *Account, upstream HTTPUps
 		proxyURL = account.Proxy.URL()
 	}
 	body = normalizeCursorMessagesContent(body, model)
-	return cursor.Messages(req.Context(), account.GetCredential("api_key"), body, parameters, wireModel, func(native *http.Request) (*http.Response, error) {
+	ctx := logger.IntoContext(req.Context(), logger.FromContext(req.Context()).With(
+		zap.String("component", "gateway.cursor"), zap.Int64("account_id", account.ID), zap.String("model", model)))
+	return cursor.Messages(ctx, account.GetCredential("api_key"), body, parameters, wireModel, func(native *http.Request) (*http.Response, error) {
 		ctx := WithHTTPUpstreamRedirectsDisabled(WithHTTPUpstreamProfile(native.Context(), HTTPUpstreamProfileCursor))
 		return upstream.Do(native.WithContext(ctx), proxyURL, account.ID, account.Concurrency)
 	}, cursorPublicPolicyError)

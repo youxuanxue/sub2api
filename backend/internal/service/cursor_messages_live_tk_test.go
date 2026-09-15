@@ -21,10 +21,12 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 type cursorLiveTransport struct {
@@ -172,6 +174,7 @@ func TestCursorMessagesConvertersLive(t *testing.T) {
 		router := NewProtocolRouter()
 		ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 		defer cancel()
+		ctx = logger.IntoContext(ctx, zap.NewExample())
 		ctx = WithProtocolRouting(ctx, router, canonical)
 		plan, _, err := protocolPlanForAccount(ctx, account, model)
 		require.NoError(t, err)

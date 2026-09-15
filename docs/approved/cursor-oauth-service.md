@@ -55,15 +55,18 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   `doNativeMessagesRequest`; native completion errors and billing provenance
   also reach the Chat/Responses settlement result. Cursor has no separate
   selection or conversion fallback.
-- Native policy evidence (provider title/detail and typed analytics action) is
+- Native policy evidence (structured Connect error message, provider title/detail
+  and typed analytics action) is
   translated at the service boundary into the existing
   `markOpenAISafetyPolicyEvent` vocabulary. `cyber_policy_review` maps to
   `cyber_policy`; usage wording remains classified by the shared detector.
-  Native HTTP/SSE and relayed Messages errors preserve policy classification
+  Connect HTTP rejection JSON and terminal frames decode through the same error
+  schema. Unstructured HTTP bodies remain diagnostic-only. Native HTTP/SSE and relayed Messages errors preserve policy classification
   through Chat/Responses converters. The existing handler owns session isolation
   and zero-token error usage: no policy retry, account failover or cooldown,
   and no successful settlement on a rejected run. Diagnostic maps and echoed
-  prompts are not policy evidence; operator details stay bounded/redacted.
+  prompts are not policy evidence; operator details stay bounded/redacted and
+  retain gateway request, client request, account, model and native request IDs.
 - Every request supplies its complete history. Tools are returned to the client
   for execution, and the native call is canceled at handoff. A later request
   reconstructs history on a fresh connection. Native filesystem/shell callbacks

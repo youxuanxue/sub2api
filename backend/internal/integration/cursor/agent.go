@@ -449,13 +449,13 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	}
 	resp, err := do(req)
 	if err != nil {
-		return result, errors.New("cursor upstream transport failed")
+		return result, &agentTransportError{cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
-		rejection := newAgentRejection(resp.StatusCode, "unknown", string(raw), token, req.Header.Get("X-Request-Id"))
-		rejection.Cause.Message = fmt.Sprintf("cursor upstream returned HTTP %d", resp.StatusCode)
+		rejection := newAgentHTTPRejection(resp.StatusCode, raw, token, req.Header.Get("X-Request-Id"))
+		rejection.Metadata = agentDiagnosticJSON(map[string]any{"inference_error_type": resp.Header.Get("x-cursor-inference-request-error-type")}, token, 2048)
 		return result, rejection
 	}
 	if resp.ProtoMajor != 2 {
@@ -499,11 +499,7 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 		if flag&2 != 0 {
 			var trailer struct {
 				Metadata map[string][]string `json:"metadata"`
-				Error    *struct {
-					Code    string               `json:"code"`
-					Message string               `json:"message"`
-					Details []agentConnectDetail `json:"details"`
-				} `json:"error"`
+				Error    *agentConnectError  `json:"error"`
 			}
 			if json.Unmarshal(data, &trailer) != nil {
 				return result, errors.New("invalid Cursor terminal frame")

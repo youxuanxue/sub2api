@@ -2,6 +2,7 @@ package cursor
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -87,7 +89,7 @@ func TestAgentExpandedDiagnosticsRedactMetadataAndAdditionalInfo(t *testing.T) {
 	rejection := newAgentRejection(400, "invalid_argument", "Error", token, "fixture-id",
 		agentConnectDetail{Type: "aiserver.v1.ErrorDetails", Value: base64.StdEncoding.EncodeToString(raw)},
 		agentConnectDetail{Type: "unknown.detail", Value: base64.StdEncoding.EncodeToString([]byte(token))})
-	require.Empty(t, rejection.ProviderMessage)
+	require.Equal(t, "Error", rejection.ProviderMessage)
 	require.Empty(t, rejection.ActionRequired)
 	require.Contains(t, rejection.Diagnostic, "invalid tool history")
 	require.NotContains(t, rejection.Diagnostic, token)
@@ -121,4 +123,40 @@ func TestAgentPolicyReviewDiagnosticIsRetainedAndRedacted(t *testing.T) {
 	require.NotContains(t, rejected.ActionRequired, token)
 	require.NotContains(t, rejected.Diagnostic, token)
 	require.Empty(t, agentAnalyticsActionRequired([]byte{0xff}))
+}
+
+func TestAgentTransportErrorPreservesCauseWithoutExposingCredential(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded, io.ErrUnexpectedEOF} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			_, err := RunAgent(t.Context(), "private-token", AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}}, func(*http.Request) (*http.Response, error) {
+				return nil, &url.Error{Op: "Post", URL: "https://private-token@example.test", Err: cause}
+			}, nil)
+			require.ErrorIs(t, err, cause)
+			require.Contains(t, err.Error(), "cursor upstream transport failed")
+			if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+				require.Contains(t, err.Error(), cause.Error(), "shared ops classification must retain the canonical context signal")
+			}
+			require.NotContains(t, err.Error(), "private-token")
+			resp, err := Messages(t.Context(), "private-token", []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"hello"}]}`), nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
+				return nil, &url.Error{Op: "Post", URL: "https://private-token@example.test", Err: cause}
+			})
+			require.Nil(t, resp, "transport failures must reach the shared transport owner as errors")
+			require.ErrorIs(t, err, cause)
+			require.NotContains(t, err.Error(), "private-token")
+		})
+	}
+}
+
+func TestAgentHTTPRejectionDoesNotClassifyUnstructuredBody(t *testing.T) {
+	for _, body := range []string{
+		`<html>usage policy cyber_policy_review private-token</html>`,
+		`{"prompt":"usage policy","action_required":"cyber_policy_review"}`,
+		`{"code":"invalid_argument","details":`,
+	} {
+		rejection := newAgentHTTPRejection(502, []byte(body), "private-token", "native-fixture")
+		require.Empty(t, rejection.ProviderMessage)
+		require.Empty(t, rejection.ActionRequired)
+		require.NotContains(t, rejection.Diagnostic, "private-token")
+		require.NotContains(t, rejection.Error(), "usage policy")
+	}
 }
