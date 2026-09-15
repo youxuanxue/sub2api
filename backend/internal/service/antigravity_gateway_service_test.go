@@ -1430,32 +1430,11 @@ func TestHandleGeminiStreamingResponse_DropsLeadingCommentHeartbeat(t *testing.T
 		"Gemini CLI would throw Incomplete JSON segment at the end; body=%q", body)
 }
 
-// geminiCLISSEBufferEmptyAtEOF mirrors a naive delimiter split. Prefer
-// geminiCLISSEFullyDrained for CLI regressions — comments like ":\n\n" look
-// empty here but stick @google/genai's responseLineRE buffer.
-func geminiCLISSEBufferEmptyAtEOF(stream string) bool {
-	buffer := stream
-	delimiters := []string{"\n\n", "\r\r", "\r\n\r\n"}
-	for {
-		delimiterIndex := -1
-		delimiterLength := 0
-		for _, d := range delimiters {
-			if i := strings.Index(buffer, d); i != -1 && (delimiterIndex == -1 || i < delimiterIndex) {
-				delimiterIndex = i
-				delimiterLength = len(d)
-			}
-		}
-		if delimiterIndex == -1 {
-			break
-		}
-		buffer = buffer[delimiterIndex+delimiterLength:]
-	}
-	return strings.TrimSpace(buffer) == ""
-}
-
 // geminiCLISSEFullyDrained mirrors @google/genai processStreamResponse:
 // responseLineRE = /^\s*data: (.*)(?:\n\n|\r\r|\r\n\r\n)/ drained from the
 // buffer start until EOF; residual non-whitespace → Incomplete JSON.
+// A naive "\n\n" delimiter split is insufficient: ":\n\n" looks empty there
+// but sticks this regex and throws Incomplete JSON at EOF.
 func geminiCLISSEFullyDrained(stream string) bool {
 	buffer := stream
 	for {
