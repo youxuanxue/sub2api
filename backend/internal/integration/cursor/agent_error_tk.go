@@ -1,9 +1,11 @@
 package cursor
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -24,6 +26,39 @@ type AgentRejection struct {
 	ActionRequired  string
 }
 
+// Preserve error identity for the shared cancellation/transport owner without
+// exposing URLs or credentials through the public error string.
+type agentTransportError struct{ cause error }
+
+func (e *agentTransportError) Error() string {
+	if errors.Is(e.cause, context.Canceled) {
+		return "cursor upstream transport failed: context canceled"
+	}
+	if errors.Is(e.cause, context.DeadlineExceeded) {
+		return "cursor upstream transport failed: context deadline exceeded"
+	}
+	return "cursor upstream transport failed"
+}
+func (e *agentTransportError) Unwrap() error { return e.cause }
+
+type agentConnectError struct {
+	Code    string               `json:"code"`
+	Message string               `json:"message"`
+	Details []agentConnectDetail `json:"details"`
+}
+
+func newAgentHTTPRejection(status int, raw []byte, token, requestID string) *AgentRejection {
+	var envelope agentConnectError
+	if json.Unmarshal(raw, &envelope) == nil && envelope.Code != "" {
+		return newAgentRejection(status, envelope.Code, envelope.Message, token, requestID, envelope.Details...)
+	}
+	// An HTML page, proxy response or echoed body is diagnostic data, never
+	// structured policy evidence.
+	rejection := newAgentRejection(status, "unknown", "", token, requestID)
+	rejection.Diagnostic = agentBoundedErrorText(string(raw), token)
+	return rejection
+}
+
 func (e *AgentRejection) Error() string { return e.Cause.Error() }
 func (e *AgentRejection) Unwrap() error { return e.Cause }
 func newAgentRejection(status int, code, message, token, requestID string, details ...agentConnectDetail) *AgentRejection {
@@ -33,7 +68,7 @@ func newAgentRejection(status int, code, message, token, requestID string, detai
 	default:
 		code = "unknown"
 	}
-	facts := &AgentRejection{}
+	facts := &AgentRejection{ProviderMessage: message}
 	message += agentErrorDetailsText(details, token, facts)
 	facts.ProviderMessage = agentBoundedErrorText(facts.ProviderMessage, token)
 	facts.ActionRequired = agentBoundedErrorText(facts.ActionRequired, token)

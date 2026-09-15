@@ -7,12 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 type messagesInput struct {
@@ -231,7 +232,17 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 	ctx, cancel := context.WithCancel(ctx)
 	reader, writer := io.Pipe()
 	output := &MessagesBody{ReadCloser: reader, cancel: cancel, done: make(chan struct{})}
-	ready := make(chan *http.Response, 1)
+	type responseResult struct {
+		response *http.Response
+		err      error
+	}
+	ready := make(chan responseResult, 1)
+	finish := func(result responseResult) (*http.Response, error) {
+		if result.response == nil || result.response.Body != output {
+			_ = output.Close()
+		}
+		return result.response, result.err
+	}
 	id := "msg_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	go func() {
 		defer close(output.done)
@@ -253,7 +264,7 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 				return nil
 			}
 			started = true
-			ready <- &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}, "X-Request-Id": {id}}, Body: output}
+			ready <- responseResult{response: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}, "X-Request-Id": {id}}, Body: output}}
 			return event("message_start", map[string]any{"message": map[string]any{"id": id, "type": "message", "role": "assistant", "model": input.Model, "content": []any{}, "stop_reason": nil, "stop_sequence": nil, "usage": messageUsage(AgentUsage{}, "")}})
 		}
 		stopBlock := func() error {
@@ -316,9 +327,9 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 		if runErr != nil {
 			var rejection *AgentRejection
 			if errors.As(runErr, &rejection) {
-				slog.Error("cursor_messages_run_agent_failed", "err", runErr, "native_request_id", rejection.RequestID, "messages_request_id", id, "connect_code", rejection.Code, "upstream_message", rejection.Diagnostic, "upstream_metadata", rejection.Metadata, "upstream_details", rejection.DetailInventory)
+				logger.FromContext(ctx).Error("cursor_messages_run_agent_failed", zap.Error(runErr), zap.String("native_request_id", rejection.RequestID), zap.String("messages_request_id", id), zap.String("connect_code", rejection.Code), zap.String("upstream_message", rejection.Diagnostic), zap.String("upstream_metadata", rejection.Metadata), zap.String("upstream_details", rejection.DetailInventory))
 			} else {
-				slog.Error("cursor_messages_run_agent_failed", "err", runErr, "messages_request_id", id)
+				logger.FromContext(ctx).Error("cursor_messages_run_agent_failed", zap.Error(runErr), zap.String("messages_request_id", id))
 			}
 			code, message := "", runErr.Error()
 			if len(formatError) > 0 && formatError[0] != nil {
@@ -327,6 +338,17 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 				}
 			}
 			if !started {
+				if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+					ready <- responseResult{err: runErr}
+					_ = writer.CloseWithError(runErr)
+					return
+				}
+				var transport *agentTransportError
+				if errors.As(runErr, &transport) {
+					ready <- responseResult{err: runErr}
+					_ = writer.CloseWithError(runErr)
+					return
+				}
 				status := http.StatusBadGateway
 				var upstream *Error
 				if errors.As(runErr, &upstream) {
@@ -334,7 +356,7 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 				}
 				response := messagesError(status, message, code)
 				response.Header.Set("X-Request-Id", id)
-				ready <- response
+				ready <- responseResult{response: response}
 			} else {
 				_ = event("error", map[string]any{"error": map[string]any{"type": messagesErrorType(runErr), "message": message, "code": code}})
 			}
@@ -346,7 +368,7 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 			stop = "tool_use"
 		}
 		if !stream {
-			ready <- &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}, "X-Request-Id": {id}}, Body: output}
+			ready <- responseResult{response: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}, "X-Request-Id": {id}}, Body: output}}
 			_ = json.NewEncoder(writer).Encode(map[string]any{"id": id, "type": "message", "role": "assistant", "model": input.Model, "content": messageContent(result), "stop_reason": stop, "stop_sequence": nil, "usage": messageUsage(*result.Usage, tier)})
 			return
 		}
@@ -363,18 +385,12 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 	}()
 	select {
 	case response := <-ready:
-		if response.Body != output {
-			_ = output.Close()
-		}
-		return response, nil
+		return finish(response)
 	case <-ctx.Done():
 		// Completion cancels ctx after publishing; prefer an already-ready error.
 		select {
 		case response := <-ready:
-			if response.Body != output {
-				_ = output.Close()
-			}
-			return response, nil
+			return finish(response)
 		default:
 		}
 		_ = output.Close()

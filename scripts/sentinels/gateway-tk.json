@@ -552,7 +552,7 @@
     },
     {
       "path": "backend/internal/integration/cursor/agent.go",
-      "must_contain": ["func buildAgentRun", "firstUserPrepared", "input.Messages = preparedMessages"],
+      "must_contain": ["func buildAgentRun", "firstUserPrepared", "input.Messages = preparedMessages", "newAgentHTTPRejection(resp.StatusCode", "&agentTransportError{cause: err}"],
       "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes."
     },
     {
@@ -589,14 +589,20 @@
         "CursorWireModelsKey",
         "func cursorMessagesResponseError",
         "cursorPublicPolicyError",
-        "markOpenAISafetyPolicyEvent(nil, payload"
+        "markOpenAISafetyPolicyEvent(nil, payload",
+        "logger.IntoContext(req.Context(), logger.FromContext(req.Context()).With("
       ],
       "rationale": "Cursor executes natively using the account catalog and HTTP/2 transport; all protocol call sites share one adapter."
     },
     {
       "path": "backend/internal/integration/cursor/agent_error_tk.go",
-      "must_contain": ["agentErrorDetailsText", "logredact.RedactText", "aiserver.v1.ErrorDetails", "ActionRequired", "ProviderMessage"],
+      "must_contain": ["agentErrorDetailsText", "logredact.RedactText", "aiserver.v1.ErrorDetails", "ActionRequired", "ProviderMessage", "newAgentHTTPRejection", "agentConnectError", "func (e *agentTransportError) Unwrap()"],
       "rationale": "Preserve bounded, credential-redacted native rejection diagnostics without exposing opaque supplier details."
+    },
+    {
+      "path": "backend/internal/integration/cursor/agent_error_tk_test.go",
+      "must_contain": ["TestAgentHTTPRejectionDoesNotClassifyUnstructuredBody", "TestAgentTransportErrorPreservesCauseWithoutExposingCredential"],
+      "rationale": "Native transport errors must preserve their safe cause through Messages, and unstructured HTTP diagnostics must never enter the policy classifier."
     },
     {
       "path": "backend/internal/service/openai_native_messages_policy_tk.go",
@@ -615,7 +621,7 @@
     },
     {
       "path": "backend/internal/service/cursor_native_transport_regression_test.go",
-      "must_contain": ["TestCursorProtocolRoutesUseNativeTransportAndSettlement", "cursorPolicyConnectFrame", "upstream.calls", "errOpenAICyberPolicyForwarded"],
+      "must_contain": ["TestCursorProtocolRoutesUseNativeTransportAndSettlement", "cursorPolicyConnectFrame", "upstream.calls", "errOpenAICyberPolicyForwarded", "cyber_http", "usage_message_http", "logEntries.FilterMessage(\"cursor_messages_run_agent_failed\")"],
       "rationale": "All public protocol routes must reach native Cursor transport and preserve reported, estimated and failed-run settlement."
     },
     {
@@ -11766,6 +11772,8 @@
       "path": "backend/internal/integration/cursor/messages.go",
       "must_contain": [
         "func ValidateMessagesContent(body []byte) error",
+        "logger.FromContext(ctx).Error(\"cursor_messages_run_agent_failed\"",
+        "ready <- responseResult{err: runErr}",
         "input, stream, err := parseMessagesContent(body)",
         "_, _, err := parseMessagesContent(body)"
       ],

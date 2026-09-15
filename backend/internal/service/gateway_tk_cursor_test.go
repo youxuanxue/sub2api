@@ -54,6 +54,7 @@ func TestCursorPolicyBridgeUsesOnlyStructuredEvidence(t *testing.T) {
 		{name: "usage wording uses shared detector", rejection: cursor.AgentRejection{ProviderMessage: "Invalid prompt: violating our usage policy"}, want: "usage_policy"},
 		{name: "diagnostic echo is not evidence", rejection: cursor.AgentRejection{Diagnostic: "additional_info=usage policy action_required=cyber_policy_review", Metadata: "CONTENT_POLICY"}},
 		{name: "unknown action is not cyber", rejection: cursor.AgentRejection{ActionRequired: "unknown_review"}},
+		{name: "data retention consent is not a content policy refusal", rejection: cursor.AgentRejection{Code: "failed_precondition", ActionRequired: "config", ProviderMessage: "Review Data Policy. You must acknowledge Claude Fable 5's data retention policy to use the model."}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, message := cursorPublicPolicyError(&tt.rejection)

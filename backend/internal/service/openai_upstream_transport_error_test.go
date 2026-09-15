@@ -6,9 +6,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"os"
 	"syscall"
 	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
+	"github.com/stretchr/testify/require"
 )
 
 // TestClassifyUpstreamTransportError pins which transport-level upstream failures
@@ -89,4 +93,25 @@ func errString(err error) string {
 		return "<nil>"
 	}
 	return err.Error()
+}
+
+func TestClassifyCursorTransportErrorPreservesProxyFailure(t *testing.T) {
+	for _, tc := range []struct {
+		message    string
+		persistent bool
+	}{
+		{"username/password authentication failed", true},
+		{"proxy authentication required", true},
+		{"connection reset by peer", false},
+	} {
+		t.Run(tc.message, func(t *testing.T) {
+			resp, err := cursor.Messages(t.Context(), "private-token", []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"hello"}]}`), nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
+				return nil, errors.New(tc.message)
+			})
+			require.Nil(t, resp)
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), tc.message, "public error remains sanitized")
+			require.Equal(t, tc.persistent, classifyUpstreamTransportError(err).Persistent)
+		})
+	}
 }

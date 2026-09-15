@@ -19,17 +19,23 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
 
 type cursorNativeTestUpstream struct {
 	protocolTargetHTTPUpstream
-	calls    int
-	run      *pb.AgentRunRequest
-	response []byte
+	calls        int
+	run          *pb.AgentRunRequest
+	response     []byte
+	status       int
+	transportErr error
 }
 
 func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -37,6 +43,9 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 		return nil, fmt.Errorf("request bypassed Cursor native transport")
 	}
 	u.calls++
+	if u.transportErr != nil {
+		return nil, u.transportErr
+	}
 	var header [5]byte
 	if _, err := io.ReadFull(req.Body, header[:]); err != nil {
 		return nil, err
@@ -50,13 +59,17 @@ func (u *cursorNativeTestUpstream) Do(req *http.Request, _ string, _ int64, _ in
 		return nil, err
 	}
 	u.run = message.RunRequest
-	return &http.Response{StatusCode: 200, ProtoMajor: 2, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(u.response))}, nil
+	status := u.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{StatusCode: status, ProtoMajor: 2, Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(u.response))}, nil
 }
 
 func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 	for _, inbound := range []protocolrouter.Protocol{protocolrouter.ProtocolMessages, protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses} {
 		for _, stream := range []bool{false, true} {
-			for _, outcome := range []string{"reported", "handoff", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late"} {
+			for _, outcome := range []string{"reported", "handoff", "resumed", "incomplete", "cyber_early", "cyber_late", "usage_early", "usage_late", "cyber_http", "usage_http", "usage_message_http", "cyber_429_http", "usage_503_http", "transport_canceled"} {
 				t.Run(fmt.Sprintf("%s/stream=%t/%s", inbound, stream, outcome), func(t *testing.T) {
 					const model = "composer-2.5"
 					body := []byte(fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1,"messages":[{"role":"user","content":"lookup"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`, model, stream))
@@ -82,6 +95,8 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					account := cursorCandidateAccount(model)
 					router := NewProtocolRouter()
 					ctx := WithProtocolRouting(t.Context(), router, request)
+					logCore, logEntries := observer.New(zapcore.DebugLevel)
+					ctx = logger.IntoContext(ctx, zap.New(logCore).With(zap.String("request_id", "gateway-fixture"), zap.String("client_request_id", "client-fixture")))
 					plan, _, err := protocolPlanForAccount(ctx, account, model)
 					require.NoError(t, err)
 					var response bytes.Buffer
@@ -108,11 +123,30 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						frame(&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: usage}})
 					}
 					upstream := &cursorNativeTestUpstream{response: response.Bytes()}
+					if outcome == "transport_canceled" {
+						upstream.transportErr = context.Canceled
+					}
+					if strings.HasSuffix(outcome, "_http") {
+						frame := cursorPolicyConnectFrame(t, strings.HasPrefix(outcome, "cyber_"))
+						var terminal map[string]json.RawMessage
+						require.NoError(t, json.Unmarshal(frame[5:], &terminal))
+						upstream.status = http.StatusBadRequest
+						if outcome == "cyber_429_http" {
+							upstream.status = http.StatusTooManyRequests
+						}
+						if outcome == "usage_503_http" {
+							upstream.status = http.StatusServiceUnavailable
+						}
+						upstream.response = terminal["error"]
+						if outcome == "usage_message_http" {
+							upstream.response = []byte(`{"code":"invalid_argument","message":"Request blocked under usage policy"}`)
+						}
+					}
 					svc := protocolTargetTestService(nil)
 					svc.httpUpstream = upstream
 					recorder := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(recorder)
-					c.Request = httptest.NewRequest(http.MethodPost, protocolRouteContractInboundPath(inbound), bytes.NewReader(body))
+					c.Request = httptest.NewRequest(http.MethodPost, protocolRouteContractInboundPath(inbound), bytes.NewReader(body)).WithContext(ctx)
 					var result *OpenAIForwardResult
 					_, err = ExecuteSelectedProtocol(ctx, router, &AccountSelectionResult{Account: account, ProtocolPlan: &plan}, account,
 						func(context.Context, *Account, string) error { return nil }, protocolExecutionAccountLoaderForTest(account),
@@ -128,6 +162,21 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 							}
 							return result, err
 						}))
+					if outcome == "transport_canceled" {
+						require.ErrorIs(t, err, context.Canceled)
+						require.Nil(t, result)
+						var failover *UpstreamFailoverError
+						require.False(t, errors.As(err, &failover))
+						require.Equal(t, 1, upstream.calls)
+						require.False(t, c.Writer.Written())
+						events, ok := c.Get(OpsUpstreamErrorsKey)
+						require.True(t, ok)
+						captured := events.([]*OpsUpstreamErrorEvent)
+						require.NotEmpty(t, captured)
+						require.Contains(t, captured[len(captured)-1].Message, "context canceled")
+						require.Zero(t, captured[len(captured)-1].UpstreamStatusCode)
+						return
+					}
 					if strings.HasPrefix(outcome, "cyber_") || strings.HasPrefix(outcome, "usage_") {
 						require.ErrorIs(t, err, errOpenAICyberPolicyForwarded)
 						require.Nil(t, result)
@@ -147,6 +196,14 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 						require.NotContains(t, recorder.Body.String(), `"finish_reason":"stop"`)
 						require.NotContains(t, recorder.Body.String(), "cyber_policy_review")
 						require.NotContains(t, recorder.Body.String(), "message_stop")
+						nativeLogs := logEntries.FilterMessage("cursor_messages_run_agent_failed").All()
+						require.Len(t, nativeLogs, 1)
+						fields := nativeLogs[0].ContextMap()
+						require.Equal(t, "gateway-fixture", fields["request_id"])
+						require.Equal(t, "client-fixture", fields["client_request_id"])
+						require.Equal(t, account.ID, fields["account_id"])
+						require.Equal(t, model, fields["model"])
+						require.NotEmpty(t, fields["native_request_id"])
 						return
 					}
 					if outcome == "incomplete" {

@@ -83,6 +83,9 @@ func classifyUpstreamTransportError(err error) upstreamTransportErrorClass {
 
 	// — String-marker fallback ————————————————————————————————————————————————
 	msg := strings.ToLower(err.Error())
+	for cause := errors.Unwrap(err); cause != nil; cause = errors.Unwrap(cause) {
+		msg += " " + strings.ToLower(cause.Error())
+	}
 	for _, marker := range persistentUpstreamTransportErrorMarkers {
 		if strings.Contains(msg, marker) {
 			return upstreamTransportErrorClass{Persistent: true}

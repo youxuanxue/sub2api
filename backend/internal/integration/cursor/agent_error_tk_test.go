@@ -2,16 +2,21 @@ package cursor
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
+	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
 )
 
 func TestAgentConnectRejectionDiagnostics(t *testing.T) {
@@ -87,7 +92,7 @@ func TestAgentExpandedDiagnosticsRedactMetadataAndAdditionalInfo(t *testing.T) {
 	rejection := newAgentRejection(400, "invalid_argument", "Error", token, "fixture-id",
 		agentConnectDetail{Type: "aiserver.v1.ErrorDetails", Value: base64.StdEncoding.EncodeToString(raw)},
 		agentConnectDetail{Type: "unknown.detail", Value: base64.StdEncoding.EncodeToString([]byte(token))})
-	require.Empty(t, rejection.ProviderMessage)
+	require.Equal(t, "Error", rejection.ProviderMessage)
 	require.Empty(t, rejection.ActionRequired)
 	require.Contains(t, rejection.Diagnostic, "invalid tool history")
 	require.NotContains(t, rejection.Diagnostic, token)
@@ -121,4 +126,90 @@ func TestAgentPolicyReviewDiagnosticIsRetainedAndRedacted(t *testing.T) {
 	require.NotContains(t, rejected.ActionRequired, token)
 	require.NotContains(t, rejected.Diagnostic, token)
 	require.Empty(t, agentAnalyticsActionRequired([]byte{0xff}))
+}
+
+func TestAgentTransportErrorPreservesCauseWithoutExposingCredential(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded, io.ErrUnexpectedEOF} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			_, err := RunAgent(t.Context(), "private-token", AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}}, func(*http.Request) (*http.Response, error) {
+				return nil, &url.Error{Op: "Post", URL: "https://private-token@example.test", Err: cause}
+			}, nil)
+			require.ErrorIs(t, err, cause)
+			require.Contains(t, err.Error(), "cursor upstream transport failed")
+			if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+				require.Contains(t, err.Error(), cause.Error(), "shared ops classification must retain the canonical context signal")
+			}
+			require.NotContains(t, err.Error(), "private-token")
+			resp, err := Messages(t.Context(), "private-token", []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"hello"}]}`), nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
+				return nil, &url.Error{Op: "Post", URL: "https://private-token@example.test", Err: cause}
+			})
+			require.Nil(t, resp, "transport failures must reach the shared transport owner as errors")
+			require.ErrorIs(t, err, cause)
+			require.NotContains(t, err.Error(), "private-token")
+		})
+	}
+}
+
+func TestAgentHTTPRejectionDoesNotClassifyUnstructuredBody(t *testing.T) {
+	for _, body := range []string{
+		`<html>usage policy cyber_policy_review private-token</html>`,
+		`{"prompt":"usage policy","action_required":"cyber_policy_review"}`,
+		`{"code":"invalid_argument","details":`,
+	} {
+		rejection := newAgentHTTPRejection(502, []byte(body), "private-token", "native-fixture")
+		require.Empty(t, rejection.ProviderMessage)
+		require.Empty(t, rejection.ActionRequired)
+		require.NotContains(t, rejection.Diagnostic, "private-token")
+		require.NotContains(t, rejection.Error(), "usage policy")
+	}
+}
+
+func TestMessagesPreservesCancellationAfterResponseHeaders(t *testing.T) {
+	for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+		for _, phase := range []string{"frame_header", "frame_payload", "error_body", "after_text"} {
+			for _, stream := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/stream=%t", cause, phase, stream), func(t *testing.T) {
+					token := "private-token"
+					resp, err := Messages(t.Context(), token, []byte(fmt.Sprintf(`{"model":"composer-2.5","stream":%t,"messages":[{"role":"user","content":"hello"}]}`, stream)), nil, "composer-2.5", func(*http.Request) (*http.Response, error) {
+						reader := iotest.ErrReader(&url.Error{Op: "Read", URL: "https://private-token@example.test", Err: cause})
+						status := http.StatusOK
+						switch phase {
+						case "frame_payload":
+							reader = io.MultiReader(bytes.NewReader([]byte{0, 0, 0, 0, 1}), reader)
+						case "error_body":
+							status = http.StatusBadGateway
+						case "after_text":
+							var frames bytes.Buffer
+							require.NoError(t, writeAgentFrame(&frames, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "hello"}}}))
+							reader = io.MultiReader(&frames, reader)
+						}
+						return &http.Response{StatusCode: status, ProtoMajor: 2, Header: http.Header{}, Body: io.NopCloser(reader)}, nil
+					})
+					if stream && phase == "after_text" {
+						require.NoError(t, err)
+						require.NotNil(t, resp)
+						payload, readErr := io.ReadAll(resp.Body)
+						require.ErrorIs(t, readErr, cause)
+						require.NotContains(t, string(payload), token)
+						require.NotContains(t, string(payload), "message_stop")
+						tier, nativeErr := resp.Body.(*MessagesBody).Outcome() //nolint:errcheck // asserted below
+						require.Empty(t, tier)
+						require.Error(t, nativeErr)
+						require.ErrorIs(t, nativeErr, cause)
+						if nativeErr != nil {
+							require.NotContains(t, nativeErr.Error(), token)
+						}
+						require.NoError(t, resp.Body.Close())
+						return
+					}
+					if resp != nil {
+						_ = resp.Body.Close()
+					}
+					require.Nil(t, resp, "cancellation must not become a synthetic HTTP rejection")
+					require.ErrorIs(t, err, cause)
+					require.NotContains(t, err.Error(), token)
+				})
+			}
+		}
+	}
 }
