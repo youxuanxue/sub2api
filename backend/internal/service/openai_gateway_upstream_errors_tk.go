@@ -17,8 +17,12 @@ import (
 //
 //   - 422: always caller-fault (schema/validation).
 //   - 404: only model-not-found shapes; Unknown URL / base_url misconfig stays 502.
+//   - Model retirement: only a confirmed model diagnostic, never a bare 410.
 //   - 400: owned by upstream writeOpenAIUpstreamClientError (#5479), not here.
 func tkShouldPassthroughOpenAINativeClientError(statusCode int, upstreamMsg string, body []byte) bool {
+	if isUpstreamModelRetiredError(statusCode, body, upstreamMsg) {
+		return true
+	}
 	switch statusCode {
 	case http.StatusUnprocessableEntity:
 		return true
@@ -31,7 +35,7 @@ func tkShouldPassthroughOpenAINativeClientError(statusCode int, upstreamMsg stri
 }
 
 // tkWriteOpenAINativeClientError mirrors writeOpenAIUpstreamClientError but sets
-// OpenAI-native default types for 404/422 while preserving upstream code/param.
+// OpenAI-native default types for 404/410/422 while preserving upstream code/param.
 func tkWriteOpenAINativeClientError(c *gin.Context, statusCode int, body []byte, upstreamMsg string) {
 	if statusCode == http.StatusBadRequest {
 		writeOpenAIUpstreamClientError(c, statusCode, body, upstreamMsg)
@@ -40,7 +44,7 @@ func tkWriteOpenAINativeClientError(c *gin.Context, statusCode int, body []byte,
 
 	defaultType := openAIUpstreamClientErrorFallbackType
 	switch statusCode {
-	case http.StatusNotFound:
+	case http.StatusNotFound, http.StatusGone:
 		defaultType = "not_found_error"
 	case http.StatusUnprocessableEntity:
 		defaultType = "invalid_request_error"

@@ -5,9 +5,11 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	newapitypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -231,4 +233,44 @@ func TestNativeMessagesSupplierCapability400RetriesWithoutPenalty(t *testing.T) 
 	require.Zero(t, repo.tempCalls)
 	require.Empty(t, blocker.reasons)
 	require.Empty(t, incidents.reasons)
+}
+
+func TestBridgeModelRetirementCoolsExecutedModel(t *testing.T) {
+	for _, status := range []int{http.StatusGone, http.StatusBadRequest} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			account := parameterCompatibilityAccount(PlatformNewAPI, "deepseek-ai/deepseek-v4-pro-0813", protocolrouter.ProtocolChatCompletions)
+			request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gpt-5.4", false, []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}]}`))
+			require.NoError(t, err)
+			snapshot, err := protocolAccountSnapshotForRequest(&account, request)
+			require.NoError(t, err)
+			plan, err := NewProtocolRouter().Plan(request, snapshot)
+			require.NoError(t, err)
+			ctx := withProtocolExecutionPlan(context.Background(), plan)
+			repo := &modelNotFoundAccountRepoStub{}
+			rls := &RateLimitService{accountRepo: repo}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			err = bridgeWrapRelayErrorAfterPenalty(ctx, rls, c, &account, upstreamBridgeError(status, "The model has reached its end of life and is no longer available"))
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			require.True(t, failover.ShouldRetryNextAccount())
+			require.False(t, c.Writer.Written())
+			require.Len(t, repo.modelRateLimitCalls, 1)
+			require.Equal(t, plan.ResolvedModel(), repo.modelRateLimitCalls[0].scope)
+			require.Equal(t, upstreamModelRetiredReason, repo.modelRateLimitCalls[0].reason)
+			require.WithinDuration(t, time.Now().Add(upstreamModelRetiredCooldown), repo.modelRateLimitCalls[0].resetAt, 5*time.Second)
+			require.Zero(t, repo.tempCalls)
+		})
+	}
+}
+
+func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	rls := &RateLimitService{accountRepo: repo}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	err := bridgeWrapRelayErrorAfterPenalty(context.Background(), rls, c, newNewAPIBridgeAccount(), upstreamBridgeError(http.StatusGone, "The model has been retired"))
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.True(t, failover.ShouldRetryNextAccount())
+	require.Empty(t, repo.modelRateLimitCalls)
+	require.Zero(t, repo.tempCalls)
 }

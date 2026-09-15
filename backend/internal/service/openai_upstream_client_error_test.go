@@ -106,6 +106,25 @@ func TestFailoverOpenAIUpstreamHTTPError_ModelNotFoundIsNextAccountEligible(t *t
 	require.False(t, IsResponseCommitted(c), "failover must remain eligible before writing downstream")
 }
 
+func TestFailoverOpenAIUpstreamHTTPError_ModelRetiredIsNextAccountEligible(t *testing.T) {
+	c, _ := newOpenAIUpstreamErrorTestContext(t)
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, accountRepo: &modelNotFoundManagedAccountRepo{}}
+	account := &Account{ID: 138, Name: "nvidia-build-1", Platform: PlatformNewAPI, Type: AccountTypeAPIKey}
+	body := []byte(`{"error":{"code":"bad_response_status_code","message":"The model 'deepseek-ai/deepseek-v4-pro-0813' has reached its end of life on 2026-09-14T08:00:00Z and is no longer available.","param":"","type":"bad_response_status_code"}}`)
+	msg := "bad_response_status_code: The model 'deepseek-ai/deepseek-v4-pro-0813' has reached its end of life on 2026-09-14T08:00:00Z and is no longer available."
+	resp := newOpenAIUpstreamErrorResponse(http.StatusGone, string(body))
+
+	failoverErr := svc.failoverOpenAIUpstreamHTTPError(
+		context.Background(), c, account, resp, body, msg, "deepseek-v4-pro",
+	)
+
+	require.NotNil(t, failoverErr)
+	require.Equal(t, http.StatusGone, failoverErr.StatusCode)
+	require.Equal(t, body, failoverErr.ResponseBody)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, IsResponseCommitted(c), "failover must remain eligible before writing downstream")
+}
+
 // 主复现：原生 Responses 路径必须回真实的 400 与上游诊断信息，而不是可重试的 502。
 //
 // 归一成 502 时下游网关（CCH 等）会把确定性的 Schema 错误当成临时上游故障重试，

@@ -159,6 +159,18 @@ func TestClassifyOpsUpstreamClientInducedRejectionOwnedByClient(t *testing.T) {
 		require.Equal(t, "client", errorOwner)
 	})
 
+	t.Run("upstream 410 model EOL is client-induced", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		eolMsg := "The model 'deepseek-ai/deepseek-v4-pro-0813' has reached its end of life on 2026-09-14T08:00:00Z and is no longer available."
+		service.SetOpsUpstreamError(c, http.StatusGone, eolMsg, "bad_response_status_code")
+
+		phase, _, errorOwner, _ := classifyOpsErrorLog(c, "api_error", eolMsg, "", http.StatusGone)
+
+		require.Equal(t, "request", phase)
+		require.Equal(t, "client", errorOwner)
+	})
+
 	t.Run("upstream 400 invalid_request_error via message substring", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
@@ -361,4 +373,25 @@ func TestClassifyOpsBurstProtection429OwnedByClient(t *testing.T) {
 		require.Equal(t, "client", errorOwner)
 		require.False(t, service.IsOpsSLAFaultOwner(errorOwner))
 	})
+}
+
+func TestModelRetirementOpsAttributionRequiresDiagnostic(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		status         int
+		message, owner string
+	}{
+		{"model gone", 410, "The model has reached its end of life", "client"},
+		{"model retired 400", 400, "The model has been retired", "client"},
+		{"file gone", 410, "The file is no longer available", "provider"},
+		{"bare gone", 410, "", "provider"},
+		{"account disabled", 410, "The model has been retired; organization has been disabled", "provider"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			service.SetOpsUpstreamError(c, tc.status, tc.message, "bad_response_status_code")
+			_, _, owner, _ := classifyOpsErrorLog(c, "api_error", tc.message, "", tc.status)
+			require.Equal(t, tc.owner, owner)
+		})
+	}
 }

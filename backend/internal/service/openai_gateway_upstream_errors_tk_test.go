@@ -28,6 +28,11 @@ func TestTkShouldPassthroughOpenAINativeClientError(t *testing.T) {
 		"model not found",
 		[]byte(`{"error":{"code":"model_not_found","message":"model not found"}}`),
 	))
+	require.True(t, tkShouldPassthroughOpenAINativeClientError(
+		http.StatusGone,
+		"The model 'deepseek-ai/deepseek-v4-pro-0813' has reached its end of life on 2026-09-14T08:00:00Z and is no longer available.",
+		[]byte(`{"error":{"code":"bad_response_status_code","message":"The model 'deepseek-ai/deepseek-v4-pro-0813' has reached its end of life on 2026-09-14T08:00:00Z and is no longer available."}}`),
+	))
 	require.False(t, tkShouldPassthroughOpenAINativeClientError(
 		http.StatusBadGateway,
 		"temporary outage",
@@ -84,4 +89,12 @@ func TestHandleErrorResponse_TkOps404UnknownURLStays502(t *testing.T) {
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	require.Equal(t, "upstream_error", gjson.Get(rec.Body.String(), "error.type").String())
 	require.Equal(t, "Upstream request failed", gjson.Get(rec.Body.String(), "error.message").String())
+}
+
+func TestNativeModelRetirementPassthroughRequiresDiagnostic(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusNotFound, http.StatusGone} {
+		require.True(t, tkShouldPassthroughOpenAINativeClientError(status, "The model has been retired", nil))
+	}
+	require.False(t, tkShouldPassthroughOpenAINativeClientError(http.StatusGone, "The file is no longer available", nil))
+	require.False(t, tkShouldPassthroughOpenAINativeClientError(http.StatusGone, "", nil))
 }

@@ -3,6 +3,90 @@
   "rationale": "Load-bearing TokenKey gateway/service injections that intentionally live in upstream-shaped hotspot files. These touches are small and compile-clean if dropped, so upstream merges can silently revert them unless preflight and upstream-merge PR shape check their literal hooks.",
   "sentinels": [
     {
+      "path": "backend/internal/service/model_retired_error_tk.go",
+      "must_contain": [
+        "func IsUpstreamModelRetiredError(",
+        "func isUpstreamModelRetiredError(",
+        "value.Type == gjson.String",
+        "http.StatusGone"
+      ],
+      "rationale": "Model retirement requires a diagnostic, never a bare status or echoed request content."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_upstream_errors.go",
+      "must_contain": [
+        "isUpstreamModelRetiredError(statusCode, upstreamBody, upstreamMsg)"
+      ],
+      "rationale": "OpenAI retirement observations must reach the shared account-fault failover policy."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_model_not_found.go",
+      "must_contain": [
+        "case isUpstreamModelRetiredError(statusCode, responseBody):",
+        "upstreamModelRetiredCooldown",
+        "upstreamModelRetiredReason"
+      ],
+      "rationale": "Retirement cools only the failed account/model through the existing availability owner."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_failover_tk.go",
+      "must_contain": [
+        "isUpstreamModelRetiredError(apiErr.StatusCode, tkBridgeUpstreamErrorBody(apiErr)",
+        "rls.HandleUpstreamModelNotFound(stateCtx, account, protocolExecutionResolvedModel(ctx, \"\")"
+      ],
+      "rationale": "Bridge retirement must both switch accounts and cool the executed model; account-level penalty statuses remain narrow."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_handler.go",
+      "must_contain": [
+        "service.IsUpstreamModelRetiredError(statusCode, responseBody)"
+      ],
+      "rationale": "Only confirmed model retirement may preserve its terminal upstream status after failover exhaustion."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream.go",
+      "must_contain": [
+        "service.IsUpstreamModelRetiredError(status, []byte(body), msg)"
+      ],
+      "rationale": "Ops attribution consumes the same retirement diagnostic as failover and cooldown."
+    },
+    {
+      "path": "backend/internal/service/model_not_found_error_test.go",
+      "must_contain": [
+        "func TestModelRetirementRequiresModelDiagnostic("
+      ],
+      "rationale": "Regression rejects expired resources, echoed prompts, auth failures, success and transient model capacity."
+    },
+    {
+      "path": "backend/internal/service/newapi_bridge_failover_tk_test.go",
+      "must_contain": [
+        "func TestBridgeModelRetirementCoolsExecutedModel(",
+        "func TestBridgeModelRetirementWithoutPlanDoesNotGuessCooldownKey("
+      ],
+      "rationale": "Bridge boundary regression asserts switching plus exact-model cooldown and no guessed key."
+    },
+    {
+      "path": "backend/internal/service/account_model_mapping_nvidia_tk_test.go",
+      "must_contain": [
+        "func TestNVIDIABuildRetiredModelExcludedFromProvisioning("
+      ],
+      "rationale": "Fixed NVIDIA withdrawal boundaries must not reappear in provisioning or display mappings."
+    },
+    {
+      "path": "backend/internal/handler/openai_gateway_credential_failover_test.go",
+      "must_contain": [
+        "func TestModelRetirementFailoverExhaustionRequiresDiagnostic("
+      ],
+      "rationale": "Terminal response regression distinguishes model retirement from unrelated Gone responses."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger_tk_client_induced_upstream_test.go",
+      "must_contain": [
+        "func TestModelRetirementOpsAttributionRequiresDiagnostic("
+      ],
+      "rationale": "Retirement attribution preserves provider ownership for bare Gone and account-standing failures."
+    },
+    {
       "path": "backend/internal/service/registration_offer_tk.go",
       "must_contain": [
         "registrationOfferFromSettings",
