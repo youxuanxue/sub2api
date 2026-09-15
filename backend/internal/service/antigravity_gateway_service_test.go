@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+// geminiCLISSEResponseLineRE mirrors @google/genai processStreamResponse:
+// /^\s*data: (.*)(?:\n\n|\r\r|\r\n\r\n)/
+var geminiCLISSEResponseLineRE = regexp.MustCompile(`^\s*data: (.*)(?:\n\n|\r\r|\r\n\r\n)`)
 
 // antigravityFailingWriter 模拟客户端断开连接的 gin.ResponseWriter
 type antigravityFailingWriter struct {
@@ -1385,28 +1390,59 @@ func TestHandleGeminiStreamingResponse_DropsTrailingDONEWithoutBlankLine(t *test
 	body := rec.Body.String()
 	require.Contains(t, body, `"text":"ok"`)
 	require.NotContains(t, body, "[DONE]")
-	require.True(t, geminiCLISSEBufferEmptyAtEOF(body),
+	require.True(t, geminiCLISSEFullyDrained(body),
 		"Gemini CLI would throw Incomplete JSON segment at the end; body=%q", body)
 }
 
-// geminiCLISSEBufferEmptyAtEOF mirrors @google/genai processStreamResponse delimiter
-// rules: residual non-whitespace buffer at EOF → "Incomplete JSON segment at the end".
-func geminiCLISSEBufferEmptyAtEOF(stream string) bool {
+// TestHandleGeminiStreamingResponse_DropsLeadingCommentHeartbeat reproduces the
+// remaining Gemini CLI failure after #2178: gateway header-wait / in-stream
+// keepalive emitted ":\n\n". @google/genai responseLineRE only matches data:
+// frames, so a leading comment sticks the buffer for the whole stream.
+func TestHandleGeminiStreamingResponse_DropsLeadingCommentHeartbeat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newAntigravityTestService(&config.Config{
+		Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	upstream := ":\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":2,\"candidatesTokenCount\":1}}\n\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(upstream)),
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+
+	result, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.usage.OutputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"text":"ok"`)
+	require.NotContains(t, body, ":\n\n")
+	require.False(t, geminiCLISSEFullyDrained(":\n\n"+body),
+		"sanity: raw comment+data must fail the CLI drain check")
+	require.True(t, geminiCLISSEFullyDrained(body),
+		"Gemini CLI would throw Incomplete JSON segment at the end; body=%q", body)
+}
+
+// geminiCLISSEFullyDrained mirrors @google/genai processStreamResponse:
+// responseLineRE = /^\s*data: (.*)(?:\n\n|\r\r|\r\n\r\n)/ drained from the
+// buffer start until EOF; residual non-whitespace → Incomplete JSON.
+// A naive "\n\n" delimiter split is insufficient: ":\n\n" looks empty there
+// but sticks this regex and throws Incomplete JSON at EOF.
+func geminiCLISSEFullyDrained(stream string) bool {
 	buffer := stream
-	delimiters := []string{"\n\n", "\r\r", "\r\n\r\n"}
 	for {
-		delimiterIndex := -1
-		delimiterLength := 0
-		for _, d := range delimiters {
-			if i := strings.Index(buffer, d); i != -1 && (delimiterIndex == -1 || i < delimiterIndex) {
-				delimiterIndex = i
-				delimiterLength = len(d)
-			}
-		}
-		if delimiterIndex == -1 {
+		loc := geminiCLISSEResponseLineRE.FindStringIndex(buffer)
+		if loc == nil {
 			break
 		}
-		buffer = buffer[delimiterIndex+delimiterLength:]
+		buffer = buffer[loc[1]:]
 	}
 	return strings.TrimSpace(buffer) == ""
 }

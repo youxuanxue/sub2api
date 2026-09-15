@@ -195,7 +195,7 @@ func TestAntigravityGatewayService_BeginHeaderWaitKeepaliveUsesClientWireFrame(t
 	cfg := &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}
 	svc := &AntigravityGatewayService{settingService: &SettingService{cfg: cfg}}
 	claudeKeepalive := svc.beginHeaderWaitKeepalive(claudeContext, true, anthropicSSEPingFrame)
-	geminiKeepalive := svc.beginHeaderWaitKeepalive(geminiContext, true, openaiSSECommentFrame)
+	geminiKeepalive := svc.beginHeaderWaitKeepalive(geminiContext, true, geminiNativeSSEKeepaliveFrame)
 	if claudeKeepalive == nil || geminiKeepalive == nil {
 		t.Fatal("expected non-nil Antigravity keepalive handles")
 	}
@@ -207,7 +207,28 @@ func TestAntigravityGatewayService_BeginHeaderWaitKeepaliveUsesClientWireFrame(t
 	if body := claudeRecorder.Body.String(); !strings.Contains(body, "event: ping") {
 		t.Fatalf("Anthropic wire must emit a typed ping, got %q", body)
 	}
-	if body := geminiRecorder.Body.String(); strings.Contains(body, "event: ping") || !strings.Contains(body, ":\n\n") {
-		t.Fatalf("Gemini wire must emit only an SSE comment, got %q", body)
+	if body := geminiRecorder.Body.String(); strings.Contains(body, "event: ping") || strings.Contains(body, ":\n\n") || !strings.Contains(body, "\n") {
+		t.Fatalf("Gemini native wire must emit whitespace keepalive only (no SSE comment), got %q", body)
+	}
+}
+
+func TestGeminiMessagesCompatService_BeginGeminiNativeHeaderWaitKeepalive(t *testing.T) {
+	c, rec := newKeepaliveTestContext(t)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini:streamGenerateContent", nil)
+
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{Gateway: config.GatewayConfig{StreamKeepaliveInterval: 1}}}
+	k := svc.beginGeminiNativeHeaderWaitKeepalive(c, true)
+	if k == nil {
+		t.Fatal("expected non-nil keepalive handle")
+	}
+	time.Sleep(1100 * time.Millisecond)
+	k.stop()
+
+	body := rec.Body.String()
+	if strings.Contains(body, ":\n\n") || strings.Contains(body, "event: ping") {
+		t.Fatalf("Gemini native keepalive must not emit SSE comments or Anthropic ping, got %q", body)
+	}
+	if !strings.Contains(body, "\n") {
+		t.Fatalf("expected whitespace keepalive bytes, got %q", body)
 	}
 }

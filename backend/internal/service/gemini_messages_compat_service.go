@@ -1317,7 +1317,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 		requestIDHeader = idHeader
 
-		hwka := s.beginSSECommentHeaderWaitKeepalive(c, stream)
+		hwka := s.beginGeminiNativeHeaderWaitKeepalive(c, stream)
 		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 		hwka.stop()
 		if err != nil {
@@ -2697,10 +2697,10 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", rawToWrite)
 					flusher.Flush()
 				}
-			} else if trimmed != "" {
-				_, _ = fmt.Fprintf(c.Writer, "%s\n\n", trimmed)
-				flusher.Flush()
 			}
+			// Drop blank lines, SSE comments (":"), and other non-data fields.
+			// @google/genai only accepts data: frames; forwarding ":\n\n"
+			// heartbeats leaves residual buffer → Incomplete JSON at EOF.
 		}
 
 		if errors.Is(err, io.EOF) {
