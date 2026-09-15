@@ -665,6 +665,38 @@ func TestGeminiHandleNativeNonStreamingResponse_DebugDisabledDoesNotEmitHeaderLo
 	require.False(t, logSink.ContainsMessage("[GeminiAPI]"), "debug 关闭时不应输出 Gemini 响应头日志")
 }
 
+// TestGeminiHandleNativeStreamingResponse_DropsTrailingDONEWithoutBlankLine covers the
+// native ForwardNative SSE path with the same Gemini CLI failure shape as the
+// Antigravity stream test: upstream ends with data: [DONE] and no blank line.
+func TestGeminiHandleNativeStreamingResponse_DropsTrailingDONEWithoutBlankLine(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:streamGenerateContent", nil)
+
+	upstream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":2,\"candidatesTokenCount\":1}}\n\n" +
+		"data: [DONE]\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(upstream)),
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+
+	result, err := svc.handleNativeStreamingResponse(c, resp, time.Now(), false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.usage)
+	require.Equal(t, 1, result.usage.OutputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"text":"ok"`)
+	require.NotContains(t, body, "[DONE]")
+	require.True(t, geminiCLISSEBufferEmptyAtEOF(body),
+		"Gemini CLI would throw Incomplete JSON segment at the end; body=%q", body)
+}
+
 func TestGeminiMessagesCompatServiceForward_GroupDispatchCapacityUsesFinalMappedModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
