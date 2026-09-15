@@ -930,24 +930,6 @@
         }
       ]
     },
-    "gpt-5.6-sol": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gpt-5.5": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "claude-fable-5-1": {
       "price_owner": "claude-fable-5",
       "display": true,
@@ -985,15 +967,6 @@
         }
       ]
     },
-    "gpt-5.6-terra": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "claude-sonnet-5": {
       "display": true,
       "scopes": [
@@ -1021,25 +994,7 @@
         }
       ]
     },
-    "gpt-5.3-codex": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "claude-opus-4-7": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gpt-5.4": {
       "display": true,
       "scopes": [
         {
@@ -1066,24 +1021,6 @@
         }
       ]
     },
-    "gpt-5.2": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gpt-5.6-luna": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "gemini-3.6-flash": {
       "display": true,
       "scopes": [
@@ -1102,24 +1039,6 @@
         }
       ]
     },
-    "gpt-5.4-mini": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gpt-5.4-nano": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "claude-haiku-4-5": {
       "display": true,
       "scopes": [
@@ -1130,15 +1049,6 @@
       ]
     },
     "claude-sonnet-4-5": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gpt-5.1": {
       "display": true,
       "scopes": [
         {
@@ -1166,15 +1076,6 @@
       ]
     },
     "claude-sonnet-4": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gpt-5-mini": {
       "display": true,
       "scopes": [
         {

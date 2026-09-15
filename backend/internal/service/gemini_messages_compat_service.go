@@ -2697,16 +2697,21 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", rawToWrite)
 					flusher.Flush()
 				}
+			} else if isGeminiNativeSSEKeepalive(trimmed) {
+				// Relayed Edge heartbeats must reach the client even before content.
+				_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
+				flusher.Flush()
 			}
-			// Drop blank lines, SSE comments (":"), and other non-data fields.
-			// @google/genai only accepts data: frames; forwarding ":\n\n"
-			// heartbeats leaves residual buffer → Incomplete JSON at EOF.
 		}
 
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				_, _ = fmt.Fprint(c.Writer, geminiNativeSSEErrorFrame(http.StatusBadGateway, "stream_read_error"))
+				flusher.Flush()
+			}
 			return nil, err
 		}
 	}
