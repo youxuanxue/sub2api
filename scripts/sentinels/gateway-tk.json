@@ -5128,11 +5128,11 @@
       "path": "backend/internal/service/billing_service_tk_qianfan_test.go",
       "must_contain": [
         "TestTkQianfanScopedOverlayKeysAreRemoved",
-        "TestTkQianfanDatedFlashKeepsHistoricalPrice",
+        "TestTkQianfanDatedFlashSharesCurrentPrice",
         "TestTkDeepSeekPeakValleyAppliesToDatedFlashSnapshot",
         "TestTkQianfanOnlyDeepSeekOwnersStayPeakExempt"
       ],
-      "rationale": "Focused regressions for the global-user-price decision: shared ids stay independent of the serving account and the .qianfan suffix owners stay out of the registry; the fixed dated Flash snapshot retains its historical official price and peak windows, while Qianfan-exclusive owners keep their flat rate."
+      "rationale": "Focused regressions for the global-user-price decision: shared ids stay independent of the serving account and the .qianfan suffix owners stay out of the registry; the fixed dated Flash snapshot shares the current Flash selling price and peak windows, while Qianfan-exclusive owners keep their flat rate."
     },
     {
       "path": "backend/internal/service/account_model_mapping_preset_tk_qianfan_test.go",
@@ -10019,12 +10019,12 @@
         "\"deepseek-flash\": \"deepseek-v4-flash\"",
         "\"gpt-5.5-pro\": \"gpt-5.5\""
       ],
-      "rationale": "Declared public aliases share one registry owner and must not raise served_at_fallback. Stable deepseek-flash follows the current Flash owner; the fixed 0731 snapshot has its own historical price and is covered by the DeepSeek boundary regression."
+      "rationale": "Declared public aliases share one registry owner and must not raise served_at_fallback. Stable deepseek-flash follows the current Flash owner; the fixed 0731 snapshot shares the current Flash price owner and is covered by the DeepSeek boundary regression."
     },
     {
       "path": "backend/internal/service/deepseek_flash_surface_tk_test.go",
-      "must_contain": ["TestDeepSeekFlashSurfacePreservesProviderModelIdentity", "TestDeepSeekFlashFallbackKeepsFixedSnapshotPrice"],
-      "rationale": "Keep V4.1 official API naming and scope, continuing Pro mappings, and fixed 0731 historical billing distinct across upstream merges."
+      "must_contain": ["TestDeepSeekFlashSurfacePreservesProviderModelIdentity", "TestDeepSeekFlashFallbackSharesCurrentPrice"],
+      "rationale": "Keep V4.1 official API naming and scope, continuing Pro mappings, and unified Flash selling prices across upstream merges."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias.go",

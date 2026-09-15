@@ -597,7 +597,7 @@
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
         }
       ],
-      "price_owner": "deepseek-v4-flash-0731"
+      "price_owner": "deepseek-v4-flash"
     },
     "deepseek-v3.2": {
       "display": true,

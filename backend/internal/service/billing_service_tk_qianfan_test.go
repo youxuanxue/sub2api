@@ -31,23 +31,25 @@ func TestTkQianfanScopedOverlayKeysAreRemoved(t *testing.T) {
 	}
 }
 
-// Fixed 0731 requests keep their historical official price after stable Flash upgrades.
-func TestTkQianfanDatedFlashKeepsHistoricalPrice(t *testing.T) {
+// Fixed 0731 requests share the current Flash selling price without changing routing.
+func TestTkQianfanDatedFlashSharesCurrentPrice(t *testing.T) {
 	t.Parallel()
 	svc := newTestBillingService()
 	dated, err := svc.GetModelPricing("deepseek-v4-flash-0731")
 	require.NoError(t, err)
 	tax := tkOfficialListBaseTaxMultiplier()
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5)*tax, dated.InputPricePerToken, 1e-15)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5)*tax, dated.OutputPricePerToken, 1e-15)
-	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.05)*tax, dated.CacheReadPricePerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1)*tax, dated.InputPricePerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4)*tax, dated.OutputPricePerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.02)*tax, dated.CacheReadPricePerToken, 1e-15)
 	stable, err := svc.GetModelPricing("deepseek-flash")
 	require.NoError(t, err)
-	require.NotEqual(t, dated.InputPricePerToken, stable.InputPricePerToken)
-	require.False(t, svc.IsServedViaFamilyFloor("deepseek-v4-flash-0731"), "a historical direct price must not raise fallback alerts")
+	require.Equal(t, dated.InputPricePerToken, stable.InputPricePerToken)
+	require.Equal(t, dated.OutputPricePerToken, stable.OutputPricePerToken)
+	require.Equal(t, dated.CacheReadPricePerToken, stable.CacheReadPricePerToken)
+	require.False(t, svc.IsServedViaFamilyFloor("deepseek-v4-flash-0731"), "a declared price alias must not raise fallback alerts")
 }
 
-// Historical official snapshots retain the same peak-window policy.
+// Fixed snapshots share the same Flash peak-window policy.
 func TestTkDeepSeekPeakValleyAppliesToDatedFlashSnapshot(t *testing.T) {
 	t.Parallel()
 	policy := loadTkDeepSeekPeakValleyPolicy()

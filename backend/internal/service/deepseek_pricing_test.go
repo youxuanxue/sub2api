@@ -134,7 +134,7 @@ func TestCalculateCostUnified_DeepseekVersionedNamePeakMultiplier(t *testing.T) 
 	resolver := NewModelPricingResolver(nil, bs)
 
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
-	offPeakTotal := tkCNYPerMTokToUSDPerToken(1000*1.5+500*4.5+1000*0.05) * tkOfficialListBaseTaxMultiplier()
+	offPeakTotal := tkCNYPerMTokToUSDPerToken(1000*1+500*4+1000*0.02) * tkOfficialListBaseTaxMultiplier()
 
 	offPeak, err := bs.CalculateCostUnified(CostInput{
 		Ctx: context.Background(), Model: "deepseek-v4-flash-0731", Tokens: tokens,
@@ -257,7 +257,7 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 		{"deepseek-chat", 1, 4, 0.02},
 		{"deepseek-reasoner", 1, 4, 0.02},
 		{"deepseek-v4-pro-0813", 4.5, 13.5, 0.15},
-		{"deepseek-v4-flash-0731", 1.5, 4.5, 0.05},
+		{"deepseek-v4-flash-0731", 1, 4, 0.02},
 		{"deepseek-flash", 1, 4, 0.02},
 	}
 	for _, tt := range tests {

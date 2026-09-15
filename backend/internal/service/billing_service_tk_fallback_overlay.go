@@ -14,11 +14,7 @@ func (s *BillingService) tkResolveFallbackOverlayPricing(modelLower string) *Mod
 		return nil
 	}
 
-	// Keep the fixed 0731 snapshot on its historical price before the family fallback.
-	if modelLower == "deepseek-v4-flash-0731" || strings.HasSuffix(modelLower, "/deepseek-v4-flash-0731") {
-		return tkOverlayModelPricing("deepseek-v4-flash-0731")
-	}
-	// Stable Flash compatibility names use the current official Flash price.
+	// All Flash versions share the current selling price, including fixed snapshots.
 	if strings.Contains(modelLower, "deepseek-v4-flash") || modelLower == "deepseek-flash" {
 		return tkOverlayModelPricing("deepseek-v4-flash")
 	}

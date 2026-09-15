@@ -34,19 +34,19 @@ func TestDeepSeekFlashSurfacePreservesProviderModelIdentity(t *testing.T) {
 	require.NotContains(t, display, "deepseek-v4.1-flash")
 }
 
-func TestDeepSeekFlashFallbackKeepsFixedSnapshotPrice(t *testing.T) {
+func TestDeepSeekFlashFallbackSharesCurrentPrice(t *testing.T) {
 	billing := newTestBillingService()
 	stable := billing.getFallbackPricing("deepseek-flash")
 	require.NotNil(t, stable)
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(1), stable.InputPricePerToken, 1e-15)
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4), stable.OutputPricePerToken, 1e-15)
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.02), stable.CacheReadPricePerToken, 1e-15)
-	for _, snapshot := range []string{"deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"} {
-		historical := billing.getFallbackPricing(snapshot)
-		require.NotNil(t, historical)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(1.5), historical.InputPricePerToken, 1e-15)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), historical.OutputPricePerToken, 1e-15)
-		require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.05), historical.CacheReadPricePerToken, 1e-15)
+	for _, model := range []string{"deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731", "deepseek-v4-flash-ga-260731"} {
+		price := billing.getFallbackPricing(model)
+		require.NotNil(t, price, model)
+		require.Equal(t, stable.InputPricePerToken, price.InputPricePerToken, model)
+		require.Equal(t, stable.OutputPricePerToken, price.OutputPricePerToken, model)
+		require.Equal(t, stable.CacheReadPricePerToken, price.CacheReadPricePerToken, model)
 	}
 	require.Nil(t, billing.getFallbackPricing("deepseek-v4.1-flash"))
 	require.Nil(t, billing.getFallbackPricing("deepseek-flash-unknown"))
