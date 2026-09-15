@@ -8127,9 +8127,24 @@
         "apiKey.Group = backing",
         "apiKey.GroupID = &backing.ID",
         "c.Request.Body = &universalBodyReplay{",
-        "isTokenKeyVideoTaskRead"
+        "isTokenKeyVideoTaskRead",
+        "if IsClientClosedRequestError(c, err) {\n\t\t\twriteUniversalClientClosedRequest(c, shape)",
+        "func writeUniversalClientClosedRequest(",
+        "service.MarkOpsClientClosedRequest(c)",
+        "writeUniversalRequestError(c, shape, StatusClientClosedRequest, \"context canceled\")"
       ],
       "rationale": "Universal Key auth-time glue: peeks the model (restoring the EXACT original body + headers so the handler is byte-identical), resolves the backing group, and presents the request as a normal key bound to that group (swap apiKey.Group/GroupID). It deliberately does NOT set ForcePlatform (so anthropic+antigravity mixed scheduling and other per-group semantics are preserved) and only READS ForcePlatform to constrain candidates on /antigravity. Registry-owned vt_ video polls are the exception: isTokenKeyVideoTaskRead must bypass fresh model-less group resolution so VideoFetch can consume the submit-time pinned route. Removing the body-restore line corrupts every universal-key request body; removing the swap or poll bypass disables the corresponding feature."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_cancel_tk_test.go",
+      "must_contain": [
+        "TestMaybeResolveUniversal_CancellationOwnership",
+        "service.ProvideTKUniversalModelsProvider(",
+        "postgres_after_deadline",
+        "service.HasOpsClientClosedRequest(c)",
+        "c.GetBool(service.OpsRoutingInternalErrorKey)"
+      ],
+      "rationale": "Candidate preparation and legacy resolution cancellations must reuse the client-closed owner and protocol-shaped 499 response instead of polluting platform SLA with 500. Keep coverage for wrapped and PostgreSQL cancellation, request cancellation, and genuine deadline/database failures across all ingress shapes."
     },
     {
       "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
