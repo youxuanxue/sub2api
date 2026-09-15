@@ -247,8 +247,12 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+				// Drop empty keepalives and OpenAI-style [DONE]. Gemini CLI /
+				// @google/genai requires every SSE event to end with \n\n; writing
+				// "data: [DONE]\n" (single newline) leaves residual buffer and
+				// throws "Incomplete JSON segment at the end" when the stream
+				// closes. Native Gemini wire format does not use [DONE].
 				if payload == "" || payload == "[DONE]" {
-					cw.Fprintf("%s\n", line)
 					continue
 				}
 
@@ -288,7 +292,13 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				continue
 			}
 
-			cw.Fprintf("%s\n", line)
+			// Blank separators are redundant once data frames carry \n\n.
+			// Unknown non-data lines must still be complete SSE frames for
+			// Gemini CLI's delimiter-strict parser.
+			if trimmed == "" {
+				continue
+			}
+			cw.Fprintf("%s\n\n", trimmed)
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))

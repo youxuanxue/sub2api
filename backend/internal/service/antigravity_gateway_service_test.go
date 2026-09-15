@@ -1354,6 +1354,63 @@ func TestHandleGeminiStreamingResponse_NormalComplete(t *testing.T) {
 	require.NotContains(t, body, "event: error")
 }
 
+// TestHandleGeminiStreamingResponse_DropsTrailingDONEWithoutBlankLine reproduces the
+// Gemini CLI / @google/genai failure mode: upstream ends with `data: [DONE]` and no
+// trailing blank line. The old pass-through wrote a single `\n`, leaving residual
+// buffer that throws "Incomplete JSON segment at the end" when the stream closes.
+func TestHandleGeminiStreamingResponse_DropsTrailingDONEWithoutBlankLine(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newAntigravityTestService(&config.Config{
+		Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	// No trailing blank line after [DONE] — the production failure shape.
+	upstream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":2,\"candidatesTokenCount\":1}}\n\n" +
+		"data: [DONE]\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(upstream)),
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+
+	result, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.usage.OutputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"text":"ok"`)
+	require.NotContains(t, body, "[DONE]")
+	require.True(t, geminiCLISSEBufferEmptyAtEOF(body),
+		"Gemini CLI would throw Incomplete JSON segment at the end; body=%q", body)
+}
+
+// geminiCLISSEBufferEmptyAtEOF mirrors @google/genai processStreamResponse delimiter
+// rules: residual non-whitespace buffer at EOF → "Incomplete JSON segment at the end".
+func geminiCLISSEBufferEmptyAtEOF(stream string) bool {
+	buffer := stream
+	delimiters := []string{"\n\n", "\r\r", "\r\n\r\n"}
+	for {
+		delimiterIndex := -1
+		delimiterLength := 0
+		for _, d := range delimiters {
+			if i := strings.Index(buffer, d); i != -1 && (delimiterIndex == -1 || i < delimiterIndex) {
+				delimiterIndex = i
+				delimiterLength = len(d)
+			}
+		}
+		if delimiterIndex == -1 {
+			break
+		}
+		buffer = buffer[delimiterIndex+delimiterLength:]
+	}
+	return strings.TrimSpace(buffer) == ""
+}
+
 // TestHandleClaudeStreamingResponse_NormalComplete
 // 验证：正常 Claude 流式转发（Gemini→Claude 转换），数据正确转换并输出
 func TestHandleClaudeStreamingResponse_NormalComplete(t *testing.T) {

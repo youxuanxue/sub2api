@@ -12180,6 +12180,39 @@
         "h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload, \"subsequent_turn\")"
       ],
       "rationale": "Preserve ingress turn identity and actual payload delivery to the shared WebSocket security audit before forwarding."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_streaming.go",
+      "must_contain": [
+        "if payload == \"\" || payload == \"[DONE]\" {",
+        "cw.Fprintf(\"%s\\n\\n\", trimmed)",
+        "Native Gemini wire format does not use [DONE]."
+      ],
+      "rationale": "Gemini CLI / @google/genai throws Incomplete JSON segment at the end when Antigravity streams end with an unterminated data: [DONE] frame. Drop empty/[DONE] payloads and emit complete \\n\\n frames for residual non-data lines so the client buffer is empty at EOF."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": [
+        "if payload != \"\" && payload != \"[DONE]\" {",
+        "_, _ = fmt.Fprintf(c.Writer, \"data: %s\\n\\n\", rawToWrite)"
+      ],
+      "rationale": "Native ForwardNative SSE must also drop OpenAI-style [DONE] and always write complete data frames; line pass-through left residual buffer for Gemini CLI."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_service_test.go",
+      "must_contain": [
+        "func TestHandleGeminiStreamingResponse_DropsTrailingDONEWithoutBlankLine(",
+        "func geminiCLISSEBufferEmptyAtEOF("
+      ],
+      "rationale": "Regression reproduces upstream data: [DONE] without trailing blank line and asserts the Gemini CLI SSE buffer is empty at EOF."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service_test.go",
+      "must_contain": [
+        "func TestGeminiHandleNativeStreamingResponse_DropsTrailingDONEWithoutBlankLine("
+      ],
+      "rationale": "Native ForwardNative path shares the same Incomplete JSON failure shape; keep a focused regression alongside the Antigravity stream test."
     }
+
   ]
 }
