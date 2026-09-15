@@ -548,6 +548,20 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(0.15)),
 		},
 		{
+			name:              "deepseek flash",
+			model:             "deepseek-flash",
+			expectedInput:     tkCNYPerMTokToUSDPerToken(1.5),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(4.5)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(0.05)),
+		},
+		{
+			name:              "deepseek v4.1 flash",
+			model:             "deepseek-v4.1-flash",
+			expectedInput:     tkCNYPerMTokToUSDPerToken(1.5),
+			expectedOutput:    floatPtr(tkCNYPerMTokToUSDPerToken(4.5)),
+			expectedCacheRead: floatPtr(tkCNYPerMTokToUSDPerToken(0.05)),
+		},
+		{
 			name:              "deepseek v4 flash",
 			model:             "deepseek-v4-flash",
 			expectedInput:     tkCNYPerMTokToUSDPerToken(1.5),

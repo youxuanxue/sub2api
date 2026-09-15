@@ -58,6 +58,7 @@ func TestDeepseekPeakMultiplierAt(t *testing.T) {
 
 func TestIsDeepSeekModel(t *testing.T) {
 	deepseek := []string{
+		"deepseek-flash", "deepseek-v4.1-flash",
 		"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp",
 		"deepseek-chat", "deepseek-reasoner", "deepseek-v3-2-251201",
 		"deepseek-coder", "deepseek-foo", "deepseek-v4-pro-0813",
@@ -257,6 +258,8 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 		{"deepseek-reasoner", 1.5, 4.5, 0.05},
 		{"deepseek-v4-pro-0813", 4.5, 13.5, 0.15},
 		{"deepseek-v4-flash-0731", 1.5, 4.5, 0.05},
+		{"deepseek-flash", 1.5, 4.5, 0.05},
+		{"deepseek-v4.1-flash", 1.5, 4.5, 0.05},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {

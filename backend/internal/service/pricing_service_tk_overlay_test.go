@@ -87,6 +87,12 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 		require.Equal(t, flash.MaxOutputTokens, entry.MaxOutputTokens, alias)
 	}
 
+	for _, alias := range []string{"deepseek-flash", "deepseek-v4.1-flash"} {
+		owner, declared := tkPricingRegistryAliasOwner(alias)
+		require.True(t, declared, alias)
+		require.Equal(t, "deepseek-v4-flash", owner, alias)
+	}
+
 	// Baidu Qianfan serving-account price variants were removed by policy: every
 	// account serving these shared client ids bills users from the single official
 	// owner above, and the official peak-valley policy applies uniformly. Upstream
