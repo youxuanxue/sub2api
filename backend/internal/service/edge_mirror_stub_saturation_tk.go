@@ -1,13 +1,16 @@
 package service
 
-// Shared constants for prod edge-mirror downstream-empty preference.
+// Shared constants for OpenAI/Anthropic soft scheduling preference.
 //
 // Anthropic, OpenAI-compatible and Antigravity relays share these constants.
-// candidate_saturation.go owns counter scope and interpretation for group choice,
-// account scoring and sticky eviction. Antigravity counters use account plus
-// resolved upstream model; the other counters retain account scope.
+// OpenAI also reuses them for native capacity 503 on edge OAuth / setup-token
+// accounts (see openai_capacity_saturation_tk.go). candidate_saturation.go owns
+// counter scope and interpretation for group choice, account scoring and sticky
+// eviction. Antigravity counters use account plus resolved upstream model; the
+// other counters retain account scope.
 //
-//   - increment on classified downstream-capacity skip paths, without advancing the cooldown ladder
+//   - increment on classified downstream-capacity skip paths and OpenAI native
+//     capacity 503, without advancing the cooldown ladder
 //   - at threshold: clear sticky + scheduler preference penalty
 //   - prod mirror/relay stubs never write model_rate_limits — edge OAuth owns quota truth
 //   - self-clearing via window TTL (90s after the first hit in a fixed window)

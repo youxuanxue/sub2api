@@ -32,12 +32,14 @@ func TestShouldClearOpenAIStickyForSaturation_GrokRelayStub(t *testing.T) {
 	require.True(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), grokEdgeStub(80), "sess"))
 }
 
-func TestShouldClearOpenAIStickyForSaturation_NonEdgeStubIgnored(t *testing.T) {
+func TestShouldClearOpenAIStickyForSaturation_OpenAIOAuthIncluded(t *testing.T) {
 	resetOpenAISatCache()
 	svc := &OpenAIGatewayService{}
 	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{9: 100}})
 	oauth := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
-	require.False(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), oauth, "sess"))
+	require.True(t, svc.tkShouldClearOpenAIStickyForSaturation(context.Background(), oauth, "sess"),
+		"saturated OpenAI OAuth must clear sticky so peers can be preferred")
+	resetOpenAISatCache()
 }
 
 func TestShouldClearOpenAIStickyForSaturation_KillSwitchOff(t *testing.T) {

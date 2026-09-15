@@ -102,6 +102,11 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
 	}
+	// Soft preference only: native capacity 503 (and stub-sanitized edge capacity)
+	// deprioritize the selected OAuth/stub without hard cooldown.
+	if s != nil {
+		s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, "", responseBody, "http_capacity")
+	}
 	// Capacity shedding describes this request, not account health. Keep the
 	// account schedulable while the request-local retry budget handles recovery.
 	if account != nil && account.Platform == PlatformOpenAI && !account.IsTempUnschedulableEnabled() && isOpenAIRequestScopedCapacityShed("", responseBody) {

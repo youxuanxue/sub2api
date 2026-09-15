@@ -5,12 +5,17 @@ import (
 	"log/slog"
 )
 
-// TK — OpenAI edge-mirror stub de-prioritization (increment side). Mirrors
-// ratelimit_service_tk_saturation.go for the GPT line: prod openai-us* apikey
-// stubs forward to api-us*.tokenkey.dev; when the edge pool is momentarily empty
-// the stub receives our own "No available accounts" 429. Fail over without
-// cooling the stub, but feed this counter so the scheduler stops picking the
-// saturated stub first on every request.
+// TK — OpenAI soft scheduling de-prioritization (increment side).
+//
+// Writers:
+//   - prod openai-us* edge-mirror stubs: downstream-empty envelopes
+//     (ratelimit_service_tk_openai_downstream.go) and sanitized edge capacity
+//     502/503 (openai_capacity_saturation_tk.go)
+//   - edge OpenAI OAuth / setup-token: native upstream overloaded / 503
+//     temporarily unavailable (openai_capacity_saturation_tk.go)
+//
+// Fail over without cooling the account; the counter only nudges the scheduler
+// away from the hot account/stub for the fixed window.
 
 func (s *RateLimitService) SetOpenAISaturationCounter(cache OpenAISaturationCounterCache) {
 	s.openaiSaturationCounter = cache

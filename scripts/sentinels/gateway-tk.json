@@ -1737,9 +1737,10 @@
         "reader.GetSaturationBatch(ctx, scopes)",
         "count >= edgeMirrorStubSaturationThreshold",
         "IsAnthropicSaturatedStubDeprioritizeEnabled",
-        "IsOpenAISaturatedStubDeprioritizeEnabled"
+        "IsOpenAISaturatedStubDeprioritizeEnabled",
+        "eligibleForOpenAICapacitySaturationPreference(account)"
       ],
-      "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry."
+      "rationale": "One scoped interpretation of counters feeds account scoring and sticky preference, with Redis-owned expiry. OpenAI reads cover edge-mirror stubs and OAuth/setup-token accounts that write capacity saturation."
     },
     {
       "path": "backend/internal/service/openai_candidate_eligibility.go",
@@ -7105,7 +7106,51 @@
         "edgeMirrorStubSaturationWindowSeconds",
         "openai_stub_saturated_deprioritized"
       ],
-      "rationale": "Write side of OpenAI saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path. Never advances handle429 / ladder — preference feed only. Dropping this file stops feeding the counter and scheduler preference becomes inert."
+      "rationale": "Write side of OpenAI saturation de-prioritization: increments the per-account short-window counter from downstream-empty skip paths and native capacity 503 soft preference (openai_capacity_saturation_tk.go). Never advances handle429 / ladder — preference feed only. Dropping this file stops feeding the counter and scheduler preference becomes inert."
+    },
+    {
+      "path": "backend/internal/service/openai_saturation_counter.go",
+      "must_contain": [
+        "type OpenAISaturationCounterCache interface",
+        "IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int)",
+        "GetSaturationBatch(ctx context.Context, accountIDs []int64)"
+      ],
+      "rationale": "OpenAI saturation counter interface shared by prod edge-mirror stubs and edge OAuth/setup-token capacity soft preference. Deleting or narrowing this interface breaks wire providers and silently disables de-prioritization."
+    },
+    {
+      "path": "backend/internal/service/openai_capacity_saturation_tk.go",
+      "must_contain": [
+        "func eligibleForOpenAICapacitySaturationPreference(",
+        "func isOpenAINativeCapacityUnavailable(",
+        "func shouldRecordOpenAICapacitySaturation(",
+        "func (s *OpenAIGatewayService) maybeRecordOpenAICapacitySaturation(",
+        "s.rateLimitService.recordOpenAIStubSaturation(ctx, account.ID, statusCode, reason)"
+      ],
+      "rationale": "Native OpenAI capacity 503 (overloaded / temporarily unavailable) soft preference: write IncrementSaturation for edge OAuth and prod stubs without hard cooldown. Losing this file or the record call regresses to always re-picking unhealthy OAuth/edges during capacity bursts."
+    },
+    {
+      "path": "backend/internal/service/openai_account_runtime_block_fastpath.go",
+      "must_contain": [
+        "s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, \"\", responseBody, \"http_capacity\")"
+      ],
+      "rationale": "HTTP upstream-error path must feed OpenAI capacity soft preference before the request-scoped capacity early-return. Upstream merge dropping this call leaves overloaded accounts fully preferred while only empty-pool stubs keep saturation."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_passthrough.go",
+      "must_contain": [
+        "s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, \"stream_capacity\")"
+      ],
+      "rationale": "Stream terminal ServiceUnavailable path must feed OpenAI capacity soft preference alongside operator temp-unsched rules. Dropping this call misses SSE overloaded events that never enter handleOpenAIAccountUpstreamError."
+    },
+    {
+      "path": "backend/internal/service/openai_capacity_saturation_tk_test.go",
+      "must_contain": [
+        "TestHandleOpenAIAccountUpstreamError_NativeCapacityIncrementsSaturationNoCooldown",
+        "TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityIncrementsSaturation",
+        "TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount",
+        "TestShouldRecordOpenAICapacitySaturation_StubSeesSanitizedEnvelope"
+      ],
+      "rationale": "Focused regressions for native capacity soft preference: OAuth/stub increment without cooldown, stub sanitized envelope, stream capacity feed, and OAuth read-path penalty."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",

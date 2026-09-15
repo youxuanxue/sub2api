@@ -50,7 +50,7 @@ func (s candidateSaturationState) counts(ctx context.Context, accounts []*Accoun
 			anthropicIDs = append(anthropicIDs, account.ID)
 		case tkIsAntigravityEdgeRelayStub(account) && model != "":
 			scopes = append(scopes, AntigravitySaturationScope{account.ID, resolveFinalAntigravityModelKey(ctx, account, model)})
-		case tkIsOpenAICompatEdgeMirrorStub(account):
+		case eligibleForOpenAICapacitySaturationPreference(account):
 			openaiIDs = append(openaiIDs, account.ID)
 		}
 	}
