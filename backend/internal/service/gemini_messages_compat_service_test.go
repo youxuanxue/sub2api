@@ -693,7 +693,37 @@ func TestGeminiHandleNativeStreamingResponse_DropsTrailingDONEWithoutBlankLine(t
 	body := rec.Body.String()
 	require.Contains(t, body, `"text":"ok"`)
 	require.NotContains(t, body, "[DONE]")
-	require.True(t, geminiCLISSEBufferEmptyAtEOF(body),
+	require.True(t, geminiCLISSEFullyDrained(body),
+		"Gemini CLI would throw Incomplete JSON segment at the end; body=%q", body)
+}
+
+// TestGeminiHandleNativeStreamingResponse_DropsLeadingCommentHeartbeat covers
+// ForwardNative dropping SSE comment heartbeats that break @google/genai.
+func TestGeminiHandleNativeStreamingResponse_DropsLeadingCommentHeartbeat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &GeminiMessagesCompatService{cfg: &config.Config{}}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:streamGenerateContent", nil)
+
+	upstream := ":\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":2,\"candidatesTokenCount\":1}}\n\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(upstream)),
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+	}
+
+	result, err := svc.handleNativeStreamingResponse(c, resp, time.Now(), false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.usage.OutputTokens)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `"text":"ok"`)
+	require.NotContains(t, body, ":\n\n")
+	require.True(t, geminiCLISSEFullyDrained(body),
 		"Gemini CLI would throw Incomplete JSON segment at the end; body=%q", body)
 }
 

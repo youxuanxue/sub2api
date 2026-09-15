@@ -30,6 +30,14 @@ const anthropicSSEPingFrame = "event: ping\ndata: {\"type\": \"ping\"}\n\n"
 // anthropicSSEPingFrame.
 const openaiSSECommentFrame = ":\n\n"
 
+// geminiNativeSSEKeepaliveFrame keeps Google-native Gemini streams alive without
+// SSE comments. @google/genai processStreamResponse only drains frames matching
+// /^\s*data: (.*)(?:\n\n|\r\r|\r\n\r\n)/; a leading ":\n\n" never matches, sticks
+// in the client buffer, and throws "Incomplete JSON segment at the end" at EOF.
+// A lone newline is absorbed by that regex's leading \s* and trims to empty at
+// EOF, so idle intermediaries still see traffic.
+const geminiNativeSSEKeepaliveFrame = "\n"
+
 // headerWaitKeepalive emits SSE ping frames to the downstream client while the
 // upstream is still being dialed / has not yet returned its response headers.
 // See beginHeaderWaitKeepalive for the failover-safety rationale.
@@ -217,13 +225,23 @@ func (s *GeminiMessagesCompatService) beginHeaderWaitKeepalive(c *gin.Context, r
 }
 
 // beginSSECommentHeaderWaitKeepalive emits the wire-neutral SSE comment keepalive
-// for OpenAI Responses/Chat Completions compat and Google-native stream passthrough.
-// Strict OpenAI SDKs reject Anthropic-shaped ping events on those ingresses.
+// for OpenAI Responses/Chat Completions compat. Strict OpenAI SDKs reject
+// Anthropic-shaped ping events on those ingresses. Do not use this on
+// Google-native Gemini wire — use beginGeminiNativeHeaderWaitKeepalive.
 func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
 	if s == nil || s.cfg == nil {
 		return nil
 	}
 	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, openaiSSECommentFrame)
+}
+
+// beginGeminiNativeHeaderWaitKeepalive emits a Gemini-CLI-safe keepalive while
+// ForwardNative waits on upstream headers. See geminiNativeSSEKeepaliveFrame.
+func (s *GeminiMessagesCompatService) beginGeminiNativeHeaderWaitKeepalive(c *gin.Context, reqStream bool) *headerWaitKeepalive {
+	if s == nil || s.cfg == nil {
+		return nil
+	}
+	return beginConfiguredHeaderWaitKeepalive(c, reqStream, s.cfg.Gateway.StreamKeepaliveInterval, geminiNativeSSEKeepaliveFrame)
 }
 
 // startHeaderWaitKeepalive is the interval-driven core of beginHeaderWaitKeepalive,

@@ -6473,9 +6473,11 @@
         "func stopPreContentStreamKeepalive(c *gin.Context)",
         "func (s *AntigravityGatewayService) beginHeaderWaitKeepalive(c *gin.Context, reqStream bool, frame string)",
         "func (s *GeminiMessagesCompatService) beginHeaderWaitKeepalive",
-        "func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive"
+        "func (s *GeminiMessagesCompatService) beginSSECommentHeaderWaitKeepalive",
+        "func (s *GeminiMessagesCompatService) beginGeminiNativeHeaderWaitKeepalive",
+        "geminiNativeSSEKeepaliveFrame"
       ],
-      "rationale": "Pre-content / header-wait SSE keepalive (Wei-Shaw/sub2api#2121 generalized): emits platform-shaped ping frames while streaming Do waits for upstream headers so idle intermediaries do not drop slow thinking/header-wait. First ping is delayed one interval to preserve transparent failover. Shared bind/stop helpers are the single extension point for Anthropic, OpenAI, Kiro, Bedrock, Antigravity, and Gemini streaming Do entries."
+      "rationale": "Pre-content / header-wait SSE keepalive (Wei-Shaw/sub2api#2121 generalized): emits platform-shaped ping frames while streaming Do waits for upstream headers so idle intermediaries do not drop slow thinking/header-wait. First ping is delayed one interval to preserve transparent failover. Shared bind/stop helpers are the single extension point for Anthropic, OpenAI, Kiro, Bedrock, Antigravity, and Gemini streaming Do entries. Gemini-native must use geminiNativeSSEKeepaliveFrame (whitespace), never openaiSSECommentFrame."
     },
     {
       "path": "backend/internal/service/gateway_forward.go",
@@ -6522,7 +6524,7 @@
         "p.httpUpstream.Do(upstreamReq",
         "hwka.stop()"
       ],
-      "rationale": "Antigravity's shared retry Do loop is the single upstream dial chokepoint for Claude/Gemini/compat forwards. clientStream gates keepalive for non-stream clients and keepaliveFrame preserves the downstream wire protocol: Anthropic gets event:ping while Gemini/OpenAI-compatible routes get an SSE comment."
+      "rationale": "Antigravity's shared retry Do loop is the single upstream dial chokepoint for Claude/Gemini/compat forwards. clientStream gates keepalive for non-stream clients and keepaliveFrame preserves the downstream wire protocol: Anthropic gets event:ping, OpenAI-compat gets SSE comments, Gemini-native gets whitespace-only keepalive."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_claude.go",
@@ -6543,20 +6545,20 @@
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
       "must_contain": [
-        "keepaliveFrame:  openaiSSECommentFrame",
-        "fallbackHWKA := s.beginHeaderWaitKeepalive(c, stream, openaiSSECommentFrame)",
+        "keepaliveFrame:  geminiNativeSSEKeepaliveFrame",
+        "fallbackHWKA := s.beginHeaderWaitKeepalive(c, stream, geminiNativeSSEKeepaliveFrame)",
         "fallbackHWKA.stop()"
       ],
-      "rationale": "Antigravity Gemini-native primary, retry, and model-fallback dials must use the wire-neutral SSE comment keepalive. The fallback call is part of the same user journey and must not reopen the slow-header stall."
+      "rationale": "Antigravity Gemini-native primary, retry, and model-fallback dials must use Gemini-CLI-safe whitespace keepalive (never SSE comments). @google/genai only drains data: frames; leading :\\n\\n sticks the buffer until Incomplete JSON at EOF."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "hwka := s.beginHeaderWaitKeepalive(c, req.Stream)",
-        "hwka := s.beginSSECommentHeaderWaitKeepalive(c, stream)",
+        "hwka := s.beginGeminiNativeHeaderWaitKeepalive(c, stream)",
         "hwka.stop()"
       ],
-      "rationale": "Gemini /v1/messages Forward uses Anthropic ping; ForwardNative passthrough uses SSE comment keepalive on Google-native wire. Mixing frames breaks Gemini CLI strict parsers during header-wait."
+      "rationale": "Gemini /v1/messages Forward uses Anthropic ping; ForwardNative passthrough uses Gemini-CLI-safe whitespace keepalive on Google-native wire. SSE comment frames break @google/genai responseLineRE during header-wait."
     },
     {
       "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
@@ -12185,33 +12187,45 @@
       "path": "backend/internal/service/antigravity_gateway_streaming.go",
       "must_contain": [
         "if payload == \"\" || payload == \"[DONE]\" {",
-        "cw.Fprintf(\"%s\\n\\n\", trimmed)",
-        "Native Gemini wire format does not use [DONE]."
+        "Native Gemini wire format does not use [DONE].",
+        "cw.Fprintf(\"%s\", geminiNativeSSEKeepaliveFrame)",
+        "Forwarding \":\" keepalives sticks the client buffer"
       ],
-      "rationale": "Gemini CLI / @google/genai throws Incomplete JSON segment at the end when Antigravity streams end with an unterminated data: [DONE] frame. Drop empty/[DONE] payloads and emit complete \\n\\n frames for residual non-data lines so the client buffer is empty at EOF."
+      "rationale": "Gemini CLI / @google/genai throws Incomplete JSON segment at the end for unterminated data: [DONE] OR leading SSE comment heartbeats. Drop empty/[DONE]/non-data lines and emit whitespace-only keepalives so responseLineRE can drain the buffer at EOF."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "if payload != \"\" && payload != \"[DONE]\" {",
-        "_, _ = fmt.Fprintf(c.Writer, \"data: %s\\n\\n\", rawToWrite)"
+        "_, _ = fmt.Fprintf(c.Writer, \"data: %s\\n\\n\", rawToWrite)",
+        "Drop blank lines, SSE comments (\":\"), and other non-data fields."
       ],
-      "rationale": "Native ForwardNative SSE must also drop OpenAI-style [DONE] and always write complete data frames; line pass-through left residual buffer for Gemini CLI."
+      "rationale": "Native ForwardNative SSE must drop OpenAI-style [DONE] and SSE comment heartbeats, and always write complete data frames; comment pass-through left residual buffer for Gemini CLI."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_service_test.go",
       "must_contain": [
         "func TestHandleGeminiStreamingResponse_DropsTrailingDONEWithoutBlankLine(",
-        "func geminiCLISSEBufferEmptyAtEOF("
+        "func TestHandleGeminiStreamingResponse_DropsLeadingCommentHeartbeat(",
+        "func geminiCLISSEFullyDrained("
       ],
-      "rationale": "Regression reproduces upstream data: [DONE] without trailing blank line and asserts the Gemini CLI SSE buffer is empty at EOF."
+      "rationale": "Regressions cover data: [DONE] without blank line and leading :\\n\\n comment heartbeats; geminiCLISSEFullyDrained mirrors @google/genai responseLineRE."
     },
     {
       "path": "backend/internal/service/gemini_messages_compat_service_test.go",
       "must_contain": [
-        "func TestGeminiHandleNativeStreamingResponse_DropsTrailingDONEWithoutBlankLine("
+        "func TestGeminiHandleNativeStreamingResponse_DropsTrailingDONEWithoutBlankLine(",
+        "func TestGeminiHandleNativeStreamingResponse_DropsLeadingCommentHeartbeat("
       ],
-      "rationale": "Native ForwardNative path shares the same Incomplete JSON failure shape; keep a focused regression alongside the Antigravity stream test."
+      "rationale": "Native ForwardNative path shares both Incomplete JSON failure shapes ([DONE] tail and comment heartbeat); keep focused regressions alongside the Antigravity stream tests."
+    },
+    {
+      "path": "backend/internal/service/gateway_service_tk_header_wait_keepalive.go",
+      "must_contain": [
+        "const geminiNativeSSEKeepaliveFrame = \"\\n\"",
+        "func (s *GeminiMessagesCompatService) beginGeminiNativeHeaderWaitKeepalive("
+      ],
+      "rationale": "Single owner for Gemini-CLI-safe native keepalive bytes and ForwardNative header-wait entry; must not regress to openaiSSECommentFrame on Google-native wire."
     }
 
   ]

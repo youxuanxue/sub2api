@@ -292,13 +292,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				continue
 			}
 
-			// Blank separators are redundant once data frames carry \n\n.
-			// Unknown non-data lines must still be complete SSE frames for
-			// Gemini CLI's delimiter-strict parser.
-			if trimmed == "" {
-				continue
-			}
-			cw.Fprintf("%s\n\n", trimmed)
+			// Blank separators and SSE comments/event lines must not reach
+			// Gemini CLI: @google/genai only drains ^\s*data: ...\n\n frames.
+			// Forwarding ":" keepalives sticks the client buffer and throws
+			// "Incomplete JSON segment at the end" at EOF.
+			continue
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
@@ -320,8 +318,8 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			if time.Since(lastDataAt) < keepaliveInterval {
 				continue
 			}
-			// SSE ping/keepalive：保持连接活跃防止 Cloudflare Tunnel 等代理断开
-			if !cw.Fprintf(":\n\n") {
+			// Gemini-CLI-safe keepalive (whitespace only; never SSE comments).
+			if !cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame) {
 				logger.LegacyPrintf("service.antigravity_gateway", "Client disconnected during keepalive ping (antigravity gemini), continuing to drain upstream for billing")
 				continue
 			}
