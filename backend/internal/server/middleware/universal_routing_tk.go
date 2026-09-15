@@ -147,7 +147,9 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 	if err != nil {
 		// 区分“真没有被授权的组”(403,业务语义) 与跨度加载失败等内部错误(500,可重试):
 		// 后者不该被伪装成“该模型不在你的套餐内”。
-		if errors.Is(err, service.ErrCandidateContinuationUnavailable) {
+		if IsClientClosedRequestError(c, err) {
+			writeUniversalClientClosedRequest(c, shape)
+		} else if errors.Is(err, service.ErrCandidateContinuationUnavailable) {
 			writeCandidateContinuationError(c, shape)
 		} else if errors.Is(err, service.ErrUniversalUnsupportedModel) {
 			reqLog.Warn("universal_routing.unsupported_model")
@@ -353,9 +355,18 @@ func writeUniversalBodyReadError(c *gin.Context, shape service.UniversalShape, e
 	if errors.As(err, &tooLarge) {
 		status, message = http.StatusRequestEntityTooLarge, "Request body too large"
 	} else if IsClientClosedRequestError(c, err) {
-		status, message = StatusClientClosedRequest, "context canceled"
-		service.MarkOpsClientClosedRequest(c)
+		writeUniversalClientClosedRequest(c, shape)
+		return
 	}
+	writeUniversalRequestError(c, shape, status, message)
+}
+
+func writeUniversalClientClosedRequest(c *gin.Context, shape service.UniversalShape) {
+	service.MarkOpsClientClosedRequest(c)
+	writeUniversalRequestError(c, shape, StatusClientClosedRequest, "context canceled")
+}
+
+func writeUniversalRequestError(c *gin.Context, shape service.UniversalShape, status int, message string) {
 	switch shape {
 	case service.ShapeGemini:
 		GoogleErrorWriter(c, status, message)

@@ -97,8 +97,11 @@ func recordWebSocketTerminalOutcomeKind(c *gin.Context, model string, kind servi
 	})
 }
 
+// terminalRequestCanceled delegates to the service-layer owner
+// (client-closed-499-ssot): a canceled request context suppresses terminal
+// outcome recording, while a request-context deadline does not.
 func terminalRequestCanceled(c *gin.Context) bool {
-	return c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled)
+	return service.IsClientClosedRequest(c, nil)
 }
 
 func terminalHTTPOutcomeKind(c *gin.Context, policy TerminalOutcomePolicy) service.TerminalOutcomeKind {

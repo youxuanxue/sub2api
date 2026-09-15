@@ -262,6 +262,15 @@ Treat `internal/integration/newapi/` and `internal/relay/bridge/` as implementat
 
 **Before push:** run `./scripts/preflight.sh` + `make test`. PR checklist detail in agent-reference doc above.
 
+## Client-Closed 499 SSOT
+
+Caller-disconnect (HTTP 499) 判定谓词、状态常量、ops 标记与日志归 phase 的唯一 owner 清单见
+[`docs/approved/client-closed-499-ssot.md`](docs/approved/client-closed-499-ssot.md)。
+判定与常量 owner 是 `backend/internal/service/client_closed_request_tk.go`
+（`IsClientClosedRequest` / `StatusClientClosedRequest` / `PostgresCanceledByCallerMessage`）；
+middleware 与 handler 的同名谓词/常量只是委托或 alias，禁止再造平行 `errors.Is(err, context.Canceled)` 变体。
+failover 终止、upstream 维度取消等有意分歧以该文档为准。
+
 ## Trajectory SSOT
 
 `traj-ssot`：会话导出契约与唯一 owner 清单见
