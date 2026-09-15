@@ -23,7 +23,8 @@ func protocolRequestParametersSupported(account *Account, resolvedModel string, 
 		return choice != protocolrouter.ToolChoiceRequired && choice != protocolrouter.ToolChoiceNamed &&
 			content.supported(*request, resolvedModel)
 	}
-	if isNewAPINVIDIABuildAccount(account) && resolvedModel == nvidiaBuildModelTargets["deepseek-v4-pro"] &&
+	if isNewAPINVIDIABuildAccount(account) &&
+		(resolvedModel == "deepseek-ai/deepseek-v4-pro-0813" || resolvedModel == "deepseek-ai/deepseek-v4-flash-0731" || resolvedModel == nvidiaBuildModelTargets["deepseek-v4-pro"]) &&
 		request.InboundProtocol() == protocolrouter.ProtocolChatCompletions {
 		return !gjson.GetBytes(request.Body(), "enable_thinking").Exists()
 	}
