@@ -1411,6 +1411,13 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	statusCode := openAIStreamFailureStatus(payload, message)
 	switch statusCode {
 	case http.StatusServiceUnavailable:
+		ctx := context.Background()
+		if c != nil && c.Request != nil {
+			ctx = c.Request.Context()
+		}
+		if s != nil {
+			s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, "stream_capacity")
+		}
 		return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {
