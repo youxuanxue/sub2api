@@ -6361,9 +6361,29 @@
         "func markClientClosedForwardRequest(c *gin.Context)",
         "service.MarkOpsClientClosedRequest(c)",
         "service.StopOpenAICompactSSEKeepaliveCommitted(c)",
-        "c.Status(statusClientClosedRequest)"
+        "c.Status(statusClientClosedRequest)",
+        "return service.IsClientClosedRequest(c, err)"
       ],
-      "rationale": "Single owner for Forward-time client cancellation finalization. It marks ops ownership, stops compact keepalive before touching the writer, preserves an already committed status, and otherwise emits bodyless 499. Both failoverClientGone and the direct Forward fallback must reuse this helper so cancellation behavior cannot drift by endpoint."
+      "rationale": "Single owner for Forward-time client cancellation finalization. It marks ops ownership, stops compact keepalive before touching the writer, preserves an already committed status, and otherwise emits bodyless 499. Both failoverClientGone and the direct Forward fallback must reuse this helper so cancellation behavior cannot drift by endpoint. The body-read predicate isClientClosedRequest must stay a thin delegate to the service-layer owner (client-closed-499-ssot) instead of a parallel errors.Is(err, context.Canceled) variant."
+    },
+    {
+      "path": "backend/internal/service/client_closed_request_tk.go",
+      "must_contain": [
+        "func IsClientClosedRequest(c *gin.Context, err error) bool",
+        "const StatusClientClosedRequest = 499",
+        "const PostgresCanceledByCallerMessage = \"canceling statement due to user request\"",
+        "if errors.Is(err, context.DeadlineExceeded) {",
+        "strings.Contains(strings.ToLower(err.Error()), PostgresCanceledByCallerMessage)"
+      ],
+      "rationale": "client-closed-499-ssot owner: the single caller-disconnect classification predicate and the single 499 status constant for the whole gateway. Precedence (deadline exclusion, wrapped Canceled, request-context cancellation, lib/pq 57014 text) must not be forked — middleware.IsClientClosedRequestError, handler.isClientClosedRequest and terminalRequestCanceled are thin delegates. An upstream merge or refactor reintroducing a parallel predicate here or in any ingress re-creates the bug where the same error classifies 499 on one path and 400/500 on another."
+    },
+    {
+      "path": "backend/internal/service/client_closed_request_tk_test.go",
+      "must_contain": [
+        "TestIsClientClosedRequest",
+        "TestStatusClientClosedRequestValue"
+      ],
+      "rationale": "Regression coverage for the client-closed-499-ssot predicate precedence: deadline beats wrapped cancellation and postgres text, canceled request context is caller-owned, deadline request context and statement timeout stay platform-owned. Keep these cases so the precedence cannot silently reorder."
     },
     {
       "path": "backend/internal/handler/gateway_handler_error_fallback_test.go",
@@ -8180,7 +8200,9 @@
     {
       "path": "backend/internal/server/middleware/middleware.go",
       "must_contain": [
-        "if !ok || apiKey.GroupID != nil || apiKey.IsUniversal() {"
+        "if !ok || apiKey.GroupID != nil || apiKey.IsUniversal() {",
+        "const StatusClientClosedRequest = service.StatusClientClosedRequest",
+        "func IsClientClosedRequestError(c *gin.Context, err error) bool {\n\treturn service.IsClientClosedRequest(c, err)\n}"
       ],
       "rationale": "RequireGroupAssignment must let universal keys through: resolvable endpoints already swapped a backing group (GroupID != nil); metadata endpoints (/v1/models GET etc.) intentionally leave GroupID nil but the key IS authorized (its span is resolved per request). Without the IsUniversal() clause, universal keys 403 on metadata endpoints. An upstream merge restoring the original two-condition guard would regress this."
     },

@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"context"
-	"errors"
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -11,14 +9,13 @@ import (
 
 type gatewayErrorResponseFunc func(*gin.Context, int, string, string)
 
+// isClientClosedRequest delegates to the service-layer owner
+// (client-closed-499-ssot; service/client_closed_request_tk.go) so body-read
+// and forward-time cancellation share the same precedence (deadline
+// exclusion, wrapped Canceled, request context, lib/pq 57014 text) as the
+// auth middlewares.
 func isClientClosedRequest(c *gin.Context, err error) bool {
-	if errors.Is(err, context.Canceled) {
-		return true
-	}
-	if c == nil || c.Request == nil {
-		return false
-	}
-	return errors.Is(c.Request.Context().Err(), context.Canceled)
+	return service.IsClientClosedRequest(c, err)
 }
 
 func writeClientClosedRequest(c *gin.Context, write gatewayErrorResponseFunc) {

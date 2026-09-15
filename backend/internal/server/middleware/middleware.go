@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -16,11 +15,10 @@ import (
 
 const middlewareInternalErrorDetailMaxLen = 1024
 
-const postgresCanceledByCallerMessage = "canceling statement due to user request"
-
-// StatusClientClosedRequest mirrors nginx's 499: the caller disconnected before
-// the gateway could finish local auth/body handling. net/http has no constant.
-const StatusClientClosedRequest = 499
+// StatusClientClosedRequest aliases the service-layer owner
+// (client-closed-499-ssot) so middleware call sites stay terse. The literal
+// value lives only in service/client_closed_request_tk.go.
+const StatusClientClosedRequest = service.StatusClientClosedRequest
 
 // ContextKey 定义上下文键类型
 type ContextKey string
@@ -139,26 +137,11 @@ func AbortClientClosedRequest(c *gin.Context, internalErr error) {
 	AbortWithError(c, StatusClientClosedRequest, "CLIENT_CLOSED_REQUEST", "context canceled")
 }
 
+// IsClientClosedRequestError delegates to the service-layer owner
+// (client-closed-499-ssot; service/client_closed_request_tk.go). Keep this
+// thin wrapper so in-package middleware call sites stay terse.
 func IsClientClosedRequestError(c *gin.Context, err error) bool {
-	// A server-side deadline is not caller-owned even when the database driver
-	// reports a cancellation while unwinding the query.
-	if errors.Is(err, context.DeadlineExceeded) {
-		return false
-	}
-	if errors.Is(err, context.Canceled) {
-		return true
-	}
-	if c != nil && c.Request != nil {
-		switch requestErr := c.Request.Context().Err(); {
-		case errors.Is(requestErr, context.DeadlineExceeded):
-			return false
-		case errors.Is(requestErr, context.Canceled):
-			return true
-		}
-	}
-	// lib/pq returns a PostgreSQL 57014 error instead of wrapping
-	// context.Canceled after database/sql sends the cancellation request.
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), postgresCanceledByCallerMessage)
+	return service.IsClientClosedRequest(c, err)
 }
 
 // sanitizeMiddlewareInternalErrorDetail trims and length-caps an internal error
