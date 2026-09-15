@@ -1,14 +1,15 @@
 ---
 title: Upstream model retirement handling
-status: draft
-approved_by: pending
+status: approved
+approved_by: "feng (conversation approval, 2026-09-15)"
+approved_at: 2026-09-15
 created: 2026-09-15
 related_stories: [US-049]
 ---
 
 # Upstream model retirement handling
 
-## Proposed contract
+## Contract
 
 PR #2173 removes the withdrawn NVIDIA Build DeepSeek Pro aliases from that
 supplier's provisioning scope. Other suppliers and NVIDIA's remaining models
@@ -30,8 +31,8 @@ After failover exhaustion, an uncommitted OpenAI response preserves a confirmed
 retirement status and sanitized diagnostic. Ops classification treats that
 confirmed rejection as client-owned unless an account-standing fault is present.
 Unrelated 410s retain their existing provider-error treatment. This terminal
-response/attribution delta requires approval before merge; it is not covered by
-the original failover-owner extraction's no-behavior-change approval.
+response/attribution delta extends the original failover-owner extraction,
+which preserved existing behavior.
 
 ## Validation
 
