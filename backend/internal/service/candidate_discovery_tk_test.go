@@ -24,6 +24,58 @@ func candidateDiscoveryFixture(groups []Group, accounts []Account) (*UniversalCa
 		}}, key
 }
 
+func TestCandidateDiscoveryRetirementPreservesPlatformScope(t *testing.T) {
+	resetPricingRegistrySnapshot(t)
+	// Same public ID on distinct upstream platforms is the regression boundary.
+	model := "gpt-5.4"
+	groups := []Group{grp(10, PlatformAnthropic, 0, false), grp(20, PlatformGemini, 0, false)}
+	accounts := []Account{globalCandidateAccount(1, 1, 10), globalCandidateAccount(2, 1, 20)}
+	accounts[1].Platform, accounts[1].ChannelType = PlatformNewAPI, 1
+	accounts[1].Credentials["model_mapping"] = map[string]any{model: model}
+	attachTestProtocolCapability(&accounts[1], protocolrouter.ProtocolChatCompletions)
+	for _, tc := range []struct {
+		name    string
+		kind    string
+		expired bool
+		hidden  bool
+	}{
+		{"retired", FailureKindProviderModelRetired, false, true},
+		{"expired", FailureKindProviderModelRetired, true, false},
+		{"auth", FailureKindAuthFailure, false, false},
+		{"transient", FailureKindUpstream5xx, false, false},
+		{"recovered", "", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			observedAt := time.Now()
+			if tc.expired {
+				observedAt = observedAt.Add(-2 * AvailabilityRollingWindow)
+			}
+			repo := &batchAvailabilityRepoStub{states: map[string]AvailabilityState{
+				PlatformOpenAI + "/" + model: {Status: AvailabilityStatusUnreachable, LastFailureKind: tc.kind, LastFailureAt: &observedAt},
+			}}
+			svc, key := candidateDiscoveryFixture(groups, accounts)
+			svc.modelFilter = NewModelListFilter(NewPricingCatalogService(nil), NewPricingAvailabilityService(repo, time.Now))
+			origins := make(map[string]map[int64]Group)
+			models, discovered, err := svc.discoverCandidates(context.Background(), key, UniversalProtocolOpenAI, origins)
+			require.NoError(t, err)
+			require.Len(t, models, 1)
+			require.Contains(t, origins[model], int64(20), "surviving platform remains visible")
+			if tc.hidden {
+				require.NotContains(t, origins[model], int64(10), "billing-group platform cannot revive the actual retired platform")
+				require.Len(t, discovered, 1)
+				require.Equal(t, int64(2), discovered[0].ID)
+			} else {
+				require.Contains(t, origins[model], int64(10))
+				require.Len(t, discovered, 2)
+			}
+			// Evidence is a display policy, not an execution admission gate.
+			key.RoutingMode, key.Group, key.GroupID = RoutingModeDirect, &groups[0], &groups[0].ID
+			_, state := prepareGlobalCandidate(t, svc.resolver, key)
+			require.Equal(t, int64(1), state.current.account.ID)
+		})
+	}
+}
+
 func TestUS050_CandidateDiscoveryUsesActualAccountAndNativePlan(t *testing.T) {
 	group := grp(1, PlatformOpenAI, 99, false)
 	account := globalCandidateAccount(115, 1, 1)

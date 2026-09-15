@@ -97,6 +97,9 @@ probe/refresh 成功不能覆盖撤下决策。移动这些 owner 时保留 pric
 ```
 
 公开价格 alias 只写 `_aliases: alias -> owner`：owner 必须存在，只单跳，禁止 self/chain/cycle。
+普通计费与响应模型的严格价格识别共享精确 owner、正式 alias 和日期版本解析；严格识别不接受
+家族猜测。精确版本保留自己的价格；日期兼容优先裸 owner，仅有日期版本时选择最新版本。
+家族兜底按既有家族顺序复用上述解析，不以子串命中或 map 遍历顺序挑选其它变体的价格。
 路由归一化不拥有价格。运行期 priced-serving gate 只保证
 发往上游前能解析结算价，见 `docs/approved/priced-or-it-doesnt-ship.md`。
 分组与渠道覆盖都由 `ModelPricingResolver` 解析；准入必须传入实际计费分组，
@@ -110,6 +113,7 @@ probe/refresh 成功不能覆盖撤下决策。移动这些 owner 时保留 pric
 - image/video 续接必须读提交时 task record，禁止重新 scheduler 选号。
 - `_aliases` 校验 owner 存在、单跳、无重叠、无环。
 - catalog / model-list / admin discovery 共用 structurally-gone predicate。
+- discovery 合并模型 ID 后仍保留实际平台的退役证据作用域；其它平台的同名模型不能恢复已撤下来源。
 - 其它文档、skill、注释、sentinel 不得再声明第二套 delivery 或 capability truth。
 
 实现是否对齐由当前代码的测试和 preflight 判断。本文不嵌入 SHA、镜像、edge 或某次探测结果。

@@ -6,6 +6,17 @@ import (
 
 // tkGetModelPricing is the TokenKey lookup implementation behind GetModelPricing.
 func (s *PricingService) tkGetModelPricing(modelName string) *LiteLLMModelPricing {
+	return s.tkLookupModelPricing(modelName, false)
+}
+
+func (s *PricingService) tkGetIdentifiedModelPricing(modelName string) *LiteLLMModelPricing {
+	return s.tkLookupModelPricing(modelName, true)
+}
+
+// Both callers resolve owners and aliases from the same immutable snapshot.
+// Response-model billing stops before family floors because upstream declarations
+// must identify a price explicitly rather than guess a family.
+func (s *PricingService) tkLookupModelPricing(modelName string, identifiedOnly bool) *LiteLLMModelPricing {
 	if modelName == "" {
 		return nil
 	}
@@ -38,52 +49,15 @@ func (s *PricingService) tkGetModelPricing(modelName string) *LiteLLMModelPricin
 	modelLower := strings.ToLower(strings.TrimSpace(modelName))
 	lookupCandidates := buildModelLookupCandidates(modelLower)
 
-	// 1. 精确匹配
-	for _, candidate := range lookupCandidates {
-		if candidate == "" {
-			continue
-		}
-		if pricing, ok := pricingData[candidate]; ok {
-			return present(pricing)
-		}
-	}
-
-	// 1b. Declared public aliases (_aliases) — sole owner for public id → price
-	// card folds such as gpt-5.6 / gpt-5.6-chat-latest → gpt-5.6-sol. Must run
-	// before fuzzy / OpenAI family fallback, or an alias without a model row
-	// silently inherits the gpt-5.4 default card (SSOT).
+	var aliases map[string]string
 	if snapshot != nil {
-		for _, candidate := range lookupCandidates {
-			if candidate == "" {
-				continue
-			}
-			owner, ok := snapshot.Aliases[candidate]
-			if !ok || owner == "" {
-				continue
-			}
-			if pricing, ok := pricingData[owner]; ok {
-				return present(pricing)
-			}
-		}
+		aliases = snapshot.Aliases
 	}
-
-	// 2. 处理常见的模型名称变体
-	// claude-opus-4-5-20251101 -> claude-opus-4.5-20251101
-	for _, candidate := range lookupCandidates {
-		normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
-		if pricing, ok := pricingData[normalized]; ok {
-			return present(pricing)
-		}
+	if pricing := lookupService.matchIdentifiedModelPricing(lookupCandidates, aliases); pricing != nil {
+		return present(pricing)
 	}
-
-	// 3. 尝试模糊匹配（去掉版本号后缀）
-	// claude-opus-4-5-20251101 -> claude-opus-4.5
-	baseName := s.extractBaseName(lookupCandidates[0])
-	for key, pricing := range pricingData {
-		keyBase := s.extractBaseName(strings.ToLower(key))
-		if keyBase == baseName {
-			return present(pricing)
-		}
+	if identifiedOnly {
+		return nil
 	}
 
 	// 4. 基于模型系列匹配（Claude）
@@ -105,57 +79,43 @@ func (s *PricingService) tkGetModelPricing(modelName string) *LiteLLMModelPricin
 	return nil
 }
 
-// tkGetIdentifiedModelPricing is the TokenKey lookup behind GetIdentifiedModelPricing.
-func (s *PricingService) tkGetIdentifiedModelPricing(modelName string) *LiteLLMModelPricing {
-	if s == nil || strings.TrimSpace(modelName) == "" {
-		return nil
+// matchIdentifiedModelPricing owns exact, declared-alias and dated-name lookup.
+// A bare owner wins over dated snapshots; if only dated rows exist, use the
+// newest matching spelling deterministically. Never match a different variant
+// merely because its key contains the requested family name.
+func (s *PricingService) matchIdentifiedModelPricing(candidates []string, aliases map[string]string) *LiteLLMModelPricing {
+	for _, candidate := range candidates {
+		if pricing := s.pricingData[candidate]; pricing != nil {
+			return pricing
+		}
 	}
-	var pricingData map[string]*LiteLLMModelPricing
-	var present func(*LiteLLMModelPricing) *LiteLLMModelPricing
-	if s.useActiveRegistry {
-		snapshot := loadTKPricingOverlaySnapshot()
-		if snapshot != nil {
-			pricingData = snapshot.Models
-			present = func(pricing *LiteLLMModelPricing) *LiteLLMModelPricing {
-				return tkPresentLiteLLMModelPricingFromSnapshot(pricing, snapshot)
+	for _, candidate := range candidates {
+		if owner, ok := aliases[candidate]; ok {
+			if pricing := s.pricingData[owner]; pricing != nil {
+				return pricing
 			}
 		}
-	} else {
-		s.mu.RLock()
-		pricingData = s.pricingData
-		s.mu.RUnlock()
-		baseTax := loadTkOfficialListBaseTaxPolicy()
-		present = func(pricing *LiteLLMModelPricing) *LiteLLMModelPricing {
-			return tkApplyBaseTaxToLiteLLMModelPricingCloneWithPolicy(pricing, baseTax)
+	}
+	for _, candidate := range candidates {
+		normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
+		if pricing := s.pricingData[normalized]; pricing != nil {
+			return pricing
 		}
 	}
-	if pricingData == nil || present == nil {
+	if len(candidates) == 0 {
 		return nil
 	}
-	modelLower := strings.ToLower(strings.TrimSpace(modelName))
-	lookupCandidates := buildModelLookupCandidates(modelLower)
-	for _, candidate := range lookupCandidates {
-		if candidate == "" {
-			continue
-		}
-		if pricing, ok := pricingData[candidate]; ok {
-			return present(pricing)
+	baseName := s.extractBaseName(candidates[0])
+	if pricing := s.pricingData[baseName]; pricing != nil {
+		return pricing
+	}
+	var selected string
+	for key, pricing := range s.pricingData {
+		if pricing != nil && s.extractBaseName(strings.ToLower(key)) == baseName && key > selected {
+			selected = key
 		}
 	}
-	for _, candidate := range lookupCandidates {
-		normalized := strings.ReplaceAll(candidate, "-4-5-", "-4.5-")
-		if pricing, ok := pricingData[normalized]; ok {
-			return present(pricing)
-		}
-	}
-	baseName := s.extractBaseName(lookupCandidates[0])
-	for key, pricing := range pricingData {
-		keyBase := s.extractBaseName(strings.ToLower(key))
-		if keyBase == baseName {
-			return present(pricing)
-		}
-	}
-	return nil
+	return s.pricingData[selected]
 }
 
 // buildModelLookupCandidates owns exact price-key spelling for billing and catalog lookups.

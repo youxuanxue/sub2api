@@ -7,7 +7,8 @@ import (
 )
 
 // Compatibility model-support providers and capability-discovery helpers.
-// Production Universal selection uses evaluateGroupCandidates, which separates
+// Current selection is owned by CandidateRequest; see candidate-eligibility-ssot.md.
+// The legacy evaluateGroupCandidates projection separates
 // support from readiness and propagates unknown evidence. These adapters share
 // candidateSupportsRequest for admission but retain their callers' legacy
 // snapshot/fallback semantics; they are not the current selection owner.
@@ -23,7 +24,7 @@ type availableModelsProvider func(ctx context.Context, groupID *int64, platform 
 type groupModelSupportProvider func(ctx context.Context, groupID *int64, platform, model string, shape UniversalShape) (serves bool, known bool)
 
 // UniversalGroupSupportsModel preserves the old model-only contract for tests and
-// degraded callers. Production selection uses evaluateGroupCandidates.
+// degraded callers. Request-scoped selection uses CandidateRequest.selectAccount.
 func (s *GatewayService) UniversalGroupSupportsModel(ctx context.Context, groupID *int64, platform, model string) (bool, bool) {
 	return s.UniversalGroupSupportsRequest(ctx, groupID, platform, model, ShapeSkip)
 }

@@ -1350,12 +1350,8 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 		lookups = matched.match
 	}
 	for _, pattern := range lookups {
-		for key, pricing := range s.pricingData {
-			keyLower := strings.ToLower(key)
-			if strings.Contains(keyLower, pattern) {
-				logger.LegacyPrintf("service.pricing", "[Pricing] Fuzzy matched %s -> %s", model, key)
-				return pricing
-			}
+		if pricing := s.matchIdentifiedModelPricing([]string{pattern}, nil); pricing != nil {
+			return pricing
 		}
 	}
 

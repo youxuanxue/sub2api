@@ -9542,7 +9542,8 @@
       "must_contain": [
         "func (f *ModelListFilter) FilterClientFacingStrict(",
         "func (f *ModelListFilter) ServableClientFacingIDsStrict(",
-        "states, err := f.availability.GetAvailabilityBatch(ctx, platform, priced)",
+        "return f.filterStructurallyGoneStrict(ctx, platform, priced)",
+        "states, err := f.availability.GetAvailabilityBatch(ctx, platform, candidates)",
         "return nil, fmt.Errorf(\"read model availability for %s: %w\", platform, err)"
       ],
       "rationale": "Capability discovery must fail explicitly when the availability repository cannot answer, but must read the priced candidate set in one batch instead of issuing one query per model. Runtime forwarding keeps the legacy fail-open filter, while these discovery-only strict entrypoints keep CatalogPolicy projection honest without amplifying /v1/models database load."
