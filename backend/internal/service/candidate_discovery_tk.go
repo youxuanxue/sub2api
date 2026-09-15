@@ -29,6 +29,7 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 	if !s.CandidateSchedulingEnabled() || key == nil {
 		return nil, nil, ErrUniversalCapabilityUnavailable
 	}
+	ctx = withModelAvailabilityRequestCache(ctx)
 	groups, err := s.groupsForKey(ctx, key)
 	if err != nil {
 		return nil, nil, err
@@ -118,6 +119,21 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 		models = append(models, model)
 	}
 	sort.Strings(models)
+	// A model surviving on one platform must not restore a retired origin on
+	// another. Check the full union, including Direct aliases and models learned
+	// from peers, against each actual platform's evidence. The request cache
+	// reuses the initial membership reads.
+	visibleByPlatform := make(map[string]map[string]bool, len(byPlatform))
+	for platform := range byPlatform {
+		visible, err := s.modelFilter.filterStructurallyGoneStrict(ctx, platform, models)
+		if err != nil {
+			return nil, nil, err
+		}
+		visibleByPlatform[platform] = make(map[string]bool, len(visible))
+		for _, model := range visible {
+			visibleByPlatform[platform][model] = true
+		}
+	}
 	out := make([]UniversalCapability, 0, len(models))
 	accountSet := make(map[int64]Account)
 	var catalogSupportFailure error
@@ -148,6 +164,9 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 			var selected *Group
 			var failure error
 			for i := range accounts {
+				if !visibleByPlatform[accounts[i].Platform][model] {
+					continue
+				}
 				var subscriptions, balances []Group
 				for j := range groups {
 					candidate, err := request.evaluatePathWithPreparation(requestCtx, &accounts[i], &groups[j], preparePath)

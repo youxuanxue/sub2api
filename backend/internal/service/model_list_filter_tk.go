@@ -86,15 +86,21 @@ func (f *ModelListFilter) filterClientFacingStrict(ctx context.Context, platform
 		}
 		priced = append(priced, id)
 	}
-	if f.availability == nil || len(priced) == 0 {
-		return priced, nil
+	return f.filterStructurallyGoneStrict(ctx, platform, priced)
+}
+
+// Discovery retains the platform scope of evidence even after merging model IDs.
+// This pass does not decide pricing, authorization or request-time eligibility.
+func (f *ModelListFilter) filterStructurallyGoneStrict(ctx context.Context, platform string, candidates []string) ([]string, error) {
+	if f == nil || f.availability == nil || len(candidates) == 0 {
+		return candidates, nil
 	}
-	states, err := f.availability.GetAvailabilityBatch(ctx, platform, priced)
+	states, err := f.availability.GetAvailabilityBatch(ctx, platform, candidates)
 	if err != nil {
 		return nil, fmt.Errorf("read model availability for %s: %w", platform, err)
 	}
-	out := make([]string, 0, len(priced))
-	for _, id := range priced {
+	out := make([]string, 0, len(candidates))
+	for _, id := range candidates {
 		if tkAvailabilityStructurallyGone(states[id]) {
 			continue
 		}

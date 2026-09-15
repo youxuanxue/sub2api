@@ -8,6 +8,7 @@ for (const width of [1280, 390]) {
   test(`US050 real candidate catalog at ${width}px`, async ({ page, request }, testInfo) => {
     const fixture = await (await request.get(`${backend}/fixture`)).json()
     const [directModel, alias, universalModel, ...namespacedModels] = fixture.models as string[]
+    const sharedModel = fixture.shared_model as string
     const user = { id: fixture.user_id, username: 'candidate-test', email: 'candidate@test.invalid',
       role: 'user', status: 'active', balance: 100, concurrency: 5,
       onboarding_tour_seen_at: '2026-09-11T00:00:00Z' }
@@ -44,12 +45,14 @@ for (const width of [1280, 390]) {
     await keySelect.selectOption('42')
     await expect(row(directModel)).toHaveCount(1)
     await expect(row(alias)).toHaveCount(1)
+    await expect(row(sharedModel)).toContainText('Cross-platform billing')
     for (const model of namespacedModels) await expect(row(model)).toHaveCount(1)
     await expect(row(universalModel)).toHaveCount(0)
     await expect(row(directModel)).toContainText('Cross-platform billing')
     await keySelect.selectOption('43')
     await expect(row(universalModel)).toHaveCount(1)
     await expect(row(directModel)).toHaveCount(1)
+    await expect(row(sharedModel)).toContainText('Universal peer')
     for (const [kind, expired] of [
       ['rate_limited', false], ['auth_failure', false], ['upstream_5xx', false],
       ['model_not_found', false], ['provider_model_retired', false],
@@ -63,14 +66,16 @@ for (const width of [1280, 390]) {
       await expect(keySelect).toBeVisible()
       await keySelect.selectOption('43')
       const expected = kind === 'provider_model_retired' && !expired ? 0 : 1
-      if (expected === 0) {
-        await expect(page.getByText('This group has no models yet', { exact: true })).toBeVisible()
-      } else {
-        await expect(table).toBeVisible()
-      }
+      await expect(table).toBeVisible()
+      await expect(row(sharedModel)).toContainText('Universal peer')
+      if (expected === 0) await expect(row(sharedModel)).not.toContainText('Cross-platform billing')
+      else await expect(row(sharedModel)).toContainText('Cross-platform billing')
       await expect(row(directModel)).toHaveCount(expected)
       await expect(row(universalModel)).toHaveCount(expected)
       for (const model of namespacedModels) await expect(row(model)).toHaveCount(expected)
+      await keySelect.selectOption('42')
+      await expect(row(sharedModel)).toHaveCount(expected)
+      await keySelect.selectOption('43')
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath('candidate-service-catalog.png'), fullPage: true })

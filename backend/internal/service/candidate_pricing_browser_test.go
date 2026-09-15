@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,11 +27,17 @@ func TestCandidatePricingBrowser(t *testing.T) {
 	groups := []Group{grp(11, PlatformAnthropic, 0, false), grp(12, PlatformOpenAI, 1, false)}
 	groups[0].Name, groups[1].Name = "Cross-platform billing", "Universal peer"
 	models := []string{"ssot-direct", "ssot-alias", "ssot-universal", "openai/gpt-5.4", "openai/gpt-5.6"}
-	accounts := []Account{globalCandidateAccount(1, 1, 11), globalCandidateAccount(2, 1, 12)}
+	sharedModel := "ssot-platform-peer"
+	accounts := []Account{globalCandidateAccount(1, 1, 11), globalCandidateAccount(2, 1, 12), globalCandidateAccount(3, 1, 12)}
 	accounts[0].Credentials["model_mapping"] = map[string]any{models[0]: "gpt-5.4", models[1]: "gpt-5.4", models[3]: "gpt-5.4", models[4]: "gpt-5.6-sol"}
+	accounts[0].Credentials["model_mapping"].(map[string]any)[sharedModel] = "gpt-5.4"
 	accounts[1].Credentials["model_mapping"] = map[string]any{models[2]: "gpt-5.4"}
+	accounts[2].Platform, accounts[2].ChannelType = PlatformNewAPI, 1
+	accounts[2].Credentials["model_mapping"] = map[string]any{sharedModel: "gpt-5.4"}
+	attachTestProtocolCapability(&accounts[2], protocolrouter.ProtocolChatCompletions)
 	for i := range groups {
-		groups[i].ModelPricing = []ChannelModelPricing{{Platform: PlatformOpenAI, Models: models[:3], InputPrice: ptrF(.001), OutputPrice: ptrF(.002)}}
+		pricedModels := append(append([]string{}, models[:3]...), sharedModel)
+		groups[i].ModelPricing = []ChannelModelPricing{{Platform: PlatformOpenAI, Models: pricedModels, InputPrice: ptrF(.001), OutputPrice: ptrF(.002)}}
 	}
 	capabilities, key := candidateDiscoveryFixture(groups, accounts)
 	capabilities.resolver.candidateGateway.billingService = NewBillingService(nil, nil)
@@ -42,11 +49,12 @@ func TestCandidatePricingBrowser(t *testing.T) {
 	for _, model := range models[:3] {
 		public.Data = append(public.Data, mkPublicCatalogModel(model, "openai", 1, 2, 0))
 	}
+	public.Data = append(public.Data, mkPublicCatalogModel(sharedModel, "openai", 1, 2, 0))
 	// Construct per request: no concurrent mutation of fake repository objects.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if req.URL.Path == "/fixture" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"models": models, "user_id": key.UserID})
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": models, "shared_model": sharedModel, "user_id": key.UserID})
 			return
 		}
 		if req.URL.Path != "/api/v1/me/pricing-catalog" {
@@ -61,7 +69,7 @@ func TestCandidatePricingBrowser(t *testing.T) {
 		if req.Header.Get("X-Test-Evidence-Expired") == "true" {
 			observedAt = observedAt.Add(-7 * 24 * time.Hour)
 		}
-		for _, model := range models {
+		for _, model := range append(append([]string{}, models...), sharedModel) {
 			repo.states[PlatformOpenAI+"/"+model] = AvailabilityState{Status: AvailabilityStatusUnreachable, LastFailureKind: kind, LastFailureAt: &observedAt}
 		}
 		availability := NewPricingAvailabilityService(repo, time.Now)
