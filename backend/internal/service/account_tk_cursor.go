@@ -23,6 +23,9 @@ const CursorWireModelsKey = "cursor_wire_models"
 // Cursor accounts intentionally exclude GPT from their serving mappings.
 const cursorExcludedModelPrefix = "gpt-"
 
+// Retired from the authenticated Cursor catalog; do not reintroduce via imports or floor apply.
+const cursorRetiredComposerModel = "composer-2"
+
 func (a *Account) IsCursor() bool {
 	return a != nil && a.Platform == PlatformNewAPI && a.Type == AccountTypeAPIKey &&
 		a.ChannelType == newapiconstant.ChannelTypeAnthropic && a.Extra[CursorSourceExtraKey] == "cursor"
@@ -170,7 +173,7 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client c
 	parameters := make(map[string]any)
 	wireModels := make(map[string]any)
 	for _, model := range claim.Models {
-		if model.ID == "" || model.ID == "default" || model.ID == "auto" || strings.HasPrefix(model.ID, cursorExcludedModelPrefix) {
+		if model.ID == "" || model.ID == "default" || model.ID == "auto" || model.ID == cursorRetiredComposerModel || strings.HasPrefix(model.ID, cursorExcludedModelPrefix) {
 			continue
 		}
 		selected := cursor.DefaultParameters(model)

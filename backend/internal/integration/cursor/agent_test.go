@@ -284,6 +284,44 @@ func TestAgentToolPromptHistoryKeepsWireIdentity(t *testing.T) {
 	require.NotEqual(t, cursorHistoryToolCallID("call:a"), cursorHistoryToolCallID("call|a"))
 }
 
+// Provider-facing root names captured from Cursor differ from MCP wire names
+// for Composer. Claude retains the MCP name in its native tool_use blocks.
+func TestAgentPromptToolNamesMatchProviderHistory(t *testing.T) {
+	for _, tc := range []struct{ model, promptName string }{
+		{"composer-2.5", "mcp_tokenkey_read_fixture"},
+		{"claude-sonnet-5", "mcp__tokenkey__read_fixture"},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			run, blobs, err := buildAgentRun(AgentRequest{
+				Model: tc.model,
+				Tools: []AgentTool{{Name: "read_fixture", Schema: map[string]any{"type": "object"}}},
+				Messages: []AgentMessage{
+					{Role: "user", Text: "Read the fixture."},
+					{Role: "assistant", ToolCalls: []AgentToolCall{{ID: "call_fixture", Name: "read_fixture", Arguments: map[string]any{}}}},
+					{Role: "tool", ToolCallID: "call_fixture", Text: "fixture value"},
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, "mcp__tokenkey__read_fixture", run.McpTools.McpTools[0].Name)
+			for _, ref := range run.ConversationState.RootPromptMessagesJson[2:] {
+				var entry struct {
+					Content []struct {
+						ToolName string `json:"toolName"`
+					} `json:"content"`
+				}
+				require.NoError(t, json.Unmarshal(blobs.data[string(ref)], &entry))
+				require.Len(t, entry.Content, 1)
+				require.Equal(t, tc.promptName, entry.Content[0].ToolName)
+			}
+			var turn pb.ConversationTurnStructure
+			require.NoError(t, proto.Unmarshal(blobs.data[string(run.ConversationState.Turns[0])], &turn))
+			var step pb.ConversationStep
+			require.NoError(t, proto.Unmarshal(blobs.data[string(turn.AgentConversationTurn.Steps[0])], &step))
+			require.Equal(t, "mcp__tokenkey__read_fixture", step.ToolCall.McpToolCall.Args.Name)
+		})
+	}
+}
+
 func TestAgentRejectsNormalizedHistoryIDCollision(t *testing.T) {
 	foreign := "call:a"
 	normalized := cursorHistoryToolCallID(foreign)
