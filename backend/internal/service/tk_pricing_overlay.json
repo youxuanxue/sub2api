@@ -7,7 +7,9 @@
   },
   "_aliases": {
     "claude-fable-5-1": "claude-fable-5",
+    "deepseek-chat": "deepseek-v4-flash",
     "deepseek-flash": "deepseek-v4-flash",
+    "deepseek-reasoner": "deepseek-v4-flash",
     "deepseek-v4-flash-0731": "deepseek-v4-flash",
     "deepseek-v4-pro-0813": "deepseek-v4-pro",
     "gpt-5.5-pro": "gpt-5.5",
@@ -1323,49 +1325,6 @@
     "source": "Offline provider evidence for registry owner baseline codex-auto-review; added to TK overlay because prod display mirror is trimmed and audit-display-coverage requires repo-reliable display pricing.",
     "regional_processing_uplift_multiplier_eu": 1.1,
     "regional_processing_uplift_multiplier_us": 1.1
-  },
-  "deepseek-chat": {
-    "cache_read_input_token_cost": 2.9850746268656717e-09,
-    "input_cost_per_token": 1.4925373134328358e-07,
-    "litellm_provider": "deepseek",
-    "max_input_tokens": 1000000,
-    "max_output_tokens": 384000,
-    "max_tokens": 384000,
-    "mode": "chat",
-    "output_cost_per_token": 5.970149253731343e-07,
-    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing, captured 2026-09-15: deepseek-flash = DeepSeek-V4.1-Flash; official deepseek-v4-flash and deepseek-v4-flash-vision-exp requests also use V4.1 Flash. Idle cache-hit ¥0.02 / miss ¥1 / out ¥4 per 1M, peak 2x on existing weekday windows; CNY/USD=6.7. Stored pre-tax; cache writes are normal input. V4 Pro continues with unchanged pricing. Legacy compatibility name retains the shared stable Flash price policy.",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_function_calling": true,
-    "supports_native_streaming": true,
-    "supports_parallel_function_calling": true,
-    "supports_prompt_caching": true,
-    "supports_response_schema": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": true
-  },
-  "deepseek-reasoner": {
-    "cache_read_input_token_cost": 2.9850746268656717e-09,
-    "input_cost_per_token": 1.4925373134328358e-07,
-    "litellm_provider": "deepseek",
-    "max_input_tokens": 1000000,
-    "max_output_tokens": 384000,
-    "max_tokens": 384000,
-    "mode": "chat",
-    "output_cost_per_token": 5.970149253731343e-07,
-    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing, captured 2026-09-15: deepseek-flash = DeepSeek-V4.1-Flash; official deepseek-v4-flash and deepseek-v4-flash-vision-exp requests also use V4.1 Flash. Idle cache-hit ¥0.02 / miss ¥1 / out ¥4 per 1M, peak 2x on existing weekday windows; CNY/USD=6.7. Stored pre-tax; cache writes are normal input. V4 Pro continues with unchanged pricing. Legacy compatibility name retains the shared stable Flash price policy.",
-    "supported_endpoints": [
-      "/v1/chat/completions"
-    ],
-    "supports_function_calling": false,
-    "supports_native_streaming": true,
-    "supports_parallel_function_calling": false,
-    "supports_prompt_caching": true,
-    "supports_reasoning": true,
-    "supports_response_schema": true,
-    "supports_system_messages": true,
-    "supports_tool_choice": false
   },
   "deepseek-v4-flash": {
     "litellm_provider": "deepseek",
@@ -8585,13 +8544,33 @@
   "moonshot-v1-auto": {
     "litellm_provider": "moonshot",
     "mode": "chat",
-    "input_cost_per_token": 1.4925373134328358e-06,
-    "output_cost_per_token": 4.477611940298507e-06,
+    "input_cost_per_token": 2.9850746268656716e-07,
+    "output_cost_per_token": 1.4925373134328358e-06,
     "max_input_tokens": 131072,
     "max_output_tokens": 131072,
     "max_tokens": 131072,
     "supports_function_calling": true,
-    "source": "Moonshot China V1 128K fixed tier, operator-approved 2026-07-20 because moonshot-v1-auto may select the highest V1 tier. Rate mirrors the official moonshot-v1-128k row at https://platform.kimi.com/docs/pricing/chat-v1: input ¥10.00/M and output ¥30.00/M, divided by TokenKey CNY/USD=6.7. Minimal live probe selected moonshot-v1-8k, but billing intentionally remains at the fixed 128K tier. Official docs announce V1 retirement on 2026-08-31."
+    "intervals": [
+      {
+        "min_tokens": 0,
+        "max_tokens": 8192,
+        "input_cost_per_token": 2.9850746268656716e-07,
+        "output_cost_per_token": 1.4925373134328358e-06
+      },
+      {
+        "min_tokens": 8192,
+        "max_tokens": 32768,
+        "input_cost_per_token": 7.462686567164179e-07,
+        "output_cost_per_token": 2.9850746268656716e-06
+      },
+      {
+        "min_tokens": 32768,
+        "max_tokens": null,
+        "input_cost_per_token": 1.4925373134328358e-06,
+        "output_cost_per_token": 4.477611940298507e-06
+      }
+    ],
+    "source": "Moonshot China official V1 price https://platform.kimi.com/docs/pricing/chat-v1, captured 2026-07-20, divided by TokenKey CNY/USD=6.7. moonshot-v1-auto is tiered (分档计价) by input context, matching the official V1 8K/32K/128K rows it may select: (0,8K] ¥2/¥10, (8K,32K] ¥5/¥20, (32K,128K] ¥10/¥30 per M. Replaced the former fixed-128K flat rate. Official docs announce V1 retirement on 2026-08-31."
   },
   "o1-2024-12-17": {
     "cache_read_input_token_cost": 7.5e-06,
@@ -9061,6 +9040,7 @@
         "max_tokens": 128000,
         "input_cost_per_token": 1.194029850746269e-07,
         "output_cost_per_token": 2.985074626865672e-07,
+        "thinking_output_cost_per_token": 1.1940298507462686e-06,
         "cache_read_input_token_cost": 1.194029850746269e-07
       },
       {
@@ -9068,6 +9048,7 @@
         "max_tokens": 256000,
         "input_cost_per_token": 3.582089552238806e-07,
         "output_cost_per_token": 2.985074626865672e-06,
+        "thinking_output_cost_per_token": 3.5820895522388063e-06,
         "cache_read_input_token_cost": 3.582089552238806e-07
       },
       {
@@ -9075,18 +9056,20 @@
         "max_tokens": null,
         "input_cost_per_token": 7.164179104477612e-07,
         "output_cost_per_token": 7.164179104477612e-06,
+        "thinking_output_cost_per_token": 9.552238805970149e-06,
         "cache_read_input_token_cost": 7.164179104477612e-07
       }
     ],
-    "source": "Alibaba DashScope qwen-plus (legacy stable alias, 当前能力等同 qwen-plus-2025-12-01) official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=128K in ¥0.8 out ¥2; 128K<=256K in ¥2.4 out ¥20; 256K<=1M in ¥4.8 out ¥48 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time for the qwen3.7-* gap. Output priced at NON-thinking list; thinking-mode output is higher (¥8/¥24/¥64 per tier) and intentionally NOT modeled (bill at non-thinking list). Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
+    "source": "Alibaba DashScope qwen-plus (legacy stable alias, 当前能力等同 qwen-plus-2025-12-01) official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=128K in ¥0.8 out ¥2/思考 ¥8; 128K<=256K in ¥2.4 out ¥20/思考 ¥24; 256K<=1M in ¥4.8 out ¥48/思考 ¥64 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-06-13: client-facing legacy alias served via the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time for the qwen3.7-* gap. Thinking-mode output billed per tier via interval thinking_output_cost_per_token (¥8/¥24/¥64). Batch (half-price)/context-cache discounts not modeled. Whole-request input-tier via overlay intervals."
   },
   "qwen-turbo": {
     "litellm_provider": "dashscope",
     "mode": "chat",
     "input_cost_per_token": 4.477611940298507e-08,
     "output_cost_per_token": 8.955223880597015e-08,
+    "thinking_output_cost_per_token": 4.477611940298508e-07,
     "cache_read_input_token_cost": 4.477611940298507e-08,
-    "source": "Alibaba DashScope qwen-turbo (commercial qwen3 alias) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯 in ¥0.3/M, out 非思考 ¥0.6/M); docs/evidence/pricing/aliyun_pricing_20260612.md line 394 captured 2026-06-12. Added 2026-06-22 (Goal 2 fleet servable-expansion): client-facing model served via the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time, mapped by tk_042. Output priced at NON-thinking list; enable_thinking defaults FALSE for commercial qwen (same treatment as qwen-plus), thinking-mode output (¥3/M) intentionally NOT modeled (bill at non-thinking list). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
+    "source": "Alibaba DashScope qwen-turbo (commercial qwen3 alias) official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯 in ¥0.3/M, out 非思考 ¥0.6/M / 思考 ¥3/M); docs/evidence/pricing/aliyun_pricing_20260612.md line 394 captured 2026-06-12. Added 2026-06-22 (Goal 2 fleet servable-expansion): client-facing model served via the configured Qwen channel_type=17 pool; account 60 was the mapping evidence at capture time, mapped by tk_042. Thinking-mode output ¥3/M billed via thinking_output_cost_per_token. List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen2.5-coder-32b": {
     "litellm_provider": "dashscope",
@@ -10163,26 +10146,10 @@
   "qwen3.8-flash": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 1.791044776119403e-07,
-    "output_cost_per_token": 1.0746268656716418e-06,
-    "cache_read_input_token_cost": 1.791044776119403e-07,
-    "intervals": [
-      {
-        "min_tokens": 0,
-        "max_tokens": 256000,
-        "input_cost_per_token": 1.791044776119403e-07,
-        "output_cost_per_token": 1.0746268656716418e-06,
-        "cache_read_input_token_cost": 1.791044776119403e-07
-      },
-      {
-        "min_tokens": 256000,
-        "max_tokens": null,
-        "input_cost_per_token": 7.164179104477612e-07,
-        "output_cost_per_token": 4.298507462686567e-06,
-        "cache_read_input_token_cost": 7.164179104477612e-07
-      }
-    ],
-    "source": "TEMPORARY owner cloned from qwen3.6-flash DashScope CNY÷6.7 incl. input-tier intervals for 2026-09-01 supplier hotfix (flash-tier). Replace with DashScope official qwen3.8-flash list when captured."
+    "input_cost_per_token": 1.1940298507462686e-07,
+    "output_cost_per_token": 4.029850746268657e-07,
+    "cache_read_input_token_cost": 1.1940298507462686e-07,
+    "source": "Alibaba DashScope qwen3.8-flash official China-mainland pricing https://help.aliyun.com/zh/model-studio/model-pricing, captured 2026-09-16: input ¥0.8/Mtok, output ¥2.7/Mtok, flat (无阶梯, 非思考和思考同价); CNY/USD=6.7. Pre-tax official list rates; overlay official_list_base_tax policy applies at resolution/catalog time. Cache discount not separately listed, so cache-read conservatively equals input."
   },
   "wan2.7-image": {
     "litellm_provider": "dashscope",

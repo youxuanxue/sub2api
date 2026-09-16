@@ -2209,9 +2209,10 @@
         "export function formatTokenBound",
         "pricing.variant.tieredCaption",
         "pricing.variant.peakCaption",
-        "kind: 'peak_valley'"
+        "kind: 'peak_valley'",
+        "thinkingOutputPer1K: tier.thinkingOutputPer1K ?? null"
       ],
-      "rationale": "Single owner for rendering price variants — models whose unit price is not one flat number (阶梯 context-length ladders, DeepSeek 峰谷 time-of-day windows). /pricing and the /models cards both resolve their price lines here, so the two surfaces cannot disagree about what a model costs. Losing this owner compiles green the moment either page reintroduces a local 'show pricing.input_per_1k_tokens' branch, and that regression is invisible: the page still renders a plausible price — just the FIRST tier or the off-peak one, as if it were the whole price. That was the original bug (doubao-seed-2-0-pro's top tier is 3x the first, qwen-plus's top output tier 24x). The i18n key anchors are load-bearing too: vue-i18n silently echoes a missing key, so a rename on either side ships literal 'pricing.variant.tierUpTo' text into the price column."
+      "rationale": "Single owner for rendering price variants — models whose unit price is not one flat number (阶梯 context-length ladders, DeepSeek 峰谷 time-of-day windows). /pricing and the /models cards both resolve their price lines here, so the two surfaces cannot disagree about what a model costs. Losing this owner compiles green the moment either page reintroduces a local 'show pricing.input_per_1k_tokens' branch, and that regression is invisible: the page still renders a plausible price — just the FIRST tier or the off-peak one, as if it were the whole price. That was the original bug (doubao-seed-2-0-pro's top tier is 3x the first, qwen-plus's top output tier 24x). The i18n key anchors are load-bearing too: vue-i18n silently echoes a missing key, so a rename on either side ships literal 'pricing.variant.tierUpTo' text into the price column. Per-tier thinkingOutputPer1K must travel with each ladder line so qwen-plus thinking rates do not collapse to the flat non-thinking output column."
     },
     {
       "path": "frontend/src/i18n/tk/legacyMissing.tk.ts",
@@ -2231,9 +2232,10 @@
         "peak_valley?: MePricingPeakValley",
         "export interface MePricingPeakValley",
         "tiers?: MePricingTier[]",
-        "thinking_output_per_1k?: number"
+        "thinking_output_per_1k?: number",
+        "export interface MePricingTier"
       ],
-      "rationale": "The authenticated group catalog (me-pricing) must disclose price variants at parity with the public catalog. Before these fields it disclosed LESS: peak_valley reached only the guest view, so signing in REMOVED the hint that a xN peak window exists — the disclosure gradient pointed the wrong way. Losing any of these optional fields is silent: the DTO still parses, PricingView still renders, and logged-in users just quietly stop seeing the peak / tiered / thinking-mode prices they are actually billed at."
+      "rationale": "The authenticated group catalog (me-pricing) must disclose price variants at parity with the public catalog. Before these fields it disclosed LESS: peak_valley reached only the guest view, so signing in REMOVED the hint that a xN peak window exists — the disclosure gradient pointed the wrong way. Losing any of these optional fields is silent: the DTO still parses, PricingView still renders, and logged-in users just quietly stop seeing the peak / tiered / thinking-mode prices they are actually billed at. MePricingTier must keep thinking_output_per_1k so ladder brackets disclose thinking rates."
     },
     {
       "path": "frontend/src/views/PricingView.vue",
@@ -2241,9 +2243,11 @@
         "from '@/utils/pricingVariants.tk'",
         "resolvePricingVariant",
         "variantOf(row).kind !== 'flat'",
-        "data-tk=\"pricing-variant-line\""
+        "data-tk=\"pricing-variant-line\"",
+        "line.thinkingOutputPer1K",
+        "thinkingOutputPer1K: tt.thinking_output_per_1k_tokens ?? null"
       ],
-      "rationale": "The /pricing table must render one visual line per tier/window across the input, output and cache columns, sourced from the shared variant owner. Alignment between those columns is guaranteed only by all three iterating the SAME ordered list; a merge that reverts one column to a single flat number leaves the other two multi-line and silently mis-pairs labels with prices."
+      "rationale": "The /pricing table must render one visual line per tier/window across the input, output and cache columns, sourced from the shared variant owner. Alignment between those columns is guaranteed only by all three iterating the SAME ordered list; a merge that reverts one column to a single flat number leaves the other two multi-line and silently mis-pairs labels with prices. Tiered thinking rates must render under each output line, not only on flat rows."
     },
     {
       "path": "frontend/src/views/ModelMarketplaceCatalog.vue",
@@ -2261,9 +2265,10 @@
         "from '@/utils/pricingVariants.tk'",
         "export function formatTiers",
         "'peak_multiplier'",
-        "'peak_input_per_1M'"
+        "'peak_input_per_1M'",
+        "/ think ${think}"
       ],
-      "rationale": "The admin pricing CSV is what sales quotes from, so it must not disagree with /pricing. Bracket bounds come from formatTokenBound in the shared owner (a label change lands in the sheet and the UI together) and each bracket carries its own cache-read price — omitting it implied the flat first-tier cache price applied at every context length."
+      "rationale": "The admin pricing CSV is what sales quotes from, so it must not disagree with /pricing. Bracket bounds come from formatTokenBound in the shared owner (a label change lands in the sheet and the UI together) and each bracket carries its own cache-read price — omitting it implied the flat first-tier cache price applied at every context length. Per-bracket thinking rates must also export or quotes understate qwen-plus thinking ladders."
     },
     {
       "path": "frontend/src/api/api-key-capabilities.ts",

@@ -41,6 +41,7 @@ export interface PricingVariantTier {
   maxTokens: number | null
   inputPer1K: number | null
   outputPer1K: number | null
+  thinkingOutputPer1K?: number | null
   cacheReadPer1K: number | null
 }
 
@@ -69,6 +70,7 @@ export interface PricingVariantLine {
   label: string
   inputPer1K: number | null
   outputPer1K: number | null
+  thinkingOutputPer1K?: number | null
   cacheReadPer1K: number | null
 }
 
@@ -171,6 +173,7 @@ export function resolvePricingVariant(
         label,
         inputPer1K: tier.inputPer1K,
         outputPer1K: tier.outputPer1K,
+        thinkingOutputPer1K: tier.thinkingOutputPer1K ?? null,
         cacheReadPer1K: tier.cacheReadPer1K
       })
     }

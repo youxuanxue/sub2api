@@ -600,9 +600,11 @@
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_test.go",
       "must_contain": [
-        "TestBilling_Fable1hCacheCreationCost_ProdShape"
+        "TestBilling_Fable1hCacheCreationCost_ProdShape",
+        "TestTKPricingOverlay_FillsMoonshotChinaModels",
+        "moonshot-v1-auto must be input-tiered (8K/32K/128K)"
       ],
-      "rationale": "Regression reproduction with the prod token shape (cache_creation_5m=0, cache_creation_1h=684124) asserting the corrected $13.68 cache-creation cost end-to-end through GetModelPricing + CalculateCost. Dropping this test re-opens the silent 5m-rate undercharge path for overlay-priced models with a 1h cache tier."
+      "rationale": "Regression reproduction with the prod token shape (cache_creation_5m=0, cache_creation_1h=684124) asserting the corrected $13.68 cache-creation cost end-to-end through GetModelPricing + CalculateCost. Dropping this test re-opens the silent 5m-rate undercharge path for overlay-priced models with a 1h cache tier. Moonshot v1-auto must stay input-tiered against the official 8K/32K/128K ladder rather than regressing to a fixed 128K flat rate."
     },
     {
       "path": "backend/internal/service/newapi_bridge_penalty_tk.go",

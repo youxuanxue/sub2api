@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -78,13 +80,10 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 	require.Equal(t, 384_000, pro.MaxOutputTokens)
 
 	for _, alias := range []string{"deepseek-chat", "deepseek-reasoner"} {
-		entry := overlay[alias]
-		require.NotNil(t, entry, alias)
-		require.InDelta(t, flash.InputCostPerToken, entry.InputCostPerToken, 1e-15, alias)
-		require.InDelta(t, flash.OutputCostPerToken, entry.OutputCostPerToken, 1e-15, alias)
-		require.InDelta(t, flash.CacheReadInputTokenCost, entry.CacheReadInputTokenCost, 1e-15, alias)
-		require.Equal(t, flash.MaxInputTokens, entry.MaxInputTokens, alias)
-		require.Equal(t, flash.MaxOutputTokens, entry.MaxOutputTokens, alias)
+		require.Nil(t, overlay[alias], alias+" must be a declared alias, no longer a canonical owner")
+		owner, declared := tkPricingRegistryAliasOwner(alias)
+		require.True(t, declared, alias+" must resolve to the flash owner")
+		require.Equal(t, "deepseek-v4-flash", owner)
 	}
 
 	owner, declared := tkPricingRegistryAliasOwner("deepseek-flash")
@@ -106,6 +105,29 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 	}
 }
 
+// TestPublicCatalog_DeepSeekChatReasonerHiddenAsFlashAliases pins the product
+// policy that legacy deepseek-chat / deepseek-reasoner stay billable flash
+// aliases but must not appear as separate public /pricing cards.
+func TestPublicCatalog_DeepSeekChatReasonerHiddenAsFlashAliases(t *testing.T) {
+	var manifest tkServedModelsManifestFile
+	require.NoError(t, json.Unmarshal(tkServedModelsManifestRaw, &manifest))
+	for _, alias := range []string{"deepseek-chat", "deepseek-reasoner"} {
+		entry, ok := manifest.Entries[alias]
+		require.True(t, ok, alias+" must remain in the served-models owner for routing/settlement")
+		require.False(t, entry.Display, alias+" must be display=false once it is only a flash pricing alias")
+		owner, declared := tkPricingRegistryAliasOwner(alias)
+		require.True(t, declared, alias)
+		require.Equal(t, "deepseek-v4-flash", owner)
+	}
+
+	public := FilterPublicCatalogToServable((&PricingCatalogService{}).BuildPublicCatalog(context.Background()))
+	require.NotNil(t, public)
+	for _, row := range public.Data {
+		require.NotEqual(t, "deepseek-chat", row.ModelID)
+		require.NotEqual(t, "deepseek-reasoner", row.ModelID)
+	}
+}
+
 func TestTKPricingOverlay_FillsMoonshotChinaModels(t *testing.T) {
 	svc := &PricingService{}
 	data, err := svc.parsePricingData([]byte(`{
@@ -121,14 +143,30 @@ func TestTKPricingOverlay_FillsMoonshotChinaModels(t *testing.T) {
 	}
 
 	auto := data["moonshot-v1-auto"]
-	v128 := data["moonshot-v1-128k"]
+	v8 := data["moonshot-v1-8k"]
 	require.NotNil(t, auto)
-	require.NotNil(t, v128)
-	require.InDelta(t, v128.InputCostPerToken, auto.InputCostPerToken, 1e-15,
-		"operator decision: moonshot-v1-auto is fixed to the 128K input tier")
-	require.InDelta(t, v128.OutputCostPerToken, auto.OutputCostPerToken, 1e-15,
-		"operator decision: moonshot-v1-auto is fixed to the 128K output tier")
-	require.Empty(t, auto.Intervals, "moonshot-v1-auto must remain fixed-price, not input-tiered")
+	require.NotNil(t, v8)
+	require.Len(t, auto.Intervals, 3, "moonshot-v1-auto must be input-tiered (8K/32K/128K)")
+
+	assertTierRate := func(iv PricingInterval, in, out float64) {
+		require.NotNil(t, iv.InputPrice)
+		require.NotNil(t, iv.OutputPrice)
+		require.InDelta(t, in, *iv.InputPrice, 1e-15)
+		require.InDelta(t, out, *iv.OutputPrice, 1e-15)
+	}
+	// Base (first) tier mirrors the official 8K row.
+	require.InDelta(t, v8.InputCostPerToken, auto.InputCostPerToken, 1e-15,
+		"moonshot-v1-auto base tier mirrors the 8K input row")
+	require.InDelta(t, v8.OutputCostPerToken, auto.OutputCostPerToken, 1e-15,
+		"moonshot-v1-auto base tier mirrors the 8K output row")
+	assertTierRate(auto.Intervals[0], tkCNYPerMTokToUSDPerToken(2), tkCNYPerMTokToUSDPerToken(10))
+	require.NotNil(t, auto.Intervals[0].MaxTokens)
+	require.Equal(t, 8192, *auto.Intervals[0].MaxTokens)
+	assertTierRate(auto.Intervals[1], tkCNYPerMTokToUSDPerToken(5), tkCNYPerMTokToUSDPerToken(20))
+	require.NotNil(t, auto.Intervals[1].MaxTokens)
+	require.Equal(t, 32768, *auto.Intervals[1].MaxTokens)
+	assertTierRate(auto.Intervals[2], tkCNYPerMTokToUSDPerToken(10), tkCNYPerMTokToUSDPerToken(30))
+	require.Nil(t, auto.Intervals[2].MaxTokens, "top tier must stay unbounded up to the model's 128K context")
 
 	billing := NewBillingService(&config.Config{}, &PricingService{pricingData: data})
 	k3, err := billing.GetModelPricing("kimi-k3")

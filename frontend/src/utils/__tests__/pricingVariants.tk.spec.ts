@@ -28,9 +28,10 @@ function tier(
   maxTokens: number | null,
   inputPer1K: number,
   outputPer1K: number,
-  cacheReadPer1K: number | null = null
+  cacheReadPer1K: number | null = null,
+  thinkingOutputPer1K: number | null = null
 ): PricingVariantTier {
-  return { minTokens, maxTokens, inputPer1K, outputPer1K, cacheReadPer1K }
+  return { minTokens, maxTokens, inputPer1K, outputPer1K, cacheReadPer1K, thinkingOutputPer1K }
 }
 
 describe('formatTokenBound', () => {
@@ -95,6 +96,23 @@ describe('resolvePricingVariant', () => {
     expect(view.lines[2].inputPer1K).toBeCloseTo(0.001433, 9)
     expect(view.lines[0].cacheReadPer1K).toBeCloseTo(0.0000955, 9)
     expect(view.caption).toBe('tieredCaption')
+  })
+
+  it('carries per-tier thinking output when present', () => {
+    const view = resolvePricingVariant(
+      {
+        flat,
+        tiers: [
+          tier(0, 128000, 0.000119, 0.000299, 0.000119, 0.001194),
+          tier(128000, 256000, 0.000358, 0.002985, 0.000358, 0.003582),
+          tier(256000, null, 0.000716, 0.007164, 0.000716, 0.009552)
+        ]
+      },
+      t
+    )
+    expect(view.kind).toBe('tiered')
+    expect(view.lines[0].thinkingOutputPer1K).toBeCloseTo(0.001194, 9)
+    expect(view.lines[2].thinkingOutputPer1K).toBeCloseTo(0.009552, 9)
   })
 
   it('treats a single-bracket ladder as flat', () => {
