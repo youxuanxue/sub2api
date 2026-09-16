@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "8f24b13c713333cfe0b30306f3a2b87d9bd9e28b9356dcca7d6a3851dd878230",
+  "floor_sha256": "949bb850a691a23039d4f074a2edf817efb891820ef8ca9e8cfd784eab83ae8e",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -372,7 +372,6 @@
           "claude-sonnet-4-5": "claude-sonnet-4-5",
           "claude-sonnet-4-6": "claude-sonnet-4-6",
           "claude-sonnet-5": "claude-sonnet-5",
-          "composer-2": "composer-2",
           "composer-2.5": "composer-2.5",
           "gemini-2.5-flash": "gemini-2.5-flash",
           "gemini-3-flash": "gemini-3-flash",
@@ -569,6 +568,9 @@
       "gemini_image"
     ],
     "forbidden_model_mapping_keys": {
+      "account_override:newapi:14:https://agentn.global.api5.cursor.sh": [
+        "composer-2"
+      ],
       "anthropic": [
         "claude-opus-5"
       ],

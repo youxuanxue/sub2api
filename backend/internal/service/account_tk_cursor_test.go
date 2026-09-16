@@ -35,7 +35,7 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 			admin := &cursorAdminStub{group: &Group{Name: "Cursor", Platform: PlatformNewAPI}}
 			input := CursorAccountInput{SessionID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", Name: "Cursor", GroupIDs: []int64{2}}
 			claim := cursor.CredentialClaim{APIKey: "private-test-key", Claim: "claim-test", Authorization: cursor.Authorization{
-				KeyExpiresAt: time.Now().Add(time.Hour), Models: []cursor.Model{{ID: "auto"}, {ID: "composer-2.5", Variants: []cursor.Variant{{IsDefault: true, Params: []cursor.Parameter{{ID: "fast", Value: "true"}}}, {LegacySlug: "composer-2.5", Params: []cursor.Parameter{{ID: "fast", Value: "false"}}}}}},
+				KeyExpiresAt: time.Now().Add(time.Hour), Models: []cursor.Model{{ID: "composer-2"}, {ID: "auto"}, {ID: "composer-2.5", Variants: []cursor.Variant{{IsDefault: true, Params: []cursor.Parameter{{ID: "fast", Value: "true"}}}, {LegacySlug: "composer-2.5", Params: []cursor.Parameter{{ID: "fast", Value: "false"}}}}}},
 			}}
 			claim.Models = append(claim.Models, cursor.Model{ID: "gpt-5.4"}, cursor.Model{ID: "gpt-future-model"})
 			if scenario == "gpt_only" {
@@ -96,6 +96,7 @@ func TestCursorImportClaimsOnlyValidGroupAndSettlesAfterPersistence(t *testing.T
 				}
 				for _, key := range []string{"model_mapping", CursorModelParametersKey, CursorWireModelsKey} {
 					require.Contains(t, credentials[key], "composer-2.5")
+					require.NotContains(t, credentials[key], "composer-2")
 					require.NotContains(t, credentials[key], "gpt-5.4")
 					require.NotContains(t, credentials[key], "gpt-future-model")
 				}
