@@ -3554,9 +3554,10 @@
         "func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, supportsCacheBreakdown bool) *ModelPricing",
         "Wei-Shaw/sub2api#2363",
         "out.CacheReadPricePerToken = *iv.CacheReadPrice",
-        "out.CacheCreation1hPrice = *iv.CacheWrite1hPrice"
+        "out.CacheCreation1hPrice = *iv.CacheWrite1hPrice",
+        "out.ThinkingOutputPricePerToken = *iv.ThinkingOutputPrice"
       ],
-      "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107) AND the interval overlay helper used by GetIntervalPricing (upstream #2363). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback. The overlay helper signature, #2363 reference, and the cache_read interval-overlay line are pinned so the symmetric in-range path cannot regress to the original empty-ModelPricing construction."
+      "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107) AND the interval overlay helper used by GetIntervalPricing (upstream #2363). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback. The overlay helper signature, #2363 reference, and the cache_read interval-overlay line are pinned so the symmetric in-range path cannot regress to the original empty-ModelPricing construction. ThinkingOutputPricePerToken must be promoted from matched intervals or qwen-plus ladders keep billing the non-thinking output rate under enable_thinking."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver_test.go",
@@ -3565,7 +3566,8 @@
         "TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero",
         "TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved",
         "TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat",
-        "TestGetIntervalPricing_CacheWriteDurationOverrides"
+        "TestGetIntervalPricing_CacheWriteDurationOverrides",
+        "TestGetIntervalPricing_ThinkingOutputOverridesPerTier"
       ],
       "rationale": "Focused regressions for upstream #2107 (out-of-range path) and upstream #2363 (in-range path). The four tests jointly assert that channel flat defaults survive every interval lookup outcome (no intervals, no match, match overlapping interval, match disjoint from flat defaults) and that interval values take precedence in-range when both are set. Dropping any of these lets the symmetric pricing-dimension drop bugs return without unit-CI noticing."
     },
