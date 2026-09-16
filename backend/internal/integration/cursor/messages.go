@@ -222,6 +222,53 @@ func messageContent(result AgentResult) []map[string]any {
 	return content
 }
 
+type cursorContinuationRetryKind string
+
+const (
+	cursorContinuationRetryNone                    cursorContinuationRetryKind = ""
+	cursorContinuationRetryConversationDataMissing cursorContinuationRetryKind = "conversation_data_missing"
+	cursorContinuationRetryContinuationFailure     cursorContinuationRetryKind = "continuation_failure"
+)
+
+// classifyCursorContinuationRetry identifies Cursor connection/agent errors that
+// are safe to retry in a fresh RunAgent conversation before any bytes have been
+// committed to the caller. Policy, consent and unknown supplier actions are
+// deliberately excluded so this self-heal never masks an upstream policy refusal.
+func classifyCursorContinuationRetry(err error) cursorContinuationRetryKind {
+	if err == nil {
+		return cursorContinuationRetryNone
+	}
+	var rejection *AgentRejection
+	if !errors.As(err, &rejection) {
+		return cursorContinuationRetryNone
+	}
+	if rejection.ActionRequired != "" {
+		return cursorContinuationRetryNone
+	}
+	text := strings.ToLower(strings.Join([]string{
+		rejection.Diagnostic,
+		rejection.ProviderMessage,
+		rejection.Metadata,
+		rejection.Code,
+	}, " "))
+	switch {
+	case strings.Contains(text, "conversation data missing"),
+		strings.Contains(text, "missing blobs"),
+		strings.Contains(text, "can't be restored"):
+		return cursorContinuationRetryConversationDataMissing
+	case strings.Contains(text, "supplier_error=57"),
+		strings.Contains(text, "supplier error 57"),
+		strings.Contains(text, "conversation"),
+		strings.Contains(text, "resume"),
+		strings.Contains(text, "blob"):
+		switch rejection.Code {
+		case "invalid_argument", "failed_precondition", "aborted", "data_loss":
+			return cursorContinuationRetryContinuationFailure
+		}
+	}
+	return cursorContinuationRetryNone
+}
+
 // Messages translates the supplier's native protocol once. The gateway keeps
 // ownership of Chat/Responses conversion, candidate selection and billing.
 func Messages(ctx context.Context, token string, body []byte, parameters []Parameter, wireModel string, do func(*http.Request) (*http.Response, error), formatError ...func(error) (code, message string)) (*http.Response, error) {
@@ -310,6 +357,30 @@ func Messages(ctx context.Context, token string, body []byte, parameters []Param
 			return event("content_block_delta", map[string]any{"index": index, "delta": map[string]any{"type": "text_delta", "text": delta.Text}})
 		}
 		result, runErr := RunAgent(ctx, token, input, do, emit)
+		retryKind := classifyCursorContinuationRetry(runErr)
+		if !started && retryKind != cursorContinuationRetryNone {
+			var original *AgentRejection
+			_ = errors.As(runErr, &original)
+			logger.FromContext(ctx).Warn("cursor_messages_continuation_retry",
+				zap.String("messages_request_id", id),
+				zap.String("retry_kind", string(retryKind)),
+				zap.String("native_request_id", cursorRejectionRequestID(original)),
+				zap.String("connect_code", cursorRejectionCode(original)),
+				zap.String("upstream_message", cursorRejectionDiagnostic(original)),
+			)
+			retryResult, retryErr := RunAgent(ctx, token, input, do, emit)
+			var retry *AgentRejection
+			_ = errors.As(retryErr, &retry)
+			logger.FromContext(ctx).Info("cursor_messages_continuation_retry_result",
+				zap.String("messages_request_id", id),
+				zap.String("retry_kind", string(retryKind)),
+				zap.Bool("retry_succeeded", retryErr == nil),
+				zap.String("native_request_id", cursorRejectionRequestID(retry)),
+				zap.String("connect_code", cursorRejectionCode(retry)),
+				zap.String("upstream_message", cursorRejectionDiagnostic(retry)),
+			)
+			result, runErr = retryResult, retryErr
+		}
 		tier := ReportedBillingTier
 		if runErr == nil && result.Usage == nil && result.ToolHandoff {
 			u := EstimateHandoffUsage(input, result)
@@ -412,6 +483,27 @@ func messagesErrorType(err error) string {
 		return messagesStatusErrorType(upstream.Status)
 	}
 	return "api_error"
+}
+
+func cursorRejectionRequestID(rejection *AgentRejection) string {
+	if rejection == nil {
+		return ""
+	}
+	return rejection.RequestID
+}
+
+func cursorRejectionCode(rejection *AgentRejection) string {
+	if rejection == nil {
+		return ""
+	}
+	return rejection.Code
+}
+
+func cursorRejectionDiagnostic(rejection *AgentRejection) string {
+	if rejection == nil {
+		return ""
+	}
+	return rejection.Diagnostic
 }
 func messagesStatusErrorType(status int) string {
 	switch status {
