@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -80,6 +81,13 @@ func (s *adminServiceImpl) validateSimpleModeGroupAccess(group *Group) error {
 	return nil
 }
 
+// GetGroupModelsListCandidates returns the admin model-allowlist picker set.
+//
+// SSOT (group-allowlist-candidates): the sorted union of schedulable members'
+// model_mapping keys only (platform-filtered). Platform catalog defaults /
+// tkServableCandidateIDs are NOT seeded — that previously leaked Claude IDs into
+// newapi / CN / unknown groups via defaultModelsListCandidateIDs' default arm.
+// id<=0 or missing accountRepo → empty (no members yet; UI custom-add still works).
 func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id int64, platform string) ([]string, error) {
 	platform = strings.TrimSpace(platform)
 	if id > 0 {
@@ -94,13 +102,8 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 	if platform == "" {
 		platform = PlatformAnthropic
 	}
-
-	candidates := tkServableCandidateIDs(ctx, platform, s.availability)
-	if platform == PlatformComposite {
-		candidates = defaultModelsListCandidateIDs(platform)
-	}
 	if id <= 0 || s.accountRepo == nil {
-		return candidates, nil
+		return []string{}, nil
 	}
 
 	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, id)
@@ -108,10 +111,8 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 		return nil, err
 	}
 
-	seen := make(map[string]struct{}, len(candidates))
-	for _, model := range candidates {
-		seen[model] = struct{}{}
-	}
+	seen := make(map[string]struct{})
+	candidates := make([]string, 0)
 	for _, acc := range accounts {
 		if platform == PlatformComposite {
 			if !isConcreteRequestPlatform(acc.Platform) {
@@ -132,6 +133,7 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 			candidates = append(candidates, model)
 		}
 	}
+	sort.Strings(candidates)
 	return candidates, nil
 }
 
@@ -282,8 +284,18 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 	}, nil
 }
 
+// defaultModelsListCandidateIDs returns platform-owned canonical default IDs for
+// catalog fallbacks (menu / tkServableCandidateIDs), NOT the group allowlist picker
+// (see GetGroupModelsListCandidates). Unknown / newapi / CN platforms return nil —
+// never invent Claude defaults via a fallthrough default arm.
 func defaultModelsListCandidateIDs(platform string) []string {
 	switch platform {
+	case PlatformAnthropic:
+		ids := make([]string, 0, len(claude.DefaultModels))
+		for _, model := range claude.DefaultModels {
+			ids = append(ids, model.ID)
+		}
+		return ids
 	case PlatformOpenAI:
 		return openai.DefaultModelIDs()
 	case PlatformGemini:
@@ -304,18 +316,16 @@ func defaultModelsListCandidateIDs(platform string) []string {
 	case PlatformComposite:
 		return compositeDefaultModelsListCandidateIDs()
 	default:
-		ids := make([]string, 0, len(claude.DefaultModels))
-		for _, model := range claude.DefaultModels {
-			ids = append(ids, model.ID)
-		}
-		return ids
+		return nil
 	}
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0)
-	for _, p := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+	// Only platforms with an explicit defaultModelsListCandidateIDs owner.
+	// CN / newapi platforms intentionally omitted — they have no canonical list.
+	for _, p := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok} {
 		for _, id := range defaultModelsListCandidateIDs(p) {
 			if _, ok := seen[id]; ok {
 				continue
