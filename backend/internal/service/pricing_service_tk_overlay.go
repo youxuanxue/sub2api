@@ -334,7 +334,7 @@ func validateTKPricingRegistryOwner(model string, p *LiteLLMModelPricing) error 
 		if iv.MinTokens < 0 || (iv.MaxTokens != nil && *iv.MaxTokens <= iv.MinTokens) {
 			return fmt.Errorf("registry model %s has invalid interval %d bounds", model, i)
 		}
-		for _, price := range []*float64{iv.InputPrice, iv.OutputPrice, iv.CacheReadPrice, iv.CacheWritePrice} {
+		for _, price := range []*float64{iv.InputPrice, iv.OutputPrice, iv.ThinkingOutputPrice, iv.CacheReadPrice, iv.CacheWritePrice} {
 			if price != nil && !tkFiniteNonNegative(*price) {
 				return fmt.Errorf("registry model %s has invalid interval %d price", model, i)
 			}
@@ -603,6 +603,7 @@ type tkOverlayRawInterval struct {
 	MaxTokens                   *int     `json:"max_tokens"`
 	InputCostPerToken           *float64 `json:"input_cost_per_token"`
 	OutputCostPerToken          *float64 `json:"output_cost_per_token"`
+	ThinkingOutputCostPerToken  *float64 `json:"thinking_output_cost_per_token"`
 	CacheReadInputTokenCost     *float64 `json:"cache_read_input_token_cost"`
 	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost"`
 }
@@ -624,13 +625,14 @@ func tkBuildOverlayIntervals(raw []tkOverlayRawInterval) []PricingInterval {
 	for i := range raw {
 		r := raw[i]
 		out = append(out, PricingInterval{
-			MinTokens:       r.MinTokens,
-			MaxTokens:       r.MaxTokens,
-			InputPrice:      r.InputCostPerToken,
-			OutputPrice:     r.OutputCostPerToken,
-			CacheReadPrice:  r.CacheReadInputTokenCost,
-			CacheWritePrice: r.CacheCreationInputTokenCost,
-			SortOrder:       i,
+			MinTokens:           r.MinTokens,
+			MaxTokens:           r.MaxTokens,
+			InputPrice:          r.InputCostPerToken,
+			OutputPrice:         r.OutputCostPerToken,
+			ThinkingOutputPrice: r.ThinkingOutputCostPerToken,
+			CacheReadPrice:      r.CacheReadInputTokenCost,
+			CacheWritePrice:     r.CacheCreationInputTokenCost,
+			SortOrder:           i,
 		})
 	}
 	return out

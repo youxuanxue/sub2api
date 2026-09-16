@@ -141,11 +141,12 @@ type PublicCatalogPeakValley struct {
 // Prices are USD per 1k tokens (registry intervals are stored per-token → ×1000 to
 // match the rest of the catalog).
 type PublicCatalogTier struct {
-	MinTokens         int     `json:"min_tokens"`
-	MaxTokens         *int    `json:"max_tokens,omitempty"`
-	InputPer1KTokens  float64 `json:"input_per_1k_tokens"`
-	OutputPer1KTokens float64 `json:"output_per_1k_tokens"`
-	CacheReadPer1K    float64 `json:"cache_read_per_1k,omitempty"`
+	MinTokens                 int     `json:"min_tokens"`
+	MaxTokens                 *int    `json:"max_tokens,omitempty"`
+	InputPer1KTokens          float64 `json:"input_per_1k_tokens"`
+	OutputPer1KTokens         float64 `json:"output_per_1k_tokens"`
+	ThinkingOutputPer1KTokens float64 `json:"thinking_output_per_1k_tokens,omitempty"`
+	CacheReadPer1K            float64 `json:"cache_read_per_1k,omitempty"`
 }
 
 // catalogRichEntry mirrors the litellm-shape JSON fields needed for the public
@@ -386,6 +387,9 @@ func attachCatalogOverlayTiersFromSnapshot(resp *PublicCatalogResponse, snapshot
 			}
 			if iv.OutputPrice != nil {
 				tier.OutputPer1KTokens = *iv.OutputPrice * 1000
+			}
+			if iv.ThinkingOutputPrice != nil {
+				tier.ThinkingOutputPer1KTokens = *iv.ThinkingOutputPrice * 1000
 			}
 			if iv.CacheReadPrice != nil {
 				tier.CacheReadPer1K = *iv.CacheReadPrice * 1000

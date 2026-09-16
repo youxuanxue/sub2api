@@ -132,6 +132,7 @@ type PricingInterval struct {
 	TierLabel            string    `json:"tier_label"`
 	InputPrice           *float64  `json:"input_price"`
 	OutputPrice          *float64  `json:"output_price"`
+	ThinkingOutputPrice  *float64  `json:"thinking_output_price"`
 	CacheWritePrice      *float64  `json:"cache_write_price"`
 	CacheWrite1hPrice    *float64  `json:"cache_write_1h_price"`
 	CacheReadPrice       *float64  `json:"cache_read_price"`

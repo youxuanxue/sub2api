@@ -176,6 +176,10 @@ func tkScaleModelPricingByFactor(pricing *ModelPricing, factor float64) *ModelPr
 				v := scale(*intervals[i].OutputPrice)
 				intervals[i].OutputPrice = &v
 			}
+			if intervals[i].ThinkingOutputPrice != nil {
+				v := scale(*intervals[i].ThinkingOutputPrice)
+				intervals[i].ThinkingOutputPrice = &v
+			}
 			if intervals[i].CacheWritePrice != nil {
 				v := scale(*intervals[i].CacheWritePrice)
 				intervals[i].CacheWritePrice = &v
