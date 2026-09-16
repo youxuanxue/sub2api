@@ -552,12 +552,12 @@
     },
     {
       "path": "backend/internal/integration/cursor/agent.go",
-      "must_contain": ["func buildAgentRun", "firstUserPrepared", "input.Messages = preparedMessages", "newAgentHTTPRejection(resp.StatusCode", "&agentTransportError{cause: err}"],
+      "must_contain": ["func buildAgentRun", "cursorPromptToolName(input.Model, call.Name)", "cursorPromptToolName(input.Model, name)", "firstUserPrepared", "input.Messages = preparedMessages", "newAgentHTTPRejection(resp.StatusCode", "&agentTransportError{cause: err}"],
       "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes."
     },
     {
       "path": "backend/internal/integration/cursor/agent_test.go",
-      "must_contain": ["TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire", "TestAgentHistoryReconstructsNativeToolTurns"],
+      "must_contain": ["TestAgentPromptToolNamesMatchProviderHistory", "TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire", "TestAgentHistoryReconstructsNativeToolTurns"],
       "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history."
     },
     {

@@ -985,15 +985,6 @@
         }
       ]
     },
-    "composer-2": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "claude-opus-4-7": {
       "display": true,
       "scopes": [
