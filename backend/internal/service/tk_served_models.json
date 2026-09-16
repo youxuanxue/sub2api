@@ -904,7 +904,7 @@
       ]
     },
     "composer-2.5": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 14,

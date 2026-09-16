@@ -12,14 +12,23 @@ from this investigation at the operator's request.
   targeted CAS plan. Read-back dry run: zero changes, no errors. No other model
   mapping or group changed. Removed its curated row and blocked reintroduction
   through Cursor import and mapping-floor apply.
+- Kept `composer-2.5` in registry / pricing / model_mapping; set public catalog
+  `display=false` so it is not offered in the served menu while routing remains.
 - Corrected Composer 2.5 root-history tool names to `mcp_tokenkey_<name>`.
   Captured Cursor roots use this provider name; MCP definitions/execution args
   continue to use `mcp__tokenkey__<name>`. Captured Sonnet 5 roots use the latter,
   so Claude naming is unchanged. The regression checks both namespaces and
   both call/result roots.
+- Added Cursor native Messages continuation self-heal: before any client bytes,
+  retry once in a fresh RunAgent conversation for explicit restore failures
+  (`conversation data missing` / `missing blobs` / `can't be restored`) and
+  supplier error 57 with allowlisted Connect codes. Policy/consent
+  `ActionRequired` rejections are never retried. Bare `conversation` /
+  `resume` / `blob` keywords are not enough to retry.
 
-The naming repair is a confirmed wire-format alignment, **not a complete
-resolution of Composer continuation failures**. It has not been deployed.
+The naming repair and Messages retry are confirmed local mitigations, **not a
+complete resolution of Composer continuation failures** or upstream variable
+semantic output.
 
 ## Live evidence
 
@@ -97,16 +106,16 @@ establish reliable production continuation or persisted billing acceptance.
 
 ## Validation and release boundary
 
-The local wire-name correction and Composer 2 retirement remain the only Cursor
-runtime changes. Root-cause isolation of the supplier's intermittent semantic
-output/policy trigger remains unresolved, so the PR stays draft and account 150
-stays paused. No merge, deployment, account unpause or policy acknowledgement.
+Local mitigations now include Composer 2 retirement, Composer 2.5 menu hide
+(`display=false` with mapping retained), root-history tool-name alignment, and
+Messages continuation self-heal for explicit restore / supplier-57 failures.
+Root-cause isolation of the supplier's intermittent semantic output/policy
+trigger remains unresolved, so account 150 stays paused. No deployment,
+account unpause or policy acknowledgement is implied by these code changes.
 
-The PR's first CI run passed unit/integration/browser/lint/preflight checks but
-failed security scanning on existing gRPC advisories GO-2026-6443 and
-GO-2026-6348. Upgraded gRPC to 1.83.2 and its required transitive versions;
-`govulncheck@v1.8.0 ./...` reports zero reachable vulnerabilities. Local backend
-unit results, final preflight and current CI are recorded in the accompanying PR.
+gRPC was upgraded to 1.83.2 and required transitive versions to clear
+GO-2026-6443 and GO-2026-6348; `govulncheck` should report zero reachable
+vulnerabilities on the resulting tree.
 
 Synthetic captures and compiler-overlay experiments remain in protected local
 operator artifacts. Remote credentials, containers and task files and temporary

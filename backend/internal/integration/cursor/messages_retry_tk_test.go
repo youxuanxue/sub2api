@@ -108,7 +108,13 @@ func TestClassifyCursorContinuationRetry(t *testing.T) {
 	}{
 		{name: "conversation data missing", err: newAgentRejection(http.StatusBadRequest, "invalid_argument", "Conversation data missing", "", "req-a"), want: cursorContinuationRetryConversationDataMissing},
 		{name: "missing blobs", err: newAgentRejection(http.StatusBadRequest, "failed_precondition", "missing blobs for history", "", "req-a"), want: cursorContinuationRetryConversationDataMissing},
+		{name: "cant be restored", err: newAgentRejection(http.StatusBadRequest, "failed_precondition", "checkpoint can't be restored", "", "req-a"), want: cursorContinuationRetryConversationDataMissing},
 		{name: "supplier error 57", err: newAgentRejection(http.StatusBadRequest, "invalid_argument", "ResumeAction unavailable: Cursor supplier error 57", "", "req-a"), want: cursorContinuationRetryContinuationFailure},
+		{name: "supplier_error=57 code form", err: newAgentRejection(http.StatusBadRequest, "aborted", "upstream supplier_error=57 on resume", "", "req-a"), want: cursorContinuationRetryContinuationFailure},
+		{name: "bare conversation keyword is not enough", err: newAgentRejection(http.StatusBadRequest, "invalid_argument", "invalid conversation parameters", "", "req-a"), want: cursorContinuationRetryNone},
+		{name: "bare resume keyword is not enough", err: newAgentRejection(http.StatusBadRequest, "invalid_argument", "resume token expired", "", "req-a"), want: cursorContinuationRetryNone},
+		{name: "bare blob keyword is not enough", err: newAgentRejection(http.StatusBadRequest, "data_loss", "blob checksum mismatch", "", "req-a"), want: cursorContinuationRetryNone},
+		{name: "non-allowlisted code ignores supplier 57 text", err: newAgentRejection(http.StatusTooManyRequests, "resource_exhausted", "Cursor supplier error 57", "", "req-a"), want: cursorContinuationRetryNone},
 		{name: "policy action required", err: &AgentRejection{Code: "failed_precondition", Diagnostic: "Conversation data missing", ProviderMessage: "Review Data Policy", ActionRequired: "data_retention_consent", Cause: &Error{Status: http.StatusBadRequest}}, want: cursorContinuationRetryNone},
 		{name: "plain text is not structured rejection", err: errors.New("Conversation data missing"), want: cursorContinuationRetryNone},
 	} {

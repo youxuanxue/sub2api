@@ -257,10 +257,7 @@ func classifyCursorContinuationRetry(err error) cursorContinuationRetryKind {
 		strings.Contains(text, "can't be restored"):
 		return cursorContinuationRetryConversationDataMissing
 	case strings.Contains(text, "supplier_error=57"),
-		strings.Contains(text, "supplier error 57"),
-		strings.Contains(text, "conversation"),
-		strings.Contains(text, "resume"),
-		strings.Contains(text, "blob"):
+		strings.Contains(text, "supplier error 57"):
 		switch rejection.Code {
 		case "invalid_argument", "failed_precondition", "aborted", "data_loss":
 			return cursorContinuationRetryContinuationFailure
@@ -505,6 +502,7 @@ func cursorRejectionDiagnostic(rejection *AgentRejection) string {
 	}
 	return rejection.Diagnostic
 }
+
 func messagesStatusErrorType(status int) string {
 	switch status {
 	case 400:
