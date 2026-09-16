@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -100,6 +102,29 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 	} {
 		require.Nil(t, overlay[removed],
 			"%s must not come back: shared ids use one global user price across serving accounts", removed)
+	}
+}
+
+// TestPublicCatalog_DeepSeekChatReasonerHiddenAsFlashAliases pins the product
+// policy that legacy deepseek-chat / deepseek-reasoner stay billable flash
+// aliases but must not appear as separate public /pricing cards.
+func TestPublicCatalog_DeepSeekChatReasonerHiddenAsFlashAliases(t *testing.T) {
+	var manifest tkServedModelsManifestFile
+	require.NoError(t, json.Unmarshal(tkServedModelsManifestRaw, &manifest))
+	for _, alias := range []string{"deepseek-chat", "deepseek-reasoner"} {
+		entry, ok := manifest.Entries[alias]
+		require.True(t, ok, alias+" must remain in the served-models owner for routing/settlement")
+		require.False(t, entry.Display, alias+" must be display=false once it is only a flash pricing alias")
+		owner, declared := tkPricingRegistryAliasOwner(alias)
+		require.True(t, declared, alias)
+		require.Equal(t, "deepseek-v4-flash", owner)
+	}
+
+	public := FilterPublicCatalogToServable((&PricingCatalogService{}).BuildPublicCatalog(context.Background()))
+	require.NotNil(t, public)
+	for _, row := range public.Data {
+		require.NotEqual(t, "deepseek-chat", row.ModelID)
+		require.NotEqual(t, "deepseek-reasoner", row.ModelID)
 	}
 }
 

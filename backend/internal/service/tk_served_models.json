@@ -47,11 +47,11 @@
       ]
     },
     "deepseek-chat": {
-      "display": true,
+      "display": false,
       "channel_type": 43
     },
     "deepseek-reasoner": {
-      "display": true,
+      "display": false,
       "channel_type": 43
     },
     "kimi-k2.5": {
