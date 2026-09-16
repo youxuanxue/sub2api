@@ -552,12 +552,12 @@
     },
     {
       "path": "backend/internal/integration/cursor/agent.go",
-      "must_contain": ["func buildAgentRun", "firstUserPrepared", "input.Messages = preparedMessages", "newAgentHTTPRejection(resp.StatusCode", "&agentTransportError{cause: err}"],
+      "must_contain": ["func buildAgentRun", "cursorPromptToolName(input.Model, call.Name)", "cursorPromptToolName(input.Model, name)", "firstUserPrepared", "input.Messages = preparedMessages", "newAgentHTTPRejection(resp.StatusCode", "&agentTransportError{cause: err}"],
       "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes."
     },
     {
       "path": "backend/internal/integration/cursor/agent_test.go",
-      "must_contain": ["TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire", "TestAgentHistoryReconstructsNativeToolTurns"],
+      "must_contain": ["TestAgentPromptToolNamesMatchProviderHistory", "TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire", "TestAgentHistoryReconstructsNativeToolTurns"],
       "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history."
     },
     {
@@ -11809,12 +11809,29 @@
       "path": "backend/internal/integration/cursor/messages.go",
       "must_contain": [
         "func ValidateMessagesContent(body []byte) error",
+        "func classifyCursorContinuationRetry(err error) cursorContinuationRetryKind",
         "logger.FromContext(ctx).Error(\"cursor_messages_run_agent_failed\"",
+        "logger.FromContext(ctx).Warn(\"cursor_messages_continuation_retry\"",
         "ready <- responseResult{err: runErr}",
         "input, stream, err := parseMessagesContent(body)",
-        "_, _, err := parseMessagesContent(body)"
+        "_, _, err := parseMessagesContent(body)",
+        "strings.Contains(text, \"supplier_error=57\")",
+        "strings.Contains(text, \"conversation data missing\")"
       ],
-      "rationale": "Cursor planning and execution share the native content parser; unsupported nested content is excluded before account selection without duplicating a block whitelist."
+      "rationale": "Cursor planning and execution share the native content parser; unsupported nested content is excluded before account selection without duplicating a block whitelist. Continuation self-heal retries only before client bytes and only for explicit restore/supplier-57 failures."
+    },
+    {
+      "path": "backend/internal/integration/cursor/messages_retry_tk_test.go",
+      "must_contain": [
+        "TestMessagesContinuationDataMissingRetriesInFreshConversation",
+        "TestMessagesSupplierError57ContinuationRetriesInFreshConversation",
+        "TestMessagesSupplierError57ResourceExhaustedRetriesInFreshConversation",
+        "TestClassifyCursorContinuationRetry",
+        "TestMessagesContinuationRetrySkipsAfterStreamingStarted",
+        "bare conversation keyword is not enough",
+        "supplier error 57 with resource_exhausted"
+      ],
+      "rationale": "Focused regression must keep Messages continuation self-heal narrow: restore/supplier-57 retry before client bytes (including production resource_exhausted+57), never after streaming starts, and never on bare conversation/resume/blob keywords."
     },
     {
       "path": "backend/internal/service/pricing_scope_consistency_tk_test.go",
