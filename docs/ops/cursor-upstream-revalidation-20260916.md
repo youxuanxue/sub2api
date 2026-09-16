@@ -55,13 +55,61 @@ verification. No returned command text was executed.
 - #2182 GPT exclusion remains covered; removing stale Composer 2 mapping is a
   separate account capability correction.
 
-Composer semantic failures remain unresolved after three unsuccessful service
-investigation runs across the retained evidence, including the name-alignment
-candidate. Further live Composer experiments are paused under AGENTS.md's
-three-failure rule. Next investigation needs an explicitly authorized bounded
-comparison against official CLI/checkpoint behavior; it must not retry or bypass
-policy refusals. The supplier's internal policy trigger for Opus remains unknown.
+## Resumed official CLI / checkpoint investigation
 
-Local validation: focused native/service Cursor and import regressions pass.
-Final repository preflight status is recorded in the accompanying PR. No merge,
-release, deployment, account unpause or policy acknowledgement is included.
+The operator authorized this bounded round after the earlier three-failure
+pause. Tests used the same production egress and account, pinned official CLI
+`2026.09.02-c22c1a3`, and an isolated container permitting only MCP fixture calls
+and MCP tool discovery. Returned text was never executed. Fable remains excluded.
+
+| Controlled comparison | Result |
+| --- | --- |
+| Composer 2.5 official CLI, same prompt, one fixture execution | Correct fresh nonce in terminal result |
+| Composer successful tool-complete checkpoint, fresh connection and conversation ID | Correct nonce and native usage |
+| Same checkpoint without unknown state fields, provider options, non-tool root IDs or experimental tool content | Passed |
+| Same fixture reconstructed with TokenKey's stateless history and minimal system head | Passed |
+| Same reconstruction, only adding Chat's `toolu_` ID prefix to both call and result | Passed |
+| Exact previously failed Chat Run payload and request context, only fresh conversation/request identity | Passed |
+| Same failed history with the captured official Composer system head | Passed; original minimal head also passed, so this does not isolate a system-head defect |
+| Opus 5 official CLI, one fixture execution | Correct fresh nonce in terminal result |
+| Opus successful checkpoint on a fresh connection | Correct nonce and native usage |
+| Composer fixed-history service matrix | Buffered Messages returned the correct nonce; streaming Messages returned `APPLE`. Stopped immediately; other cells not run |
+
+For the last comparison, both native prompt snapshots have SHA-256
+`3f3bc955a30981346411281de129158f64c51aa009ba752599d7633accbb1f25`.
+Decoding the **raw upstream protobuf** confirms that the first response contains
+the exact nonce and the second contains `APPLE`. The fixed-history buffered
+request also matches the previous failed Chat prompt hash. This is evidence of
+variable upstream output for equivalent reconstructed history, not a text
+corruption introduced by SSE/Chat response conversion.
+
+The investigation rules out a universal account/model outage, a hard requirement
+for the original connection, and the ID prefix as a deterministic failure trigger.
+It does **not** reveal the supplier's internal trigger or prove that generic
+ResumeAction context is equally reliable as official CLI context. One successful
+system-head substitution is not enough to justify copying a vendor system prompt
+into production. No speculative system, history-ID or retry change was added.
+
+The earlier Opus supplier 13 `CONTENT_POLICY` remains genuine upstream evidence.
+Official CLI/checkpoint success shows it is not a blanket inability to use Opus;
+no policy rejection was retried or bypassed in this round. These successes do not
+establish reliable production continuation or persisted billing acceptance.
+
+## Validation and release boundary
+
+The local wire-name correction and Composer 2 retirement remain the only Cursor
+runtime changes. Root-cause isolation of the supplier's intermittent semantic
+output/policy trigger remains unresolved, so the PR stays draft and account 150
+stays paused. No merge, deployment, account unpause or policy acknowledgement.
+
+The PR's first CI run passed unit/integration/browser/lint/preflight checks but
+failed security scanning on existing gRPC advisories GO-2026-6443 and
+GO-2026-6348. Upgraded gRPC to 1.83.2 and its required transitive versions;
+`govulncheck@v1.8.0 ./...` reports zero reachable vulnerabilities. Local backend
+unit results, final preflight and current CI are recorded in the accompanying PR.
+
+Synthetic captures and compiler-overlay experiments remain in protected local
+operator artifacts. Remote credentials, containers and task files and temporary
+S3 transports are removed after collection. Official trace request IDs:
+Composer `32e47b8d-5b34-4cef-8d8f-f3eed0cb5dac`; the subsequent replay requests
+use fresh IDs and never reuse the supplier connection.
