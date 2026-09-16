@@ -100,6 +100,33 @@ func TestMessagesSupplierError57ContinuationRetriesInFreshConversation(t *testin
 	require.NoError(t, resp.Body.Close())
 }
 
+func TestMessagesSupplierError57ResourceExhaustedRetriesInFreshConversation(t *testing.T) {
+	body := []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"continue"}]}`)
+	calls := 0
+	var requestIDs []string
+	do := func(req *http.Request) (*http.Response, error) {
+		calls++
+		requestIDs = append(requestIDs, req.Header.Get("X-Request-Id"))
+		if calls == 1 {
+			raw := []byte(`{"code":"resource_exhausted","message":"Cursor supplier error 57"}`)
+			return &http.Response{StatusCode: http.StatusTooManyRequests, Body: io.NopCloser(bytes.NewReader(raw))}, nil
+		}
+		var data bytes.Buffer
+		require.NoError(t, writeAgentFrame(&data, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "recovered"}}}))
+		require.NoError(t, writeAgentFrame(&data, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(3), OutputTokens: proto.Int64(1), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)}}}))
+		return &http.Response{StatusCode: http.StatusOK, ProtoMajor: 2, Body: io.NopCloser(bytes.NewReader(data.Bytes()))}, nil
+	}
+	resp, err := Messages(context.Background(), "test-token", body, nil, "composer-2.5", do)
+	require.NoError(t, err)
+	raw, readErr := io.ReadAll(resp.Body)
+	require.NoError(t, readErr)
+	require.Contains(t, string(raw), `"text":"recovered"`)
+	require.Equal(t, 2, calls)
+	require.Len(t, requestIDs, 2)
+	require.NotEqual(t, requestIDs[0], requestIDs[1])
+	require.NoError(t, resp.Body.Close())
+}
+
 func TestClassifyCursorContinuationRetry(t *testing.T) {
 	for _, tt := range []struct {
 		name string
@@ -111,10 +138,12 @@ func TestClassifyCursorContinuationRetry(t *testing.T) {
 		{name: "cant be restored", err: newAgentRejection(http.StatusBadRequest, "failed_precondition", "checkpoint can't be restored", "", "req-a"), want: cursorContinuationRetryConversationDataMissing},
 		{name: "supplier error 57", err: newAgentRejection(http.StatusBadRequest, "invalid_argument", "ResumeAction unavailable: Cursor supplier error 57", "", "req-a"), want: cursorContinuationRetryContinuationFailure},
 		{name: "supplier_error=57 code form", err: newAgentRejection(http.StatusBadRequest, "aborted", "upstream supplier_error=57 on resume", "", "req-a"), want: cursorContinuationRetryContinuationFailure},
+		{name: "supplier error 57 with resource_exhausted", err: newAgentRejection(http.StatusTooManyRequests, "resource_exhausted", "Cursor supplier error 57", "", "req-a"), want: cursorContinuationRetryContinuationFailure},
 		{name: "bare conversation keyword is not enough", err: newAgentRejection(http.StatusBadRequest, "invalid_argument", "invalid conversation parameters", "", "req-a"), want: cursorContinuationRetryNone},
 		{name: "bare resume keyword is not enough", err: newAgentRejection(http.StatusBadRequest, "invalid_argument", "resume token expired", "", "req-a"), want: cursorContinuationRetryNone},
 		{name: "bare blob keyword is not enough", err: newAgentRejection(http.StatusBadRequest, "data_loss", "blob checksum mismatch", "", "req-a"), want: cursorContinuationRetryNone},
-		{name: "non-allowlisted code ignores supplier 57 text", err: newAgentRejection(http.StatusTooManyRequests, "resource_exhausted", "Cursor supplier error 57", "", "req-a"), want: cursorContinuationRetryNone},
+		{name: "resource_exhausted without supplier 57 is not enough", err: newAgentRejection(http.StatusTooManyRequests, "resource_exhausted", "Provider Error: rate limited", "", "req-a"), want: cursorContinuationRetryNone},
+		{name: "non-allowlisted code ignores supplier 57 text", err: newAgentRejection(http.StatusForbidden, "permission_denied", "Cursor supplier error 57", "", "req-a"), want: cursorContinuationRetryNone},
 		{name: "policy action required", err: &AgentRejection{Code: "failed_precondition", Diagnostic: "Conversation data missing", ProviderMessage: "Review Data Policy", ActionRequired: "data_retention_consent", Cause: &Error{Status: http.StatusBadRequest}}, want: cursorContinuationRetryNone},
 		{name: "plain text is not structured rejection", err: errors.New("Conversation data missing"), want: cursorContinuationRetryNone},
 	} {

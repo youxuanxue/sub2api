@@ -22,7 +22,8 @@ from this investigation at the operator's request.
 - Added Cursor native Messages continuation self-heal: before any client bytes,
   retry once in a fresh RunAgent conversation for explicit restore failures
   (`conversation data missing` / `missing blobs` / `can't be restored`) and
-  supplier error 57 with allowlisted Connect codes. Policy/consent
+  supplier error 57 with allowlisted Connect codes (including the production
+  `resource_exhausted` pairing). Policy/consent
   `ActionRequired` rejections are never retried. Bare `conversation` /
   `resume` / `blob` keywords are not enough to retry.
 

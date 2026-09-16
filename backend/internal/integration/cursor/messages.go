@@ -259,7 +259,7 @@ func classifyCursorContinuationRetry(err error) cursorContinuationRetryKind {
 	case strings.Contains(text, "supplier_error=57"),
 		strings.Contains(text, "supplier error 57"):
 		switch rejection.Code {
-		case "invalid_argument", "failed_precondition", "aborted", "data_loss":
+		case "invalid_argument", "failed_precondition", "aborted", "data_loss", "resource_exhausted":
 			return cursorContinuationRetryContinuationFailure
 		}
 	}
