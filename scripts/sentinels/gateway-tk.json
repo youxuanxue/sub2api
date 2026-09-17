@@ -11406,6 +11406,24 @@
       "rationale": "Registry-owned vt_ status reads must reach VideoFetch before Grok/composite/native platform gates because the model-less GET's temporary platform cannot identify the submit route. Non-vt_ provider request IDs continue through their native status handlers. OpenAI-compat platform gate for POST /audio/speech; non-compat groups must keep 404. Injection into AudioSpeech is the only route into native Token Plan TTS."
     },
     {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
+      "must_contain": [
+        "func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc",
+        "tkOpenAIImageGenerationsDispatch(getGroupPlatform(c))",
+        "case \"images\":\n\t\t\th.OpenAIGateway.Images(c)",
+        "case \"image_generations\":\n\t\t\th.OpenAIGateway.ImageGenerations(c)"
+      ],
+      "rationale": "Native OpenAI POST /images/generations must dispatch to Images() (OAuth Codex Image Bridge + APIKey relay), not the APIKey-only ImageGenerations forwarder. Compat-pool platforms (newapi) still fall through to ImageGenerations. Reverting PlatformOpenAI to ImageGenerations silently breaks OAuth gpt-image serving while compile and newapi paths stay green."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_image_dispatch_test.go",
+      "must_contain": [
+        "TestTkOpenAIImageGenerationsDispatch_PlatformOpenAIUsesImages",
+        "TestTkOpenAIImageGenerationsDispatch_CompatPoolUsesImageGenerations"
+      ],
+      "rationale": "Focused dispatch regressions for tkOpenAIImageGenerationsDispatch: PlatformOpenAI must select images; OpenAI-compat pool members must keep image_generations."
+    },
+    {
       "path": "backend/internal/service/ali_token_plan_tts_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) ForwardAliTokenPlanTTS(",

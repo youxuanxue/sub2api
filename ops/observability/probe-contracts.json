@@ -26,6 +26,18 @@
       "setup_error"
     ]
   },
+  "probe_openai_upstream_image.sh": {
+    "companions": [],
+    "verdicts": [
+      "servable_image_generated",
+      "servable_image_returned",
+      "upstream_ok_but_no_image",
+      "upstream_auth_rejected",
+      "upstream_rejected",
+      "upstream_error",
+      "setup_error"
+    ]
+  },
   "probe_kiro_upstream_models.sh": {
     "companions": [
       "ops/kiro/probe_runtime_gateway.py",
