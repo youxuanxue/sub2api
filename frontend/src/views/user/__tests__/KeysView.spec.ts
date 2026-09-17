@@ -574,9 +574,17 @@ describe('user KeysView column settings', () => {
     const groupSelect = (wrapper: VueWrapper) => wrapper.findComponent('[data-tour="key-form-group"]')
     const optionIds = (wrapper: VueWrapper) => groupSelect(wrapper).props('options').map((option: { value: number }) => option.value)
     const chooseProvider = (wrapper: VueWrapper, value: string) => wrapper.get(`input[name="key-provider"][value="${value}"]`).setValue()
+    const disableUniversal = async (wrapper: VueWrapper) => {
+      // TK defaults new keys to universal; provider radios only render for direct routing.
+      const universalToggle = wrapper.find('[data-tour="key-form-universal"]')
+      if (universalToggle.exists()) {
+        await universalToggle.trigger('click')
+      }
+    }
     const openCreate = async () => {
       const wrapper = await mountView()
       await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+      await disableUniversal(wrapper)
       return wrapper
     }
 
@@ -647,6 +655,7 @@ describe('user KeysView column settings', () => {
       await groupSelect(wrapper).vm.$emit('update:modelValue', 5)
       await wrapper.get('[data-test="close-dialog"]').trigger('click')
       await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+      await disableUniversal(wrapper)
       expect(optionIds(wrapper)).toEqual([1])
       expect(groupSelect(wrapper).props('modelValue')).toBeNull()
       await wrapper.get('[data-test="close-dialog"]').trigger('click')

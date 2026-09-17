@@ -462,17 +462,15 @@ describe('API Client', () => {
       expect(adapter.mock.calls[1][0].headers.get('Authorization')).toBe('Bearer new-token')
     })
 
-    it.each([429, 500, 503, 0])('刷新暂时失败（%s）时保留会话并返回实际状态', async (status) => {
+    it.each([429, 500, 503])('刷新暂时失败（%s）时保留会话并返回实际状态', async (status) => {
       localStorage.setItem('auth_token', 'expired-token')
       localStorage.setItem('refresh_token', 'refresh-token')
       localStorage.setItem('auth_user', JSON.stringify({ id: 7 }))
       localStorage.setItem('token_expires_at', '123')
       const refreshError = new axios.AxiosError('Refresh unavailable', 'ERR_NETWORK')
-      if (status) {
-        refreshError.response = {
-          status, data: { message: 'Please try again later' }, statusText: '',
-          headers: {}, config: { headers: new axios.AxiosHeaders() },
-        }
+      refreshError.response = {
+        status, data: { message: 'Please try again later' }, statusText: '',
+        headers: {}, config: { headers: new axios.AxiosHeaders() },
       }
       const refresh = await import('@/api/tokenRefresh')
       vi.spyOn(refresh, 'refreshAuthTokens').mockRejectedValueOnce(refreshError)
@@ -484,7 +482,34 @@ describe('API Client', () => {
 
       await expect(apiClient.get('/test')).rejects.toMatchObject({
         status, code: 'TOKEN_REFRESH_UNAVAILABLE',
-        message: status ? 'Please try again later' : 'Refresh unavailable',
+        message: 'Please try again later',
+      })
+      expect(adapter).toHaveBeenCalledTimes(1)
+      expect(localStorage.getItem('auth_token')).toBe('expired-token')
+      expect(localStorage.getItem('refresh_token')).toBe('refresh-token')
+      expect(localStorage.getItem('auth_user')).toBe(JSON.stringify({ id: 7 }))
+      expect(localStorage.getItem('token_expires_at')).toBe('123')
+      expect(sessionStorage.getItem('auth_expired')).toBeNull()
+      expect(window.location.pathname).toBe('/')
+    })
+
+    it('刷新网络失败（status 0）时保留会话并返回 NETWORK_ERROR', async () => {
+      localStorage.setItem('auth_token', 'expired-token')
+      localStorage.setItem('refresh_token', 'refresh-token')
+      localStorage.setItem('auth_user', JSON.stringify({ id: 7 }))
+      localStorage.setItem('token_expires_at', '123')
+      const refreshError = new axios.AxiosError('Refresh unavailable', 'ERR_NETWORK')
+      const refresh = await import('@/api/tokenRefresh')
+      vi.spyOn(refresh, 'refreshAuthTokens').mockRejectedValueOnce(refreshError)
+      const adapter = vi.fn().mockRejectedValueOnce({
+        response: { status: 401, data: { code: 'TOKEN_EXPIRED' } },
+        config: { url: '/test', headers: { Authorization: 'Bearer expired-token' } },
+      })
+      apiClient.defaults.adapter = adapter
+
+      await expect(apiClient.get('/test')).rejects.toMatchObject({
+        status: 0, code: 'NETWORK_ERROR',
+        message: 'Network error. Please check your connection.',
       })
       expect(adapter).toHaveBeenCalledTimes(1)
       expect(localStorage.getItem('auth_token')).toBe('expired-token')

@@ -262,29 +262,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				nil,
 			)
 		}
-		requestedReasoningEffort := CanonicalRequestedReasoningEffort(normalized, strings.TrimSpace(values[1].String()))
-		if next, policyErr := applyOpenAIWSReasoningEffortPolicy(normalized, hooks); policyErr != nil {
-			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, policyErr.Error(), policyErr)
-		} else {
-			normalized = next
-		}
-		responsesLite := isOpenAIResponsesLiteWebSocketPayload(normalized)
-		if compatibilityBody, compatibilityChanged, compatibilityErr := normalizeOpenAIResponsesWebSocketCompatibilityBody(normalized, account, responsesLite); compatibilityErr != nil {
-			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", compatibilityErr)
-		} else if compatibilityChanged {
-			normalized = compatibilityBody
-		}
-		if account.IsOpenAIOAuthLike() {
-			aliasedBody, reverse, aliased, aliasErr := aliasOpenAIOAuthReservedToolNamesBody(normalized)
-			if aliasErr != nil {
-				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, aliasErr.Error(), aliasErr)
-			}
-			updateCodexToolNameReverseForWSFrame(c, normalized, reverse)
-			if aliased {
-				normalized = aliasedBody
-			}
-		}
-
 		originalModel := strings.TrimSpace(values[1].String())
 		modelMissing := originalModel == ""
 		if originalModel == "" {
@@ -312,6 +289,20 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				nil,
 			)
 		}
+		// BeforeRequest must run before reasoning-effort policy so each turn
+		// resolves CurrentReasoningEffortPolicy against the admitted billing
+		// origin (candidate RevalidateTurn). Passthrough already uses this order.
+		if hooks != nil && hooks.BeforeRequest != nil && (turn > 1 || CandidateRequestFromContext(ctx) != nil) {
+			if err := hooks.BeforeRequest(turn, normalized, originalModel); err != nil {
+				return openAIWSClientPayload{}, err
+			}
+		}
+		if turn > 1 && hooks != nil && hooks.BeforeTurn != nil {
+			if err := hooks.BeforeTurn(turn); err != nil {
+				return openAIWSClientPayload{}, err
+			}
+		}
+		requestedReasoningEffort := CanonicalRequestedReasoningEffort(normalized, originalModel)
 		if turnMetadata := strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader)); turnMetadata != "" {
 			next, setErr := applyPayloadMutation(normalized, "client_metadata."+openAIWSTurnMetadataHeader, turnMetadata)
 			if setErr != nil {
@@ -332,6 +323,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		} else {
 			normalized = prepared
 		}
+		responsesLite := isOpenAIResponsesLiteWebSocketPayload(normalized)
 		if responsesLite {
 			litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(normalized, account)
 			if liteErr != nil {
@@ -353,18 +345,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		codexImageGenerationExplicitToolPolicy := codexImageGenerationExplicitToolPolicyAllow
 		if isCodexCLI {
 			codexImageGenerationExplicitToolPolicy = account.CodexImageGenerationExplicitToolPolicy()
-		}
-		if turn > 1 && hooks != nil {
-			if hooks.BeforeRequest != nil {
-				if err := hooks.BeforeRequest(turn, normalized, originalModel); err != nil {
-					return openAIWSClientPayload{}, err
-				}
-			}
-			if hooks.BeforeTurn != nil {
-				if err := hooks.BeforeTurn(turn); err != nil {
-					return openAIWSClientPayload{}, err
-				}
-			}
 		}
 		requestModel := originalModel
 		if hooks != nil && hooks.MapRequestModel != nil {
