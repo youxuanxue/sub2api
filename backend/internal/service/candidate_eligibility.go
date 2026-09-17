@@ -40,9 +40,15 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 		case errors.Is(err, protocolrouter.ErrModelPolicyDenied):
 			return false, ErrUniversalUnsupportedModel
 		case errors.Is(err, ErrProtocolCapabilityUnknown):
-			// Missing or conflicted capability evidence is an unknown candidate
-			// state. It must not be reported as either model rejection or lack of
-			// entitlement.
+			// Capability evidence is checked before model admission. A peer that
+			// does not map this model cannot become a candidate anyway; surfacing
+			// its unknown evidence would poison Gemini→Chat (and similar) assembly
+			// into a platform 500. Use the mapping-only admit helper (not the Plan
+			// path): accountAdmitsRequestedModelWithContext is circular here because
+			// unknown capability already makes Plan eligibility false.
+			if model != "" && !accountAdmitsRequestedModel(account, model, thinkingEnabledFromCtx(ctx)) {
+				return false, ErrUniversalUnsupportedModel
+			}
 			return false, err
 		case errors.Is(err, protocolrouter.ErrNoLegalRoute):
 			return false, nil

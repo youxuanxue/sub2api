@@ -396,6 +396,11 @@ func candidatePathAllowsEndpoint(ctx context.Context, account *Account, group *G
 
 func candidateSelectionError(supported bool, err error, model string) error {
 	if err != nil && (!supported || !errors.Is(err, protocolrouter.ErrNoLegalRoute)) {
+		// No account supported this request: unknown/conflicted peer capability
+		// must not become a platform routing 500. Treat it as a client model miss.
+		if !supported && (errors.Is(err, ErrProtocolCapabilityUnknown) || errors.Is(err, ErrProtocolRouteUnavailable)) {
+			return fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
+		}
 		return err
 	}
 	if supported {
