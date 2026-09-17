@@ -37,6 +37,8 @@ type CandidateRequest struct {
 	rpm                   candidateRPMAdmission
 	chatAttempts          int
 	chatDeadline          time.Time
+	capacityPlatformHint  string
+	capacityGroupHint     int64
 }
 
 type candidateRequestContextKey struct{}
@@ -394,12 +396,12 @@ func candidatePathAllowsEndpoint(ctx context.Context, account *Account, group *G
 	return true
 }
 
-func candidateSelectionError(supported bool, err error, model string) error {
+func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64) error {
 	if err != nil && (!supported || !errors.Is(err, protocolrouter.ErrNoLegalRoute)) {
 		return err
 	}
 	if supported {
-		return ErrUniversalCapacityUnavailable
+		return newUniversalCapacityError(platformHint, groupID)
 	}
 	return fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
 }

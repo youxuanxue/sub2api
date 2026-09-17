@@ -1831,10 +1831,29 @@
       "path": "backend/internal/handler/ops_error_logger_tk_universal_routing_test.go",
       "must_contain": [
         "TestOpsUniversalRoutingFailureIsPlatformOwned",
+        "TestOpsUniversalRoutingCapacityRecordsRequestedModel",
         "middleware.MaybeResolveUniversal(c, key, resolver)",
         "classifyOpsErrorLog(c, parsed.ErrorType, parsed.Message, parsed.Code, recorder.Code)"
       ],
-      "rationale": "A pre-selection Universal failure must remain routing/platform-owned across protocol envelopes and must not disappear into client permission failures."
+      "rationale": "A pre-selection Universal failure must remain routing/platform-owned across protocol envelopes. Capacity 429 aborts must persist peeked model into ops_error_logs (pool-supply attribution) and must not disappear into client permission failures."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "service.SetOpsRequestModel(c, model)",
+        "service.MarkOpsRoutingCapacityLimited(c)",
+        "applyUniversalCapacityPlatformHint(c, err)"
+      ],
+      "rationale": "Universal capacity 429 aborts before handlers; Ops model/platform attribution and routing-capacity marking must stay at the middleware exit or empty-pool storms lose model identity (prod key 420 empty-pool 429 blind spot)."
+    },
+    {
+      "path": "backend/internal/service/ops_upstream_context.go",
+      "must_contain": [
+        "func SetOpsRequestModel(",
+        "func MarkOpsRoutingCapacityLimited(",
+        "OpsRoutingCapacityLimitedKey = \"ops_routing_capacity_limited\""
+      ],
+      "rationale": "Shared Ops helpers used by middleware and handler for empty-pool attribution; dropping them reintroduces empty model/platform on universal capacity 429s."
     },
     {
       "path": "backend/internal/handler/protocol_request.go",

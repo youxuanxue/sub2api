@@ -132,6 +132,16 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 	if model == "" && (shape == service.ShapeOpenAIImages || shape == service.ShapeOpenAIImagesEdit) {
 		model = service.DefaultOpenAIImagesModel
 	}
+	// Peeked model must land in Ops context before any abort: universal capacity
+	// 429s never reach handlers that call setOpsRequestModelAndBody, and without
+	// this field ops_error_logs.model / terminal-outcome model stay empty.
+	service.SetOpsRequestModel(c, model)
+	annotateUniversalOpsPlatformHint(c, shape, forcedPlatform)
+	if model != "" {
+		// Rebind logger after defaulting images model so request_model is accurate.
+		reqLog = universalRoutingLogger(c, apiKey, shape, model, forcedPlatform)
+	}
+
 	if resolver.CandidateSchedulingEnabled() && model != "" {
 		var candidate *service.CandidateRequest
 		candidate, err = resolver.PrepareCandidateIngress(c, apiKey, shape, requestPath, model, decodedBody, forcedPlatform)
@@ -159,6 +169,8 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			writeUniversalRoutingError(c, shape, model)
 		} else if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
 			reqLog.Warn("universal_routing.capacity_unavailable")
+			service.MarkOpsRoutingCapacityLimited(c)
+			applyUniversalCapacityPlatformHint(c, err)
 			writeUniversalRoutingCapacityError(c, shape)
 		} else if status := infraerrors.Code(err); status >= 400 && status < 500 {
 			writeCandidateBillingError(c, shape, err)
@@ -214,6 +226,45 @@ func writeUniversalRoutingCapacityError(c *gin.Context, shape service.UniversalS
 		AnthropicErrorWriter(c, status, message)
 	default:
 		c.JSON(status, gin.H{"error": gin.H{"message": message, "type": "rate_limit_error", "code": "no_available_accounts"}})
+	}
+}
+
+// annotateUniversalOpsPlatformHint sets ResolvedTargetPlatform when the ingress
+// shape or ForcePlatform uniquely identifies a provider. OpenAI-compat shapes
+// stay unset until a backing group binds or a capacity error carries a hint —
+// /v1/chat/completions alone cannot name newapi vs openai vs anthropic.
+func annotateUniversalOpsPlatformHint(c *gin.Context, shape service.UniversalShape, forcedPlatform string) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	if _, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {
+		return
+	}
+	platform := strings.TrimSpace(forcedPlatform)
+	if platform == "" {
+		switch shape {
+		case service.ShapeGemini:
+			platform = service.PlatformGemini
+		case service.ShapeAnthropicMessages, service.ShapeAnthropicCountTokens:
+			platform = service.PlatformAnthropic
+		}
+	}
+	if platform == "" {
+		return
+	}
+	c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), platform))
+}
+
+func applyUniversalCapacityPlatformHint(c *gin.Context, err error) {
+	if c == nil || c.Request == nil || err == nil {
+		return
+	}
+	if _, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {
+		return
+	}
+	var capErr *service.UniversalCapacityError
+	if errors.As(err, &capErr) && strings.TrimSpace(capErr.Platform) != "" {
+		c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), strings.TrimSpace(capErr.Platform)))
 	}
 }
 

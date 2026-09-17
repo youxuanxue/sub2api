@@ -31,7 +31,6 @@ const (
 	opsStreamKey                 = "ops_stream"
 	opsAccountIDKey              = "ops_account_id"
 	opsChannelTypeKey            = "ops_channel_type"
-	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
 	opsDedicatedErrorRecordedKey = "ops_dedicated_error_recorded"
 
 	opsUpstreamModelKey = service.OpsUpstreamModelKey
@@ -534,10 +533,7 @@ func setOpsSelectedAccountFrom(c *gin.Context, account *service.Account) {
 }
 
 func markOpsRoutingCapacityLimited(c *gin.Context) {
-	if c == nil {
-		return
-	}
-	c.Set(opsRoutingCapacityLimitedKey, true)
+	service.MarkOpsRoutingCapacityLimited(c)
 }
 
 func markOpsRoutingCapacityLimitedIfNoAvailable(c *gin.Context, err error) {
@@ -548,15 +544,7 @@ func markOpsRoutingCapacityLimitedIfNoAvailable(c *gin.Context, err error) {
 }
 
 func isOpsRoutingCapacityLimited(c *gin.Context) bool {
-	if c == nil {
-		return false
-	}
-	v, ok := c.Get(opsRoutingCapacityLimitedKey)
-	if !ok {
-		return false
-	}
-	marked, _ := v.(bool)
-	return marked
+	return service.HasOpsRoutingCapacityLimited(c)
 }
 
 func isOpsNoAvailableAccountError(err error) bool {

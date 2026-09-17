@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,6 +96,7 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 		usable[group.ID] = ok
 	}
 	supported := false
+	var capacityHint *Group
 	var candidates []*candidateExecutionPath
 	for i := range accounts {
 		account := &accounts[i]
@@ -127,6 +129,11 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			}
 			path.sticky = sticky
 			supported = true
+			// First supported group only — must NOT call lessUniversalBacking here
+			// (gateway-tk forbids group sort order as an account-selection weight).
+			if capacityHint == nil {
+				capacityHint = group
+			}
 			if !r.pathReady(path, options) {
 				continue
 			}
@@ -162,6 +169,11 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			path.group = group
 			candidates = append(candidates, path)
 		}
+	}
+	if supported && capacityHint != nil {
+		platform := strings.TrimSpace(capacityHint.Platform)
+		r.capacityPlatformHint = platform
+		r.capacityGroupHint = capacityHint.ID
 	}
 	return candidates, supported, failure
 }
@@ -250,8 +262,12 @@ func (r *CandidateRequest) pathReady(path *candidateExecutionPath, options candi
 // Account ID is deduplicated only after selecting the admitted payment tier.
 func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateSelectOptions) (*AccountSelectionResult, error) {
 	paths, supported, evaluationErr := r.candidates(ctx, options)
+	capacityPlatform := r.capacityPlatformHint
+	if fp := strings.TrimSpace(r.forcePlatform); fp != "" {
+		capacityPlatform = fp
+	}
 	if len(paths) == 0 {
-		return nil, candidateSelectionError(supported, evaluationErr, r.model)
+		return nil, candidateSelectionError(supported, evaluationErr, r.model, capacityPlatform, r.capacityGroupHint)
 	}
 	gw := r.resolver.candidateGateway
 	for _, subscriptionTier := range []bool{true, false} {
@@ -355,7 +371,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 					Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting}}), nil
 		}
 	}
-	return nil, candidateSelectionError(supported, evaluationErr, r.model)
+	return nil, candidateSelectionError(supported, evaluationErr, r.model, capacityPlatform, r.capacityGroupHint)
 }
 
 func candidateCompatibilityRank(path *candidateExecutionPath) int {
