@@ -1,7 +1,8 @@
 /**
- * TokenKey-only: Studio media membership + prices from the public / me pricing
- * catalogs (billing_mode image | video). Presentation metadata stays in
- * studioMediaPresentations.tk.ts — this module must NOT invent model inventories.
+ * TokenKey-only: Studio media **price enrichment** from public / me pricing
+ * catalogs (`billing_mode` image | video). Membership (which models a key may
+ * list) is owned by the entitlement pool + `modalityForModel` in
+ * studioMediaPresentations.tk.ts — this module must NOT invent inventories.
  */
 import type { PublicCatalogModel, PublicPricingVideoTier } from '@/api/pricing'
 import type { MePricingModel } from '@/api/me-pricing'

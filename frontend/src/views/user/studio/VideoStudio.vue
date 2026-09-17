@@ -34,7 +34,10 @@
               <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-800 dark:text-dark-300">{{ t(r.presentation.qualityBadgeKey) }}</span>
             </div>
             <div class="mt-1 flex items-center justify-between gap-2">
-              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">{{ formatUsd(modelCardPerSecond(r)) }}{{ t('studio.video.perSecondUnit') }}</span>
+              <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">
+                <template v-if="r.perSecond != null || (r.videoTiers && r.videoTiers.length)">{{ formatUsd(modelCardPerSecond(r)) }}{{ t('studio.video.perSecondUnit') }}</template>
+                <template v-else>{{ t('studio.image.usagePriced') }}</template>
+              </span>
               <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.presentation.vendorLabel }) }}</span>
             </div>
             <div class="mt-0.5 truncate font-mono text-[10px] text-gray-400 dark:text-dark-500" :title="r.servedId">{{ r.servedId }}</div>

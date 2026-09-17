@@ -1,13 +1,17 @@
 /**
  * TokenKey-only: Studio media presentation + resolver helpers.
  *
- * **Membership SSOT** (which image/video models exist for a key) lives in the
- * pricing catalogs (`GET /api/v1/public/pricing`, `GET /api/v1/me/pricing-catalog`)
- * via `billing_mode: image | video` — see `utils/studioMediaCatalog.tk.ts`.
+ * **Membership SSOT** (which models a Studio tab may list for a key) is the
+ * key/group entitlement pool — `/v1/models` or capabilities, which project
+ * account `model_mapping`. Modality is `modalityForModel` (aligned with gateway
+ * intent predicates). Public `/pricing` is NOT a Studio membership gate.
+ *
+ * **Price** from me/public catalogs is enrichment for cost estimates only:
+ * missing per-image / per-second must not hide a mapping-backed model.
  *
  * **This file** holds presentation-only metadata (display names, aspect ratios,
- * discrete video durations, verified adaptor params). A model appears in Studio
- * only when catalog membership ∩ key entitlement ∩ live price all agree.
+ * discrete video durations, verified adaptor params) and synthesizes defaults
+ * when a served id has no curated row.
  */
 
 import { modalityForModel } from '@/constants/playgroundMedia.tk'
@@ -56,40 +60,38 @@ function defaultDisplayName(modelId: string): string {
 }
 
 /**
- * True when this key's pool backs at least one catalog-listed media model of
- * `modality`. Uses the public pricing catalog's billing_mode index (loaded once
- * at Studio bootstrap) — not the presentation table below.
+ * True when the entitlement pool exposes at least one id classified as
+ * `modality` via `modalityForModel` (gateway-aligned intent predicates).
+ *
+ * `catalogBilling` is retained for call-site compatibility and ignored —
+ * Studio membership must not depend on public `/pricing` allowlists.
  */
 export function hasCatalogMediaModality(
   modality: StudioModality,
   availableIds: ReadonlySet<string>,
-  catalogBilling: CatalogBillingIndex
+  _catalogBilling?: CatalogBillingIndex
 ): boolean {
   for (const id of availableIds) {
-    if (catalogBilling.get(id) === modality) return true
+    if (modalityForModel(id) === modality) return true
   }
   return false
 }
 
 /**
- * Whether this group's pool serves `modality` for the SHELL's key picker.
- * Dispatches chat (any chat-classified id in the pool) vs media (catalog
- * billing_mode). Bake-off passes its active image/video sub-modality, so
+ * Whether this group's entitlement pool serves `modality` for the SHELL key
+ * picker. Chat / image / video all use the same owner: pool ids +
+ * `modalityForModel`. Bake-off passes its active image/video sub-modality so
  * the shell keeps the selected key aligned with the child mode.
  */
 export function groupServes(
   modality: PickerModality,
   availableIds: ReadonlySet<string>,
-  catalogBilling: CatalogBillingIndex
+  _catalogBilling?: CatalogBillingIndex
 ): boolean {
-  if (modality === 'chat') {
-    for (const id of availableIds) {
-      if (catalogBilling.has(id)) continue
-      if (modalityForModel(id) === 'chat') return true
-    }
-    return false
+  for (const id of availableIds) {
+    if (modalityForModel(id) === modality) return true
   }
-  return hasCatalogMediaModality(modality, availableIds, catalogBilling)
+  return false
 }
 
 /** One selectable key, reduced to what the modality-aware picker needs. */
@@ -223,6 +225,17 @@ export const GEMINI_IMAGE_SIZES: ImageSizeOption[] = [
   { ratio: '9:16', value: '9:16' },
   { ratio: '16:9', value: '16:9' },
   { ratio: '21:9', value: '21:9' },
+]
+
+/**
+ * OpenAI gpt-image-* via /v1/images/generations: pixel sizes the Images API
+ * accepts for the family (square + landscape/portrait). Used when a mapping-
+ * backed gpt-image id has no curated presentation row.
+ */
+export const GPT_IMAGE_SIZES: ImageSizeOption[] = [
+  { ratio: '1:1', value: '1024x1024' },
+  { ratio: '3:2', value: '1536x1024' },
+  { ratio: '2:3', value: '1024x1536' },
 ]
 
 /** Video aspect ratios — passthrough hint to the task adaptor (TK does not interpret). */
@@ -489,9 +502,9 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     flatImageBilling: true,
     imageSizes: GEMINI_IMAGE_SIZES,
   },
-  // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
-  // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,
-  // add it here with needsApikeyAccount: true.
+  // gpt-image-* membership comes from account model_mapping /v1/models — no
+  // curated presentation required. buildMediaPresentationForCatalogRow supplies
+  // GPT_IMAGE_SIZES defaults when a gpt-image id is served.
 
   // ── video ──
   {
@@ -616,16 +629,20 @@ function buildMediaPresentationForCatalogRow(
   vendor?: string
 ): MediaModelPresentation {
   if (presentation) return presentation
-  return {
+  const synthesized: MediaModelPresentation = {
     modelId: servedId,
     displayName: defaultDisplayName(servedId),
     qualityBadge: 'standard',
     qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: formatVendorLabel(vendor),
+    vendorLabel: formatVendorLabel(vendor) || (servedId.startsWith('gpt-image-') ? 'OpenAI' : ''),
     modality,
     supportedParams: [],
     videoDurations: modality === 'video' ? [VIDEO_DURATION_DEFAULT] : undefined,
   }
+  if (modality === 'image' && servedId.startsWith('gpt-image-')) {
+    synthesized.imageSizes = GPT_IMAGE_SIZES
+  }
+  return synthesized
 }
 
 /** Live per-model price from the user's pricing catalog (getMePricingCatalog). */
@@ -654,10 +671,10 @@ export interface ResolvedMediaModel {
 }
 
 /**
- * Resolve the models the user can actually use for `modality`: shown only when
- * (a) its primary OR an alias id is in `availableIds` AND (b) the live
- * `priceMap` has a price for this modality. This is Studio's CatalogPolicy
- * projection, not a delivery verdict. Sorted cheap → premium.
+ * Resolve models the user can use for `modality` from the entitlement pool
+ * (`availableIds` ← group account model_mapping / capabilities). Price map is
+ * optional enrichment for estimates; missing live price must not hide a
+ * mapping-backed id. Sorted priced-cheap → priced-premium → unpriced.
  */
 export function resolveAvailableModels(
   modality: StudioModality,
@@ -669,23 +686,40 @@ export function resolveAvailableModels(
 
   for (const servedId of availableIds) {
     const price = priceMap.get(servedId)
-    if (!price) continue
-    if (price.billingMode !== modality) continue
+    const poolModality = modalityForModel(servedId)
+    if (poolModality !== modality && price?.billingMode !== modality) continue
 
-    const baseImagePrice = modality === 'image' ? price.perImage : undefined
-    const perSecond = modality === 'video' ? price.perSecond : undefined
-    if (baseImagePrice == null && perSecond == null) continue
+    const baseImagePrice = modality === 'image' ? price?.perImage : undefined
+    const perSecond = modality === 'video' ? price?.perSecond : undefined
 
     const presentation = lookupPresentation(servedId)
     const canonicalId = presentation?.modelId ?? servedId
     if (seenCanonical.has(canonicalId)) continue
     seenCanonical.add(canonicalId)
 
-    const resolvedPresentation = buildMediaPresentationForCatalogRow(servedId, modality, presentation, price.vendor)
-    out.push({ presentation: resolvedPresentation, servedId, baseImagePrice, perSecond, videoTiers: price.videoTiers })
+    const resolvedPresentation = buildMediaPresentationForCatalogRow(
+      servedId,
+      modality,
+      presentation,
+      price?.vendor
+    )
+    out.push({
+      presentation: resolvedPresentation,
+      servedId,
+      baseImagePrice,
+      perSecond,
+      videoTiers: price?.videoTiers,
+    })
   }
 
-  out.sort((a, b) => (a.baseImagePrice ?? a.perSecond ?? 0) - (b.baseImagePrice ?? b.perSecond ?? 0))
+  out.sort((a, b) => {
+    const av = a.baseImagePrice ?? a.perSecond
+    const bv = b.baseImagePrice ?? b.perSecond
+    if (av == null && bv == null) return a.servedId.localeCompare(b.servedId)
+    if (av == null) return 1
+    if (bv == null) return -1
+    return av - bv
+  })
   return out
 }
 

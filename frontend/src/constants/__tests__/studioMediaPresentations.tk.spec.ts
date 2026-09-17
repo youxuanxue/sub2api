@@ -12,6 +12,7 @@ import {
   SEEDREAM_IMAGE_SIZES,
   WAN27_IMAGE_SIZES,
   GEMINI_IMAGE_SIZES,
+  GPT_IMAGE_SIZES,
   type ModalityKeyOption,
   type StudioParam,
   type MediaPriceMap,
@@ -45,12 +46,13 @@ const SEEDANCE = new Set(['doubao-seedance-1-0-pro-250528'])
 const ANTIGRAVITY = new Set(['claude-sonnet-4-5', 'gemini-3-flash'])
 
 describe('hasCatalogMediaModality', () => {
-  it('is true when the pool backs at least one catalog media model', () => {
+  it('is true when the pool backs at least one modality-classified media model', () => {
     expect(hasCatalogMediaModality('image', IMAGEN, IMAGEN_CATALOG)).toBe(true)
     expect(hasCatalogMediaModality('video', SEEDANCE, SEEDANCE_CATALOG)).toBe(true)
+    expect(hasCatalogMediaModality('image', new Set(['gpt-image-2']), EMPTY_CATALOG)).toBe(true)
   })
 
-  it('is false for a pool with no catalog media model', () => {
+  it('is false for a pool with no media-classified id', () => {
     expect(hasCatalogMediaModality('image', ANTIGRAVITY, IMAGEN_CATALOG)).toBe(false)
     expect(hasCatalogMediaModality('video', ANTIGRAVITY, SEEDANCE_CATALOG)).toBe(false)
     expect(hasCatalogMediaModality('image', SEEDANCE, IMAGEN_CATALOG)).toBe(false)
@@ -58,9 +60,11 @@ describe('hasCatalogMediaModality', () => {
     expect(hasCatalogMediaModality('image', new Set(), EMPTY_CATALOG)).toBe(false)
   })
 
-  it('is price-agnostic (the picker must not need a per-group price fetch)', () => {
-    expect(hasCatalogMediaModality('image', IMAGEN, IMAGEN_CATALOG)).toBe(true)
-    expect(resolveAvailableModels('image', IMAGEN, new Map())).toEqual([])
+  it('is catalog-agnostic (membership follows the entitlement pool, not /pricing)', () => {
+    expect(hasCatalogMediaModality('image', IMAGEN, EMPTY_CATALOG)).toBe(true)
+    const unpriced = resolveAvailableModels('image', IMAGEN, new Map())
+    expect(unpriced.map((r) => r.servedId).sort()).toEqual([...IMAGEN].sort())
+    expect(unpriced.every((r) => r.baseImagePrice == null)).toBe(true)
   })
 })
 
@@ -76,9 +80,10 @@ describe('groupServes (chat as a peer picker modality)', () => {
     expect(groupServes('chat', new Set(), EMPTY_CATALOG)).toBe(false)
   })
 
-  it('delegates to catalog billing for image/video', () => {
-    expect(groupServes('image', IMAGEN, IMAGEN_CATALOG)).toBe(true)
-    expect(groupServes('video', SEEDANCE, SEEDANCE_CATALOG)).toBe(true)
+  it('serves image/video from pool modality classification (mapping-backed)', () => {
+    expect(groupServes('image', IMAGEN, EMPTY_CATALOG)).toBe(true)
+    expect(groupServes('video', SEEDANCE, EMPTY_CATALOG)).toBe(true)
+    expect(groupServes('image', new Set(['gpt-image-2']), EMPTY_CATALOG)).toBe(true)
     expect(groupServes('image', ANTIGRAVITY, IMAGEN_CATALOG)).toBe(false)
   })
 })
@@ -140,7 +145,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     ['imagen-4.0-ultra-generate-001', { perImage: 0.06, billingMode: 'image' }],
   ])
 
-  it('lists only catalog-priced image models, sorted cheap → premium, with live price', () => {
+  it('lists pool image models with live prices when present, sorted cheap → premium', () => {
     const out = resolveAvailableModels('image', IMAGEN3, IMAGEN_PRICES)
     expect(out.map((r) => r.presentation.modelId)).toEqual([
       'imagen-4.0-fast-generate-001', // 0.02
@@ -151,9 +156,19 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out.every((r) => r.servedId === r.presentation.modelId)).toBe(true)
   })
 
-  it('hides a catalog candidate that has no live price', () => {
-    const priceless = new Map() // served but unpriced
-    expect(resolveAvailableModels('image', IMAGEN3, priceless)).toEqual([])
+  it('keeps mapping-backed models visible when live price is missing', () => {
+    const out = resolveAvailableModels('image', IMAGEN3, new Map())
+    expect(out.map((r) => r.servedId).sort()).toEqual([...IMAGEN3].sort())
+    expect(out.every((r) => r.baseImagePrice == null)).toBe(true)
+  })
+
+  it('lists gpt-image from the entitlement pool without a public-catalog price row', () => {
+    const out = resolveAvailableModels('image', new Set(['gpt-image-2']), new Map())
+    expect(out).toHaveLength(1)
+    expect(out[0].servedId).toBe('gpt-image-2')
+    expect(out[0].baseImagePrice).toBeUndefined()
+    expect(out[0].presentation.imageSizes).toEqual(GPT_IMAGE_SIZES)
+    expect(out[0].presentation.vendorLabel).toBe('OpenAI')
   })
 
   it('does not infer media modality from price fields when billingMode is missing', () => {
@@ -266,7 +281,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     ).toEqual([])
   })
 
-  it('video pool surfaces only CatalogPolicy video models with per-second price', () => {
+  it('video pool surfaces mapping-backed video models; price is enrichment', () => {
     const out = resolveAvailableModels(
       'video',
       new Set(['doubao-seedance-2-0-fast-260128']),
@@ -276,7 +291,7 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out[0].perSecond).toBe(0.1194)
   })
 
-  it('skips ids whose billing_mode does not match the requested modality', () => {
+  it('skips ids whose pool modality does not match the requested modality', () => {
     expect(
       resolveAvailableModels(
         'video',
