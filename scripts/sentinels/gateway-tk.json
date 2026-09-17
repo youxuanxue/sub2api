@@ -8846,9 +8846,55 @@
         "AccessTokenExpireMinutes int",
         "RefreshTokenExpireDays int",
         "RefreshWindowMinutes int",
-        "RateLimitReaperIntervalSeconds int"
+        "RateLimitReaperIntervalSeconds int",
+        "PprofListen string",
+        "viper.SetDefault(\"server.pprof_listen\", \"127.0.0.1:6060\")",
+        "NormalizeServerPprofListen(c.Server.PprofListen)"
       ],
-      "rationale": "TK JWT expiry granularity and rate-limit reaper config fields in the upstream-shaped config.go. AccessTokenExpireMinutes (minute-granularity access token TTL, higher priority than the upstream ExpireHour), RefreshTokenExpireDays (refresh token TTL), and RefreshWindowMinutes (pre-expiry refresh window) together implement TK's short-lived access + long-lived refresh token pair policy. RateLimitReaperIntervalSeconds is the TK fix for upstream Wei-Shaw/sub2api#2538 (accounts stuck in scheduling limbo after 429 expiry). Losing these fields silently falls back to upstream's hour-granularity single-token auth and disables the reaper, re-opening the #2538 stuck-account bug."
+      "rationale": "TK JWT expiry granularity and rate-limit reaper config fields in the upstream-shaped config.go. AccessTokenExpireMinutes (minute-granularity access token TTL, higher priority than the upstream ExpireHour), RefreshTokenExpireDays (refresh token TTL), and RefreshWindowMinutes (pre-expiry refresh window) together implement TK's short-lived access + long-lived refresh token pair policy. RateLimitReaperIntervalSeconds is the TK fix for upstream Wei-Shaw/sub2api#2538 (accounts stuck in scheduling limbo after 429 expiry). Losing these fields silently falls back to upstream's hour-granularity single-token auth and disables the reaper, re-opening the #2538 stuck-account bug. PprofListen + NormalizeServerPprofListen keep the loopback-only CPU profile listener wired (PR #2202); dropping validation would allow accidental public binds."
+    },
+    {
+      "path": "backend/internal/config/pprof_listen_tk.go",
+      "must_contain": [
+        "func NormalizeServerPprofListen(raw string)",
+        "server.pprof_listen must bind loopback only",
+        "refusing wildcard bind"
+      ],
+      "rationale": "Loopback-only bind rule for server.pprof_listen. Upstream merge or a casual 'expose metrics' change must not reopen 0.0.0.0/wildcard pprof."
+    },
+    {
+      "path": "backend/internal/config/pprof_listen_tk_test.go",
+      "must_contain": [
+        "func TestNormalizeServerPprofListen(t *testing.T)",
+        "rejects_non_loopback_and_wildcard",
+        "0.0.0.0:6060"
+      ],
+      "rationale": "Behavioral guard for NormalizeServerPprofListen rejecting non-loopback binds."
+    },
+    {
+      "path": "backend/internal/server/pprof_tk.go",
+      "must_contain": [
+        "func StartLoopbackPprof(rawListen string)",
+        "config.NormalizeServerPprofListen(rawListen)",
+        "mux.HandleFunc(\"/debug/pprof/\", pprof.Index)"
+      ],
+      "rationale": "Dedicated loopback pprof server must keep validating via NormalizeServerPprofListen before Listen."
+    },
+    {
+      "path": "backend/internal/server/pprof_tk_test.go",
+      "must_contain": [
+        "func TestStartLoopbackPprofRejectsPublicBind(t *testing.T)",
+        "0.0.0.0:6060"
+      ],
+      "rationale": "StartLoopbackPprof must keep rejecting public binds in tests."
+    },
+    {
+      "path": "backend/cmd/server/main.go",
+      "must_contain": [
+        "server.StartLoopbackPprof(cfg.Server.PprofListen)",
+        "server.ShutdownPprof(ctx, pprofSrv)"
+      ],
+      "rationale": "Process lifecycle must start and shut down the loopback pprof listener with the main server."
     },
     {
       "path": "backend/internal/service/openai_ws_forwarder_support.go",
