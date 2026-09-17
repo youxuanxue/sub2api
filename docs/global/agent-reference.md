@@ -1,6 +1,10 @@
 # Agent reference (CLAUDE.md overflow)
 
-Long-form operational reference moved out of root `CLAUDE.md` to stay under the Claude Code memory limit. Hard rules remain in `CLAUDE.md`; load this file when you need gateway topology, Studio SSOT, or the full PR checklist.
+Long-form operational reference moved out of root `CLAUDE.md` so Claude Code does
+not auto-load essays every turn. Session-level hard-rule **bullets** stay in
+`CLAUDE.md`; hard-rule **detail** (§4 / §5.x / §9 / account usage) is in
+[`claude-hard-rules.md`](claude-hard-rules.md). Load this file for gateway
+topology, Studio SSOT, model-delivery nav, or the full PR checklist.
 
 ## Public signup offer SSOT
 
