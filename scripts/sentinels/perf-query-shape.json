@@ -6,9 +6,37 @@
       "path": "backend/internal/repository/user_repo.go",
       "must_contain": [
         "FROM unnest($1::bigint[]) AS u(uid)",
-        "CROSS JOIN LATERAL"
+        "CROSS JOIN LATERAL",
+        "return withUserBalanceLock(id, func() error {",
+        "err := withUserBalanceLock(id, func() error {",
+        "err = withUserBalanceLock(id, func() error {"
       ],
-      "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. It MUST stay a per-user LATERAL MAX so each user resolves via an Index Only Scan Backward on idx_usage_logs_user_created. Reverting to `SELECT user_id, MAX(created_at) ... WHERE user_id = ANY($1) GROUP BY user_id` makes Postgres full Seq-Scan usage_logs (prod: 2.4M rows / 2.3 GB → ~1.3s vs ~0.4ms — measured in PR #877). The revert is semantically identical (same returned map), so the integration test TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only thing that catches the perf regression."
+      "rationale": "GetLatestUsedAtByUserIDs feeds /admin/users and is called unconditionally on every Users-page load. It MUST stay a per-user LATERAL MAX so each user resolves via an Index Only Scan Backward on idx_usage_logs_user_created. Reverting to `SELECT user_id, MAX(created_at) ... WHERE user_id = ANY($1) GROUP BY user_id` makes Postgres full Seq-Scan usage_logs (prod: 2.4M rows / 2.3 GB → ~1.3s vs ~0.4ms — measured in PR #877). The revert is semantically identical (same returned map), so the integration test TestGetLatestUsedAtByUserIDs_UsesUsageLogs stays green either way — this sentinel is the only thing that catches the perf regression. withUserBalanceLock wrappers on balance mutators serialize same-user updates in-process (PR #2203); losing them reopens UPDATE users balance row-lock wait storms under concurrent billing."
+    },
+    {
+      "path": "backend/internal/repository/user_balance_lock_tk.go",
+      "must_contain": [
+        "var userBalanceLocks sync.Map",
+        "func withUserBalanceLock(userID int64, fn func() error) error"
+      ],
+      "rationale": "Package-level same-user balance lock shared by user_repo and usage billing hold. Must stay the single owner so hold reserve/release and post-hoc deduct cannot bypass each other."
+    },
+    {
+      "path": "backend/internal/repository/usage_billing_repo_tk_hold.go",
+      "must_contain": [
+        "err := withUserBalanceLock(cmd.UserID, func() error {",
+        "if err := withUserBalanceLock(userID, func() error {"
+      ],
+      "rationale": "Pre-flight hold reserve/release must share withUserBalanceLock with user_repo balance mutators; otherwise the concurrent-overdraft hold path still stacks users.balance row locks against DeductBalance/UpdateBalance."
+    },
+    {
+      "path": "backend/internal/repository/scheduler_outbox_repo.go",
+      "must_contain": [
+        "SELECT EXISTS (",
+        "FROM scheduler_outbox",
+        "WITH selected AS MATERIALIZED ("
+      ],
+      "rationale": "Healthy outbox poll must short-circuit empty watermarks with EXISTS before the MATERIALIZED FOR UPDATE claim CTE (PR #2203). Dropping EXISTS reverts to claiming every second even when idle — observed on prod CPU samples."
     },
     {
       "path": "backend/internal/repository/usage_log_repo_tk_group_rollup.go",

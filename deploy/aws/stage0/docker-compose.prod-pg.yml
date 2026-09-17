@@ -1,9 +1,3 @@
-# Prod-only Postgres GUC overlay for Stage0 EC2 (~8 GiB).
-# Never ship this file to Lightsail edge user-data — edge stays on stock
-# defaults from docker-compose.yml (shared_buffers≈128MB).
-#
-# Applied when present:
-#   docker compose -f docker-compose.yml -f docker-compose.prod-pg.yml ...
 services:
   postgres:
     command:

@@ -9,7 +9,6 @@ import (
 
 func TestUserRepositoryWithUserBalanceLockSerializesSameUser(t *testing.T) {
 	t.Parallel()
-	repo := &userRepository{}
 	var concurrent atomic.Int32
 	var maxConcurrent atomic.Int32
 
@@ -18,7 +17,7 @@ func TestUserRepositoryWithUserBalanceLockSerializesSameUser(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = repo.withUserBalanceLock(42, func() error {
+			_ = withUserBalanceLock(42, func() error {
 				cur := concurrent.Add(1)
 				for {
 					prev := maxConcurrent.Load()
@@ -40,7 +39,6 @@ func TestUserRepositoryWithUserBalanceLockSerializesSameUser(t *testing.T) {
 
 func TestUserRepositoryWithUserBalanceLockAllowsDifferentUsers(t *testing.T) {
 	t.Parallel()
-	repo := &userRepository{}
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})
 
@@ -50,7 +48,7 @@ func TestUserRepositoryWithUserBalanceLockAllowsDifferentUsers(t *testing.T) {
 		id := userID
 		go func() {
 			defer wg.Done()
-			_ = repo.withUserBalanceLock(id, func() error {
+			_ = withUserBalanceLock(id, func() error {
 				started <- struct{}{}
 				<-release
 				return nil

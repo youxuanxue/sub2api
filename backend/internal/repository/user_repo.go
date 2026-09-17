@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -32,10 +31,6 @@ import (
 type userRepository struct {
 	client *dbent.Client
 	sql    sqlExecutor
-	// balanceMu serializes same-user balance mutations inside one process so
-	// concurrent billing paths queue instead of stacking PG row-lock waits
-	// (observed as UPDATE users SET balance … Lock / UPDATE waiting on prod).
-	balanceMu sync.Map // int64 userID -> *sync.Mutex
 }
 
 // entTxDriver is the transaction-bound Ent driver shape. Its underlying
@@ -54,17 +49,6 @@ func NewUserRepository(client *dbent.Client, sqlDB *sql.DB) service.UserReposito
 
 func newUserRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *userRepository {
 	return &userRepository{client: client, sql: sqlq}
-}
-
-func (r *userRepository) withUserBalanceLock(userID int64, fn func() error) error {
-	v, _ := r.balanceMu.LoadOrStore(userID, &sync.Mutex{})
-	mu, ok := v.(*sync.Mutex)
-	if !ok || mu == nil {
-		return fmt.Errorf("user balance lock type corruption for user %d", userID)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	return fn()
 }
 
 func (r *userRepository) Create(ctx context.Context, userIn *service.User) error {
@@ -912,7 +896,7 @@ func (r *userRepository) filterUsersByAttributes(ctx context.Context, attrs map[
 }
 
 func (r *userRepository) UpdateBalance(ctx context.Context, id int64, amount float64) error {
-	return r.withUserBalanceLock(id, func() error {
+	return withUserBalanceLock(id, func() error {
 		client := clientFromContext(ctx, r.client)
 		update := client.User.Update().Where(dbuser.IDEQ(id)).AddBalance(amount)
 		// Track cumulative recharge amount for percentage-based notifications
@@ -931,7 +915,7 @@ func (r *userRepository) UpdateBalance(ctx context.Context, id int64, amount flo
 }
 
 func (r *userRepository) ApplyRedeemBalanceAdjustment(ctx context.Context, id int64, delta float64) error {
-	return r.withUserBalanceLock(id, func() error {
+	return withUserBalanceLock(id, func() error {
 		const updateSQL = `
 		UPDATE users
 		SET balance = GREATEST(balance + $1, 0), updated_at = NOW()
@@ -957,7 +941,7 @@ func (r *userRepository) ApplyRedeemBalanceAdjustment(ctx context.Context, id in
 // 透支策略：允许余额变为负数，确保当前请求能够完成
 // 中间件会阻止余额 <= 0 的用户发起后续请求
 func (r *userRepository) DeductBalance(ctx context.Context, id int64, amount float64) error {
-	return r.withUserBalanceLock(id, func() error {
+	return withUserBalanceLock(id, func() error {
 		client := clientFromContext(ctx, r.client)
 		n, err := client.User.Update().
 			Where(dbuser.IDEQ(id), dbuser.BalanceGTE(amount)).
@@ -991,7 +975,7 @@ func (r *userRepository) DeductAvailableBalance(ctx context.Context, id int64, a
 	if amount < 0 {
 		return 0, fmt.Errorf("deduction amount must be nonnegative")
 	}
-	err = r.withUserBalanceLock(id, func() error {
+	err = withUserBalanceLock(id, func() error {
 		const updateSQL = `
 		WITH target AS (
 			SELECT id, balance
@@ -1031,7 +1015,7 @@ func (r *userRepository) DeductAvailableBalance(ctx context.Context, id int64, a
 // 并发的计费扣款不会被旧快照覆盖。
 func (r *userRepository) AdjustBalance(ctx context.Context, id int64, delta float64) (service.BalanceChange, error) {
 	var change service.BalanceChange
-	err := r.withUserBalanceLock(id, func() error {
+	err := withUserBalanceLock(id, func() error {
 		const updateSQL = `
 		UPDATE users
 		SET balance = balance + $1, updated_at = NOW()
@@ -1069,7 +1053,7 @@ func (r *userRepository) SetBalance(ctx context.Context, id int64, value float64
 		return service.BalanceChange{Old: current, New: value}, service.ErrBalanceNegative
 	}
 	var change service.BalanceChange
-	err := r.withUserBalanceLock(id, func() error {
+	err := withUserBalanceLock(id, func() error {
 		const updateSQL = `
 		UPDATE users AS u
 		SET balance = $1, updated_at = NOW()
