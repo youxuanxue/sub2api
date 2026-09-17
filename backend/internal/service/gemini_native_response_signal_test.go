@@ -385,13 +385,21 @@ func TestGeminiForwardNative_StreamNonSSEEmptyBodyIsEmpty(t *testing.T) {
 func TestGeminiForwardNative_StreamWithoutDataEventsIsEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for name, body := range map[string]string{
-		"keepalive comments only": ": keepalive\n\n: keepalive\n\n",
+		// TK translates SSE comments / blank keepalives to whitespace frames for
+		// @google/genai; assert the translated wire plus empty-stream ops mark.
+		"keepalive comments only": "\n\n\n\n",
 		"done marker only":        "data: [DONE]\n\n",
 		"blank data only":         "data: \n\n",
-		"whitespace only":         "\n\n   \n",
+		"whitespace only":         "\n\n\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			svc := newGeminiSignalService("text/event-stream", body)
+			upstream := map[string]string{
+				"keepalive comments only": ": keepalive\n\n: keepalive\n\n",
+				"done marker only":        "data: [DONE]\n\n",
+				"blank data only":         "data: \n\n",
+				"whitespace only":         "\n\n   \n",
+			}[name]
+			svc := newGeminiSignalService("text/event-stream", upstream)
 			c, rec := newGeminiNativeTestContext(t)
 			_, err := svc.ForwardNative(context.Background(), c, geminiSignalTestAccount(),
 				"gemini-3.7-flash", "streamGenerateContent", true, geminiSignalTestRequest())
