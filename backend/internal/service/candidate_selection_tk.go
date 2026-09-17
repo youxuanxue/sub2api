@@ -96,8 +96,7 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 		usable[group.ID] = ok
 	}
 	supported := false
-	var capacityHintPlatform string
-	var capacityHintGroupID int64
+	var capacityHint *Group
 	var candidates []*candidateExecutionPath
 	for i := range accounts {
 		account := &accounts[i]
@@ -130,12 +129,10 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			}
 			path.sticky = sticky
 			supported = true
-			if capacityHintPlatform == "" {
-				capacityHintPlatform = strings.TrimSpace(group.Platform)
-				if capacityHintPlatform == "" {
-					capacityHintPlatform = strings.TrimSpace(account.Platform)
-				}
-				capacityHintGroupID = group.ID
+			// First supported group only — must NOT call lessUniversalBacking here
+			// (gateway-tk forbids group sort order as an account-selection weight).
+			if capacityHint == nil {
+				capacityHint = group
 			}
 			if !r.pathReady(path, options) {
 				continue
@@ -173,9 +170,10 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			candidates = append(candidates, path)
 		}
 	}
-	if supported {
-		r.capacityPlatformHint = capacityHintPlatform
-		r.capacityGroupHint = capacityHintGroupID
+	if supported && capacityHint != nil {
+		platform := strings.TrimSpace(capacityHint.Platform)
+		r.capacityPlatformHint = platform
+		r.capacityGroupHint = capacityHint.ID
 	}
 	return candidates, supported, failure
 }

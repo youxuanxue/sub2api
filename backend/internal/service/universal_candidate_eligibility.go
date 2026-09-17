@@ -141,9 +141,11 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 			continue
 		}
 		supported = supported || state.Supported
-		if state.Supported && capacityHint == nil {
-			g := group
-			capacityHint = &g
+		if state.Supported {
+			if capacityHint == nil || lessUniversalBacking(group, *capacityHint) {
+				g := group
+				capacityHint = &g
+			}
 		}
 		if !state.Supported || !state.Available {
 			continue
