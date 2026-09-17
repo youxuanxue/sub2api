@@ -211,7 +211,7 @@ func TestAPIContracts(t *testing.T) {
 						}
 					},
 					"run_mode": "standard",
-					"traj_export_platforms": ["anthropic", "kiro", "gemini", "antigravity", "openai", "newapi", "grok", "kimi", "zhipu", "deepseek", "minimax"]
+					"traj_export_platforms": ["anthropic", "kiro", "gemini", "antigravity", "openai", "newapi", "grok", "kimi", "zhipu", "deepseek", "minimax", "opencode_go"]
 				}
 			}`,
 		},

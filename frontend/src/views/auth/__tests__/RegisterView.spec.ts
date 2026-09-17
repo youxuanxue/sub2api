@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { defineComponent, h } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore as useRealAppStore } from '@/stores/app'
 import RegisterView from '@/views/auth/RegisterView.vue'
@@ -77,10 +78,13 @@ function mountRegister() {
       stubs: {
         AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
         Icon: true,
-        TurnstileWidget: {
-          template: '<div data-testid="turnstile-widget" />',
-          methods: { verifyAction: verifyActionMock, reset: vi.fn() }
-        },
+        TurnstileWidget: defineComponent({
+          name: 'TurnstileWidget',
+          setup(_, { expose }) {
+            expose({ verifyAction: verifyActionMock, reset: vi.fn() })
+            return () => h('div', { 'data-testid': 'turnstile-widget' })
+          }
+        }),
         LoginAgreementPrompt: true,
         EmailOAuthButtons: true,
         LinuxDoOAuthSection: true,
@@ -111,7 +115,8 @@ describe('RegisterView', () => {
     ['', 'auth.confirmPasswordRequired'],
     ['different-password', 'auth.passwordsDoNotMatch']
   ])('blocks invalid confirmation %j before captcha and allows correction', async (confirmation, error) => {
-    getPublicSettingsMock.mockResolvedValueOnce({
+    // Persistent mock: performRegistration refreshes settings before captcha.
+    getPublicSettingsMock.mockResolvedValue({
       ...publicSettings,
       turnstile_enabled: false,
       tencent_captcha_enabled: true,
@@ -147,11 +152,11 @@ describe('RegisterView', () => {
       promo_code: undefined,
       invitation_code: undefined
     })
-    expect(pushMock).toHaveBeenCalledWith('/dashboard')
+    expect(pushMock).toHaveBeenCalledWith('/quickstart')
   })
 
   it('requires matching confirmation before storing only the registration fields for email verification', async () => {
-    getPublicSettingsMock.mockResolvedValueOnce({
+    getPublicSettingsMock.mockResolvedValue({
       ...publicSettings,
       turnstile_enabled: false,
       email_verify_enabled: true
@@ -175,7 +180,10 @@ describe('RegisterView', () => {
       email: 'user@example.com',
       password: 'secret-123'
     })
-    expect(pushMock).toHaveBeenCalledWith('/email-verify')
+    expect(pushMock).toHaveBeenCalledWith({
+      path: '/email-verify',
+      query: { redirect: '/quickstart' }
+    })
     expect(registerMock).not.toHaveBeenCalled()
   })
 

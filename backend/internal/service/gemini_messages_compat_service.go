@@ -2691,6 +2691,7 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 	var firstTokenMs *int
 	var best geminiResponseSignal
 	sawDataEvent := false
+	lastWroteDataEvent := false
 	fallback := &geminiSSEFallbackBody{}
 
 	for {
@@ -2743,11 +2744,27 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					// delimiter when upstream omits the trailing blank line.
 					_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", rawToWrite)
 					flusher.Flush()
+					lastWroteDataEvent = true
 				} else if !sawDataEvent {
 					_, _ = io.WriteString(c.Writer, line)
 					flusher.Flush()
+					lastWroteDataEvent = false
+				}
+			} else if trimmed == "" {
+				// Upstream follows each data event with a blank separator. The
+				// data branch already wrote "data: ...\n\n"; re-emitting that
+				// blank as keepalive "\n" yields "\n\n\n" and breaks framing.
+				if lastWroteDataEvent {
+					lastWroteDataEvent = false
+				} else {
+					if !sawDataEvent {
+						fallback.AddLine(trimmed)
+					}
+					_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
+					flusher.Flush()
 				}
 			} else if isGeminiNativeSSEKeepalive(trimmed) {
+				lastWroteDataEvent = false
 				if !sawDataEvent {
 					fallback.AddLine(trimmed)
 				}
@@ -2755,11 +2772,14 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 				_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
 				flusher.Flush()
 			} else if !sawDataEvent {
+				lastWroteDataEvent = false
 				fallback.AddLine(trimmed)
 				if account != nil && !isOAuth {
 					_, _ = io.WriteString(c.Writer, line)
 					flusher.Flush()
 				}
+			} else {
+				lastWroteDataEvent = false
 			}
 			// Drop blank lines, SSE comments (":"), and other non-data fields.
 			// @google/genai only accepts data: frames; forwarding ":\n\n"
