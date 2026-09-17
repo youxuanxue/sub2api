@@ -1720,12 +1720,24 @@
       "rationale": "Behavior tests pin real late binding and prove window recovery cannot bypass hard quota/RPM gates."
     },
     {
+      "path": "backend/internal/service/candidate_gemini_glm_chat_tk_test.go",
+      "must_contain": [
+        "func TestCandidateEligibilityGeminiGLMChatIgnoresIrrelevantCapabilityUnknown(",
+        "func TestCandidateEligibilityGeminiGLMOnlyIrrelevantCapabilityUnknownIsUnsupportedModel(",
+        "protocolrouter.AdapterGeminiToChat",
+        "ErrUniversalUnsupportedModel"
+      ],
+      "rationale": "Regression: Gemini /v1beta glm-5.3 Chat peers must assemble despite unrelated Antigravity peers with invalid capability evidence that do not map the model."
+    },
+    {
       "path": "backend/internal/service/candidate_eligibility.go",
       "must_contain": [
         "func (s *GatewayService) evaluateGroupCandidates(",
         "protocolPlanForAccount(ctx, account, model)",
         "s.isClaudeNewAPICrossPlatformAccountAllowed",
         "account.IsOpenAICompatPoolMember(platform)",
+        "case errors.Is(err, ErrProtocolCapabilityUnknown):",
+        "!accountAdmitsRequestedModel(account, model, thinkingEnabledFromCtx(ctx))",
         "!accountAdmitsRequestedModelWithContext(ctx, account, model)",
         "return false, ErrUniversalUnsupportedModel",
         "s.gatewayCandidates(",
@@ -1733,7 +1745,7 @@
         "ListAllWithFilters",
         "result.Supported"
       ],
-      "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Production account selection is separately anchored."
+      "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Non-admitting peers must not surface capability-unknown as a platform routing fault. Production account selection is separately anchored."
     },
     {
       "path": "backend/internal/service/candidate_saturation.go",
@@ -1775,9 +1787,10 @@
         "gatewayRequestThinkingEnabled(body, string(inbound))",
         "group.IsSubscriptionType() != best.group.IsSubscriptionType()",
         "ErrUniversalCapacityUnavailable",
-        "!state.Supported || !state.Available"
+        "!state.Supported || !state.Available",
+        "unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable))"
       ],
-      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification."
+      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -1785,10 +1798,11 @@
         "resolver.WithRequest",
         "service.TkApplyBareModelAlias(forcedPlatform, parsed)",
         "c.Set(service.OpsRoutingInternalErrorKey, true)",
+        "c.Set(service.OpsInternalErrorDetailKey, detail)",
         "writeUniversalRoutingCapacityError",
         "apiKey.GroupID = &backing.ID"
       ],
-      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit."
+      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",

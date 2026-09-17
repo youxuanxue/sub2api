@@ -226,6 +226,13 @@ func TestCandidateEligibilityErrorPrecedence(t *testing.T) {
 					}
 					return GroupCandidateEligibility{}, peerErr
 				})
+			if errors.Is(peerErr, ErrProtocolCapabilityUnknown) {
+				// Unknown peer capability must not win over a concrete model miss:
+				// otherwise Gemini→Chat assembly surfaces a platform 500.
+				require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
+				require.NotErrorIs(t, err, ErrProtocolCapabilityUnknown)
+				continue
+			}
 			require.ErrorIs(t, err, peerErr)
 			require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
 		}
@@ -274,7 +281,7 @@ func TestCandidateEligibilityGeminiChatMappingWithInvalidPeer(t *testing.T) {
 			} else {
 				require.ErrorIs(t, planErr, protocolrouter.ErrNoLegalRoute)
 				require.Nil(t, group)
-				require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
+				require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
 			}
 		})
 	}
@@ -330,7 +337,7 @@ func TestCandidateEligibilityInvalidCapabilityIsCandidateRejection(t *testing.T)
 						require.Equal(t, protocolrouter.ProtocolGeminiGenerateContent, plan.TargetProtocol())
 					case "unsupported":
 						require.Nil(t, group)
-						require.ErrorIs(t, err, ErrProtocolRouteUnavailable)
+						require.ErrorIs(t, err, ErrUniversalUnsupportedModel)
 					default:
 						require.Nil(t, group)
 						require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
