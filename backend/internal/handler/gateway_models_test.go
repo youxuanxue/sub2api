@@ -130,6 +130,8 @@ func TestDefaultModelIDsForAnthropicExcludeAntigravityGemini(t *testing.T) {
 	antigravityIDs := defaultModelIDsForPlatform(service.PlatformAntigravity)
 	require.Contains(t, antigravityIDs, "gemini-3.8-flash")
 	require.NotContains(t, antigravityIDs, "claude-opus-4-6")
+	require.NotContains(t, antigravityIDs, "claude-sonnet-4-6")
+	require.NotContains(t, antigravityIDs, "claude-opus-4-6-thinking")
 }
 
 // Scenario: non-OpenAI groups return a Codex manifest instead of a standard model list.

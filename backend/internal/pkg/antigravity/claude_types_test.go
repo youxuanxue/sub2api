@@ -43,9 +43,27 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 			t.Fatalf("DefaultModels missing converged id %q", id)
 		}
 	}
-	for _, retired := range []string{"gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-agent", "gemini-3-flash"} {
+	for _, retired := range []string{
+		"gemini-2.5-flash",
+		"gemini-2.5-pro",
+		"gemini-pro-agent",
+		"gemini-3-flash",
+		"claude-sonnet-4-6",
+		"claude-opus-4-6-thinking",
+	} {
 		if _, ok := byID[retired]; ok {
-			t.Fatalf("DefaultModels must not advertise retired id %q", retired)
+			t.Fatalf("DefaultModels must not advertise retired/out-of-floor id %q", retired)
+		}
+	}
+
+	meta := ModelMetadata()
+	metaByID := make(map[string]ClaudeModel, len(meta))
+	for _, m := range meta {
+		metaByID[m.ID] = m
+	}
+	for _, id := range []string{"claude-sonnet-4-6", "claude-opus-4-6-thinking", "gemini-3.8-flash"} {
+		if _, ok := metaByID[id]; !ok {
+			t.Fatalf("ModelMetadata missing id %q for custom-mapping display", id)
 		}
 	}
 }

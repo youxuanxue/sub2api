@@ -163,10 +163,10 @@ type modelDef struct {
 	IsReasoning bool
 }
 
-// Antigravity 支持的 Claude 模型
+// Antigravity 仍可通过账号自定义 model_mapping 服务 Claude（cloudcode-pa 实测
+// 仅这两枚），但默认公共 listing / floor 已收敛为 Gemini-only。此表只供
+// DisplayName 元数据查找，不进入 DefaultModels。
 var claudeModels = []modelDef{
-	// 2026-07-07 live fetchAvailableModels for Antigravity cloudcode-pa exposes
-	// exactly these Claude ids on antigravity-oh1-ls-b; newer ids return 404.
 	{ID: "claude-opus-4-6-thinking", DisplayName: "Claude Opus 4.6 Thinking", CreatedAt: "2026-02-05T00:00:00Z"},
 	{ID: "claude-sonnet-4-6", DisplayName: "Claude Sonnet 4.6", CreatedAt: "2026-02-17T00:00:00Z"},
 }
@@ -195,11 +195,28 @@ type ClaudeModel struct {
 	CreatedAt   string `json:"created_at"`
 }
 
-// DefaultModels 返回 Claude API 格式的模型列表（Claude + Gemini）
+// DefaultModels returns the public Antigravity listing surface (converged Gemini
+// only). Claude ids remain available via custom account model_mapping; they are
+// intentionally absent from the default floor so composite/defaultModelIDs and
+// /antigravity/models do not advertise unmapped Claude.
 func DefaultModels() []ClaudeModel {
-	all := append(claudeModels, geminiModels...)
-	result := make([]ClaudeModel, len(all))
-	for i, m := range all {
+	return claudeModelsFromDefs(geminiModels)
+}
+
+// ModelMetadata returns DisplayName carriers for Gemini public ids plus the
+// Claude custom-mapping subset. Used when synthesizing capability/catalog ids
+// so remapped Claude accounts keep friendly names without re-entering the
+// public default listing.
+func ModelMetadata() []ClaudeModel {
+	all := make([]modelDef, 0, len(claudeModels)+len(geminiModels))
+	all = append(all, claudeModels...)
+	all = append(all, geminiModels...)
+	return claudeModelsFromDefs(all)
+}
+
+func claudeModelsFromDefs(defs []modelDef) []ClaudeModel {
+	result := make([]ClaudeModel, len(defs))
+	for i, m := range defs {
 		result[i] = ClaudeModel{ID: m.ID, Type: "model", DisplayName: m.DisplayName, CreatedAt: m.CreatedAt}
 	}
 	return result

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset(t *testing.T) {
+func TestAccountModelMappingForAccount_AntigravityConvergedFloor(t *testing.T) {
 	t.Parallel()
 
 	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformAntigravity}, nil, nil, nil)
@@ -35,6 +35,11 @@ func TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset(t *testing.T)
 		require.NotContains(t, mapping, offPlatform)
 	}
 	require.NotContains(t, mapping, "gpt-oss-120b-medium")
+	require.NotContains(t, mapping, "claude-sonnet-4-6")
+	require.NotContains(t, mapping, "gemini-2.5-flash")
+	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
+	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-pro"])
+	require.Equal(t, "gemini-3.8-flash-medium", mapping["gemini-3.8-flash"])
 }
 
 func TestAccountModelMappingForAccount_GrokAppliesCompatibilityAliases(t *testing.T) {

@@ -14,9 +14,6 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 		if len(model.Name) < len("models/") || model.Name[:len("models/")] != "models/" {
 			t.Fatalf("fallback model %q must use models/ prefix", model.Name)
 		}
-		if len(model.SupportedGenerationMethods) == 0 {
-			t.Fatalf("fallback model %q must advertise generation methods", model.Name)
-		}
 		if _, exists := byName[model.Name]; exists {
 			t.Fatalf("duplicate fallback model %q", model.Name)
 		}
@@ -25,6 +22,32 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 
 	if len(byName) == 0 {
 		t.Fatal("DefaultModels must not be empty")
+	}
+	for _, id := range []string{
+		"models/gemini-3.8-flash",
+		"models/gemini-3.6-flash",
+		"models/gemini-embedding-001",
+		"models/veo-3.1-generate-001",
+	} {
+		if _, ok := byName[id]; !ok {
+			t.Fatalf("DefaultModels missing converged id %q", id)
+		}
+	}
+	for _, retired := range []string{
+		"models/gemini-2.5-flash",
+		"models/gemini-2.5-pro",
+		"models/gemini-2.0-flash",
+		"models/gemini-3.1-flash-image",
+	} {
+		if _, ok := byName[retired]; ok {
+			t.Fatalf("DefaultModels must not advertise retired id %q", retired)
+		}
+	}
+	if methods := byName["models/gemini-3.8-flash"].SupportedGenerationMethods; len(methods) == 0 {
+		t.Fatal("text chat fallback must advertise generateContent methods")
+	}
+	if methods := byName["models/veo-3.1-generate-001"].SupportedGenerationMethods; len(methods) != 0 {
+		t.Fatalf("veo fallback must not claim generateContent, got %v", methods)
 	}
 }
 

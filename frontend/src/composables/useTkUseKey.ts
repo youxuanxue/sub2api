@@ -107,7 +107,7 @@ export function formatProbeLatencyDetail(
 const FLAVOR_DEFAULT_MODEL: Record<UseKeyFlavor, string> = {
   anthropic: 'claude-opus-4-8',
   openai: 'gpt-5.5',
-  gemini: 'gemini-2.5-flash',
+  gemini: 'gemini-3.8-flash',
 }
 
 /** Human labels for the capability strings LiteLLM metadata emits. Unknown
