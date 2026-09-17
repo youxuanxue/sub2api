@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _git_lines(args: list[str]) -> list[str]:
     proc = subprocess.run(
-        ["git", *args],
+        ["git", "-c", "core.bare=false", *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -28,7 +28,7 @@ def _git_lines(args: list[str]) -> list[str]:
 def collect_changed_go_files(base: str) -> list[str]:
     files: set[str] = set()
     if subprocess.run(
-        ["git", "rev-parse", "--verify", f"{base}^{{commit}}"],
+        ["git", "-c", "core.bare=false", "rev-parse", "--verify", f"{base}^{{commit}}"],
         cwd=ROOT,
         capture_output=True,
         check=False,

@@ -1496,6 +1496,7 @@ fi
 # a hard preflight failure instead of human memory.
 echo ""
 echo "=== sub2api: sentinel registry update gate (advisory locally) ==="
+_tk_clear_core_bare
 # MARKER_GATE_ADVISORY=1: pre-commit/pre-push structurally cannot see the
 # in-flight commit message or the PR body, so a hard block here is a false
 # deadlock (benign pure-insertion / i18n PRs paid stash+force-push tax). The
