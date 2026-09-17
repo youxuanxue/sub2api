@@ -1374,6 +1374,11 @@ function generateCompatibleClientFields(
 // auth-header / body all injected correct-by-construction. Targets the
 // Python/curl callers that dominate the auth (#1), malformed-body (#4) and
 // wrong-endpoint (#5) error buckets.
+function isGeminiImageModelId(model: string): boolean {
+  const id = model.toLowerCase()
+  return id.startsWith('gemini-') && (id.includes('-image') || id.includes('nano-banana'))
+}
+
 function generateCurl(
   flavor: UseKeyFlavor,
   baseRoot: string,
@@ -1398,14 +1403,23 @@ function generateCurl(
     }
   }
   if (flavor === PLATFORM_GEMINI) {
+    const geminiBody = isGeminiImageModelId(model)
+      ? `{
+    "contents": [{"role": "user", "parts": [{"text": "Generate a simple solid red square image. No text."}]}],
+    "generationConfig": {
+      "responseModalities": ["TEXT", "IMAGE"],
+      "imageConfig": {"aspectRatio": "1:1"}
+    }
+  }`
+      : `{
+    "contents": [{"role": "user", "parts": [{"text": "Hello"}]}]
+  }`
     return {
       path: 'cURL',
       content: `curl "${baseRoot}${agPrefix}/v1beta/models/${model}:generateContent" \\
   -H "x-goog-api-key: ${apiKey}" \\
   -H "content-type: application/json" \\
-  -d '{
-    "contents": [{"role": "user", "parts": [{"text": "Hello"}]}]
-  }'`,
+  -d '${geminiBody}'`,
     }
   }
   return {
@@ -1445,6 +1459,15 @@ print(msg.content[0].text)`,
     }
   }
   if (flavor === PLATFORM_GEMINI) {
+    const geminiJson = isGeminiImageModelId(model)
+      ? `{
+        "contents": [{"role": "user", "parts": [{"text": "Generate a simple solid red square image. No text."}]}],
+        "generationConfig": {
+            "responseModalities": ["TEXT", "IMAGE"],
+            "imageConfig": {"aspectRatio": "1:1"},
+        },
+    }`
+      : `{"contents": [{"role": "user", "parts": [{"text": "Hello"}]}]}`
     return {
       path: 'Python (requests)',
       content: `import requests
@@ -1452,7 +1475,7 @@ print(msg.content[0].text)`,
 resp = requests.post(
     "${baseRoot}${agPrefix}/v1beta/models/${model}:generateContent",
     headers={"x-goog-api-key": "${apiKey}", "Content-Type": "application/json"},
-    json={"contents": [{"role": "user", "parts": [{"text": "Hello"}]}]},
+    json=${geminiJson},
 )
 print(resp.json())`,
     }

@@ -1374,12 +1374,12 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		}
 		return s.testClaudeAccountConnection(c, account, modelID)
 	}
-	return s.testAntigravityAccountConnection(c, account, modelID)
+	return s.testAntigravityAccountConnection(c, account, modelID, prompt)
 }
 
 // testAntigravityAccountConnection tests an Antigravity account's connection
-// 支持 Claude 和 Gemini 两种协议，使用非流式请求
-func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
+// 支持 Claude 和 Gemini 两种协议；图片模型走 TEXT+IMAGE modalities 并回传预览。
+func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
 	ctx := c.Request.Context()
 
 	testModelID := modelID
@@ -1401,10 +1401,21 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
-	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
-	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID)
+	result, err := s.antigravityGatewayService.TestConnectionWithPrompt(ctx, account, testModelID, prompt)
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
+	}
+
+	for _, img := range result.Images {
+		mime := strings.TrimSpace(img.MimeType)
+		if mime == "" {
+			mime = "image/png"
+		}
+		s.sendEvent(c, TestEvent{
+			Type:     "image",
+			ImageURL: "data:" + mime + ";base64," + img.Data,
+			MimeType: mime,
+		})
 	}
 
 	s.completeAntigravityAccountTest(c, result.Text)

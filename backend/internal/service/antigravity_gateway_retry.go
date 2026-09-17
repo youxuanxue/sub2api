@@ -40,6 +40,10 @@ type antigravityRetryLoopParams struct {
 	isStickySession bool   // 是否为粘性会话（用于账号切换时的缓存计费判断）
 	groupID         int64  // 用于模型级限流时清除粘性会话
 	sessionHash     string // 用于模型级限流时清除粘性会话
+	// readOnlyAccountState skips CheckErrorPolicy / temp-unschedulable / model
+	// rate-limit writes. Used by admin TestConnection so a probe cannot pin or
+	// disable the account when it hits the wrong upstream pool or a transient 429.
+	readOnlyAccountState bool
 	// clientStream gates pre-content keepalive. Upstream always uses
 	// streamGenerateContent, but non-stream clients must not receive SSE pings
 	// before a JSON body is written. keepaliveFrame preserves the client wire
@@ -113,6 +117,19 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 	if resp.StatusCode == http.StatusTooManyRequests && isURLLevelRateLimit(respBody) && urlIdx < len(availableURLs)-1 {
 		logger.LegacyPrintf("service.antigravity_gateway", "%s URL fallback (429): %s -> %s", p.prefix, baseURL, availableURLs[urlIdx+1])
 		return &smartRetryResult{action: smartRetryActionContinueURL}
+	}
+
+	// Admin TestConnection: return the upstream verdict without rate-limit writes,
+	// credits-overages mutation, or multi-minute capacity retries.
+	if p.readOnlyAccountState {
+		return &smartRetryResult{
+			action: smartRetryActionBreakWithResp,
+			resp: &http.Response{
+				StatusCode: resp.StatusCode,
+				Header:     resp.Header.Clone(),
+				Body:       io.NopCloser(bytes.NewReader(respBody)),
+			},
+		}
 	}
 
 	category := antigravity429Unknown
@@ -603,7 +620,7 @@ urlFallbackLoop:
 				respBody := s.readUpstreamErrorBody(resp)
 				_ = resp.Body.Close()
 
-				if overagesInjected && shouldMarkCreditsExhausted(resp, respBody, nil) {
+				if overagesInjected && !p.readOnlyAccountState && shouldMarkCreditsExhausted(resp, respBody, nil) {
 					modelKey := resolveCreditsOveragesModelKey(p.ctx, p.account, "", p.requestedModel)
 					s.handleCreditsRetryFailure(p.ctx, p.prefix, modelKey, p.account, &http.Response{
 						StatusCode: resp.StatusCode,
