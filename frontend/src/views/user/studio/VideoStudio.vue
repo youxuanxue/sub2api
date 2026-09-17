@@ -36,7 +36,7 @@
             <div class="mt-1 flex items-center justify-between gap-2">
               <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">
                 <template v-if="r.perSecond != null || (r.videoTiers && r.videoTiers.length)">{{ formatUsd(modelCardPerSecond(r)) }}{{ t('studio.video.perSecondUnit') }}</template>
-                <template v-else>{{ t('studio.image.usagePriced') }}</template>
+                <template v-else>{{ t('studio.usagePriced') }}</template>
               </span>
               <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.presentation.vendorLabel }) }}</span>
             </div>
@@ -171,8 +171,8 @@
           <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisVideo') }}</div>
           <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
           <div class="mt-3 space-y-1 border-t border-primary-200/60 pt-3 text-sm dark:border-primary-900/40">
-            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.estimate') }}</span><span class="font-bold text-gray-900 tabular-nums dark:text-white">{{ formatUsd(estimate) }}</span></div>
-            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.balance') }}</span><span class="tabular-nums" :class="canAfford ? 'text-gray-700 dark:text-dark-200' : 'text-red-600 dark:text-red-400'">{{ formatUsd(balance) }} → {{ formatUsd(balance - estimate) }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.estimate') }}</span><span class="font-bold text-gray-900 tabular-nums dark:text-white">{{ estimateLabel }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.balance') }}</span><span class="tabular-nums" :class="canAfford ? 'text-gray-700 dark:text-dark-200' : 'text-red-600 dark:text-red-400'">{{ balanceLabel }}</span></div>
           </div>
           <div class="mt-3 flex items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-2 text-[12px] font-medium text-green-700 ring-1 ring-green-200 dark:bg-green-950/30 dark:text-green-300 dark:ring-green-900/50">
             ✓ {{ t('studio.video.refundLine') }}
@@ -187,8 +187,8 @@
           @click="generate"
         >
           <template v-if="sending">{{ t('studio.video.submitting') }}</template>
-          <template v-else-if="!canAfford">{{ t('studio.video.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
-          <template v-else>{{ t('studio.video.generate', { cost: formatUsd(estimate) }) }}</template>
+          <template v-else-if="!canAfford">{{ t('studio.video.generateTopUp', { cost: estimateLabel }) }}</template>
+          <template v-else>{{ t('studio.video.generate', { cost: estimateLabel }) }}</template>
         </button>
         <router-link
           v-if="!canAfford"
@@ -461,6 +461,11 @@ function modelCardPerSecond(model: ResolvedMediaModel): number {
   })
 }
 
+function videoPriceKnown(model: ResolvedMediaModel | undefined): boolean {
+  if (!model) return false
+  return model.perSecond != null || !!(model.videoTiers && model.videoTiers.length)
+}
+
 // Notification-permission state (NOT a per-task event), so a deliberate "notify me"
 // click can confirm itself on the card without a global banner that goes stale
 // across resubmits — the bug the old `lastEvent` toast had.
@@ -473,7 +478,7 @@ const negativePrompt = ref('')
 const firstFrameImage = ref('')
 
 const estimate = computed(() => {
-  if (!selected.value) return 0
+  if (!selected.value || !videoPriceKnown(selected.value)) return null
   return estimateVideoCost({
     perSecond: selected.value.perSecond || 0,
     videoTiers: selected.value.videoTiers,
@@ -485,7 +490,7 @@ const estimate = computed(() => {
   })
 })
 const resolvedPerSecond = computed(() => {
-  if (!selected.value) return 0
+  if (!selected.value || !videoPriceKnown(selected.value)) return null
   return resolveVideoPerSecond({
     perSecond: selected.value.perSecond || 0,
     videoTiers: selected.value.videoTiers,
@@ -494,12 +499,20 @@ const resolvedPerSecond = computed(() => {
     hasInputImage: supports('firstFrameImage') && !!firstFrameImage.value.trim(),
   })
 })
-const canAfford = computed(() => estimate.value <= props.balance)
+const canAfford = computed(() => estimate.value == null || estimate.value <= props.balance)
 const canGenerate = computed(
   () => !sending.value && !!props.apiKey && !!prompt.value.trim() && !!selected.value && canAfford.value
 )
+const estimateLabel = computed(() =>
+  estimate.value == null ? t('studio.usagePriced') : formatUsd(estimate.value)
+)
+const balanceLabel = computed(() => {
+  if (estimate.value == null) return formatUsd(props.balance)
+  return `${formatUsd(props.balance)} → ${formatUsd(props.balance - estimate.value)}`
+})
 const formula = computed(() => {
   if (!selected.value) return ''
+  if (resolvedPerSecond.value == null) return t('studio.usagePriced')
   return t('studio.video.formula', { rate: formatUsd(resolvedPerSecond.value), seconds: duration.value })
 })
 
@@ -682,7 +695,7 @@ async function generate(): Promise<void> {
       vendorLabel: resolved.presentation.vendorLabel,
       seconds: duration.value,
       aspectRatio: aspectId.value || undefined,
-      estCost: estimate.value,
+      estCost: estimate.value ?? 0,
       keyId: props.keyId,
       state,
       url: state === 'succeeded' ? extractVideoUrl(raw) : '',

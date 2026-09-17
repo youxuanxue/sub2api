@@ -35,7 +35,7 @@
             <div class="mt-1 flex items-center justify-between gap-2">
               <span class="text-[12px] font-bold text-primary-700 dark:text-primary-300">
                 <template v-if="r.baseImagePrice != null">{{ formatUsd(r.baseImagePrice) }}{{ t('studio.image.perImageUnit') }}</template>
-                <template v-else>{{ t('studio.image.usagePriced') }}</template>
+                <template v-else>{{ t('studio.usagePriced') }}</template>
               </span>
               <span class="text-[10px] text-gray-400 dark:text-dark-500">{{ t('studio.via', { vendor: r.presentation.vendorLabel }) }}</span>
             </div>
@@ -132,9 +132,9 @@
           <div class="text-xs font-semibold uppercase tracking-wide text-primary-700 dark:text-primary-300">{{ t('studio.cost.thisGeneration') }}</div>
           <div class="mt-2 font-mono text-[12px] text-gray-600 dark:text-dark-300">{{ formula }}</div>
           <div class="mt-3 space-y-1 border-t border-primary-200/60 pt-3 text-sm dark:border-primary-900/40">
-            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.estimate') }}</span><span class="font-bold text-gray-900 tabular-nums dark:text-white">{{ formatUsd(estimate) }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.estimate') }}</span><span class="font-bold text-gray-900 tabular-nums dark:text-white">{{ estimateLabel }}</span></div>
             <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.balance') }}</span><span class="tabular-nums text-gray-700 dark:text-dark-200">{{ formatUsd(balance) }}</span></div>
-            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.afterGeneration') }}</span><span class="tabular-nums" :class="canAfford ? 'text-gray-700 dark:text-dark-200' : 'text-red-600 dark:text-red-400'">{{ formatUsd(balance - estimate) }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500 dark:text-dark-400">{{ t('studio.cost.afterGeneration') }}</span><span class="tabular-nums" :class="canAfford ? 'text-gray-700 dark:text-dark-200' : 'text-red-600 dark:text-red-400'">{{ afterLabel }}</span></div>
           </div>
         </div>
 
@@ -146,8 +146,8 @@
           @click="generate"
         >
           <template v-if="sending">{{ t('studio.image.generating') }}</template>
-          <template v-else-if="!canAfford">{{ t('studio.image.generateTopUp', { cost: formatUsd(estimate) }) }}</template>
-          <template v-else>{{ t('studio.image.generate', { cost: formatUsd(estimate) }) }}</template>
+          <template v-else-if="!canAfford">{{ t('studio.image.generateTopUp', { cost: estimateLabel }) }}</template>
+          <template v-else>{{ t('studio.image.generate', { cost: estimateLabel }) }}</template>
         </button>
         <router-link
           v-if="!canAfford"
@@ -353,9 +353,9 @@ const supportsImageInput = computed(() => isFlatImage.value)
 const visionModelId = computed(() => pickVisionChatModel(props.availableIds))
 
 const estimate = computed(() => {
-  if (!selected.value) return 0
+  if (!selected.value || selected.value.baseImagePrice == null) return null
   return estimateImageCost({
-    baseImagePrice: selected.value.baseImagePrice || 0,
+    baseImagePrice: selected.value.baseImagePrice,
     size: pricesFlat.value ? '1K' : sentSize.value, // flat ⇒ ×1, no size tier
     n: effectiveN.value,
     rateMultiplier: props.rateMultiplier,
@@ -364,30 +364,37 @@ const estimate = computed(() => {
 // Affordability is gated on the backend HOLD upper bound. For imagen/seedream that
 // is the 4K tier-max (settlement bills the real size), so the UI can't enable a
 // request the gateway then 403s. Gemini bills flat per-image (no tier), so its hold
-// IS the flat estimate.
+// IS the flat estimate. Missing live price → no fake $0 gate; backend hold decides.
 const holdEstimate = computed(() => {
-  if (!selected.value) return 0
+  if (!selected.value || selected.value.baseImagePrice == null) return null
   if (pricesFlat.value) {
     return estimateImageCost({
-      baseImagePrice: selected.value.baseImagePrice || 0,
+      baseImagePrice: selected.value.baseImagePrice,
       size: '1K',
       n: effectiveN.value, // gemini → 1 (n-locked); imagen → real n (multi-image, flat per image)
       rateMultiplier: props.rateMultiplier,
     })
   }
   return estimateImageHoldCost({
-    baseImagePrice: selected.value.baseImagePrice || 0,
+    baseImagePrice: selected.value.baseImagePrice,
     n: n.value,
     rateMultiplier: props.rateMultiplier,
   })
 })
-const canAfford = computed(() => holdEstimate.value <= props.balance)
+const canAfford = computed(() => holdEstimate.value == null || holdEstimate.value <= props.balance)
 const canGenerate = computed(
   () => !sending.value && !reversing.value && !!props.apiKey && !!prompt.value.trim() && !!selected.value && canAfford.value
 )
+const estimateLabel = computed(() =>
+  estimate.value == null ? t('studio.usagePriced') : formatUsd(estimate.value)
+)
+const afterLabel = computed(() =>
+  estimate.value == null ? '—' : formatUsd(props.balance - estimate.value)
+)
 const formula = computed(() => {
   if (!selected.value) return ''
-  const base = formatUsd(selected.value.baseImagePrice || 0)
+  if (selected.value.baseImagePrice == null) return t('studio.usagePriced')
+  const base = formatUsd(selected.value.baseImagePrice)
   if (pricesFlat.value) {
     return t('studio.image.formulaFlat', { base, n: effectiveN.value })
   }

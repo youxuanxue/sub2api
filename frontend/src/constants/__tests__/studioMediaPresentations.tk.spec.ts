@@ -17,27 +17,6 @@ import {
   type StudioParam,
   type MediaPriceMap,
 } from '@/constants/studioMediaPresentations.tk'
-import { buildCatalogBillingIndex } from '@/utils/studioMediaCatalog.tk'
-
-function catalogFromIds(entries: Array<[string, 'image' | 'video']>) {
-  return buildCatalogBillingIndex(
-    entries.map(([model_id, billing_mode]) => ({
-      model_id,
-      pricing: {
-        billing_mode,
-        output_cost_per_image: billing_mode === 'image' ? 0.01 : undefined,
-        output_cost_per_second: billing_mode === 'video' ? 0.01 : undefined,
-      },
-    }))
-  )
-}
-
-const IMAGEN_CATALOG = catalogFromIds([
-  ['imagen-4.0-fast-generate-001', 'image'],
-  ['imagen-4.0-generate-001', 'image'],
-])
-const SEEDANCE_CATALOG = catalogFromIds([['doubao-seedance-1-0-pro-250528', 'video']])
-const EMPTY_CATALOG = buildCatalogBillingIndex([])
 
 // Image and video can be served by different groups.
 const IMAGEN = new Set(['imagen-4.0-fast-generate-001', 'imagen-4.0-generate-001'])
@@ -47,21 +26,21 @@ const ANTIGRAVITY = new Set(['claude-sonnet-4-5', 'gemini-3-flash'])
 
 describe('hasCatalogMediaModality', () => {
   it('is true when the pool backs at least one modality-classified media model', () => {
-    expect(hasCatalogMediaModality('image', IMAGEN, IMAGEN_CATALOG)).toBe(true)
-    expect(hasCatalogMediaModality('video', SEEDANCE, SEEDANCE_CATALOG)).toBe(true)
-    expect(hasCatalogMediaModality('image', new Set(['gpt-image-2']), EMPTY_CATALOG)).toBe(true)
+    expect(hasCatalogMediaModality('image', IMAGEN)).toBe(true)
+    expect(hasCatalogMediaModality('video', SEEDANCE)).toBe(true)
+    expect(hasCatalogMediaModality('image', new Set(['gpt-image-2']))).toBe(true)
   })
 
   it('is false for a pool with no media-classified id', () => {
-    expect(hasCatalogMediaModality('image', ANTIGRAVITY, IMAGEN_CATALOG)).toBe(false)
-    expect(hasCatalogMediaModality('video', ANTIGRAVITY, SEEDANCE_CATALOG)).toBe(false)
-    expect(hasCatalogMediaModality('image', SEEDANCE, IMAGEN_CATALOG)).toBe(false)
-    expect(hasCatalogMediaModality('video', IMAGEN, SEEDANCE_CATALOG)).toBe(false)
-    expect(hasCatalogMediaModality('image', new Set(), EMPTY_CATALOG)).toBe(false)
+    expect(hasCatalogMediaModality('image', ANTIGRAVITY)).toBe(false)
+    expect(hasCatalogMediaModality('video', ANTIGRAVITY)).toBe(false)
+    expect(hasCatalogMediaModality('image', SEEDANCE)).toBe(false)
+    expect(hasCatalogMediaModality('video', IMAGEN)).toBe(false)
+    expect(hasCatalogMediaModality('image', new Set())).toBe(false)
   })
 
   it('is catalog-agnostic (membership follows the entitlement pool, not /pricing)', () => {
-    expect(hasCatalogMediaModality('image', IMAGEN, EMPTY_CATALOG)).toBe(true)
+    expect(hasCatalogMediaModality('image', IMAGEN)).toBe(true)
     const unpriced = resolveAvailableModels('image', IMAGEN, new Map())
     expect(unpriced.map((r) => r.servedId).sort()).toEqual([...IMAGEN].sort())
     expect(unpriced.every((r) => r.baseImagePrice == null)).toBe(true)
@@ -70,21 +49,21 @@ describe('hasCatalogMediaModality', () => {
 
 describe('groupServes (chat as a peer picker modality)', () => {
   it('serves chat when the pool exposes any chat-classified id', () => {
-    expect(groupServes('chat', ANTIGRAVITY, EMPTY_CATALOG)).toBe(true)
-    expect(groupServes('chat', new Set(['gpt-5']), EMPTY_CATALOG)).toBe(true)
+    expect(groupServes('chat', ANTIGRAVITY)).toBe(true)
+    expect(groupServes('chat', new Set(['gpt-5']))).toBe(true)
   })
 
   it('does NOT serve chat for an image/video-only pool', () => {
-    expect(groupServes('chat', IMAGEN, IMAGEN_CATALOG)).toBe(false)
-    expect(groupServes('chat', SEEDANCE, SEEDANCE_CATALOG)).toBe(false)
-    expect(groupServes('chat', new Set(), EMPTY_CATALOG)).toBe(false)
+    expect(groupServes('chat', IMAGEN)).toBe(false)
+    expect(groupServes('chat', SEEDANCE)).toBe(false)
+    expect(groupServes('chat', new Set())).toBe(false)
   })
 
   it('serves image/video from pool modality classification (mapping-backed)', () => {
-    expect(groupServes('image', IMAGEN, EMPTY_CATALOG)).toBe(true)
-    expect(groupServes('video', SEEDANCE, EMPTY_CATALOG)).toBe(true)
-    expect(groupServes('image', new Set(['gpt-image-2']), EMPTY_CATALOG)).toBe(true)
-    expect(groupServes('image', ANTIGRAVITY, IMAGEN_CATALOG)).toBe(false)
+    expect(groupServes('image', IMAGEN)).toBe(true)
+    expect(groupServes('video', SEEDANCE)).toBe(true)
+    expect(groupServes('image', new Set(['gpt-image-2']))).toBe(true)
+    expect(groupServes('image', ANTIGRAVITY)).toBe(false)
   })
 })
 
@@ -94,41 +73,41 @@ function opt(id: number, isTrial: boolean, availableIds: Set<string>): ModalityK
 
 describe('pickModalityKey', () => {
   it('returns currentId unchanged when no options', () => {
-    expect(pickModalityKey([], 'image', 7, EMPTY_CATALOG)).toBe(7)
-    expect(pickModalityKey([], 'image', null, EMPTY_CATALOG)).toBe(null)
+    expect(pickModalityKey([], 'image', 7)).toBe(7)
+    expect(pickModalityKey([], 'image', null)).toBe(null)
   })
 
   it('keeps the current key when it already serves the modality', () => {
     const opts = [opt(1, false, ANTIGRAVITY), opt(2, false, IMAGEN)]
-    expect(pickModalityKey(opts, 'image', 2, IMAGEN_CATALOG)).toBe(2)
+    expect(pickModalityKey(opts, 'image', 2)).toBe(2)
   })
 
   it('moves off a non-serving current key to a serving one', () => {
     const opts = [opt(1, true, ANTIGRAVITY), opt(2, false, IMAGEN)]
-    expect(pickModalityKey(opts, 'image', 1, IMAGEN_CATALOG)).toBe(2)
+    expect(pickModalityKey(opts, 'image', 1)).toBe(2)
   })
 
   it('prefers a trial-named serving key over the first serving key', () => {
     const opts = [opt(1, false, IMAGEN), opt(2, true, IMAGEN)]
-    expect(pickModalityKey(opts, 'image', null, IMAGEN_CATALOG)).toBe(2)
+    expect(pickModalityKey(opts, 'image', null)).toBe(2)
   })
 
   it('re-targets per modality (image vs video live on different groups)', () => {
     const opts = [opt(1, false, IMAGEN), opt(2, false, SEEDANCE)]
-    expect(pickModalityKey(opts, 'image', null, IMAGEN_CATALOG)).toBe(1)
-    expect(pickModalityKey(opts, 'video', null, SEEDANCE_CATALOG)).toBe(2)
+    expect(pickModalityKey(opts, 'image', null)).toBe(1)
+    expect(pickModalityKey(opts, 'video', null)).toBe(2)
   })
 
   it('lands a chat key on a chat-serving group, off a media-only current key', () => {
     const opts = [opt(1, false, IMAGEN), opt(2, true, ANTIGRAVITY)]
-    expect(pickModalityKey(opts, 'chat', 1, IMAGEN_CATALOG)).toBe(2)
-    expect(pickModalityKey(opts, 'chat', 2, EMPTY_CATALOG)).toBe(2)
+    expect(pickModalityKey(opts, 'chat', 1)).toBe(2)
+    expect(pickModalityKey(opts, 'chat', 2)).toBe(2)
   })
 
   it('falls back to the seed/global default when nothing serves the modality', () => {
     const opts = [opt(1, false, ANTIGRAVITY), opt(2, true, ANTIGRAVITY)]
-    expect(pickModalityKey(opts, 'image', 1, IMAGEN_CATALOG)).toBe(1)
-    expect(pickModalityKey(opts, 'image', null, IMAGEN_CATALOG)).toBe(2)
+    expect(pickModalityKey(opts, 'image', 1)).toBe(1)
+    expect(pickModalityKey(opts, 'image', null)).toBe(2)
   })
 })
 
@@ -258,16 +237,27 @@ describe('resolveAvailableModels (transparent model picker)', () => {
     expect(out[0].presentation.videoDurations).toEqual([5])
   })
 
-  it('builds conservative defaults for a future/private catalog row without curated presentation', () => {
+  it('does not admit unclassified ids via price billingMode alone', () => {
     const unknownId = 'future-video-model-xyz'
+    expect(
+      resolveAvailableModels(
+        'video',
+        new Set([unknownId]),
+        new Map([[unknownId, { perSecond: 0.12, billingMode: 'video', vendor: 'xai' }]])
+      )
+    ).toEqual([])
+  })
+
+  it('synthesizes presentation defaults for a modality-classified id without a curated row', () => {
+    const id = 'veo-99.0-generate-preview'
     const out = resolveAvailableModels(
       'video',
-      new Set([unknownId]),
-      new Map([[unknownId, { perSecond: 0.12, billingMode: 'video', vendor: 'xai' }]])
+      new Set([id]),
+      new Map([[id, { perSecond: 0.12, billingMode: 'video', vendor: 'xai' }]])
     )
     expect(out).toHaveLength(1)
-    expect(out[0].presentation.modelId).toBe(unknownId)
-    expect(out[0].presentation.displayName).toBe('Future Video Model Xyz')
+    expect(out[0].presentation.modelId).toBe(id)
+    expect(out[0].presentation.displayName).toBe('Veo 99.0 Generate Preview')
     expect(out[0].presentation.vendorLabel).toBe('xAI')
     expect(out[0].presentation.supportedParams).toEqual([])
     expect(out[0].presentation.videoDurations).toEqual([8])
@@ -297,6 +287,14 @@ describe('resolveAvailableModels (transparent model picker)', () => {
         'video',
         new Set(['imagen-4.0-ultra-generate-001']),
         new Map([['imagen-4.0-ultra-generate-001', { perImage: 0.06, billingMode: 'image' }]])
+      )
+    ).toEqual([])
+    // billingMode must not override modalityForModel (chat id with image price)
+    expect(
+      resolveAvailableModels(
+        'image',
+        new Set(['gemini-3-flash']),
+        new Map([['gemini-3-flash', { perImage: 0.01, billingMode: 'image' }]])
       )
     ).toEqual([])
   })

@@ -16,17 +16,14 @@
 
 import { modalityForModel } from '@/constants/playgroundMedia.tk'
 import type { VideoPriceTier } from '@/utils/mediaCostEstimate.tk'
-import type { CatalogBillingIndex } from '@/utils/studioMediaCatalog.tk'
 
 export type StudioModality = 'image' | 'video'
 
 /**
- * The modality axis the Studio SHELL reasons about for key selection. Chat is a
- * peer Studio tab (folded in from the retired /playground), but it has no media
- * billing-mode catalog row — a key "serves chat" when its /v1/models pool exposes
- * any chat-classified id (modalityForModel). image/video use catalog billing_mode.
- * Bake-off reports its active sub-modality to the shell, so the selected key
- * still tracks image vs video just like the dedicated tabs.
+ * The modality axis the Studio SHELL reasons about for key selection. Chat /
+ * image / video all use the entitlement pool + `modalityForModel`. Bake-off
+ * reports its active sub-modality to the shell so the selected key still tracks
+ * image vs video like the dedicated tabs.
  */
 export type PickerModality = StudioModality | 'chat'
 
@@ -62,14 +59,10 @@ function defaultDisplayName(modelId: string): string {
 /**
  * True when the entitlement pool exposes at least one id classified as
  * `modality` via `modalityForModel` (gateway-aligned intent predicates).
- *
- * `catalogBilling` is retained for call-site compatibility and ignored —
- * Studio membership must not depend on public `/pricing` allowlists.
  */
 export function hasCatalogMediaModality(
   modality: StudioModality,
-  availableIds: ReadonlySet<string>,
-  _catalogBilling?: CatalogBillingIndex
+  availableIds: ReadonlySet<string>
 ): boolean {
   for (const id of availableIds) {
     if (modalityForModel(id) === modality) return true
@@ -85,8 +78,7 @@ export function hasCatalogMediaModality(
  */
 export function groupServes(
   modality: PickerModality,
-  availableIds: ReadonlySet<string>,
-  _catalogBilling?: CatalogBillingIndex
+  availableIds: ReadonlySet<string>
 ): boolean {
   for (const id of availableIds) {
     if (modalityForModel(id) === modality) return true
@@ -124,15 +116,12 @@ export interface ModalityKeyOption {
 export function pickModalityKey(
   options: readonly ModalityKeyOption[],
   modality: PickerModality,
-  currentId: number | null,
-  catalogBilling: CatalogBillingIndex
+  currentId: number | null
 ): number | null {
   if (options.length === 0) return currentId
-	const serving = options.filter((o) => (
-		o.servedModalities
-			? o.servedModalities.has(modality)
-			: groupServes(modality, o.availableIds, catalogBilling)
-	))
+  const serving = options.filter((o) =>
+    o.servedModalities ? o.servedModalities.has(modality) : groupServes(modality, o.availableIds)
+  )
   if (currentId != null && serving.some((o) => o.id === currentId)) return currentId
   const pickServing = serving.find((o) => o.isTrial) ?? serving[0]
   if (pickServing) return pickServing.id
@@ -266,12 +255,11 @@ export const IMAGE_N_MIN = 1
 export const IMAGE_N_MAX = 4
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Presentation overlay (NOT membership SSOT — catalog billing_mode is).
+ * Presentation overlay (NOT membership SSOT — pool + modalityForModel is).
  *
  * Friendly names, badges, aspect ratios, discrete video durations, and verified
- * adaptor params. Runtime can build conservative defaults for future/private
- * catalog rows; preflight requires repo-known public servable media to be
- * explicitly curated here.
+ * adaptor params. Runtime synthesizes defaults for mapping-backed ids without a
+ * curated row; preflight still requires repo-known public media to be curated.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -653,7 +641,7 @@ export interface MediaPrice {
   perSecond?: number
   /** Official resolution×audio ladder (from public /pricing). */
   videoTiers?: readonly VideoPriceTier[]
-  /** From catalog billing_mode — membership SSOT for Studio. */
+  /** Catalog billing_mode — price enrichment only, never a membership gate. */
   billingMode?: StudioModality
   /** Raw vendor slug from the catalog row (e.g. xai, vertex_ai). */
   vendor?: string
@@ -686,8 +674,7 @@ export function resolveAvailableModels(
 
   for (const servedId of availableIds) {
     const price = priceMap.get(servedId)
-    const poolModality = modalityForModel(servedId)
-    if (poolModality !== modality && price?.billingMode !== modality) continue
+    if (modalityForModel(servedId) !== modality) continue
 
     const baseImagePrice = modality === 'image' ? price?.perImage : undefined
     const perSecond = modality === 'video' ? price?.perSecond : undefined
