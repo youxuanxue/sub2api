@@ -124,6 +124,10 @@ describe('AccountTestModal', () => {
     await wrapper.setProps({ show: true })
     await flushPromises()
 
+    // Default selection prefers text models; switch to an image model for this probe.
+    ;(wrapper.vm as any).selectedModelId = 'gemini-3.1-flash-image'
+    await flushPromises()
+
     const promptInput = wrapper.find('textarea.textarea-stub')
     expect(promptInput.exists()).toBe(true)
     await promptInput.setValue('draw a tiny orange cat astronaut')
@@ -267,6 +271,44 @@ describe('AccountTestModal', () => {
     expect(JSON.parse(request.body)).toMatchObject({
       model_id: 'gemini-3-flash'
     })
+  })
+
+  it('prefers text gemini models over image models as the default selection', async () => {
+    getAvailableModels.mockResolvedValueOnce([
+      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' },
+      { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash Image' },
+      { id: 'gemini-3-flash', display_name: 'Gemini 3 Flash' }
+    ])
+    const wrapper = mountWith({
+      id: 702,
+      name: 'antigravity-oauth-image-safe-default',
+      platform: 'antigravity',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect((wrapper.vm as any).selectedModelId).toBe('gemini-3-flash')
+  })
+
+  it('enables image test mode for antigravity oauth image models', async () => {
+    getAvailableModels.mockResolvedValueOnce([
+      { id: 'gemini-3-flash', display_name: 'Gemini 3 Flash' },
+      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
+    ])
+    const wrapper = mountWith({
+      id: 703,
+      name: 'antigravity-oauth-image',
+      platform: 'antigravity',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    ;(wrapper.vm as any).selectedModelId = 'gemini-3.1-flash-image'
+    await flushPromises()
+    expect((wrapper.vm as any).supportsImageTest).toBe(true)
   })
 
   it('grok 账号测试默认选择 Grok 模型', async () => {

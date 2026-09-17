@@ -456,12 +456,30 @@ const grokTestModeOptions = computed(() => [
   { value: 'stt', label: t('admin.accounts.grok.testModeSTT') },
   { value: 'realtime', label: t('admin.accounts.grok.testModeRealtime') }
 ])
-const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
+// Text models first so admin "测连接" defaults to a cheap connectivity probe.
+// Image models stay available but must not be the accidental default — selecting
+// them runs a real TEXT+IMAGE generation that can hit quota/429.
+const prioritizedGeminiModels = [
+  'gemini-3-flash',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-3-flash-preview',
+  'gemini-3-pro-preview',
+  'gemini-2.0-flash',
+  'gemini-3.1-flash-image',
+  'gemini-2.5-flash-image'
+]
 const supportsGeminiImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
 
-  return props.account?.platform === PLATFORM_GEMINI || (props.account?.platform === PLATFORM_ANTIGRAVITY && props.account?.type === 'apikey')
+  // Native Gemini API key, Antigravity API-key relay, and Antigravity OAuth all
+  // support admin image probes (OAuth uses daily cloudcode-pa + modalities).
+  return (
+    props.account?.platform === PLATFORM_GEMINI ||
+    props.account?.platform === PLATFORM_ANTIGRAVITY
+  )
 })
 
 const supportsOpenAIImageTest = computed(() => {
