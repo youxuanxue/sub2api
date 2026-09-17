@@ -486,7 +486,7 @@ bash ops/stage0/sync-instance-cpu-alarm.sh --stack "$STACK"
 #       同样要 pin $RUNNING_TAG + 重指 OIDC）。
 ```
 
-> **后续 PG 调优属于 P1-2（已暂缓）**：升到 `t4g.large` 后若想把 PG `shared_buffers` / 连接池调大吃满 8 GiB，注意共用的 `stage0/docker-compose.yml` 被 prod + edge 共用、且 lightsail 把它嵌进 user-data 顶着 14336B 安全帽（仅剩 ~54B 余量）——直接改共用 compose 会撞 edge OOM 和 lightsail 爆帽。正确做法是 prod-only `docker-compose.override.yml`（compose 自动叠加），等 P0 账号池扩容后用真实峰值数据再针对性做。
+> **Prod PG 调优（P1）**：共用 `stage0/docker-compose.yml` **不**抬默认 GUC（避免 edge OOM / Lightsail 14336B user-data 帽）。Prod 使用旁路 `docker-compose.prod-pg.yml` + `.env`（`POSTGRES_SHARED_BUFFERS=1GB` 等）：bootstrap 写入 env；存量主机用 `bash ops/stage0/sync-prod-pg-tuning-via-ssm.sh <prod-instance-id> [--apply]`（`--apply` 会 recreate postgres，有短暂 DB 抖动）。
 
 ### Stage-0 风险审计（prod 已在用）
 

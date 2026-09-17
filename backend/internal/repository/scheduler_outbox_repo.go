@@ -31,6 +31,22 @@ func (r *schedulerOutboxRepository) ListAfterAndReleaseDedup(ctx context.Context
 	if limit <= 0 {
 		limit = 100
 	}
+	// Healthy 1s poll path: skip the MATERIALIZED + FOR UPDATE claim when the
+	// watermark already covers everything. Empty EXISTS is far cheaper than the
+	// claim CTE that showed up in prod pg_stat activity during CPU spikes.
+	var hasRows bool
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM scheduler_outbox
+			WHERE id > $1
+		)
+	`, afterID).Scan(&hasRows); err != nil {
+		return nil, err
+	}
+	if !hasRows {
+		return nil, nil
+	}
 	rows, err := r.db.QueryContext(ctx, `
 		WITH selected AS MATERIALIZED (
 			SELECT id, event_type, account_id, group_id, payload, created_at

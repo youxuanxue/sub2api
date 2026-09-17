@@ -1,0 +1,24 @@
+# Prod-only Postgres GUC overlay for Stage0 EC2 (~8 GiB).
+# Never ship this file to Lightsail edge user-data — edge stays on stock
+# defaults from docker-compose.yml (shared_buffers≈128MB).
+#
+# Applied when present:
+#   docker compose -f docker-compose.yml -f docker-compose.prod-pg.yml ...
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-200}
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-6GB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-128MB}
+      - -c
+      - jit=${POSTGRES_JIT:-off}
+      - -c
+      - max_parallel_workers=${POSTGRES_MAX_PARALLEL_WORKERS:-2}
+      - -c
+      - max_parallel_workers_per_gather=${POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER:-1}
