@@ -457,9 +457,21 @@
         "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
         "must_contain": [
           "validate_replay_gate()",
-          "  validate_replay_gate"
+          "  validate_replay_gate",
+          "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" up -d --no-deps postgres redis",
+          "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" up -d --no-deps caddy",
+          "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 caddy",
+          "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 postgres redis"
         ],
-        "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate."
+        "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate. Infra systemd start/stop must pin -f docker-compose.yml so docker-compose.override.yml (blue/green overlays without image) cannot poison boot after CFN stop/start."
+      },
+      {
+        "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
+        "must_contain": [
+          "r\"-f .+/docker-compose\\.yml up -d --no-deps postgres redis\"",
+          "r\"-f .+/docker-compose\\.yml up -d --no-deps caddy\""
+        ],
+        "rationale": "Blue/green systemd start must keep rendering the pinned infra compose -f path; regression of auto-merge with override.yml recreates the 2026-09-17 prod boot outage."
       },
     {
       "path": "backend/internal/service/openai_codex_models_service.go",
