@@ -133,7 +133,7 @@ curl_args=(
   -H "Content-Type: application/json"
   -H "Accept: text/event-stream"
   -H "OpenAI-Beta: responses=experimental"
-  -H "Originator: codex_cli"
+  -H "Originator: codex-tui"
   -H "Version: ${CODEX_VERSION}"
   -H "User-Agent: ${CODEX_USER_AGENT}"
   -X POST "$UPSTREAM_URL"
