@@ -138,16 +138,29 @@ export GOTOOLCHAIN="go$_go_mod_version"
 # or `git commit` in the same shell then fails with "fatal: this operation
 # must be run in a work tree". A regular preflight cycle calls submodule-aware
 # checks several times, so the only safe place to clear this debt is both
-# up-front (to defend against debt left by an earlier process) AND on EXIT
-# (to make sure the next `git commit` step after preflight returns is clean).
-# This is mechanical R-004 fix; previously the workaround lived only in memory
-# ("when in doubt, unset core.bare and retry") which is OPC anti-pattern.
-git config --local --unset core.bare >/dev/null 2>&1 || true
+# up-front (to defend against debt left by an earlier process), after the
+# shared template returns (it is the heaviest submodule walker), before
+# git-sensitive project checks, AND on EXIT (so the next `git commit` after
+# preflight returns is clean). This is mechanical R-004 fix; previously the
+# workaround lived only in memory ("when in doubt, unset core.bare and retry")
+# which is OPC anti-pattern.
+#
+# Pre-commit also injects GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE. Tmpdir
+# selftests that run `git -C <tmp>` (or cwd=tmp) then hit the host index
+# instead and fail with "must be run in a work tree" / exit 128. Strip those
+# at the wrapper boundary once so every check matches standalone behavior.
+_tk_clear_core_bare() {
+    git config --local --unset-all core.bare >/dev/null 2>&1 || true
+}
+if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_INDEX_FILE:-}" ]; then
+    unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
+fi
+_tk_clear_core_bare
 _preflight_bg_dir="$(mktemp -d "${TMPDIR:-/tmp}/preflight-bg.XXXXXX")"
 # On exit: clear the worktree core.bare debt, kill any still-running background
 # gate (e.g. when the dev-rules template fails and we exit before the joins),
 # then drop the scratch dir.
-trap 'git config --local --unset core.bare >/dev/null 2>&1 || true; { cat "$_preflight_bg_dir"/*.pid 2>/dev/null | xargs kill; wait; } 2>/dev/null; rm -rf "$_preflight_bg_dir"' EXIT
+trap '_tk_clear_core_bare; { cat "$_preflight_bg_dir"/*.pid 2>/dev/null | xargs kill; wait; } 2>/dev/null; rm -rf "$_preflight_bg_dir"' EXIT
 
 _preflight_fast=0
 case "${PREFLIGHT_FAST:-}" in 1|true|yes|TRUE|YES) _preflight_fast=1 ;; esac
@@ -414,6 +427,9 @@ dev_status=$?
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
 fi
+# Template submodule walkers commonly leave core.bare=true on the shared local
+# config; clear before project checks that shell out to git.
+_tk_clear_core_bare
 
 # ---- sub2api: agent contract drift ------------------------------------------
 # TokenKey-owned inventory (docs/agent_integration.md). The shared template
@@ -490,6 +506,7 @@ fi
 
 echo ""
 echo "=== sub2api: gitignore script homes ==="
+_tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by gitignore script-home check)"
     errors=$((errors + 1))
@@ -1764,6 +1781,7 @@ fi
 # ---- sub2api: frontend release asset contract -------------------------------
 echo ""
 echo "=== sub2api: frontend release asset contract ==="
+_tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to run frontend release checks)"
     errors=$((errors + 1))
@@ -1968,6 +1986,7 @@ fi
 # ---- sub2api: phase1 production activation safety contracts ----------------
 echo ""
 echo "=== sub2api: phase1 production activation safety contracts ==="
+_tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for activation safety tests)"
     errors=$((errors + 1))
@@ -3538,6 +3557,7 @@ fi
 # //go:build unit; scan branch diff plus staged/unstaged/untracked Go files.
 echo ""
 echo "=== sub2api: changed Go file gofmt ==="
+_tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by gofmt-changed-go.py)"
     errors=$((errors + 1))
