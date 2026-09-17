@@ -27,6 +27,7 @@ var vertexSharedModelMappingIDs = []string{
 	"gemini-3.6-flash",
 	"gemini-3.7-flash",
 	"gemini-3.8-flash",
+	"gemini-embedding-001",
 	"veo-3.1-generate-001",
 }
 
@@ -36,6 +37,7 @@ var vertexSharedModelMapping = map[string]string{
 	"gemini-3.8-flash":       "gemini-3.8-flash",
 	"gemini-3-flash-preview": "gemini-3.8-flash",
 	"gemini-3.5-flash-lite":  "gemini-3.6-flash",
+	"gemini-embedding-001":   "gemini-embedding-001",
 	"veo-3.1-generate-001":   "veo-3.1-generate-001",
 }
 
@@ -69,6 +71,18 @@ func vertexSharedModelMappingPreset() map[string]string {
 
 func vertexSharedModelMappingPresetIDs() []string {
 	return append([]string(nil), vertexSharedModelMappingIDs...)
+}
+
+func vertexSharedModelMappingKeysMatchIDs() bool {
+	if len(vertexSharedModelMappingIDs) != len(vertexSharedModelMapping) {
+		return false
+	}
+	for _, id := range vertexSharedModelMappingIDs {
+		if _, ok := vertexSharedModelMapping[id]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // Public Vertex discovery is the union of the verified capability floors.

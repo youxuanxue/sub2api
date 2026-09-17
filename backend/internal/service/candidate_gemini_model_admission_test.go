@@ -89,10 +89,17 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 		require.Equal(t, "gemini", presentationVendorForServable(model, "gemini"))
 		require.Contains(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), model)
 	}
-	// Alias remains independently priced in the overlay; billing still keys on
-	// requested_model. Mapping remaps wire targets separately.
-	require.NotNil(t, pricing["gemini-3.8-flash"])
-	require.NotNil(t, pricing["gemini-3.6-flash"])
+	// Compatibility aliases must bill at the remapped target list price.
+	preview, wire38 := pricing["gemini-3-flash-preview"], pricing["gemini-3.8-flash"]
+	require.NotNil(t, wire38)
+	require.Equal(t, wire38.InputCostPerToken, preview.InputCostPerToken)
+	require.Equal(t, wire38.OutputCostPerToken, preview.OutputCostPerToken)
+	require.Equal(t, wire38.CacheReadInputTokenCost, preview.CacheReadInputTokenCost)
+	lite, wire36 := pricing["gemini-3.5-flash-lite"], pricing["gemini-3.6-flash"]
+	require.NotNil(t, wire36)
+	require.Equal(t, wire36.InputCostPerToken, lite.InputCostPerToken)
+	require.Equal(t, wire36.OutputCostPerToken, lite.OutputCostPerToken)
+	require.Equal(t, wire36.CacheReadInputTokenCost, lite.CacheReadInputTokenCost)
 }
 
 func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T) {

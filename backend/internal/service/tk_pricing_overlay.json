@@ -59,7 +59,7 @@
     },
     "deepseek_peak_valley": {
       "timezone": "Asia/Shanghai",
-	  "weekdays_only": true,
+      "weekdays_only": true,
       "peak_multiplier": 2,
       "windows": [
         {
@@ -80,17 +80,17 @@
   "composer-2.5": {
     "litellm_provider": "cursor",
     "mode": "chat",
-    "input_cost_per_token": 0.0000005,
-    "output_cost_per_token": 0.0000025,
-    "cache_read_input_token_cost": 0.0000002,
+    "input_cost_per_token": 5e-07,
+    "output_cost_per_token": 2.5e-06,
+    "cache_read_input_token_cost": 2e-07,
     "source": "Cursor official https://cursor.com/docs/models-and-pricing and https://cursor.com/blog/composer-2-5, captured 2026-09-07: regular (fast=false) input $0.50/M, cache read $0.20/M, output $2.50/M. The bridge explicitly selects regular speed; subscription included usage does not change list pricing."
   },
   "composer-2": {
     "litellm_provider": "cursor",
     "mode": "chat",
-    "input_cost_per_token": 0.0000005,
-    "output_cost_per_token": 0.0000025,
-    "cache_read_input_token_cost": 0.0000005,
+    "input_cost_per_token": 5e-07,
+    "output_cost_per_token": 2.5e-06,
+    "cache_read_input_token_cost": 5e-07,
     "source": "Cursor official https://cursor.com/blog/composer-2, captured 2026-09-07: regular (fast=false) input $0.50/M, output $2.50/M. TokenKey conservatively prices cache reads at the same input rate pending a verified cache discount; this cache rate is a TokenKey price, not an official Cursor cache quote."
   },
   "ark-code-latest": {
@@ -1489,17 +1489,21 @@
   "doubao-seed-asr-2.0": {
     "litellm_provider": "volcengine",
     "mode": "audio_transcription",
-    "input_cost_per_second": 0.00004145936981757877,
+    "input_cost_per_second": 4.145936981757877e-05,
     "failure_billing": "success_only",
-    "supported_endpoints": ["/v1/audio/transcriptions"],
+    "supported_endpoints": [
+      "/v1/audio/transcriptions"
+    ],
     "source": "https://www.volcengine.com/docs/82379/2516284, verified 2026-09-09: Agent Plan ASR 1 CNY/hour; CNY/USD=6.7. Settlement uses final audio_info.duration in milliseconds."
   },
   "doubao-seed-tts-2.0": {
     "litellm_provider": "volcengine",
     "mode": "tts",
-    "output_cost_per_character": 0.00004477611940298507,
+    "output_cost_per_character": 4.477611940298507e-05,
     "failure_billing": "success_only",
-    "supported_endpoints": ["/v1/audio/speech"],
+    "supported_endpoints": [
+      "/v1/audio/speech"
+    ],
     "source": "https://www.volcengine.com/docs/82379/2516284, verified 2026-09-09: Agent Plan doubao-seed-tts-2.0 list 3 CNY/10k billable characters; CNY/USD=6.7. Usage owner text_words documented at https://www.volcengine.com/docs/6561/1598757."
   },
   "doubao-embedding-vision": {
@@ -2065,7 +2069,7 @@
     "litellm_provider": "volcengine",
     "mode": "chat",
     "input_cost_per_token": 4.4776119402985074e-07,
-    "output_cost_per_token": 2.2388059701492537e-06,
+    "output_cost_per_token": 2.238805970149254e-06,
     "cache_read_input_token_cost": 8.955223880597015e-08,
     "source": "VolcEngine Ark official model pricing https://www.volcengine.com/docs/82379/1544106, captured 2026-09-09 (document updated 2026-09-04): doubao-seed-2.1-turbo online inference standard list input CNY 3/Mtok, output CNY 15/Mtok, cache-hit CNY 0.60/Mtok for input [0, 256]K; CNY/USD=6.7. Excludes priority and batch inference prices. Pre-tax official list rates; the existing official_list_base_tax policy applies at resolution/catalog time. Agent Plan serving is scoped to /api/plan/v3."
   },
@@ -3047,11 +3051,11 @@
     "source": "TK overlay: Antigravity wire id (app 'Gemini 3.5 Flash (High)', thinkingBudget 10000) priced at equivalent public model gemini-3.5-flash market rate, no markup (in $1.5/M, out $9/M, cache $0.15/M). Ref: gemini-3.5-flash; captured 2026-06-13. Billing keys on requested_model."
   },
   "gemini-3-flash-preview": {
-    "cache_read_input_token_cost": 5e-08,
+    "cache_read_input_token_cost": 7.5e-08,
     "cache_read_input_token_cost_priority": 9e-08,
     "input_cost_per_audio_token": 1e-06,
     "input_cost_per_audio_token_priority": 1.8e-06,
-    "input_cost_per_token": 5e-07,
+    "input_cost_per_token": 7.5e-07,
     "input_cost_per_token_priority": 9e-07,
     "litellm_provider": "vertex_ai-language-models",
     "max_audio_length_hours": 8.4,
@@ -3064,15 +3068,15 @@
     "max_video_length": 1,
     "max_videos_per_prompt": 10,
     "mode": "chat",
-    "output_cost_per_reasoning_token": 3e-06,
-    "output_cost_per_token": 3e-06,
+    "output_cost_per_reasoning_token": 3.75e-06,
+    "output_cost_per_token": 3.75e-06,
     "output_cost_per_token_priority": 5.4e-06,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.014,
       "search_context_size_low": 0.014,
       "search_context_size_medium": 0.014
     },
-    "source": "https://ai.google.dev/pricing/gemini-3",
+    "source": "TK overlay: traffic alias of gemini-3.8-flash; cost fields mirrored to target list price so requested_model billing matches remap target. Captured 2026-09-18.",
     "supported_endpoints": [
       "/v1/chat/completions",
       "/v1/completions",
@@ -3817,26 +3821,26 @@
   "gemini-3.5-flash-lite": {
     "litellm_provider": "vertex_ai-language-models",
     "mode": "chat",
-    "input_cost_per_token": 3e-07,
-    "output_cost_per_token": 2.5e-06,
-    "cache_read_input_token_cost": 3e-08,
+    "input_cost_per_token": 1.5e-06,
+    "output_cost_per_token": 7.5e-06,
+    "cache_read_input_token_cost": 1.5e-07,
     "supports_function_calling": true,
     "supports_vision": true,
     "supports_reasoning": true,
     "supports_prompt_caching": true,
-    "source": "https://ai.google.dev/gemini-api/docs/pricing",
+    "source": "TK overlay: traffic alias of gemini-3.6-flash; cost fields mirrored to target list price so requested_model billing matches remap target. Captured 2026-09-18.",
     "cache_read_input_token_cost_flex": 2e-08,
-    "cache_read_input_token_cost_priority": 5e-08,
+    "cache_read_input_token_cost_priority": 2.7e-07,
     "input_cost_per_token_batches": 1.5e-07,
     "input_cost_per_token_flex": 1.5e-07,
-    "input_cost_per_token_priority": 5.4e-07,
+    "input_cost_per_token_priority": 2.7e-06,
     "max_input_tokens": 1048576,
     "max_output_tokens": 65536,
     "max_tokens": 65536,
-    "output_cost_per_reasoning_token": 2.5e-06,
+    "output_cost_per_reasoning_token": 7.5e-06,
     "output_cost_per_token_batches": 1.25e-06,
     "output_cost_per_token_flex": 1.25e-06,
-    "output_cost_per_token_priority": 4.5e-06,
+    "output_cost_per_token_priority": 1.35e-05,
     "search_context_cost_per_query": {
       "search_context_size_high": 0.014,
       "search_context_size_low": 0.014,
@@ -9738,7 +9742,9 @@
     "output_cost_per_token": 0,
     "max_input_tokens": 2048,
     "output_vector_size": 1536,
-    "supported_endpoints": ["/v1/embeddings"],
+    "supported_endpoints": [
+      "/v1/embeddings"
+    ],
     "supports_vision": false,
     "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0007/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
   },
@@ -9749,7 +9755,9 @@
     "output_cost_per_token": 0,
     "max_input_tokens": 2048,
     "output_vector_size": 1536,
-    "supported_endpoints": ["/v1/embeddings"],
+    "supported_endpoints": [
+      "/v1/embeddings"
+    ],
     "supports_vision": false,
     "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0007/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
   },
@@ -9760,7 +9768,9 @@
     "output_cost_per_token": 0,
     "max_input_tokens": 8192,
     "output_vector_size": 1024,
-    "supported_endpoints": ["/v1/embeddings"],
+    "supported_endpoints": [
+      "/v1/embeddings"
+    ],
     "supports_vision": false,
     "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
   },
@@ -9771,7 +9781,9 @@
     "output_cost_per_token": 0,
     "max_input_tokens": 8192,
     "output_vector_size": 1024,
-    "supported_endpoints": ["/v1/embeddings"],
+    "supported_endpoints": [
+      "/v1/embeddings"
+    ],
     "supports_vision": false,
     "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
   },
@@ -9782,18 +9794,22 @@
     "output_cost_per_token": 0,
     "max_input_tokens": 128000,
     "output_vector_size": 1024,
-    "supported_endpoints": ["/v1/embeddings"],
+    "supported_endpoints": [
+      "/v1/embeddings"
+    ],
     "supports_vision": false,
     "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.0005/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
   },
   "qwen3.7-text-embedding-flash": {
     "litellm_provider": "dashscope",
     "mode": "embedding",
-    "input_cost_per_token": 1.8656716417910448e-08,
+    "input_cost_per_token": 1.8656716417910447e-08,
     "output_cost_per_token": 0,
     "max_input_tokens": 128000,
     "output_vector_size": 1024,
-    "supported_endpoints": ["/v1/embeddings"],
+    "supported_endpoints": [
+      "/v1/embeddings"
+    ],
     "supports_vision": false,
     "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api; Beijing synchronous list captured 2026-09-09: CNY 0.000125/1k input, CNY/USD=6.7; docs/evidence/pricing/dashscope_text_embeddings_20260909.md"
   },
@@ -10213,49 +10229,49 @@
   "qwen-vl-max": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.0000002388059701492537,
-    "output_cost_per_token": 0.0000005970149253731343,
-    "cache_read_input_token_cost": 0.0000002388059701492537,
+    "input_cost_per_token": 2.388059701492537e-07,
+    "output_cost_per_token": 5.970149253731343e-07,
+    "cache_read_input_token_cost": 2.388059701492537e-07,
     "supports_vision": true,
     "source": "Alibaba DashScope qwen-vl-max official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥1.6/M out ¥4/M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-09-12: fix served-zero-cost alert for newapi Qwen group (qwen-vl-* already live via account supply / mapping but missing registry owner). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen-vl-plus": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.00000011940298507462686,
-    "output_cost_per_token": 0.00000029850746268656716,
-    "cache_read_input_token_cost": 0.00000011940298507462686,
+    "input_cost_per_token": 1.1940298507462686e-07,
+    "output_cost_per_token": 2.9850746268656716e-07,
+    "cache_read_input_token_cost": 1.1940298507462686e-07,
     "supports_vision": true,
     "source": "Alibaba DashScope qwen-vl-plus official China-mainland (Beijing) RMB list ÷ 6.7 (无阶梯计价 in ¥0.8/M out ¥2/M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-09-12: fix served-zero-cost alert for newapi Qwen group (qwen-vl-* already live via account supply / mapping but missing registry owner). List price only — Batch (half-price)/context-cache discounts not modeled (cache_read billed at full input rate). International deployment higher and intentionally NOT modeled; the prod account uses the China-mainland endpoint."
   },
   "qwen3-vl-flash": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.000000022388059701492537,
-    "output_cost_per_token": 0.00000022388059701492537,
-    "cache_read_input_token_cost": 0.000000022388059701492537,
+    "input_cost_per_token": 2.2388059701492537e-08,
+    "output_cost_per_token": 2.2388059701492537e-07,
+    "cache_read_input_token_cost": 2.2388059701492537e-08,
     "supports_vision": true,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 32000,
-        "input_cost_per_token": 0.000000022388059701492537,
-        "output_cost_per_token": 0.00000022388059701492537,
-        "cache_read_input_token_cost": 0.000000022388059701492537
+        "input_cost_per_token": 2.2388059701492537e-08,
+        "output_cost_per_token": 2.2388059701492537e-07,
+        "cache_read_input_token_cost": 2.2388059701492537e-08
       },
       {
         "min_tokens": 32000,
         "max_tokens": 128000,
-        "input_cost_per_token": 0.000000044776119402985075,
-        "output_cost_per_token": 0.00000044776119402985074,
-        "cache_read_input_token_cost": 0.000000044776119402985075
+        "input_cost_per_token": 4.4776119402985075e-08,
+        "output_cost_per_token": 4.4776119402985074e-07,
+        "cache_read_input_token_cost": 4.4776119402985075e-08
       },
       {
         "min_tokens": 128000,
         "max_tokens": null,
-        "input_cost_per_token": 0.00000008955223880597015,
-        "output_cost_per_token": 0.0000008955223880597015,
-        "cache_read_input_token_cost": 0.00000008955223880597015
+        "input_cost_per_token": 8.955223880597015e-08,
+        "output_cost_per_token": 8.955223880597015e-07,
+        "cache_read_input_token_cost": 8.955223880597015e-08
       }
     ],
     "source": "Alibaba DashScope qwen3-vl-flash official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=32K ¥0.15/¥1.5, 32K<=128K ¥0.3/¥3, 128K+ ¥0.6/¥6 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-09-12: same qwen-vision supply family as qwen-vl-max zero-cost alert — price before next leak. 非思考和思考模式同价 on official list. List price only — Batch/context-cache discounts not modeled (cache_read = input). International/US/EU deployments higher and intentionally NOT modeled; prod uses China-mainland."
@@ -10263,31 +10279,31 @@
   "qwen3-vl-plus": {
     "litellm_provider": "dashscope",
     "mode": "chat",
-    "input_cost_per_token": 0.00000014925373134328358,
-    "output_cost_per_token": 0.0000014925373134328358,
-    "cache_read_input_token_cost": 0.00000014925373134328358,
+    "input_cost_per_token": 1.4925373134328358e-07,
+    "output_cost_per_token": 1.4925373134328358e-06,
+    "cache_read_input_token_cost": 1.4925373134328358e-07,
     "supports_vision": true,
     "intervals": [
       {
         "min_tokens": 0,
         "max_tokens": 32000,
-        "input_cost_per_token": 0.00000014925373134328358,
-        "output_cost_per_token": 0.0000014925373134328358,
-        "cache_read_input_token_cost": 0.00000014925373134328358
+        "input_cost_per_token": 1.4925373134328358e-07,
+        "output_cost_per_token": 1.4925373134328358e-06,
+        "cache_read_input_token_cost": 1.4925373134328358e-07
       },
       {
         "min_tokens": 32000,
         "max_tokens": 128000,
-        "input_cost_per_token": 0.00000022388059701492537,
-        "output_cost_per_token": 0.000002238805970149254,
-        "cache_read_input_token_cost": 0.00000022388059701492537
+        "input_cost_per_token": 2.2388059701492537e-07,
+        "output_cost_per_token": 2.238805970149254e-06,
+        "cache_read_input_token_cost": 2.2388059701492537e-07
       },
       {
         "min_tokens": 128000,
         "max_tokens": null,
-        "input_cost_per_token": 0.00000044776119402985074,
-        "output_cost_per_token": 0.000004477611940298508,
-        "cache_read_input_token_cost": 0.00000044776119402985074
+        "input_cost_per_token": 4.4776119402985074e-07,
+        "output_cost_per_token": 4.477611940298508e-06,
+        "cache_read_input_token_cost": 4.4776119402985074e-07
       }
     ],
     "source": "Alibaba DashScope qwen3-vl-plus official China-mainland (Beijing) RMB list ÷ 6.7, tiered by input tokens (0<=32K ¥1/¥10, 32K<=128K ¥1.5/¥15, 128K+ ¥3/¥30 per M); docs/evidence/pricing/aliyun_pricing_20260612.md captured 2026-06-12. Added 2026-09-12: same qwen-vision supply family as qwen-vl-max zero-cost alert — price before next leak. 非思考和思考模式同价 on official list. List price only — Batch/context-cache discounts not modeled (cache_read = input). International/US/EU deployments higher and intentionally NOT modeled; prod uses China-mainland."

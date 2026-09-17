@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "3830eb4ee1c1f34329703906a45a19d1892a8753340079ad755f2d92876095fe",
+  "floor_sha256": "5429b40baa9fd31395e2d8434cfd8985723e81f7b7e3e827baefc7517484b938",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -73,6 +73,7 @@
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "grok": {
@@ -278,6 +279,7 @@
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "43": {
@@ -484,6 +486,7 @@
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro": {
@@ -492,6 +495,7 @@
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro-imagen-fast-standard": {
@@ -500,6 +504,7 @@
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro-imagen-standard": {
@@ -508,6 +513,7 @@
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
+        "gemini-embedding-001": "gemini-embedding-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       }
     },

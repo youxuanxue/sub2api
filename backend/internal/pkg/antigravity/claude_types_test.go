@@ -26,6 +26,26 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 	if len(byID) == 0 {
 		t.Fatal("DefaultModels must not be empty")
 	}
+
+	// Converged Google public request surface advertised by /antigravity models.
+	for _, id := range []string{
+		"gemini-3.6-flash",
+		"gemini-3.7-flash",
+		"gemini-3.8-flash",
+		"gemini-3-flash-preview",
+		"gemini-3.5-flash-lite",
+		"gemini-3.1-flash-image",
+		"gemini-3-pro-image",
+	} {
+		if _, ok := byID[id]; !ok {
+			t.Fatalf("DefaultModels missing converged id %q", id)
+		}
+	}
+	for _, retired := range []string{"gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-agent", "gemini-3-flash"} {
+		if _, ok := byID[retired]; ok {
+			t.Fatalf("DefaultModels must not advertise retired id %q", retired)
+		}
+	}
 }
 
 func TestDefaultGeminiModels_UsesGeminiShape(t *testing.T) {

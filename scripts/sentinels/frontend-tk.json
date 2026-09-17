@@ -1935,9 +1935,12 @@
         "export const GEMINI_IMAGE_SIZES",
         "export const GPT_IMAGE_SIZES",
         "wan2.7-image",
-        "wan2.7-image-pro"
+        "wan2.7-image-pro",
+        "gemini-3-pro-image",
+        "gemini-3.1-flash-image",
+        "veo-3.1-generate-001"
       ],
-      "rationale": "TK-only Studio presentation overlay. Membership SSOT is the key/group entitlement pool (account model_mapping via /v1/models or capabilities) + modalityForModel — NOT public /pricing allowlists. MEDIA_MODEL_PRESENTATIONS holds UI metadata only; resolveAvailableModels lists pool ids for the modality and treats priceMap as optional cost enrichment (missing live price must not hide a mapping-backed model such as gpt-image-2). Dropping these silently regresses the transparent model picker. Video anchors keep presentation aligned with Seedance doubao-* routing ids. supportedParams gates the Advanced panel to adaptor-honored params. IMAGEN/SEEDREAM/WAN27/GEMINI/GPT_IMAGE_SIZES are per-family aspect option sets (Imagen ratio codes, Seedream/Wan/gpt-image pixel WxH, Gemini aspect codes)."
+      "rationale": "TK-only Studio presentation overlay. Membership SSOT is the key/group entitlement pool (account model_mapping via /v1/models or capabilities) + modalityForModel — NOT public /pricing allowlists. MEDIA_MODEL_PRESENTATIONS holds UI metadata only; resolveAvailableModels lists pool ids for the modality and treats priceMap as optional cost enrichment (missing live price must not hide a mapping-backed model such as gpt-image-2). Dropping these silently regresses the transparent model picker. Video anchors keep presentation aligned with Seedance doubao-* routing ids. supportedParams gates the Advanced panel to adaptor-honored params. IMAGEN/SEEDREAM/WAN27/GEMINI/GPT_IMAGE_SIZES are per-family aspect option sets (Imagen ratio codes, Seedream/Wan/gpt-image pixel WxH, Gemini aspect codes). 2026-09-18 converge: Studio Google image surface is gemini-3-pro-image + gemini-3.1-flash-image; Imagen rows removed."
     },
     {
       "path": "frontend/src/api/qaBundle.ts",

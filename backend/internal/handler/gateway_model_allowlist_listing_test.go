@@ -109,7 +109,7 @@ func TestGeminiV1BetaListModels_FiltersFallbackByAllowlist(t *testing.T) {
 			Platform: service.PlatformGemini,
 			ModelAllowlist: service.GroupModelAllowlist{
 				Enabled: true,
-				Models:  []string{"gemini-2.5-pro", "gemini-3*"},
+				Models:  []string{"gemini-3.8-flash", "gemini-3*"},
 			},
 		},
 	})
@@ -129,7 +129,7 @@ func TestGeminiV1BetaListModels_FiltersFallbackByAllowlist(t *testing.T) {
 		names = append(names, model.Name)
 	}
 	// models/ 前缀的候选形式也应命中条目。
-	require.Contains(t, names, "models/gemini-2.5-pro")
+	require.Contains(t, names, "models/gemini-3.8-flash")
 	require.Contains(t, names, "models/gemini-3.6-flash")
 	require.NotContains(t, names, "models/gemini-2.5-flash")
 	require.NotContains(t, names, "models/gemini-2.0-flash")
@@ -150,7 +150,7 @@ func TestAntigravityModels_FiltersByAllowlist(t *testing.T) {
 			Platform: service.PlatformAntigravity,
 			ModelAllowlist: service.GroupModelAllowlist{
 				Enabled: true,
-				Models:  []string{"gemini-2.5-flash"},
+				Models:  []string{"gemini-3.8-flash"},
 			},
 		},
 	})
@@ -169,8 +169,8 @@ func TestAntigravityModels_FiltersByAllowlist(t *testing.T) {
 	require.Equal(t, "list", got.Object)
 	// Listing projects the configured entry; equivalent thinking requests remain allowed.
 	require.Len(t, got.Data, 1)
-	require.Equal(t, "gemini-2.5-flash", got.Data[0].ID)
-	require.True(t, (service.GroupModelAllowlist{Enabled: true, Models: []string{"gemini-2.5-flash"}}).Allows("gemini-2.5-flash-thinking"))
+	require.Equal(t, "gemini-3.8-flash", got.Data[0].ID)
+	require.True(t, (service.GroupModelAllowlist{Enabled: true, Models: []string{"gemini-3.8-flash"}}).Allows("gemini-3.8-flash"))
 }
 
 func TestFilterUpstreamGeminiModelsBody(t *testing.T) {
