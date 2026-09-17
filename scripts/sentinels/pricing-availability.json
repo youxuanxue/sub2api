@@ -75,7 +75,8 @@
         "!isNewAPILongTailCatalogVendor(m.Vendor) || !isTkCuratedNewAPIModelDisplayed(m.ModelID)",
         "\"gemini-3.8-flash\":",
         "\"gemini-embedding-001\":",
-        "\"gemini-3-pro-image\":"
+        "\"gemini-3-pro-image\":",
+        "\"nano-2\":"
       ],
       "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models. 2026-09-18 converge: gemini-3.8-flash + embedding retained; Imagen/2.5/Claude dropped from native allowlists."
     },
@@ -240,7 +241,9 @@
         "servable-allowlist:begin openai",
         "servable-allowlist:begin gemini",
         "servable-allowlist:begin antigravity",
-        "servable-allowlist:begin grok"
+        "servable-allowlist:begin grok",
+        "\"nano-2\":",
+        "\"gemini-3.8-flash\":"
       ],
       "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels: live Gemini set plus #1265 live Claude subset, with gpt-oss/dead/unpriced keys excluded from persisted account mappings) is hand-maintained from empirical probes; losing it silently reverts antigravity to passthrough or hides now-supported Claude IDs. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists."
     },

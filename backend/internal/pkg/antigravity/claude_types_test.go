@@ -36,6 +36,8 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 		"gemini-3.5-flash-lite",
 		"gemini-3.1-flash-image",
 		"gemini-3-pro-image",
+		"nano-2",
+		"gemini-3.1-flash-image-preview",
 	} {
 		if _, ok := byID[id]; !ok {
 			t.Fatalf("DefaultModels missing converged id %q", id)

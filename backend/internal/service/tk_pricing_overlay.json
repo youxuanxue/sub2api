@@ -15,7 +15,11 @@
     "gpt-5.5-pro": "gpt-5.5",
     "gpt-5.6": "gpt-5.6-sol",
     "gpt-5.6-chat-latest": "gpt-5.6-sol",
-    "gpt-6": "gpt-6-astra"
+    "gpt-6": "gpt-6-astra",
+    "gpt-image-2.5": "gpt-image-2.5-flare",
+    "image-2.5": "gpt-image-2.5-flare",
+    "nano-2": "gemini-3.1-flash-image",
+    "nano-pro": "gemini-3-pro-image"
   },
   "_config": {
     "official_list_base_tax": {
@@ -7645,6 +7649,40 @@
     "supports_pdf_input": true,
     "supports_vision": true,
     "source": "migration baseline owner (external), external sha256=f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
+  },
+  "gpt-image-2.5-flare": {
+    "cache_read_input_image_token_cost": 2e-06,
+    "cache_read_input_token_cost": 1.25e-06,
+    "input_cost_per_image_token": 8e-06,
+    "input_cost_per_token": 5e-06,
+    "litellm_provider": "openai",
+    "mode": "image_generation",
+    "output_cost_per_image_token": 3e-05,
+    "output_cost_per_token": 1e-05,
+    "supported_endpoints": [
+      "/v1/images/generations",
+      "/v1/images/edits"
+    ],
+    "supports_pdf_input": true,
+    "supports_vision": true,
+    "source": "https://developers.openai.com/api/docs/pricing image generation models; GPT Image 2.5 flare/sunburst share $8/$2/$30 per 1M image tokens and $5/$1.25 per 1M text tokens (captured 2026-09-17). Edge OpenAI OAuth Codex image_generation tool verified servable_image_generated on us4 account gpt-34."
+  },
+  "gpt-image-2.5-sunburst": {
+    "cache_read_input_image_token_cost": 2e-06,
+    "cache_read_input_token_cost": 1.25e-06,
+    "input_cost_per_image_token": 8e-06,
+    "input_cost_per_token": 5e-06,
+    "litellm_provider": "openai",
+    "mode": "image_generation",
+    "output_cost_per_image_token": 3e-05,
+    "output_cost_per_token": 1e-05,
+    "supported_endpoints": [
+      "/v1/images/generations",
+      "/v1/images/edits"
+    ],
+    "supports_pdf_input": true,
+    "supports_vision": true,
+    "source": "https://developers.openai.com/api/docs/pricing image generation models; GPT Image 2.5 flare/sunburst share $8/$2/$30 per 1M image tokens and $5/$1.25 per 1M text tokens (captured 2026-09-17). Edge OpenAI OAuth Codex image_generation tool verified servable_image_generated on us4 account gpt-34."
   },
   "gpt-realtime": {
     "cache_creation_input_audio_token_cost": 4e-07,

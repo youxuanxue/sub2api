@@ -70,6 +70,10 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-5.6-terra": {},
 	"gpt-6":         {},
 	"gpt-6-astra":   {},
+	// GPT Image 2.5: edge OpenAI OAuth Codex image_generation verified
+	// servable_image_generated 2026-09-17 (us4 gpt-34) for flare + sunburst.
+	"gpt-image-2.5-flare":    {},
+	"gpt-image-2.5-sunburst": {},
 	// servable-allowlist:end openai
 }
 
@@ -119,6 +123,8 @@ var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 	"gpt-5.6-sol":                    {},
 	"gpt-5.6-terra":                  {},
 	"gpt-image-2":                    {},
+	"gpt-image-2.5-flare":            {},
+	"gpt-image-2.5-sunburst":         {},
 	"kimi-k2.5":                      {},
 	"kimi-k2.6":                      {},
 	"kimi-k2.7-code":                 {},
@@ -173,13 +179,17 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 // an empty set preserves the existing passthrough/canonical fallback.
 var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin antigravity
-	"gemini-3-flash-preview": {},
-	"gemini-3-pro-image":     {},
-	"gemini-3.1-flash-image": {},
-	"gemini-3.5-flash-lite":  {},
-	"gemini-3.6-flash":       {},
-	"gemini-3.7-flash":       {},
-	"gemini-3.8-flash":       {},
+	"gemini-3-flash-preview":         {},
+	"gemini-3-pro-image":             {},
+	"gemini-3.1-flash-image":         {},
+	"gemini-3.1-flash-image-preview": {},
+	"gemini-3.5-flash-lite":          {},
+	"gemini-3.6-flash":               {},
+	"gemini-3.7-flash":               {},
+	"gemini-3.8-flash":               {},
+	// nano-2 is Flash↔Flash (price matches wire). nano-pro is NOT listed here:
+	// Antigravity remaps it to Flash while overlay aliases price it as Pro.
+	"nano-2": {},
 	// servable-allowlist:end antigravity
 }
 

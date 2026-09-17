@@ -1938,7 +1938,9 @@
         "wan2.7-image-pro",
         "gemini-3-pro-image",
         "gemini-3.1-flash-image",
-        "veo-3.1-generate-001"
+        "veo-3.1-generate-001",
+        "nano-2",
+        "nano-pro"
       ],
       "rationale": "TK-only Studio presentation overlay. Membership SSOT is the key/group entitlement pool (account model_mapping via /v1/models or capabilities) + modalityForModel — NOT public /pricing allowlists. MEDIA_MODEL_PRESENTATIONS holds UI metadata only; resolveAvailableModels lists pool ids for the modality and treats priceMap as optional cost enrichment (missing live price must not hide a mapping-backed model such as gpt-image-2). Dropping these silently regresses the transparent model picker. Video anchors keep presentation aligned with Seedance doubao-* routing ids. supportedParams gates the Advanced panel to adaptor-honored params. IMAGEN/SEEDREAM/WAN27/GEMINI/GPT_IMAGE_SIZES are per-family aspect option sets (Imagen ratio codes, Seedream/Wan/gpt-image pixel WxH, Gemini aspect codes). 2026-09-18 converge: Studio Google image surface is gemini-3-pro-image + gemini-3.1-flash-image; Imagen rows removed."
     },
@@ -2320,7 +2322,9 @@
       "path": "frontend/src/constants/studioMediaPresentations.tk.ts",
       "must_contain": [
         "servedModalities?: ReadonlySet<PickerModality>",
-        "o.servedModalities.has(modality)"
+        "o.servedModalities.has(modality)",
+        "nano-2",
+        "nano-pro"
       ],
       "rationale": "The shared modality key picker accepts explicit capability modalities for automatic keys while preserving catalog inference for direct keys. Without this branch Studio can select a key solely because public pricing classifies a same-named model as media-capable."
     },
@@ -2505,22 +2509,22 @@
       ],
       "rationale": "The generic edit modal shows the sync-overwrite hint for supplier-managed accounts but still submits ordinary account updates. Field-level read-only special cases are intentionally absent."
     },
-  {
-    "path": "frontend/src/components/admin/account/AccountTestModal.vue",
-    "must_contain": [
-      "Text models first so admin \"测连接\" defaults to a cheap connectivity probe.",
-      "'gemini-3-flash'",
-      "props.account?.platform === PLATFORM_ANTIGRAVITY"
-    ],
-    "rationale": "Admin AccountTestModal must prefer text Gemini models over image ids as the default connectivity probe, and allow Antigravity OAuth (not only apikey) for image test mode. Upstream-shaped Vue; pin text-first priority list and OAuth image eligibility."
-  },
-  {
-    "path": "frontend/src/components/account/AccountTestModal.vue",
-    "must_contain": [
-      "'gemini-3-flash'",
-      "props.account?.platform === PLATFORM_ANTIGRAVITY"
-    ],
-    "rationale": "User AccountTestModal mirrors admin: text-first Gemini defaults and Antigravity OAuth image-test eligibility. Upstream-shaped; pin the same priority head and platform gate."
-  }
+    {
+      "path": "frontend/src/components/admin/account/AccountTestModal.vue",
+      "must_contain": [
+        "Text models first so admin \"测连接\" defaults to a cheap connectivity probe.",
+        "'gemini-3-flash'",
+        "props.account?.platform === PLATFORM_ANTIGRAVITY"
+      ],
+      "rationale": "Admin AccountTestModal must prefer text Gemini models over image ids as the default connectivity probe, and allow Antigravity OAuth (not only apikey) for image test mode. Upstream-shaped Vue; pin text-first priority list and OAuth image eligibility."
+    },
+    {
+      "path": "frontend/src/components/account/AccountTestModal.vue",
+      "must_contain": [
+        "'gemini-3-flash'",
+        "props.account?.platform === PLATFORM_ANTIGRAVITY"
+      ],
+      "rationale": "User AccountTestModal mirrors admin: text-first Gemini defaults and Antigravity OAuth image-test eligibility. Upstream-shaped; pin the same priority head and platform gate."
+    }
   ]
 }

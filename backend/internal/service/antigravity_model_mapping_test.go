@@ -18,6 +18,8 @@ func TestAntigravityGatewayService_GetMappedModel_ConvergedSurface(t *testing.T)
 		"gemini-3.5-flash-lite":  "gemini-3.6-flash-tiered",
 		"gemini-3.1-flash-image": "gemini-3.1-flash-image",
 		"gemini-3-pro-image":     "gemini-3.1-flash-image",
+		"nano-2":                 "gemini-3.1-flash-image",
+		"nano-pro":               "gemini-3.1-flash-image",
 		"claude-sonnet-4-6":      "",
 	}
 	for requested, expected := range cases {

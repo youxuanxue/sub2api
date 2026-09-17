@@ -61,9 +61,12 @@ def _catalog_media_modality(entry: dict[str, object]) -> str | None:
         mode == "video_generation" or pure_media_without_mode
     ):
         return "video"
-    if _positive(entry, "output_cost_per_image") and (
-        mode == "image_generation" or pure_media_without_mode
-    ):
+    # Flat $/image and image-token owners are both public image media
+    # (matches pricing_catalog_tk.go media detection for OutputCostPerImageToken).
+    is_image_priced = _positive(entry, "output_cost_per_image") or _positive(
+        entry, "output_cost_per_image_token"
+    )
+    if is_image_priced and (mode == "image_generation" or pure_media_without_mode):
         return "image"
     return None
 
@@ -71,7 +74,12 @@ def _catalog_media_modality(entry: dict[str, object]) -> str | None:
 def _priced_catalog_row(entry: dict[str, object]) -> bool:
     return any(
         _has_price_field(entry, field)
-        for field in (*TOKEN_PRICE_FIELDS, "output_cost_per_image", "output_cost_per_second")
+        for field in (
+            *TOKEN_PRICE_FIELDS,
+            "output_cost_per_image",
+            "output_cost_per_image_token",
+            "output_cost_per_second",
+        )
     )
 
 
@@ -84,7 +92,7 @@ def _overlay_catalog_entry(entry: dict[str, object]) -> dict[str, object]:
         "input_cost_per_token": entry.get("input_cost_per_token", 0),
         "output_cost_per_token": entry.get("output_cost_per_token", 0),
     }
-    for field in ("output_cost_per_image", "output_cost_per_second"):
+    for field in ("output_cost_per_image", "output_cost_per_image_token", "output_cost_per_second"):
         if _positive(entry, field):
             out[field] = entry[field]
     return out
@@ -103,7 +111,11 @@ def catalog_media_ids(catalog_text: str, overlay_text: str, modality: str) -> se
     for model_id, entry in overlay.items():
         if model_id.startswith("_") or not isinstance(entry, dict):
             continue
-        is_media = _positive(entry, "output_cost_per_image") or _positive(entry, "output_cost_per_second")
+        is_media = (
+            _positive(entry, "output_cost_per_image")
+            or _positive(entry, "output_cost_per_image_token")
+            or _positive(entry, "output_cost_per_second")
+        )
         if not _positive(entry, "input_cost_per_token") and not _positive(entry, "output_cost_per_token") and not is_media:
             continue
         if model_id in rows:
@@ -247,6 +259,15 @@ def coverage_errors(catalog_text: str, overlay_text: str, go_text: str, manifest
         for model_id in sorted(ids):
             rec = presentations_by_modality[modality].get(model_id)
             if not rec:
+                # #2204: gpt-image-* Studio rows are synthesized at runtime from
+                # GPT_IMAGE_SIZES when membership comes from model_mapping. Treat
+                # the shared size table as the explicit size contract for those ids.
+                if (
+                    modality == "image"
+                    and model_id.startswith("gpt-image-")
+                    and re.search(r"\bexport const GPT_IMAGE_SIZES\b", ts_text)
+                ):
+                    continue
                 errors.append(f"{model_id}: public servable {modality} lacks explicit Studio presentation")
                 continue
             if modality == "image":

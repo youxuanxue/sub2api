@@ -119,13 +119,18 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // 兼容别名。Antigravity OAuth 仍不能服务真 gemini-3-pro-image（404），继续
 // 重指 3.1-flash-image；3.6/3.7/3.8 公共 id 仍走已验证的 wire remap。
 var DefaultAntigravityModelMapping = map[string]string{
-	"gemini-3.6-flash":       "gemini-3.6-flash-tiered",
-	"gemini-3.7-flash":       "gemini-3.7-flash-medium",
-	"gemini-3.8-flash":       "gemini-3.8-flash-medium",
-	"gemini-3-flash-preview": "gemini-3.8-flash-medium",
-	"gemini-3.5-flash-lite":  "gemini-3.6-flash-tiered",
-	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
-	"gemini-3-pro-image":     "gemini-3.1-flash-image",
+	"gemini-3.6-flash":               "gemini-3.6-flash-tiered",
+	"gemini-3.7-flash":               "gemini-3.7-flash-medium",
+	"gemini-3.8-flash":               "gemini-3.8-flash-medium",
+	"gemini-3-flash-preview":         "gemini-3.8-flash-medium",
+	"gemini-3.5-flash-lite":          "gemini-3.6-flash-tiered",
+	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
+	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
+	// Antigravity OAuth cannot serve true gemini-3-pro-image (404); Flash remap.
+	// nano-2 / nano-pro are public Nano Banana marketing aliases (#2206).
+	"gemini-3-pro-image": "gemini-3.1-flash-image",
+	"nano-2":             "gemini-3.1-flash-image",
+	"nano-pro":           "gemini-3.1-flash-image",
 }
 
 var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{

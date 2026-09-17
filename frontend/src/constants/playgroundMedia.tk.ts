@@ -20,15 +20,22 @@ export type PlaygroundModality = 'chat' | 'image' | 'video'
 
 /**
  * Gemini-native image-generation ids: `gemini…-image`, `gemini…-image-preview`,
- * `gemini…-image-<variant>`, and the `nano-banana` family. Must NOT match plain
- * gemini chat ids (e.g. gemini-2.5-flash, gemini-3-flash-agent) — only ids whose
- * name carries an `-image` segment. Mirrors backend isImageGenerationModel().
+ * `gemini…-image-<variant>`, and Nano Banana marketing aliases (`nano-banana*`,
+ * `nano-2`, `nano-pro`). Must NOT match plain gemini chat ids (e.g.
+ * gemini-2.5-flash, gemini-3-flash-agent) — only ids whose name carries an
+ * `-image` segment (or the explicit nano marketing aliases). Mirrors backend
+ * isImageGenerationModel() / antigravity.IsImageModel().
  */
 const GEMINI_NATIVE_IMAGE_RE = /(?:^|\/)gemini[-\w.]*-image(?:-[-\w.]*)?$/
 
 export function isGeminiNativeImageModel(modelId: string): boolean {
   const id = (modelId || '').trim().toLowerCase()
-  return GEMINI_NATIVE_IMAGE_RE.test(id) || id.includes('nano-banana')
+  return (
+    GEMINI_NATIVE_IMAGE_RE.test(id) ||
+    id.includes('nano-banana') ||
+    id === 'nano-2' ||
+    id === 'nano-pro'
+  )
 }
 
 export function modalityForModel(modelId: string): PlaygroundModality {
@@ -37,6 +44,7 @@ export function modalityForModel(modelId: string): PlaygroundModality {
   if (id.includes('seedance') || id.startsWith('veo-') || id === 'grok-imagine-video') return 'video'
   if (
     id.startsWith('gpt-image-') ||
+    id === 'image-2.5' ||
     id.startsWith('imagen-') ||
     id.includes('seedream') ||
     id.startsWith('grok-imagine-image') ||
