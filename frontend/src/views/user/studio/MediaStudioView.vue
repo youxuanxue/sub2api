@@ -161,10 +161,8 @@ import { getMePricingCatalog } from '@/api/me-pricing'
 import { getPublicPricing, type PublicCatalogModel } from '@/api/pricing'
 import {
   isUniversalKey,
-  buildCatalogBillingIndex,
   priceMapFromPublicCatalog,
   priceMapFromMeCatalog,
-  type CatalogBillingIndex,
 } from '@/utils/studioUniversalKey.tk'
 import {
   groupServes,
@@ -207,8 +205,6 @@ const groupModelSets = ref<Map<string, Set<string>>>(new Map())
 const groupCapabilityModalities = ref<Map<string, Map<string, Set<APIKeyCapabilityModality>>>>(new Map())
 const groupProbeReps = ref<Map<string, ApiKey>>(new Map())
 const publicCatalogModels = ref<PublicCatalogModel[]>([])
-/** Public catalog billing_mode index — Studio media membership SSOT. */
-const catalogBillingIndex = ref<CatalogBillingIndex>(new Map())
 // Live per-model price for the SELECTED key's group (getMePricingCatalog) — the
 // single source of media prices (no hardcoding, so prices can't drift).
 const priceMap = ref<Map<string, MediaPrice>>(new Map())
@@ -256,7 +252,7 @@ function servedModalitiesOf(k: ApiKey): Set<PickerModality> | undefined {
 function keyServesModality(k: ApiKey, modality: PickerModality): boolean {
 	const served = servedModalitiesOf(k)
 	if (served) return served.has(modality)
-  return groupServes(modality, availableIdsOf(k), catalogBillingIndex.value)
+  return groupServes(modality, availableIdsOf(k))
 }
 
 // Model pool of the currently selected key — what the child studios resolve
@@ -306,10 +302,8 @@ async function loadPublicCatalog(): Promise<void> {
   try {
     const publicCatalog = await getPublicPricing()
     publicCatalogModels.value = publicCatalog.data || []
-    catalogBillingIndex.value = buildCatalogBillingIndex(publicCatalogModels.value)
   } catch {
     publicCatalogModels.value = []
-    catalogBillingIndex.value = new Map()
   }
 }
 
@@ -401,14 +395,14 @@ async function ensurePickerGroupProbes(): Promise<void> {
 function repickKeyForCurrentModality(): void {
   const m = pickerModality.value
   if (!m) return
-  selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value, catalogBillingIndex.value)
+  selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value)
 }
 
 async function onBakeoffModalityChange(modality: StudioModality): Promise<void> {
   bakeoffModality.value = modality
   if (!probed.value || view.value !== 'bakeoff') return
   await ensurePickerGroupProbes()
-  selectedKeyId.value = pickModalityKey(modalityOptions(), modality, selectedKeyId.value, catalogBillingIndex.value)
+  selectedKeyId.value = pickModalityKey(modalityOptions(), modality, selectedKeyId.value)
   if (selectedKeyId.value != null) await ensurePriceCatalog(selectedKeyId.value)
 }
 
@@ -474,7 +468,7 @@ watch(view, async (v) => {
   const m = pickerModality.value
   if (!m) return
   if (m === 'image' || m === 'video') await ensurePickerGroupProbes()
-  selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value, catalogBillingIndex.value)
+  selectedKeyId.value = pickModalityKey(modalityOptions(), m, selectedKeyId.value)
   if (v === 'image' || v === 'video' || v === 'bakeoff') {
     const id = selectedKeyId.value
     if (id != null) await ensurePriceCatalog(id)
@@ -526,7 +520,7 @@ async function bootstrap(): Promise<void> {
         modelsLoading.value = false
         return
       }
-      selectedKeyId.value = pickModalityKey(modalityOptions(), 'chat', seed, catalogBillingIndex.value)
+      selectedKeyId.value = pickModalityKey(modalityOptions(), 'chat', seed)
       probed.value = true
       if (selectedKeyId.value != null) void ensurePriceCatalog(selectedKeyId.value)
       void (async () => {
@@ -552,7 +546,7 @@ async function bootstrap(): Promise<void> {
         modelsLoading.value = false
         return
       }
-      selectedKeyId.value = pickModalityKey(modalityOptions(), bakeoffModality.value, seed, catalogBillingIndex.value)
+      selectedKeyId.value = pickModalityKey(modalityOptions(), bakeoffModality.value, seed)
       if (ordered.length > 1) {
         void finishBackgroundProbe(reps, new Set([seedGk]))
       } else {
@@ -563,13 +557,13 @@ async function bootstrap(): Promise<void> {
       return
     }
 
-    let picked = pickModalityKey(modalityOptions(), landingView, seed, catalogBillingIndex.value)
+    let picked = pickModalityKey(modalityOptions(), landingView, seed)
     const currentServes =
       picked != null &&
       keys.value.some((k) => k.id === picked && keyServesModality(k, landingView))
     if (!currentServes && ordered.length > 1) {
       await probeGroupEntries(ordered.slice(1))
-      picked = pickModalityKey(modalityOptions(), landingView, seed, catalogBillingIndex.value)
+      picked = pickModalityKey(modalityOptions(), landingView, seed)
     }
     if (!anyOk) {
       loadError.value = t('studio.loadFailed')
