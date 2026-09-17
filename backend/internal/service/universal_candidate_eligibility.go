@@ -14,6 +14,31 @@ import (
 
 var ErrUniversalCapacityUnavailable = errors.New("universal key: entitled pools are temporarily unavailable")
 
+// UniversalCapacityError wraps ErrUniversalCapacityUnavailable with the best
+// known platform when entitled pools support the model but none are currently
+// schedulable. Ops uses Platform for attribution when no backing group was bound.
+type UniversalCapacityError struct {
+	Platform string
+	GroupID  int64
+}
+
+func (e *UniversalCapacityError) Error() string {
+	if e == nil {
+		return ErrUniversalCapacityUnavailable.Error()
+	}
+	return ErrUniversalCapacityUnavailable.Error()
+}
+
+func (e *UniversalCapacityError) Unwrap() error { return ErrUniversalCapacityUnavailable }
+
+func newUniversalCapacityError(platform string, groupID int64) error {
+	platform = strings.TrimSpace(platform)
+	if platform == "" && groupID <= 0 {
+		return ErrUniversalCapacityUnavailable
+	}
+	return &UniversalCapacityError{Platform: platform, GroupID: groupID}
+}
+
 func (r *UniversalRoutingResolver) SetCandidateEvaluator(router *protocolrouter.Router, evaluate groupCandidateEvaluator) {
 	if r == nil {
 		return
@@ -90,6 +115,7 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 	var evaluationErr error
 	supported := false
 	unsupportedModel := false
+	var capacityHint *Group
 	for _, group := range eligible {
 		if universalShapeRequiresImageGenerationEnabled(shape) && !group.AllowImageGeneration {
 			continue
@@ -115,6 +141,10 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 			continue
 		}
 		supported = supported || state.Supported
+		if state.Supported && capacityHint == nil {
+			g := group
+			capacityHint = &g
+		}
 		if !state.Supported || !state.Available {
 			continue
 		}
@@ -150,6 +180,9 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 		return nil, evaluationErr
 	}
 	if supported {
+		if capacityHint != nil {
+			return nil, newUniversalCapacityError(capacityHint.Platform, capacityHint.ID)
+		}
 		return nil, ErrUniversalCapacityUnavailable
 	}
 	if unsupportedModel {
