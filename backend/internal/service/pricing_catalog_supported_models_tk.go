@@ -70,6 +70,10 @@ var supportedOpenAICatalogModels = map[string]struct{}{
 	"gpt-5.6-terra": {},
 	"gpt-6":         {},
 	"gpt-6-astra":   {},
+	// GPT Image 2.5: edge OpenAI OAuth Codex image_generation verified
+	// servable_image_generated 2026-09-17 (us4 gpt-34) for flare + sunburst.
+	"gpt-image-2.5-flare":    {},
+	"gpt-image-2.5-sunburst": {},
 	// servable-allowlist:end openai
 }
 
@@ -119,6 +123,8 @@ var supportedOpenAITokenseaRelayCatalogModels = map[string]struct{}{
 	"gpt-5.6-sol":                    {},
 	"gpt-5.6-terra":                  {},
 	"gpt-image-2":                    {},
+	"gpt-image-2.5-flare":            {},
+	"gpt-image-2.5-sunburst":         {},
 	"kimi-k2.5":                      {},
 	"kimi-k2.6":                      {},
 	"kimi-k2.7-code":                 {},
@@ -191,6 +197,8 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	"gemini-3-pro-image":             {},
 	"gemini-3.1-flash-image":         {},
 	"gemini-3.1-flash-image-preview": {},
+	"nano-2":                         {},
+	"nano-pro":                       {},
 	"gemini-3.1-flash-lite":          {},
 	"gemini-3.1-pro-low":             {},
 	"gemini-3.5-flash":               {},

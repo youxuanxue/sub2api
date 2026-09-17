@@ -140,12 +140,21 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
 	// Gemini 3.1 image preview 映射
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
+	// Public Nano Banana shorthand aliases (client marketing names).
+	// nano-2 = Nano Banana 2 = gemini-3.1-flash-image (live OAuth wire id).
+	"nano-2": "gemini-3.1-flash-image",
 	// Gemini 3.6 Flash tiered models
 	"gemini-3.6-flash-high":   "gemini-3.6-flash-high",
 	"gemini-3.6-flash-low":    "gemini-3.6-flash-low",
 	"gemini-3.6-flash-medium": "gemini-3.6-flash-medium",
-	// Gemini 3 image 兼容映射（向 3.1 image 迁移）
+	// Gemini 3 image 兼容映射（向 3.1 image 迁移）。
+	// 2026-09-17 edge-us4 Antigravity OAuth direct upstream:
+	// gemini-3-pro-image is absent from fetchAvailableModels and returns 404
+	// NOT_FOUND on daily-cloudcode-pa generateContent. Keep the Flash remap —
+	// removing it does not unlock true Nano Banana Pro on Antigravity OAuth.
+	// nano-pro is the marketing alias for the same remapped path.
 	"gemini-3-pro-image": "gemini-3.1-flash-image",
+	"nano-pro":           "gemini-3.1-flash-image",
 	// Gemini 3.5 Flash 实测 wire id（2026-06 /v1internal:fetchAvailableModels；
 	// thinkingBudget 由 wire id 在上游决定，app 下拉显示名见各行注释）
 	"gemini-3.5-flash-low":       "gemini-3.5-flash-low",       // app "Gemini 3.5 Flash (Medium)"

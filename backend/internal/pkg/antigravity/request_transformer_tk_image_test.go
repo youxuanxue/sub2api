@@ -72,6 +72,8 @@ func TestIsImageModel(t *testing.T) {
 		"gemini-3-pro-image":             true,
 		"models/gemini-3.1-flash-image":  true,
 		"nano-banana-pro":                true,
+		"nano-2":                         true,
+		"nano-pro":                       true,
 		"gemini-2.5-flash":               false,
 		"gemini-3-flash-agent":           false,
 		"claude-opus-4-8":                false,
