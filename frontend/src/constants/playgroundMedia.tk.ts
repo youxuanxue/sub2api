@@ -6,12 +6,9 @@ import { buildDataVideoUri } from '@/utils/studioInlineVideo.tk'
 // writeModelsList) and the public pricing catalog carries no image/video
 // capability tag (pricing_catalog_tk.go buildCapabilities), so the playground
 // must classify locally. The patterns mirror what the backend actually serves:
-//   - image  — `gpt-image-` prefix is the backend's own intent predicate
-//              (service/openai_images.go isOpenAIImageGenerationModel);
-//              imagen-* (Vertex) and *seedream* (Doubao) are the media families
-//              priced in tk_pricing_overlay.json.
-//   - video  — veo-* (Vertex), *seedance* (Doubao Seedance), and
-//              grok-imagine-video (native xAI) are served via /v1/video/generations.
+//   - image  — `gpt-image-` (OpenAI Images), imagen-*, *seedream*,
+//              grok-imagine-image*, wan*-image*, and gemini-native image ids.
+//   - video  — veo-*, *seedance*, grok-imagine-video.
 //   - image (gemini-native) — gemini-*-image / nano-banana ("Nano Banana") models
 //              output images, but via /v1/chat/completions (responseModalities
 //              IMAGE), NOT /v1/images/generations. The predicate mirrors the
@@ -47,8 +44,11 @@ export function modalityForModel(modelId: string): PlaygroundModality {
   if (id.includes('seedance') || id.startsWith('veo-') || id === 'grok-imagine-video') return 'video'
   if (
     id.startsWith('gpt-image-') ||
+    id === 'image-2.5' ||
     id.startsWith('imagen-') ||
     id.includes('seedream') ||
+    id.startsWith('grok-imagine-image') ||
+    (id.startsWith('wan') && id.includes('-image')) ||
     isGeminiNativeImageModel(id)
   )
     return 'image'

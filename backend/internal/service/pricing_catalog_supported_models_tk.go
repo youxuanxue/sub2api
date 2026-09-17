@@ -197,17 +197,18 @@ var supportedAntigravityCatalogModels = map[string]struct{}{
 	"gemini-3-pro-image":             {},
 	"gemini-3.1-flash-image":         {},
 	"gemini-3.1-flash-image-preview": {},
-	"nano-2":                         {},
-	"nano-pro":                       {},
-	"gemini-3.1-flash-lite":          {},
-	"gemini-3.1-pro-low":             {},
-	"gemini-3.5-flash":               {},
-	"gemini-3.5-flash-extra-low":     {},
-	"gemini-3.5-flash-low":           {},
-	"gemini-3.6-flash":               {},
-	"gemini-3.7-flash":               {},
-	"gemini-3.8-flash":               {},
-	"gemini-pro-agent":               {},
+	// nano-2 is Flash↔Flash (price matches wire). nano-pro is NOT listed here:
+	// Antigravity remaps it to Flash while overlay aliases price it as Pro.
+	"nano-2":                     {},
+	"gemini-3.1-flash-lite":      {},
+	"gemini-3.1-pro-low":         {},
+	"gemini-3.5-flash":           {},
+	"gemini-3.5-flash-extra-low": {},
+	"gemini-3.5-flash-low":       {},
+	"gemini-3.6-flash":           {},
+	"gemini-3.7-flash":           {},
+	"gemini-3.8-flash":           {},
+	"gemini-pro-agent":           {},
 	// servable-allowlist:end antigravity
 }
 

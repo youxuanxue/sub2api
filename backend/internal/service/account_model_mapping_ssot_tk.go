@@ -588,6 +588,18 @@ func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {
 			return true
 		}
 	}
+	// Marketing aliases in the floor (nano-2/nano-pro/image-2.5/…) must pass the
+	// same Anthropic-shaped TokenSea gate as their wire targets.
+	for from, to := range tkTokenseaImageCompatibilityAliases {
+		if !strings.EqualFold(from, normalized) {
+			continue
+		}
+		for _, id := range tokenseaRelayCorePublicFloorIDs() {
+			if strings.EqualFold(id, to) {
+				return true
+			}
+		}
+	}
 	return false
 }
 

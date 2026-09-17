@@ -34,7 +34,17 @@ describe('modalityForModel', () => {
       'doubao-seedream-4-0-250828',
       'doubao-seedream-4-5-251128',
       'doubao-seedream-5-0-260128',
+      'grok-imagine-image',
+      'grok-imagine-image-quality',
+      'wan2.7-image',
+      'wan2.7-image-pro',
     ]) {
+      expect(modalityForModel(id)).toBe('image')
+    }
+  })
+
+  it('classifies gpt-image and image-2.5 shorthand as image', () => {
+    for (const id of ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5', 'image-2.5']) {
       expect(modalityForModel(id)).toBe('image')
     }
   })

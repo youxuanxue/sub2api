@@ -259,6 +259,15 @@ def coverage_errors(catalog_text: str, overlay_text: str, go_text: str, manifest
         for model_id in sorted(ids):
             rec = presentations_by_modality[modality].get(model_id)
             if not rec:
+                # #2204: gpt-image-* Studio rows are synthesized at runtime from
+                # GPT_IMAGE_SIZES when membership comes from model_mapping. Treat
+                # the shared size table as the explicit size contract for those ids.
+                if (
+                    modality == "image"
+                    and model_id.startswith("gpt-image-")
+                    and re.search(r"\bexport const GPT_IMAGE_SIZES\b", ts_text)
+                ):
+                    continue
                 errors.append(f"{model_id}: public servable {modality} lacks explicit Studio presentation")
                 continue
             if modality == "image":
