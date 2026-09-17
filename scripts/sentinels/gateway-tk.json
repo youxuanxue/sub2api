@@ -459,11 +459,13 @@
           "validate_replay_gate()",
           "  validate_replay_gate",
           "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" up -d --no-deps postgres redis",
+          "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" -f \"${ROOT}/docker-compose.prod-pg.yml\" up -d --no-deps postgres redis",
           "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" up -d --no-deps caddy",
           "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 caddy",
-          "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 postgres redis"
+          "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 postgres redis",
+          "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" -f \"${ROOT}/docker-compose.prod-pg.yml\" stop -t 60 postgres redis"
         ],
-        "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate. Infra systemd start/stop must pin -f docker-compose.yml so docker-compose.override.yml (blue/green overlays without image) cannot poison boot after CFN stop/start."
+        "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate. Infra systemd start/stop must pin -f docker-compose.yml so docker-compose.override.yml (blue/green overlays without image) cannot poison boot after CFN stop/start. Prod may layer docker-compose.prod-pg.yml for GUC tuning without auto-merging override.yml."
       },
       {
         "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
