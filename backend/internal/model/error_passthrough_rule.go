@@ -47,6 +47,7 @@ const (
 	PlatformZhipu       = domain.PlatformZhipu
 	PlatformDeepseek    = domain.PlatformDeepseek
 	PlatformMiniMax     = domain.PlatformMiniMax
+	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 )
 
 // AllPlatforms 返回错误透传规则支持的平台列表。
@@ -56,7 +57,13 @@ func AllPlatforms() []string {
 		PlatformOpenAI,
 		PlatformGemini,
 		PlatformAntigravity,
-		PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax}
+		PlatformGrok,
+		PlatformKimi,
+		PlatformZhipu,
+		PlatformDeepseek,
+		PlatformMiniMax,
+		PlatformOpenCodeGo,
+	}
 }
 
 // Validate 验证规则配置的有效性

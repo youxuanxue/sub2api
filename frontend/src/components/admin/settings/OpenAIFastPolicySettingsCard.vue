@@ -84,7 +84,7 @@
             <Select
               :modelValue="rule.service_tier"
               @update:modelValue="
-                rule.service_tier = $event as 'all' | 'priority' | 'flex'
+                rule.service_tier = $event as 'all' | 'priority' | 'flex' | 'missing'
               "
               :options="tierOptions"
             />
@@ -99,7 +99,7 @@
             <Select
               :modelValue="rule.action"
               @update:modelValue="
-                rule.action = $event as 'pass' | 'filter' | 'block'
+                rule.action = $event as 'pass' | 'filter' | 'force_priority' | 'block'
               "
               :options="actionOptions"
             />
@@ -289,11 +289,16 @@ const tierOptions = computed(() => [
     label: t("admin.settings.openaiFastPolicy.tierPriority"),
   },
   { value: "flex", label: t("admin.settings.openaiFastPolicy.tierFlex") },
+  { value: "missing", label: t("admin.settings.openaiFastPolicy.tierMissing") },
 ]);
 
 const actionOptions = computed(() => [
   { value: "pass", label: t("admin.settings.openaiFastPolicy.actionPass") },
   { value: "filter", label: t("admin.settings.openaiFastPolicy.actionFilter") },
+  {
+    value: "force_priority",
+    label: t("admin.settings.openaiFastPolicy.actionForcePriority"),
+  },
   { value: "block", label: t("admin.settings.openaiFastPolicy.actionBlock") },
 ]);
 

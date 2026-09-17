@@ -197,14 +197,24 @@ apiClient.interceptors.response.use(
               }))
             }
 
-            if (isNetworkError(refreshError)) {
-              const networkError = createNetworkError(requestUrlFromError(refreshError))
-              onTokenRefreshed('', networkError)
-              return Promise.reject(networkError)
+            if (axios.isAxiosError(refreshError)) {
+              const refreshStatus = refreshError.response?.status ?? 0
+              if (refreshStatus === 0 || refreshStatus === 429 || refreshStatus >= 500) {
+                const unavailableError = createApiError({
+                  status: refreshStatus,
+                  code: 'TOKEN_REFRESH_UNAVAILABLE',
+                  message: refreshError.response?.data?.message || refreshError.message
+                })
+                onTokenRefreshed('', unavailableError)
+                return Promise.reject(unavailableError)
+              }
             }
 
-            onTokenRefreshed('')
-
+            onTokenRefreshed('', createApiError({
+              status: 401,
+              code: 'TOKEN_REFRESH_FAILED',
+              message: 'Session expired. Please log in again.'
+            }))
             // Clear tokens and redirect to login
             localStorage.removeItem('auth_token')
             localStorage.removeItem('refresh_token')

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -101,10 +100,7 @@ func (h *GatewayHandler) tkServeModels(c *gin.Context) {
 	// silently get Claude default models via the catch-all below — wrong
 	// shape for OpenAI-compat clients.
 	if service.IsOpenAICompatPlatform(platform) {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   h.tkOpenAIDefaultModelIDs(c.Request.Context(), platform),
-		})
+		writeModelsListResponse(c, h.tkOpenAIDefaultModelIDs(c.Request.Context(), platform))
 		return
 	}
 
@@ -112,10 +108,7 @@ func (h *GatewayHandler) tkServeModels(c *gin.Context) {
 		// TK: same CatalogPolicy projection as /pricing and Your-Menu fallback —
 		// drops advertised_dead (e.g. gemini-2.0-flash) instead of returning the
 		// raw geminicli.DefaultModels.
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   h.tkGeminiDefaultModelsList(c.Request.Context()),
-		})
+		writeModelsListResponse(c, h.tkGeminiDefaultModelsList(c.Request.Context()))
 		return
 	}
 	if platform == service.PlatformGrok {
@@ -123,10 +116,7 @@ func (h *GatewayHandler) tkServeModels(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   h.tkClaudeDefaultModelIDs(c.Request.Context(), platform),
-	})
+	writeModelsListResponse(c, h.tkClaudeDefaultModelIDs(c.Request.Context(), platform))
 }
 
 func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {

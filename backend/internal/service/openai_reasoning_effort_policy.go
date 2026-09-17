@@ -111,13 +111,11 @@ func IsReasoningEffortPolicyDenied(err error) bool {
 	return errors.As(err, &mappingDenied)
 }
 
-var reasoningEffortSeparatorReplacer = strings.NewReplacer("-", "", "_", "", " ", "")
-
 // NormalizeMaxReasoningEffort validates and canonicalizes a group policy value.
 // Empty means that the group does not impose a ceiling.
 func NormalizeMaxReasoningEffort(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
-	value = reasoningEffortSeparatorReplacer.Replace(value)
+	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
 	switch value {
 	case "":
 		return ""
@@ -342,7 +340,7 @@ func NormalizeReasoningEffortMappings(platform string, raw []ReasoningEffortMapp
 		return nil, fmt.Errorf("reasoning effort mappings cannot exceed %d entries", maxReasoningEffortMappings)
 	}
 
-	normalized := make([]domain.ReasoningEffortMapping, 0, len(raw))
+	normalized := make([]ReasoningEffortMapping, 0, len(raw))
 	seen := make(map[string]struct{}, len(raw))
 	for i, mapping := range raw {
 		from := normalizeReasoningEffortMappingSource(mapping.From)
@@ -484,7 +482,7 @@ func sanitizeGroupReasoningEffortPolicy(group *Group) {
 		maxEffort = ""
 	}
 	if mappingsErr != nil {
-		mappings = []domain.ReasoningEffortMapping{}
+		mappings = []ReasoningEffortMapping{}
 	}
 	if overLimit == "" || (group.Platform != PlatformAnthropic && group.Platform != PlatformOpenAI && group.Platform != PlatformComposite) {
 		overLimit = ReasoningEffortOverLimitDowngrade
@@ -494,10 +492,14 @@ func sanitizeGroupReasoningEffortPolicy(group *Group) {
 	group.ReasoningEffortMappings = mappings
 }
 
-// ApplyReasoningEffortPolicy applies one exact mapping and then caps
-// known effort levels. Omitted values remain untouched so upstream defaults
-// stay in control.
-func ApplyReasoningEffortPolicy(body []byte, maxEffort string, mappings []domain.ReasoningEffortMapping, overLimit string) ([]byte, bool, error) {
+// ApplyReasoningEffortPolicy applies one mapping (optionally scoped to
+// the request model by exact name, prefix, or suffix) and then either caps
+// known effort levels or rejects the request when the group is configured to
+// deny values above the ceiling. A mapping whose target is deny rejects the
+// request when that source value is present. Omitted values remain untouched
+// so upstream defaults stay in control. It understands both OpenAI and
+// Anthropic request field shapes.
+func ApplyReasoningEffortPolicy(body []byte, maxEffort string, mappings []ReasoningEffortMapping, overLimit string) ([]byte, bool, error) {
 	maxRank, hasMax := reasoningEffortRank(maxEffort)
 	if len(body) == 0 || (!hasMax && len(mappings) == 0) {
 		return body, false, nil
@@ -547,6 +549,20 @@ func ApplyReasoningEffortPolicy(body []byte, maxEffort string, mappings []domain
 		changed = true
 	}
 	return result, changed, nil
+}
+
+func applyOpenAIWSReasoningEffortPolicy(payload []byte, hooks *OpenAIWSIngressHooks) ([]byte, error) {
+	if hooks == nil || (hooks.MaxReasoningEffort == "" && len(hooks.ReasoningEffortMappings) == 0) {
+		return payload, nil
+	}
+	capped, changed, err := ApplyOpenAIReasoningEffortPolicy(payload, hooks.MaxReasoningEffort, hooks.ReasoningEffortMappings, hooks.MaxReasoningEffortOverLimit)
+	if err != nil {
+		return payload, err
+	}
+	if changed {
+		return capped, nil
+	}
+	return payload, nil
 }
 
 // ApplyOpenAIReasoningEffortPolicy is retained for OpenAI forwarding callers.

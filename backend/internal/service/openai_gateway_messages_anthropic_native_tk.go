@@ -156,7 +156,17 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(ctx context.Context, acc
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
+	if account.IsOpenCodeGo() {
+		// OpenCode Go 的 Chat Completions base 带 /v1；用版本感知拼接避免 /v1/v1/messages。
+		return buildOpenAIEndpointURL(validatedURL, "/v1/messages"), nil
+	}
 	return strings.TrimRight(validatedURL, "/") + "/v1/messages", nil
+}
+
+func resolveOpenCodeGoMappedModel(account *Account, body []byte, defaultMappedModel string) string {
+	original := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	billing := resolveOpenAIForwardModel(account, original, defaultMappedModel)
+	return normalizeOpenAIModelForUpstream(account, billing)
 }
 
 func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
@@ -166,6 +176,7 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	body []byte,
 	apiKey string,
 	targetURL string,
+	sessionBodies ...[]byte,
 ) (*http.Request, []byte, error) {
 	if account.IsCursor() && c != nil && c.Request != nil {
 		ctx = c.Request.Context()
@@ -224,8 +235,9 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 
-	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
+	payloads := append([][]byte{body}, sessionBodies...)
+	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, payloads...)
 	if err := prepareCursorUpstreamRequest(req, c, account); err != nil {
 		return nil, nil, err
 	}

@@ -761,6 +761,8 @@ let abortController: AbortController | null = null
 // A previous 4-element hardcoded array silently dropped newapi data on the
 // API → form → API round-trip (see docs/approved/admin-ui-newapi-platform-end-to-end.md §1.5).
 const platformOrder: readonly GroupPlatform[] = GATEWAY_PLATFORMS
+// Composite pricing/mapping may target every concrete schedulable provider.
+const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go']
 // ── Helpers ──
 function formatDate(value: string): string {
   if (!value) return '-'
