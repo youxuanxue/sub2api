@@ -12410,6 +12410,25 @@
         "strings.HasPrefix(model.ID, cursorExcludedModelPrefix)"
       ],
       "rationale": "Cursor import and reconnect must not reintroduce GPT mappings from upstream discovery."
-    }
+    },
+  {
+    "path": "backend/internal/service/antigravity_gateway_service.go",
+    "must_contain": [
+      "readOnlyAccountState: true",
+      "TestConnectionWithPrompt",
+      "extractImagesFromSSEResponse",
+      "responseModalities"
+    ],
+    "rationale": "Admin Antigravity TestConnection must stay read-only (no rate-limit / SetError writes) and image probes must request TEXT+IMAGE modalities. antigravity_gateway_service.go is upstream-shaped; a merge that restores the old mutating TestConnection would silently re-arm probe-side account disable. Pins the readOnlyAccountState=true injection and image modality path. Pairs with TestApplyErrorPolicy_ReadOnlySkipsAccountMutation and TestBuildGeminiTestRequest_ImageModelRequestsModalities."
+  },
+  {
+    "path": "backend/internal/service/antigravity_gateway_retry.go",
+    "must_contain": [
+      "readOnlyAccountState bool",
+      "if p.readOnlyAccountState {",
+      "!p.readOnlyAccountState && shouldMarkCreditsExhausted"
+    ],
+    "rationale": "Retry loop must honor readOnlyAccountState for admin probes — skip smart-retry capacity burns and credits-exhausted mutations. Upstream merges frequently touch this retry file; pin the flag and both gate sites."
+  }
   ]
 }
