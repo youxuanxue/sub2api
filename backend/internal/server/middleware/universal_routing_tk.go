@@ -160,12 +160,6 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 		} else if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
 			reqLog.Warn("universal_routing.capacity_unavailable")
 			writeUniversalRoutingCapacityError(c, shape)
-		} else if errors.Is(err, service.ErrProtocolCapabilityUnknown) || errors.Is(err, service.ErrProtocolRouteUnavailable) {
-			// Candidate assembly saw unknown/conflicted protocol evidence without a
-			// legal route. Prefer the existing unsupported-model envelope over a
-			// platform 500 so Gemini→Chat (and peers) are not mis-owned as infra.
-			reqLog.Warn("universal_routing.protocol_route_unavailable", zap.Error(err))
-			writeUniversalRoutingUnsupportedModelError(c, shape, model)
 		} else if status := infraerrors.Code(err); status >= 400 && status < 500 {
 			writeCandidateBillingError(c, shape, err)
 		} else {
