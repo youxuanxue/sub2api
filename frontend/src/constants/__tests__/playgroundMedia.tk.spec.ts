@@ -43,13 +43,21 @@ describe('modalityForModel', () => {
     }
   })
 
+  it('classifies gpt-image and image-2.5 shorthand as image', () => {
+    for (const id of ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5', 'image-2.5']) {
+      expect(modalityForModel(id)).toBe('image')
+    }
+  })
+
   it('classifies gemini-native image models as image (served via chat)', () => {
     for (const id of [
       'gemini-3.1-flash-image',
       'gemini-3.1-flash-image-preview',
       'gemini-2.5-flash-image',
       'gemini-3-pro-image-preview',
-      'nano-banana-pro-preview'
+      'nano-banana-pro-preview',
+      'nano-2',
+      'nano-pro'
     ]) {
       expect(modalityForModel(id)).toBe('image')
     }

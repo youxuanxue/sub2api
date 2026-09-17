@@ -55,6 +55,9 @@ func TestAccountModelMappingForAccount_NativePlatformsExplicit(t *testing.T) {
 			mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: platform}, nil, nil, nil)
 			require.True(t, ok)
 			requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsForPlatform(platform))
+			if platform == PlatformOpenAI {
+				requireOpenAIImageCompatibilityAliases(t, mapping)
+			}
 			require.NotContains(t, mapping, platform+"-not-a-real-id-zzz")
 		})
 	}

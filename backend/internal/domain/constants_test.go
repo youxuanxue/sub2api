@@ -16,6 +16,10 @@ func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) 
 		"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 		"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
 		"gemini-3-pro-image":             "gemini-3.1-flash-image",
+		"nano-2":                         "gemini-3.1-flash-image",
+		// 2026-09-17 us4: true Pro wire id 404 on Antigravity OAuth — nano-pro
+		// stays on the Flash remap, same as gemini-3-pro-image.
+		"nano-pro": "gemini-3.1-flash-image",
 	}
 
 	for from, want := range cases {

@@ -30,6 +30,7 @@ export type PickerModality = StudioModality | 'chat'
 const VERTEX = 'Google Vertex'
 const VOLC = 'VolcEngine'
 const GEMINI = 'Google Gemini'
+const OPENAI = 'OpenAI'
 const XAI = 'xAI'
 const DASHSCOPE = 'Alibaba DashScope'
 
@@ -39,6 +40,7 @@ const VENDOR_LABELS: Record<string, string> = {
   volcengine: VOLC,
   google: GEMINI,
   gemini: GEMINI,
+  openai: OPENAI,
   dashscope: DASHSCOPE,
 }
 
@@ -456,8 +458,8 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   //    (responseModalities IMAGE), NOT /v1/images/generations. Flat per-image billing.
   {
     modelId: 'gemini-3.1-flash-image',
-    aliasIds: ['gemini-3.1-flash-image-preview'],
-    displayName: 'Gemini 3.1 Flash Image',
+    aliasIds: ['gemini-3.1-flash-image-preview', 'nano-2'],
+    displayName: 'Nano Banana 2 (Gemini 3.1 Flash Image)',
     qualityBadge: 'fast',
     qualityBadgeKey: 'studio.badge.fast',
     vendorLabel: GEMINI,
@@ -480,7 +482,10 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   },
   {
     modelId: 'gemini-3-pro-image-preview',
-    aliasIds: ['gemini-3-pro-image', 'nano-banana-pro-preview'],
+    // Antigravity OAuth remaps Pro → 3.1-flash-image (true Pro wire id 404,
+    // 2026-09-17 us4). nano-pro stays as the marketing alias for that path;
+    // newapi/TokenSea can still serve true gemini-3-pro-image.
+    aliasIds: ['gemini-3-pro-image', 'nano-banana-pro-preview', 'nano-pro'],
     displayName: 'Nano Banana Pro (Gemini 3 Pro Image)',
     qualityBadge: 'ultra',
     qualityBadgeKey: 'studio.badge.ultra',
@@ -492,7 +497,8 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   },
   // gpt-image-* membership comes from account model_mapping /v1/models — no
   // curated presentation required. buildMediaPresentationForCatalogRow supplies
-  // GPT_IMAGE_SIZES defaults when a gpt-image id is served.
+  // GPT_IMAGE_SIZES defaults when a gpt-image id is served. Edge OpenAI OAuth
+  // verified gpt-image-2.5-flare/sunburst servable_image_generated (2026-09-17).
 
   // ── video ──
   {

@@ -292,6 +292,18 @@
       "model": "gemini-3.1-pro-preview",
       "reason": "A project-scoped failure is inconclusive; retain for chat reprobe.",
       "probe_family": "gemini_chat"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-image-2.5-flare",
+      "reason": "OpenAI OAuth Codex image_generation tool verified servable; retain for image reprobe.",
+      "probe_family": "openai_image"
+    },
+    {
+      "platform": "openai",
+      "model": "gpt-image-2.5-sunburst",
+      "reason": "OpenAI OAuth Codex image_generation tool verified servable; retain for image reprobe.",
+      "probe_family": "openai_image"
     }
   ]
 }

@@ -333,6 +333,10 @@ func TestAntigravityGatewayService_GetMappedModel_EmpiricalGeminiWireIDs(t *test
 		"gemini-3-flash-agent":       "gemini-3-flash-agent",
 		"gemini-pro-agent":           "gemini-pro-agent",
 		"gemini-3.5-flash":           "gemini-3.5-flash-low", // 友好别名 → Medium 档
+		// Nano Banana marketing aliases: Antigravity OAuth cannot serve true Pro.
+		"nano-2":             "gemini-3.1-flash-image",
+		"nano-pro":           "gemini-3.1-flash-image",
+		"gemini-3-pro-image": "gemini-3.1-flash-image",
 	}
 	for requested, expected := range cases {
 		account := &Account{Platform: PlatformAntigravity}
