@@ -190,7 +190,7 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 			h.OpenAIGateway.GrokImages(c)
 			return
 		case service.PlatformOpenAI:
-			h.OpenAIGateway.ImageGenerations(c)
+			h.OpenAIGateway.Images(c)
 			return
 		}
 		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
