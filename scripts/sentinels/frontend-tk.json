@@ -2501,6 +2501,23 @@
         "admin.accounts.supplierManaged.viewHint"
       ],
       "rationale": "The generic edit modal shows the sync-overwrite hint for supplier-managed accounts but still submits ordinary account updates. Field-level read-only special cases are intentionally absent."
-    }
+    },
+  {
+    "path": "frontend/src/components/admin/account/AccountTestModal.vue",
+    "must_contain": [
+      "Text models first so admin \"测连接\" defaults to a cheap connectivity probe.",
+      "'gemini-3-flash'",
+      "props.account?.platform === PLATFORM_ANTIGRAVITY"
+    ],
+    "rationale": "Admin AccountTestModal must prefer text Gemini models over image ids as the default connectivity probe, and allow Antigravity OAuth (not only apikey) for image test mode. Upstream-shaped Vue; pin text-first priority list and OAuth image eligibility."
+  },
+  {
+    "path": "frontend/src/components/account/AccountTestModal.vue",
+    "must_contain": [
+      "'gemini-3-flash'",
+      "props.account?.platform === PLATFORM_ANTIGRAVITY"
+    ],
+    "rationale": "User AccountTestModal mirrors admin: text-first Gemini defaults and Antigravity OAuth image-test eligibility. Upstream-shaped; pin the same priority head and platform gate."
+  }
   ]
 }
