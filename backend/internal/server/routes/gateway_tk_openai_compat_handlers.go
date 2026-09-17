@@ -182,18 +182,38 @@ func tkOpenAICompatEmbeddingsHandler(h *handler.Handlers) gin.HandlerFunc {
 	}
 }
 
+// tkOpenAIImageGenerationsDispatch selects the OpenAI-compat /images/generations
+// handler branch. Native OpenAI must use Images (OAuth Codex Image Bridge +
+// APIKey relay); Grok uses GrokImages; remaining OpenAI-compat pool members
+// keep the APIKey-oriented ImageGenerations forwarder.
+func tkOpenAIImageGenerationsDispatch(platform string) string {
+	switch platform {
+	case service.PlatformGrok:
+		return "grok_images"
+	case service.PlatformOpenAI:
+		return "images"
+	default:
+		if isOpenAICompatPlatform(platform) {
+			return "image_generations"
+		}
+		return "not_found"
+	}
+}
+
 // tkOpenAICompatImageGenerationsHandler routes POST /images/generations for OpenAI-compat platform groups only.
 func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		switch getGroupPlatform(c) {
-		case service.PlatformGrok:
+		switch tkOpenAIImageGenerationsDispatch(getGroupPlatform(c)) {
+		case "grok_images":
 			h.OpenAIGateway.GrokImages(c)
 			return
-		case service.PlatformOpenAI:
+		case "images":
+			h.OpenAIGateway.Images(c)
+			return
+		case "image_generations":
 			h.OpenAIGateway.ImageGenerations(c)
 			return
-		}
-		if !isOpenAICompatPlatform(getGroupPlatform(c)) {
+		default:
 			service.MarkOpsClientPolicyDenied(c, service.OpsClientPolicyDeniedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -201,9 +221,7 @@ func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc 
 					"message": "The images API is only available for OpenAI-compatible platform groups",
 				},
 			})
-			return
 		}
-		h.OpenAIGateway.ImageGenerations(c)
 	}
 }
 

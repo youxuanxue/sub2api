@@ -47,11 +47,11 @@
       ]
     },
     "deepseek-chat": {
-      "display": true,
+      "display": false,
       "channel_type": 43
     },
     "deepseek-reasoner": {
-      "display": true,
+      "display": false,
       "channel_type": 43
     },
     "kimi-k2.5": {
@@ -453,7 +453,7 @@
       ]
     },
     "glm-5.2-fast-preview": {
-      "display": true,
+      "display": false,
       "channel_type": 17
     },
     "glm-5.1": {
@@ -497,7 +497,7 @@
       "channel_type": 17
     },
     "ark-code-latest": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 45,
@@ -632,7 +632,7 @@
       ]
     },
     "deepseek-ocr": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -904,7 +904,7 @@
       ]
     },
     "composer-2.5": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 14,
@@ -977,15 +977,6 @@
       ]
     },
     "claude-sonnet-4-6": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "composer-2": {
       "display": true,
       "scopes": [
         {

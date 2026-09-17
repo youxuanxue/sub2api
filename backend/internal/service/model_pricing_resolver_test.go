@@ -98,6 +98,54 @@ func TestGetIntervalPricing_MatchesInterval(t *testing.T) {
 	require.InDelta(t, 3e-6, result2.InputPricePerToken, 1e-12)
 }
 
+// TestGetIntervalPricing_ThinkingOutputOverridesPerTier locks the qwen-plus
+// style path: each input-context bracket carries its own thinking_output rate,
+// and GetIntervalPricing must promote it onto ThinkingOutputPricePerToken so
+// enable_thinking billing does not keep the first-tier (or flat) thinking rate.
+func TestGetIntervalPricing_ThinkingOutputOverridesPerTier(t *testing.T) {
+	r := NewModelPricingResolver(&ChannelService{}, newTestBillingServiceForResolver())
+
+	resolved := &ResolvedPricing{
+		Mode: BillingModeToken,
+		BasePricing: &ModelPricing{
+			OutputPricePerToken:         tkCNYPerMTokToUSDPerToken(2),
+			ThinkingOutputPricePerToken: tkCNYPerMTokToUSDPerToken(8),
+		},
+		Intervals: []PricingInterval{
+			{
+				MinTokens:           0,
+				MaxTokens:           testPtrInt(128000),
+				OutputPrice:         testPtrFloat64(tkCNYPerMTokToUSDPerToken(2)),
+				ThinkingOutputPrice: testPtrFloat64(tkCNYPerMTokToUSDPerToken(8)),
+			},
+			{
+				MinTokens:           128000,
+				MaxTokens:           testPtrInt(256000),
+				OutputPrice:         testPtrFloat64(tkCNYPerMTokToUSDPerToken(20)),
+				ThinkingOutputPrice: testPtrFloat64(tkCNYPerMTokToUSDPerToken(24)),
+			},
+			{
+				MinTokens:           256000,
+				MaxTokens:           nil,
+				OutputPrice:         testPtrFloat64(tkCNYPerMTokToUSDPerToken(48)),
+				ThinkingOutputPrice: testPtrFloat64(tkCNYPerMTokToUSDPerToken(64)),
+			},
+		},
+	}
+
+	low := r.GetIntervalPricing(resolved, 50_000)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(8), low.ThinkingOutputPricePerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(2), low.OutputPricePerToken, 1e-15)
+
+	mid := r.GetIntervalPricing(resolved, 200_000)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(24), mid.ThinkingOutputPricePerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(20), mid.OutputPricePerToken, 1e-15)
+
+	high := r.GetIntervalPricing(resolved, 300_000)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(64), high.ThinkingOutputPricePerToken, 1e-15)
+	require.InDelta(t, tkCNYPerMTokToUSDPerToken(48), high.OutputPricePerToken, 1e-15)
+}
+
 func TestGetIntervalPricing_CacheWriteDurationOverrides(t *testing.T) {
 	for _, oneHour := range []float64{0, 20e-6} {
 		t.Run(fmt.Sprint(oneHour), func(t *testing.T) {

@@ -5,26 +5,26 @@ import (
 	"fmt"
 )
 
-// Shared per-platform catalog candidates for the admin model-whitelist selector
-// (admin_service GetGroupModelsListCandidates) and the per-user menu fallback
-// (me_pricing platformDefaultModelIDs). Both read the curated catalog set and
-// prune structurally-gone evidence. Canonical advertised lists are not a catalog owner.
+// Shared per-platform catalog candidates for the per-user menu fallback
+// (me_pricing platformDefaultModelIDs) and account mapping presets.
+// The admin group model-allowlist picker does NOT use this — its SSOT is
+// GetGroupModelsListCandidates (schedulable members' model_mapping union only).
+// Canonical advertised lists are not a catalog owner.
 
 // tkServableCandidateIDs returns the self-healing candidate list for one platform
-// (used by the admin selector). Empirical native platforms draw from
-// supportedCatalogModelIDsForPlatform; newapi keeps its canonical/channel-shaped
-// defaults. Every platform is then pruned of structurally-gone models
-// (tkPruneStructurallyGoneIDs), so the result stays platform-scoped:
-// a model gone on anthropic stays on antigravity if it is still servable there.
-// availability == nil → no prune.
+// (menu / mapping-preset consumers). Empirical native platforms draw from
+// supportedCatalogModelIDsForPlatform; platforms without an owned default return
+// empty (never Claude fallthrough). Every platform is then pruned of
+// structurally-gone models (tkPruneStructurallyGoneIDs), so the result stays
+// platform-scoped: a model gone on anthropic stays on antigravity if it is still
+// servable there. availability == nil → no prune.
 func tkServableCandidateIDs(ctx context.Context, platform string, availability MePricingAvailability) []string {
 	var ids []string
 	switch platform {
 	case PlatformAnthropic, PlatformOpenAI, PlatformGrok:
 		// Grok has no canonical DefaultModels list — without this case it fell
-		// to the default arm below and leaked claude.DefaultModels into the grok
-		// group's admin model-whitelist selector. Its empirical allowlist (the
-		// priced overlay set) is the only correct source.
+		// to an unowned default arm and leaked claude.DefaultModels. Its
+		// empirical allowlist (the priced overlay set) is the only correct source.
 		ids = supportedCatalogModelIDsForPlatform(platform)
 	case PlatformAntigravity:
 		// Probed Antigravity set when populated; canonical fallback when unprobed
@@ -39,7 +39,8 @@ func tkServableCandidateIDs(ctx context.Context, platform string, availability M
 			ids = defaultModelsListCandidateIDs(platform)
 		}
 	default:
-		// newapi / unknown — no empirical allowlist; canonical.
+		// newapi / kimi / zhipu / deepseek / minimax / unknown — no owned
+		// canonical list. defaultModelsListCandidateIDs returns nil (fail closed).
 		ids = defaultModelsListCandidateIDs(platform)
 	}
 	return tkPruneStructurallyGoneIDs(ctx, platform, ids, availability)

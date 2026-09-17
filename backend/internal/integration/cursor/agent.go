@@ -107,6 +107,15 @@ func (b *agentBlobs) storeProto(value proto.Message) ([]byte, error) {
 
 func cursorWireToolName(name string) string { return "mcp__tokenkey__" + name }
 
+// Root prompts use the provider-facing name emitted by Cursor, while MCP
+// definitions and execution arguments retain their transport name.
+func cursorPromptToolName(model, name string) string {
+	if model == "composer-2.5" {
+		return "mcp_tokenkey_" + name
+	}
+	return cursorWireToolName(name)
+}
+
 func agentCallArgs(call AgentToolCall) (*pb.McpArgs, error) {
 	args, err := structpb.NewStruct(call.Arguments)
 	if err != nil {
@@ -286,7 +295,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 				}
 				turn.Steps = append(turn.Steps, id)
 				content = append(content, map[string]any{"type": "tool-call", "toolCallId": cursorHistoryToolCallID(call.ID),
-					"toolName": cursorWireToolName(call.Name), "args": call.Arguments})
+					"toolName": cursorPromptToolName(input.Model, call.Name), "args": call.Arguments})
 			}
 		case "tool":
 			name := paired[message.ToolCallID]
@@ -294,7 +303,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 				return nil, nil, errors.New("cursor tool result has no preceding call")
 			}
 			content = append(content, map[string]any{"type": "tool-result", "toolCallId": cursorHistoryToolCallID(message.ToolCallID),
-				"toolName": cursorWireToolName(name), "result": message.Text, "isError": message.IsError})
+				"toolName": cursorPromptToolName(input.Model, name), "result": message.Text, "isError": message.IsError})
 		default:
 			return nil, nil, errors.New("unsupported Cursor history role")
 		}

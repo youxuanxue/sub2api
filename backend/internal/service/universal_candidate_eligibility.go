@@ -141,6 +141,12 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 		return &best.group, nil
 	}
 	if evaluationErr != nil && (!supported || !errors.Is(evaluationErr, protocolrouter.ErrNoLegalRoute)) {
+		// Prefer a concrete model miss over unknown/conflicted peer capability
+		// evidence so Gemini→Chat assembly is not owned as a platform 500 when
+		// another peer already classified an unsupported model.
+		if !supported && unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable)) {
+			return nil, fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
+		}
 		return nil, evaluationErr
 	}
 	if supported {

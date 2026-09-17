@@ -103,6 +103,9 @@ func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, s
 		out.OutputPricePerToken *= *iv.OutputMultiplier
 		out.OutputPricePerTokenPriority *= *iv.OutputMultiplier
 	}
+	if iv.ThinkingOutputPrice != nil {
+		out.ThinkingOutputPricePerToken = *iv.ThinkingOutputPrice
+	}
 	if iv.CacheWritePrice != nil {
 		out.CacheCreationPricePerTokenPriority = channelTierOverridePrice(out.CacheCreationPricePerToken, out.CacheCreationPricePerTokenPriority, *iv.CacheWritePrice)
 		out.CacheCreationPricePerToken = *iv.CacheWritePrice

@@ -552,12 +552,12 @@
     },
     {
       "path": "backend/internal/integration/cursor/agent.go",
-      "must_contain": ["func buildAgentRun", "firstUserPrepared", "input.Messages = preparedMessages", "newAgentHTTPRejection(resp.StatusCode", "&agentTransportError{cause: err}"],
+      "must_contain": ["func buildAgentRun", "cursorPromptToolName(input.Model, call.Name)", "cursorPromptToolName(input.Model, name)", "firstUserPrepared", "input.Messages = preparedMessages", "newAgentHTTPRejection(resp.StatusCode", "&agentTransportError{cause: err}"],
       "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes."
     },
     {
       "path": "backend/internal/integration/cursor/agent_test.go",
-      "must_contain": ["TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire", "TestAgentHistoryReconstructsNativeToolTurns"],
+      "must_contain": ["TestAgentPromptToolNamesMatchProviderHistory", "TestAgentSystemCompatibilityPreservesHistory", "TestAgentUsagePresenceOnNativeWire", "TestAgentHistoryReconstructsNativeToolTurns"],
       "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history."
     },
     {
@@ -1720,12 +1720,24 @@
       "rationale": "Behavior tests pin real late binding and prove window recovery cannot bypass hard quota/RPM gates."
     },
     {
+      "path": "backend/internal/service/candidate_gemini_glm_chat_tk_test.go",
+      "must_contain": [
+        "func TestCandidateEligibilityGeminiGLMChatIgnoresIrrelevantCapabilityUnknown(",
+        "func TestCandidateEligibilityGeminiGLMOnlyIrrelevantCapabilityUnknownIsUnsupportedModel(",
+        "protocolrouter.AdapterGeminiToChat",
+        "ErrUniversalUnsupportedModel"
+      ],
+      "rationale": "Regression: Gemini /v1beta glm-5.3 Chat peers must assemble despite unrelated Antigravity peers with invalid capability evidence that do not map the model."
+    },
+    {
       "path": "backend/internal/service/candidate_eligibility.go",
       "must_contain": [
         "func (s *GatewayService) evaluateGroupCandidates(",
         "protocolPlanForAccount(ctx, account, model)",
         "s.isClaudeNewAPICrossPlatformAccountAllowed",
         "account.IsOpenAICompatPoolMember(platform)",
+        "case errors.Is(err, ErrProtocolCapabilityUnknown):",
+        "!accountAdmitsRequestedModel(account, model, thinkingEnabledFromCtx(ctx))",
         "!accountAdmitsRequestedModelWithContext(ctx, account, model)",
         "return false, ErrUniversalUnsupportedModel",
         "s.gatewayCandidates(",
@@ -1733,7 +1745,7 @@
         "ListAllWithFilters",
         "result.Supported"
       ],
-      "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Production account selection is separately anchored."
+      "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Non-admitting peers must not surface capability-unknown as a platform routing fault. Production account selection is separately anchored."
     },
     {
       "path": "backend/internal/service/candidate_saturation.go",
@@ -1775,9 +1787,10 @@
         "gatewayRequestThinkingEnabled(body, string(inbound))",
         "group.IsSubscriptionType() != best.group.IsSubscriptionType()",
         "ErrUniversalCapacityUnavailable",
-        "!state.Supported || !state.Available"
+        "!state.Supported || !state.Available",
+        "unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable))"
       ],
-      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification."
+      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -1785,10 +1798,11 @@
         "resolver.WithRequest",
         "service.TkApplyBareModelAlias(forcedPlatform, parsed)",
         "c.Set(service.OpsRoutingInternalErrorKey, true)",
+        "c.Set(service.OpsInternalErrorDetailKey, detail)",
         "writeUniversalRoutingCapacityError",
         "apiKey.GroupID = &backing.ID"
       ],
-      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit."
+      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",
@@ -3554,9 +3568,10 @@
         "func tkOverlayIntervalOntoBasePricing(base *ModelPricing, iv *PricingInterval, supportsCacheBreakdown bool) *ModelPricing",
         "Wei-Shaw/sub2api#2363",
         "out.CacheReadPricePerToken = *iv.CacheReadPrice",
-        "out.CacheCreation1hPrice = *iv.CacheWrite1hPrice"
+        "out.CacheCreation1hPrice = *iv.CacheWrite1hPrice",
+        "out.ThinkingOutputPricePerToken = *iv.ThinkingOutputPrice"
       ],
-      "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107) AND the interval overlay helper used by GetIntervalPricing (upstream #2363). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback. The overlay helper signature, #2363 reference, and the cache_read interval-overlay line are pinned so the symmetric in-range path cannot regress to the original empty-ModelPricing construction."
+      "rationale": "TK companion holding the channel flat-fallback policy referenced from applyTokenOverrides (upstream #2107) AND the interval overlay helper used by GetIntervalPricing (upstream #2363). Each flat field write is sentinel-pinned so a future change cannot drop one of the five pricing dimensions silently — operators rely on each (input/output/cache-read/cache-write/image-output) being honored as the out-of-range fallback. The overlay helper signature, #2363 reference, and the cache_read interval-overlay line are pinned so the symmetric in-range path cannot regress to the original empty-ModelPricing construction. ThinkingOutputPricePerToken must be promoted from matched intervals or qwen-plus ladders keep billing the non-thinking output rate under enable_thinking."
     },
     {
       "path": "backend/internal/service/model_pricing_resolver_test.go",
@@ -3565,7 +3580,8 @@
         "TestGetIntervalPricing_ChannelIntervalsNoMatch_UnknownModelChargesFlatNotZero",
         "TestGetIntervalPricing_IntervalMatched_FlatCacheReadPreserved",
         "TestGetIntervalPricing_IntervalMatched_IntervalCacheReadOverridesFlat",
-        "TestGetIntervalPricing_CacheWriteDurationOverrides"
+        "TestGetIntervalPricing_CacheWriteDurationOverrides",
+        "TestGetIntervalPricing_ThinkingOutputOverridesPerTier"
       ],
       "rationale": "Focused regressions for upstream #2107 (out-of-range path) and upstream #2363 (in-range path). The four tests jointly assert that channel flat defaults survive every interval lookup outcome (no intervals, no match, match overlapping interval, match disjoint from flat defaults) and that interval values take precedence in-range when both are set. Dropping any of these lets the symmetric pricing-dimension drop bugs return without unit-CI noticing."
     },
@@ -11404,6 +11420,24 @@
       "rationale": "Registry-owned vt_ status reads must reach VideoFetch before Grok/composite/native platform gates because the model-less GET's temporary platform cannot identify the submit route. Non-vt_ provider request IDs continue through their native status handlers. OpenAI-compat platform gate for POST /audio/speech; non-compat groups must keep 404. Injection into AudioSpeech is the only route into native Token Plan TTS."
     },
     {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_handlers.go",
+      "must_contain": [
+        "func tkOpenAICompatImageGenerationsHandler(h *handler.Handlers) gin.HandlerFunc",
+        "tkOpenAIImageGenerationsDispatch(getGroupPlatform(c))",
+        "case \"images\":\n\t\t\th.OpenAIGateway.Images(c)",
+        "case \"image_generations\":\n\t\t\th.OpenAIGateway.ImageGenerations(c)"
+      ],
+      "rationale": "Native OpenAI POST /images/generations must dispatch to Images() (OAuth Codex Image Bridge + APIKey relay), not the APIKey-only ImageGenerations forwarder. Compat-pool platforms (newapi) still fall through to ImageGenerations. Reverting PlatformOpenAI to ImageGenerations silently breaks OAuth gpt-image serving while compile and newapi paths stay green."
+    },
+    {
+      "path": "backend/internal/server/routes/gateway_tk_openai_compat_image_dispatch_test.go",
+      "must_contain": [
+        "TestTkOpenAIImageGenerationsDispatch_PlatformOpenAIUsesImages",
+        "TestTkOpenAIImageGenerationsDispatch_CompatPoolUsesImageGenerations"
+      ],
+      "rationale": "Focused dispatch regressions for tkOpenAIImageGenerationsDispatch: PlatformOpenAI must select images; OpenAI-compat pool members must keep image_generations."
+    },
+    {
       "path": "backend/internal/service/ali_token_plan_tts_tk.go",
       "must_contain": [
         "func (s *OpenAIGatewayService) ForwardAliTokenPlanTTS(",
@@ -11809,12 +11843,29 @@
       "path": "backend/internal/integration/cursor/messages.go",
       "must_contain": [
         "func ValidateMessagesContent(body []byte) error",
+        "func classifyCursorContinuationRetry(err error) cursorContinuationRetryKind",
         "logger.FromContext(ctx).Error(\"cursor_messages_run_agent_failed\"",
+        "logger.FromContext(ctx).Warn(\"cursor_messages_continuation_retry\"",
         "ready <- responseResult{err: runErr}",
         "input, stream, err := parseMessagesContent(body)",
-        "_, _, err := parseMessagesContent(body)"
+        "_, _, err := parseMessagesContent(body)",
+        "strings.Contains(text, \"supplier_error=57\")",
+        "strings.Contains(text, \"conversation data missing\")"
       ],
-      "rationale": "Cursor planning and execution share the native content parser; unsupported nested content is excluded before account selection without duplicating a block whitelist."
+      "rationale": "Cursor planning and execution share the native content parser; unsupported nested content is excluded before account selection without duplicating a block whitelist. Continuation self-heal retries only before client bytes and only for explicit restore/supplier-57 failures."
+    },
+    {
+      "path": "backend/internal/integration/cursor/messages_retry_tk_test.go",
+      "must_contain": [
+        "TestMessagesContinuationDataMissingRetriesInFreshConversation",
+        "TestMessagesSupplierError57ContinuationRetriesInFreshConversation",
+        "TestMessagesSupplierError57ResourceExhaustedRetriesInFreshConversation",
+        "TestClassifyCursorContinuationRetry",
+        "TestMessagesContinuationRetrySkipsAfterStreamingStarted",
+        "bare conversation keyword is not enough",
+        "supplier error 57 with resource_exhausted"
+      ],
+      "rationale": "Focused regression must keep Messages continuation self-heal narrow: restore/supplier-57 retry before client bytes (including production resource_exhausted+57), never after streaming starts, and never on bare conversation/resume/blob keywords."
     },
     {
       "path": "backend/internal/service/pricing_scope_consistency_tk_test.go",

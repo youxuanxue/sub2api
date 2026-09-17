@@ -377,6 +377,7 @@ const variantByModel = computed(() => {
             maxTokens: tt.max_tokens ?? null,
             inputPer1K: tt.input_per_1k_tokens ?? null,
             outputPer1K: tt.output_per_1k_tokens ?? null,
+            thinkingOutputPer1K: tt.thinking_output_per_1k_tokens ?? null,
             cacheReadPer1K: tt.cache_read_per_1k ?? null,
           })),
           peakValley: p.peak_valley

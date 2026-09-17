@@ -308,11 +308,12 @@ func mePricingPeakValleyFromCatalog(pv *PublicCatalogPeakValley) *MePricingPeakV
 // behaviour; MaxTokens == nil is the open-ended top tier. Pointer prices keep the
 // "nil = no data" convention of MePricingPrice.
 type MePricingTier struct {
-	MinTokens      int      `json:"min_tokens"`
-	MaxTokens      *int     `json:"max_tokens,omitempty"`
-	InputPer1K     *float64 `json:"input_per_1k,omitempty"`
-	OutputPer1K    *float64 `json:"output_per_1k,omitempty"`
-	CacheReadPer1K *float64 `json:"cache_read_per_1k,omitempty"`
+	MinTokens           int      `json:"min_tokens"`
+	MaxTokens           *int     `json:"max_tokens,omitempty"`
+	InputPer1K          *float64 `json:"input_per_1k,omitempty"`
+	OutputPer1K         *float64 `json:"output_per_1k,omitempty"`
+	ThinkingOutputPer1K *float64 `json:"thinking_output_per_1k,omitempty"`
+	CacheReadPer1K      *float64 `json:"cache_read_per_1k,omitempty"`
 }
 
 // MePricingVideoTier mirrors PublicCatalogVideoTier (the single source) in the
@@ -349,6 +350,10 @@ func mePricingTiersFromCatalog(tiers []PublicCatalogTier) []MePricingTier {
 		t := tiers[i]
 		in, outp := t.InputPer1KTokens, t.OutputPer1KTokens
 		mt := MePricingTier{MinTokens: t.MinTokens, MaxTokens: t.MaxTokens, InputPer1K: &in, OutputPer1K: &outp}
+		if t.ThinkingOutputPer1KTokens > 0 {
+			think := t.ThinkingOutputPer1KTokens
+			mt.ThinkingOutputPer1K = &think
+		}
 		if t.CacheReadPer1K > 0 {
 			cr := t.CacheReadPer1K
 			mt.CacheReadPer1K = &cr

@@ -15,6 +15,7 @@ func TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders(t *testing.T
 	account := cursorTestAccount()
 	ids := NewAPIModelMappingPresetIDsForAccount(account)
 	require.Contains(t, ids, "composer-2.5")
+	require.NotContains(t, ids, "composer-2")
 	for _, id := range ids {
 		require.False(t, strings.HasPrefix(id, "gpt-"), "Cursor preset contains %s", id)
 	}
@@ -22,6 +23,7 @@ func TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders(t *testing.T
 	require.NoError(t, err)
 	scope := "account_override:" + normalizeAccountModelMappingOverrideScope(PlatformNewAPI, 14, cursor.AgentBaseURL)
 	require.Contains(t, floor.ForbiddenModelMappingPrefixes[scope], "gpt-")
+	require.Contains(t, floor.ForbiddenModelMappingKeys[scope], "composer-2")
 	require.NotContains(t, floor.ForbiddenModelMappingPrefixes[PlatformNewAPI], "gpt-")
 	hasOpenAIGPT := false
 	for id := range floor.Platforms[PlatformOpenAI] {

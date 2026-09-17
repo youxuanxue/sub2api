@@ -123,6 +123,10 @@ func tkApplyBaseTaxToPricingInterval(iv PricingInterval, multiplier float64) Pri
 		v := tkApplyBaseTaxMultiplier(*out.OutputPrice, multiplier)
 		out.OutputPrice = &v
 	}
+	if out.ThinkingOutputPrice != nil {
+		v := tkApplyBaseTaxMultiplier(*out.ThinkingOutputPrice, multiplier)
+		out.ThinkingOutputPrice = &v
+	}
 	if out.CacheWritePrice != nil {
 		v := tkApplyBaseTaxMultiplier(*out.CacheWritePrice, multiplier)
 		out.CacheWritePrice = &v
@@ -249,6 +253,7 @@ func tkApplyBaseTaxToPublicCatalogPricingWithPolicy(vendor string, p *PublicCata
 		for i := range p.Tiers {
 			p.Tiers[i].InputPer1KTokens = tkApplyBaseTaxMultiplier(p.Tiers[i].InputPer1KTokens, multiplier)
 			p.Tiers[i].OutputPer1KTokens = tkApplyBaseTaxMultiplier(p.Tiers[i].OutputPer1KTokens, multiplier)
+			p.Tiers[i].ThinkingOutputPer1KTokens = tkApplyBaseTaxMultiplier(p.Tiers[i].ThinkingOutputPer1KTokens, multiplier)
 			p.Tiers[i].CacheReadPer1K = tkApplyBaseTaxMultiplier(p.Tiers[i].CacheReadPer1K, multiplier)
 		}
 	}

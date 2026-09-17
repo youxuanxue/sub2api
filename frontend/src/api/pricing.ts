@@ -66,6 +66,8 @@ export interface PublicPricingTier {
   max_tokens?: number
   input_per_1k_tokens: number
   output_per_1k_tokens: number
+  /** Thinking-mode output rate for this bracket when it differs from output_per_1k_tokens. */
+  thinking_output_per_1k_tokens?: number
   cache_read_per_1k?: number
 }
 

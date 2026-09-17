@@ -54,8 +54,8 @@
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk.go",
-      "must_contain": ["InputCostPerSecond", "pricing.BillingMode = \"stt\"", "pricing.InputCostPerSecond = *e.InputCostPerSecond", "pricing.InputCostPerImageToken = *e.InputCostPerImageToken"],
-      "rationale": "Audio duration and embedding image-token rates must survive catalog projection; focused tests protect the distinct billing-mode branches."
+      "must_contain": ["InputCostPerSecond", "pricing.BillingMode = \"stt\"", "pricing.InputCostPerSecond = *e.InputCostPerSecond", "pricing.InputCostPerImageToken = *e.InputCostPerImageToken", "ThinkingOutputPer1KTokens", "tier.ThinkingOutputPer1KTokens = *iv.ThinkingOutputPrice * 1000"],
+      "rationale": "Audio duration and embedding image-token rates must survive catalog projection; focused tests protect the distinct billing-mode branches. Interval thinking_output must also project onto PublicCatalogTier so /pricing discloses the same thinking rates billing selects per input-context bracket."
     },
     {
       "path": "backend/internal/service/volcengine_plan_audio_candidate_tk_test.go",
@@ -64,8 +64,8 @@
     },
     {
       "path": "backend/internal/service/me_pricing_catalog_tk.go",
-      "must_contain": ["entry.YourPrice.PerImageInputToken = scaleCatalogPrice(meta.Pricing.InputCostPerImageToken, rate)", "range catalog.membership.literal", "range catalogModelLookupCandidates(modelID)"],
-      "rationale": "Menu rows retain the embedding image input rate and consume aliases from the same catalog snapshot, sharing exact price-key spelling with catalog membership and billing."
+      "must_contain": ["entry.YourPrice.PerImageInputToken = scaleCatalogPrice(meta.Pricing.InputCostPerImageToken, rate)", "range catalog.membership.literal", "range catalogModelLookupCandidates(modelID)", "ThinkingOutputPer1K *float64", "mt.ThinkingOutputPer1K = &think"],
+      "rationale": "Menu rows retain the embedding image input rate and consume aliases from the same catalog snapshot, sharing exact price-key spelling with catalog membership and billing. Per-tier ThinkingOutputPer1K must mirror public catalog brackets so logged-in /pricing does not hide thinking rates that guest view shows."
     },
     {
       "path": "backend/internal/service/volcengine_plan_media_tk_test.go",
@@ -240,14 +240,28 @@
         "supportedCatalogModelIDsForPlatform(platform)",
         "tkAvailabilityStructurallyGone(st)"
       ],
-      "rationale": "R-003 single self-healing candidate source, shared by the admin model-whitelist selector (admin_service.GetGroupModelsListCandidates) and the per-user menu fallback (me_pricing). tkServableCandidateIDs draws anthropic/openai/gemini from the empirical allowlist and prunes structurally-gone models (confirmed provider retirement -> unreachable) via live model_availability (tkPruneStructurallyGoneIDs / tkAvailabilityStructurallyGone); antigravity/newapi keep canonical defaults. If an upstream merge or refactor drops this file, BOTH surfaces silently revert to the canonical defaults (claude.DefaultModels etc.) that still list retired / access-gated models like claude-fable-5 — exactly the hand-maintenance toil R-003 removed. Pins the function and its self-healing primitives."
+      "rationale": "R-003 self-healing candidate source for the per-user menu fallback (me_pricing) and account mapping presets — NOT the group allowlist picker (that SSOT is GetGroupModelsListCandidates → member model_mapping union). tkServableCandidateIDs draws anthropic/openai/gemini/grok from the empirical allowlist and prunes structurally-gone models via live model_availability; unowned platforms (newapi/CN/unknown) return empty instead of Claude fallthrough. If this file is dropped, menu/preset surfaces silently revert to inventing defaults."
     },
     {
       "path": "backend/internal/service/admin_group.go",
       "must_contain": [
-        "tkServableCandidateIDs(ctx, platform, s.availability)"
+        "SSOT (group-allowlist-candidates): the sorted union of schedulable members'",
+        "for model := range acc.GetModelMapping()",
+        "sort.Strings(candidates)",
+        "case PlatformAnthropic:",
+        "never invent Claude defaults via a fallthrough default arm"
       ],
-      "rationale": "GetGroupModelsListCandidates must call the self-healing tkServableCandidateIDs, NOT the canonical defaultModelsListCandidateIDs. The admin model-whitelist selector and GroupsView consume this endpoint; an upstream merge that reverts the call to the canonical defaults re-advertises retired / access-gated models (the R-003 regression) and renders the frontend self-heal inert. Pins the injection call site in the (upstream-shaped) admin service."
+      "rationale": "Group allowlist picker SSOT is schedulable members' model_mapping key union only — never seed tkServableCandidateIDs / defaultModelsListCandidateIDs (that leaked Claude into newapi/CN groups). Also pins defaultModelsListCandidateIDs' explicit PlatformAnthropic case + fail-closed default so unowned platforms cannot re-grow a Claude fallthrough. GroupsView consumes this endpoint; an upstream merge that re-seeds catalog defaults reopens the leak."
+    },
+    {
+      "path": "backend/internal/service/admin_group_allowlist_candidates_tk_test.go",
+      "must_contain": [
+        "TestGetGroupModelsListCandidates_MembersMappingUnionOnly",
+        "TestGetGroupModelsListCandidates_EmptyWithoutMembers",
+        "TestTkServableCandidateIDs_NewAPIDoesNotLeakClaude",
+        "Claude must not leak into newapi group allowlist candidates"
+      ],
+      "rationale": "Behavioral pins for the group-allowlist-candidates SSOT: newapi members contribute only their mapping keys; wrong-platform members and Claude defaults are excluded; empty members / id<=0 stay empty; tkServableCandidateIDs(newapi) stays empty."
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk_test.go",
@@ -285,9 +299,11 @@
         "\"provider\": \"volcengine\"",
         "\"provider\": \"zhipu\"",
         "\"glm-5.3-flash\"",
-        "\"hy3\""
+        "\"hy3\"",
+        "\"thinking_output_cost_per_token\"",
+        "\"moonshot-v1-auto\""
       ],
-      "rationale": "Executable SSOT for all currently taxed official-list providers. The embedded registry is the last-known-good fallback and a valid protected-main envelope replaces the whole snapshot atomically. Pinning every behavior-preserving provider row and the multiplier prevents an upstream merge from silently dropping one tax family while model prices continue to parse. New providers are added here, not in Go."
+      "rationale": "Executable SSOT for all currently taxed official-list providers. The embedded registry is the last-known-good fallback and a valid protected-main envelope replaces the whole snapshot atomically. Pinning every behavior-preserving provider row and the multiplier prevents an upstream merge from silently dropping one tax family while model prices continue to parse. New providers are added here, not in Go. thinking_output_cost_per_token and moonshot-v1-auto keep official thinking/tiered rows from regressing to flat non-thinking owners."
     },
     {
       "path": "backend/internal/service/pricing_service_test.go",
@@ -553,9 +569,11 @@
         "tkOverlayEffective",
         "case \"tts\":",
         "output_cost_per_character",
-        "p.OutputCostPerCharacter"
+        "p.OutputCostPerCharacter",
+        "ThinkingOutputCostPerToken",
+        "ThinkingOutputPrice: r.ThinkingOutputCostPerToken"
       ],
-      "rationale": "The registry loader builds one immutable snapshot containing model prices, catalog metadata, executable policy, and publication metadata. A valid runtime envelope exactly replaces the embedded snapshot; there is no union. Invalid schema/digest/content keeps last-known-good. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before swap, TokenPricingAbsent preserves media/token settlement separation, and SupportsReasoning anchors catalog capability projection. Registry owner validation for mode=tts requires a positive output_cost_per_character; parse/unpriced checks must copy and consider the field or TTS rows load as free/invalid."
+      "rationale": "The registry loader builds one immutable snapshot containing model prices, catalog metadata, executable policy, and publication metadata. A valid runtime envelope exactly replaces the embedded snapshot; there is no union. Invalid schema/digest/content keeps last-known-good. tkValidateAndBuildOverlayVideoTiers rejects malformed billing ladders before swap, TokenPricingAbsent preserves media/token settlement separation, and SupportsReasoning anchors catalog capability projection. Registry owner validation for mode=tts requires a positive output_cost_per_character; parse/unpriced checks must copy and consider the field or TTS rows load as free/invalid. Interval thinking_output_cost_per_token must parse onto PricingInterval.ThinkingOutputPrice or qwen-plus style ladders silently bill the non-thinking output rate."
     },
     {
       "path": "backend/internal/service/pricing_service_tk_overlay_runtime_test.go",

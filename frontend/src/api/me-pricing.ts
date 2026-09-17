@@ -78,6 +78,8 @@ export interface MePricingTier {
   max_tokens?: number
   input_per_1k?: number
   output_per_1k?: number
+  /** Thinking-mode output rate for this bracket when it differs from output_per_1k. */
+  thinking_output_per_1k?: number
   cache_read_per_1k?: number
 }
 

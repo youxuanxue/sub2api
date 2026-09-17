@@ -164,7 +164,7 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			writeCandidateBillingError(c, shape, err)
 		} else {
 			reqLog.Error("universal_routing.resolve_failed", zap.Error(err))
-			writeUniversalRoutingInternalError(c, shape)
+			writeUniversalRoutingInternalError(c, shape, err)
 		}
 		c.Abort()
 		return true
@@ -479,10 +479,13 @@ func writeUniversalRoutingError(c *gin.Context, shape service.UniversalShape, mo
 
 // writeUniversalRoutingInternalError 按入口协议形状写出 500：跨度加载/内部失败,而非授权问题。
 // 区别于 writeUniversalRoutingError(403),避免把可重试的服务端错误伪装成“不在你的套餐内”。
-func writeUniversalRoutingInternalError(c *gin.Context, shape service.UniversalShape) {
+func writeUniversalRoutingInternalError(c *gin.Context, shape service.UniversalShape, internalErr error) {
 	const status = http.StatusInternalServerError
 	const msg = "Failed to prepare authorized candidates for this request. Please retry."
 	c.Set(service.OpsRoutingInternalErrorKey, true)
+	if detail := sanitizeMiddlewareInternalErrorDetail(internalErr); detail != "" {
+		c.Set(service.OpsInternalErrorDetailKey, detail)
+	}
 	switch shape {
 	case service.ShapeGemini:
 		GoogleErrorWriter(c, status, msg)

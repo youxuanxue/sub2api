@@ -11,9 +11,10 @@ import (
 
 // AccountModelMappingPresetIDs returns TokenKey's empirically verified model IDs
 // for admin account model_mapping auto-fill (Create/Edit when mapping is empty).
-// Native platforms share tkServableCandidateIDs with the group selector; grok/kiro
-// and newapi ch41 (Vertex SA) use their platform-specific servable sets. Curated
-// newapi channel types use the manifest projection; unknown channels return empty.
+// Native platforms use tkServableCandidateIDs (catalog/menu SSOT — not the group
+// allowlist picker); grok/kiro and newapi ch41 (Vertex SA) use their
+// platform-specific servable sets. Curated newapi channel types use the manifest
+// projection; unknown channels return empty.
 func AccountModelMappingPresetIDs(ctx context.Context, platform string, channelType int, availability MePricingAvailability) []string {
 	platform = normalizeAccountModelMappingPresetPlatform(platform)
 	var ids []string

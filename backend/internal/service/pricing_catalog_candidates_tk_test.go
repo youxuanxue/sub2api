@@ -130,8 +130,9 @@ func TestModelListFilter_PrunesOnlyStructurallyGoneAvailability(t *testing.T) {
 		"strict discovery must propagate read errors without turning transient degradation into a serving gate")
 }
 
-// Admin whitelist candidates come from tkServableCandidateIDs, not canonical
-// advertised defaults. The frontend does not own a hardcoded mirror.
+// Menu / mapping-preset candidates come from tkServableCandidateIDs, not
+// canonical advertised defaults. Group allowlist picker is a separate SSOT
+// (GetGroupModelsListCandidates → member mapping union).
 func TestTkServableCandidateIDs(t *testing.T) {
 	ctx := context.Background()
 

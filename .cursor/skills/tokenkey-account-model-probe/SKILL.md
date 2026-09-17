@@ -15,6 +15,7 @@ identifiers only, never capability metadata.
 | --- | --- |
 | Can TokenKey route this request to the intended account? | `ops/stage0/probe_account_model.sh` with `ops/pricing/probe_reserved_resources.sh` |
 | Can the raw OpenAI/Grok credential serve it? | `ops/stage0/probe_direct_upstream_model.sh` plus the platform companion |
+| Can a raw OpenAI OAuth credential generate an image upstream? | `ops/stage0/probe_openai_upstream_image.sh` |
 | What does an Antigravity or Anthropic account advertise/test upstream? | `ops/stage0/probe_account_upstream_models.sh` |
 | Can a Kiro OAuth account serve a model through its runtime? | `ops/stage0/probe_kiro_upstream_models.sh` |
 | Are Kiro thinking fields present? | `ops/stage0/probe_kiro_upstream_thinking_fields.sh` |

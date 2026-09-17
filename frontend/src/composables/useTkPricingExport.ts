@@ -95,11 +95,13 @@ export function formatTiers(tiers: PublicPricingTier[] | undefined): string {
       const hi = tokenBound(t.max_tokens)
       const inp = per1M(t.input_per_1k_tokens)
       const out = per1M(t.output_per_1k_tokens)
+      const think = per1M(t.thinking_output_per_1k_tokens)
       const cache = per1M(t.cache_read_per_1k)
       // Right-closed on a finite bound, open at ∞ — "(128k, ∞]" would claim an
       // inclusive infinity.
       const bracket = t.max_tokens === undefined ? `(${lo}, ${hi})` : `(${lo}, ${hi}]`
-      const base = `${bracket}: in ${inp} / out ${out}`
+      let base = `${bracket}: in ${inp} / out ${out}`
+      if (think) base = `${base} / think ${think}`
       return cache ? `${base} / cache ${cache}` : base
     })
     .join(' | ')

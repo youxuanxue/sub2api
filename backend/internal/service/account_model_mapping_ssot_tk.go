@@ -383,6 +383,9 @@ func normalizeAccountModelMappingOverrideBaseURL(raw string) string {
 
 func accountModelMappingForbiddenKeysByScope() map[string][]string {
 	return map[string][]string{
+		"account_override:" + normalizeAccountModelMappingOverrideScope(
+			PlatformNewAPI, newapiconstant.ChannelTypeAnthropic, cursor.AgentBaseURL,
+		): {cursorRetiredComposerModel},
 		// Kiro-backed Claude models remain public under the anthropic vendor,
 		// but native Anthropic accounts must not inherit Kiro-only capability.
 		// Kiro mirror stubs resolve to PlatformKiro before this policy applies.

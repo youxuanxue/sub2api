@@ -305,8 +305,6 @@ func TestDeepseekPricingFileMatchesOfficialRates(t *testing.T) {
 	}{
 		{"deepseek-v4-flash", 1, 4, 0.02},
 		{"deepseek-v4-pro", 4.5, 13.5, 0.15},
-		{"deepseek-chat", 1, 4, 0.02},
-		{"deepseek-reasoner", 1, 4, 0.02},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {

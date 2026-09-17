@@ -468,6 +468,13 @@
                           class="leading-relaxed"
                         >
                           {{ line.outputPer1K != null ? formatCatalogTokenPrice(line.outputPer1K) : '—' }}
+                          <div
+                            v-if="line.thinkingOutputPer1K"
+                            class="text-xs text-gray-500 dark:text-dark-400"
+                          >
+                            {{ t('pricing.thinkingOutput') }}
+                            {{ formatCatalogTokenPrice(line.thinkingOutputPer1K) }}
+                          </div>
                         </div>
                         <span class="text-xs text-gray-400">{{ t('pricing.perMillionTokens') }}</span>
                       </template>
@@ -876,6 +883,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
         maxTokens: tt.max_tokens ?? null,
         inputPer1K: tt.input_per_1k_tokens ?? null,
         outputPer1K: tt.output_per_1k_tokens ?? null,
+        thinkingOutputPer1K: tt.thinking_output_per_1k_tokens ?? null,
         cacheReadPer1K: tt.cache_read_per_1k ?? null
       })),
       peakValley: m.pricing.peak_valley
@@ -918,6 +926,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       maxTokens: tt.max_tokens ?? null,
       inputPer1K: tt.input_per_1k ?? null,
       outputPer1K: tt.output_per_1k ?? null,
+      thinkingOutputPer1K: tt.thinking_output_per_1k ?? null,
       cacheReadPer1K: tt.cache_read_per_1k ?? null
     })),
     // 峰谷价对登录用户同样要可见：此前只有游客视图带该字段，
