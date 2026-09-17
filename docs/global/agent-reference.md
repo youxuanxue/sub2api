@@ -4,7 +4,7 @@ Long-form operational reference moved out of root `CLAUDE.md` so Claude Code doe
 not auto-load essays every turn. Session-level hard-rule **bullets** stay in
 `CLAUDE.md`; hard-rule **detail** (§4 / §5.x / §9 / account usage) is in
 [`claude-hard-rules.md`](claude-hard-rules.md). Load this file for gateway
-topology, Studio SSOT, model-delivery nav, or the full PR checklist.
+topology, Studio SSOT, model-delivery nav, or PR gate navigation.
 
 ## Public signup offer SSOT
 
@@ -53,12 +53,9 @@ HTTP Request → Auth (JWT/APIKey) → Account Scheduling (sticky/load-aware)
  → Usage recording + quota deduction
 ```
 
-The fifth platform **`newapi`** is a first-class account/group platform (not an add-on card on the other four): it uses OpenAI-compatible gateway routes and the New API **adaptor** layer in `internal/relay/bridge` when `channel_type > 0`. The `internal/integration/newapi/` package provides the channel-type catalog, affinity helpers, upstream model metadata helpers, and other `newapi`-specific bridge support required by TokenKey's fifth-platform flow.
-
-**Image and video generation surfaces** ride on the same `newapi` (and `openai`) compat-pool routing:
-
-- **Sync image** — `POST /v1/images/generations` (and `POST /images/generations` alias) via `bridge.RunImageRelay` and `bridge.DispatchImageGenerations`. Volcengine `channel_type=45` (Doubao Seedream) is supported through the upstream `volcengine` adapter.
-- **Async video** — `POST /v1/video/generations` + `GET /v1/video/generations/:task_id` (and the OpenAI-compat aliases `POST /v1/videos` + `GET /v1/videos/:task_id`, plus their no-prefix variants). Submit returns a TokenKey-issued `task_id` (prefix `vt_`); subsequent polls hit the upstream task adapter pinned at submit time. Supported channel types are auto-derived from `relay.GetTaskAdaptor` — i.e. whatever new-api's task-adaptor registry maps (as of 2026-06 that includes VolcEngine `45` / DoubaoVideo `54` → Doubao Seedance, Vertex AI `41` → Veo, plus Ali, Kling, Jimeng, Vidu, Sora/OpenAI, Gemini, MiniMax); never hard-code a channel list in TK code or docs — the predicate below is the single source of truth. Routing metadata lives in `service.VideoTaskCache` (Redis primary, in-memory fallback for single-replica dev). Default record TTL is 24h; terminal status (`succeeded`/`failed`) deletes the record. Adding a new task adapter upstream requires no TK code changes — the `IsVideoSupportedChannelType` predicate sees the new channel type as soon as the upstream adapter map registers it.
+转发、图片/视频协议与 adapter 选择以 [协议路由契约](../approved/protocol-routing-ssot.md)
+和 `backend/internal/relay/bridge/` 为准；endpoint/schema 查生成的
+[接入契约](../agent_integration.md)。本导航不维护第二份平台/channel-type 列表、任务状态或缓存 TTL。
 
 **Scheduling and authorized support:** the current policy is owned by
 [`candidate-eligibility-ssot.md`](../approved/candidate-eligibility-ssot.md).
@@ -88,31 +85,16 @@ Production (`api.tokenkey.dev`) is **not** where the upstream Anthropic OAuth ca
 
 ## PR Checklist
 
-- `go test -tags=unit ./...` passes
-- `go test -tags=integration ./...` passes
-- `golangci-lint run ./...` — no new issues
-- `pnpm-lock.yaml` in sync (if `package.json` changed)
-- Test stubs complete (if interfaces changed)
-- Ent generated code committed (if schema changed)
-- `go build ./...` succeeds (cross-repo dependency compiles)
-- If bumping `backend/cmd/server/VERSION` for a release: commit message contains **no** literal `[skip ci]` / `[ci skip]` anywhere (rule 9.2 — discussion of the marker counts as carrying it). Use `bash scripts/release-tag.sh vX.Y.Z` to push the tag — it enforces this mechanically.
-- If touching `.github/workflows/release.yml`: `simple_release` default stays `false`; warning banner step is intact (rule 9.1)
-- If the PR deletes any upstream-owned file/method/route: PR description contains the (a)/(b)/(c) justification block from rule §5.x; otherwise change to "override default" or "disable via setting" instead
-- After upstream merge: PR body includes `git log --oneline upstream/main..HEAD | wc -l` and the top-5 lines of `git diff --stat upstream/main..HEAD -- backend/` (rule §5.y audit cadence). The `Upstream Merge PR Shape` workflow (§5.y.1) enforces this automatically — fix any failures it reports rather than ignoring them.
-- Drift check: before opening any non-trivial PR, run `bash scripts/upstream/check-drift.sh`. If TK is behind upstream/main, pause and either land the upstream merge first or document why this PR ships out of order.
-- Upstream override marker (rule §5.y.1): if the PR diff touches any upstream-shaped path (handlers / services / repositories / middleware / relay / server / views / components / api / migrations / ent schema, excluding `*_tk_*.go` / `*.tk.ts` / `*_test.go` / TK-only subpackages), the gate is **coverage-first** — a pure-insertion diff or **verified sentinel coverage** of every deletion-bearing upstream file (its `path` pinned in some `scripts/sentinels/*.json`, pre-existing or added this PR) auto-passes with no marker. Only an *uncovered* revert-risk edit needs a marker. `upstream-touch-guarded` is **mechanically verified**: it claims the touched files are already pinned, so a false claim (no covering sentinel `path`) **fails** the gate — prefer adding the real anchor. The other three (`upstream-touch-trivial` / `upstream-merge` / `no-upstream-touch`) are honest opt-outs asserting protection is not needed. `scripts/preflight.sh` enforces this mechanically via `scripts/checks/upstream-override-marker.py`.
-- Reviewer picks the GitHub merge button per rule §5.y: **Squash and merge** for TK-originated PRs (feature / fix / chore / docs), **Create a merge commit** for `merge/upstream-*` PRs. Never use **Rebase and merge** on `main`.
-- **Root docs / deploy boundary:** keep root user-facing files (`README*.md`, root compose examples, generic upstream deployment snippets) aligned with upstream by default. TokenKey-specific local Stage0 validation, AWS prod deployment, smoke-test, image/tag, domain, and operator runbook changes belong under `deploy/*` (or the matching skill text), not in root README files. Only change root files when the build/release contract truly requires it, and prefer a short pointer to `deploy/*` over duplicating deployment steps.
-- If the PR touches `dev-rules/` (submodule pointer bump or `.cursor/rules/` resync): per rule §10, the dev-rules submodule MUST be pushed first; this PR's CI `preflight` job will fail otherwise (the dev-rules SHA in `.gitmodules` won't be reachable on `origin/main`).
-- **If the PR fixes an upstream / claude-code issue**, record evidence in `ops/issue-watchdog/upstream.json` or `ops/issue-watchdog/anthropic.json`, with a behavioral regression test and `fixed_if_all_present` (`path:needle`) anchors. Update the same entry's `judgment` if needed; never edit generated triage/fixes.
-  Declare `Upstream-Fixes: Wei-Shaw/sub2api#NNNN` or `Anthropic-Fixes: anthropics/claude-code#NNNN` in the commit message (grouped issue refs supported). Preflight validates both ledger schemas and requires resolving anchors for declared fixes; historical missing anchors remain a watchdog review signal.
+按触达范围运行测试/build/lint，提交前运行 `scripts/preflight.sh`。接口 mocks、Ent 生成物、pnpm lock、release/ARM/tag 等不变式见 [Hard Rules](claude-hard-rules.md)；流程/PR freshness 由 `.cursor/rules/product-dev.mdc` 拥有。
+
+- 非 trivial PR 出口先跑 `bash scripts/upstream/check-drift.sh`；若落后，先合 upstream 或明确记录本 PR 先发原因。
+- 上游删除、merge audit、merge button 与 override marker 由 [上游纪律](upstream-merge-discipline.md) 和 preflight 守卫；失败修复后重跑，不复制脚本判定表。
+- 根 README/通用 compose 保持 upstream 对齐；TokenKey Stage0/AWS/smoke/image/domain/operator 操作归 `deploy/*` 或对应 skill。仅真实 build/release 契约需要时改根文件，优先短指针。
+- 改 dev-rules 时先 push 子模块，再提交父仓库指针与生成产物。
+- 修 upstream/claude-code issue 时，更新 `ops/issue-watchdog/upstream.json` 或 `anthropic.json` 的判断/证据和行为回归测试，不编辑生成 triage/fixes。commit 声明 `Upstream-Fixes: Wei-Shaw/sub2api#NNNN` 或 `Anthropic-Fixes: anthropics/claude-code#NNNN`；preflight 校验 ledger 与 `fixed_if_all_present` anchors。
 
 ## Issue watchdog
 
-`.github/workflows/upstream-issue-watchdog.yml` is the daily/manual entry for both upstream and Claude Code issues. `scripts/upstream/watchdog-run.py` owns fetching, checkpointing and GitHub Issue updates; source differences live in its `SOURCES` table.
-
-Scans use the last successful cursor with an overlap window, apply closures and retain untouched open issues. Actions cache holds the checkpoint; cache eviction triggers a complete open-issue bootstrap. Fetch or Issue update failures leave the previous persisted cursor intact. Reports and the full review queue are Actions artifacts, with a short job summary. No cache branch, force push or cache-refresh PR is produced.
-
-Keyword candidates remain explicitly unverified in `needs_review`; they do not automatically become high-risk findings or flood GitHub Issues. Code fixes remain manually dispatched with `mode=fix`, `source=upstream|anthropic`, and an optional `upstream_issue`. Automated evidence-based candidate review remains separate work.
-
-Confirmed high-risk findings reuse tracking Issues across open and closed states. The bot changes only its marked body region when evidence changes, preserves human text, and never recreates a closed finding. String anchors alone cannot close an Issue; closure follows the fix PR and behavioral validation. Curated judgments and fix evidence live in `ops/issue-watchdog/*.json`; see that directory’s README for the ledger contract.
+入口 `.github/workflows/upstream-issue-watchdog.yml`；采集/checkpoint/Issue 更新由
+`scripts/upstream/watchdog-run.py` 拥有。候选未经验证不能直接判高风险，字符串锚点不能代替行为验证关闭 Issue；修复仍须显式 `mode=fix`。
+维护账本或排查游标/产物时读 [ledger contract](../../ops/issue-watchdog/README.md)，不在此复制工作流细则。

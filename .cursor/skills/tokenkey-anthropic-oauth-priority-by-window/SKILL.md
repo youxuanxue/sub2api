@@ -90,27 +90,7 @@ python3 $MGR verify --plan $JOBDIR/plan.json
 
 ### 打分细节（仅作参考；权威以脚本 `_score_account` 为准）
 
-| 输入字段 | 来源 | 缺失时含义 |
-|---|---|---|
-| `session_window_utilization`（5h，0..1） | `extra.session_window_utilization`，由 `RateLimitService.UpdateSessionWindow` 从 `anthropic-ratelimit-unified-5h-utilization` 响应头被动采样 | 视为满负载（剩余=0） |
-| `passive_usage_7d_utilization`（7d，0..1） | `extra.passive_usage_7d_utilization`，同上从 7d 响应头采样 | 视为剩余 100%（7d 非主导） |
-| `passive_usage_sampled_at` | `extra.passive_usage_sampled_at`（RFC3339） | 视为 `never_sampled` → 满负载 |
-| `session_window_end` | schema 列 `accounts.session_window_end`（TIMESTAMPTZ） | 视为 `session_window_end_missing` → 满负载 |
-| `status` | schema 列 `accounts.status` | 非 `active` 直接 skip，不参与重排 |
-
-打分：
-
-```text
-remaining_5h = 0  if (sampled_at stale OR window_end expired OR util_5h missing)
-             = clamp(1 - util_5h, 0..1)  otherwise
-remaining_7d = 1  if util_7d missing
-             = clamp(1 - util_7d, 0..1)  otherwise
-remaining_score = min(remaining_5h, remaining_7d)
-```
-
-排序键（升序）：`(stale 0/1, -remaining_score, id)` —— stale 永远在 fresh 之后，同 freshness 按 remaining 倒序，平手按 id 升序保证幂等。
-
-`new_priority = tier_base + rank_offset`，其中 `tier_base` 来自 `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json` 的 `tiers.lN.baseline.account.priority`（l1=10, l2=20, l3=30, l4=40, l5=50），`rank_offset = 0..9`。
+打分、freshness、字段缺失处理、稳定排序和 tier band 均由 `rebalance-anthropic-priority.py` 计算；消费 plan，不手工重算。缺 5h/采样时间/窗口结束视为满负载，缺 7d 则不让 7d 成为主导。stale 排在 fresh 后，同分按 id；具体字段看 snapshot 参考。
 
 ### 安全护栏
 
@@ -136,143 +116,24 @@ remaining_score = min(remaining_5h, remaining_7d)
 
 ## 4. 与 tier baseline 流水线的协作顺序
 
-```
-   ┌──────────────────────────────────────────────────────────┐
-   │ tier 升降级 / tier baseline drift                        │
-   │   → tokenkey-anthropic-oauth-config 流水线 apply        │
-   │   → 写完后所有目标账号的 priority = tier_base（10/20/…）│
-   └──────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-   ┌──────────────────────────────────────────────────────────┐
-   │ **本 skill** 流水线 apply                                │
-   │   → snapshot → plan → apply → verify                     │
-   │   → priority = tier_base + remaining_offset(0..9)        │
-   └──────────────────────────────────────────────────────────┘
-```
-
-如果 operator 在 tier baseline apply 之后**不**跑本流水线，priority 就停在 tier_base 上（仍可调度，只是失去"剩余多者优先"的微调）。这是安全的退化状态，不会破坏调度正确性。
+同时调整 tier baseline 时先读协作顺序；本流程仅写 priority，不能顺带改 tier/caps/groups/credentials。 见 [操作细则](references/tier-order.md)。
 
 ## 5. 故障速查
 
-| 现象 | 处理 |
-|---|---|
-| `snapshot` 失败 / SSM 拒绝 | 校验 Lightsail instance 与 SSM managed instance / `edge-targets-lightsail.json` / OIDC 权限 |
-| `plan` 退出码 1（`any_stale=true`） | 检查 `plan.json` 的 `tier_summaries[*].ordering[*].stale_reasons`。常见：`never_sampled`（账号新建未跑过任何请求）、`session_window_expired`（账号长期无流量、窗口已 reset 但还没新请求触发头部采样）。可接受 → apply 即可（stale 账号已排到队尾）；不接受 → 跑几个 warmup 请求让 utilization 被采样后再 plan |
-| `plan` 退出码 2 + `account_count > MAX_PER_TIER_PER_EDGE` | 该 edge 该 tier 账号太多，offset 会越级。先用 tier baseline 流水线把部分账号挪到上下 tier，再回来跑本流水线 |
-| `apply --confirm` 拒绝 | 必须精确 `yes-rebalance-anthropic-priority` |
-| `apply` 中途 SSM 失败 | 看 `apply-report.json` 的 `results[*].ssm_command_id`；用 `aws ssm get-command-invocation` 查具体 stderr；修因后**重新 plan**（不要直接 apply 旧 plan，因为部分账号已写、剩下账号 ranking 可能也变了） |
-| `verify` 报 drift | 多为：(a) apply 之后又跑了 tier baseline apply，把 priority 重置了 → 重新 plan + apply；(b) admin UI 手工改了 priority → 看 audit log；(c) apply 时一部分 step 失败但 verify 比对全部 actions |
-| 想全局重排（跨 tier） | 不支持，也**不要**这样做：会破坏 stability tier 的调度语义 |
+plan stale、SSM/apply/verify 失败时读取；任一步 apply 失败立即停止，verify 不省略。 见 [操作细则](references/troubleshooting.md)。
 
 ## 6. 附录 A：底层工具（emergency / debug）
 
-正常流程**只走 4 阶段流水线**。下列在流水线 break 或紧急 rollback 时直接用：
-
-**手动写 priority**（自包含 SQL 模板，有 DO-block 校验；orchestrator 内部自动渲染；手动用需自起 `\set ...` 然后 base64 通过 SSM 注入）：
-
-- `deploy/aws/stage0/anthropic-oauth-priority-rebalance-apply-template.sql`
-
-例如紧急回滚某 edge 某账号到 tier_base：
-
-```bash
-SQL=$(mktemp)
-cat >"$SQL" <<EOF
-\set account_name 'en-ld-ec2-16-1-b'
-\set new_priority 20    -- l2 tier base
-EOF
-cat deploy/aws/stage0/anthropic-oauth-priority-rebalance-apply-template.sql >>"$SQL"
-# One-line payload: GNU `base64 -w0` works; portable (macOS/OpenBSD): strip newlines after encode.
-B64=$(base64 <"$SQL" | tr -d '\n')
-aws ssm send-command --region eu-west-2 --instance-ids i-xxx \
-  --document-name AWS-RunShellScript \
-  --parameters "commands=[\"set -euo pipefail\necho $B64 | base64 -d | sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -v ON_ERROR_STOP=1\"]"
-```
-
-**底线**：手动绕开 orchestrator 时 op 必须自己做 apply 后复核 —— 同样不允许跳过 § 2 "先查后说"协议。
+仅在流水线无法覆盖的授权 emergency/debug 操作中读取。 见 [操作细则](references/emergency.md)。
 
 ## 7. 附录 B：snapshot JSON 形状
 
-```json
-{
-  "version": 1,
-  "captured_at": "2026-05-21T08:00:00Z",
-  "edges": {
-    "uk1": {
-      "deployable": true,
-      "instance_id": "mi-0abc...",
-      "region": "eu-west-2",
-      "platform": "lightsail",
-      "domain": "api-uk1.tokenkey.dev",
-      "oauth_accounts": [
-        {
-          "id": 123,
-          "name": "en-ld-ls-16-1-b",
-          "platform": "anthropic",
-          "type": "oauth",
-          "status": "active",
-          "priority": 20,
-          "concurrency": 2,
-          "stability_tier": "l2",
-          "session_window_end": "2026-05-21T10:00:00Z",
-          "session_window_utilization": 0.42,
-          "passive_usage_7d_utilization": 0.18,
-          "passive_usage_7d_reset": 1769404154,
-          "passive_usage_sampled_at": "2026-05-21T07:55:13Z"
-        }
-      ]
-    },
-    "fra1": { "deployable": false, "skipped_reason": "edge fra1 is planned; pass --allow-planned to include" }
-  }
-}
-```
+仅解析 snapshot 工件时读取；字段以实际版本化输出为准。 见 [操作细则](references/snapshot-schema.md)。
 
 ## 8. 附录 C：plan JSON 形状（节选）
 
-```json
-{
-  "version": 1,
-  "kind": "anthropic_priority_rebalance",
-  "confirm_code": "yes-rebalance-anthropic-priority",
-  "intent": {"edges": ["uk1"], "stale_minutes": 120, "max_per_tier_per_edge": 10},
-  "snapshot_captured_at": "2026-05-21T08:00:00Z",
-  "plan_built_at": "2026-05-21T08:00:42Z",
-  "summary": {"total_actions": 3, "skipped_accounts": 1, "tier_buckets": 2, "any_stale": false},
-  "tier_summaries": [
-    {
-      "edge_id": "uk1",
-      "stability_tier": "l2",
-      "tier_base_priority": 20,
-      "account_count": 3,
-      "stale_count": 0,
-      "ordering": [
-        {"rank": 0, "account_name": "...", "remaining_score": 0.82, "old_priority": 20, "new_priority": 20, "stale": false, "stale_reasons": []},
-        {"rank": 1, "account_name": "...", "remaining_score": 0.58, "old_priority": 20, "new_priority": 21, "stale": false, "stale_reasons": []},
-        {"rank": 2, "account_name": "...", "remaining_score": 0.15, "old_priority": 21, "new_priority": 22, "stale": false, "stale_reasons": []}
-      ]
-    }
-  ],
-  "skipped_accounts": [
-    {"edge_id": "uk1", "account_name": "suspended-acct", "reason": "status=suspended", "current_priority": 25}
-  ],
-  "actions": [
-    {
-      "step": 1,
-      "kind": "account_priority",
-      "target": {"env": "edge", "edge_id": "uk1", "account_id": 124, "account_name": "..."},
-      "ranking": {"stability_tier": "l2", "tier_base_priority": 20, "tier_rank": 1, "remaining_score": 0.58, "remaining_5h": 0.58, "remaining_7d": 0.82, "stale": false, "stale_reasons": []},
-      "current": {"priority": 20},
-      "expected_after": {"priority": 21}
-    }
-  ]
-}
-```
+仅解析 plan 工件时读取。 见 [操作细则](references/plan-schema.md)。
 
 ## 9. 扩展阅读
 
-- `ops/anthropic/rebalance-anthropic-priority.py`（4 阶段 orchestrator，本 skill 唯一推荐入口）
-- `deploy/aws/stage0/anthropic-oauth-priority-rebalance-apply-template.sql`（apply 模板，单账号单字段 update + DO-block 校验）
-- `deploy/aws/stage0/anthropic-oauth-stability-baselines-tiered.json`（`tiers.lN.baseline.account.priority` 是 tier_base 的源头）
-- `backend/internal/service/ratelimit_service.go` — `UpdateSessionWindow`、`calculateAnthropic429ResetTime`（utilization 被动采样的实际写入路径）
-- `backend/ent/schema/account.go` — `priority`、`session_window_end` 字段声明 + `(platform, priority)` 复合索引
-- [`tokenkey-anthropic-oauth-config`](../tokenkey-anthropic-oauth-config/SKILL.md) — tier baseline 写入流水线（本 skill 的上游协作方）
+仅定位实现或契约 owner 时查询。 见 [操作细则](references/owners.md)。

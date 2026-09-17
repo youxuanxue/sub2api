@@ -14,22 +14,7 @@ description: >-
 
 ## 确定性基线（机械化 vs 真判断）
 
-按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审。
-
-| 步骤 | 类型 | 承载 |
-|---|---|---|
-| 解析 target（region / instance_id） | 机械 | `ops/stage0/edge_admin_resolve_target.py`（prod CFN；edge Lightsail SSM） |
-| SSM base64 投递 + send + poll（probe-caps.sh / probe-traffic-logs.sh / profile-traffic.py 都通过它发） | 机械 | `ops/observability/run-probe.sh` |
-| caps + 不可调度证据 + Redis 快照 + 近 2h 错误聚类 | 机械 | `ops/observability/probe-caps.sh`（输出每行一 JSON，`row_to_json`） |
-| 拉 access log + sticky.scheduler_entry → /tmp/acc.txt / /tmp/sse.txt | 机械 | `ops/observability/probe-traffic-logs.sh` |
-| 逐分钟重建 RPM / sticky / activeSess / conc | 机械 | `ops/observability/profile-traffic.py` |
-| 全舰队短窗口请求/错误快照（usage_logs by 分钟/用户/模型/账号 + ops_error_logs by status + cc-* stub 传播） | 机械 | `ops/observability/probe-fleet-traffic-window.sh`（经 run-probe 投递；`WINDOW_MINUTES` 默认 5；逐分钟重建前的快速 snapshot） |
-| 单用户短窗口请求/错误快照（+ gateway "http request completed" docker 日志 join 同一 user） | 机械 | `ops/observability/probe-user-traffic-window.sh`（经 run-probe 投递；`USER_ID` 必填、`WINDOW_MINUTES` 默认 5） |
-| 历史 cost-window 累计（5h gauge 校准） | 机械 | psql `usage_logs` 派生（SKILL §3 末段 SQL） |
-| 镜像 edge 死活/容量 fleet 横扫（served_200:no_available_429 + 可调度账号数 → verdict） | 机械 | `ops/observability/scan-edge-health.sh`（§4.1 双跳归因的确定性落点；verdict 纯函数 `edge_health_verdict.py` + `--selftest`） |
-| §0 的 8 个 trap pattern（base_rpm 误判、列号陷阱、镜像账号链式失败、activeSess 上界） | 判断 | prompt（架构 + 历史现场判断） |
-| §4 解读规则（哪个 cap 触顶） | 判断 | prompt（依赖同时段的 503 / 粘性 vs 非粘性现象） |
-| 镜像账号双跳归因（prod cooldown → edge 实因） | 判断 | prompt（必须 edge 同时段画像，单跳不算结论） |
+采样由 `ops/observability/run-probe.sh` 投递 `probe-caps.sh`、`probe-traffic-logs.sh`，重建用 `profile-traffic.py`；选择其它窗口/用户/fleet probe 时才查目录。模型负责证据归因。 见 [操作细则](references/tools.md)。
 
 ## 调用参数
 
@@ -52,96 +37,11 @@ description: >-
 
 ## 0) 为什么必须"逐分钟重建"，不能只看 gauge
 
-admin 账号卡片四个数字是**瞬时 gauge**，主要读 Redis，**没有逐分钟历史**：
-
-| 卡片 gauge | Redis 落地 key | 历史保留 |
-|---|---|---|
-| 🎛 并发 `cur/concurrency` | `concurrency:account:{id}`（zset，活跃 slot） | ❌ 仅当前；`wait:account:{id}` 为等待槽 |
-| 📊 上游窗口利用率 5h/7d | `accounts.extra` 被动采样（`session_window_utilization` / `passive_usage_7d_utilization`） | ❌ 仅当前快照；调度用 global 0.98/0.02 soft gate（非 tier 美元 cap） |
-| 👥 会话 `cur/max_sessions` | `session_limit:account:{id}`（zset，按 `session_idle_timeout_minutes` 过期，默认 5、可被 extra 覆盖） | ❌ 仅当前 |
-| 🕐 RPM `cur/base_rpm [T]` | `rpm:{id}:{unixMinute}`，**TTL=120s** | ❌ 只留最近 ~2 分钟 |
-
-**结论**：除“当前快照”外，过去 N 小时的逐分钟值只能从 **access log（`http request completed`）+ `sticky.scheduler_entry` + `usage_logs`** 重建。这是本 skill 的核心。
-
-**已踩过的坑**：
-1. `grep -c '429'`/`'529'` 是**误报**——会命中 UUID、`body_bytes`、`latency_ms` 里的子串。判真实上游限流/过载要解析 JSON 或匹配 `rate_limit_error`/`overloaded_error`，不要数裸数字。
-2. 瞬时 gauge ≤ cap **不代表**历史没触顶（峰值已过、配置事后被改）。务必重建；并确认 cap 在事发时段的取值（如 `max_sessions` 被从 16 改到 30）。
-3. account 被判不可用/`no available accounts` 时三个本地 cap（concurrency/max_sessions/base_rpm）都能触发且**不留专门日志**，prod Debug 级 `sticky.layer*` 默认关——只有重建数据能区分。
-4. **不要先认定 base_rpm**（本 skill 第一版排障就误判过）。判别口诀：
-   - `no available` 那一分钟若 **RPM<base_rpm 且 conc<concurrency**（低负载也 503）→ 几乎一定是 **session 面**：算 `全局活跃会话 vs Σ(max_sessions)`。
-   - 现象是「**粘性请求 200、非粘性(新会话/sticky miss)503**」→ 黄区 RPM **或** session 满二选一；用 RPM 序列区分：RPM≥base 选黄区，RPM<base 选 session。
-   - 只有某分钟 RPM 真的 ≥base_rpm 才轮到 base_rpm 黄/红区。
-5. **重建出的 `activeSess` 是上界，不是触顶证据**（与坑 2 对称）。§3 用 `IDLE_MIN` 尾随窗按 `session_hash` 去重计活跃会话，这个窗通常**比真实 zset 的过期行为更宽**，所以 `activeSess` 常会**高于**当下 `ZCARD session_limit:account:*` 之和，甚至越过 Σ(max_sessions)。**单看 `activeSess>Σmax` 不能判 session 触顶**——必须同时满足「该时段确有 503 / `no available`」且「现象是粘性 200、非粘性失败」。零 503 时 `activeSess` 越线只说明会话维度余量最小、值得盯，**不是**已触顶。核对方式：对照当前 `ZCARD` 之和（live 真值）与该时段真实失败计数。
-6. **字段来源混淆 + 数列号陷阱**（2026-05-23 现场踩坑）。accounts 表里 cap 字段一半是**顶层列**（`concurrency / schedulable / rate_limited_at / rate_limit_reset_at / overload_until / temp_unschedulable_until / temp_unschedulable_reason / session_window_*` / `error_message`），一半在 `extra` JSON（`base_rpm / rpm_strategy / rpm_sticky_buffer / max_sessions / session_idle_timeout_minutes / stability_tier`）—— 同名字段 `extra->>'concurrency'` 会查到 NULL，必须用 `accounts.concurrency`。**更危险的失败模式**：`psql -t -A -F'|'` 把 20+ 列输出为纯位置 `|` 分隔串、无列头，肉眼数列号几乎必错（曾把不同 extra 键当成相邻列，结论从"session 触顶"翻成"上游 503"）。**硬纪律**：本 skill 所有 cap / 不可调度证据查询**强制用 §1 给出的 `row_to_json` 固化 SQL**，输出形如 `{"id":4,"max_sessions":"100","base_rpm":"28",...}`，字段名跟值粘在一起、物理不可能错列；禁止自由写多列管道 SELECT。下游展示也只能 key=value，禁止"a4: 28/20/100/8/l5" 这种靠列位读的自由文本。
-7. **链式失败 / 镜像账号**。prod 上以 `cc-<edge>-oauth`（如 `cc-us1-oauth` / `cc-uk1-oauth`）命名的 anthropic Key 账号，其 credentials 上游就指向对应 edge 域名（`api-<edge>.tokenkey.dev`）。edge 端任何 5xx / `no available accounts` 都会作为 **upstream 503** 透传回 prod；prod 路由层的 `anthropic_upstream_error` 关键词阈值规则会基于这些 transient 503 累计计数，达阈值（默认 3/3）后给该 prod 账号写 `temp_unschedulable_until`（tier-based cooldown，常见 10m），admin UI 即显示「临时不可调度」黄标。**归因纪律**：看到 prod `temp_unschedulable_reason.matched_keyword='anthropic_upstream_error'` 时，**真因在 edge 同时段画像**，不是 prod 本地 cap；必须切到对应 edge 跑一遍 §1+§3 才算定案。把 prod 的 cooldown 当根因 = 漏判 edge 容量问题。
+历史逐分钟值用 access/sticky/usage logs 重建，admin gauge 没有历史。禁止 grep 数字计错、把 base_rpm 当全部硬 cap、按 SQL 列号读取、把 prod 中间 upstream 错误当 edge 死活；首次解释 cap、会话/粘性、镜像链路或窗口缺失时读陷阱细则。 见 [操作细则](references/interpretation-traps.md)。
 
 ## 1) 先抓 cap 配置 + 不可调度证据 + 当前快照（调用 probe-caps.sh）
 
-字段来源（坑 6 详）：
-
-| 用途 | 字段 | 来源 |
-|---|---|---|
-| 标识 | `id name platform type status` | `accounts` 顶层列 |
-| 调度开关 / 即时并发上限 | `schedulable` / `concurrency` | `accounts` 顶层列（**不是** extra） |
-| 临时不可调度（admin「黄标」） | `temp_unschedulable_until` / `temp_unschedulable_reason`(jsonb) | `accounts` 顶层列 |
-| 上游错误状态 | `rate_limited_at` / `rate_limit_reset_at` / `overload_until` / `error_message` | `accounts` 顶层列 |
-| 会话窗口（部分平台用） | `session_window_status` / `session_window_start` / `session_window_end` | `accounts` 顶层列 |
-| RPM cap | `base_rpm` / `rpm_strategy` / `rpm_sticky_buffer` | `accounts.extra` (jsonb) |
-| 会话 cap | `max_sessions` / `session_idle_timeout_minutes` | `accounts.extra` (jsonb) |
-| 上游窗口利用率（调度 soft gate） | `session_window_utilization` / `passive_usage_7d_utilization` | `accounts.extra` (jsonb，被动采样) |
-| 稳定性分级 | `stability_tier` | `accounts.extra` (jsonb) |
-
-> **上游 5h/7d 利用率 ≠ session 数 ≠ RPM** —— 列错位时极易混淆；调度 gate 为 global 0.98/0.02，不再读 tier 美元 cap。
-
-`temp_unschedulable_reason` jsonb 关键键：`matched_keyword`（`anthropic_upstream_error` / `rate_limit` / …）、`until_unix`、`triggered_at_unix`、`status_code`、`error_message`、`rule_index`、tier-based cooldown 时长（写在 `error_message` 文案里，如 `cooldown=10m0s tier=2`）。
-
-RPM 三区（代码 `Account.CheckRPMSchedulability` / `isAccountSchedulableForRPM`）：
-- `buffer = rpm_sticky_buffer`（若设）`else concurrency + max_sessions`，下限 `base_rpm/5`。
-- **绿区** `RPM < base_rpm` → 任何请求可调度。
-- **黄区** `base_rpm ≤ RPM < base_rpm+buffer` → **仅粘性**（非粘性负载均衡路径会跳过该账号，line `isAccountSchedulableForRPM(acc,false)`）。
-- **红区** `RPM ≥ base_rpm+buffer` → 完全不可调度。`rpm_strategy=sticky_exempt` 时无红区。
-
-`schedulable=false`（admin UI「暂停」灰色开关）≠ `temp_unschedulable_until > now()`（admin UI「临时不可调度」黄标）：前者是人手关掉，后者是阈值规则自动打的。归因要分清。
-
-### 1.1 调用 probe-caps.sh（机械化抓取，零 prose SQL）
-
-固化在 `ops/observability/probe-caps.sh`（dev-rules 「机械化优于 prompt 推断」基线：本可机械化的步骤由脚本承载，prompt 只描述调用接口与真实判断）。该脚本在远端运行 psql + redis-cli，输出三段：
-
-| 段 | 形态 | 解析方式 |
-|---|---|---|
-| `docker ps` 块 | 文本表 | 肉眼或 grep 容器名 |
-| caps + 不可调度证据 | **每行一 JSON**（`row_to_json`） | `jq '.max_sessions'` / `json.loads` 按字段名取值 |
-| Redis snapshot | `redis_snapshot acct=N conc=N sess=N wait=N wcost=… rpm_now=N` | grep `字段名=` |
-| ops_error_logs 近 2h | 每行一 JSON | 同上 |
-
-字段名嵌在值旁，**物理不可能数错列**——这就是坑 6 的硬约束载体。
-
-调用（远端在 SSM 里跑，全部由 `run-probe.sh` 统一投递）：
-
-```bash
-# prod / edge 都走同一个 wrapper；它负责 region/instance 解析 + base64 投递 + send + poll
-bash ops/observability/run-probe.sh \
-  --target prod \
-  --script ops/observability/probe-caps.sh \
-  --env PLATFORM=anthropic \
-  --env ERR_HOURS=2
-
-# deployable Lightsail edge 同款
-bash ops/observability/run-probe.sh \
-  --target edge:us1 \
-  --script ops/observability/probe-caps.sh \
-  --env PLATFORM=anthropic
-```
-
-环境变量（脚本顶部 contract）：`PLATFORM`（默认 `anthropic`）、`ERR_HOURS`（默认 2）、`ERR_LIMIT`（默认 150）。新增字段只在脚本里改一次——不再回头同步 SKILL 文本。**禁止**手写 base64 投递 / send-command 调用：所有漂移点都收敛在 `run-probe.sh` 内。
-
-> **redis-cli stderr 噪声坑（实测）**：容器里设了 `REDISCLI_AUTH`，即使**不带** `-a`，`redis-cli` 仍可能往 **stderr** 刷 `AUTH failed: ERR AUTH <password> called without any password configured`。这是**无害噪声**——`StandardOutputContent` 是正确的；不要因 `StandardErrorContent` 非空就判失败。
-
-### 1.2 读结果的硬纪律（坑 6 的执行面）
-
-- **caps 行**：每行一 JSON。要某字段直接 `jq '.max_sessions'` 或 `python3 -c "import sys,json;[print(json.loads(l).get('max_sessions')) for l in sys.stdin if l.strip()]"`。**禁止**眼睛数列号。
-- **redis_snapshot 行**：grep `sess=` 不会错位。
-- 给用户的报告里，所有 cap 列出必须用「字段名: 值」格式（见 §5）。**禁止** `a4: 10/28/20/100/8/1500/l5` 这种靠列位的自由文本——这是坑 6 的二次失败入口。
+采样前读本节细则，用 `probe-caps.sh` 采当前 cap/可调度态，再采历史日志；SSM/SQL 统一现有脚本，字段名 JSON，不临时多列 SELECT。 见 [操作细则](references/capture.md)。
 
 ## 2) 拉 access log（调用 probe-traffic-logs.sh）
 
@@ -161,84 +61,11 @@ docker logs $CONTAINER --since $SINCE | grep -F 'sticky.scheduler_entry'        
 
 ## 3) 逐分钟重建（调用 profile-traffic.py）
 
-固化在 `ops/observability/profile-traffic.py`。读 `/tmp/acc.txt` + `/tmp/sse.txt`，输出每分钟一行：
-
-```
-min(UTC) | aN  :rpm/sR/conc/ok/bad … | nonStk actSess(g)
-```
-
-末尾每账号一行 `acctN totals reqs=… rpm_max=… conc_max=… statuses={…}`。
-
-**投递方式**：与 §1.1 同款——通过 `ops/observability/run-probe.sh` 包了 base64 投递 + 远端拉脚本 + env 注入；**禁止**手写完整的 base64 / send-command 链。
-
-`ACCTS` / `IDLE_MIN` 在远端按 psql 派生（不让 operator 手填）：
-
-```bash
-PSQL='docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t'
-ACCTS=$($PSQL -c "SELECT string_agg(id::text, ',' ORDER BY id) FROM accounts WHERE platform='anthropic' AND schedulable AND status='active';")
-IDLE_MIN=$($PSQL -c "SELECT COALESCE(MAX(NULLIF(extra->>'session_idle_timeout_minutes','')::int), 5) FROM accounts WHERE platform='anthropic' AND schedulable AND status='active';")
-ACCTS=$ACCTS IDLE_MIN=$IDLE_MIN python3 /tmp/profile-traffic.py
-```
-
-上面这段派生 + 调用是一份**远端**薄壳，由 §1.1 提到的 `run-probe.sh` 投递（脚本作为本机文件传输到远端 `/tmp/`）。如果以后这段薄壳被频繁复用，**应该**抽出为一个独立的 driver 脚本放进 `ops/observability/` 下，届时连同它一起加入 §1.1 的工具表；在那之前不要把这段派生 prose 当作另一份 contract。
-
-env 契约（脚本 docstring 是 ground truth，这里只列要点）：
-
-| env | 用途 | 默认 |
-|---|---|---|
-| `ACCTS` | 逗号分隔账号 id（必填） | — |
-| `IDLE_MIN` | session 活跃尾随窗（分钟），= MAX(account.idle_min) | 5 |
-| `PATH_KEY` | 路径过滤（与 §2 必须一致） | `/v1/messages` |
-| `FMT` | 输出时间列的 `strftime` 格式（**只换显示格式，不换桶粒度**——桶始终是分钟） | `%H:%M` |
-
-> 逐分钟表 `ok` / `bad` 是**该分钟**完成的 200 / 非 200 数（按 request start 落分钟）；某分钟 `rpm > ok` 即该分钟有失败。整段 status 分布看末尾 `statuses={…}` 字典。**不要**把整段总数当逐分钟值（旧模板曾踩此坑）。
-
-用量成本逐分钟（DB，独立 SQL；与调度 gate 无关，仍来自 `usage_logs`）：
-
-```sql
-SELECT to_char(date_trunc('minute',created_at),'HH24:MI') min_utc, account_id,
-       count(*) reqs, round(sum(total_cost),4) cost
-FROM usage_logs
-WHERE account_id = ANY($IDS) AND created_at >= now()-interval '$HOURS hours'
-GROUP BY 1,2 ORDER BY 1,2;
--- 5h 窗累计校准卡片 $ gauge：
-SELECT account_id, round(sum(total_cost),2) cost_5h FROM usage_logs
-WHERE account_id = ANY($IDS) AND created_at >= now()-interval '5 hours' GROUP BY 1;
-```
+重建时读本节的 `profile-traffic.py` 参数；5h cost-window 校准只在相关诊断中读取 SQL 段。 见 [操作细则](references/reconstruction.md)。
 
 ## 4) 解读规则（哪个参数触顶）
 
-| 观察 | 判定 |
-|---|---|
-| 某分钟 `rpm ≥ base_rpm` 且非粘性请求失败/`no available` | **base_rpm 黄/红区**：非粘性被 RPM 闸挤出。 |
-| `peak_conc ≈ concurrency` 且新请求 429/排队超时 | **concurrency 触顶**（`Concurrency limit exceeded` 或 `umq`/wait 超时）。 |
-| `global activeSess > Σ(max_sessions)` **且该时段确有 503/`no available`** 且**粘性 200、非粘性失败** | **max_sessions 触顶**：新会话被 `checkAndRegisterSession` 拒（`ErrNoAvailableAccounts`，gateway_service.go ~line 2121），已绑定会话 `ZSCORE` 命中放行。 |
-| `activeSess > Σ(max_sessions)` **但零 503**（全程 200） | **未触顶**：`activeSess` 是 IDLE 窗上界、高于 live `ZCARD` 之和（见 §0 坑 5）。结论=会话维度余量最小、值得盯，**不是**触顶；核对当前 `ZCARD` 之和与真实失败计数。 |
-| RPM<base、conc<max、sess 未饱和，却仍 503 | 查上游：解析 JSON 找 `rate_limit_error`/`overloaded_error`/`cooldown`/`rate_limit_reset_at`，**别数裸 429/529**。 |
-| `nonStickyRpm` 高、`activeSess` 接近 Σmax | 单 CLI 派生大量短会话 → 会话面先到顶（典型：edge 仅 2 账号时）。 |
-| prod 账号 `temp_unschedulable_until > now()` 且 `temp_unschedulable_reason.matched_keyword='anthropic_upstream_error'` | **链式失败**：prod 把 edge 透传回来的 503 累计到本地阈值规则，自动 cooldown。**这不是根因**——切到对应 edge 跑 §1+§3 找 edge 实因（max_sessions / concurrency / 真上游 503）。归因责任在 edge 同时段画像。 |
-
-判 session 饱和的关键不等式：**全局活跃会话 > Σ(max_sessions over 可调度账号)** ⇒ 必有新会话落空。务必用**事发时段**的 `max_sessions`（可能被事后调过）。
-
-### 4.1 链式失败 / 镜像账号识别
-
-prod 上 anthropic Key 账号若命名形如 `cc-<edge>-oauth`（如 `cc-us1-oauth` → `api-us1.tokenkey.dev`），归因路径必须是双跳：
-
-```
-[edge 实因: max_sessions / concurrency / base_rpm / 真上游 503]
-       │
-       ▼ 503 透传 (upstream_status_code=503, body="no available accounts" 等)
-[prod 路由层 anthropic_upstream_error 关键词阈值规则: 累计 N/N]
-       │
-       ▼ 写 accounts.temp_unschedulable_until = now()+cooldown(tier-based, 常见 10m)
-[admin UI: 临时不可调度黄标]
-```
-
-确认是否镜像账号：`SELECT credentials->>'base_url' FROM accounts WHERE id=<prod_acct_id>;`（或 `credentials->>'endpoint'`，依字段名而定）。base_url 指向 `api-<edge>.tokenkey.dev/*` 即镜像。
-
-操作上：先在 prod 跑一次 §1 拿 `temp_unschedulable_reason`，从 `triggered_at_unix` 反推 edge 上的事发分钟（同一秒精度），再到 edge 跑 §1+§3，对照那几分钟的 `actSess / sRPM / nonStk / ZCARD-now / max_sessions / concurrency` 才能定真因。
-
-**机械落点**：这套"切到 edge 逐分钟画像"的双跳，先用 `ops/observability/scan-edge-health.sh [--edges <id>] [--since <N>h]` 一眼定位哪个 edge `verdict=down/degraded`（基于 edge **自身** `served_200 : no_available_429` 比 + 可调度账号数，**不被 prod upstream-429 污染**——prod 那个数对死/活 edge 都显示 ~1300，2026-06-06 压测中 edge-us5 实发 77 个 429、prod 记 1266，详见 troubleshooting skill §0 trap 9），再对 verdict 异常的 edge 跑 §1+§3 逐分钟坐实。**不要**用 prod 的 `upstream-429 by account` 或 `recovered-200` 推断 edge 死活（`recovered-200` 越高反而 = edge 越死、全靠 failover 救）。
+得出 cap/镜像链路归因前读取：必须匹配同窗口的 sticky、503/429 与 edge 自身证据。不要只凭单个 gauge 下结论。 见 [操作细则](references/attribution.md)。
 
 ## 5) 输出模板
 

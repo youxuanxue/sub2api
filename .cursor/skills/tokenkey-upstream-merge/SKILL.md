@@ -121,72 +121,12 @@ PR 前必须完成：
 
 ## 5. PR body 模板
 
-```markdown
-## Summary
-- Merge upstream/main into TokenKey with a merge commit while preserving TokenKey OPC invariants.
-- Keep upstream features compiled in; TokenKey-specific behavior stays behind companion/facade/component boundaries.
-
-## Risk
-- Large upstream merge across: <hotspots>.
-- Human-reviewed decisions: <decision list>.
-
-## Validation
-- <commands run>
-
-## Upstream Audit
-- Required audit range: upstream/main..HEAD
-- TK ahead count: `<git log --oneline upstream/main..HEAD | wc -l>`
-- Backend stat top files: `<git diff --stat upstream/main..HEAD -- backend/ | head -5>`
-```
+生成 PR 时读取模板；提交形状仍由 upstream-merge 通用 skill 裁决。 见 [操作细则](references/pr-body.md)。
 
 ## 6. 完成后：本次 upstream merge 变更摘要（机械化）
 
-PR 全部检查通过、准备合并（或刚完成合并）后，调用与 release-rollout / local-deploy 共享的摘要脚本（`--mode upstream` 启用 upstream 专属段，含 TK ahead 计数 + backend diff stat 满足 §5.y 审计需求）：
-
-```bash
-bash scripts/release-rollout-summary.sh --mode upstream --fetch
-# 输出 markdown：
-#   Summary / Range (merge_base..HEAD) / Commits
-#   Top changed files / Sentinel changes / Upstream file deletions
-#   Upstream brought in (merge_base..upstream/main)
-#   TK ahead count (PR body §5.y audit cadence)
-#   Backend diff stat vs upstream/main (PR body §5.y)
-```
-
-基于输出，向用户呈现以下结构：
-
-**upstream merge 范围：`<merge_base_short>` → `upstream/main`（N 个上游提交）**
-
-**上游带入**：按影响维度分类（handler / service / frontend / schema / CI），每类列 1–3 行关键提交。
-
-**TK invariant 修复**（B 类 commit）：列出修复的不可退让项及改动文件。
-
-**TK OPC 收敛**（C 类 commit，如有）：列出从热点文件抽取到 companion 的内容。
-
-**需要在 prod smoke / 本地测试中重点验证**（根据实际变更填写）：
-
-| 触达路径 | 验证方式 |
-|---|---|
-| Gemini 路径 | 统一 smoke key + `TK_SMOKE_GEMINI_MODELS` 的 Gemini tool-schema 探针；HTTP 400=硬失败需回查 |
-| OpenAI-compat / Responses | 统一 smoke key + `TK_SMOKE_OPENAI_OAUTH_MODELS` 的 OpenAI OAuth 探针；`reasoning_tokens` 是否透传 |
-| pricing / model-list | `/v1/models` 数量与可用性标记 |
-| frontend 组件 | frontend release asset 探针 + 浏览器关键页 |
-| 新增/合入 admin 视图（`frontend/src/views/admin/**`） | **TK 持久壳不可退让**：上游新 admin 视图自带 `<AppLayout>` 包裹，必须①剥掉 `<AppLayout>`（布局由 `AdminShellView.vue` 持久壳统一提供）②把路由注册进 `frontend/src/router/admin.tk.ts` 的 `AdminShellView` children（**不要**在 `router/index.ts` 内联）。`scripts/checks/admin-shell-layout.py`（preflight 内）会机械拦截漏剥的 `<AppLayout>` |
-| `router/index.ts` 冲突 | admin 路由子树已隔离到 `frontend/src/router/admin.tk.ts`；冲突应只发生在非 admin 路由，admin 路由变更解析到 `admin.tk.ts` |
-| 新增 sentinel | 列出 `scripts/sentinels/*.json` 文件名，说明守卫的回归场景 |
-| upstream 删除文件（如有） | 逐一确认 PR description 有 (a)/(b)/(c) 回归说明 |
-
-**后续建议**：是否需要立即 bump VERSION 发版，或等待下一批 TK 功能合入。
+完成合并后调用 `bash scripts/release-rollout-summary.sh --mode upstream --fetch`；需要展开摘要字段时读取。 见 [操作细则](references/summary.md)。
 
 ## 7. Red flags
 
-Stop and fix before PR if any is true:
-
-- TokenKey-only code got added directly to `openai_gateway_service.go`, `openai_account_scheduler.go`, `gateway_bridge_dispatch.go`, `gateway.go`, or large admin Vue views without companion/facade/component extraction.
-- A merged-in admin view under `frontend/src/views/admin/**` still wraps `<AppLayout>` (layout must come from the `AdminShellView` persistent shell), or an admin route was added inline in `router/index.ts` instead of `frontend/src/router/admin.tk.ts` — `scripts/checks/admin-shell-layout.py` (in preflight) flags the `<AppLayout>` regression mechanically.
-- New endpoint lacks QA/trajectory capture or terminal semantics.
-- Sensitive payload persists without redaction version contract.
-- New upstream file/route/service was deleted or disabled without explicit regression justification.
-- PR shape check would fail: no upstream merge commit, missing `upstream/main..HEAD`, or first-parent commit contains skip-ci markers.
-- Direct `bridge.Dispatch*` call added outside the approved service boundary files (`gateway_bridge_dispatch.go` / `openai_gateway_bridge_dispatch*.go`) — engine dispatch eligibility must route through `engine.BuildDispatchPlan`; `engine-facade-sentinels.json` will flag this mechanically.
-- New Gemini response path processes `internalThought`/`executableCode` blocks without calling `shouldDropGeminiInternalText` / `normalizeGeminiFunctionArgs` — thinking-block filter or tool-arg normalizer has drifted; `engine-facade-sentinels.json` `gemini_thinking_filter_*` entries will fail.
+处理冲突、兼容性或审计异常前读取此检查清单。 见 [操作细则](references/red-flags.md)。
