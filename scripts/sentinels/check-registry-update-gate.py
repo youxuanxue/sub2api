@@ -108,8 +108,10 @@ HOTSPOT_PATTERNS: dict[str, list[str]] = {
 
 
 def run_git(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    # Sibling worktrees / submodule walkers may flip shared core.bare=true;
+    # force a work-tree view for every invocation in this gate.
     return subprocess.run(
-        ["git", *args],
+        ["git", "-c", "core.bare=false", *args],
         cwd=REPO_ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -153,7 +155,9 @@ def changed_files(base: str, head: str) -> set[str]:
 def working_tree_changed_files() -> set[str]:
     changed: set[str] = set()
     for args in (["diff", "--name-only", "--diff-filter=ACMRTUXB"], ["diff", "--cached", "--name-only", "--diff-filter=ACMRTUXB"]):
-        proc = run_git(args)
+        proc = run_git(args, check=False)
+        if proc.returncode != 0:
+            continue
         changed.update(line.strip() for line in proc.stdout.splitlines() if line.strip())
     return changed
 
