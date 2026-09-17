@@ -199,6 +199,28 @@ COMPOSE_B64="$(aws ssm get-parameter --name "${COMPOSE_PARAM}" --region "${REGIO
 CADDY_B64="$(aws ssm get-parameter --name "${CADDY_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 RENDER_B64="$(aws ssm get-parameter --name "${CADDY_RENDER_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
+# Prod-only PG GUC overlay (not in Lightsail user-data). systemd/start scripts
+# pick it up when present beside docker-compose.yml.
+cat > docker-compose.prod-pg.yml <<'PGEOF'
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-200}
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-6GB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-128MB}
+      - -c
+      - jit=${POSTGRES_JIT:-off}
+      - -c
+      - max_parallel_workers=${POSTGRES_MAX_PARALLEL_WORKERS:-2}
+      - -c
+      - max_parallel_workers_per_gather=${POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER:-1}
+PGEOF
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
 printf '%s' "${RENDER_B64}" | base64 -d | gunzip > caddy/render-prod-caddyfile.sh
 chmod 0755 caddy/render-prod-caddyfile.sh
@@ -291,6 +313,14 @@ TOKENKEY_IMAGE=${TOKENKEY_IMAGE}
 POSTGRES_USER=tokenkey
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=tokenkey
+# Prod-only PG sizing for ~8 GiB Stage0 hosts (edge Lightsail keeps compose defaults).
+POSTGRES_MAX_CONNECTIONS=200
+POSTGRES_SHARED_BUFFERS=1GB
+POSTGRES_EFFECTIVE_CACHE_SIZE=6GB
+POSTGRES_MAINTENANCE_WORK_MEM=128MB
+POSTGRES_JIT=off
+POSTGRES_MAX_PARALLEL_WORKERS=2
+POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER=1
 DATABASE_MAX_OPEN_CONNS=50
 DATABASE_MAX_IDLE_CONNS=10
 REDIS_PASSWORD=

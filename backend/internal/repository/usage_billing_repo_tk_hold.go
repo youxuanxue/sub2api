@@ -34,62 +34,72 @@ func (r *usageBillingRepository) ReserveBalanceHold(ctx context.Context, cmd *se
 		return false, service.ErrUsageBillingRequestIDRequired
 	}
 
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer func() {
-		if tx != nil {
-			_ = tx.Rollback()
+	var reserved bool
+	err := withUserBalanceLock(cmd.UserID, func() error {
+		tx, err := r.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
 		}
-	}()
+		defer func() {
+			if tx != nil {
+				_ = tx.Rollback()
+			}
+		}()
 
-	// Claim the hold row first. ON CONFLICT DO NOTHING makes a retried reserve
-	// for the same request_id idempotent: no new row → already reserved → do
-	// NOT deduct again.
-	var insertedID string
-	err = tx.QueryRowContext(ctx, `
+		// Claim the hold row first. ON CONFLICT DO NOTHING makes a retried reserve
+		// for the same request_id idempotent: no new row → already reserved → do
+		// NOT deduct again.
+		var insertedID string
+		err = tx.QueryRowContext(ctx, `
 		INSERT INTO usage_holds (request_id, user_id, api_key_id, amount)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (request_id) DO NOTHING
 		RETURNING request_id
 	`, cmd.RequestID, cmd.UserID, cmd.APIKeyID, cmd.Amount).Scan(&insertedID)
-	if errors.Is(err, sql.ErrNoRows) {
-		// Hold already exists for this request — reservation stands, money was
-		// already moved by the first reserve. Commit (no-op) and report held.
-		if err := tx.Commit(); err != nil {
-			return false, err
+		if errors.Is(err, sql.ErrNoRows) {
+			// Hold already exists for this request — reservation stands, money was
+			// already moved by the first reserve. Commit (no-op) and report held.
+			if err := tx.Commit(); err != nil {
+				return err
+			}
+			tx = nil
+			reserved = true
+			return nil
 		}
-		tx = nil
-		return true, nil
-	}
-	if err != nil {
-		return false, err
-	}
+		if err != nil {
+			return err
+		}
 
-	// Atomic floor-guarded deduction. 0 rows ⇒ balance < amount ⇒ reject; the
-	// hold INSERT rolls back with it, so no orphan hold is left behind.
-	var newBalance float64
-	err = tx.QueryRowContext(ctx, `
+		// Atomic floor-guarded deduction. 0 rows ⇒ balance < amount ⇒ reject; the
+		// hold INSERT rolls back with it, so no orphan hold is left behind.
+		var newBalance float64
+		err = tx.QueryRowContext(ctx, `
 		UPDATE users
 		SET balance = balance - $1,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL AND balance >= $1
 		RETURNING balance
 	`, cmd.Amount, cmd.UserID).Scan(&newBalance)
-	if errors.Is(err, sql.ErrNoRows) {
-		// Insufficient balance (or user missing): roll back the hold INSERT.
-		return false, nil
-	}
+		if errors.Is(err, sql.ErrNoRows) {
+			// Insufficient balance (or user missing): roll back the hold INSERT.
+			reserved = false
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		tx = nil
+		reserved = true
+		return nil
+	})
 	if err != nil {
 		return false, err
 	}
-
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-	tx = nil
-	return true, nil
+	return reserved, nil
 }
 
 // ReleaseBalanceHold refunds the reserved amount and removes the hold row, in
@@ -128,12 +138,15 @@ func (r *usageBillingRepository) ReleaseBalanceHold(ctx context.Context, request
 		return false, err
 	}
 
-	if _, err := tx.ExecContext(ctx, `
+	if err := withUserBalanceLock(userID, func() error {
+		_, execErr := tx.ExecContext(ctx, `
 		UPDATE users
 		SET balance = balance + $1,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
-	`, amount, userID); err != nil {
+	`, amount, userID)
+		return execErr
+	}); err != nil {
 		return false, err
 	}
 

@@ -884,6 +884,15 @@ validate_prepared_receipt blue green
         self.assertEqual(matching.returncode, 0, msg=matching.stderr)
         self.assertIn("up -d --no-deps tokenkey-blue", matching.stdout)
         self.assertNotIn("up -d --no-deps tokenkey-green", matching.stdout)
+        # Infra must pin -f docker-compose.yml so override.yml cannot poison boot.
+        self.assertRegex(
+            matching.stdout,
+            r"-f .+/docker-compose\.yml up -d --no-deps postgres redis",
+        )
+        self.assertRegex(
+            matching.stdout,
+            r"-f .+/docker-compose\.yml up -d --no-deps caddy",
+        )
 
         mismatch = _run_systemd_start(
             remote, active="blue", caddy_upstream="tokenkey-green:8080"

@@ -720,13 +720,22 @@ if [ -r "${ROOT}/caddy/Caddyfile" ]; then
 fi
 case "${ROUTE}" in blue|green) ;; *) ROUTE= ;; esac
 cd "${ROOT}"
-docker compose --env-file "${ROOT}/.env" up -d --no-deps postgres redis
+# Pin -f docker-compose.yml so docker-compose.override.yml (blue/green
+# entrypoint overlays without image) is NOT auto-merged. Default compose
+# discovery would invalidate the project and leave the app down after
+# reboot / CFN stop-start (2026-09-17 prod outage).
+# Optional prod-only PG GUC overlay (never on Lightsail).
+if [ -f "${ROOT}/docker-compose.prod-pg.yml" ]; then
+  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" -f "${ROOT}/docker-compose.prod-pg.yml" up -d --no-deps postgres redis
+else
+  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" up -d --no-deps postgres redis
+fi
 if [ -n "${ACTIVE}" ] && [ "${ACTIVE}" = "${ROUTE}" ]; then
   docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" up -d --no-deps "tokenkey-${ACTIVE}"
 else
   docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" up -d --no-deps tokenkey-blue tokenkey-green
 fi
-docker compose --env-file "${ROOT}/.env" up -d --no-deps caddy
+docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" up -d --no-deps caddy
 docker rm -f tokenkey >/dev/null 2>&1 || true
 SH
   sudo tee /usr/local/bin/tokenkey-bluegreen-systemd-stop.sh >/dev/null <<'SH'
@@ -735,8 +744,12 @@ set +e
 ROOT=/var/lib/tokenkey
 cd "${ROOT}" || exit 0
 docker compose --project-name tokenkey --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.bluegreen.yml" stop -t 180 tokenkey-blue tokenkey-green
-docker compose --env-file "${ROOT}/.env" stop -t 60 caddy
-docker compose --env-file "${ROOT}/.env" stop -t 60 postgres redis
+docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" stop -t 60 caddy
+if [ -f "${ROOT}/docker-compose.prod-pg.yml" ]; then
+  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" -f "${ROOT}/docker-compose.prod-pg.yml" stop -t 60 postgres redis
+else
+  docker compose --env-file "${ROOT}/.env" -f "${ROOT}/docker-compose.yml" stop -t 60 postgres redis
+fi
 exit 0
 SH
   sudo chmod 0755 /usr/local/bin/tokenkey-bluegreen-systemd-start.sh /usr/local/bin/tokenkey-bluegreen-systemd-stop.sh

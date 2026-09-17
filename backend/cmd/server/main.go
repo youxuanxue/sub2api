@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
@@ -266,6 +267,11 @@ func runMainServer() {
 
 	log.Printf("Server started on %s", app.Server.Addr)
 
+	pprofSrv, err := server.StartLoopbackPprof(cfg.Server.PprofListen)
+	if err != nil {
+		log.Fatalf("Failed to start pprof listener: %v", err)
+	}
+
 	// SIGUSR1：进入 drain 模式，但不退出。
 	// 发版流程用 `docker kill -s USR1 tokenkey` 触发，让 /health 立刻翻 503，
 	// Caddy 的 passive health 据此摘除 upstream；进程继续把已经在跑的请求处理完。
@@ -305,6 +311,7 @@ func runMainServer() {
 		log.Printf("Server shutdown returned: %v (in_flight=%d)", err, middleware.InFlightCount())
 		log.Printf("Server forced to shutdown: %v", err)
 	}
+	server.ShutdownPprof(ctx, pprofSrv)
 
 	log.Println("Server exited")
 }

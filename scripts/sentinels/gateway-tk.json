@@ -402,113 +402,43 @@
     },
     {
       "path": "ops/stage0/gateway_capability_matrix.py",
-      "must_contain": [
-        "def build(",
-        "def validate_inventory(",
-        "account-supply-representatives",
-        "def select(cases, limit=None)",
-        "def delta(",
-        "def report(",
-        "coverage status must be derived",
-        "verification_sha256",
-        "harness-passed",
-        "def replay_summary(",
-        "def replay_details(",
-        "def selected_case_ids(",
-        "account_class_coverage",
-        "unverified capability must remain blocked",
-        "blocked_case_cannot_pass"
-      ],
+      "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "verification_sha256", "harness-passed", "def replay_summary(", "def replay_details(", "def selected_case_ids(", "account_class_coverage", "unverified capability must remain blocked", "blocked_case_cannot_pass"],
       "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return. prepared_gateway receipts must surface account_class_coverage for approval."
     },
     {
       "path": "backend/internal/service/account.go",
-      "must_contain": [
-        "a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()"
-      ],
+      "must_contain": ["a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()"],
       "rationale": "Vertex embedding service accounts must survive the same scheduler capability gate as discovery, without admitting other OAuth/service-account shapes."
     },
     {
       "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason_test.go",
-      "must_contain": [
-        "TestVertexEmbeddingEligibilityRetainsServiceAccount"
-      ],
+      "must_contain": ["TestVertexEmbeddingEligibilityRetainsServiceAccount"],
       "rationale": "Exercise the actual scheduler candidate filter including explicit capability denial and unavailable accounts."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler_tk_forward_usage.go",
-      "must_contain": [
-        "tkSubmitOpenAISimpleForwardUsage",
-        "SessionID:          sessionID,"
-      ],
+      "must_contain": ["tkSubmitOpenAISimpleForwardUsage", "SessionID:          sessionID,"],
       "rationale": "Simple audio/media usage must snapshot the ordinary client session before async recording."
     },
     {
       "path": "backend/internal/handler/openai_gateway_simple_usage_session_tk_test.go",
-      "must_contain": [
-        "TestOpenAISimpleForwardUsagePersistsClientSession"
-      ],
+      "must_contain": ["TestOpenAISimpleForwardUsagePersistsClientSession"],
       "rationale": "Exercise handler submission through RecordUsage to the persisted usage row, including absent-session behavior."
     },
     {
       "path": "ops/stage0/gateway_capability_host.py",
-      "must_contain": [
-        "def test_key(",
-        "def run_locked(",
-        "def candidate_address(",
-        "def attribution(",
-        "prepared_gateway",
-        "on_response_id=retain_id",
-        "INTERVAL_SECONDS = 10",
-        "route_unchanged",
-        "normal_universal",
-        "matrix.replay_summary(result, coverage)",
-        "matrix.selected_case_ids(plan, case_ids)",
-        "matrix.blocked_status(case)",
-        "thinking_request_accepted"
-      ],
-      "must_not_contain": [
-        "replay.Sandbox",
-        "pg_dump",
-        "pg_restore",
-        "host_guard",
-        "getloadavg",
-        "/proc/pressure",
-        "INSERT INTO",
-        "UPDATE api_keys",
-        "docker run"
-      ],
+      "must_contain": ["def test_key(", "def run_locked(", "def candidate_address(", "def attribution(", "prepared_gateway", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "route_unchanged", "normal_universal", "matrix.replay_summary(result, coverage)", "matrix.selected_case_ids(plan, case_ids)", "matrix.blocked_status(case)", "thinking_request_accepted"],
+      "must_not_contain": ["replay.Sandbox", "pg_dump", "pg_restore", "host_guard", "getloadavg", "/proc/pressure", "INSERT INTO", "UPDATE api_keys", "docker run"],
       "rationale": "Normal blue/green candidate verification uses an existing universal test key, serial requests, real usage and unchanged routing; no parallel sandbox deployment."
     },
     {
       "path": "ops/stage0/test_gateway_capability_host.py",
-      "must_contain": [
-        "test_key_requires_one_active_universal_identity",
-        "test_route_change_blocks_send_before_key_leaves_host",
-        "test_full_plan_uses_existing_candidate_and_keeps_failures",
-        "test_http_errors_and_timeouts_are_recorded_without_skipping_suite",
-        "test_usage_verifies_test_key_and_reports_normal_account_selection",
-        "test_missing_test_key_retains_every_obligation",
-        "test_video_pending_operation_and_inline_mp4_completion",
-        "test_blocked_capabilities_cannot_execute_even_when_called_directly",
-        "test_thinking_proof_separates_acceptance_reasoning_and_quality",
-        "test_vision_requires_expected_answer_not_just_blue_mention",
-        "test_vision_checks_visible_answer_across_protocols",
-        "test_vision_joins_streamed_visible_answer"
-      ],
+      "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation", "test_video_pending_operation_and_inline_mp4_completion", "test_blocked_capabilities_cannot_execute_even_when_called_directly", "test_thinking_proof_separates_acceptance_reasoning_and_quality", "test_vision_requires_expected_answer_not_just_blue_mention", "test_vision_checks_visible_answer_across_protocols", "test_vision_joins_streamed_visible_answer"],
       "rationale": "Behavioral guards preserve candidate-only sends, test-key attribution and the full denominator without creating extra resources."
     },
     {
       "path": "ops/stage0/gateway_capability_check.py",
-      "must_contain": [
-        "def validate_response(",
-        "audio_payload_missing",
-        "image_payload_missing",
-        "def video_output_present(",
-        "text = answer_text(protocol, events, stream)",
-        "re.fullmatch(re.escape(expected.strip())",
-        "vision_answer_mismatch"
-      ],
+      "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing", "def video_output_present(", "text = answer_text(protocol, events, stream)", "re.fullmatch(re.escape(expected.strip())", "vision_answer_mismatch"],
       "rationale": "Synthetic responses require protocol and media semantics; execution targets the normal blue/green candidate."
     },
     {
@@ -528,12 +458,7 @@
     },
     {
       "path": "scripts/stage0/replay-prod-release.py",
-      "must_contain": [
-        "matrix.replay_details(receipt, results)",
-        "matrix.selected_case_ids(plan, args.case_id)",
-        "arguments += ['--case-id', case_id]",
-        "'selected_verdict' if case_ids is not None else 'verdict'"
-      ],
+      "must_contain": ["matrix.replay_details(receipt, results)", "matrix.selected_case_ids(plan, args.case_id)", "arguments += ['--case-id', case_id]", "'selected_verdict' if case_ids is not None else 'verdict'"],
       "rationale": "CLI consumes the shared receipt projection and forwards reviewed stable case IDs while keeping selected and full verdicts distinct."
     },
     {
@@ -557,9 +482,23 @@
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",
       "must_contain": [
         "validate_replay_gate()",
-        "  validate_replay_gate"
+        "  validate_replay_gate",
+        "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" up -d --no-deps postgres redis",
+        "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" -f \"${ROOT}/docker-compose.prod-pg.yml\" up -d --no-deps postgres redis",
+        "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" up -d --no-deps caddy",
+        "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 caddy",
+        "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" stop -t 60 postgres redis",
+        "docker compose --env-file \"${ROOT}/.env\" -f \"${ROOT}/docker-compose.yml\" -f \"${ROOT}/docker-compose.prod-pg.yml\" stop -t 60 postgres redis"
       ],
-      "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate."
+      "rationale": "Explicit replay continuation must enforce the reviewed receipt under the deployment lock; optional historical experiments do not become an implicit deployment gate. Infra systemd start/stop must pin -f docker-compose.yml so docker-compose.override.yml (blue/green overlays without image) cannot poison boot after CFN stop/start. Prod may layer docker-compose.prod-pg.yml for GUC tuning without auto-merging override.yml."
+    },
+    {
+      "path": "ops/stage0/test_deploy_via_ssm_bluegreen.py",
+      "must_contain": [
+        "r\"-f .+/docker-compose\\.yml up -d --no-deps postgres redis\"",
+        "r\"-f .+/docker-compose\\.yml up -d --no-deps caddy\""
+      ],
+      "rationale": "Blue/green systemd start must keep rendering the pinned infra compose -f path; regression of auto-merge with override.yml recreates the 2026-09-17 prod boot outage."
     },
     {
       "path": "backend/internal/service/openai_codex_models_service.go",
@@ -9380,9 +9319,55 @@
         "AccessTokenExpireMinutes int",
         "RefreshTokenExpireDays int",
         "RefreshWindowMinutes int",
-        "RateLimitReaperIntervalSeconds int"
+        "RateLimitReaperIntervalSeconds int",
+        "PprofListen string",
+        "viper.SetDefault(\"server.pprof_listen\", \"127.0.0.1:6060\")",
+        "NormalizeServerPprofListen(c.Server.PprofListen)"
       ],
-      "rationale": "TK JWT expiry granularity and rate-limit reaper config fields in the upstream-shaped config.go. AccessTokenExpireMinutes (minute-granularity access token TTL, higher priority than the upstream ExpireHour), RefreshTokenExpireDays (refresh token TTL), and RefreshWindowMinutes (pre-expiry refresh window) together implement TK's short-lived access + long-lived refresh token pair policy. RateLimitReaperIntervalSeconds is the TK fix for upstream Wei-Shaw/sub2api#2538 (accounts stuck in scheduling limbo after 429 expiry). Losing these fields silently falls back to upstream's hour-granularity single-token auth and disables the reaper, re-opening the #2538 stuck-account bug."
+      "rationale": "TK JWT expiry granularity and rate-limit reaper config fields in the upstream-shaped config.go. AccessTokenExpireMinutes (minute-granularity access token TTL, higher priority than the upstream ExpireHour), RefreshTokenExpireDays (refresh token TTL), and RefreshWindowMinutes (pre-expiry refresh window) together implement TK's short-lived access + long-lived refresh token pair policy. RateLimitReaperIntervalSeconds is the TK fix for upstream Wei-Shaw/sub2api#2538 (accounts stuck in scheduling limbo after 429 expiry). Losing these fields silently falls back to upstream's hour-granularity single-token auth and disables the reaper, re-opening the #2538 stuck-account bug. PprofListen + NormalizeServerPprofListen keep the loopback-only CPU profile listener wired (PR #2202); dropping validation would allow accidental public binds."
+    },
+    {
+      "path": "backend/internal/config/pprof_listen_tk.go",
+      "must_contain": [
+        "func NormalizeServerPprofListen(raw string)",
+        "server.pprof_listen must bind loopback only",
+        "refusing wildcard bind"
+      ],
+      "rationale": "Loopback-only bind rule for server.pprof_listen. Upstream merge or a casual 'expose metrics' change must not reopen 0.0.0.0/wildcard pprof."
+    },
+    {
+      "path": "backend/internal/config/pprof_listen_tk_test.go",
+      "must_contain": [
+        "func TestNormalizeServerPprofListen(t *testing.T)",
+        "rejects_non_loopback_and_wildcard",
+        "0.0.0.0:6060"
+      ],
+      "rationale": "Behavioral guard for NormalizeServerPprofListen rejecting non-loopback binds."
+    },
+    {
+      "path": "backend/internal/server/pprof_tk.go",
+      "must_contain": [
+        "func StartLoopbackPprof(rawListen string)",
+        "config.NormalizeServerPprofListen(rawListen)",
+        "mux.HandleFunc(\"/debug/pprof/\", pprof.Index)"
+      ],
+      "rationale": "Dedicated loopback pprof server must keep validating via NormalizeServerPprofListen before Listen."
+    },
+    {
+      "path": "backend/internal/server/pprof_tk_test.go",
+      "must_contain": [
+        "func TestStartLoopbackPprofRejectsPublicBind(t *testing.T)",
+        "0.0.0.0:6060"
+      ],
+      "rationale": "StartLoopbackPprof must keep rejecting public binds in tests."
+    },
+    {
+      "path": "backend/cmd/server/main.go",
+      "must_contain": [
+        "server.StartLoopbackPprof(cfg.Server.PprofListen)",
+        "server.ShutdownPprof(ctx, pprofSrv)"
+      ],
+      "rationale": "Process lifecycle must start and shut down the loopback pprof listener with the main server."
     },
     {
       "path": "backend/internal/service/openai_ws_forwarder_support.go",
