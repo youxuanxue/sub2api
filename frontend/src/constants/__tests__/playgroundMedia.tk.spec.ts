@@ -34,6 +34,10 @@ describe('modalityForModel', () => {
       'doubao-seedream-4-0-250828',
       'doubao-seedream-4-5-251128',
       'doubao-seedream-5-0-260128',
+      'grok-imagine-image',
+      'grok-imagine-image-quality',
+      'wan2.7-image',
+      'wan2.7-image-pro',
     ]) {
       expect(modalityForModel(id)).toBe('image')
     }
