@@ -197,6 +197,12 @@ apiClient.interceptors.response.use(
               }))
             }
 
+            if (isNetworkError(refreshError)) {
+              const networkError = createNetworkError(requestUrlFromError(refreshError))
+              onTokenRefreshed('', networkError)
+              return Promise.reject(networkError)
+            }
+
             if (axios.isAxiosError(refreshError)) {
               const refreshStatus = refreshError.response?.status ?? 0
               if (refreshStatus === 0 || refreshStatus === 429 || refreshStatus >= 500) {

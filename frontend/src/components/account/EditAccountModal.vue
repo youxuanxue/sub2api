@@ -3151,7 +3151,6 @@ import {
   applyInterceptWarmup,
   applyOpenCodeGoProtocolRules,
   applyPlanType,
-  buildPlanTypeOptions,
   cloneOpenCodeGoProtocolRules,
   defaultOpenCodeProtocolRules,
   parseOpenCodeGoProtocolRules,

@@ -544,7 +544,11 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, 0, nil
 	}
-	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.GroupPlatform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
+	// schedulePlatform() falls back to req.Platform when GroupPlatform is empty.
+	// Passing raw GroupPlatform would NormalizeOpenAICompatiblePlatform("") → openai
+	// and falsely drop Grok/CN sticky owners during recheck/membership.
+	schedulePlatform := req.schedulePlatform()
+	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, schedulePlatform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 	if account == nil || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		clearBinding()
 		return nil, false, 0, nil
@@ -553,7 +557,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, 0, nil
 	}
-	if !s.service.openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, req.GroupPlatform, account) {
+	if !s.service.openAIAccountBelongsToSchedulingGroup(ctx, req.GroupID, schedulePlatform, account) {
 		clearBinding()
 		return nil, false, 0, nil
 	}

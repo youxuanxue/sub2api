@@ -737,7 +737,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 		return models, nil, err
 	}
-	if account.IsOpenAIOAuthLike() {
+	if account.IsOpenAIOAuthLike() && s.openAIGatewayService != nil {
 		return s.fetchOpenAICodexOAuthUpstreamModels(ctx, account)
 	}
 

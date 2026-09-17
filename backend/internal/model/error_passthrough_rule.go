@@ -57,13 +57,7 @@ func AllPlatforms() []string {
 		PlatformOpenAI,
 		PlatformGemini,
 		PlatformAntigravity,
-		PlatformGrok,
-		PlatformKimi,
-		PlatformZhipu,
-		PlatformDeepseek,
-		PlatformMiniMax,
-		PlatformOpenCodeGo,
-	}
+		PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo}
 }
 
 // Validate 验证规则配置的有效性

@@ -327,6 +327,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if accountScoped {
 			normalized = accountScopedPayload
 		}
+		if prepared, prepErr := s.tkPrepareWSIngressClientPayload(c, account, normalized, hooks); prepErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, prepErr.Error(), prepErr)
+		} else {
+			normalized = prepared
+		}
 		if responsesLite {
 			litePayload, _, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(normalized, account)
 			if liteErr != nil {
@@ -338,45 +343,16 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = litePayload
 		}
+		if bridged, bridgeErr := s.tkApplyCodexWSIngressImageBridge(ctx, c, account, isCodexCLI, normalized); bridgeErr != nil {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, bridgeErr.Error(), bridgeErr)
+		} else {
+			normalized = bridged
+		}
 		apiKey := getAPIKeyFromContext(c)
 		imageGenerationAllowed := GroupAllowsImageGeneration(apiKeyGroup(apiKey))
 		codexImageGenerationExplicitToolPolicy := codexImageGenerationExplicitToolPolicyAllow
 		if isCodexCLI {
 			codexImageGenerationExplicitToolPolicy = account.CodexImageGenerationExplicitToolPolicy()
-		}
-		codexBridgeEnabled := isCodexCLI &&
-			!isOpenAIResponsesLiteWebSocketPayload(normalized) &&
-			imageGenerationAllowed &&
-			codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&
-			s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)
-		if codexBridgeEnabled {
-			payloadMap := make(map[string]any)
-			if err := decodeOpenAIJSONUseNumber(normalized, &payloadMap); err != nil {
-				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", err)
-			}
-			bridgeModified := false
-			if ensureOpenAIResponsesImageGenerationTool(payloadMap) {
-				bridgeModified = true
-				logOpenAIWSModeInfo("ingress_ws_codex_image_tool_injected account_id=%d", account.ID)
-			}
-			if ensureOpenAIResponsesImageGenerationToolChoiceAuto(payloadMap) {
-				bridgeModified = true
-				logOpenAIWSModeInfo("ingress_ws_codex_image_tool_choice_auto account_id=%d", account.ID)
-			}
-			if normalizeOpenAIResponsesImageGenerationTools(payloadMap) {
-				bridgeModified = true
-			}
-			if applyCodexImageGenerationBridgeInstructions(payloadMap) {
-				bridgeModified = true
-				logOpenAIWSModeInfo("ingress_ws_codex_image_bridge_instructions_added account_id=%d", account.ID)
-			}
-			if bridgeModified {
-				rebuilt, marshalErr := json.Marshal(payloadMap)
-				if marshalErr != nil {
-					return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", marshalErr)
-				}
-				normalized = rebuilt
-			}
 		}
 		if turn > 1 && hooks != nil {
 			if hooks.BeforeRequest != nil {
@@ -389,13 +365,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					return openAIWSClientPayload{}, err
 				}
 			}
-		}
-		if hooks != nil {
-			policyPayload, policyErr := hooks.applyReasoningEffortPolicy(normalized)
-			if policyErr != nil {
-				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, policyErr.Error(), policyErr)
-			}
-			normalized = policyPayload
 		}
 		requestModel := originalModel
 		if hooks != nil && hooks.MapRequestModel != nil {
@@ -602,7 +571,21 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		bridgeReplayInputExists := false
 		var bridgeAccountFailoverInput []json.RawMessage
 		bridgeAccountFailoverInputExists := false
+		lastBridgeResponseID := ""
+		bridgeReplayRetentionAllowed := true
 		for turn := 1; ; turn++ {
+			if account.Platform == PlatformGrok && currentBridgePayload.previousResponseID != "" && currentBridgePayload.previousResponseID != lastBridgeResponseID {
+				replay, replayErr := s.loadOpenAIWSBridgeReplay(ctx, account.ID, currentBridgePayload.previousResponseID)
+				if replayErr != nil {
+					if errors.Is(replayErr, ErrCandidateContinuationUnavailable) {
+						return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "previous_response_id is unavailable; replay the complete conversation without it", replayErr)
+					}
+					return NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to read continuation state", replayErr)
+				}
+				bridgeReplayInput, bridgeReplayInputExists = replay, true
+				bridgeAccountFailoverInput, bridgeAccountFailoverInputExists = combineOpenAIWSReplayItems(replay, nil), true
+				bridgeReplayRetentionAllowed = true
+			}
 			if turn > 1 && hooks != nil && hooks.BeforeRequest != nil {
 				if err := hooks.BeforeRequest(turn, currentBridgePayload.payloadRaw, currentBridgePayload.originalModel); err != nil {
 					return err
@@ -641,6 +624,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			toolOutputCoverage := AnalyzeToolCallOutputContextCoverageBytes(currentBridgePayload.payloadRaw)
 			needsBridgeReplay := currentBridgePayload.previousResponseID != "" ||
 				(toolOutputCoverage.HasFunctionCallOutput && !toolOutputCoverage.ContextCoversAllCallIDs)
+			if !needsBridgeReplay {
+				bridgeReplayRetentionAllowed = true
+			}
+			if s.isOpenAIWSStoreDisabledInRequestRaw(currentBridgePayload.payloadRaw, account) {
+				bridgeReplayRetentionAllowed = false
+			}
 			// 一次解析当前 input，正常 replay 与 account-failover 两份序列共享同一批正文。
 			bridgeCurrentItems, bridgeCurrentItemsExist, extractErr := openAIWSExtractNormalizedInputSequence(
 				currentBridgePayload.payloadRaw,
@@ -682,6 +671,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					openAIWSRawPayloadHasToolCallOutput(currentBridgePayload.payloadRaw),
 				)
 			}
+			// Replayed private history keeps its retention policy at the upstream
+			// and in the payload handed to a replacement account on failover.
+			if account.Platform == PlatformGrok && !bridgeReplayRetentionAllowed {
+				bridgePayloadRaw, err = sjson.SetBytes(bridgePayloadRaw, "store", false)
+				if err != nil {
+					return fmt.Errorf("preserve websocket bridge retention: %w", err)
+				}
+				bridgePayloadBytes = len(bridgePayloadRaw)
+			}
 			grokCacheIdentity := ""
 			if account.Platform == PlatformGrok {
 				grokCacheIdentity, err = resolveGrokWSCacheIdentity(
@@ -695,6 +693,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					return fmt.Errorf("resolve Grok websocket cache identity: %w", err)
 				}
 			}
+			var completedMessage []byte
 			result, bridgeErr := s.proxyOpenAIWSHTTPBridgeTurn(
 				ctx,
 				c,
@@ -708,7 +707,14 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				currentBridgePayload.imageInputSize,
 				grokCacheIdentity,
 				turn,
-				writeClientMessage,
+				func(message []byte) error {
+					// Publish continuation state before the client can reconnect.
+					if account.Platform == PlatformGrok && gjson.GetBytes(message, "type").String() == "response.completed" {
+						completedMessage = append([]byte(nil), message...)
+						return nil
+					}
+					return writeClientMessage(message)
+				},
 			)
 			if bridgeErr != nil && isOpenAIWSSessionPreempted(ctx) {
 				return errOpenAIWSSessionPreempted
@@ -730,6 +736,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					}
 					if !retrySafe {
 						retryPayload = nil
+					}
+					if retrySafe && account.Platform == PlatformGrok && !bridgeReplayRetentionAllowed {
+						retryPayload, err = sjson.SetBytes(retryPayload, "store", false)
+						if err != nil {
+							return fmt.Errorf("preserve websocket failover retention: %w", err)
+						}
 					}
 					return newOpenAIWSCurrentTurnFailoverError(bridgeErr, retryPayload)
 				}
@@ -755,15 +767,37 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				)
 				bridgeAccountFailoverInputExists = true
 			}
+			if account.Platform == PlatformGrok {
+				bridgeReplayInput = combineOpenAIWSReplayItems(bridgeAccountFailoverInput, nil)
+				bridgeReplayInputExists = bridgeAccountFailoverInputExists
+			}
 			if bridgeTurnState := strings.TrimSpace(result.ResponseHeaders.Get(openAIWSTurnStateHeader)); bridgeTurnState != "" {
 				// Follow-up turns on this bridge retain their own upstream state;
 				// publishing it by session hash would leak it to independent bridges.
 				turnState = bridgeTurnState
 			}
 			responseID := strings.TrimSpace(result.RequestID)
+			lastBridgeResponseID = responseID
+			if account.Platform == PlatformGrok && responseID != "" && bridgeReplayRetentionAllowed {
+				if err := s.saveOpenAIWSBridgeReplay(ctx, account.ID, responseID, bridgeAccountFailoverInput); err != nil {
+					if errors.Is(err, errOpenAIWSBridgeReplayTooLarge) {
+						return NewOpenAIWSClientCloseError(coderws.StatusMessageTooBig, "continuation history exceeds storage limit", err)
+					}
+					return NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to save continuation state", err)
+				}
+			}
 			if responseID != "" && stateStore != nil {
 				ttl := s.openAIWSResponseStickyTTL()
-				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
+				bindErr := stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl)
+				if bindErr != nil && account.Platform == PlatformGrok && bridgeReplayRetentionAllowed {
+					return NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to save continuation owner", bindErr)
+				}
+				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, bindErr)
+			}
+			if len(completedMessage) > 0 {
+				if err := writeClientMessage(completedMessage); err != nil {
+					return err
+				}
 			}
 			nextClientMessage, readErr := readClientMessage()
 			if readErr != nil {
@@ -878,6 +912,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	agentTaskRecoveryTried := false
+	oauth401RefreshTried := false
 	var acquireTurnLease func(int, string, bool, bool) (*openAIWSConnLease, error)
 	acquireTurnLease = func(turn int, preferred string, forcePreferredConn bool, forceNewConn bool) (*openAIWSConnLease, error) {
 		req := cloneOpenAIWSAcquireRequest(baseAcquireReq)
@@ -896,6 +931,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				return nil, fmt.Errorf("agent identity task recovery failed: %w", recoveryErr)
 			}
 			return acquireTurnLease(turn, preferred, forcePreferredConn, forceNewConn)
+		}
+		if acquireErr != nil && !oauth401RefreshTried {
+			statusCode := 0
+			var responseBody []byte
+			if errors.As(acquireErr, &dialErr) && dialErr != nil {
+				statusCode = dialErr.StatusCode
+				responseBody = dialErr.ResponseBody
+			}
+			if newHeaders, _, ok := s.recoverOpenAIWS401AccessToken(ctx, account, statusCode, responseBody, baseAcquireReq.Headers); ok {
+				oauth401RefreshTried = true
+				baseAcquireReq.Headers = newHeaders
+				return acquireTurnLease(turn, preferred, forcePreferredConn, forceNewConn)
+			}
 		}
 		if acquireErr != nil {
 			if isOpenAIWSSessionPreempted(ctx) {

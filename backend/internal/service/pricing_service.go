@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	aboveTierPricePattern  = regexp.MustCompile(`^(input|output)_cost_per_token_above_(\d+)k_tokens$`)
+	aboveTierPricePattern = regexp.MustCompile(`^(input|output)_cost_per_token_above_(\d+)k_tokens$`)
 	cacheTierPricePattern = regexp.MustCompile(`^(cache_(?:creation|read)_input_token_cost)(_above_1hr)?_above_\d+k_tokens((?:_[a-z]+)?)$`)
 	// Official GPT Image 2.5 token rates (2026-09-08):
 	// https://developers.openai.com/api/docs/pricing#image-generation-models
@@ -74,23 +74,23 @@ type LiteLLMModelPricing struct {
 	SupportsPromptCaching               bool    `json:"supports_prompt_caching"`
 	// Registry-owned catalog metadata travels with the same immutable snapshot as
 	// pricing so billing and display cannot parse different facts.
-	MaxInputTokens          int     `json:"max_input_tokens"`
-	MaxOutputTokens         int     `json:"max_output_tokens"`
-	SupportsVision          bool    `json:"supports_vision"`
-	SupportsToolChoice      bool    `json:"supports_tool_choice"`
-	SupportsFunctionCalling bool    `json:"supports_function_calling"`
-	SupportsReasoning       bool    `json:"supports_reasoning"`
-	SupportsResponseSchema  bool    `json:"supports_response_schema"`
-	SupportsPDFInput        bool    `json:"supports_pdf_input"`
-	SupportsWebSearch       bool    `json:"supports_web_search"`
-	OutputCostPerImage      float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
-	OutputCostPerImageToken float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
-	InputCostPerImageToken  float64 `json:"input_cost_per_image_token"`  // 图片输入 token 价格
+	MaxInputTokens               int     `json:"max_input_tokens"`
+	MaxOutputTokens              int     `json:"max_output_tokens"`
+	SupportsVision               bool    `json:"supports_vision"`
+	SupportsToolChoice           bool    `json:"supports_tool_choice"`
+	SupportsFunctionCalling      bool    `json:"supports_function_calling"`
+	SupportsReasoning            bool    `json:"supports_reasoning"`
+	SupportsResponseSchema       bool    `json:"supports_response_schema"`
+	SupportsPDFInput             bool    `json:"supports_pdf_input"`
+	SupportsWebSearch            bool    `json:"supports_web_search"`
+	OutputCostPerImage           float64 `json:"output_cost_per_image"`       // 图片生成模型每张图片价格
+	OutputCostPerImageToken      float64 `json:"output_cost_per_image_token"` // 图片输出 token 价格
+	InputCostPerImageToken       float64 `json:"input_cost_per_image_token"`  // 图片输入 token 价格
 	CacheReadInputImageTokenCost float64 `json:"cache_read_input_image_token_cost"`
-	ImagePrice1K            float64 `json:"image_price_1k,omitempty"`
-	ImagePrice2K            float64 `json:"image_price_2k,omitempty"`
-	ImagePrice4K            float64 `json:"image_price_4k,omitempty"`
-	OutputCostPerSecond     float64 `json:"output_cost_per_second"` // 视频生成模型每秒价格（veo 等）
+	ImagePrice1K                 float64 `json:"image_price_1k,omitempty"`
+	ImagePrice2K                 float64 `json:"image_price_2k,omitempty"`
+	ImagePrice4K                 float64 `json:"image_price_4k,omitempty"`
+	OutputCostPerSecond          float64 `json:"output_cost_per_second"` // 视频生成模型每秒价格（veo 等）
 	// OutputCostPerCharacter is USD per billable character for character-priced
 	// TTS owners (e.g. Ali Qwen-Audio-TTS). CalculateAudioCost("tts") multiplies
 	// by 1e6 to obtain the per-million-chars unit used by AudioUsage.

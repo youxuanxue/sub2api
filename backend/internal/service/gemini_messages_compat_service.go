@@ -2366,12 +2366,6 @@ type geminiSSECollectStats struct {
 	fallback   *geminiSSEFallbackBody
 }
 
-// collectGeminiSSEObserved 在聚合的同时把每个解包后的事件原文交给 observe（可为 nil）。
-func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, geminiSSECollectStats, error) {
-	collected, usage, _, stats, err := collectGeminiSSEObservedWithThinking(body, isOAuth, observe)
-	return collected, usage, stats, err
-}
-
 func collectGeminiSSEObservedWithThinking(body io.Reader, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, []string, geminiSSECollectStats, error) {
 	reader := bufio.NewReader(body)
 
@@ -2753,13 +2747,16 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 					_, _ = io.WriteString(c.Writer, line)
 					flusher.Flush()
 				}
+			} else if isGeminiNativeSSEKeepalive(trimmed) {
+				if !sawDataEvent {
+					fallback.AddLine(trimmed)
+				}
+				// Relayed Edge heartbeats must reach the client even before content.
+				_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
+				flusher.Flush()
 			} else if !sawDataEvent {
 				fallback.AddLine(trimmed)
-				if account == nil && isGeminiNativeSSEKeepalive(trimmed) {
-					// Relayed Edge heartbeats must reach the client even before content.
-					_, _ = fmt.Fprint(c.Writer, geminiNativeSSEKeepaliveFrame)
-					flusher.Flush()
-				} else if account != nil && !isOAuth {
+				if account != nil && !isOAuth {
 					_, _ = io.WriteString(c.Writer, line)
 					flusher.Flush()
 				}

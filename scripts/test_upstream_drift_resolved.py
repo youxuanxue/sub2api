@@ -13,13 +13,29 @@ CHECK_DRIFT = REPO_ROOT / "scripts/upstream/check-drift.sh"
 UPSTREAM_DRIFT_LIB = REPO_ROOT / "scripts/lib/upstream-drift.sh"
 
 
+def _clean_git_env() -> dict[str, str]:
+    # Pre-commit exports GIT_DIR/GIT_INDEX_FILE for the parent worktree; nested
+    # temp repos must drop them or git init/commit fails "not a work tree".
+    env = os.environ.copy()
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+    ):
+        env.pop(key, None)
+    return env
+
+
 def _gate_status(
     *,
     head_ref: str | None = None,
     ref_name: str | None = None,
     cwd: pathlib.Path = REPO_ROOT,
 ) -> int:
-    env = os.environ.copy()
+    env = _clean_git_env()
     if head_ref is not None:
         if head_ref:
             env["GITHUB_HEAD_REF"] = head_ref
@@ -73,7 +89,12 @@ class UpstreamDriftGateTest(unittest.TestCase):
             repo = pathlib.Path(temp_dir)
 
             def git(*args: str) -> str:
-                return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+                return subprocess.check_output(
+                    ["git", *args],
+                    cwd=repo,
+                    text=True,
+                    env=_clean_git_env(),
+                ).strip()
 
             git("init", "-q")
             git("config", "user.email", "test@example.invalid")
@@ -89,7 +110,14 @@ class UpstreamDriftGateTest(unittest.TestCase):
             script = f'source "{UPSTREAM_DRIFT_LIB}"; load_upstream_drift_snapshot "$@"; printf "%s %s" "$TK_BEHIND" "$TK_AHEAD"'
 
             def snapshot(*args: str) -> subprocess.CompletedProcess[str]:
-                return subprocess.run(["bash", "-c", script, "snapshot", *args], cwd=repo, capture_output=True, text=True, check=False)
+                return subprocess.run(
+                    ["bash", "-c", script, "snapshot", *args],
+                    cwd=repo,
+                    env=_clean_git_env(),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
 
             self.assertEqual(snapshot("HEAD", target).stdout, "0 0")
             self.assertEqual(snapshot().stdout, "2 0")
@@ -165,11 +193,17 @@ class UpstreamDriftGateTest(unittest.TestCase):
     def test_local_branch_fallback_skips_feature_branch(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_repo = pathlib.Path(temp_dir)
-            subprocess.run(["git", "init", "-q"], cwd=temp_repo, check=True)
+            subprocess.run(
+                ["git", "init", "-q"],
+                cwd=temp_repo,
+                check=True,
+                env=_clean_git_env(),
+            )
             subprocess.run(
                 ["git", "checkout", "-qb", "fix/local-ci-gate"],
                 cwd=temp_repo,
                 check=True,
+                env=_clean_git_env(),
             )
             self.assertEqual(_gate_status(head_ref="", ref_name="", cwd=temp_repo), 1)
 

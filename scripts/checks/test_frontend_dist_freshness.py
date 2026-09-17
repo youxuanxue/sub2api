@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -15,13 +16,37 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 
+def _clean_git_env() -> dict[str, str]:
+    # Pre-commit sets GIT_DIR/GIT_INDEX_FILE to the parent worktree; nested
+    # temp repos must not inherit them or every git add/commit fails with
+    # "fatal: this operation must be run in a work tree".
+    env = os.environ.copy()
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+    ):
+        env.pop(key, None)
+    return env
+
+
 class FrontendDistFreshnessTest(unittest.TestCase):
     def test_new_source_is_hashed_before_staging_and_ignored_outputs_are_excluded(self) -> None:
         with tempfile.TemporaryDirectory(prefix="frontend-dist-freshness-") as temp_dir:
             root = pathlib.Path(temp_dir)
 
             def git(*args: str) -> None:
-                subprocess.run(["git", *args], cwd=root, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                subprocess.run(
+                    ["git", *args],
+                    cwd=root,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=_clean_git_env(),
+                )
 
             git("init", "-q")
             (root / ".gitignore").write_text((MODULE.REPO_ROOT / ".gitignore").read_text(encoding="utf-8"), encoding="utf-8")

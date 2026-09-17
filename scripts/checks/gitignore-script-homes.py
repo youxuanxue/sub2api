@@ -50,9 +50,27 @@ Exit: 0 ok, 1 gate fail, 2 error.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+
+def _clean_git_env() -> dict[str, str]:
+    # Pre-commit exports GIT_DIR/GIT_INDEX_FILE for the parent worktree; nested
+    # temp-repo probes must drop them or git -C <tmp> fails "not a work tree".
+    env = os.environ.copy()
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+    ):
+        env.pop(key, None)
+    return env
+
 
 # Directories whose new files MUST be committable. Each entry is a real script home
 # with tracked content today.
@@ -148,6 +166,7 @@ def check_ignored(root: Path, paths: list[str]) -> dict[str, bool]:
         input="\n".join(paths),
         text=True,
         capture_output=True,
+        env=_clean_git_env(),
     )
     # check-ignore exits 0 when something matched, 1 when nothing did; both are fine.
     if proc.returncode not in (0, 1):
@@ -168,6 +187,7 @@ def tracked_files(root: Path, directories: tuple[str, ...] | None = None) -> lis
         ["git", "-C", str(root), "ls-files", *present],
         text=True,
         capture_output=True,
+        env=_clean_git_env(),
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "git ls-files failed")
@@ -250,7 +270,11 @@ def selftest() -> int:
 
     def make_repo(ignore_text: str) -> Path:
         root = Path(tempfile.mkdtemp())
-        subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+        subprocess.run(
+            ["git", "-C", str(root), "init", "-q"],
+            check=True,
+            env=_clean_git_env(),
+        )
         (root / ".gitignore").write_text(ignore_text, encoding="utf-8")
         for home in (*SCRIPT_HOMES, *TRACKED_HOMES):
             (root / home).mkdir(parents=True, exist_ok=True)
@@ -317,7 +341,9 @@ def selftest() -> int:
     shadowed_fixture = "scripts/checks/local.key"  # script-ref-allow-missing
     (root / shadowed_fixture).write_text("x\n", encoding="utf-8")
     subprocess.run(
-        ["git", "-C", str(root), "add", "-f", shadowed_fixture], check=True
+        ["git", "-C", str(root), "add", "-f", shadowed_fixture],
+        check=True,
+        env=_clean_git_env(),
     )
     expect(any("shadowed" in e for e in check(root)), "shadowed tracked file is reported")
 

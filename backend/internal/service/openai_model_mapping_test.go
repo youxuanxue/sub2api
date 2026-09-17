@@ -450,10 +450,12 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "deepseek-flash",
 		},
 		{
-			name:    "non deepseek preserves long context suffix",
+			// TK: applyOpenAICompatContextWindowModelAlias strips [1m] on all
+			// OpenAI-compat paths before the DeepSeek-only branch runs.
+			name:    "non deepseek strips long context suffix via openai-compat alias",
 			account: &Account{Type: AccountTypeAPIKey, Platform: PlatformOpenAI},
 			model:   "deepseek-flash[1m]",
-			want:    "deepseek-flash[1m]",
+			want:    "deepseek-flash",
 		},
 	}
 

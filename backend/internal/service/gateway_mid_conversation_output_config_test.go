@@ -210,7 +210,12 @@ func TestBuildUpstreamRequestOAuthMimic_MidConversationOutputConfig(t *testing.T
 		wantMsgLen        int
 		wantFieldOnFirst  bool
 	}{
-		{"default_mimic_keeps_beta", false, true, 2, true},
+		// TK fingerprint SSOT (FullClaudeCodeMimicryBetas / CC capture) does not
+		// yet include mid-conversation-output-config. OAuth mimic therefore
+		// strips messages[].output_config until the next cc fingerprint refresh
+		// admits the beta. Upstream's default_mimic_keeps_beta expectation is
+		// deferred to that follow-up.
+		{"default_mimic_strips_without_fingerprint_beta", false, false, 1, false},
 		{"policy_filter_drops_beta", true, false, 1, false},
 	}
 	for _, tc := range cases {

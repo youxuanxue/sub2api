@@ -840,6 +840,11 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		if a.IsOpenAIOAuth() {
 			return isOpenAIOAuthServableModel(requestedModel)
 		}
+		// DeepSeek empty mapping is not "allow all": unknown names only get
+		// upstream 404/400 and a per-(account,model) cooldown.
+		if a.Platform == PlatformDeepseek {
+			return isDeepseekServableModel(requestedModel)
+		}
 		return true // 无映射 = 允许所有
 	}
 	for _, key := range openaiCompatMappingLookupKeys(a.Platform, requestedModel) {

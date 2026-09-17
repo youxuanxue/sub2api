@@ -112,13 +112,14 @@ func TestDispatchPlanUsesNewAPIBridge(t *testing.T) {
 func TestOpenAICompatPlatforms(t *testing.T) {
 	got := OpenAICompatPlatforms()
 	want := map[string]bool{
-		domain.PlatformOpenAI:   false,
-		domain.PlatformNewAPI:   false,
-		domain.PlatformGrok:     false,
-		domain.PlatformKimi:     false,
-		domain.PlatformZhipu:    false,
-		domain.PlatformDeepseek: false,
-		domain.PlatformMiniMax:  false,
+		domain.PlatformOpenAI:     false,
+		domain.PlatformNewAPI:     false,
+		domain.PlatformGrok:       false,
+		domain.PlatformKimi:       false,
+		domain.PlatformZhipu:      false,
+		domain.PlatformDeepseek:   false,
+		domain.PlatformMiniMax:    false,
+		domain.PlatformOpenCodeGo: false,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("OpenAICompatPlatforms() returned %d entries, want %d: %v", len(got), len(want), got)
@@ -145,6 +146,7 @@ func TestIsOpenAICompatPlatform(t *testing.T) {
 		{domain.PlatformNewAPI, true},
 		{domain.PlatformGrok, true},
 		{domain.PlatformMiniMax, true},
+		{domain.PlatformOpenCodeGo, true},
 		{domain.PlatformAnthropic, false},
 		{domain.PlatformGemini, false},
 		{domain.PlatformAntigravity, false},
@@ -200,6 +202,7 @@ func TestAllSchedulingPlatforms(t *testing.T) {
 		domain.PlatformZhipu:       false,
 		domain.PlatformDeepseek:    false,
 		domain.PlatformMiniMax:     false,
+		domain.PlatformOpenCodeGo:  false,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("AllSchedulingPlatforms() returned %d entries, want %d: %v", len(got), len(want), got)
@@ -220,6 +223,12 @@ func TestAllSchedulingPlatforms(t *testing.T) {
 func TestMiniMaxDoesNotRefreshOAuth(t *testing.T) {
 	if slices.Contains(OAuthRefreshPlatforms(), domain.PlatformMiniMax) {
 		t.Fatal("MiniMax uses static API credentials and must not enter OAuth refresh")
+	}
+}
+
+func TestOpenCodeGoDoesNotRefreshOAuth(t *testing.T) {
+	if slices.Contains(OAuthRefreshPlatforms(), domain.PlatformOpenCodeGo) {
+		t.Fatal("OpenCode Go uses static API credentials and must not enter OAuth refresh")
 	}
 }
 
