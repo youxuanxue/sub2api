@@ -1,6 +1,9 @@
 # Upstream merge discipline (CLAUDE.md §5 overflow)
 
-Canonical hard rules stay in root `CLAUDE.md` §5; this file holds the long-form reference for merge history, mechanical gates, and minimal-invasion patterns.
+Canonical hard-rule **bullets** stay in root `CLAUDE.md` §5. Deletion discipline
+(§5.x) long form: [`claude-hard-rules.md`](claude-hard-rules.md#5x-deletion-discipline--default--keep-override-never-silent-delete).
+This file holds merge history (§5.y), mechanical gates (§5.y.1), and
+minimal-invasion patterns.
 
 ## 5.y Forward-looking history & merge discipline
 

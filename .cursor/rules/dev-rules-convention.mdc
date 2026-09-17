@@ -1,5 +1,5 @@
 ---
-description: dev-rules submodule 约定：规则的单一事实来源管理规范
+description: 规则、技能与入口的源头、同步和提交纪律；安装/故障细节按需读取。
 alwaysApply: true
 ---
 
@@ -7,182 +7,63 @@ alwaysApply: true
 
 ## 项目结构
 
-每个 IT 产品研发项目必须包含 `dev-rules` 作为 git submodule。仓库入口索引见 `dev-rules/README.md`；接入、同步与门禁细节以本文件为准。
-
-```
-项目根目录/
-├── dev-rules/                       ← git submodule
-├── .cursor/rules/*.mdc              ← sync 产物（禁止直接编辑）
-├── AGENTS.md                        ← Codex + Antigravity 共用工作区规则；dev-rules:codex 受管块由 sync 生成（禁止手编块内）
-├── .codex/skills                    → ../.cursor/skills（Codex 项目级技能 symlink；项目 .gitignore 自定是否 track）
-├── .agents/skills                   → ../.cursor/skills（Antigravity 工作区技能 symlink；同上）
-├── scripts/preflight.sh             ← 可选项目 wrapper
-└── .git/hooks/{pre-commit,commit-msg} ← install-hooks.sh 安装；pre-commit 按
-                                        scripts/preflight.sh
-                                        → dev-rules/templates/preflight.sh fallback；
-                                        commit-msg 直跑高风险审批锚点检查——唯一同时
-                                        知道 staged paths + 待提交 message 的本地阶段，
-                                        token 缺失在此硬拦截
-
-家目录消费端（由 `sync.sh` 维护；除 additive registry 外为 symlink）：
-~/.cursor/rules/      → dev-rules/rules/
-~/.cursor/skills      ← additive registry（仅 dev-rules-owned skill links 指向配置的 agent-skills；保留其它 owner 条目）
-~/.claude/commands/   → dev-rules/commands/
-~/.claude/CLAUDE.md   → dev-rules/global/CLAUDE.md
-~/.claude/skills      → ~/.cursor/skills
-~/.local/bin/<name>   → dev-rules/global/bin/<name>（CLI launcher；secret 留本机 ~/.claude/*.json 不入库）
-~/.codex/AGENTS.md    → dev-rules/global/CLAUDE.md（Codex 与 Claude 同一宪法）
-~/.codex/skills/<name>→ 配置的 agent-skills/<name>（逐个叠加，只维护 dev-rules-owned links，不动 Codex 自带 .system/default.rules）
-~/.gemini/antigravity-cli/AGENTS.md    → dev-rules/global/CLAUDE.md（Antigravity 与 Claude/Codex 同一宪法）
-~/.gemini/antigravity-cli/skills/<name>→ 配置的 agent-skills/<name>（逐个叠加，只维护 dev-rules-owned links，不动 Antigravity 自带 builtin）
-~/.gemini/skills/<name>                → 配置的 agent-skills/<name>（逐个叠加，Gemini CLI 全局技能）
-```
-
-Codex 消费端要点：Codex 不读 `.cursor/rules/*.mdc`，行为规则经 `AGENTS.md` 的 dev-rules 受管块**指针化**到达（宪法 + 规则索引 + 技能索引 + 全局工具）；`~/.codex/rules/` 是 Codex 自己的命令审批策略（Starlark `.rules`），**dev-rules 永不写入**；三端通用 skill 都在 `.cursor/skills/` 保持同一份 `SKILL.md`，由各自的 skill 加载位消费。Codex 自定义 prompt 已被 OpenAI deprecated，可复用工作流一律走 skill，不 symlink commands 到 `~/.codex/prompts/`。
-
-Antigravity CLI（Google `agy`）消费端要点：customization 模型与 Codex 同构，故复用同一管线。家目录 Global Customizations Root = `~/.gemini/antigravity-cli/`：全局规则读 `AGENTS.md`（symlink 同一宪法），技能自动发现 `skills/<name>/SKILL.md`（逐个 symlink）。工作区 Workspace Root = `<project>/.agents/`：技能读 `.agents/skills/<name>/`，**工作区规则复用项目根 `AGENTS.md` 的同一受管块**（与 Codex 同文件，零额外生成）。Antigravity 同样不自动加载 `.cursor/rules/*.mdc`，规则经 AGENTS.md 到达；不碰 `~/.gemini/GEMINI.md`（那是 gemini-cli 的根，非 antigravity-cli root）；可复用工作流走 skill，不 symlink commands。
-
-Gemini CLI（Google `gemini`）消费端要点：全局技能由 `sync.sh` 逐个同步到 `~/.gemini/skills/<name>`；工作区技能直接消费 `<project>/.agents/skills`（与 Antigravity 共用同一加载位，新 worktree 由 `wts` 自动确保 symlink 就绪）。
+项目使用 `dev-rules` submodule；项目的 submodule SHA 是真相，home mirror 不作为另一个上游。
+规则编辑 `dev-rules/rules/`，命令编辑 `dev-rules/commands/`，宪法/hooks/launcher 编辑 `dev-rules/global/`。
+`.cursor/rules/*.mdc` 和 `AGENTS.md` 受管块是 sync 产物，禁止手编或把规则改成指向 home mirror 的 symlink。
+首次接入、客户端加载位或同步故障，读 `dev-rules/docs/agent-guides/rules-operations.md` 对应章节。
 
 ## 新项目接入
 
-```bash
-cd 项目根目录
-DEV_RULES_REMOTE_URL="${DEV_RULES_REMOTE_URL:?set DEV_RULES_REMOTE_URL}"
-git submodule add "$DEV_RULES_REMOTE_URL" dev-rules
-dev-rules/sync.sh --local                   # 复制规则 + 自动 register 该项目
-git add .cursor/rules/ .gitmodules dev-rules
-git commit -m "chore: add dev-rules submodule and sync rules"
-```
-
-**首次在本机使用**（仅一次）：
-
-```bash
-DEV_RULES_REMOTE_URL="${DEV_RULES_REMOTE_URL:?set DEV_RULES_REMOTE_URL}"
-git clone "$DEV_RULES_REMOTE_URL" ~/Codes/dev-rules
-~/Codes/dev-rules/sync.sh                                          # 创建 home symlinks
-bash ~/Codes/dev-rules/templates/install-launchagent.sh            # 注册跨机器同步 agent
-```
-
-之后在任意项目里 `sync.sh --local` 就会自动把项目 `(name, git remote URL)` 写进 `~/Codes/dev-rules/.registered-projects`（git-tracked，跨机器共享），并把 `(git URL, 本机绝对路径)` 写进 `.local-projects`（per-machine，gitignored）。下一次 `--push` / `--pull` / LaunchAgent 会按本机实际落地的项目自动 fan-out。
-
-fan-out 使用 `.registered-projects` 与 `.local-projects` 的并集：跨机器登记项目在本机有路径会同步；只存在于 `.local-projects` 的本机项目也会同步。后者适合 zw-brain 这类不希望在项目仓库暴露 dev-rules 远端 URL、但仍希望从 `~/Codes/dev-rules` 获得规则副本的项目。
-
-换机器时，跨机器项目重新 `--local` 一次即可重建本机映射；本机-only 项目需要在该机器写入 `.local-projects` 或手动执行 `sync.sh --project /path/to/project`。
+缺 submodule 时按上述运维文档接入；使用 `sync.sh` 注册项目、安装 hook/LaunchAgent 并校验，不手工复制全局配置。
 
 ## 规则载体分工（防复杂度膨胀）
 
 <!-- rule-carrier-partition-anchor -->
 
-系统级审视结论只落到既有载体，不新增流程型散文档：
+| 载体 | 唯一职责 |
+|---|---|
+| `global/CLAUDE.md` | 会话硬纪律与触发入口 |
+| `rules/product-dev.mdc` | 风险、执行、PR/commit、完成自检 |
+| `rules/test-philosophy.mdc` | 测试强度与 Story 升级 |
+| `commands/`、skill 入口 | 适用范围、执行路径、关键判断 |
+| `docs/agent-guides/`、skill `references/` | 仅相关操作才展开的细则 |
+| `README.md`、`AGENTS.md` | 导航，不复制完整规则/技能目录 |
+| `digital-clone-research.md §二` | 软规则→硬检查映射 |
+| `templates/`、`scripts/` | 确定性检查与操作实现 |
+| `.registered-projects`、`.local-projects` | 项目落地状态 |
 
-- `global/CLAUDE.md`：会话级硬纪律，只写 Agent 每次都要执行的短规则。
-- `rules/product-dev.mdc`：研发路径、风险分级、PR / commit 形状与完成自检。
-- `rules/test-philosophy.mdc`：Story 与测试强度的升级条件。
-- `commands/*.md`：命令执行步骤与输出契约，不承载新的长期规则体系。
-- `README.md`：短入口索引；不展开接入细节、哲学、风险分级或测试方法。
-- `digital-clone-research.md §二`：软规则到硬检查的映射表；每行必须对应会失败的脚本或 schema。
-- `templates/` 与 `scripts/`：硬约束实现；反复出现的问题优先在这里落地。
-- `.registered-projects` / `.local-projects`：只表达项目落地状态；本机观察只有转成 sync / preflight / verify 检查或项目 wrapper debt 后，才进入长期规则。
-
-同一约束只在一个主载体展开；其它载体最多保留一句索引或检查入口。若暂时无法机械化，放进 review finding 或项目 `docs/preflight-debt.md`，不要新增“靠阅读自觉”的长期流程文档。
+同一约束只在一个 owner 完整展开；其他入口只留关键边界与读取条件。常驻/技能入口不堆安装手册、修复史或参数百科。暂不能机械化的缺口记 review finding 或 `docs/preflight-debt.md`，不新建流程散文。
 
 ## skill / command 确定性基线（机械化优于 prompt 推断）
 
-这是「确定性自动化运营和运维」「自动化优先」落到 skill / command 作者身上的元规则，**适用于本仓库的 `commands/*.md`，也适用于任何项目自建的 `.cursor/skills/**/SKILL.md`**。同一段 prompt 让模型每次重新推断同一件可计算的事，就是不确定性来源；能机械化的必须由脚本/工具承载，prompt 只保留真实判断。
-
-**必须脚本化（确定性 > 模型推断）**：计数与字数、结构化文件解析（JSON / YAML / frontmatter）、查表与映射、按字段排序 / 去重 / 配额筛选、抓取与重试、格式 / schema 校验、路径安全校验、状态/活性派生。测试中的大批正/负样本若只是某个 owner（模型 catalog / allowlist / pricing、权限表、路由/契约 registry 等）的投影，也必须由 owner API / fixture builder / 生成器派生，不能在测试或 skill prose 里复制一份清单。判据：输入相同则输出必相同、且无需创意——这类步骤写成 prose 让模型执行属于反模式。
-
-**应保留为 prompt（真实判断，过度机械化是另一种反模式）**：选题/角度、文案与标题创意、视觉与编辑审查、架构权衡、风险等级里的「爆炸半径 / 回滚成本」判断。
-
-作者基线：
-
-- 新增或修改 skill / command 时，先列出其步骤里哪些是「可机械化」、哪些是「真判断」；可机械化的实现成脚本/工具并由 skill 调用，模型只消费其确定性输出。
-- 复用既有确定性工具，不重造：契约 / 分层 / Web surface / 高风险锚点 / 存在性测试 / approved frontmatter / 静默吞错等已由 `dev-rules/scripts/check_*.py` + `templates/preflight.sh` 覆盖；skill / command 应**调用** preflight 取 ground-truth，而非让模型重新肉眼判断（参见 `agent-skills/xj-review/SKILL.md` §0 机械门禁先行）。
-- 反复出现的机械化缺口按 `digital-clone-research.md §二` 落成会失败的脚本 / schema；纯创意步骤不强行工具化。
-
-**skill 加载位的单一事实来源**：skill 只在项目的 `.cursor/skills/` 编辑与提交（Cursor 读 `.cursor`，Claude Code 读 `.claude`，Codex 读 `~/.codex/skills` 与项目 `.codex/skills`，Antigravity 读 `~/.gemini/antigravity-cli/skills` 与项目 `.agents/skills`）。让其它端加载同一份 skill **只能靠 symlink，禁止真实副本**（副本会分叉事实来源）。`sync.sh` 确定性维护这些 links：家目录 `~/.cursor/skills` 是 additive consumer registry，不是全目录 source owner；它是真实目录，只创建和清理指向配置 `agent-skills` checkout 的 dev-rules-owned `<name>` links，保留 foreign symlink、real file 与 real directory，并在同名 foreign collision 时 fail closed。`~/.claude/skills → ~/.cursor/skills` 仍是唯一 whole-directory link。Codex 与 Antigravity 都逐个直接 link 配置的 `agent-skills/<name>`，不扫描或接管混合 registry 中的其它 owner 条目；Codex 不动 `.system` / `codex-primary-runtime` / `default.rules`，Antigravity 不动 builtin。项目 fan-out 时，若项目存在 `.cursor/skills/` 则建 `<project>/.claude/skills`、`<project>/.codex/skills`、`<project>/.agents/skills` 三者均 `→ ../.cursor/skills`。`sync.sh --check` 只守卫家目录 registry 中派生自配置 source 的 dev-rules links，另守卫 Claude whole-directory link 与 Codex/Antigravity owned links；foreign registry entries 不算漂移。手动建该 symlink 属安装期 debt，应记入项目 `docs/preflight-debt.md`。
-
-**Codex 加载上限**：Codex 0.122 拒绝 `description` 超过 1024 字符的 `SKILL.md`（静默丢弃该技能，Cursor/Claude 无此限）。为 Codex 复用，`dev-rules/scripts/check_codex_skill_limits.py` 在 preflight 把超限技能列为 exit 1，迫使在 `.cursor/skills/` 源头收敛描述长度，而非让 Codex 端静默缺技能。
-
-**review 时的保障**：`/xj-review` 的「确定性自动化运营和运维」准则已把「本可机械化检查却写成 prose 规则」列为必报 finding——这就是本基线的 review-time 门禁，新增 skill / command 时按此自审，不另设易误报的新 check。
+- 编辑前区分机械步骤与真判断：计数、解析、查表、抓取、校验、排序去重、状态派生由脚本/工具执行；文案/视觉判断、架构权衡、爆炸半径与回滚成本留给模型。
+- 复用 `dev-rules/scripts/check_*.py`、preflight 等现有 owner，不让模型重新肉眼判机械事实。反复缺口落成脚本/schema；review 把「本可机械化却写成 prose」列为 finding。
+- 项目 skill 只在 `.cursor/skills/` 编辑提交；其它客户端经 `sync.sh` 管理的 symlink 消费，禁止真实副本、手工建链或接管 foreign 条目。description 不超过 Codex 的 1024 字符上限，由 `check_codex_skill_limits.py` 守卫。
+- 修改加载位、home registry、hooks/launcher 时先读运维文档；不得触碰 Codex 命令审批规则/内置技能或其它工具自有配置。
 
 ## git worktree 与 submodule 约定
 
-普通交互式 Agent 需要新建、切换、修复或销毁 git worktree 时，必须使用 `$git-worktree-submodule`。尤其仓库含 submodule 时，不手写 `git worktree add` + `git submodule update --init`，不把 submodule 目录做 symlink；`add` / `switch` 后立即按 skill 输出的 `session-workdir` 切换当前 Agent 的 cwd / workdir，并在目标 worktree 内运行 `session-check` 后再读写文件。
+操作 worktree 必须用 `git-worktree-submodule`；切换后绑定 `session-workdir` 并跑 `session-check`。禁止手写 submodule 初始化流程或目录 symlink。
 
 ## 编辑与提交规则
 
-涉及 `dev-rules/` 的变更**必须**先在子模块完成 commit + push，再在父仓库提交子模块指针与 `.cursor/rules/`。颠倒顺序会让父仓库指向一个远端不存在的 SHA，协作者与 CI 都会失败。
+编辑源头 → `dev-rules/sync.sh --local` → 子模块 preflight/commit/push → 父仓库提交指针与生成产物。父仓库不得指向远端不存在的 SHA。完整命令、跨机器同步见运维文档。
 
-### 标准链路
+同步前核查 `sync.sh --status`；有落后先 `--pull` / 未推更新先 `--push`。`--pull` 只允许 canonical main，禁止从 feature/detached checkout 全局分发；项目规则仍按各自 submodule SHA 生成。
 
-```bash
-# 1. 在任意项目内编辑 dev-rules/{rules,commands,global}/* 后：
-dev-rules/sync.sh --local          # 同步到本项目 .cursor/rules/ + 自动 register
-cd dev-rules
-git add -A && git commit -m "update rules"
-./sync.sh --push                   # = git push + ~/Codes mirror pull + 所有项目 fan-out
-cd ..
-git add dev-rules .cursor/rules/
-git commit -m "chore: sync dev-rules" && git push
-```
+## 强约束门禁（机械检查，禁止仅“靠自觉”）
 
-`sync.sh --push` 是推荐的一步入口；断网或 debug 时可拆为 `git push` + `cd ~/Codes/dev-rules && git pull --ff-only && ./sync.sh --all`，效果完全等价。
-
-### 跨机器同步（被动）
-
-LaunchAgent `local.dev-rules.sync` 每 30 分钟跑 `sync.sh --pull`，把其他机器推上来的 `origin/main` 更新拉到 canonical `main` checkout 并 fan-out 到本机已落地的注册项目。`--pull` 在 canonical checkout 不是 `main`（含 detached HEAD）时必须在 fan-out 前 fail-closed，禁止从 feature branch 分发规则。若 main 使用独立 worktree，安装 LaunchAgent 时通过 `DEV_RULES_HOME=/absolute/main/worktree` 固定脚本路径与 canonical source；如果 `verify-rules.sh` 报告 LaunchAgent 未装，跑 `templates/install-launchagent.sh`。
-
-## 强约束门禁（机械检查，禁止仅"靠自觉"）
-
-每条软规则都有对应的可执行脚本。**完整的「软规则 → 硬检查」映射表是单一事实来源**，定义在 `dev-rules/digital-clone-research.md §二`。本节只列接入步骤：
-
-1. **项目级 wrapper（可选）**：仅当项目有「dev-rules 模板未覆盖的特异检查」时，`cp dev-rules/templates/preflight.sh scripts/preflight.sh` 并在 wrapper 里追加项目段。否则**不需要**新建 `scripts/preflight.sh`——`install-hooks.sh` 会自动 fallback 到 `dev-rules/templates/preflight.sh`。
-2. **安装 git hook**：`bash dev-rules/templates/install-hooks.sh`。Hook 在运行时按以下顺序解析 preflight：
-   ```
-   $REPO_ROOT/scripts/preflight.sh           ← 项目 wrapper（若存在）
-   $REPO_ROOT/dev-rules/templates/preflight.sh   ← 模板（fallback）
-   ```
-   增删项目 wrapper 后**无需**重装 hook。
-3. **CI 同步运行**：在 GitHub Actions / GitLab CI 中追加一步 `./scripts/preflight.sh`（若存在）或 `./dev-rules/templates/preflight.sh`。
-4. **dev-rules 子模块自身**：源仓库内置 `scripts/preflight.sh`（调用 `./verify-rules.sh` + `./sync-stats.sh --check`），首次克隆后跑一次 `bash templates/install-hooks.sh` 即可让 pre-commit 自动拦截违例提交。**不要靠记忆手动跑 verify-rules.sh**——这条规则正是「确定性自动化运营和运维」「自动化优先」要消灭的"自觉履约"。
-
-接入完成后，违反任何一条强约束的提交都会被 hook 拦截，违反者的 CI 会 fail。
-
-如果某项检查段在该项目尚不可自动化（例如还没有 API 时跳过 contract drift），必须把缺口记入 `docs/preflight-debt.md` 并设定截止日期，**禁止悄悄降级为"靠自觉"**。
+父仓库提交前 `sync.sh --check` 必须通过；子模块提交前 `verify-rules.sh` 必须通过。hook/CI 调用项目 preflight，无 wrapper 则 fallback 模板。安装与接线读运维文档，已有门禁不再肉眼重复。无法自动化的段必须记 `docs/preflight-debt.md` 和截止日期；macOS LaunchAgent 不得卸载后不装回。
 
 ## approved-doc status 词汇（跨项目共享）
 
-`docs/approved/*.md` 的 frontmatter `status` 字段使用统一词汇表，由 `dev-rules/scripts/check_approved_docs.py` 强制（preflight § 7 R1-R4，任何分支）：
-
-| status     | 语义                                                                            |
-| ---------- | ----------------------------------------------------------------------------- |
-| `draft`    | 早期草稿，可自由修改                                                                    |
-| `pending`  | 设计已提出，等待人工审批                                                                  |
-| `approved` | 已审批基线，变更需走 GATE / PR review（zw-brain GATE 模型主用）                              |
-| `shipped`  | 实现已合并，状态从 pending/approved 翻转而来                                               |
-| `archived` | 被取代或不再权威                                                                      |
-
-附加不变量：
-
-- **R3** `pending + (related_prs OR related_commits)` → 拒绝（"shipped under pending" 烟雾）
-- **R4** `shipped` 必须列出 `related_prs` 或 `related_commits`（审计链不许断）
-- **R5** `approved_by: pending` 不许 land 到 `main` / `master`（preflight § 7 R5，仅在 main/master 触发；其它分支可临时持有 pending approver）
-
-项目特异的更细分类（如 zw-brain 的 `gate: GATE-1..GATE-5`）属于 wrapper 层职责，不进入此通用词汇表。
+`check_approved_docs.py` 守卫：`draft` 草稿、`pending` 待审批、`approved` 审批基线、`shipped` 已合并、`archived` 不再权威。
+`pending` 不得带 related PR/commit；`shipped` 必须带其中之一；`approved_by: pending` 不得落 main/master。项目特异 gate 由 wrapper 管理。
 
 ## 禁止事项
 
-- 禁止直接编辑 `.cursor/rules/` 中的文件（它们是 sync 产物）
-- 禁止把 `~/Codes/dev-rules/` 用作"另一个上游"——每个项目的真相是它自己的 submodule SHA
-- 禁止在项目里把 `.cursor/rules/*.mdc` 改为 symlink 指向 `~/Codes/dev-rules/`（云端 Agent 拿不到目标文件 + 上游错乱）
-- 禁止在 `dev-rules/sync.sh --check` 失败的情况下提交父仓库
-- 禁止在 `dev-rules/verify-rules.sh` 失败的情况下提交 dev-rules 子模块
-- 禁止在 macOS dev 机器上把 LaunchAgent 卸载后不重新装回——跨机器同步路径会变回"承诺"
+禁止编辑 sync 产物、绕过门禁、复制 skill 或擅自替换 foreign owner；具体禁止项在以上各 owner 节。
 
 ## Agent 行为约束
 
-- 项目缺少 `dev-rules/` submodule：提醒用户按「新项目接入」接入
-- `.cursor/rules/` 与 `dev-rules/rules/` 内容不一致：跑 `dev-rules/sync.sh --local` 修复，再用 `--check` 确认归零
-- `dev-rules/sync.sh --status` 报告 mirror SHA 与 submodule SHA 不一致：先 `--push`（本机有未推变更）或 `--pull`（远端有未拉变更），不在落后状态下做新规则编辑
+缺 submodule 先接入；规则漂移先 `sync.sh --local` 再 `--check`；home drift 按运维文档诊断。所有操作以实际 git/脚本证据为准。

@@ -1,322 +1,89 @@
 ---
-description: IT 产品研发工作流规则，默认单 PR，按风险升级到高风险审批路径
+description: 研发风险、执行路径、提交与 PR 门禁；默认单 PR 直接实现。
 alwaysApply: true
 ---
 
 # 产品研发工作流
 
-> 哲学基石（Jobs 聚焦/简洁、确定性自动化运营和运维）见 `digital-clone-research.md §一`。本文件是这两条哲学落到日常 PR / 提交 / 自检上的可执行规则；不在此重述哲学本身。
-
 ## 默认工作流
 
-默认路径不是把 docs、prototype、开发、上线拆成多个 PR，而是：
-
-```text
-单 PR → 实现/测试 → preflight → review → 人工确认 → merge → CI 监控至全绿
-```
-
-- 默认一个 PR 只承载一个用户意图，不按阶段机械拆 PR
-- 默认直接做生产级实现，不先做“为了走流程而存在”的原型 PR
-- 默认用最少的文档承载必要判断，不把 PR、comment、文档写成四份重复说明
-- 行为变更必须有与风险匹配的意图载体：低风险靠任务说明与测试即可；常规风险只有在 PR summary 说不清时才补最小 spec delta；高风险进入 `docs/approved/` 审批基线
-
-只有命中**高风险变更**时，才升级到原型 + 审批路径。
+单用户意图、单 PR：实现/测试 → preflight → review → 人工确认 → merge → 监控 CI 全绿。
+低/常规风险直接做生产级实现，不默认拆 docs/prototype/dev/release PR，不为流程写重复文档。
+哲学见 `dev-rules/digital-clone-research.md §一`；测试强度由 `test-philosophy.mdc` 承载。
 
 ## 直接执行原则（Plan Mode 校准）
 
-**默认行为是直接执行，不是先计划。** Claude Code 内建 harness 可能建议进入 plan mode；本节不声称覆盖系统/产品层行为，而是在模型拥有判断权时校准决策——当 harness 允许模型选择是否计划时，以下规则决定选择。
+在 harness 允许选择时，先检查必须计划条件；未命中则直接执行。
+仅以下情形先计划并等待人工确认：
 
-### 判定顺序
+- 命中下方高风险分类。
+- 无法确定用户目标状态，或必须由人裁决业务/架构 trade-off。
+- 不可逆外部副作用：生产部署、数据迁移、已 apply schema、大量付费调用。
+- 预估 >$5 或 >30min 且失败后不可简单重试。
 
-**先检查 must-plan，再看 direct-execute。** must-plan 条件命中即进入 plan mode，无论 direct-execute 条件是否同时满足。
-
-### 必须进入 plan mode（或等待审批）的条件
-
-仅当以下条件**至少命中一项**时，才进入 plan mode 并等待人工确认：
-
-- 命中下方「高风险」分类的任何一条
-- 用户意图模糊，Agent 无法确定目标状态（"范围不清"）
-- 存在不可逆外部副作用（生产部署、数据迁移、付费 API 大量调用、schema migration 已 apply）
-- 需要人类做出业务/架构决策（多种方案各有不可接受的 trade-off）
-- 预算或时间消耗显著（>$5 或 >30min 预估），且失败后不可简单重试
-
-### 直接执行的充分条件（未命中 must-plan 时，命中任一即直接执行）
-
-未命中上方 must-plan 任何一条时，满足以下**任一**条件即直接实现：
-
-1. 意图明确且变更仅涉及代码/配置（无 schema、无外部状态写入），`git revert` 一步可回退
-2. 影响范围限于单个模块/包，无公共契约变化
-3. 用户指令已包含具体实现路径（"把 X 改成 Y"、"在 Z 文件加 W"）
-4. 属于低风险分类（文档/注释/格式化/内部重构/lockfile 或纯元数据同步且 CI 门禁覆盖/范围清晰的 bug 修复）
-5. 属于常规风险但实现路径清晰、无需人工设计决策
-
-### 以下信号不构成 plan mode 触发条件
-
-- 改动涉及多个文件
-- 任务需要多个步骤
-- 存在多种可选实现方式（Agent 选最合理的，不需要人类裁决）
-- 代码量较大
-- 涉及多个模块但各模块内变更独立
-- 需要读代码再动手（这是正常研发，不是"范围不清"）
-
-### 判别公式
-
-区分**纯代码变更**与**已落地的状态/外部副作用**：
-- 纯代码/配置改动（未 apply migration、未调用外部写接口、未部署）→ 可 `git revert` + 重来 → 不需要 plan mode。
-- 已执行 schema migration、写入外部系统、触发生产部署、产生付费调用 → 回滚有成本或不可逆 → 需要 plan mode。
+纯代码/配置尚未 apply、可 `git revert` 的清晰任务直接做。多步骤、多文件、多模块、需要读代码或存在多个合理实现，本身不触发 plan mode。业务判断不猜测；同一问题连续 3 次失败暂停分析并等待人工介入。
 
 ## 风险分级（决定走哪条路径）
 
-### 低风险
+| 等级 | 判据（高风险优先） | 意图载体 |
+|---|---|---|
+| 低 | 文档/注释/格式、无公共行为变化的重构、无公共契约变化的依赖升级、聚焦测试可覆盖的小修复 | 任务说明与验证 |
+| 常规 | 局部功能/旅程变化，未命中高风险 | PR summary；说不清时才补 spec delta |
+| 高 | 下列任一条件 | `docs/approved/` 审批基线 |
 
-符合以下特征之一，且不触发下方高风险条件：
+高风险条件：
 
-- 文档、注释、命名、格式化
-- 无公共行为变化的内部重构
-- 无公共契约变化的依赖升级
-- 范围清晰的小型 bug 修复，且可用回归测试验证
+- 公共契约：WebUI/API/CLI/MCP 对外行为、字段语义、状态码或兼容性改变。
+- 不可逆状态：DB schema、状态机迁移、审批/计费等高代价状态。
+- 安全边界：鉴权、授权、输入安全、租户隔离、凭证/密钥路径。
+- 骨架变更：核心架构、基础设施策略、跨系统集成且回滚成本高。
+- 核心体验：出错有明显业务损失，普通测试/review 不足以兜底。
 
-**默认路径**：单 PR，直接实现与验证。
-
-### 常规风险
-
-会改变功能行为，但不触发高风险条件的日常开发：
-
-- 新增或修改局部功能
-- 影响单一模块或单一用户旅程的实现调整
-- 需要补充测试、契约同步或少量设计说明，但无需人工设计审批
-
-**默认路径**：单 PR，必要时补充任务拆解、测试与契约文档。
-
-### 高风险
-
-只有命中以下条件，才进入高风险路径：
-
-- **公共契约变更**：WebUI / API / CLI / MCP 的对外行为、字段语义、状态码、兼容性
-- **不可逆状态变更**：数据库 schema、状态机迁移、审批链/计费链等高代价状态
-- **安全边界变更**：鉴权、授权、输入安全、租户隔离、凭证/密钥路径
-- **高回滚成本骨架变更**：核心架构边界、基础设施策略、跨系统集成，且一旦出错不易快速回滚
-- **核心体验高爆炸半径变更**：用户核心路径一旦出错会产生明显业务损失，且普通测试/PR review 不足以兜底
-
-以下信号**不能单独**判定为高风险：
-
-- 改动文件多
-- 代码量大
-- 涉及多个模块
-- PR 评论看起来很长
-
-如果对风险等级拿不准，默认按**常规风险**处理，并先补一个最小澄清问题；只有明确命中高风险条件，或存在安全/数据损失级不确定性时，才升级为高风险。
+文件数、代码量、模块数、评论长度不单独决定风险。拿不准时先按常规补最小澄清；明确安全/数据损失级不确定性才升级。
 
 ### 常规风险意图载体
 
-常规风险不默认写文档。只有当行为变化复杂到 PR summary 无法说清，或 reviewer 需要先理解 intent 再看 code 时，才使用最小 spec delta。
-
-建议位置：`docs/spec-delta-<slug>.md`。
-
-内容只保留四块：
-
-1. Background：为什么改
-2. Delta：ADDED / MODIFIED / REMOVED 的行为变化
-3. Scenarios：核心正向、核心负向或关键回归场景
-4. Validation：测试命令、运行结果或 evidence
-
-spec delta 是意图载体，不是审批基线；若命中高风险条件，必须升级到 `docs/approved/`。
+只有 PR summary 不足以表达行为或 reviewer 必须先理解 intent 时，补 `docs/spec-delta-<slug>.md`：Background、Delta（ADDED/MODIFIED/REMOVED）、Scenarios（正/负/回归）、Validation。它不是审批基线，也不能替代测试。
 
 ## 高风险路径（例外，而非默认）
 
-```text
-需求分析 → 原型设计 → [人工审批] → 功能实现 → 测试验证 → [人工审批] → 合并上线
-```
-
-只有高风险变更必须按顺序通过；低风险与常规风险不应被此路径拖重。
-
-### 阶段 1：需求分析
-
-**产出**：风险明确的拆解文档（`docs/task-breakdown-*.md`）
-**动作**：
-1. 理解业务目标和用户价值
-2. **聚焦过滤**：明确列出「不做什么」和「为什么不做」，与「做什么」同等重要
-3. 判断是否真的属于高风险；如果不是，降回默认路径
-4. 拆解为可执行子任务（用 Claude Code 原生 plan mode，把结果落到 `docs/task-breakdown-*.md` 或直接写入 `docs/approved/`）
-5. 标注子任务间的依赖与并行关系
-**审批**：仅当存在真实设计决策时，才需要人工确认后进入下一阶段
-
-### 阶段 2：原型设计与实现
-
-**产出**：可运行的原型系统 + 设计文档（直接写入 `docs/approved/`）
-**动作**：
-1. 将设计文档直接写入 `docs/approved/`（实体化命名，如 `design-approval-engine.md`），包含：
-   - YAML frontmatter 元数据头（`approved_by: pending`，待人审批时更新）
-   - 数据模型设计（ER 图或表结构）
-   - API 接口设计（路由、请求/响应格式）
-   - 核心流程的状态机或时序图
-   - 技术选型与理由
-2. 实现最小可运行原型（Prototype），仅覆盖核心路径
-3. 原型必须可启动、可演示核心流程，但无需完善边界处理
-4. 编写原型验证脚本或手动验证步骤
-**提交**：只有当“设计确认”与“实现落地”存在真实决策边界时，才单独创建 `prototype:` PR；否则可在同一 PR 中以明确 commit / section 区分原型与落地
-
-### ▶ 审批门禁：原型确认
-
-**Agent 在此暂停，等待人工审批。**
-
-审批内容：
-- [ ] 数据模型是否合理
-- [ ] API 设计是否符合现有规范
-- [ ] 技术选型是否恰当
-- [ ] 原型是否可演示核心流程
-- [ ] 是否需要调整设计方向
-
-审批方式：人在 PR 中直接编辑/修正 `docs/approved/` 下的设计文档，merge = 审批。
-
-审批结果：
-- **通过（merge）** → `docs/approved/` 中的文件成为符合性基线，进入功能实现阶段
-- **需修改** → 人在 PR 中提出修改意见，Agent 修改后重新请求 Review
-- **否决** → 终止当前方案，回到需求分析重新规划
-
-### 阶段 3：功能实现
-
-**产出**：生产级代码 + 测试 + 必要文档
-**动作**：
-1. 基于已审批的原型，补全所有边界处理和错误处理
-2. 编写完整的测试套件（遵循 test-philosophy.mdc）
-3. 将实现收敛到一个用户意图明确的 PR 中；只在确有必要时拆分
-**提交**：PR 标题聚焦结果，不写冗长过程清单
-
-### 阶段 4：测试验证
-
-**产出**：验证摘要 + 验收确认（默认精简；高风险时再附扩展材料）
-**动作**：
-1. 运行完整测试套件，确保不破坏已有功能
-2. 验证所有验收标准（AC）已覆盖
-3. 检查 Story ↔ Test 对齐（无漂移）
-4. 生成变更摘要：改了什么、为什么改、如何验证
-**提交**：默认在同一 PR 中附带精简验证摘要；高风险变更才附完整验收矩阵与额外证据
-
-### ▶ 审批门禁：合并确认
-
-**Agent 在此暂停，等待人工审批。**
-
-审批内容：
-- [ ] 代码质量是否达标
-- [ ] 测试覆盖是否充分
-- [ ] 是否影响其他模块
-- [ ] 是否可以合并到主分支
+命中高风险时，先读 `dev-rules/docs/agent-guides/high-risk-development.md`，按需求 → 原型 → 人工审批 → 实现 → 验证 → 人工合并确认推进。审批前不自行进入下一阶段。原型与生产实现仅在真实决策边界才拆 PR；审批文档从 `approved_by: pending` 起，人的修改/merge 成为符合性基线。
 
 ## 分支与提交
 
-- 原型分支命名：`prototype/[issue-id]-[描述]`（仅高风险原型路径使用）
-- 功能分支命名：`feature/[issue-id]-[描述]`（默认）
-- 修复分支命名：`fix/[issue-id]-[描述]`
-- 杂务分支命名：`chore/[描述]`
-- 文档分支命名：`docs/[描述]`
-- 上游合并分支命名：`merge/upstream-YYYY-MM-DD`（消费 fork 的项目使用，受 PR shape 工作流验证）
-- 云端 Coding Agent 会话分支命名：`cursor/<sessionId>` —— 该前缀由托管平台（如 Cursor Background Agent）强制；preflight 接受它，最终落入 `main` 的 commit message 由 squash-merge 时由人类 reviewer 重写为业务前缀（fix(...)/feat(...)）。
-- 提交消息聚焦"为什么"而非"改了什么"，一行说清单个原子变化的原因
-- 每个 PR 只解决一个问题，不混合无关变更
-- 不默认拆出 docs/prototype/dev/release 多个 PR；只有真实决策边界或风险隔离需求，才拆 PR
-- PR body 必须用中文撰写；技术名词、命令、错误码、commit subject 可保留英文
-- PR 描述默认只保留中文小节：`摘要`、`风险`、`验证`、`提交`；只有高风险变更才展开 `设计` / `契约` / `迁移`
-- `提交` 小节必须从当前 PR commit 集合生成，至少包含相对 base 的所有 commit short SHA + subject，并包含 `最新提交：<HEAD short SHA>` freshness anchor
-- 每产生新的 commit 后，必须在 push 或继续 review 前用当前 `git log --oneline <base>..HEAD` 重写整个 PR body；禁止沿用旧 body 或只追加零散备注
-- review comment 默认只报阻塞问题、真实风险、缺失验证；不输出大而全的审计散文
-- 有 Web surface 的仓库中，后端服务/业务逻辑改动必须同 PR 对齐对应 Web 页面、配置、契约或 Story；确无影响时必须在 commit message 中写明 `no-web-impact` / `Web impact: none`，让 preflight 可机械验证。
-- 命中高风险路径的改动必须绑定审批锚点（`docs/approved/*` 或等价 anchor token），不允许无锚点直改。
-- release 敏感分支/语境下提交消息禁止出现 `[skip ci]` / `[ci skip]`，避免流水线静默跳过。
-- PR 合并后必须继续监控目标分支 CI 状态，直到合并 commit / merge queue 关联检查全绿；若出现失败、取消或长时间 pending，立即报告并进入修复或人工决策。
+- 分支：`feature/[issue-id]-描述`、`fix/[issue-id]-描述`、`chore/描述`、`docs/描述`；高风险原型用 `prototype/`；上游用 `merge/upstream-YYYY-MM-DD`；托管 Agent 的 `cursor/<sessionId>` 可用，squash 时改成业务 commit subject。
+- commit 一行解释单个原子变化的原因；PR 只解决一个意图。
+- PR body 用中文，默认仅 `摘要`、`风险`、`验证`、`提交`；高风险才展开设计/契约/迁移。技术词、命令、错误码、commit subject 可保留英文。
+- `提交` 从 `git log --oneline <base>..HEAD` 生成全部 short SHA + subject，并包含 `最新提交：<HEAD short SHA>`。每次新增 commit 后，push 或继续 review 前重写整个 body，不能只追加备注。
+- 有 Web surface 时，后端/业务行为须同 PR 对齐 Web/config/contract/Story；确无影响在 commit message 写 `no-web-impact` 或 `Web impact: none`。
+- 高风险改动必须绑定 `docs/approved/*` 或等价审批 anchor；release 语境禁止方括号形式的 skip-ci / ci-skip marker。
+- review 默认只报阻塞问题、真实风险、缺失验证。合并后持续监控目标分支/merge queue CI 至全绿；失败、取消、长时间 pending 及时报告并修复或交人工判断。
 
 ### Fork 仓库上游治理（Upstream Merge）纪律
 
-Fork 仓库对齐外部上游时，加载 `agent-skills` 的 [upstream-merge SOP](https://github.com/youxuanxue/agent-skills/blob/main/upstream-merge/SKILL.md)。该 skill 是保留上游历史、A/B/C 提交职责、冲突审计和合并收尾流程的唯一 owner；分支命名、PR 格式与审批沿用本规则，worktree 操作沿用 `git-worktree-submodule`。
-
-项目本地仅补充已有不变量 owner、冲突裁决与验证命令，复用通用 SOP。若 skill 尚未可用，先通过既有 Skills Core 安装入口取得；不得仅凭本段摘要跳过完整流程。审计 helper 按加载到的 skill 目录定位，在宿主仓库 workdir 执行。
+对齐外部上游必须加载 `upstream-merge` skill；历史保留、A/B/C commit、冲突审计和收尾由该 skill 单一拥有。项目只补已有不变量 owner、冲突裁决和验证命令。缺 skill 时通过既有安装入口取得，不凭摘要跳过。worktree 用 `git-worktree-submodule`；audit helper 按 skill 目录定位、在宿主 workdir 执行。
 
 ## 代码质量门禁
 
-- 新增功能：至少 1 个正向测试 + 1 个负向测试
-- Bug 修复：必须包含复现测试
-- 重构：已有测试必须原样通过
-- 禁止存在性测试（仅断言文件存在/非空），必须是行为断言
+按 `test-philosophy.mdc` 验证真实行为：新功能正/负向、bug 复现、重构既有测试原样通过；禁止存在性测试。
 
 ## 长时运行任务专用
 
-当作为 Background Agent 或 Long-running Agent 执行时：
-- 每完成一个可验证的里程碑，立即提交并推送
-- 如果连续 3 次尝试同一问题未成功，暂停并记录分析，等待人工介入
-- 产出 PR 时默认附带精简中文 `摘要`、`风险`、`验证`、`提交`；每次新增 commit 后先重写 PR body 再 push / review
-- 高风险原型阶段完成后必须暂停等待审批，不得自行进入功能实现阶段
+Background/Long-running Agent 每完成可验证里程碑立即提交推送，遵守相同 preflight、PR freshness 与审批门禁。
 
 ## 完成自检与门禁
 
-每次任务完成或准备汇报时，Agent 必须给出与风险匹配的验证证据。普通进度汇报不触发全量 preflight；汇报已完成的测试、运行检查、人工自检和剩余风险即可。
-
-准备 commit / push / PR 出口 / 部署 / 发布时，必须执行一致性自检。**优先用脚本，不依赖记忆**：
-
-### 强制门禁：运行 preflight 脚本（机械检查）
-
-```bash
-./scripts/preflight.sh   # 模板见 dev-rules/templates/preflight.sh
-```
-
-以下场景必须有新鲜 preflight 结果：
-- 创建本地 commit 前（通常由 pre-commit hook 自动触发）。
-- push 分支、创建 PR，或在新增 commit 后继续 review 前。
-- 部署、发布、打 tag 或触发 release 流程前。
-- 高风险审批门禁、代码审查或人工明确要求时。
-
-任何检查段失败都必须修复后重跑，**禁止带未通过的 preflight 提交、推送、部署或发布**。preflight 分为默认必跑检查与高风险条件触发检查；不要把所有项目、所有任务都按最高负担执行。
-
-其中新增红线由模板 preflight 机械化落地：
-- web surface alignment：后端/业务逻辑改动必须有 Web/config/contract 对齐证据或 no-web-impact 说明。
-- layer dependency inversion：分层依赖不可反转（项目提供 `.preflight/layer-deps.json` 时启用）。
-- high-risk approval anchor：高风险改动必须绑定审批锚点。
-- release skip-ci safety：release 语境禁止 skip-ci marker。
+汇报须给与风险匹配的已运行验证证据及剩余风险；普通进度不触发全量 preflight。
+创建 commit、push、PR 出口、新增 commit 后继续 review、部署、发布、tag、高风险审批或明确要求时，运行 `./scripts/preflight.sh`（无项目 wrapper 用 `dev-rules/templates/preflight.sh`）。失败修复后重跑；禁止带红提交/推送/发布或 `--no-verify` 绕过（紧急回滚除外）。条件门禁不扩成所有任务都跑最高负担。
 
 ### 文档数值/事实声明的硬约束
 
-**默认：不写**。"X 段 / X 类 / X 条 / N 行" 这类计数型数字——读者不需要它们就能理解段落，写它们只会自找漂移。直接说"verify-rules.sh 检查仓库完整性"，不要说"verify-rules.sh 现在 8 段检查"。
-
-**例外：当数字本身是设计契约时**（如"WebUI 页面数 ≤ 8" "重试次数 = 3" "预算 ≤ $5"），用 stat 块包裹并在 `dev-rules/.stats.json` 注册 compute 命令，由 `sync-stats.sh --check` 机械核对。
-
-**判别公式**：删掉这个数字，段落是否仍然完整传达意图？是 → 删掉数字（首选）；否 → 它是契约 → stat 块（保底）。
-
-机制细节见 `digital-clone-research.md §三`。**禁止用 stat 块包装虚荣计数**——那是把"自己给自己创造问题再解决"包装成纪律。
+默认不写无助决策的计数（多少段/类/行）；数字本身是设计契约时才用 stat 块并在 `dev-rules/.stats.json` 注册 compute，由 `sync-stats.sh --check` 核对。机制见 `dev-rules/digital-clone-research.md §三`，不包装虚荣计数。
 
 ### 人工自检（脚本无法机械化的部分）
 
-1. **跨文件一致性**：同一概念（术语、措辞、语义）在多个文件中是否一致（脚本可检测数字 + 路径，但语义漂移需人眼）
-2. **新旧对齐**：变更是否与 `docs/approved/`、`CLAUDE.md`、已有 Rules 的约定冲突
-3. **冗余消除**：同一信息是否在多处用不同措辞重复（漂移源头）
-4. **示例准确性**：代码示例、JSON 样例、目录结构图是否反映当前实际状态
-5. **载体分工**：commit、PR body、review comment、设计文档是否各司其职，而不是重复铺陈
-
-发现问题直接修复，修复后再提交。如果不确定是否应该改，在 PR 说明中标注待确认项。
-
-### 升级原则（确定性自动化运营和运维）
-
-如果某项「人工自检」反复在 review 中被发现遗漏，**必须**把它转化为机械检查：
-- **数值/事实漂移** → 新增 stat 块到文档 + `.stats.json` 注册 compute 命令
-- **路径/结构漂移** → 新增检查段到 `dev-rules/verify-rules.sh`（仓库内）或 `scripts/preflight.sh`（项目内）
-- **契约/格式漂移** → 新增 schema 到 `dev-rules/schemas/`
-
-把"靠自觉"转化为"靠脚本"是确定性自动化运营和运维原则的硬约束，不是建议。
+核对跨文件语义、approved/规则一致性、重复 owner、示例准确性、commit/PR/设计文档分工。发现问题直接修复，不确定的标入 PR。反复遗漏的检查必须落进 preflight/verify-rules/schema，不能累积口头纪律。
 
 ## 云端 Agent / 本地 Agent 运行环境一致性
 
-云端 Cursor Agent 跑在临时 VM，本地 Cursor Agent 跑在你的 dev 机器；两边的 `claude` CLI、`gh`、`jq`、相关 secrets 必须保持一致，否则同一段 prompt 在两个环境产生不同行为。
-
-**单一事实来源**：`dev-rules/templates/cloud-agent-bootstrap.sh` 同时承担「云端首次安装」与「本地一致性自检」。项目只需要在 `.cursor/cloud-agent.env` 里声明工具与 secrets 契约（模板见 `dev-rules/templates/cloud-agent.env.example`）。
-
-**典型用法**：
-
-1. 项目根目录创建 `.cursor/cloud-agent.env`（按 `.example` 复制裁剪），声明：
-   - `CLOUD_AGENT_TOOLS`（claude / gh / jq 自动安装；其他工具仅 PATH 检查）
-   - `CLOUD_AGENT_REQUIRED_SECRETS`（缺失即 fail，例如 `ANTHROPIC_API_KEY` 或自建网关用 `ANTHROPIC_AUTH_TOKEN`）
-   - `CLOUD_AGENT_OPTIONAL_SECRETS`（缺失只 warn，例如 `GH_TOKEN`）
-   - `CLOUD_AGENT_CLAUDE_BASE_URL`（用自建网关时设置；留空走 Anthropic SaaS）
-   - `CLOUD_AGENT_PROJECT_HOOK`（项目特异步骤，比如 submodule 同步、frontend deps）
-2. 云端入口 `.cursor/environment.json` 指向 `bash dev-rules/templates/cloud-agent-bootstrap.sh`（默认 install 模式）。
-3. 本地任何时刻可跑 `bash dev-rules/templates/cloud-agent-bootstrap.sh --check`；preflight 的 cloud-agent consistency 检查也会自动调用，secrets 未配置 / 工具缺失会被机械拦截。
-4. Cursor Dashboard → Cloud Agents → Secrets 里配置 `CLOUD_AGENT_REQUIRED_SECRETS` 列出的所有变量，`--check` 即归零。
-
-具体调用：`claude -p "..." --max-budget-usd N`。
+配置或排障时读 `dev-rules/docs/agent-guides/rules-operations.md` 的云端章节。环境唯一 owner 是 `dev-rules/templates/cloud-agent-bootstrap.sh`；项目只在 `.cursor/cloud-agent.env` 声明工具/secrets。

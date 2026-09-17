@@ -11,10 +11,10 @@
 #   without race conditions.
 #
 #   Skills and rules need NO action here: `.claude/skills` is a tracked
-#   symlink to `.cursor/skills/` (CLAUDE.md § Agent skills) so Claude Code's
-#   harness discovers all four TokenKey skills automatically; rules live at
-#   `.cursor/rules/*.mdc` and are referenced from CLAUDE.md (§10), which
-#   Claude Code loads into context on its own.
+#   symlink to `.cursor/skills/` so Claude Code discovers project skills;
+#   process rules live at `.cursor/rules/*.mdc` (Read on demand; CLAUDE.md §10
+#   only points at them). Hard-rule detail overflow:
+#   docs/global/claude-hard-rules.md.
 #
 #   This hook is a thin wrapper: it delegates the actual install work to
 #   `.cursor/cloud-agent-install.sh` (the same entrypoint Cursor's cloud
