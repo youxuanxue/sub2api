@@ -335,18 +335,9 @@ export interface MediaModelPresentation {
 
 /** Presentation-only entries keyed by canonical model_id. */
 export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
-  // ── image (imagen/seedream honor NO advanced params per adaptor) ──
-  {
-    modelId: 'imagen-4.0-fast-generate-001',
-    displayName: 'Imagen 4 · Fast',
-    qualityBadge: 'draft',
-    qualityBadgeKey: 'studio.badge.draft',
-    vendorLabel: VERTEX,
-    modality: 'image',
-    supportedParams: [],
-    imageSizes: IMAGEN_IMAGE_SIZES,
-    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
-  },
+  // ── image (seedream honor NO advanced params per adaptor) ──
+  // Imagen rows removed: Google image surface converged to gemini-3-pro-image /
+  // gemini-3.1-flash-image (Vertex video remains veo-3.1-generate-001 only).
   {
     modelId: 'seedream-4-0-250828',
     aliasIds: ['doubao-seedream-4-0-250828'],
@@ -411,28 +402,6 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     flatPricePerImage: true,
   },
   {
-    modelId: 'imagen-4.0-generate-001',
-    displayName: 'Imagen 4 · Standard',
-    qualityBadge: 'standard',
-    qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: VERTEX,
-    modality: 'image',
-    supportedParams: [],
-    imageSizes: IMAGEN_IMAGE_SIZES,
-    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
-  },
-  {
-    modelId: 'imagen-4.0-ultra-generate-001',
-    displayName: 'Imagen 4 · Ultra',
-    qualityBadge: 'ultra',
-    qualityBadgeKey: 'studio.badge.ultra',
-    vendorLabel: VERTEX,
-    modality: 'image',
-    supportedParams: [],
-    imageSizes: IMAGEN_IMAGE_SIZES,
-    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
-  },
-  {
     modelId: 'grok-imagine-image',
     displayName: 'Grok Imagine · Fast',
     qualityBadge: 'fast',
@@ -467,20 +436,8 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     imageSizes: GEMINI_IMAGE_SIZES,
   },
   {
-    modelId: 'gemini-2.5-flash-image',
-    aliasIds: ['gemini-2.5-flash-image-preview'],
-    displayName: 'Gemini 2.5 Flash Image',
-    qualityBadge: 'standard',
-    qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: GEMINI,
-    modality: 'image',
-    supportedParams: [],
-    flatImageBilling: true,
-    imageSizes: GEMINI_IMAGE_SIZES,
-  },
-  {
-    modelId: 'gemini-3-pro-image-preview',
-    aliasIds: ['gemini-3-pro-image', 'nano-banana-pro-preview'],
+    modelId: 'gemini-3-pro-image',
+    aliasIds: ['gemini-3-pro-image-preview', 'nano-banana-pro-preview'],
     displayName: 'Nano Banana Pro (Gemini 3 Pro Image)',
     qualityBadge: 'ultra',
     qualityBadgeKey: 'studio.badge.ultra',

@@ -13,22 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMapAntigravityModel_LiveAccountAllowsOnlyLiveClaudeSubset(t *testing.T) {
+func TestMapAntigravityModel_ConvergedSurfaceFloor(t *testing.T) {
 	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformAntigravity}, nil, nil, nil)
 	require.True(t, ok)
-	account := &Account{
-		Platform: PlatformAntigravity,
-		Credentials: map[string]any{
-			"model_mapping": modelMappingToAny(mapping),
-		},
-	}
-
-	require.NotEmpty(t, MapAntigravityModel(account, AntigravityDefaultTestModelID))
-	require.Equal(t, "claude-sonnet-4-6", MapAntigravityModel(account, "claude-sonnet-4-6"))
-	require.Equal(t, "claude-opus-4-6-thinking", MapAntigravityModel(account, "claude-opus-4-6"))
-	require.Empty(t, MapAntigravityModel(account, "claude-sonnet-4-5"))
-	require.Empty(t, MapAntigravityModel(account, "claude-opus-4-8"))
-	require.Empty(t, MapAntigravityModel(account, "gpt-oss-120b-medium"))
+	account := &Account{Platform: PlatformAntigravity, Credentials: map[string]any{"model_mapping": modelMappingToAny(mapping)}}
+	require.Equal(t, "gemini-3.8-flash-medium", MapAntigravityModel(account, "gemini-3.8-flash"))
+	require.Equal(t, "gemini-3.8-flash-medium", MapAntigravityModel(account, "gemini-3-flash-preview"))
+	require.Equal(t, "gemini-3.6-flash-tiered", MapAntigravityModel(account, "gemini-3.5-flash-lite"))
+	require.Empty(t, MapAntigravityModel(account, "claude-sonnet-4-6"))
 }
 
 func TestAntigravityDefaultTestModelID_IsGeminiWire(t *testing.T) {

@@ -19,36 +19,31 @@ const (
 	vertexCapabilityProfileCoreImagenUltra           = "core-imagen-ultra"
 )
 
+// vertexSharedModelMappingIDs is the converged Vertex ch41 public request surface.
+// Profile extras stay empty until a named capability is re-verified.
 var vertexSharedModelMappingIDs = []string{
-	"gemini-2.5-flash",
-	"gemini-2.5-flash-lite",
-	// 2026-09-08 global generation probes passed across all Vertex profiles.
 	"gemini-3-flash-preview",
-	"gemini-3.1-flash-lite",
 	"gemini-3.5-flash-lite",
 	"gemini-3.6-flash",
 	"gemini-3.7-flash",
 	"gemini-3.8-flash",
-	"gemini-embedding-001",
 	"veo-3.1-generate-001",
 }
 
+var vertexSharedModelMapping = map[string]string{
+	"gemini-3.6-flash":       "gemini-3.6-flash",
+	"gemini-3.7-flash":       "gemini-3.7-flash",
+	"gemini-3.8-flash":       "gemini-3.8-flash",
+	"gemini-3-flash-preview": "gemini-3.8-flash",
+	"gemini-3.5-flash-lite":  "gemini-3.6-flash",
+	"veo-3.1-generate-001":   "veo-3.1-generate-001",
+}
+
 var vertexCapabilityProfileExtraIDs = map[string][]string{
-	vertexCapabilityProfileCorePro: {
-		"gemini-2.5-pro",
-	},
-	vertexCapabilityProfileCoreProImagenStandard: {
-		"gemini-2.5-pro",
-		"imagen-4.0-generate-001",
-	},
-	vertexCapabilityProfileCoreProImagenFastStandard: {
-		"gemini-2.5-pro",
-		"imagen-4.0-fast-generate-001",
-		"imagen-4.0-generate-001",
-	},
-	vertexCapabilityProfileCoreImagenUltra: {
-		"imagen-4.0-ultra-generate-001",
-	},
+	vertexCapabilityProfileCorePro:                   {},
+	vertexCapabilityProfileCoreProImagenStandard:     {},
+	vertexCapabilityProfileCoreProImagenFastStandard: {},
+	vertexCapabilityProfileCoreImagenUltra:           {},
 }
 
 // VertexCapabilityProfile returns the normalized ch41 capability selector.
@@ -60,12 +55,23 @@ func (a *Account) VertexCapabilityProfile() string {
 	return strings.ToLower(strings.TrimSpace(a.GetCredential(VertexCapabilityProfileCredentialKey)))
 }
 
+func copyVertexModelMapping(src map[string]string) map[string]string {
+	out := make(map[string]string, len(src))
+	for from, to := range src {
+		out[from] = to
+	}
+	return out
+}
+
+func vertexSharedModelMappingPreset() map[string]string {
+	return copyVertexModelMapping(vertexSharedModelMapping)
+}
+
 func vertexSharedModelMappingPresetIDs() []string {
 	return append([]string(nil), vertexSharedModelMappingIDs...)
 }
 
 // Public Vertex discovery is the union of the verified capability floors.
-// It must not expand the independent native Gemini account floor.
 func vertexModelDisplayIDs() []string {
 	ids := stringSet(vertexSharedModelMappingPresetIDs())
 	for _, extra := range vertexCapabilityProfileExtraIDs {
@@ -82,28 +88,40 @@ func vertexModelDisplayIDs() []string {
 }
 
 func vertexCapabilityProfileModelMappingIDs(profile string) ([]string, bool) {
+	mapping, known := vertexCapabilityProfileModelMapping(profile)
+	ids := make([]string, 0, len(mapping))
+	for id := range mapping {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, known
+}
+
+func vertexCapabilityProfileModelMapping(profile string) (map[string]string, bool) {
 	profile = strings.ToLower(strings.TrimSpace(profile))
 	extra, ok := vertexCapabilityProfileExtraIDs[profile]
-	if !ok {
-		ids := vertexSharedModelMappingPresetIDs()
-		sort.Strings(ids)
-		return ids, false
+	out := vertexSharedModelMappingPreset()
+	for _, id := range extra {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, exists := out[id]; !exists {
+			out[id] = id
+		}
 	}
-	ids := append(vertexSharedModelMappingPresetIDs(), extra...)
-	sort.Strings(ids)
-	return ids, true
+	return out, ok
 }
 
 func vertexCapabilityProfileMappingsForOps() map[string]map[string]string {
 	profiles := make(map[string]map[string]string, len(vertexCapabilityProfileExtraIDs))
 	for profile := range vertexCapabilityProfileExtraIDs {
-		ids, _ := vertexCapabilityProfileModelMappingIDs(profile)
-		profiles[profile] = identityModelMapping(ids)
+		mapping, _ := vertexCapabilityProfileModelMapping(profile)
+		profiles[profile] = mapping
 	}
 	return profiles
 }
 
 func vertexModelMappingForAccount(account *Account) (map[string]string, bool) {
-	ids, known := vertexCapabilityProfileModelMappingIDs(account.VertexCapabilityProfile())
-	return identityModelMapping(ids), known
+	return vertexCapabilityProfileModelMapping(account.VertexCapabilityProfile())
 }

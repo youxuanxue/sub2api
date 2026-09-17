@@ -54,18 +54,16 @@ func TestGatewayService_isModelSupportedByAccount_AntigravityNoMapping(t *testin
 		Credentials: map[string]any{},
 	}
 
-	// 默认映射中的模型应该被支持
-	require.True(t, svc.isModelSupportedByAccount(account, "claude-sonnet-4-6"))
-	require.True(t, svc.isModelSupportedByAccount(account, "claude-opus-4-6"))
-	require.True(t, svc.isModelSupportedByAccount(account, "claude-opus-4-6-thinking"))
-	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3-flash"))
+	// 默认映射中的模型应该被支持（Google 收敛面）
+	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3.8-flash"))
+	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3-flash-preview"))
+	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3.5-flash-lite"))
+	require.True(t, svc.isModelSupportedByAccount(account, "gemini-3.1-flash-image"))
 
 	// 不在默认映射中的模型不被支持
-	require.False(t, svc.isModelSupportedByAccount(account, "claude-sonnet-4-5"))
-	require.False(t, svc.isModelSupportedByAccount(account, "claude-haiku-4-5"))
-	require.False(t, svc.isModelSupportedByAccount(account, "claude-fable-5"))
-	require.False(t, svc.isModelSupportedByAccount(account, "claude-3-5-sonnet-20241022"))
-	require.False(t, svc.isModelSupportedByAccount(account, "claude-unknown-model"))
+	require.False(t, svc.isModelSupportedByAccount(account, "claude-sonnet-4-6"))
+	require.False(t, svc.isModelSupportedByAccount(account, "claude-opus-4-6"))
+	require.False(t, svc.isModelSupportedByAccount(account, "gemini-3-flash"))
 	require.False(t, svc.isModelSupportedByAccount(account, "gemini-2.5-pro"))
 
 	// 非 claude-/gemini- 前缀仍然不支持

@@ -25,8 +25,8 @@ func TestAccountModelMappingPresetIDs_NewAPIVertexUsesSharedFloor(t *testing.T) 
 	ids := AccountModelMappingPresetIDs(context.Background(), PlatformNewAPI, newapiconstant.ChannelTypeVertexAi, nil)
 	require.ElementsMatch(t, vertexSharedModelMappingPresetIDs(), ids)
 	require.Subset(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), ids)
-	require.NotElementsMatch(t, supportedCatalogModelIDsForPlatform(PlatformGemini), ids,
-		"admin empty mapping must not prefill the public union onto an unknown Vertex account")
+	require.Equal(t, "gemini-3.8-flash", vertexSharedModelMappingPreset()["gemini-3-flash-preview"])
+	require.NotContains(t, ids, "imagen-4.0-generate-001")
 }
 
 func TestAccountModelMappingPresetIDs_NewAPIMoonshotUsesManifest(t *testing.T) {

@@ -40,7 +40,7 @@ const (
 	GrokDefaultTestModelID = defaultGrokTestModelID
 	// Keep the default smoke on Gemini; the #1265 live Claude subset is covered by
 	// targeted mapping tests and may have account-specific upstream catalog gates.
-	defaultAntigravityTestModelID = "gemini-3-flash"
+	defaultAntigravityTestModelID = "gemini-3.8-flash"
 	AntigravityDefaultTestModelID = defaultAntigravityTestModelID
 )
 

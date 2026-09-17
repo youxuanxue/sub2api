@@ -92,16 +92,12 @@ const baseProps = {
   gatewayBase: 'https://api.example.com',
   userId: 42,
   availableIds: new Set([
-    'imagen-4.0-fast-generate-001',
-    'imagen-4.0-generate-001',
-    'imagen-4.0-ultra-generate-001',
+    'gemini-3-pro-image',
     'gemini-3.1-flash-image',
     'seedream-4-0-250828',
   ]),
   priceMap: new Map([
-    ['imagen-4.0-fast-generate-001', { perImage: 0.02, billingMode: 'image' }],
-    ['imagen-4.0-generate-001', { perImage: 0.04, billingMode: 'image' }],
-    ['imagen-4.0-ultra-generate-001', { perImage: 0.06, billingMode: 'image' }],
+    ['gemini-3-pro-image', { perImage: 0.134, billingMode: 'image' }],
     ['gemini-3.1-flash-image', { perImage: 0.0672, billingMode: 'image' }],
     ['seedream-4-0-250828', { perImage: 0.0299, billingMode: 'image' }],
   ]),
@@ -272,9 +268,9 @@ describe('BakeOff image routing', () => {
     expect(playground.gatewayImageGenerations).toHaveBeenCalledWith(
       'sk-test',
       'https://api.example.com',
-      expect.objectContaining({ model: 'imagen-4.0-fast-generate-001', size: '1:1' }),
+      expect.objectContaining({ model: 'gemini-3-pro-image', size: '1:1' }),
       undefined,
-      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'imagen-4.0-fast-generate-001' })
+      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'gemini-3-pro-image' })
     )
     expect(playground.gatewayImageGenerations).toHaveBeenCalledWith(
       'sk-test',
@@ -290,9 +286,9 @@ describe('BakeOff image routing', () => {
     const wrapper = mount(BakeOff, {
       props: {
         ...baseProps,
-        availableIds: new Set(['imagen-4.0-fast-generate-001', 'grok-imagine-image']),
+        availableIds: new Set(['gemini-3-pro-image', 'grok-imagine-image']),
         priceMap: new Map([
-          ['imagen-4.0-fast-generate-001', { perImage: 0.02, billingMode: 'image' }],
+          ['gemini-3-pro-image', { perImage: 0.02, billingMode: 'image' }],
           ['grok-imagine-image', { perImage: 0.02, billingMode: 'image' }],
         ]),
       },

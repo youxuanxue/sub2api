@@ -113,68 +113,19 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // DefaultAntigravityModelMapping 是 Antigravity 平台的默认模型映射
 // 当账号未配置 model_mapping 时使用此默认值（serving 还会叠加
 // tk_account_model_mapping_runtime.platforms.antigravity）
-// 与前端 useModelWhitelist.ts 中的 antigravityDefaultMappings 保持一致
+// 与前端 useModelWhitelist.ts 中的 antigravityDefaultMappings 保持一致。
+//
+// 2026-09-17 收敛：对外只保留 3.6/3.7/3.8 文本 + 两张图片，以及两条高流量
+// 兼容别名。Antigravity OAuth 仍不能服务真 gemini-3-pro-image（404），继续
+// 重指 3.1-flash-image；3.6/3.7/3.8 公共 id 仍走已验证的 wire remap。
 var DefaultAntigravityModelMapping = map[string]string{
-	// Claude 白名单（2026-07-07 live fetchAvailableModels: only these two are exposed
-	// by cloudcode-pa for antigravity-oh1-ls-b; newer Claude ids return upstream 404).
-	"claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
-	"claude-opus-4-6":          "claude-opus-4-6-thinking", // 简称映射
-	"claude-sonnet-4-6":        "claude-sonnet-4-6",
-	// Gemini 2.5 白名单
-	"gemini-2.5-flash":      "gemini-2.5-flash",
-	"gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-	// 2.5-flash-image 上游对该账号返回 502（2026-06-15 prod 中继实测）→ 重指可服务的
-	// 3.1-flash-image（保留别名兼容，客户端无需改名）。
-	"gemini-2.5-flash-image":    "gemini-3.1-flash-image",
-	"gemini-2.5-flash-thinking": "gemini-2.5-flash-thinking",
-	"gemini-3-flash":            "gemini-3-flash",
-	// 2026-09-08 native us4 probes: preview is not a wire ID (404), while
-	// gemini-3-flash and gemini-3.1-flash-lite return text and metered usage.
-	"gemini-3-flash-preview": "gemini-3-flash",
-	"gemini-3.1-flash-lite":  "gemini-3.1-flash-lite",
-	// Gemini 3.1 白名单。gemini-3.1-pro-high 在上游 deprecatedModelIds 中，直接请求返回 400
-	// （2026-06-15 实测）→ 只保留非弃用 wire id gemini-pro-agent。
-	"gemini-3.1-pro":     AntigravityGemini31ProAgentModel,
-	"gemini-3.1-pro-low": "gemini-3.1-pro-low",
-	// Gemini 3.1 image 白名单
+	"gemini-3.6-flash":       "gemini-3.6-flash-tiered",
+	"gemini-3.7-flash":       "gemini-3.7-flash-medium",
+	"gemini-3.8-flash":       "gemini-3.8-flash-medium",
+	"gemini-3-flash-preview": "gemini-3.8-flash-medium",
+	"gemini-3.5-flash-lite":  "gemini-3.6-flash-tiered",
 	"gemini-3.1-flash-image": "gemini-3.1-flash-image",
-	// Gemini 3.1 image preview 映射
-	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-	// Gemini 3.6 Flash tiered models
-	"gemini-3.6-flash-high":   "gemini-3.6-flash-high",
-	"gemini-3.6-flash-low":    "gemini-3.6-flash-low",
-	"gemini-3.6-flash-medium": "gemini-3.6-flash-medium",
-	// Gemini 3 image 兼容映射（向 3.1 image 迁移）
-	"gemini-3-pro-image": "gemini-3.1-flash-image",
-	// Gemini 3.5 Flash 实测 wire id（2026-06 /v1internal:fetchAvailableModels；
-	// thinkingBudget 由 wire id 在上游决定，app 下拉显示名见各行注释）
-	"gemini-3.5-flash-low":       "gemini-3.5-flash-low",       // app "Gemini 3.5 Flash (Medium)"
-	"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low", // app "Gemini 3.5 Flash (Low)"
-	"gemini-3-flash-agent":       "gemini-3-flash-agent",       // app "Gemini 3.5 Flash (High)"
-	"gemini-3.5-flash":           "gemini-3.5-flash-low",       // 友好别名 → Medium 档
-	// Gemini 3.6 Flash public id routes to the tiered wire id returned by
-	// Antigravity on us3/us4 (2026-07-22 live account probes).
-	"gemini-3.6-flash": "gemini-3.6-flash-tiered",
-	// Gemini 3.7 Flash (2026-08-19 fetchAvailableModels on us3/us4/us6):
-	// upstream lists thinking-tier wire ids only; Google's default thinking
-	// level is medium, so the public id remaps there. No -tiered wire id yet.
-	"gemini-3.7-flash":        "gemini-3.7-flash-medium",
-	"gemini-3.7-flash-high":   "gemini-3.7-flash-high",
-	"gemini-3.7-flash-low":    "gemini-3.7-flash-low",
-	"gemini-3.7-flash-medium": "gemini-3.7-flash-medium",
-	// Gemini 3.8 Flash (2026-09-06 live Ultra OAuth on us4): prod
-	// cloudcode-pa still omits 3.8, but paid tiers already forward to
-	// daily-cloudcode-pa where fetchAvailableModels lists
-	// gemini-3.8-flash-{low,medium,high,tiered} and generateContent
-	// succeeds on those wire ids. Bare gemini-3.8-flash 404s upstream;
-	// Google's default thinking level is medium, matching 3.7.
-	"gemini-3.8-flash":        "gemini-3.8-flash-medium",
-	"gemini-3.8-flash-high":   "gemini-3.8-flash-high",
-	"gemini-3.8-flash-low":    "gemini-3.8-flash-low",
-	"gemini-3.8-flash-medium": "gemini-3.8-flash-medium",
-	"gemini-3.8-flash-tiered": "gemini-3.8-flash-tiered",
-	// Gemini 3.1 Pro (High) 实测 wire id（gemini-3.1-pro-high 上游已废弃 → gemini-pro-agent）
-	"gemini-pro-agent": "gemini-pro-agent",
+	"gemini-3-pro-image":     "gemini-3.1-flash-image",
 }
 
 var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{

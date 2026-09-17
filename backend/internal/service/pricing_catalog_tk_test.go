@@ -565,7 +565,7 @@ func TestPricingCatalogService_AttachesOverlayTiers(t *testing.T) {
 	assert.Empty(t, flat.Pricing.Tiers, "flat-priced model must not carry tiers")
 }
 
-func TestPricingCatalogService_AntigravityThinkingOverlaySurfaces(t *testing.T) {
+func TestPricingCatalogService_AntigravityConvergedSurfaceSurfaces(t *testing.T) {
 
 	s := &PricingCatalogService{}
 
@@ -576,13 +576,13 @@ func TestPricingCatalogService_AntigravityThinkingOverlaySurfaces(t *testing.T) 
 		byID[m.ModelID] = m
 	}
 
-	thinking, ok := byID["gemini-2.5-flash-thinking"]
-	require.True(t, ok, "Antigravity thinking wire id must surface once it is priced and allowlisted")
-	assert.Equal(t, "antigravity", thinking.Vendor)
-	assert.InDelta(t, 0.0003, thinking.Pricing.InputPer1KTokens, 1e-12)
-	assert.InDelta(t, 0.0025, thinking.Pricing.OutputPer1KTokens, 1e-12)
-	assert.InDelta(t, 0.00003, thinking.Pricing.CacheReadPer1K, 1e-12)
-	assert.Contains(t, thinking.Capabilities, "prompt_caching")
+	flash, ok := byID["gemini-3.8-flash"]
+	require.True(t, ok, "converged Google text id must surface")
+	// Dual-listed on gemini + antigravity; presentation keeps original vendor.
+	assert.NotEqual(t, "", flash.Vendor)
+	img, ok := byID["gemini-3.1-flash-image"]
+	require.True(t, ok, "antigravity-exclusive image id must surface")
+	assert.Equal(t, "antigravity", img.Vendor)
 }
 
 // TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice verifies that an
@@ -918,9 +918,9 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	// allowlist) drops them from the public catalog (#1029/#1030 follow-up — same
 	// class as the gpt-5.6 display gap, on the antigravity surface).
 	in := &PublicCatalogResponse{Object: "list", Data: []PublicCatalogModel{
-		{ModelID: "gemini-3.5-flash", Vendor: "vertex_ai-language-models"},               // antigravity-exclusive, mirror-vendored
+		{ModelID: "gemini-3.1-flash-image", Vendor: "vertex_ai-language-models"},         // antigravity-exclusive, mirror-vendored
 		{ModelID: "gemini-3-pro-image", Vendor: "antigravity"},                           // antigravity-exclusive, overlay-injected
-		{ModelID: "gemini-2.5-flash", Vendor: "vertex_ai-language-models"},               // DUAL-listed (gemini + antigravity)
+		{ModelID: "gemini-3.8-flash", Vendor: "vertex_ai-language-models"},               // DUAL-listed (gemini + antigravity)
 		{ModelID: "imagen-4.0-generate-001", Vendor: "vertex_ai"},                        // empirically served but withdrawn from recommendations
 		{ModelID: "gemini-9-experimental-unlisted", Vendor: "vertex_ai-language-models"}, // in NO allowlist -> dropped
 	}}
@@ -932,7 +932,7 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	}
 
 	// antigravity-exclusive, mirror-vendored: survives + re-attributed to antigravity
-	m, ok := byID["gemini-3.5-flash"]
+	m, ok := byID["gemini-3.1-flash-image"]
 	require.True(t, ok, "antigravity-exclusive gemini-* must survive the public filter")
 	assert.Equal(t, "antigravity", m.Vendor, "re-attributed to antigravity vendor")
 	// antigravity-exclusive, already overlay-injected as antigravity: survives unchanged
@@ -940,7 +940,7 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	require.True(t, ok)
 	assert.Equal(t, "antigravity", m.Vendor)
 	// dual-listed: survives, vendor NOT changed (genuinely Vertex-served too)
-	m, ok = byID["gemini-2.5-flash"]
+	m, ok = byID["gemini-3.8-flash"]
 	require.True(t, ok, "dual-listed gemini survives")
 	assert.Equal(t, "vertex_ai-language-models", m.Vendor, "dual-listed keeps gemini vendor")
 	// A successful empirical probe cannot override an official withdrawal.
@@ -951,7 +951,7 @@ func TestFilterPublicCatalog_ReattributesAntigravityExclusiveVendor(t *testing.T
 	assert.False(t, ok, "vertex_ai model in no allowlist is still dropped")
 
 	// pure-function unit
-	assert.Equal(t, "antigravity", presentationVendorForServable("gemini-3.5-flash", "vertex_ai-language-models"))
-	assert.Equal(t, "vertex_ai-language-models", presentationVendorForServable("gemini-2.5-flash", "vertex_ai-language-models"))
+	assert.Equal(t, "antigravity", presentationVendorForServable("gemini-3.1-flash-image", "vertex_ai-language-models"))
+	assert.Equal(t, "vertex_ai-language-models", presentationVendorForServable("gemini-3.8-flash", "vertex_ai-language-models"))
 	assert.Equal(t, "openai", presentationVendorForServable("gpt-5.6-sol", "openai")) // non-antigravity untouched
 }

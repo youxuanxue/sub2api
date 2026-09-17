@@ -32,7 +32,7 @@ type accountModelMappingRuntime struct {
 	newAPIChannelTypes map[int]map[string]string
 }
 
-var canonicalAntigravityModelScopes = []string{"claude", "gemini_text", "gemini_image"}
+var canonicalAntigravityModelScopes = []string{"gemini_text", "gemini_image"}
 
 type accountModelMappingRuntimeDoc struct {
 	Platforms          map[string]map[string]string `json:"platforms"`
@@ -233,8 +233,8 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			return openAICloudwiseRelayAccountModelMappingFloor(ctx, pricing, availability), true
 		}
 		return openAICanonicalAccountModelMappingFloor(ctx, pricing, availability), true
-	case PlatformAnthropic, PlatformGemini:
-		if scope == PlatformAnthropic && account.IsAnthropicTokenseaRelay() {
+	case PlatformAnthropic:
+		if account.IsAnthropicTokenseaRelay() {
 			return anthropicTokenseaRelayModelMappingFloor(), true
 		}
 		ids := ServableClientFacingIDs(ctx, scope, availability, pricing)
@@ -245,6 +245,8 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			return nil, false
 		}
 		return identityModelMapping(ids), true
+	case PlatformGemini:
+		return geminiAccountModelMappingFloor(ctx, pricing, availability), true
 	case PlatformAntigravity:
 		return antigravityAccountModelMappingFloor(ctx, pricing, availability), true
 	case PlatformGrok:
@@ -667,6 +669,29 @@ func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {
 		out = append(out, id)
 	}
 	sort.Strings(out)
+	return out
+}
+
+var geminiTrafficAliases = map[string]string{
+	"gemini-3-flash-preview": "gemini-3.8-flash",
+	"gemini-3.5-flash-lite":  "gemini-3.6-flash",
+}
+
+func geminiAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
+	ids := ServableClientFacingIDs(ctx, PlatformGemini, availability, pricing)
+	if len(ids) == 0 {
+		ids = supportedCatalogModelIDsForPlatform(PlatformGemini)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	out := identityModelMapping(ids)
+	displaySet := stringSet(ids)
+	for from, to := range geminiTrafficAliases {
+		if _, ok := displaySet[to]; ok {
+			out[from] = to
+		}
+	}
 	return out
 }
 

@@ -54,7 +54,11 @@ func TestAccountModelMappingForAccount_NativePlatformsExplicit(t *testing.T) {
 			t.Parallel()
 			mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: platform}, nil, nil, nil)
 			require.True(t, ok)
-			requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsForPlatform(platform))
+			if platform == PlatformGemini {
+				require.Equal(t, geminiAccountModelMappingFloor(context.Background(), nil, nil), mapping)
+			} else {
+				requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsForPlatform(platform))
+			}
 			require.NotContains(t, mapping, platform+"-not-a-real-id-zzz")
 		})
 	}
@@ -88,7 +92,7 @@ func TestAccountModelMappingForAccount_KiroBedrockAndNewAPI(t *testing.T) {
 		ChannelType: newapiconstant.ChannelTypeVertexAi,
 	}, nil, nil, nil)
 	require.True(t, ok)
-	requireIdentityMappingForIDs(t, vertex, vertexSharedModelMappingPresetIDs())
+	require.Equal(t, vertexSharedModelMappingPreset(), vertex)
 }
 
 func TestAccountModelMappingRuntimeOverride(t *testing.T) {
@@ -122,7 +126,7 @@ func TestAccountModelMappingRuntimeOverride(t *testing.T) {
 		ChannelType: newapiconstant.ChannelTypeVertexAi,
 	}, nil, nil, runtime)
 	require.True(t, ok)
-	requireIdentityMappingForIDs(t, vertex, vertexSharedModelMappingPresetIDs())
+	require.Equal(t, vertexSharedModelMappingPreset(), vertex)
 	require.NotContains(t, vertex, vertexID,
 		"runtime channel replacement must not erase the ch41 profile/shared capability contract")
 }

@@ -369,7 +369,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_GeminiP
 	}
 
 	// 无分组时使用 gemini 平台
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(1), acc.ID, "应选择优先级最高的 gemini 账户")
@@ -406,7 +406,7 @@ func TestGeminiMessagesCompatService_GroupResolution_ReusesContextGroup(t *testi
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, 0, groupRepo.getByIDCalls)
@@ -440,7 +440,7 @@ func TestGeminiMessagesCompatService_GroupResolution_UsesLiteFetch(t *testing.T)
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, 0, groupRepo.getByIDCalls)
@@ -476,7 +476,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_Antigra
 	}
 
 	groupID := int64(1)
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
@@ -507,7 +507,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_OAuthPr
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID, "同优先级且都未使用时，应优先选择 OAuth 账户")
@@ -532,7 +532,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_NoAvail
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-3.8-flash", nil)
 	require.Error(t, err)
 	require.Nil(t, acc)
 	require.Contains(t, err.Error(), "no available")
@@ -566,7 +566,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_StickyS
 			cache:       cache,
 		}
 
-		acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-123", "gemini-2.5-flash", nil)
+		acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-123", "gemini-3.8-flash", nil)
 		require.NoError(t, err)
 		require.NotNil(t, acc)
 		require.Equal(t, int64(1), acc.ID, "应返回粘性会话绑定的账户")
@@ -596,7 +596,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_StickyS
 		}
 
 		// 无分组时使用 gemini 平台，粘性会话绑定的 antigravity 账户平台不匹配
-		acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-123", "gemini-2.5-flash", nil)
+		acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-123", "gemini-3.8-flash", nil)
 		require.NoError(t, err)
 		require.NotNil(t, acc)
 		require.Equal(t, int64(2), acc.ID, "粘性会话账户平台不匹配，应降级选择 gemini 账户")
@@ -627,7 +627,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_StickyS
 			cache:       cache,
 		}
 
-		acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-123", "gemini-2.5-flash", nil)
+		acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-123", "gemini-3.8-flash", nil)
 		require.NoError(t, err)
 		require.NotNil(t, acc)
 		// 粘性会话未命中，按优先级选择
@@ -657,7 +657,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_StickyS
 			cache:       cache,
 		}
 
-		acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-123", "gemini-2.5-flash", nil)
+		acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-123", "gemini-3.8-flash", nil)
 		require.NoError(t, err)
 		require.NotNil(t, acc)
 		require.Equal(t, int64(2), acc.ID)
@@ -694,7 +694,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_ForcePl
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(1), acc.ID)
@@ -729,7 +729,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_NoModel
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-3.8-flash", nil)
 	require.Error(t, err)
 	require.Nil(t, acc)
 	require.Contains(t, err.Error(), "supporting model")
@@ -759,7 +759,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_StickyM
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-999", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "session-999", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(1), acc.ID)
@@ -787,7 +787,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_SkipDis
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
@@ -816,7 +816,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_Exclude
 	}
 
 	excluded := map[int64]struct{}{1: {}}
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-2.5-flash", excluded)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-3.8-flash", excluded)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
@@ -839,7 +839,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_ListErr
 		cache:       cache,
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-2.5-flash", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-3.8-flash", nil)
 	require.Error(t, err)
 	require.Nil(t, acc)
 	require.Contains(t, err.Error(), "query accounts failed")
@@ -952,14 +952,14 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccount(t *testing.T) {
 		{
 			name:     "Antigravity平台-支持gemini模型",
 			account:  &Account{Platform: PlatformAntigravity},
-			model:    "gemini-2.5-flash",
+			model:    "gemini-3.8-flash",
 			expected: true,
 		},
 		{
-			name:     "Antigravity平台-支持claude模型",
+			name:     "Antigravity平台-默认映射不再支持claude模型",
 			account:  &Account{Platform: PlatformAntigravity},
 			model:    "claude-sonnet-4-6",
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "Antigravity平台-不支持gpt模型",
@@ -1003,7 +1003,7 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccount(t *testing.T) {
 		{
 			name:     "Gemini平台-无映射配置-支持所有模型",
 			account:  &Account{Platform: PlatformGemini},
-			model:    "gemini-2.5-flash",
+			model:    "gemini-3.8-flash",
 			expected: true,
 		},
 		{
@@ -1012,7 +1012,7 @@ func TestGeminiMessagesCompatService_isModelSupportedByAccount(t *testing.T) {
 				Platform:    PlatformGemini,
 				Credentials: map[string]any{"model_mapping": map[string]any{"gemini-2.5-pro": "x"}},
 			},
-			model:    "gemini-2.5-flash",
+			model:    "gemini-3.8-flash",
 			expected: false,
 		},
 	}

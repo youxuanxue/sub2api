@@ -207,7 +207,7 @@ func TestAccountModelMappingFloorForOps_ExportsVertexSharedAndProfileFloors(t *t
 	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
 	shared := doc.NewAPIChannelTypes["41"]
-	requireIdentityMappingForIDs(t, shared, vertexSharedModelMappingPresetIDs())
+	require.Equal(t, vertexSharedModelMappingPreset(), shared)
 	require.Equal(t, vertexCapabilityProfileMappingsForOps(), doc.VertexCapabilityProfiles)
 	for profile, mapping := range doc.VertexCapabilityProfiles {
 		for id, target := range shared {

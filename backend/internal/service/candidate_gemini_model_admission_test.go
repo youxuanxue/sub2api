@@ -16,7 +16,7 @@ import (
 func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite"} {
+	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
 		for _, inbound := range []struct {
 			name, path, body string
 			shape            UniversalShape
@@ -47,12 +47,18 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 					require.NoError(t, err, "account %d", accounts[i].ID)
 					require.Equal(t, protocolrouter.ProtocolGeminiGenerateContent, plan.TargetProtocol())
 					if i == 0 {
-						require.Equal(t, model, plan.ResolvedModel())
+						want := map[string]string{
+							"gemini-3-flash-preview": "gemini-3.8-flash",
+							"gemini-3.5-flash-lite":  "gemini-3.6-flash",
+						}[model]
+						require.Equal(t, want, plan.ResolvedModel())
 						require.Contains(t, plan.Endpoint(), "/locations/global/")
-					} else if model == "gemini-3-flash-preview" {
-						require.Equal(t, "gemini-3-flash", plan.ResolvedModel())
 					} else {
-						require.Equal(t, model, plan.ResolvedModel())
+						want := map[string]string{
+							"gemini-3-flash-preview": "gemini-3.8-flash-medium",
+							"gemini-3.5-flash-lite":  "gemini-3.6-flash-tiered",
+						}[model]
+						require.Equal(t, want, plan.ResolvedModel())
 					}
 				}
 				group, err := resolver.Resolve(ctx, universalKey(334), inbound.shape, model, "")
@@ -74,7 +80,7 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 
 func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 	pricing := loadTKPricingOverlay()
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite"} {
+	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
 		entry := pricing[model]
 		require.NotNil(t, entry)
 		require.False(t, tkIsEffectivelyUnpriced(entry))
@@ -83,31 +89,33 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 		require.Equal(t, "gemini", presentationVendorForServable(model, "gemini"))
 		require.Contains(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), model)
 	}
-	// The restored compatibility spelling must not change the user's price.
-	preview, wire := pricing["gemini-3-flash-preview"], pricing["gemini-3-flash"]
-	require.NotNil(t, wire)
-	require.Equal(t, preview.InputCostPerToken, wire.InputCostPerToken)
-	require.Equal(t, preview.OutputCostPerToken, wire.OutputCostPerToken)
-	require.Equal(t, preview.CacheReadInputTokenCost, wire.CacheReadInputTokenCost)
+	// Alias remains independently priced in the overlay; billing still keys on
+	// requested_model. Mapping remaps wire targets separately.
+	require.NotNil(t, pricing["gemini-3.8-flash"])
+	require.NotNil(t, pricing["gemini-3.6-flash"])
 }
 
 func TestCandidateEligibilityGeminiNativeActivationScope(t *testing.T) {
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite"} {
-		require.Equal(t, model, floor.NewAPIChannelTypes["41"][model])
+	wantVertex := map[string]string{
+		"gemini-3-flash-preview": "gemini-3.8-flash",
+		"gemini-3.5-flash-lite":  "gemini-3.6-flash",
+	}
+	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
+		require.Equal(t, wantVertex[model], floor.NewAPIChannelTypes["41"][model])
 		for profile, mapping := range floor.VertexCapabilityProfiles {
-			require.Equal(t, model, mapping[model], "profile %s", profile)
+			require.Equal(t, wantVertex[model], mapping[model], "profile %s", profile)
 		}
 		require.NotEmpty(t, floor.Platforms[PlatformAntigravity][model])
-		require.NotContains(t, floor.Platforms[PlatformGemini], model,
-			"Vertex evidence must not introduce an unverified native Gemini activation requirement")
-		require.NotContains(t, AccountModelMappingPresetIDs(context.Background(), PlatformGemini, 0, nil), model)
+		// Converged Google text aliases are also on the Gemini floor (traffic aliases).
+		require.Equal(t, wantVertex[model], floor.Platforms[PlatformGemini][model])
+		require.Contains(t, AccountModelMappingPresetIDs(context.Background(), PlatformGemini, 0, nil), model)
 	}
 }
 
 func TestCandidateEligibilityGeminiNativeEdgeMapping(t *testing.T) {
-	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.1-flash-lite"} {
+	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
 		t.Run(model, func(t *testing.T) {
 			resolver, _, _, _ := candidateGoogleFixture(t)
 			account := &Account{ID: 5, Platform: PlatformAntigravity, Type: AccountTypeOAuth,
