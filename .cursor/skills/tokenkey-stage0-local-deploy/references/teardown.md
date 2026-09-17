@@ -21,12 +21,6 @@ docker compose \
 确认 **`TOKENKEY_STAGE0_LOCAL_ROOT`** 指向正确后：
 
 1. 先按 **7a** `down`（避免删目录时容器仍占用文件）。
-2. 再删状态目录，例如：
-
-```bash
-rm -rf "${TOKENKEY_STAGE0_LOCAL_ROOT}"
-```
-
-之后从 **§1** 起重建；**§2** 会生成新密钥与 **新** `POSTGRES_PASSWORD`，与空数据目录一致。
+2. 用户明确要求清盘、路径核对无误后，调用 `bash deploy/aws/stage0/local-bootstrap.sh --reset` 清空并重建配置。新凭据与空数据目录一同生成，不手写第二套删目录/生成密钥流程。
 
 若曾 `docker build` 本地标签且不再使用：`docker rmi tokenkey-local:dev`（替换成实际 tag）。

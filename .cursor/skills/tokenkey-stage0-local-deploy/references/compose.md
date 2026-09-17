@@ -1,7 +1,7 @@
 ## 5) 校验配置、拉依赖、启动
 
 ```bash
-# 若未导出 REPO_ROOT / TOKENKEY_STAGE0_LOCAL_ROOT：见「本项目路径约定」或 §1
+# 若未导出 REPO_ROOT / TOKENKEY_STAGE0_LOCAL_ROOT：见 SKILL.md「启动或日常复用」
 
 docker compose \
   -f "${REPO_ROOT}/deploy/aws/stage0/docker-compose.yml" \
@@ -28,7 +28,6 @@ docker compose \
 可选本地构建（父目录需含 `sub2api` + `new-api`）：
 
 ```bash
-export TOKENKEY_NEWAPI_PARENT="$HOME/Codes/token/tk"
 cd "${TOKENKEY_NEWAPI_PARENT}"
 docker build -f sub2api/Dockerfile -t tokenkey-local:dev .
 ```

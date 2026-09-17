@@ -32,3 +32,19 @@
 | prod approval 时机、smoke 模型回退 | 判断 | prompt（爆炸半径、用户入口顺序） |
 | post-release verdict + Summary | 机械 | `release_post_check.py evaluate --phase immediate|delayed` + `summary` + `gate`（Summary 显式显示缺失/无效证据与 baseline failure；gate 只接受 phase 匹配且 verdict=`green`，agent 禁止另评） |
 | `simple_release=true` / `[skip ci]` 等 hard rules | 判断 + 机械门禁 | prompt + `scripts/release-tag.sh` / preflight |
+
+## 镜像发布之外的入口
+
+- `.github/workflows/ops-stage0-pg-dump-refresh.yml` + `ops/stage0/pg_dump_refresh_via_ssm.sh` — in-place 同步 `deploy/aws/cloudformation/stage0-single-ec2.yaml` 里的 `tokenkey-pgdump.*` systemd unit 到 live 实例（不重建 EC2）；下次有类似 user-data 模板改动可参考此形状写一个 one-shot ops workflow。
+- `.github/workflows/ops-stage0-host-mem-guard.yml` + `ops/stage0/sync-host-mem-guard-via-ssm.sh` — 同形状的 one-shot：把 #811 的 `/swapfile` 释放阀 + sysctl + `tokenkey-disk-metrics.sh` 内存压力告警从 `stage0-ec2-bootstrap.sh` 运行时抽取（单一源）推到 live prod（不重建 EC2，prod-only）。**发版本身不会落地这批 infra 改动**（deploy 只换镜像、不跑 bootstrap）——改了 bootstrap 的 swap/内存防御后，要么等下次换机，要么 dispatch 此 workflow 立刻生效。
+
+Gateway verification owners: `gateway_capability_host.py` (prepared candidate requests),
+`gateway_capability_matrix.py` (account-supply plan/report), `gateway_capability_scenarios.py`
+(synthetic scenarios), `gateway_capability_check.py` (response semantics), all under `ops/stage0/`.
+Legacy historical replay remains in `prod_replay.py`; it is not the default deployment verification.
+See `docs/approved/prod-replay-capability-matrix.md`.
+
+
+独立 QA 发布入口：`.github/workflows/deploy-qa-bundle.yml`（`deploy` / `canary-only` / `qa-infra-check`）。
+普通 gateway/all rollout 不自动 dispatch QA；target contract 由 `ops/stage0/prod_release_plan.py`
+自动选择 legacy-only 回滚安全分支。发布与验收边界见 `docs/approved/design-split-deploy-qa-bundle.md`。

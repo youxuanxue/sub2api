@@ -1,18 +1,12 @@
 ## 2) Provision：创建实例
 
-先从 matrix 取 `confirm_instance`（不要硬编码 `tokenkey-edge-<edge_id>-ls`）：
+普通 provision 复用 dispatch owner，自动解析确认值：
 
 ```bash
-CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
-  --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
-TAG=X.Y.Z   # 当前 prod tag（不带 v）；读 backend/cmd/server/VERSION
-gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=<edge_id> \
-  -f operation=provision \
-  -f tag=$TAG \
-  -f confirm_instance="$CONFIRM"
-gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 1 --json databaseId -q '.[0].databaseId')
+bash scripts/stage0/dispatch-edge-deploy.sh --edge-id <edge_id> --operation provision --tag <prod_tag>
 ```
+
+按入口 Smoke 节匹配本次 edge / operation / ref 的 run，再 `gh run watch <run_id> --exit-status`。
 
 matrix 变更在 feature branch 上时，dispatch 加 `--ref <branch>`（workflow checkout 该 ref 的 matrix）。
 
@@ -24,6 +18,9 @@ matrix 变更在 feature branch 上时，dispatch 加 `--ref <branch>`（workflo
 **销毁重建**（bare instance、换 bundle、误装坏栈；**保留 Static IP 地址**）：
 
 ```bash
+CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
+  --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
+TAG=<prod_tag>  # 不带 v；须已确认目标版本
 gh workflow run deploy-edge-lightsail-stage0.yml \
   -f edge_id=<edge_id> \
   -f operation=provision \

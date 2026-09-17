@@ -23,7 +23,7 @@
         ".cursor/skills/*/SKILL.md"
       ],
       "max_file_bytes": 9000,
-      "max_total_bytes": 160000
+      "max_total_bytes": 120000
     },
     {
       "name": "reference-navigation",
@@ -32,6 +32,14 @@
       ],
       "max_file_bytes": 10000,
       "max_total_bytes": 10000
+    },
+    {
+      "name": "skill-library",
+      "patterns": [
+        ".cursor/skills/*/**/*.md"
+      ],
+      "max_file_bytes": 11000,
+      "max_total_bytes": 255000
     }
   ],
   "references": [

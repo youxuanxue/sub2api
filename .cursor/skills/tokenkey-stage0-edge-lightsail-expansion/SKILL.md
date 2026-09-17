@@ -10,21 +10,11 @@ description: >-
 权威纪律以仓库根 `CLAUDE.md` 为准（ARM 多架构镜像、release/deploy 顺序、preflight 不绕过）。
 默认路径与放弃决策见 `docs/spec-delta/edge-lightsail.md`。
 
-## 确定性基线（机械化 vs 真判断）
+## 执行 owner
 
-| 步骤 | 类型 | 承载 |
-|---|---|---|
-| 解析 edge → 区域/AZ/bundle/SSM 前缀 | 机械 | `deploy/aws/lightsail/resolve-edge-lightsail-target.py` |
-| Stage0 Lightsail routing / 统一 SSM | 机械 | `ops/stage0/edge_routing_matrix.py` + `ops/stage0/edge_ssm_execution.py`（admin：`edge_admin_resolve_target.py`）；可部署矩阵：`python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` |
-| 渲染 user-data（launch script） | 机械 | `deploy/aws/lightsail/render-bootstrap.sh`（drift gate 已接入 preflight） |
-| Provision dispatch + watch | 机械 | `gh workflow run deploy-edge-lightsail-stage0.yml` + `gh run watch --exit-status` |
-| 升级/回滚/烟测 dispatch | 机械 | 同上（operation 参数化） |
-| Provision 后落盘 admin 账密 | 机械 | `bash ops/stage0/ensure-edge-admin-credentials.sh --platform lightsail <edge_id>` |
-| 跨 edge 搬账号+凭据（admin UI 进不去的 live blob，如 kiro OAuth grant）+ groups，server→S3→server | 机械 | `ops/migration/migrate-edge-accounts.py extract\|build\|load`（写侧默认 dry-run，`--execute` 落地；详见 §2.3） |
-| 防火墙收口 443-only + DNS 后 HTTPS / ACME 验收 | 机械 | `bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> [--enforce-ports] [--renew-cert]` |
-| matrix 编辑 / IAM scope / GHCR PAT 落 SSM | 判断 | prompt（成本/区域/权限是架构决定） |
-| DNS A 记录指向 Lightsail Static IP | 判断 | prompt（Porkbun 手工步骤） |
-| 故障定位（SSM Hybrid 注册未完成 / Lightsail 配额 / GHCR PAT 失效） | 判断 | prompt（诊断分支） |
+矩阵解析用 `deploy/aws/lightsail/resolve-edge-lightsail-target.py`；路由与 SSM 由 `ops/stage0/edge_routing_matrix.py`、`edge_ssm_execution.py`（admin：`edge_admin_resolve_target.py`）统一处理。可部署集合由 `python3 deploy/aws/stage0/resolve-edge-target.py --list-deployable` 生成，bootstrap 用 `deploy/aws/lightsail/render-bootstrap.sh`。
+
+成本、区域、IAM scope 与 DNS 是决策项；注册、provision、凭据、防火墙和迁移命令按下方对应细则执行。
 
 ## 调用参数
 
@@ -49,17 +39,13 @@ description: >-
 
 ## 0) 前置
 
-```bash
-git fetch origin main --tags
-git checkout main && git pull --ff-only
-bash scripts/preflight.sh
-```
+在当前授权 checkout 运行 `bash scripts/preflight.sh`；需要切换工作树时使用 `git-worktree-submodule` 技能。发布版本与 workflow ref 须明确，不在此入口隐式切换 main。
 
 确认：
 
 - 本机有 `gh`、`aws`（or `aws-vault`）、`jq`。
 - 仓库 var `AWS_OIDC_ROLE_ARN` 已配置；`vars.EDGE_ACME_EMAIL`、`vars.EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 已在 `edge-<edge_id>` Environment 配齐（**EDGE_MAIN_GATEWAY_ALLOWED_CIDR 没有默认值**，workflow 会在缺失时 `::error::` 直接挂）。
-- 若该 edge 要跑含 main-via-edge 的 smoke（当前仅 uk1/us1）：`TK_SMOKE_API_KEY` secret 已在对应 Environment 配置。
+- 若该 edge 要跑含 main-via-edge 的 smoke：`TK_SMOKE_API_KEY` secret 已在对应 Environment 配置。
 
 ## 1) Prepare：注册新 Lightsail edge
 
@@ -80,38 +66,29 @@ bash ops/stage0/verify-edge-lightsail-network.sh <edge_id> --renew-cert
 # 等价：SSM docker restart tokenkey-caddy，等 ~15s 后 curl https://api-<id>.tokenkey.dev/health
 ```
 
-验收：`curl -sk https://api-<edge_id>.tokenkey.dev/health` → `{"status":"ok"}`。
+验收：`curl -sS https://api-<edge_id>.tokenkey.dev/health` → `{"status":"ok"}`。
 
 ## 4) Smoke
 
 ```bash
-CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
-  --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
-gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=<edge_id> \
-  -f operation=smoke \
-  -f confirm_instance="$CONFIRM"
-gh run watch --exit-status $(gh run list -w deploy-edge-lightsail-stage0.yml -L 1 --json databaseId -q '.[0].databaseId')
+bash scripts/stage0/dispatch-edge-deploy.sh --edge-id <edge_id> --operation smoke
 ```
+
+dispatch 只提交 workflow；定位本次 edge / operation / ref 对应的 run 后，用 `gh run watch <run_id> --exit-status` 等待终态，不把列表第一条当成本次运行。
 
 接 `ops/stage0/external_health.sh` + `ops/stage0/edge_post_deploy_smoke.sh`（与 EC2 共用）。
 
-**Smoke 范围（operator 选择）**：可选 `main-via-edge`（经 prod 中转，需 `TK_SMOKE_API_KEY`）目前只对 **uk1 / us1** 启用。
-其它 Lightsail edge provision 完成后以 DNS + 可选 `curl https://api-<id>.tokenkey.dev/health` 验收；
+**Smoke 范围（operator 选择）**：`main-via-edge` 经 prod 中转，需该 Environment 的 `TK_SMOKE_API_KEY`；缺 key 时脚本跳过，不能报告已验证。适用目标按当前矩阵与环境配置判断，不维护 edge 名单。
+
 `operation=upgrade` / `rollback` 默认 **infra**（workflow log：`tk_edge_post_deploy_smoke: OK phase=infra`）；首次 OAuth 拟真验收显式 `--smoke-phase full`。默认 `operation=smoke` 仍为 **full**。
 
 ## 5) Upgrade / Rollback
 
 ```bash
-TAG=<new_tag>
-CONFIRM=$(python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
-  --edge-id <edge_id> | awk -F= '/^instance_name=/{print $2}')
-gh workflow run deploy-edge-lightsail-stage0.yml \
-  -f edge_id=<edge_id> -f operation=upgrade -f tag=$TAG \
-  -f confirm_instance="$CONFIRM"
+bash scripts/stage0/dispatch-edge-deploy.sh --edge-id <edge_id> --operation upgrade --tag <new_tag>
 ```
 
-回滚把 `operation=rollback` + 把 `tag` 设成上一个 prod tag。
+回滚用 `--operation rollback --tag <previous_prod_tag>`；需要指定 workflow ref 时传 `--ref`。按 Smoke 节匹配并等待本次 run。
 
 ## 6) 已知失败模式与定位
 
@@ -119,7 +96,7 @@ gh workflow run deploy-edge-lightsail-stage0.yml \
 
 ## 7) Acceptance（机械化输出）
 
-完成 1 个 Lightsail edge expansion 后，给一个 5 行 acceptance：
+完成后从 workflow Job summary 与 verify 脚本生成验收摘要：
 
 ```text
 edge_id        : <id>
@@ -132,15 +109,4 @@ admin_credentials_file: ~/Codes/keys/tokenkey-<id>-admin-password.txt (§2.1; pa
 last_smoke_run : <gh run URL or skipped>
 ```
 
-## 8) `operation=full` 编号清单
-
-1. §1 Prepare（matrix + workflow choice + OIDC §1.5a + lightsail addon §1.3）
-2. §2 Provision（GHA + watch）
-3. §2.1 Admin 账密（`ensure-edge-admin-credentials.sh`）
-4. §2.2 防火墙收口 443-only（`verify-edge-lightsail-network.sh --enforce-ports`）
-5. §3 DNS A 记录 → Static IP
-6. §3 ACME（若 TLS 失败：`--renew-cert`）
-7. §4 Smoke（或 uk1/us1 以外 edge 仅 `curl /health`）
-8. §7 Acceptance 输出
-
-数据来自 workflow Job summary + verify 脚本，不要在 SKILL 里手抄常量。
+`operation=full` 顺序见参数表；每一步都须取得对应验收证据，未完成项如实报告。
