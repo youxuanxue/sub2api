@@ -79,9 +79,10 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 }
 
 func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
-	pricing := loadTKPricingOverlay()
+	resetPricingRegistrySnapshot(t)
+	pricing := &PricingService{useActiveRegistry: true}
 	for _, model := range []string{"gemini-3-flash-preview", "gemini-3.5-flash-lite"} {
-		entry := pricing[model]
+		entry := pricing.GetModelPricing(model)
 		require.NotNil(t, entry)
 		require.False(t, tkIsEffectivelyUnpriced(entry))
 		require.True(t, isPublicCatalogModelSupported("gemini", model))
@@ -90,12 +91,12 @@ func TestCandidateEligibilityGeminiNativeModelPricing(t *testing.T) {
 		require.Contains(t, NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi), model)
 	}
 	// Compatibility aliases must bill at the remapped target list price.
-	preview, wire38 := pricing["gemini-3-flash-preview"], pricing["gemini-3.8-flash"]
+	preview, wire38 := pricing.GetModelPricing("gemini-3-flash-preview"), pricing.GetModelPricing("gemini-3.8-flash")
 	require.NotNil(t, wire38)
 	require.Equal(t, wire38.InputCostPerToken, preview.InputCostPerToken)
 	require.Equal(t, wire38.OutputCostPerToken, preview.OutputCostPerToken)
 	require.Equal(t, wire38.CacheReadInputTokenCost, preview.CacheReadInputTokenCost)
-	lite, wire36 := pricing["gemini-3.5-flash-lite"], pricing["gemini-3.6-flash"]
+	lite, wire36 := pricing.GetModelPricing("gemini-3.5-flash-lite"), pricing.GetModelPricing("gemini-3.6-flash")
 	require.NotNil(t, wire36)
 	require.Equal(t, wire36.InputCostPerToken, lite.InputCostPerToken)
 	require.Equal(t, wire36.OutputCostPerToken, lite.OutputCostPerToken)

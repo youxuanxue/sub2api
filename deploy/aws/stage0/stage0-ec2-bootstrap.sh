@@ -199,8 +199,8 @@ COMPOSE_B64="$(aws ssm get-parameter --name "${COMPOSE_PARAM}" --region "${REGIO
 CADDY_B64="$(aws ssm get-parameter --name "${CADDY_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 RENDER_B64="$(aws ssm get-parameter --name "${CADDY_RENDER_PARAM}" --region "${REGION}" --query Parameter.Value --output text)"
 printf '%s' "${COMPOSE_B64}" | base64 -d | gunzip > docker-compose.yml
-# Prod-only PG GUC overlay (not in Lightsail user-data). systemd/start scripts
-# pick it up when present beside docker-compose.yml.
+# Prod-only PG GUCs. Generated from docker-compose.prod-pg.yml by build-cfn.sh.
+# >>> PROD_PG_OVERLAY START (generated; edit docker-compose.prod-pg.yml) <<<
 cat > docker-compose.prod-pg.yml <<'PGEOF'
 services:
   postgres:
@@ -221,6 +221,7 @@ services:
       - -c
       - max_parallel_workers_per_gather=${POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER:-1}
 PGEOF
+# >>> PROD_PG_OVERLAY END <<<
 printf '%s' "${CADDY_B64}" | base64 -d | gunzip > caddy/Caddyfile.template
 printf '%s' "${RENDER_B64}" | base64 -d | gunzip > caddy/render-prod-caddyfile.sh
 chmod 0755 caddy/render-prod-caddyfile.sh
@@ -313,14 +314,6 @@ TOKENKEY_IMAGE=${TOKENKEY_IMAGE}
 POSTGRES_USER=tokenkey
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_DB=tokenkey
-# Prod-only PG sizing for ~8 GiB Stage0 hosts (edge Lightsail keeps compose defaults).
-POSTGRES_MAX_CONNECTIONS=200
-POSTGRES_SHARED_BUFFERS=1GB
-POSTGRES_EFFECTIVE_CACHE_SIZE=6GB
-POSTGRES_MAINTENANCE_WORK_MEM=128MB
-POSTGRES_JIT=off
-POSTGRES_MAX_PARALLEL_WORKERS=2
-POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER=1
 DATABASE_MAX_OPEN_CONNS=50
 DATABASE_MAX_IDLE_CONNS=10
 REDIS_PASSWORD=
@@ -442,10 +435,10 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/var/lib/tokenkey
 EnvironmentFile=/var/lib/tokenkey/.env
-ExecStartPre=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env pull
-ExecStart=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env up -d --remove-orphans
+ExecStartPre=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env -f /var/lib/tokenkey/docker-compose.yml -f /var/lib/tokenkey/docker-compose.prod-pg.yml pull
+ExecStart=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env -f /var/lib/tokenkey/docker-compose.yml -f /var/lib/tokenkey/docker-compose.prod-pg.yml up -d --remove-orphans
 ExecStartPost=-/usr/local/bin/tokenkey-prune-ghcr-app-tags.sh
-ExecStop=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env down
+ExecStop=/usr/bin/docker compose --env-file /var/lib/tokenkey/.env -f /var/lib/tokenkey/docker-compose.yml -f /var/lib/tokenkey/docker-compose.prod-pg.yml down
 TimeoutStartSec=10min
 
 [Install]

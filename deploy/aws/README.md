@@ -486,7 +486,7 @@ bash ops/stage0/sync-instance-cpu-alarm.sh --stack "$STACK"
 #       同样要 pin $RUNNING_TAG + 重指 OIDC）。
 ```
 
-> **Prod PG 调优（P1）**：共用 `stage0/docker-compose.yml` **不**抬默认 GUC（避免 edge OOM / Lightsail 14336B user-data 帽）。Prod 使用旁路 `docker-compose.prod-pg.yml` + `.env`（`POSTGRES_SHARED_BUFFERS=1GB` 等）：bootstrap 写入 env；存量主机用 `bash ops/stage0/sync-prod-pg-tuning-via-ssm.sh <prod-instance-id> [--apply]`（`--apply` 会 recreate postgres，有短暂 DB 抖动）。
+> **Prod PG 调优（P1）**：共用 `stage0/docker-compose.yml` **不**抬默认 GUC（避免 edge OOM / Lightsail 14336B user-data 帽）。Prod 首次启动及后续 blue/green 都显式加载 `docker-compose.prod-pg.yml`；该文件是默认调优值的唯一来源，bootstrap 由 `build-cfn.sh` 生成嵌入。`.env` 中已有的 `POSTGRES_*` 自定义值优先且同步时保留；存量主机用 `bash ops/stage0/sync-prod-pg-tuning-via-ssm.sh <prod-instance-id> [--apply]`（`--apply` 会 recreate postgres，有短暂 DB 抖动）。
 
 ### Stage-0 风险审计（prod 已在用）
 

@@ -1461,7 +1461,7 @@
         "id.startsWith('gpt-image-')",
         "id.startsWith('grok-imagine-image')",
         "id.startsWith('wan') && id.includes('-image')",
-        "id.includes('seedance') || id.startsWith('veo-') || id === 'grok-imagine-video'",
+        "id === 'grok-imagine-video' || id.startsWith('grok-imagine-video-')",
         "videoStateFromFetch",
         "isGeminiNativeImageModel",
         "extractChatImageItems"
@@ -2512,19 +2512,27 @@
     {
       "path": "frontend/src/components/admin/account/AccountTestModal.vue",
       "must_contain": [
-        "Text models first so admin \"测连接\" defaults to a cheap connectivity probe.",
-        "'gemini-3.8-flash'",
-        "props.account?.platform === PLATFORM_ANTIGRAVITY"
+        "sortAccountTestModels(models)",
+        "supportsAccountGeminiImageTest(props.account?.platform, selectedModelId.value)"
       ],
-      "rationale": "Admin AccountTestModal must prefer text Gemini models over image ids as the default connectivity probe, and allow Antigravity OAuth (not only apikey) for image test mode. Upstream-shaped Vue; pin text-first priority list (converged 3.8 head) and OAuth image eligibility."
+      "rationale": "Both account dialogs must consume the shared text-first default and Gemini image alias eligibility owner."
     },
     {
       "path": "frontend/src/components/account/AccountTestModal.vue",
       "must_contain": [
-        "'gemini-3.8-flash'",
-        "props.account?.platform === PLATFORM_ANTIGRAVITY"
+        "sortAccountTestModels(models)",
+        "supportsAccountGeminiImageTest(props.account?.platform, selectedModelId.value)"
       ],
-      "rationale": "User AccountTestModal mirrors admin: text-first Gemini defaults (converged 3.8 head) and Antigravity OAuth image-test eligibility. Upstream-shaped; pin the same priority head and platform gate."
+      "rationale": "Both account dialogs must consume the shared text-first default and Gemini image alias eligibility owner."
+    },
+    {
+      "path": "frontend/src/utils/accountTestModels.tk.ts",
+      "must_contain": [
+        "isGeminiNativeImageModel(model)",
+        "modalityForModel(a.id)",
+        "export function sortAccountTestModels"
+      ],
+      "rationale": "Single account test default/eligibility owner; image aliases must not accidentally become text connectivity probes."
     }
   ]
 }

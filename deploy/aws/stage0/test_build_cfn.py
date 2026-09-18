@@ -196,6 +196,44 @@ class BuildCfnSizeTest(unittest.TestCase):
             msg="build-cfn --check passed despite a tampered source; the drift gate is broken",
         )
 
+    def test_prod_pg_overlay_is_generated_and_loaded_on_first_start(self) -> None:
+        bootstrap = (STAGE0 / "stage0-ec2-bootstrap.sh").read_text()
+        start = bootstrap.index("cat > docker-compose.prod-pg.yml <<'PGEOF'")
+        end = bootstrap.index("\nPGEOF", start) + len("\nPGEOF")
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subprocess.run(["bash", "-c", bootstrap[start:end]], cwd=root, check=True)
+            self.assertEqual((root / "docker-compose.prod-pg.yml").read_bytes(), (STAGE0 / "docker-compose.prod-pg.yml").read_bytes())
+            # Execute the generated systemd command against a recording docker
+            # binary; initial startup must explicitly consume the generated file.
+            docker = root / "docker"
+            docker.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            docker.chmod(0o755)
+            command = next(line.split("=", 1)[1] for line in bootstrap.splitlines() if line.startswith("ExecStart=/usr/bin/docker compose"))
+            command = command.replace("/usr/bin/docker", str(docker)).replace("/var/lib/tokenkey", str(root))
+            result = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=True)
+            args = result.stdout.splitlines()
+            files = [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == "-f"]
+            self.assertEqual(files, [str(root / "docker-compose.yml"), str(root / "docker-compose.prod-pg.yml")])
+
+    def test_prod_pg_owner_drift_requires_regeneration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            stage0_copy = root / "deploy/aws/stage0"
+            shutil.copytree(STAGE0, stage0_copy)
+            cfn = root / "deploy/aws/cloudformation/stage0-single-ec2.yaml"
+            cfn.parent.mkdir(parents=True)
+            shutil.copy2(CFN_MAIN, cfn)
+            overlay = stage0_copy / "docker-compose.prod-pg.yml"
+            overlay.write_text(overlay.read_text().replace("1GB", "2GB"))
+            command = ["bash", str(stage0_copy / "build-cfn.sh")]
+            result = subprocess.run([*command, "--check"], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            subprocess.run(command, capture_output=True, check=True)
+            subprocess.run([*command, "--check"], capture_output=True, check=True)
+            generated = (stage0_copy / "stage0-ec2-bootstrap.sh").read_text()
+            self.assertIn("POSTGRES_SHARED_BUFFERS:-2GB", generated)
+
     def test_cfn_has_bootstrap_ssm_markers(self) -> None:
         text = CFN_MAIN.read_text()
         for marker in (

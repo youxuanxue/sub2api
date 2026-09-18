@@ -380,6 +380,7 @@
 </template>
 
 <script setup lang="ts">
+import { sortAccountTestModels, supportsGeminiImageTest as supportsAccountGeminiImageTest } from '@/utils/accountTestModels.tk'
 import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -456,30 +457,9 @@ const grokTestModeOptions = computed(() => [
   { value: 'stt', label: t('admin.accounts.grok.testModeSTT') },
   { value: 'realtime', label: t('admin.accounts.grok.testModeRealtime') }
 ])
-// Text models first so admin "测连接" defaults to a cheap connectivity probe.
-// Image models stay available but must not be the accidental default — selecting
-// them runs a real TEXT+IMAGE generation that can hit quota/429.
-const prioritizedGeminiModels = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3-flash-preview',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-image',
-  'gemini-3-pro-image',
-  'nano-2'
-]
-const supportsGeminiImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
-  if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
-
-  // Native Gemini API key, Antigravity API-key relay, and Antigravity OAuth all
-  // support admin image probes (OAuth uses daily cloudcode-pa + modalities).
-  return (
-    props.account?.platform === PLATFORM_GEMINI ||
-    props.account?.platform === PLATFORM_ANTIGRAVITY
-  )
-})
+const supportsGeminiImageTest = computed(() =>
+  supportsAccountGeminiImageTest(props.account?.platform, selectedModelId.value)
+)
 
 const supportsOpenAIImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
@@ -734,17 +714,6 @@ const isKiroTestAccount = computed(() => (
   )
 ))
 
-const sortTestModels = (models: AccountModelOption[]) => {
-  const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
-
-  return [...models].sort((a, b) => {
-    const aPriority = priorityMap.get(a.id) ?? Number.MAX_SAFE_INTEGER
-    const bPriority = priorityMap.get(b.id) ?? Number.MAX_SAFE_INTEGER
-    if (aPriority !== bPriority) return aPriority - bPriority
-    return 0
-  })
-}
-
 const pickDefaultModelForMode = () => {
   const options = modelOptionsForMode.value
   selectedModelId.value = options[0]?.id ?? ''
@@ -815,7 +784,7 @@ const loadAvailableModels = async () => {
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
     availableModels.value = props.account.platform === PLATFORM_GEMINI || props.account.platform === PLATFORM_ANTIGRAVITY
-      ? sortTestModels(models)
+      ? sortAccountTestModels(models)
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {

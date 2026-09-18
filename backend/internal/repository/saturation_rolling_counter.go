@@ -9,6 +9,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Isolate ZSET history from legacy STRING counters during upgrades and rollback.
+const saturationRollingKeySuffix = ":rolling-v2"
+
 // saturationRollingIncrScript records one timestamped capacity event and drops
 // members that have left the rolling window. Shared by Anthropic / OpenAI /
 // Antigravity saturation counters so window semantics cannot drift.

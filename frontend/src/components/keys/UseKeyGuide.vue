@@ -264,6 +264,7 @@
 </template>
 
 <script setup lang="ts">
+import { isGeminiNativeImageModel } from '@/constants/playgroundMedia.tk'
 import { ref, computed, h, watch, toRef, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
@@ -1374,11 +1375,6 @@ function generateCompatibleClientFields(
 // auth-header / body all injected correct-by-construction. Targets the
 // Python/curl callers that dominate the auth (#1), malformed-body (#4) and
 // wrong-endpoint (#5) error buckets.
-function isGeminiImageModelId(model: string): boolean {
-  const id = model.toLowerCase()
-  return id.startsWith('gemini-') && (id.includes('-image') || id.includes('nano-banana'))
-}
-
 function generateCurl(
   flavor: UseKeyFlavor,
   baseRoot: string,
@@ -1403,7 +1399,7 @@ function generateCurl(
     }
   }
   if (flavor === PLATFORM_GEMINI) {
-    const geminiBody = isGeminiImageModelId(model)
+    const geminiBody = isGeminiNativeImageModel(model)
       ? `{
     "contents": [{"role": "user", "parts": [{"text": "Generate a simple solid red square image. No text."}]}],
     "generationConfig": {
@@ -1459,7 +1455,7 @@ print(msg.content[0].text)`,
     }
   }
   if (flavor === PLATFORM_GEMINI) {
-    const geminiJson = isGeminiImageModelId(model)
+    const geminiJson = isGeminiNativeImageModel(model)
       ? `{
         "contents": [{"role": "user", "parts": [{"text": "Generate a simple solid red square image. No text."}]}],
         "generationConfig": {

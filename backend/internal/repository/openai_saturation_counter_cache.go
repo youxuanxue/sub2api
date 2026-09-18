@@ -71,7 +71,7 @@ func NewOpenAISaturationCounterCache(rdb *redis.Client) service.OpenAISaturation
 }
 
 func openaiSaturationKey(accountID int64) string {
-	return fmt.Sprintf("%s%d", openaiSaturationCountPrefix, accountID)
+	return fmt.Sprintf("%s%d", openaiSaturationCountPrefix, accountID) + saturationRollingKeySuffix
 }
 
 func (c *openaiSaturationCounterCache) IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int) (int64, error) {
