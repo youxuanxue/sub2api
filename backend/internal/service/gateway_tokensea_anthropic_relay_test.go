@@ -120,8 +120,8 @@ func TestIsModelSupportedByAccount_AnthropicTokenseaUsesMapping(t *testing.T) {
 	// their wire targets are already on the shared 92/93 floor.
 	require.True(t, svc.isModelSupportedByAccount(account, "nano-2"))
 	require.True(t, svc.isModelSupportedByAccount(account, "nano-pro"))
-	require.True(t, svc.isModelSupportedByAccount(account, "image-2.5"))
 	require.True(t, svc.isModelSupportedByAccount(account, "gpt-image-2.5"))
+	require.False(t, svc.isModelSupportedByAccount(account, "image-2.5"))
 	require.False(t, svc.isModelSupportedByAccount(account, "gpt-not-in-tokensea-ssot"))
 	require.False(t, svc.isModelSupportedByAccount(account, "gpt"))
 }

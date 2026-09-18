@@ -17,7 +17,6 @@
     "gpt-5.6-chat-latest": "gpt-5.6-sol",
     "gpt-6": "gpt-6-astra",
     "gpt-image-2.5": "gpt-image-2.5-flare",
-    "image-2.5": "gpt-image-2.5-flare",
     "nano-2": "gemini-3.1-flash-image",
     "nano-pro": "gemini-3-pro-image",
     "gemini-3-flash-preview": "gemini-3.8-flash",
