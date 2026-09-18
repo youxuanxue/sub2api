@@ -966,14 +966,16 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	group.FallbackGroupIDOnInvalidRequest = fallbackOnInvalidRequest
 
-	// 模型路由配置（object only；enabled+nil → {}）
+	// 模型路由配置（object only；仅请求显式触达时 normalize，避免任意字段更新顺手把 nil→{}）
 	if input.ModelRouting != nil {
 		group.ModelRouting = input.ModelRouting
 	}
 	if input.ModelRoutingEnabled != nil {
 		group.ModelRoutingEnabled = *input.ModelRoutingEnabled
 	}
-	group.ModelRouting = domain.NormalizeGroupModelRouting(group.ModelRoutingEnabled, group.ModelRouting)
+	if input.ModelRouting != nil || input.ModelRoutingEnabled != nil {
+		group.ModelRouting = domain.NormalizeGroupModelRouting(group.ModelRoutingEnabled, group.ModelRouting)
+	}
 	if input.MCPXMLInject != nil {
 		group.MCPXMLInject = *input.MCPXMLInject
 	}

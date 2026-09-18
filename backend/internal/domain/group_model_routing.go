@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 )
 
 // GroupModelRouting is groups.model_routing: model pattern → preferred account IDs.
@@ -20,6 +21,11 @@ func (m *GroupModelRouting) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	if data[0] == '[' {
+		// Defense-in-depth for pre-CHECK / bypass writers: never fail Scan.
+		slog.Warn("model_routing_array_coerced",
+			"detail", "groups.model_routing JSON array coerced to empty object",
+			"prefix", summarizeJSONPrefix(data),
+		)
 		*m = GroupModelRouting{}
 		return nil
 	}
