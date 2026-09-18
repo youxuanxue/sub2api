@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
@@ -138,6 +139,7 @@ type AntigravityGatewayService struct {
 	tkPricingCatalog         *PricingCatalogService
 	tkPricingMissingNotifier PricingMissingNotifier
 	tkPricingResolver        *ModelPricingResolver
+	tlsFPProfileService      *TLSFingerprintProfileService
 }
 
 func (s *AntigravityGatewayService) waitRetryBackoff(ctx context.Context, attempt int) bool {
@@ -179,17 +181,26 @@ func NewAntigravityGatewayService(
 	httpUpstream HTTPUpstream,
 	settingService *SettingService,
 	internal500Cache Internal500CounterCache,
+	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AntigravityGatewayService {
 	return &AntigravityGatewayService{
-		accountRepo:       accountRepo,
-		tokenProvider:     tokenProvider,
-		rateLimitService:  rateLimitService,
-		httpUpstream:      httpUpstream,
-		settingService:    settingService,
-		cache:             cache,
-		schedulerSnapshot: schedulerSnapshot,
-		internal500Cache:  internal500Cache,
+		accountRepo:         accountRepo,
+		tokenProvider:       tokenProvider,
+		rateLimitService:    rateLimitService,
+		httpUpstream:        httpUpstream,
+		settingService:      settingService,
+		cache:               cache,
+		schedulerSnapshot:   schedulerSnapshot,
+		internal500Cache:    internal500Cache,
+		tlsFPProfileService: tlsFPProfileService,
 	}
+}
+
+func (s *AntigravityGatewayService) resolveTLSProfile(account *Account) *tlsfingerprint.Profile {
+	if s == nil || s.tlsFPProfileService == nil {
+		return nil
+	}
+	return s.tlsFPProfileService.ResolveTLSProfile(account)
 }
 
 // GetTokenProvider 返回 token provider
@@ -783,13 +794,18 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 		return nil, errAntigravityProjectIDRequired
 	}
 
-	requestType := "agent"
+	requestType := antigravity.ResolveV1InternalRequestType(
+		model,
+		false,
+		antigravity.GeminiRequestHasTools(request),
+		antigravity.GeminiRequestHasToolInteractions(request),
+	)
 	requestID := "agent-" + uuid.New().String()
-	if isImageGenerationModel(model) {
-		requestType = "image_gen"
+	switch requestType {
+	case "image_gen":
 		requestID = fmt.Sprintf("image_gen/%d/%s/12", time.Now().UnixMilli(), uuid.NewString())
-	} else {
-		// Native agent requests need a stable session identity for follow-up
+	default:
+		// Non-image requests need a stable session identity for follow-up
 		// turns. Preserve a caller-supplied ID and derive one otherwise, matching
 		// CLIProxyAPI's native request builder.
 		if sessionID, _ := request["sessionId"].(string); strings.TrimSpace(sessionID) == "" {
@@ -798,12 +814,14 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 	}
 
 	wrapped := map[string]any{
-		"project":     projectID,
-		"requestId":   requestID,
-		"userAgent":   "antigravity", // 固定值，与官方客户端一致
-		"requestType": requestType,
-		"model":       model,
-		"request":     request,
+		"project":   projectID,
+		"requestId": requestID,
+		"userAgent": "antigravity", // 固定值，与官方客户端一致
+		"model":     model,
+		"request":   request,
+	}
+	if requestType != "" {
+		wrapped["requestType"] = requestType
 	}
 
 	return json.Marshal(wrapped)

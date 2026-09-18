@@ -66,7 +66,8 @@ func TestAntigravityGatewayService_ForwardGemini_NonStreamingCollectsStreamingUp
 	require.Len(t, upstream.requestBodies, 1)
 	var wrapped map[string]any
 	require.NoError(t, json.Unmarshal(upstream.requestBodies[0], &wrapped))
-	require.Equal(t, "agent", wrapped["requestType"])
+	_, hasRequestType := wrapped["requestType"]
+	require.False(t, hasRequestType, "plain text native generateContent must omit requestType")
 	request, ok := wrapped["request"].(map[string]any)
 	require.True(t, ok)
 	require.Regexp(t, `^-[0-9]+$`, request["sessionId"])

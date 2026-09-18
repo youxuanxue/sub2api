@@ -1,0 +1,89 @@
+{
+  "name": "tk_canonical_antigravity_cli",
+  "description": "TokenKey canonical Antigravity CLI TLS profile captured from real agy ClientHello (Go crypto/tls + X25519MLKEM768); extension order is stable (no shuffle). Paired with antigravity/cli/<ver> User-Agent.",
+  "enable_grease": false,
+  "shuffle_extensions": false,
+  "cipher_suites": [
+    49195,
+    49199,
+    49196,
+    49200,
+    52393,
+    52392,
+    49161,
+    49171,
+    49162,
+    49172,
+    4865,
+    4866,
+    4867
+  ],
+  "curves": [
+    4588,
+    4587,
+    4589,
+    29,
+    23,
+    24,
+    25
+  ],
+  "point_formats": [
+    0
+  ],
+  "signature_algorithms": [
+    2308,
+    2309,
+    2310,
+    2052,
+    1027,
+    2055,
+    2053,
+    2054,
+    1025,
+    1281,
+    1537,
+    1283,
+    1539
+  ],
+  "alpn_protocols": [
+    "h2",
+    "http/1.1"
+  ],
+  "supported_versions": [
+    772,
+    771
+  ],
+  "key_share_groups": [
+    4588,
+    29
+  ],
+  "psk_modes": [],
+  "extensions": [
+    0,
+    11,
+    65281,
+    23,
+    18,
+    5,
+    10,
+    13,
+    50,
+    16,
+    43,
+    51
+  ],
+  "observed": {
+    "source": "real-cli-mitm-clienthello",
+    "agy_cli_version": "1.2.2",
+    "sample_count": 5,
+    "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+    "ja3_hash": "03117a8ed39ef02427ebbc39f121275c",
+    "server_names": [
+      "antigravity-unleash.goog",
+      "playwright.azureedge.net",
+      "playwright-akamai.azureedge.net",
+      "playwright-verizon.azureedge.net"
+    ],
+    "note": "Captured while agy was not logged in; ClientHello semantics are host-independent. cloudcode-pa SNI not required for TLS identity."
+  }
+}

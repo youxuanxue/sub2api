@@ -6657,10 +6657,11 @@
       "must_contain": [
         "keepaliveFrame string",
         "hwka := s.beginHeaderWaitKeepalive(p.c, p.clientStream, p.keepaliveFrame)",
-        "p.httpUpstream.Do(upstreamReq",
+        "p.httpUpstream.DoWithTLS(upstreamReq",
+        "s.resolveTLSProfile(p.account)",
         "hwka.stop()"
       ],
-      "rationale": "Antigravity's shared retry Do loop is the single upstream dial chokepoint for Claude/Gemini/compat forwards. clientStream gates keepalive for non-stream clients and keepaliveFrame preserves the downstream wire protocol: Anthropic gets event:ping, OpenAI-compat gets SSE comments, Gemini-native gets whitespace-only keepalive."
+      "rationale": "Antigravity's shared retry DoWithTLS loop is the single upstream dial chokepoint for Claude/Gemini/compat forwards; TLS profile must resolve via resolveTLSProfile(account). clientStream gates keepalive for non-stream clients and keepaliveFrame preserves the downstream wire protocol: Anthropic gets event:ping, OpenAI-compat gets SSE comments, Gemini-native gets whitespace-only keepalive."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_claude.go",

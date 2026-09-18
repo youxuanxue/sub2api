@@ -212,7 +212,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
 						fallbackHWKA := s.beginHeaderWaitKeepalive(c, stream, geminiNativeSSEKeepaliveFrame)
-						fallbackResp, err := s.httpUpstream.Do(fallbackReq, proxyURL, account.ID, account.Concurrency)
+						fallbackResp, err := s.httpUpstream.DoWithTLS(fallbackReq, proxyURL, account.ID, account.Concurrency, s.resolveTLSProfile(account))
 						fallbackHWKA.stop()
 						if err == nil && fallbackResp != nil && fallbackResp.StatusCode < 400 {
 							_ = resp.Body.Close()
@@ -483,47 +483,63 @@ handleSuccess:
 	}, nil
 }
 
-// cleanGeminiRequest 清理 Gemini 请求体中的 Schema
+// cleanGeminiRequest 清理 Gemini 请求体：脏字段、坏 inlineData、tools/response schema。
+// 不删除 generationConfig.responseModalities（出图必需）。
 func cleanGeminiRequest(body []byte) ([]byte, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, err
 	}
 
-	modified := false
+	modified := antigravity.SanitizeGeminiNativePayload(payload)
 
-	// 1. 清理 Tools
 	if tools, ok := payload["tools"].([]any); ok && len(tools) > 0 {
 		for _, t := range tools {
 			toolMap, ok := t.(map[string]any)
 			if !ok {
 				continue
 			}
-
-			// function_declarations (snake_case) or functionDeclarations (camelCase)
 			var funcs []any
 			if f, ok := toolMap["functionDeclarations"].([]any); ok {
 				funcs = f
 			} else if f, ok := toolMap["function_declarations"].([]any); ok {
 				funcs = f
 			}
-
 			if len(funcs) == 0 {
 				continue
 			}
-
 			for _, f := range funcs {
 				funcMap, ok := f.(map[string]any)
 				if !ok {
 					continue
 				}
-
-				if params, ok := funcMap["parameters"].(map[string]any); ok {
-					antigravity.DeepCleanUndefined(params)
-					cleaned := antigravity.CleanJSONSchema(params)
-					funcMap["parameters"] = cleaned
-					modified = true
+				for _, schemaKey := range []string{"parameters", "parametersJsonSchema", "parameters_json_schema", "response", "responseJsonSchema", "response_json_schema"} {
+					if params, ok := funcMap[schemaKey].(map[string]any); ok {
+						antigravity.DeepCleanUndefined(params)
+						cleaned := antigravity.CleanJSONSchema(params)
+						outKey := schemaKey
+						if schemaKey == "parametersJsonSchema" || schemaKey == "parameters_json_schema" {
+							outKey = "parameters"
+							delete(funcMap, schemaKey)
+						}
+						funcMap[outKey] = cleaned
+						modified = true
+					}
 				}
+			}
+		}
+	}
+
+	for _, genKey := range []string{"generationConfig", "generation_config"} {
+		gen, ok := payload[genKey].(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, schemaKey := range []string{"responseSchema", "responseJsonSchema", "response_schema", "response_json_schema"} {
+			if schema, ok := gen[schemaKey].(map[string]any); ok {
+				antigravity.DeepCleanUndefined(schema)
+				gen[schemaKey] = antigravity.CleanJSONSchema(schema)
+				modified = true
 			}
 		}
 	}
@@ -531,7 +547,6 @@ func cleanGeminiRequest(body []byte) ([]byte, error) {
 	if !modified {
 		return body, nil
 	}
-
 	return json.Marshal(payload)
 }
 
