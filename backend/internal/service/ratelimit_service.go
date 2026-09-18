@@ -911,16 +911,14 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 	return true
 }
 
-// handleAntigravity403 处理 Antigravity 平台的 403 错误
-// validation（需要验证）→ 永久 SetError（需人工去 Google 验证后恢复）
-// violation（违规封号）→ 永久 SetError（需人工处理）
-// generic（通用禁止）→ 永久 SetError
+// handleAntigravity403 处理 Antigravity 平台的 403 错误。
+// validation 是 Google 的可恢复账号验证挑战，按 CLIProxyAPI 的凭证冷却
+// 语义临时停调；violation 和 generic 403 仍永久禁用。
 func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	fbType := classifyForbiddenType(string(responseBody))
 
 	switch fbType {
 	case forbiddenTypeValidation:
-		// VALIDATION_REQUIRED: 永久禁用，需人工去 Google 验证后手动恢复
 		msg := buildForbiddenErrorMessage(
 			"Validation required (403):",
 			upstreamMsg,
@@ -930,7 +928,17 @@ func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Ac
 		if validationURL := extractValidationURL(string(responseBody)); validationURL != "" {
 			msg += " | validation_url: " + validationURL
 		}
-		s.handleAuthError(ctx, account, msg)
+		const validationCooldown = 30 * time.Minute
+		until := time.Now().Add(validationCooldown)
+		reason := "Antigravity validation required temporary cooldown: " + msg
+		s.notifyAccountSchedulingBlocked(account, until, "antigravity_validation_403")
+		if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+			slog.Warn("antigravity_validation_403_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+			// If the cooldown cannot be persisted, fail closed so the account is
+			// not retried in a tight loop.
+			s.handleAuthError(ctx, account, msg)
+		}
+		slog.Warn("antigravity_validation_403_temp_unschedulable", "account_id", account.ID, "until", until)
 		return true
 
 	case forbiddenTypeViolation:

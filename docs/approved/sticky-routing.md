@@ -17,7 +17,7 @@ related_stories: [US-006]
 
 让来自同一个客户端会话的请求**尽可能命中上游同一个 prompt cache 块**，把 token 成本压下去（社区数据：长程 Agent 任务可降 60% 上行 token，Anthropic OAuth cache TTL 可保 1 小时）。
 
-> 范围：本设计**仅**补齐"客户端没送 sticky key 时网关自动派生并注入"的能力，以及把现有分散的注入逻辑收口到统一抽象后面，并加全局/分组级开关 + 命中率可视化。**不**改账号粘性调度（已成熟）、**不**修改真 Claude Code 客户端 → Anthropic OAuth 路径（有意识保留客户端原行为）。
+> 范围：本设计**仅**补齐"客户端没送 sticky key 时网关自动派生并注入"的能力，以及把现有分散的注入逻辑收口到统一抽象后面，并加全局/分组级开关 + 命中率可视化。**不**修改真 Claude Code 客户端 → Anthropic OAuth 路径（有意识保留客户端原行为）。账号粘性调度主体仍复用既有 Redis session→account 绑定；NewAPI 分组的 session **种子派生**在 §11.6 对 prompt-cache 友好路径做了最小 override（稳定前缀，不改粘账号机制本身）。
 
 ## 1. 现状盘点
 
@@ -28,7 +28,7 @@ related_stories: [US-006]
 | `DeriveSessionHashFromSeed` | `backend/internal/service/openai_sticky_compat.go:32-48` | xxHash64 16-hex；网关侧账号粘性调度键 |
 | `BindStickySession` / `GetSessionAccountID` | `backend/internal/service/openai_gateway_service.go:1190-1199` | Redis `openai:` + sessionHash → account_id，TTL 默认 1h |
 | `deriveCompatPromptCacheKey` | `backend/internal/service/openai_compat_prompt_cache_key.go:21-65` | Chat Completions compat 路径，只对 gpt-5.4 / gpt-5.3-codex 自动注入 |
-| `ExtractSessionID` / `GenerateSessionHash` | `backend/internal/service/openai_gateway_service.go:1128-1156` | header > prompt_cache_key > 内容种子 三级回退 |
+| `ExtractSessionID` / `GenerateSessionHash` | `openai_gateway_scheduling.go`（NewAPI 种子见 `openai_gateway_scheduling_tk_newapi_prompt_cache.go`） | header > prompt_cache_key > 内容种子；NewAPI 无显式 session 时用 stable prefix（§11.6） |
 | `ensureClaudeOAuthMetadataUserID` | `backend/internal/service/gateway_service.go:1014-1041` | Anthropic OAuth mimic 路径自动注入 metadata.user_id |
 | `Antigravity SessionID` | `backend/internal/pkg/antigravity/request_transformer.go:146-163` | 基于 contents 的稳定 session id |
 | `usage_logs.cache_read_tokens` | `backend/ent/schema/usage_log.go:72-79` | dashboard 已聚合 `total_cache_read_tokens` |
@@ -400,3 +400,21 @@ anthropic 主网关路径**不动**（上游已在 `wait_queue_full` 时逃逸�
   非逃逸），anthropic gateway 才有 `waitingCount < MaxWaiting` 门（0 → 逃逸）。同一配置值在两路径行为相反，是埋雷。
   逃逸决策必须放在"知道池里有没有空账号"的调度代码点，一个全局整数表达不了。
 - 逃逸 / `#656` 谓词的 load-bearing 锚点见 `scripts/sentinels/gateway-tk.json`（防上游 merge 静默回退）。
+
+## 11.6 NewAPI / Volc prompt-cache 账号粘性（2026-09-18）
+
+目标：同 session 优先粘同一上游账号，抬高 Volc Plan（含 GLM）隐式 prefix cache 命中率。
+
+背景（`rt@tk.com` / Acceptance-Test 实证）：NewAPI 账号 sticky 机制已存在，但默认
+`GenerateSessionHash` 内容种子含 **first user turn**。共享长 system/tools、独立 user
+问句的「重复组」因此每次换 hash → 打散到池内多个账号，prefix cache 失效。同账号连续
+打可 99%+ 命中。
+
+落地（最小 override，OpenAI OAuth 路径不变）：
+
+| 行为 | Owner |
+|---|---|
+| NewAPI 分组无显式 session 时，用 **stable prefix**（system/tools/instructions）+ `api_key_id`+model 派生 sticky seed | `openai_gateway_scheduling_tk_newapi_prompt_cache.go` + `GenerateSessionHash` |
+
+不区分直连 vs `china-us*` edge mirror：镜像侧同样「同 session 粘账号」，二跳本身不额外打散。
+万能 key / 非 NewAPI 分组语义不变。槽满逃逸（§11.5）仍适用。

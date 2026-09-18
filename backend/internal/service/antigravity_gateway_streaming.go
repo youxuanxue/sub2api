@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -20,6 +21,47 @@ type antigravityStreamResult struct {
 	usage            *ClaudeUsage
 	firstTokenMs     *int
 	clientDisconnect bool // 客户端是否在流式传输过程中断开
+}
+
+// handleGeminiNonStreamingResponse handles the native generateContent response.
+// Unlike streamGenerateContent, the upstream returns one JSON document rather
+// than SSE frames, so aggregating it through the stream collector would add
+// latency and can lose response fields that are not part of a streamed chunk.
+func (s *AntigravityGatewayService) handleGeminiNonStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+	if upstreamResponseModelObserverFromContext(c) == nil {
+		beginUpstreamResponseModelObservation(c)
+	}
+	limit := int64(defaultMaxLineSize)
+	if s != nil && s.settingService != nil && s.settingService.cfg != nil && s.settingService.cfg.Gateway.MaxLineSize > 0 {
+		limit = int64(s.settingService.cfg.Gateway.MaxLineSize)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) >= limit {
+		return nil, fmt.Errorf("non-stream response too large")
+	}
+
+	inner, err := s.unwrapV1InternalResponse(body)
+	if err != nil || len(inner) == 0 {
+		return nil, fmt.Errorf("invalid non-stream response")
+	}
+	if observer := upstreamResponseModelObserverFromContext(c); observer != nil {
+		observer.ObserveGemini(inner)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(inner, &parsed); err != nil {
+		return nil, fmt.Errorf("invalid non-stream response JSON: %w", err)
+	}
+	usage := extractGeminiUsage(inner)
+	firstTokenMs := int(time.Since(startTime).Milliseconds())
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	c.Data(http.StatusOK, contentType, inner)
+	return &antigravityStreamResult{usage: usage, firstTokenMs: &firstTokenMs}, nil
 }
 
 func (s *AntigravityGatewayService) observeAntigravityGeminiSSELine(c *gin.Context, line string) {
