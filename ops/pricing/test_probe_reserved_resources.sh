@@ -58,6 +58,53 @@ if ! grep -q 'tk_probe_assert_model_routing_object' "$ROOT/probe_reserved_resour
 	exit 1
 fi
 
+# Behavioral: array → object repair must issue UPDATE (not grep-only existence).
+TK_PROBE_MR_PHASE=before_repair
+TK_PROBE_SEEN_UPDATE=0
+tk_probe_psql() {
+	local sql=""
+	while [ "$#" -gt 0 ]; do
+		if [ "$1" = "-c" ]; then
+			sql="$2"
+			break
+		fi
+		shift
+	done
+	if [ -z "$sql" ]; then
+		sql="$(cat)"
+	fi
+	TK_PROBE_LAST_SQL="$sql"
+	case "$sql" in
+	*"UPDATE groups"*)
+		TK_PROBE_SEEN_UPDATE=1
+		TK_PROBE_MR_PHASE=after_repair
+		printf '\n'
+		;;
+	*"jsonb_typeof(model_routing)"*)
+		if [ "$TK_PROBE_MR_PHASE" = "before_repair" ]; then
+			printf 'array\n'
+		else
+			printf 'object\n'
+		fi
+		;;
+	*)
+		printf '\n'
+		;;
+	esac
+}
+if ! tk_probe_assert_model_routing_object 7; then
+	echo "FAIL: assert_model_routing_object repair path should succeed" >&2
+	exit 1
+fi
+if [ "$TK_PROBE_SEEN_UPDATE" != "1" ]; then
+	echo "FAIL: assert_model_routing_object must UPDATE array model_routing to '{}'::jsonb" >&2
+	exit 1
+fi
+if [ "$TK_PROBE_MR_PHASE" != "after_repair" ]; then
+	echo "FAIL: assert_model_routing_object must reach post-repair type check" >&2
+	exit 1
+fi
+
 TK_PROBE_TEST_SCENARIO=case_match
 TK_PROBE_LAST_SQL=""
 tk_probe_psql() {

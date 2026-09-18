@@ -244,7 +244,14 @@ INSERT INTO groups (
     mr_type="$("${PSQL[@]}" -c "SELECT COALESCE(jsonb_typeof(model_routing),'null') FROM groups WHERE id=${GROUP_ID} AND deleted_at IS NULL;" | head -n1 | tr -d '[:space:]')"
     if [ "$mr_type" = "array" ]; then
       "${PSQL[@]}" -c "UPDATE groups SET model_routing='{}'::jsonb, updated_at=NOW() WHERE id=${GROUP_ID} AND deleted_at IS NULL AND jsonb_typeof(model_routing)='array';" >/dev/null
+      mr_type="$("${PSQL[@]}" -c "SELECT COALESCE(jsonb_typeof(model_routing),'null') FROM groups WHERE id=${GROUP_ID} AND deleted_at IS NULL;" | head -n1 | tr -d '[:space:]')"
     fi
+    case "$mr_type" in
+    object | null) ;;
+    *)
+      fail_json "probe group model_routing must be object group_id=${GROUP_ID} type=${mr_type}"
+      ;;
+    esac
   fi
 
   "${PSQL[@]}" -c "

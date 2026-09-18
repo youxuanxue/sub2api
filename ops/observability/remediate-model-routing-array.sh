@@ -7,10 +7,15 @@
 #
 # Delivered via: bash ops/observability/run-probe.sh --target prod \
 #   --script ops/observability/remediate-model-routing-array.sh
-# Requires APPLY=1 to mutate. Soft-deletes ephemeral sticky probe groups.
+#
+# APPLY=1              — coerce every model_routing array → {}
+# CLEANUP_STICKY_PROBES — when APPLY=1, also soft-delete __tk_probe_sticky*
+#                        ephemeral groups/keys (default 1 for incident cleanup;
+#                        set 0 to coerce only)
 set -euo pipefail
 
 APPLY="${APPLY:-0}"
+CLEANUP_STICKY_PROBES="${CLEANUP_STICKY_PROBES:-1}"
 PSQL=(docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1)
 
 echo "=== before: array-typed model_routing (any status) ==="
@@ -28,12 +33,14 @@ WHERE model_routing IS NOT NULL
   AND jsonb_typeof(model_routing) = 'array';
 "
 
+echo "cleanup_sticky_probes=${CLEANUP_STICKY_PROBES}"
+
 if [ "$APPLY" != "1" ]; then
-  echo '{"verdict":"dry_run"}'
+  echo '{"verdict":"dry_run","cleanup_sticky_probes":'"${CLEANUP_STICKY_PROBES}"'}'
   exit 0
 fi
 
-echo "=== apply: coerce array→object; soft-delete sticky probe leftovers ==="
+echo "=== apply: coerce array→object ==="
 "${PSQL[@]}" <<'SQL'
 BEGIN;
 
@@ -43,23 +50,25 @@ SET model_routing = '{}'::jsonb,
 WHERE model_routing IS NOT NULL
   AND jsonb_typeof(model_routing) = 'array'; -- ops-allow-soft-deleted: coerce shape even on soft-deleted rows
 
+COMMIT;
+SQL
+
+if [ "$CLEANUP_STICKY_PROBES" = "1" ]; then
+  echo "=== apply: soft-delete __tk_probe_sticky* leftovers ==="
+  "${PSQL[@]}" <<'SQL'
+BEGIN;
+
 WITH doomed AS (
   SELECT id FROM groups
   WHERE deleted_at IS NULL
-    AND (
-      name LIKE '\_\_tk\_probe\_sticky%' ESCAPE '\'
-      OR (name LIKE '\_\_tk\_probe\_%' ESCAPE '\' AND name LIKE '%sticky237%')
-    )
+    AND name LIKE '\_\_tk\_probe\_sticky%' ESCAPE '\'
 )
 DELETE FROM account_groups WHERE group_id IN (SELECT id FROM doomed);
 
 WITH doomed AS (
   SELECT id FROM groups
   WHERE deleted_at IS NULL
-    AND (
-      name LIKE '\_\_tk\_probe\_sticky%' ESCAPE '\'
-      OR (name LIKE '\_\_tk\_probe\_%' ESCAPE '\' AND name LIKE '%sticky237%')
-    )
+    AND name LIKE '\_\_tk\_probe\_sticky%' ESCAPE '\'
 ),
 keys AS (
   UPDATE api_keys
@@ -68,7 +77,6 @@ keys AS (
     AND (
       group_id IN (SELECT id FROM doomed)
       OR name LIKE '\_\_tk\_probe\_sticky%' ESCAPE '\'
-      OR name LIKE '%sticky237%'
     )
   RETURNING id
 )
@@ -80,6 +88,9 @@ RETURNING g.id, g.name;
 
 COMMIT;
 SQL
+else
+  echo "=== skip sticky probe cleanup (CLEANUP_STICKY_PROBES=${CLEANUP_STICKY_PROBES}) ==="
+fi
 
 echo
 echo "=== after: array-typed model_routing remaining ==="
@@ -92,4 +103,4 @@ WHERE model_routing IS NOT NULL
   AND jsonb_typeof(model_routing) = 'array';
 "
 
-echo '{"verdict":"applied"}'
+echo '{"verdict":"applied","cleanup_sticky_probes":'"${CLEANUP_STICKY_PROBES}"'}'
