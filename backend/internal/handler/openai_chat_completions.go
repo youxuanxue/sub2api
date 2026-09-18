@@ -203,13 +203,13 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			currentRoutingModel,
 			"openai_chat_completions.dispatch_selection_fallback",
 			tkSchedulerCapabilitySelectArgs{
-				GroupID:                    apiKey.GroupID,
-				SessionHash:                sessionHash,
-				FailedAccountIDs:           failedAccountIDs,
-				Transport:                  service.OpenAIUpstreamTransportAny,
-				Capability:                 service.OpenAIEndpointCapabilityChatCompletions,
-				ExcludeImageIntentAccounts: true,
-				Platform:                   requestPlatform,
+				GroupID:              apiKey.GroupID,
+				SessionHash:          sessionHash,
+				FailedAccountIDs:     failedAccountIDs,
+				Transport:            service.OpenAIUpstreamTransportAny,
+				Capability:           service.OpenAIEndpointCapabilityChatCompletions,
+				UseUpstreamTokenCost: true,
+				Platform:             requestPlatform,
 			},
 		)
 		if err != nil {
