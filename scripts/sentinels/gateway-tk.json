@@ -1273,9 +1273,10 @@
       "must_contain": [
         "TestCandidateCapacityDiagRejectSummaryStable",
         "TestCandidateCapacityDiagFromError",
-        "TestGlobalCandidateCapacityErrorCarriesPathReadyDiag"
+        "TestGlobalCandidateCapacityErrorCarriesPathReadyDiag",
+        "TestGlobalCandidateCapacityErrorMarksSelectionExhausted"
       ],
-      "rationale": "Protect stable reject summaries and the guarantee that candidate-selection capacity misses carry pathReady diagnostics."
+      "rationale": "Protect stable reject summaries, pathReady diagnostics on empty pools, and selection_exhausted when a ready candidate pool still fails to bind."
     },
     {
       "path": "backend/internal/repository/account_repo_tk_candidates.go",
