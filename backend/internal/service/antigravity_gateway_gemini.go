@@ -143,12 +143,12 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
 	}
 
-	// Match the native Gemini API surface: streaming callers use the SSE action,
-	// while non-streaming callers use generateContent and receive one JSON body.
-	upstreamAction := "generateContent"
-	if stream {
-		upstreamAction = "streamGenerateContent"
-	}
+	// Antigravity Code Assist is reliable on the SSE endpoint. Keep the upstream
+	// wire stable for both client shapes; non-streaming callers are assembled
+	// from the complete SSE response below. The direct
+	// v1internal:generateContent endpoint can return an empty/non-JSON body for
+	// OAuth accounts, which turns an otherwise valid request into a 502.
+	upstreamAction := "streamGenerateContent"
 
 	// 执行带重试的请求
 	result, err := s.antigravityRetryLoop(antigravityRetryLoopParams{
@@ -443,7 +443,9 @@ handleSuccess:
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
 	} else {
-		streamRes, err := s.handleGeminiNonStreamingResponse(c, resp, startTime)
+		// The upstream is always SSE; collect it before writing the native JSON
+		// response expected by a non-streaming Gemini client.
+		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime)
 		if err != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_collect_error error=%v", prefix, err)
 			return nil, err
