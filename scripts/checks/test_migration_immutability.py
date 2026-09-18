@@ -102,6 +102,33 @@ class MigrationImmutabilityTest(unittest.TestCase):
             self.assertEqual(len(violations), 1)
             self.assertEqual(violations[0].kind, "deleted")
 
+    def test_pending_merge_checks_staged_migrations(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._init_repo(root)
+            (root / "base.txt").write_text("base\n")
+            self._commit_all(root, "base")
+            with mock.patch.object(mi, "ROOT", root):
+                self.assertEqual(mi.git("checkout", "-b", "incoming").returncode, 0)
+                migration = root / "backend/migrations/tk_001_seed.sql"
+                migration.parent.mkdir(parents=True)
+                migration.write_text("SELECT 1;\n")
+                self._commit_all(root, "incoming migration")
+                self.assertEqual(mi.git("checkout", "-b", "feature", "HEAD^").returncode, 0)
+                (root / "feature.txt").write_text("feature\n")
+                self._commit_all(root, "feature")
+                self.assertEqual(mi.git("merge", "--no-commit", "incoming").returncode, 0)
+                self.assertEqual(mi.scan("incoming", "HEAD"), [])
+                # An explicit historical ref must still check that exact tree.
+                old_head = mi.git("rev-parse", "HEAD").stdout.strip()
+                self.assertEqual([v.kind for v in mi.scan("incoming", old_head)], ["deleted"])
+                migration.write_text("SELECT 2;\n")
+                self.assertEqual(mi.git("add", "backend/migrations").returncode, 0)
+                self.assertEqual([v.kind for v in mi.scan("incoming", "HEAD")], ["modified"])
+                migration.unlink()
+                self.assertEqual(mi.git("add", "backend/migrations").returncode, 0)
+                self.assertEqual([v.kind for v in mi.scan("incoming", "HEAD")], ["deleted"])
+
 
 if __name__ == "__main__":
     unittest.main()

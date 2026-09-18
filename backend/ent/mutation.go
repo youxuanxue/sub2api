@@ -22636,7 +22636,7 @@ type GroupMutation struct {
 	addfallback_group_id                          *int64
 	fallback_group_id_on_invalid_request          *int64
 	addfallback_group_id_on_invalid_request       *int64
-	model_routing                                 *map[string][]int64
+	model_routing                                 *domain.GroupModelRouting
 	model_routing_enabled                         *bool
 	mcp_xml_inject                                *bool
 	supported_model_scopes                        *[]string
@@ -25141,12 +25141,12 @@ func (m *GroupMutation) ResetFallbackGroupIDOnInvalidRequest() {
 }
 
 // SetModelRouting sets the "model_routing" field.
-func (m *GroupMutation) SetModelRouting(value map[string][]int64) {
-	m.model_routing = &value
+func (m *GroupMutation) SetModelRouting(dmr domain.GroupModelRouting) {
+	m.model_routing = &dmr
 }
 
 // ModelRouting returns the value of the "model_routing" field in the mutation.
-func (m *GroupMutation) ModelRouting() (r map[string][]int64, exists bool) {
+func (m *GroupMutation) ModelRouting() (r domain.GroupModelRouting, exists bool) {
 	v := m.model_routing
 	if v == nil {
 		return
@@ -25157,7 +25157,7 @@ func (m *GroupMutation) ModelRouting() (r map[string][]int64, exists bool) {
 // OldModelRouting returns the old "model_routing" field's value of the Group entity.
 // If the Group object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *GroupMutation) OldModelRouting(ctx context.Context) (v map[string][]int64, err error) {
+func (m *GroupMutation) OldModelRouting(ctx context.Context) (v domain.GroupModelRouting, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldModelRouting is only allowed on UpdateOne operations")
 	}
@@ -27430,7 +27430,7 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		m.SetFallbackGroupIDOnInvalidRequest(v)
 		return nil
 	case group.FieldModelRouting:
-		v, ok := value.(map[string][]int64)
+		v, ok := value.(domain.GroupModelRouting)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}

@@ -2810,6 +2810,15 @@ for name in legacy_names:
 probe_lib = Path("ops/pricing/probe_reserved_resources.sh").read_text(encoding="utf-8")
 if "group_id_like)" not in probe_lib:
     errors.append("probe_reserved_resources.sh must support group_id_like for mirror sub-pool probes")
+if "tk_probe_assert_model_routing_object" not in probe_lib:
+    errors.append("probe_reserved_resources.sh must assert model_routing is a JSON object after ensure_group")
+if re.search(r"model_routing\s*=\s*'\[\]'::jsonb", probe_lib):
+    errors.append("probe_reserved_resources.sh must never assign model_routing='[]'::jsonb")
+account_probe = Path("ops/stage0/probe_account_model.sh").read_text(encoding="utf-8")
+if "false, '{}'::jsonb," not in account_probe:
+    errors.append("probe_account_model.sh one-off INSERT must write model_routing as '{}'::jsonb")
+if re.search(r"model_routing\s*=\s*'\[\]'::jsonb", account_probe):
+    errors.append("probe_account_model.sh must never assign model_routing='[]'::jsonb")
 
 if errors:
     print("\n".join(f"  FAIL: {err}" for err in errors))

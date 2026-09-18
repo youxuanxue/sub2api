@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -30,6 +31,26 @@ import (
 var groupUsageSummaryCache = newSnapshotCache(30 * time.Second)
 
 const groupUsageSummaryRefreshTimeout = 10 * time.Second
+
+// modelRoutingPayload rejects JSON arrays (including []) so Admin writes cannot
+// poison ListActiveGroups the way raw SQL/probe bugs did.
+type modelRoutingPayload map[string][]int64
+
+func (m *modelRoutingPayload) UnmarshalJSON(data []byte) error {
+	parsed, err := domain.ParseGroupModelRoutingJSON(data)
+	if err != nil {
+		return err
+	}
+	*m = modelRoutingPayload(parsed)
+	return nil
+}
+
+func (m modelRoutingPayload) asMap() map[string][]int64 {
+	if m == nil {
+		return nil
+	}
+	return map[string][]int64(m)
+}
 
 // GroupHandler handles admin group management
 type GroupHandler struct {
@@ -235,10 +256,10 @@ type CreateGroupRequest struct {
 	ClaudeCodeOnly                  bool                          `json:"claude_code_only"`
 	FallbackGroupID                 *int64                        `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64                        `json:"fallback_group_id_on_invalid_request"`
-	// 模型路由配置（仅 anthropic 平台使用）
-	ModelRouting        map[string][]int64 `json:"model_routing"`
-	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
-	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
+	// 模型路由配置（仅 anthropic 平台使用）。JSON array（含 []）显式拒绝，避免毒化 ListActiveGroups。
+	ModelRouting        modelRoutingPayload `json:"model_routing"`
+	ModelRoutingEnabled bool                `json:"model_routing_enabled"`
+	MCPXMLInject        *bool               `json:"mcp_xml_inject"`
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes []string `json:"supported_model_scopes"`
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
@@ -315,10 +336,10 @@ type UpdateGroupRequest struct {
 	ClaudeCodeOnly                  *bool                         `json:"claude_code_only"`
 	FallbackGroupID                 *int64                        `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64                        `json:"fallback_group_id_on_invalid_request"`
-	// 模型路由配置（仅 anthropic 平台使用）
-	ModelRouting        map[string][]int64 `json:"model_routing"`
-	ModelRoutingEnabled *bool              `json:"model_routing_enabled"`
-	MCPXMLInject        *bool              `json:"mcp_xml_inject"`
+	// 模型路由配置（仅 anthropic 平台使用）。JSON array（含 []）显式拒绝。
+	ModelRouting        modelRoutingPayload `json:"model_routing"`
+	ModelRoutingEnabled *bool               `json:"model_routing_enabled"`
+	MCPXMLInject        *bool               `json:"mcp_xml_inject"`
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes *[]string `json:"supported_model_scopes"`
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
@@ -724,7 +745,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ClaudeCodeOnly:                         req.ClaudeCodeOnly,
 		FallbackGroupID:                        req.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest:        req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                           req.ModelRouting,
+		ModelRouting:                           req.ModelRouting.asMap(),
 		ModelRoutingEnabled:                    req.ModelRoutingEnabled,
 		MCPXMLInject:                           req.MCPXMLInject,
 		SupportedModelScopes:                   req.SupportedModelScopes,
@@ -871,7 +892,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ClaudeCodeOnly:                         req.ClaudeCodeOnly,
 		FallbackGroupID:                        req.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest:        req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                           req.ModelRouting,
+		ModelRouting:                           req.ModelRouting.asMap(),
 		ModelRoutingEnabled:                    req.ModelRoutingEnabled,
 		MCPXMLInject:                           req.MCPXMLInject,
 		SupportedModelScopes:                   req.SupportedModelScopes,
