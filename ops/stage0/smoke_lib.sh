@@ -179,6 +179,26 @@ if [[ -z "${_TK_SMOKE_LIB_LOADED:-}" ]]; then
             echo "tk_post_deploy_smoke: ${label} section soft-skipped (gateway runtime state)"
             return 1
             ;;
+          *"Unsupported model:"*)
+            # ErrUnsupportedModel is emitted by local candidate admission when
+            # the selected group has no currently eligible account for the
+            # requested model.  A global /v1/models listing can still include
+            # the model through another group, so this is a runtime pool/floor
+            # signal rather than proof of a protocol or schema regression.
+            # The universal-key chat probe is a non-canonical side path; defer
+            # its capacity/floor miss to the canonical /v1/messages probe.
+            # Keep the canonical messages probe hard: an unsupported model
+            # there means the configured Claude route itself is broken.
+            if [[ "${label}" == "/v1/chat/completions" ]]; then
+              echo "::warning::tk_post_deploy_smoke: ${label} returned HTTP ${http} with local unsupported-model admission — runtime capacity/floor state, deferring to /v1/messages." >&2
+              jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+              echo "tk_post_deploy_smoke: ${label} section soft-skipped (local unsupported-model admission)"
+              return 1
+            fi
+            echo "tk_post_deploy_smoke: ${label} failed" >&2
+            jq . "${resp_file}" >&2 2>/dev/null || cat "${resp_file}" >&2
+            exit 1
+            ;;
           *"No platform in your plan can serve"*|*universal_no_entitled*)
             # Universal key (TK_SMOKE_API_KEY): /v1/chat/completions may 403 when
             # groupServesModel filters to empty (PR #1122) while /v1/messages still
