@@ -39,6 +39,8 @@ type CandidateRequest struct {
 	chatDeadline          time.Time
 	capacityPlatformHint  string
 	capacityGroupHint     int64
+	bodyModelCandidates   []string
+	bodyModelsResolved    bool
 }
 
 type candidateRequestContextKey struct{}
@@ -212,6 +214,8 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 	r.rpm = candidateRPMAdmission{}
 	r.continuationAccountID = accountID
 	r.model, r.body = model, append([]byte(nil), body...)
+	r.bodyModelsResolved = false
+	r.bodyModelCandidates = nil
 	ctx = r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
 	_, err := r.selectAccount(ctx, candidateSelectOptions{})
 	return err
@@ -335,7 +339,8 @@ func (r *CandidateRequest) pathContext(ctx context.Context, group *Group) (conte
 			model = mapped
 		}
 	}
-	if r.shape != ShapeGemini && gjson.ValidBytes(body) && gjson.GetBytes(body, "model").Exists() {
+	// GetBytes.Exists is enough — ValidBytes would walk the full payload again.
+	if r.shape != ShapeGemini && gjson.GetBytes(body, "model").Exists() {
 		var err error
 		body, err = sjson.SetBytes(body, "model", model)
 		if err != nil {

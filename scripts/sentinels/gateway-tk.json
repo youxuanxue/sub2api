@@ -1253,9 +1253,9 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "failureCounts := r.failureCounts(ctx, pool)", "candidateSelectionEffectivePriority(a.account, counts, failureCounts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
+      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "preparePath := candidatePathContextPreparer(r)", "r.evaluatePathWithPreparation(ctx, account, group, preparePath)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "failureCounts := r.failureCounts(ctx, pool)", "candidateSelectionEffectivePriority(a.account, counts, failureCounts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
       "must_not_contain": ["lessUniversalBacking(", ".SortOrder", "candidateOccupancy("],
-      "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
+      "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight. pathContext is memoized once per group within a single candidates() call so request-body ParseCanonicalRequest is not repeated per account."
     },
     {
       "path": "backend/internal/repository/account_repo_tk_candidates.go",
