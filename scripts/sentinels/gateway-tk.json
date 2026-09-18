@@ -6657,7 +6657,8 @@
       "must_contain": [
         "keepaliveFrame string",
         "hwka := s.beginHeaderWaitKeepalive(p.c, p.clientStream, p.keepaliveFrame)",
-        "p.httpUpstream.Do(upstreamReq",
+        "p.httpUpstream.DoWithTLS(upstreamReq",
+        "s.resolveTLSProfile(p.account)",
         "hwka.stop()"
       ],
       "rationale": "Antigravity's shared retry Do loop is the single upstream dial chokepoint for Claude/Gemini/compat forwards. clientStream gates keepalive for non-stream clients and keepaliveFrame preserves the downstream wire protocol: Anthropic gets event:ping, OpenAI-compat gets SSE comments, Gemini-native gets whitespace-only keepalive."
@@ -12527,6 +12528,29 @@
     ],
     "rationale": "Admin Antigravity TestConnection must stay read-only (no rate-limit / SetError writes) and image probes must request TEXT+IMAGE modalities. antigravity_gateway_service.go is upstream-shaped; a merge that restores the old mutating TestConnection would silently re-arm probe-side account disable. Pins the readOnlyAccountState=true injection and image modality path. Pairs with TestApplyErrorPolicy_ReadOnlySkipsAccountMutation and TestBuildGeminiTestRequest_ImageModelRequestsModalities."
   },
+    {
+      "path": "backend/internal/pkg/antigravity/request_type.go",
+      "must_contain": [
+        "func ResolveV1InternalRequestType(",
+        "return \"image_gen\"",
+        "return \"web_search\"",
+        "return \"agent\"",
+        "return \"\"",
+        "func GeminiRequestHasWebSearch("
+      ],
+      "rationale": "Conditional cloudcode-pa requestType is load-bearing anti-VALIDATION_REQUIRED behavior: plain text must omit requestType; image/web_search/agent stay explicit. Anchor the resolver and googleSearch detection so an upstream merge cannot silently restore always-agent."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_service.go",
+      "must_contain": [
+        "antigravity.ResolveV1InternalRequestType(",
+        "antigravity.GeminiRequestHasWebSearch(request)",
+        "antigravity.GeminiRequestHasTools(request)",
+        "if requestType != \"\" {",
+        "wrapped[\"requestType\"] = requestType"
+      ],
+      "rationale": "Native Gemini wrap must use ResolveV1InternalRequestType (including googleSearch→web_search) and only emit requestType when non-empty. Prevents a merge from hard-coding requestType=agent again."
+    },
   {
     "path": "backend/internal/service/antigravity_gateway_retry.go",
     "must_contain": [

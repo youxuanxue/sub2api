@@ -17,6 +17,7 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 
 | date (UTC) | UA version | type | change | note |
 |---|---|---|---|---|
+| 2026-09-18 | **1.2.2** | **tls seed** | seed `tk_canonical_antigravity_cli` from real `agy` ClientHello via mitm `tls_clienthello` (5 identical samples; ja3_hash=`03117a8ed39ef02427ebbc39f121275c`; X25519MLKEM768 key_share). Wiring resolves by name for Antigravity OAuth egress. | Local capture; agy not logged in — SNI was unleash/playwright hosts (TLS identity host-independent). |
 | 2026-09-10 | **1.2.0** | pure UA | `DefaultUserAgentVersion` 1.1.27 → 1.2.0 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2086. |
 | 2026-09-06 | **1.1.27** | pure UA | `DefaultUserAgentVersion` 1.1.26 → 1.1.27 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2014. |
 | 2026-09-04 | **1.1.26** | pure UA | `DefaultUserAgentVersion` 1.1.19 → 1.1.26 | Local `agy --version` ground truth; HTTP UA format unchanged. |
