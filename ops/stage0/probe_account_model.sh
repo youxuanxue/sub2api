@@ -237,6 +237,15 @@ INSERT INTO groups (
   if [[ ! "$GROUP_ID" =~ ^[0-9]+$ ]]; then
     fail_json "failed to prepare probe group name=${GROUP_NAME} platform=${PLATFORM}"
   fi
+  # model_routing must be JSON object {}; array shape poisons ListActiveGroups.
+  if declare -F tk_probe_assert_model_routing_object >/dev/null 2>&1; then
+    tk_probe_assert_model_routing_object "$GROUP_ID" || fail_json "probe group model_routing must be object group_id=${GROUP_ID}"
+  else
+    mr_type="$("${PSQL[@]}" -c "SELECT COALESCE(jsonb_typeof(model_routing),'null') FROM groups WHERE id=${GROUP_ID} AND deleted_at IS NULL;" | head -n1 | tr -d '[:space:]')"
+    if [ "$mr_type" = "array" ]; then
+      "${PSQL[@]}" -c "UPDATE groups SET model_routing='{}'::jsonb, updated_at=NOW() WHERE id=${GROUP_ID} AND deleted_at IS NULL AND jsonb_typeof(model_routing)='array';" >/dev/null
+    fi
+  fi
 
   "${PSQL[@]}" -c "
 INSERT INTO user_allowed_groups (user_id, group_id, created_at)

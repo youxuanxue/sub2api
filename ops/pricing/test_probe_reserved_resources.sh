@@ -39,6 +39,25 @@ if tk_probe_is_legacy_oneoff_probe_name "__tk_probe_kiro_group"; then
 	exit 1
 fi
 
+# model_routing must stay a JSON object in every INSERT/UPSERT template.
+# An empty array [] poisons ListActiveGroups and takes down universal routing.
+for probe_sql_owner in \
+	"$ROOT/probe_reserved_resources.sh" \
+	"$ROOT/../stage0/probe_account_model.sh"; do
+	if ! grep -q "model_routing = '{}'::jsonb\|false, '{}'::jsonb," "$probe_sql_owner"; then
+		echo "FAIL: $probe_sql_owner must write model_routing as '{}'::jsonb" >&2
+		exit 1
+	fi
+	if grep -E "model_routing[[:space:]]*=[[:space:]]*'\[\]'::jsonb" "$probe_sql_owner"; then
+		echo "FAIL: $probe_sql_owner must not assign model_routing='[]'::jsonb" >&2
+		exit 1
+	fi
+done
+if ! grep -q 'tk_probe_assert_model_routing_object' "$ROOT/probe_reserved_resources.sh"; then
+	echo "FAIL: probe_reserved_resources.sh must assert model_routing object after ensure_group" >&2
+	exit 1
+fi
+
 TK_PROBE_TEST_SCENARIO=case_match
 TK_PROBE_LAST_SQL=""
 tk_probe_psql() {
@@ -54,6 +73,11 @@ tk_probe_psql() {
 		sql="$(cat)"
 	fi
 	TK_PROBE_LAST_SQL="$sql"
+	# model_routing assert queries (SELECT jsonb_typeof…) must not reuse source-group mocks.
+	if printf '%s' "$sql" | grep -q "jsonb_typeof(model_routing)"; then
+		printf 'object\n'
+		return 0
+	fi
 	case "$TK_PROBE_TEST_SCENARIO" in
 	case_match)
 		if printf '%s' "$sql" | grep -q "SELECT COALESCE"; then
@@ -84,7 +108,6 @@ tk_probe_psql() {
 		;;
 	esac
 }
-
 assert_eq "$(tk_probe_resolve_source_group 'google-vertex' 2>/tmp/tk-probe-resolve.err)" "Google-Vertex" "source group case-insensitive fallback"
 
 TK_PROBE_GROUP_ID=39
