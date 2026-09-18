@@ -112,13 +112,13 @@ class SmokeLibAnthropicModelListTest(unittest.TestCase):
 
     def test_strict_assert_fails_when_missing(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-            json.dump({"object": "list", "data": [{"id": "gemini-2.5-flash"}]}, fh)
+            json.dump({"object": "list", "data": [{"id": "gemini-3.6-flash"}]}, fh)
             models_path = Path(fh.name)
 
         script = f"""
 set -euo pipefail
 source "{SMOKE_LIB}"
-smoke_assert_model_listed "{models_path}" "gemini" "gemini-3.1-pro-preview"
+smoke_assert_model_listed "{models_path}" "gemini" "gemini-3.8-flash"
 """
         proc = subprocess.run(["bash", "-c", script], text=True, capture_output=True, check=False)
         self.assertEqual(proc.returncode, 1)

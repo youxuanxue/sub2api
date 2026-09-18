@@ -203,7 +203,7 @@ describe('UseKeyModal — preserved snippet correctness', () => {
     expect(fable.options.thinking).toEqual({ type: 'adaptive' })
   })
 
-  it('renders empirical gemini wire ids in antigravity Gemini OpenCode config', async () => {
+  it('renders converged gemini ids in antigravity Gemini OpenCode config', async () => {
     const wrapper = mountModal({ platform: 'antigravity' })
     const opencodeTab = wrapper.findAll('button').find((b) => b.text().includes('keys.useKeyModal.cliTabs.opencode'))
     await opencodeTab!.trigger('click')
@@ -211,8 +211,10 @@ describe('UseKeyModal — preserved snippet correctness', () => {
 
     const geminiConfig = wrapper.findAll('pre code').map((c) => c.text()).find((c) => c.includes('"antigravity-gemini"'))
     const models = JSON.parse(geminiConfig!).provider['antigravity-gemini'].models
-    expect(models['gemini-3.5-flash-low'].name).toBe('Gemini 3.5 Flash (Medium)')
-    expect(models['gemini-pro-agent']).toBeDefined()
+    expect(models['gemini-3.8-flash'].name).toBe('Gemini 3.8 Flash')
+    expect(models['gemini-3.1-flash-image']).toBeDefined()
+    expect(models['gemini-pro-agent']).toBeUndefined()
+    expect(models['gemini-2.5-flash']).toBeUndefined()
     expect(models['gpt-oss-120b-medium']).toBeUndefined()
   })
 
@@ -438,8 +440,8 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
   it('injects the live servable model into the Gemini CLI snippet (no free-text hint)', async () => {
     getMePricingCatalog.mockResolvedValue({
       models: [
-        { model_id: 'gemini-2.5-pro', capabilities: ['vision'], context_window: 1048576 },
-        { model_id: 'gemini-2.5-flash', capabilities: [] }
+        { model_id: 'gemini-3.8-flash', capabilities: ['vision'], context_window: 1048576 },
+        { model_id: 'gemini-3.6-flash', capabilities: [] }
       ]
     })
     const wrapper = mountModal({ platform: 'gemini', apiKeyId: 42 })
@@ -449,12 +451,12 @@ describe('UseKeyModal — redesign (picker / test / CC-only / raw tabs)', () => 
     expect(getMePricingCatalog).toHaveBeenCalledWith({ apiKeyId: 42 })
     const joined = wrapper.findAll('pre code').map((c) => c.text()).join('\n')
     // first servable gemini model is injected; the old free-text comment is gone
-    expect(joined).toContain('GEMINI_MODEL="gemini-2.5-pro"')
+    expect(joined).toContain('GEMINI_MODEL="gemini-3.8-flash"')
     expect(joined).not.toContain('gemini-3-pro-preview')
     // the picker offers exactly the servable ids
     const options = wrapper.findAll('option').map((o) => o.text())
-    expect(options).toContain('gemini-2.5-pro')
-    expect(options).toContain('gemini-2.5-flash')
+    expect(options).toContain('gemini-3.8-flash')
+    expect(options).toContain('gemini-3.6-flash')
   })
 
   it('CC-only anthropic group offers only Claude Code (no curl/python/opencode) + warning', async () => {
