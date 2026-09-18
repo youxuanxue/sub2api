@@ -5,7 +5,7 @@ approved_by: "user (conversation approval of revised design, 2026-09-17)"
 approved_at: "2026-09-17"
 authors: [codex]
 created_at: "2026-09-17"
-related_stories: []
+related_stories: [US-050]
 ---
 
 # Rolling Capacity Saturation Scheduling

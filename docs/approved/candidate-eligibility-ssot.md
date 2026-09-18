@@ -166,8 +166,11 @@ and remaining work are maintained in
    explicitly approved in the 2026-09-09 conversation.
    A full preferred account must not force waiting while a lower-priority
    eligible account can accept the request. If all eligible accounts are busy,
-   waiting remains bounded by the existing wait policy. Shared, bounded
-   saturation preference remains in force within the payment tier.
+   waiting remains bounded by the existing wait policy.    Shared, bounded
+   saturation preference remains in force within the payment tier; rolling
+   window, threshold, continuous penalty and account-capacity switch semantics
+   are owned by
+   [`rolling-capacity-saturation.md`](rolling-capacity-saturation.md).
    Existing empty-pool recovery runs once over that admitted pool, after
    authorization and hard eligibility: keep window-guard reserve accounts out
    while a normal candidate remains, and consider them only if none remains.

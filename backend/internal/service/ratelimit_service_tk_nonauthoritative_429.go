@@ -51,9 +51,6 @@ func tkIsAnthropicNonAuthoritative429(headers http.Header, responseBody []byte) 
 	if isAnthropicExtraUsage429(responseBody) {
 		return false
 	}
-	if len(responseBody) == 0 {
-		return false
-	}
 	if headers == nil {
 		return true
 	}

@@ -7123,14 +7123,24 @@
       "rationale": "Anthropic prod mirror downstream-empty regression: saturation counter feeds preference only; sustained empty-pool / non-authoritative-429 / legacy 502 paths must not write prod-side model_rate_limits or advance ladder."
     },
     {
+      "path": "backend/internal/repository/saturation_rolling_counter.go",
+      "must_contain": [
+        "var saturationRollingIncrScript",
+        "func rollingSaturationCutoffMS(",
+        "func zcountRollingSaturation("
+      ],
+      "rationale": "Shared rolling ZSET saturation counter primitives. Anthropic/OpenAI/Antigravity counters must reuse this script and batch ZCOUNT helper so window semantics cannot drift."
+    },
+    {
       "path": "backend/internal/repository/anthropic_saturation_counter_cache.go",
       "must_contain": [
         "func NewAnthropicSaturationCounterCache(",
         "anthropic_saturation_count:account:",
         "anthropicSaturationIncrScript",
+        "saturationRollingIncrScript",
         "func (c *anthropicSaturationCounterCache) GetSaturationBatch("
       ],
-      "rationale": "Redis-backed fixed-window counter for the saturation de-prioritization. The INCR+EXPIRE-on-first-hit Lua keeps the ORIGINAL window (no sliding) so the count tracks a sustained burst and self-clears on TTL; GetSaturationBatch (MGET) is the scheduler's per-selection hot-path read. Deleting this repo file breaks the wire provider and disables the feature."
+      "rationale": "Redis-backed rolling-window counter for Anthropic saturation de-prioritization. Uses the shared saturationRollingIncrScript ZSET owner; GetSaturationBatch is the scheduler's per-selection hot-path read. Deleting this repo file breaks the wire provider and disables the feature."
     },
     {
       "path": "backend/internal/service/setting_service_tk_saturation.go",
@@ -7259,9 +7269,10 @@
         "func NewOpenAISaturationCounterCache(",
         "openai_saturation_count:account:",
         "openaiSaturationIncrScript",
+        "saturationRollingIncrScript",
         "func (c *openaiSaturationCounterCache) GetSaturationBatch("
       ],
-      "rationale": "Redis-backed fixed-window counter for OpenAI saturation de-prioritization. Mirrors anthropic_saturation_counter_cache.go; deleting this repo file breaks the wire provider and disables the feature."
+      "rationale": "Redis-backed rolling-window counter for OpenAI saturation de-prioritization. Reuses saturationRollingIncrScript; deleting this repo file breaks the wire provider and disables the feature."
     },
     {
       "path": "backend/internal/service/setting_service_tk_openai_saturation.go",

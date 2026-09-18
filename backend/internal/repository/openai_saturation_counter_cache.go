@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
@@ -25,22 +24,9 @@ var candidateFailureIncrScript = redis.NewScript(`
 	return count
 `)
 
-var openaiSaturationIncrScript = redis.NewScript(`
-	local key = KEYS[1]
-	local window = tonumber(ARGV[1])
-	local now = redis.call('TIME')
-	local now_ms = now[1] * 1000 + math.floor(now[2] / 1000)
-	local cutoff = now_ms - window * 1000
-
-	redis.call('ZREMRANGEBYSCORE', key, '-inf', cutoff)
-	local count = redis.call('ZCARD', key)
-	local member = tostring(now_ms) .. ':' .. tostring(count)
-	redis.call('ZADD', key, now_ms, member)
-	count = count + 1
-	redis.call('PEXPIRE', key, window * 1000 + 1000)
-
-	return count
-`)
+// openaiSaturationIncrScript keeps the historical sentinel symbol; the rolling
+// ZSET implementation is shared as saturationRollingIncrScript.
+var openaiSaturationIncrScript = saturationRollingIncrScript
 
 type openaiSaturationCounterCache struct {
 	rdb *redis.Client
@@ -105,31 +91,19 @@ func (c *openaiSaturationCounterCache) GetSaturationBatch(ctx context.Context, a
 	if len(accountIDs) == 0 {
 		return out, nil
 	}
-	if windowSeconds <= 0 {
-		return nil, fmt.Errorf("invalid window: %d", windowSeconds)
-	}
-	now, err := c.rdb.Time(ctx).Result()
+	cutoff, err := rollingSaturationCutoffMS(ctx, c.rdb, windowSeconds)
 	if err != nil {
 		return nil, fmt.Errorf("get openai saturation time: %w", err)
 	}
-	cutoff := now.Add(-time.Duration(windowSeconds) * time.Second).UnixMilli()
 	keys := make([]string, len(accountIDs))
 	for i, id := range accountIDs {
 		keys[i] = openaiSaturationKey(id)
 	}
-	pipe := c.rdb.Pipeline()
-	cmds := make([]*redis.IntCmd, len(keys))
-	for i, key := range keys {
-		cmds[i] = pipe.ZCount(ctx, key, "("+strconv.FormatInt(cutoff, 10), "+inf")
-	}
-	if _, err := pipe.Exec(ctx); err != nil {
+	counts, err := zcountRollingSaturation(ctx, c.rdb, keys, cutoff)
+	if err != nil {
 		return nil, fmt.Errorf("zcount openai saturation: %w", err)
 	}
-	for i, cmd := range cmds {
-		n, err := cmd.Result()
-		if err != nil {
-			continue
-		}
+	for i, n := range counts {
 		if n != 0 {
 			out[accountIDs[i]] = n
 		}
