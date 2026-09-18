@@ -70,3 +70,28 @@ func TestGenerateSessionHash_NewAPIScopesByAPIKey(t *testing.T) {
 	require.NotEmpty(t, a)
 	require.NotEqual(t, a, b, "different API keys must not share NewAPI sticky bindings")
 }
+
+func TestGenerateSessionHash_UniversalKeySkipsNewAPIStablePrefix(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	c := newNewAPIPromptCacheStickyContext(t, 626)
+	c.Request = c.Request.WithContext(WithUniversalKeyRouting(c.Request.Context()))
+
+	first := []byte(`{"model":"glm-5.3","messages":[{"role":"system","content":"long shared prefix"},{"role":"user","content":"q1"}]}`)
+	second := []byte(`{"model":"glm-5.3","messages":[{"role":"system","content":"long shared prefix"},{"role":"user","content":"q2 different"}]}`)
+
+	require.NotEqual(t, svc.GenerateSessionHash(c, first), svc.GenerateSessionHash(c, second),
+		"universal-key routing must keep first-user content sticky, not NewAPI stable-prefix")
+}
+
+func TestGenerateSessionHash_NewAPINoPrefixKeepsUserTurn(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	c := newNewAPIPromptCacheStickyContext(t, 626)
+
+	first := []byte(`{"model":"glm-5.3","messages":[{"role":"user","content":"q1 alone"}]}`)
+	second := []byte(`{"model":"glm-5.3","messages":[{"role":"user","content":"q2 alone different"}]}`)
+
+	h1 := svc.GenerateSessionHash(c, first)
+	h2 := svc.GenerateSessionHash(c, second)
+	require.NotEmpty(t, h1)
+	require.NotEqual(t, h1, h2, "user-only NewAPI bodies must not collapse an entire api_key onto one sticky account")
+}

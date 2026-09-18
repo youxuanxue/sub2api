@@ -26,7 +26,7 @@
 9. AC-009 (正向 / 分组契约)：Given group stats 同时包含 raw 与 rollup 时段，When 查询 snapshot group 分面，Then 每个分组返回 input/output/cache-create/cache-read 分项，且相加等于 `total_tokens`。
 10. AC-010 (负向 / 遥测不可用)：Given `billing_tier=kiro-estimated` 的 usage row，When 聚合 prompt cache，Then其 input 进入 `cache_telemetry_unavailable_input_tokens` 并从可观测命中率分母剔除；纯 Kiro 分组显示“不可观测”而不是 `0%`。
 11. AC-011 (端到端 / 行动排序)：Given 超过 5 个乱序分组且包含混合可观测流量，When 管理员打开 Dashboard，Then真实 UI 按 prompt token 影响量降序只显示前 5 个，点击分组携带当前窗口进入 Usage 明细。
-12. AC-012 (正向 / NewAPI 账号粘性种子)：Given NewAPI 分组 + 无显式 session/prompt_cache_key + 相同 system 前缀但不同 user turn，When `GenerateSessionHash`，Then 两次 hash 相同且跨 api_key 不串桶；OpenAI 分组仍按 first-user 区分（`TestGenerateSessionHash_NewAPIStablePrefixIgnoresUserTurn` + `TestGenerateSessionHash_OpenAIGroupStillUsesFirstUser` + `TestGenerateSessionHash_NewAPIScopesByAPIKey`）。
+12. AC-012 (正向 / NewAPI 账号粘性种子)：Given NewAPI 分组 + 无显式 session/prompt_cache_key + 相同 system 前缀但不同 user turn，When `GenerateSessionHash`，Then 两次 hash 相同且跨 api_key 不串桶；OpenAI 分组仍按 first-user 区分；万能 key 与无 stable prefix 的 user-only body 不走稳定前缀粘账号（`TestGenerateSessionHash_NewAPIStablePrefixIgnoresUserTurn` + `TestGenerateSessionHash_OpenAIGroupStillUsesFirstUser` + `TestGenerateSessionHash_NewAPIScopesByAPIKey` + `TestGenerateSessionHash_UniversalKeySkipsNewAPIStablePrefix` + `TestGenerateSessionHash_NewAPINoPrefixKeepsUserTurn`）。
 
 ## Assertions
 
@@ -39,7 +39,7 @@
 - AC-009 后：`input + output + cache_creation + cache_read == total_tokens`
 - AC-010 后：可观测分母 `== input - unavailable + cache_creation + cache_read`，分母为 0 时 UI 不渲染 `0.0%`
 - AC-011 后：分组行数 `<= 5`，相邻行 prompt token 单调不增
-- AC-012 后：NewAPI 同 system 不同 user → hash 相等；OpenAI 同 system 不同 user → hash 不等；不同 api_key_id → hash 不等
+- AC-012 后：NewAPI 同 system 不同 user → hash 相等；OpenAI 同 system 不同 user → hash 不等；不同 api_key_id → hash 不等；万能 key 同 system 不同 user → hash 不等；NewAPI user-only 不同 user → hash 不等
 - 失败时 testify `require` 立即终止，非 0 退出码
 
 ## Linked Tests
@@ -61,6 +61,8 @@
 - `backend/internal/service/openai_gateway_scheduling_tk_newapi_prompt_cache_test.go`::`TestGenerateSessionHash_NewAPIStablePrefixIgnoresUserTurn`
 - `backend/internal/service/openai_gateway_scheduling_tk_newapi_prompt_cache_test.go`::`TestGenerateSessionHash_OpenAIGroupStillUsesFirstUser`
 - `backend/internal/service/openai_gateway_scheduling_tk_newapi_prompt_cache_test.go`::`TestGenerateSessionHash_NewAPIScopesByAPIKey`
+- `backend/internal/service/openai_gateway_scheduling_tk_newapi_prompt_cache_test.go`::`TestGenerateSessionHash_UniversalKeySkipsNewAPIStablePrefix`
+- `backend/internal/service/openai_gateway_scheduling_tk_newapi_prompt_cache_test.go`::`TestGenerateSessionHash_NewAPINoPrefixKeepsUserTurn`
 - `backend/internal/repository/usage_log_repo_request_type_test.go`::`TestUsageLogRepositoryGetGroupStatsAccountCostColumn`
 - `backend/internal/repository/usage_log_repo_integration_test.go`::`TestUsageLogRepoSuite`（运行时筛选 `TestGroupStatsRollupParity_EqualsLegacyRawScanWithUngrouped` 子测试）
 - `frontend/src/views/admin/__tests__/DashboardView.spec.ts`（分组影响量排序、不可观测与 drilldown 行为）
