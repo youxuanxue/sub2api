@@ -232,7 +232,7 @@ func TestShouldFallbackGeminiModel_KnownFallbackOn404(t *testing.T) {
 	t.Parallel()
 
 	res := &service.UpstreamHTTPResult{StatusCode: http.StatusNotFound}
-	require.True(t, shouldFallbackGeminiModel("gemini-3.1-pro-preview-customtools", res))
+	require.True(t, shouldFallbackGeminiModel("gemini-3.8-flash", res))
 }
 
 func TestShouldFallbackGeminiModel_UnknownModelOn404(t *testing.T) {
