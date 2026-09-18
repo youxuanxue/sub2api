@@ -2447,6 +2447,10 @@ func (a *Account) IsTLSFingerprintEnabled() bool {
 	if a.IsKiro() {
 		return a.isKiroTLSFingerprintEnabled()
 	}
+	// Antigravity OAuth：默认开启，按名解析 tk_canonical_antigravity_cli（与 CLI UA 成套）
+	if a.isAntigravityOAuth() {
+		return a.isAntigravityTLSFingerprintEnabled()
+	}
 	// 仅支持 Anthropic OAuth/SetupToken 账号
 	if !a.IsAnthropicOAuthOrSetupToken() {
 		return false

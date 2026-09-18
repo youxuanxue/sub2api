@@ -75,6 +75,57 @@ func TestComputeOpenAISaturationPenalties_KillSwitchOff(t *testing.T) {
 	resetOpenAISatCache()
 }
 
+// Chat/completions historically force UseUpstreamTokenCost=true. Saturation
+// preference must still sink a saturated edge stub behind a healthy peer.
+func TestBuildOpenAIAccountLoadPlan_SaturationAppliesWithUpstreamTokenCost(t *testing.T) {
+	resetOpenAISatCache()
+	cfg := &config.Config{}
+	// TopK=1 makes preference fatal: saturated stub must not occupy the only slot.
+	cfg.Gateway.OpenAIWS.LBTopK = 1
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 1
+	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 1
+	svc := &OpenAIGatewayService{cfg: cfg}
+	svc.SetOpenAISaturationCounter(&fakeSaturationCache{counts: map[int64]int64{
+		63: openAIEdgeMirrorStubSaturationThreshold,
+	}})
+	scheduler := &defaultOpenAIAccountScheduler{service: svc}
+
+	saturated := openAIEdgeStub(63)
+	saturated.Concurrency = 30
+	saturated.Priority = 1
+	healthy := openAIEdgeStub(68)
+	healthy.Concurrency = 80
+	healthy.Priority = 1
+
+	loadMap := map[int64]*AccountLoadInfo{
+		// Idle dead stub would otherwise win on loadFactor without the penalty.
+		63: {AccountID: 63, LoadRate: 0, CurrentConcurrency: 0},
+		68: {AccountID: 68, LoadRate: 80, CurrentConcurrency: 64},
+	}
+	plan := scheduler.buildOpenAIAccountLoadPlan(context.Background(), OpenAIAccountScheduleRequest{
+		UseUpstreamTokenCost: true,
+		RequestedModel:       "gpt-5.6-luna",
+	}, []*Account{saturated, healthy}, loadMap)
+
+	require.Len(t, plan.candidates, 2)
+	var satScore, healthyScore float64
+	for _, c := range plan.candidates {
+		switch c.account.ID {
+		case 63:
+			require.Greater(t, c.saturationScorePenalty, 0.0)
+			satScore = c.score
+		case 68:
+			require.Equal(t, 0.0, c.saturationScorePenalty)
+			healthyScore = c.score
+		}
+	}
+	require.Less(t, satScore, healthyScore, "saturated idle stub must score below busy healthy peer even with UseUpstreamTokenCost")
+	require.Len(t, plan.selectionOrder, 1)
+	require.Equal(t, int64(68), plan.selectionOrder[0].account.ID,
+		"TopK=1 acquire candidate must be the healthy peer, not the saturated stub")
+	resetOpenAISatCache()
+}
+
 func resetOpenAISatCache() {
 	openaiSatDeprioritizeCache.Store((*tkOptOutFlagCacheEntry)(nil))
 }

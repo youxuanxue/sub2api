@@ -497,23 +497,26 @@ func scoreSchemaOption(val any) int {
 	return 0
 }
 
-// DeepCleanUndefined 深度清理值为 "[undefined]" 的字段
-func DeepCleanUndefined(value any) {
+// DeepCleanUndefined 深度清理值为 "[undefined]" 的字段，返回删除的键数量。
+func DeepCleanUndefined(value any) int {
 	if value == nil {
-		return
+		return 0
 	}
+	removed := 0
 	switch v := value.(type) {
 	case map[string]any:
 		for k, val := range v {
 			if s, ok := val.(string); ok && s == "[undefined]" {
 				delete(v, k)
+				removed++
 				continue
 			}
-			DeepCleanUndefined(val)
+			removed += DeepCleanUndefined(val)
 		}
 	case []any:
 		for _, val := range v {
-			DeepCleanUndefined(val)
+			removed += DeepCleanUndefined(val)
 		}
 	}
+	return removed
 }

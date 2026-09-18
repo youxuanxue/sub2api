@@ -27,7 +27,7 @@ func TestAntigravityGatewayService_WrapNativeImageRequestUsesImageGenEnvelope(t 
 	require.Regexp(t, `^image_gen/[0-9]+/.+/12$`, wrapped["requestId"])
 }
 
-func TestAntigravityGatewayService_ForwardGemini_NonStreamingUsesNativeGenerateContent(t *testing.T) {
+func TestAntigravityGatewayService_ForwardGemini_NonStreamingCollectsStreamingUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -37,12 +37,14 @@ func TestAntigravityGatewayService_ForwardGemini_NonStreamingUsesNativeGenerateC
 	upstream := &queuedHTTPUpstreamStub{
 		responses: []*http.Response{{
 			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}}}`)),
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":2,\"candidatesTokenCount\":1}}}\n\n",
+			)),
 		}},
 		onCall: func(req *http.Request, _ *queuedHTTPUpstreamStub) {
-			require.Contains(t, req.URL.String(), "/v1internal:generateContent")
-			require.NotContains(t, req.URL.String(), "alt=sse")
+			require.Contains(t, req.URL.String(), "/v1internal:streamGenerateContent")
+			require.Contains(t, req.URL.String(), "alt=sse")
 		},
 	}
 	svc := &AntigravityGatewayService{
@@ -64,7 +66,8 @@ func TestAntigravityGatewayService_ForwardGemini_NonStreamingUsesNativeGenerateC
 	require.Len(t, upstream.requestBodies, 1)
 	var wrapped map[string]any
 	require.NoError(t, json.Unmarshal(upstream.requestBodies[0], &wrapped))
-	require.Equal(t, "agent", wrapped["requestType"])
+	_, hasRequestType := wrapped["requestType"]
+	require.False(t, hasRequestType, "plain text native generateContent must omit requestType")
 	request, ok := wrapped["request"].(map[string]any)
 	require.True(t, ok)
 	require.Regexp(t, `^-[0-9]+$`, request["sessionId"])

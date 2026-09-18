@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/tidwall/gjson"
 )
 
 var ErrUniversalCapacityUnavailable = errors.New("universal key: entitled pools are temporarily unavailable")
@@ -17,9 +17,12 @@ var ErrUniversalCapacityUnavailable = errors.New("universal key: entitled pools 
 // UniversalCapacityError wraps ErrUniversalCapacityUnavailable with the best
 // known platform when entitled pools support the model but none are currently
 // schedulable. Ops uses Platform for attribution when no backing group was bound.
+// Diag carries selection filter counts when the candidate scheduler produced the
+// capacity miss; Resolve-only paths may leave it nil.
 type UniversalCapacityError struct {
 	Platform string
 	GroupID  int64
+	Diag     *CandidateCapacityDiag
 }
 
 func (e *UniversalCapacityError) Error() string {
@@ -31,12 +34,12 @@ func (e *UniversalCapacityError) Error() string {
 
 func (e *UniversalCapacityError) Unwrap() error { return ErrUniversalCapacityUnavailable }
 
-func newUniversalCapacityError(platform string, groupID int64) error {
+func newUniversalCapacityError(platform string, groupID int64, diag *CandidateCapacityDiag) error {
 	platform = strings.TrimSpace(platform)
-	if platform == "" && groupID <= 0 {
+	if platform == "" && groupID <= 0 && diag == nil {
 		return ErrUniversalCapacityUnavailable
 	}
-	return &UniversalCapacityError{Platform: platform, GroupID: groupID}
+	return &UniversalCapacityError{Platform: platform, GroupID: groupID, Diag: diag}
 }
 
 func (r *UniversalRoutingResolver) SetCandidateEvaluator(router *protocolrouter.Router, evaluate groupCandidateEvaluator) {
@@ -88,14 +91,19 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 	default:
 		return context.WithValue(ctx, protocolRoutingContextKey{}, false)
 	}
-	var flags struct {
-		Stream bool   `json:"stream"`
-		Type   string `json:"type"`
-	}
-	if json.Unmarshal(body, &flags) != nil {
+	// Only stream/type are needed here. Full encoding/json Unmarshal walks the
+	// entire payload and dominated live CPU under candidate selection. Match the
+	// old Unmarshal-into-struct fail-closed rules for mistyped fields; JSON null
+	// still maps to the zero value (false / "") like encoding/json.
+	streamRes := gjson.GetBytes(body, "stream")
+	if streamRes.Exists() && streamRes.Type != gjson.True && streamRes.Type != gjson.False && streamRes.Type != gjson.Null {
 		return ctx
 	}
-	stream := flags.Stream || flags.Type == "response.create" || strings.Contains(path, ":streamGenerateContent")
+	typeRes := gjson.GetBytes(body, "type")
+	if typeRes.Exists() && typeRes.Type != gjson.String && typeRes.Type != gjson.Null {
+		return ctx
+	}
+	stream := streamRes.Bool() || typeRes.String() == "response.create" || strings.Contains(path, ":streamGenerateContent")
 	request, err := protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
 	if err != nil {
 		return ctx
@@ -183,7 +191,7 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 	}
 	if supported {
 		if capacityHint != nil {
-			return nil, newUniversalCapacityError(capacityHint.Platform, capacityHint.ID)
+			return nil, newUniversalCapacityError(capacityHint.Platform, capacityHint.ID, nil)
 		}
 		return nil, ErrUniversalCapacityUnavailable
 	}

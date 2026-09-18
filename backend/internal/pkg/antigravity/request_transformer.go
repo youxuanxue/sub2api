@@ -102,19 +102,23 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 	// 用于存储 tool_use id -> name 映射
 	toolIDToName := make(map[string]string)
 
-	// 仅在「只有内置 web_search、没有客户端 function tools」时走 web_search 降级模型。
-	// Antigravity v1internal 不支持内置工具与 functionDeclarations 混用（即使设置
-	// includeServerSideToolInvocations 仍会 400，见 issue #6464），混用时会丢弃内置搜索，
-	// 因此不能再强制切到 gemini-2.5-flash，否则 Codex 等带 shell 工具的请求会整单失败。
+	// 仅在「只有内置 web_search、没有客户端 function tools」时走 web_search 降级模型 /
+	// requestType=web_search。混用时 buildTools 会丢弃内置搜索（#6464），不能强制切到
+	// gemini-2.5-flash，否则 Codex 等带 shell 工具的请求会整单失败。纯文本省略
+	// requestType（对齐 Manager：不进 agent 池）。
 	useWebSearchRequest := hasWebSearchTool(claudeReq.Tools) && !hasClientFunctionTools(claudeReq.Tools)
-	requestType := "agent"
 	targetModel := mappedModel
 	if useWebSearchRequest {
-		requestType = "web_search"
 		if targetModel != webSearchFallbackModel {
 			targetModel = webSearchFallbackModel
 		}
 	}
+	requestType := ResolveV1InternalRequestType(
+		targetModel,
+		useWebSearchRequest,
+		len(claudeReq.Tools) > 0,
+		ClaudeRequestHasToolInteractions(claudeReq.Messages),
+	)
 
 	// 检测是否启用 thinking
 	isThinkingEnabled := claudeReq.Thinking != nil && (claudeReq.Thinking.Type == "enabled" || claudeReq.Thinking.Type == "adaptive")
