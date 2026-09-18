@@ -2,21 +2,38 @@ package service
 
 import "context"
 
-type candidateDiscoveryPreparedPath struct {
+type candidatePreparedPath struct {
 	ctx     context.Context
 	model   string
 	channel ChannelMappingResult
 	err     error
 }
 
-// A discovery shape uses one immutable request and account set. Prepare each
-// group's request policy once; execution and subsequent requests stay fresh.
-func candidateDiscoveryPathPreparer(request *CandidateRequest) func(context.Context, *Group) (context.Context, string, ChannelMappingResult, error) {
-	prepared := make(map[int64]candidateDiscoveryPreparedPath)
+// candidatePathContextPreparer memoizes pathContext by group ID. Selection and
+// discovery both evaluate many accounts against the same groups; re-parsing the
+// request body for every account×group pair dominates CPU (WithRequest /
+// ParseCanonicalRequest).
+func candidatePathContextPreparer(request *CandidateRequest) func(context.Context, *Group) (context.Context, string, ChannelMappingResult, error) {
+	prepared := make(map[int64]candidatePreparedPath)
 	return func(ctx context.Context, group *Group) (context.Context, string, ChannelMappingResult, error) {
 		result, ok := prepared[group.ID]
 		if !ok {
 			result.ctx, result.model, result.channel, result.err = request.pathContext(ctx, group)
+			prepared[group.ID] = result
+		}
+		return result.ctx, result.model, result.channel, result.err
+	}
+}
+
+// A discovery shape uses one immutable request and account set. Prepare each
+// group's request policy once; execution and subsequent requests stay fresh.
+func candidateDiscoveryPathPreparer(request *CandidateRequest) func(context.Context, *Group) (context.Context, string, ChannelMappingResult, error) {
+	prepare := candidatePathContextPreparer(request)
+	prepared := make(map[int64]candidatePreparedPath)
+	return func(ctx context.Context, group *Group) (context.Context, string, ChannelMappingResult, error) {
+		result, ok := prepared[group.ID]
+		if !ok {
+			result.ctx, result.model, result.channel, result.err = prepare(ctx, group)
 			if result.err == nil {
 				if routing, routed := result.ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue); routed {
 					routing.immutableAccounts = true
