@@ -13,15 +13,18 @@ import (
 // account is upstream-rate-limited (~47-min window), the edge returns TokenKey's
 // own "No available accounts" 429 (or its failover-terminal envelope).
 // tkSkipDownstreamNoAvailableAccountsPenalty / ...FailoverExhaustedPenalty
-// correctly SKIP penalty + fail over (so users see no failures) but DELIBERATELY
-// keep the stub fully schedulable — counting these toward the 3/3 ladder once
-// caused the 2026-05-31 "503 amplifier" that collapsed the whole prod pool.
+// correctly SKIP hard penalty + fail over (so users see no failures) but
+// DELIBERATELY keep the stub fully schedulable — counting these toward the
+// anthropic_upstream_error ladder once caused the 2026-05-31 "503 amplifier"
+// that collapsed the whole prod pool.
 //
 // Consequence: prod keeps selecting the dead stub FIRST and paying a wasted
 // failover hop on EVERY request for the whole window. This counter feeds a
-// BOUNDED scheduler preference (gateway_service_tk_saturation_penalty.go) that
-// routes AWAY from a SUSTAINEDLY saturated stub — a preference, NOT a cooldown:
-// it never SetTempUnschedulable / advances the ladder / SetRateLimited.
+// soft scheduler preference (gateway_service_tk_saturation_penalty.go /
+// candidate_saturation.go) that routes AWAY from a SUSTAINEDLY saturated stub
+// using the rolling window/threshold in edge_mirror_stub_saturation_tk.go —
+// a preference, NOT a cooldown: it never SetTempUnschedulable / advances the
+// ladder / SetRateLimited.
 
 // SetAnthropicSaturationCounter wires the Redis-backed saturation counter into
 // RateLimitService (optional dependency). Nil-safe: when unset, the increment

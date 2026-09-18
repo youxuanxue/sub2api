@@ -38,3 +38,12 @@ existing model-scoped retry behavior.
   saturation counters.
 - Classified capacity failures no longer retry the same account.
 - Redis failures remain best-effort and do not break selection.
+
+## Deploy note (TokenKey prod/edge)
+
+Counters move from fixed-window Redis STRING (`INCR`+`EXPIRE`) to rolling
+ZSET members. After rollout, any leftover STRING keys may return `WRONGTYPE`
+on `ZADD`/`ZCOUNT` for up to the previous ~90s TTL. Writers/readers stay
+best-effort and fail open (selection continues without preference). No manual
+`FLUSH` is required; watch `*_saturation_increment_failed` /
+`candidate_saturation_read_failed` only if they persist beyond that window.

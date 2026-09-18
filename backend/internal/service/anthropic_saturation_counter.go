@@ -7,15 +7,16 @@ import "context"
 // tkSkipDownstreamNoAvailableAccountsPenalty / tkSkipDownstreamFailoverExhaustedPenalty
 // fired (the forwarded-to edge pool was empty or its failover loop ran dry). The
 // stub itself is healthy; this counter is NOT a cooldown and NEVER advances the
-// 3/3 ladder or SetTempUnschedulable. It is read by the load-aware account
-// scheduler to apply a BOUNDED de-prioritization preference so prod stops
-// selecting a saturated edge stub first and wasting a failover hop on every
-// request for the whole ~47-min upstream-limit window.
+// anthropic_upstream_error ladder or SetTempUnschedulable. It is read by the
+// load-aware account scheduler to apply a soft, count-growing de-prioritization
+// preference (see edge_mirror_stub_saturation_tk.go) so prod stops selecting a
+// saturated edge stub first and wasting a failover hop on every request for the
+// whole ~47-min upstream-limit window.
 //
-// Self-clearing by construction: the counter is a fixed window with a short TTL,
-// and the scheduler reads it live on every selection. When the edge recovers,
-// the no-available hits stop, the counter expires, and the preference evaporates
-// with no separate clear-on-200 hook, marker, or cooldown state.
+// Self-clearing by construction: individual events leave the rolling window, and
+// the scheduler reads the live count on every selection. When the edge recovers,
+// the no-available hits stop, events expire, and the preference evaporates with
+// no separate clear-on-200 hook, marker, or cooldown state.
 type AnthropicSaturationCounterCache interface {
 	// IncrementSaturation records one downstream-capacity hit for accountID.
 	// Individual events expire after windowSeconds; sustained bursts keep
