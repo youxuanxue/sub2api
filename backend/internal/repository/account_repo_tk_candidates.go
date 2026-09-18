@@ -9,7 +9,10 @@ import (
 )
 
 // ListCandidateAccounts loads the authorized membership union in one query.
-// Disabled members remain visible so support is not mistaken for live capacity.
+// Disabled / unschedulable members remain in the snapshot so inference selection
+// can separate support from readiness; discovery menus then apply
+// Account.IsLiveForDiscovery (docs/approved/discovery-require-live-account.md)
+// before advertising a model.
 func (r *accountRepository) ListCandidateAccounts(ctx context.Context, groupIDs []int64) ([]service.Account, error) {
 	if len(groupIDs) == 0 {
 		return []service.Account{}, nil

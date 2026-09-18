@@ -1434,9 +1434,27 @@
         "request.evaluatePathWithPreparation(requestCtx",
         "selectCandidateBillingOrigin(requestCtx",
         "candidateDiscoveryRequest(model, spec)",
-        "if len(out) == 0 && catalogSupportFailure != nil"
+        "if len(out) == 0 && catalogSupportFailure != nil",
+        "IsLiveForDiscovery()"
       ],
-      "rationale": "Metadata projects representative complete support paths and rejects conflicting origins using the same billing owner as inference."
+      "rationale": "Metadata projects representative complete support paths and rejects conflicting origins using the same billing owner as inference. Discovery menus require Account.IsLiveForDiscovery (active+Schedulable) so permanently unschedulable holders cannot advertise empty-pool models (docs/approved/discovery-require-live-account.md)."
+    },
+    {
+      "path": "backend/internal/service/account_discovery_live_tk.go",
+      "must_contain": [
+        "func (a *Account) IsLiveForDiscovery() bool",
+        "a.IsActive() && a.Schedulable"
+      ],
+      "rationale": "Discovery live gate owner: active + Schedulable only; must not fold in temp_unschedulable/rate-limit/overload (RuntimeReadiness owns those)."
+    },
+    {
+      "path": "backend/internal/service/candidate_discovery_tk_test.go",
+      "must_contain": [
+        "func TestUS050_CandidateDiscoveryRequiresLiveAccount(",
+        "schedulable_false_hides_model",
+        "temp_unschedulable_still_listed"
+      ],
+      "rationale": "Pins the discovery-require-live-account contract: Schedulable=false hides; temp_unschedulable alone does not."
     },
     {
       "path": "backend/internal/service/universal_capability_tk.go",

@@ -61,6 +61,12 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 	forcedPlatform, _ := ctx.Value(ctxkey.ForcePlatform).(string)
 	for i := range accounts {
 		account := &accounts[i]
+		// docs/approved/discovery-require-live-account.md: only live accounts
+		// (active + Schedulable) contribute menu candidates. Temporary capacity
+		// windows stay out of this gate.
+		if !account.IsLiveForDiscovery() {
+			continue
+		}
 		if !candidateDiscoveryPlatformMatches(protocol, account.Platform) || (forcedPlatform != "" && forcedPlatform != account.Platform) {
 			continue
 		}
@@ -164,6 +170,9 @@ func (s *UniversalCapabilityService) discoverCandidates(ctx context.Context, key
 			var selected *Group
 			var failure error
 			for i := range accounts {
+				if !accounts[i].IsLiveForDiscovery() {
+					continue
+				}
 				if !visibleByPlatform[accounts[i].Platform][model] {
 					continue
 				}
