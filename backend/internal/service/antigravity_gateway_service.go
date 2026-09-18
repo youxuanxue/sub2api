@@ -774,7 +774,7 @@ func injectIdentityPatchToGeminiRequest(body []byte) ([]byte, error) {
 
 // wrapV1InternalRequest 包装请求为 v1internal 格式
 func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model string, originalBody []byte) ([]byte, error) {
-	var request any
+	var request map[string]any
 	if err := json.Unmarshal(originalBody, &request); err != nil {
 		return nil, fmt.Errorf("解析请求体失败: %w", err)
 	}
@@ -783,11 +783,25 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 		return nil, errAntigravityProjectIDRequired
 	}
 
+	requestType := "agent"
+	requestID := "agent-" + uuid.New().String()
+	if isImageGenerationModel(model) {
+		requestType = "image_gen"
+		requestID = fmt.Sprintf("image_gen/%d/%s/12", time.Now().UnixMilli(), uuid.NewString())
+	} else {
+		// Native agent requests need a stable session identity for follow-up
+		// turns. Preserve a caller-supplied ID and derive one otherwise, matching
+		// CLIProxyAPI's native request builder.
+		if sessionID, _ := request["sessionId"].(string); strings.TrimSpace(sessionID) == "" {
+			request["sessionId"] = antigravity.GenerateStableSessionIDFromRequest(originalBody)
+		}
+	}
+
 	wrapped := map[string]any{
 		"project":     projectID,
-		"requestId":   "agent-" + uuid.New().String(),
+		"requestId":   requestID,
 		"userAgent":   "antigravity", // 固定值，与官方客户端一致
-		"requestType": "agent",
+		"requestType": requestType,
 		"model":       model,
 		"request":     request,
 	}

@@ -39,6 +39,20 @@ func generateStableSessionID(contents []GeminiContent) string {
 	return "-" + strconv.FormatInt(n, 10)
 }
 
+// GenerateStableSessionIDFromRequest derives the same stable session identity
+// used by Claude-to-Gemini conversion for a native Gemini request body.
+// Existing request.sessionId values are still owned by the caller and should
+// be preserved before calling this helper.
+func GenerateStableSessionIDFromRequest(body []byte) string {
+	var request struct {
+		Contents []GeminiContent `json:"contents"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		return generateStableSessionID(nil)
+	}
+	return generateStableSessionID(request.Contents)
+}
+
 type TransformOptions struct {
 	EnableIdentityPatch bool
 	// IdentityPatch 可选：自定义注入到 systemInstruction 开头的身份防护提示词；
