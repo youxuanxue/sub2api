@@ -1033,7 +1033,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		ClaudeCodeOnly:                         g.ClaudeCodeOnly,
 		FallbackGroupID:                        g.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest:        g.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                           g.ModelRouting,
+		ModelRouting:                           map[string][]int64(g.ModelRouting),
 		ModelRoutingEnabled:                    g.ModelRoutingEnabled,
 		MCPXMLInject:                           g.McpXMLInject,
 		SupportedModelScopes:                   g.SupportedModelScopes,

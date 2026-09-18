@@ -11,6 +11,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -600,7 +601,8 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ClaudeCodeOnly:                         input.ClaudeCodeOnly,
 		FallbackGroupID:                        input.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest:        fallbackOnInvalidRequest,
-		ModelRouting:                           input.ModelRouting,
+		ModelRouting:                           domain.NormalizeGroupModelRouting(input.ModelRoutingEnabled, input.ModelRouting),
+		ModelRoutingEnabled:                    input.ModelRoutingEnabled,
 		MCPXMLInject:                           mcpXMLInject,
 		SupportedModelScopes:                   input.SupportedModelScopes,
 		AllowMessagesDispatch:                  input.AllowMessagesDispatch,
@@ -964,13 +966,14 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	group.FallbackGroupIDOnInvalidRequest = fallbackOnInvalidRequest
 
-	// 模型路由配置
+	// 模型路由配置（object only；enabled+nil → {}）
 	if input.ModelRouting != nil {
 		group.ModelRouting = input.ModelRouting
 	}
 	if input.ModelRoutingEnabled != nil {
 		group.ModelRoutingEnabled = *input.ModelRoutingEnabled
 	}
+	group.ModelRouting = domain.NormalizeGroupModelRouting(group.ModelRoutingEnabled, group.ModelRouting)
 	if input.MCPXMLInject != nil {
 		group.MCPXMLInject = *input.MCPXMLInject
 	}
