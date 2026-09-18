@@ -223,3 +223,67 @@ func TestHandle429_NewAPIWeeklyUsesResetNotFallback(t *testing.T) {
 	require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIWeeklyUtilExtraKey])
 	require.Equal(t, float64(resetAt.Unix()), repo.lastExtraUpdates[newAPIWeeklyResetExtraKey])
 }
+
+func TestNewAPIMonthlyQuotaResponse(t *testing.T) {
+	now := time.Date(2026, 9, 18, 23, 33, 0, 0, time.UTC)
+	for _, reset := range []string{"2026-09-30 23:59:59 +0800 CST", "2026-10-01 23:59:59 +0800 CST"} {
+		t.Run(reset, func(t *testing.T) {
+			hit := tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota. It will reset at "+reset+". We recommend upgrading your plan for more quota, or waiting for the reset.", http.Header{"Retry-After": {"5"}}, now)
+			require.NotNil(t, hit)
+			require.Equal(t, "monthly", hit.Window)
+			want, err := time.Parse("2006-01-02 15:04:05 -0700 MST", reset)
+			require.NoError(t, err)
+			require.True(t, want.Equal(hit.ResetAt))
+		})
+	}
+	hit := tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota. It will reset at 10-01 23:59:59 UTC", nil, now)
+	require.NotNil(t, hit)
+	require.Equal(t, time.Date(2026, 10, 1, 23, 59, 59, 0, time.UTC), hit.ResetAt)
+	require.Nil(t, tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota. It will reset at 09-01 23:59:59 UTC", nil, now))
+	require.Nil(t, tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota.", nil, now))
+	require.Nil(t, tkParseNewAPIUsageWindowResponse("Monthly requests rate limit exceeded, please retry later", http.Header{"Retry-After": {"5"}}, now))
+}
+
+func TestHandleUpstreamError_NewAPIMonthlyQuotaLifecycle(t *testing.T) {
+	reset := time.Now().Add(12 * 24 * time.Hour).UTC().Truncate(time.Second)
+	body, err := json.Marshal(map[string]any{"error": map[string]any{"code": "AccountQuotaExceeded", "message": "You have exceeded the monthly usage quota. It will reset at " + reset.In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04:05 -0700 MST") + "."}})
+	require.NoError(t, err)
+	for _, schedulable := range []bool{true, false} {
+		account := &Account{ID: 88, Platform: PlatformNewAPI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: schedulable}
+		repo := &rateLimitAccountRepoStub{accountOnGet: account}
+		svc := NewRateLimitService(repo, nil, nil, nil, nil)
+		svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, nil, body)
+		require.Equal(t, 1, repo.setRateLimitedCalls)
+		require.Equal(t, reset, repo.lastRateLimitedResetAt.UTC())
+		require.Equal(t, 1.0, repo.lastExtraUpdates["newapi_monthly_utilization"])
+		require.Equal(t, float64(reset.Unix()), repo.lastExtraUpdates["newapi_monthly_reset"])
+		require.Zero(t, repo.setErrorCalls)
+		require.Equal(t, schedulable, account.Schedulable)
+		account.RateLimitResetAt = &reset // persisted field as reloaded by the scheduler
+		require.False(t, account.IsSchedulable())
+		stats := &usagestats.AccountStats{Requests: 42}
+		usage := buildLocalWindowUsageFromStats(time.Now(), stats, stats)
+		applyNewAPIUsageWindowSnapshot(account, usage)
+		require.True(t, usage.FiveHour.UtilizationUnknown)
+		require.True(t, usage.SevenDay.UtilizationUnknown, "monthly quota must not appear as 7d quota")
+		require.Equal(t, int64(42), usage.SevenDay.WindowStats.Requests)
+		require.NotNil(t, usage.UpstreamQuota)
+		require.Equal(t, "degraded", usage.UpstreamQuota.State)
+		require.Len(t, usage.UpstreamQuota.Dimensions, 1)
+		dimension := usage.UpstreamQuota.Dimensions[0]
+		require.Equal(t, "newapi_monthly", dimension.Key)
+		require.Equal(t, "1mo", dimension.Window)
+		require.Equal(t, 100.0, *dimension.Utilization)
+		require.True(t, reset.Equal(*dimension.ResetsAt))
+		applyNewAPIUsageWindowSnapshot(account, usage)
+		require.Len(t, usage.UpstreamQuota.Dimensions, 1)
+		past := time.Now().Add(-time.Second)
+		account.RateLimitResetAt = &past
+		account.Extra["newapi_monthly_reset"] = float64(past.Unix())
+		fresh := buildLocalWindowUsageFromStats(time.Now(), stats, stats)
+		applyNewAPIUsageWindowSnapshot(account, fresh)
+		require.Nil(t, fresh.UpstreamQuota)
+		require.True(t, fresh.SevenDay.UtilizationUnknown)
+		require.Equal(t, schedulable, account.IsSchedulable())
+	}
+}

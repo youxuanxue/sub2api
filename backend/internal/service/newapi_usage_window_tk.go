@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// TK: NewAPI recoverable usage-window snapshots (weekly / 5h / 7d quota text).
+// TK: NewAPI recoverable usage-window snapshots (monthly / weekly / 5h / 7d quota text).
 //
 // Prod 2026-09-02 account 88 volcengine-agent-plan: upstream 429
 // "You have exceeded the weekly usage quota. It will reset at …" was correctly
@@ -22,9 +22,13 @@ import (
 //
 // This file is the write+read SSOT for that window text: parse reset time,
 // persist Extra, cool until reset, and surface utilization on the local 7d
-// (or 5h) progress + UpstreamQuota dimensions.
+// (or 5h) progress + UpstreamQuota dimensions. Monthly quota has its own
+// dimension and never overwrites local 5h/7d statistics.
 
 const (
+	newAPIMonthlyUtilExtraKey     = "newapi_monthly_utilization"
+	newAPIMonthlyResetExtraKey    = "newapi_monthly_reset"
+	newAPIMonthlySampledExtraKey  = "newapi_monthly_sampled_at"
 	newAPIWeeklyUtilExtraKey      = "newapi_weekly_utilization"
 	newAPIWeeklyResetExtraKey     = "newapi_weekly_reset"
 	newAPIWeeklySampledExtraKey   = "newapi_weekly_sampled_at"
@@ -35,6 +39,7 @@ const (
 	newAPISevenDayResetExtraKey   = "newapi_7d_reset"
 	newAPISevenDaySampledExtraKey = "newapi_7d_sampled_at"
 
+	newAPIUpstreamMonthlyKey  = "newapi_monthly"
 	newAPIUpstreamWeeklyKey   = "newapi_weekly"
 	newAPIUpstreamFiveHourKey = "newapi_5h"
 	newAPIUpstreamSevenDayKey = "newapi_7d"
@@ -44,7 +49,7 @@ var newAPIUsageWindowResetAtRE = regexp.MustCompile(`(?i)it will reset at\s+(\d{
 var newAPIUsageWindowShortResetAtRE = regexp.MustCompile(`(?i)(?:it|the quota) will reset at\s+(\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC\b`)
 
 type newAPIUsageWindowHit struct {
-	Window  string // "weekly" | "5h" | "7d"
+	Window  string // "monthly" | "weekly" | "5h" | "7d"
 	ResetAt time.Time
 }
 
@@ -60,6 +65,8 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 	}
 	window := "weekly"
 	switch {
+	case strings.Contains(haystack, "monthly usage quota"):
+		window = "monthly"
 	case strings.Contains(haystack, "5-hour") || strings.Contains(haystack, "5 hour"):
 		window = "5h"
 	case strings.Contains(haystack, "7-day") || strings.Contains(haystack, "7 day"):
@@ -73,7 +80,9 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 		reference = date
 	}
 	resetAt, ok := tkParseNewAPIUsageWindowResetAt(haystack)
-	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) {
+	// A monthly quota reset is authoritative even if Retry-After only describes
+	// a short request throttle. Preserve existing header precedence for other windows.
+	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) && (window != "monthly" || !ok) {
 		resetAt, ok = *retryAt, true
 	}
 	if !ok {
@@ -81,6 +90,9 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 			// A yearless reset must be within this quota window. In particular an
 			// expired September reset must not become a year-long cooldown.
 			maxWindow := 7 * 24 * time.Hour
+			if window == "monthly" {
+				maxWindow = 31 * 24 * time.Hour
+			}
 			if window == "5h" {
 				maxWindow = 5 * time.Hour
 			}
@@ -188,6 +200,8 @@ func (s *RateLimitService) persistNewAPIUsageWindowSnapshot(ctx context.Context,
 
 func newAPIUsageWindowExtraKeys(window string) (utilKey, resetKey, sampledKey string) {
 	switch window {
+	case "monthly":
+		return newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIMonthlySampledExtraKey
 	case "weekly":
 		return newAPIWeeklyUtilExtraKey, newAPIWeeklyResetExtraKey, newAPIWeeklySampledExtraKey
 	case "5h":
@@ -220,18 +234,20 @@ func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 			resetAt = &t
 		}
 		utilization := util * 100
-		if *progress == nil {
-			*progress = &UsageProgress{}
-		}
-		(*progress).Utilization = utilization
-		(*progress).UtilizationUnknown = false
-		if resetAt != nil {
-			(*progress).ResetsAt = resetAt
-			remaining := int(time.Until(*resetAt).Seconds())
-			if remaining < 0 {
-				remaining = 0
+		if progress != nil {
+			if *progress == nil {
+				*progress = &UsageProgress{}
 			}
-			(*progress).RemainingSeconds = remaining
+			(*progress).Utilization = utilization
+			(*progress).UtilizationUnknown = false
+			if resetAt != nil {
+				(*progress).ResetsAt = resetAt
+				remaining := int(time.Until(*resetAt).Seconds())
+				if remaining < 0 {
+					remaining = 0
+				}
+				(*progress).RemainingSeconds = remaining
+			}
 		}
 		if usage.UpstreamQuota == nil {
 			usage.UpstreamQuota = baseUpstreamQuota(PlatformNewAPI, usage, "headers")
@@ -261,6 +277,7 @@ func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 		}
 	}
 
+	apply("monthly", newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIUpstreamMonthlyKey, "Monthly", "1mo", nil)
 	apply("weekly", newAPIWeeklyUtilExtraKey, newAPIWeeklyResetExtraKey, newAPIUpstreamWeeklyKey, "Weekly", "7d", &usage.SevenDay)
 	apply("5h", newAPIFiveHourUtilExtraKey, newAPIFiveHourResetExtraKey, newAPIUpstreamFiveHourKey, "5h", "5h", &usage.FiveHour)
 	apply("7d", newAPISevenDayUtilExtraKey, newAPISevenDayResetExtraKey, newAPIUpstreamSevenDayKey, "7d", "7d", &usage.SevenDay)

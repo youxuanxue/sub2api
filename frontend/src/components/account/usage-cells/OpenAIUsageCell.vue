@@ -25,6 +25,14 @@
         :show-now-when-idle="showNowWhenIdleForWindow(usageInfo.seven_day)"
         color="emerald"
       />
+      <UsageProgressBar
+        v-if="monthlyQuota"
+        label="1mo"
+        :utilization="monthlyQuota.utilization ?? 0"
+        :utilization-unknown="monthlyQuota.utilization == null"
+        :resets-at="monthlyQuota.resets_at"
+        color="amber"
+      />
       <UpstreamQuotaSummary
         :quota="usageInfo?.upstream_quota"
         :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
@@ -110,6 +118,7 @@ const upstreamQuotaWindowDimensionKeys = [
   'newapi_weekly',
   'newapi_7d',
   'newapi_5h',
+  'newapi_monthly',
 ]
 
 const { loading, activeQueryLoading, usageInfo, loadActiveUsage, acknowledgeAccountUpdate } = useAccountUsageFetch(
@@ -117,6 +126,10 @@ const { loading, activeQueryLoading, usageInfo, loadActiveUsage, acknowledgeAcco
   rootRef,
   { enableOpenAIRefreshKeyWatch: true }
 )
+
+const monthlyQuota = computed(() => usageInfo.value?.upstream_quota?.dimensions?.find(
+  dimension => dimension.key === 'newapi_monthly'
+))
 
 function onAccountUpdated(account: Account) {
   acknowledgeAccountUpdate(account)
