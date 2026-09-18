@@ -495,10 +495,10 @@ func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *Prici
 }
 
 // Marketing / shorthand aliases for GPT Image 2.5. Canonical Studio ids are
-// flare/sunburst; these aliases keep API clients and pricing _aliases aligned.
+// flare/sunburst; clients should request gpt-image-2.5 (not image-2.5 — the
+// /v1/images ingress only accepts gpt-image-* names).
 var tkOpenAIImageCompatibilityAliases = map[string]string{
 	"gpt-image-2.5": "gpt-image-2.5-flare",
-	"image-2.5":     "gpt-image-2.5-flare",
 }
 
 func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
@@ -569,7 +569,6 @@ var tkTokenseaImageCompatibilityAliases = map[string]string{
 	"nano-2":        "gemini-3.1-flash-image",
 	"nano-pro":      "gemini-3-pro-image",
 	"gpt-image-2.5": "gpt-image-2.5-flare",
-	"image-2.5":     "gpt-image-2.5-flare",
 }
 
 // tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already
@@ -590,7 +589,7 @@ func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {
 			return true
 		}
 	}
-	// Marketing aliases in the floor (nano-2/nano-pro/image-2.5/…) must pass the
+	// Marketing aliases in the floor (nano-2/nano-pro/gpt-image-2.5/…) must pass the
 	// same Anthropic-shaped TokenSea gate as their wire targets.
 	for from, to := range tkTokenseaImageCompatibilityAliases {
 		if !strings.EqualFold(from, normalized) {

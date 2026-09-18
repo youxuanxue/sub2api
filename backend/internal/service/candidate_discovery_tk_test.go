@@ -149,12 +149,63 @@ func TestUS050_CandidateDiscoverySeparatesPaymentTiersAndIgnoresRuntimeCapacity(
 	groups[0].ModelPricing = []ChannelModelPricing{{Models: []string{"gpt-5.4"}, InputPrice: &price}}
 	account := globalCandidateAccount(115, 1, 10, 20)
 	reset := time.Now().Add(time.Hour)
-	account.RateLimitResetAt, account.Schedulable = &reset, false
+	until := time.Now().Add(time.Hour)
+	// Instantaneous capacity must not hide the model (精简 B): rate-limit and
+	// temp_unschedulable while Schedulable stays true.
+	account.RateLimitResetAt, account.TempUnschedulableUntil, account.Schedulable = &reset, &until, true
 	svc, key := candidateDiscoveryFixture(groups, []Account{account})
 	key.User.Balance = 0
 	models, err := svc.List(context.Background(), key, UniversalProtocolOpenAI)
 	require.NoError(t, err)
-	require.Len(t, models, 1, "support discovery is independent of payment admission and temporary availability")
+	require.Len(t, models, 1, "discovery ignores payment admission and temporary capacity windows")
+}
+
+func TestUS050_CandidateDiscoveryRequiresLiveAccount(t *testing.T) {
+	// docs/approved/discovery-require-live-account.md:
+	// positive — only unschedulable holders → hidden
+	// negative — temp_unschedulable with Schedulable=true → still listed
+	groups := []Group{grp(10, PlatformOpenAI, 0, false)}
+	t.Run("schedulable_false_hides_model", func(t *testing.T) {
+		account := globalCandidateAccount(115, 1, 10)
+		account.Schedulable = false
+		svc, key := candidateDiscoveryFixture(groups, []Account{account})
+		models, err := svc.List(context.Background(), key, UniversalProtocolOpenAI)
+		require.NoError(t, err)
+		require.Empty(t, models, "active but Schedulable=false must not advertise models")
+	})
+	t.Run("temp_unschedulable_still_listed", func(t *testing.T) {
+		account := globalCandidateAccount(115, 1, 10)
+		until := time.Now().Add(time.Hour)
+		account.TempUnschedulableUntil = &until
+		account.Schedulable = true
+		svc, key := candidateDiscoveryFixture(groups, []Account{account})
+		models, err := svc.List(context.Background(), key, UniversalProtocolOpenAI)
+		require.NoError(t, err)
+		require.Len(t, models, 1, "temp_unschedulable alone must not hide discovery")
+	})
+	t.Run("live_peer_keeps_model", func(t *testing.T) {
+		dead := globalCandidateAccount(115, 1, 10)
+		dead.Schedulable = false
+		live := globalCandidateAccount(116, 2, 10)
+		svc, key := candidateDiscoveryFixture(groups, []Account{dead, live})
+		models, err := svc.List(context.Background(), key, UniversalProtocolOpenAI)
+		require.NoError(t, err)
+		require.Len(t, models, 1, "a live peer is enough for discovery")
+	})
+}
+
+func TestAccountIsLiveForDiscovery(t *testing.T) {
+	live := globalCandidateAccount(1, 1, 10)
+	require.True(t, live.IsLiveForDiscovery())
+	live.Schedulable = false
+	require.False(t, live.IsLiveForDiscovery())
+	live.Schedulable = true
+	live.Status = StatusError
+	require.False(t, live.IsLiveForDiscovery())
+	live.Status = StatusActive
+	until := time.Now().Add(time.Hour)
+	live.TempUnschedulableUntil = &until
+	require.True(t, live.IsLiveForDiscovery(), "temp_unschedulable is not part of the live gate")
 }
 
 func TestUS050_CandidateDiscoveryPreservesDirectMappingOnly(t *testing.T) {

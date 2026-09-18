@@ -278,6 +278,11 @@ func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
 			override.ModelMapping,
 			"account override must remain narrower than its shared channel floor",
 		)
+		if account.IsCursor() {
+			require.Equal(t, "claude-fable-5-1", override.ModelMapping["claude-fable-5-1"],
+				"Cursor override must keep Fable 5.1 after policy acknowledgement; live restore is apply-accounts")
+			require.Equal(t, "claude-fable-5", override.ModelMapping["claude-fable-5"])
+		}
 	}
 
 }
@@ -397,7 +402,9 @@ func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]s
 	}
 	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
 	require.Equal(t, "gemini-3-pro-image", mapping["nano-pro"])
-	require.Equal(t, "gpt-image-2.5-flare", mapping["image-2.5"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["gpt-image-2.5"])
+	_, hasImage25 := mapping["image-2.5"]
+	require.False(t, hasImage25, "image-2.5 is not a client-facing images alias")
 }
 
 func grokDisplayBackedCompatibilityAliases() map[string]string {

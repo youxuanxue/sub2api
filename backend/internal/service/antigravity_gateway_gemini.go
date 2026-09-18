@@ -143,9 +143,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
 	}
 
-	// Antigravity Code Assist is reliable on the SSE endpoint.  Keep the
-	// upstream wire stable for both client shapes; non-streaming callers are
-	// assembled from the complete SSE response below.  The direct
+	// Antigravity Code Assist is reliable on the SSE endpoint. Keep the upstream
+	// wire stable for both client shapes; non-streaming callers are assembled
+	// from the complete SSE response below. The direct
 	// v1internal:generateContent endpoint can return an empty/non-JSON body for
 	// OAuth accounts, which turns an otherwise valid request into a 502.
 	upstreamAction := "streamGenerateContent"

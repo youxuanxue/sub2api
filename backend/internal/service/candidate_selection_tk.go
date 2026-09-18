@@ -98,6 +98,9 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	supported := false
 	var capacityHint *Group
 	var candidates []*candidateExecutionPath
+	// Memoize pathContext within this selection only. Do not retain across
+	// RevalidateTurn / account refresh — group policy and body can change.
+	preparePath := candidatePathContextPreparer(r)
 	for i := range accounts {
 		account := &accounts[i]
 		if _, excluded := options.excluded[account.ID]; excluded {
@@ -117,7 +120,7 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			if !usable[group.ID] || !candidateAccountInGroup(account, group.ID) {
 				continue
 			}
-			path, pathErr := r.evaluatePath(ctx, account, group)
+			path, pathErr := r.evaluatePathWithPreparation(ctx, account, group, preparePath)
 			if pathErr != nil {
 				if !candidateIgnorableSupportError(pathErr) {
 					failure = pathErr
@@ -178,8 +181,18 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	return candidates, supported, failure
 }
 
+func (r *CandidateRequest) resolvedBodyModelCandidates() []string {
+	if !r.bodyModelsResolved {
+		r.bodyModelCandidates = requestmodel.FromBodyCandidates(r.path, r.contentType, r.body)
+		r.bodyModelsResolved = true
+	}
+	return r.bodyModelCandidates
+}
+
 // evaluatePath is the support projection shared by scheduling and discovery.
 // It evaluates a complete authorization path without changing runtime state.
+// Single-path callers (refresh) use an uncached pathContext so fresh group
+// policy is visible; multi-account selection passes a per-call preparer.
 func (r *CandidateRequest) evaluatePath(ctx context.Context, account *Account, group *Group) (*candidateExecutionPath, error) {
 	return r.evaluatePathWithPreparation(ctx, account, group, r.pathContext)
 }
@@ -192,7 +205,7 @@ func (r *CandidateRequest) evaluatePathWithPreparation(ctx context.Context, acco
 		return nil, nil
 	}
 	if group.ModelAllowlistEnabled() {
-		for _, model := range requestmodel.FromBodyCandidates(r.path, r.contentType, r.body) {
+		for _, model := range r.resolvedBodyModelCandidates() {
 			if !group.ModelAllowlist.Allows(model) {
 				return nil, nil
 			}

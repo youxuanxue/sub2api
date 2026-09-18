@@ -43,10 +43,11 @@ describe('modalityForModel', () => {
     }
   })
 
-  it('classifies gpt-image and image-2.5 shorthand as image', () => {
-    for (const id of ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5', 'image-2.5']) {
+  it('classifies gpt-image-* as image; image-2.5 shorthand is not supported', () => {
+    for (const id of ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5']) {
       expect(modalityForModel(id)).toBe('image')
     }
+    expect(modalityForModel('image-2.5')).toBe('chat')
   })
 
   it('classifies gemini-native image models as image (served via chat)', () => {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavioral tests for post_deploy_smoke.sh suite routing and Responses probe."""
+"""Behavioral tests for post_deploy_smoke.sh suite routing and protocol probes."""
 
 from __future__ import annotations
 
@@ -49,7 +49,9 @@ elif url.endswith("/v1/models"):
         ],
     }
 elif url.endswith("/v1/messages"):
-    response = {
+    configured = os.environ.get("FAKE_GEMINI_BODY")
+    is_gemini = 'gemini' in payload
+    response = json.loads(configured) if configured and is_gemini else {
         "type": "message",
         "role": "assistant",
         "content": [{"type": "text", "text": "ok"}],
@@ -87,7 +89,12 @@ else:
 
 if output:
     pathlib.Path(output).write_text(json.dumps(response), encoding="utf-8")
-http = os.environ.get("FAKE_RESPONSES_HTTP", "200") if url.endswith("/v1/responses") else "200"
+if url.endswith("/v1/responses"):
+    http = os.environ.get("FAKE_RESPONSES_HTTP", "200")
+elif url.endswith("/v1/messages") and "gemini" in payload:
+    http = os.environ.get("FAKE_GEMINI_HTTP", "200")
+else:
+    http = "200"
 sys.stdout.write(http)
 """
 
@@ -99,6 +106,8 @@ class PostDeploySmokeTest(unittest.TestCase):
         *,
         responses_body: dict | None = None,
         responses_http: int = 200,
+        gemini_body: dict | None = None,
+        gemini_http: int = 200,
     ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
@@ -122,9 +131,12 @@ class PostDeploySmokeTest(unittest.TestCase):
                 "GATEWAY_SMOKE_SUITE": suite,
                 "FAKE_CURL_LOG": str(curl_log),
                 "FAKE_RESPONSES_HTTP": str(responses_http),
+                "FAKE_GEMINI_HTTP": str(gemini_http),
             })
             if responses_body is not None:
                 env["FAKE_RESPONSES_BODY"] = json.dumps(responses_body)
+            if gemini_body is not None:
+                env["FAKE_GEMINI_BODY"] = json.dumps(gemini_body)
 
             proc = subprocess.run(
                 ["bash", str(_SCRIPT)],
@@ -174,6 +186,29 @@ class PostDeploySmokeTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
         self.assertIn("/v1/responses section soft-skipped", proc.stdout)
+
+    def test_gemini_local_unsupported_model_soft_degrades(self) -> None:
+        proc, _ = self._run(
+            "full",
+            gemini_body={"error": {"message": "Unsupported model: gemini-3.8-flash"}},
+            gemini_http=400,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
+        self.assertIn("local candidate admission/runtime pool unavailable", proc.stderr)
+        self.assertIn("gemini section soft-skipped", proc.stdout)
+
+    def test_gemini_schema_error_remains_hard_failure(self) -> None:
+        proc, _ = self._run(
+            "full",
+            gemini_body={
+                "error": {
+                    "message": "Invalid JSON payload received. Unknown name 'propertyNames'"
+                }
+            },
+            gemini_http=400,
+        )
+        self.assertNotEqual(proc.returncode, 0, msg=proc.stdout + proc.stderr)
+        self.assertIn("schema cleanup likely regressed", proc.stderr)
 
 
 if __name__ == "__main__":

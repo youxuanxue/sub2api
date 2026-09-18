@@ -44,7 +44,6 @@ export function modalityForModel(modelId: string): PlaygroundModality {
   if (id.includes('seedance') || id.startsWith('veo-') || (id === 'grok-imagine-video' || id.startsWith('grok-imagine-video-'))) return 'video'
   if (
     id.startsWith('gpt-image-') ||
-    id === 'image-2.5' ||
     id.startsWith('imagen-') ||
     id.includes('seedream') ||
     id.startsWith('grok-imagine-image') ||

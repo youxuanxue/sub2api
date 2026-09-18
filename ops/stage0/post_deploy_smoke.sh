@@ -265,8 +265,12 @@ fi  # end messages suite
 #
 # Failure semantics (2026-05-06 v1.7.19 false-positive postmortem):
 #   200 → schema cleanup verified end-to-end against real Google upstream.
-#   400 → HARD FAIL. The bug we are guarding (PR #121) has regressed; the
-#         deploy must be rolled back / investigated.
+#   400 with a local "Unsupported model: ..." error → SOFT WARN. The request
+#         was admitted by the gateway but no eligible runtime candidate was
+#         available (for example account cooldown or an empty platform pool).
+#         Runtime capacity must not block a release.
+#   other 400 → HARD FAIL. The bug we are guarding (PR #121) has regressed;
+#         the deploy must be rolled back / investigated.
 #   401, 403, 404 → HARD FAIL. The configured smoke key/route is broken.
 #   503 / 502 / 500 / "no available accounts" / 429 → SOFT WARN, exit 0.
 #         These are upstream / scheduling resource issues that could not
@@ -328,9 +332,8 @@ if smoke_suite_runs gemini; then
     "${BASE}/v1/messages")
   echo "tk_post_deploy_smoke: POST .../v1/messages (gemini, with tools) model=${gemini_model} -> HTTP ${gemini_http}"
 
-  # Read the gateway-reported error message (if any) to disambiguate
-  # "schema cleanup broken" (400, the bug we guard) from "runtime resource
-  # unavailable" (503 / 5xx / no available accounts / rate-limit).
+  # Read the gateway-reported error message (if any) to disambiguate a local
+  # candidate-admission/runtime-pool miss from a schema/protocol regression.
   gemini_err_msg="$(jq -r '.error.message // empty' "$tmpdir/gemini-msg.json" 2>/dev/null)"
 
   # 200 happy path → verify shape, then continue to "OK".
@@ -362,13 +365,20 @@ if smoke_suite_runs gemini; then
     else
       echo "tk_post_deploy_smoke: /v1/messages (gemini, with tools) shape type=${gemini_type} role=${gemini_role} content=${gemini_content_count}"
     fi
-  # 400 → HARD FAIL. Schema cleanup regressed, that is the whole point of
-  # this section. Operators must investigate before considering the deploy
-  # successful.
   elif [[ "${gemini_http}" == "400" ]]; then
-    echo "::error::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 400 — Anthropic→Gemini schema cleanup likely regressed (see PR #121 / 2026-05-06 prod incident). DO NOT promote this build." >&2
-    jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
-    exit 1
+    # TokenKey can reject a request locally with 400 when the model is listed
+    # in the catalog but no eligible account/candidate is currently usable.
+    # This is a runtime-capacity signal, not evidence that the tool-schema
+    # cleanup failed. Keep real upstream/schema 400s as a release blocker.
+    if [[ "${gemini_err_msg}" == Unsupported\ model:* ]]; then
+      echo "::warning::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 400 — local candidate admission/runtime pool unavailable (${gemini_err_msg}); release gate soft-skipped." >&2
+      jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
+      echo "tk_post_deploy_smoke: gemini section soft-skipped (local unsupported-model admission reflects runtime capacity)"
+    else
+      echo "::error::tk_post_deploy_smoke: /v1/messages (gemini, with tools) returned HTTP 400 — Anthropic→Gemini schema cleanup likely regressed (see PR #121 / 2026-05-06 prod incident). DO NOT promote this build." >&2
+      jq . "$tmpdir/gemini-msg.json" >&2 2>/dev/null || cat "$tmpdir/gemini-msg.json" >&2
+      exit 1
+    fi
   # Other 4xx (auth / route broken) → HARD FAIL: the smoke contract itself
   # is broken; without auth/route working we cannot say anything about the
   # gateway behavior.

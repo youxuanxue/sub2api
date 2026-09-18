@@ -92,6 +92,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`rolling-capacity-saturation.md`](rolling-capacity-saturation.md) | Rolling account-capacity saturation scheduling |
 | [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md) | Direct/Universal model mapping boundary and continuation migration impact |
 | [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
+| [`discovery-require-live-account.md`](discovery-require-live-account.md) | 无活账号则不展示（精简 B；瞬时限流不进菜单） |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |
 | [`cursor-oauth-service.md`](cursor-oauth-service.md) | Cursor native OAuth, credential renewal, billing and the shared unsupported-output-limit owner |
 | [`continuation-gemini-repair.md`](continuation-gemini-repair.md) | Responses continuation and Gemini Chat tools repair |

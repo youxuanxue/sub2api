@@ -1253,9 +1253,9 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "failureCounts := r.failureCounts(ctx, pool)", "candidateSelectionEffectivePriority(a.account, counts, failureCounts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
+      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "preparePath := candidatePathContextPreparer(r)", "r.evaluatePathWithPreparation(ctx, account, group, preparePath)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "failureCounts := r.failureCounts(ctx, pool)", "candidateSelectionEffectivePriority(a.account, counts, failureCounts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
       "must_not_contain": ["lessUniversalBacking(", ".SortOrder", "candidateOccupancy("],
-      "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
+      "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight. pathContext is memoized once per group within a single candidates() call so request-body ParseCanonicalRequest is not repeated per account."
     },
     {
       "path": "backend/internal/repository/account_repo_tk_candidates.go",
@@ -1434,9 +1434,27 @@
         "request.evaluatePathWithPreparation(requestCtx",
         "selectCandidateBillingOrigin(requestCtx",
         "candidateDiscoveryRequest(model, spec)",
-        "if len(out) == 0 && catalogSupportFailure != nil"
+        "if len(out) == 0 && catalogSupportFailure != nil",
+        "IsLiveForDiscovery()"
       ],
-      "rationale": "Metadata projects representative complete support paths and rejects conflicting origins using the same billing owner as inference."
+      "rationale": "Metadata projects representative complete support paths and rejects conflicting origins using the same billing owner as inference. Discovery menus require Account.IsLiveForDiscovery (active+Schedulable) so permanently unschedulable holders cannot advertise empty-pool models (docs/approved/discovery-require-live-account.md)."
+    },
+    {
+      "path": "backend/internal/service/account_discovery_live_tk.go",
+      "must_contain": [
+        "func (a *Account) IsLiveForDiscovery() bool",
+        "a.IsActive() && a.Schedulable"
+      ],
+      "rationale": "Discovery live gate owner: active + Schedulable only; must not fold in temp_unschedulable/rate-limit/overload (RuntimeReadiness owns those)."
+    },
+    {
+      "path": "backend/internal/service/candidate_discovery_tk_test.go",
+      "must_contain": [
+        "func TestUS050_CandidateDiscoveryRequiresLiveAccount(",
+        "schedulable_false_hides_model",
+        "temp_unschedulable_still_listed"
+      ],
+      "rationale": "Pins the discovery-require-live-account contract: Schedulable=false hides; temp_unschedulable alone does not."
     },
     {
       "path": "backend/internal/service/universal_capability_tk.go",
@@ -5484,6 +5502,23 @@
       "rationale": "TK #2859 sticky slot-full escape global toggle reader. Default true / fail-open (missing setting or DB error => enabled), mirroring IsStickyRoutingEnabled with its own 60s atomic+singleflight cache. The scheduler escape (openai_account_scheduler.go) reads this; the scheduler helper also has a nil-safe true fallback, but dropping this reader silently removes the admin-toggle / instant-rollback capability that the #2859 design promises. Anchor the reader + SettingKey + the cache var so the default-on, reversible contract survives upstream merges."
     },
     {
+      "path": "backend/internal/service/openai_gateway_scheduling_tk_newapi_prompt_cache.go",
+      "must_contain": [
+        "func deriveNewAPIPromptCacheSessionSeed(",
+        "newapi-prompt-cache:v1:",
+        "deriveOpenAIStablePrefixSessionSeed(body)"
+      ],
+      "rationale": "NewAPI/Volc prompt-cache sticky: without an explicit session, GenerateSessionHash must seed from stable system/tools/instructions prefix (+ api_key_id+model), not first-user content. First-user seeding churns Redis account bindings across Acceptance-style independent turns and destroys Volc/GLM prefix cache. See docs/approved/sticky-routing.md §11.6."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_scheduling.go",
+      "must_contain": [
+        "if newAPIGroupPromptCacheStickyEnabled(c) {",
+        "sessionID = deriveNewAPIPromptCacheSessionSeed(c, body)"
+      ],
+      "rationale": "GenerateSessionHash must branch NewAPI groups onto deriveNewAPIPromptCacheSessionSeed before the default first-user content seed. Losing this hook silently restores account churn on NewAPI/Volc/GLM. See docs/approved/sticky-routing.md §11.6."
+    },
+    {
       "path": "backend/internal/service/gateway_upstream_response.go",
       "must_contain": [
         "strings.Contains(haystack, \"noresourcefoundexception\")",
@@ -7185,9 +7220,19 @@
       "must_contain": [
         "s.service.tkShouldClearOpenAIStickyForSaturation(ctx, account, sessionHash, req.RequestedModel)",
         "s.service.computeOpenAISaturationPenalties(ctx, candidates, req.RequestedModel)",
-        "item.saturationScorePenalty"
+        "Saturation preference is orthogonal to upstream-token-cost scoring",
+        "score -= item.saturationScorePenalty"
       ],
-      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
+      "rationale": "Candidate Eligibility SSOT consumer: saturation preference must stay unconditional in buildOpenAIAccountLoadPlan. Chat/completions set UseUpstreamTokenCost=true; gating the penalty on that flag silently preferred idle saturated edge stubs (prod GPT专线 after 1.8.236 / #2221). Matching owner and behavior-test anchors must remain intact."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_saturation_penalty_test.go",
+      "must_contain": [
+        "TestBuildOpenAIAccountLoadPlan_SaturationAppliesWithUpstreamTokenCost",
+        "UseUpstreamTokenCost: true",
+        "TopK=1"
+      ],
+      "rationale": "Regression for #2221: UseUpstreamTokenCost=true must still sink a saturated idle stub behind a healthy peer under TopK=1. Deleting this test re-opens the chat-path preference skip."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
