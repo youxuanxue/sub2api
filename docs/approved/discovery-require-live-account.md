@@ -77,3 +77,14 @@ Decision 5 与 Capability Contract：
   的 `credentials.model_mapping` 删除键 `claude-fable-5-1`；保留 `claude-fable-5`。
 - 脚本：`ops/observability/remediate-drop-fable-5-1-mapping.sh`
   （`CONFIRM=drop-fable-5-1-mapping`）。
+
+## 恢复路径（政策确认后）
+
+- Cursor 官方入口已对 Claude Fable 5 / 5.1 完成 Data Policy Acknowledgement（一次确认覆盖两模型）。
+- Go mapping floor 未撤回：`account_override`（Cursor channel 14）与 `bedrock` platform
+  仍要求 `claude-fable-5-1`。精简 B 合入后，paused holder 不再把空池模型挂到菜单。
+- 生产验收探针（2026-09-18）：临时打开 150 调度后 `claude-fable-5` /
+  `claude-haiku-4-5` / `claude-sonnet-5` 为 `servable`；`claude-fable-5-1` 因 live
+  mapping 缺键返回网关 `Unsupported model`（未打到上游）。
+- 恢复 live mapping：合并本跟进 PR 后，对 91/150 执行 targeted
+  `apply-accounts`（不要手写 SQL 回滚止血脚本）。是否 `schedulable=true` 仍单独授权。

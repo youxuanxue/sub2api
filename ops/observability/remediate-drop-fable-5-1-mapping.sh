@@ -4,6 +4,11 @@
 # Opt-in only: CONFIRM=drop-fable-5-1-mapping
 # Targets and drop key are hardcoded literals in SQL — do not reintroduce env
 # interpolation into the query text.
+#
+# Restore owner after Cursor Fable data-policy acknowledgement + discovery live
+# gate (#2216): do NOT reverse this SQL by hand. Converge live mappings with
+# manage-account-model-mapping-runtime.py apply-accounts against the Go bundle
+# (Cursor override + bedrock floor already require claude-fable-5-1).
 set -euo pipefail
 
 CONFIRM="${CONFIRM:-}"
