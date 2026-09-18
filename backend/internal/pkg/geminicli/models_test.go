@@ -25,6 +25,17 @@ func TestDefaultModels_StructuralMetadata(t *testing.T) {
 	if _, ok := byID[DefaultTestModel]; !ok {
 		t.Fatalf("DefaultTestModel %q must be present in DefaultModels", DefaultTestModel)
 	}
+
+	for _, id := range []string{"gemini-3.8-flash", "gemini-3.6-flash", "veo-3.1-generate-001", "gemini-embedding-001"} {
+		if _, ok := byID[id]; !ok {
+			t.Fatalf("DefaultModels missing converged id %q", id)
+		}
+	}
+	for _, retired := range []string{"gemini-2.5-flash", "gemini-2.5-pro", "imagen-4.0-generate-001"} {
+		if _, ok := byID[retired]; ok {
+			t.Fatalf("DefaultModels must not advertise retired id %q", retired)
+		}
+	}
 }
 
 func TestModelsForIDs_PrefersCanonicalAndSynthesizesMissingIDs(t *testing.T) {

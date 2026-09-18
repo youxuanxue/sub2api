@@ -423,14 +423,20 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     // The 3:2/2:3 rule is IMAGEN-specific: those map to a hard-400 on Vertex.
     // Gemini legitimately supports 3:2/2:3/21:9 (different upstream), so the guard
     // is scoped to imagen models (the ones whose imageSizes is IMAGEN_IMAGE_SIZES).
+    // Google converge removed curated Imagen Studio rows; the size table still
+    // backs synthesized resolveAvailableModels rows when an account maps Imagen.
     const imagenModels = MEDIA_MODEL_PRESENTATIONS.filter((m) => m.imageSizes === IMAGEN_IMAGE_SIZES)
-    expect(imagenModels.length).toBeGreaterThan(0)
     for (const m of imagenModels) {
       for (const opt of m.imageSizes ?? []) {
         expect(opt.ratio).not.toBe('3:2')
         expect(opt.ratio).not.toBe('2:3')
         expect(IMAGEN_VALID.has(opt.ratio)).toBe(true)
       }
+    }
+    for (const opt of IMAGEN_IMAGE_SIZES) {
+      expect(opt.ratio).not.toBe('3:2')
+      expect(opt.ratio).not.toBe('2:3')
+      expect(IMAGEN_VALID.has(opt.ratio)).toBe(true)
     }
   })
 

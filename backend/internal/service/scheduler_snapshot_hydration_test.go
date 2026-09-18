@@ -408,7 +408,7 @@ func TestGatewaySelectAccountWithLoadAwareness_SkipsAntigravityGeminiFamilyRateL
 		},
 	}
 
-	result, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gemini-3-flash", nil, "", 0)
+	result, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gemini-3.8-flash", nil, "", 0)
 	if err != nil {
 		t.Fatalf("SelectAccountWithLoadAwareness error: %v", err)
 	}

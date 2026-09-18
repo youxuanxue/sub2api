@@ -115,13 +115,13 @@ func TestIsModelRateLimited(t *testing.T) {
 					modelRateLimitsKey: map[string]any{
 						// 2026-06-15 起 gemini-3.1-pro → gemini-pro-agent
 						// （gemini-3.1-pro-high 上游目录已无）。
-						"gemini-pro-agent": map[string]any{
+						"gemini-3.8-flash-medium": map[string]any{
 							"rate_limit_reset_at": future,
 						},
 					},
 				},
 			},
-			requestedModel: "gemini-3.1-pro",
+			requestedModel: "gemini-3-flash-preview",
 			expected:       true,
 		},
 		{
@@ -136,7 +136,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3.1-pro",
+			requestedModel: "gemini-3-flash-preview",
 			expected:       true,
 		},
 		{
@@ -166,13 +166,16 @@ func TestIsModelRateLimited(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3.1-pro",
+			requestedModel: "gemini-3-flash-preview",
 			expected:       false, // gemini 平台不走 antigravity 映射
 		},
 		{
-			name: "antigravity platform - claude-opus-4-6 mapped to opus-4-6-thinking",
+			name: "antigravity platform - account mapping still remaps claude-opus-4-6 to thinking",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"},
+				},
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						"claude-opus-4-6-thinking": map[string]any{
@@ -322,23 +325,20 @@ func TestIsModelRateLimited_OpenAIImageGenerationIntentBlocksTextModelImageTool(
 	require.True(t, account.isModelRateLimitedWithContext(WithOpenAIImageGenerationIntent(context.Background()), "gpt-5.4"))
 }
 
-func TestIsModelRateLimited_Antigravity_OpusAliasUsesThinkingModelKey(t *testing.T) {
-	now := time.Now()
-	future := now.Add(10 * time.Minute).Format(time.RFC3339)
-
+func TestIsModelRateLimited_Antigravity_PreviewAliasUsesMediumWireKey(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"claude-opus-4-6-thinking": map[string]any{
-					"rate_limit_reset_at": future,
+				"gemini-3.8-flash-medium": map[string]any{
+					"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
+					"rate_limit_reset_at": time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 				},
 			},
 		},
 	}
-
-	if !account.isModelRateLimitedWithContext(context.Background(), "claude-opus-4-6") {
-		t.Errorf("expected model to be rate limited")
+	if !account.isModelRateLimitedWithContext(context.Background(), "gemini-3-flash-preview") {
+		t.Fatal("expected preview alias to honour medium wire rate-limit key")
 	}
 }
 
@@ -435,9 +435,12 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			maxExpected:    0,
 		},
 		{
-			name: "antigravity platform - claude-opus-4-6 mapped to opus-4-6-thinking",
+			name: "antigravity platform - account mapping still remaps claude-opus-4-6 to thinking",
 			account: &Account{
 				Platform: PlatformAntigravity,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"},
+				},
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
 						"claude-opus-4-6-thinking": map[string]any{
@@ -462,7 +465,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 					},
 				},
 			},
-			requestedModel: "gemini-3.1-pro",
+			requestedModel: "gemini-3-flash-preview",
 			minExpected:    9 * time.Minute,
 			maxExpected:    11 * time.Minute,
 		},
@@ -519,13 +522,13 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-6": map[string]any{
+						"gemini-3.8-flash-medium": map[string]any{
 							"rate_limit_reset_at": future15m,
 						},
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-6",
+			requestedModel: "gemini-3.8-flash",
 			minExpected:    14 * time.Minute,
 			maxExpected:    16 * time.Minute,
 		},
@@ -535,13 +538,13 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"claude-sonnet-4-6": map[string]any{
+						"gemini-3.8-flash-medium": map[string]any{
 							"rate_limit_reset_at": future5m,
 						},
 					},
 				},
 			},
-			requestedModel: "claude-sonnet-4-6",
+			requestedModel: "gemini-3.8-flash",
 			minExpected:    4 * time.Minute,
 			maxExpected:    6 * time.Minute,
 		},

@@ -4745,7 +4745,9 @@
         "case PlatformOpenAI:",
         "IsOpenAIAinzyRelay()",
         "openAIAinzyRelayAccountModelMappingFloor(",
-        "case PlatformAnthropic, PlatformGemini:",
+        "case PlatformAnthropic:",
+        "case PlatformGemini:",
+        "func geminiAccountModelMappingFloor(",
         "case PlatformAntigravity:",
         "case PlatformGrok:",
         "case PlatformKiro:",
@@ -4771,13 +4773,13 @@
     {
       "path": "backend/internal/service/account_model_mapping_floor_test.go",
       "must_contain": [
-        "TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset",
+        "TestAccountModelMappingForAccount_AntigravityConvergedFloor",
         "expectedAntigravityModelMappingForReconcilerTest",
         "Antigravity floor must be the complete owner-derived projection",
         "domain.IsAntigravityStructuralDeadModelMappingKey(from)",
         "domain.IsAntigravityUnpricedModelMappingKey(from)"
       ],
-      "rationale": "Independent complete-projection regression for the Antigravity account floor. The expected map is rebuilt from the servable catalog owner, DefaultAntigravityModelMapping, and the domain forbidden predicates, so dropping one required alias or key from the production floor fails without duplicating the current model list in the test or sentinel."
+      "rationale": "Independent complete-projection regression for the Antigravity account floor (converged Gemini public surface). The expected map is rebuilt from the servable catalog owner, DefaultAntigravityModelMapping, and the domain forbidden predicates, so dropping one required alias or key from the production floor fails without duplicating the current model list in the test or sentinel."
     },
     {
       "path": "ops/antigravity/check-antigravity-account-config.py",

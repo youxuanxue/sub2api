@@ -4,72 +4,131 @@
   "sentinels": [
     {
       "path": "backend/internal/service/pricing_lookup_ssot_tk_test.go",
-      "must_contain": ["TestPricingLookupDeclaredAliasesShareIdentification", "TestPricingLookupFamilyOwnerIsDeterministic", "TestPricingLookupDatedOwnerPrecedence", "TestResponseModelBillingDeclaredAliasMatchesOwner"],
+      "must_contain": [
+        "TestPricingLookupDeclaredAliasesShareIdentification",
+        "TestPricingLookupFamilyOwnerIsDeterministic",
+        "TestPricingLookupDatedOwnerPrecedence",
+        "TestResponseModelBillingDeclaredAliasMatchesOwner"
+      ],
       "rationale": "Behavioral regression for alias hot reload, deterministic family/date lookup, strict rejection of guesses, and real Gateway/OpenAI settlement alias parity."
     },
     {
       "path": "backend/internal/service/pricing_service.go",
-      "must_contain": ["s.matchIdentifiedModelPricing([]string{pattern}, nil)"],
+      "must_contain": [
+        "s.matchIdentifiedModelPricing([]string{pattern}, nil)"
+      ],
       "rationale": "Family lookup must reuse deterministic owner resolution instead of accepting an arbitrary substring match from a map."
     },
     {
       "path": "backend/internal/service/model_list_filter_tk.go",
-      "must_contain": ["func (f *ModelListFilter) filterStructurallyGoneStrict", "return f.filterStructurallyGoneStrict(ctx, platform, priced)"],
+      "must_contain": [
+        "func (f *ModelListFilter) filterStructurallyGoneStrict",
+        "return f.filterStructurallyGoneStrict(ctx, platform, priced)"
+      ],
       "rationale": "Discovery and model-list filtering share the evidence-only platform projection without turning it into execution admission."
     },
     {
       "path": "backend/internal/service/candidate_discovery_tk.go",
-      "must_contain": ["s.modelFilter.filterStructurallyGoneStrict(ctx, platform, models)", "!visibleByPlatform[accounts[i].Platform][model]"],
+      "must_contain": [
+        "s.modelFilter.filterStructurallyGoneStrict(ctx, platform, models)",
+        "!visibleByPlatform[accounts[i].Platform][model]"
+      ],
       "rationale": "Merging model IDs must not resurrect a retired origin on a different platform, including IDs learned from peer platforms."
     },
     {
       "path": "backend/internal/service/candidate_discovery_tk_test.go",
-      "must_contain": ["TestCandidateDiscoveryRetirementPreservesPlatformScope"],
+      "must_contain": [
+        "TestCandidateDiscoveryRetirementPreservesPlatformScope"
+      ],
       "rationale": "Cross-platform retirement, expiration, transient retention and unchanged execution admission are behavioral contracts."
     },
     {
       "path": "backend/internal/repository/model_availability_repo_tk.go",
-      "must_contain": ["tx.ModelAvailability.Create()", "DoNothing().Exec(ctx)", "ForUpdate().Only(ctx)", "tx.ModelAvailability.Update()", "tx.Rollback()"],
+      "must_contain": [
+        "tx.ModelAvailability.Create()",
+        "DoNothing().Exec(ctx)",
+        "ForUpdate().Only(ctx)",
+        "tx.ModelAvailability.Update()",
+        "tx.Rollback()"
+      ],
       "rationale": "Use one PostgreSQL transaction for first-writer arbitration, row locking and evidence writes; context bounds DB waits without process-local locks."
     },
     {
       "path": "backend/internal/repository/model_availability_atomic_tk_integration_test.go",
-      "must_contain": ["TestModelAvailabilityAtomicAcrossInstances", "TestModelAvailabilitySingleConnectionAndRollback", "TestModelAvailabilityContendedWriteDeadline"],
+      "must_contain": [
+        "TestModelAvailabilityAtomicAcrossInstances",
+        "TestModelAvailabilitySingleConnectionAndRollback",
+        "TestModelAvailabilityContendedWriteDeadline"
+      ],
       "rationale": "Real PostgreSQL regressions prevent lost observations, first-insert races, connection starvation and leaked transaction locks."
     },
     {
       "path": "backend/internal/service/pricing_catalog_selfheal_tk_test.go",
-      "must_contain": ["TestPublicCatalogBatchEvidencePreservesProjectionAndFailures"],
+      "must_contain": [
+        "TestPublicCatalogBatchEvidencePreservesProjectionAndFailures"
+      ],
       "rationale": "Public catalog batch reads preserve pruning, expiration, missing evidence, order and fail-open behavior."
     },
     {
       "path": "backend/internal/service/pricing_catalog_supported_models_tk.go",
-      "must_contain": ["!isNewAPILongTailCatalogVendor(m.Vendor) || !isTkCuratedNewAPIModelDisplayed(m.ModelID)"],
-      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models."
+      "must_contain": [
+        "!isNewAPILongTailCatalogVendor(m.Vendor) || !isTkCuratedNewAPIModelDisplayed(m.ModelID)",
+        "\"gemini-3.8-flash\":",
+        "\"gemini-embedding-001\":",
+        "\"gemini-3-pro-image\":",
+        "\"nano-2\":"
+      ],
+      "rationale": "Embedding visibility follows the reviewed manifest across NewAPI providers instead of hiding approved non-DashScope models. 2026-09-18 converge: gemini-3.8-flash + embedding retained; Imagen/2.5/Claude dropped from native allowlists."
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk_test.go",
-      "must_contain": ["TestPublicCatalog_EmbeddingsFollowManifestDisplayIntent", "TestPublicCatalog_EmbeddingFilterDoesNotMutateSettlementCatalog"],
+      "must_contain": [
+        "TestPublicCatalog_EmbeddingsFollowManifestDisplayIntent",
+        "TestPublicCatalog_EmbeddingFilterDoesNotMutateSettlementCatalog"
+      ],
       "rationale": "Preserve exact manifest display selection and separation of catalog presentation from settlement."
     },
     {
       "path": "backend/internal/service/pricing_catalog_tk.go",
-      "must_contain": ["InputCostPerSecond", "pricing.BillingMode = \"stt\"", "pricing.InputCostPerSecond = *e.InputCostPerSecond", "pricing.InputCostPerImageToken = *e.InputCostPerImageToken", "ThinkingOutputPer1KTokens", "tier.ThinkingOutputPer1KTokens = *iv.ThinkingOutputPrice * 1000"],
+      "must_contain": [
+        "InputCostPerSecond",
+        "pricing.BillingMode = \"stt\"",
+        "pricing.InputCostPerSecond = *e.InputCostPerSecond",
+        "pricing.InputCostPerImageToken = *e.InputCostPerImageToken",
+        "ThinkingOutputPer1KTokens",
+        "tier.ThinkingOutputPer1KTokens = *iv.ThinkingOutputPrice * 1000"
+      ],
       "rationale": "Audio duration and embedding image-token rates must survive catalog projection; focused tests protect the distinct billing-mode branches. Interval thinking_output must also project onto PublicCatalogTier so /pricing discloses the same thinking rates billing selects per input-context bracket."
     },
     {
       "path": "backend/internal/service/volcengine_plan_audio_candidate_tk_test.go",
-      "must_contain": ["TestVolcEnginePlanAudioCatalogUsesSettlementUnits", "applyCatalogMetaToMePricingModel", "model.Pricing.InputCostPerSecond", "TestVolcEnginePlanEmbeddingCatalogPreservesBothInputPrices", "entry.YourPrice.PerImageInputToken"],
+      "must_contain": [
+        "TestVolcEnginePlanAudioCatalogUsesSettlementUnits",
+        "applyCatalogMetaToMePricingModel",
+        "model.Pricing.InputCostPerSecond",
+        "TestVolcEnginePlanEmbeddingCatalogPreservesBothInputPrices",
+        "entry.YourPrice.PerImageInputToken"
+      ],
       "rationale": "Protect tax, audio duration and distinct embedding text/image price agreement between registry, public catalog and group projection."
     },
     {
       "path": "backend/internal/service/me_pricing_catalog_tk.go",
-      "must_contain": ["entry.YourPrice.PerImageInputToken = scaleCatalogPrice(meta.Pricing.InputCostPerImageToken, rate)", "range catalog.membership.literal", "range catalogModelLookupCandidates(modelID)", "ThinkingOutputPer1K *float64", "mt.ThinkingOutputPer1K = &think"],
+      "must_contain": [
+        "entry.YourPrice.PerImageInputToken = scaleCatalogPrice(meta.Pricing.InputCostPerImageToken, rate)",
+        "range catalog.membership.literal",
+        "range catalogModelLookupCandidates(modelID)",
+        "ThinkingOutputPer1K *float64",
+        "mt.ThinkingOutputPer1K = &think"
+      ],
       "rationale": "Menu rows retain the embedding image input rate and consume aliases from the same catalog snapshot, sharing exact price-key spelling with catalog membership and billing. Per-tier ThinkingOutputPer1K must mirror public catalog brackets so logged-in /pricing does not hide thinking rates that guest view shows."
     },
     {
       "path": "backend/internal/service/volcengine_plan_media_tk_test.go",
-      "must_contain": ["TestVolcEnginePlanAliasesAndProviderIsolation", "newAPIVolcEngineAgentPlanModelAliases()", "settleBillingOnAccountServedModel"],
+      "must_contain": [
+        "TestVolcEnginePlanAliasesAndProviderIsolation",
+        "newAPIVolcEngineAgentPlanModelAliases()",
+        "settleBillingOnAccountServedModel"
+      ],
       "rationale": "Plan manifest aliases must resolve and bill the served target without removing other provider scopes."
     },
     {
@@ -182,7 +241,9 @@
         "servable-allowlist:begin openai",
         "servable-allowlist:begin gemini",
         "servable-allowlist:begin antigravity",
-        "servable-allowlist:begin grok"
+        "servable-allowlist:begin grok",
+        "\"nano-2\":",
+        "\"gemini-3.8-flash\":"
       ],
       "rationale": "Single source for the empirically-servable native catalog sets, shared by the public /pricing presentation filter (FilterPublicCatalogToServable) and the Your-Menu unrestricted-account fallback (supportedCatalogModelIDsForPlatform). Losing the allowlist vars would silently widen both surfaces back to the full unservable set; losing the funcs breaks both call sites. The `servable-allowlist:begin/end` splice markers are load-bearing for ops/pricing/refresh-servable-allowlist.py (it rewrites the maps between them); an upstream merge that drops the markers would break the re-runnable refresh. The antigravity allowlist (supportedAntigravityCatalogModels: live Gemini set plus #1265 live Claude subset, with gpt-oss/dead/unpriced keys excluded from persisted account mappings) is hand-maintained from empirical probes; losing it silently reverts antigravity to passthrough or hides now-supported Claude IDs. The grok allowlist (supportedGrokCatalogModels: priced grok-imagine media + official-priced grok chat ids that returned 200 on the native grok edge probe) is likewise hand-maintained; losing it silently empties a grok group's 分组目录 again (2026-06-20 incident). Fifth-platform newapi long-tail display is delegated to tk_served_models_manifest_tk.go via isTkCuratedNewAPICatalogRowDisplayed; unknown vendors stay hidden until a universal mapping exists."
     },
@@ -774,17 +835,26 @@
     },
     {
       "path": "backend/internal/service/pricing_availability_predicate_tk.go",
-      "must_contain": ["s.GetAvailability(ctx, platform, modelID)"],
+      "must_contain": [
+        "s.GetAvailability(ctx, platform, modelID)"
+      ],
       "rationale": "Single-model structural pruning must consume the same time-bounded read projection as catalog and batch discovery."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_model_list_test.go",
-      "must_contain": ["TestTkAntigravityDefaultModels_FilterDropsUnreachable", "TestTkGeminiFallbackModelsList_FilterDropsUnreachable", "expired retirement proof cannot hide the model"],
+      "must_contain": [
+        "TestTkAntigravityDefaultModels_FilterDropsUnreachable",
+        "TestTkGeminiFallbackModelsList_FilterDropsUnreachable",
+        "expired retirement proof cannot hide the model"
+      ],
       "rationale": "Handler fallback model lists must prune fresh provider retirement and restore models when that proof expires."
     },
     {
       "path": "backend/internal/service/pricing_availability_expiry_tk_test.go",
-      "must_contain": ["TestAvailabilityReadExpiresWithoutNewTraffic", "TestAvailabilityReadExpiresFailuresAndRetirementProof"],
+      "must_contain": [
+        "TestAvailabilityReadExpiresWithoutNewTraffic",
+        "TestAvailabilityReadExpiresFailuresAndRetirementProof"
+      ],
       "rationale": "Exercise expiration across single, batch, cached and catalog reads, with unknown and first/confirmed retirement evidence and no storage mutation."
     },
     {

@@ -164,18 +164,13 @@ var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 // An empty set preserves the existing passthrough/canonical fallback.
 var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin gemini
-	"gemini-2.5-flash":              {},
-	"gemini-2.5-flash-lite":         {},
-	"gemini-2.5-pro":                {},
-	"gemini-3.5-flash-lite":         {},
-	"gemini-3.6-flash":              {},
-	"gemini-3.7-flash":              {},
-	"gemini-3.8-flash":              {},
-	"imagen-4.0-fast-generate-001":  {},
-	"imagen-4.0-generate-001":       {},
-	"imagen-4.0-ultra-generate-001": {},
-	"veo-3.1-generate-001":          {},
-	"gemini-embedding-001":          {},
+	"gemini-3-flash-preview": {},
+	"gemini-3.5-flash-lite":  {},
+	"gemini-3.6-flash":       {},
+	"gemini-3.7-flash":       {},
+	"gemini-3.8-flash":       {},
+	"gemini-embedding-001":   {},
+	"veo-3.1-generate-001":   {},
 	// servable-allowlist:end gemini
 }
 
@@ -184,31 +179,17 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 // an empty set preserves the existing passthrough/canonical fallback.
 var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin antigravity
-	"claude-opus-4-6":                {},
-	"claude-opus-4-6-thinking":       {},
-	"claude-sonnet-4-6":              {},
-	"gemini-2.5-flash":               {},
-	"gemini-2.5-flash-image":         {},
-	"gemini-2.5-flash-lite":          {},
-	"gemini-2.5-flash-thinking":      {},
-	"gemini-3-flash":                 {},
-	"gemini-3-flash-agent":           {},
 	"gemini-3-flash-preview":         {},
 	"gemini-3-pro-image":             {},
 	"gemini-3.1-flash-image":         {},
 	"gemini-3.1-flash-image-preview": {},
+	"gemini-3.5-flash-lite":          {},
+	"gemini-3.6-flash":               {},
+	"gemini-3.7-flash":               {},
+	"gemini-3.8-flash":               {},
 	// nano-2 is Flash↔Flash (price matches wire). nano-pro is NOT listed here:
 	// Antigravity remaps it to Flash while overlay aliases price it as Pro.
-	"nano-2":                     {},
-	"gemini-3.1-flash-lite":      {},
-	"gemini-3.1-pro-low":         {},
-	"gemini-3.5-flash":           {},
-	"gemini-3.5-flash-extra-low": {},
-	"gemini-3.5-flash-low":       {},
-	"gemini-3.6-flash":           {},
-	"gemini-3.7-flash":           {},
-	"gemini-3.8-flash":           {},
-	"gemini-pro-agent":           {},
+	"nano-2": {},
 	// servable-allowlist:end antigravity
 }
 

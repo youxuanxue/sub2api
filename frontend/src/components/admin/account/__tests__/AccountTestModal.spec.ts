@@ -92,9 +92,9 @@ function mountModal(account: Record<string, unknown> = {
 describe('AccountTestModal', () => {
   beforeEach(() => {
     getAvailableModels.mockResolvedValue([
-      { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
-      { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash Image' },
-      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
+      { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
+      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' },
+      { id: 'gemini-3-pro-image', display_name: 'Gemini 3 Pro Image' }
     ])
     copyToClipboard.mockReset()
     Object.defineProperty(globalThis, 'localStorage', {
@@ -108,7 +108,7 @@ describe('AccountTestModal', () => {
     })
     global.fetch = vi.fn().mockResolvedValue(
       createStreamResponse([
-        'data: {"type":"test_start","model":"gemini-2.5-flash-image"}\n',
+        'data: {"type":"test_start","model":"gemini-3.1-flash-image"}\n',
         'data: {"type":"image","image_url":"data:image/png;base64,QUJD","mime_type":"image/png"}\n',
         'data: {"type":"test_complete","success":true}\n'
       ])
@@ -248,8 +248,8 @@ describe('AccountTestModal', () => {
 
   it('defaults antigravity account test to first gemini model from admin catalog', async () => {
     getAvailableModels.mockResolvedValueOnce([
-      { id: 'gemini-3-flash', display_name: 'Gemini 3 Flash' },
-      { id: 'gemini-pro-agent', display_name: 'Gemini 3.1 Pro (High)' }
+      { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
+      { id: 'gemini-3.6-flash', display_name: 'Gemini 3.6 Flash' }
     ])
     const wrapper = mountWith({
       id: 701,
@@ -269,15 +269,15 @@ describe('AccountTestModal', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1)
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toMatchObject({
-      model_id: 'gemini-3-flash'
+      model_id: 'gemini-3.8-flash'
     })
   })
 
   it('prefers text gemini models over image models as the default selection', async () => {
     getAvailableModels.mockResolvedValueOnce([
       { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' },
-      { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash Image' },
-      { id: 'gemini-3-flash', display_name: 'Gemini 3 Flash' }
+      { id: 'gemini-3-pro-image', display_name: 'Gemini 3 Pro Image' },
+      { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' }
     ])
     const wrapper = mountWith({
       id: 702,
@@ -289,12 +289,12 @@ describe('AccountTestModal', () => {
     await wrapper.setProps({ show: true })
     await flushPromises()
 
-    expect((wrapper.vm as any).selectedModelId).toBe('gemini-3-flash')
+    expect((wrapper.vm as any).selectedModelId).toBe('gemini-3.8-flash')
   })
 
   it('enables image test mode for antigravity oauth image models', async () => {
     getAvailableModels.mockResolvedValueOnce([
-      { id: 'gemini-3-flash', display_name: 'Gemini 3 Flash' },
+      { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
       { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
     ])
     const wrapper = mountWith({

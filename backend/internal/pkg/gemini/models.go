@@ -15,21 +15,20 @@ type ModelsListResponse struct {
 	Models []Model `json:"models"`
 }
 
+// DefaultModels is the v1beta metadata preference list for CatalogPolicy
+// synthesis (tkGeminiFallbackModelsList) and HasFallbackModel (404 → local
+// metadata). Keep aligned with supportedGeminiCatalogModels: claiming
+// generateContent only for text chat ids; embedding/video get bare Name.
 func DefaultModels() []Model {
 	methods := []string{"generateContent", "streamGenerateContent"}
 	return []Model{
-		{Name: "models/gemini-2.0-flash", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-2.5-flash", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-2.5-flash-image", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-2.5-pro", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.5-flash", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.5-flash-lite", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-3.6-flash", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-3.7-flash", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-3.8-flash", SupportedGenerationMethods: methods},
 		{Name: "models/gemini-3-flash-preview", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3-pro-preview", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.1-pro-preview", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.1-pro-preview-customtools", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.1-flash-image", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-3.5-flash-lite", SupportedGenerationMethods: methods},
+		{Name: "models/gemini-embedding-001"},
+		{Name: "models/veo-3.1-generate-001"},
 	}
 }
 
