@@ -288,8 +288,10 @@ func TestTKPricingOverlay_FillsGeminiProAgent(t *testing.T) {
 }
 
 func TestTKPricingOverlay_FillsGemini35LiteAnd36FlashAtOfficialRates(t *testing.T) {
-	svc := &PricingService{}
-	data, err := svc.parsePricingData([]byte(`{
+	rebuildTKOverlayUnion(nil)
+	t.Cleanup(func() { rebuildTKOverlayUnion(nil) })
+	svc := &PricingService{useActiveRegistry: true}
+	_, err := svc.parsePricingData([]byte(`{
 		"gemini-2.5-flash": {
 			"input_cost_per_token": 0.0000003,
 			"output_cost_per_token": 0.0000025,
@@ -312,8 +314,8 @@ func TestTKPricingOverlay_FillsGemini35LiteAnd36FlashAtOfficialRates(t *testing.
 		"gemini-3-flash-preview": {input: 7.5e-7, output: 3.75e-6, cache: 7.5e-8},
 	}
 	for modelID, want := range cases {
-		pricing := data[modelID]
-		require.NotNil(t, pricing, "overlay must inject %s", modelID)
+		pricing := svc.GetModelPricing(modelID)
+		require.NotNil(t, pricing, "registry must resolve %s", modelID)
 		require.Equal(t, "vertex_ai-language-models", pricing.LiteLLMProvider, modelID)
 		require.Equal(t, "chat", pricing.Mode, modelID)
 		require.InDelta(t, want.input, pricing.InputCostPerToken, 1e-15, modelID)
@@ -665,4 +667,19 @@ func TestTKPricingOverlay_FillsQwenVisionFamily(t *testing.T) {
 
 func tkOfficialListBaseTaxMultiplier() float64 {
 	return loadTkOfficialListBaseTaxPolicy().Multiplier
+}
+
+// Traffic aliases must share the complete owner, including future price tiers.
+func TestTKPricingOverlay_GeminiTrafficAliasesSharePriceOwner(t *testing.T) {
+	rebuildTKOverlayUnion(nil)
+	t.Cleanup(func() { rebuildTKOverlayUnion(nil) })
+	svc := &PricingService{useActiveRegistry: true}
+	_, err := svc.parsePricingData([]byte(`{"gemini-3.5-flash-lite":{"input_cost_per_token":0.0000003,"output_cost_per_token":0.0000025}}`))
+	require.NoError(t, err)
+	for alias, target := range geminiTrafficAliases {
+		owner, declared := tkPricingRegistryAliasOwner(alias)
+		require.True(t, declared, alias)
+		require.Equal(t, target, owner)
+		require.Equal(t, svc.GetModelPricing(target), svc.GetModelPricing(alias), "all billing fields must use target owner: %s", alias)
+	}
 }

@@ -242,6 +242,7 @@
 </template>
 
 <script setup lang="ts">
+import { sortAccountTestModels, supportsGeminiImageTest as supportsAccountGeminiImageTest } from '@/utils/accountTestModels.tk'
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -294,25 +295,9 @@ const openAITestModeOptions = computed(() => [
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
 ])
 const previewImageUrl = ref('')
-const prioritizedGeminiModels = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3-flash-preview',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-image',
-  'gemini-3-pro-image',
-  'nano-2'
-]
-const supportsGeminiImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
-  if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
-
-  return (
-    props.account?.platform === PLATFORM_GEMINI ||
-    props.account?.platform === PLATFORM_ANTIGRAVITY
-  )
-})
+const supportsGeminiImageTest = computed(() =>
+  supportsAccountGeminiImageTest(props.account?.platform, selectedModelId.value)
+)
 
 const supportsOpenAIImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
@@ -321,17 +306,6 @@ const supportsOpenAIImageTest = computed(() => {
 })
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
-
-const sortTestModels = (models: AccountModelOption[]) => {
-  const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
-
-  return [...models].sort((a, b) => {
-    const aPriority = priorityMap.get(a.id) ?? Number.MAX_SAFE_INTEGER
-    const bPriority = priorityMap.get(b.id) ?? Number.MAX_SAFE_INTEGER
-    if (aPriority !== bPriority) return aPriority - bPriority
-    return 0
-  })
-}
 
 // Load available models when modal opens
 watch(
@@ -362,7 +336,7 @@ const loadAvailableModels = async () => {
   try {
     const models = await adminAPI.accounts.getAvailableModels(props.account.id)
     availableModels.value = props.account.platform === PLATFORM_GEMINI || props.account.platform === PLATFORM_ANTIGRAVITY
-      ? sortTestModels(models)
+      ? sortAccountTestModels(models)
       : models
     // Default selection by platform
     if (availableModels.value.length > 0) {

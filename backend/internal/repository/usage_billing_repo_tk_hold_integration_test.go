@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -201,4 +202,70 @@ func TestReleaseExpiredBalanceHolds_RefundsLeaks(t *testing.T) {
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM usage_holds WHERE request_id = $1", reqX).Scan(&n))
 	require.Equal(t, 0, n)
+}
+
+// A release already owns the last DB connection while a new reservation queues.
+// Both must complete: an application mutex held across pool acquisition would
+// invert the order and block the release behind the waiting reservation.
+func TestBalanceHold_ProgressWithExhaustedConnectionPool(t *testing.T) {
+	applier, user, apiKey := newHoldApplier(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	holdID := uuid.NewString()
+	ok, err := applier.ReserveBalanceHold(ctx, &service.HoldCommand{RequestID: holdID, UserID: user.ID, APIKeyID: apiKey.ID, Amount: 1})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	gate, err := integrationDB.Conn(ctx)
+	require.NoError(t, err)
+	defer gate.Close()
+	_, err = gate.ExecContext(ctx, "SELECT pg_advisory_lock($1)", user.ID)
+	require.NoError(t, err)
+	defer func() { _, _ = gate.ExecContext(context.Background(), "SELECT pg_advisory_unlock($1)", user.ID) }()
+	function := fmt.Sprintf("hold_release_gate_%d", user.ID)
+	_, err = integrationDB.ExecContext(ctx, fmt.Sprintf(`
+		CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS
+		'BEGIN PERFORM pg_advisory_xact_lock(OLD.user_id); RETURN OLD; END';
+		CREATE TRIGGER %s BEFORE DELETE ON usage_holds FOR EACH ROW
+		WHEN (OLD.user_id = %d) EXECUTE FUNCTION %s();`, function, function, user.ID, function))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), fmt.Sprintf("DROP TRIGGER %s ON usage_holds; DROP FUNCTION %s()", function, function))
+		require.NoError(t, err)
+	})
+
+	pool, err := sql.Open("postgres", integrationPostgresDSN)
+	require.NoError(t, err)
+	defer pool.Close()
+	pool.SetMaxOpenConns(1)
+	repo := &usageBillingRepository{db: pool}
+	released := make(chan error, 1)
+	go func() { _, err := repo.ReleaseBalanceHold(ctx, holdID); released <- err }()
+	require.Eventually(t, func() bool {
+		var waiting int
+		err := integrationDB.QueryRowContext(ctx, "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND objid = $1", user.ID).Scan(&waiting)
+		return err == nil && waiting > 0
+	}, time.Second, time.Millisecond)
+
+	reserved := make(chan error, 1)
+	go func() {
+		ok, err := repo.ReserveBalanceHold(ctx, &service.HoldCommand{RequestID: uuid.NewString(), UserID: user.ID, APIKeyID: apiKey.ID, Amount: 1})
+		if err == nil && !ok {
+			err = fmt.Errorf("reservation unexpectedly rejected")
+		}
+		reserved <- err
+	}()
+	require.Eventually(t, func() bool { return pool.Stats().WaitCount > 0 }, time.Second, time.Millisecond)
+	_, err = gate.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", user.ID)
+	require.NoError(t, err)
+	for _, completed := range []<-chan error{released, reserved} {
+		select {
+		case err := <-completed:
+			require.NoError(t, err)
+		case <-time.After(time.Second):
+			cancel()
+			t.Fatal("balance operation stalled behind the exhausted connection pool")
+		}
+	}
+	require.InDelta(t, 9, holdBalance(t, user.ID), 1e-9)
 }

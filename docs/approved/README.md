@@ -154,3 +154,5 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 （当前无 pending 项。）
 
 - [Gateway capability verification](prod-replay-capability-matrix.md) — offline matrix planning and explicit isolated checks, independent of deployment.
+
+- [Stage0 release-check remediation](stage0-release-check-remediation.md) — approved fixes and production impact boundaries.

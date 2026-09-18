@@ -24,7 +24,7 @@ func NewAnthropicSaturationCounterCache(rdb *redis.Client) service.AnthropicSatu
 }
 
 func anthropicSaturationKey(accountID int64) string {
-	return fmt.Sprintf("%s%d", anthropicSaturationCountPrefix, accountID)
+	return fmt.Sprintf("%s%d", anthropicSaturationCountPrefix, accountID) + saturationRollingKeySuffix
 }
 
 func (c *anthropicSaturationCounterCache) IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int) (int64, error) {

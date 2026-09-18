@@ -119,13 +119,14 @@ describe('AccountTestModal', () => {
     vi.restoreAllMocks()
   })
 
-  it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {
+  it.each(['gemini-3.1-flash-image', 'nano-2', 'nano-pro'])('gemini 图片模型 %s 测试会携带提示词并渲染图片预览', async (model) => {
+    getAvailableModels.mockResolvedValue([{ id: model, display_name: model }])
     const wrapper = mountModal()
     await wrapper.setProps({ show: true })
     await flushPromises()
 
     // Default selection prefers text models; switch to an image model for this probe.
-    ;(wrapper.vm as any).selectedModelId = 'gemini-3.1-flash-image'
+    ;(wrapper.vm as any).selectedModelId = model
     await flushPromises()
 
     const promptInput = wrapper.find('textarea.textarea-stub')
@@ -143,7 +144,7 @@ describe('AccountTestModal', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1)
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toEqual({
-      model_id: 'gemini-3.1-flash-image',
+      model_id: model,
       prompt: 'draw a tiny orange cat astronaut'
     })
 

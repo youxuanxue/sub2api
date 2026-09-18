@@ -22,7 +22,7 @@ func NewAntigravitySaturationCounterCache(rdb *redis.Client) service.Antigravity
 }
 
 func antigravitySaturationKey(accountID int64, modelKey string) string {
-	return fmt.Sprintf("%s%d:model:%s", antigravitySaturationCountPrefix, accountID, modelKey)
+	return fmt.Sprintf("%s%d:model:%s", antigravitySaturationCountPrefix, accountID, modelKey) + saturationRollingKeySuffix
 }
 
 func (c *antigravitySaturationCounterCache) GetSaturationBatch(ctx context.Context, scopes []service.AntigravitySaturationScope, windowSeconds int) (map[service.AntigravitySaturationScope]int64, error) {

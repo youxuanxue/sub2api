@@ -923,3 +923,19 @@ describe('UseKeyGuide public preview', () => {
     fetchMock.mockRestore()
   })
 })
+
+
+describe('Gemini image alias instructions', () => {
+  it.each(['nano-2', 'nano-pro'])('requests image output for %s in cURL and Python', async (model) => {
+    getMePricingCatalog.mockResolvedValue({ models: [{ model_id: model, capabilities: ['image'] }] })
+    const wrapper = mountModal({ platform: 'gemini', apiKeyId: 42 })
+    await flushPromises()
+    for (const tab of ['curl', 'python']) {
+      await wrapper.findAll('button').find((button) => button.text().includes(`keys.useKeyModal.cliTabs.${tab}`))!.trigger('click')
+      await nextTick()
+      const snippet = wrapper.findAll('pre code').map((code) => code.text()).join('\n')
+      expect(snippet).toContain(`${model}:generateContent`)
+      expect(snippet).toContain('"responseModalities": ["TEXT", "IMAGE"]')
+    }
+  })
+})

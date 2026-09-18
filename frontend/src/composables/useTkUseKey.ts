@@ -22,6 +22,7 @@
  * (TokenKey upstream-isolation pattern, CLAUDE.md §5).
  */
 
+import { isGeminiNativeImageModel } from '@/constants/playgroundMedia.tk'
 import { computed, ref, type Ref } from 'vue'
 import { resolveBrowserGatewayFetchBaseUrl, gatewayWarmupConnection } from '@/api/playground'
 import { getMePricingCatalog, type MePricingModel } from '@/api/me-pricing'
@@ -174,7 +175,7 @@ async function probeGatewayAuth(
 export function flavorOfModel(id: string): UseKeyFlavor {
   const lower = id.toLowerCase()
   if (lower.startsWith('claude') || lower.includes('claude')) return 'anthropic'
-  if (lower.startsWith('gemini') || lower.includes('gemini') || lower.startsWith('imagen')) return 'gemini'
+  if (isGeminiNativeImageModel(id) || lower.startsWith('gemini') || lower.includes('gemini') || lower.startsWith('imagen')) return 'gemini'
   return 'openai'
 }
 

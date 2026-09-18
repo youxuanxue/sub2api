@@ -41,9 +41,9 @@ existing model-scoped retry behavior.
 
 ## Deploy note (TokenKey prod/edge)
 
-Counters move from fixed-window Redis STRING (`INCR`+`EXPIRE`) to rolling
-ZSET members. After rollout, any leftover STRING keys may return `WRONGTYPE`
-on `ZADD`/`ZCOUNT` for up to the previous ~90s TTL. Writers/readers stay
-best-effort and fail open (selection continues without preference). No manual
-`FLUSH` is required; watch `*_saturation_increment_failed` /
-`candidate_saturation_read_failed` only if they persist beyond that window.
+Rolling ZSET keys use the `:rolling-v2` suffix. Old releases retain the original
+STRING keys, so blue/green overlap and rollback never mix Redis value types.
+Each version starts with its own soft preference history; this is a temporary
+loss of ranking evidence, not a schedulability gate. Both generations expire
+naturally. No manual `FLUSH` is required. Migration coexistence is covered by
+`TestSaturationRollingKeysCoexistWithLegacyCounters`.

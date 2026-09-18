@@ -502,3 +502,13 @@ describe('image aspect options (per-model, upstream-valid wire values)', () => {
     }
   })
 })
+
+it('keeps the versioned Grok video model in video membership with its price', () => {
+  const id = 'grok-imagine-video-1.5' // regression: version suffix was misclassified as chat
+  const ids = new Set([id])
+  expect(groupServes('video', ids)).toBe(true)
+  expect(groupServes('chat', ids)).toBe(false)
+  const models = resolveAvailableModels('video', ids, new Map([[id, { perSecond: 0.08, billingMode: 'video' as const }]]))
+  expect(models.map((m) => m.servedId)).toEqual([id])
+  expect(models[0].perSecond).toBe(0.08)
+})

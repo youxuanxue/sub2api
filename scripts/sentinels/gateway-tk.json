@@ -7125,6 +7125,7 @@
     {
       "path": "backend/internal/repository/saturation_rolling_counter.go",
       "must_contain": [
+        "const saturationRollingKeySuffix = \":rolling-v2\"",
         "var saturationRollingIncrScript",
         "func rollingSaturationCutoffMS(",
         "func zcountRollingSaturation("
@@ -7134,6 +7135,7 @@
     {
       "path": "backend/internal/repository/anthropic_saturation_counter_cache.go",
       "must_contain": [
+        " + saturationRollingKeySuffix",
         "func NewAnthropicSaturationCounterCache(",
         "anthropic_saturation_count:account:",
         "anthropicSaturationIncrScript",
@@ -7266,6 +7268,7 @@
     {
       "path": "backend/internal/repository/openai_saturation_counter_cache.go",
       "must_contain": [
+        " + saturationRollingKeySuffix",
         "func NewOpenAISaturationCounterCache(",
         "openai_saturation_count:account:",
         "openaiSaturationIncrScript",
@@ -12463,6 +12466,21 @@
       "!p.readOnlyAccountState && shouldMarkCreditsExhausted"
     ],
     "rationale": "Retry loop must honor readOnlyAccountState for admin probes — skip smart-retry capacity burns and credits-exhausted mutations. Upstream merges frequently touch this retry file; pin the flag and both gate sites."
-  }
+  },
+    {
+      "path": "backend/internal/repository/saturation_rolling_counter_test.go",
+      "must_contain": [
+        "TestSaturationRollingKeysCoexistWithLegacyCounters"
+      ],
+      "rationale": "Upgrade and rollback keep independent STRING and ZSET counters."
+    },
+    {
+      "path": "backend/internal/repository/antigravity_saturation_counter_cache.go",
+      "must_contain": [
+        " + saturationRollingKeySuffix",
+        "saturationRollingIncrScript"
+      ],
+      "rationale": "Antigravity shares the versioned rolling counter owner."
+    }
   ]
 }
