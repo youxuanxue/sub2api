@@ -168,7 +168,18 @@ func MaybeResolveUniversal(c *gin.Context, apiKey *service.APIKey, resolver *ser
 			reqLog.Warn("universal_routing.no_entitled_group")
 			writeUniversalRoutingError(c, shape, model)
 		} else if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
-			reqLog.Warn("universal_routing.capacity_unavailable")
+			fields := make([]zap.Field, 0, 5)
+			if diag := service.CandidateCapacityDiagFromError(err); diag != nil {
+				fields = append(fields,
+					zap.Int("account_total", diag.AccountTotal),
+					zap.Int("supported", diag.Supported),
+					zap.Int("ready", diag.Ready),
+				)
+				if summary := diag.RejectSummary(); summary != "" {
+					fields = append(fields, zap.String("reject_reasons", summary))
+				}
+			}
+			reqLog.Warn("universal_routing.capacity_unavailable", fields...)
 			service.MarkOpsRoutingCapacityLimited(c)
 			applyUniversalCapacityPlatformHint(c, err)
 			writeUniversalRoutingCapacityError(c, shape)

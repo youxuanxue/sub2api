@@ -39,6 +39,7 @@ type CandidateRequest struct {
 	chatDeadline          time.Time
 	capacityPlatformHint  string
 	capacityGroupHint     int64
+	capacityDiag          *CandidateCapacityDiag
 	bodyModelCandidates   []string
 	bodyModelsResolved    bool
 }
@@ -401,12 +402,12 @@ func candidatePathAllowsEndpoint(ctx context.Context, account *Account, group *G
 	return true
 }
 
-func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64) error {
+func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error {
 	if err != nil && (!supported || !errors.Is(err, protocolrouter.ErrNoLegalRoute)) {
 		return err
 	}
 	if supported {
-		return newUniversalCapacityError(platformHint, groupID)
+		return newUniversalCapacityError(platformHint, groupID, diag)
 	}
 	return fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
 }
