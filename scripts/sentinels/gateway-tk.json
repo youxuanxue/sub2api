@@ -5502,6 +5502,23 @@
       "rationale": "TK #2859 sticky slot-full escape global toggle reader. Default true / fail-open (missing setting or DB error => enabled), mirroring IsStickyRoutingEnabled with its own 60s atomic+singleflight cache. The scheduler escape (openai_account_scheduler.go) reads this; the scheduler helper also has a nil-safe true fallback, but dropping this reader silently removes the admin-toggle / instant-rollback capability that the #2859 design promises. Anchor the reader + SettingKey + the cache var so the default-on, reversible contract survives upstream merges."
     },
     {
+      "path": "backend/internal/service/openai_gateway_scheduling_tk_newapi_prompt_cache.go",
+      "must_contain": [
+        "func deriveNewAPIPromptCacheSessionSeed(",
+        "newapi-prompt-cache:v1:",
+        "deriveOpenAIStablePrefixSessionSeed(body)"
+      ],
+      "rationale": "NewAPI/Volc prompt-cache sticky: without an explicit session, GenerateSessionHash must seed from stable system/tools/instructions prefix (+ api_key_id+model), not first-user content. First-user seeding churns Redis account bindings across Acceptance-style independent turns and destroys Volc/GLM prefix cache. See docs/approved/sticky-routing.md §11.6."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_scheduling.go",
+      "must_contain": [
+        "if newAPIGroupPromptCacheStickyEnabled(c) {",
+        "sessionID = deriveNewAPIPromptCacheSessionSeed(c, body)"
+      ],
+      "rationale": "GenerateSessionHash must branch NewAPI groups onto deriveNewAPIPromptCacheSessionSeed before the default first-user content seed. Losing this hook silently restores account churn on NewAPI/Volc/GLM. See docs/approved/sticky-routing.md §11.6."
+    },
+    {
       "path": "backend/internal/service/gateway_upstream_response.go",
       "must_contain": [
         "strings.Contains(haystack, \"noresourcefoundexception\")",
