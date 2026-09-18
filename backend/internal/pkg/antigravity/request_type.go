@@ -21,6 +21,31 @@ func ResolveV1InternalRequestType(model string, hasWebSearch, hasTools, hasToolI
 	return ""
 }
 
+// GeminiRequestHasWebSearch reports googleSearch / google_search tool entries
+// on a Gemini-native generateContent body.
+func GeminiRequestHasWebSearch(request map[string]any) bool {
+	if request == nil {
+		return false
+	}
+	tools, ok := request["tools"].([]any)
+	if !ok || len(tools) == 0 {
+		return false
+	}
+	for _, t := range tools {
+		tm, ok := t.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, ok := tm["googleSearch"]; ok {
+			return true
+		}
+		if _, ok := tm["google_search"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // GeminiRequestHasTools reports whether a Gemini-native generateContent body
 // declares any functionDeclarations / function_declarations.
 func GeminiRequestHasTools(request map[string]any) bool {

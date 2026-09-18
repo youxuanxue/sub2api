@@ -53,3 +53,33 @@ func TestGeminiRequestHasTools_PositiveAndNegative(t *testing.T) {
 		t.Fatal("expected no tools")
 	}
 }
+
+func TestGeminiRequestHasWebSearch_PositiveAndNegative(t *testing.T) {
+	t.Parallel()
+	with := map[string]any{
+		"tools": []any{
+			map[string]any{"googleSearch": map[string]any{}},
+		},
+	}
+	without := map[string]any{
+		"tools": []any{
+			map[string]any{
+				"functionDeclarations": []any{map[string]any{"name": "fn"}},
+			},
+		},
+	}
+	if !GeminiRequestHasWebSearch(with) {
+		t.Fatal("expected googleSearch detected")
+	}
+	if GeminiRequestHasWebSearch(without) {
+		t.Fatal("functionDeclarations alone is not web_search")
+	}
+}
+
+func TestResolveV1InternalRequestType_WebSearchBeatsTools(t *testing.T) {
+	t.Parallel()
+	got := ResolveV1InternalRequestType("gemini-3.1-pro-preview", true, true, false)
+	if got != "web_search" {
+		t.Fatalf("web_search should win over agent, got %q", got)
+	}
+}

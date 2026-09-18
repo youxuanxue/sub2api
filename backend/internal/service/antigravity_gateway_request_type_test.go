@@ -55,3 +55,20 @@ func TestWrapNativeGeminiRequest_SetsAgentWhenTools(t *testing.T) {
 		t.Fatalf("want agent, got %#v", m["requestType"])
 	}
 }
+
+func TestWrapNativeGeminiRequest_SetsWebSearchWhenGoogleSearch(t *testing.T) {
+	t.Parallel()
+	svc := &AntigravityGatewayService{}
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"googleSearch":{}}]}`)
+	out, err := svc.wrapV1InternalRequest("proj", "gemini-3.1-pro-preview", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(out, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["requestType"] != "web_search" {
+		t.Fatalf("want web_search, got %#v", m["requestType"])
+	}
+}

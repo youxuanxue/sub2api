@@ -796,7 +796,7 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 
 	requestType := antigravity.ResolveV1InternalRequestType(
 		model,
-		false,
+		antigravity.GeminiRequestHasWebSearch(request),
 		antigravity.GeminiRequestHasTools(request),
 		antigravity.GeminiRequestHasToolInteractions(request),
 	)
