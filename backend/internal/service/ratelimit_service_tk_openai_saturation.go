@@ -15,7 +15,8 @@ import (
 //     temporarily unavailable (openai_capacity_saturation_tk.go)
 //
 // Fail over without cooling the account; the counter only nudges the scheduler
-// away from the hot account/stub for the fixed window.
+// away from the hot account/stub for the rolling window in
+// edge_mirror_stub_saturation_tk.go.
 
 func (s *RateLimitService) SetOpenAISaturationCounter(cache OpenAISaturationCounterCache) {
 	s.openaiSaturationCounter = cache

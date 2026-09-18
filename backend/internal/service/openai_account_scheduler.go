@@ -956,9 +956,11 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	}
 	plan.loadSkew = calcLoadSkewByMoments(loadRateSum, loadRateSumSquares, len(candidates))
 
-	if !req.UseUpstreamTokenCost {
-		s.service.computeOpenAISaturationPenalties(ctx, candidates, req.RequestedModel)
-	}
+	// Saturation preference is orthogonal to upstream-token-cost scoring. Chat /
+	// responses paths historically set UseUpstreamTokenCost=true; gating the
+	// penalty on !UseUpstreamTokenCost left saturated edge stubs preferred under
+	// load (prod GPT专线 / gpt-5.6-luna after 1.8.236).
+	s.service.computeOpenAISaturationPenalties(ctx, candidates, req.RequestedModel)
 
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)
 	now := time.Now()
@@ -1044,9 +1046,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			weights.Reset*resetFactor +
 			weights.QuotaHeadroom*quotaHeadroomFactor +
 			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
-		if !req.UseUpstreamTokenCost {
-			score -= item.saturationScorePenalty
-		}
+		score -= item.saturationScorePenalty
 		item.score = score
 		if req.StickyWeighted {
 			if req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID {
@@ -2077,6 +2077,9 @@ func (s *OpenAIGatewayService) SelectAccountWithScheduler(
 // SelectAccountWithSchedulerForCapability 按能力要求调度账号。
 // previousResponseCanMove 表示首包 input 可自行重建工具续链，previous_response_id 允许跨账号迁移
 // （粘性加权模式下改为加权偏好而非硬粘连）。
+//
+// options 中 bool 顺序固定：第 1 个 = previousResponseCanMove，第 2 个 =
+// useUpstreamTokenCost。禁止把无关开关塞进这个 bool 槽位。
 func (s *OpenAIGatewayService) SelectAccountWithSchedulerForCapability(
 	ctx context.Context,
 	groupID *int64,

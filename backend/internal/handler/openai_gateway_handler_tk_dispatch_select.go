@@ -53,16 +53,20 @@ func tkOpenAIDispatchSelectionAllowsFallback(err error) bool {
 }
 
 type tkSchedulerCapabilitySelectArgs struct {
-	GroupID                    *int64
-	PreviousResponseID         string
-	SessionHash                string
-	FailedAccountIDs           map[int64]struct{}
-	Transport                  service.OpenAIUpstreamTransport
-	Capability                 service.OpenAIEndpointCapability
-	RequireCompact             bool
-	PreviousResponseCanMove    bool
-	ExcludeImageIntentAccounts bool
-	Platform                   string
+	GroupID                 *int64
+	PreviousResponseID      string
+	SessionHash             string
+	FailedAccountIDs        map[int64]struct{}
+	Transport               service.OpenAIUpstreamTransport
+	Capability              service.OpenAIEndpointCapability
+	RequireCompact          bool
+	PreviousResponseCanMove bool
+	// UseUpstreamTokenCost maps to SelectAccountWithSchedulerForCapability's
+	// second bool option (after PreviousResponseCanMove). Do not overload this
+	// with unrelated flags — a prior ExcludeImageIntentAccounts rename silently
+	// forced token-cost mode and skipped saturation preference on chat paths.
+	UseUpstreamTokenCost bool
+	Platform             string
 }
 
 func (h *OpenAIGatewayHandler) tkSelectAccountWithSchedulerDispatchFallback(
@@ -85,7 +89,7 @@ func (h *OpenAIGatewayHandler) tkSelectAccountWithSchedulerDispatchFallback(
 			args.Capability,
 			args.RequireCompact,
 			args.PreviousResponseCanMove,
-			args.ExcludeImageIntentAccounts,
+			args.UseUpstreamTokenCost,
 			args.Platform,
 		)
 	}

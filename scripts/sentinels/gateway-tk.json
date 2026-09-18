@@ -7220,9 +7220,19 @@
       "must_contain": [
         "s.service.tkShouldClearOpenAIStickyForSaturation(ctx, account, sessionHash, req.RequestedModel)",
         "s.service.computeOpenAISaturationPenalties(ctx, candidates, req.RequestedModel)",
-        "item.saturationScorePenalty"
+        "Saturation preference is orthogonal to upstream-token-cost scoring",
+        "score -= item.saturationScorePenalty"
       ],
-      "rationale": "Candidate Eligibility SSOT consumer: this path delegates candidate facts or saturation interpretation to shared scheduler/state owners. Matching owner and behavior-test anchors must remain intact; removing this delegation silently restores divergent Universal, sticky or direct selection."
+      "rationale": "Candidate Eligibility SSOT consumer: saturation preference must stay unconditional in buildOpenAIAccountLoadPlan. Chat/completions set UseUpstreamTokenCost=true; gating the penalty on that flag silently preferred idle saturated edge stubs (prod GPT专线 after 1.8.236 / #2221). Matching owner and behavior-test anchors must remain intact."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_service_tk_saturation_penalty_test.go",
+      "must_contain": [
+        "TestBuildOpenAIAccountLoadPlan_SaturationAppliesWithUpstreamTokenCost",
+        "UseUpstreamTokenCost: true",
+        "TopK=1"
+      ],
+      "rationale": "Regression for #2221: UseUpstreamTokenCost=true must still sink a saturated idle stub behind a healthy peer under TopK=1. Deleting this test re-opens the chat-path preference skip."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_saturation.go",
