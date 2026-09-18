@@ -280,7 +280,7 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 		if cleaned, cleanErr := cleanGeminiRequest(body); cleanErr == nil {
 			body = cleaned
 		}
-		return s.wrapV1InternalRequest(projectID, mappedModel, body)
+		return s.wrapAntigravityCompatGeminiRequest(projectID, mappedModel, body)
 	}
 
 	options := s.getClaudeTransformOptions(ctx)
