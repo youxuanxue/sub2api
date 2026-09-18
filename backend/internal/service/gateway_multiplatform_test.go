@@ -471,7 +471,7 @@ func TestGatewayService_SelectAccountForModelWithPlatform_Antigravity(t *testing
 		cfg:         testConfig(),
 	}
 
-	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "claude-sonnet-4-6", nil, PlatformAntigravity)
+	acc, err := svc.selectAccountForModelWithPlatform(ctx, nil, "", "gemini-3.8-flash", nil, PlatformAntigravity)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
@@ -809,7 +809,7 @@ func TestGatewayService_SelectAccountForModelWithExclusions_ForcePlatform(t *tes
 		cfg:         testConfig(),
 	}
 
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "claude-sonnet-4-6", nil)
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gemini-3.8-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
@@ -1204,10 +1204,10 @@ func TestGatewayService_isModelSupportedByAccount(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "Antigravity平台-支持默认映射中的claude模型",
+			name:     "Antigravity平台-默认映射已收敛不再支持claude",
 			account:  &Account{Platform: PlatformAntigravity},
 			model:    "claude-sonnet-4-6",
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "Antigravity平台-不支持非默认映射中的claude模型",
@@ -1218,7 +1218,7 @@ func TestGatewayService_isModelSupportedByAccount(t *testing.T) {
 		{
 			name:     "Antigravity平台-支持gemini模型",
 			account:  &Account{Platform: PlatformAntigravity},
-			model:    "gemini-2.5-flash",
+			model:    "gemini-3.8-flash",
 			expected: true,
 		},
 		{
@@ -1325,7 +1325,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
 				{ID: 1, Platform: PlatformAnthropic, Priority: 2, Status: StatusActive, Schedulable: true},
-				{ID: 2, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
+				{ID: 2, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}},
 			},
 			accountsByID: map[int64]*Account{},
 		}
@@ -1450,7 +1450,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 			cfg:         testConfig(),
 		}
 
-		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", "gemini-3.1-pro", nil, PlatformGemini)
+		acc, err := svc.selectAccountWithMixedScheduling(ctx, nil, "", "gemini-3.8-flash", nil, PlatformGemini)
 		require.NoError(t, err)
 		require.NotNil(t, acc)
 		require.Equal(t, int64(3), acc.ID)
@@ -1466,6 +1466,9 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 					Priority:    1,
 					Status:      StatusActive,
 					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"},
+					},
 					Extra: map[string]any{
 						"mixed_scheduling": true,
 						modelRateLimitsKey: map[string]any{
@@ -1501,7 +1504,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
 				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
-				{ID: 2, Platform: PlatformAntigravity, Priority: 2, Status: StatusActive, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
+				{ID: 2, Platform: PlatformAntigravity, Priority: 2, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}},
 			},
 			accountsByID: map[int64]*Account{},
 		}
@@ -1546,7 +1549,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
 				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
-				{ID: 2, Platform: PlatformAntigravity, Priority: 2, Status: StatusActive, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}, AccountGroups: []AccountGroup{{GroupID: groupID}}},
+				{ID: 2, Platform: PlatformAntigravity, Priority: 2, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}, AccountGroups: []AccountGroup{{GroupID: groupID}}},
 			},
 			accountsByID: map[int64]*Account{},
 		}
@@ -1593,7 +1596,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
 				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
-				{ID: 2, Platform: PlatformAntigravity, Priority: 2, Status: StatusActive, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
+				{ID: 2, Platform: PlatformAntigravity, Priority: 2, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}},
 			},
 			accountsByID: map[int64]*Account{},
 		}
@@ -1821,7 +1824,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
 				{ID: 1, Platform: PlatformAnthropic, Priority: 1, Status: StatusActive, Schedulable: true},
-				{ID: 2, Platform: PlatformAntigravity, Priority: 2, Status: StatusActive, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
+				{ID: 2, Platform: PlatformAntigravity, Priority: 2, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}},
 			},
 			accountsByID: map[int64]*Account{},
 		}
@@ -1876,7 +1879,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 	t.Run("混合调度-粘性会话不可调度-清理并回退", func(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
-				{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusDisabled, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
+				{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusDisabled, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}},
 				{ID: 2, Platform: PlatformAnthropic, Priority: 2, Status: StatusActive, Schedulable: true},
 			},
 			accountsByID: map[int64]*Account{},
@@ -1908,7 +1911,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 		requestedModel := "claude-3-5-sonnet-20241022"
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
-				{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusDisabled, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
+				{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusDisabled, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}},
 				{ID: 2, Platform: PlatformAnthropic, Priority: 2, Status: StatusActive, Schedulable: true},
 			},
 			accountsByID: map[int64]*Account{},
@@ -1955,7 +1958,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 	t.Run("混合调度-仅有启用mixed_scheduling的antigravity账户", func(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
-				{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true, Extra: map[string]any{"mixed_scheduling": true}},
+				{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}},
 			},
 			accountsByID: map[int64]*Account{},
 		}
@@ -2083,22 +2086,22 @@ func TestAccount_IsMixedSchedulingEnabled(t *testing.T) {
 		},
 		{
 			name:     "antigravity平台-extra无mixed_scheduling-返回false",
-			account:  Account{Platform: PlatformAntigravity, Extra: map[string]any{}},
+			account:  Account{Platform: PlatformAntigravity, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{}},
 			expected: false,
 		},
 		{
 			name:     "antigravity平台-mixed_scheduling=false-返回false",
-			account:  Account{Platform: PlatformAntigravity, Extra: map[string]any{"mixed_scheduling": false}},
+			account:  Account{Platform: PlatformAntigravity, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": false}},
 			expected: false,
 		},
 		{
 			name:     "antigravity平台-mixed_scheduling=true-返回true",
-			account:  Account{Platform: PlatformAntigravity, Extra: map[string]any{"mixed_scheduling": true}},
+			account:  Account{Platform: PlatformAntigravity, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": true}},
 			expected: true,
 		},
 		{
 			name:     "antigravity平台-mixed_scheduling非bool类型-返回false",
-			account:  Account{Platform: PlatformAntigravity, Extra: map[string]any{"mixed_scheduling": "true"}},
+			account:  Account{Platform: PlatformAntigravity, Credentials: map[string]any{"model_mapping": map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"}}, Extra: map[string]any{"mixed_scheduling": "true"}},
 			expected: false,
 		},
 	}

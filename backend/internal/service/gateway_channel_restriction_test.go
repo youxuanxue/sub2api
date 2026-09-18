@@ -49,8 +49,8 @@ func TestResolveAccountUpstreamModel_Antigravity(t *testing.T) {
 		Platform: PlatformAntigravity,
 	}
 	// Antigravity 平台使用 DefaultAntigravityModelMapping
-	got := resolveAccountUpstreamModel(account, "claude-sonnet-4-6")
-	require.Equal(t, "claude-sonnet-4-6", got)
+	got := resolveAccountUpstreamModel(account, "gemini-3.8-flash")
+	require.Equal(t, "gemini-3.8-flash-medium", got)
 }
 
 func TestResolveAccountUpstreamModel_Antigravity_Unsupported(t *testing.T) {
@@ -253,10 +253,9 @@ func TestIsUpstreamModelRestrictedByChannel_Restricted(t *testing.T) {
 	svc := &GatewayService{channelService: channelSvc}
 
 	account := &Account{Platform: PlatformAntigravity}
-	// claude-sonnet-4-6 在 DefaultAntigravityModelMapping 中，映射后仍为 claude-sonnet-4-6
-	// 但定价列表只有 claude-opus-4-6
-	require.True(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "claude-sonnet-4-6"),
-		"upstream model claude-sonnet-4-6 NOT in pricing → restricted")
+	// gemini-3.8-flash → gemini-3.8-flash-medium，不在 anthropic 定价列表中
+	require.True(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "gemini-3.8-flash"),
+		"upstream model gemini-3.8-flash-medium NOT in pricing → restricted")
 }
 
 func TestIsUpstreamModelRestrictedByChannel_Allowed(t *testing.T) {
@@ -267,15 +266,15 @@ func TestIsUpstreamModelRestrictedByChannel_Allowed(t *testing.T) {
 		GroupIDs:       []int64{10},
 		RestrictModels: true,
 		ModelPricing: []ChannelModelPricing{
-			{Platform: "anthropic", Models: []string{"claude-sonnet-4-6"}},
+			{Platform: "antigravity", Models: []string{"gemini-3.8-flash-medium"}},
 		},
 	}
-	channelSvc := newTestChannelService(makeStandardRepo(ch, map[int64]string{10: "anthropic"}))
+	channelSvc := newTestChannelService(makeStandardRepo(ch, map[int64]string{10: "antigravity"}))
 	svc := &GatewayService{channelService: channelSvc}
 
 	account := &Account{Platform: PlatformAntigravity}
-	require.False(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "claude-sonnet-4-6"),
-		"upstream model claude-sonnet-4-6 IS in pricing → allowed")
+	require.False(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "gemini-3.8-flash"),
+		"upstream model gemini-3.8-flash-medium IS in pricing → allowed")
 }
 
 func TestIsUpstreamModelRestrictedByChannel_UnsupportedModel(t *testing.T) {

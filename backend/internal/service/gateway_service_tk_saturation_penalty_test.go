@@ -28,7 +28,7 @@ func (f *fakeSaturationCache) IncrementSaturation(_ context.Context, accountID i
 	return f.counts[accountID], nil
 }
 
-func (f *fakeSaturationCache) GetSaturationBatch(_ context.Context, ids []int64) (map[int64]int64, error) {
+func (f *fakeSaturationCache) GetSaturationBatch(_ context.Context, ids []int64, _ int) (map[int64]int64, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -148,8 +148,8 @@ func TestComputePenalties_AtThresholdPenalized(t *testing.T) {
 		anthropicAccWithLoad(3, 0, 0, nil),
 	}
 	gw.computeAnthropicSaturationPenalties(context.Background(), cands)
-	require.Equal(t, anthropicSaturationPriorityPenalty, cands[0].saturationPenalty)
-	require.Equal(t, anthropicSaturationPriorityPenalty, cands[1].saturationPenalty)
+	require.Equal(t, anthropicSaturationPriorityPenalty+int(anthropicSaturationThreshold)*100, cands[0].saturationPenalty)
+	require.Equal(t, anthropicSaturationPriorityPenalty+int(anthropicSaturationThreshold+5)*100, cands[1].saturationPenalty)
 	require.Equal(t, 0, cands[2].saturationPenalty)
 }
 
@@ -206,7 +206,7 @@ func TestComputePenalties_KillSwitchDefaultOn(t *testing.T) {
 	gw.settingService = NewSettingService(&satSettingRepoStub{values: map[string]string{}}, &config.Config{})
 	cands := []accountWithLoad{anthropicAccWithLoad(1, 0, 0, nil)}
 	gw.computeAnthropicSaturationPenalties(context.Background(), cands)
-	require.Equal(t, anthropicSaturationPriorityPenalty, cands[0].saturationPenalty, "default ON => penalty applied")
+	require.Equal(t, anthropicSaturationPriorityPenalty+100*100, cands[0].saturationPenalty, "default ON => sustained penalty applied")
 	resetSatCache()
 }
 

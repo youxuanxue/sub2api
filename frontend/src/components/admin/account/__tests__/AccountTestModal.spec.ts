@@ -92,9 +92,9 @@ function mountModal(account: Record<string, unknown> = {
 describe('AccountTestModal', () => {
   beforeEach(() => {
     getAvailableModels.mockResolvedValue([
-      { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
-      { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash Image' },
-      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
+      { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
+      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' },
+      { id: 'gemini-3-pro-image', display_name: 'Gemini 3 Pro Image' }
     ])
     copyToClipboard.mockReset()
     Object.defineProperty(globalThis, 'localStorage', {
@@ -108,7 +108,7 @@ describe('AccountTestModal', () => {
     })
     global.fetch = vi.fn().mockResolvedValue(
       createStreamResponse([
-        'data: {"type":"test_start","model":"gemini-2.5-flash-image"}\n',
+        'data: {"type":"test_start","model":"gemini-3.1-flash-image"}\n',
         'data: {"type":"image","image_url":"data:image/png;base64,QUJD","mime_type":"image/png"}\n',
         'data: {"type":"test_complete","success":true}\n'
       ])
@@ -119,9 +119,14 @@ describe('AccountTestModal', () => {
     vi.restoreAllMocks()
   })
 
-  it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {
+  it.each(['gemini-3.1-flash-image', 'nano-2', 'nano-pro'])('gemini 图片模型 %s 测试会携带提示词并渲染图片预览', async (model) => {
+    getAvailableModels.mockResolvedValue([{ id: model, display_name: model }])
     const wrapper = mountModal()
     await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    // Default selection prefers text models; switch to an image model for this probe.
+    ;(wrapper.vm as any).selectedModelId = model
     await flushPromises()
 
     const promptInput = wrapper.find('textarea.textarea-stub')
@@ -139,7 +144,7 @@ describe('AccountTestModal', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1)
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toEqual({
-      model_id: 'gemini-3.1-flash-image',
+      model_id: model,
       prompt: 'draw a tiny orange cat astronaut'
     })
 
@@ -244,8 +249,8 @@ describe('AccountTestModal', () => {
 
   it('defaults antigravity account test to first gemini model from admin catalog', async () => {
     getAvailableModels.mockResolvedValueOnce([
-      { id: 'gemini-3-flash', display_name: 'Gemini 3 Flash' },
-      { id: 'gemini-pro-agent', display_name: 'Gemini 3.1 Pro (High)' }
+      { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
+      { id: 'gemini-3.6-flash', display_name: 'Gemini 3.6 Flash' }
     ])
     const wrapper = mountWith({
       id: 701,
@@ -265,8 +270,46 @@ describe('AccountTestModal', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1)
     const [, request] = (global.fetch as any).mock.calls[0]
     expect(JSON.parse(request.body)).toMatchObject({
-      model_id: 'gemini-3-flash'
+      model_id: 'gemini-3.8-flash'
     })
+  })
+
+  it('prefers text gemini models over image models as the default selection', async () => {
+    getAvailableModels.mockResolvedValueOnce([
+      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' },
+      { id: 'gemini-3-pro-image', display_name: 'Gemini 3 Pro Image' },
+      { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' }
+    ])
+    const wrapper = mountWith({
+      id: 702,
+      name: 'antigravity-oauth-image-safe-default',
+      platform: 'antigravity',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect((wrapper.vm as any).selectedModelId).toBe('gemini-3.8-flash')
+  })
+
+  it('enables image test mode for antigravity oauth image models', async () => {
+    getAvailableModels.mockResolvedValueOnce([
+      { id: 'gemini-3.8-flash', display_name: 'Gemini 3.8 Flash' },
+      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
+    ])
+    const wrapper = mountWith({
+      id: 703,
+      name: 'antigravity-oauth-image',
+      platform: 'antigravity',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    ;(wrapper.vm as any).selectedModelId = 'gemini-3.1-flash-image'
+    await flushPromises()
+    expect((wrapper.vm as any).supportsImageTest).toBe(true)
   })
 
   it('grok 账号测试默认选择 Grok 模型', async () => {

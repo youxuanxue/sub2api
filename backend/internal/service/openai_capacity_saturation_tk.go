@@ -8,18 +8,18 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// OpenAI native capacity 503 (overloaded / temporarily unavailable) feeds the
-// same short-window soft scheduling preference as prod edge-mirror empty-pool
-// saturation: IncrementSaturation on the selected account, never hard cooldown.
+// OpenAI account capacity failures feed the same rolling soft scheduling
+// preference as prod edge-mirror empty-pool saturation: IncrementSaturation on
+// the selected account, never hard cooldown.
 //
 //   - Edge OAuth / setup-token: deprioritize the unhealthy OAuth among peers
 //   - Prod edge-mirror stub: deprioritize the usN relay so traffic prefers other edges
 //
 // TokenKey's sanitized envelope "Upstream service temporarily unavailable" is
 // only treated as a capacity signal on mirror stubs (edge already collapsed the
-// native upstream status). OAuth paths require the native overloaded /
-// temporarily-unavailable wording so generic 5xx sanitization does not punish
-// healthy accounts.
+// native upstream status). OAuth paths require native HTTP 503 overloaded or
+// temporary/service-unavailable wording; non-503 request-scoped model capacity
+// and generic 5xx sanitization do not punish healthy accounts.
 
 func eligibleForOpenAICapacitySaturationPreference(account *Account) bool {
 	if account == nil {
@@ -72,12 +72,9 @@ func openAICapacityErrorText(upstreamMsg string, upstreamBody []byte) []string {
 	return out
 }
 
-// isOpenAINativeCapacityUnavailable reports native OpenAI capacity pressure:
-// overloaded / slow_down, or HTTP 503 with temporary/service unavailable wording.
+// isOpenAINativeCapacityUnavailable reports native OpenAI HTTP 503
+// account-capacity pressure. Non-503 capacity shed remains request-scoped.
 func isOpenAINativeCapacityUnavailable(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
-	if isOpenAIRequestScopedCapacityShed(upstreamMsg, upstreamBody) {
-		return true
-	}
 	if statusCode != http.StatusServiceUnavailable {
 		return false
 	}

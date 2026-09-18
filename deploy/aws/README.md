@@ -486,7 +486,7 @@ bash ops/stage0/sync-instance-cpu-alarm.sh --stack "$STACK"
 #       同样要 pin $RUNNING_TAG + 重指 OIDC）。
 ```
 
-> **Prod PG 调优（P1）**：共用 `stage0/docker-compose.yml` **不**抬默认 GUC（避免 edge OOM / Lightsail 14336B user-data 帽）。Prod 使用旁路 `docker-compose.prod-pg.yml` + `.env`（`POSTGRES_SHARED_BUFFERS=1GB` 等）：bootstrap 写入 env；存量主机用 `bash ops/stage0/sync-prod-pg-tuning-via-ssm.sh <prod-instance-id> [--apply]`（`--apply` 会 recreate postgres，有短暂 DB 抖动）。
+> **Prod PG 调优（P1）**：共用 `stage0/docker-compose.yml` **不**抬默认 GUC（避免 edge OOM / Lightsail 14336B user-data 帽）。Prod 首次启动及后续 blue/green 都显式加载 `docker-compose.prod-pg.yml`；该文件是默认调优值的唯一来源，bootstrap 由 `build-cfn.sh` 生成嵌入。`.env` 中已有的 `POSTGRES_*` 自定义值优先且同步时保留；存量主机用 `bash ops/stage0/sync-prod-pg-tuning-via-ssm.sh <prod-instance-id> [--apply]`（`--apply` 会 recreate postgres，有短暂 DB 抖动）。
 
 ### Stage-0 风险审计（prod 已在用）
 
@@ -652,7 +652,7 @@ gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databas
 |---|---|---|
 | secret | `TK_SMOKE_API_KEY` | 全能用户侧烟测 key；必须能看到下方所有模型清单 |
 | var | `TK_SMOKE_ANTHROPIC_MODELS` | Anthropic/chat+messages 模型清单，逗号或空格分隔（默认 `claude-sonnet-4-6`） |
-| var | `TK_SMOKE_GEMINI_MODELS` | Gemini tool-schema 探针模型清单（默认 `gemini-3.1-pro-preview`） |
+| var | `TK_SMOKE_GEMINI_MODELS` | Gemini tool-schema 探针模型清单（推荐 `gemini-3.8-flash`；空则跳过 native Gemini 探针） |
 | var | `TK_SMOKE_OPENAI_OAUTH_MODELS` | OpenAI OAuth 探针模型清单（默认 `gpt-5.4`） |
 
 > `TK_SMOKE_API_KEY` 是 `deploy-stage0.yml` 的**硬前置**：缺 key，发版在镜像切换前就 `::error::` 失败。平台覆盖只维护模型清单，不再维护多把平台专用 smoke key。

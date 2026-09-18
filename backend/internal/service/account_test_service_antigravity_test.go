@@ -13,22 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMapAntigravityModel_LiveAccountAllowsOnlyLiveClaudeSubset(t *testing.T) {
+func TestMapAntigravityModel_ConvergedSurfaceFloor(t *testing.T) {
 	mapping, ok := accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformAntigravity}, nil, nil, nil)
 	require.True(t, ok)
-	account := &Account{
-		Platform: PlatformAntigravity,
-		Credentials: map[string]any{
-			"model_mapping": modelMappingToAny(mapping),
-		},
-	}
-
-	require.NotEmpty(t, MapAntigravityModel(account, AntigravityDefaultTestModelID))
-	require.Equal(t, "claude-sonnet-4-6", MapAntigravityModel(account, "claude-sonnet-4-6"))
-	require.Equal(t, "claude-opus-4-6-thinking", MapAntigravityModel(account, "claude-opus-4-6"))
-	require.Empty(t, MapAntigravityModel(account, "claude-sonnet-4-5"))
-	require.Empty(t, MapAntigravityModel(account, "claude-opus-4-8"))
-	require.Empty(t, MapAntigravityModel(account, "gpt-oss-120b-medium"))
+	account := &Account{Platform: PlatformAntigravity, Credentials: map[string]any{"model_mapping": modelMappingToAny(mapping)}}
+	require.Equal(t, "gemini-3.8-flash-medium", MapAntigravityModel(account, "gemini-3.8-flash"))
+	require.Equal(t, "gemini-3.8-flash-medium", MapAntigravityModel(account, "gemini-3-flash-preview"))
+	require.Equal(t, "gemini-3.6-flash-tiered", MapAntigravityModel(account, "gemini-3.5-flash-lite"))
+	require.Empty(t, MapAntigravityModel(account, "claude-sonnet-4-6"))
 }
 
 func TestAntigravityDefaultTestModelID_IsGeminiWire(t *testing.T) {
@@ -37,7 +29,7 @@ func TestAntigravityDefaultTestModelID_IsGeminiWire(t *testing.T) {
 }
 
 func TestBuildGeminiTestRequest_LeavesBudgetForVisibleText(t *testing.T) {
-	payload, err := (&AntigravityGatewayService{}).buildGeminiTestRequest("project-1", "gemini-3.6-flash-tiered")
+	payload, err := (&AntigravityGatewayService{}).buildGeminiTestRequest("project-1", "gemini-3.6-flash-tiered", "")
 	require.NoError(t, err)
 
 	var wrapped struct {
@@ -56,6 +48,52 @@ func TestBuildGeminiTestRequest_LeavesBudgetForVisibleText(t *testing.T) {
 	require.Equal(t, defaultGeminiTextTestPrompt, wrapped.Request.Contents[0].Parts[0].Text)
 	require.Equal(t, antigravityConnectionTestMaxOutputTokens, wrapped.Request.GenerationConfig.MaxOutputTokens)
 	require.Greater(t, wrapped.Request.GenerationConfig.MaxOutputTokens, 1)
+}
+
+func TestBuildGeminiTestRequest_ImageModelRequestsModalities(t *testing.T) {
+	payload, err := (&AntigravityGatewayService{}).buildGeminiTestRequest("project-1", "gemini-3.1-flash-image", "draw a red square")
+	require.NoError(t, err)
+
+	var wrapped struct {
+		Model   string `json:"model"`
+		Request struct {
+			Contents []struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"contents"`
+			GenerationConfig struct {
+				ResponseModalities []string `json:"responseModalities"`
+				ImageConfig        struct {
+					AspectRatio string `json:"aspectRatio"`
+				} `json:"imageConfig"`
+			} `json:"generationConfig"`
+		} `json:"request"`
+	}
+	require.NoError(t, json.Unmarshal(payload, &wrapped))
+	require.Equal(t, "gemini-3.1-flash-image", wrapped.Model)
+	require.Equal(t, "draw a red square", wrapped.Request.Contents[0].Parts[0].Text)
+	require.Equal(t, []string{"TEXT", "IMAGE"}, wrapped.Request.GenerationConfig.ResponseModalities)
+	require.Equal(t, "1:1", wrapped.Request.GenerationConfig.ImageConfig.AspectRatio)
+}
+
+func TestExtractImagesFromSSEResponse(t *testing.T) {
+	body := []byte("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"},{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"QUJD\"}}]}}]}}\n\n")
+	images := extractImagesFromSSEResponse(body)
+	require.Len(t, images, 1)
+	require.Equal(t, "image/png", images[0].MimeType)
+	require.Equal(t, "QUJD", images[0].Data)
+}
+
+func TestApplyErrorPolicy_ReadOnlySkipsAccountMutation(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	handled, status, err := svc.applyErrorPolicy(antigravityRetryLoopParams{
+		readOnlyAccountState: true,
+		handleError:          testConnectionHandleError,
+	}, http.StatusTooManyRequests, nil, []byte(`{"error":{"status":"RESOURCE_EXHAUSTED"}}`))
+	require.False(t, handled)
+	require.Equal(t, http.StatusTooManyRequests, status)
+	require.NoError(t, err)
 }
 
 func TestCompleteAntigravityAccountTest_ReportsSuccessfulEmptyResponse(t *testing.T) {

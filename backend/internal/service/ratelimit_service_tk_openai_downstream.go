@@ -67,7 +67,7 @@ func tkOpenAICompatRetryableOnSameAccount(account *Account, statusCode int, upst
 	if account == nil || !account.IsPoolMode() {
 		return false
 	}
-	if tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) {
+	if tkIsAccountCapacityFailure(account, statusCode, upstreamMsg, responseBody) {
 		return false
 	}
 	if account.IsPoolModeRetryableStatus(statusCode) {

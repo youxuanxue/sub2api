@@ -6,12 +6,9 @@ import { buildDataVideoUri } from '@/utils/studioInlineVideo.tk'
 // writeModelsList) and the public pricing catalog carries no image/video
 // capability tag (pricing_catalog_tk.go buildCapabilities), so the playground
 // must classify locally. The patterns mirror what the backend actually serves:
-//   - image  — `gpt-image-` prefix is the backend's own intent predicate
-//              (service/openai_images.go isOpenAIImageGenerationModel);
-//              imagen-* (Vertex) and *seedream* (Doubao) are the media families
-//              priced in tk_pricing_overlay.json.
-//   - video  — veo-* (Vertex), *seedance* (Doubao Seedance), and
-//              grok-imagine-video (native xAI) are served via /v1/video/generations.
+//   - image  — `gpt-image-` (OpenAI Images), imagen-*, *seedream*,
+//              grok-imagine-image*, wan*-image*, and gemini-native image ids.
+//   - video  — veo-*, *seedance*, grok-imagine-video.
 //   - image (gemini-native) — gemini-*-image / nano-banana ("Nano Banana") models
 //              output images, but via /v1/chat/completions (responseModalities
 //              IMAGE), NOT /v1/images/generations. The predicate mirrors the
@@ -23,25 +20,35 @@ export type PlaygroundModality = 'chat' | 'image' | 'video'
 
 /**
  * Gemini-native image-generation ids: `gemini…-image`, `gemini…-image-preview`,
- * `gemini…-image-<variant>`, and the `nano-banana` family. Must NOT match plain
- * gemini chat ids (e.g. gemini-2.5-flash, gemini-3-flash-agent) — only ids whose
- * name carries an `-image` segment. Mirrors backend isImageGenerationModel().
+ * `gemini…-image-<variant>`, and Nano Banana marketing aliases (`nano-banana*`,
+ * `nano-2`, `nano-pro`). Must NOT match plain gemini chat ids (e.g.
+ * gemini-2.5-flash, gemini-3-flash-agent) — only ids whose name carries an
+ * `-image` segment (or the explicit nano marketing aliases). Mirrors backend
+ * isImageGenerationModel() / antigravity.IsImageModel().
  */
 const GEMINI_NATIVE_IMAGE_RE = /(?:^|\/)gemini[-\w.]*-image(?:-[-\w.]*)?$/
 
 export function isGeminiNativeImageModel(modelId: string): boolean {
   const id = (modelId || '').trim().toLowerCase()
-  return GEMINI_NATIVE_IMAGE_RE.test(id) || id.includes('nano-banana')
+  return (
+    GEMINI_NATIVE_IMAGE_RE.test(id) ||
+    id.includes('nano-banana') ||
+    id === 'nano-2' ||
+    id === 'nano-pro'
+  )
 }
 
 export function modalityForModel(modelId: string): PlaygroundModality {
   const id = (modelId || '').trim().toLowerCase()
   if (!id) return 'chat'
-  if (id.includes('seedance') || id.startsWith('veo-') || id === 'grok-imagine-video') return 'video'
+  if (id.includes('seedance') || id.startsWith('veo-') || (id === 'grok-imagine-video' || id.startsWith('grok-imagine-video-'))) return 'video'
   if (
     id.startsWith('gpt-image-') ||
+    id === 'image-2.5' ||
     id.startsWith('imagen-') ||
     id.includes('seedream') ||
+    id.startsWith('grok-imagine-image') ||
+    (id.startsWith('wan') && id.includes('-image')) ||
     isGeminiNativeImageModel(id)
   )
     return 'image'

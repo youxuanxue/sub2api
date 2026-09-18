@@ -1687,8 +1687,8 @@
         "r.evaluatePath(ctx, account, group)",
         "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins",
         "pool = recoverCandidateWindowPool(pool)",
-        "r.mergeFailureCounts(ctx, pool, counts)",
-        "candidateEffectivePriority(a.account, counts)",
+        "failureCounts := r.failureCounts(ctx, pool)",
+        "candidateSelectionEffectivePriority(a.account, counts, failureCounts)",
         "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)",
         "r.recheck(path, options)",
         "gw.candidateSaturationState().counts(ctx, accounts, r.model)"
@@ -2224,7 +2224,7 @@
       "must_contain": [
         "type candidateSaturationState struct",
         "resolveFinalAntigravityModelKey",
-        "reader.GetSaturationBatch(ctx, scopes)",
+        "reader.GetSaturationBatch(ctx, scopes, edgeMirrorStubSaturationWindowSeconds)",
         "count >= edgeMirrorStubSaturationThreshold",
         "IsAnthropicSaturatedStubDeprioritizeEnabled",
         "IsOpenAISaturatedStubDeprioritizeEnabled",
@@ -2289,10 +2289,29 @@
       "path": "backend/internal/handler/ops_error_logger_tk_universal_routing_test.go",
       "must_contain": [
         "TestOpsUniversalRoutingFailureIsPlatformOwned",
+        "TestOpsUniversalRoutingCapacityRecordsRequestedModel",
         "middleware.MaybeResolveUniversal(c, key, resolver)",
         "classifyOpsErrorLog(c, parsed.ErrorType, parsed.Message, parsed.Code, recorder.Code)"
       ],
-      "rationale": "A pre-selection Universal failure must remain routing/platform-owned across protocol envelopes and must not disappear into client permission failures."
+      "rationale": "A pre-selection Universal failure must remain routing/platform-owned across protocol envelopes. Capacity 429 aborts must persist peeked model into ops_error_logs (pool-supply attribution) and must not disappear into client permission failures."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk.go",
+      "must_contain": [
+        "service.SetOpsRequestModel(c, model)",
+        "service.MarkOpsRoutingCapacityLimited(c)",
+        "applyUniversalCapacityPlatformHint(c, err)"
+      ],
+      "rationale": "Universal capacity 429 aborts before handlers; Ops model/platform attribution and routing-capacity marking must stay at the middleware exit or empty-pool storms lose model identity (prod key 420 empty-pool 429 blind spot)."
+    },
+    {
+      "path": "backend/internal/service/ops_upstream_context.go",
+      "must_contain": [
+        "func SetOpsRequestModel(",
+        "func MarkOpsRoutingCapacityLimited(",
+        "OpsRoutingCapacityLimitedKey = \"ops_routing_capacity_limited\""
+      ],
+      "rationale": "Shared Ops helpers used by middleware and handler for empty-pool attribution; dropping them reintroduces empty model/platform on universal capacity 429s."
     },
     {
       "path": "backend/internal/handler/protocol_request.go",
@@ -5196,7 +5215,9 @@
         "case PlatformOpenAI:",
         "IsOpenAIAinzyRelay()",
         "openAIAinzyRelayAccountModelMappingFloor(",
-        "case PlatformAnthropic, PlatformGemini:",
+        "case PlatformAnthropic:",
+        "case PlatformGemini:",
+        "func geminiAccountModelMappingFloor(",
         "case PlatformAntigravity:",
         "case PlatformGrok:",
         "case PlatformKiro:",
@@ -5222,13 +5243,13 @@
     {
       "path": "backend/internal/service/account_model_mapping_floor_test.go",
       "must_contain": [
-        "TestAccountModelMappingForAccount_AntigravityLiveClaudeSubset",
+        "TestAccountModelMappingForAccount_AntigravityConvergedFloor",
         "expectedAntigravityModelMappingForReconcilerTest",
         "Antigravity floor must be the complete owner-derived projection",
         "domain.IsAntigravityStructuralDeadModelMappingKey(from)",
         "domain.IsAntigravityUnpricedModelMappingKey(from)"
       ],
-      "rationale": "Independent complete-projection regression for the Antigravity account floor. The expected map is rebuilt from the servable catalog owner, DefaultAntigravityModelMapping, and the domain forbidden predicates, so dropping one required alias or key from the production floor fails without duplicating the current model list in the test or sentinel."
+      "rationale": "Independent complete-projection regression for the Antigravity account floor (converged Gemini public surface). The expected map is rebuilt from the servable catalog owner, DefaultAntigravityModelMapping, and the domain forbidden predicates, so dropping one required alias or key from the production floor fails without duplicating the current model list in the test or sentinel."
     },
     {
       "path": "ops/antigravity/check-antigravity-account-config.py",
@@ -7536,8 +7557,8 @@
     {
       "path": "backend/internal/service/edge_mirror_stub_saturation_tk.go",
       "must_contain": [
-        "edgeMirrorStubSaturationWindowSeconds = 90",
-        "edgeMirrorStubSaturationThreshold int64 = 3",
+        "edgeMirrorStubSaturationWindowSeconds = 600",
+        "edgeMirrorStubSaturationThreshold int64 = 12",
         "anthropicSaturationPriorityPenalty = 1000",
         "openAISaturationScorePenalty = 50.0"
       ],
@@ -7572,14 +7593,26 @@
       "rationale": "Anthropic prod mirror downstream-empty regression: saturation counter feeds preference only; sustained empty-pool / non-authoritative-429 / legacy 502 paths must not write prod-side model_rate_limits or advance ladder."
     },
     {
+      "path": "backend/internal/repository/saturation_rolling_counter.go",
+      "must_contain": [
+        "const saturationRollingKeySuffix = \":rolling-v2\"",
+        "var saturationRollingIncrScript",
+        "func rollingSaturationCutoffMS(",
+        "func zcountRollingSaturation("
+      ],
+      "rationale": "Shared rolling ZSET saturation counter primitives. Anthropic/OpenAI/Antigravity counters must reuse this script and batch ZCOUNT helper so window semantics cannot drift."
+    },
+    {
       "path": "backend/internal/repository/anthropic_saturation_counter_cache.go",
       "must_contain": [
+        " + saturationRollingKeySuffix",
         "func NewAnthropicSaturationCounterCache(",
         "anthropic_saturation_count:account:",
         "anthropicSaturationIncrScript",
+        "saturationRollingIncrScript",
         "func (c *anthropicSaturationCounterCache) GetSaturationBatch("
       ],
-      "rationale": "Redis-backed fixed-window counter for the saturation de-prioritization. The INCR+EXPIRE-on-first-hit Lua keeps the ORIGINAL window (no sliding) so the count tracks a sustained burst and self-clears on TTL; GetSaturationBatch (MGET) is the scheduler's per-selection hot-path read. Deleting this repo file breaks the wire provider and disables the feature."
+      "rationale": "Redis-backed rolling-window counter for Anthropic saturation de-prioritization. Uses the shared saturationRollingIncrScript ZSET owner; GetSaturationBatch is the scheduler's per-selection hot-path read. Deleting this repo file breaks the wire provider and disables the feature."
     },
     {
       "path": "backend/internal/service/setting_service_tk_saturation.go",
@@ -7641,7 +7674,7 @@
       "must_contain": [
         "type OpenAISaturationCounterCache interface",
         "IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int)",
-        "GetSaturationBatch(ctx context.Context, accountIDs []int64)"
+        "GetSaturationBatch(ctx context.Context, accountIDs []int64, windowSeconds int)"
       ],
       "rationale": "OpenAI saturation counter interface shared by prod edge-mirror stubs and edge OAuth/setup-token capacity soft preference. Deleting or narrowing this interface breaks wire providers and silently disables de-prioritization."
     },
@@ -7666,15 +7699,19 @@
     {
       "path": "backend/internal/service/openai_gateway_passthrough.go",
       "must_contain": [
+        "case http.StatusServiceUnavailable:",
+        "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)"
+      ],
+      "must_not_contain": [
         "s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, \"stream_capacity\")"
       ],
-      "rationale": "Stream terminal ServiceUnavailable path must feed OpenAI capacity soft preference alongside operator temp-unsched rules. Dropping this call misses SSE overloaded events that never enter handleOpenAIAccountUpstreamError."
+      "rationale": "Stream terminal ServiceUnavailable capacity remains request/model-scoped: keep the stream-capacity rule, but never increment account saturation for a shared model-capacity shed."
     },
     {
       "path": "backend/internal/service/openai_capacity_saturation_tk_test.go",
       "must_contain": [
         "TestHandleOpenAIAccountUpstreamError_NativeCapacityIncrementsSaturationNoCooldown",
-        "TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityIncrementsSaturation",
+        "TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityDoesNotIncrementSaturation",
         "TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount",
         "TestShouldRecordOpenAICapacitySaturation_StubSeesSanitizedEnvelope"
       ],
@@ -7701,12 +7738,14 @@
     {
       "path": "backend/internal/repository/openai_saturation_counter_cache.go",
       "must_contain": [
+        " + saturationRollingKeySuffix",
         "func NewOpenAISaturationCounterCache(",
         "openai_saturation_count:account:",
         "openaiSaturationIncrScript",
+        "saturationRollingIncrScript",
         "func (c *openaiSaturationCounterCache) GetSaturationBatch("
       ],
-      "rationale": "Redis-backed fixed-window counter for OpenAI saturation de-prioritization. Mirrors anthropic_saturation_counter_cache.go; deleting this repo file breaks the wire provider and disables the feature."
+      "rationale": "Redis-backed rolling-window counter for OpenAI saturation de-prioritization. Reuses saturationRollingIncrScript; deleting this repo file breaks the wire provider and disables the feature."
     },
     {
       "path": "backend/internal/service/setting_service_tk_openai_saturation.go",
@@ -11548,7 +11587,7 @@
       "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
       "must_contain": [
         "Profile:    gatewayFailoverProfileOpenAIPassthrough",
-        "AccountConfiguredRetry = account.IsPoolMode()",
+        "AccountConfiguredRetry = !tkIsAccountCapacityFailure(account, statusCode, \"\", responseBody) && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)",
         "return classifyGatewayFailover(obs).RetryNextAccount",
         "StatusCode: openAIStreamFailureStatus(payload, message)",
         "StatusCode: openAIStreamFailedEventSemanticStatus(payload, message)"
@@ -12948,6 +12987,40 @@
         "strings.HasPrefix(model.ID, cursorExcludedModelPrefix)"
       ],
       "rationale": "Cursor import and reconnect must not reintroduce GPT mappings from upstream discovery."
+    },
+  {
+    "path": "backend/internal/service/antigravity_gateway_service.go",
+    "must_contain": [
+      "readOnlyAccountState: true",
+      "TestConnectionWithPrompt",
+      "extractImagesFromSSEResponse",
+      "responseModalities"
+    ],
+    "rationale": "Admin Antigravity TestConnection must stay read-only (no rate-limit / SetError writes) and image probes must request TEXT+IMAGE modalities. antigravity_gateway_service.go is upstream-shaped; a merge that restores the old mutating TestConnection would silently re-arm probe-side account disable. Pins the readOnlyAccountState=true injection and image modality path. Pairs with TestApplyErrorPolicy_ReadOnlySkipsAccountMutation and TestBuildGeminiTestRequest_ImageModelRequestsModalities."
+  },
+  {
+    "path": "backend/internal/service/antigravity_gateway_retry.go",
+    "must_contain": [
+      "readOnlyAccountState bool",
+      "if p.readOnlyAccountState {",
+      "!p.readOnlyAccountState && shouldMarkCreditsExhausted"
+    ],
+    "rationale": "Retry loop must honor readOnlyAccountState for admin probes — skip smart-retry capacity burns and credits-exhausted mutations. Upstream merges frequently touch this retry file; pin the flag and both gate sites."
+  },
+    {
+      "path": "backend/internal/repository/saturation_rolling_counter_test.go",
+      "must_contain": [
+        "TestSaturationRollingKeysCoexistWithLegacyCounters"
+      ],
+      "rationale": "Upgrade and rollback keep independent STRING and ZSET counters."
+    },
+    {
+      "path": "backend/internal/repository/antigravity_saturation_counter_cache.go",
+      "must_contain": [
+        " + saturationRollingKeySuffix",
+        "saturationRollingIncrScript"
+      ],
+      "rationale": "Antigravity shares the versioned rolling counter owner."
     }
   ]
 }

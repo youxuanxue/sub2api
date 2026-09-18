@@ -32,7 +32,7 @@ type accountModelMappingRuntime struct {
 	newAPIChannelTypes map[int]map[string]string
 }
 
-var canonicalAntigravityModelScopes = []string{"claude", "gemini_text", "gemini_image"}
+var canonicalAntigravityModelScopes = []string{"gemini_text", "gemini_image"}
 
 type accountModelMappingRuntimeDoc struct {
 	Platforms          map[string]map[string]string `json:"platforms"`
@@ -233,8 +233,8 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			return openAICloudwiseRelayAccountModelMappingFloor(ctx, pricing, availability), true
 		}
 		return openAICanonicalAccountModelMappingFloor(ctx, pricing, availability), true
-	case PlatformAnthropic, PlatformGemini:
-		if scope == PlatformAnthropic && account.IsAnthropicTokenseaRelay() {
+	case PlatformAnthropic:
+		if account.IsAnthropicTokenseaRelay() {
 			return anthropicTokenseaRelayModelMappingFloor(), true
 		}
 		ids := ServableClientFacingIDs(ctx, scope, availability, pricing)
@@ -245,6 +245,8 @@ func accountModelMappingForAccount(ctx context.Context, account *Account, pricin
 			return nil, false
 		}
 		return identityModelMapping(ids), true
+	case PlatformGemini:
+		return geminiAccountModelMappingFloor(ctx, pricing, availability), true
 	case PlatformAntigravity:
 		return antigravityAccountModelMappingFloor(ctx, pricing, availability), true
 	case PlatformGrok:
@@ -482,7 +484,21 @@ func openAICanonicalAccountModelMappingFloor(ctx context.Context, pricing *Prici
 	if len(ids) == 0 {
 		return nil
 	}
-	return identityModelMapping(ids)
+	out := identityModelMapping(ids)
+	displaySet := stringSet(ids)
+	for from, to := range tkOpenAIImageCompatibilityAliases {
+		if _, ok := displaySet[to]; ok {
+			out[from] = to
+		}
+	}
+	return out
+}
+
+// Marketing / shorthand aliases for GPT Image 2.5. Canonical Studio ids are
+// flare/sunburst; these aliases keep API clients and pricing _aliases aligned.
+var tkOpenAIImageCompatibilityAliases = map[string]string{
+	"gpt-image-2.5": "gpt-image-2.5-flare",
+	"image-2.5":     "gpt-image-2.5-flare",
 }
 
 func openAIAinzyRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
@@ -501,7 +517,7 @@ func openAITokenseaRelayAccountModelMappingFloor(ctx context.Context, pricing *P
 	if len(ids) == 0 {
 		return nil
 	}
-	return identityModelMapping(ids)
+	return applyTokenseaImageCompatibilityAliases(identityModelMapping(ids))
 }
 
 func openAICloudwiseRelayAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
@@ -527,7 +543,33 @@ func anthropicTokenseaRelayModelMappingFloor() map[string]string {
 		}
 		out[id] = id
 	}
+	return applyTokenseaImageCompatibilityAliases(out)
+}
+
+// applyTokenseaImageCompatibilityAliases adds Nano Banana / GPT Image 2.5
+// marketing aliases when the target wire id is already in the floor. Antigravity
+// OAuth still remaps nano-pro → flash; TokenSea can keep true Pro.
+func applyTokenseaImageCompatibilityAliases(out map[string]string) map[string]string {
+	if out == nil {
+		return nil
+	}
+	targets := make(map[string]struct{}, len(out))
+	for _, to := range out {
+		targets[to] = struct{}{}
+	}
+	for from, to := range tkTokenseaImageCompatibilityAliases {
+		if _, ok := targets[to]; ok {
+			out[from] = to
+		}
+	}
 	return out
+}
+
+var tkTokenseaImageCompatibilityAliases = map[string]string{
+	"nano-2":        "gemini-3.1-flash-image",
+	"nano-pro":      "gemini-3-pro-image",
+	"gpt-image-2.5": "gpt-image-2.5-flare",
+	"image-2.5":     "gpt-image-2.5-flare",
 }
 
 // tokenseaRelaySharedExtraSSOTIDs are public CatalogPolicy models already
@@ -546,6 +588,18 @@ func tokenseaRelaySupportsRequestedModel(requestedModel string) bool {
 	for _, id := range tokenseaRelayCorePublicFloorIDs() {
 		if strings.EqualFold(id, normalized) {
 			return true
+		}
+	}
+	// Marketing aliases in the floor (nano-2/nano-pro/image-2.5/…) must pass the
+	// same Anthropic-shaped TokenSea gate as their wire targets.
+	for from, to := range tkTokenseaImageCompatibilityAliases {
+		if !strings.EqualFold(from, normalized) {
+			continue
+		}
+		for _, id := range tokenseaRelayCorePublicFloorIDs() {
+			if strings.EqualFold(id, to) {
+				return true
+			}
 		}
 	}
 	return false
@@ -667,6 +721,29 @@ func supportedCatalogModelIDsFromMap(src map[string]struct{}) []string {
 		out = append(out, id)
 	}
 	sort.Strings(out)
+	return out
+}
+
+var geminiTrafficAliases = map[string]string{
+	"gemini-3-flash-preview": "gemini-3.8-flash",
+	"gemini-3.5-flash-lite":  "gemini-3.6-flash",
+}
+
+func geminiAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
+	ids := ServableClientFacingIDs(ctx, PlatformGemini, availability, pricing)
+	if len(ids) == 0 {
+		ids = supportedCatalogModelIDsForPlatform(PlatformGemini)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	out := identityModelMapping(ids)
+	displaySet := stringSet(ids)
+	for from, to := range geminiTrafficAliases {
+		if _, ok := displaySet[to]; ok {
+			out[from] = to
+		}
+	}
 	return out
 }
 

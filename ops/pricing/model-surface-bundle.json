@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "949bb850a691a23039d4f074a2edf817efb891820ef8ca9e8cfd784eab83ae8e",
+  "floor_sha256": "90d1725f839dc07a34ea66b25e8d14643a0e421b8234538fd706bfbefc33ddb9",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -35,32 +35,25 @@
         "gpt-5.5": "gpt-5.5",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-sol": "gpt-5.6-sol",
-        "gpt-5.6-terra": "gpt-5.6-terra"
+        "gpt-5.6-terra": "gpt-5.6-terra",
+        "gpt-image-2.5": "gpt-image-2.5-flare",
+        "gpt-image-2.5-flare": "gpt-image-2.5-flare",
+        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
+        "image-2.5": "gpt-image-2.5-flare",
+        "nano-2": "gemini-3.1-flash-image",
+        "nano-pro": "gemini-3-pro-image"
       },
       "antigravity": {
-        "claude-opus-4-6": "claude-opus-4-6-thinking",
-        "claude-opus-4-6-thinking": "claude-opus-4-6-thinking",
-        "claude-sonnet-4-6": "claude-sonnet-4-6",
-        "gemini-2.5-flash": "gemini-2.5-flash",
-        "gemini-2.5-flash-image": "gemini-3.1-flash-image",
-        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-2.5-flash-thinking": "gemini-2.5-flash-thinking",
-        "gemini-3-flash": "gemini-3-flash",
-        "gemini-3-flash-agent": "gemini-3-flash-agent",
-        "gemini-3-flash-preview": "gemini-3-flash",
+        "gemini-3-flash-preview": "gemini-3.8-flash-medium",
         "gemini-3-pro-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
-        "gemini-3.1-pro": "gemini-pro-agent",
-        "gemini-3.1-pro-low": "gemini-3.1-pro-low",
-        "gemini-3.5-flash": "gemini-3.5-flash-low",
-        "gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
-        "gemini-3.5-flash-low": "gemini-3.5-flash-low",
+        "gemini-3.5-flash-lite": "gemini-3.6-flash-tiered",
         "gemini-3.6-flash": "gemini-3.6-flash-tiered",
         "gemini-3.7-flash": "gemini-3.7-flash-medium",
         "gemini-3.8-flash": "gemini-3.8-flash-medium",
-        "gemini-pro-agent": "gemini-pro-agent"
+        "nano-2": "gemini-3.1-flash-image",
+        "nano-pro": "gemini-3.1-flash-image"
       },
       "bedrock": {
         "claude-fable-5": "anthropic.claude-fable-5",
@@ -85,17 +78,12 @@
         "claude-sonnet-5": "us.anthropic.claude-sonnet-5-v1"
       },
       "gemini": {
-        "gemini-2.5-flash": "gemini-2.5-flash",
-        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-2.5-pro": "gemini-2.5-pro",
-        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3.8-flash",
+        "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
-        "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
-        "imagen-4.0-generate-001": "imagen-4.0-generate-001",
-        "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "grok": {
@@ -208,7 +196,11 @@
         "gpt-5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-terra": "gpt-5.6-terra",
         "gpt-6": "gpt-6",
-        "gpt-6-astra": "gpt-6-astra"
+        "gpt-6-astra": "gpt-6-astra",
+        "gpt-image-2.5": "gpt-image-2.5-flare",
+        "gpt-image-2.5-flare": "gpt-image-2.5-flare",
+        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
+        "image-2.5": "gpt-image-2.5-flare"
       },
       "openai_ainzy_relay": {
         "gpt-5.5": "gpt-5.5",
@@ -242,7 +234,13 @@
         "gpt-5.5": "gpt-5.5",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-sol": "gpt-5.6-sol",
-        "gpt-5.6-terra": "gpt-5.6-terra"
+        "gpt-5.6-terra": "gpt-5.6-terra",
+        "gpt-image-2.5": "gpt-image-2.5-flare",
+        "gpt-image-2.5-flare": "gpt-image-2.5-flare",
+        "gpt-image-2.5-sunburst": "gpt-image-2.5-sunburst",
+        "image-2.5": "gpt-image-2.5-flare",
+        "nano-2": "gemini-3.1-flash-image",
+        "nano-pro": "gemini-3-pro-image"
       }
     },
     "newapi_channel_types": {
@@ -297,11 +295,8 @@
         "moonshot-v1-auto": "moonshot-v1-auto"
       },
       "41": {
-        "gemini-2.5-flash": "gemini-2.5-flash",
-        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-3-flash-preview": "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
-        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3.8-flash",
+        "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
@@ -507,25 +502,17 @@
     ],
     "vertex_capability_profiles": {
       "core-imagen-ultra": {
-        "gemini-2.5-flash": "gemini-2.5-flash",
-        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-3-flash-preview": "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
-        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3.8-flash",
+        "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
-        "imagen-4.0-ultra-generate-001": "imagen-4.0-ultra-generate-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro": {
-        "gemini-2.5-flash": "gemini-2.5-flash",
-        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-2.5-pro": "gemini-2.5-pro",
-        "gemini-3-flash-preview": "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
-        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3.8-flash",
+        "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
@@ -533,37 +520,25 @@
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro-imagen-fast-standard": {
-        "gemini-2.5-flash": "gemini-2.5-flash",
-        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-2.5-pro": "gemini-2.5-pro",
-        "gemini-3-flash-preview": "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
-        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3.8-flash",
+        "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
-        "imagen-4.0-fast-generate-001": "imagen-4.0-fast-generate-001",
-        "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro-imagen-standard": {
-        "gemini-2.5-flash": "gemini-2.5-flash",
-        "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
-        "gemini-2.5-pro": "gemini-2.5-pro",
-        "gemini-3-flash-preview": "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
-        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3-flash-preview": "gemini-3.8-flash",
+        "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
         "gemini-3.7-flash": "gemini-3.7-flash",
         "gemini-3.8-flash": "gemini-3.8-flash",
         "gemini-embedding-001": "gemini-embedding-001",
-        "imagen-4.0-generate-001": "imagen-4.0-generate-001",
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       }
     },
     "antigravity_group_scopes": [
-      "claude",
       "gemini_text",
       "gemini_image"
     ],

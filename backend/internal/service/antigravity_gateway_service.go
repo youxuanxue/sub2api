@@ -231,6 +231,10 @@ func (s *AntigravityGatewayService) checkErrorPolicy(ctx context.Context, accoun
 // applyErrorPolicy 应用错误策略结果，返回是否应终止当前循环及应返回的状态码。
 // ErrorPolicySkipped 时 outStatus 为 500（前端约定：未命中的错误返回 500）。
 func (s *AntigravityGatewayService) applyErrorPolicy(p antigravityRetryLoopParams, statusCode int, headers http.Header, respBody []byte) (handled bool, outStatus int, retErr error) {
+	if p.readOnlyAccountState {
+		// Admin probes must observe upstream errors without writing account state.
+		return false, statusCode, nil
+	}
 	switch s.checkErrorPolicy(p.ctx, p.account, statusCode, respBody) {
 	case ErrorPolicySkipped:
 		if s.handleAntigravityModelRateLimitBeforePolicy(p, statusCode, headers, respBody) {
@@ -253,6 +257,9 @@ func (s *AntigravityGatewayService) applyErrorPolicy(p antigravityRetryLoopParam
 }
 
 func (s *AntigravityGatewayService) handleAntigravityModelRateLimitBeforePolicy(p antigravityRetryLoopParams, statusCode int, headers http.Header, respBody []byte) bool {
+	if p.readOnlyAccountState {
+		return false
+	}
 	if statusCode != http.StatusTooManyRequests && statusCode != http.StatusServiceUnavailable {
 		return false
 	}
@@ -366,14 +373,27 @@ type TestConnectionResult struct {
 	MappedModel  string // 实际使用的模型
 	StatusCode   int
 	ResponseBody []byte
+	Images       []TestConnectionImage
+}
+
+// TestConnectionImage is an inline image extracted from a Gemini SSE test response.
+type TestConnectionImage struct {
+	MimeType string
+	Data     string // raw base64 without data: URL prefix
 }
 
 const antigravityConnectionTestMaxOutputTokens = 64
 
 // TestConnection 测试 Antigravity 账号连接。
-// 复用 antigravityRetryLoop 的完整重试 / credits overages / 智能重试逻辑，
-// 与真实调度行为一致。差异：不做账号切换（测试指定账号）、不记录 ops 错误。
+// 复用 antigravityRetryLoop 的重试路径，但 readOnlyAccountState=true：不写限流 /
+// temp-unschedulable / SetError，避免探活误伤账号。不做账号切换、不记 ops。
 func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account *Account, modelID string) (*TestConnectionResult, error) {
+	return s.TestConnectionWithPrompt(ctx, account, modelID, "")
+}
+
+// TestConnectionWithPrompt is TestConnection with an optional operator prompt
+// (admin image-generation tests).
+func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context, account *Account, modelID, prompt string) (*TestConnectionResult, error) {
 
 	// 获取 token
 	if s.tokenProvider == nil {
@@ -397,8 +417,8 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 
 	// 构建请求体
 	var requestBody []byte
-	if strings.HasPrefix(modelID, "gemini-") {
-		requestBody, err = s.buildGeminiTestRequest(projectID, mappedModel)
+	if strings.HasPrefix(modelID, "gemini-") || antigravity.IsImageModel(mappedModel) {
+		requestBody, err = s.buildGeminiTestRequest(projectID, mappedModel, prompt)
 	} else {
 		requestBody, err = s.buildClaudeTestRequest(projectID, mappedModel)
 	}
@@ -412,22 +432,22 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 		proxyURL = account.Proxy.URL()
 	}
 
-	// 复用 antigravityRetryLoop：完整的重试 / credits overages / 智能重试
 	prefix := fmt.Sprintf("[antigravity-Test] account=%d(%s)", account.ID, account.Name)
 	p := antigravityRetryLoopParams{
-		ctx:            ctx,
-		prefix:         prefix,
-		account:        account,
-		proxyURL:       proxyURL,
-		accessToken:    accessToken,
-		action:         "streamGenerateContent",
-		body:           requestBody,
-		c:              nil, // 无 gin.Context → 跳过 ops 追踪
-		httpUpstream:   s.httpUpstream,
-		settingService: s.settingService,
-		accountRepo:    s.accountRepo,
-		requestedModel: modelID,
-		handleError:    testConnectionHandleError,
+		ctx:                  ctx,
+		prefix:               prefix,
+		account:              account,
+		proxyURL:             proxyURL,
+		accessToken:          accessToken,
+		action:               "streamGenerateContent",
+		body:                 requestBody,
+		c:                    nil, // 无 gin.Context → 跳过 ops 追踪
+		httpUpstream:         s.httpUpstream,
+		settingService:       s.settingService,
+		accountRepo:          nil, // 不写模型/账号限流
+		requestedModel:       modelID,
+		handleError:          testConnectionHandleError,
+		readOnlyAccountState: true,
 	}
 
 	result, err := s.antigravityRetryLoop(p)
@@ -464,6 +484,7 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 		MappedModel:  mappedModel,
 		StatusCode:   result.resp.StatusCode,
 		ResponseBody: append([]byte(nil), respBody...),
+		Images:       extractImagesFromSSEResponse(respBody),
 	}, nil
 }
 
@@ -480,16 +501,50 @@ func testConnectionHandleError(
 	return nil
 }
 
-// buildGeminiTestRequest 构建 Gemini 格式测试请求
-// Keep the probe small while leaving enough output budget for thinking-capable
-// Gemini models to produce visible text.
-func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model string) ([]byte, error) {
+// buildGeminiTestRequest 构建 Gemini 格式测试请求。
+// Image models request TEXT+IMAGE modalities so admin "生图测试" actually generates
+// an image; text models keep a small maxOutputTokens budget for visible reply text.
+func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model, prompt string) ([]byte, error) {
+	if antigravity.IsImageModel(model) {
+		imagePrompt := strings.TrimSpace(prompt)
+		if imagePrompt == "" {
+			imagePrompt = defaultGeminiImageTestPrompt
+		}
+		payload := map[string]any{
+			"contents": []map[string]any{
+				{
+					"role": "user",
+					"parts": []map[string]any{
+						{"text": imagePrompt},
+					},
+				},
+			},
+			"systemInstruction": map[string]any{
+				"parts": []map[string]any{
+					{"text": antigravity.GetDefaultIdentityPatch()},
+				},
+			},
+			"generationConfig": map[string]any{
+				"responseModalities": []string{"TEXT", "IMAGE"},
+				"imageConfig": map[string]any{
+					"aspectRatio": "1:1",
+				},
+			},
+		}
+		payloadBytes, _ := json.Marshal(payload)
+		return s.wrapV1InternalRequest(projectID, model, payloadBytes)
+	}
+
+	textPrompt := strings.TrimSpace(prompt)
+	if textPrompt == "" {
+		textPrompt = defaultGeminiTextTestPrompt
+	}
 	payload := map[string]any{
 		"contents": []map[string]any{
 			{
 				"role": "user",
 				"parts": []map[string]any{
-					{"text": defaultGeminiTextTestPrompt},
+					{"text": textPrompt},
 				},
 			},
 		},
@@ -599,6 +654,75 @@ func extractTextFromSSEResponse(respBody []byte) string {
 	}
 
 	return strings.Join(texts, "")
+}
+
+// extractImagesFromSSEResponse collects inlineData parts from a Gemini SSE body.
+func extractImagesFromSSEResponse(respBody []byte) []TestConnectionImage {
+	var images []TestConnectionImage
+	lines := bytes.Split(respBody, []byte("\n"))
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		if bytes.HasPrefix(line, []byte("data:")) {
+			line = bytes.TrimPrefix(line, []byte("data:"))
+			line = bytes.TrimSpace(line)
+		}
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var data map[string]any
+		if err := json.Unmarshal(line, &data); err != nil {
+			continue
+		}
+		response, ok := data["response"].(map[string]any)
+		if !ok {
+			response = data
+		}
+		candidates, ok := response["candidates"].([]any)
+		if !ok || len(candidates) == 0 {
+			continue
+		}
+		candidate, ok := candidates[0].(map[string]any)
+		if !ok {
+			continue
+		}
+		content, ok := candidate["content"].(map[string]any)
+		if !ok {
+			continue
+		}
+		parts, ok := content["parts"].([]any)
+		if !ok {
+			continue
+		}
+		for _, part := range parts {
+			partMap, ok := part.(map[string]any)
+			if !ok {
+				continue
+			}
+			inline, ok := partMap["inlineData"].(map[string]any)
+			if !ok {
+				inline, ok = partMap["inline_data"].(map[string]any)
+			}
+			if !ok {
+				continue
+			}
+			mime, _ := inline["mimeType"].(string)
+			if mime == "" {
+				mime, _ = inline["mime_type"].(string)
+			}
+			dataB64, _ := inline["data"].(string)
+			if strings.TrimSpace(dataB64) == "" {
+				continue
+			}
+			if mime == "" {
+				mime = "image/png"
+			}
+			images = append(images, TestConnectionImage{MimeType: mime, Data: dataB64})
+		}
+	}
+	return images
 }
 
 // injectIdentityPatchToGeminiRequest 为 Gemini 格式请求注入身份提示词

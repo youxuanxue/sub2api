@@ -156,9 +156,9 @@ func tkGeminiAdminModelsForMapping(ctx context.Context, mapping map[string]strin
 
 // tkAntigravityAdminDefaultModels returns admin account-test models from the unified
 // antigravity servable set, intersected with the account whitelist (mapAntigravityModel).
-// Matches gateway tkAntigravityDefaultModels; DefaultModels only supplies display metadata.
+// Matches gateway tkAntigravityDefaultModels; ModelMetadata supplies display names.
 func tkAntigravityAdminDefaultModels(ctx context.Context, account *service.Account) []dto.AccountModelOption {
-	defaults := antigravity.DefaultModels()
+	defaults := antigravity.ModelMetadata()
 	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
 	for _, m := range defaults {
 		byID[m.ID] = m

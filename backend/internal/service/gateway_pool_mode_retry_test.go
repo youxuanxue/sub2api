@@ -41,10 +41,16 @@ func TestGatewayCompatPoolMode429AllowsSameAccountRetry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Authoritative window-limit 429s carry anthropic-ratelimit-* headers.
+			// Pool mode keeps same-account retry for those; header-less capacity
+			// envelopes must switch accounts instead (see companion test below).
 			upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
 				StatusCode: http.StatusTooManyRequests,
-				Header:     http.Header{"X-Request-Id": []string{"pool-429"}},
-				Body:       io.NopCloser(http.NoBody),
+				Header: http.Header{
+					"X-Request-Id":                         []string{"pool-429"},
+					"Anthropic-Ratelimit-Unified-5h-Reset": []string{"9999999999"},
+				},
+				Body: io.NopCloser(http.NoBody),
 			}}}
 			svc := &GatewayService{
 				cfg:                 &config.Config{},
@@ -75,4 +81,45 @@ func TestGatewayCompatPoolMode429AllowsSameAccountRetry(t *testing.T) {
 			require.Empty(t, recorder.Body.String())
 		})
 	}
+}
+
+func TestGatewayCompatPoolMode429HeaderlessSwitchesAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"X-Request-Id": []string{"pool-429"}},
+		Body:       io.NopCloser(http.NoBody),
+	}}}
+	svc := &GatewayService{
+		cfg:                 &config.Config{},
+		httpUpstream:        upstream,
+		tlsFPProfileService: &TLSFingerprintProfileService{},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	account := &Account{
+		ID:       1,
+		Name:     "pool-account",
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":   "test-key",
+			"pool_mode": true,
+		},
+	}
+
+	result, err := svc.ForwardAsChatCompletions(
+		context.Background(),
+		c,
+		account,
+		[]byte(`{"model":"claude-sonnet-4-5","messages":[{"role":"user","content":"hello"}]}`),
+		nil,
+	)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+	require.False(t, failoverErr.RetryableOnSameAccount, "header-less empty-body 429 is non-authoritative capacity and must switch accounts")
 }

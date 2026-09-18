@@ -143,7 +143,7 @@ func TestAntigravityRetryLoop_NoURLFallback_UsesConfiguredBaseURL(t *testing.T) 
 		action:         "generateContent",
 		body:           []byte(`{"input":"test"}`),
 		httpUpstream:   upstream,
-		requestedModel: "claude-sonnet-4-6",
+		requestedModel: "gemini-3.8-flash",
 		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
 			handleErrorCalled = true
 			return nil
@@ -218,7 +218,10 @@ func TestHandleUpstreamError_429_NonModelRateLimit(t *testing.T) {
 func TestHandleUpstreamError_429_NonModelRateLimit_UsesMappedModelKey(t *testing.T) {
 	repo := &stubAntigravityAccountRepo{}
 	svc := &AntigravityGatewayService{accountRepo: repo}
-	account := &Account{ID: 20, Name: "acc-20", Platform: PlatformAntigravity}
+	account := &Account{
+		ID: 20, Name: "acc-20", Platform: PlatformAntigravity,
+		Credentials: map[string]any{"model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"}},
+	}
 
 	body := buildGeminiRateLimitBody("5s")
 
@@ -919,7 +922,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRateLimited(t *testing.T) {
 		Concurrency: 1,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"claude-sonnet-4-6": map[string]any{
+				"gemini-3.8-flash-medium": map[string]any{
 					"rate_limit_reset_at": time.Now().Add(2 * time.Second).Format(time.RFC3339),
 				},
 			},
@@ -934,7 +937,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRateLimited(t *testing.T) {
 		accessToken:     "token",
 		action:          "generateContent",
 		body:            []byte(`{"input":"test"}`),
-		requestedModel:  "claude-sonnet-4-6",
+		requestedModel:  "gemini-3.8-flash",
 		httpUpstream:    upstream,
 		isStickySession: true,
 		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
@@ -946,7 +949,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRateLimited(t *testing.T) {
 	var switchErr *AntigravityAccountSwitchError
 	require.ErrorAs(t, err, &switchErr)
 	require.Equal(t, account.ID, switchErr.OriginalAccountID)
-	require.Equal(t, "claude-sonnet-4-6", switchErr.RateLimitedModel)
+	require.Equal(t, "gemini-3.8-flash", switchErr.RateLimitedModel)
 	require.True(t, switchErr.IsStickySession)
 	require.Equal(t, 0, upstream.calls, "should not call upstream when switching on pre-check")
 }
@@ -962,7 +965,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRemainingLong(t *testing.T) {
 		Concurrency: 1,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"claude-sonnet-4-6": map[string]any{
+				"gemini-3.8-flash-medium": map[string]any{
 					"rate_limit_reset_at": time.Now().Add(11 * time.Second).Format(time.RFC3339),
 				},
 			},
@@ -977,7 +980,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRemainingLong(t *testing.T) {
 		accessToken:     "token",
 		action:          "generateContent",
 		body:            []byte(`{"input":"test"}`),
-		requestedModel:  "claude-sonnet-4-6",
+		requestedModel:  "gemini-3.8-flash",
 		httpUpstream:    upstream,
 		isStickySession: true,
 		handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
@@ -989,7 +992,7 @@ func TestAntigravityRetryLoop_PreCheck_SwitchesWhenRemainingLong(t *testing.T) {
 	var switchErr *AntigravityAccountSwitchError
 	require.ErrorAs(t, err, &switchErr)
 	require.Equal(t, account.ID, switchErr.OriginalAccountID)
-	require.Equal(t, "claude-sonnet-4-6", switchErr.RateLimitedModel)
+	require.Equal(t, "gemini-3.8-flash", switchErr.RateLimitedModel)
 	require.True(t, switchErr.IsStickySession)
 	require.Equal(t, 0, upstream.calls, "should not call upstream when switching on pre-check")
 }

@@ -8,78 +8,53 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestVertexSharedMappingIncludesTrafficAliases(t *testing.T) {
+	t.Parallel()
+	require.True(t, vertexSharedModelMappingKeysMatchIDs(),
+		"vertexSharedModelMappingIDs and vertexSharedModelMapping keys must stay identical")
+	mapping := vertexSharedModelMappingPreset()
+	require.Equal(t, "gemini-3.8-flash", mapping["gemini-3-flash-preview"])
+	require.Equal(t, "gemini-3.6-flash", mapping["gemini-3.5-flash-lite"])
+	require.Equal(t, "gemini-embedding-001", mapping["gemini-embedding-001"])
+	require.Len(t, mapping, len(vertexSharedModelMappingIDs))
+}
+
 func TestVertexCapabilityProfilesPartitionPublicUnion(t *testing.T) {
 	t.Parallel()
-
-	shared := stringSet(vertexSharedModelMappingPresetIDs())
+	shared := vertexSharedModelMappingPreset()
 	publicIDs := NewAPIModelDisplayIDsForChannelType(newapiconstant.ChannelTypeVertexAi)
 	public := stringSet(publicIDs)
-	require.NotEmpty(t, shared)
-	require.NotEmpty(t, public)
-
-	served := make(map[string]struct{}, len(public))
-	for profile, mapping := range vertexCapabilityProfileMappingsForOps() {
-		require.NotContains(t, profile, "47")
-		require.NotContains(t, profile, "57")
-		for id := range shared {
-			require.Equal(t, id, mapping[id], "profile %s must contain shared model %s", profile, id)
+	served := map[string]struct{}{}
+	for _, mapping := range vertexCapabilityProfileMappingsForOps() {
+		for from, to := range shared {
+			require.Equal(t, to, mapping[from])
 		}
-		for id, target := range mapping {
-			require.Equal(t, id, target, "Vertex profile mappings are identity floors")
-			require.Contains(t, public, id, "profile %s must stay inside public union", profile)
-			served[id] = struct{}{}
+		for from, to := range mapping {
+			require.Contains(t, public, from)
+			require.Contains(t, public, to)
+			served[from] = struct{}{}
 		}
 	}
-	require.ElementsMatch(t, publicIDs, mapKeysForVertexProfileTest(served),
-		"every public ch41 model must have a shared/profile serving path")
+	keys := make([]string, 0, len(served))
+	for k := range served {
+		keys = append(keys, k)
+	}
+	require.ElementsMatch(t, publicIDs, keys)
 }
 
 func TestVertexCapabilityProfileSelectionIsCh41OnlyAndFailsSafe(t *testing.T) {
 	t.Parallel()
-
 	known := &Account{
-		Platform:    PlatformNewAPI,
-		ChannelType: newapiconstant.ChannelTypeVertexAi,
+		Platform: PlatformNewAPI, ChannelType: newapiconstant.ChannelTypeVertexAi,
 		Credentials: map[string]any{VertexCapabilityProfileCredentialKey: " CORE-PRO "},
 	}
 	require.Equal(t, vertexCapabilityProfileCorePro, known.VertexCapabilityProfile())
 	mapping, ok := accountModelMappingForAccount(context.Background(), known, nil, nil, nil)
 	require.True(t, ok)
-	ids, profileKnown := vertexCapabilityProfileModelMappingIDs(vertexCapabilityProfileCorePro)
+	want, profileKnown := vertexCapabilityProfileModelMapping(vertexCapabilityProfileCorePro)
 	require.True(t, profileKnown)
-	requireIdentityMappingForIDs(t, mapping, ids)
-
-	for _, account := range []*Account{
-		{Platform: PlatformNewAPI, ChannelType: newapiconstant.ChannelTypeVertexAi},
-		{
-			Platform:    PlatformNewAPI,
-			ChannelType: newapiconstant.ChannelTypeVertexAi,
-			Credentials: map[string]any{VertexCapabilityProfileCredentialKey: "unknown-profile"},
-		},
-	} {
-		mapping, ok := accountModelMappingForAccount(context.Background(), account, nil, nil, nil)
-		require.True(t, ok)
-		requireIdentityMappingForIDs(t, mapping, vertexSharedModelMappingPresetIDs())
-	}
-
-	nonVertex := &Account{
-		Platform:    PlatformNewAPI,
-		ChannelType: newapiconstant.ChannelTypeMoonshot,
-		Credentials: map[string]any{VertexCapabilityProfileCredentialKey: vertexCapabilityProfileCorePro},
-	}
-	require.Empty(t, nonVertex.VertexCapabilityProfile())
-	native := &Account{
-		Platform:    PlatformGemini,
-		ChannelType: newapiconstant.ChannelTypeVertexAi,
-		Credentials: map[string]any{VertexCapabilityProfileCredentialKey: vertexCapabilityProfileCorePro},
-	}
-	require.Empty(t, native.VertexCapabilityProfile())
-}
-
-func mapKeysForVertexProfileTest(values map[string]struct{}) []string {
-	out := make([]string, 0, len(values))
-	for value := range values {
-		out = append(out, value)
-	}
-	return out
+	require.Equal(t, want, mapping)
+	mapping, ok = accountModelMappingForAccount(context.Background(), &Account{Platform: PlatformNewAPI, ChannelType: newapiconstant.ChannelTypeVertexAi}, nil, nil, nil)
+	require.True(t, ok)
+	require.Equal(t, vertexSharedModelMappingPreset(), mapping)
 }

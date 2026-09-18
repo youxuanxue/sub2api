@@ -9,16 +9,16 @@ type Model struct {
 	CreatedAt   string `json:"created_at"`
 }
 
-// DefaultModels is the curated Gemini model list used by the admin UI "test account" flow.
+// DefaultModels is the curated Gemini model list used by the admin UI "test account"
+// flow and PlatformGemini listing fallbacks. Keep it aligned with
+// supportedGeminiCatalogModels (public Google text/video surface + traffic aliases).
 var DefaultModels = []Model{
-	{ID: "gemini-2.5-flash", Type: "model", DisplayName: "Gemini 2.5 Flash", CreatedAt: ""},
-	{ID: "gemini-2.5-flash-lite", Type: "model", DisplayName: "Gemini 2.5 Flash Lite", CreatedAt: ""},
-	{ID: "gemini-2.5-pro", Type: "model", DisplayName: "Gemini 2.5 Pro", CreatedAt: ""},
-	{ID: "gemini-3.5-flash-lite", Type: "model", DisplayName: "Gemini 3.5 Flash Lite", CreatedAt: ""},
 	{ID: "gemini-3.6-flash", Type: "model", DisplayName: "Gemini 3.6 Flash", CreatedAt: ""},
-	{ID: "imagen-4.0-fast-generate-001", Type: "model", DisplayName: "Imagen 4.0 Fast", CreatedAt: ""},
-	{ID: "imagen-4.0-generate-001", Type: "model", DisplayName: "Imagen 4.0", CreatedAt: ""},
-	{ID: "imagen-4.0-ultra-generate-001", Type: "model", DisplayName: "Imagen 4.0 Ultra", CreatedAt: ""},
+	{ID: "gemini-3.7-flash", Type: "model", DisplayName: "Gemini 3.7 Flash", CreatedAt: ""},
+	{ID: "gemini-3.8-flash", Type: "model", DisplayName: "Gemini 3.8 Flash", CreatedAt: ""},
+	{ID: "gemini-3-flash-preview", Type: "model", DisplayName: "Gemini 3 Flash Preview", CreatedAt: ""},
+	{ID: "gemini-3.5-flash-lite", Type: "model", DisplayName: "Gemini 3.5 Flash Lite", CreatedAt: ""},
+	{ID: "gemini-embedding-001", Type: "model", DisplayName: "Gemini Embedding 001", CreatedAt: ""},
 	{ID: "veo-3.1-generate-001", Type: "model", DisplayName: "Veo 3.1", CreatedAt: ""},
 }
 
@@ -42,7 +42,7 @@ func GoogleOneModelMapping() map[string]string {
 }
 
 // DefaultTestModel is the default model to preselect in test flows.
-const DefaultTestModel = "gemini-2.5-flash"
+const DefaultTestModel = "gemini-3.8-flash"
 
 // ModelsForIDs synthesizes a []Model for the given (servable) ids, preferring the
 // canonical DefaultModels entry when present and synthesizing otherwise. Shared by

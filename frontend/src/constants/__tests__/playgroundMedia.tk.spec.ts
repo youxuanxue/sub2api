@@ -34,7 +34,17 @@ describe('modalityForModel', () => {
       'doubao-seedream-4-0-250828',
       'doubao-seedream-4-5-251128',
       'doubao-seedream-5-0-260128',
+      'grok-imagine-image',
+      'grok-imagine-image-quality',
+      'wan2.7-image',
+      'wan2.7-image-pro',
     ]) {
+      expect(modalityForModel(id)).toBe('image')
+    }
+  })
+
+  it('classifies gpt-image and image-2.5 shorthand as image', () => {
+    for (const id of ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5', 'image-2.5']) {
       expect(modalityForModel(id)).toBe('image')
     }
   })
@@ -45,7 +55,9 @@ describe('modalityForModel', () => {
       'gemini-3.1-flash-image-preview',
       'gemini-2.5-flash-image',
       'gemini-3-pro-image-preview',
-      'nano-banana-pro-preview'
+      'nano-banana-pro-preview',
+      'nano-2',
+      'nano-pro'
     ]) {
       expect(modalityForModel(id)).toBe('image')
     }

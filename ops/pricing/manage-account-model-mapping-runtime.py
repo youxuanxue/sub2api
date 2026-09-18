@@ -2035,7 +2035,7 @@ def cmd_selftest(_args) -> int:
                 "model_mapping": {"agent-plan-model": "agent-plan-model"},
             },
         ],
-        "antigravity_group_scopes": ["claude", "gemini_text", "gemini_image"],
+        "antigravity_group_scopes": ["gemini_text", "gemini_image"],
         "forbidden_model_mapping_keys": {
             "anthropic": ["claude-opus-5"],
             "antigravity": ["test-forbidden-exact"],
@@ -2293,7 +2293,7 @@ def cmd_selftest(_args) -> int:
     }, floor)
     sql = _render_apply_sql({
         "account_changes": [plan],
-        "group_changes": [{"id": 7, "desired_supported_model_scopes": ["claude", "gemini_text", "gemini_image"]}],
+        "group_changes": [{"id": 7, "desired_supported_model_scopes": ["gemini_text", "gemini_image"]}],
     })
     assert "account_bulk_changed" in sql and "group_changed" in sql
     guarded_sql = _render_apply_sql({
@@ -2436,7 +2436,8 @@ def cmd_selftest(_args) -> int:
         finally:
             globals()["_run_check_sql_json"] = original_run_check_sql_json
     assert _group_violation({"scopes": ["gemini_text"]}, floor)
-    assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}, floor) is None
+    assert _group_violation({"scopes": ["gemini_text", "gemini_image"]}, floor) is None
+    assert _group_violation({"scopes": ["claude", "gemini_text", "gemini_image"]}, floor) is not None
     assert _runtime_setting_violation('{"platforms":{"grok":{}}}')
     assert _runtime_setting_violation('{"platforms":{"grok":{"grok":"grok-4.3"}}}') is None
     assert _runtime_setting_violation(

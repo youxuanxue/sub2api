@@ -92,16 +92,12 @@ const baseProps = {
   gatewayBase: 'https://api.example.com',
   userId: 42,
   availableIds: new Set([
-    'imagen-4.0-fast-generate-001',
-    'imagen-4.0-generate-001',
-    'imagen-4.0-ultra-generate-001',
+    'gemini-3-pro-image',
     'gemini-3.1-flash-image',
     'seedream-4-0-250828',
   ]),
   priceMap: new Map([
-    ['imagen-4.0-fast-generate-001', { perImage: 0.02, billingMode: 'image' }],
-    ['imagen-4.0-generate-001', { perImage: 0.04, billingMode: 'image' }],
-    ['imagen-4.0-ultra-generate-001', { perImage: 0.06, billingMode: 'image' }],
+    ['gemini-3-pro-image', { perImage: 0.134, billingMode: 'image' }],
     ['gemini-3.1-flash-image', { perImage: 0.0672, billingMode: 'image' }],
     ['seedream-4-0-250828', { perImage: 0.0299, billingMode: 'image' }],
   ]),
@@ -254,10 +250,10 @@ describe('BakeOff image routing', () => {
     })
     await wrapper.get('[data-testid="bakeoff-mode-image"]').trigger('click')
     const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
-    // sorted cheap→premium: fast, seedream, standard, ultra, gemini
+    // sorted cheap→premium across the three available image models
     await tiers[0].trigger('click')
     await tiers[1].trigger('click')
-    await tiers[4].trigger('click')
+    await tiers[2].trigger('click')
     await wrapper.get('textarea').setValue('a red apple')
     await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
     await flushPromises()
@@ -269,12 +265,12 @@ describe('BakeOff image routing', () => {
       undefined,
       expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'gemini-3.1-flash-image' })
     )
-    expect(playground.gatewayImageGenerations).toHaveBeenCalledWith(
+    expect(playground.gatewayGeminiImageViaChat).toHaveBeenCalledWith(
       'sk-test',
       'https://api.example.com',
-      expect.objectContaining({ model: 'imagen-4.0-fast-generate-001', size: '1:1' }),
+      expect.objectContaining({ model: 'gemini-3-pro-image', aspectRatio: '1:1' }),
       undefined,
-      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'imagen-4.0-fast-generate-001' })
+      expect.objectContaining({ studioSource: 'studio.bakeoff.image', studioPanelId: 'gemini-3-pro-image' })
     )
     expect(playground.gatewayImageGenerations).toHaveBeenCalledWith(
       'sk-test',
@@ -290,9 +286,9 @@ describe('BakeOff image routing', () => {
     const wrapper = mount(BakeOff, {
       props: {
         ...baseProps,
-        availableIds: new Set(['imagen-4.0-fast-generate-001', 'grok-imagine-image']),
+        availableIds: new Set(['gemini-3-pro-image', 'grok-imagine-image']),
         priceMap: new Map([
-          ['imagen-4.0-fast-generate-001', { perImage: 0.02, billingMode: 'image' }],
+          ['gemini-3-pro-image', { perImage: 0.02, billingMode: 'image' }],
           ['grok-imagine-image', { perImage: 0.02, billingMode: 'image' }],
         ]),
       },
@@ -316,18 +312,18 @@ describe('BakeOff image routing', () => {
     })
   })
 
-  it('allows selecting five image models for bake-off', async () => {
+  it('allows selecting three image models for bake-off', async () => {
     const wrapper = mount(BakeOff, {
       props: baseProps,
       global: { plugins: [i18n], stubs: { RouterLink: true } },
     })
     await wrapper.get('[data-testid="bakeoff-mode-image"]').trigger('click')
     const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
-    expect(tiers.length).toBe(5)
+    expect(tiers.length).toBe(3)
     for (const tier of tiers) {
       await tier.trigger('click')
     }
-    expect(tiers.filter((t) => t.classes().some((c) => c.includes('bg-primary-600'))).length).toBe(5)
+    expect(tiers.filter((t) => t.classes().some((c) => c.includes('bg-primary-600'))).length).toBe(3)
   })
 
   it('persists to shared library and keeps history after clearing the current view', async () => {
@@ -541,7 +537,7 @@ describe('BakeOff image routing', () => {
     await wrapper.get('[data-testid="bakeoff-mode-image"]').trigger('click')
     const tiers = wrapper.findAll('[data-testid="bakeoff-tier"]')
     await tiers[0].trigger('click')
-    await tiers[4].trigger('click')
+    await tiers[2].trigger('click')
     await wrapper.get('textarea').setValue('a red apple')
     await wrapper.get('[data-testid="studio-bakeoff-run"]').trigger('click')
     await flushPromises()

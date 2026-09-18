@@ -202,7 +202,7 @@ func geminiModelsForCapabilityIDs(ids []string) gemini.ModelsListResponse {
 }
 
 func antigravityModelsForCapabilityIDs(ids []string) []antigravity.ClaudeModel {
-	defaults := antigravity.DefaultModels()
+	defaults := antigravity.ModelMetadata()
 	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
 	for _, model := range defaults {
 		byID[model.ID] = model
@@ -270,12 +270,12 @@ func (h *GatewayHandler) tkClaudeDefaultModelIDs(ctx context.Context, platform s
 
 // tkAntigravityDefaultModels returns the /antigravity/models fallback as
 // []antigravity.ClaudeModel, synthesized from the Antigravity CatalogPolicy
-// projection (Gemini + the PR #1265 live Claude subset; gpt-oss excluded).
-// Preserves the []ClaudeModel shape (R-001) and prefers the canonical
+// projection (converged Gemini public surface; gpt-oss excluded). Preserves
+// the []ClaudeModel shape (R-001) and prefers the canonical
 // antigravity.DefaultModels() entry for DisplayName fidelity. The group
 // supported_model_scopes filter still runs after this in AntigravityModels.
 func (h *GatewayHandler) tkAntigravityDefaultModels(ctx context.Context) []antigravity.ClaudeModel {
-	defaults := antigravity.DefaultModels()
+	defaults := antigravity.ModelMetadata()
 	byID := make(map[string]antigravity.ClaudeModel, len(defaults))
 	for _, m := range defaults {
 		byID[m.ID] = m

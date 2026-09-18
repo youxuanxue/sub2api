@@ -503,8 +503,23 @@ func TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement(t *testing.T) {
 			require.True(t, MaybeResolveUniversal(c, key, resolver))
 			require.Equal(t, http.StatusTooManyRequests, recorder.Code)
 			require.Nil(t, key.GroupID)
+			// Ops attribution must survive middleware abort (handlers never run).
+			require.Equal(t, "gemini-3.8-flash", c.GetString(service.OpsModelKey))
+			require.True(t, service.HasOpsRoutingCapacityLimited(c))
 		})
 	}
+}
+
+func TestMaybeResolveUniversal_CapacityAbortWithoutModelKeepsEmptyOpsModel(t *testing.T) {
+	// Negative: capacity / resolve abort with no peekable model must not invent one.
+	c, _ := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`)
+	resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(21, service.PlatformAntigravity)}})
+	resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(context.Context, service.Group, string, service.UniversalShape) (service.GroupCandidateEligibility, error) {
+		return service.GroupCandidateEligibility{Supported: true}, nil
+	})
+	key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+	_ = MaybeResolveUniversal(c, key, resolver)
+	require.Empty(t, c.GetString(service.OpsModelKey))
 }
 
 // Regression guard for the correctness rule (design §2): when a universal key

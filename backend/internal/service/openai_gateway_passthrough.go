@@ -749,7 +749,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 		body,
 		upstreamMsg,
 		shouldDisable,
-		!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+		!shouldDisable && tkRetryableOnSameAccount(account, resp, body),
 	)
 }
 
@@ -829,7 +829,7 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 			body,
 			upstreamMsg,
 			shouldDisable,
-			!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			!shouldDisable && tkRetryableOnSameAccount(account, resp, body),
 		)
 	}
 	if cyberHit || GetOpsUsagePolicy(c) != nil {
@@ -1411,13 +1411,6 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	statusCode := openAIStreamFailureStatus(payload, message)
 	switch statusCode {
 	case http.StatusServiceUnavailable:
-		ctx := context.Background()
-		if c != nil && c.Request != nil {
-			ctx = c.Request.Context()
-		}
-		if s != nil {
-			s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, "stream_capacity")
-		}
 		return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {
@@ -1569,6 +1562,10 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		classificationHeaders = nil
 	}
 	failoverErr := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, statusCode, headers, classificationHeaders, payload, message, shouldDisable, retryableOnSameAccount)
+	if statusCode == http.StatusServiceUnavailable && !shouldDisable && retryableOnSameAccount {
+		failoverErr.RetryableOnSameAccount = true
+		failoverErr.RequestScopedTransient = true
+	}
 	if shouldDisable && statusCode == http.StatusServiceUnavailable {
 		// An explicit operator rule has cooled this model; retrying the same
 		// account would immediately reuse the supply that the rule excluded.

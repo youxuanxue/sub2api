@@ -121,14 +121,17 @@ func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {
 	require.Contains(t, compositeIDs, antigravityIDs[0])
 }
 
-// Scenario: Anthropic defaults contain only Claude while Antigravity keeps its own Gemini models.
+// Scenario: Anthropic defaults contain only Claude while Antigravity keeps converged Gemini models.
 func TestDefaultModelIDsForAnthropicExcludeAntigravityGemini(t *testing.T) {
 	anthropicIDs := defaultModelIDsForPlatform(service.PlatformAnthropic)
 	require.Contains(t, anthropicIDs, "claude-opus-4-6")
-	require.NotContains(t, anthropicIDs, "gemini-2.5-flash")
+	require.NotContains(t, anthropicIDs, "gemini-3.8-flash")
 
 	antigravityIDs := defaultModelIDsForPlatform(service.PlatformAntigravity)
-	require.Contains(t, antigravityIDs, "gemini-2.5-flash")
+	require.Contains(t, antigravityIDs, "gemini-3.8-flash")
+	require.NotContains(t, antigravityIDs, "claude-opus-4-6")
+	require.NotContains(t, antigravityIDs, "claude-sonnet-4-6")
+	require.NotContains(t, antigravityIDs, "claude-opus-4-6-thinking")
 }
 
 // Scenario: non-OpenAI groups return a Codex manifest instead of a standard model list.
@@ -658,7 +661,7 @@ func TestGatewayCodexModels_CompositeAnthropicDoesNotAdvertiseAntigravityDefault
 	require.NotContains(t, slugs, "gemini-2.5-flash")
 }
 
-// Scenario: Antigravity retains its own Claude and Gemini defaults inside Composite groups.
+// Scenario: Antigravity advertises its converged Google defaults inside Composite groups.
 func TestGatewayModels_CompositeAntigravityAdvertisesAntigravityDefaults(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -682,8 +685,9 @@ func TestGatewayModels_CompositeAntigravityAdvertisesAntigravityDefaults(t *test
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "claude-opus-4-6")
-	require.Contains(t, ids, "gemini-2.5-flash")
+	require.Contains(t, ids, "gemini-3.8-flash")
+	require.Contains(t, ids, "gemini-3.1-flash-image")
+	require.NotContains(t, ids, "claude-opus-4-6")
 }
 
 func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T) {

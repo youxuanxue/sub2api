@@ -241,6 +241,7 @@ func TestGatewayHandlerMessages_InterceptWarmup_AntigravityAccount_MixedScheduli
 		Credentials: map[string]any{
 			"access_token":              "tok_xxx",
 			"intercept_warmup_requests": true,
+			"model_mapping":             map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"},
 		},
 		Extra: map[string]any{
 			"mixed_scheduling": true, // 关键：允许被 anthropic 分组混合调度选中
@@ -327,6 +328,7 @@ func TestGatewayHandlerMessages_InterceptWarmup_AntigravityAccount_ForcePlatform
 		Credentials: map[string]any{
 			"access_token":              "tok_xxx",
 			"intercept_warmup_requests": true,
+			"model_mapping":             map[string]any{"claude-sonnet-4-6": "claude-sonnet-4-6"},
 		},
 		Concurrency:   1,
 		Priority:      1,

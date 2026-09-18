@@ -46,6 +46,16 @@ func TestTkIsAnthropicNonAuthoritative429(t *testing.T) {
 			http.Header{},
 			extraUsageBody, false,
 		},
+		{
+			"empty body without ratelimit headers => non-authoritative",
+			http.Header{},
+			"", true,
+		},
+		{
+			"empty body with authoritative reset header => NOT non-authoritative",
+			http.Header{"Anthropic-Ratelimit-Unified-5h-Reset": {"9999999999"}},
+			"", false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,9 +97,15 @@ func TestTkRetryableOnSameAccount(t *testing.T) {
 			t.Fatal("expected true for authoritative (header-ful) 429")
 		}
 	})
-	t.Run("pool_mode anthropic + 503 (not 429) => unaffected, retry kept", func(t *testing.T) {
+	t.Run("pool_mode anthropic + non-capacity 503 => pool retry kept", func(t *testing.T) {
 		if !tkRetryableOnSameAccount(poolAnthropic, resp(http.StatusServiceUnavailable, nil), []byte(body)) {
-			t.Fatal("expected true for 503 (non-authoritative gate is 429-only)")
+			t.Fatal("expected true for non-capacity 503 (pool rotation)")
+		}
+	})
+	t.Run("pool_mode anthropic + no-available 503 => switch accounts", func(t *testing.T) {
+		capacity := []byte(`{"type":"error","error":{"type":"api_error","message":"No available accounts: no available accounts"}}`)
+		if tkRetryableOnSameAccount(poolAnthropic, resp(http.StatusServiceUnavailable, nil), capacity) {
+			t.Fatal("expected false for classified account-capacity 503")
 		}
 	})
 	t.Run("non-pool-mode => never same-account retry", func(t *testing.T) {

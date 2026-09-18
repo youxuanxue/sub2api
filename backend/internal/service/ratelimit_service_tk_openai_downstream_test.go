@@ -78,7 +78,7 @@ func (f *fakeOpenAISaturationCounterRL) IncrementSaturation(_ context.Context, a
 	return f.count, nil
 }
 
-func (f *fakeOpenAISaturationCounterRL) GetSaturationBatch(_ context.Context, _ []int64) (map[int64]int64, error) {
+func (f *fakeOpenAISaturationCounterRL) GetSaturationBatch(_ context.Context, _ []int64, _ int) (map[int64]int64, error) {
 	return nil, nil
 }
 

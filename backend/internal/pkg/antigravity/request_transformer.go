@@ -698,13 +698,14 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 
 // IsImageModel reports whether an antigravity (Gemini) model id is a native image
 // generation model — ids carrying an "-image" segment (gemini-3.1-flash-image,
-// …-image-preview, …-image-<variant>) or the nano-banana family. Mirrors the service
-// isImageGenerationModel allowlist and the frontend GEMINI_NATIVE_IMAGE_RE; deliberately
-// does NOT match plain gemini chat ids. Used to gate aspectRatio injection.
+// …-image-preview, …-image-<variant>) or the Nano Banana marketing aliases
+// (nano-banana*, nano-2, nano-pro). Mirrors the service isImageGenerationModel
+// allowlist and the frontend GEMINI_NATIVE_IMAGE_RE; deliberately does NOT match
+// plain gemini chat ids. Used to gate aspectRatio injection.
 func IsImageModel(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
 	m = strings.TrimPrefix(m, "models/")
-	if strings.Contains(m, "nano-banana") {
+	if strings.Contains(m, "nano-banana") || m == "nano-2" || m == "nano-pro" {
 		return true
 	}
 	return strings.HasPrefix(m, "gemini-") && (strings.HasSuffix(m, "-image") || strings.Contains(m, "-image-"))

@@ -44,7 +44,7 @@ elif url.endswith("/v1/models"):
         "object": "list",
         "data": [
             {"id": "claude-sonnet-4-6"},
-            {"id": "gemini-3.1-pro-preview"},
+            {"id": "gemini-3.8-flash"},
             {"id": "gpt-5.4"},
         ],
     }
@@ -117,7 +117,7 @@ class PostDeploySmokeTest(unittest.TestCase):
                 "TK_SMOKE_API_KEY": "sk-test",
                 "TK_SMOKE_SKIP_FRONTEND": "1",
                 "TK_SMOKE_ANTHROPIC_MODELS": "claude-sonnet-4-6",
-                "TK_SMOKE_GEMINI_MODELS": "gemini-3.1-pro-preview",
+                "TK_SMOKE_GEMINI_MODELS": "gemini-3.8-flash",
                 "TK_SMOKE_OPENAI_OAUTH_MODELS": "gpt-5.4",
                 "GATEWAY_SMOKE_SUITE": suite,
                 "FAKE_CURL_LOG": str(curl_log),

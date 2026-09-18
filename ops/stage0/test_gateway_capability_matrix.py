@@ -68,16 +68,16 @@ class MatrixTests(unittest.TestCase):
 
     def test_reviewed_supply_replaces_catalog_and_has_no_direct_or_implicit_limit(self):
         value = matrix.build(json.loads(matrix.DEFAULT_INVENTORY.read_text()), matrix.load())
-        self.assertEqual(len(value['entries']), 150)
+        self.assertEqual(len(value['entries']), 147)
         self.assertEqual(len({e['account_class'] for e in value['entries']}), 15)
-        self.assertEqual(sum(e['selection'] == 'model-family-baseline' for e in value['entries']), 54)
+        self.assertEqual(sum(e['selection'] == 'model-family-baseline' for e in value['entries']), 51)
         self.assertEqual({e['key_type'] for e in value['entries']}, {'universal'})
         usable = [e for e in value['entries'] if not e['blocked_reason']]
         self.assertGreater(len(usable), 32)
         self.assertEqual(len(matrix.select(value['entries'])), len(usable))
         self.assertEqual(matrix.select(value['entries']), matrix.select(list(reversed(value['entries']))))
         self.assertEqual(len(matrix.select(value['entries'], 2)), 2)
-        self.assertEqual(matrix.report(value)['total'], 150)
+        self.assertEqual(matrix.report(value)['total'], 147)
         with self.assertRaises(ValueError):
             matrix.select(value['entries'], 0)
         # Image output and a complete tool roundtrip now have real execution scenarios.
@@ -236,7 +236,7 @@ class MatrixTests(unittest.TestCase):
         with patch.object(matrix.subprocess, 'run', side_effect=old_generator):
             baseline = matrix.from_tag('1.2.3')
         self.assertIsNone(baseline)
-        self.assertEqual(len(matrix.delta(current, baseline)), 150)
+        self.assertEqual(len(matrix.delta(current, baseline)), 147)
 
     def test_legacy_tag_without_account_supply_has_no_baseline(self):
         completed = subprocess.CompletedProcess([], 0, stdout=b'', stderr=b'')

@@ -348,12 +348,12 @@ func TestAntigravityGatewayService_ForwardGemini_UsesConfiguredProjectFallback(t
 			"access_token": "token",
 			antigravityProjectIDFallbackCredentialKey: "configured-project",
 			"model_mapping": map[string]any{
-				"gemini-2.5-flash": "gemini-2.5-flash",
+				"gemini-3.8-flash": "gemini-3.8-flash",
 			},
 		},
 	}
 
-	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-2.5-flash", "streamGenerateContent", true, body, false)
+	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-3.8-flash", "streamGenerateContent", true, body, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, upstream.requestBodies, 1)
@@ -428,7 +428,7 @@ func TestAntigravityGatewayService_ForwardGemini_StripsBuiltinsWhenClientFunctio
 	writer := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(writer)
 	body = bytes.ReplaceAll(body, []byte{92}, nil)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:generateContent", bytes.NewReader(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.8-flash:generateContent", bytes.NewReader(body))
 
 	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
 		StatusCode: http.StatusOK,
@@ -442,10 +442,10 @@ func TestAntigravityGatewayService_ForwardGemini_StripsBuiltinsWhenClientFunctio
 	}
 	account := &Account{
 		ID: 103, Name: "native-gemini", Platform: PlatformAntigravity, Type: AccountTypeOAuth, Status: StatusActive, Concurrency: 1,
-		Credentials: map[string]any{"access_token": "token", "project_id": "project-103", "model_mapping": map[string]any{"gemini-2.5-flash": "gemini-2.5-flash"}},
+		Credentials: map[string]any{"access_token": "token", "project_id": "project-103", "model_mapping": map[string]any{"gemini-3.8-flash": "gemini-3.8-flash"}},
 	}
 
-	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-2.5-flash", "generateContent", false, body, false)
+	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-3.8-flash", "generateContent", false, body, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, upstream.requestBodies, 1)
@@ -497,12 +497,12 @@ func TestAntigravityGatewayService_ForwardGemini_MissingProjectReturnsLocalError
 		Credentials: map[string]any{
 			"access_token": "token",
 			"model_mapping": map[string]any{
-				"gemini-2.5-flash": "gemini-2.5-flash",
+				"gemini-3.8-flash": "gemini-3.8-flash",
 			},
 		},
 	}
 
-	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-2.5-flash", "streamGenerateContent", true, body, false)
+	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-3.8-flash", "streamGenerateContent", true, body, false)
 	require.Nil(t, result)
 	require.ErrorIs(t, err, errAntigravityProjectIDRequired)
 	require.Equal(t, http.StatusBadRequest, writer.Code)
@@ -551,8 +551,9 @@ func TestAntigravityGatewayService_Forward_PromptTooLong(t *testing.T) {
 		Status:      StatusActive,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"access_token": "token",
-			"project_id":   "proj",
+			"access_token":  "token",
+			"project_id":    "proj",
+			"model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"},
 		},
 	}
 
@@ -610,8 +611,9 @@ func TestAntigravityGatewayService_Forward_ModelRateLimitTriggersFailover(t *tes
 		Status:      StatusActive,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"access_token": "token",
-			"project_id":   "proj",
+			"access_token":  "token",
+			"project_id":    "proj",
+			"model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"},
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
@@ -648,7 +650,7 @@ func TestAntigravityGatewayService_ForwardGemini_ModelRateLimitTriggersFailover(
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:generateContent", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.8-flash:generateContent", bytes.NewReader(body))
 	c.Request = req
 
 	// 不需要真正调用上游，因为预检查会直接返回切换信号
@@ -672,14 +674,14 @@ func TestAntigravityGatewayService_ForwardGemini_ModelRateLimitTriggersFailover(
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gemini-2.5-flash": map[string]any{
+				"gemini-3.8-flash-medium": map[string]any{
 					"rate_limit_reset_at": futureResetAt,
 				},
 			},
 		},
 	}
 
-	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-2.5-flash", "generateContent", false, body, false)
+	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-3.8-flash", "generateContent", false, body, false)
 	require.Nil(t, result, "ForwardGemini should not return result when model rate limited")
 	require.NotNil(t, err, "ForwardGemini should return error")
 
@@ -722,8 +724,9 @@ func TestAntigravityGatewayService_Forward_StickySessionForceCacheBilling(t *tes
 		Status:      StatusActive,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"access_token": "token",
-			"project_id":   "proj",
+			"access_token":  "token",
+			"project_id":    "proj",
+			"model_mapping": map[string]any{"claude-opus-4-6": "claude-opus-4-6-thinking"},
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
@@ -760,7 +763,7 @@ func TestAntigravityGatewayService_ForwardGemini_StickySessionForceCacheBilling(
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:generateContent", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.8-flash:generateContent", bytes.NewReader(body))
 	c.Request = req
 
 	svc := &AntigravityGatewayService{
@@ -783,7 +786,7 @@ func TestAntigravityGatewayService_ForwardGemini_StickySessionForceCacheBilling(
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gemini-2.5-flash": map[string]any{
+				"gemini-3.8-flash-medium": map[string]any{
 					"rate_limit_reset_at": futureResetAt,
 				},
 			},
@@ -791,7 +794,7 @@ func TestAntigravityGatewayService_ForwardGemini_StickySessionForceCacheBilling(
 	}
 
 	// 传入 isStickySession = true
-	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-2.5-flash", "generateContent", false, body, true)
+	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-3.8-flash", "generateContent", false, body, true)
 	require.Nil(t, result, "ForwardGemini should not return result when model rate limited")
 	require.NotNil(t, err, "ForwardGemini should return error")
 
@@ -814,14 +817,14 @@ func TestAntigravityGatewayService_ForwardGemini_ClearsStickySessionOnGeminiRate
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3-flash:generateContent", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.8-flash:generateContent", bytes.NewReader(body))
 	c.Request = req
 
 	respBody := []byte(`{
 		"error": {
 			"status": "RESOURCE_EXHAUSTED",
 			"details": [
-				{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "metadata": {"model": "gemini-3-flash"}, "reason": "RATE_LIMIT_EXCEEDED"},
+				{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "metadata": {"model": "gemini-3.8-flash-medium"}, "reason": "RATE_LIMIT_EXCEEDED"},
 				{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "15s"}
 			]
 		}
@@ -862,7 +865,7 @@ func TestAntigravityGatewayService_ForwardGemini_ClearsStickySessionOnGeminiRate
 		context.Background(),
 		c,
 		account,
-		"gemini-3-flash",
+		"gemini-3.8-flash",
 		"generateContent",
 		false,
 		body,
@@ -875,7 +878,7 @@ func TestAntigravityGatewayService_ForwardGemini_ClearsStickySessionOnGeminiRate
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusServiceUnavailable, failoverErr.StatusCode)
 	require.Len(t, repo.modelRateLimitCalls, 2)
-	require.Equal(t, "gemini-3-flash", repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, "gemini-3.8-flash-medium", repo.modelRateLimitCalls[0].modelKey)
 	require.Equal(t, antigravityGeminiModelRateLimitKey, repo.modelRateLimitCalls[1].modelKey)
 	require.Len(t, cache.deleteCalls, 1)
 	require.Equal(t, int64(77), cache.deleteCalls[0].groupID)
@@ -953,7 +956,7 @@ func TestAntigravityGatewayService_ForwardGemini_BillsWithMappedModel(t *testing
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:generateContent", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.8-flash:generateContent", bytes.NewReader(body))
 	c.Request = req
 
 	upstreamBody := []byte("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":3}}}\n\n")
@@ -981,15 +984,15 @@ func TestAntigravityGatewayService_ForwardGemini_BillsWithMappedModel(t *testing
 			"access_token": "token",
 			"project_id":   "proj",
 			"model_mapping": map[string]any{
-				"gemini-2.5-flash": mappedModel,
+				"gemini-3.8-flash": mappedModel,
 			},
 		},
 	}
 
-	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-2.5-flash", "generateContent", true, body, false)
+	result, err := svc.ForwardGemini(context.Background(), c, account, "gemini-3.8-flash", "generateContent", true, body, false)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, "gemini-2.5-flash", result.Model)
+	require.Equal(t, "gemini-3.8-flash", result.Model)
 	require.Equal(t, mappedModel, result.UpstreamModel)
 }
 

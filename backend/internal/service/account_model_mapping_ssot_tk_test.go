@@ -106,6 +106,7 @@ func TestOpenAITokenseaRelayFloorIsProbeCuratedOnly(t *testing.T) {
 	t.Parallel()
 	mapping := openAITokenseaRelayAccountModelMappingFloor(context.Background(), nil, nil)
 	requireIdentityMappingForIDs(t, mapping, tokenseaRelayCorePublicFloorIDs())
+	requireTokenseaImageCompatibilityAliases(t, mapping)
 	require.NotEmpty(t, mapping)
 	require.Contains(t, mapping, "claude-sonnet-4-6")
 	// Retired client-facing ids are not public floor members; wire remaps cover access.
@@ -148,6 +149,7 @@ func TestOpenAICanonicalFloorUsesServableOpenAIAllowlist(t *testing.T) {
 	t.Parallel()
 	mapping := openAICanonicalAccountModelMappingFloor(context.Background(), nil, nil)
 	requireIdentityMappingForIDs(t, mapping, supportedCatalogModelIDsForPlatform(PlatformOpenAI))
+	requireOpenAIImageCompatibilityAliases(t, mapping)
 }
 
 func TestOpenAICanonicalFloorAcceptsKnownRoutingAliases(t *testing.T) {
@@ -207,7 +209,7 @@ func TestAccountModelMappingFloorForOps_ExportsVertexSharedAndProfileFloors(t *t
 	doc, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
 	shared := doc.NewAPIChannelTypes["41"]
-	requireIdentityMappingForIDs(t, shared, vertexSharedModelMappingPresetIDs())
+	require.Equal(t, vertexSharedModelMappingPreset(), shared)
 	require.Equal(t, vertexCapabilityProfileMappingsForOps(), doc.VertexCapabilityProfiles)
 	for profile, mapping := range doc.VertexCapabilityProfiles {
 		for id, target := range shared {
@@ -370,6 +372,34 @@ func requireGrokDisplayBackedCompatibilityAliases(t *testing.T, mapping map[stri
 	}
 }
 
+func requireOpenAIImageCompatibilityAliases(t *testing.T, mapping map[string]string) {
+	t.Helper()
+	displaySet := stringSet(supportedCatalogModelIDsForPlatform(PlatformOpenAI))
+	for from, to := range tkOpenAIImageCompatibilityAliases {
+		if _, ok := displaySet[to]; !ok {
+			continue
+		}
+		require.Equal(t, to, mapping[from], "OpenAI image alias %s must map to %s", from, to)
+	}
+}
+
+func requireTokenseaImageCompatibilityAliases(t *testing.T, mapping map[string]string) {
+	t.Helper()
+	targets := make(map[string]struct{}, len(mapping))
+	for _, to := range mapping {
+		targets[to] = struct{}{}
+	}
+	for from, to := range tkTokenseaImageCompatibilityAliases {
+		if _, ok := targets[to]; !ok {
+			continue
+		}
+		require.Equal(t, to, mapping[from], "Tokensea image alias %s must map to %s", from, to)
+	}
+	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
+	require.Equal(t, "gemini-3-pro-image", mapping["nano-pro"])
+	require.Equal(t, "gpt-image-2.5-flare", mapping["image-2.5"])
+}
+
 func grokDisplayBackedCompatibilityAliases() map[string]string {
 	displaySet := stringSet(supportedCatalogModelIDsForPlatform(PlatformGrok))
 	out := make(map[string]string)
@@ -396,9 +426,19 @@ func grokDisplayBackedCompatibilityAliases() map[string]string {
 func requireIdentityMappingForIDs(t *testing.T, mapping map[string]string, ids []string) {
 	t.Helper()
 	require.NotEmpty(t, ids, "SSOT id list must be populated")
-	require.Len(t, mapping, len(ids), "mapping must contain exactly the SSOT ids")
+	idSet := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
-		require.Equal(t, id, mapping[id], "mapping for %s must be identity", id)
+		idSet[id] = struct{}{}
+		require.Equal(t, id, mapping[id], "mapping for SSOT id %s must be identity", id)
+	}
+	// Compatibility aliases may add extra keys, but every target must stay in the
+	// SSOT id set and SSOT keys themselves must remain identity (checked above).
+	for from, to := range mapping {
+		_, isSSOT := idSet[from]
+		require.Contains(t, idSet, to, "mapping target %q for %q must be an SSOT id", to, from)
+		if isSSOT {
+			require.Equal(t, from, to, "SSOT key %q must remain identity", from)
+		}
 	}
 }
 

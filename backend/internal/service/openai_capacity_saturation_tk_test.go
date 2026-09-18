@@ -16,7 +16,8 @@ func TestIsOpenAINativeCapacityUnavailable(t *testing.T) {
 
 	overloaded := []byte(`{"error":{"type":"service_unavailable_error","message":"Our servers are currently overloaded. Please try again later."}}`)
 	require.True(t, isOpenAINativeCapacityUnavailable(http.StatusServiceUnavailable, "", overloaded))
-	require.True(t, isOpenAINativeCapacityUnavailable(http.StatusBadRequest, "", overloaded))
+	require.False(t, isOpenAINativeCapacityUnavailable(http.StatusBadRequest, "", overloaded),
+		"non-503 capacity shed is request-scoped and must not saturate the account")
 
 	temp503 := []byte(`{"error":{"type":"service_unavailable_error","message":"Service temporarily unavailable"}}`)
 	require.True(t, isOpenAINativeCapacityUnavailable(http.StatusServiceUnavailable, "", temp503))
@@ -83,7 +84,7 @@ func TestHandleOpenAIAccountUpstreamError_NativeCapacityIncrementsSaturationNoCo
 	})
 }
 
-func TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityIncrementsSaturation(t *testing.T) {
+func TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityDoesNotIncrementSaturation(t *testing.T) {
 	repo := &capacityShedAccountRepoStub{}
 	sat := &fakeOpenAISaturationCounterRL{}
 	rateLimitService := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -98,7 +99,7 @@ func TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityIncrementsSaturati
 	require.Equal(t, http.StatusServiceUnavailable, status)
 	require.False(t, disabled)
 	require.Zero(t, repo.tempUnschedCalls)
-	require.Equal(t, []int64{9}, sat.incrementIDs)
+	require.Empty(t, sat.incrementIDs, "stream capacity is request-scoped and must not sink the account")
 }
 
 func TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount(t *testing.T) {
@@ -114,7 +115,7 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount(t *testing.T
 		{account: &Account{ID: 8, Platform: PlatformOpenAI, Type: AccountTypeOAuth}},
 	}
 	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
-	require.Equal(t, openAISaturationScorePenalty, candidates[0].saturationScorePenalty)
+	require.Equal(t, openAISaturationScorePenalty+float64(openAIEdgeMirrorStubSaturationThreshold), candidates[0].saturationScorePenalty)
 	require.Zero(t, candidates[1].saturationScorePenalty)
 	resetOpenAISatCache()
 }

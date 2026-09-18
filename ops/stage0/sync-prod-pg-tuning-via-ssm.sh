@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sync prod-only Postgres GUC overlay + .env onto Stage0 prod, then recreate
+# Sync prod-only Postgres GUC overlay onto Stage0 prod, then recreate
 # postgres so command-line -c flags take effect.
 #
 # Shared docker-compose.yml stays edge-safe (no GUC command). Prod uses
@@ -56,7 +56,6 @@ jq -n \
       "ENV_FILE=$ROOT/.env",
       "COMPOSE=$ROOT/docker-compose.yml",
       "OVERLAY=$ROOT/docker-compose.prod-pg.yml",
-      "upsert() { key=\"$1\"; val=\"$2\"; if grep -q \"^${key}=\" \"$ENV_FILE\"; then sudo sed -i \"s|^${key}=.*|${key}=${val}|\" \"$ENV_FILE\"; else printf \"%s=%s\\n\" \"$key\" \"$val\" | sudo tee -a \"$ENV_FILE\" >/dev/null; fi; }",
       "echo === current .env PG keys ===",
       "grep -E \"^POSTGRES_(MAX_CONNECTIONS|SHARED_BUFFERS|EFFECTIVE_CACHE_SIZE|MAINTENANCE_WORK_MEM|JIT|MAX_PARALLEL)\" \"$ENV_FILE\" || echo \"(none)\"",
       "echo === overlay present ===",
@@ -65,14 +64,7 @@ jq -n \
       "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -Atc \"SELECT name||'='||setting FROM pg_settings WHERE name IN ('shared_buffers','effective_cache_size','jit','max_parallel_workers','max_parallel_workers_per_gather','max_connections') ORDER BY 1;\" 2>/dev/null || echo \"(postgres not queryable)\""
     ]
     + (if $apply == 1 then [
-      "echo === apply: upsert env + install overlay + recreate postgres ===",
-      "upsert POSTGRES_MAX_CONNECTIONS 200",
-      "upsert POSTGRES_SHARED_BUFFERS 1GB",
-      "upsert POSTGRES_EFFECTIVE_CACHE_SIZE 6GB",
-      "upsert POSTGRES_MAINTENANCE_WORK_MEM 128MB",
-      "upsert POSTGRES_JIT off",
-      "upsert POSTGRES_MAX_PARALLEL_WORKERS 2",
-      "upsert POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER 1",
+      "echo === apply: install overlay + recreate postgres (preserve env overrides) ===",
       ("echo " + $overlay + " | base64 -d | sudo tee \"$OVERLAY\" >/dev/null"),
       "sudo docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE\" -f \"$OVERLAY\" config --quiet",
       "cd \"$ROOT\"",
@@ -84,7 +76,7 @@ jq -n \
       "echo === GUCs after ===",
       "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -Atc \"SELECT name||'='||setting FROM pg_settings WHERE name IN ('shared_buffers','effective_cache_size','jit','max_parallel_workers','max_parallel_workers_per_gather','max_connections') ORDER BY 1;\""
     ] else [
-      "echo dry-run only; re-run with --apply to write env/overlay and recreate postgres"
+      "echo dry-run only; re-run with --apply to install overlay and recreate postgres"
     ] end)
   )
 }' >"${params_file}"
@@ -104,6 +96,10 @@ aws ssm get-command-invocation \
   --region "${REGION}" \
   --command-id "${CMD_ID}" \
   --instance-id "${INSTANCE_ID}" \
-  --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+  --query '{Status:Status,ResponseCode:ResponseCode,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
   --output json | tee "${stdout_file}"
-jq -r '.Stderr // empty' "${stdout_file}" >"${stderr_file}" || true
+jq -r '.Stderr // empty' "${stdout_file}" >"${stderr_file}"
+if ! jq -e '.Status == "Success" and .ResponseCode == 0' "${stdout_file}" >/dev/null; then
+  echo "PG tuning SSM command did not succeed; see ${stdout_file}" >&2
+  exit 1
+fi

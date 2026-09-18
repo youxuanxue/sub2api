@@ -1,34 +1,36 @@
 /**
  * TokenKey-only: Studio media presentation + resolver helpers.
  *
- * **Membership SSOT** (which image/video models exist for a key) lives in the
- * pricing catalogs (`GET /api/v1/public/pricing`, `GET /api/v1/me/pricing-catalog`)
- * via `billing_mode: image | video` — see `utils/studioMediaCatalog.tk.ts`.
+ * **Membership SSOT** (which models a Studio tab may list for a key) is the
+ * key/group entitlement pool — `/v1/models` or capabilities, which project
+ * account `model_mapping`. Modality is `modalityForModel` (aligned with gateway
+ * intent predicates). Public `/pricing` is NOT a Studio membership gate.
+ *
+ * **Price** from me/public catalogs is enrichment for cost estimates only:
+ * missing per-image / per-second must not hide a mapping-backed model.
  *
  * **This file** holds presentation-only metadata (display names, aspect ratios,
- * discrete video durations, verified adaptor params). A model appears in Studio
- * only when catalog membership ∩ key entitlement ∩ live price all agree.
+ * discrete video durations, verified adaptor params) and synthesizes defaults
+ * when a served id has no curated row.
  */
 
 import { modalityForModel } from '@/constants/playgroundMedia.tk'
 import type { VideoPriceTier } from '@/utils/mediaCostEstimate.tk'
-import type { CatalogBillingIndex } from '@/utils/studioMediaCatalog.tk'
 
 export type StudioModality = 'image' | 'video'
 
 /**
- * The modality axis the Studio SHELL reasons about for key selection. Chat is a
- * peer Studio tab (folded in from the retired /playground), but it has no media
- * billing-mode catalog row — a key "serves chat" when its /v1/models pool exposes
- * any chat-classified id (modalityForModel). image/video use catalog billing_mode.
- * Bake-off reports its active sub-modality to the shell, so the selected key
- * still tracks image vs video just like the dedicated tabs.
+ * The modality axis the Studio SHELL reasons about for key selection. Chat /
+ * image / video all use the entitlement pool + `modalityForModel`. Bake-off
+ * reports its active sub-modality to the shell so the selected key still tracks
+ * image vs video like the dedicated tabs.
  */
 export type PickerModality = StudioModality | 'chat'
 
 const VERTEX = 'Google Vertex'
 const VOLC = 'VolcEngine'
 const GEMINI = 'Google Gemini'
+const OPENAI = 'OpenAI'
 const XAI = 'xAI'
 const DASHSCOPE = 'Alibaba DashScope'
 
@@ -38,6 +40,7 @@ const VENDOR_LABELS: Record<string, string> = {
   volcengine: VOLC,
   google: GEMINI,
   gemini: GEMINI,
+  openai: OPENAI,
   dashscope: DASHSCOPE,
 }
 
@@ -56,40 +59,33 @@ function defaultDisplayName(modelId: string): string {
 }
 
 /**
- * True when this key's pool backs at least one catalog-listed media model of
- * `modality`. Uses the public pricing catalog's billing_mode index (loaded once
- * at Studio bootstrap) — not the presentation table below.
+ * True when the entitlement pool exposes at least one id classified as
+ * `modality` via `modalityForModel` (gateway-aligned intent predicates).
  */
 export function hasCatalogMediaModality(
   modality: StudioModality,
-  availableIds: ReadonlySet<string>,
-  catalogBilling: CatalogBillingIndex
+  availableIds: ReadonlySet<string>
 ): boolean {
   for (const id of availableIds) {
-    if (catalogBilling.get(id) === modality) return true
+    if (modalityForModel(id) === modality) return true
   }
   return false
 }
 
 /**
- * Whether this group's pool serves `modality` for the SHELL's key picker.
- * Dispatches chat (any chat-classified id in the pool) vs media (catalog
- * billing_mode). Bake-off passes its active image/video sub-modality, so
+ * Whether this group's entitlement pool serves `modality` for the SHELL key
+ * picker. Chat / image / video all use the same owner: pool ids +
+ * `modalityForModel`. Bake-off passes its active image/video sub-modality so
  * the shell keeps the selected key aligned with the child mode.
  */
 export function groupServes(
   modality: PickerModality,
-  availableIds: ReadonlySet<string>,
-  catalogBilling: CatalogBillingIndex
+  availableIds: ReadonlySet<string>
 ): boolean {
-  if (modality === 'chat') {
-    for (const id of availableIds) {
-      if (catalogBilling.has(id)) continue
-      if (modalityForModel(id) === 'chat') return true
-    }
-    return false
+  for (const id of availableIds) {
+    if (modalityForModel(id) === modality) return true
   }
-  return hasCatalogMediaModality(modality, availableIds, catalogBilling)
+  return false
 }
 
 /** One selectable key, reduced to what the modality-aware picker needs. */
@@ -122,15 +118,12 @@ export interface ModalityKeyOption {
 export function pickModalityKey(
   options: readonly ModalityKeyOption[],
   modality: PickerModality,
-  currentId: number | null,
-  catalogBilling: CatalogBillingIndex
+  currentId: number | null
 ): number | null {
   if (options.length === 0) return currentId
-	const serving = options.filter((o) => (
-		o.servedModalities
-			? o.servedModalities.has(modality)
-			: groupServes(modality, o.availableIds, catalogBilling)
-	))
+  const serving = options.filter((o) =>
+    o.servedModalities ? o.servedModalities.has(modality) : groupServes(modality, o.availableIds)
+  )
   if (currentId != null && serving.some((o) => o.id === currentId)) return currentId
   const pickServing = serving.find((o) => o.isTrial) ?? serving[0]
   if (pickServing) return pickServing.id
@@ -225,6 +218,17 @@ export const GEMINI_IMAGE_SIZES: ImageSizeOption[] = [
   { ratio: '21:9', value: '21:9' },
 ]
 
+/**
+ * OpenAI gpt-image-* via /v1/images/generations: pixel sizes the Images API
+ * accepts for the family (square + landscape/portrait). Used when a mapping-
+ * backed gpt-image id has no curated presentation row.
+ */
+export const GPT_IMAGE_SIZES: ImageSizeOption[] = [
+  { ratio: '1:1', value: '1024x1024' },
+  { ratio: '3:2', value: '1536x1024' },
+  { ratio: '2:3', value: '1024x1536' },
+]
+
 /** Video aspect ratios — passthrough hint to the task adaptor (TK does not interpret). */
 export interface VideoAspectPreset {
   id: string
@@ -253,12 +257,11 @@ export const IMAGE_N_MIN = 1
 export const IMAGE_N_MAX = 4
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Presentation overlay (NOT membership SSOT — catalog billing_mode is).
+ * Presentation overlay (NOT membership SSOT — pool + modalityForModel is).
  *
  * Friendly names, badges, aspect ratios, discrete video durations, and verified
- * adaptor params. Runtime can build conservative defaults for future/private
- * catalog rows; preflight requires repo-known public servable media to be
- * explicitly curated here.
+ * adaptor params. Runtime synthesizes defaults for mapping-backed ids without a
+ * curated row; preflight still requires repo-known public media to be curated.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -334,18 +337,9 @@ export interface MediaModelPresentation {
 
 /** Presentation-only entries keyed by canonical model_id. */
 export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
-  // ── image (imagen/seedream honor NO advanced params per adaptor) ──
-  {
-    modelId: 'imagen-4.0-fast-generate-001',
-    displayName: 'Imagen 4 · Fast',
-    qualityBadge: 'draft',
-    qualityBadgeKey: 'studio.badge.draft',
-    vendorLabel: VERTEX,
-    modality: 'image',
-    supportedParams: [],
-    imageSizes: IMAGEN_IMAGE_SIZES,
-    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
-  },
+  // ── image (seedream honor NO advanced params per adaptor) ──
+  // Imagen rows removed: Google image surface converged to gemini-3-pro-image /
+  // gemini-3.1-flash-image (Vertex video remains veo-3.1-generate-001 only).
   {
     modelId: 'seedream-4-0-250828',
     aliasIds: ['doubao-seedream-4-0-250828'],
@@ -410,28 +404,6 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     flatPricePerImage: true,
   },
   {
-    modelId: 'imagen-4.0-generate-001',
-    displayName: 'Imagen 4 · Standard',
-    qualityBadge: 'standard',
-    qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: VERTEX,
-    modality: 'image',
-    supportedParams: [],
-    imageSizes: IMAGEN_IMAGE_SIZES,
-    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
-  },
-  {
-    modelId: 'imagen-4.0-ultra-generate-001',
-    displayName: 'Imagen 4 · Ultra',
-    qualityBadge: 'ultra',
-    qualityBadgeKey: 'studio.badge.ultra',
-    vendorLabel: VERTEX,
-    modality: 'image',
-    supportedParams: [],
-    imageSizes: IMAGEN_IMAGE_SIZES,
-    flatPricePerImage: true, // Imagen bills Google's flat official $/image (no size tier) — see backend tkIsFlatPerImageModel
-  },
-  {
     modelId: 'grok-imagine-image',
     displayName: 'Grok Imagine · Fast',
     qualityBadge: 'fast',
@@ -455,8 +427,8 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
   //    (responseModalities IMAGE), NOT /v1/images/generations. Flat per-image billing.
   {
     modelId: 'gemini-3.1-flash-image',
-    aliasIds: ['gemini-3.1-flash-image-preview'],
-    displayName: 'Gemini 3.1 Flash Image',
+    aliasIds: ['gemini-3.1-flash-image-preview', 'nano-2'],
+    displayName: 'Nano Banana 2 (Gemini 3.1 Flash Image)',
     qualityBadge: 'fast',
     qualityBadgeKey: 'studio.badge.fast',
     vendorLabel: GEMINI,
@@ -466,20 +438,11 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     imageSizes: GEMINI_IMAGE_SIZES,
   },
   {
-    modelId: 'gemini-2.5-flash-image',
-    aliasIds: ['gemini-2.5-flash-image-preview'],
-    displayName: 'Gemini 2.5 Flash Image',
-    qualityBadge: 'standard',
-    qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: GEMINI,
-    modality: 'image',
-    supportedParams: [],
-    flatImageBilling: true,
-    imageSizes: GEMINI_IMAGE_SIZES,
-  },
-  {
-    modelId: 'gemini-3-pro-image-preview',
-    aliasIds: ['gemini-3-pro-image', 'nano-banana-pro-preview'],
+    modelId: 'gemini-3-pro-image',
+    // Antigravity OAuth remaps Pro → 3.1-flash-image (true Pro wire id 404,
+    // 2026-09-17 us4). nano-pro stays as the marketing alias for that path;
+    // newapi/TokenSea can still serve true gemini-3-pro-image.
+    aliasIds: ['gemini-3-pro-image-preview', 'nano-banana-pro-preview', 'nano-pro'],
     displayName: 'Nano Banana Pro (Gemini 3 Pro Image)',
     qualityBadge: 'ultra',
     qualityBadgeKey: 'studio.badge.ultra',
@@ -489,9 +452,10 @@ export const MEDIA_MODEL_PRESENTATIONS: MediaModelPresentation[] = [
     flatImageBilling: true,
     imageSizes: GEMINI_IMAGE_SIZES,
   },
-  // gpt-image-* is deliberately ABSENT: it needs a type=apikey OpenAI account
-  // (OAuth subscriptions 502). If a future probe adds an apikey-backed group,
-  // add it here with needsApikeyAccount: true.
+  // gpt-image-* membership comes from account model_mapping /v1/models — no
+  // curated presentation required. buildMediaPresentationForCatalogRow supplies
+  // GPT_IMAGE_SIZES defaults when a gpt-image id is served. Edge OpenAI OAuth
+  // verified gpt-image-2.5-flare/sunburst servable_image_generated (2026-09-17).
 
   // ── video ──
   {
@@ -616,16 +580,20 @@ function buildMediaPresentationForCatalogRow(
   vendor?: string
 ): MediaModelPresentation {
   if (presentation) return presentation
-  return {
+  const synthesized: MediaModelPresentation = {
     modelId: servedId,
     displayName: defaultDisplayName(servedId),
     qualityBadge: 'standard',
     qualityBadgeKey: 'studio.badge.standard',
-    vendorLabel: formatVendorLabel(vendor),
+    vendorLabel: formatVendorLabel(vendor) || (servedId.startsWith('gpt-image-') ? 'OpenAI' : ''),
     modality,
     supportedParams: [],
     videoDurations: modality === 'video' ? [VIDEO_DURATION_DEFAULT] : undefined,
   }
+  if (modality === 'image' && servedId.startsWith('gpt-image-')) {
+    synthesized.imageSizes = GPT_IMAGE_SIZES
+  }
+  return synthesized
 }
 
 /** Live per-model price from the user's pricing catalog (getMePricingCatalog). */
@@ -636,7 +604,7 @@ export interface MediaPrice {
   perSecond?: number
   /** Official resolution×audio ladder (from public /pricing). */
   videoTiers?: readonly VideoPriceTier[]
-  /** From catalog billing_mode — membership SSOT for Studio. */
+  /** Catalog billing_mode — price enrichment only, never a membership gate. */
   billingMode?: StudioModality
   /** Raw vendor slug from the catalog row (e.g. xai, vertex_ai). */
   vendor?: string
@@ -654,10 +622,10 @@ export interface ResolvedMediaModel {
 }
 
 /**
- * Resolve the models the user can actually use for `modality`: shown only when
- * (a) its primary OR an alias id is in `availableIds` AND (b) the live
- * `priceMap` has a price for this modality. This is Studio's CatalogPolicy
- * projection, not a delivery verdict. Sorted cheap → premium.
+ * Resolve models the user can use for `modality` from the entitlement pool
+ * (`availableIds` ← group account model_mapping / capabilities). Price map is
+ * optional enrichment for estimates; missing live price must not hide a
+ * mapping-backed id. Sorted priced-cheap → priced-premium → unpriced.
  */
 export function resolveAvailableModels(
   modality: StudioModality,
@@ -669,23 +637,39 @@ export function resolveAvailableModels(
 
   for (const servedId of availableIds) {
     const price = priceMap.get(servedId)
-    if (!price) continue
-    if (price.billingMode !== modality) continue
+    if (modalityForModel(servedId) !== modality) continue
 
-    const baseImagePrice = modality === 'image' ? price.perImage : undefined
-    const perSecond = modality === 'video' ? price.perSecond : undefined
-    if (baseImagePrice == null && perSecond == null) continue
+    const baseImagePrice = modality === 'image' ? price?.perImage : undefined
+    const perSecond = modality === 'video' ? price?.perSecond : undefined
 
     const presentation = lookupPresentation(servedId)
     const canonicalId = presentation?.modelId ?? servedId
     if (seenCanonical.has(canonicalId)) continue
     seenCanonical.add(canonicalId)
 
-    const resolvedPresentation = buildMediaPresentationForCatalogRow(servedId, modality, presentation, price.vendor)
-    out.push({ presentation: resolvedPresentation, servedId, baseImagePrice, perSecond, videoTiers: price.videoTiers })
+    const resolvedPresentation = buildMediaPresentationForCatalogRow(
+      servedId,
+      modality,
+      presentation,
+      price?.vendor
+    )
+    out.push({
+      presentation: resolvedPresentation,
+      servedId,
+      baseImagePrice,
+      perSecond,
+      videoTiers: price?.videoTiers,
+    })
   }
 
-  out.sort((a, b) => (a.baseImagePrice ?? a.perSecond ?? 0) - (b.baseImagePrice ?? b.perSecond ?? 0))
+  out.sort((a, b) => {
+    const av = a.baseImagePrice ?? a.perSecond
+    const bv = b.baseImagePrice ?? b.perSecond
+    if (av == null && bv == null) return a.servedId.localeCompare(b.servedId)
+    if (av == null) return 1
+    if (bv == null) return -1
+    return av - bv
+  })
   return out
 }
 

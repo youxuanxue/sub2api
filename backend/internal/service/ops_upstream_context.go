@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -22,6 +23,11 @@ const (
 	// body size + model stashed at handler entry without a service→handler cycle.
 	OpsModelKey       = "ops_model"
 	OpsRequestBodyKey = "ops_request_body"
+	// OpsRoutingCapacityLimitedKey marks empty-pool / capacity fast-fail so Ops
+	// classifies phase=routing (not upstream rate_limit) and terminal-outcome
+	// middleware can count final_empty_pool_429. Middleware may set this before
+	// any handler runs (universal key capacity abort).
+	OpsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
 	// OpsRoutingInternalErrorKey records a pre-selection infrastructure failure,
 	// independently of the inbound protocol's error envelope.
 	OpsRoutingInternalErrorKey = "ops_routing_internal_error"
@@ -108,6 +114,45 @@ const (
 	// longer matches the required immediately preceding assistant/tool_use turn.
 	OpsUpstreamKindClientToolContextCorrupt = "client_tool_context_corrupt"
 )
+
+// SetOpsRequestModel stashes the client-requested model for Ops error logs and
+// request-scoped slog fields. Safe to call from middleware before handlers run
+// (universal routing peeks the model then may abort with a capacity 429).
+func SetOpsRequestModel(c *gin.Context, model string) {
+	if c == nil {
+		return
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	c.Set(OpsModelKey, model)
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Model, model))
+	}
+}
+
+// MarkOpsRoutingCapacityLimited tags the request as a platform-owned empty-pool
+// / capacity rejection for Ops classification and terminal-outcome recording.
+func MarkOpsRoutingCapacityLimited(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(OpsRoutingCapacityLimitedKey, true)
+}
+
+// HasOpsRoutingCapacityLimited reports whether MarkOpsRoutingCapacityLimited ran.
+func HasOpsRoutingCapacityLimited(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(OpsRoutingCapacityLimitedKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
+}
 
 func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
 

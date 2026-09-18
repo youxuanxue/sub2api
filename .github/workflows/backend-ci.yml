@@ -390,6 +390,9 @@ jobs:
         env:
           TK_CANDIDATE_BROWSER: "1"
         run: go test -p 4 -tags unit ./internal/service -run '^TestCandidatePricingBrowser$' -count=1 -timeout 6m -v
+      - name: Studio model surface through real UI
+        working-directory: frontend
+        run: pnpm exec playwright test --config playwright.studio-surface.config.ts
       - name: Public pages against isolated production build
         working-directory: frontend
         run: pnpm test:e2e:public

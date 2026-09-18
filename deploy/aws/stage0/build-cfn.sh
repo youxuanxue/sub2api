@@ -13,6 +13,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../../.." && pwd)"
 COMPOSE_SRC="${HERE}/docker-compose.yml"
+PROD_PG_SRC="${HERE}/docker-compose.prod-pg.yml"
 CADDY_SRC="${HERE}/Caddyfile"
 CADDY_RENDER_SRC="${HERE}/render-prod-caddyfile.sh"
 QA_BOUNDARY_SRC="${HERE}/tokenkey-qa-boundary.sh"
@@ -33,7 +34,7 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 required=(
-  "${COMPOSE_SRC}" "${CADDY_SRC}" "${CADDY_RENDER_SRC}"
+  "${COMPOSE_SRC}" "${PROD_PG_SRC}" "${CADDY_SRC}" "${CADDY_RENDER_SRC}"
   "${QA_BOUNDARY_SRC}" "${PGDUMP_SRC}" "${PRUNE_SRC}" "${DAILY_PRUNE_SRC}" "${BOOTSTRAP_SRC}" "${LAUNCHER_SRC}"
   "${CFN_FILE}"
 )
@@ -71,6 +72,26 @@ split_b64_for_ssm() {
   done
   printf '%s\n' "${parts[@]}"
 }
+
+# Materialize the prod-only overlay from its owner before embedding bootstrap.
+# --check is read-only and rejects drift in either the source embed or CFN.
+python3 - "${mode}" "${BOOTSTRAP_SRC}" "${PROD_PG_SRC}" <<'PYPG'
+from pathlib import Path
+import re
+import sys
+mode, bootstrap_path, overlay_path = sys.argv[1:]
+bootstrap = Path(bootstrap_path)
+source = bootstrap.read_text()
+pattern = r"(?m)(^# >>> PROD_PG_OVERLAY START[^\n]*\n).*?(^# >>> PROD_PG_OVERLAY END <<<)"
+payload = "cat > docker-compose.prod-pg.yml <<'PGEOF'\n" + Path(overlay_path).read_text() + "PGEOF\n"
+rendered, count = re.subn(pattern, lambda m: m[1] + payload + m[2], source, flags=re.S)
+if count != 1:
+    raise SystemExit("missing/duplicate prod PG overlay markers")
+if mode == "check" and rendered != source:
+    raise SystemExit("prod PG overlay drift: run bash deploy/aws/stage0/build-cfn.sh")
+if mode != "check" and rendered != source:
+    bootstrap.write_text(rendered)
+PYPG
 
 COMPOSE_GZB64="$(encode_gzb64 "${COMPOSE_SRC}")"
 CADDY_GZB64="$(encode_gzb64 "${CADDY_SRC}")"
