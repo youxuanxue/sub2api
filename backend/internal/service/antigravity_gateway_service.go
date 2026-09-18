@@ -800,6 +800,10 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 		antigravity.GeminiRequestHasTools(request),
 		antigravity.GeminiRequestHasToolInteractions(request),
 	)
+	// Chat Completions → Gemini conversion never sets responseModalities; without
+	// TEXT+IMAGE, image_gen returns empty content. Native clients that already
+	// send IMAGE are left untouched.
+	_ = antigravity.EnsureImageResponseModalities(request, model)
 	requestID := "agent-" + uuid.New().String()
 	switch requestType {
 	case "image_gen":

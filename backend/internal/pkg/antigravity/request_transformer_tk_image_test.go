@@ -85,3 +85,21 @@ func TestIsImageModel(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildGenerationConfig_ImageModelSetsResponseModalities(t *testing.T) {
+	body, err := TransformClaudeToGeminiWithOptions(&ClaudeRequest{
+		Model:     "gemini-3.1-flash-image",
+		MaxTokens: 1024,
+		Messages: []ClaudeMessage{{
+			Role:    "user",
+			Content: json.RawMessage(`"a red apple"`),
+		}},
+	}, "p", "gemini-3.1-flash-image", DefaultTransformOptions())
+	if err != nil {
+		t.Fatalf("transform: %v", err)
+	}
+	mods := gjson.GetBytes(body, "request.generationConfig.responseModalities").Array()
+	if len(mods) != 2 || mods[0].String() != "TEXT" || mods[1].String() != "IMAGE" {
+		t.Fatalf("responseModalities=%v", mods)
+	}
+}
