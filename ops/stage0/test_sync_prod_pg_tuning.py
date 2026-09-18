@@ -36,16 +36,29 @@ else:
             params = json.loads((root / "ssm-params-pg-tuning.json").read_text())
             return result, params["commands"]
 
+    def assert_remote_shell_parses(self, commands):
+        script = "\n".join(commands) + "\n"
+        parsed = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True)
+        self.assertEqual(parsed.returncode, 0, parsed.stderr)
+        self.assertNotIn("name||", script)
+        self.assertNotIn("re-run", script)
+
     def test_success_and_read_only_default(self):
         result, commands = self.run_sync("Success", 0)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any("--force-recreate" in command for command in commands))
+        self.assert_remote_shell_parses(commands)
+        self.assertTrue(any("SHOW shared_buffers" in command for command in commands))
 
     def test_apply_uses_overlay_and_preserves_env_overrides(self):
         result, commands = self.run_sync("Success", 0, apply=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(any('-f "$OVERLAY" up -d --no-deps --force-recreate postgres' in command for command in commands))
         self.assertFalse(any("upsert POSTGRES_" in command for command in commands))
+        self.assert_remote_shell_parses(commands)
+        joined = "\n".join(commands)
+        self.assertIn("SHOW jit", joined)
+        self.assertIn("base64 -d", joined)
 
     def test_failure_timeout_and_unfinished_command_fail_closed(self):
         for status, code in [("Failed", 1), ("TimedOut", -1), ("InProgress", -1), ("Success", 1)]:

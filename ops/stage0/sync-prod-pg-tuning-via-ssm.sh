@@ -57,26 +57,26 @@ jq -n \
       "COMPOSE=$ROOT/docker-compose.yml",
       "OVERLAY=$ROOT/docker-compose.prod-pg.yml",
       "echo === current .env PG keys ===",
-      "grep -E \"^POSTGRES_(MAX_CONNECTIONS|SHARED_BUFFERS|EFFECTIVE_CACHE_SIZE|MAINTENANCE_WORK_MEM|JIT|MAX_PARALLEL)\" \"$ENV_FILE\" || echo \"(none)\"",
+      "grep -E \"^POSTGRES_(MAX_CONNECTIONS|SHARED_BUFFERS|EFFECTIVE_CACHE_SIZE|MAINTENANCE_WORK_MEM|JIT|MAX_PARALLEL)\" \"$ENV_FILE\" || echo none",
       "echo === overlay present ===",
-      "if [ -f \"$OVERLAY\" ]; then wc -c \"$OVERLAY\"; else echo \"(missing)\"; fi",
+      "if [ -f \"$OVERLAY\" ]; then wc -c \"$OVERLAY\"; else echo missing; fi",
       "echo === live GUCs ===",
-      "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -Atc \"SELECT name||'='||setting FROM pg_settings WHERE name IN ('shared_buffers','effective_cache_size','jit','max_parallel_workers','max_parallel_workers_per_gather','max_connections') ORDER BY 1;\" 2>/dev/null || echo \"(postgres not queryable)\""
+      "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -c \"SHOW shared_buffers;\" -c \"SHOW effective_cache_size;\" -c \"SHOW jit;\" -c \"SHOW max_parallel_workers;\" -c \"SHOW max_parallel_workers_per_gather;\" -c \"SHOW max_connections;\" || echo postgres_not_queryable"
     ]
     + (if $apply == 1 then [
-      "echo === apply: install overlay + recreate postgres (preserve env overrides) ===",
-      ("echo " + $overlay + " | base64 -d | sudo tee \"$OVERLAY\" >/dev/null"),
+      "echo === apply install overlay and recreate postgres ===",
+      ("printf %s " + $overlay + " | base64 -d | sudo tee \"$OVERLAY\" >/dev/null"),
       "sudo docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE\" -f \"$OVERLAY\" config --quiet",
       "cd \"$ROOT\"",
       "sudo docker compose --env-file \"$ENV_FILE\" -f \"$COMPOSE\" -f \"$OVERLAY\" up -d --no-deps --force-recreate postgres",
       "for i in $(seq 1 30); do if sudo docker exec tokenkey-postgres pg_isready -U tokenkey -d tokenkey >/dev/null 2>&1; then break; fi; sleep 2; done",
       "sudo docker exec tokenkey-postgres pg_isready -U tokenkey -d tokenkey",
       "echo === .env after ===",
-      "grep -E \"^POSTGRES_(MAX_CONNECTIONS|SHARED_BUFFERS|EFFECTIVE_CACHE_SIZE|MAINTENANCE_WORK_MEM|JIT|MAX_PARALLEL)\" \"$ENV_FILE\"",
+      "grep -E \"^POSTGRES_(MAX_CONNECTIONS|SHARED_BUFFERS|EFFECTIVE_CACHE_SIZE|MAINTENANCE_WORK_MEM|JIT|MAX_PARALLEL)\" \"$ENV_FILE\" || echo none",
       "echo === GUCs after ===",
-      "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -Atc \"SELECT name||'='||setting FROM pg_settings WHERE name IN ('shared_buffers','effective_cache_size','jit','max_parallel_workers','max_parallel_workers_per_gather','max_connections') ORDER BY 1;\""
+      "sudo docker exec tokenkey-postgres psql -U tokenkey -d tokenkey -c \"SHOW shared_buffers;\" -c \"SHOW effective_cache_size;\" -c \"SHOW jit;\" -c \"SHOW max_parallel_workers;\" -c \"SHOW max_parallel_workers_per_gather;\" -c \"SHOW max_connections;\""
     ] else [
-      "echo dry-run only; re-run with --apply to install overlay and recreate postgres"
+      "echo dry-run only. pass --apply to install overlay and recreate postgres"
     ] end)
   )
 }' >"${params_file}"

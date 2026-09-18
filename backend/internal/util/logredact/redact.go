@@ -127,6 +127,8 @@ type textRedactPatterns struct {
 	reJSONLike  *regexp.Regexp
 	reQueryLike *regexp.Regexp
 	rePlain     *regexp.Regexp
+	keyHints    []string
+	maxKeyBytes int
 }
 
 var (
@@ -145,7 +147,7 @@ func RedactMap(input map[string]any, extraKeys ...string) map[string]any {
 		return map[string]any{}
 	}
 	keys := buildKeySet(extraKeys)
-	redacted, ok := redactValueWithDepth(input, keys, 0).(map[string]any)
+	redacted, ok := redactValueWithDepth(input, keys, getTextRedactPatterns(extraKeys), 0).(map[string]any)
 	if !ok {
 		return map[string]any{}
 	}
@@ -161,7 +163,7 @@ func RedactJSON(raw []byte, extraKeys ...string) string {
 		return "<non-json payload redacted>"
 	}
 	keys := buildKeySet(extraKeys)
-	redacted := redactValueWithDepth(value, keys, 0)
+	redacted := redactValueWithDepth(value, keys, getTextRedactPatterns(extraKeys), 0)
 	encoded, err := json.Marshal(redacted)
 	if err != nil {
 		return "<redacted>"
@@ -195,20 +197,68 @@ func RedactText(input string, extraKeys ...string) string {
 // whitespace; only RedactText's legacy top-level API trims its input.
 func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	out := input
-	out = rePrivateKey.ReplaceAllString(out, "<private key redacted>")
-	out = reProviderToken.ReplaceAllString(out, "***")
-	out = reBearer.ReplaceAllString(out, "Bearer ***")
-	out = reGOCSPX.ReplaceAllString(out, "GOCSPX-***")
-	out = reAIza.ReplaceAllString(out, "AIza***")
-	out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
-	out = patterns.reQueryLike.ReplaceAllString(out, `$1=***`)
-	out = patterns.rePlain.ReplaceAllString(out, `$1$2***`)
+	// Each guard checks a necessary literal from its regexp, not a guess about
+	// what a credential looks like. Keep the replacement order and check the
+	// current output: earlier replacements can expose later matches.
+	if strings.Contains(out, "-----BEGIN ") {
+		out = rePrivateKey.ReplaceAllString(out, "<private key redacted>")
+	}
+	if strings.Contains(out, "sk-") || strings.Contains(out, "gh") ||
+		strings.Contains(out, "github_pat_") ||
+		strings.Contains(out, "glpat-") || strings.Contains(out, "AKIA") ||
+		strings.Contains(out, "ASIA") || strings.Contains(out, "LTAI") {
+		out = reProviderToken.ReplaceAllString(out, "***")
+	}
+	if containsBearer(out) {
+		out = reBearer.ReplaceAllString(out, "Bearer ***")
+	}
+	if strings.Contains(out, "GOCSPX-") {
+		out = reGOCSPX.ReplaceAllString(out, "GOCSPX-***")
+	}
+	if strings.Contains(out, "AIza") {
+		out = reAIza.ReplaceAllString(out, "AIza***")
+	}
+	if !patterns.mayContainAssignment(out) {
+		return out
+	}
+	if strings.Contains(out, ":") && strings.Contains(out, `"`) {
+		out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
+	}
+	if strings.Contains(out, "=") {
+		out = patterns.reQueryLike.ReplaceAllString(out, `$1=***`)
+	}
+	if strings.ContainsAny(out, ":=") {
+		out = patterns.rePlain.ReplaceAllString(out, `$1$2***`)
+	}
 	return out
+}
+
+func containsBearer(input string) bool {
+	// Bearer's letters have no non-ASCII Unicode case-fold equivalents.
+	// Avoid allocating a lowercase copy of every content string.
+	for len(input) >= len("bearer") {
+		i := strings.IndexAny(input, "bB")
+		if i < 0 || len(input)-i < len("bearer") {
+			return false
+		}
+		if strings.EqualFold(input[i:i+len("bearer")], "bearer") {
+			return true
+		}
+		input = input[i+1:]
+	}
+	return false
 }
 
 func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 	keyAlt := buildKeyAlternation(extraKeys)
+	keyHints := append(append([]string(nil), defaultSensitiveKeyList...), normalizeAndSortExtraKeys(extraKeys)...)
+	maxKeyBytes := 0
+	for _, key := range keyHints {
+		maxKeyBytes = max(maxKeyBytes, len(key))
+	}
 	return &textRedactPatterns{
+		keyHints:    keyHints,
+		maxKeyBytes: maxKeyBytes,
 		// JSON-like: "access_token":"..."
 		reJSONLike: regexp.MustCompile(`(?i)("(?:` + keyAlt + `)"\s*:\s*")([^"]*)(")`),
 		// Query-like: access_token=...
@@ -216,6 +266,46 @@ func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 		// Plain: access_token: ... / access_token = ...
 		rePlain: regexp.MustCompile(`(?i)\b((?:` + keyAlt + `))\b(\s*[:=]\s*)([^,\s]+)`),
 	}
+}
+
+// All key regexps require a sensitive key immediately before a : or =,
+// allowing whitespace and (for JSON-like text) a closing quote. Checking those
+// suffixes avoids running the large alternations over ordinary prose/code.
+func (p *textRedactPatterns) mayContainAssignment(input string) bool {
+	for offset := 0; offset < len(input); {
+		i := strings.IndexAny(input[offset:], ":=")
+		if i < 0 {
+			return false
+		}
+		end := offset + i
+		offset = end + 1
+		for end > 0 && strings.ContainsRune(" \t\r\n\f", rune(input[end-1])) {
+			end--
+		}
+		// Unicode regexp folding can change byte lengths (e.g. ſecret).
+		// Fall back conservatively if any possible key contains non-ASCII.
+		for j := max(0, end-4*p.maxKeyBytes-1); j < end; j++ {
+			if input[j] >= 0x80 {
+				return true
+			}
+		}
+		if p.hasKeySuffix(input[:end]) {
+			return true
+		}
+		if end > 0 && input[end-1] == '"' && p.hasKeySuffix(input[:end-1]) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *textRedactPatterns) hasKeySuffix(input string) bool {
+	for _, key := range p.keyHints {
+		if len(input) >= len(key) && strings.EqualFold(input[len(input)-len(key):], key) {
+			return true
+		}
+	}
+	return false
 }
 
 func getTextRedactPatterns(extraKeys []string) *textRedactPatterns {
@@ -296,7 +386,7 @@ func buildKeySet(extraKeys []string) map[string]struct{} {
 	return keys
 }
 
-func redactValueWithDepth(value any, keys map[string]struct{}, depth int) any {
+func redactValueWithDepth(value any, keys map[string]struct{}, patterns *textRedactPatterns, depth int) any {
 	if depth > maxRedactDepth {
 		return "<depth limit exceeded>"
 	}
@@ -309,23 +399,17 @@ func redactValueWithDepth(value any, keys map[string]struct{}, depth int) any {
 				out[k] = "***"
 				continue
 			}
-			out[k] = redactValueWithDepth(val, keys, depth+1)
+			out[k] = redactValueWithDepth(val, keys, patterns, depth+1)
 		}
 		return out
 	case []any:
 		out := make([]any, len(v))
 		for i, item := range v {
-			out[i] = redactValueWithDepth(item, keys, depth+1)
+			out[i] = redactValueWithDepth(item, keys, patterns, depth+1)
 		}
 		return out
 	case string:
-		var extraKeys []string
-		for key := range keys {
-			if _, builtin := defaultSensitiveKeys[key]; !builtin {
-				extraKeys = append(extraKeys, key)
-			}
-		}
-		return redactUnstructuredText(v, getTextRedactPatterns(extraKeys))
+		return redactUnstructuredText(v, patterns)
 	default:
 		return value
 	}
