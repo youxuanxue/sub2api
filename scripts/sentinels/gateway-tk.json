@@ -13223,6 +13223,47 @@
         "saturationRollingIncrScript"
       ],
       "rationale": "Antigravity shares the versioned rolling counter owner."
+    },
+    {
+      "path": "backend/ent/schema/group.go",
+      "must_contain": [
+        "field.JSON(\"model_routing\", domain.GroupModelRouting{})"
+      ],
+      "rationale": "groups.model_routing must stay domain.GroupModelRouting so Ent Scan tolerates legacy JSON arrays (incl. []). Reverting to map[string][]int64 reopens ListActiveGroups fleet-wide 500 on one poisoned row (prod sticky237 incident)."
+    },
+    {
+      "path": "backend/internal/domain/group_model_routing.go",
+      "must_contain": [
+        "type GroupModelRouting map[string][]int64",
+        "if data[0] == '[' {",
+        "*m = GroupModelRouting{}",
+        "model_routing must be a JSON object, not an array"
+      ],
+      "rationale": "Read path coerces array→{} (ListActiveGroups survival); Admin Parse rejects arrays on write. Upstream merge dropping either half reopens the poison or loses the write gate."
+    },
+    {
+      "path": "backend/internal/repository/group_repo.go",
+      "must_contain": [
+        "builder = builder.SetModelRouting(domain.GroupModelRouting(groupIn.ModelRouting))"
+      ],
+      "rationale": "Create/Update must pass domain.GroupModelRouting into Ent setters after the schema type change; a merge that restores map[string][]int64 setters without this cast fails compile, but a partial revert that drops the cast while keeping the schema type is the silent drift this pin catches."
+    },
+    {
+      "path": "backend/internal/service/admin_group.go",
+      "must_contain": [
+        "ModelRouting:                           domain.NormalizeGroupModelRouting(input.ModelRoutingEnabled, input.ModelRouting),",
+        "ModelRoutingEnabled:                    input.ModelRoutingEnabled,"
+      ],
+      "rationale": "CreateGroup historically omitted ModelRoutingEnabled on the persisted Group (always defaulted false). Pin both Normalize + Enabled assignment so an upstream rewrite of the CreateGroup literal cannot drop Enabled again."
+    },
+    {
+      "path": "backend/internal/handler/admin/group_handler.go",
+      "must_contain": [
+        "type modelRoutingPayload map[string][]int64",
+        "parsed, err := domain.ParseGroupModelRoutingJSON(data)",
+        "ModelRouting:                           req.ModelRouting.asMap(),"
+      ],
+      "rationale": "Admin Create/Update must reject JSON-array model_routing before it reaches the DB. Pins the payload type, Parse reject path, and asMap() handoff so an upstream group_handler rewrite cannot restore bare map[string][]int64 binding that only fails with opaque bind errors."
     }
   ]
 }

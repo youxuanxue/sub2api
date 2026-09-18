@@ -12,6 +12,8 @@
 #   tk_probe_ensure_group SCOPE PLATFORM    -> sets TK_PROBE_GROUP_ID
 #   tk_probe_ensure_key SCOPE               -> sets TK_PROBE_KEY (requires GROUP_ID)
 #   tk_probe_bind_account_ids SCOPE IDS     -> comma/space-separated account ids
+#   tk_probe_sql_scalar SQL                  -> first trimmed result cell
+#   tk_probe_assert_model_routing_object GID -> require/repair model_routing JSON object (never [])
 #   tk_probe_resolve_source_group GROUP      -> exact group name, or unique case-insensitive match
 #   tk_probe_bind_from_group SCOPE GNAME    -> copy schedulable accounts from source group name (legacy)
 #   tk_probe_bind_from_group_id SCOPE GID    -> copy schedulable accounts from source group id
@@ -66,6 +68,43 @@ tk_probe_sql_scalar() {
 
 tk_probe_sql_first_line() {
 	tk_probe_psql -c "$1" | head -n1
+}
+
+# Ent Group.ModelRouting is map[string][]int64 (JSON object). A JSON array
+# (including empty []) makes ListActiveGroups fail for the whole fleet and
+# turns every universal-key request into 500. Probe writers must use
+# '{}'::jsonb — never '[]'::jsonb — and call this after INSERT/UPSERT.
+tk_probe_assert_model_routing_object() { # $1=group_id
+	local gid="$1" mr_type
+	if [[ ! "$gid" =~ ^[0-9]+$ ]]; then
+		echo "probe_reserved_resources: assert_model_routing_object requires numeric group_id" >&2
+		return 1
+	fi
+	mr_type="$(tk_probe_sql_scalar "
+SELECT COALESCE(jsonb_typeof(model_routing), 'null')
+FROM groups WHERE id = ${gid} AND deleted_at IS NULL;
+")"
+	if [ "$mr_type" = "array" ]; then
+		echo "probe_reserved_resources: repairing model_routing array→object for group_id=${gid}" >&2
+		tk_probe_psql -c "
+UPDATE groups
+SET model_routing = '{}'::jsonb, updated_at = NOW()
+WHERE id = ${gid}
+  AND deleted_at IS NULL
+  AND jsonb_typeof(model_routing) = 'array';
+" >/dev/null
+		mr_type="$(tk_probe_sql_scalar "
+SELECT COALESCE(jsonb_typeof(model_routing), 'null')
+FROM groups WHERE id = ${gid} AND deleted_at IS NULL;
+")"
+	fi
+	case "$mr_type" in
+	object | null) return 0 ;;
+	*)
+		echo "probe_reserved_resources: group_id=${gid} model_routing type=${mr_type} (want object|null)" >&2
+		return 1
+		;;
+	esac
 }
 
 tk_probe_resolve_source_group() { # $1=requested group name -> stdout actual active group name
@@ -354,6 +393,7 @@ RETURNING id;
 		echo "probe_reserved_resources: failed to ensure group for scope=$scope" >&2
 		return 1
 	fi
+	tk_probe_assert_model_routing_object "$TK_PROBE_GROUP_ID" || return 1
 	tk_probe_psql -c "
 INSERT INTO user_allowed_groups (user_id, group_id, created_at)
 VALUES (${TK_PROBE_USER_ID}, ${TK_PROBE_GROUP_ID}, NOW())

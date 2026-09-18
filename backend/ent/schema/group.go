@@ -208,8 +208,10 @@ func (Group) Fields() []ent.Field {
 			Nillable().
 			Comment("无效请求兜底使用的分组 ID"),
 
-		// 模型路由配置 (added by migration 040)
-		field.JSON("model_routing", map[string][]int64{}).
+		// 模型路由配置 (added by migration 040).
+		// domain.GroupModelRouting tolerates legacy JSON arrays on read so one
+		// poisoned row cannot fail ListActiveGroups fleet-wide.
+		field.JSON("model_routing", domain.GroupModelRouting{}).
 			Optional().
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
 			Comment("模型路由配置：模型模式 -> 优先账号ID列表"),
