@@ -5,7 +5,6 @@ package service
 import (
 	"context"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -28,29 +27,16 @@ func TestCandidatePathContextPreparerCachesPerGroup(t *testing.T) {
 		body:     []byte(`{"model":"alias","messages":[{"role":"user","content":"hi"}]}`),
 	}
 
-	var pathContextCalls atomic.Int64
-	prepared := make(map[int64]candidatePreparedPath)
-	prepare := func(ctx context.Context, group *Group) (context.Context, string, ChannelMappingResult, error) {
-		if result, ok := prepared[group.ID]; ok {
-			return result.ctx, result.model, result.channel, result.err
-		}
-		pathContextCalls.Add(1)
-		result := candidatePreparedPath{}
-		result.ctx, result.model, result.channel, result.err = request.pathContext(ctx, group)
-		prepared[group.ID] = result
-		return result.ctx, result.model, result.channel, result.err
-	}
-
+	prepare := candidatePathContextPreparer(request)
 	ctxA, modelA, _, err := prepare(context.Background(), &groups[0])
 	require.NoError(t, err)
 	ctxAgain, _, _, err := prepare(context.Background(), &groups[0])
 	require.NoError(t, err)
-	require.Same(t, ctxA, ctxAgain)
+	require.Same(t, ctxA, ctxAgain, "production preparer must reuse the cached pathContext")
 	_, modelB, _, err := prepare(context.Background(), &groups[1])
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5.4", modelA)
 	require.Equal(t, "gpt-5.4-mini", modelB)
-	require.Equal(t, int64(2), pathContextCalls.Load(), "pathContext must run once per group")
 }
 
 func TestCandidatesReusesPreparedPathContextAcrossAccounts(t *testing.T) {
@@ -71,33 +57,25 @@ func TestCandidatesReusesPreparedPathContextAcrossAccounts(t *testing.T) {
 		body:     body,
 	}
 
-	var pathContextCalls atomic.Int64
-	prepared := make(map[int64]candidatePreparedPath)
-	countingPrepare := func(ctx context.Context, group *Group) (context.Context, string, ChannelMappingResult, error) {
-		if hit, ok := prepared[group.ID]; ok {
-			return hit.ctx, hit.model, hit.channel, hit.err
-		}
-		pathContextCalls.Add(1)
-		out := candidatePreparedPath{}
-		out.ctx, out.model, out.channel, out.err = request.pathContext(ctx, group)
-		prepared[group.ID] = out
-		return out.ctx, out.model, out.channel, out.err
-	}
+	prepare := candidatePathContextPreparer(request)
+	var firstCtx context.Context
 	for i := range accounts {
-		path, err := request.evaluatePathWithPreparation(context.Background(), &accounts[i], &groups[0], countingPrepare)
+		path, err := request.evaluatePathWithPreparation(context.Background(), &accounts[i], &groups[0], prepare)
 		require.NoError(t, err)
 		require.NotNil(t, path)
+		if i == 0 {
+			firstCtx = path.ctx
+		} else {
+			require.Same(t, firstCtx, path.ctx, "all accounts in one selection share one prepared pathContext")
+		}
 	}
-	require.Equal(t, int64(1), pathContextCalls.Load(), "selection must not re-parse body per account")
 
-	// A fresh preparer (revalidate / next selectAccount) must parse again.
-	pathContextCalls.Store(0)
-	_, err := request.evaluatePathWithPreparation(context.Background(), &accounts[0], &groups[0], func(ctx context.Context, group *Group) (context.Context, string, ChannelMappingResult, error) {
-		pathContextCalls.Add(1)
-		return request.pathContext(ctx, group)
-	})
+	// A fresh preparer (revalidate / next selectAccount) must allocate a new ctx.
+	freshPrepare := candidatePathContextPreparer(request)
+	path, err := request.evaluatePathWithPreparation(context.Background(), &accounts[0], &groups[0], freshPrepare)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), pathContextCalls.Load(), "refresh/revalidate path must see fresh pathContext")
+	require.NotNil(t, path)
+	require.NotSame(t, firstCtx, path.ctx, "refresh/revalidate path must see a fresh pathContext")
 }
 
 func TestEvaluatePathBodyModelCandidatesCachedWhenAllowlistEnabled(t *testing.T) {
@@ -135,9 +113,15 @@ func TestWithRequestRejectsMistypedStreamWithoutFullUnmarshal(t *testing.T) {
 	_, ok := ProtocolRoutingRequest(ctx)
 	require.False(t, ok, "mistyped stream must fail closed like json.Unmarshal into bool")
 
+	nullBody := []byte(`{"model":"gpt-5.4","stream":null,"type":null,"messages":[{"role":"user","content":"hi"}]}`)
+	ctx = r.WithRequest(context.Background(), ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", nullBody)
+	req, ok := ProtocolRoutingRequest(ctx)
+	require.True(t, ok, "JSON null stream/type must match encoding/json zero-value Unmarshal")
+	require.False(t, req.Profile().Stream)
+
 	okBody := []byte(`{"model":"gpt-5.4","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	ctx = r.WithRequest(context.Background(), ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", okBody)
-	req, ok := ProtocolRoutingRequest(ctx)
+	req, ok = ProtocolRoutingRequest(ctx)
 	require.True(t, ok)
 	require.True(t, req.Profile().Stream)
 }

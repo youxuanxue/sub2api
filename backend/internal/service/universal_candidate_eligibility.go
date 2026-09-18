@@ -90,13 +90,14 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 	}
 	// Only stream/type are needed here. Full encoding/json Unmarshal walks the
 	// entire payload and dominated live CPU under candidate selection. Match the
-	// old Unmarshal-into-struct fail-closed rules for mistyped fields.
+	// old Unmarshal-into-struct fail-closed rules for mistyped fields; JSON null
+	// still maps to the zero value (false / "") like encoding/json.
 	streamRes := gjson.GetBytes(body, "stream")
-	if streamRes.Exists() && streamRes.Type != gjson.True && streamRes.Type != gjson.False {
+	if streamRes.Exists() && streamRes.Type != gjson.True && streamRes.Type != gjson.False && streamRes.Type != gjson.Null {
 		return ctx
 	}
 	typeRes := gjson.GetBytes(body, "type")
-	if typeRes.Exists() && typeRes.Type != gjson.String {
+	if typeRes.Exists() && typeRes.Type != gjson.String && typeRes.Type != gjson.Null {
 		return ctx
 	}
 	stream := streamRes.Bool() || typeRes.String() == "response.create" || strings.Contains(path, ":streamGenerateContent")
