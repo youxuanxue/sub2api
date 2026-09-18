@@ -495,6 +495,12 @@ func TestBilling_FableOverlayEnablesCacheBreakdown(t *testing.T) {
 	require.True(t, pricing.SupportsCacheBreakdown, "1h > 5m price must enable breakdown")
 	require.InDelta(t, 1.25e-5, pricing.CacheCreation5mPrice, 1e-15)
 	require.InDelta(t, 2e-5, pricing.CacheCreation1hPrice, 1e-15)
+
+	pricing51, err := billing.GetModelPricing("claude-fable-5-1")
+	require.NoError(t, err)
+	require.InDelta(t, pricing.InputPricePerToken, pricing51.InputPricePerToken, 1e-15,
+		"claude-fable-5-1 must resolve through the overlay alias onto the Fable 5 card")
+	require.InDelta(t, pricing.OutputPricePerToken, pricing51.OutputPricePerToken, 1e-15)
 }
 
 // TestBilling_Fable1hCacheCreationCost_ProdShape is the regression reproduction

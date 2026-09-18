@@ -278,6 +278,11 @@ func TestAccountModelMappingFloorForOps_ExportsAccountOverrides(t *testing.T) {
 			override.ModelMapping,
 			"account override must remain narrower than its shared channel floor",
 		)
+		if account.IsCursor() {
+			require.Equal(t, "claude-fable-5-1", override.ModelMapping["claude-fable-5-1"],
+				"Cursor override must keep Fable 5.1 after policy acknowledgement; live restore is apply-accounts")
+			require.Equal(t, "claude-fable-5", override.ModelMapping["claude-fable-5"])
+		}
 	}
 
 }
