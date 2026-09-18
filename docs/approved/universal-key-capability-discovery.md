@@ -5,8 +5,8 @@ approved_by: "xuejiao (对话审批 2026-08-18)"
 approved_at: "2026-08-18"
 authors: [agent]
 created: 2026-08-18
-revised_at: 2026-08-27
-related_design: docs/approved/universal-key-routing.md, docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/protocol-routing-ssot.md
+revised_at: 2026-09-18
+related_design: docs/approved/universal-key-routing.md, docs/approved/pricing-serving-single-source-of-truth.md, docs/approved/protocol-routing-ssot.md, docs/approved/discovery-require-live-account.md
 related_stories: [.testing/user-stories/stories/US-046-universal-key-capability-discovery.md]
 ---
 
@@ -22,7 +22,7 @@ related_stories: [.testing/user-stories/stories/US-046-universal-key-capability-
 2. **一个凭证，显式协议适配。** 一把自动路由 key 可用于 OpenAI、Anthropic、Gemini、Codex 与 Antigravity 客户端，但每个发现入口按自己的协议语义返回模型子集，不提供一张混合所有协议和模态的扁平厂商墙。
 3. **一个发现投影 owner。** 后端按用户授权组和新执行的 canonical RequestPlan 生成 `key + protocol + operation/action` 投影。网站与发现入口只消费该投影，不再各自拼接授权、价目、平台 catalog 或 route 条件；该投影不是第二个交付真相。
 4. **标准入口保持原生 schema。** OpenAI 入口返回 OpenAI model object，Anthropic 入口返回 Anthropic model object，Gemini 返回 Gemini `ListModelsResponse`，Codex 与 Antigravity 保留现有客户端契约。跨平台内部元数据只出现在已登录站内 API，不污染标准协议响应。
-5. **列出代表存在可规划路径，不承诺瞬时容量。** 对某把 key、协议和新执行 operation 列出的模型，必须能以代表性请求形状对至少一个授权账号完成 RequestPlan dry planning。真正请求仍重新使用自己的 CanonicalRequest，并由 RuntimeReadiness 决定当前账号与容量。image/video 发现只表示可以创建新执行；task status/result/fetch 由已有 task id、ownership 和 canonical task record 决定，不做 discovery dry planning。授权或发现计算失败时返回错误，不伪装成 HTTP 200 空列表。
+5. **列出代表存在可规划的活路径，不承诺瞬时容量。** 对某把 key、协议和新执行 operation 列出的模型，必须能以代表性请求形状对至少一个授权账号完成 RequestPlan dry planning，且该路径落在 **活账号**（`status=active` 且 `Schedulable=true`；详见 [`discovery-require-live-account.md`](discovery-require-live-account.md)）。真正请求仍重新使用自己的 CanonicalRequest，并由 RuntimeReadiness 决定当前账号与容量（含 `temp_unschedulable` / rate-limit / overload）。image/video 发现只表示可以创建新执行；task status/result/fetch 由已有 task id、ownership 和 canonical task record 决定，不做 discovery dry planning。授权或发现计算失败时返回错误，不伪装成 HTTP 200 空列表。
 
 ## Capability Contract
 
@@ -34,9 +34,9 @@ related_stories: [.testing/user-stories/stories/US-046-universal-key-capability-
 - `modalities`：由 operation 的代表性请求形状派生的 text、image、audio、video 等内容能力
 - `routes[]`：每个 protocol/operation dry plan 命中的授权组摘要；另提供首条 route 的 `selected_group` 供现有菜单渐进接入。两者只供已认证的网站展示价格和服务归属，不持久化 route graph
 
-候选模型来自授权组实际账号的 model mapping；原生单厂商空映射账号可使用该平台的 client-facing catalog projection 作为透传候选。每个候选必须调用 RequestPlan 的无网络 dry-planning 入口验证至少一条新执行合法路径。
+候选模型来自授权组 **活账号** 的 model mapping；原生单厂商空映射活账号可使用该平台的 client-facing catalog projection 作为透传候选。每个候选必须调用 RequestPlan 的无网络 dry-planning 入口验证至少一条新执行合法路径，且该路径落在活账号上。`temp_unschedulable` / rate-limit / overload 不参与发现门禁。
 
-`UniversalGroupSupportsRequest` 在迁移期只能保留为兼容 adapter：它必须委托 canonical dry planner，不能保存或重算 model、protocol、endpoint、adapter、transport 的规则。投影 owner 不维护第二套平台、模型、协议、operation 或优先级表，也不读取 availability 作为请求 gate。
+`UniversalGroupSupportsRequest` 在迁移期只能保留为兼容 adapter：它必须委托 canonical dry planner，不能保存或重算 model、protocol、endpoint、adapter、transport 的规则。投影 owner 不维护第二套平台、模型、协议、operation 或优先级表，也不读取瞬时 availability（RPM/会话窗/短窗冷却）作为请求 gate；长期不可调度由 [`discovery-require-live-account.md`](discovery-require-live-account.md) 的 live 谓词覆盖。
 
 ## Projections
 
