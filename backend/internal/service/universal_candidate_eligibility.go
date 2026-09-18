@@ -17,9 +17,12 @@ var ErrUniversalCapacityUnavailable = errors.New("universal key: entitled pools 
 // UniversalCapacityError wraps ErrUniversalCapacityUnavailable with the best
 // known platform when entitled pools support the model but none are currently
 // schedulable. Ops uses Platform for attribution when no backing group was bound.
+// Diag carries selection filter counts when the candidate scheduler produced the
+// capacity miss; Resolve-only paths may leave it nil.
 type UniversalCapacityError struct {
 	Platform string
 	GroupID  int64
+	Diag     *CandidateCapacityDiag
 }
 
 func (e *UniversalCapacityError) Error() string {
@@ -31,12 +34,12 @@ func (e *UniversalCapacityError) Error() string {
 
 func (e *UniversalCapacityError) Unwrap() error { return ErrUniversalCapacityUnavailable }
 
-func newUniversalCapacityError(platform string, groupID int64) error {
+func newUniversalCapacityError(platform string, groupID int64, diag *CandidateCapacityDiag) error {
 	platform = strings.TrimSpace(platform)
-	if platform == "" && groupID <= 0 {
+	if platform == "" && groupID <= 0 && diag == nil {
 		return ErrUniversalCapacityUnavailable
 	}
-	return &UniversalCapacityError{Platform: platform, GroupID: groupID}
+	return &UniversalCapacityError{Platform: platform, GroupID: groupID, Diag: diag}
 }
 
 func (r *UniversalRoutingResolver) SetCandidateEvaluator(router *protocolrouter.Router, evaluate groupCandidateEvaluator) {
@@ -188,7 +191,7 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 	}
 	if supported {
 		if capacityHint != nil {
-			return nil, newUniversalCapacityError(capacityHint.Platform, capacityHint.ID)
+			return nil, newUniversalCapacityError(capacityHint.Platform, capacityHint.ID, nil)
 		}
 		return nil, ErrUniversalCapacityUnavailable
 	}

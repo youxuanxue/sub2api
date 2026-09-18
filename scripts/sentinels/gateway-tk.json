@@ -1139,6 +1139,7 @@
       "path": "backend/internal/service/candidate_request_tk.go",
       "must_contain": [
         "type CandidateRequest struct",
+        "capacityDiag          *CandidateCapacityDiag",
         "func (r *CandidateRequest) pathContext(",
         "ResolveCandidateContinuation(ctx, key, eligible, previous)",
         "CheckCandidateBillingEligibility",
@@ -1146,9 +1147,10 @@
         "r.peekGroupRPM(ctx, billing, r.key.User, group)",
         "r.checkRPM(ctx, billing, r.key.User, selected.group)",
         "r.rpm = candidateRPMAdmission{}",
-        "IsExplicitImageGenerationIntent(\"\", model, request.Body())"
+        "IsExplicitImageGenerationIntent(\"\", model, request.Body())",
+        "func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error"
       ],
-      "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution."
+      "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution. Empty-pool capacity errors carry the request-local selection diagnostics."
     },
     {
       "path": "backend/internal/service/candidate_failure_tk.go",
@@ -1253,9 +1255,27 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "preparePath := candidatePathContextPreparer(r)", "r.evaluatePathWithPreparation(ctx, account, group, preparePath)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "failureCounts := r.failureCounts(ctx, pool)", "candidateSelectionEffectivePriority(a.account, counts, failureCounts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
+      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "preparePath := candidatePathContextPreparer(r)", "r.evaluatePathWithPreparation(ctx, account, group, preparePath)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "failureCounts := r.failureCounts(ctx, pool)", "candidateSelectionEffectivePriority(a.account, counts, failureCounts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)", "diag := &CandidateCapacityDiag{AccountTotal: len(accounts)}", "r.pathReadyReason(path, options)"],
       "must_not_contain": ["lessUniversalBacking(", ".SortOrder", "candidateOccupancy("],
-      "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight. pathContext is memoized once per group within a single candidates() call so request-body ParseCanonicalRequest is not repeated per account."
+      "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight. pathContext is memoized once per group within a single candidates() call so request-body ParseCanonicalRequest is not repeated per account. Empty-pool misses accumulate reject reasons into CandidateCapacityDiag."
+    },
+    {
+      "path": "backend/internal/service/candidate_capacity_diag_tk.go",
+      "must_contain": [
+        "type CandidateCapacityDiag struct",
+        "func (d *CandidateCapacityDiag) RejectSummary()",
+        "func CandidateCapacityDiagFromError(err error) *CandidateCapacityDiag"
+      ],
+      "rationale": "Capacity-unavailable selection diagnostics stay in one owner so ingress can log account_total/supported/ready/reject_reasons without inventing a second filter counter."
+    },
+    {
+      "path": "backend/internal/service/candidate_capacity_diag_tk_test.go",
+      "must_contain": [
+        "TestCandidateCapacityDiagRejectSummaryStable",
+        "TestCandidateCapacityDiagFromError",
+        "TestGlobalCandidateCapacityErrorCarriesPathReadyDiag"
+      ],
+      "rationale": "Protect stable reject summaries and the guarantee that candidate-selection capacity misses carry pathReady diagnostics."
     },
     {
       "path": "backend/internal/repository/account_repo_tk_candidates.go",
@@ -1819,10 +1839,11 @@
         "gatewayRequestThinkingEnabled(body, string(inbound))",
         "group.IsSubscriptionType() != best.group.IsSubscriptionType()",
         "ErrUniversalCapacityUnavailable",
+        "Diag     *CandidateCapacityDiag",
         "!state.Supported || !state.Available",
         "unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable))"
       ],
-      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence."
+      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence. UniversalCapacityError may carry selection diagnostics."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -1832,9 +1853,11 @@
         "c.Set(service.OpsRoutingInternalErrorKey, true)",
         "c.Set(service.OpsInternalErrorDetailKey, detail)",
         "writeUniversalRoutingCapacityError",
+        "service.CandidateCapacityDiagFromError(err)",
+        "zap.String(\"reject_reasons\", summary)",
         "apiKey.GroupID = &backing.ID"
       ],
-      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model."
+      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model. capacity_unavailable logs selection filter counts when present."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",
