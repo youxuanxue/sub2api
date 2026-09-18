@@ -12,7 +12,7 @@ import (
 
 const openaiSaturationCountPrefix = "openai_saturation_count:account:"
 
-var openaiSaturationIncrScript = redis.NewScript(`
+var candidateFailureIncrScript = redis.NewScript(`
 	local key = KEYS[1]
 	local window = tonumber(ARGV[1])
 
@@ -23,6 +23,10 @@ var openaiSaturationIncrScript = redis.NewScript(`
 
 	return count
 `)
+
+// openaiSaturationIncrScript keeps the historical sentinel symbol; the rolling
+// ZSET implementation is shared as saturationRollingIncrScript.
+var openaiSaturationIncrScript = saturationRollingIncrScript
 
 type openaiSaturationCounterCache struct {
 	rdb *redis.Client
@@ -36,7 +40,7 @@ func (c *openaiSaturationCounterCache) IncrementCandidateFailure(ctx context.Con
 	if scope.AccountID <= 0 || scope.Model == "" || windowSeconds <= 0 {
 		return 0, fmt.Errorf("invalid candidate failure scope or window")
 	}
-	return openaiSaturationIncrScript.Run(ctx, c.rdb, []string{candidateFailureKey(scope)}, windowSeconds).Int64()
+	return candidateFailureIncrScript.Run(ctx, c.rdb, []string{candidateFailureKey(scope)}, windowSeconds).Int64()
 }
 
 func (c *openaiSaturationCounterCache) GetCandidateFailures(ctx context.Context, scopes []service.CandidateFailureScope) (map[service.CandidateFailureScope]int64, error) {
@@ -82,31 +86,24 @@ func (c *openaiSaturationCounterCache) IncrementSaturation(ctx context.Context, 
 	return count, nil
 }
 
-func (c *openaiSaturationCounterCache) GetSaturationBatch(ctx context.Context, accountIDs []int64) (map[int64]int64, error) {
+func (c *openaiSaturationCounterCache) GetSaturationBatch(ctx context.Context, accountIDs []int64, windowSeconds int) (map[int64]int64, error) {
 	out := make(map[int64]int64, len(accountIDs))
 	if len(accountIDs) == 0 {
 		return out, nil
+	}
+	cutoff, err := rollingSaturationCutoffMS(ctx, c.rdb, windowSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("get openai saturation time: %w", err)
 	}
 	keys := make([]string, len(accountIDs))
 	for i, id := range accountIDs {
 		keys[i] = openaiSaturationKey(id)
 	}
-	vals, err := c.rdb.MGet(ctx, keys...).Result()
+	counts, err := zcountRollingSaturation(ctx, c.rdb, keys, cutoff)
 	if err != nil {
-		return nil, fmt.Errorf("mget openai saturation: %w", err)
+		return nil, fmt.Errorf("zcount openai saturation: %w", err)
 	}
-	for i, v := range vals {
-		if v == nil {
-			continue
-		}
-		s, ok := v.(string)
-		if !ok {
-			continue
-		}
-		n, convErr := strconv.ParseInt(s, 10, 64)
-		if convErr != nil {
-			continue
-		}
+	for i, n := range counts {
 		if n != 0 {
 			out[accountIDs[i]] = n
 		}

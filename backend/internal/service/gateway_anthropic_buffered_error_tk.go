@@ -194,7 +194,9 @@ func (s *GatewayService) tkAnthropicBufferedFailoverError(
 		failoverErr.ResponseBody,
 		requestedModel,
 	)
-	failoverErr.RetryableOnSameAccount = !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(failoverErr.StatusCode)
+	failoverErr.RetryableOnSameAccount = !shouldDisable &&
+		!tkIsAccountCapacityFailure(account, failoverErr.StatusCode, "", failoverErr.ResponseBody) &&
+		account.IsPoolMode() && account.IsPoolModeRetryableStatus(failoverErr.StatusCode)
 	return failoverErr
 }
 
@@ -229,7 +231,8 @@ func (s *OpenAIGatewayService) tkAnthropicBufferedFailoverError(
 		base.ResponseBody,
 		base.ClientMessage,
 		shouldDisable,
-		account.IsPoolMode() && account.IsPoolModeRetryableStatus(base.StatusCode),
+		!tkIsAccountCapacityFailure(account, base.StatusCode, "", base.ResponseBody) &&
+			account.IsPoolMode() && account.IsPoolModeRetryableStatus(base.StatusCode),
 	)
 	failoverErr.ClientStatusCode = base.ClientStatusCode
 	failoverErr.ClientErrorType = base.ClientErrorType

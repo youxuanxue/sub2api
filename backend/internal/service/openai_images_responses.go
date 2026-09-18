@@ -1895,7 +1895,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 				respBody,
 				upstreamMsg,
 				shouldDisable,
-				!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				!shouldDisable && tkRetryableOnSameAccount(account, resp, respBody),
 			)
 		}
 		return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, requestModel)
@@ -2137,6 +2137,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthResponseError(
 		responseBody,
 		upstreamErr.clientMessage(),
 		shouldDisable,
-		!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstreamErr.StatusCode),
+		!shouldDisable && !tkIsAccountCapacityFailure(
+			account, upstreamErr.StatusCode, upstreamErr.clientMessage(), responseBody) &&
+			account.IsPoolMode() && account.IsPoolModeRetryableStatus(upstreamErr.StatusCode),
 	)
 }

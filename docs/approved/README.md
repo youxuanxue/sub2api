@@ -89,6 +89,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | [`openai-compat-first-selection-failure.md`](openai-compat-first-selection-failure.md) | OpenAI-compatible first-selection failure contract |
 | [`universal-key-routing.md`](universal-key-routing.md) | Universal key routing |
 | [`candidate-eligibility-ssot.md`](candidate-eligibility-ssot.md) | Candidate scheduling policy and implementation boundary |
+| [`rolling-capacity-saturation.md`](rolling-capacity-saturation.md) | Rolling account-capacity saturation scheduling |
 | [`candidate-request-policy-convergence.md`](candidate-request-policy-convergence.md) | Direct/Universal model mapping boundary and continuation migration impact |
 | [`universal-key-capability-discovery.md`](universal-key-capability-discovery.md) | Per-key protocol/operation discovery |
 | [`grok-relay-first-class-platform.md`](grok-relay-first-class-platform.md) | Grok relay platform |

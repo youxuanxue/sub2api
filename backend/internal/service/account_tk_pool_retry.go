@@ -7,10 +7,16 @@ import "net/http"
 // 之上**追加**的状态码。
 //
 // 503/529：TK 的 pool_mode 账号全部是 prod→edge（或 prod→兼容网关）转发 stub ——
-// edge 透回的 529（上游过载）/ 503（no available accounts）再打同一上游 URL，会
-// 轮换到下个真实账号或等其 overload/session 窗恢复。因此这两类瞬时错误应触发
+// edge 透回的**未分类** 529（上游过载）/ 503 再打同一上游 URL，会轮换到下个
+// 真实账号或等其 overload/session 窗恢复。因此这两类瞬时错误默认触发
 // **同账号重试 = 池内轮换**，而不是立刻换 prod 账号、把瞬时错误透给客户端
 // （现场：edge us1 整体瞬时 529/503 时 prod 单 stub 直接耗尽透出）。
+//
+// 例外（见 tkIsAccountCapacityFailure + docs/approved/rolling-capacity-saturation.md）：
+// 已分类的 account-capacity envelope（no available accounts、failover-exhausted、
+// OpenAI native capacity 503 等）必须立刻切 stub/账号，不再同账号重试。当前
+// empty-pool 快失败主路径是 429（非权威头），本来就会切号；本例外把 legacy 503
+// no-available 与其它平台容量分类对齐到同一语义。
 //
 // 为什么不直接改 upstream 的 defaultPoolModeRetryableStatusCodes：上游特意把
 // 502/503/504 排除在默认外（默认开启会改变所有 pool 部署行为）。这里以
@@ -18,6 +24,25 @@ import "net/http"
 // 冲突），又让 TK 部署的转发 stub 默认获得 503/529 池内轮换。per-account 的
 // pool_mode_retry_status_codes 显式配置仍然优先覆盖本默认（显式空列表可全关）。
 var tkExtraPoolModeRetryableStatusCodes = []int{503, 529}
+
+func tkIsAccountCapacityFailure(account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool {
+	if account == nil {
+		return false
+	}
+	if account.Platform == PlatformAnthropic {
+		return tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) ||
+			tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody) ||
+			tkSkipDownstreamKiroServiceUnavailablePenalty(account, statusCode, upstreamMsg, responseBody)
+	}
+	if account.Platform == PlatformAntigravity {
+		return tkIsAntigravityRelayCapacityResponse(account, statusCode, responseBody)
+	}
+	if IsOpenAICompatPlatform(account.Platform) {
+		return tkSkipOpenAIDownstreamCapacityPenalty(account, statusCode, upstreamMsg, responseBody) ||
+			shouldRecordOpenAICapacitySaturation(account, statusCode, upstreamMsg, responseBody)
+	}
+	return false
+}
 
 // tkIsPoolModeRetryableStatus 按 TK 默认（= upstream 默认 ∪ {503,529}）判断状态码
 // 是否应触发同账号重试。作为 account.IsPoolModeRetryableStatus 在账号未显式配置
@@ -43,6 +68,13 @@ func tkIsPoolModeRetryableStatus(statusCode int) bool {
 // 带权威头的真窗口限流仍照常 RetryableOnSameAccount。
 func tkRetryableOnSameAccount(account *Account, resp *http.Response, responseBody []byte) bool {
 	if account == nil || resp == nil {
+		return false
+	}
+	if account.Platform == PlatformAnthropic && resp.StatusCode == http.StatusTooManyRequests &&
+		!tkIsAnthropicNonAuthoritative429(resp.Header, responseBody) {
+		return account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode)
+	}
+	if tkIsAccountCapacityFailure(account, resp.StatusCode, "", responseBody) {
 		return false
 	}
 	if !account.IsPoolMode() || !account.IsPoolModeRetryableStatus(resp.StatusCode) {

@@ -1253,7 +1253,7 @@
     },
     {
       "path": "backend/internal/service/candidate_selection_tk.go",
-      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "r.mergeFailureCounts(ctx, pool, counts)", "candidateEffectivePriority(a.account, counts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
+      "must_contain": ["list.ListCandidateAccounts(ctx, ids)", "r.evaluatePath(ctx, account, group)", "selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins", "pool = recoverCandidateWindowPool(pool)", "failureCounts := r.failureCounts(ctx, pool)", "candidateSelectionEffectivePriority(a.account, counts, failureCounts)", "gw.tryAcquireAccountSlot(ctx, path.account.ID, path.account.Concurrency)", "r.recheck(path, options)", "gw.candidateSaturationState().counts(ctx, accounts, r.model)"],
       "must_not_contain": ["lessUniversalBacking(", ".SortOrder", "candidateOccupancy("],
       "rationale": "The production selector unions complete account paths before payment-tier recovery, account ordering, capacity acquisition and fresh authorization/Plan checks. Group display order cannot return as an account weight."
     },
@@ -1766,7 +1766,7 @@
       "must_contain": [
         "type candidateSaturationState struct",
         "resolveFinalAntigravityModelKey",
-        "reader.GetSaturationBatch(ctx, scopes)",
+        "reader.GetSaturationBatch(ctx, scopes, edgeMirrorStubSaturationWindowSeconds)",
         "count >= edgeMirrorStubSaturationThreshold",
         "IsAnthropicSaturatedStubDeprioritizeEnabled",
         "IsOpenAISaturatedStubDeprioritizeEnabled",
@@ -7087,8 +7087,8 @@
     {
       "path": "backend/internal/service/edge_mirror_stub_saturation_tk.go",
       "must_contain": [
-        "edgeMirrorStubSaturationWindowSeconds = 90",
-        "edgeMirrorStubSaturationThreshold int64 = 3",
+        "edgeMirrorStubSaturationWindowSeconds = 600",
+        "edgeMirrorStubSaturationThreshold int64 = 12",
         "anthropicSaturationPriorityPenalty = 1000",
         "openAISaturationScorePenalty = 50.0"
       ],
@@ -7123,14 +7123,24 @@
       "rationale": "Anthropic prod mirror downstream-empty regression: saturation counter feeds preference only; sustained empty-pool / non-authoritative-429 / legacy 502 paths must not write prod-side model_rate_limits or advance ladder."
     },
     {
+      "path": "backend/internal/repository/saturation_rolling_counter.go",
+      "must_contain": [
+        "var saturationRollingIncrScript",
+        "func rollingSaturationCutoffMS(",
+        "func zcountRollingSaturation("
+      ],
+      "rationale": "Shared rolling ZSET saturation counter primitives. Anthropic/OpenAI/Antigravity counters must reuse this script and batch ZCOUNT helper so window semantics cannot drift."
+    },
+    {
       "path": "backend/internal/repository/anthropic_saturation_counter_cache.go",
       "must_contain": [
         "func NewAnthropicSaturationCounterCache(",
         "anthropic_saturation_count:account:",
         "anthropicSaturationIncrScript",
+        "saturationRollingIncrScript",
         "func (c *anthropicSaturationCounterCache) GetSaturationBatch("
       ],
-      "rationale": "Redis-backed fixed-window counter for the saturation de-prioritization. The INCR+EXPIRE-on-first-hit Lua keeps the ORIGINAL window (no sliding) so the count tracks a sustained burst and self-clears on TTL; GetSaturationBatch (MGET) is the scheduler's per-selection hot-path read. Deleting this repo file breaks the wire provider and disables the feature."
+      "rationale": "Redis-backed rolling-window counter for Anthropic saturation de-prioritization. Uses the shared saturationRollingIncrScript ZSET owner; GetSaturationBatch is the scheduler's per-selection hot-path read. Deleting this repo file breaks the wire provider and disables the feature."
     },
     {
       "path": "backend/internal/service/setting_service_tk_saturation.go",
@@ -7192,7 +7202,7 @@
       "must_contain": [
         "type OpenAISaturationCounterCache interface",
         "IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int)",
-        "GetSaturationBatch(ctx context.Context, accountIDs []int64)"
+        "GetSaturationBatch(ctx context.Context, accountIDs []int64, windowSeconds int)"
       ],
       "rationale": "OpenAI saturation counter interface shared by prod edge-mirror stubs and edge OAuth/setup-token capacity soft preference. Deleting or narrowing this interface breaks wire providers and silently disables de-prioritization."
     },
@@ -7217,15 +7227,19 @@
     {
       "path": "backend/internal/service/openai_gateway_passthrough.go",
       "must_contain": [
+        "case http.StatusServiceUnavailable:",
+        "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)"
+      ],
+      "must_not_contain": [
         "s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, \"stream_capacity\")"
       ],
-      "rationale": "Stream terminal ServiceUnavailable path must feed OpenAI capacity soft preference alongside operator temp-unsched rules. Dropping this call misses SSE overloaded events that never enter handleOpenAIAccountUpstreamError."
+      "rationale": "Stream terminal ServiceUnavailable capacity remains request/model-scoped: keep the stream-capacity rule, but never increment account saturation for a shared model-capacity shed."
     },
     {
       "path": "backend/internal/service/openai_capacity_saturation_tk_test.go",
       "must_contain": [
         "TestHandleOpenAIAccountUpstreamError_NativeCapacityIncrementsSaturationNoCooldown",
-        "TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityIncrementsSaturation",
+        "TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityDoesNotIncrementSaturation",
         "TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount",
         "TestShouldRecordOpenAICapacitySaturation_StubSeesSanitizedEnvelope"
       ],
@@ -7255,9 +7269,10 @@
         "func NewOpenAISaturationCounterCache(",
         "openai_saturation_count:account:",
         "openaiSaturationIncrScript",
+        "saturationRollingIncrScript",
         "func (c *openaiSaturationCounterCache) GetSaturationBatch("
       ],
-      "rationale": "Redis-backed fixed-window counter for OpenAI saturation de-prioritization. Mirrors anthropic_saturation_counter_cache.go; deleting this repo file breaks the wire provider and disables the feature."
+      "rationale": "Redis-backed rolling-window counter for OpenAI saturation de-prioritization. Reuses saturationRollingIncrScript; deleting this repo file breaks the wire provider and disables the feature."
     },
     {
       "path": "backend/internal/service/setting_service_tk_openai_saturation.go",
@@ -11092,7 +11107,7 @@
       "path": "backend/internal/service/openai_gateway_passthrough_tk_failover.go",
       "must_contain": [
         "Profile:    gatewayFailoverProfileOpenAIPassthrough",
-        "AccountConfiguredRetry = account.IsPoolMode()",
+        "AccountConfiguredRetry = !tkIsAccountCapacityFailure(account, statusCode, \"\", responseBody) && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)",
         "return classifyGatewayFailover(obs).RetryNextAccount",
         "StatusCode: openAIStreamFailureStatus(payload, message)",
         "StatusCode: openAIStreamFailedEventSemanticStatus(payload, message)"

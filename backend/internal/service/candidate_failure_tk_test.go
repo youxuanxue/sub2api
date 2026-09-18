@@ -155,11 +155,11 @@ func TestCandidateFailureNativeExecutionUsesForwardModel(t *testing.T) {
 			}
 			require.Equal(t, map[CandidateFailureScope]int64{{42, tc.upstream}: 3}, counter.counts)
 			counts := map[int64]int64{42: 3}
-			state.mergeFailureCounts(ctx, []*candidateExecutionPath{path}, counts)
-			require.Equal(t, 1001, candidateEffectivePriority(account, counts), "existing feedback merges without adding penalties")
+			failureCounts := state.failureCounts(ctx, []*candidateExecutionPath{path})
+			require.Equal(t, 1001, candidateSelectionEffectivePriority(account, counts, failureCounts), "existing feedback keeps the original fixed priority penalty")
 			counts = map[int64]int64{}
-			state.mergeFailureCounts(ctx, []*candidateExecutionPath{path}, counts)
-			require.Equal(t, int64(3), counts[42], "native candidates must read their own feedback")
+			failureCounts = state.failureCounts(ctx, []*candidateExecutionPath{path})
+			require.Equal(t, int64(3), failureCounts[42], "native candidates must read their own feedback")
 		})
 	}
 }

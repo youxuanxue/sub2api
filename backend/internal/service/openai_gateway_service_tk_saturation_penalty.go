@@ -22,8 +22,12 @@ func (s *OpenAIGatewayService) computeOpenAISaturationPenalties(ctx context.Cont
 	}
 	counts := s.candidateSaturationState().counts(ctx, accounts, firstRequestedModel(requestedModel))
 	for i := range candidates {
-		if candidates[i].account != nil && candidateSaturated(counts[candidates[i].account.ID]) {
-			candidates[i].saturationScorePenalty = openAISaturationScorePenalty
+		if candidates[i].account == nil {
+			continue
+		}
+		count := counts[candidates[i].account.ID]
+		if candidateSaturated(count) {
+			candidates[i].saturationScorePenalty = openAISaturationScorePenalty + float64(count)
 		}
 	}
 }

@@ -37,8 +37,12 @@ func (s *GatewayService) computeAnthropicSaturationPenalties(ctx context.Context
 	}
 	counts := s.candidateSaturationState().counts(ctx, accounts, firstRequestedModel(requestedModel))
 	for i := range candidates {
-		if candidates[i].account != nil && candidateSaturated(counts[candidates[i].account.ID]) {
-			candidates[i].saturationPenalty = anthropicSaturationPriorityPenalty
+		if candidates[i].account == nil {
+			continue
+		}
+		count := counts[candidates[i].account.ID]
+		if candidateSaturated(count) {
+			candidates[i].saturationPenalty = anthropicSaturationPriorityPenalty + int(count)*100
 		}
 	}
 }

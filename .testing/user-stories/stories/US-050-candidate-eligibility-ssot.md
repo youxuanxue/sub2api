@@ -150,7 +150,7 @@ mixed-pool test documents only the remaining legacy adapter's behavior.
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityProductionWiring`
 - `backend/internal/service/candidate_eligibility_test.go`::`TestCandidateEligibilityHardGatesPrecedeWindowRecovery`
 - `backend/internal/service/candidate_eligibility_tk_tokensea_test.go`::`TestCandidateEligibilityTokenseaUsesPlanAcrossEntrances`
-- `backend/internal/repository/antigravity_saturation_counter_cache_test.go`::`TestAntigravitySaturationCounterCache_FixedWindow`
+- `backend/internal/repository/antigravity_saturation_counter_cache_test.go`::`TestAntigravitySaturationCounterCache_RollingWindow`
 - `backend/internal/server/middleware/universal_routing_tk_test.go`::`TestMaybeResolveUniversal_CandidatePlanPrecedesBillingAndPreservesBody`
 - `backend/internal/server/middleware/universal_routing_tk_test.go`::`TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement`
 - `backend/internal/service/universal_subscription_fallback_test.go`::`TestResolve_SubscriptionReadErrorFallback`

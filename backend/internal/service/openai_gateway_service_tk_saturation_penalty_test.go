@@ -37,7 +37,7 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesSaturatedStub(t *testing.
 		openAIEdgeCandidate(68, 2.0),
 	}
 	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
-	require.Equal(t, openAISaturationScorePenalty, candidates[0].saturationScorePenalty)
+	require.Equal(t, openAISaturationScorePenalty+float64(openAIEdgeMirrorStubSaturationThreshold), candidates[0].saturationScorePenalty)
 	require.Equal(t, 0.0, candidates[1].saturationScorePenalty)
 	require.Less(t, candidates[0].score-candidates[0].saturationScorePenalty, candidates[1].score)
 }
@@ -54,7 +54,7 @@ func TestComputeOpenAISaturationPenalties_DeprioritizesGrokRelayStub(t *testing.
 		grokEdgeCandidate(81, 2.0),
 	}
 	svc.computeOpenAISaturationPenalties(context.Background(), candidates)
-	require.Equal(t, openAISaturationScorePenalty, candidates[0].saturationScorePenalty)
+	require.Equal(t, openAISaturationScorePenalty+float64(openAIEdgeMirrorStubSaturationThreshold), candidates[0].saturationScorePenalty)
 	require.Equal(t, 0.0, candidates[1].saturationScorePenalty)
 	require.Less(t, candidates[0].score-candidates[0].saturationScorePenalty, candidates[1].score)
 }

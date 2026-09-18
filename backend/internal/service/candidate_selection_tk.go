@@ -296,7 +296,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			}
 		}
 		counts := gw.candidateSaturationState().counts(ctx, accounts, r.model)
-		r.mergeFailureCounts(ctx, pool, counts)
+		failureCounts := r.failureCounts(ctx, pool)
 		// Configured capacity is an admission limit, not evidence of quality.
 		// Membership and group ordering never contribute a vote.
 		sort.Slice(pool, func(i, j int) bool { return pool[i].account.ID < pool[j].account.ID })
@@ -306,7 +306,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 			if candidateCompatibilityRank(a) != candidateCompatibilityRank(b) {
 				return candidateCompatibilityRank(a) < candidateCompatibilityRank(b)
 			}
-			pa, pb := candidateEffectivePriority(a.account, counts), candidateEffectivePriority(b.account, counts)
+			pa, pb := candidateSelectionEffectivePriority(a.account, counts, failureCounts), candidateSelectionEffectivePriority(b.account, counts, failureCounts)
 			if pa != pb {
 				return pa < pb
 			}

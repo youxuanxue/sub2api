@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
@@ -11,25 +10,9 @@ import (
 
 const anthropicSaturationCountPrefix = "anthropic_saturation_count:account:"
 
-// anthropicSaturationIncrScript atomically INCRs the per-account saturation
-// counter; if it just became 1 (the key was absent/expired) it EXPIREs the key
-// to windowSec. A sustained burst therefore keeps the ORIGINAL fixed window
-// instead of sliding it forward on every hit — once the edge recovers and the
-// hits stop, the key expires and the count (and the scheduler's penalty) clears
-// on its own.
-//
-// KEYS[1] = count key, ARGV[1] = windowSec. Returns: count.
-var anthropicSaturationIncrScript = redis.NewScript(`
-	local key = KEYS[1]
-	local window = tonumber(ARGV[1])
-
-	local count = redis.call('INCR', key)
-	if count == 1 then
-		redis.call('EXPIRE', key, window)
-	end
-
-	return count
-`)
+// anthropicSaturationIncrScript keeps the historical sentinel symbol; the
+// rolling ZSET implementation is shared as saturationRollingIncrScript.
+var anthropicSaturationIncrScript = saturationRollingIncrScript
 
 type anthropicSaturationCounterCache struct {
 	rdb *redis.Client
@@ -56,31 +39,24 @@ func (c *anthropicSaturationCounterCache) IncrementSaturation(ctx context.Contex
 	return count, nil
 }
 
-func (c *anthropicSaturationCounterCache) GetSaturationBatch(ctx context.Context, accountIDs []int64) (map[int64]int64, error) {
+func (c *anthropicSaturationCounterCache) GetSaturationBatch(ctx context.Context, accountIDs []int64, windowSeconds int) (map[int64]int64, error) {
 	out := make(map[int64]int64, len(accountIDs))
 	if len(accountIDs) == 0 {
 		return out, nil
+	}
+	cutoff, err := rollingSaturationCutoffMS(ctx, c.rdb, windowSeconds)
+	if err != nil {
+		return nil, fmt.Errorf("get anthropic saturation time: %w", err)
 	}
 	keys := make([]string, len(accountIDs))
 	for i, id := range accountIDs {
 		keys[i] = anthropicSaturationKey(id)
 	}
-	vals, err := c.rdb.MGet(ctx, keys...).Result()
+	counts, err := zcountRollingSaturation(ctx, c.rdb, keys, cutoff)
 	if err != nil {
-		return nil, fmt.Errorf("mget anthropic saturation: %w", err)
+		return nil, fmt.Errorf("zcount anthropic saturation: %w", err)
 	}
-	for i, v := range vals {
-		if v == nil {
-			continue
-		}
-		s, ok := v.(string)
-		if !ok {
-			continue
-		}
-		n, convErr := strconv.ParseInt(s, 10, 64)
-		if convErr != nil {
-			continue
-		}
+	for i, n := range counts {
 		if n != 0 {
 			out[accountIDs[i]] = n
 		}

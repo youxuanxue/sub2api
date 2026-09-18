@@ -357,9 +357,9 @@ func TestCandidateEligibilitySaturationPreservesBillingTier(t *testing.T) {
 	}{
 		{"healthy", false, nil, 1},
 		{"transient", false, map[int64]int64{101: 2}, 1},
-		{"saturated", false, map[int64]int64{101: 3}, 2},
-		{"all_saturated", false, map[int64]int64{101: 3, 102: 3}, 1},
-		{"subscription_before_soft_health", true, map[int64]int64{101: 3}, 1},
+		{"saturated", false, map[int64]int64{101: edgeMirrorStubSaturationThreshold}, 2},
+		{"all_saturated", false, map[int64]int64{101: edgeMirrorStubSaturationThreshold, 102: edgeMirrorStubSaturationThreshold}, 1},
+		{"subscription_before_soft_health", true, map[int64]int64{101: edgeMirrorStubSaturationThreshold}, 1},
 		{"expired", false, nil, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -482,7 +482,7 @@ func (c *candidateAntigravityCounter) IncrementSaturation(_ context.Context, id 
 	return c.counts[scope], nil
 }
 
-func (c *candidateAntigravityCounter) GetSaturationBatch(_ context.Context, scopes []AntigravitySaturationScope) (map[AntigravitySaturationScope]int64, error) {
+func (c *candidateAntigravityCounter) GetSaturationBatch(_ context.Context, scopes []AntigravitySaturationScope, _ int) (map[AntigravitySaturationScope]int64, error) {
 	out := make(map[AntigravitySaturationScope]int64)
 	for _, scope := range scopes {
 		out[scope] = c.counts[scope]
@@ -505,7 +505,7 @@ func TestCandidateEligibilityAntigravitySaturationScopeAndParity(t *testing.T) {
 		{"resolved_model", "gemini-3.8-flash-medium", 16, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			cache.counts = map[AntigravitySaturationScope]int64{{accounts[1].ID, test.model}: 3}
+			cache.counts = map[AntigravitySaturationScope]int64{{accounts[1].ID, test.model}: edgeMirrorStubSaturationThreshold}
 			group, err := resolveCandidateTest(resolver, request, "")
 			require.NoError(t, err)
 			require.Equal(t, test.wantGroup, group.ID)
