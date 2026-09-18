@@ -1600,264 +1600,96 @@ function generateOpenCodeConfig(
     }
   }
   const geminiModels = {
-    'gemini-2.0-flash': {
-      name: 'Gemini 2.0 Flash',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      }
+    'gemini-3.6-flash': {
+      name: 'Gemini 3.6 Flash',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-2.5-flash': {
-      name: 'Gemini 2.5 Flash',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      }
+    'gemini-3.7-flash': {
+      name: 'Gemini 3.7 Flash',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-2.5-pro': {
-      name: 'Gemini 2.5 Pro',
-      limit: {
-        context: 2097152,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
-    },
-    'gemini-3.5-flash': {
-      name: 'Gemini 3.5 Flash',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      }
+    'gemini-3.8-flash': {
+      name: 'Gemini 3.8 Flash',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
     'gemini-3-flash-preview': {
       name: 'Gemini 3 Flash Preview',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      }
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-3-pro-preview': {
-      name: 'Gemini 3 Pro Preview',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
+    'gemini-3.5-flash-lite': {
+      name: 'Gemini 3.5 Flash Lite',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-3.1-pro-preview': {
-      name: 'Gemini 3.1 Pro Preview',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
+    'gemini-embedding-001': {
+      name: 'Gemini Embedding 001',
+      limit: { context: 2048, output: 0 },
+      modalities: { input: ['text'], output: ['embedding'] }
+    },
+    'veo-3.1-generate-001': {
+      name: 'Veo 3.1',
+      limit: { context: 0, output: 0 },
+      modalities: { input: ['text', 'image'], output: ['video'] }
     }
   }
 
+  // Converged Antigravity public Gemini surface (matches DefaultAntigravityModelMapping).
   const antigravityGeminiModels = {
-    // 2026-06 实测 /v1internal:fetchAvailableModels 的当前 user-facing wire id（app 下拉显示名见 name）
-    'gemini-3.5-flash-low': {
-      name: 'Gemini 3.5 Flash (Medium)',
+    'gemini-3.6-flash': {
+      name: 'Gemini 3.6 Flash',
       limit: { context: 1048576, output: 65536 },
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 4000, type: 'enabled' } }
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-3-flash-agent': {
-      name: 'Gemini 3.5 Flash (High)',
+    'gemini-3.7-flash': {
+      name: 'Gemini 3.7 Flash',
       limit: { context: 1048576, output: 65536 },
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 10000, type: 'enabled' } }
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-3.5-flash-extra-low': {
-      name: 'Gemini 3.5 Flash (Low)',
+    'gemini-3.8-flash': {
+      name: 'Gemini 3.8 Flash',
       limit: { context: 1048576, output: 65536 },
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 1000, type: 'enabled' } }
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-pro-agent': {
-      name: 'Gemini 3.1 Pro (High)',
+    'gemini-3-flash-preview': {
+      name: 'Gemini 3 Flash Preview',
       limit: { context: 1048576, output: 65536 },
       modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
-      options: { thinking: { budgetTokens: 10001, type: 'enabled' } }
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
-    'gemini-2.5-flash': {
-      name: 'Gemini 2.5 Flash',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'disable'
-        }
-      }
-    },
-    'gemini-2.5-flash-lite': {
-      name: 'Gemini 2.5 Flash Lite',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
-    },
-    'gemini-2.5-flash-thinking': {
-      name: 'Gemini 2.5 Flash (Thinking)',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
-    },
-    'gemini-3-flash': {
-      name: 'Gemini 3 Flash',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
-    },
-    'gemini-3.1-pro-low': {
-      name: 'Gemini 3.1 Pro Low',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
-    },
-    'gemini-3.1-pro-high': {
-      name: 'Gemini 3.1 Pro High',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image', 'pdf'],
-        output: ['text']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
-    },
-    'gemini-2.5-flash-image': {
-      name: 'Gemini 2.5 Flash Image',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image'],
-        output: ['image']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
+    'gemini-3.5-flash-lite': {
+      name: 'Gemini 3.5 Flash Lite',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
     },
     'gemini-3.1-flash-image': {
       name: 'Gemini 3.1 Flash Image',
-      limit: {
-        context: 1048576,
-        output: 65536
-      },
-      modalities: {
-        input: ['text', 'image'],
-        output: ['image']
-      },
-      options: {
-        thinking: {
-          budgetTokens: 24576,
-          type: 'enabled'
-        }
-      }
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image'], output: ['image'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
+    },
+    'gemini-3-pro-image': {
+      name: 'Gemini 3 Pro Image',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image'], output: ['image'] },
+      options: { thinking: { budgetTokens: 24576, type: 'enabled' } }
+    },
+    'nano-2': {
+      name: 'Nano Banana 2',
+      limit: { context: 1048576, output: 65536 },
+      modalities: { input: ['text', 'image'], output: ['image'] }
     }
   }
   const claudeModels = {

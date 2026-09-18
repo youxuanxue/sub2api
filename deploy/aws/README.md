@@ -652,7 +652,7 @@ gh run watch $(gh run list --workflow=deploy-stage0.yml --limit 1 --json databas
 |---|---|---|
 | secret | `TK_SMOKE_API_KEY` | 全能用户侧烟测 key；必须能看到下方所有模型清单 |
 | var | `TK_SMOKE_ANTHROPIC_MODELS` | Anthropic/chat+messages 模型清单，逗号或空格分隔（默认 `claude-sonnet-4-6`） |
-| var | `TK_SMOKE_GEMINI_MODELS` | Gemini tool-schema 探针模型清单（默认 `gemini-3.1-pro-preview`） |
+| var | `TK_SMOKE_GEMINI_MODELS` | Gemini tool-schema 探针模型清单（推荐 `gemini-3.8-flash`；空则跳过 native Gemini 探针） |
 | var | `TK_SMOKE_OPENAI_OAUTH_MODELS` | OpenAI OAuth 探针模型清单（默认 `gpt-5.4`） |
 
 > `TK_SMOKE_API_KEY` 是 `deploy-stage0.yml` 的**硬前置**：缺 key，发版在镜像切换前就 `::error::` 失败。平台覆盖只维护模型清单，不再维护多把平台专用 smoke key。

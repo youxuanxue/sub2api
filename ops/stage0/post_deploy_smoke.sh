@@ -289,7 +289,7 @@ if smoke_suite_runs gemini; then
   smoke_assert_model_listed "$tmpdir/models.json" "gemini" "${gemini_model}" || exit 1
 
   # max_tokens budget covers BOTH reasoning/thinking tokens AND visible
-  # content for Gemini reasoning models (e.g. gemini-3.1-pro-preview).
+  # content for Gemini reasoning models (e.g. gemini-3.8-flash).
   # 2048 was the prior default; 2026-05-18 v1.7.37 prod smoke hit
   # finishReason: MAX_TOKENS at 2048 with output_tokens=93 and content=[]
   # (thinking consumed ~1955 tokens). 8192 gives ~4x headroom while still
@@ -340,7 +340,7 @@ if smoke_suite_runs gemini; then
     gemini_content_count="$(jq -r '(.content // []) | length' "$tmpdir/gemini-msg.json")"
     gemini_stop="$(jq -r '.stop_reason // empty' "$tmpdir/gemini-msg.json")"
     gemini_output_tokens="$(jq -r '.usage.output_tokens // 0' "$tmpdir/gemini-msg.json")"
-    # Reasoning models (gemini-3.1-pro-preview etc.) may burn the entire
+    # Reasoning models (gemini-3.8-flash etc.) may burn the entire
     # max_tokens budget on hidden thinking and return content=[] with
     # stop_reason=max_tokens and usage.output_tokens > 0. The 2026-05-18
     # v1.7.37 prod smoke false-positive: max_tokens=2048 fully consumed by
