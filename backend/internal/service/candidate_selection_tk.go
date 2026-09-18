@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -123,7 +124,6 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 		var subscriptions, balances []Group
 		paths := make(map[int64]*candidateExecutionPath)
 		accountSupported := false
-		accountReady := false
 		for j := range r.groups {
 			group := &r.groups[j]
 			if !usable[group.ID] || !candidateAccountInGroup(account, group.ID) {
@@ -152,7 +152,6 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 				diag.reject(reason)
 				continue
 			}
-			accountReady = true
 			paths[group.ID] = path
 			if group.IsSubscriptionType() {
 				subscriptions = append(subscriptions, *group)
@@ -160,12 +159,7 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 				balances = append(balances, *group)
 			}
 		}
-		if accountSupported {
-			diag.Supported++
-		}
-		if accountReady {
-			diag.Ready++
-		}
+		accountReady := false
 		for _, origins := range [][]Group{subscriptions, balances} {
 			if len(origins) == 0 {
 				continue
@@ -191,6 +185,13 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			path := paths[group.ID]
 			path.group = group
 			candidates = append(candidates, path)
+			accountReady = true
+		}
+		if accountSupported {
+			diag.Supported++
+		}
+		if accountReady {
+			diag.Ready++
 		}
 	}
 	if supported && capacityHint != nil {
@@ -424,7 +425,11 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 					Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting}}), nil
 		}
 	}
-	return nil, candidateSelectionError(supported, evaluationErr, r.model, capacityPlatform, r.capacityGroupHint, r.capacityDiag)
+	err := candidateSelectionError(supported, evaluationErr, r.model, capacityPlatform, r.capacityGroupHint, r.capacityDiag)
+	if errors.Is(err, ErrUniversalCapacityUnavailable) && r.capacityDiag != nil && len(paths) > 0 {
+		r.capacityDiag.reject("selection_exhausted")
+	}
+	return nil, err
 }
 
 func candidateCompatibilityRank(path *candidateExecutionPath) int {

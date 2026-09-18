@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,4 +49,38 @@ func TestGlobalCandidateCapacityErrorCarriesPathReadyDiag(t *testing.T) {
 	require.Equal(t, 1, diag.Supported)
 	require.Equal(t, 0, diag.Ready)
 	require.Contains(t, diag.RejectSummary(), "openai_not_schedulable=")
+}
+
+func TestGlobalCandidateCapacityErrorMarksSelectionExhausted(t *testing.T) {
+	account := globalCandidateAccount(1, 1, 10)
+	account.Platform = PlatformAnthropic
+	account.Type = AccountTypeOAuth
+	account.Extra = map[string]any{"max_sessions": 1}
+	account.Credentials = map[string]any{
+		"access_token":  "tok",
+		"model_mapping": map[string]any{"claude-sonnet-4": "claude-sonnet-4"},
+	}
+	attachTestProtocolCapability(&account, protocolrouter.ProtocolMessages)
+	groups := []Group{grp(10, PlatformAnthropic, 1, false)}
+	r, _, key := globalCandidateFixture(groups, []Account{account})
+	r.candidateGateway.sessionLimitCache = denySessionLimitCache{}
+	body := []byte(`{"model":"claude-sonnet-4","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`)
+	ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicMessages, "/v1/messages", "claude-sonnet-4", body, "sess-deny", "")
+	require.NoError(t, err)
+	_, err = state.selectAccount(ctx, candidateSelectOptions{acquire: true})
+	require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+	diag := CandidateCapacityDiagFromError(err)
+	require.NotNil(t, diag)
+	require.Equal(t, 1, diag.AccountTotal)
+	require.Equal(t, 1, diag.Supported)
+	require.Equal(t, 1, diag.Ready, "ready accounts entered the candidate pool before session registration failed")
+	require.Contains(t, diag.RejectSummary(), "selection_exhausted=")
+}
+
+type denySessionLimitCache struct {
+	SessionLimitCache
+}
+
+func (denySessionLimitCache) RegisterSession(context.Context, int64, string, int, time.Duration) (bool, error) {
+	return false, nil
 }

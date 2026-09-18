@@ -8,8 +8,12 @@ import (
 )
 
 // CandidateCapacityDiag explains why entitled pools supported a model but
-// produced no ready execution path. It is attached to UniversalCapacityError so
-// ingress can log filter reasons instead of a bare capacity_unavailable line.
+// produced no schedulable candidate. Supported counts accounts with a legal
+// path; Ready counts accounts that actually entered the candidate pool after
+// billing-origin selection. RejectReasons covers pathReady filters and
+// selection_exhausted when a non-empty pool still failed to bind. Attached to
+// UniversalCapacityError so ingress can log filter reasons instead of a bare
+// capacity_unavailable line.
 type CandidateCapacityDiag struct {
 	AccountTotal  int            `json:"account_total"`
 	Supported     int            `json:"supported"`
