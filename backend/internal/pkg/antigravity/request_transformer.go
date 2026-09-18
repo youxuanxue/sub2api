@@ -703,6 +703,13 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 		}
 	}
 
+	// TK: image models must request TEXT+IMAGE modalities. Claude→Gemini and
+	// Chat Completions conversion never carry responseModalities; without them
+	// cloudcode-pa returns empty content under requestType=image_gen.
+	if IsImageModel(req.Model) {
+		config.ResponseModalities = []string{"TEXT", "IMAGE"}
+	}
+
 	// TK: gemini-native image aspect-ratio passthrough. Only image models, and only
 	// when the inbound carried a ratio (extra_body.google.image_config.aspect_ratio →
 	// ClaudeRequest.ImageConfig). Emitted as generationConfig.imageConfig.aspectRatio;

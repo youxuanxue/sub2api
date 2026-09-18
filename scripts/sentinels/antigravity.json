@@ -47,6 +47,13 @@
     {
       "path": "backend/internal/pkg/antigravity/request_transformer.go",
       "must_contain": [
+        "config.ResponseModalities = []string{\"TEXT\", \"IMAGE\"}"
+      ],
+      "rationale": "Claude→Gemini transform must set responseModalities TEXT+IMAGE for IsImageModel. Chat Completions conversion never carries modalities; without this, Messages/Claude image_gen returns empty content. Pairs with EnsureImageResponseModalities wrap injection and TestBuildGenerationConfig_ImageModelSetsResponseModalities."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer.go",
+      "must_contain": [
         "requestType := ResolveV1InternalRequestType(",
         "ClaudeRequestHasToolInteractions(claudeReq.Messages)"
       ],
