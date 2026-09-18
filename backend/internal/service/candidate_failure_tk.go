@@ -30,6 +30,11 @@ func candidateTransportFailure(ctx context.Context, rendered, cause error) error
 // Handlers retain error identity; the legacy health breaker must not count it again.
 type candidateObservedFailure struct{ error }
 
+const (
+	candidateFailureWindowSeconds       = 90
+	candidateFailureThreshold     int64 = 3
+)
+
 func (e *candidateObservedFailure) Unwrap() error { return e.error }
 
 func candidateFailureScope(account *Account, plan protocolrouter.Plan, model string) CandidateFailureScope {
@@ -57,10 +62,10 @@ func (r *CandidateRequest) failureCounter() CandidateFailureCounter {
 	return counter
 }
 
-func (r *CandidateRequest) mergeFailureCounts(ctx context.Context, paths []*candidateExecutionPath, counts map[int64]int64) {
+func (r *CandidateRequest) failureCounts(ctx context.Context, paths []*candidateExecutionPath) map[int64]int64 {
 	counter := r.failureCounter()
 	if counter == nil {
-		return
+		return nil
 	}
 	var scopes []CandidateFailureScope
 	for _, path := range paths {
@@ -73,13 +78,13 @@ func (r *CandidateRequest) mergeFailureCounts(ctx context.Context, paths []*cand
 	failures, err := counter.GetCandidateFailures(ctx, scopes)
 	if err != nil {
 		slog.WarnContext(ctx, "candidate_failure_read_failed", "error", err)
-		return
+		return nil
 	}
+	counts := make(map[int64]int64, len(failures))
 	for scope, count := range failures {
-		if count > counts[scope.AccountID] {
-			counts[scope.AccountID] = count
-		}
+		counts[scope.AccountID] = count
 	}
+	return counts
 }
 
 func candidateFailureAttributable(err error) bool {
@@ -120,10 +125,10 @@ func (r *CandidateRequest) observeFailure(ctx context.Context, account *Account,
 	}
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 	defer cancel()
-	count, recordErr := counter.IncrementCandidateFailure(recordCtx, scope, edgeMirrorStubSaturationWindowSeconds)
+	count, recordErr := counter.IncrementCandidateFailure(recordCtx, scope, candidateFailureWindowSeconds)
 	if recordErr != nil {
 		slog.WarnContext(ctx, "candidate_failure_record_failed", "account_id", account.ID, "error", recordErr)
-	} else if count == edgeMirrorStubSaturationThreshold {
+	} else if count == candidateFailureThreshold {
 		slog.InfoContext(ctx, "candidate_failure_deprioritized", "account_id", account.ID, "model", scope.Model, "count", count)
 	}
 	return &candidateObservedFailure{err}

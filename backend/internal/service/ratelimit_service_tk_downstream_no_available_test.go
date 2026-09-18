@@ -138,7 +138,7 @@ func (f *fakeSaturationCounterRL) IncrementSaturation(_ context.Context, account
 	f.incrementIDs = append(f.incrementIDs, accountID)
 	return int64(len(f.incrementIDs)), nil
 }
-func (f *fakeSaturationCounterRL) GetSaturationBatch(_ context.Context, _ []int64) (map[int64]int64, error) {
+func (f *fakeSaturationCounterRL) GetSaturationBatch(_ context.Context, _ []int64, _ int) (map[int64]int64, error) {
 	return map[int64]int64{}, nil
 }
 

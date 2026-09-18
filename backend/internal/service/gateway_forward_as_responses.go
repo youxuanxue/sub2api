@@ -193,7 +193,7 @@ func (s *GatewayService) ForwardAsResponses(
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				RetryableOnSameAccount: !shouldDisable && tkRetryableOnSameAccount(account, resp, respBody),
 			}
 		}
 

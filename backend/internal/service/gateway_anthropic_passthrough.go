@@ -225,7 +225,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
 			}
 		}
 		return s.handleRetryExhaustedError(ctx, resp, c, account)
@@ -264,7 +264,7 @@ func (s *GatewayService) forwardAnthropicPassthroughWithInput(
 		return nil, &UpstreamFailoverError{
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           respBody,
-			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, respBody),
 		}
 	}
 

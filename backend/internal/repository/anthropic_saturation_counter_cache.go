@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
-	"strconv"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
@@ -11,22 +11,23 @@ import (
 
 const anthropicSaturationCountPrefix = "anthropic_saturation_count:account:"
 
-// anthropicSaturationIncrScript atomically INCRs the per-account saturation
-// counter; if it just became 1 (the key was absent/expired) it EXPIREs the key
-// to windowSec. A sustained burst therefore keeps the ORIGINAL fixed window
-// instead of sliding it forward on every hit — once the edge recovers and the
-// hits stop, the key expires and the count (and the scheduler's penalty) clears
-// on its own.
+// anthropicSaturationIncrScript atomically records one timestamped event and
+// removes events that have left the rolling window.
 //
-// KEYS[1] = count key, ARGV[1] = windowSec. Returns: count.
+// KEYS[1] = event ZSET, ARGV[1] = windowSec. Returns: in-window count.
 var anthropicSaturationIncrScript = redis.NewScript(`
 	local key = KEYS[1]
 	local window = tonumber(ARGV[1])
+	local now = redis.call('TIME')
+	local now_ms = now[1] * 1000 + math.floor(now[2] / 1000)
+	local cutoff = now_ms - window * 1000
 
-	local count = redis.call('INCR', key)
-	if count == 1 then
-		redis.call('EXPIRE', key, window)
-	end
+	redis.call('ZREMRANGEBYSCORE', key, '-inf', cutoff)
+	local count = redis.call('ZCARD', key)
+	local member = tostring(now_ms) .. ':' .. tostring(count)
+	redis.call('ZADD', key, now_ms, member)
+	count = count + 1
+	redis.call('PEXPIRE', key, window * 1000 + 1000)
 
 	return count
 `)
@@ -56,29 +57,34 @@ func (c *anthropicSaturationCounterCache) IncrementSaturation(ctx context.Contex
 	return count, nil
 }
 
-func (c *anthropicSaturationCounterCache) GetSaturationBatch(ctx context.Context, accountIDs []int64) (map[int64]int64, error) {
+func (c *anthropicSaturationCounterCache) GetSaturationBatch(ctx context.Context, accountIDs []int64, windowSeconds int) (map[int64]int64, error) {
 	out := make(map[int64]int64, len(accountIDs))
 	if len(accountIDs) == 0 {
 		return out, nil
 	}
+	if windowSeconds <= 0 {
+		return nil, fmt.Errorf("invalid window: %d", windowSeconds)
+	}
+	now, err := c.rdb.Time(ctx).Result()
+	if err != nil {
+		return nil, fmt.Errorf("get anthropic saturation time: %w", err)
+	}
+	cutoff := now.Add(-time.Duration(windowSeconds) * time.Second).UnixMilli()
 	keys := make([]string, len(accountIDs))
 	for i, id := range accountIDs {
 		keys[i] = anthropicSaturationKey(id)
 	}
-	vals, err := c.rdb.MGet(ctx, keys...).Result()
-	if err != nil {
-		return nil, fmt.Errorf("mget anthropic saturation: %w", err)
+	pipe := c.rdb.Pipeline()
+	cmds := make([]*redis.IntCmd, len(keys))
+	for i, key := range keys {
+		cmds[i] = pipe.ZCount(ctx, key, "("+fmt.Sprint(cutoff), "+inf")
 	}
-	for i, v := range vals {
-		if v == nil {
-			continue
-		}
-		s, ok := v.(string)
-		if !ok {
-			continue
-		}
-		n, convErr := strconv.ParseInt(s, 10, 64)
-		if convErr != nil {
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("zcount anthropic saturation: %w", err)
+	}
+	for i, cmd := range cmds {
+		n, err := cmd.Result()
+		if err != nil {
 			continue
 		}
 		if n != 0 {

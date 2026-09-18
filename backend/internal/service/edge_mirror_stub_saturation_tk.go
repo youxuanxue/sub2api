@@ -13,18 +13,18 @@ package service
 //     capacity 503, without advancing the cooldown ladder
 //   - at threshold: clear sticky + scheduler preference penalty
 //   - prod mirror/relay stubs never write model_rate_limits — edge OAuth owns quota truth
-//   - self-clearing via window TTL (90s after the first hit in a fixed window)
+//   - self-clearing as individual events leave the rolling window
 //
 // Intentionally NEVER on this path: SetTempUnschedulable, whole-account
 // SetRateLimited, or per-failover in-memory BlockAccountScheduling — those
 // collapsed pools in prod (2026-05-31 amplifier) or over-penalize transient blips.
 
 const (
-	edgeMirrorStubSaturationWindowSeconds = 90
+	edgeMirrorStubSaturationWindowSeconds = 600
 
-	// edgeMirrorStubSaturationThreshold: transient blips (1–2 hits) stay on the
-	// stub; sustained downstream-empty (≥3 in 90s) triggers preference only.
-	edgeMirrorStubSaturationThreshold int64 = 3
+	// edgeMirrorStubSaturationThreshold: transient blips stay on the account;
+	// sustained capacity failures in the rolling window trigger preference.
+	edgeMirrorStubSaturationThreshold int64 = 12
 
 	// anthropicSaturationPriorityPenalty is the shared additive priority penalty
 	// in the generic gateway's legacy and load-aware selectors.

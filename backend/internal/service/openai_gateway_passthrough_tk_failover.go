@@ -24,7 +24,7 @@ func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, r
 	}
 	if account != nil {
 		obs.AccountType = account.Type
-		obs.AccountConfiguredRetry = account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
+		obs.AccountConfiguredRetry = !tkIsAccountCapacityFailure(account, statusCode, "", responseBody) && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
 	}
 	return classifyGatewayFailover(obs).RetryNextAccount
 }

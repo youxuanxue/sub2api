@@ -2,7 +2,7 @@ package service
 
 import "context"
 
-// OpenAISaturationCounterCache tracks a short-window count of recent capacity
+// OpenAISaturationCounterCache tracks a rolling-window count of recent capacity
 // pressure per OpenAI account id. Writers include prod edge-mirror stubs
 // (downstream-empty envelopes and sanitized edge capacity failures) and edge
 // OpenAI OAuth / setup-token accounts (native upstream overloaded or 503
@@ -11,7 +11,7 @@ import "context"
 // ratelimit_service_tk_openai_saturation.go and openai_capacity_saturation_tk.go.
 type OpenAISaturationCounterCache interface {
 	IncrementSaturation(ctx context.Context, accountID int64, windowSeconds int) (count int64, err error)
-	GetSaturationBatch(ctx context.Context, accountIDs []int64) (map[int64]int64, error)
+	GetSaturationBatch(ctx context.Context, accountIDs []int64, windowSeconds int) (map[int64]int64, error)
 }
 
 // CandidateFailureScope keeps a supplier's model failure out of unrelated models.

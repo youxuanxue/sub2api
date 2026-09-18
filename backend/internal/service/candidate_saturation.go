@@ -6,7 +6,7 @@ import (
 )
 
 // candidateSaturationState owns the interpretation and scope of live empty-pool
-// feedback. Redis owns fixed-window expiry; read failures preserve base order.
+// feedback. Redis owns rolling-window expiry; read failures preserve base order.
 // Group selection, account scoring and sticky eviction consume this same view.
 type candidateSaturationState struct {
 	anthropic   AnthropicSaturationCounterCache
@@ -65,13 +65,13 @@ func (s candidateSaturationState) counts(ctx context.Context, accounts []*Accoun
 		}
 	}
 	if len(anthropicIDs) > 0 && s.anthropic != nil && (s.settings == nil || s.settings.IsAnthropicSaturatedStubDeprioritizeEnabled(ctx)) {
-		merge(s.anthropic.GetSaturationBatch(ctx, anthropicIDs))
+		merge(s.anthropic.GetSaturationBatch(ctx, anthropicIDs, edgeMirrorStubSaturationWindowSeconds))
 	}
 	if len(openaiIDs) > 0 && s.openai != nil && (s.settings == nil || s.settings.IsOpenAISaturatedStubDeprioritizeEnabled(ctx)) {
-		merge(s.openai.GetSaturationBatch(ctx, openaiIDs))
+		merge(s.openai.GetSaturationBatch(ctx, openaiIDs, edgeMirrorStubSaturationWindowSeconds))
 	}
 	if reader, ok := s.antigravity.(AntigravitySaturationReader); ok && len(scopes) > 0 {
-		counts, err := reader.GetSaturationBatch(ctx, scopes)
+		counts, err := reader.GetSaturationBatch(ctx, scopes, edgeMirrorStubSaturationWindowSeconds)
 		if err != nil {
 			slog.Warn("candidate_saturation_read_failed", "error", err)
 		} else {
@@ -89,7 +89,16 @@ func candidateSaturated(count int64) bool {
 
 func candidateEffectivePriority(account *Account, counts map[int64]int64) int {
 	priority := account.Priority
-	if candidateSaturated(counts[account.ID]) {
+	count := counts[account.ID]
+	if candidateSaturated(count) {
+		priority += anthropicSaturationPriorityPenalty + int(count)*100
+	}
+	return priority
+}
+
+func candidateSelectionEffectivePriority(account *Account, counts, failureCounts map[int64]int64) int {
+	priority := candidateEffectivePriority(account, counts)
+	if failureCounts[account.ID] >= candidateFailureThreshold {
 		priority += anthropicSaturationPriorityPenalty
 	}
 	return priority
