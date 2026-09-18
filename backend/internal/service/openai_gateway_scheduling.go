@@ -149,7 +149,9 @@ func (s *OpenAIGatewayService) GenerateExplicitSessionHash(c *gin.Context, body 
 //  4. Header: x-conversation-id (CodeBuddy)
 //  5. Header: x-grok-conv-id (Grok groups only)
 //  6. Body:   prompt_cache_key
-//  7. Body:   content-based fallback (model + system + tools + first user message)
+//  7. Body:   content fallback —
+//     NewAPI groups: stable system/tools/instructions prefix (+ api_key/model);
+//     other groups: model + system + tools + first user message
 //
 // Grok sticky affinity is intentionally separate from the upstream
 // prompt_cache_key identity (resolveGrokCacheIdentity): sticky pins an OAuth
@@ -167,7 +169,14 @@ func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context, body []byte) 
 
 	sessionID := explicitOpenAIRequestSessionID(c, body)
 	if sessionID == "" && len(body) > 0 {
-		sessionID = deriveOpenAIContentSessionSeed(body)
+		// NewAPI groups: sticky by stable system/tool prefix so Volc/GLM
+		// prompt cache survives independent user turns (see
+		// openai_gateway_scheduling_tk_newapi_prompt_cache.go).
+		if newAPIGroupPromptCacheStickyEnabled(c) {
+			sessionID = deriveNewAPIPromptCacheSessionSeed(c, body)
+		} else {
+			sessionID = deriveOpenAIContentSessionSeed(body)
+		}
 	}
 	if sessionID == "" {
 		return ""
