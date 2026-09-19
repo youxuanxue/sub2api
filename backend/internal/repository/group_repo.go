@@ -11,6 +11,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -167,9 +168,9 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		builder = builder.SetStickyRoutingMode(group.StickyRoutingMode(mode))
 	}
 
-	// 设置模型路由配置
+	// 设置模型路由配置（domain.GroupModelRouting；禁止 JSON array 落库）
 	if groupIn.ModelRouting != nil {
-		builder = builder.SetModelRouting(groupIn.ModelRouting)
+		builder = builder.SetModelRouting(domain.GroupModelRouting(groupIn.ModelRouting))
 	}
 
 	// 设置支持的模型系列（始终设置，空数组表示不限制）
@@ -437,9 +438,9 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		builder = builder.ClearFallbackGroupIDOnInvalidRequest()
 	}
 
-	// 处理 ModelRouting：nil 时清除，否则设置
+	// 处理 ModelRouting：nil 时清除，否则设置（object only）
 	if groupIn.ModelRouting != nil {
-		builder = builder.SetModelRouting(groupIn.ModelRouting)
+		builder = builder.SetModelRouting(domain.GroupModelRouting(groupIn.ModelRouting))
 	} else {
 		builder = builder.ClearModelRouting()
 	}

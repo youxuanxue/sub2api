@@ -364,6 +364,12 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		streamResult.usage = &ClaudeUsage{}
 	}
 
+	imageCount := 0
+	if isImageGenerationModel(call.billingModel) {
+		// Gemini image APIs return one image per request; match ForwardGemini billing.
+		imageCount = 1
+	}
+
 	return &ForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
@@ -377,6 +383,7 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		FirstTokenMs:                  streamResult.firstTokenMs,
 		ReasoningEffort:               call.request.reasoningEffort,
 		ClientDisconnect:              streamResult.clientDisconnect,
+		ImageCount:                    imageCount,
 	}, nil
 }
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -67,6 +68,8 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	if err != nil {
 		return nil, false, err
 	}
+	diag := &CandidateCapacityDiag{AccountTotal: len(accounts)}
+	r.capacityDiag = diag
 	gw, openai := r.resolver.candidateGateway, r.resolver.candidateOpenAI
 	ctx = gw.withRPMPrefetch(ctx, accounts)
 	ctx = gw.withWindowCostPrefetch(ctx, accounts)
@@ -84,12 +87,14 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 		ok, gateErr := r.resolver.subscriptionGroupUsable(ctx, r.key.UserID, &group)
 		if gateErr != nil {
 			failure = gateErr
+			diag.reject("group_subscription_error")
 			continue
 		}
 		if ok {
 			if _, err := r.admit(ctx, &group); err != nil {
 				failure = err
-				slog.WarnContext(ctx, "candidate_billing_admission_failed", "group_id", group.ID, "error", err)
+				slog.WarnContext(ctx, "candidate_billing_admit_failed", "group_id", group.ID, "error", err)
+				diag.reject("group_admit_failed")
 				continue
 			}
 		}
@@ -104,17 +109,21 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 	for i := range accounts {
 		account := &accounts[i]
 		if _, excluded := options.excluded[account.ID]; excluded {
+			diag.reject("excluded")
 			continue
 		}
 		if r.continuationAccountID > 0 && account.ID != r.continuationAccountID {
+			diag.reject("continuation_mismatch")
 			continue
 		}
 		if r.forcePlatform != "" && account.Platform != r.forcePlatform {
+			diag.reject("force_platform_mismatch")
 			continue
 		}
 		sticky := account.ID == stickyID || account.ID == r.continuationAccountID
 		var subscriptions, balances []Group
 		paths := make(map[int64]*candidateExecutionPath)
+		accountSupported := false
 		for j := range r.groups {
 			group := &r.groups[j]
 			if !usable[group.ID] || !candidateAccountInGroup(account, group.ID) {
@@ -124,6 +133,7 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			if pathErr != nil {
 				if !candidateIgnorableSupportError(pathErr) {
 					failure = pathErr
+					diag.reject("support_error")
 				}
 				continue
 			}
@@ -132,12 +142,14 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			}
 			path.sticky = sticky
 			supported = true
+			accountSupported = true
 			// First supported group only — must NOT call lessUniversalBacking here
 			// (gateway-tk forbids group sort order as an account-selection weight).
 			if capacityHint == nil {
 				capacityHint = group
 			}
-			if !r.pathReady(path, options) {
+			if ready, reason := r.pathReadyReason(path, options); !ready {
+				diag.reject(reason)
 				continue
 			}
 			paths[group.ID] = path
@@ -147,6 +159,7 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 				balances = append(balances, *group)
 			}
 		}
+		accountReady := false
 		for _, origins := range [][]Group{subscriptions, balances} {
 			if len(origins) == 0 {
 				continue
@@ -166,11 +179,19 @@ func (r *CandidateRequest) candidates(ctx context.Context, options candidateSele
 			group, originErr := selectCandidateBillingOrigin(ctx, r.key.UserID, account, preferredOrigins, r.model, r.shape, gw.channelService, gw.userGroupRateResolver, gw.accountRepo)
 			if originErr != nil {
 				failure = originErr
+				diag.reject("billing_origin")
 				continue
 			}
 			path := paths[group.ID]
 			path.group = group
 			candidates = append(candidates, path)
+			accountReady = true
+		}
+		if accountSupported {
+			diag.Supported++
+		}
+		if accountReady {
+			diag.Ready++
 		}
 	}
 	if supported && capacityHint != nil {
@@ -233,11 +254,16 @@ func (r *CandidateRequest) evaluatePathWithPreparation(ctx context.Context, acco
 }
 
 func (r *CandidateRequest) pathReady(path *candidateExecutionPath, options candidateSelectOptions) bool {
+	ready, _ := r.pathReadyReason(path, options)
+	return ready
+}
+
+func (r *CandidateRequest) pathReadyReason(path *candidateExecutionPath, options candidateSelectOptions) (bool, string) {
 	gw, openai := r.resolver.candidateGateway, r.resolver.candidateOpenAI
 	path.ctx = r.withProfitControl(path)
 	account, ctx := path.account, path.ctx
 	if gw.isAccountBlockedBySchedulingThreshold(ctx, account) {
-		return false
+		return false, "scheduling_threshold"
 	}
 	if IsOpenAICompatPlatform(account.Platform) {
 		if r.websocket {
@@ -247,28 +273,43 @@ func (r *CandidateRequest) pathReady(path *candidateExecutionPath, options candi
 			}
 		}
 		if openai.isOpenAIAccountBlockedBySchedulingThreshold(ctx, account) {
-			return false
+			return false, "openai_scheduling_threshold"
 		}
 		req := OpenAIAccountScheduleRequest{GroupID: &path.group.ID, GroupPlatform: account.Platform,
 			RequestedModel: path.model, RestrictionModel: path.model, RequirePrivacySet: path.group.RequirePrivacySet,
 			RequiredTransport: options.transport, RequiredCapability: options.capability,
 			RequiredImageCapability: options.imageCapability, RequiredVideoSupport: options.video, RequireCompact: options.compact}
 		scheduler := &defaultOpenAIAccountScheduler{service: openai}
-		eligible, _ := scheduler.openAICandidatesBeforeWindow(ctx, []Account{*account}, req)
+		eligible, stats := scheduler.openAICandidatesBeforeWindow(ctx, []Account{*account}, req)
 		if len(eligible) == 0 {
-			return false
+			if reason := openAIFilterPrimaryReason(stats); reason != "" {
+				return false, reason
+			}
+			return false, "openai_not_ready"
 		}
 		path.reserve = !openai.isAccountSchedulableForOpenAIWindow(ctx, account, path.sticky)
-		return true
+		return true, ""
 	}
 	if r.websocket || options.transport == OpenAIUpstreamTransportResponsesWebsocketV2 || options.transport == OpenAIUpstreamTransportResponsesWebsocketV2Ingress {
-		return false
+		return false, "websocket_unsupported"
 	}
-	if !gw.gatewayAccountEligible(ctx, account, account.Platform, false, path.model, path.sticky) {
-		return false
+	if reason := gw.gatewayAccountEligibilityReason(ctx, account, account.Platform, false, path.model, path.sticky); reason != "" {
+		return false, reason
 	}
 	path.reserve = !gw.isAccountSchedulableForWindowCost(ctx, account, path.sticky)
-	return true
+	return true, ""
+}
+
+func openAIFilterPrimaryReason(stats openAISelectionFilterStats) string {
+	if len(stats.reasons) == 0 {
+		return ""
+	}
+	reasons := make([]string, 0, len(stats.reasons))
+	for reason := range stats.reasons {
+		reasons = append(reasons, reason)
+	}
+	sort.Strings(reasons)
+	return "openai_" + reasons[0]
 }
 
 // selectAccount is shared by initial admission, real slot acquisition and retry.
@@ -280,7 +321,7 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 		capacityPlatform = fp
 	}
 	if len(paths) == 0 {
-		return nil, candidateSelectionError(supported, evaluationErr, r.model, capacityPlatform, r.capacityGroupHint)
+		return nil, candidateSelectionError(supported, evaluationErr, r.model, capacityPlatform, r.capacityGroupHint, r.capacityDiag)
 	}
 	gw := r.resolver.candidateGateway
 	for _, subscriptionTier := range []bool{true, false} {
@@ -384,7 +425,11 @@ func (r *CandidateRequest) selectAccount(ctx context.Context, options candidateS
 					Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting}}), nil
 		}
 	}
-	return nil, candidateSelectionError(supported, evaluationErr, r.model, capacityPlatform, r.capacityGroupHint)
+	err := candidateSelectionError(supported, evaluationErr, r.model, capacityPlatform, r.capacityGroupHint, r.capacityDiag)
+	if errors.Is(err, ErrUniversalCapacityUnavailable) && r.capacityDiag != nil && len(paths) > 0 {
+		r.capacityDiag.reject("selection_exhausted")
+	}
+	return nil, err
 }
 
 func candidateCompatibilityRank(path *candidateExecutionPath) int {

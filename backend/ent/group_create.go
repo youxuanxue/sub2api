@@ -623,7 +623,7 @@ func (_c *GroupCreate) SetNillableFallbackGroupIDOnInvalidRequest(v *int64) *Gro
 }
 
 // SetModelRouting sets the "model_routing" field.
-func (_c *GroupCreate) SetModelRouting(v map[string][]int64) *GroupCreate {
+func (_c *GroupCreate) SetModelRouting(v domain.GroupModelRouting) *GroupCreate {
 	_c.mutation.SetModelRouting(v)
 	return _c
 }
@@ -2719,7 +2719,7 @@ func (u *GroupUpsert) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsert {
 }
 
 // SetModelRouting sets the "model_routing" field.
-func (u *GroupUpsert) SetModelRouting(v map[string][]int64) *GroupUpsert {
+func (u *GroupUpsert) SetModelRouting(v domain.GroupModelRouting) *GroupUpsert {
 	u.Set(group.FieldModelRouting, v)
 	return u
 }
@@ -4016,7 +4016,7 @@ func (u *GroupUpsertOne) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertOne 
 }
 
 // SetModelRouting sets the "model_routing" field.
-func (u *GroupUpsertOne) SetModelRouting(v map[string][]int64) *GroupUpsertOne {
+func (u *GroupUpsertOne) SetModelRouting(v domain.GroupModelRouting) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.SetModelRouting(v)
 	})
@@ -5539,7 +5539,7 @@ func (u *GroupUpsertBulk) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertBul
 }
 
 // SetModelRouting sets the "model_routing" field.
-func (u *GroupUpsertBulk) SetModelRouting(v map[string][]int64) *GroupUpsertBulk {
+func (u *GroupUpsertBulk) SetModelRouting(v domain.GroupModelRouting) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.SetModelRouting(v)
 	})

@@ -102,16 +102,20 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 	// 用于存储 tool_use id -> name 映射
 	toolIDToName := make(map[string]string)
 
-	// 检测是否有 web_search 工具
+	// 检测是否有 web_search 工具；纯文本省略 requestType（对齐 Manager：不进 agent 池）
 	hasWebSearchTool := hasWebSearchTool(claudeReq.Tools)
-	requestType := "agent"
 	targetModel := mappedModel
 	if hasWebSearchTool {
-		requestType = "web_search"
 		if targetModel != webSearchFallbackModel {
 			targetModel = webSearchFallbackModel
 		}
 	}
+	requestType := ResolveV1InternalRequestType(
+		targetModel,
+		hasWebSearchTool,
+		len(claudeReq.Tools) > 0,
+		ClaudeRequestHasToolInteractions(claudeReq.Messages),
+	)
 
 	// 检测是否启用 thinking
 	isThinkingEnabled := claudeReq.Thinking != nil && (claudeReq.Thinking.Type == "enabled" || claudeReq.Thinking.Type == "adaptive")
@@ -697,6 +701,13 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 		if req.TopK != nil {
 			config.TopK = req.TopK
 		}
+	}
+
+	// TK: image models must request TEXT+IMAGE modalities. Claude→Gemini and
+	// Chat Completions conversion never carry responseModalities; without them
+	// cloudcode-pa returns empty content under requestType=image_gen.
+	if IsImageModel(req.Model) {
+		config.ResponseModalities = []string{"TEXT", "IMAGE"}
 	}
 
 	// TK: gemini-native image aspect-ratio passthrough. Only image models, and only
