@@ -21,6 +21,10 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
+        },
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ]
     },
@@ -43,6 +47,20 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
+        },
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
+        }
+      ]
+    },
+    "deepseek-v4.1-flash": {
+      "display": true,
+      "price_owner": "deepseek-v4-flash",
+      "scopes": [
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ]
     },
@@ -431,6 +449,10 @@
         {
           "channel_type": 14,
           "base_url": "https://agentn.global.api5.cursor.sh"
+        },
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ]
     },
@@ -440,6 +462,10 @@
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
+        },
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ]
     },
@@ -591,6 +617,10 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
+        },
+        {
+          "channel_type": 17,
+          "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com"
         }
       ],
       "price_owner": "deepseek-v4-flash"
