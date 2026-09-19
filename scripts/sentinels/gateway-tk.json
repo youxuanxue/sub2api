@@ -1449,6 +1449,12 @@
       "rationale": "Standard Chat function tools must reach the Gemini converter through Plan."
     },
     {
+      "path": "backend/internal/service/antigravity_gateway_compat_tk.go",
+      "must_contain": ["return s.wrapV1InternalRequest(projectID, model, tkEnsureGeminiContentRoles(body))"],
+      "must_not_contain": ["delete(request, \"sessionId\")"],
+      "rationale": "Antigravity OAuth Chat Completions must use the native v1internal envelope, including sessionId, then convert the response. Stripping sessionId is the VALIDATION_REQUIRED wire."
+    },
+    {
       "path": "backend/internal/engine/protocolrouter/gemini_chat_tools.go",
       "must_contain": [
         "func preservesChatToGemini(",
