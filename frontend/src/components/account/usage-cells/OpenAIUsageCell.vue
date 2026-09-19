@@ -25,14 +25,22 @@
         :show-now-when-idle="showNowWhenIdleForWindow(usageInfo.seven_day)"
         color="emerald"
       />
-      <UsageProgressBar
-        v-if="monthlyQuota"
-        label="1mo"
-        :utilization="monthlyQuota.utilization ?? 0"
-        :utilization-unknown="monthlyQuota.utilization == null"
-        :resets-at="monthlyQuota.resets_at"
-        color="amber"
-      />
+      <div v-for="monthlyQuota in monthlyQuotas" :key="monthlyQuota.key" data-testid="monthly-quota">
+        <div
+          v-if="monthlyQuota.key !== 'newapi_monthly'"
+          class="max-w-[180px] truncate text-[10px] text-gray-500 dark:text-gray-400"
+          :title="monthlyQuota.label"
+        >
+          {{ monthlyQuota.label }}
+        </div>
+        <UsageProgressBar
+          label="1mo"
+          :utilization="monthlyQuota.utilization ?? 0"
+          :utilization-unknown="monthlyQuota.utilization == null"
+          :resets-at="monthlyQuota.resets_at"
+          color="amber"
+        />
+      </div>
       <UpstreamQuotaSummary
         :quota="usageInfo?.upstream_quota"
         :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
@@ -111,15 +119,15 @@ const emit = defineEmits<{ 'account-updated': [account: Account] }>()
 
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
-const upstreamQuotaWindowDimensionKeys = [
+const upstreamQuotaWindowDimensionKeys = computed(() => [
   'openai_codex_7d',
   // NewAPI weekly exhaustion is mirrored onto the 7d progress bar; hide the
   // duplicate UpstreamQuota chip so the cell stays one composition.
   'newapi_weekly',
   'newapi_7d',
   'newapi_5h',
-  'newapi_monthly',
-]
+  ...monthlyQuotas.value.map(dimension => dimension.key),
+])
 
 const { loading, activeQueryLoading, usageInfo, loadActiveUsage, acknowledgeAccountUpdate } = useAccountUsageFetch(
   props,
@@ -127,8 +135,8 @@ const { loading, activeQueryLoading, usageInfo, loadActiveUsage, acknowledgeAcco
   { enableOpenAIRefreshKeyWatch: true }
 )
 
-const monthlyQuota = computed(() => usageInfo.value?.upstream_quota?.dimensions?.find(
-  dimension => dimension.key === 'newapi_monthly'
+const monthlyQuotas = computed(() => (usageInfo.value?.upstream_quota?.dimensions ?? []).filter(
+  dimension => dimension.key === 'newapi_monthly' || dimension.key.startsWith('newapi_monthly:')
 ))
 
 function onAccountUpdated(account: Account) {

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,9 +24,12 @@ import (
 // This file is the write+read SSOT for that window text: parse reset time,
 // persist Extra, cool until reset, and surface utilization on the local 7d
 // (or 5h) progress + UpstreamQuota dimensions. Monthly quota has its own
-// dimension and never overwrites local 5h/7d statistics.
+// dimension and never overwrites local 5h/7d statistics. VolcEngine Agent Plan
+// monthly limits use the executed model and the existing model_rate_limits
+// store, so a named model's exhausted pool does not block other models.
 
 const (
+	newAPIMonthlyModelCooldownReason = "429_newapi_monthly_model"
 	newAPIQianfanMonthlyQuotaMessage = "token plan person monthly quota limit exceeded"
 	newAPIMonthlyUtilExtraKey        = "newapi_monthly_utilization"
 	newAPIMonthlyResetExtraKey       = "newapi_monthly_reset"
@@ -147,8 +151,8 @@ func tkParseNewAPIUsageWindowResetAt(haystack string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// tkTryHandleNewAPIUsageWindow429 cools the account until the upstream window
-// reset and persists a 100% Extra snapshot for admin usage. Returns true when
+// tkTryHandleNewAPIUsageWindow429 cools the affected account/model until the
+// window reset and records exhaustion for admin usage. Returns true when
 // the 429 was a recoverable usage-window hit (caller must not fall through to
 // the short fallback cooldown).
 func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) bool {
@@ -165,6 +169,22 @@ func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, 
 	}
 	if !hit.ResetAt.After(time.Now()) {
 		return false
+	}
+
+	// Agent Plan can reject a named model's monthly quota while another model
+	// still serves (account 88: DeepSeek 429 alongside ark-code-latest 200).
+	// The executed model is evidence; the provider's internal pool is not.
+	if hit.Window == "monthly" && isNewAPIVolcEngineAgentPlanAccount(account) {
+		model := strings.TrimSpace(protocolExecutionResolvedModel(ctx, tempUnschedulableModel(ctx, nil)))
+		if model == "" {
+			return false // no scope evidence: retain only the short fallback cooldown
+		}
+		if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, model, hit.ResetAt, newAPIMonthlyModelCooldownReason); err != nil {
+			slog.Warn("newapi_monthly_model_cooldown_failed", "account_id", account.ID, "model", model, "error", err)
+			return false
+		}
+		s.notifyAccountSchedulingBlocked(account, hit.ResetAt, newAPIMonthlyModelCooldownReason, model+" · 1mo")
+		return true
 	}
 
 	s.persistNewAPIUsageWindowSnapshot(ctx, account, hit)
@@ -261,38 +281,52 @@ func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 				(*progress).RemainingSeconds = remaining
 			}
 		}
-		if usage.UpstreamQuota == nil {
-			usage.UpstreamQuota = baseUpstreamQuota(PlatformNewAPI, usage, "headers")
-		}
-		usage.UpstreamQuota.State = "degraded"
-		usage.UpstreamQuota.ErrorCode = "rate_limited"
-		usage.UpstreamQuota.StatusCode = 429
-		d := UpstreamQuotaDimension{
-			Key:         dimKey,
-			Label:       dimLabel,
-			Unit:        "percent",
-			Window:      dimWindow,
-			Utilization: &utilization,
-			ResetsAt:    resetAt,
-		}
-		// Replace same key if re-applied.
-		replaced := false
-		for i := range usage.UpstreamQuota.Dimensions {
-			if usage.UpstreamQuota.Dimensions[i].Key == dimKey {
-				usage.UpstreamQuota.Dimensions[i] = d
-				replaced = true
-				break
-			}
-		}
-		if !replaced {
-			usage.UpstreamQuota.Dimensions = append(usage.UpstreamQuota.Dimensions, d)
-		}
+		upsertNewAPIUsageWindowDimension(usage, UpstreamQuotaDimension{
+			Key: dimKey, Label: dimLabel, Unit: "percent", Window: dimWindow,
+			Utilization: &utilization, ResetsAt: resetAt,
+		})
 	}
 
-	apply("monthly", newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIUpstreamMonthlyKey, "Monthly", "1mo", nil)
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		// model_rate_limits is the single stored observation for this scope.
+		// Do not also display an account-wide monthly snapshot for Agent Plan.
+		limits := account.ActiveModelRateLimits(now)
+		models := make([]string, 0, len(limits))
+		for model, limit := range limits {
+			if limit.Reason == newAPIMonthlyModelCooldownReason {
+				models = append(models, model)
+			}
+		}
+		sort.Strings(models)
+		for _, model := range models {
+			reset, utilization := limits[model].RateLimitResetAt, 100.0
+			upsertNewAPIUsageWindowDimension(usage, UpstreamQuotaDimension{
+				Key: newAPIUpstreamMonthlyKey + ":" + model, Label: model, Unit: "percent", Window: "1mo",
+				Utilization: &utilization, ResetsAt: &reset,
+			})
+		}
+	} else {
+		apply("monthly", newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIUpstreamMonthlyKey, "Monthly", "1mo", nil)
+	}
 	apply("weekly", newAPIWeeklyUtilExtraKey, newAPIWeeklyResetExtraKey, newAPIUpstreamWeeklyKey, "Weekly", "7d", &usage.SevenDay)
 	apply("5h", newAPIFiveHourUtilExtraKey, newAPIFiveHourResetExtraKey, newAPIUpstreamFiveHourKey, "5h", "5h", &usage.FiveHour)
 	apply("7d", newAPISevenDayUtilExtraKey, newAPISevenDayResetExtraKey, newAPIUpstreamSevenDayKey, "7d", "7d", &usage.SevenDay)
+}
+
+func upsertNewAPIUsageWindowDimension(usage *UsageInfo, dimension UpstreamQuotaDimension) {
+	if usage.UpstreamQuota == nil {
+		usage.UpstreamQuota = baseUpstreamQuota(PlatformNewAPI, usage, "headers")
+	}
+	usage.UpstreamQuota.State = "degraded"
+	usage.UpstreamQuota.ErrorCode = "rate_limited"
+	usage.UpstreamQuota.StatusCode = 429
+	for i := range usage.UpstreamQuota.Dimensions {
+		if usage.UpstreamQuota.Dimensions[i].Key == dimension.Key {
+			usage.UpstreamQuota.Dimensions[i] = dimension
+			return
+		}
+	}
+	usage.UpstreamQuota.Dimensions = append(usage.UpstreamQuota.Dimensions, dimension)
 }
 
 func buildNewAPIUpstreamQuota(account *Account, usage *UsageInfo) *UpstreamQuotaInfo {

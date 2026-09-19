@@ -5,10 +5,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/stretchr/testify/require"
 )
@@ -355,4 +358,89 @@ func TestNewAPIQianfanMonthlyQuotaBoundaries(t *testing.T) {
 	require.NotNil(t, hit)
 	require.Equal(t, "monthly", hit.Window)
 	require.Equal(t, now.Add(48*time.Hour), hit.ResetAt.UTC())
+}
+
+func TestNewAPIVolcMonthlyQuotaKeepsSiblingModelsAvailable(t *testing.T) {
+	reset := time.Now().Add(12 * 24 * time.Hour).UTC().Truncate(time.Second)
+	message := "You have exceeded the monthly usage quota. It will reset at " + reset.Format("2006-01-02 15:04:05 -0700")
+	body, err := json.Marshal(map[string]any{"error": map[string]any{"message": message}})
+	require.NoError(t, err)
+	for _, schedulable := range []bool{true, false} {
+		account := newAgentPlanRateLimitAccountForTest(newapiintegration.VolcEngineAgentPlanBaseURL)
+		account.Schedulable = schedulable
+		account.Credentials["model_mapping"] = map[string]any{"public-alias": "deepseek-v4-pro"}
+		repo := &rateLimitAccountRepoStub{accountOnGet: account}
+		svc := NewRateLimitService(repo, nil, nil, nil, nil)
+		gateway := &OpenAIGatewayService{rateLimitService: svc}
+		svc.SetAccountRuntimeBlocker(gateway)
+		gateway.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{"Retry-After": {"5"}}, body, "deepseek-v4-pro")
+		require.Len(t, repo.modelRateLimitCalls, 1)
+		call := repo.modelRateLimitCalls[0]
+		require.Equal(t, "deepseek-v4-pro", call.scope)
+		require.True(t, reset.Equal(call.resetAt))
+		require.Zero(t, repo.setRateLimitedCalls)
+		require.Zero(t, repo.setErrorCalls)
+		require.Zero(t, repo.updateExtraCalls, "model cooldown is the sole quota observation owner")
+		require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account))
+		account.Extra = map[string]any{modelRateLimitsKey: map[string]any{call.scope: map[string]any{
+			"rate_limit_reset_at": call.resetAt.Format(time.RFC3339), "reason": call.reason,
+		}}}
+		require.False(t, account.IsSchedulableForModelWithContext(context.Background(), "public-alias"))
+		require.Equal(t, schedulable, account.IsSchedulableForModelWithContext(context.Background(), "ark-code-latest"))
+		require.Equal(t, schedulable, account.IsSchedulableForModelWithContext(context.Background(), "unobserved-sibling"))
+		usage := &UsageInfo{}
+		applyNewAPIUsageWindowSnapshot(account, usage)
+		require.NotNil(t, usage.UpstreamQuota)
+		require.Len(t, usage.UpstreamQuota.Dimensions, 1)
+		dim := usage.UpstreamQuota.Dimensions[0]
+		require.Equal(t, "newapi_monthly:deepseek-v4-pro", dim.Key)
+		require.Equal(t, "deepseek-v4-pro", dim.Label)
+		require.Equal(t, "1mo", dim.Window)
+		require.Equal(t, 100.0, *dim.Utilization)
+		require.True(t, reset.Equal(*dim.ResetsAt))
+		applyNewAPIUsageWindowSnapshot(account, usage)
+		require.Len(t, usage.UpstreamQuota.Dimensions, 1)
+		account.Extra[modelRateLimitsKey].(map[string]any)[call.scope].(map[string]any)["rate_limit_reset_at"] = time.Now().Add(-time.Second).Format(time.RFC3339)
+		expired := &UsageInfo{}
+		applyNewAPIUsageWindowSnapshot(account, expired)
+		require.Nil(t, expired.UpstreamQuota)
+		require.Equal(t, schedulable, account.IsSchedulableForModelWithContext(context.Background(), "public-alias"))
+	}
+}
+
+func TestNewAPIVolcMonthlyQuotaCannotEscalateMissingModelOrWriteFailure(t *testing.T) {
+	reset := time.Now().Add(12 * 24 * time.Hour).UTC().Truncate(time.Second)
+	body, err := json.Marshal(map[string]any{"error": map[string]any{"message": "You have exceeded the monthly usage quota. It will reset at " + reset.Format("2006-01-02 15:04:05 -0700")}})
+	require.NoError(t, err)
+	for _, model := range []string{"", "deepseek-v4-pro"} {
+		account := newAgentPlanRateLimitAccountForTest(newapiintegration.VolcEngineAgentPlanBaseURL)
+		repo := &rateLimitAccountRepoStub{accountOnGet: account, modelRateLimitErr: errors.New("write failed")}
+		svc := NewRateLimitService(repo, nil, nil, nil, nil)
+		svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, nil, body, model)
+		require.Less(t, time.Until(repo.lastRateLimitedResetAt), time.Minute, "missing evidence or persistence failure must not create a month-long account block")
+		require.Zero(t, repo.updateExtraCalls)
+	}
+}
+
+func TestNewAPIVolcMonthlyQuotaUsesExecutedPlanModel(t *testing.T) {
+	account := parameterCompatibilityAccount(PlatformNewAPI, "deepseek-v4-pro", protocolrouter.ProtocolChatCompletions)
+	account.ChannelType = 45
+	account.Credentials["base_url"] = newapiintegration.VolcEngineAgentPlanBaseURL
+	attachTestProtocolCapability(&account, protocolrouter.ProtocolChatCompletions)
+	request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, "gpt-5.4", false, []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	snapshot, err := protocolAccountSnapshotForRequest(&account, request)
+	require.NoError(t, err)
+	plan, err := NewProtocolRouter().Plan(request, snapshot)
+	require.NoError(t, err)
+	ctx := withProtocolExecutionPlan(context.Background(), plan)
+	repo := &rateLimitAccountRepoStub{accountOnGet: &account}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	message := "You have exceeded the monthly usage quota. It will reset at " + time.Now().Add(24*time.Hour).UTC().Format("2006-01-02 15:04:05 -0700")
+	// The bridge carries no model argument: execution Plan still identifies the scope.
+	tkHandleBridgeUpstreamPenalty(ctx, svc, &account, upstreamBridgeError(429, message))
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "deepseek-v4-pro", repo.modelRateLimitCalls[0].scope)
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Zero(t, repo.updateExtraCalls)
 }

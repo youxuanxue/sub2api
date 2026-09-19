@@ -7,19 +7,20 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await page.setViewportSize(viewport)
     const user = { id: 1, role: 'admin', email: 'usage-test@example.test', balance: 0, status: 'active' }
     const reset = new Date(Date.now() + 3 * 86400000).toISOString()
+    const cooledModels = ['deepseek-v4-pro', 'deepseek-v4-flash']
     const stats = { requests: 123, tokens: 456000, cost: 7.89, user_cost: 1.23 }
     const accounts = ['ali-token-plan', 'qianfan-token-plan', 'volcengine-agent-plan', 'qianfan-unobserved'].map((name, index) => ({
       id: index + 1, name, platform: 'newapi', type: 'apikey', channel_type: [17, 46, 45, 46][index],
       status: 'active', schedulable: index !== 0, concurrency: 100, priority: 1,
-      credentials: {}, extra: {}, groups: [], group_ids: [], rate_multiplier: 1,
+      credentials: {}, extra: index === 2 ? { model_rate_limits: Object.fromEntries(cooledModels.map(model => [model, { rate_limit_reset_at: reset, reason: '429_newapi_monthly_model' }])) } : {}, groups: [], group_ids: [], rate_multiplier: 1,
       created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z',
-      rate_limit_reset_at: index < 3 ? reset : null,
+      rate_limit_reset_at: index < 2 ? reset : null,
     }))
     const usage = Object.fromEntries(accounts.map(a => [a.id, {
       source: 'passive',
       five_hour: { utilization: 0, utilization_unknown: true, resets_at: null, remaining_seconds: 0, window_stats: stats },
       seven_day: { utilization: a.id === 1 ? 100 : 0, utilization_unknown: a.id !== 1, resets_at: a.id === 1 ? reset : null, remaining_seconds: 259200, window_stats: stats },
-      upstream_quota: { provider: 'newapi', state: a.id === 4 ? 'unknown' : 'degraded', dimensions: a.id === 4 ? [] : [{ key: a.id !== 1 ? 'newapi_monthly' : 'newapi_weekly', label: a.id !== 1 ? 'Monthly' : 'Weekly', utilization: 100, window: a.id !== 1 ? '1mo' : '7d', resets_at: reset }] }
+      upstream_quota: { provider: 'newapi', state: a.id === 4 ? 'unknown' : 'degraded', dimensions: a.id === 4 ? [] : a.id === 3 ? cooledModels.map(model => ({ key: `newapi_monthly:${model}`, label: model, utilization: 100, window: '1mo', resets_at: reset })) : [{ key: a.id !== 1 ? 'newapi_monthly' : 'newapi_weekly', label: a.id !== 1 ? 'Monthly' : 'Weekly', utilization: 100, window: a.id !== 1 ? '1mo' : '7d', resets_at: reset }] }
     }]))
     await page.addInitScript(({ user }) => {
       localStorage.setItem('auth_token', 'usage-fixture-token')
@@ -60,14 +61,19 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844
     await expect(qianfan.getByTestId('usage-quota-row')).toContainText('2d')
     await expect(accountRow('qianfan-unobserved').getByTestId('usage-quota-row')).toHaveCount(0)
     const volc = accountRow('volcengine-agent-plan')
-    await expect(volc).toContainText('Rate Limited')
+    await expect(volc.getByText('Active', { exact: true })).toBeVisible()
+    await expect(volc.getByText('Rate Limited', { exact: true })).toHaveCount(0)
     await expect(volc.getByTestId('usage-stats-row')).toHaveCount(3)
     await expect(volc).toContainText('Last 5h')
     await expect(volc).toContainText('Last 7d')
-    await expect(volc.getByTestId('usage-quota-row')).toHaveCount(1)
-    await expect(volc.getByTestId('usage-quota-row')).toContainText('1mo')
-    await expect(volc.getByTestId('usage-quota-row')).toContainText('100%')
-    await expect(volc.getByTestId('usage-quota-row')).toContainText('2d')
+    await expect(volc.getByTestId('usage-quota-row')).toHaveCount(2)
+    for (const model of cooledModels) {
+      const quota = volc.getByTestId('monthly-quota').filter({ hasText: model })
+      await expect(quota).toContainText('1mo')
+      await expect(quota).toContainText('100%')
+      await expect(quota).toContainText('2d')
+    }
+    await expect(volc.getByTestId('monthly-quota').filter({ hasText: 'ark-code-latest' })).toHaveCount(0)
     const overflowing = await page.getByTestId('usage-stats-row').evaluateAll(rows => rows.filter(row => row.scrollWidth > row.clientWidth + 1).length)
     expect(overflowing).toBe(0)
     await page.screenshot({ path: `e2e/artifacts/account-usage-${viewport.width}.png`, fullPage: true })

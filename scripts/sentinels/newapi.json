@@ -80,6 +80,8 @@
         "newAPIMonthlyUtilExtraKey",
         "newAPIQianfanMonthlyQuotaMessage",
         "tkQianfanMonthlyResetAt",
+        "SetModelRateLimit(ctx, account.ID, model, hit.ResetAt, newAPIMonthlyModelCooldownReason)",
+        "account.ActiveModelRateLimits(now)",
         "tkParseNewAPIUsageWindowResponse",
         "parseRetryAfterResetTime(headers, reference)",
         "(*progress).UtilizationUnknown = false"
@@ -92,7 +94,10 @@
         "TestHandleUpstreamError_NewAPIMonthlyQuotaLifecycle",
         "TestNewAPIQianfanMonthlyQuotaCalendarReset",
         "TestNewAPIQianfanMonthlyQuotaLifecycle",
-        "TestNewAPIQianfanMonthlyQuotaBoundaries"
+        "TestNewAPIQianfanMonthlyQuotaBoundaries",
+        "TestNewAPIVolcMonthlyQuotaKeepsSiblingModelsAvailable",
+        "TestNewAPIVolcMonthlyQuotaCannotEscalateMissingModelOrWriteFailure",
+        "TestNewAPIVolcMonthlyQuotaUsesExecutedPlanModel"
       ],
       "rationale": "Monthly quota regressions must preserve VolcEngine's explicit reset and Qianfan's first-day 01:00 Beijing fallback, short Retry-After precedence, calendar boundaries, and the manual scheduling switch after expiry."
     },
