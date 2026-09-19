@@ -5,6 +5,7 @@ package tlsfingerprint
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -51,6 +52,42 @@ type HTTPProxyDialer struct {
 type SOCKS5ProxyDialer struct {
 	profile  *Profile
 	proxyURL *url.URL
+}
+
+// tlsFingerprintConn adapts uTLS's ConnectionState method to the
+// crypto/tls.ConnectionState shape expected by net/http. Without this adapter,
+// net/http cannot observe the negotiated ALPN protocol because uTLS returns its
+// own ConnectionState type. A connection that negotiated h2 is consequently
+// treated as HTTP/1.1 and the first HTTP/2 frame is reported as a malformed
+// HTTP response.
+type tlsFingerprintConn struct {
+	net.Conn
+	state tls.ConnectionState
+}
+
+func (c *tlsFingerprintConn) ConnectionState() tls.ConnectionState {
+	return c.state
+}
+
+func newTLSFingerprintConn(conn net.Conn, state utls.ConnectionState) net.Conn {
+	return &tlsFingerprintConn{Conn: conn, state: toStandardConnectionState(state)}
+}
+
+func toStandardConnectionState(state utls.ConnectionState) tls.ConnectionState {
+	return tls.ConnectionState{
+		Version:                     state.Version,
+		HandshakeComplete:           state.HandshakeComplete,
+		DidResume:                   state.DidResume,
+		CipherSuite:                 state.CipherSuite,
+		NegotiatedProtocol:          state.NegotiatedProtocol,
+		ServerName:                  state.ServerName,
+		PeerCertificates:            state.PeerCertificates,
+		VerifiedChains:              state.VerifiedChains,
+		SignedCertificateTimestamps: state.SignedCertificateTimestamps,
+		OCSPResponse:                state.OCSPResponse,
+		TLSUnique:                   state.TLSUnique,
+		ECHAccepted:                 state.ECHAccepted,
+	}
 }
 
 // Default TLS fingerprint values captured from Claude Code (Node.js 24.x)
@@ -296,7 +333,7 @@ func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, a
 		"cipher_suite", state.CipherSuite,
 		"alpn", state.NegotiatedProtocol)
 
-	return tlsConn, nil
+	return newTLSFingerprintConn(tlsConn, state), nil
 }
 
 // toUTLSCurves converts uint16 slice to utls.CurveID slice.
