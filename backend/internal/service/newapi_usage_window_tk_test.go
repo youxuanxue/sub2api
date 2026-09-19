@@ -236,7 +236,7 @@ func TestNewAPIMonthlyQuotaResponse(t *testing.T) {
 			require.True(t, want.Equal(hit.ResetAt))
 		})
 	}
-	hit := tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota. It will reset at 10-01 23:59:59 UTC", nil, now)
+	hit := tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota. It will reset at 10-01 23:59:59 UTC", http.Header{"Retry-After": {"5"}}, now)
 	require.NotNil(t, hit)
 	require.Equal(t, time.Date(2026, 10, 1, 23, 59, 59, 0, time.UTC), hit.ResetAt)
 	require.Nil(t, tkParseNewAPIUsageWindowResponse("You have exceeded the monthly usage quota. It will reset at 09-01 23:59:59 UTC", nil, now))

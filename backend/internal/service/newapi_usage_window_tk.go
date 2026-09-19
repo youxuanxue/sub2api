@@ -80,11 +80,7 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 		reference = date
 	}
 	resetAt, ok := tkParseNewAPIUsageWindowResetAt(haystack)
-	// A monthly quota reset is authoritative even if Retry-After only describes
-	// a short request throttle. Preserve existing header precedence for other windows.
-	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) && (window != "monthly" || !ok) {
-		resetAt, ok = *retryAt, true
-	}
+
 	if !ok {
 		if m := newAPIUsageWindowShortResetAtRE.FindStringSubmatch(haystack); len(m) == 2 {
 			// A yearless reset must be within this quota window. In particular an
@@ -104,6 +100,11 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 				}
 			}
 		}
+	}
+	// A monthly quota reset is authoritative even if Retry-After only describes
+	// a short request throttle. Preserve existing header precedence for other windows.
+	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) && (window != "monthly" || !ok) {
+		resetAt, ok = *retryAt, true
 	}
 	if !ok {
 		return nil
