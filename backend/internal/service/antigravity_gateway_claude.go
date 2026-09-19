@@ -422,7 +422,10 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 						Message:            upstreamMsg,
 						Detail:             upstreamDetail,
 					})
-					return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, RetryableOnSameAccount: true}
+					return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
+						StatusCode: resp.StatusCode, ResponseBody: respBody,
+						RetryableOnSameAccount: !isModelCapabilityFailureMessage(msg),
+					}, gatewayFailoverProfileGoogle, semantic)
 				}
 			}
 

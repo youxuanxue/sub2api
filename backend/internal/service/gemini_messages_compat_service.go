@@ -1011,7 +1011,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					Message:            upstreamMsg,
 					Detail:             upstreamDetail,
 				})
-				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, RetryableOnSameAccount: true}
+				return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
+					StatusCode: resp.StatusCode, ResponseBody: respBody,
+					RetryableOnSameAccount: !isModelCapabilityFailureMessage(msg400),
+				}, gatewayFailoverProfileGoogle, semantic)
 			}
 		}
 		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
@@ -1515,7 +1518,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 					Message:            upstreamMsg,
 					Detail:             upstreamDetail,
 				})
-				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: evBody, RetryableOnSameAccount: true}
+				return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
+					StatusCode: resp.StatusCode, ResponseBody: evBody,
+					RetryableOnSameAccount: !isModelCapabilityFailureMessage(msg400),
+				}, gatewayFailoverProfileGoogle, semantic)
 			}
 		}
 		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {

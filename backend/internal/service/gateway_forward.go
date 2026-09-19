@@ -823,8 +823,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 	if resp.StatusCode >= 400 {
-		// 可选：对部分 400 触发 failover（默认关闭以保持语义）
-		if resp.StatusCode == 400 && s.cfg != nil && s.cfg.Gateway.FailoverOn400 {
+		// 400 默认仍按客户端错误处理；模型能力不匹配是账号/路径级
+		// 证据，即使关闭通用 400 failover 也必须尝试其他候选账号。
+		if resp.StatusCode == 400 {
 			respBody, readErr := s.readUpstreamErrorBody(resp)
 			if readErr != nil {
 				// ReadAll failed, fall back to normal error handling without consuming the stream
@@ -832,6 +833,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			}
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			semantic := gateway400FailureSemantic(respBody)
+			allow400Failover := s.cfg != nil && s.cfg.Gateway.FailoverOn400
+			if !allow400Failover && !isModelCapabilityFailure(http.StatusBadRequest, respBody) {
+				return s.handleErrorResponse(ctx, resp, c, account, reqModel)
+			}
 
 			if classifyGatewayFailover(gatewayFailoverObservation{
 				Profile:    gatewayFailoverProfileGeneric,
@@ -861,7 +867,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					Detail:             upstreamDetail,
 				})
 
-				if s.cfg.Gateway.LogUpstreamErrorBody {
+				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 					logger.LegacyPrintf("service.gateway",
 						"Account %d: 400 error, attempting failover: %s",
 						account.ID,
@@ -871,7 +877,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					logger.LegacyPrintf("service.gateway", "Account %d: 400 error, attempting failover", account.ID)
 				}
 				s.handleFailoverSideEffects(ctx, resp, account, reqModel)
-				return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody}
+				return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
+					StatusCode: resp.StatusCode, ResponseBody: respBody,
+					RetryableOnSameAccount: !isModelCapabilityFailureMessage(strings.ToLower(upstreamMsg)),
+				}, gatewayFailoverProfileGeneric, semantic)
 			}
 		}
 		return s.handleErrorResponse(ctx, resp, c, account, reqModel)

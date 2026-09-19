@@ -195,3 +195,47 @@ func TestUS049_AdaptersDelegateWithoutBehaviorDrift(t *testing.T) {
 
 	require.True(t, (&OpenAIGatewayService{}).shouldFailoverLiveCreateError(nil, errors.New("transport failed")))
 }
+
+func TestModelCapability400FailoverSemantic(t *testing.T) {
+	tests := []struct {
+		name         string
+		body         string
+		wantSemantic gatewayFailureSemantic
+		wantRetry    bool
+	}{
+		{
+			name:         "unsupported model is account scoped",
+			body:         `{"error":{"code":"INVALID_ARGUMENT","message":"Unsupported model: claude-sonnet-4-6"}}`,
+			wantSemantic: gatewayFailureSemanticAccountFault,
+			wantRetry:    true,
+		},
+		{
+			name:         "model not found code is account scoped",
+			body:         `{"error":{"code":"model_not_found","message":"request rejected"}}`,
+			wantSemantic: gatewayFailureSemanticAccountFault,
+			wantRetry:    true,
+		},
+		{
+			name:         "ordinary invalid request remains shared",
+			body:         `{"error":{"code":"INVALID_ARGUMENT","message":"Invalid request body"}}`,
+			wantSemantic: gatewayFailureSemanticSharedFault,
+			wantRetry:    false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			semantic := gateway400FailureSemantic([]byte(tc.body))
+			require.Equal(t, tc.wantSemantic, semantic)
+			require.Equal(t, tc.wantRetry, classifyGatewayFailover(gatewayFailoverObservation{
+				Profile: gatewayFailoverProfileGoogle, Semantic: semantic, StatusCode: http.StatusBadRequest,
+			}).RetryNextAccount)
+		})
+	}
+
+	require.True(t, isModelCapabilityFailureMessage("Unsupported model: claude-sonnet-4-6"))
+	require.False(t, isModelCapabilityFailureMessage("Invalid request: tools must be an array"))
+	require.False(t, (&UpstreamFailoverError{
+		StatusCode:             http.StatusBadRequest,
+		RetryableOnSameAccount: false,
+	}).RetryableOnSameAccount)
+}

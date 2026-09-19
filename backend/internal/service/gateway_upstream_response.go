@@ -216,6 +216,12 @@ func gateway400FailureSemantic(respBody []byte) gatewayFailureSemantic {
 	// 只对"可能是兼容性差异导致"的 400 允许切换，避免无意义重试。
 	// 默认保守：无法识别则不切换。
 	msg := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
+	// The selected account can reject a valid request because its mapped
+	// upstream path does not serve the model. Let candidate selection try an
+	// authorized account whose explicit mapping and protocol Plan do support it.
+	if isModelCapabilityFailure(http.StatusBadRequest, respBody) {
+		return gatewayFailureSemanticAccountFault
+	}
 	if msg == "" {
 		return gatewayFailureSemanticSharedFault
 	}
@@ -427,6 +433,12 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		if rejection := candidateEdgeModelRejection(ctx, account, resp.StatusCode, resp.Header, body, requestedModel[0]); rejection != nil {
 			return nil, rejection
 		}
+	}
+	if isModelCapabilityFailure(resp.StatusCode, body) {
+		return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
+			StatusCode: resp.StatusCode, ResponseBody: body,
+			RetryableOnSameAccount: false,
+		}, gatewayFailoverProfileGeneric, gatewayFailureSemanticAccountFault)
 	}
 
 	// 处理上游错误，标记账号状态

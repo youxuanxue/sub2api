@@ -459,8 +459,15 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 		"",
 		false,
 	)
-	if s.shouldFailoverUpstreamError(resp.StatusCode) {
-		message := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(body)))
+	message := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(body)))
+	googleSemantic := googleGatewayFailureSemantic(resp.StatusCode, strings.ToLower(message))
+	shouldFailover := s.shouldFailoverUpstreamError(resp.StatusCode)
+	if googleSemantic != gatewayFailureSemanticUnclassified {
+		shouldFailover = classifyGatewayFailover(gatewayFailoverObservation{
+			Profile: gatewayFailoverProfileGoogle, Semantic: googleSemantic, StatusCode: resp.StatusCode,
+		}).RetryNextAccount
+	}
+	if shouldFailover {
 		event := OpsUpstreamErrorEvent{
 			ProxyID:            opsUpstreamProxyID(account),
 			ProxyName:          opsUpstreamProxyName(account),
@@ -481,11 +488,16 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 			return antigravityCredentialRejectedError(resp, body)
 		}
 		appendOpsUpstreamError(c, event)
-		return &UpstreamFailoverError{
+		failure := &UpstreamFailoverError{
 			StatusCode:      resp.StatusCode,
 			ResponseBody:    body,
 			ResponseHeaders: resp.Header.Clone(),
 		}
+		if googleSemantic != gatewayFailureSemanticUnclassified {
+			failure.RetryableOnSameAccount = !isModelCapabilityFailureMessage(strings.ToLower(message))
+			return applyGatewayFailoverSemantic(failure, gatewayFailoverProfileGoogle, googleSemantic)
+		}
+		return failure
 	}
 	return s.writeMappedAntigravityCompatError(c, account, resp.StatusCode, resp.Header.Get("x-request-id"), body)
 }

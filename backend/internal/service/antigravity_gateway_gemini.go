@@ -372,7 +372,10 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: unwrappedForOps, RetryableOnSameAccount: true}
+			return nil, applyGatewayFailoverSemantic(&UpstreamFailoverError{
+				StatusCode: resp.StatusCode, ResponseBody: unwrappedForOps,
+				RetryableOnSameAccount: !isModelCapabilityFailureMessage(upstreamMsg),
+			}, gatewayFailoverProfileGoogle, googleSemantic)
 		}
 
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
