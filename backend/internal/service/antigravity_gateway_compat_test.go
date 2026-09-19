@@ -898,14 +898,14 @@ func TestPrepareForwardGeminiWireBody_AgentCredits(t *testing.T) {
 	require.Equal(t, "GOOGLE_ONE_AI", gjson.GetBytes(out, "enabledCreditTypes.0").String())
 }
 
-func TestNormalizeForwardGeminiGenerateContentBody_MixedToolsInvalidJSON(t *testing.T) {
-	svc := &AntigravityGatewayService{}
-	// Identity patch requires valid JSON; after patch, mixed-tool reconcile must
-	// fail-closed on corrupt payloads rather than silently forwarding them.
+func TestEnableMixedGeminiToolInvocations_InvalidJSON(t *testing.T) {
 	_, err := enableMixedGeminiToolInvocations([]byte(`{"tools":`))
 	require.Error(t, err)
+}
 
-	_, err = svc.normalizeForwardGeminiGenerateContentBody([]byte(`not-json`))
+func TestNormalizeForwardGeminiGenerateContentBody_InvalidJSON(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	_, err := svc.normalizeForwardGeminiGenerateContentBody([]byte(`not-json`))
 	require.Error(t, err)
 }
 
