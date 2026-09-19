@@ -533,6 +533,7 @@
     <CreateAccountModal v-if="lazyMount('create', showCreate)" :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal v-if="lazyMount('reauth', showReAuth)" :show="showReAuth" :account="reAuthAcc" :auto-generate="autoGenerateAuthLink" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
+    <DuplicateAccountModal v-if="lazyMount('duplicate', !!duplicateAcc)" :show="!!duplicateAcc" :account="duplicateAcc" @close="duplicateAcc = null" @duplicated="handleAccountsDuplicated" />
     <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal v-if="lazyMount('stats', showStats)" :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel v-if="lazyMount('schedule', showSchedulePanel)" :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
@@ -623,6 +624,7 @@ import { PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatfo
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 const ImportDataModal = defineAsyncComponent(() => import('@/components/admin/account/ImportDataModal.vue'))
+const DuplicateAccountModal = defineAsyncComponent(() => import('@/components/admin/account/DuplicateAccountModal.vue'))
 const ReAuthAccountModal = defineAsyncComponent(() => import('@/components/admin/account/ReAuthAccountModal.vue'))
 const AccountTestModal = defineAsyncComponent(() => import('@/components/admin/account/AccountTestModal.vue'))
 const AccountStatsModal = defineAsyncComponent(() => import('@/components/account/AccountStatsModal.vue'))
@@ -645,6 +647,7 @@ const TLSFingerprintProfilesModal = defineAsyncComponent(() => import('@/compone
 const TierTemplatesModal = defineAsyncComponent(() => import('@/components/admin/account/TierTemplatesModal.vue'))
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
+import { accountAuthorizationAction } from '@/utils/accountAuthorization'
 import { accountMatchesPlatformFilter } from '@/utils/accountPlatformFilters'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
@@ -776,6 +779,7 @@ const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
 const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
+const duplicateAcc = ref<Account | null>(null)
 const autoGenerateAuthLink = ref(false)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
@@ -1507,6 +1511,7 @@ const isAnyModalOpen = computed(() => {
     showTempUnsched.value ||
     showDeleteDialog.value ||
     showReAuth.value ||
+    !!duplicateAcc.value ||
     showTest.value ||
     showStats.value ||
     showSchedulePanel.value ||
@@ -2592,6 +2597,8 @@ const handleSchedule = async (a: Account) => {
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
 const handleReAuth = (a: Account) => {
+  if (accountAuthorizationAction(a) === 'import') { void handleEdit(a); return }
+  if (accountAuthorizationAction(a) === 'cursor') { reconnectCursor(a); return }
   autoGenerateAuthLink.value = false
   reAuthAcc.value = a
   showReAuth.value = true
@@ -2600,20 +2607,10 @@ const handleAuthorizationLink = (a: Account) => {
   handleReAuth(a)
   autoGenerateAuthLink.value = true
 }
-const duplicatingAccountIDs = new Set<number>()
-const handleDuplicateAccount = async (a: Account) => {
-  if (duplicatingAccountIDs.has(a.id)) return
-  duplicatingAccountIDs.add(a.id)
-  try {
-    const duplicate = await adminAPI.accounts.duplicate(a.id)
-    appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
-    reload()
-  } catch (error: any) {
-    console.error('Failed to duplicate account:', error)
-    appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
-  } finally {
-    duplicatingAccountIDs.delete(a.id)
-  }
+const handleDuplicateAccount = (account: Account) => { duplicateAcc.value = account }
+const handleAccountsDuplicated = (copies: Account[]) => {
+  appStore.showSuccess(t('admin.accounts.duplicateBatchSuccess', { count: copies.length }))
+  void reload()
 }
 const handleRefresh = async (a: Account) => {
   try {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -292,4 +293,66 @@ func TestDuplicateAccountHandlerDoesNotReexecuteWhileOriginalIsProcessing(t *tes
 	case <-time.After(time.Second):
 		t.Fatal("original duplicate request did not finish")
 	}
+}
+
+func (s *duplicateAccountAdminServiceStub) DuplicateAccounts(_ context.Context, id int64, actor, key string, count int) ([]*service.Account, error) {
+	s.calls++
+	s.accountID = id
+	s.created = true
+	copies := make([]*service.Account, count)
+	for i := range copies {
+		copy := *s.account
+		copy.ID += int64(i)
+		copies[i] = &copy
+	}
+	return copies, nil
+}
+func (s *duplicateAccountAdminServiceStub) RecoverDuplicateAccounts(ctx context.Context, id int64, actor, key string, count int) ([]*service.Account, error) {
+	if !s.created {
+		return nil, nil
+	}
+	copies := make([]*service.Account, count)
+	for i := range copies {
+		copy := *s.account
+		copy.ID += int64(i)
+		copies[i] = &copy
+	}
+	return copies, nil
+}
+
+func TestDuplicateAccountsHandlerBatchRedactsAndReplays(t *testing.T) {
+	svc := &duplicateAccountAdminServiceStub{account: &service.Account{ID: 100, Name: "a-1", Platform: "openai", Type: "oauth", Credentials: map[string]any{"refresh_token": "private-refresh"}}}
+	router := setupDuplicateAccountRouter(t, svc)
+	service.SetDefaultIdempotencyCoordinator(service.NewIdempotencyCoordinator(newMemoryIdempotencyRepoStub(), service.DefaultIdempotencyConfig()))
+	t.Cleanup(func() { service.SetDefaultIdempotencyCoordinator(nil) })
+	for i := 0; i < 2; i++ {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/42/duplicate", strings.NewReader(`{"count":3}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Idempotency-Key", "batch-copy")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, request)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.NotContains(t, rec.Body.String(), "private-refresh")
+		var result struct {
+			Data []struct {
+				ID int64 `json:"id"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+		require.Equal(t, int64(102), result.Data[2].ID)
+	}
+	require.Equal(t, 1, svc.calls)
+}
+
+func TestDuplicateAccountsHandlerRejectsCount(t *testing.T) {
+	svc := &duplicateAccountAdminServiceStub{}
+	router := setupDuplicateAccountRouter(t, svc)
+	for _, payload := range []string{`{"count":0}`, `{"count":-1}`, `{"count":101}`, `{"count":1.5}`, `{"count":"2"}`} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/42/duplicate", strings.NewReader(payload))
+		request.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, request)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+	}
+	require.Zero(t, svc.calls)
 }

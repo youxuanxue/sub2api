@@ -32,15 +32,15 @@
       </span>
     </template>
 
-    <div v-if="verificationURL || (canReauthorize && isAntigravityOAuth)" class="flex flex-col gap-1">
+    <div v-if="verificationURL || (canReauthorize && authorizationAction)" class="flex flex-col gap-1">
       <GoogleVerificationLink v-if="verificationURL" :url="verificationURL" />
       <button
-        v-if="canReauthorize && isAntigravityOAuth"
+        v-if="canReauthorize && authorizationAction"
         type="button"
         class="text-left text-xs text-blue-600 hover:underline dark:text-blue-400"
-        data-testid="antigravity-authorization-link"
+        :data-testid="account.platform === 'antigravity' ? 'antigravity-authorization-link' : 'oauth-authorization-link'"
         @click.stop="emit('reauth', account)"
-      >{{ t('admin.accounts.antigravityAuthorizationLink') }}</button>
+      >{{ t(authorizationAction === 'import' ? 'admin.accounts.reAuthorize' : 'admin.accounts.oauthAuthorizationLink') }}</button>
     </div>
 
     <!-- Error Info Indicator -->
@@ -174,6 +174,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import GoogleVerificationLink from './GoogleVerificationLink.vue'
+import { accountAuthorizationAction } from '@/utils/accountAuthorization'
 import { accountGoogleVerificationURL } from '@/utils/antigravityRecovery'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
@@ -191,7 +192,7 @@ const emit = defineEmits<{
 }>()
 
 const verificationURL = computed(() => accountGoogleVerificationURL(props.account))
-const isAntigravityOAuth = computed(() => props.account.platform === 'antigravity' && props.account.type === 'oauth' && props.account.parent_account_id == null)
+const authorizationAction = computed(() => accountAuthorizationAction(props.account))
 
 // Computed: is rate limited (429)
 const isRateLimited = computed(() => {

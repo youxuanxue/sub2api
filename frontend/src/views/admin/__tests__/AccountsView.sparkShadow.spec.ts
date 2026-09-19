@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
+import DuplicateAccountModal from '@/components/admin/account/DuplicateAccountModal.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -46,7 +47,7 @@ vi.mock('@/api/admin', () => ({
       listWithEtag,
       getBatchTodayStats,
       getBatchPassiveUsage,
-      duplicate: duplicateAccount,
+      duplicateMany: duplicateAccount,
       getUpstreamBillingProbeSettings,
       createSparkShadow,
       delete: vi.fn(),
@@ -113,6 +114,7 @@ const mountView = () =>
         DataTable: ActionDataTableStub,
         Pagination: true,
         ConfirmDialog: true,
+        Teleport: true,
         AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
         AccountTableFilters: { template: '<div></div>' },
         AccountBulkActionsBar: true,
@@ -164,7 +166,7 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     getAllGroups.mockResolvedValue([])
     getAllIncludingInactive.mockResolvedValue([])
     listEdgeAccounts.mockResolvedValue({ notModified: false, etag: null, data: { platform: '__by_stub__', edges: [], ts: 1 } })
-    duplicateAccount.mockResolvedValue({ id: 998, name: 'parent-acc (Copy)' })
+    duplicateAccount.mockResolvedValue([{ id: 998, name: 'parent-acc-1' }])
     createSparkShadow.mockResolvedValue({ id: 999, name: 'parent-acc (Spark)' })
   })
 
@@ -180,15 +182,17 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     menu.vm.$emit('duplicate', parentAccount)
     await flushPromises()
 
+    await wrapper.findComponent(DuplicateAccountModal).get('form').trigger('submit')
+    await flushPromises()
     expect(duplicateAccount).toHaveBeenCalledTimes(1)
-    expect(duplicateAccount).toHaveBeenCalledWith(42)
-    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.duplicateSuccess')
+    expect(duplicateAccount).toHaveBeenCalledWith(42, 1)
+    expect(showSuccess).toHaveBeenCalledWith('admin.accounts.duplicateBatchSuccess')
     expect(listAccounts.mock.calls.length).toBeGreaterThan(1)
     wrapper.unmount()
   })
 
   it('同一账号复制请求未完成时忽略重复点击', async () => {
-    let resolveDuplicate!: (account: { id: number; name: string }) => void
+    let resolveDuplicate!: (accounts: { id: number; name: string }[]) => void
     duplicateAccount.mockImplementationOnce(() => new Promise(resolve => { resolveDuplicate = resolve }))
     const wrapper = mountView()
     await flushPromises()
@@ -198,8 +202,11 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     menu.vm.$emit('duplicate', parentAccount)
     await flushPromises()
 
+    const form = wrapper.findComponent(DuplicateAccountModal).get('form')
+    await form.trigger('submit')
+    await form.trigger('submit')
     expect(duplicateAccount).toHaveBeenCalledTimes(1)
-    resolveDuplicate({ id: 998, name: 'parent-acc (Copy)' })
+    resolveDuplicate([{ id: 998, name: 'parent-acc-1' }])
     await flushPromises()
     wrapper.unmount()
   })
@@ -214,7 +221,10 @@ describe('admin AccountsView — 外审 F2:spark 影子创建接线', () => {
     menu.vm.$emit('duplicate', parentAccount)
     await flushPromises()
 
-    expect(showError).toHaveBeenCalledWith('duplicate failed')
+    const modal = wrapper.findComponent(DuplicateAccountModal)
+    await modal.get('form').trigger('submit')
+    await flushPromises()
+    expect(modal.get('[role=alert]').text()).toBe('duplicate failed')
     consoleError.mockRestore()
     wrapper.unmount()
   })
@@ -279,6 +289,7 @@ const mountViewWithRow = () =>
         },
         Pagination: true,
         ConfirmDialog: true,
+        Teleport: true,
         AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
         AccountTableFilters: { template: '<div></div>' },
         AccountBulkActionsBar: true,

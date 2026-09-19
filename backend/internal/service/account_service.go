@@ -138,6 +138,7 @@ type AccountRepository interface {
 }
 
 type AccountDuplicateRepository interface {
+	CreateCopiesWithAccountGroups(ctx context.Context, accounts []*Account, groups []AccountGroup) error
 	// CreateWithAccountGroups atomically persists an account, its exact group priorities,
 	// and the scheduler outbox event for the new routing snapshot.
 	CreateWithAccountGroups(ctx context.Context, account *Account, groups []AccountGroup) error

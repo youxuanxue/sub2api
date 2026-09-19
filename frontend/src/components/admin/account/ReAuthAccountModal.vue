@@ -263,7 +263,7 @@ const isGrok = computed(() => props.account?.platform === PLATFORM_GROK)
  * - SSO cookie otherwise
  */
 const grokInitialInputMethod = computed<AuthInputMethod>(() => {
-  if (!isGrok.value) return 'manual'
+  if (props.autoGenerate || !isGrok.value) return 'manual'
   const creds = (props.account?.credentials || {}) as Record<string, unknown>
   const hasRT =
     (typeof creds.refresh_token === 'string' && creds.refresh_token.trim() !== '') ||
@@ -730,7 +730,6 @@ watch(
   ([newVal]) => {
     resetState()
     if (newVal && props.account) {
-      if (props.autoGenerate && isAntigravity.value) void handleGenerateUrl()
       // Initialize addMethod based on current account type (Claude only)
       if (
         isAnthropic.value &&
@@ -747,6 +746,7 @@ watch(
               ? 'ai_studio'
               : 'code_assist'
       }
+      if (props.autoGenerate) void handleGenerateUrl()
     }
   },
   { immediate: true }

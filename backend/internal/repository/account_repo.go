@@ -339,6 +339,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	builder := client.Account.Create().
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
+		SetNillableTierID(account.TierID).
 		SetPlatform(account.Platform).
 		SetType(account.Type).
 		SetCredentials(normalizeJSONMap(account.Credentials)).
@@ -400,6 +401,23 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	account.CreatedAt = created.CreatedAt
 	account.UpdatedAt = created.UpdatedAt
 	return nil
+}
+
+// CreateCopiesWithAccountGroups commits a batch as one transaction, including the outbox.
+func (r *accountRepository) CreateCopiesWithAccountGroups(ctx context.Context, accounts []*service.Account, groups []service.AccountGroup) error {
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	transactional := *r
+	transactional.client = tx.Client()
+	for _, account := range accounts {
+		if err := transactional.CreateWithAccountGroups(ctx, account, append([]service.AccountGroup(nil), groups...)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // CreateWithAccountGroups atomically persists an account, its exact per-group priorities,

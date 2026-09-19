@@ -28,12 +28,12 @@
               {{ t('admin.accounts.duplicateAccount') }}
             </button>
             <!-- 影子账号不持凭据:重授权/刷新 token 对其无效(后端拒绝),故隐藏(外审 G4)。 -->
-            <template v-if="(account.type === 'oauth' || account.type === 'setup-token') && !isShadow">
+            <template v-if="accountAuthorizationAction(account)">
               <button @click.stop.prevent="emitWriteAction('reauth', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
                 <Icon name="link" size="sm" />
                 {{ t('admin.accounts.reAuthorize') }}
               </button>
-              <button @click.stop.prevent="emitWriteAction('refresh-token', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-purple-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
+              <button v-if="account.type === 'oauth' || account.type === 'setup-token'" @click.stop.prevent="emitWriteAction('refresh-token', account)" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-purple-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700">
                 <Icon name="refresh" size="sm" />
                 {{ t('admin.accounts.refreshToken') }}
               </button>
@@ -72,6 +72,7 @@ import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import type { Account } from '@/types'
 import { PLATFORM_ANTHROPIC, PLATFORM_ANTIGRAVITY, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import { accountAuthorizationAction } from '@/utils/accountAuthorization'
 import { anchoredMenuStyle, getAnchoredMenuPosition } from '@/utils/floatingPanel'
 
 const props = defineProps<{
@@ -84,10 +85,7 @@ const props = defineProps<{
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'set-tier', 'create-spark-shadow'])
 const { t } = useI18n()
 
-const canDuplicate = computed(() => {
-  if (!props.account || props.account.parent_account_id != null) return false
-  return ['apikey', 'upstream', 'bedrock', 'service_account'].includes(props.account.type)
-})
+const canDuplicate = computed(() => !!props.account)
 
 const DEFAULT_MENU_WIDTH = 208
 const DEFAULT_MENU_HEIGHT = 240

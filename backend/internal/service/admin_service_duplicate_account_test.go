@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -152,7 +153,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 
 	require.NoError(t, err)
 	require.NotEqual(t, source.ID, duplicate.ID)
-	require.Equal(t, "primary (Copy)", duplicate.Name)
+	require.Equal(t, "primary-1", duplicate.Name)
 	require.Equal(t, source.Platform, duplicate.Platform)
 	require.Equal(t, source.Type, duplicate.Type)
 	require.Equal(t, source.ChannelType, duplicate.ChannelType)
@@ -204,7 +205,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.Equal(t, "remote-42", storedSource.Extra["crs_account_id"])
 }
 
-func TestDuplicateAccountRejectsCredentialShadow(t *testing.T) {
+func TestDuplicateAccountShadowBecomesIndependentPausedAccount(t *testing.T) {
 	ctx := context.Background()
 	repo := newDuplicateAccountRepoStub()
 	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
@@ -218,16 +219,17 @@ func TestDuplicateAccountRejectsCredentialShadow(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, shadow))
 
-	_, err := svc.DuplicateAccount(ctx, shadow.ID, "admin:1", "")
+	copy, err := svc.DuplicateAccount(ctx, shadow.ID, "admin:1", "")
 
-	require.Error(t, err)
-	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
-	require.Equal(t, "ACCOUNT_DUPLICATE_SHADOW_UNSUPPORTED", infraerrors.Reason(err))
-	require.Len(t, repo.accounts, 1)
+	require.NoError(t, err)
+	require.Nil(t, copy.ParentAccountID)
+	require.False(t, copy.Schedulable)
+	require.Empty(t, copy.Credentials)
+	require.Equal(t, "shadow-1", copy.Name)
 }
 
-func TestDuplicateAccountRejectsRotatingOrUnknownCredentialTypes(t *testing.T) {
-	for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken, "legacy-cookie"} {
+func TestDuplicateAccountRejectsUnknownCredentialTypes(t *testing.T) {
+	for _, accountType := range []string{"legacy-cookie"} {
 		t.Run(accountType, func(t *testing.T) {
 			ctx := context.Background()
 			repo := newDuplicateAccountRepoStub()
@@ -343,7 +345,7 @@ func TestDuplicateAccountNamePreservesSuffixWithinSchemaLimit(t *testing.T) {
 	name := duplicateAccountName(strings.Repeat("界", 100))
 
 	require.Equal(t, 100, utf8.RuneCountInString(name))
-	require.True(t, strings.HasSuffix(name, " (Copy)"))
+	require.True(t, strings.HasSuffix(name, "-1"))
 }
 
 func TestDuplicateAccountReturnsExistingCopyForSameOperationKey(t *testing.T) {
@@ -375,4 +377,53 @@ func TestDuplicateAccountReturnsExistingCopyForSameOperationKey(t *testing.T) {
 	require.NotEqual(t, first.ID, otherAdminCopy.ID)
 	require.Len(t, repo.accounts, 3)
 	require.NotEmpty(t, first.Extra[duplicateAccountOperationIDExtraKey])
+}
+
+func (r *duplicateAccountRepoStub) CreateCopiesWithAccountGroups(ctx context.Context, accounts []*Account, groups []AccountGroup) error {
+	for _, account := range accounts {
+		if err := r.CreateWithAccountGroups(ctx, account, groups); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func TestDuplicateAccountsOAuthBatchAndRetry(t *testing.T) {
+	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformKiro} {
+		t.Run(platform, func(t *testing.T) {
+			ctx := context.Background()
+			repo := newDuplicateAccountRepoStub()
+			svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+			source := &Account{Name: "original-9", Platform: platform, Type: AccountTypeOAuth, Credentials: map[string]any{"access_token": "a", "refresh_token": "r"}, GroupIDs: []int64{3}}
+			require.NoError(t, repo.Create(ctx, source))
+			copies, err := svc.DuplicateAccounts(ctx, source.ID, "admin:1", "batch-op", 3)
+			require.NoError(t, err)
+			for i, copy := range copies {
+				require.Equal(t, fmt.Sprintf("original-%d", 10+i), copy.Name)
+				require.Equal(t, source.Credentials, copy.Credentials)
+				require.False(t, copy.Schedulable)
+				require.Equal(t, source.GroupIDs, copy.GroupIDs)
+			}
+			retry, err := svc.DuplicateAccounts(ctx, source.ID, "admin:1", "batch-op", 3)
+			require.NoError(t, err)
+			for i := range copies {
+				require.Equal(t, copies[i].ID, retry[i].ID)
+			}
+			require.Equal(t, "original-9", source.Name)
+		})
+	}
+}
+func TestDuplicateAccountsInvalidCountDoesNotWrite(t *testing.T) {
+	for _, count := range []int{0, -1, 101} {
+		repo := newDuplicateAccountRepoStub()
+		svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+		_, err := svc.DuplicateAccounts(context.Background(), 1, "admin:1", "key", count)
+		require.Equal(t, "ACCOUNT_DUPLICATE_COUNT_INVALID", infraerrors.Reason(err))
+		require.Empty(t, repo.accounts)
+	}
+}
+func TestDuplicateNameProgression(t *testing.T) {
+	for _, tc := range []struct{ source, want string }{{"acc", "acc-1"}, {"acc-9", "acc-10"}, {"acc-0009", "acc-10"}, {"acc12", "acc12-1"}, {"账号-99", "账号-100"}, {"acc-9223372036854775807", "acc-9223372036854775808"}} {
+		require.Equal(t, tc.want, duplicateAccountName(tc.source))
+	}
 }

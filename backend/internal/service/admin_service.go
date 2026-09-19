@@ -88,6 +88,8 @@ type AdminService interface {
 	// DuplicateAccount creates an independent account from an existing account's configuration.
 	// First-class runtime columns are intentionally reset by the normal account creation path.
 	DuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*Account, error)
+	DuplicateAccounts(ctx context.Context, id int64, actorScope, operationKey string, count int) ([]*Account, error)
+	RecoverDuplicateAccounts(ctx context.Context, id int64, actorScope, operationKey string, count int) ([]*Account, error)
 	// RecoverDuplicateAccount returns a previously committed duplicate for an ambiguous retry.
 	// It never creates an account.
 	RecoverDuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*Account, error)
