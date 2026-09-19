@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center gap-2">
+  <div class="flex flex-wrap items-center gap-2">
     <!-- Rate Limit Display (429) - Two-line layout -->
     <div v-if="isRateLimited" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
@@ -31,6 +31,17 @@
         {{ statusText }}
       </span>
     </template>
+
+    <div v-if="verificationURL || (canReauthorize && isAntigravityOAuth)" class="flex flex-col gap-1">
+      <GoogleVerificationLink v-if="verificationURL" :url="verificationURL" />
+      <button
+        v-if="canReauthorize && isAntigravityOAuth"
+        type="button"
+        class="text-left text-xs text-blue-600 hover:underline dark:text-blue-400"
+        data-testid="antigravity-authorization-link"
+        @click.stop="emit('reauth', account)"
+      >{{ t('admin.accounts.antigravityAuthorizationLink') }}</button>
+    </div>
 
     <!-- Error Info Indicator -->
     <div v-if="hasError && account.error_message" class="group/error relative">
@@ -162,6 +173,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import GoogleVerificationLink from './GoogleVerificationLink.vue'
+import { accountGoogleVerificationURL } from '@/utils/antigravityRecovery'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
 
@@ -169,11 +182,16 @@ const { t } = useI18n()
 
 const props = defineProps<{
   account: Account
+  canReauthorize?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
+  (e: 'reauth', account: Account): void
 }>()
+
+const verificationURL = computed(() => accountGoogleVerificationURL(props.account))
+const isAntigravityOAuth = computed(() => props.account.platform === 'antigravity' && props.account.type === 'oauth' && props.account.parent_account_id == null)
 
 // Computed: is rate limited (429)
 const isRateLimited = computed(() => {

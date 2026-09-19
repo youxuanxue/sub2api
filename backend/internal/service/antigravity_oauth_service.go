@@ -27,6 +27,7 @@ type AntigravityAuthURLResult struct {
 	AuthURL   string `json:"auth_url"`
 	SessionID string `json:"session_id"`
 	State     string `json:"state"`
+	ExpiresAt int64  `json:"expires_at"`
 }
 
 // GenerateAuthURL 生成 Google OAuth 授权链接
@@ -69,6 +70,7 @@ func (s *AntigravityOAuthService) GenerateAuthURL(ctx context.Context, proxyID *
 		AuthURL:   authURL,
 		SessionID: sessionID,
 		State:     state,
+		ExpiresAt: session.CreatedAt.Add(antigravity.SessionTTL).Unix(),
 	}, nil
 }
 

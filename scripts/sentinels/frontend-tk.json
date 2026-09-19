@@ -2533,6 +2533,39 @@
         "export function sortAccountTestModels"
       ],
       "rationale": "Single account test default/eligibility owner; image aliases must not accidentally become text connectivity probes."
+    },
+    {
+      "path": "frontend/src/components/account/GoogleVerificationLink.vue",
+      "must_contain": [
+        "googleVerificationURL",
+        "useClipboard()"
+      ],
+      "rationale": "Antigravity account/usage verification actions share one safe URL and clipboard owner; see docs/spec-delta-antigravity-account-links.md."
+    },
+    {
+      "path": "frontend/src/components/account/AccountStatusIndicator.vue",
+      "must_contain": [
+        "accountGoogleVerificationURL",
+        "GoogleVerificationLink",
+        "antigravity-authorization-link"
+      ],
+      "rationale": "Account status exposes recovery links in the local accounts page and verification links in the reused edge status."
+    },
+    {
+      "path": "frontend/src/components/account/usage-cells/AntigravityUsageCell.vue",
+      "must_contain": [
+        "GoogleVerificationLink"
+      ],
+      "rationale": "Usage verification shares the account-level presentation and URL validation owner."
+    },
+    {
+      "path": "frontend/src/composables/useAntigravityOAuth.ts",
+      "must_contain": [
+        "current !== generation",
+        "response.expires_at",
+        "onScopeDispose(resetState)"
+      ],
+      "rationale": "Antigravity authorization links expire with their session and cannot reappear after the owning dialog closes."
     }
   ]
 }
