@@ -21,7 +21,10 @@ func redactUnstructuredReference(input string, patterns *textRedactPatterns) str
 
 func redactionGuardCorpus() []string {
 	inputs := []string{
-		"", "***", " ordinary text\n中文内容 ", `{"message":"ordinary: content"}`,
+		"token=,secret", "token=\t,secret", "token=secret&safe=yes",
+		"high throughput thought right", "中文：普通内容；说明: 成功。",
+		"中文 \"token\":\"secret\"", "凭证 Key: abc", "例子 ς=abc", "μ=abc", "é=abc",
+		"token=\xffsecret", "", "***", " ordinary text\n中文内容 ", `{"message":"ordinary: content"}`,
 		"-----BEGIN PRIVATE KEY-----\nmaterial",
 		"-----BEGIN RSA PRIVATE KEY-----\nmaterial\n-----END RSA PRIVATE KEY-----",
 		"Bearer a", "bEaReR\nabc._~+/=-", "notBearer abc", "Bearer", "BEARER\tabc",
@@ -35,7 +38,7 @@ func redactionGuardCorpus() []string {
 	for _, kind := range "pousr" {
 		inputs = append(inputs, "gh"+string(kind)+"_"+strings.Repeat("a", 20))
 	}
-	for _, key := range append(append([]string(nil), defaultSensitiveKeyList...), "x.custom key", `custom"`, "custom:key", "custom=key", "ключ", "k") {
+	for _, key := range append(append([]string(nil), defaultSensitiveKeyList...), "x.custom key", `custom"`, "custom:key", "custom=key", "ключ", "k", "key", "σ", "µ", "é", "x-", "-x") {
 		for _, spelling := range []string{key, strings.ToUpper(key), strings.ReplaceAll(strings.ReplaceAll(key, "s", "ſ"), "k", "K")} {
 			inputs = append(inputs, `"`+spelling+`" : "abc"`, spelling+"\t:\tabc", spelling+"=abc&safe=yes", "prefix-"+spelling+"=abc")
 		}
@@ -44,7 +47,7 @@ func redactionGuardCorpus() []string {
 }
 
 func TestRedactionGuardsMatchOriginalPipeline(t *testing.T) {
-	for _, patterns := range []*textRedactPatterns{defaultTextRedactPatterns, getTextRedactPatterns([]string{"x.custom key", `custom"`, "custom:key", "custom=key", "ключ", "k"})} {
+	for _, patterns := range []*textRedactPatterns{defaultTextRedactPatterns, getTextRedactPatterns([]string{"x.custom key", `custom"`, "custom:key", "custom=key", "ключ", "k", "key", "σ", "µ", "é", "x-", "-x"})} {
 		for _, input := range redactionGuardCorpus() {
 			for _, wrapped := range []string{input, "prefix " + input + " suffix", input + " password=abc"} {
 				if got, want := redactUnstructuredText(wrapped, patterns), redactUnstructuredReference(wrapped, patterns); got != want {
@@ -59,10 +62,12 @@ func FuzzRedactionGuardsMatchOriginalPipeline(f *testing.F) {
 	for _, input := range redactionGuardCorpus() {
 		f.Add(input)
 	}
-	patterns := getTextRedactPatterns([]string{"x.custom key", `custom"`, "custom:key", "custom=key", "ключ", "k"})
+	patterns := getTextRedactPatterns([]string{"x.custom key", `custom"`, "custom:key", "custom=key", "ключ", "k", "key", "σ", "µ", "é", "x-", "-x"})
 	f.Fuzz(func(t *testing.T, input string) {
-		if got, want := redactUnstructuredText(input, patterns), redactUnstructuredReference(input, patterns); got != want {
-			t.Fatalf("input %q: got %q, want %q", input, got, want)
+		for _, p := range []*textRedactPatterns{defaultTextRedactPatterns, patterns} {
+			if got, want := redactUnstructuredText(input, p), redactUnstructuredReference(input, p); got != want {
+				t.Fatalf("input %q: got %q, want %q", input, got, want)
+			}
 		}
 	})
 }
@@ -71,6 +76,8 @@ func BenchmarkRedactJSONResponses(b *testing.B) {
 	for _, prose := range []struct{ name, text string }{
 		{"ordinary", "The response explains how to build and verify the application. "},
 		{"punctuation", "Example: build the application; result = successful. "},
+		{"english_gh", "The thought process highlights the right throughput. "},
+		{"chinese", "说明: 构建成功，结果 = 正常；继续验证应用。 "},
 	} {
 		b.Run(prose.name, func(b *testing.B) {
 			content := make([]any, 512)
@@ -137,5 +144,26 @@ func TestRedactSSEPreservesOriginalCoverage(t *testing.T) {
 		if got, want := RedactText(raw), redactUnstructuredReference(strings.TrimSpace(raw), defaultTextRedactPatterns); got != want {
 			t.Fatalf("input %q: got %q, want %q", raw, got, want)
 		}
+	}
+}
+
+// Long content leaves expose false-positive regexp dispatch independently of
+// JSON encoding costs. These are synthetic bodies, not captured user content.
+func BenchmarkRedactContentLeaf(b *testing.B) {
+	for _, tc := range []struct{ name, text string }{
+		{"english_gh", "The thought process highlights the right throughput. "},
+		{"chinese", "说明: 构建成功，结果 = 正常；继续验证应用。 "},
+		{"ascii_assignments", "Example: build the application; result = successful. "},
+		{"credentials", "token=synthetic&safe=yes \"password\":\"synthetic\" "},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			input := strings.Repeat(tc.text, 256)
+			b.SetBytes(int64(len(input)))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				redactUnstructuredText(input, defaultTextRedactPatterns)
+			}
+		})
 	}
 }
