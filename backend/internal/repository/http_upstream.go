@@ -1437,7 +1437,35 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 		}
 	}
 
+	// A custom DialTLSContext disables net/http's automatic HTTP/2 setup. The
+	// Antigravity CLI profile advertises h2, so register an HTTP/2 transport
+	// explicitly; otherwise Google negotiates h2 and net/http tries to parse the
+	// binary preface as an HTTP/1.1 response ("malformed HTTP response").
+	if profileSupportsHTTP2(profile) {
+		transport.ForceAttemptHTTP2 = true
+		if _, err := enableHTTP2KeepAlive(transport); err != nil {
+			return nil, err
+		}
+	} else {
+		// Keep profiles that advertise only HTTP/1.1 from inheriting any
+		// automatic HTTP/2 behavior when this function is reused.
+		transport.ForceAttemptHTTP2 = false
+		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+	}
+
 	return transport, nil
+}
+
+func profileSupportsHTTP2(profile *tlsfingerprint.Profile) bool {
+	if profile == nil {
+		return false
+	}
+	for _, protocol := range profile.ALPNProtocols {
+		if strings.EqualFold(protocol, "h2") {
+			return true
+		}
+	}
+	return false
 }
 
 // trackedBody 带跟踪功能的响应体包装器

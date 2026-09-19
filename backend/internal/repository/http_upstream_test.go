@@ -2,6 +2,8 @@ package repository
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -134,6 +136,60 @@ func TestTLSFingerprintHTTPSProxyFallsBackWithoutBypassingProxy(t *testing.T) {
 	resolved, err := transport.Proxy(req)
 	require.NoError(t, err)
 	require.Equal(t, "https://user:pass@proxy.example:8443", resolved.String())
+}
+
+func TestTLSFingerprintHTTP2ProfileConfiguresHTTP2Transport(t *testing.T) {
+	transport, err := buildUpstreamTransportWithTLSFingerprint(poolSettings{}, nil, &tlsfingerprint.Profile{
+		Name:          "antigravity-cli",
+		ALPNProtocols: []string{"h2", "http/1.1"},
+	})
+	require.NoError(t, err)
+	require.True(t, transport.ForceAttemptHTTP2)
+	requireHTTP2Configured(t, transport, "TLS fingerprint profile advertising h2 must configure HTTP/2")
+}
+
+func TestTLSFingerprintHTTP1ProfileDisablesHTTP2(t *testing.T) {
+	transport, err := buildUpstreamTransportWithTLSFingerprint(poolSettings{}, nil, &tlsfingerprint.Profile{
+		Name:          "http1-only",
+		ALPNProtocols: []string{"http/1.1"},
+	})
+	require.NoError(t, err)
+	require.False(t, transport.ForceAttemptHTTP2)
+	require.NotNil(t, transport.TLSNextProto)
+	require.Nil(t, transport.TLSNextProto["h2"])
+}
+
+func TestTLSFingerprintHTTP2TransportRoundTripsHTTP2(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, 2, r.ProtoMajor)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	t.Cleanup(server.Close)
+
+	transport, err := buildUpstreamTransportWithTLSFingerprint(poolSettings{}, nil, &tlsfingerprint.Profile{
+		Name:          "antigravity-cli",
+		ALPNProtocols: []string{"h2", "http/1.1"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(transport.CloseIdleConnections)
+	// The test server uses a self-signed certificate. Keep the production
+	// transport's HTTP/2 wiring and replace only the TLS dialer for the fixture.
+	transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return (&tls.Dialer{Config: &tls.Config{
+			InsecureSkipVerify: true, // test fixture only
+			NextProtos:         []string{"h2", "http/1.1"},
+		}}).DialContext(ctx, network, addr)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	resp, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	require.Equal(t, 2, resp.ProtoMajor)
+	require.NoError(t, resp.Body.Close())
 }
 
 func startTestSOCKS5Proxy(t *testing.T) (string, *atomic.Int64) {
