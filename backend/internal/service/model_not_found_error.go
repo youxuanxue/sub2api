@@ -7,6 +7,38 @@ import (
 
 var upstreamModelNotFoundKeywords = []string{"model not found", "unknown model", "not found"}
 
+// isModelCapabilityFailureMessage reports provider errors that mean the
+// selected account/path cannot serve the requested model. Another authorized
+// candidate may still have an explicit mapping and compatible protocol Plan.
+func isModelCapabilityFailureMessage(message string) bool {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	if lower == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"unsupported model",
+		"model not found",
+		"model is not supported",
+		"model is unsupported",
+		"unknown model",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isModelCapabilityFailure(statusCode int, body []byte) bool {
+	if statusCode != http.StatusBadRequest {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(body)), "model_not_found") {
+		return true
+	}
+	return isModelCapabilityFailureMessage(extractUpstreamErrorMessage(body))
+}
+
 func isUpstreamModelNotFoundError(statusCode int, body []byte) bool {
 	if statusCode != http.StatusNotFound {
 		return false
