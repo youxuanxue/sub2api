@@ -30,6 +30,7 @@ func TestTkIsAccountStandingBillingMessage_PositiveAndNegative(t *testing.T) {
 	}
 
 	negatives := []string{
+		"Token Plan Person monthly quota limit exceeded",
 		"You have exceeded the monthly usage quota. It will reset at 2026-09-30 23:59:59 +0800 CST",
 		"You have exceeded the weekly usage quota. It will reset at 2026-08-30 23:59:59 +0800 CST",
 		"Requests rate limit exceeded, please retry later",

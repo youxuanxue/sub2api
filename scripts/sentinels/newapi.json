@@ -78,11 +78,23 @@
         "buildNewAPIUpstreamQuota",
         "newAPIWeeklyUtilExtraKey",
         "newAPIMonthlyUtilExtraKey",
+        "newAPIQianfanMonthlyQuotaMessage",
+        "tkQianfanMonthlyResetAt",
         "tkParseNewAPIUsageWindowResponse",
         "parseRetryAfterResetTime(headers, reference)",
         "(*progress).UtilizationUnknown = false"
       ],
       "rationale": "NewAPI Agent Plan monthly/weekly/5h/7d prose 429s must cool until the parsed reset and persist Extra so admin usage windows show exhaustion instead of a permanent 'unsupported' chip. Dropping this companion recreates the account-88 weekly-quota UI blind spot."
+    },
+    {
+      "path": "backend/internal/service/newapi_usage_window_tk_test.go",
+      "must_contain": [
+        "TestHandleUpstreamError_NewAPIMonthlyQuotaLifecycle",
+        "TestNewAPIQianfanMonthlyQuotaCalendarReset",
+        "TestNewAPIQianfanMonthlyQuotaLifecycle",
+        "TestNewAPIQianfanMonthlyQuotaBoundaries"
+      ],
+      "rationale": "Monthly quota regressions must preserve VolcEngine's explicit reset and Qianfan's first-day 01:00 Beijing fallback, short Retry-After precedence, calendar boundaries, and the manual scheduling switch after expiry."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",

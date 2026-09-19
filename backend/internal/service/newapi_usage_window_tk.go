@@ -26,18 +26,19 @@ import (
 // dimension and never overwrites local 5h/7d statistics.
 
 const (
-	newAPIMonthlyUtilExtraKey     = "newapi_monthly_utilization"
-	newAPIMonthlyResetExtraKey    = "newapi_monthly_reset"
-	newAPIMonthlySampledExtraKey  = "newapi_monthly_sampled_at"
-	newAPIWeeklyUtilExtraKey      = "newapi_weekly_utilization"
-	newAPIWeeklyResetExtraKey     = "newapi_weekly_reset"
-	newAPIWeeklySampledExtraKey   = "newapi_weekly_sampled_at"
-	newAPIFiveHourUtilExtraKey    = "newapi_5h_utilization"
-	newAPIFiveHourResetExtraKey   = "newapi_5h_reset"
-	newAPIFiveHourSampledExtraKey = "newapi_5h_sampled_at"
-	newAPISevenDayUtilExtraKey    = "newapi_7d_utilization"
-	newAPISevenDayResetExtraKey   = "newapi_7d_reset"
-	newAPISevenDaySampledExtraKey = "newapi_7d_sampled_at"
+	newAPIQianfanMonthlyQuotaMessage = "token plan person monthly quota limit exceeded"
+	newAPIMonthlyUtilExtraKey        = "newapi_monthly_utilization"
+	newAPIMonthlyResetExtraKey       = "newapi_monthly_reset"
+	newAPIMonthlySampledExtraKey     = "newapi_monthly_sampled_at"
+	newAPIWeeklyUtilExtraKey         = "newapi_weekly_utilization"
+	newAPIWeeklyResetExtraKey        = "newapi_weekly_reset"
+	newAPIWeeklySampledExtraKey      = "newapi_weekly_sampled_at"
+	newAPIFiveHourUtilExtraKey       = "newapi_5h_utilization"
+	newAPIFiveHourResetExtraKey      = "newapi_5h_reset"
+	newAPIFiveHourSampledExtraKey    = "newapi_5h_sampled_at"
+	newAPISevenDayUtilExtraKey       = "newapi_7d_utilization"
+	newAPISevenDayResetExtraKey      = "newapi_7d_reset"
+	newAPISevenDaySampledExtraKey    = "newapi_7d_sampled_at"
 
 	newAPIUpstreamMonthlyKey  = "newapi_monthly"
 	newAPIUpstreamWeeklyKey   = "newapi_weekly"
@@ -65,7 +66,7 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 	}
 	window := "weekly"
 	switch {
-	case strings.Contains(haystack, "monthly usage quota"):
+	case strings.Contains(haystack, "monthly usage quota") || strings.Contains(haystack, newAPIQianfanMonthlyQuotaMessage):
 		window = "monthly"
 	case strings.Contains(haystack, "5-hour") || strings.Contains(haystack, "5 hour"):
 		window = "5h"
@@ -101,6 +102,11 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 			}
 		}
 	}
+	// Qianfan omits its reset timestamp. Apply the operational monthly rule:
+	// next month's first day at 01:00 Beijing time, ahead of short Retry-After.
+	if !ok && strings.Contains(haystack, newAPIQianfanMonthlyQuotaMessage) {
+		resetAt, ok = tkQianfanMonthlyResetAt(now), true
+	}
 	// A monthly quota reset is authoritative even if Retry-After only describes
 	// a short request throttle. Preserve existing header precedence for other windows.
 	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) && (window != "monthly" || !ok) {
@@ -110,6 +116,11 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 		return nil
 	}
 	return &newAPIUsageWindowHit{Window: window, ResetAt: resetAt}
+}
+
+func tkQianfanMonthlyResetAt(now time.Time) time.Time {
+	beijing := now.In(time.FixedZone("CST", 8*60*60))
+	return time.Date(beijing.Year(), beijing.Month()+1, 1, 1, 0, 0, 0, beijing.Location())
 }
 
 func tkParseNewAPIUsageWindowResetAt(haystack string) (time.Time, bool) {

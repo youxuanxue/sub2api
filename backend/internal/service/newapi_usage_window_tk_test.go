@@ -287,3 +287,72 @@ func TestHandleUpstreamError_NewAPIMonthlyQuotaLifecycle(t *testing.T) {
 		require.Equal(t, schedulable, account.IsSchedulable())
 	}
 }
+
+const qianfanMonthlyQuotaBody = `{"error":{"code":"token_quota_exceeded","message":"Token Plan Person monthly quota limit exceeded","type":"quota_exceeded"},"id":"as-test"}`
+
+func TestNewAPIQianfanMonthlyQuotaCalendarReset(t *testing.T) {
+	for _, tc := range []struct{ now, reset string }{
+		{"2026-09-19T00:23:00Z", "2026-09-30T17:00:00Z"},
+		{"2026-12-31T15:59:59Z", "2026-12-31T17:00:00Z"},
+		{"2026-12-31T16:00:00Z", "2027-01-31T17:00:00Z"},
+		{"2026-01-31T16:00:00Z", "2026-02-28T17:00:00Z"},
+		{"2028-02-01T00:00:00Z", "2028-02-29T17:00:00Z"},
+	} {
+		t.Run(tc.now, func(t *testing.T) {
+			now, err := time.Parse(time.RFC3339, tc.now)
+			require.NoError(t, err)
+			for _, retry := range []string{"", "5", "7200"} {
+				hit := tkParseNewAPIUsageWindowResponse(qianfanMonthlyQuotaBody, http.Header{"Retry-After": {retry}}, now)
+				require.NotNil(t, hit)
+				require.Equal(t, "monthly", hit.Window)
+				require.Equal(t, tc.reset, hit.ResetAt.UTC().Format(time.RFC3339))
+			}
+		})
+	}
+}
+
+func TestNewAPIQianfanMonthlyQuotaLifecycle(t *testing.T) {
+	for _, schedulable := range []bool{true, false} {
+		account := &Account{ID: 130, Platform: PlatformNewAPI, ChannelType: 46, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: schedulable}
+		repo := &rateLimitAccountRepoStub{accountOnGet: account}
+		svc := NewRateLimitService(repo, nil, nil, nil, nil)
+		reset := tkQianfanMonthlyResetAt(time.Now())
+		svc.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, http.Header{"Retry-After": {"5"}}, []byte(qianfanMonthlyQuotaBody))
+		require.Equal(t, 1, repo.setRateLimitedCalls)
+		require.True(t, reset.Equal(repo.lastRateLimitedResetAt))
+		require.Zero(t, repo.setErrorCalls)
+		require.Zero(t, repo.tempCalls)
+		require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIMonthlyUtilExtraKey])
+		require.Equal(t, float64(reset.Unix()), repo.lastExtraUpdates[newAPIMonthlyResetExtraKey])
+		require.Equal(t, schedulable, account.Schedulable)
+		account.RateLimitResetAt = &reset // reloaded scheduler state
+		require.False(t, account.IsSchedulable())
+		usage := &UsageInfo{}
+		applyNewAPIUsageWindowSnapshot(account, usage)
+		require.NotNil(t, usage.UpstreamQuota)
+		require.Equal(t, "degraded", usage.UpstreamQuota.State)
+		require.Len(t, usage.UpstreamQuota.Dimensions, 1)
+		dimension := usage.UpstreamQuota.Dimensions[0]
+		require.Equal(t, "newapi_monthly", dimension.Key)
+		require.Equal(t, 100.0, *dimension.Utilization)
+		require.True(t, reset.Equal(*dimension.ResetsAt))
+		past := time.Now().Add(-time.Second)
+		account.RateLimitResetAt = &past
+		account.Extra[newAPIMonthlyResetExtraKey] = float64(past.Unix())
+		expired := &UsageInfo{}
+		applyNewAPIUsageWindowSnapshot(account, expired)
+		require.Nil(t, expired.UpstreamQuota)
+		require.Equal(t, schedulable, account.IsSchedulable())
+	}
+}
+
+func TestNewAPIQianfanMonthlyQuotaBoundaries(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, message := range []string{"Token Plan Person daily quota limit exceeded", "token_quota_exceeded", "Monthly requests rate limit exceeded"} {
+		require.Nil(t, tkParseNewAPIUsageWindowResponse(message, nil, now))
+	}
+	hit := tkParseNewAPIUsageWindowResponse("Token Plan Person monthly quota limit exceeded. It will reset at "+now.Add(48*time.Hour).Format("2006-01-02 15:04:05 -0700"), http.Header{"Retry-After": {"5"}}, now)
+	require.NotNil(t, hit)
+	require.Equal(t, "monthly", hit.Window)
+	require.Equal(t, now.Add(48*time.Hour), hit.ResetAt.UTC())
+}
