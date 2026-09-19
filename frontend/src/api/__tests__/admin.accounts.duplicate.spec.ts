@@ -8,7 +8,7 @@ vi.mock('@/api/client', () => ({
   apiClient: { post }
 }))
 
-import { duplicate } from '@/api/admin/accounts'
+import { duplicate, duplicateMany } from '@/api/admin/accounts'
 
 describe('admin account duplicate API', () => {
   beforeEach(() => {
@@ -56,4 +56,22 @@ describe('admin account duplicate API', () => {
     expect(post.mock.calls[1][2].headers).toEqual(firstHeaders)
     expect(sessionStorage.length).toBe(0)
   })
+})
+
+describe('batch duplication', () => {
+ it('validates count before sending any request', async () => {
+  post.mockClear()
+  for (const count of [0, -1, 1.5, 101, NaN]) await expect(duplicateMany(42, count)).rejects.toThrow('Copy count')
+  expect(post).not.toHaveBeenCalled()
+ })
+ it('preserves batch count and retry key after ambiguous errors', async () => {
+  post.mockClear()
+  post.mockRejectedValueOnce(new Error('timeout'))
+  await expect(duplicateMany(12, 3)).rejects.toThrow('timeout')
+  const headers = post.mock.calls[0][2]
+  const copies = [{id: 20, name:'a-1'}, {id:21,name:'a-2'}, {id:22,name:'a-3'}]
+  post.mockResolvedValueOnce({data:copies})
+  expect(await duplicateMany(12, 3)).toEqual(copies)
+  expect(post).toHaveBeenLastCalledWith('/admin/accounts/12/duplicate', {count:3}, headers)
+ })
 })

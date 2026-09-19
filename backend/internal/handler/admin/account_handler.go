@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -986,43 +987,82 @@ func (h *AccountHandler) Create(c *gin.Context) {
 // POST /api/v1/admin/accounts/:id/duplicate
 func (h *AccountHandler) Duplicate(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
+	if err != nil || accountID <= 0 {
 		response.BadRequest(c, "Invalid account ID")
 		return
 	}
+	var req struct {
+		Count *int `json:"count"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.InvalidRequest(c)
+		return
+	}
+	count := 1
+	if req.Count != nil {
+		count = *req.Count
+	}
+	if count < 1 || count > service.MaxAccountCopies {
+		response.BadRequest(c, "count must be between 1 and 100")
+		return
+	}
 	actorScope := adminActorScope(c)
-
-	result, err := executeAdminIdempotent(
-		c,
-		"admin.accounts.duplicate",
-		struct {
-			AccountID int64 `json:"account_id"`
-		}{AccountID: accountID},
-		service.DefaultWriteIdempotencyTTL(),
-		func(ctx context.Context) (any, error) {
-			account, execErr := h.adminService.DuplicateAccount(ctx, accountID, actorScope, c.GetHeader("Idempotency-Key"))
-			if execErr != nil {
-				return nil, execErr
+	fingerprintCount := 0
+	if count > 1 {
+		fingerprintCount = count
+	}
+	serialize := func(ctx context.Context, accounts []*service.Account) any {
+		if count == 1 {
+			return h.buildAccountResponseWithRuntime(ctx, accounts[0])
+		}
+		result := make([]any, 0, len(accounts))
+		for _, account := range accounts {
+			result = append(result, h.buildAccountResponseWithRuntime(ctx, account))
+		}
+		return result
+	}
+	result, err := executeAdminIdempotent(c, "admin.accounts.duplicate", struct {
+		AccountID int64 `json:"account_id"`
+		Count     int   `json:"count,omitempty"`
+	}{AccountID: accountID, Count: fingerprintCount}, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		if count == 1 {
+			account, err := h.adminService.DuplicateAccount(ctx, accountID, actorScope, c.GetHeader("Idempotency-Key"))
+			if err != nil {
+				return nil, err
 			}
-			return h.buildAccountResponseWithRuntime(ctx, account), nil
-		},
-	)
+			return serialize(ctx, []*service.Account{account}), nil
+		}
+		accounts, err := h.adminService.DuplicateAccounts(ctx, accountID, actorScope, c.GetHeader("Idempotency-Key"), count)
+		if err != nil {
+			return nil, err
+		}
+		return serialize(ctx, accounts), nil
+	})
 	if err != nil {
 		reason := infraerrors.Reason(err)
 		if reason == infraerrors.Reason(service.ErrIdempotencyInProgress) || reason == infraerrors.Reason(service.ErrIdempotencyStoreUnavail) {
-			recovered, recoverErr := h.adminService.RecoverDuplicateAccount(c.Request.Context(), accountID, actorScope, c.GetHeader("Idempotency-Key"))
+			var recovered []*service.Account
+			var recoverErr error
+			if count == 1 {
+				var account *service.Account
+				account, recoverErr = h.adminService.RecoverDuplicateAccount(c.Request.Context(), accountID, actorScope, c.GetHeader("Idempotency-Key"))
+				if account != nil {
+					recovered = []*service.Account{account}
+				}
+			} else {
+				recovered, recoverErr = h.adminService.RecoverDuplicateAccounts(c.Request.Context(), accountID, actorScope, c.GetHeader("Idempotency-Key"), count)
+			}
 			if recoverErr != nil {
-				slog.Warn("account_duplicate_recovery_failed", "account_id", accountID, "actor_scope", actorScope, "reason", reason, "error", recoverErr)
-			} else if recovered != nil {
+				slog.Warn("account_duplicate_recovery_failed", "account_id", accountID, "error", recoverErr)
+			} else if len(recovered) == count {
 				c.Header("X-Idempotency-Recovered", "true")
-				response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), recovered))
+				response.Success(c, serialize(c.Request.Context(), recovered))
 				return
 			}
 		}
 		response.ErrorFrom(c, err)
 		return
 	}
-
 	if result != nil && result.Replayed {
 		c.Header("X-Idempotency-Replayed", "true")
 	}

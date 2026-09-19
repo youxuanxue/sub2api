@@ -196,43 +196,38 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
  * @param id - Source account ID
  * @returns Newly created account
  */
-const duplicateOperationKeys = new Map<number, string>()
+const duplicateOperationKeys = new Map<string, string>()
 
-function duplicateOperationStorageKey(id: number): string {
-  return `sub2api:admin:account-duplicate:${id}`
+function duplicateOperationStorageKey(id: number, count: number): string {
+  return `sub2api:admin:account-duplicate:${id}${count === 1 ? '' : `:${count}`}`
 }
 
-function getStoredDuplicateOperationKey(id: number): string | null {
-  try {
-    return globalThis.sessionStorage?.getItem(duplicateOperationStorageKey(id)) ?? null
-  } catch {
-    return null
+async function requestDuplicate(id: number, count: number): Promise<Account[]> {
+  if (!Number.isInteger(count) || count < 1 || count > 100) throw new Error('Copy count must be an integer from 1 to 100')
+  const storageKey = duplicateOperationStorageKey(id, count)
+  let key = duplicateOperationKeys.get(storageKey)
+  try { key ??= globalThis.sessionStorage?.getItem(storageKey) ?? undefined } catch { /* storage may be unavailable */ }
+  if (!key) {
+    const requestID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    key = `account-duplicate-${id}-${requestID}`
   }
-}
-
-function storeDuplicateOperationKey(id: number, key: string | null): void {
-  try {
-    if (key) globalThis.sessionStorage?.setItem(duplicateOperationStorageKey(id), key)
-    else globalThis.sessionStorage?.removeItem(duplicateOperationStorageKey(id))
-  } catch {
-    // In-memory retry protection still works when browser storage is unavailable.
-  }
+  duplicateOperationKeys.set(storageKey, key)
+  try { globalThis.sessionStorage?.setItem(storageKey, key) } catch { /* in-memory retries remain protected */ }
+  // Preserve the original single-copy wire contract and its retry fingerprint.
+  const { data } = await apiClient.post<Account | Account[]>(`/admin/accounts/${id}/duplicate`, count === 1 ? undefined : { count }, {
+    headers: { 'Idempotency-Key': key }
+  })
+  duplicateOperationKeys.delete(storageKey)
+  try { globalThis.sessionStorage?.removeItem(storageKey) } catch { /* storage may be unavailable */ }
+  return Array.isArray(data) ? data : [data]
 }
 
 export async function duplicate(id: number): Promise<Account> {
-  let idempotencyKey = duplicateOperationKeys.get(id) ?? getStoredDuplicateOperationKey(id)
-  if (!idempotencyKey) {
-    const requestID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    idempotencyKey = `account-duplicate-${id}-${requestID}`
-  }
-  duplicateOperationKeys.set(id, idempotencyKey)
-  storeDuplicateOperationKey(id, idempotencyKey)
-  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/duplicate`, undefined, {
-    headers: { 'Idempotency-Key': idempotencyKey }
-  })
-  duplicateOperationKeys.delete(id)
-  storeDuplicateOperationKey(id, null)
-  return data
+  return (await requestDuplicate(id, 1))[0]
+}
+
+export async function duplicateMany(id: number, count: number): Promise<Account[]> {
+  return requestDuplicate(id, count)
 }
 
 /**
@@ -1168,6 +1163,7 @@ export const accountsAPI = {
   getById,
   create,
   duplicate,
+  duplicateMany,
   update,
   getGrokMediaEligibility,
   updateGrokMediaEligibility,

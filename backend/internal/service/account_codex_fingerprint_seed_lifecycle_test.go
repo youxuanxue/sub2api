@@ -243,3 +243,12 @@ func TestAccountServiceCreateAndUpdateCodexSeedLifecycle(t *testing.T) {
 	require.Equal(t, createdSeed, requireValidCodexFingerprintSeed(t, updated.Extra))
 	require.Equal(t, "full", updated.Extra[codexFingerprintModeExtraKey])
 }
+
+func (r *codexSeedDuplicateRepo) CreateCopiesWithAccountGroups(ctx context.Context, accounts []*Account, groups []AccountGroup) error {
+	for _, account := range accounts {
+		if err := r.CreateWithAccountGroups(ctx, account, groups); err != nil {
+			return err
+		}
+	}
+	return nil
+}

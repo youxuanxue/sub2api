@@ -2574,6 +2574,25 @@
         "onScopeDispose(resetState)"
       ],
       "rationale": "Antigravity authorization links expire with their session and cannot reappear after the owning dialog closes."
+    },
+    {
+      "path": "frontend/src/utils/accountAuthorization.ts",
+      "must_contain": [
+        "accountAuthorizationAction",
+        "parent_account_id",
+        "kiro",
+        "cursor"
+      ],
+      "rationale": "Shared authorization routing for row links and menus; see docs/spec-delta-account-copy-oauth.md."
+    },
+    {
+      "path": "frontend/src/components/admin/account/DuplicateAccountModal.vue",
+      "must_contain": [
+        "duplicateMany",
+        "submitting",
+        "Number.isInteger"
+      ],
+      "rationale": "Account duplication uses one count/retry dialog across platforms."
     }
   ]
 }

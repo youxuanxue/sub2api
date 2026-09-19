@@ -74,3 +74,37 @@ func TestCreateWithAccountGroupsPersistsPausedCopyAtomically(t *testing.T) {
 	require.Zero(t, groupCount)
 	require.Zero(t, failedOutboxCount)
 }
+
+func TestCreateCopiesWithAccountGroupsRollsBackWholeBatch(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := newAccountRepositoryWithSQL(client, integrationDB, nil, nil)
+	prefix := fmt.Sprintf("batch-copy-%d", time.Now().UnixNano())
+	makeAccount := func(name string) *service.Account {
+		return &service.Account{Name: name, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: false, Credentials: map[string]any{"refresh_token": "test-refresh"}}
+	}
+	first := makeAccount(prefix + "-1")
+	invalid := makeAccount("") // fails after the first insert, proving full rollback
+	err := repo.CreateCopiesWithAccountGroups(ctx, []*service.Account{first, invalid}, nil)
+	require.Error(t, err)
+	var count int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM accounts WHERE name = $1", first.Name).Scan(&count))
+	require.Zero(t, count)
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM scheduler_outbox WHERE account_id = $1", first.ID).Scan(&count))
+	require.Zero(t, count)
+	copies := []*service.Account{makeAccount(prefix + "-1"), makeAccount(prefix + "-2")}
+	require.NoError(t, repo.CreateCopiesWithAccountGroups(ctx, copies, nil))
+	t.Cleanup(func() {
+		for _, a := range copies {
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM scheduler_outbox WHERE account_id=$1", a.ID)
+			_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id=$1", a.ID)
+		}
+	})
+	for _, a := range copies {
+		stored, err := repo.GetByID(ctx, a.ID)
+		require.NoError(t, err)
+		require.False(t, stored.Schedulable)
+		require.Equal(t, "test-refresh", stored.Credentials["refresh_token"])
+		assertAccountProtocolProjectionAndSingleOutbox(t, integrationDB, stored)
+	}
+}

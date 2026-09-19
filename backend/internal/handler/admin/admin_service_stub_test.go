@@ -868,3 +868,10 @@ func (s *stubAdminService) CreateShadow(ctx context.Context, parentID int64, opt
 
 // Ensure stub implements interface.
 var _ service.AdminService = (*stubAdminService)(nil)
+
+func (s *stubAdminService) DuplicateAccounts(ctx context.Context, id int64, actorScope, operationKey string, count int) ([]*service.Account, error) {
+	panic("unexpected DuplicateAccounts")
+}
+func (s *stubAdminService) RecoverDuplicateAccounts(ctx context.Context, id int64, actorScope, operationKey string, count int) ([]*service.Account, error) {
+	panic("unexpected RecoverDuplicateAccounts")
+}

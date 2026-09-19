@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -72,13 +73,33 @@ const maxAccountNameRunes = 100
 const duplicateAccountOperationIDExtraKey = "duplicate_operation_id"
 
 func duplicateAccountName(sourceName string) string {
-	const suffix = " (Copy)"
-	nameRunes := []rune(strings.TrimSpace(sourceName))
-	maxBaseRunes := maxAccountNameRunes - len([]rune(suffix))
-	if len(nameRunes) > maxBaseRunes {
-		nameRunes = nameRunes[:maxBaseRunes]
+	name := strings.TrimSpace(sourceName)
+	base, number := name, big.NewInt(0)
+	if split := strings.LastIndex(name, "-"); split >= 0 {
+		tail := name[split+1:]
+		digits := tail != ""
+		for _, ch := range tail {
+			if ch < '0' || ch > '9' {
+				digits = false
+				break
+			}
+		}
+		if digits {
+			number.SetString(tail, 10)
+			base = name[:split]
+		}
 	}
-	return string(nameRunes) + suffix
+	number.Add(number, big.NewInt(1))
+	suffix := "-" + number.String()
+	runes := []rune(base)
+	limit := maxAccountNameRunes - len(suffix)
+	if limit < 0 {
+		limit = 0
+	}
+	if len(runes) > limit {
+		runes = runes[:limit]
+	}
+	return string(runes) + suffix
 }
 
 func cloneAccountJSONMap(value map[string]any) (map[string]any, error) {
@@ -183,7 +204,7 @@ func duplicateAccountExtra(value map[string]any) (map[string]any, error) {
 
 func canDuplicateAccountType(accountType string) bool {
 	switch accountType {
-	case AccountTypeAPIKey, AccountTypeUpstream, AccountTypeBedrock, AccountTypeServiceAccount:
+	case AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey, AccountTypeUpstream, AccountTypeBedrock, AccountTypeServiceAccount:
 		return true
 	default:
 		return false
@@ -255,42 +276,109 @@ func cloneAccountValuePointer[T any](value *T) *T {
 
 // DuplicateAccount creates a paused account from source configuration without carrying first-class
 // runtime state. Credentials and extra configuration are deep-copied so normalization of the new
-// account cannot mutate the in-memory source. Linked credential shadows are excluded because they
-// intentionally do not own credentials and must be created through CreateShadow.
+// account cannot mutate the in-memory source. Copies of shadows are independent accounts
+// without parent credentials and require authorization before use.
+// DuplicateAccount retains the original single-account response contract.
 func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actorScope, operationKey string) (*Account, error) {
-	operationID := duplicateAccountOperationID(id, actorScope, operationKey)
-	existing, err := s.RecoverDuplicateAccount(ctx, id, actorScope, operationKey)
+	accounts, err := s.DuplicateAccounts(ctx, id, actorScope, operationKey, 1)
+	if err != nil {
+		return nil, err
+	}
+	return accounts[0], nil
+}
+
+const MaxAccountCopies = 100
+
+func duplicateBatchKey(key string, count, index int) string {
+	if strings.TrimSpace(key) == "" || count == 1 {
+		return key
+	}
+	return fmt.Sprintf("batch:%d:%d:%s", count, index, key)
+}
+
+// RecoverDuplicateAccounts only reports success when the entire batch exists.
+func (s *adminServiceImpl) RecoverDuplicateAccounts(ctx context.Context, id int64, actorScope, operationKey string, count int) ([]*Account, error) {
+	if count < 1 || count > MaxAccountCopies {
+		return nil, infraerrors.BadRequest("ACCOUNT_DUPLICATE_COUNT_INVALID", "count must be between 1 and 100")
+	}
+	result := make([]*Account, 0, count)
+	for i := 0; i < count; i++ {
+		account, err := s.RecoverDuplicateAccount(ctx, id, actorScope, duplicateBatchKey(operationKey, count, i))
+		if err != nil {
+			return nil, err
+		}
+		if account == nil {
+			return nil, nil
+		}
+		result = append(result, account)
+	}
+	return result, nil
+}
+
+// DuplicateAccounts persists all copies and their exact group priorities atomically.
+func (s *adminServiceImpl) DuplicateAccounts(ctx context.Context, id int64, actorScope, operationKey string, count int) ([]*Account, error) {
+	existing, err := s.RecoverDuplicateAccounts(ctx, id, actorScope, operationKey, count)
 	if err != nil {
 		return nil, err
 	}
 	if existing != nil {
 		return existing, nil
 	}
-
 	source, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if source.IsCredentialShadow() {
-		return nil, infraerrors.BadRequest(
-			"ACCOUNT_DUPLICATE_SHADOW_UNSUPPORTED",
-			"linked credential shadow accounts cannot be duplicated; duplicate the parent account instead",
-		)
+	result := make([]*Account, 0, count)
+	var groups []AccountGroup
+	name := source.Name
+	for i := 0; i < count; i++ {
+		operationID := duplicateAccountOperationID(id, actorScope, duplicateBatchKey(operationKey, count, i))
+		duplicate, bindings, err := s.buildDuplicateAccount(ctx, source, operationID)
+		if err != nil {
+			return nil, err
+		}
+		name = duplicateAccountName(name)
+		duplicate.Name = name
+		result = append(result, duplicate)
+		groups = bindings
 	}
+	if s.accountDuplicateRepo == nil {
+		return nil, errors.New("account duplicate repository is not configured")
+	}
+	if count == 1 {
+		err = s.accountDuplicateRepo.CreateWithAccountGroups(ctx, result[0], groups)
+	} else {
+		err = s.accountDuplicateRepo.CreateCopiesWithAccountGroups(ctx, result, groups)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("create duplicate accounts: %w", err)
+	}
+	for _, account := range result {
+		account.AccountGroups = append([]AccountGroup(nil), groups...)
+		for i := range account.AccountGroups {
+			account.AccountGroups[i].AccountID = account.ID
+		}
+	}
+	return result, nil
+}
+
+func (s *adminServiceImpl) buildDuplicateAccount(ctx context.Context, source *Account, operationID string) (*Account, []AccountGroup, error) {
+	// A shadow copy becomes an independent, paused account with its own model
+	// configuration. It has no parent credentials; authorize it before enabling.
 	if !canDuplicateAccountType(source.Type) {
-		return nil, infraerrors.BadRequest(
+		return nil, nil, infraerrors.BadRequest(
 			"ACCOUNT_DUPLICATE_CREDENTIAL_TYPE_UNSUPPORTED",
-			"accounts with rotating or unsupported credential types cannot be duplicated",
+			"unsupported account type",
 		)
 	}
 
 	credentials, err := cloneAccountJSONMap(source.Credentials)
 	if err != nil {
-		return nil, fmt.Errorf("clone account credentials: %w", err)
+		return nil, nil, fmt.Errorf("clone account credentials: %w", err)
 	}
 	extra, err := duplicateAccountExtra(source.Extra)
 	if err != nil {
-		return nil, fmt.Errorf("clone account extra configuration: %w", err)
+		return nil, nil, fmt.Errorf("clone account extra configuration: %w", err)
 	}
 	if operationID != "" {
 		if extra == nil {
@@ -307,7 +395,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	autoPauseOnExpired := source.AutoPauseOnExpired
 	groups, groupIDs := duplicateAccountGroups(source)
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	proxyID := source.ProxyID
 	if source.ProxyFallbackOriginID != nil {
@@ -335,29 +423,20 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
-		return nil, fmt.Errorf("normalize duplicate account extra: %w", err)
+		return nil, nil, fmt.Errorf("normalize duplicate account extra: %w", err)
 	}
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	duplicate, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// A copied credential must be reviewed before it can share live traffic with its source.
 	duplicate.Schedulable = false
-	if s.accountDuplicateRepo == nil {
-		return nil, errors.New("account duplicate repository is not configured")
-	}
-	if err := s.accountDuplicateRepo.CreateWithAccountGroups(ctx, duplicate, groups); err != nil {
-		return nil, fmt.Errorf("create duplicate account: %w", err)
-	}
-	for i := range groups {
-		groups[i].AccountID = duplicate.ID
-	}
-	duplicate.AccountGroups = groups
 	duplicate.GroupIDs = groupIDs
-	return duplicate, nil
+	duplicate.TierID = cloneAccountValuePointer(source.TierID)
+	return duplicate, groups, nil
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {

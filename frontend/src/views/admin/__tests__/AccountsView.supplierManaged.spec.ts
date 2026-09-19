@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import DuplicateAccountModal from '@/components/admin/account/DuplicateAccountModal.vue'
 import AccountsView from '../AccountsView.vue'
 
 const {
@@ -48,7 +49,7 @@ vi.mock('@/api/admin', () => ({
       getBatchTodayStats,
       getBatchPassiveUsage,
       getUpstreamBillingProbeSettings: vi.fn().mockResolvedValue({ enabled: true, interval_minutes: 30 }),
-      duplicate: duplicateAccount,
+      duplicateMany: duplicateAccount,
       setSchedulable,
       recoverState,
       resetAccountQuota,
@@ -152,6 +153,7 @@ function mountView() {
   return mount(AccountsView, {
     global: {
       stubs: {
+        Teleport: true,
         DataTable: DataTableStub,
         AccountActionMenu: AccountActionMenuStub,
         EditAccountModal: EditAccountModalStub,
@@ -213,7 +215,7 @@ describe('AccountsView supplier-managed accounts', () => {
         updated_at: '2026-08-28T00:00:00Z'
       }
     ])
-    duplicateAccount.mockResolvedValue({ ...managedAccount, id: 99, name: 'copy' })
+    duplicateAccount.mockResolvedValue([{ ...managedAccount, id: 99, name: 'copy' }])
     setSchedulable.mockResolvedValue({ ...managedAccount, schedulable: false })
     recoverState.mockResolvedValue({ ...managedAccount, status: 'active', schedulable: true })
     resetAccountQuota.mockResolvedValue({ ...managedAccount })
@@ -313,7 +315,9 @@ describe('AccountsView supplier-managed accounts', () => {
     await wrapper.get('[data-test="menu-duplicate"]').trigger('click')
     await flushPromises()
 
-    expect(duplicateAccount).toHaveBeenCalledWith(7)
+    await wrapper.findComponent(DuplicateAccountModal).get('form').trigger('submit')
+    await flushPromises()
+    expect(duplicateAccount).toHaveBeenCalledWith(7, 1)
     expect(showError).not.toHaveBeenCalled()
   })
 
