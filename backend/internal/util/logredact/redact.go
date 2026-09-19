@@ -129,6 +129,10 @@ type textRedactPatterns struct {
 	rePlain     *regexp.Regexp
 	keyHints    []string
 	maxKeyBytes int
+	// Keys containing punctuation or non-ASCII characters need the old
+	// conservative assignment check: the fast classifier below intentionally
+	// models the common identifier-like key shape only.
+	conservativeAssignmentScan bool
 }
 
 var (
@@ -221,13 +225,17 @@ func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	if !patterns.mayContainAssignment(out) {
 		return out
 	}
-	if strings.Contains(out, ":") && strings.Contains(out, `"`) {
+	jsonLike, queryLike, plainLike := patterns.assignmentKindsAfterMatch(out)
+	if !jsonLike && !queryLike && !plainLike {
+		return out
+	}
+	if jsonLike {
 		out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
 	}
-	if strings.Contains(out, "=") {
+	if queryLike {
 		out = patterns.reQueryLike.ReplaceAllString(out, `$1=***`)
 	}
-	if strings.ContainsAny(out, ":=") {
+	if plainLike {
 		out = patterns.rePlain.ReplaceAllString(out, `$1$2***`)
 	}
 	return out
@@ -253,12 +261,22 @@ func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 	keyAlt := buildKeyAlternation(extraKeys)
 	keyHints := append(append([]string(nil), defaultSensitiveKeyList...), normalizeAndSortExtraKeys(extraKeys)...)
 	maxKeyBytes := 0
+	conservativeAssignmentScan := false
 	for _, key := range keyHints {
 		maxKeyBytes = max(maxKeyBytes, len(key))
+		for i := 0; i < len(key); i++ {
+			c := key[i]
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
+				(c < '0' || c > '9') && c != '_' && c != '-' {
+				conservativeAssignmentScan = true
+				break
+			}
+		}
 	}
 	return &textRedactPatterns{
-		keyHints:    keyHints,
-		maxKeyBytes: maxKeyBytes,
+		keyHints:                   keyHints,
+		maxKeyBytes:                maxKeyBytes,
+		conservativeAssignmentScan: conservativeAssignmentScan,
 		// JSON-like: "access_token":"..."
 		reJSONLike: regexp.MustCompile(`(?i)("(?:` + keyAlt + `)"\s*:\s*")([^"]*)(")`),
 		// Query-like: access_token=...
@@ -266,6 +284,85 @@ func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 		// Plain: access_token: ... / access_token = ...
 		rePlain: regexp.MustCompile(`(?i)\b((?:` + keyAlt + `))\b(\s*[:=]\s*)([^,\s]+)`),
 	}
+}
+
+// assignmentKindsAfterMatch classifies the assignment forms that can match the three
+// key redaction regexps. It intentionally only returns false when the common
+// identifier-like key shape cannot match; unusual keys use the conservative
+// path so custom-key coverage remains unchanged. The caller has already
+// passed mayContainAssignment, so ordinary prose does not pay for a second
+// key scan.
+func (p *textRedactPatterns) assignmentKindsAfterMatch(input string) (jsonLike, queryLike, plainLike bool) {
+	if p.conservativeAssignmentScan {
+		return strings.Contains(input, `"`), strings.Contains(input, "="), true
+	}
+
+	for offset := 0; offset < len(input); {
+		i := strings.IndexAny(input[offset:], ":=")
+		if i < 0 {
+			break
+		}
+		delim := offset + i
+		keyEnd := delim
+		for keyEnd > 0 && strings.ContainsRune(" \t\r\n\f", rune(input[keyEnd-1])) {
+			keyEnd--
+		}
+		for j := max(0, keyEnd-4*p.maxKeyBytes-1); j < keyEnd; j++ {
+			if input[j] >= 0x80 {
+				return strings.Contains(input, `"`), strings.Contains(input, "="), true
+			}
+		}
+		keySuffixEnd := keyEnd
+		if keySuffixEnd > 0 && input[keySuffixEnd-1] == '"' {
+			keySuffixEnd--
+		}
+		if !p.hasKeySuffix(input[:keySuffixEnd]) {
+			offset = delim + 1
+			continue
+		}
+
+		valueStart := delim + 1
+		for valueStart < len(input) && strings.ContainsRune(" \t\r\n\f", rune(input[valueStart])) {
+			valueStart++
+		}
+		if valueStart >= len(input) || input[valueStart] == ',' {
+			offset = delim + 1
+			continue
+		}
+
+		if input[delim] == ':' && keyEnd > 0 && input[keyEnd-1] == '"' && input[valueStart] == '"' {
+			jsonLike = true
+			// A quoted key is not a match for the plain form because the
+			// regexp requires a word boundary directly after the key.
+			if jsonLike && queryLike && plainLike {
+				return
+			}
+			offset = delim + 1
+			continue
+		}
+
+		if input[delim] == '=' && keyEnd == delim && input[delim+1] != '&' &&
+			!strings.ContainsRune(" \t\r\n\f", rune(input[delim+1])) {
+			queryLike = true
+			// The query regexp stops at '&'; the plain regexp is still
+			// needed to collapse the remainder of a query-like fragment,
+			// matching the legacy replacement order.
+			segmentEnd := len(input)
+			if i := strings.IndexAny(input[valueStart:], " \t\r\n\f"); i >= 0 {
+				segmentEnd = valueStart + i
+			}
+			if strings.Contains(input[valueStart:segmentEnd], "&") {
+				plainLike = true
+			}
+		} else {
+			plainLike = true
+		}
+		if jsonLike && queryLike && plainLike {
+			return
+		}
+		offset = delim + 1
+	}
+	return
 }
 
 // All key regexps require a sensitive key immediately before a : or =,
