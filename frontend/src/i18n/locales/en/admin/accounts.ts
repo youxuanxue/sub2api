@@ -1309,10 +1309,10 @@ export default {
             'Important: The page may take a while to load after authorization. Please wait patiently. When the browser address bar shows http://localhost..., authorization is complete.',
           step3EnterCode: 'Enter Authorization URL or Code',
           authCodeDesc:
-            'After authorization, when the page URL becomes http://localhost:xxx/auth/callback?code=...:',
+            'After authorization, when the page URL becomes http://localhost:8085/callback?code=...&state=...:',
           authCode: 'Authorization URL or Code',
           authCodePlaceholder:
-            'Option 1: Copy the complete URL\n(http://localhost:xxx/auth/callback?code=...)\nOption 2: Copy only the code parameter value',
+            'Option 1: Copy the complete URL\n(http://localhost:8085/callback?code=...&state=...)\nOption 2: Copy only the code parameter value',
                     authCodeHint: 'You can copy the entire URL or just the code parameter value, the system will auto-detect',
                     failedToGenerateUrl: 'Failed to generate Antigravity auth URL',
                     missingExchangeParams: 'Missing code, session ID, or state',
@@ -1644,6 +1644,10 @@ export default {
       forbidden: 'Forbidden',
       forbiddenValidation: 'Verification Required',
       forbiddenViolation: 'Violation Ban',
+      verificationLinkHint: 'From the last Google 403. Open in the fingerprint browser signed in to this account using its Edge egress IP; test the account after verification to confirm recovery.',
+      antigravityAuthorizationLink: 'OAuth authorization link',
+      antigravityAuthExpired: 'The authorization link expired. Generate a new link to continue.',
+      antigravityAuthBrowserHint: 'Copy the link into the fingerprint browser signed in to this account, using its Edge egress IP. Keep this dialog open and paste the full callback URL here to complete authorization within 30 minutes. Generate a new link after expiry or a server restart. Google verification clears a verification challenge; OAuth authorization obtains new credentials.',
       openVerification: 'Open Verification Link',
       copyLink: 'Copy Link',
       linkCopied: 'Link Copied',

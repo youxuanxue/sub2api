@@ -9,6 +9,10 @@
       <div class="flex-1">
         <h4 class="mb-3 font-semibold text-blue-900 dark:text-blue-200">{{ oauthTitle }}</h4>
 
+        <p v-if="platform === 'antigravity'" class="mb-4 text-sm text-blue-700 dark:text-blue-300" data-testid="antigravity-browser-hint">
+          {{ t('admin.accounts.antigravityAuthBrowserHint') }}
+        </p>
+
         <!-- Auth Method Selection -->
         <div v-if="showMethodSelection" class="mb-4">
           <label class="mb-2 block text-sm font-medium text-blue-800 dark:text-blue-300">
@@ -1026,6 +1030,12 @@ const emailPasswordInput = ref(props.initialEmailPassword || '')
 const showHelpDialog = ref(false)
 const oauthState = ref('')
 const projectId = ref('')
+
+// Callback code/state belong to one server session, including after expiry.
+watch(() => props.sessionId, () => {
+  authCodeInput.value = ''
+  oauthState.value = ''
+})
 
 watch(
   () => [props.platform, props.showEmailPasswordOption] as const,

@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { getCurrentScope, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -13,38 +13,63 @@ export function useAntigravityOAuth() {
   const state = ref('')
   const loading = ref(false)
   const error = ref('')
+  let generation = 0
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined
 
-  const resetState = () => {
+  const clearExpiry = () => {
+    if (expiryTimer) clearTimeout(expiryTimer)
+    expiryTimer = undefined
+  }
+  const clearSession = () => {
     authUrl.value = ''
     sessionId.value = ''
     state.value = ''
+  }
+
+  const resetState = () => {
+    generation++
+    clearExpiry()
+    clearSession()
     loading.value = false
     error.value = ''
   }
 
+  if (getCurrentScope()) onScopeDispose(resetState)
+
   const generateAuthUrl = async (proxyId: number | null | undefined): Promise<boolean> => {
+    resetState()
+    const current = generation
     loading.value = true
-    authUrl.value = ''
-    sessionId.value = ''
-    state.value = ''
-    error.value = ''
 
     try {
       const payload: Record<string, unknown> = {}
       if (proxyId) payload.proxy_id = proxyId
 
       const response = await adminAPI.antigravity.generateAuthUrl(payload as any)
+      if (current !== generation) return false
+      // Older edges omit expires_at; their SessionStore still uses a 30 min TTL.
+      const remaining = response.expires_at === undefined ? 30 * 60_000 : response.expires_at * 1000 - Date.now()
+      const expire = () => {
+        clearSession()
+        error.value = t('admin.accounts.antigravityAuthExpired')
+      }
+      if (remaining <= 0) {
+        expire()
+        return false
+      }
+      expiryTimer = setTimeout(expire, remaining)
       authUrl.value = response.auth_url
       sessionId.value = response.session_id
       state.value = response.state
       return true
     } catch (err: any) {
+      if (current !== generation) return false
       error.value =
-        err.response?.data?.detail || t('admin.accounts.oauth.antigravity.failedToGenerateUrl')
+        err.response?.data?.detail || err.message || t('admin.accounts.oauth.antigravity.failedToGenerateUrl')
       appStore.showError(error.value)
       return false
     } finally {
-      loading.value = false
+      if (current === generation) loading.value = false
     }
   }
 
@@ -60,6 +85,7 @@ export function useAntigravityOAuth() {
       return null
     }
 
+    const current = generation
     loading.value = true
     error.value = ''
 
@@ -72,14 +98,16 @@ export function useAntigravityOAuth() {
       if (params.proxyId) payload.proxy_id = params.proxyId
 
       const tokenInfo = await adminAPI.antigravity.exchangeCode(payload as any)
+      if (current !== generation) return null
       return tokenInfo as AntigravityTokenInfo
     } catch (err: any) {
+      if (current !== generation) return null
       error.value =
         err.response?.data?.detail || t('admin.accounts.oauth.antigravity.failedToExchangeCode')
       appStore.showError(error.value)
       return null
     } finally {
-      loading.value = false
+      if (current === generation) loading.value = false
     }
   }
 

@@ -34,25 +34,7 @@
       >
         {{ forbiddenLabel }}
       </span>
-      <div v-if="validationURL" class="flex items-center gap-1">
-        <a
-          :href="validationURL"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-[10px] text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
-          :title="t('admin.accounts.openVerification')"
-        >
-          {{ t('admin.accounts.openVerification') }}
-        </a>
-        <button
-          type="button"
-          class="text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-          :title="t('admin.accounts.copyLink')"
-          @click="copyValidationURL"
-        >
-          {{ linkCopied ? t('admin.accounts.linkCopied') : t('admin.accounts.copyLink') }}
-        </button>
-      </div>
+      <GoogleVerificationLink v-if="validationURL" :url="validationURL" />
     </div>
 
     <div v-else-if="needsReauth" class="space-y-1">
@@ -126,6 +108,7 @@
 </template>
 
 <script setup lang="ts">
+import GoogleVerificationLink from '../GoogleVerificationLink.vue'
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UsageProgressBar from '../UsageProgressBar.vue'
@@ -210,17 +193,4 @@ const forbiddenBadgeClass = computed(() => {
   return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
 })
 
-const linkCopied = ref(false)
-const copyValidationURL = async () => {
-  if (!validationURL.value) return
-  try {
-    await navigator.clipboard.writeText(validationURL.value)
-    linkCopied.value = true
-    setTimeout(() => {
-      linkCopied.value = false
-    }, 2000)
-  } catch {
-    // fallback: ignore
-  }
-}
 </script>

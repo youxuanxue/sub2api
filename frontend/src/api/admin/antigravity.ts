@@ -9,6 +9,7 @@ export interface AntigravityAuthUrlResponse {
   auth_url: string
   session_id: string
   state: string
+  expires_at?: number
 }
 
 export interface AntigravityAuthUrlRequest {

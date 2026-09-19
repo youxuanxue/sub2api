@@ -560,6 +560,10 @@ export default {
       forbidden: '已封禁',
       forbiddenValidation: '需要验证',
       forbiddenViolation: '违规封禁',
+      verificationLinkHint: '来自最近一次 Google 403。请在登录该账号、使用所属 Edge 出口的指纹浏览器中打开；验证完成后仍需测试确认恢复。',
+      antigravityAuthorizationLink: 'OAuth 授权链接',
+      antigravityAuthExpired: '授权链接已过期，请重新生成后再授权。',
+      antigravityAuthBrowserHint: '复制链接到登录该账号的指纹浏览器，使用该账号所属 Edge 的出口 IP 完成授权。请保持此弹窗打开，30 分钟内将完整回调地址粘贴回来并完成授权；链接过期或服务重启后需重新生成。Google 验证链接用于解除验证挑战，OAuth 授权链接用于重新获取凭据，两者不能互相替代。',
       openVerification: '打开验证链接',
       copyLink: '复制链接',
       linkCopied: '链接已复制',
@@ -1371,10 +1375,10 @@ export default {
             '重要提示：授权后页面可能会加载较长时间，请耐心等待。当浏览器地址栏变为 http://localhost... 开头时，表示授权已完成。',
           step3EnterCode: '输入授权链接或 Code',
           authCodeDesc:
-            '授权完成后，当页面地址变为 http://localhost:xxx/auth/callback?code=... 时：',
+            '授权完成后，当页面地址变为 http://localhost:8085/callback?code=...&state=... 时：',
           authCode: '授权链接或 Code',
           authCodePlaceholder:
-            '方式1：复制完整的链接\n(http://localhost:xxx/auth/callback?code=...)\n方式2：仅复制 code 参数的值',
+            '方式1：复制完整的链接\n(http://localhost:8085/callback?code=...&state=...)\n方式2：仅复制 code 参数的值',
           authCodeHint: '您可以直接复制整个链接或仅复制 code 参数值，系统会自动识别',
           failedToGenerateUrl: '生成 Antigravity 授权链接失败',
           missingExchangeParams: '缺少 code / session_id / state',
