@@ -88,11 +88,16 @@ func tkIsRecoverableUsageWindowMessage(haystack string) bool {
 		return false
 	}
 	for _, marker := range []string{
+		"monthly usage quota",
+		newAPIQianfanMonthlyQuotaMessage,
 		"weekly usage quota",
 		"exceeded the weekly",
 		"1-week quota",
 		"5-hour",
 		"7-day",
+		"exceeded the monthly",
+		"1-month quota",
+		"30-day quota",
 	} {
 		if strings.Contains(haystack, marker) {
 			return true

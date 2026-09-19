@@ -276,6 +276,7 @@ func TestDuplicateAccountPreservesNewAPIChannelType(t *testing.T) {
 	ctx := context.Background()
 	repo := newDuplicateAccountRepoStub()
 	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+	reset := time.Now().Add(12 * 24 * time.Hour).UTC().Truncate(time.Second)
 	const volcEngineChannelType = newapiconstant.ChannelTypeVolcEngine
 	source := &Account{
 		Name:        "volcengine-agent-plan",
@@ -285,6 +286,12 @@ func TestDuplicateAccountPreservesNewAPIChannelType(t *testing.T) {
 		Credentials: map[string]any{
 			"api_key":  "ark-test",
 			"base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
+		},
+		RateLimitResetAt: &reset,
+		Extra: map[string]any{
+			newAPIMonthlyUtilExtraKey:    1.0,
+			newAPIMonthlyResetExtraKey:   float64(reset.Unix()),
+			newAPIMonthlySampledExtraKey: time.Now().UTC().Format(time.RFC3339Nano),
 		},
 		Concurrency: 100,
 		Priority:    1,
@@ -301,6 +308,14 @@ func TestDuplicateAccountPreservesNewAPIChannelType(t *testing.T) {
 	stored, getErr := repo.GetByID(ctx, duplicate.ID)
 	require.NoError(t, getErr)
 	require.Equal(t, volcEngineChannelType, stored.ChannelType)
+	require.Nil(t, stored.RateLimitResetAt)
+	for _, key := range []string{newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIMonthlySampledExtraKey} {
+		require.NotContains(t, stored.Extra, key, "copy must not inherit source quota observations")
+		require.Contains(t, source.Extra, key, "copy must preserve source observations")
+	}
+	usage := &UsageInfo{}
+	applyNewAPIUsageWindowSnapshot(stored, usage)
+	require.Nil(t, usage.UpstreamQuota, "a fresh copy must not display monthly quota exhaustion")
 }
 
 func TestDuplicateAccountAtomicCreateFailureLeavesNoOrphan(t *testing.T) {
