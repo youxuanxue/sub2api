@@ -3729,7 +3729,7 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 				tempUnschedulablePredicate(),
 				notExpiredPredicate(now),
 				dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-				dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+				accountNotBlockedByAccountWideRateLimit(now),
 			)
 		}
 	}

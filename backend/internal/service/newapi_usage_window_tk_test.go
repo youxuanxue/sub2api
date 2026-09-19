@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/stretchr/testify/require"
 )
@@ -222,4 +224,66 @@ func TestHandle429_NewAPIWeeklyUsesResetNotFallback(t *testing.T) {
 	require.NotNil(t, repo.lastExtraUpdates)
 	require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIWeeklyUtilExtraKey])
 	require.Equal(t, float64(resetAt.Unix()), repo.lastExtraUpdates[newAPIWeeklyResetExtraKey])
+}
+
+func TestHandle429_VolcAgentPlanWeeklyIsModelScoped(t *testing.T) {
+	resetAt := time.Now().Add(39 * time.Hour).UTC().Truncate(time.Second)
+	msg := "You have exceeded the weekly usage quota. It will reset at " +
+		resetAt.In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04:05 -0700 MST")
+	body, err := json.Marshal(map[string]any{"error": map[string]any{"message": msg}})
+	require.NoError(t, err)
+
+	account := volcAgentPlanUsageWindowAccount()
+	account.RateLimitResetAt = &resetAt
+	account.RateLimitedAt = &resetAt
+	account.Extra[newAPIWeeklyUtilExtraKey] = 1.0
+	account.Extra[newAPIWeeklyResetExtraKey] = float64(resetAt.Unix())
+	require.True(t, account.IsSchedulable(), "a per-model weekly lock must not unschedulable the whole account")
+	require.False(t, account.IsRateLimited())
+
+	repo := &rateLimitAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	require.True(t, svc.handle429(context.Background(), account, nil, body, "kimi-k3"))
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "kimi-k3", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, tkNewAPIModelWindowReason, repo.modelRateLimitCalls[0].reason)
+	require.WithinDuration(t, resetAt, repo.modelRateLimitCalls[0].resetAt, time.Second)
+	require.Nil(t, account.RateLimitResetAt)
+	require.Equal(t, 0.0, account.Extra[newAPIWeeklyUtilExtraKey])
+	require.Equal(t, 0.0, repo.lastExtraUpdates[newAPIWeeklyResetExtraKey])
+	require.False(t, isWholeAccountRuntimeBlockReason(tkNewAPIModelWindowReason))
+	got := classifyIncident(tkNewAPIModelWindowReason, resetAt, IncidentKindUnknown)
+	require.Equal(t, tkNewAPIModelWindowReason, got.reasonClass)
+	require.Contains(t, got.kindZh, "其它模型仍可调度")
+
+	usage := buildLocalWindowUsageFromStats(time.Now(), &usagestats.AccountStats{Requests: 14}, &usagestats.AccountStats{Requests: 824})
+	applyNewAPIUsageWindowSnapshot(account, usage)
+	require.True(t, usage.SevenDay.UtilizationUnknown)
+	require.Nil(t, usage.UpstreamQuota)
+}
+
+func TestHandle429_VolcAgentPlanWithoutModelStaysAccountWide(t *testing.T) {
+	resetAt := time.Now().Add(36 * time.Hour).UTC().Truncate(time.Second)
+	body := []byte("You have exceeded the weekly usage quota. It will reset at " + resetAt.Format("2006-01-02 15:04:05 -0700 MST"))
+	account := volcAgentPlanUsageWindowAccount()
+	repo := &rateLimitAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	require.True(t, svc.handle429(context.Background(), account, nil, body))
+	require.Equal(t, 1, repo.setRateLimitedCalls)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
+func volcAgentPlanUsageWindowAccount() *Account {
+	return &Account{
+		ID:          17,
+		Name:        "volcengine-agent-plan",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"base_url": newapiintegration.VolcEngineAgentPlanBaseURL},
+		Extra:       map[string]any{},
+	}
 }

@@ -79,16 +79,18 @@
         "newAPIWeeklyUtilExtraKey",
         "tkParseNewAPIUsageWindowResponse",
         "parseRetryAfterResetTime(headers, reference)",
-        "(*progress).UtilizationUnknown = false"
+        "(*progress).UtilizationUnknown = false",
+        "tkVolcAgentPlanUsageWindowModelScope",
+        "isNewAPIVolcEngineAgentPlanAccount"
       ],
-      "rationale": "NewAPI Agent Plan weekly/5h/7d prose 429s must cool until the parsed reset and persist Extra so admin usage windows show exhaustion instead of a permanent 'unsupported' chip. Dropping this companion recreates the account-88 weekly-quota UI blind spot."
+      "rationale": "NewAPI weekly/5h/7d prose 429s must cool until the parsed reset. Ali token-plan stays account-wide and persists Extra so admin usage windows show exhaustion. VolcEngine Agent Plan windows are per requested model (tkVolcAgentPlanUsageWindowModelScope + SetModelRateLimit) and must not paint the account 7d bar. Dropping this companion recreates either the account-88 blind spot or the 2026-09-19 edge-us5 whole-account lock while deepseek-v4-flash still served."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
-        "account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, headers, responseBody)"
+        "account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, headers, responseBody, requestedModel...)"
       ],
-      "rationale": "handle429 NewAPI branch must call tkTryHandleNewAPIUsageWindow429 after OpenAI-shaped resets_at parse fails. Without this injection, weekly/5h/7d prose 429s fall through to the short fallback cooldown and never persist Extra — recreating the account-88 operator blind spot even if newapi_usage_window_tk.go still compiles."
+      "rationale": "handle429 NewAPI branch must call tkTryHandleNewAPIUsageWindow429 after OpenAI-shaped resets_at parse fails, and must forward requestedModel. Without this injection, weekly/5h/7d prose 429s fall through to the short fallback cooldown. Dropping requestedModel makes VolcEngine Agent Plan per-model windows (kimi-k3 weekly vs deepseek-v4-flash still serving) lock the whole account again."
     },
     {
       "path": "backend/internal/service/account_usage_service.go",

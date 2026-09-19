@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -23,6 +24,11 @@ import (
 // This file is the write+read SSOT for that window text: parse reset time,
 // persist Extra, cool until reset, and surface utilization on the local 7d
 // (or 5h) progress + UpstreamQuota dimensions.
+//
+// Prod 2026-09-19 edge-us5 account 17 volcengine-agent-plan: the same weekly
+// prose arrived on kimi-k3 while deepseek-v4-flash still completed. Agent Plan
+// windows are per model, so that path uses SetModelRateLimit and must not
+// paint the account 7d bar or SetRateLimited.
 
 const (
 	newAPIWeeklyUtilExtraKey      = "newapi_weekly_utilization"
@@ -38,6 +44,11 @@ const (
 	newAPIUpstreamWeeklyKey   = "newapi_weekly"
 	newAPIUpstreamFiveHourKey = "newapi_5h"
 	newAPIUpstreamSevenDayKey = "newapi_7d"
+
+	// tkNewAPIModelWindowReason is a model-scoped cooldown. It must stay out of
+	// isWholeAccountRuntimeBlockReason so one model's weekly/5h quota does not
+	// block the rest of the account.
+	tkNewAPIModelWindowReason = "429_newapi_model_window"
 )
 
 var newAPIUsageWindowResetAtRE = regexp.MustCompile(`(?i)it will reset at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4}(?:\s+\S+)?)`)
@@ -123,11 +134,13 @@ func tkParseNewAPIUsageWindowResetAt(haystack string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// tkTryHandleNewAPIUsageWindow429 cools the account until the upstream window
-// reset and persists a 100% Extra snapshot for admin usage. Returns true when
-// the 429 was a recoverable usage-window hit (caller must not fall through to
-// the short fallback cooldown).
-func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) bool {
+// tkTryHandleNewAPIUsageWindow429 cools until the upstream window reset.
+// VolcEngine Agent Plan quotas are per model: a kimi-k3 weekly 429 must not
+// SetRateLimited the whole account or paint the account 7d bar at 100%.
+// Ali token-plan and other NewAPI windows stay account-wide.
+// Returns true when the 429 was a recoverable usage-window hit (caller must not
+// fall through to the short fallback cooldown).
+func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) bool {
 	if s == nil || account == nil || account.Platform != PlatformNewAPI || s.accountRepo == nil {
 		return false
 	}
@@ -141,6 +154,9 @@ func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, 
 	}
 	if !hit.ResetAt.After(time.Now()) {
 		return false
+	}
+	if scope := tkVolcAgentPlanUsageWindowModelScope(account, firstRequestedModel(requestedModel)); scope != "" {
+		return s.persistVolcAgentPlanModelUsageWindow(ctx, account, hit, scope)
 	}
 
 	s.persistNewAPIUsageWindowSnapshot(ctx, account, hit)
@@ -157,6 +173,108 @@ func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, 
 		"reset_in", time.Until(hit.ResetAt).Truncate(time.Second),
 	)
 	return true
+}
+
+func tkVolcAgentPlanUsageWindowModelScope(account *Account, requestedModel string) string {
+	if !isNewAPIVolcEngineAgentPlanAccount(account) {
+		return ""
+	}
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" {
+		return ""
+	}
+	if mapped := strings.TrimSpace(account.GetMappedModel(requestedModel)); mapped != "" {
+		return mapped
+	}
+	return requestedModel
+}
+
+func (s *RateLimitService) persistVolcAgentPlanModelUsageWindow(ctx context.Context, account *Account, hit *newAPIUsageWindowHit, scope string) bool {
+	resetAt := hit.ResetAt
+	if existing := account.modelRateLimitResetAt(scope); existing != nil && existing.After(resetAt) {
+		resetAt = *existing
+	}
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scope, resetAt, tkNewAPIModelWindowReason); err != nil {
+		slog.Warn("newapi_model_usage_window_set_rate_limited_failed",
+			"account_id", account.ID, "model", scope, "window", hit.Window, "error", err)
+		return true
+	}
+	setAccountModelRateLimitSnapshot(account, scope, resetAt, tkNewAPIModelWindowReason, time.Now())
+	s.notifyAccountSchedulingBlocked(account, resetAt, tkNewAPIModelWindowReason, scope+"·"+hit.Window)
+	if volcAgentPlanAccountWindowLockIgnored(account) {
+		if err := s.accountRepo.ClearRateLimit(ctx, account.ID); err != nil {
+			slog.Warn("volc_agent_plan_clear_false_account_window_lock_failed",
+				"account_id", account.ID, "model", scope, "error", err)
+		} else {
+			account.RateLimitedAt = nil
+			account.RateLimitResetAt = nil
+			s.clearNewAPIUsageWindowSnapshot(ctx, account)
+		}
+	}
+	slog.Info("newapi_model_usage_window_rate_limited",
+		"account_id", account.ID,
+		"model", scope,
+		"window", hit.Window,
+		"reset_at", resetAt,
+		"reset_in", time.Until(resetAt).Truncate(time.Second),
+	)
+	return true
+}
+
+// VolcAgentPlanAccountWindowLockIgnored reports an account-wide rate limit that
+// was written from a VolcEngine Agent Plan per-model usage window. Other models
+// on the same account keep working, so scheduling and the admin badge must not
+// treat it as a whole-account 429.
+func VolcAgentPlanAccountWindowLockIgnored(account *Account) bool {
+	return volcAgentPlanAccountWindowLockIgnored(account)
+}
+
+func volcAgentPlanAccountWindowLockIgnored(account *Account) bool {
+	if account == nil || account.RateLimitResetAt == nil || !time.Now().Before(*account.RateLimitResetAt) {
+		return false
+	}
+	if !isNewAPIVolcEngineAgentPlanAccount(account) {
+		return false
+	}
+	resetUnix := float64(account.RateLimitResetAt.Unix())
+	for _, key := range []string{newAPIWeeklyResetExtraKey, newAPIFiveHourResetExtraKey, newAPISevenDayResetExtraKey} {
+		raw := parseExtraFloat64(account.Extra[key])
+		if raw > 0 && math.Abs(raw-resetUnix) < 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func accountWideRateLimitBlocks(account *Account, now time.Time) bool {
+	if account == nil || account.RateLimitResetAt == nil || !now.Before(*account.RateLimitResetAt) {
+		return false
+	}
+	return !volcAgentPlanAccountWindowLockIgnored(account)
+}
+
+func (s *RateLimitService) clearNewAPIUsageWindowSnapshot(ctx context.Context, account *Account) {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return
+	}
+	updates := map[string]any{
+		newAPIWeeklyUtilExtraKey:    0.0,
+		newAPIWeeklyResetExtraKey:   0.0,
+		newAPIFiveHourUtilExtraKey:  0.0,
+		newAPIFiveHourResetExtraKey: 0.0,
+		newAPISevenDayUtilExtraKey:  0.0,
+		newAPISevenDayResetExtraKey: 0.0,
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
+		slog.Warn("newapi_usage_window_extra_clear_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	if account.Extra == nil {
+		account.Extra = map[string]any{}
+	}
+	for k, v := range updates {
+		account.Extra[k] = v
+	}
 }
 
 func (s *RateLimitService) persistNewAPIUsageWindowSnapshot(ctx context.Context, account *Account, hit *newAPIUsageWindowHit) {
@@ -201,6 +319,11 @@ func newAPIUsageWindowExtraKeys(window string) (utilKey, resetKey, sampledKey st
 
 func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 	if account == nil || usage == nil || account.Platform != PlatformNewAPI {
+		return
+	}
+	// Agent Plan window hits are per model. An account-level 100% bar would hide
+	// models that are still serving.
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
 		return
 	}
 	now := time.Now()

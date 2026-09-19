@@ -1072,7 +1072,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			}
 			// NewAPI weekly/5h/7d prose ("It will reset at …") is not OpenAI-shaped;
 			// parse + cool until reset + persist Extra before short fallback.
-			if account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, headers, responseBody) {
+			if account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, headers, responseBody, requestedModel...) {
 				return true
 			}
 		case PlatformGemini, PlatformAntigravity:
