@@ -726,7 +726,7 @@ const handleGrokValidateRefreshToken = async (refreshTokenInput: string) => {
 
 // Watchers
 watch(
-  () => [props.show, props.account?.id] as const,
+  [() => props.show, () => props.account?.id],
   ([newVal]) => {
     resetState()
     if (newVal && props.account) {
