@@ -334,6 +334,7 @@ func stdTLSConnectionState(s utls.ConnectionState) tls.ConnectionState {
 		SignedCertificateTimestamps: s.SignedCertificateTimestamps,
 		OCSPResponse:                s.OCSPResponse,
 		TLSUnique:                   s.TLSUnique,
+		ECHAccepted:                 s.ECHAccepted,
 	}
 }
 

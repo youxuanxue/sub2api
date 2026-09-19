@@ -2,7 +2,6 @@ package tlsfingerprint
 
 import (
 	"context"
-	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +61,6 @@ func TestAntigravityCLIProfileHTTPRoundTripUsesHTTP2(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	profile := antigravityCLIProfile()
-	dialer := NewDialer(profile, nil)
 	transport := &http.Transport{
 		ForceAttemptHTTP2: true,
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -85,7 +83,6 @@ func TestAntigravityCLIProfileHTTPRoundTripUsesHTTP2(t *testing.T) {
 				_ = raw.Close()
 				return nil, err
 			}
-			_ = dialer // keep similar construction site
 			return asNetHTTPConn(uconn, uconn.ConnectionState()), nil
 		},
 	}
@@ -103,5 +100,16 @@ func TestAntigravityCLIProfileHTTPRoundTripUsesHTTP2(t *testing.T) {
 	require.NoError(t, resp.Body.Close())
 }
 
-// Ensure ConnectionState type identity for compiler.
-var _ = tls.VersionTLS13
+func TestStdTLSConnectionStatePreservesNegotiationMetadata(t *testing.T) {
+	state := stdTLSConnectionState(utls.ConnectionState{
+		Version:            utls.VersionTLS13,
+		HandshakeComplete:  true,
+		NegotiatedProtocol: "h2",
+		ECHAccepted:        true,
+	})
+
+	require.Equal(t, uint16(utls.VersionTLS13), state.Version)
+	require.True(t, state.HandshakeComplete)
+	require.Equal(t, "h2", state.NegotiatedProtocol)
+	require.True(t, state.ECHAccepted)
+}
