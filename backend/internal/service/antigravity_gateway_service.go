@@ -827,6 +827,9 @@ func (s *AntigravityGatewayService) wrapV1InternalRequest(projectID, model strin
 	if requestType != "" {
 		wrapped["requestType"] = requestType
 	}
+	if credits := antigravity.AgentEnabledCreditTypes(requestType); len(credits) > 0 {
+		wrapped["enabledCreditTypes"] = credits
+	}
 
 	return json.Marshal(wrapped)
 }

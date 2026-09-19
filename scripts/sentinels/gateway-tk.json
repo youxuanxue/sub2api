@@ -13186,6 +13186,8 @@
         "return \"web_search\"",
         "return \"agent\"",
         "return \"\"",
+        "func AgentEnabledCreditTypes(requestType string) []string {",
+        "return []string{\"GOOGLE_ONE_AI\"}",
         "func GeminiRequestHasWebSearch("
       ],
       "rationale": "Conditional cloudcode-pa requestType is load-bearing anti-VALIDATION_REQUIRED behavior: plain text must omit requestType; image/web_search/agent stay explicit. Anchor the resolver and googleSearch detection so an upstream merge cannot silently restore always-agent."
@@ -13197,9 +13199,10 @@
         "antigravity.GeminiRequestHasWebSearch(request)",
         "antigravity.GeminiRequestHasTools(request)",
         "if requestType != \"\" {",
-        "wrapped[\"requestType\"] = requestType"
+        "wrapped[\"requestType\"] = requestType",
+        "antigravity.AgentEnabledCreditTypes(requestType)"
       ],
-      "rationale": "Native Gemini wrap must use ResolveV1InternalRequestType (including googleSearch→web_search) and only emit requestType when non-empty. Prevents a merge from hard-coding requestType=agent again."
+      "rationale": "Native Gemini wrap must use ResolveV1InternalRequestType (including googleSearch→web_search) and only emit requestType when non-empty. Agent wraps must also declare GOOGLE_ONE_AI via AgentEnabledCreditTypes. Prevents a merge from hard-coding requestType=agent or dropping the credits declaration."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_service.go",

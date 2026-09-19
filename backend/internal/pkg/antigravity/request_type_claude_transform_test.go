@@ -24,6 +24,9 @@ func TestTransformClaudeToGemini_OmitsRequestTypeForPlainText(t *testing.T) {
 	if _, ok := m["requestType"]; ok {
 		t.Fatalf("plain text must omit requestType, got %#v", m["requestType"])
 	}
+	if _, ok := m["enabledCreditTypes"]; ok {
+		t.Fatalf("plain text must not declare credits, got %#v", m["enabledCreditTypes"])
+	}
 }
 
 func TestTransformClaudeToGemini_SetsAgentWhenToolsPresent(t *testing.T) {
@@ -47,5 +50,9 @@ func TestTransformClaudeToGemini_SetsAgentWhenToolsPresent(t *testing.T) {
 	}
 	if m["requestType"] != "agent" {
 		t.Fatalf("want agent, got %#v", m["requestType"])
+	}
+	credits, _ := m["enabledCreditTypes"].([]any)
+	if len(credits) != 1 || credits[0] != "GOOGLE_ONE_AI" {
+		t.Fatalf("agent must declare GOOGLE_ONE_AI, got %#v", m["enabledCreditTypes"])
 	}
 }

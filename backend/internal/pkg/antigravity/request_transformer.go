@@ -199,12 +199,13 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 
 	// 6. 包装为 v1internal 请求
 	v1Req := V1InternalRequest{
-		Project:     projectID,
-		RequestID:   "agent-" + uuid.New().String(),
-		UserAgent:   "antigravity", // 固定值，与官方客户端一致
-		RequestType: requestType,
-		Model:       targetModel,
-		Request:     innerRequest,
+		Project:            projectID,
+		RequestID:          "agent-" + uuid.New().String(),
+		UserAgent:          "antigravity", // 固定值，与官方客户端一致
+		RequestType:        requestType,
+		EnabledCreditTypes: AgentEnabledCreditTypes(requestType),
+		Model:              targetModel,
+		Request:            innerRequest,
 	}
 
 	return json.Marshal(v1Req)

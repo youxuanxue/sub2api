@@ -4,12 +4,13 @@ package antigravity
 
 // V1InternalRequest v1internal 请求包装
 type V1InternalRequest struct {
-	Project     string        `json:"project"`
-	RequestID   string        `json:"requestId"`
-	UserAgent   string        `json:"userAgent"`
-	RequestType string        `json:"requestType,omitempty"`
-	Model       string        `json:"model"`
-	Request     GeminiRequest `json:"request"`
+	Project            string        `json:"project"`
+	RequestID          string        `json:"requestId"`
+	UserAgent          string        `json:"userAgent"`
+	RequestType        string        `json:"requestType,omitempty"`
+	EnabledCreditTypes []string      `json:"enabledCreditTypes,omitempty"`
+	Model              string        `json:"model"`
+	Request            GeminiRequest `json:"request"`
 }
 
 // GeminiRequest Gemini 请求内容
