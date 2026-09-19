@@ -897,3 +897,43 @@ func TestPrepareForwardGeminiWireBody_AgentCredits(t *testing.T) {
 	require.Equal(t, "agent", gjson.GetBytes(out, "requestType").String())
 	require.Equal(t, "GOOGLE_ONE_AI", gjson.GetBytes(out, "enabledCreditTypes.0").String())
 }
+
+func TestNormalizeForwardGeminiGenerateContentBody_MixedToolsInvalidJSON(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	// Identity patch requires valid JSON; after patch, mixed-tool reconcile must
+	// fail-closed on corrupt payloads rather than silently forwarding them.
+	_, err := enableMixedGeminiToolInvocations([]byte(`{"tools":`))
+	require.Error(t, err)
+
+	_, err = svc.normalizeForwardGeminiGenerateContentBody([]byte(`not-json`))
+	require.Error(t, err)
+}
+
+func TestAntigravityMessagesClaudeFamilyKeepsTransformWire(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	account := newAntigravityCompatAccount(AccountTypeOAuth)
+	body := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":32,
+		"messages":[{"role":"user","content":"Reply OK"}],
+		"tools":[{"name":"noop","description":"do nothing","input_schema":{"type":"object","properties":{}}}]
+	}`)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/messages", body)
+
+	result, err := svc.Forward(context.Background(), c, account, body, false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Len(t, upstream.requestBodies, 1)
+	posted := upstream.requestBodies[0]
+	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(posted, "model").String())
+	require.True(t, gjson.GetBytes(posted, "request").Exists())
+	require.False(t, isAntigravityGeminiFamilyModel(gjson.GetBytes(posted, "model").String()))
+	opsRaw, ok := c.Get(OpsUpstreamRequestBodyKey)
+	require.True(t, ok)
+	opsBody, ok := opsRaw.([]byte)
+	require.True(t, ok)
+	require.Equal(t, posted, opsBody)
+}

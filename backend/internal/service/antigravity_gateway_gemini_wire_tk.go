@@ -20,10 +20,11 @@ func (s *AntigravityGatewayService) normalizeForwardGeminiGenerateContentBody(ge
 	if cleanedBody, cleanErr := cleanGeminiRequest(injectedBody); cleanErr == nil {
 		injectedBody = cleanedBody
 	}
-	if reconciled, reconcileErr := enableMixedGeminiToolInvocations(injectedBody); reconcileErr == nil {
-		injectedBody = reconciled
+	reconciled, reconcileErr := enableMixedGeminiToolInvocations(injectedBody)
+	if reconcileErr != nil {
+		return nil, reconcileErr
 	}
-	return injectedBody, nil
+	return reconciled, nil
 }
 
 // prepareForwardGeminiWire normalizes then wraps the native v1internal envelope.

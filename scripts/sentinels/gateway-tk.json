@@ -1495,6 +1495,16 @@
       "rationale": "ForwardGemini must call the shared prepareForwardGeminiWire owner; duplicating normalize+wrap here drifts from messages/chat/responses."
     },
     {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": [
+        "geminiBody, err := s.buildMessagesForwardUpstreamBody(ctx, body, &claudeReq, projectID, mappedModel, transformOpts)"
+      ],
+      "must_not_contain": [
+        "geminiBody, err := antigravity.TransformClaudeToGeminiWithOptions(&claudeReq, projectID, mappedModel, transformOpts)"
+      ],
+      "rationale": "AG Messages Forward must route gemini-* via buildMessagesForwardUpstreamBody (converter→ForwardGemini wire); a silent revert to TransformClaudeToGemini drops GOOGLE_ONE_AI / requestType for Gemini-family Messages."
+    },
+    {
       "path": "backend/internal/engine/protocolrouter/gemini_chat_tools.go",
       "must_contain": [
         "func preservesChatToGemini(",
