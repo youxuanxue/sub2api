@@ -13299,6 +13299,27 @@
         "ModelRouting:                           req.ModelRouting.asMap(),"
       ],
       "rationale": "Admin Create/Update must reject JSON-array model_routing before it reaches the DB. Pins the payload type, Parse reject path, and asMap() handoff so an upstream group_handler rewrite cannot restore bare map[string][]int64 binding that only fails with opaque bind errors."
+    },
+    {
+      "path": "backend/internal/pkg/tlsfingerprint/dialer.go",
+      "must_contain": [
+        "func asNetHTTPConn(conn net.Conn, utlsState utls.ConnectionState) net.Conn",
+        "func (c netHTTPConn) ConnectionState() tls.ConnectionState",
+        "return asNetHTTPConn(tlsConn, state), nil"
+      ],
+      "must_not_contain": [
+        "return tlsConn, nil"
+      ],
+      "rationale": "utls.UConn.ConnectionState returns utls.ConnectionState, which does not satisfy net/http's ConnectionState() tls.ConnectionState assertion. Without asNetHTTPConn, DialTLSContext leaves tlsState nil so the client speaks HTTP/1.1 on an h2 ALPN socket (malformed response / http2_handshake_failed) and Antigravity OAuth dies after CLI TLS seeding."
+    },
+    {
+      "path": "backend/internal/repository/http_upstream.go",
+      "must_contain": [
+        "if profileSupportsHTTP2(profile) {",
+        "transport.ForceAttemptHTTP2 = true",
+        "if _, err := enableHTTP2KeepAlive(transport); err != nil {"
+      ],
+      "rationale": "TLS-fingerprint transports use DialTLSContext, which disables net/http auto-HTTP/2. Profiles advertising h2 (Antigravity CLI) must ForceAttemptHTTP2 + enableHTTP2KeepAlive or Google's h2 preface is misread as HTTP/1.1."
     }
   ]
 }

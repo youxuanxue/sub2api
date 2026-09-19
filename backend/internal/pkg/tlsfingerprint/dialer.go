@@ -5,6 +5,7 @@ package tlsfingerprint
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -296,7 +297,44 @@ func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, a
 		"cipher_suite", state.CipherSuite,
 		"alpn", state.NegotiatedProtocol)
 
-	return tlsConn, nil
+	// net/http inspects DialTLSContext results via ConnectionState() tls.ConnectionState.
+	// utls.UConn returns utls.ConnectionState, so the assertion fails, tlsState stays
+	// nil, and the client speaks HTTP/1.1 on an h2-negotiated socket (malformed
+	// response / http2_handshake_failed). Expose a stdlib-shaped ConnectionState.
+	return asNetHTTPConn(tlsConn, state), nil
+}
+
+// netHTTPConn adapts a utls connection for net/http's DialTLSContext contract.
+type netHTTPConn struct {
+	net.Conn
+	state tls.ConnectionState
+}
+
+func (c netHTTPConn) ConnectionState() tls.ConnectionState {
+	return c.state
+}
+
+func asNetHTTPConn(conn net.Conn, utlsState utls.ConnectionState) net.Conn {
+	return netHTTPConn{
+		Conn:  conn,
+		state: stdTLSConnectionState(utlsState),
+	}
+}
+
+func stdTLSConnectionState(s utls.ConnectionState) tls.ConnectionState {
+	return tls.ConnectionState{
+		Version:                     s.Version,
+		HandshakeComplete:           s.HandshakeComplete,
+		DidResume:                   s.DidResume,
+		CipherSuite:                 s.CipherSuite,
+		NegotiatedProtocol:          s.NegotiatedProtocol,
+		ServerName:                  s.ServerName,
+		PeerCertificates:            s.PeerCertificates,
+		VerifiedChains:              s.VerifiedChains,
+		SignedCertificateTimestamps: s.SignedCertificateTimestamps,
+		OCSPResponse:                s.OCSPResponse,
+		TLSUnique:                   s.TLSUnique,
+	}
 }
 
 // toUTLSCurves converts uint16 slice to utls.CurveID slice.
