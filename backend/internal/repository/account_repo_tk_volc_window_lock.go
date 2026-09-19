@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
@@ -30,16 +31,18 @@ func newAPIFalseWindowLockPredicate(s *entsql.Selector) *entsql.Predicate {
 	platform := s.C(dbaccount.FieldPlatform)
 	extra := s.C(dbaccount.FieldExtra)
 	reset := s.C(dbaccount.FieldRateLimitResetAt)
-	match := func(key string) string {
-		return fmt.Sprintf(`(%[1]s->>'%[2]s' ~ '^[0-9]+(\.[0-9]+)?$' AND abs((%[1]s->>'%[2]s')::double precision - EXTRACT(EPOCH FROM %[3]s)) < 2)`,
-			extra, key, reset)
+	// CASE keeps malformed/overflowing JSON values out of casts. Missing values
+	// become zero, matching parseExtraFloat64 instead of propagating SQL NULL.
+	number := func(key string) string {
+		raw := fmt.Sprintf("btrim(%s->>'%s')", extra, key)
+		return fmt.Sprintf("(CASE WHEN pg_input_is_valid(%[1]s, 'double precision') AND lower(%[1]s) <> 'nan' THEN (%[1]s)::double precision ELSE 0 END)", raw)
 	}
-	intentional := fmt.Sprintf(`(%[1]s->>'%[2]s' ~ '^[0-9]+(\.[0-9]+)?$' AND (%[1]s->>'%[2]s')::double precision > 0)`,
-		extra, "newapi_account_window_lock")
-	expr := fmt.Sprintf(`(%s = '%s' AND NOT %s AND (%s OR %s OR %s OR %s))`,
-		platform, service.PlatformNewAPI,
-		intentional,
-		match("newapi_weekly_reset"), match("newapi_5h_reset"), match("newapi_7d_reset"), match("newapi_month_reset"),
-	)
+	matches := make([]string, 0)
+	for _, key := range service.NewAPIUsageWindowResetExtraKeys() {
+		value := number(key)
+		matches = append(matches, fmt.Sprintf("(%s > 0 AND abs(%s - floor(EXTRACT(EPOCH FROM %s))) < 2)", value, value, reset))
+	}
+	expr := fmt.Sprintf("(%s = '%s' AND %s <= 0 AND (%s))",
+		platform, service.PlatformNewAPI, number(service.NewAPIAccountWindowLockExtraKey), strings.Join(matches, " OR "))
 	return entsql.ExprP(expr)
 }

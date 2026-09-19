@@ -68,7 +68,7 @@
         "account.Platform == PlatformNewAPI",
         "buildNewAPIUpstreamQuota"
       ],
-      "rationale": "Unified upstream_quota projection must route NewAPI through buildNewAPIUpstreamQuota rather than leaving the field absent. Without a snapshot the state is unknown (no false 'unsupported' chip); when a recoverable weekly/5h/7d 429 Extra snapshot exists it surfaces utilization + resets_at. Vertex service_account channel_type=41 still has no GCP Billing integration, so it stays unknown until a future control-plane quota adapter is added."
+      "rationale": "Unified upstream_quota projection must route NewAPI through buildNewAPIUpstreamQuota rather than leaving the field absent. Without a snapshot the state is unknown (no false 'unsupported' chip); when a recoverable monthly/weekly/5h/7d 429 Extra snapshot exists it surfaces utilization + resets_at. Vertex service_account channel_type=41 still has no GCP Billing integration, so it stays unknown until a future control-plane quota adapter is added."
     },
     {
       "path": "backend/internal/service/newapi_usage_window_tk.go",
@@ -77,37 +77,26 @@
         "applyNewAPIUsageWindowSnapshot",
         "buildNewAPIUpstreamQuota",
         "newAPIWeeklyUtilExtraKey",
+        "newAPIMonthlyUtilExtraKey",
+        "newAPIQianfanMonthlyQuotaMessage",
+        "tkQianfanMonthlyResetAt",
+        "SetModelRateLimit(ctx, account.ID, model, reset, reason)",
+        "account.ActiveModelRateLimits(now)",
         "tkParseNewAPIUsageWindowResponse",
         "parseRetryAfterResetTime(headers, reference)",
         "(*progress).UtilizationUnknown = false",
-        "tkNewAPIUsageWindowModelScope",
+        "protocolExecutionResolvedModel(ctx, tempUnschedulableModel(ctx, requestedModel))",
         "SetModelRateLimit",
         "newapi_account_window_lock"
       ],
-      "rationale": "NewAPI 5h/weekly/monthly prose 429s must cool until the parsed reset. When the request names a model, tkNewAPIUsageWindowModelScope + SetModelRateLimit cool only that model and must not paint the account 7d bar. A 429 with no model stays account-wide and sets newapi_account_window_lock so the ignore predicate does not release it. Dropping this companion either recreates the account-88 blind spot or locks the whole account while other models still serve."
+      "rationale": "NewAPI usage windows cool the executed model and project scoped quota dimensions; observations without a model atomically persist an explicit account marker with the snapshot. Monthly quota never overwrites local 5h/7d statistics."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "account.Platform == PlatformNewAPI && s.tkTryHandleNewAPIUsageWindow429(ctx, account, headers, responseBody, requestedModel...)"
       ],
-      "rationale": "handle429 NewAPI branch must call tkTryHandleNewAPIUsageWindow429 after OpenAI-shaped resets_at parse fails, and must forward requestedModel. Without this injection, weekly/5h/7d prose 429s fall through to the short fallback cooldown. Dropping requestedModel makes VolcEngine Agent Plan per-model windows (kimi-k3 weekly vs deepseek-v4-flash still serving) lock the whole account again."
-    },
-    {
-      "path": "backend/internal/repository/account_repo.go",
-      "must_contain": [
-        "accountNotBlockedByAccountWideRateLimit(now)"
-      ],
-      "rationale": "Grouped scheduler admission (queryAccountsByGroup, used by ListSchedulableByGroupIDAndPlatform) must keep admitting VolcEngine Agent Plan accounts whose account columns were written from a per-model usage window. account_repo.go is upstream-shared; restoring RateLimitResetAtIsNil OR LTE compiles and leaves the TK predicate file unused, so unit tests of IsSchedulable still pass while the snapshot drops the account again."
-    },
-    {
-      "path": "backend/internal/repository/account_repo_tk_volc_window_lock.go",
-      "must_contain": [
-        "newapi_account_window_lock",
-        "newapi_month_reset",
-        "accountNotBlockedByAccountWideRateLimit"
-      ],
-      "rationale": "The SQL ignore predicate must stay aligned with service.NewAPIAccountWindowLockIgnored for every NewAPI account, including the no-model marker newapi_account_window_lock and newapi_month_reset. Restricting it to VolcEngine Agent Plan lets the next provider's per-model 429 lock the whole account again."
+      "rationale": "handle429 NewAPI branch must call tkTryHandleNewAPIUsageWindow429 after OpenAI-shaped resets_at parse fails. Without this injection, monthly/weekly/5h/7d prose 429s fall through to the short fallback cooldown and never persist Extra — recreating the account-88 operator blind spot even if newapi_usage_window_tk.go still compiles."
     },
     {
       "path": "backend/internal/service/account_usage_service.go",
@@ -115,7 +104,7 @@
         "applyNewAPIUsageWindowSnapshot(account, usage)",
         "applyNewAPIUsageWindowSnapshot(account, info)"
       ],
-      "rationale": "Local-window GetUsage/GetPassiveUsage paths for NewAPI must overlay the recoverable weekly/5h/7d Extra snapshot onto progress bars before attachUpstreamQuota. account_usage_service.go is upstream-shaped; dropping either call compiles clean while unit tests of applyNewAPIUsageWindowSnapshot still pass, silently restoring 0% bars."
+      "rationale": "Local-window GetUsage/GetPassiveUsage paths for NewAPI must project recoverable monthly/weekly/5h/7d Extra snapshots before attachUpstreamQuota; monthly stays a separate dimension from local 5h/7d statistics. account_usage_service.go is upstream-shaped; dropping either call compiles clean while unit tests of applyNewAPIUsageWindowSnapshot still pass, silently restoring 0% bars."
     },
     {
       "path": "backend/internal/service/account_usage_service_tk_passive_batch.go",
@@ -1711,6 +1700,56 @@
         "IsStructurallyGone"
       ],
       "rationale": "Admin upstream-model discovery may hide only structurally-gone evidence (unreachable plus model_not_found). Transient 5xx/429 unreachable must remain visible; swapping this predicate back to a broad unreachable hide recreates a second serving-truth from probe evidence."
+    },
+    {
+      "path": "backend/internal/service/newapi_usage_window_tk_test.go",
+      "must_contain": [
+        "TestHandleUpstreamError_NewAPIMonthlyQuotaLifecycle",
+        "TestNewAPIQianfanMonthlyQuotaCalendarReset",
+        "TestNewAPIQianfanMonthlyQuotaLifecycle",
+        "TestNewAPIQianfanMonthlyQuotaBoundaries",
+        "TestNewAPIVolcMonthlyQuotaKeepsSiblingModelsAvailable",
+        "TestNewAPIVolcMonthlyQuotaCannotEscalateWriteFailure",
+        "TestNewAPIVolcMonthlyQuotaUsesExecutedPlanModel",
+        "TestNewAPIWindowSnapshotFailureFallsBackWithoutLongAccountLock",
+        "TestNewAPIQianfanMonthlyQuotaWithModel",
+        "TestHandle429_VolcAgentPlanWeeklyIsModelScoped"
+      ],
+      "rationale": "Monthly quota regressions must preserve VolcEngine's explicit reset and Qianfan's first-day 01:00 Beijing fallback, short Retry-After precedence, calendar boundaries, and the manual scheduling switch after expiry."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_volc_window_lock.go",
+      "must_contain": [
+        "service.NewAPIAccountWindowLockExtraKey",
+        "service.NewAPIUsageWindowResetExtraKeys()",
+        "accountNotBlockedByAccountWideRateLimit",
+        "CASE WHEN pg_input_is_valid"
+      ],
+      "rationale": "SQL admission shares reset/marker keys with Go and safely parses missing or malformed JSON without SQL NULL or unsafe casts."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_window_lock_integration_test.go",
+      "must_contain": [
+        "TestNewAPIWindowLockSQLMatchesSchedulingAndCapacity",
+        "repo.ListSchedulableByGroupIDs",
+        "repo.ListSchedulableAccountLoads",
+        "repo.ListWithFilters"
+      ],
+      "rationale": "Real PostgreSQL regression keeps grouped, ungrouped, platform, capacity and admin status filters aligned with Go scheduling for legacy and explicit account locks."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_tk_capacity_batch.go",
+      "must_contain": [
+        "accountNotBlockedByAccountWideRateLimit(now)"
+      ],
+      "rationale": "Capacity batches must consume the same account lock eligibility owner as scheduling."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "accountNotBlockedByAccountWideRateLimit(now)"
+      ],
+      "rationale": "Grouped scheduler admission (queryAccountsByGroup, used by ListSchedulableByGroupIDAndPlatform) must keep admitting VolcEngine Agent Plan accounts whose account columns were written from a per-model usage window. account_repo.go is upstream-shared; restoring RateLimitResetAtIsNil OR LTE compiles and leaves the TK predicate file unused, so unit tests of IsSchedulable still pass while the snapshot drops the account again."
     }
   ]
 }

@@ -6,12 +6,13 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// TK: NewAPI recoverable usage-window snapshots (weekly / 5h / 7d quota text).
+// TK: NewAPI recoverable usage-window snapshots (monthly / weekly / 5h / 7d quota text).
 //
 // Prod 2026-09-02 account 88 volcengine-agent-plan: upstream 429
 // "You have exceeded the weekly usage quota. It will reset at …" was correctly
@@ -23,47 +24,39 @@ import (
 //
 // This file is the write+read SSOT for that window text: parse reset time,
 // persist Extra, cool until reset, and surface utilization on the local 7d
-// (or 5h) progress + UpstreamQuota dimensions.
-//
-// Prod 2026-09-19 edge-us5 account 17 volcengine-agent-plan: the same weekly
-// prose arrived on kimi-k3 while deepseek-v4-flash still completed. Every
-// NewAPI 5h/weekly/monthly window is per requested model: SetModelRateLimit,
-// never SetRateLimited and never a 100% account bar. A 429 with no model still
-// cools the account, marked so it is not later treated as that false lock.
+// (or 5h) progress + UpstreamQuota dimensions. Monthly quota has its own
+// dimension and never overwrites local 5h/7d statistics. Named-model hits use
+// model_rate_limits for every NewAPI channel; observations without a model
+// retain an explicitly marked account-wide window.
 
 const (
-	newAPIWeeklyUtilExtraKey      = "newapi_weekly_utilization"
-	newAPIWeeklyResetExtraKey     = "newapi_weekly_reset"
-	newAPIWeeklySampledExtraKey   = "newapi_weekly_sampled_at"
-	newAPIFiveHourUtilExtraKey    = "newapi_5h_utilization"
-	newAPIFiveHourResetExtraKey   = "newapi_5h_reset"
-	newAPIFiveHourSampledExtraKey = "newapi_5h_sampled_at"
-	newAPISevenDayUtilExtraKey    = "newapi_7d_utilization"
-	newAPISevenDayResetExtraKey   = "newapi_7d_reset"
-	newAPISevenDaySampledExtraKey = "newapi_7d_sampled_at"
-	newAPIMonthUtilExtraKey       = "newapi_month_utilization"
-	newAPIMonthResetExtraKey      = "newapi_month_reset"
-	newAPIMonthSampledExtraKey    = "newapi_month_sampled_at"
+	tkNewAPIModelWindowReason        = "429_newapi_model_window"
+	NewAPIAccountWindowLockExtraKey  = "newapi_account_window_lock"
+	newAPIQianfanMonthlyQuotaMessage = "token plan person monthly quota limit exceeded"
+	newAPIMonthlyUtilExtraKey        = "newapi_monthly_utilization"
+	newAPIMonthlyResetExtraKey       = "newapi_monthly_reset"
+	newAPIMonthlySampledExtraKey     = "newapi_monthly_sampled_at"
+	newAPIWeeklyUtilExtraKey         = "newapi_weekly_utilization"
+	newAPIWeeklyResetExtraKey        = "newapi_weekly_reset"
+	newAPIWeeklySampledExtraKey      = "newapi_weekly_sampled_at"
+	newAPIFiveHourUtilExtraKey       = "newapi_5h_utilization"
+	newAPIFiveHourResetExtraKey      = "newapi_5h_reset"
+	newAPIFiveHourSampledExtraKey    = "newapi_5h_sampled_at"
+	newAPISevenDayUtilExtraKey       = "newapi_7d_utilization"
+	newAPISevenDayResetExtraKey      = "newapi_7d_reset"
+	newAPISevenDaySampledExtraKey    = "newapi_7d_sampled_at"
 
+	newAPIUpstreamMonthlyKey  = "newapi_monthly"
 	newAPIUpstreamWeeklyKey   = "newapi_weekly"
 	newAPIUpstreamFiveHourKey = "newapi_5h"
 	newAPIUpstreamSevenDayKey = "newapi_7d"
-
-	// tkNewAPIModelWindowReason is a model-scoped cooldown. It must stay out of
-	// isWholeAccountRuntimeBlockReason so one model's 5h/weekly/monthly quota
-	// does not block the rest of the account.
-	tkNewAPIModelWindowReason = "429_newapi_model_window"
-	// newAPIAccountWindowLockExtraKey marks a usage window that is really
-	// account-wide because the 429 carried no model. Historical false locks
-	// (one model's quota written onto the account columns) lack this key.
-	newAPIAccountWindowLockExtraKey = "newapi_account_window_lock"
 )
 
 var newAPIUsageWindowResetAtRE = regexp.MustCompile(`(?i)it will reset at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4}(?:\s+\S+)?)`)
 var newAPIUsageWindowShortResetAtRE = regexp.MustCompile(`(?i)(?:it|the quota) will reset at\s+(\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC\b`)
 
 type newAPIUsageWindowHit struct {
-	Window  string // "weekly" | "5h" | "7d" | "month"
+	Window  string // "monthly" | "weekly" | "5h" | "7d"
 	ResetAt time.Time
 }
 
@@ -79,12 +72,12 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 	}
 	window := "weekly"
 	switch {
+	case strings.Contains(haystack, "month") || strings.Contains(haystack, "30-day") || strings.Contains(haystack, newAPIQianfanMonthlyQuotaMessage):
+		window = "monthly"
 	case strings.Contains(haystack, "5-hour") || strings.Contains(haystack, "5 hour"):
 		window = "5h"
 	case strings.Contains(haystack, "7-day") || strings.Contains(haystack, "7 day"):
 		window = "7d"
-	case strings.Contains(haystack, "month") || strings.Contains(haystack, "30-day") || strings.Contains(haystack, "30 day"):
-		window = "month"
 	case strings.Contains(haystack, "weekly"):
 		window = "weekly"
 	}
@@ -94,19 +87,17 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 		reference = date
 	}
 	resetAt, ok := tkParseNewAPIUsageWindowResetAt(haystack)
-	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) {
-		resetAt, ok = *retryAt, true
-	}
+
 	if !ok {
 		if m := newAPIUsageWindowShortResetAtRE.FindStringSubmatch(haystack); len(m) == 2 {
 			// A yearless reset must be within this quota window. In particular an
 			// expired September reset must not become a year-long cooldown.
 			maxWindow := 7 * 24 * time.Hour
-			switch window {
-			case "5h":
-				maxWindow = 5 * time.Hour
-			case "month":
+			if window == "monthly" {
 				maxWindow = 31 * 24 * time.Hour
+			}
+			if window == "5h" {
+				maxWindow = 5 * time.Hour
 			}
 			for _, year := range []int{reference.UTC().Year(), reference.UTC().Year() + 1} {
 				candidate, err := time.Parse("2006-01-02 15:04:05", strconv.Itoa(year)+"-"+m[1])
@@ -117,10 +108,25 @@ func tkParseNewAPIUsageWindowResponse(haystack string, headers http.Header, now 
 			}
 		}
 	}
+	// Qianfan omits its reset timestamp. Apply the operational monthly rule:
+	// next month's first day at 01:00 Beijing time, ahead of short Retry-After.
+	if !ok && strings.Contains(haystack, newAPIQianfanMonthlyQuotaMessage) {
+		resetAt, ok = tkQianfanMonthlyResetAt(now), true
+	}
+	// A monthly quota reset is authoritative even if Retry-After only describes
+	// a short request throttle. Preserve existing header precedence for other windows.
+	if retryAt := parseRetryAfterResetTime(headers, reference); retryAt != nil && retryAt.After(now) && (window != "monthly" || !ok) {
+		resetAt, ok = *retryAt, true
+	}
 	if !ok {
 		return nil
 	}
 	return &newAPIUsageWindowHit{Window: window, ResetAt: resetAt}
+}
+
+func tkQianfanMonthlyResetAt(now time.Time) time.Time {
+	beijing := now.In(time.FixedZone("CST", 8*60*60))
+	return time.Date(beijing.Year(), beijing.Month()+1, 1, 1, 0, 0, 0, beijing.Location())
 }
 
 func tkParseNewAPIUsageWindowResetAt(haystack string) (time.Time, bool) {
@@ -147,11 +153,10 @@ func tkParseNewAPIUsageWindowResetAt(haystack string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// tkTryHandleNewAPIUsageWindow429 cools until the upstream window reset.
-// A 5h/weekly/monthly 429 that names a model only cools that model. The same
-// prose with no model still cools the whole account.
-// Returns true when the 429 was a recoverable usage-window hit (caller must not
-// fall through to the short fallback cooldown).
+// tkTryHandleNewAPIUsageWindow429 cools the affected account/model until the
+// window reset and records exhaustion for admin usage. Returns true when
+// the 429 was a recoverable usage-window hit (caller must not fall through to
+// the short fallback cooldown).
 func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) bool {
 	if s == nil || account == nil || account.Platform != PlatformNewAPI || s.accountRepo == nil {
 		return false
@@ -167,14 +172,16 @@ func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, 
 	if !hit.ResetAt.After(time.Now()) {
 		return false
 	}
-	if scope := tkNewAPIUsageWindowModelScope(account, firstRequestedModel(requestedModel)); scope != "" {
-		return s.persistNewAPIModelUsageWindow(ctx, account, hit, scope)
-	}
 
-	s.persistNewAPIUsageWindowSnapshot(ctx, account, hit)
-	// Without this marker the ignore predicate below matches the pair this
-	// branch just wrote, and the account stays schedulable.
-	s.markNewAPIAccountWindowLock(ctx, account)
+	// Plan owns the executed model. The fallback is already resolved by native
+	// transports; mapping it a second time can cool a different upstream model.
+	model := strings.TrimSpace(protocolExecutionResolvedModel(ctx, tempUnschedulableModel(ctx, requestedModel)))
+	if model != "" {
+		return s.persistNewAPIModelUsageWindow(ctx, account, hit, model)
+	}
+	if !s.persistNewAPIUsageWindowSnapshot(ctx, account, hit) {
+		return false // failed evidence write must not create an unmarked long lock
+	}
 	s.notifyAccountSchedulingBlocked(account, hit.ResetAt, "429", "newapi_"+hit.Window+"_window_exhausted")
 	if err := s.accountRepo.SetRateLimited(ctx, account.ID, hit.ResetAt); err != nil {
 		slog.Warn("newapi_usage_window_set_rate_limited_failed",
@@ -190,72 +197,57 @@ func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, 
 	return true
 }
 
-func tkNewAPIUsageWindowModelScope(account *Account, requestedModel string) string {
-	if account == nil || account.Platform != PlatformNewAPI {
+func newAPIModelUsageWindow(reason string) string {
+	prefix := tkNewAPIModelWindowReason + ":"
+	if !strings.HasPrefix(reason, prefix) {
 		return ""
 	}
-	requestedModel = strings.TrimSpace(requestedModel)
-	if requestedModel == "" {
-		return ""
+	window := strings.TrimPrefix(reason, prefix)
+	switch window {
+	case "monthly", "weekly", "5h", "7d":
+		return window
 	}
-	if mapped := strings.TrimSpace(account.GetMappedModel(requestedModel)); mapped != "" {
-		return mapped
-	}
-	return requestedModel
+	return ""
 }
 
-func (s *RateLimitService) persistNewAPIModelUsageWindow(ctx context.Context, account *Account, hit *newAPIUsageWindowHit, scope string) bool {
-	resetAt := hit.ResetAt
-	if existing := account.modelRateLimitResetAt(scope); existing != nil && existing.After(resetAt) {
-		resetAt = *existing
+func (s *RateLimitService) persistNewAPIModelUsageWindow(ctx context.Context, account *Account, hit *newAPIUsageWindowHit, model string) bool {
+	reset, reason := hit.ResetAt, tkNewAPIModelWindowReason+":"+hit.Window
+	if existing, ok := account.ActiveModelRateLimits(time.Now())[model]; ok && existing.RateLimitResetAt.After(reset) {
+		reset, reason = existing.RateLimitResetAt, existing.Reason
 	}
-	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scope, resetAt, tkNewAPIModelWindowReason); err != nil {
-		slog.Warn("newapi_model_usage_window_set_rate_limited_failed",
-			"account_id", account.ID, "model", scope, "window", hit.Window, "error", err)
-		return true
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, model, reset, reason); err != nil {
+		slog.Warn("newapi_model_usage_window_set_rate_limited_failed", "account_id", account.ID, "model", model, "error", err)
+		return false
 	}
-	setAccountModelRateLimitSnapshot(account, scope, resetAt, tkNewAPIModelWindowReason, time.Now())
-	s.notifyAccountSchedulingBlocked(account, resetAt, tkNewAPIModelWindowReason, scope+"·"+hit.Window)
-	if newAPIAccountWindowLockIgnored(account) {
-		if err := s.accountRepo.ClearRateLimit(ctx, account.ID); err != nil {
-			slog.Warn("newapi_clear_false_account_window_lock_failed",
-				"account_id", account.ID, "model", scope, "error", err)
-		} else {
-			account.RateLimitedAt = nil
-			account.RateLimitResetAt = nil
-			s.clearNewAPIUsageWindowSnapshot(ctx, account)
-		}
-	}
-	slog.Info("newapi_model_usage_window_rate_limited",
-		"account_id", account.ID,
-		"model", scope,
-		"window", hit.Window,
-		"reset_at", resetAt,
-		"reset_in", time.Until(resetAt).Truncate(time.Second),
-	)
+	setAccountModelRateLimitSnapshot(account, model, reset, reason, time.Now())
+	s.notifyAccountSchedulingBlocked(account, reset, tkNewAPIModelWindowReason, model+" · "+hit.Window)
+	// Historical account locks are ignored by the shared read predicate. Never
+	// clear persisted columns from this stale request snapshot: a concurrent
+	// no-model 429 may already have established a genuine account-wide lock.
 	return true
 }
 
-// NewAPIAccountWindowLockIgnored reports an account-wide rate limit that was
-// written from a per-model NewAPI usage window. Other models on the same
-// account keep working, so scheduling and the admin badge must not treat it as
-// a whole-account 429. A no-model write sets newAPIAccountWindowLockExtraKey
-// and stays a real account cooldown.
-func NewAPIAccountWindowLockIgnored(account *Account) bool {
-	return newAPIAccountWindowLockIgnored(account)
+// NewAPIUsageWindowResetExtraKeys is shared by the Go and SQL legacy-lock
+// predicates. New observations write the account marker with the snapshot.
+func NewAPIUsageWindowResetExtraKeys() []string {
+	return []string{newAPIWeeklyResetExtraKey, newAPIFiveHourResetExtraKey, newAPISevenDayResetExtraKey, newAPIMonthlyResetExtraKey}
 }
 
-func newAPIAccountWindowLockIgnored(account *Account) bool {
-	if account == nil || account.Platform != PlatformNewAPI || account.RateLimitResetAt == nil || !time.Now().Before(*account.RateLimitResetAt) {
+func NewAPIAccountWindowLockIgnored(account *Account) bool {
+	return newAPIAccountWindowLockIgnoredAt(account, time.Now())
+}
+
+func newAPIAccountWindowLockIgnoredAt(account *Account, now time.Time) bool {
+	if account == nil || account.Platform != PlatformNewAPI || account.RateLimitResetAt == nil || !now.Before(*account.RateLimitResetAt) {
 		return false
 	}
-	if parseExtraFloat64(account.Extra[newAPIAccountWindowLockExtraKey]) > 0 {
+	if parseExtraFloat64(account.Extra[NewAPIAccountWindowLockExtraKey]) > 0 {
 		return false
 	}
-	resetUnix := float64(account.RateLimitResetAt.Unix())
-	for _, key := range []string{newAPIWeeklyResetExtraKey, newAPIFiveHourResetExtraKey, newAPISevenDayResetExtraKey, newAPIMonthResetExtraKey} {
+	reset := float64(account.RateLimitResetAt.Unix())
+	for _, key := range NewAPIUsageWindowResetExtraKeys() {
 		raw := parseExtraFloat64(account.Extra[key])
-		if raw > 0 && math.Abs(raw-resetUnix) < 2 {
+		if raw > 0 && math.Abs(raw-reset) < 2 {
 			return true
 		}
 	}
@@ -263,73 +255,28 @@ func newAPIAccountWindowLockIgnored(account *Account) bool {
 }
 
 func accountWideRateLimitBlocks(account *Account, now time.Time) bool {
-	if account == nil || account.RateLimitResetAt == nil || !now.Before(*account.RateLimitResetAt) {
-		return false
-	}
-	return !newAPIAccountWindowLockIgnored(account)
+	return account != nil && account.RateLimitResetAt != nil && now.Before(*account.RateLimitResetAt) && !newAPIAccountWindowLockIgnoredAt(account, now)
 }
 
-func (s *RateLimitService) clearNewAPIUsageWindowSnapshot(ctx context.Context, account *Account) {
-	if s == nil || s.accountRepo == nil || account == nil {
-		return
-	}
-	updates := map[string]any{
-		newAPIWeeklyUtilExtraKey:        0.0,
-		newAPIWeeklyResetExtraKey:       0.0,
-		newAPIFiveHourUtilExtraKey:      0.0,
-		newAPIFiveHourResetExtraKey:     0.0,
-		newAPISevenDayUtilExtraKey:      0.0,
-		newAPISevenDayResetExtraKey:     0.0,
-		newAPIMonthUtilExtraKey:         0.0,
-		newAPIMonthResetExtraKey:        0.0,
-		newAPIAccountWindowLockExtraKey: 0.0,
-	}
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
-		slog.Warn("newapi_usage_window_extra_clear_failed", "account_id", account.ID, "error", err)
-		return
-	}
-	if account.Extra == nil {
-		account.Extra = map[string]any{}
-	}
-	for k, v := range updates {
-		account.Extra[k] = v
-	}
-}
-
-func (s *RateLimitService) markNewAPIAccountWindowLock(ctx context.Context, account *Account) {
-	if s == nil || s.accountRepo == nil || account == nil {
-		return
-	}
-	updates := map[string]any{newAPIAccountWindowLockExtraKey: 1.0}
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
-		slog.Warn("newapi_account_window_lock_mark_failed",
-			"account_id", account.ID, "error", err)
-		return
-	}
-	if account.Extra == nil {
-		account.Extra = map[string]any{}
-	}
-	account.Extra[newAPIAccountWindowLockExtraKey] = 1.0
-}
-
-func (s *RateLimitService) persistNewAPIUsageWindowSnapshot(ctx context.Context, account *Account, hit *newAPIUsageWindowHit) {
+func (s *RateLimitService) persistNewAPIUsageWindowSnapshot(ctx context.Context, account *Account, hit *newAPIUsageWindowHit) bool {
 	if s == nil || s.accountRepo == nil || account == nil || hit == nil {
-		return
+		return false
 	}
 	utilKey, resetKey, sampledKey := newAPIUsageWindowExtraKeys(hit.Window)
 	if utilKey == "" {
-		return
+		return false
 	}
 	now := time.Now().UTC()
 	updates := map[string]any{
-		utilKey:    1.0,
-		resetKey:   float64(hit.ResetAt.Unix()),
-		sampledKey: now.Format(time.RFC3339Nano),
+		NewAPIAccountWindowLockExtraKey: 1.0,
+		utilKey:                         1.0,
+		resetKey:                        float64(hit.ResetAt.Unix()),
+		sampledKey:                      now.Format(time.RFC3339Nano),
 	}
 	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
 		slog.Warn("newapi_usage_window_extra_persist_failed",
 			"account_id", account.ID, "window", hit.Window, "error", err)
-		return
+		return false
 	}
 	if account.Extra == nil {
 		account.Extra = map[string]any{}
@@ -337,18 +284,19 @@ func (s *RateLimitService) persistNewAPIUsageWindowSnapshot(ctx context.Context,
 	for k, v := range updates {
 		account.Extra[k] = v
 	}
+	return true
 }
 
 func newAPIUsageWindowExtraKeys(window string) (utilKey, resetKey, sampledKey string) {
 	switch window {
+	case "monthly":
+		return newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIMonthlySampledExtraKey
 	case "weekly":
 		return newAPIWeeklyUtilExtraKey, newAPIWeeklyResetExtraKey, newAPIWeeklySampledExtraKey
 	case "5h":
 		return newAPIFiveHourUtilExtraKey, newAPIFiveHourResetExtraKey, newAPIFiveHourSampledExtraKey
 	case "7d":
 		return newAPISevenDayUtilExtraKey, newAPISevenDayResetExtraKey, newAPISevenDaySampledExtraKey
-	case "month":
-		return newAPIMonthUtilExtraKey, newAPIMonthResetExtraKey, newAPIMonthSampledExtraKey
 	default:
 		return "", "", ""
 	}
@@ -358,13 +306,11 @@ func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 	if account == nil || usage == nil || account.Platform != PlatformNewAPI {
 		return
 	}
-	// A per-model window must not paint the account 7d bar. Only a no-model
-	// write sets the account-lock marker; historical false locks lack it.
-	if NewAPIAccountWindowLockIgnored(account) {
-		return
-	}
 	now := time.Now()
 	apply := func(window, utilKey, resetKey, dimKey, dimLabel, dimWindow string, progress **UsageProgress) {
+		if parseExtraFloat64(account.Extra[NewAPIAccountWindowLockExtraKey]) <= 0 {
+			return
+		}
 		util := parseExtraFloat64(account.Extra[utilKey])
 		resetRaw := parseExtraFloat64(account.Extra[resetKey])
 		if util <= 0 && resetRaw <= 0 {
@@ -380,50 +326,70 @@ func applyNewAPIUsageWindowSnapshot(account *Account, usage *UsageInfo) {
 			resetAt = &t
 		}
 		utilization := util * 100
-		if *progress == nil {
-			*progress = &UsageProgress{}
-		}
-		(*progress).Utilization = utilization
-		(*progress).UtilizationUnknown = false
-		if resetAt != nil {
-			(*progress).ResetsAt = resetAt
-			remaining := int(time.Until(*resetAt).Seconds())
-			if remaining < 0 {
-				remaining = 0
+		if progress != nil {
+			if *progress == nil {
+				*progress = &UsageProgress{}
 			}
-			(*progress).RemainingSeconds = remaining
-		}
-		if usage.UpstreamQuota == nil {
-			usage.UpstreamQuota = baseUpstreamQuota(PlatformNewAPI, usage, "headers")
-		}
-		usage.UpstreamQuota.State = "degraded"
-		usage.UpstreamQuota.ErrorCode = "rate_limited"
-		usage.UpstreamQuota.StatusCode = 429
-		d := UpstreamQuotaDimension{
-			Key:         dimKey,
-			Label:       dimLabel,
-			Unit:        "percent",
-			Window:      dimWindow,
-			Utilization: &utilization,
-			ResetsAt:    resetAt,
-		}
-		// Replace same key if re-applied.
-		replaced := false
-		for i := range usage.UpstreamQuota.Dimensions {
-			if usage.UpstreamQuota.Dimensions[i].Key == dimKey {
-				usage.UpstreamQuota.Dimensions[i] = d
-				replaced = true
-				break
+			(*progress).Utilization = utilization
+			(*progress).UtilizationUnknown = false
+			if resetAt != nil {
+				(*progress).ResetsAt = resetAt
+				remaining := int(time.Until(*resetAt).Seconds())
+				if remaining < 0 {
+					remaining = 0
+				}
+				(*progress).RemainingSeconds = remaining
 			}
 		}
-		if !replaced {
-			usage.UpstreamQuota.Dimensions = append(usage.UpstreamQuota.Dimensions, d)
-		}
+		upsertNewAPIUsageWindowDimension(usage, UpstreamQuotaDimension{
+			Key: dimKey, Label: dimLabel, Unit: "percent", Window: dimWindow,
+			Utilization: &utilization, ResetsAt: resetAt,
+		})
 	}
 
+	limits := account.ActiveModelRateLimits(now)
+	models := make([]string, 0, len(limits))
+	for model, limit := range limits {
+		if newAPIModelUsageWindow(limit.Reason) != "" {
+			models = append(models, model)
+		}
+	}
+	sort.Strings(models)
+	for _, model := range models {
+		limit := limits[model]
+		window := newAPIModelUsageWindow(limit.Reason)
+		label := window
+		switch window {
+		case "monthly":
+			label = "1mo"
+		case "weekly":
+			label = "7d"
+		}
+		reset, utilization := limit.RateLimitResetAt, 100.0
+		upsertNewAPIUsageWindowDimension(usage, UpstreamQuotaDimension{
+			Key: "newapi_" + window + ":" + model, Label: model, Unit: "percent", Window: label, Utilization: &utilization, ResetsAt: &reset,
+		})
+	}
+	apply("monthly", newAPIMonthlyUtilExtraKey, newAPIMonthlyResetExtraKey, newAPIUpstreamMonthlyKey, "Monthly", "1mo", nil)
 	apply("weekly", newAPIWeeklyUtilExtraKey, newAPIWeeklyResetExtraKey, newAPIUpstreamWeeklyKey, "Weekly", "7d", &usage.SevenDay)
 	apply("5h", newAPIFiveHourUtilExtraKey, newAPIFiveHourResetExtraKey, newAPIUpstreamFiveHourKey, "5h", "5h", &usage.FiveHour)
 	apply("7d", newAPISevenDayUtilExtraKey, newAPISevenDayResetExtraKey, newAPIUpstreamSevenDayKey, "7d", "7d", &usage.SevenDay)
+}
+
+func upsertNewAPIUsageWindowDimension(usage *UsageInfo, dimension UpstreamQuotaDimension) {
+	if usage.UpstreamQuota == nil {
+		usage.UpstreamQuota = baseUpstreamQuota(PlatformNewAPI, usage, "headers")
+	}
+	usage.UpstreamQuota.State = "degraded"
+	usage.UpstreamQuota.ErrorCode = "rate_limited"
+	usage.UpstreamQuota.StatusCode = 429
+	for i := range usage.UpstreamQuota.Dimensions {
+		if usage.UpstreamQuota.Dimensions[i].Key == dimension.Key {
+			usage.UpstreamQuota.Dimensions[i] = dimension
+			return
+		}
+	}
+	usage.UpstreamQuota.Dimensions = append(usage.UpstreamQuota.Dimensions, dimension)
 }
 
 func buildNewAPIUpstreamQuota(account *Account, usage *UsageInfo) *UpstreamQuotaInfo {
