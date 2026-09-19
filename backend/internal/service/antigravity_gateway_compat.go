@@ -51,7 +51,8 @@ type antigravityCompatUpstreamCall struct {
 	geminiBody   []byte
 }
 
-// ForwardAsChatCompletions 使用 Antigravity 原生 OAuth 账号转发 Chat Completions 请求。
+// ForwardAsChatCompletions 把客户端 Chat Completions 转成原生 Antigravity
+// generateContent 再转发，响应再转回 Chat Completions。上游不接收 /v1/chat/completions。
 func (s *AntigravityGatewayService) ForwardAsChatCompletions(
 	ctx context.Context,
 	c *gin.Context,

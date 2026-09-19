@@ -308,6 +308,11 @@ AND the endpoint resolves explicitly from the same identity/account snapshot
 AND the required adapter and transport exist
 ```
 
+Antigravity OAuth Chat Completions remain a legal client route. Execution
+converts that body onto the native `v1internal` generateContent envelope,
+including `sessionId`, and converts the upstream response back to Chat
+Completions. The upstream request is not `/v1/chat/completions`.
+
 On a non-`OfficialEndpointAnthropic` identity, native `messages` is legal only
 when the resolved upstream model is in the Claude family (`claude-*`), except
 for the `cursor_oauth_messages` endpoint profile described in

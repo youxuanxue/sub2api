@@ -176,6 +176,10 @@ func TestAntigravityCompatOAuthUsesNativeTokenAndRoute(t *testing.T) {
 			require.Equal(t, http.StatusOK, recorder.Code)
 			require.Contains(t, recorder.Body.String(), "ok")
 			if tt.name == "chat completions" {
+				require.NotContains(t, upstreamPath, "/v1/chat/completions")
+				require.False(t, gjson.GetBytes(upstream.requestBodies[0], "requestType").Exists(), "plain text chat must use the native envelope and omit requestType")
+				require.Regexp(t, `^-[0-9]+$`, gjson.GetBytes(upstream.requestBodies[0], "request.sessionId").String())
+				require.False(t, gjson.GetBytes(upstream.requestBodies[0], "messages").Exists())
 				require.Equal(t, "stop", gjson.Get(recorder.Body.String(), "choices.0.finish_reason").String())
 				require.Equal(t, int64(8), gjson.Get(recorder.Body.String(), "usage.prompt_tokens").Int())
 				require.Equal(t, int64(3), gjson.Get(recorder.Body.String(), "usage.completion_tokens").Int())
@@ -384,7 +388,7 @@ func TestAntigravityCompatRoutesByMappedModelFamily(t *testing.T) {
 		model         string
 		wantSessionID bool
 	}{
-		{model: "gemini-3.1-pro-high", wantSessionID: false},
+		{model: "gemini-3.1-pro-high", wantSessionID: true},
 		{model: "claude-sonnet-4-5", wantSessionID: true},
 	}
 
