@@ -19,3 +19,10 @@ func TestShouldRecordMigrationWithoutExecution_SkipsUpstreamCNProviderConstraint
 	require.NoError(t, err)
 	require.False(t, skip, "unrelated quota migrations must still execute")
 }
+
+func TestShouldRecordMigrationWithoutExecution_SkipsSupersededOpenCodeGoConstraint(t *testing.T) {
+	skip, err := shouldRecordMigrationWithoutExecution(context.Background(), nil, supersededOpenCodeGoPlatformMigration)
+	require.NoError(t, err)
+	require.True(t, skip,
+		"238 shipped with a narrowed quota CHECK; 239 must apply the repaired superset")
+}

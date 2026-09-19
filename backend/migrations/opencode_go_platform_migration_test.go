@@ -8,7 +8,7 @@ import (
 )
 
 func TestOpenCodeGoPlatformMigration(t *testing.T) {
-	content, err := FS.ReadFile("238_opencode_go_platform.sql")
+	content, err := FS.ReadFile("239_repair_opencode_go_platform_constraints.sql")
 	require.NoError(t, err)
 
 	sql := strings.Join(strings.Fields(string(content)), " ")
@@ -21,7 +21,7 @@ func TestOpenCodeGoPlatformMigration(t *testing.T) {
 	require.Contains(t, sql, "position('opencode_go' IN monitor_constraint_def) = 0")
 	require.Contains(t, sql, "position('opencode_go' IN template_constraint_def) = 0")
 	require.Contains(t, sql,
-		"CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'))")
+		"CHECK (platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'newapi', 'kiro', 'opencode_go'))")
 	require.Contains(t, sql,
 		"CHECK (target_platform IN ('anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'))")
 	require.Contains(t, sql,

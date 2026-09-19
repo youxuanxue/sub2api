@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ACK = "bluegreen-safe-destructive-ok"
 
 DANGEROUS = [
+    ("DELETE FROM", re.compile(r"\bDELETE\s+FROM\b", re.I)),
     ("DROP TABLE", re.compile(r"\bDROP\s+TABLE\b", re.I)),
     ("DROP COLUMN", re.compile(r"\bDROP\s+COLUMN\b", re.I)),
     ("ALTER TABLE RENAME", re.compile(r"\bALTER\s+TABLE\b[^;]*\bRENAME\b", re.I | re.S)),
@@ -34,6 +35,19 @@ DANGEROUS = [
     ("SET NOT NULL", re.compile(r"\bSET\s+NOT\s+NULL\b", re.I)),
     ("ALTER COLUMN TYPE", re.compile(r"\bALTER\s+(?:COLUMN\s+)?[A-Za-z0-9_\".]+\s+TYPE\b", re.I)),
 ]
+
+# CHECK(... IN (...)) constraints are commonly used as append-only platform
+# registries. Rebuilding one from a stale list can make an otherwise healthy
+# blue/green candidate fail on existing rows before health checks run. Keep
+# this gate generic: every later allowlist must contain the values admitted by
+# the previous migration for the same table/column.
+CONSTRAINT_CHECK = re.compile(
+    r"ALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*)"
+    r".*?ADD\s+CONSTRAINT\s+([A-Za-z_][A-Za-z0-9_]*)"
+    r"\s+CHECK\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s+IN\s*\(([^)]*)\)\)",
+    re.I | re.S,
+)
+SQL_LITERAL = re.compile(r"'((?:''|[^'])*)'")
 
 
 def git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -109,6 +123,68 @@ def scan_file(path: Path) -> list[str]:
     return scan_sql(path.read_text(errors="replace"))
 
 
+def extract_constraint_allowlists(sql: str) -> list[tuple[tuple[str, str], set[str]]]:
+    """Extract table/column CHECK allowlists from migration SQL."""
+    body = strip_comments(sql)
+    out: list[tuple[tuple[str, str], set[str]]] = []
+    for match in CONSTRAINT_CHECK.finditer(body):
+        table, _constraint, column, values = match.groups()
+        allowed = {value.replace("''", "'") for value in SQL_LITERAL.findall(values)}
+        if allowed:
+            out.append(((table.lower(), column.lower()), allowed))
+    return out
+
+
+def find_constraint_allowlist_shrinks(
+    migrations: list[tuple[str, str]],
+) -> list[str]:
+    """Reject a migration that shrinks an existing CHECK allowlist."""
+    previous: dict[tuple[str, str], tuple[set[str], Path]] = {}
+    failures: list[str] = []
+    for name, sql in migrations:
+        path = Path(name)
+        for key, allowed in extract_constraint_allowlists(sql):
+            prior = previous.get(key)
+            if prior and not prior[0].issubset(allowed):
+                removed = sorted(prior[0] - allowed)
+                failures.append(
+                    f"{path.name}: {key[0]}.{key[1]} removes values {removed} "
+                    f"from {prior[1].name}; clean or migrate rows before shrinking a CHECK"
+                )
+            previous[key] = (allowed, path)
+    return failures
+
+
+def constraint_allowlist_history(
+    root: Path = ROOT,
+    changed: list[Path] | None = None,
+) -> list[str]:
+    files = sorted((root / "backend/migrations").glob("*.sql"))
+    entries = [(str(path), path.read_text(errors="replace")) for path in files]
+    baseline: dict[tuple[str, str], set[str]] = {}
+    for _name, sql in entries:
+        for key, allowed in extract_constraint_allowlists(sql):
+            baseline.setdefault(key, set()).update(allowed)
+
+    failures: list[str] = []
+    # Only changed migrations are candidates for a new regression. Older
+    # migrations may intentionally reflect an earlier platform generation and
+    # must remain immutable; comparing them against the union would report
+    # historical noise.
+    changed_paths = {path.resolve() for path in (changed or [])}
+    for path in files:
+        if path.resolve() not in changed_paths:
+            continue
+        for key, allowed in extract_constraint_allowlists(path.read_text(errors="replace")):
+            removed = sorted(baseline.get(key, set()) - allowed)
+            if removed:
+                failures.append(
+                    f"{path.name}: {key[0]}.{key[1]} omits historical values {removed}; "
+                    "clean or migrate rows before shrinking a CHECK"
+                )
+    return failures
+
+
 def previous_release_tag(target: str, tag_lines: list[str]) -> str | None:
     """Return the highest semver tag strictly older than target, matching the
     existing prod release-range preparation.
@@ -170,6 +246,11 @@ def selftest() -> int:
             ["DROP COLUMN"],
         ),
         (
+            "delete-requires-ack",
+            "DELETE FROM user_platform_quotas WHERE daily_limit_usd IS NULL;",
+            ["DELETE FROM"],
+        ),
+        (
             "add-column-not-null",
             "ALTER TABLE users ADD COLUMN tier_id integer NOT NULL;",
             ["ADD COLUMN NOT NULL"],
@@ -189,12 +270,28 @@ def selftest() -> int:
             f"-- {ACK}: expand column first, contract in later deploy\nALTER TABLE users ADD COLUMN tier_id integer NOT NULL;",
             [],
         ),
+        (
+            "ack-bypasses-after-data-cleanup-review",
+            f"-- {ACK}: production row count and timeout verified\nDELETE FROM user_platform_quotas WHERE daily_limit_usd IS NULL;",
+            [],
+        ),
     ]
     failures: list[str] = []
     for name, sql, expected in cases:
         got = scan_sql(sql)
         if got != expected:
             failures.append(f"{name}: expected {expected}, got {got}")
+    additive = [
+        ("001_old.sql", "ALTER TABLE users ADD CONSTRAINT users_platform_check CHECK (platform IN ('legacy', 'new'));"),
+        ("002_new.sql", "ALTER TABLE users ADD CONSTRAINT users_platform_check CHECK (platform IN ('legacy', 'new', 'added'));"),
+    ]
+    if find_constraint_allowlist_shrinks(additive):
+        failures.append("constraint allowlist additive migration must pass")
+    shrinking = additive[:1] + [
+        ("002_bad.sql", "ALTER TABLE users ADD CONSTRAINT users_platform_check CHECK (platform IN ('legacy'));"),
+    ]
+    if not find_constraint_allowlist_shrinks(shrinking):
+        failures.append("constraint allowlist shrink must fail")
     tag_lines = [
         "abc refs/tags/v1.8.176",
         "def refs/tags/v1.8.177",
@@ -257,12 +354,23 @@ def main() -> int:
         if hits:
             failures.append((path, hits))
 
+    history_failures = constraint_allowlist_history(changed=files)
+    if history_failures:
+        if not args.quiet:
+            print("FAIL: migration CHECK allowlists must be monotonic")
+            for failure in history_failures:
+                print(f"  - {failure}")
+        return 1
+
     if failures:
         print("FAIL: destructive SQL migration patterns require blue/green safety acknowledgement")
         for path, hits in failures:
             rel = path.relative_to(ROOT)
             print(f"  - {rel}: {', '.join(hits)}")
-        print(f"Add a migration comment containing `{ACK}` only after verifying expand/contract safety.")
+        print(
+            f"Add a migration comment containing `{ACK}` only after verifying "
+            "the production row count, lock/statement timeout, and rollback impact."
+        )
         return 1
 
     if not args.quiet:

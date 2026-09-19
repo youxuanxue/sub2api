@@ -61,6 +61,7 @@ const opsSystemLogsAPIKeyIDIndex = "idx_ops_system_logs_api_key_id_created_at"
 const opsSystemLogsAPIKeyIDIndexDDL = `CREATE INDEX IF NOT EXISTS idx_ops_system_logs_api_key_id_created_at ON ops_system_logs (api_key_id, created_at DESC)`
 const opsMonthlyPartitionsMigration = "tk_041_provision_ops_monthly_partitions.sql"
 const userPlatformQuotasCNProvidersMigration = "224_user_platform_quotas_add_cn_providers.sql"
+const supersededOpenCodeGoPlatformMigration = "238_opencode_go_platform.sql"
 const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index_notx.sql"
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
 
@@ -374,6 +375,13 @@ func applyMigrationsSession(ctx context.Context, db migrationDB, fsys fs.FS) (re
 }
 
 func shouldRecordMigrationWithoutExecution(ctx context.Context, db migrationDB, name string) (bool, error) {
+	// 238_opencode_go_platform.sql was released with a user_platform_quotas
+	// allowlist that omitted already-live newapi/kiro rows. Recording it without
+	// execution lets the follow-up 239 migration repair the constraint without
+	// editing an immutable, already-released migration file.
+	if name == supersededOpenCodeGoPlatformMigration {
+		return true, nil
+	}
 	// Upstream 224 replaces the CHECK with a set that omits newapi/kiro.
 	// TK live rows already include those platforms (tk_083). Executing 224
 	// fails ADD CONSTRAINT and blocks startup before tk_087 can restore the
