@@ -831,10 +831,7 @@ func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
 			CreatedAt:   "2024-01-01T00:00:00Z",
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 func writeAllowlistedModelsList(c *gin.Context, platform string, modelIDs []string) {
@@ -893,10 +890,7 @@ func writeGrokModelsList(c *gin.Context, modelIDs []string) {
 		models = append(models, item)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 func grokModelSupportsConfigurableReasoning(modelID string) bool {
@@ -929,10 +923,7 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 			DisplayName: modelID,
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   models,
-	})
+	writeModelsListResponse(c, models)
 }
 
 // modelListingSource 汇总模型列表过滤的候选来源：账号映射键（availableModels）

@@ -20,6 +20,7 @@ func OpenAICompatPlatforms() []string {
 	return []string{
 		domain.PlatformOpenAI, domain.PlatformNewAPI, domain.PlatformGrok,
 		domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek, domain.PlatformMiniMax,
+		domain.PlatformOpenCodeGo,
 	}
 }
 
@@ -61,6 +62,7 @@ func AllSchedulingPlatforms() []string {
 		domain.PlatformZhipu,
 		domain.PlatformDeepseek,
 		domain.PlatformMiniMax,
+		domain.PlatformOpenCodeGo,
 	}
 }
 
@@ -72,7 +74,10 @@ func AllSchedulingPlatforms() []string {
 // newapi and the concrete CN providers carry static channel credentials, not
 // OAuth refresh tokens, so the background refresh ticker skips them.
 func apiKeyOnlySchedulingPlatforms() []string {
-	return []string{domain.PlatformNewAPI, domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek, domain.PlatformMiniMax}
+	return []string{
+		domain.PlatformNewAPI, domain.PlatformKimi, domain.PlatformZhipu,
+		domain.PlatformDeepseek, domain.PlatformMiniMax, domain.PlatformOpenCodeGo,
+	}
 }
 
 // OAuthRefreshPlatforms is the SINGLE Go source of truth for which platforms the

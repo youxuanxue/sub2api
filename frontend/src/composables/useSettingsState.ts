@@ -41,6 +41,8 @@ export interface CustomMenuItem {
   label: string;
   icon_svg: string;
   url: string;
+  page_slug?: string;
+  hide_open_button?: boolean;
   visibility: "user" | "admin";
   sort_order: number;
 }

@@ -21,11 +21,12 @@ const (
 	BetaContext1M                = "context-1m-2025-08-07"
 	BetaFastMode                 = "fast-mode-2026-02-01"
 
-	BetaPromptCachingScope = "prompt-caching-scope-2026-01-05"
-	BetaEffort             = "effort-2025-11-24"
-	BetaRedactThinking     = "redact-thinking-2026-02-12"
-	BetaContextManagement  = "context-management-2025-06-27"
-	BetaExtendedCacheTTL   = "extended-cache-ttl-2025-04-11"
+	BetaPromptCachingScope          = "prompt-caching-scope-2026-01-05"
+	BetaEffort                      = "effort-2025-11-24"
+	BetaRedactThinking              = "redact-thinking-2026-02-12"
+	BetaContextManagement           = "context-management-2025-06-27"
+	BetaMidConversationOutputConfig = "mid-conversation-output-config-2026-07-01"
+	BetaExtendedCacheTTL            = "extended-cache-ttl-2025-04-11"
 
 	// cc 2.1.152 抓包新增；fine-grained-tool-streaming 已从真实 CLI 流量中消失。
 	BetaAdvisorTool     = "advisor-tool-2026-03-01"

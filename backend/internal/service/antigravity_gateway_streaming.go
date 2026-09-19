@@ -207,6 +207,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		keepaliveCh = keepaliveTicker.C
 	}
 	lastDataAt := time.Now()
+	lastWroteDataEvent := false
 
 	cw := newAntigravityClientWriter(c.Writer, flusher, "antigravity gemini")
 
@@ -289,8 +290,24 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				}
 
 				cw.Fprintf("data: %s\n\n", payload)
+				lastWroteDataEvent = true
 				continue
 			}
+
+			// Upstream follows each data event with a blank separator. The data
+			// branch already wrote "data: ...\n\n"; re-emitting that blank as a
+			// keepalive "\n" yields "\n\n\n" and breaks google-genai framing.
+			// Standalone empty lines (edge heartbeat before first content) still
+			// translate to geminiNativeSSEKeepaliveFrame.
+			if trimmed == "" {
+				if lastWroteDataEvent {
+					lastWroteDataEvent = false
+					continue
+				}
+				cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame)
+				continue
+			}
+			lastWroteDataEvent = false
 
 			// Preserve upstream liveness without forwarding SSE control fields.
 			if isGeminiNativeSSEKeepalive(trimmed) {

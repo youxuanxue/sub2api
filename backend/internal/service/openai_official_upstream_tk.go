@@ -43,7 +43,7 @@ func AccountShouldLocalEstimateCountTokens(account *Account) bool {
 	if account.Platform == PlatformGrok {
 		return false
 	}
-	if account.IsCNProvider() {
+	if account.IsCNProvider() || account.IsOpenCodeGo() {
 		return true
 	}
 	// Qianfan Token Plan Person has no OpenAI Responses input_tokens surface;

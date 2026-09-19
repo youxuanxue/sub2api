@@ -83,11 +83,10 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 		}
 	}
 
-	buf := bytes.NewBuffer(make([]byte, 0, capHint))
-	if _, err := io.Copy(buf, req.Body); err != nil {
+	raw, err := readRequestBodyChunks(req.Body, capHint, req.ContentLength)
+	if err != nil {
 		return nil, err
 	}
-	raw := buf.Bytes()
 
 	enc := strings.ToLower(strings.TrimSpace(req.Header.Get("Content-Encoding")))
 	if enc == "" || enc == "identity" {
@@ -111,6 +110,66 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 // sanitized from the same semantic bytes that gateway handlers process.
 func DecodeContentEncodedBody(encoding string, raw []byte) ([]byte, error) {
 	return DecodeContentEncodedBodyPrefix(encoding, raw, maxDecompressedBodySize)
+}
+
+// Read bounded chunks as bytes arrive, then assemble the exact-size result.
+// This avoids doubling large buffers or eagerly allocating an untrusted
+// Content-Length before the corresponding bytes have arrived.
+func readRequestBodyChunks(reader io.Reader, initialCapacity int, contentLength int64) ([]byte, error) {
+	capacity := initialCapacity
+	var chunks [][]byte
+	total := 0
+	for {
+		chunkCapacity := capacity
+		if remaining := contentLength - int64(total); remaining >= 0 && remaining < int64(chunkCapacity) {
+			chunkCapacity = int(remaining) + 1
+		}
+		chunk := make([]byte, chunkCapacity)
+		n := 0
+		var err error
+		for n < len(chunk) && err == nil {
+			var read int
+			read, err = reader.Read(chunk[n:])
+			n += read
+		}
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		if n > 0 {
+			chunks = append(chunks, chunk[:n])
+			total += n
+		}
+		if err != nil {
+			if len(chunks) == 0 {
+				return chunk[:0], nil
+			}
+			if len(chunks) == 1 {
+				return chunks[0], nil
+			}
+			body := make([]byte, total)
+			offset := 0
+			for _, part := range chunks {
+				offset += copy(body[offset:], part)
+			}
+			return body, nil
+		}
+		if capacity < requestBodyReadMaxInitCap {
+			capacity *= 2
+			if capacity > requestBodyReadMaxInitCap {
+				capacity = requestBodyReadMaxInitCap
+			}
+		}
+	}
+}
+
+// ReadLenientJSONRequestBodyWithPrealloc reads a request body and normalizes
+// JSON string control bytes before strict validation.
+func ReadLenientJSONRequestBodyWithPrealloc(req *http.Request, maxNormalizedBytes int64) ([]byte, error) {
+	body, err := ReadRequestBodyWithPrealloc(req)
+	if err != nil {
+		return nil, err
+	}
+	return NormalizeLenientJSONRequestBody(body, maxNormalizedBytes)
 }
 
 // DecodeContentEncodedBodyPrefix bounds a secondary observability copy without
@@ -144,15 +203,6 @@ func DecodeContentEncodedBodyPrefix(encoding string, raw []byte, limit int64) ([
 	default:
 		return nil, errors.New("unsupported Content-Encoding")
 	}
-}
-
-// ReadLenientJSONRequestBodyWithPrealloc reads and normalizes JSON string control bytes.
-func ReadLenientJSONRequestBodyWithPrealloc(req *http.Request, maxNormalizedBytes int64) ([]byte, error) {
-	body, err := ReadRequestBodyWithPrealloc(req)
-	if err != nil {
-		return nil, err
-	}
-	return NormalizeLenientJSONRequestBody(body, maxNormalizedBytes)
 }
 
 // NormalizeLenientJSONRequestBody escapes raw control bytes that broken

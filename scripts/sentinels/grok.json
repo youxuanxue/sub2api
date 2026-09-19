@@ -4,22 +4,37 @@
   "sentinels": [
     {
       "path": "frontend/src/components/account/usage-cells/OpenAIUsageCell.vue",
-      "must_contain": ["<GrokQuotaProbeCell", ":usage=\"usageInfo\"", ":active-usage-loader=\"activeUsageLoader\""],
+      "must_contain": [
+        "<GrokQuotaProbeCell",
+        ":usage=\"usageInfo\"",
+        ":active-usage-loader=\"activeUsageLoader\""
+      ],
       "rationale": "Grok billing display must remain connected to parent snapshots and the Edge-specific transport."
     },
     {
       "path": "frontend/src/components/account/GrokQuotaProbeCell.vue",
-      "must_contain": ["props.activeUsageLoader()", "adminAPI.accounts.getUsage(props.account.id, 'active', true)", "watch(() => props.usage", "if (!isCurrent()) return"],
+      "must_contain": [
+        "props.activeUsageLoader()",
+        "adminAPI.accounts.getUsage(props.account.id, 'active', true)",
+        "watch(() => props.usage",
+        "if (!isCurrent()) return"
+      ],
       "rationale": "Explicit billing queries reuse the billing-only usage endpoint, adopt parent refreshes, and reject obsolete async responses."
     },
     {
       "path": "frontend/src/components/account/__tests__/GrokQuotaProbeCell.spec.ts",
-      "must_contain": ["adopts a refreshed parent snapshot", "ignores a late query", "never falls back to a main account ID"],
+      "must_contain": [
+        "adopts a refreshed parent snapshot",
+        "ignores a late query",
+        "never falls back to a main account ID"
+      ],
       "rationale": "Keep behavior coverage for refresh freshness, late queries and Edge transport failure isolation."
     },
     {
       "path": "backend/internal/service/grok_quota_service_test.go",
-      "must_contain": ["TestAccountUsageServiceGrokRefreshUsesBillingOnly"],
+      "must_contain": [
+        "TestAccountUsageServiceGrokRefreshUsesBillingOnly"
+      ],
       "rationale": "The usage refresh path must remain billing-only, including explicit force refreshes."
     },
     {
@@ -32,12 +47,18 @@
     },
     {
       "path": "backend/internal/service/openai_gateway_grok_cc_usage.go",
-      "must_contain": ["xai.IncludeIndependentReasoningTokens", "account.Platform != PlatformGrok"],
+      "must_contain": [
+        "xai.IncludeIndependentReasoningTokens",
+        "account.Platform != PlatformGrok"
+      ],
       "rationale": "Client normalization reuses the billing arithmetic owner and stays scoped to Grok."
     },
     {
       "path": "backend/internal/service/openai_gateway_grok_cc_usage_test.go",
-      "must_contain": ["TestForwardAsRawChatCompletions_GrokReasoningUsage", "TestApplyGrokRawChatCompletionsUsage_PreservesOtherPayloads"],
+      "must_contain": [
+        "TestForwardAsRawChatCompletions_GrokReasoningUsage",
+        "TestApplyGrokRawChatCompletionsUsage_PreservesOtherPayloads"
+      ],
       "rationale": "Regression coverage exercises streaming, buffered, already-inclusive relay responses and non-Grok preservation."
     },
     {
@@ -111,9 +132,9 @@
     {
       "path": "backend/internal/model/error_passthrough_rule.go",
       "must_contain": [
-        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax}"
+        "PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo}"
       ],
-      "rationale": "The separate model.AllPlatforms registry feeds the error-passthrough rule UI's applicable-platform list. The concrete-provider tail must retain Grok together with the TokenKey CN providers; upstream intentionally removed the compatibility-only newapi/kiro entries from this registry, so the anchor covers the current concrete-provider surface rather than the legacy compatibility tail."
+      "rationale": "The separate model.AllPlatforms registry feeds the error-passthrough rule UI's applicable-platform list. The concrete-provider tail must retain Grok together with the TokenKey CN providers and OpenCodeGo; upstream intentionally removed the compatibility-only newapi/kiro entries from this registry."
     },
     {
       "path": "backend/internal/pkg/xai/oauth_tk_refresh.go",
@@ -186,7 +207,9 @@
     },
     {
       "path": "backend/internal/service/grok_upstream_errors_test.go",
-      "must_contain": ["TestGrokEntitlement403PipelineDoesNotMutateOrFailover"],
+      "must_contain": [
+        "TestGrokEntitlement403PipelineDoesNotMutateOrFailover"
+      ],
       "rationale": "Exercises the production pipeline for terminal entitlement denial and asserts no failover, cooldown, rate limit, account update, or runtime block."
     },
     {
