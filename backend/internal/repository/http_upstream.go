@@ -1438,9 +1438,13 @@ func buildUpstreamTransportWithTLSFingerprint(settings poolSettings, proxyURL *u
 	}
 
 	// A custom DialTLSContext disables net/http's automatic HTTP/2 setup. The
-	// Antigravity CLI profile advertises h2, so register an HTTP/2 transport
-	// explicitly; otherwise Google negotiates h2 and net/http tries to parse the
-	// binary preface as an HTTP/1.1 response ("malformed HTTP response").
+	// Antigravity CLI profile advertises h2, so opt into HTTP/2 explicitly;
+	// otherwise Google negotiates h2 and a plain HTTP/1.1 client mis-parses the
+	// binary preface ("malformed HTTP response" / http2_handshake_failed).
+	//
+	// Pair with tlsfingerprint's net/http ConnectionState adapter: utls returns
+	// utls.ConnectionState, and without a stdlib-shaped ConnectionState net/http
+	// never sees ALPN=h2 even when ForceAttemptHTTP2 is set.
 	if profileSupportsHTTP2(profile) {
 		transport.ForceAttemptHTTP2 = true
 		if _, err := enableHTTP2KeepAlive(transport); err != nil {
