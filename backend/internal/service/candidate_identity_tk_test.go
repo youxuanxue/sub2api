@@ -208,12 +208,12 @@ func TestCandidateWSState_PreemptionIgnoresBillingOriginAndPreservesTenantIsolat
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 115, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	identity := WithCandidateIdentity(context.Background(), 10, 20)
-	first, cleanupFirst, armed, _ := svc.beginOpenAIWSSessionPreemptContext(identity, account, 1, 20, "session", false)
+	first, cleanupFirst, armed, _ := svc.beginOpenAIWSSessionPreemptContext(identity, account, 1, 20, "session", false, nil)
 	t.Cleanup(cleanupFirst)
 	require.True(t, armed)
 	state := svc.getCandidateWSStateStore(identity)
 	state.BindSessionConn(1, "session", "old-connection", time.Hour)
-	second, cleanupSecond, armed, preempted := svc.beginOpenAIWSSessionPreemptContext(identity, account, 11, 20, "session", false)
+	second, cleanupSecond, armed, preempted := svc.beginOpenAIWSSessionPreemptContext(identity, account, 11, 20, "session", false, nil)
 	t.Cleanup(cleanupSecond)
 	require.True(t, armed)
 	require.True(t, preempted)
@@ -222,7 +222,7 @@ func TestCandidateWSState_PreemptionIgnoresBillingOriginAndPreservesTenantIsolat
 	_, found := state.GetSessionConn(11, "session")
 	require.False(t, found)
 	other := WithCandidateIdentity(context.Background(), 99, 20)
-	_, cleanupOther, armed, preempted := svc.beginOpenAIWSSessionPreemptContext(other, account, 11, 20, "session", false)
+	_, cleanupOther, armed, preempted := svc.beginOpenAIWSSessionPreemptContext(other, account, 11, 20, "session", false, nil)
 	t.Cleanup(cleanupOther)
 	require.True(t, armed)
 	require.False(t, preempted)

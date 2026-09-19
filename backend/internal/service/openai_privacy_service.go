@@ -101,6 +101,14 @@ func disableOpenAITraining(ctx context.Context, clientFactory PrivacyClientFacto
 	}
 }
 
+// isCloudflareChallengeResponse 判断 chatgpt.com 返回的是否为 Cloudflare 质询/拦截页。
+func isCloudflareChallengeResponse(cfMitigated, body string) bool {
+	if strings.EqualFold(strings.TrimSpace(cfMitigated), "challenge") {
+		return true
+	}
+	return strings.Contains(body, "cloudflare") || strings.Contains(body, "cf-") || strings.Contains(body, "Just a moment")
+}
+
 // ChatGPTAccountInfo 从 chatgpt.com/backend-api/accounts/check 获取的账号信息
 type ChatGPTAccountInfo struct {
 	PlanType string

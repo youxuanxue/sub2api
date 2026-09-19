@@ -71,7 +71,7 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
-	if account.IsCNProvider() {
+	if IsMultiProtocolAPIKeyProvider(account.Platform) {
 		// Explicit protocol configuration takes precedence over asynchronous probes.
 		switch account.GetAPIProtocol() {
 		case APIProtocolChatCompletions:

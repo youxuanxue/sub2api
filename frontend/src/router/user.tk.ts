@@ -147,6 +147,7 @@ const userShellChildren: RouteRecordRaw[] = [
       title: 'My Subscriptions',
       titleKey: 'userSubscriptions.title',
       descriptionKey: 'userSubscriptions.description',
+      requiresSubscription: true,
     },
   },
   {

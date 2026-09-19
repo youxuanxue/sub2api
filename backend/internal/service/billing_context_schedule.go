@@ -222,7 +222,7 @@ func (s *BillingService) contextPricingBreakpoints(resolver *ModelPricingResolve
 	if pricing == nil {
 		return plan
 	}
-	pricing = s.applyModelSpecificPricingPolicy(model, pricing)
+	pricing = s.applyModelSpecificPricingPolicyEx(model, pricing, true)
 	if pricing.LongContextInputThreshold <= 0 {
 		return plan
 	}

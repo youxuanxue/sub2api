@@ -117,7 +117,7 @@
               <label class="input-label">{{ t('usage.compactionFilter') }}</label>
               <Select v-model="filters.native_compaction_v2" :options="compactionOptions" @change="applyFilters" />
             </div>
-            <div class="w-full sm:w-auto sm:min-w-[200px]">
+            <div v-if="subscriptionFeatureEnabled" class="w-full sm:w-auto sm:min-w-[200px]">
               <label class="input-label">{{ t('admin.usage.billingType') }}</label>
               <Select v-model="filters.billing_type" :options="billingTypeOptions" @change="applyFilters" />
             </div>
@@ -225,6 +225,7 @@ import { useI18n } from 'vue-i18n'
 
 defineOptions({ name: 'UserUsageView' })
 import { useAppStore } from '@/stores/app'
+import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
 import { keysAPI, usageAPI, userGroupsAPI } from '@/api'
 import Pagination from '@/components/common/Pagination.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
@@ -395,6 +396,8 @@ const compactionOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('usage.allCompactionTypes') },
   { value: true, label: t('usage.compactionOnly') },
 ])
+// 订阅功能关闭后只剩余额计费，「计费类型」筛选（余额/订阅）失去意义，整块隐藏。
+const subscriptionFeatureEnabled = computed(() => resolveFeatureFlag(appStore.cachedPublicSettings, FeatureFlags.subscription))
 const billingTypeOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allBillingTypes') },
   { value: 0, label: t('admin.usage.billingTypeBalance') },
@@ -643,9 +646,10 @@ const exportToCSV = async () => {
   try {
     const allLogs: UsageLog[] = []
     const pageSize = 100
+    const exportParams = buildUsageListParams(1, pageSize)
     const totalPages = Math.ceil(pagination.total / pageSize)
     for (let page = 1; page <= totalPages; page++) {
-      const response = await usageAPI.query(buildUsageListParams(page, pageSize))
+      const response = await usageAPI.query({ ...exportParams, page })
       allLogs.push(...response.items)
     }
     if (allLogs.length === 0) {
@@ -694,7 +698,7 @@ const exportToCSV = async () => {
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `usage_${startDate.value}_to_${endDate.value}.csv`
+    link.download = `usage_${exportParams.start_date}_to_${exportParams.end_date}.csv`
     link.click()
     window.URL.revokeObjectURL(url)
     appStore.showSuccess(t('usage.exportSuccess'))

@@ -49,7 +49,9 @@ const activeCell = computed(() => {
     return OllamaCloudUsageCell
   }
 
-  if (isCNProviderPlatform(account.platform)) return CNProviderUsageCell
+  if (isCNProviderPlatform(account.platform) || account.platform === 'opencode_go') {
+    return CNProviderUsageCell
+  }
 
   if (!showUsageWindowsForAccount(account)) {
     return PlainUsageCell

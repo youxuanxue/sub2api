@@ -23,6 +23,7 @@ func TestProvideRateLimitService_KiroOAuth401RefreshAPIWired(t *testing.T) {
 		nil,
 		nil,
 		refreshAPI,
+		nil,
 	)
 
 	require.Same(t, refreshAPI, svc.oauthRefreshAPI)

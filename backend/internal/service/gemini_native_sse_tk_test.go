@@ -51,7 +51,7 @@ func TestGeminiNativeRelayPreservesHeartbeatBeforeContent(t *testing.T) {
 				go func() {
 					defer close(done)
 					if path == "gemini" {
-						_, err := (&GeminiMessagesCompatService{cfg: &config.Config{}}).handleNativeStreamingResponse(c, resp, time.Now(), false)
+						_, err := (&GeminiMessagesCompatService{cfg: &config.Config{}}).handleNativeStreamingResponse(c, resp, time.Now(), false, nil, "")
 						streamErr = err
 					} else {
 						_, err := newAntigravityTestService(&config.Config{}).handleGeminiStreamingResponse(c, resp, time.Now())
@@ -127,7 +127,7 @@ func TestGeminiNativeTerminalErrorsAreDataFrames(t *testing.T) {
 			resp := &http.Response{StatusCode: http.StatusOK, Body: upstream, Header: http.Header{"Content-Type": {"text/event-stream"}}}
 			var err error
 			if scenario == "gemini_read_error" {
-				_, err = (&GeminiMessagesCompatService{cfg: cfg}).handleNativeStreamingResponse(c, resp, time.Now(), false)
+				_, err = (&GeminiMessagesCompatService{cfg: cfg}).handleNativeStreamingResponse(c, resp, time.Now(), false, nil, "")
 			} else {
 				_, err = newAntigravityTestService(cfg).handleGeminiStreamingResponse(c, resp, time.Now())
 			}

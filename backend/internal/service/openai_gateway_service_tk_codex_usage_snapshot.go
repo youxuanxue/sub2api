@@ -107,11 +107,9 @@ func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 		result.Used5hPercent = s.PrimaryUsedPercent
 		result.Reset5hSeconds = s.PrimaryResetAfterSeconds
 		result.Window5hMinutes = s.PrimaryWindowMinutes
-		if hasSecondaryWindow {
-			result.Used7dPercent = s.SecondaryUsedPercent
-			result.Reset7dSeconds = s.SecondaryResetAfterSeconds
-			result.Window7dMinutes = s.SecondaryWindowMinutes
-		}
+		result.Used7dPercent = s.SecondaryUsedPercent
+		result.Reset7dSeconds = s.SecondaryResetAfterSeconds
+		result.Window7dMinutes = s.SecondaryWindowMinutes
 	} else if use7dFromPrimary {
 		result.Used7dPercent = s.PrimaryUsedPercent
 		result.Reset7dSeconds = s.PrimaryResetAfterSeconds

@@ -1,7 +1,9 @@
 name: Upstream Merge PR Shape
 
 # Mechanical enforcement of CLAUDE.md §5.y for any PR whose head branch
-# matches `merge/upstream-*`. Validates twelve things:
+# matches `merge/upstream-*`. Validates the topology / sentinel / contract
+# checks below (including VERSION floor vs origin/main so Stage0 cannot
+# land an apparent release downgrade).
 #
 #   1. The PR contains at least one merge commit whose second parent is
 #      reachable from upstream/main. This is what `git merge --no-ff
@@ -564,7 +566,27 @@ jobs:
             exit 1
           fi
 
+      - name: Check 15 — VERSION floor vs origin/main (no release downgrade)
+        run: |
+          # Preflight parity: scripts/checks/upstream_merge_version_floor.py —
+          # merge/upstream-* must not land a VERSION older than origin/main, or the
+          # next Stage0 tag/image looks like a downgrade after a newer release.
+          git fetch origin main --quiet
+          if [ ! -f ./scripts/checks/upstream_merge_version_floor.py ]; then
+            echo "::error::scripts/checks/upstream_merge_version_floor.py missing."
+            exit 1
+          fi
+          if ! python3 ./scripts/checks/upstream_merge_version_floor.py --selftest; then
+            echo "::error::upstream_merge_version_floor.py selftest failed."
+            exit 1
+          fi
+          if ! python3 ./scripts/checks/upstream_merge_version_floor.py; then
+            echo "::error::VERSION on this merge branch is below origin/main."
+            echo "::error::Bump backend/cmd/server/VERSION to >= origin/main before merging."
+            exit 1
+          fi
+
       - name: Summary
         run: |
-          echo "All fourteen §5.y / §5.x checks passed for merge/upstream-* PR."
+          echo "All fifteen §5.y / §5.x checks passed for merge/upstream-* PR."
           echo "Reviewer reminder: pick GitHub 'Create a merge commit' (not Squash)."
