@@ -67,6 +67,30 @@ func TestRedactText_DefaultPathDoesNotUseExtraCache(t *testing.T) {
 	}
 }
 
+func TestRedactText_ExtraKeyCacheSeparatesKeyLists(t *testing.T) {
+	for _, lists := range [][][]string{
+		{{"alpha,beta"}, {"alpha", "beta"}},
+		{{"alpha", "beta"}, {"alpha,beta"}},
+	} {
+		clearExtraTextPatternCache()
+		for _, keys := range lists {
+			for _, key := range keys {
+				if got, want := RedactText(key+"=synthetic", keys...), key+"=***"; got != want {
+					t.Fatalf("keys %q, key %q: got %q, want %q", keys, key, got, want)
+				}
+			}
+			if got := RedactText("unrelated=ordinary", keys...); got != "unrelated=ordinary" {
+				t.Fatalf("unrelated key redacted with keys %q: %q", keys, got)
+			}
+			if len(keys) == 1 {
+				if got := RedactText("alpha=ordinary", keys...); got != "alpha=ordinary" {
+					t.Fatalf("separate key redacted with keys %q: %q", keys, got)
+				}
+			}
+		}
+	}
+}
+
 func TestRedactJSON_CredentialKeys(t *testing.T) {
 	in := []byte(`{"authorization":"Bearer sk-live","x-api-key":"tk-key","cookie":"sid=abc","tool":{"name":"web_search","arguments":{"query":"token pricing","api_key":"secret"}},"usage":{"prompt_tokens":12,"completion_tokens":3}}`)
 	out := RedactJSON(in)

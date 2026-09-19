@@ -194,9 +194,18 @@
         "return redactUnstructuredText(v, patterns)",
         "if !patterns.mayContainAssignment(out)",
         "containsGitHubTokenPrefix(out)",
-        "n = n.children[foldKeyRune(r)]"
+        "n = n.children[foldKeyRune(r)]",
+        "encodedKeys = strconv.AppendInt(encodedKeys, int64(len(key)), 10)",
+        "cacheKey := string(encodedKeys)"
       ],
       "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/util/logredact/redact_test.go",
+      "must_contain": [
+        "TestRedactText_ExtraKeyCacheSeparatesKeyLists"
+      ],
+      "rationale": "Preserve behavioral coverage against custom-key cache collisions during upstream merges."
     },
     {
       "path": "backend/internal/util/logredact/performance_test.go",

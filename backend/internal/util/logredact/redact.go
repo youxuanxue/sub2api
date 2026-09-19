@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -373,7 +374,14 @@ func getTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 		return defaultTextRedactPatterns
 	}
 
-	cacheKey := strings.Join(normalizedExtraKeys, ",")
+	// Length prefixes keep arbitrary key contents from colliding with list separators.
+	var encodedKeys []byte
+	for _, key := range normalizedExtraKeys {
+		encodedKeys = strconv.AppendInt(encodedKeys, int64(len(key)), 10)
+		encodedKeys = append(encodedKeys, ':')
+		encodedKeys = append(encodedKeys, key...)
+	}
+	cacheKey := string(encodedKeys)
 	if cached, ok := extraTextPatternCache.Load(cacheKey); ok {
 		if patterns, ok := cached.(*textRedactPatterns); ok {
 			return patterns
