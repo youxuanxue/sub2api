@@ -791,3 +791,149 @@ func TestAntigravityCompatKeepaliveAfterFirstEvent(t *testing.T) {
 	require.Contains(t, recorder.Header().Get("Content-Type"), "text/event-stream")
 	require.NoError(t, reader.Close())
 }
+
+func TestAntigravityMessagesGeminiFamilyUsesForwardGeminiWire(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("positive_agent_tools_declare_credits_and_stash_ops_body", func(t *testing.T) {
+		upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+		svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+		account := newAntigravityCompatAccount(AccountTypeOAuth)
+		account.Credentials["model_mapping"] = map[string]any{
+			"gemini-3.8-flash": "gemini-3.8-flash-medium",
+		}
+		body := []byte(`{
+			"model":"gemini-3.8-flash",
+			"max_tokens":32,
+			"messages":[{"role":"user","content":"Reply OK"}],
+			"tools":[{"name":"noop","description":"do nothing","input_schema":{"type":"object","properties":{}}}]
+		}`)
+		c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/messages", body)
+
+		result, err := svc.Forward(context.Background(), c, account, body, false)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		require.Len(t, upstream.requestBodies, 1)
+		posted := upstream.requestBodies[0]
+		require.Equal(t, "agent", gjson.GetBytes(posted, "requestType").String())
+		require.Equal(t, "GOOGLE_ONE_AI", gjson.GetBytes(posted, "enabledCreditTypes.0").String())
+		require.Equal(t, "gemini-3.8-flash-medium", gjson.GetBytes(posted, "model").String())
+		require.True(t, gjson.GetBytes(posted, "request.contents").Exists())
+		require.False(t, gjson.GetBytes(posted, "messages").Exists())
+		opsRaw, ok := c.Get(OpsUpstreamRequestBodyKey)
+		require.True(t, ok)
+		opsBody, ok := opsRaw.([]byte)
+		require.True(t, ok)
+		require.Equal(t, posted, opsBody)
+	})
+
+	t.Run("negative_plain_text_omits_credits", func(t *testing.T) {
+		upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+		svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+		account := newAntigravityCompatAccount(AccountTypeOAuth)
+		account.Credentials["model_mapping"] = map[string]any{
+			"gemini-3.8-flash": "gemini-3.8-flash-medium",
+		}
+		body := []byte(`{"model":"gemini-3.8-flash","max_tokens":32,"messages":[{"role":"user","content":"Reply OK"}]}`)
+		c, _ := newAntigravityCompatContext(http.MethodPost, "/v1/messages", body)
+
+		_, err := svc.Forward(context.Background(), c, account, body, false)
+		require.NoError(t, err)
+		require.Len(t, upstream.requestBodies, 1)
+		posted := upstream.requestBodies[0]
+		require.False(t, gjson.GetBytes(posted, "requestType").Exists())
+		require.False(t, gjson.GetBytes(posted, "enabledCreditTypes").Exists())
+		require.True(t, gjson.GetBytes(posted, "request.contents").Exists())
+	})
+}
+
+func TestAntigravityChatResponsesGeminiFamilyAgentCredits(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("chat_tools_positive", func(t *testing.T) {
+		upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+		svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+		account := newAntigravityCompatAccount(AccountTypeOAuth)
+		account.Credentials["model_mapping"] = map[string]any{"gemini-3.8-flash": "gemini-3.8-flash-medium"}
+		body := []byte(`{
+			"model":"gemini-3.8-flash",
+			"messages":[{"role":"user","content":"hi"}],
+			"tools":[{"type":"function","function":{"name":"noop","parameters":{"type":"object","properties":{}}}}]
+		}`)
+		c, _ := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
+		_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
+		require.NoError(t, err)
+		posted := upstream.requestBodies[0]
+		require.Equal(t, "agent", gjson.GetBytes(posted, "requestType").String())
+		require.Equal(t, "GOOGLE_ONE_AI", gjson.GetBytes(posted, "enabledCreditTypes.0").String())
+		opsRaw, ok := c.Get(OpsUpstreamRequestBodyKey)
+		require.True(t, ok)
+		opsBody, ok := opsRaw.([]byte)
+		require.True(t, ok)
+		require.Equal(t, posted, opsBody)
+	})
+
+	t.Run("responses_plain_negative", func(t *testing.T) {
+		upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+		svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+		account := newAntigravityCompatAccount(AccountTypeOAuth)
+		account.Credentials["model_mapping"] = map[string]any{"gemini-3.8-flash": "gemini-3.8-flash-medium"}
+		body := []byte(`{"model":"gemini-3.8-flash","input":"hi"}`)
+		c, _ := newAntigravityCompatContext(http.MethodPost, "/v1/responses", body)
+		_, err := svc.ForwardAsResponses(context.Background(), c, account, body, nil)
+		require.NoError(t, err)
+		posted := upstream.requestBodies[0]
+		require.False(t, gjson.GetBytes(posted, "requestType").Exists())
+		require.False(t, gjson.GetBytes(posted, "enabledCreditTypes").Exists())
+	})
+}
+
+func TestPrepareForwardGeminiWireBody_AgentCredits(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[{"functionDeclarations":[{"name":"fn","parameters":{"type":"object"}}]}]}`)
+	out, err := svc.prepareForwardGeminiWireBody("proj", "gemini-3.8-flash-medium", body)
+	require.NoError(t, err)
+	require.Equal(t, "agent", gjson.GetBytes(out, "requestType").String())
+	require.Equal(t, "GOOGLE_ONE_AI", gjson.GetBytes(out, "enabledCreditTypes.0").String())
+}
+
+func TestEnableMixedGeminiToolInvocations_InvalidJSON(t *testing.T) {
+	_, err := enableMixedGeminiToolInvocations([]byte(`{"tools":`))
+	require.Error(t, err)
+}
+
+func TestNormalizeForwardGeminiGenerateContentBody_InvalidJSON(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	_, err := svc.normalizeForwardGeminiGenerateContentBody([]byte(`not-json`))
+	require.Error(t, err)
+}
+
+func TestAntigravityMessagesClaudeFamilyKeepsTransformWire(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{antigravityCompatSuccessResponse()}}
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, upstream)
+	account := newAntigravityCompatAccount(AccountTypeOAuth)
+	body := []byte(`{
+		"model":"claude-sonnet-4-6",
+		"max_tokens":32,
+		"messages":[{"role":"user","content":"Reply OK"}],
+		"tools":[{"name":"noop","description":"do nothing","input_schema":{"type":"object","properties":{}}}]
+	}`)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/messages", body)
+
+	result, err := svc.Forward(context.Background(), c, account, body, false)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Len(t, upstream.requestBodies, 1)
+	posted := upstream.requestBodies[0]
+	require.Equal(t, "claude-sonnet-4-6", gjson.GetBytes(posted, "model").String())
+	require.True(t, gjson.GetBytes(posted, "request").Exists())
+	require.False(t, isAntigravityGeminiFamilyModel(gjson.GetBytes(posted, "model").String()))
+	opsRaw, ok := c.Get(OpsUpstreamRequestBodyKey)
+	require.True(t, ok)
+	opsBody, ok := opsRaw.([]byte)
+	require.True(t, ok)
+	require.Equal(t, posted, opsBody)
+}

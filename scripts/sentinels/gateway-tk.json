@@ -1463,12 +1463,48 @@
     {
       "path": "backend/internal/service/antigravity_gateway_compat_tk.go",
       "must_contain": [
-        "return s.wrapV1InternalRequest(projectID, model, tkEnsureGeminiContentRoles(body))"
+        "func (s *AntigravityGatewayService) wrapAntigravityCompatGeminiRequest(projectID, model string, body []byte) ([]byte, error)",
+        "return s.prepareForwardGeminiWireBody(projectID, model, body)"
       ],
       "must_not_contain": [
         "delete(request, \"sessionId\")"
       ],
-      "rationale": "Antigravity OAuth Chat Completions must use the native v1internal envelope, including sessionId, then convert the response. Stripping sessionId is the VALIDATION_REQUIRED wire."
+      "rationale": "Antigravity OAuth Chat Completions must use the native v1internal envelope, including sessionId, then convert the response. Stripping sessionId is the VALIDATION_REQUIRED wire. Gemini-family prep is owned by prepareForwardGeminiWireBody (shared with ForwardGemini)."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini_wire_tk.go",
+      "must_contain": [
+        "func (s *AntigravityGatewayService) prepareForwardGeminiWire(projectID, mappedModel string, generateContentBody []byte) (normalized, wrapped []byte, err error)",
+        "func (s *AntigravityGatewayService) prepareForwardGeminiWireBody(projectID, mappedModel string, generateContentBody []byte) ([]byte, error)",
+        "wrapped, err = s.wrapV1InternalRequest(projectID, mappedModel, normalized)",
+        "func (s *AntigravityGatewayService) buildMessagesForwardUpstreamBody("
+      ],
+      "must_not_contain": [
+        "delete(request, \"sessionId\")"
+      ],
+      "rationale": "AG Gemini-family messages/chat/responses must share ForwardGemini's wrapV1InternalRequest wire (requestType/enabledCreditTypes), not a parallel envelope that drops sessionId."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "injectedBody, wrappedBody, err := s.prepareForwardGeminiWire(projectID, mappedModel, body)"
+      ],
+      "must_not_contain": [
+        "injectIdentityPatchToGeminiRequest(body)"
+      ],
+      "rationale": "ForwardGemini must call the shared prepareForwardGeminiWire owner; duplicating normalize+wrap here drifts from messages/chat/responses."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_claude.go",
+      "must_contain": [
+        "geminiBody, err := s.buildMessagesForwardUpstreamBody(ctx, body, &claudeReq, projectID, mappedModel, transformOpts)",
+        "retryGeminiBody, txErr := s.buildMessagesForwardUpstreamBody(ctx, nil, &retryClaudeReq, projectID, mappedModel, s.getClaudeTransformOptions(ctx))",
+        "retryGeminiBody, txErr := s.buildMessagesForwardUpstreamBody(ctx, nil, &retryClaudeReq, projectID, mappedModel, transformOpts)"
+      ],
+      "must_not_contain": [
+        "geminiBody, err := antigravity.TransformClaudeToGeminiWithOptions(&claudeReq, projectID, mappedModel, transformOpts)"
+      ],
+      "rationale": "AG Messages Forward and its signature/budget retries must route gemini-* via buildMessagesForwardUpstreamBody (converter→ForwardGemini wire); a silent revert to TransformClaudeToGemini drops GOOGLE_ONE_AI / requestType for Gemini-family Messages."
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_chat_tools.go",
