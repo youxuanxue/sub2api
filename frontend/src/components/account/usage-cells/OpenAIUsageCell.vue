@@ -25,6 +25,22 @@
         :show-now-when-idle="showNowWhenIdleForWindow(usageInfo.seven_day)"
         color="emerald"
       />
+      <div v-for="windowQuota in windowQuotas" :key="windowQuota.key" data-testid="window-quota">
+        <div
+          v-if="windowQuota.key.includes(':')"
+          class="max-w-[180px] truncate text-[10px] text-gray-500 dark:text-gray-400"
+          :title="windowQuota.label"
+        >
+          {{ windowQuota.label }}
+        </div>
+        <UsageProgressBar
+          :label="windowQuota.window || '1mo'"
+          :utilization="windowQuota.utilization ?? 0"
+          :utilization-unknown="windowQuota.utilization == null"
+          :resets-at="windowQuota.resets_at"
+          color="amber"
+        />
+      </div>
       <UpstreamQuotaSummary
         :quota="usageInfo?.upstream_quota"
         :hidden-dimension-keys="upstreamQuotaWindowDimensionKeys"
@@ -103,20 +119,25 @@ const emit = defineEmits<{ 'account-updated': [account: Account] }>()
 
 const { t } = useI18n()
 const rootRef = ref<HTMLElement | null>(null)
-const upstreamQuotaWindowDimensionKeys = [
+const upstreamQuotaWindowDimensionKeys = computed(() => [
   'openai_codex_7d',
   // NewAPI weekly exhaustion is mirrored onto the 7d progress bar; hide the
   // duplicate UpstreamQuota chip so the cell stays one composition.
   'newapi_weekly',
   'newapi_7d',
   'newapi_5h',
-]
+  ...windowQuotas.value.map(dimension => dimension.key),
+])
 
 const { loading, activeQueryLoading, usageInfo, loadActiveUsage, acknowledgeAccountUpdate } = useAccountUsageFetch(
   props,
   rootRef,
   { enableOpenAIRefreshKeyWatch: true }
 )
+
+const windowQuotas = computed(() => (usageInfo.value?.upstream_quota?.dimensions ?? []).filter(
+  dimension => dimension.key === 'newapi_monthly' || /^newapi_(monthly|weekly|5h|7d):/.test(dimension.key)
+))
 
 function onAccountUpdated(account: Account) {
   acknowledgeAccountUpdate(account)

@@ -6057,6 +6057,7 @@
         "func (s *RateLimitService) notifyAccountIncident(",
         "func (s *RateLimitService) notifyAccountRecovered(",
         "func isWholeAccountRuntimeBlockReason(reason string) bool",
+        "tkNewAPIModelWindowReason",
         "402_cloudwise_model_balance"
       ],
       "rationale": "把 AccountIncidentNotifier 注入 RateLimitService 的 glue：wire ProvideTKAccountIncidentNotifier 在构造后调 SetAccountIncidentNotifier 回填，挂钩点（ratelimit_service.go）经 notifyAccountIncident 转发。notifyAccountRecovered 是恢复绿卡的转发包装，由 notifyAccountSchedulingBlockCleared(ClearRateLimit/RecoverAccountState 真实清除事件)调用。isWholeAccountRuntimeBlockReason is the SSOT predicate for whether notifyAccountSchedulingBlocked also writes the in-memory whole-account runtime blocker (model-scoped 429 reasons excluded).删掉会让挂钩行编译失败或静默 no-op，账号失效/恢复告警链路断裂。"

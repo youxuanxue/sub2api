@@ -242,6 +242,20 @@ func groupFromServiceBase(g *service.Group) Group {
 	}
 }
 
+func accountRateLimitedAtForResponse(a *service.Account) *time.Time {
+	if a == nil || service.NewAPIAccountWindowLockIgnored(a) {
+		return nil
+	}
+	return a.RateLimitedAt
+}
+
+func accountRateLimitResetAtForResponse(a *service.Account) *time.Time {
+	if a == nil || service.NewAPIAccountWindowLockIgnored(a) {
+		return nil
+	}
+	return a.RateLimitResetAt
+}
+
 func AccountFromServiceShallow(a *service.Account) *Account {
 	if a == nil {
 		return nil
@@ -295,8 +309,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		CreatedAt:               a.CreatedAt,
 		UpdatedAt:               a.UpdatedAt,
 		Schedulable:             a.Schedulable,
-		RateLimitedAt:           a.RateLimitedAt,
-		RateLimitResetAt:        a.RateLimitResetAt,
+		RateLimitedAt:           accountRateLimitedAtForResponse(a),
+		RateLimitResetAt:        accountRateLimitResetAtForResponse(a),
 		OverloadUntil:           a.OverloadUntil,
 		TempUnschedulableUntil:  a.TempUnschedulableUntil,
 		TempUnschedulableReason: a.TempUnschedulableReason,
