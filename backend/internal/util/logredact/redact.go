@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 )
 
 // maxRedactDepth 限制递归深度以防止栈溢出
@@ -127,8 +129,7 @@ type textRedactPatterns struct {
 	reJSONLike  *regexp.Regexp
 	reQueryLike *regexp.Regexp
 	rePlain     *regexp.Regexp
-	keyHints    []string
-	maxKeyBytes int
+	keySuffixes keySuffixNode
 }
 
 var (
@@ -203,7 +204,7 @@ func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	if strings.Contains(out, "-----BEGIN ") {
 		out = rePrivateKey.ReplaceAllString(out, "<private key redacted>")
 	}
-	if strings.Contains(out, "sk-") || strings.Contains(out, "gh") ||
+	if strings.Contains(out, "sk-") || containsGitHubTokenPrefix(out) ||
 		strings.Contains(out, "github_pat_") ||
 		strings.Contains(out, "glpat-") || strings.Contains(out, "AKIA") ||
 		strings.Contains(out, "ASIA") || strings.Contains(out, "LTAI") {
@@ -251,14 +252,12 @@ func containsBearer(input string) bool {
 
 func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 	keyAlt := buildKeyAlternation(extraKeys)
-	keyHints := append(append([]string(nil), defaultSensitiveKeyList...), normalizeAndSortExtraKeys(extraKeys)...)
-	maxKeyBytes := 0
-	for _, key := range keyHints {
-		maxKeyBytes = max(maxKeyBytes, len(key))
+	var suffixes keySuffixNode
+	for _, key := range append(append([]string(nil), defaultSensitiveKeyList...), normalizeAndSortExtraKeys(extraKeys)...) {
+		suffixes.add(key)
 	}
 	return &textRedactPatterns{
-		keyHints:    keyHints,
-		maxKeyBytes: maxKeyBytes,
+		keySuffixes: suffixes,
 		// JSON-like: "access_token":"..."
 		reJSONLike: regexp.MustCompile(`(?i)("(?:` + keyAlt + `)"\s*:\s*")([^"]*)(")`),
 		// Query-like: access_token=...
@@ -282,13 +281,6 @@ func (p *textRedactPatterns) mayContainAssignment(input string) bool {
 		for end > 0 && strings.ContainsRune(" \t\r\n\f", rune(input[end-1])) {
 			end--
 		}
-		// Unicode regexp folding can change byte lengths (e.g. ſecret).
-		// Fall back conservatively if any possible key contains non-ASCII.
-		for j := max(0, end-4*p.maxKeyBytes-1); j < end; j++ {
-			if input[j] >= 0x80 {
-				return true
-			}
-		}
 		if p.hasKeySuffix(input[:end]) {
 			return true
 		}
@@ -299,13 +291,80 @@ func (p *textRedactPatterns) mayContainAssignment(input string) bool {
 	return false
 }
 
+// The reversed trie rejects unrelated assignments after their last few runes.
+// Using the same Unicode simple folding as regexp avoids treating all nearby
+// non-ASCII prose as a possible credential. It also supports arbitrary extra keys.
+type keySuffixNode struct {
+	children map[rune]*keySuffixNode
+	terminal bool
+}
+
+func (n *keySuffixNode) add(key string) {
+	for len(key) > 0 {
+		r, size := utf8.DecodeLastRuneInString(key)
+		key = key[:len(key)-size]
+		r = foldKeyRune(r)
+		if n.children == nil {
+			n.children = make(map[rune]*keySuffixNode)
+		}
+		child := n.children[r]
+		if child == nil {
+			child = &keySuffixNode{}
+			n.children[r] = child
+		}
+		n = child
+	}
+	n.terminal = true
+}
+
+func foldKeyRune(r rune) rune {
+	if r < utf8.RuneSelf {
+		if r >= 'a' && r <= 'z' {
+			return r - ('a' - 'A')
+		}
+		return r
+	}
+	// Canonicalize the entire simple-fold cycle, including ſ/S/s and K/K/k.
+	minimum := r
+	for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+		minimum = min(minimum, next)
+	}
+	return minimum
+}
+
 func (p *textRedactPatterns) hasKeySuffix(input string) bool {
-	for _, key := range p.keyHints {
-		if len(input) >= len(key) && strings.EqualFold(input[len(input)-len(key):], key) {
+	n := &p.keySuffixes
+	for len(input) > 0 {
+		r, size := utf8.DecodeLastRuneInString(input)
+		input = input[:len(input)-size]
+		n = n.children[foldKeyRune(r)]
+		if n == nil {
+			return false
+		}
+		if n.terminal {
 			return true
 		}
 	}
 	return false
+}
+
+// "gh" also occurs in ordinary words such as "thought" and "high". Only
+// dispatch the provider regexp for one of its actual case-sensitive prefixes.
+func containsGitHubTokenPrefix(input string) bool {
+	for {
+		i := strings.Index(input, "gh")
+		if i < 0 {
+			return false
+		}
+		input = input[i:]
+		if len(input) >= 4 && input[3] == '_' {
+			switch input[2] {
+			case 'p', 'o', 'u', 's', 'r':
+				return true
+			}
+		}
+		input = input[2:]
+	}
 }
 
 func getTextRedactPatterns(extraKeys []string) *textRedactPatterns {
