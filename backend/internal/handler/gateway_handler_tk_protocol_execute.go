@@ -112,8 +112,6 @@ func (h *GatewayHandler) executeMessagesSelectedProtocol(
 					return nil, prepareErr
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				// AG Gemini-family: Forward converts Messages → generateContent → ForwardGemini wire.
-				// Vertex/other Gemini profiles keep geminiCompat Forward (Messages → generateContent).
 				return service.ExecuteGeminiProtocolProfile(
 					plan.GeminiProfile(),
 					func() (*service.ForwardResult, error) {

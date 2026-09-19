@@ -112,7 +112,6 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				// AG: Chat → converter → ForwardGemini wire via ForwardAsChatCompletions.
 				return service.ExecuteGeminiProtocolProfile(
 					plan.GeminiProfile(),
 					func() (*service.ForwardResult, error) {

@@ -265,7 +265,7 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 	mappedModel string,
 ) ([]byte, error) {
 	if isAntigravityGeminiFamilyModel(mappedModel) {
-		// Chat/Responses → Claude intermediate → generateContent → ForwardGemini wire.
+		// Messages/Chat/Responses → Claude intermediate → generateContent → ForwardGemini wire.
 		body, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 		if err != nil {
 			return nil, err

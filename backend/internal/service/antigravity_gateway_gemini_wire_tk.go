@@ -10,7 +10,7 @@ import (
 
 // normalizeForwardGeminiGenerateContentBody applies the ForwardGemini generateContent
 // prep steps (identity patch, roles, schema clean, mixed-tool reconcile) without
-// wrapping. Callers wrap via wrapV1InternalRequest / prepareForwardGeminiWireBody.
+// wrapping. Callers wrap via prepareForwardGeminiWire / prepareForwardGeminiWireBody.
 func (s *AntigravityGatewayService) normalizeForwardGeminiGenerateContentBody(generateContentBody []byte) ([]byte, error) {
 	injectedBody, err := injectIdentityPatchToGeminiRequest(generateContentBody)
 	if err != nil {
@@ -26,16 +26,27 @@ func (s *AntigravityGatewayService) normalizeForwardGeminiGenerateContentBody(ge
 	return injectedBody, nil
 }
 
-// prepareForwardGeminiWireBody is the single AG Gemini upstream-wire owner shared
-// by ForwardGemini and messages/chat/responses converters that land on
-// gemini_generate_content. It normalizes then wraps the native v1internal
-// envelope (requestType / enabledCreditTypes included).
-func (s *AntigravityGatewayService) prepareForwardGeminiWireBody(projectID, mappedModel string, generateContentBody []byte) ([]byte, error) {
-	normalized, err := s.normalizeForwardGeminiGenerateContentBody(generateContentBody)
+// prepareForwardGeminiWire normalizes then wraps the native v1internal envelope.
+// ForwardGemini keeps the normalized generateContent body for model-fallback /
+// signature-rectify retries; messages/chat/responses only need the wrapped bytes.
+func (s *AntigravityGatewayService) prepareForwardGeminiWire(projectID, mappedModel string, generateContentBody []byte) (normalized, wrapped []byte, err error) {
+	normalized, err = s.normalizeForwardGeminiGenerateContentBody(generateContentBody)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return s.wrapV1InternalRequest(projectID, mappedModel, normalized)
+	wrapped, err = s.wrapV1InternalRequest(projectID, mappedModel, normalized)
+	if err != nil {
+		return nil, nil, err
+	}
+	return normalized, wrapped, nil
+}
+
+// prepareForwardGeminiWireBody is the shared AG Gemini upstream-wire owner for
+// converters that land on gemini_generate_content (messages/chat/responses).
+// It returns only the wrapped v1internal body (requestType / enabledCreditTypes included).
+func (s *AntigravityGatewayService) prepareForwardGeminiWireBody(projectID, mappedModel string, generateContentBody []byte) ([]byte, error) {
+	_, wrapped, err := s.prepareForwardGeminiWire(projectID, mappedModel, generateContentBody)
+	return wrapped, err
 }
 
 // isAntigravityGeminiFamilyModel reports mapped models that must use the

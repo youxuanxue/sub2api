@@ -129,7 +129,6 @@ func (h *GatewayHandler) executeResponsesSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
-				// AG: Responses → converter → ForwardGemini wire via ForwardAsResponses.
 				return service.ExecuteGeminiProtocolProfile(
 					plan.GeminiProfile(),
 					func() (*service.ForwardResult, error) {

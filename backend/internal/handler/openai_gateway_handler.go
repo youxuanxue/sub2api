@@ -1444,7 +1444,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					MessagesToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
 						service.SetActualOpenAIUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
 						forwardBody := prepareMessagesBody(request)
-						// AG Gemini-family: Forward converts Messages → generateContent → ForwardGemini wire.
 						return executeOpenAIGeminiRoute(
 							plan.GeminiProfile(),
 							func() (*service.ForwardResult, error) {

@@ -122,13 +122,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		proxyURL = account.Proxy.URL()
 	}
 
-	injectedBody, err := s.normalizeForwardGeminiGenerateContentBody(body)
+	injectedBody, wrappedBody, err := s.prepareForwardGeminiWire(projectID, mappedModel, body)
 	if err != nil {
 		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
-	}
-	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody)
-	if err != nil {
-		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")
 	}
 
 	// Antigravity Code Assist is reliable on the SSE endpoint. Keep the upstream

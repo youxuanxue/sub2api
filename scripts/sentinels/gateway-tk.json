@@ -1474,14 +1474,25 @@
     {
       "path": "backend/internal/service/antigravity_gateway_gemini_wire_tk.go",
       "must_contain": [
+        "func (s *AntigravityGatewayService) prepareForwardGeminiWire(projectID, mappedModel string, generateContentBody []byte) (normalized, wrapped []byte, err error)",
         "func (s *AntigravityGatewayService) prepareForwardGeminiWireBody(projectID, mappedModel string, generateContentBody []byte) ([]byte, error)",
-        "return s.wrapV1InternalRequest(projectID, mappedModel, normalized)",
+        "wrapped, err = s.wrapV1InternalRequest(projectID, mappedModel, normalized)",
         "func (s *AntigravityGatewayService) buildMessagesForwardUpstreamBody("
       ],
       "must_not_contain": [
         "delete(request, \"sessionId\")"
       ],
-      "rationale": "AG Gemini-family messages/chat/responses must share ForwardGemini's wrapV1internalRequest wire (requestType/enabledCreditTypes), not a parallel envelope that drops sessionId."
+      "rationale": "AG Gemini-family messages/chat/responses must share ForwardGemini's wrapV1InternalRequest wire (requestType/enabledCreditTypes), not a parallel envelope that drops sessionId."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini.go",
+      "must_contain": [
+        "injectedBody, wrappedBody, err := s.prepareForwardGeminiWire(projectID, mappedModel, body)"
+      ],
+      "must_not_contain": [
+        "injectIdentityPatchToGeminiRequest(body)"
+      ],
+      "rationale": "ForwardGemini must call the shared prepareForwardGeminiWire owner; duplicating normalize+wrap here drifts from messages/chat/responses."
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_chat_tools.go",
