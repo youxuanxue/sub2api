@@ -80,11 +80,11 @@
         "tkParseNewAPIUsageWindowResponse",
         "parseRetryAfterResetTime(headers, reference)",
         "(*progress).UtilizationUnknown = false",
-        "tkVolcAgentPlanUsageWindowModelScope",
-        "isNewAPIVolcEngineAgentPlanAccount",
+        "tkNewAPIUsageWindowModelScope",
+        "SetModelRateLimit",
         "newapi_account_window_lock"
       ],
-      "rationale": "NewAPI weekly/5h/7d prose 429s must cool until the parsed reset. Ali token-plan stays account-wide and persists Extra so admin usage windows show exhaustion. VolcEngine Agent Plan windows are per requested model (tkVolcAgentPlanUsageWindowModelScope + SetModelRateLimit) and must not paint the account 7d bar. Dropping this companion recreates either the account-88 blind spot or the 2026-09-19 edge-us5 whole-account lock while deepseek-v4-flash still served."
+      "rationale": "NewAPI 5h/weekly/monthly prose 429s must cool until the parsed reset. When the request names a model, tkNewAPIUsageWindowModelScope + SetModelRateLimit cool only that model and must not paint the account 7d bar. A 429 with no model stays account-wide and sets newapi_account_window_lock so the ignore predicate does not release it. Dropping this companion either recreates the account-88 blind spot or locks the whole account while other models still serve."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
@@ -104,9 +104,10 @@
       "path": "backend/internal/repository/account_repo_tk_volc_window_lock.go",
       "must_contain": [
         "newapi_account_window_lock",
+        "newapi_month_reset",
         "accountNotBlockedByAccountWideRateLimit"
       ],
-      "rationale": "The SQL ignore predicate must stay aligned with service.VolcAgentPlanAccountWindowLockIgnored, including the no-model marker newapi_account_window_lock. Dropping the marker makes a fresh account-wide Agent Plan cooldown look like the 2026-09-19 false lock and admit the account."
+      "rationale": "The SQL ignore predicate must stay aligned with service.NewAPIAccountWindowLockIgnored for every NewAPI account, including the no-model marker newapi_account_window_lock and newapi_month_reset. Restricting it to VolcEngine Agent Plan lets the next provider's per-model 429 lock the whole account again."
     },
     {
       "path": "backend/internal/service/account_usage_service.go",

@@ -143,11 +143,9 @@ func TestTkTryHandleNewAPIUsageWindow429_PersistsExtraAndCoolsUntilReset(t *test
 	require.True(t, svc.tkTryHandleNewAPIUsageWindow429(context.Background(), account, nil, body))
 	require.Equal(t, 1, repo.setRateLimitedCalls)
 	require.WithinDuration(t, resetAt.UTC(), repo.lastRateLimitedResetAt.UTC(), time.Second)
-	require.NotNil(t, repo.lastExtraUpdates)
-	require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIWeeklyUtilExtraKey])
-	require.Equal(t, float64(resetAt.Unix()), repo.lastExtraUpdates[newAPIWeeklyResetExtraKey])
 	require.Equal(t, 1.0, account.Extra[newAPIWeeklyUtilExtraKey])
 	require.Equal(t, float64(resetAt.Unix()), account.Extra[newAPIWeeklyResetExtraKey])
+	require.Equal(t, 1.0, account.Extra[newAPIAccountWindowLockExtraKey])
 }
 
 func TestApplyNewAPIUsageWindowSnapshot_SurfacesWeeklyOnSevenDay(t *testing.T) {
@@ -221,9 +219,47 @@ func TestHandle429_NewAPIWeeklyUsesResetNotFallback(t *testing.T) {
 	require.Equal(t, 1, repo.setRateLimitedCalls)
 	require.WithinDuration(t, resetAt.UTC(), repo.lastRateLimitedResetAt.UTC(), time.Second)
 	require.Greater(t, repo.lastRateLimitedResetAt.Sub(time.Now()), 24*time.Hour)
-	require.NotNil(t, repo.lastExtraUpdates)
-	require.Equal(t, 1.0, repo.lastExtraUpdates[newAPIWeeklyUtilExtraKey])
-	require.Equal(t, float64(resetAt.Unix()), repo.lastExtraUpdates[newAPIWeeklyResetExtraKey])
+	require.Equal(t, 1.0, account.Extra[newAPIWeeklyUtilExtraKey])
+	require.Equal(t, float64(resetAt.Unix()), account.Extra[newAPIWeeklyResetExtraKey])
+	require.Equal(t, 1.0, account.Extra[newAPIAccountWindowLockExtraKey])
+}
+
+func TestHandle429_NewAPIWeeklyWithModelIsModelScoped(t *testing.T) {
+	resetAt := time.Now().Add(30 * time.Hour).UTC().Truncate(time.Second)
+	msg := "You have exceeded the weekly usage quota. It will reset at " +
+		resetAt.In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04:05 -0700 MST")
+	body, err := json.Marshal(map[string]any{"error": map[string]any{"message": msg}})
+	require.NoError(t, err)
+
+	account := &Account{
+		ID: 88, Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Extra: map[string]any{},
+	}
+	account.RateLimitResetAt = &resetAt
+	account.Extra[newAPIWeeklyUtilExtraKey] = 1.0
+	account.Extra[newAPIWeeklyResetExtraKey] = float64(resetAt.Unix())
+	require.True(t, account.IsSchedulable())
+	require.False(t, account.IsRateLimited())
+
+	repo := &rateLimitAccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	require.True(t, svc.handle429(context.Background(), account, nil, body, "deepseek-v4-flash"))
+	require.Zero(t, repo.setRateLimitedCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, "deepseek-v4-flash", repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, tkNewAPIModelWindowReason, repo.modelRateLimitCalls[0].reason)
+	require.Nil(t, account.RateLimitResetAt)
+}
+
+func TestTkParseNewAPIUsageWindowHit_Monthly(t *testing.T) {
+	hit := tkParseNewAPIUsageWindowResponse(
+		"You have exceeded the monthly usage quota. It will reset at 2026-10-01 00:00:00 +0800 CST",
+		nil, time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC),
+	)
+	require.NotNil(t, hit)
+	require.Equal(t, "month", hit.Window)
+	require.Equal(t, time.October, hit.ResetAt.Month())
+	require.False(t, tkIsAccountStandingBillingFailure("You have exceeded the monthly usage quota. It will reset at 2026-10-01 00:00:00 +0800 CST", nil))
 }
 
 func TestHandle429_VolcAgentPlanWeeklyIsModelScoped(t *testing.T) {

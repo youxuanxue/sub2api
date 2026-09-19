@@ -544,14 +544,14 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 }
 
 func edgeAccountRateLimitedAt(a *service.Account) *time.Time {
-	if service.VolcAgentPlanAccountWindowLockIgnored(a) {
+	if service.NewAPIAccountWindowLockIgnored(a) {
 		return nil
 	}
 	return a.RateLimitedAt
 }
 
 func edgeAccountRateLimitResetAt(a *service.Account) *time.Time {
-	if service.VolcAgentPlanAccountWindowLockIgnored(a) {
+	if service.NewAPIAccountWindowLockIgnored(a) {
 		return nil
 	}
 	return a.RateLimitResetAt

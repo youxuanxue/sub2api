@@ -126,7 +126,7 @@ func classifyIncident(reason string, until time.Time, kind AccountIncidentKind) 
 	case "402_cloudwise_model_balance":
 		return incidentClass{true, IncidentKindTemporaryCooldown, "402_cloudwise_model_balance", "CloudWise 模型余额冷却（账号其它模型仍可调度）", "该模型的 CloudWise 独立余额池返回 402;等待 5h 冷却结束或检查模型额度,账号其它模型不受影响"}
 	case tkNewAPIModelWindowReason:
-		return incidentClass{true, IncidentKindTemporaryCooldown, tkNewAPIModelWindowReason, "模型用量窗口冷却（账号其它模型仍可调度）", "火山 Agent Plan 等按模型计的 5h/周配额耗尽;只冷却命中的模型,账号其它模型不受影响"}
+		return incidentClass{true, IncidentKindTemporaryCooldown, tkNewAPIModelWindowReason, "模型用量窗口冷却（账号其它模型仍可调度）", "NewAPI 按模型计的 5h/周/月配额耗尽;只冷却命中的模型,账号其它模型不受影响"}
 	}
 	// 未知 reason: 显式 kind 优先,缺省再看 until。
 	k := kind

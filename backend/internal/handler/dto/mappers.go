@@ -243,14 +243,14 @@ func groupFromServiceBase(g *service.Group) Group {
 }
 
 func accountRateLimitedAtForResponse(a *service.Account) *time.Time {
-	if a == nil || service.VolcAgentPlanAccountWindowLockIgnored(a) {
+	if a == nil || service.NewAPIAccountWindowLockIgnored(a) {
 		return nil
 	}
 	return a.RateLimitedAt
 }
 
 func accountRateLimitResetAtForResponse(a *service.Account) *time.Time {
-	if a == nil || service.VolcAgentPlanAccountWindowLockIgnored(a) {
+	if a == nil || service.NewAPIAccountWindowLockIgnored(a) {
 		return nil
 	}
 	return a.RateLimitResetAt
