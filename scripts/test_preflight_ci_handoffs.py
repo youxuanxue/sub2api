@@ -69,12 +69,10 @@ class PreflightCIHandoffTest(unittest.TestCase):
             "# ---- sub2api: generated model-surface bundle drift", 1
         )[1].split("# ---- sub2api: frontend TK sentinel registry", 1)[0]
 
-        self.assertIn('"${GITHUB_ACTIONS:-}" = "true"', artifact_sections)
-        self.assertIn("PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT", artifact_sections)
-        self.assertEqual(
-            artifact_sections.count("_preflight_defer_go_artifact_drift"),
-            4,
-        )
+        setup = script.split("_preflight_defer_go_artifact_drift=0", 1)[1].split("errors=0", 1)[0]
+        self.assertIn('"${GITHUB_ACTIONS:-}" = "true"', setup)
+        self.assertIn("PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT", setup)
+        self.assertEqual(artifact_sections.count("_preflight_defer_go_artifact_drift"), 2)
 
     def test_ent_staleness_skips_when_backend_ent_is_unchanged(self) -> None:
         script = PREFLIGHT.read_text(encoding="utf-8")

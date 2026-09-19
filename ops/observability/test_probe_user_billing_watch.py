@@ -28,7 +28,7 @@ _FAKE_DOCKER = textwrap.dedent(
     if [ -n "${FAKE_SQL_LOG:-}" ]; then
       printf '%s\n' "$sql" >> "$FAKE_SQL_LOG"
     fi
-    if printf '%s' "$sql" | grep -q 'string_agg'; then
+    if printf '%s' "$sql" | grep -Fq 'string_agg(id::text'; then
       if [ "${FAKE_DISCOVERY_FAIL:-}" = "1" ]; then
         echo "docker: connection refused" >&2
         exit 1
@@ -43,7 +43,7 @@ _FAKE_DOCKER = textwrap.dedent(
 
 
 class ProbeUserBillingWatchTest(unittest.TestCase):
-    def run_probe(self, **env_overrides: str) -> tuple[subprocess.CompletedProcess[str], str]:
+    def run_probe(self, *, extra_sql: str = "", **env_overrides: str) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory() as tmp:
             fake_bin = pathlib.Path(tmp) / "bin"
             fake_bin.mkdir()
@@ -56,8 +56,12 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
             env.update(env_overrides)
             env["PATH"] = f"{fake_bin}:{env['PATH']}"
             env["FAKE_SQL_LOG"] = str(sql_log)
+            script = SCRIPT
+            if extra_sql:
+                script = pathlib.Path(tmp) / "probe.sh"
+                script.write_text(SCRIPT.read_text() + '\n$PSQL -c "' + extra_sql + '"\n')
             proc = subprocess.run(
-                ["bash", str(SCRIPT)],
+                ["bash", str(script)],
                 cwd=ROOT,
                 env=env,
                 capture_output=True,
@@ -70,16 +74,25 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
     def test_discovers_active_users_when_user_ids_unset(self) -> None:
         proc, logged = self.run_probe(FAKE_DISCOVERY_IDS="1,6,16")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
-        self.assertIn("string_agg", logged)
+        self.assertIn("string_agg(id::text", logged)
         self.assertIn("id IN (1,6,16)", logged)
         self.assertIn("'1,6,16'::text", logged)
 
     def test_user_ids_override_skips_discovery_query(self) -> None:
         proc, logged = self.run_probe(USER_IDS="1,16", FAKE_DISCOVERY_IDS="99")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
-        self.assertNotIn("string_agg", logged)
+        self.assertNotIn("string_agg(id::text", logged)
         self.assertIn("id IN (1,16)", logged)
         self.assertNotIn("id IN (99)", logged)
+
+    def test_other_string_aggregation_does_not_trigger_discovery_mock(self) -> None:
+        proc, logged = self.run_probe(
+            USER_IDS="1,16", FAKE_DISCOVERY_FAIL="1",
+            extra_sql="SELECT string_agg(g.name, ', ') FROM groups g WHERE g.deleted_at IS NULL;",
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn("string_agg(g.name", logged)
+        self.assertNotIn("string_agg(id::text", logged)
 
     def test_rejects_invalid_user_ids(self) -> None:
         proc, logged = self.run_probe(USER_IDS="1,abc")
