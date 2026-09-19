@@ -114,13 +114,69 @@
 #        invasiveness of upstream-shaped Go file changes. Never blocks. Skips when
 #        upstream remote absent. `scripts/checks/upstream-insertion-invasiveness.py`.
 ##
-# Usage:  ./scripts/preflight.sh [--fix]
+# Usage:  ./scripts/preflight.sh [--staged|--worktree|--branch|--full] [--plan] [--fix]
 # Exit 0 = all sections passed.  Non-zero = at least one failed.
 #
 set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+if [ "${PREFLIGHT_RAW_OUTPUT:-}" != "1" ]; then
+    exec python3 ./scripts/preflight/report.py "$@"
+fi
+
+# Resolve scope while Git's alternate commit index is still available.
+_scope=auto
+_plan_only=0
+_template_arg=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --staged|--worktree|--branch|--full) _scope="${1#--}" ;;
+        --plan) _plan_only=1 ;;
+        --fix) _template_arg=--fix ;;
+        --help|-h)
+            echo "Usage: scripts/preflight.sh [--staged|--worktree|--branch|--full] [--plan] [--fix]"
+            echo "Auto: commit index / pending worktree / clean branch; CI PR=branch, other CI=full."
+            exit 0 ;;
+        *) echo "preflight: unknown argument: $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+if [ "$_scope" = "full" ]; then
+    unset PREFLIGHT_SKIP_GO_CONTRACTS PREFLIGHT_SKIP_SLOW_OPS_CONTRACTS
+    unset PREFLIGHT_SKIP_AGENT_CONTRACT PREFLIGHT_SKIP_MAIN_ANCESTRY
+    unset PREFLIGHT_SKIP_PROMPT_FIXTURE_GATEWAY PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT
+    export PREFLIGHT_FAST=0
+fi
+if [ "$_plan_only" -eq 1 ]; then
+    exec python3 ./scripts/preflight/plan.py --scope "$_scope"
+fi
+_preflight_plan_dir="$(mktemp -d "${TMPDIR:-/tmp}/preflight-plan.XXXXXX")"
+trap 'rm -rf "$_preflight_plan_dir"' EXIT
+if ! python3 ./scripts/preflight/plan.py --scope "$_scope" --output "$_preflight_plan_dir"; then
+    exit 2
+fi
+export PREFLIGHT_SELECTION_FILE="$_preflight_plan_dir/selected"
+_preflight_selected() {
+    # No selection file is the strict fallback (also used by isolated shell tests).
+    if [ -z "${PREFLIGHT_SELECTION_FILE:-}" ]; then return 0; fi
+    if [ ! -f "$PREFLIGHT_SELECTION_FILE" ]; then
+        echo "FAIL: preflight selection disappeared" >&2; exit 2
+    fi
+    if [ ! -f "$_preflight_plan_dir/registered" ]; then
+        echo "FAIL: preflight registration disappeared" >&2; exit 2
+    fi
+    # New gates/jobs without a declaration default to execution.
+    if ! grep -Fxq -- "$1" "$_preflight_plan_dir/registered"; then return 0; fi
+    grep -Fxq -- "$1" "$PREFLIGHT_SELECTION_FILE"
+}
+if _preflight_selected 'backend lint'; then
+    export PREFLIGHT_BACKEND_LINT=1
+else
+    export PREFLIGHT_BACKEND_LINT=0
+fi
+_preflight_started=$SECONDS
 
 # Match every local Go gate and generator to the exact toolchain installed by
 # CI from backend/go.mod. GOTOOLCHAIN=auto never downgrades a newer ambient Go.
@@ -160,7 +216,7 @@ _preflight_bg_dir="$(mktemp -d "${TMPDIR:-/tmp}/preflight-bg.XXXXXX")"
 # On exit: clear the worktree core.bare debt, kill any still-running background
 # gate (e.g. when the dev-rules template fails and we exit before the joins),
 # then drop the scratch dir.
-trap '_tk_clear_core_bare; { cat "$_preflight_bg_dir"/*.pid 2>/dev/null | xargs kill; wait; } 2>/dev/null; rm -rf "$_preflight_bg_dir"' EXIT
+trap '_tk_clear_core_bare; { cat "$_preflight_bg_dir"/*.pid 2>/dev/null | xargs kill; wait; } 2>/dev/null; rm -rf "$_preflight_bg_dir" "$_preflight_plan_dir"' EXIT
 
 _preflight_fast=0
 case "${PREFLIGHT_FAST:-}" in 1|true|yes|TRUE|YES) _preflight_fast=1 ;; esac
@@ -189,6 +245,7 @@ esac
 # while selected failed sections replay their captured diagnostics in place.
 _bg_spawn() {  # _bg_spawn <key> <cmd...>
     local key="$1"; shift
+    if [ -n "${PREFLIGHT_SELECTION_FILE:-}" ] && ! _preflight_selected "bg:$key"; then return 0; fi
     (
         set +e  # preflight-allow: swallow (rc is captured into <key>.rc and joined by section)
         "$@" >"$_preflight_bg_dir/$key.out" 2>&1
@@ -383,7 +440,7 @@ if command -v python3 >/dev/null 2>&1; then
     for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
         _bg_spawn "det_$(echo "$_det_dir" | tr '/' '_')" \
             env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR \
-            python3 -m unittest discover -s "$_det_dir" -p 'test_*.py' -t "$_det_dir"
+            python3 ./scripts/preflight/discover.py "$_det_dir"
     done
     unset _det_dir
 fi
@@ -422,8 +479,11 @@ if ! grep -q 'check_deleted_file_refs.py --base' "$_dev_preflight_template" 2>/d
         ./dev-rules/templates/preflight.sh > "$_dev_preflight_template"
     chmod +x "$_dev_preflight_template"
 fi
-PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" "$_dev_preflight_template" "$@"
+_template_started=$SECONDS
+PREFLIGHT_BASE="$template_base" PREFLIGHT_REPO_ROOT="$REPO_ROOT" "$_dev_preflight_template" "$_template_arg" >"$_preflight_bg_dir/generic.log" 2>&1
 dev_status=$?
+if [ "$dev_status" -ne 0 ]; then cat "$_preflight_bg_dir/generic.log"; fi
+echo "preflight: shared rules status=$dev_status ($((SECONDS - _template_started))s)"
 if [ "$dev_status" -ne 0 ]; then
     exit "$dev_status"
 fi
@@ -436,6 +496,23 @@ _tk_clear_core_bare
 # dropped this after youxuanxue/dev-rules#99; do not let the consume bump
 # silently turn a live gate into honor-system comments.
 echo ""
+_preflight_defer_go_artifact_drift=0
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    case "${PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT:-}" in
+        1|true|yes|TRUE|YES) _preflight_defer_go_artifact_drift=1 ;;
+    esac
+fi
+errors=0
+if _preflight_selected 'changed script syntax'; then
+echo "=== sub2api: changed script syntax ==="
+if ! python3 ./scripts/preflight/syntax.py "$_preflight_plan_dir/plan.json"; then
+    echo "  FAIL: changed shell/Python script syntax"
+    errors=$((errors + 1))
+else
+    echo "  ok: changed scripts parse"
+fi
+fi # preflight gate
+if _preflight_selected 'agent contract drift'; then
 echo "=== sub2api: agent contract drift ==="
 if [ "${PREFLIGHT_SKIP_AGENT_CONTRACT:-}" = "1" ]; then
     echo "  skip: unchanged CI surface; required preflight gate not needed"
@@ -455,10 +532,15 @@ fi
 # Both checks deliberately use POSIX `grep -rnE` (not ripgrep) so they work
 # in CI runners without rg installed.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'newapi compat-pool drift'; then
 echo "=== sub2api: newapi compat-pool drift ==="
-errors=0
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'protocol-routing SSOT'; then
 echo "=== sub2api: protocol-routing SSOT ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by protocol-routing SSOT)"
@@ -482,6 +564,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'pricing/serving approved-doc precedence'; then
 echo "=== sub2api: pricing/serving approved-doc precedence ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by pricing/serving approved-doc check)"
@@ -505,6 +590,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'gitignore script homes'; then
 echo "=== sub2api: gitignore script homes ==="
 _tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
@@ -521,6 +609,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'candidate owner table'; then
 echo "=== sub2api: candidate owner table ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by candidate owner table check)"
@@ -536,6 +627,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'candidate acceptance ledger'; then
 echo "=== sub2api: candidate acceptance ledger ==="
 if ! python3 ./scripts/checks/test_candidate_acceptance_ledger.py; then
     echo "  FAIL: US-050 acceptance ledger checker regressions"
@@ -548,6 +642,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'advisory ledger'; then
 echo "=== sub2api: advisory ledger ==="
 if ! python3 ./scripts/checks/advisory-ledger.py; then
     echo "  FAIL: structured advisory ledger is invalid"
@@ -557,10 +654,16 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'upstream SSOT impact report'; then
 echo "=== sub2api: upstream SSOT impact report ==="
 python3 ./scripts/checks/upstream-ssot-impact.py --base "${PREFLIGHT_BASE:-origin/main}" --upstream upstream/main
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'model owner manifest'; then
 echo "=== sub2api: model owner manifest ==="
 if ! python3 ./scripts/checks/model-owner-manifest.py; then
     echo "  FAIL: NewAPI manifest violates its canonical declaration contract"
@@ -570,6 +673,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'approved-doc index and anchors'; then
 echo "=== sub2api: approved-doc index and anchors ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by approved-doc index check)"
@@ -585,6 +691,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'merge conflict markers'; then
 echo "=== sub2api: merge conflict markers ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by merge conflict marker check)"
@@ -656,6 +765,9 @@ fi
 # in the approved service boundary files that funnel requests through the
 # engine/service gate first.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'engine dispatch / capability sentinels'; then
 echo "=== sub2api: engine dispatch / capability sentinels ==="
 
 # Check C — external callers must use engine.IsVideoSupportedChannelType rather
@@ -715,6 +827,9 @@ fi
 # Responses endpoint probe status semantics belong in openai_compat so account
 # creation, gateway routing, and tests cannot grow parallel interpretations.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'OpenAI upstream capability truth'; then
 echo "=== sub2api: OpenAI upstream capability truth ==="
 probe_owner_hits="$(grep -rnE '^func isResponsesEndpointSupportedByStatus\(' \
     backend/internal \
@@ -744,6 +859,9 @@ fi
 # the next refactor or upstream merge that re-introduces the antipattern fails
 # preflight instead of shipping a regression to prod.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'buffered Content-Type leak gate'; then
 echo "=== sub2api: buffered Content-Type leak gate ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to run check-buffered-content-type-leak.py)"
@@ -763,6 +881,9 @@ fi
 # storage flags belong on dedicated boolean fields of OpsUpstreamErrorEvent.
 # See ops_upstream_context.go Kind comment for the contract.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'OpsUpstreamErrorEvent.Kind suffix antipattern'; then
 echo "=== sub2api: OpsUpstreamErrorEvent.Kind suffix antipattern ==="
 kind_suffix_hits=$(grep -rEn '(out|ev)\.Kind[[:space:]]*=[[:space:]]*(out|ev)\.Kind[[:space:]]*\+' \
     backend/internal/service/ops*.go 2>/dev/null | grep -v '_test\.go' || true)
@@ -783,6 +904,9 @@ fi
 # silently dropping a file or a switch-case branch and the regression only
 # surfacing weeks later in production.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'newapi sentinel registry'; then
 echo "=== sub2api: newapi sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read newapi-sentinels.json)"
@@ -803,6 +927,9 @@ fi
 # stay a per-user LATERAL index probe and not revert to the full-table
 # `ANY($1) GROUP BY` seq scan (~1.3s on prod, 2.4M rows). See PR #877.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'perf query-shape sentinel registry'; then
 echo "=== sub2api: perf query-shape sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read perf-query-shape.json)"
@@ -822,6 +949,9 @@ fi
 # the ToS gate — is still present. Same failure mode as the newapi guard: an
 # upstream merge silently dropping a file or injection branch.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'kiro sentinel registry'; then
 echo "=== sub2api: kiro sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read kiro.json)"
@@ -842,6 +972,9 @@ fi
 # the Heavy-403 honesty guard, and the pricing/enum rows. Same failure mode as the
 # kiro/newapi guards: an upstream merge silently dropping a file or injection branch.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'grok sentinel registry'; then
 echo "=== sub2api: grok sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read grok.json)"
@@ -866,6 +999,9 @@ fi
 # choice was a test deleted in the same merge. Pinning each test's `func TestX(`
 # definition turns "merge deleted/gutted the test" into a red check.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'relay-invariant test registry'; then
 echo "=== sub2api: relay-invariant test registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read relay-invariants.json)"
@@ -884,6 +1020,9 @@ fi
 # (oauth.go) and the gl-node X-Goog-Api-Client removal on privacy calls
 # (client.go). Aligned to Antigravity CLI (`agy`); see docs/ops/antigravity-fingerprint-changelog.md.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'antigravity fingerprint sentinel registry'; then
 echo "=== sub2api: antigravity fingerprint sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read antigravity.json)"
@@ -901,6 +1040,9 @@ fi
 # fifth-platform display label) stay converged without turning compat identities
 # like `sub2api` / `newapi` into banned strings across the repo.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'brand sentinel registry'; then
 echo "=== sub2api: brand sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read brand-sentinels.json)"
@@ -921,6 +1063,9 @@ fi
 # working. See docs/approved/pricing-availability-source-of-truth.md#availability-evidence-owner and
 # CLAUDE.md §「升级原则」.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'pricing-availability sentinel registry'; then
 echo "=== sub2api: pricing-availability sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read pricing-availability-sentinels.json)"
@@ -939,6 +1084,9 @@ fi
 # policy. Provider/LiteLLM data is sensor evidence only. Validate every owner
 # and the protected publication boundary mechanically.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'complete pricing registry'; then
 echo "=== sub2api: complete pricing registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to validate tk_pricing_overlay.json)"
@@ -954,6 +1102,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'video overlay frontend placeholders'; then
 echo "=== sub2api: video overlay frontend placeholders ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for export-video-overlay-placeholders.py)"
@@ -976,6 +1127,9 @@ fi
 # first (offline fixtures), then the real cross-file agreement check. CLAUDE.md
 # §「升级原则」: a soft rule that bit us once becomes a mechanical gate.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'catalog serving drift'; then
 echo "=== sub2api: catalog serving drift ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to validate tk_served_models.json)"
@@ -1003,6 +1157,9 @@ fi
 # UI falls back to unsafe defaults and reopens the "catalog says usable, submit
 # fails" class.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Studio media coverage'; then
 echo "=== sub2api: Studio media coverage ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for Studio media coverage)"
@@ -1023,6 +1180,9 @@ fi
 # prod-only mapping apply. Keep both classifier and activation gates offline-
 # tested so bad evidence never reaches SSM.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'modelops plan/activation selftest'; then
 echo "=== sub2api: modelops plan/activation selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for modelops plan/activation)"
@@ -1044,6 +1204,9 @@ fi
 # explicitly scoped channel pricing. Global prices publish only from the
 # protected-main registry path gated below.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'pricing-hotfix runbook selftest'; then
 echo "=== sub2api: pricing-hotfix runbook selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for pricing-hotfix selftest)"
@@ -1061,6 +1224,9 @@ fi
 # protected main. Keep envelope validation, LKG audit, and publication guards
 # covered offline so partial overlays or arbitrary branch files cannot publish.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'complete-registry runtime publisher tests'; then
 echo "=== sub2api: complete-registry runtime publisher tests ==="
 if ! command -v python3 >/dev/null 2>&1; then
 	echo "  FAIL: python3 not on PATH (required for registry publisher tests)"
@@ -1078,6 +1244,9 @@ fi
 # preflight. This validates the modelops tool contract independently of whether
 # a caller uses check-accounts or an explicit model-activation precheck.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'account model_mapping tool/SSOT contract selftest'; then
 echo "=== sub2api: account model_mapping tool/SSOT contract selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for account model_mapping tool/SSOT contract selftest)"
@@ -1094,6 +1263,9 @@ fi
 # Supplier-source mapping ownership is separate from the platform model floor.
 # Keep its field diff, redaction, media-only and runtime-state exclusions tested.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'supplier projection post-release check'; then
 echo "=== sub2api: supplier projection post-release check ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for supplier projection check tests)"
@@ -1112,6 +1284,9 @@ fi
 # The advisory rollout check derives group evidence from live healthy peers;
 # keep its no-self-certification, no-mapping accounting and wrapper exit codes tested.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'account group-binding post-release check'; then
 echo "=== sub2api: account group-binding post-release check ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for account group-binding check tests)"
@@ -1131,13 +1306,10 @@ fi
 # artifact byte-identical to the Go owner so it cannot become a second hand-edited
 # model list.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'generated model-surface bundle drift'; then
 echo "=== sub2api: generated model-surface bundle drift ==="
-_preflight_defer_go_artifact_drift=0
-if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
-    case "${PREFLIGHT_DEFER_GO_ARTIFACT_DRIFT:-}" in
-        1|true|yes|TRUE|YES) _preflight_defer_go_artifact_drift=1 ;;
-    esac
-fi
 if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
     echo "  skip: unchanged Go preflight surface"
 elif [ "$_preflight_defer_go_artifact_drift" -eq 1 ]; then
@@ -1157,6 +1329,9 @@ fi
 # The evaluator consumes a checked-in JSON artifact. Generate it from the Go
 # classification owner so alert grouping cannot drift into a second rule set.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'model-family alert artifact drift'; then
 echo "=== sub2api: model-family alert artifact drift ==="
 if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
     echo "  skip: unchanged Go preflight surface"
@@ -1181,6 +1356,9 @@ fi
 # without the TK touches, so without a literal-content guard a bad upstream
 # merge can silently revert them and the regression only shows up visually.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'frontend TK sentinel registry'; then
 echo "=== sub2api: frontend TK sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read frontend-tk-sentinels.json)"
@@ -1198,6 +1376,9 @@ fi
 # still present after merges. These hooks compile cleanly if dropped but cause
 # production routing / rate-limit regressions later.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'gateway TK sentinel registry'; then
 echo "=== sub2api: gateway TK sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read gateway-tk-sentinels.json)"
@@ -1211,6 +1392,9 @@ fi
 
 # ---- sub2api: gateway terminal route policy contract -----------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'gateway terminal route policy contract'; then
 echo "=== sub2api: gateway terminal route policy contract ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for terminal route policy contract)"
@@ -1232,6 +1416,9 @@ fi
 # deregisters entire TK surfaces (admin tiers, edge accounts, pricing catalog,
 # trial provisioning, compliance gate).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'handler DI/Wire sentinel registry'; then
 echo "=== sub2api: handler DI/Wire sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read handler-di-wire.json)"
@@ -1252,6 +1439,9 @@ fi
 # clean if dropped, so an upstream merge can silently revert it and re-open the
 # native catch-all $0-billing hole the gate exists to close.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'priced-serving-gate sentinel registry'; then
 echo "=== sub2api: priced-serving-gate sentinel registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read priced-serving-gate.json)"
@@ -1271,6 +1461,9 @@ fi
 # scripts/sentinels/check-anthropic-baseline-sync.py header for the
 # 2026-05-21 incident that motivated this guard.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'anthropic baseline sync'; then
 echo "=== sub2api: anthropic baseline sync ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for anthropic baseline sync check)"
@@ -1291,6 +1484,9 @@ fi
 # drift between copy and source a hard failure (single-source discipline,
 # CLAUDE.md §10 / memory "anthropic tier baseline 单一源").
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'embedded tier baseline single-source'; then
 echo "=== sub2api: embedded tier baseline single-source ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for tier baseline embed check)"
@@ -1309,6 +1505,9 @@ fi
 # check-cc-version-sync.py proves every Go compile default + dead snapshot
 # agrees, and its --selftest keeps the guard's own parse/write logic honest.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'cc version string single-source'; then
 echo "=== sub2api: cc version string single-source ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for cc version sync check)"
@@ -1332,6 +1531,9 @@ fi
 # every Go copy still carries the anchors and the banner is byte-identical
 # across files. Real CC drift is detected separately by the capture skill.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'cc system prompt single-source'; then
 echo "=== sub2api: cc system prompt single-source ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for cc system prompt check)"
@@ -1348,6 +1550,9 @@ fi
 
 # ---- sub2api: anthropic prompt surface registry ---------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'anthropic prompt surface registry'; then
 echo "=== sub2api: anthropic prompt surface registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for prompt surface registry check)"
@@ -1366,6 +1571,9 @@ fi
 
 # ---- sub2api: cc geo-stego static anchors ---------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'cc geo-stego static anchors'; then
 echo "=== sub2api: cc geo-stego static anchors ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for cc geo-stego static check)"
@@ -1381,6 +1589,9 @@ fi
 
 # ---- sub2api: prompt surface drift aggregate self-test --------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'prompt surface drift aggregate'; then
 echo "=== sub2api: prompt surface drift aggregate ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for prompt surface drift check)"
@@ -1400,6 +1611,9 @@ fi
 
 # ---- sub2api: oauth mimic edge aggregate self-test -------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'oauth mimic edge aggregate'; then
 echo "=== sub2api: oauth mimic edge aggregate ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for oauth mimic aggregate check)"
@@ -1428,6 +1642,9 @@ fi
 
 # ---- sub2api: user billing watch probe ------------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'user billing watch probe'; then
 echo "=== sub2api: user billing watch probe ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for user billing watch probe tests)"
@@ -1448,6 +1665,9 @@ fi
 # so it cannot break CI when codex ships a new version. Real upstream drift is
 # detected on-demand by skill tokenkey-codex-fingerprint-alignment.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'codex fingerprint pin consistency'; then
 echo "=== sub2api: codex fingerprint pin consistency ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for codex pin consistency check)"
@@ -1469,6 +1689,9 @@ fi
 # opens tracking issues when upstream is ahead of TokenKey pins.
 # The script's selftest + unit tests keep pin readers and semver logic honest.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'client release watch'; then
 echo "=== sub2api: client release watch ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for client release watch check)"
@@ -1495,6 +1718,9 @@ fi
 # turning the recurring review ask "补充必要的 upstream merge 覆写防护门禁" into
 # a hard preflight failure instead of human memory.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'sentinel registry update gate (advisory locally)'; then
 echo "=== sub2api: sentinel registry update gate (advisory locally) ==="
 _tk_clear_core_bare
 # MARKER_GATE_ADVISORY=1: pre-commit/pre-push structurally cannot see the
@@ -1533,6 +1759,9 @@ fi
 # adjacent so any future regex/resolver edit that re-introduces v1's
 # "blind to ../scripts/X" class of bug fires at preflight time.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'script ref existence'; then
 echo "=== sub2api: script ref existence ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for script ref existence check)"
@@ -1565,6 +1794,9 @@ fi
 # acknowledgement that this PR's diff against an upstream merge has been
 # considered.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'upstream override marker (advisory locally)'; then
 echo "=== sub2api: upstream override marker (advisory locally) ==="
 # MARKER_GATE_ADVISORY=1 — advisory locally (cannot see in-flight commit /
 # PR body); HARD gate is .github/workflows/marker-acknowledgement-pr.yml which
@@ -1587,6 +1819,9 @@ fi
 # move together, so a changed evidence redaction policy cannot silently keep the
 # old version string.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'redaction version contract'; then
 echo "=== sub2api: redaction version contract ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read redaction-sentinels.json)"
@@ -1604,6 +1839,9 @@ fi
 # the QA middleware still terminates in CaptureFromContext after teeing request /
 # response bodies.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'trajectory hook registry'; then
 echo "=== sub2api: trajectory hook registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read trajectory-sentinels.json)"
@@ -1617,6 +1855,9 @@ fi
 
 # ---- sub2api: Bundle session export SSOT -------------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Bundle session export SSOT'; then
 echo "=== sub2api: Bundle session export SSOT ==="
 if ! python3 ./scripts/checks/traj-ssot.py; then
     errors=$((errors + 1))
@@ -1631,6 +1872,9 @@ fi
 # terminal-event helpers, `[DONE]` emission, and focused terminal assertions stay
 # intact so evidence capture keeps reliable completion markers.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'terminal event registry'; then
 echo "=== sub2api: terminal event registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read terminal-sentinels.json)"
@@ -1647,6 +1891,9 @@ fi
 # gateway dispatch paths still route bridge eligibility through the shared
 # Engine facade helpers instead of reintroducing local provider branching.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'engine facade registry'; then
 echo "=== sub2api: engine facade registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to read engine-facade-sentinels.json)"
@@ -1660,6 +1907,9 @@ fi
 
 # ---- sub2api: QA lifecycle single source of truth ----------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'QA lifecycle SSOT'; then
 echo "=== sub2api: QA lifecycle SSOT ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by qa-lifecycle-ssot.py)"
@@ -1675,6 +1925,9 @@ fi
 
 # ---- sub2api: QA Phase 2 recovery and IAM contracts ------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'QA Phase 2 recovery and IAM contracts'; then
 echo "=== sub2api: QA Phase 2 recovery and IAM contracts ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by QA recovery contract tests)"
@@ -1710,6 +1963,9 @@ fi
 # ---- sub2api: QA Phase 1 edge baseline probe (read-only ops) ---------------
 # Owner: ops/qa/edge_phase1_baseline.py — soak verification for edge capture=false.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'QA Phase 1 edge baseline probe'; then
 echo "=== sub2api: QA Phase 1 edge baseline probe ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by edge_phase1_baseline.py)"
@@ -1728,6 +1984,9 @@ _archive_rehearsal_spawn_if_needed
 
 # ---- sub2api: QA Phase 1 closeout + Phase 2 baseline ops -------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'QA Phase 1 closeout + Phase 2 baseline'; then
 echo "=== sub2api: QA Phase 1 closeout + Phase 2 baseline ==="
 if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
     echo "  skip: unchanged CI surface; required preflight gate not needed"
@@ -1755,6 +2014,9 @@ fi
 # Runs the active S3 Bundle service and worker packages, then requires one US-044
 # authorization test in verbose output so a rename/deletion cannot pass vacuously.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'QA Bundle service/worker contract'; then
 echo "=== sub2api: QA Bundle service/worker contract ==="
 if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
     echo "  skip: unchanged Go preflight surface"
@@ -1781,6 +2043,9 @@ fi
 
 # ---- sub2api: frontend release asset contract -------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'frontend release asset contract'; then
 echo "=== sub2api: frontend release asset contract ==="
 _tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
@@ -1805,6 +2070,9 @@ fi
 
 # ---- sub2api: storefront SEO copy alignment ---------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'storefront SEO alignment'; then
 echo "=== sub2api: storefront SEO alignment ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to run storefront-seo-alignment check)"
@@ -1820,6 +2088,9 @@ fi
 
 # ---- sub2api: admin persistent-shell layout invariant -----------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'admin persistent-shell layout'; then
 echo "=== sub2api: admin persistent-shell layout ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to run admin-shell-layout check)"
@@ -1835,6 +2106,9 @@ fi
 
 # ---- sub2api: user persistent-shell layout invariant -------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'user persistent-shell layout'; then
 echo "=== sub2api: user persistent-shell layout ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to run user-shell-layout check)"
@@ -1850,6 +2124,9 @@ fi
 
 # ---- sub2api: post-deploy smoke script (syntax only; no live HTTP) ----------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'post-deploy smoke script syntax'; then
 echo "=== sub2api: post-deploy smoke script syntax ==="
 _smoke_syntax_ok=true
 for _smoke_script in \
@@ -1883,6 +2160,9 @@ fi
 # net (the exact #778 failure mode). bash -n them as standalone files here.
 # Glob (not an enumerated list) so a new tokenkey-*.sh is covered on day one.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'standalone host script syntax (tokenkey-*.sh)'; then
 echo "=== sub2api: standalone host script syntax (tokenkey-*.sh) ==="
 _host_syntax_ok=true
 for _host_script in ./deploy/aws/stage0/tokenkey-*.sh ./deploy/aws/lightsail/tokenkey-*.sh; do
@@ -1902,6 +2182,9 @@ fi
 # run on the host; "JSON valid" locally does NOT catch host-shell syntax errors
 # (e.g. unquoted parens in an echo — the #512 bug caught only by a us1 canary).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'SSM host command script parse'; then
 echo "=== sub2api: SSM host command script parse ==="
 _bg_rc=1
 if _bg_spawned ssm_parse; then
@@ -1914,6 +2197,9 @@ if [ "$_bg_rc" -ne 0 ]; then
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'gateway smoke suite unit tests'; then
 echo "=== sub2api: gateway smoke suite unit tests ==="
 _bg_rc=1
 if _bg_spawned smoke_unittest; then
@@ -1935,6 +2221,9 @@ fi
 # the line; this static anchor prevents the same regression from recurring on
 # future wrapper refactors. Mechanical guard (no execution) — minimal noise.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'run-probe.sh --env loop regression guard'; then
 echo "=== sub2api: run-probe.sh --env loop regression guard ==="
 if ! grep -qE 'for[[:space:]]+kv[[:space:]]+in[[:space:]]+"\$\{ENVS\[@\]\+"\$\{ENVS\[@\]\}"\}"; do' ops/observability/run-probe.sh; then
     echo "  FAIL: ops/observability/run-probe.sh missing the \`for kv in \"\${ENVS[@]+...}\"\` env loop"
@@ -1950,6 +2239,9 @@ fi
 # Run its fixture selftest so a threshold/logic regression fails preflight instead
 # of silently mis-verdicting prod capacity. Read-only, no AWS.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'data-layer capacity verdict selftest'; then
 echo "=== sub2api: data-layer capacity verdict selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for data-layer capacity selftest)"
@@ -1964,6 +2256,9 @@ fi
 
 # ---- sub2api: capacity-first safety contracts ------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'capacity-first safety contracts'; then
 echo "=== sub2api: capacity-first safety contracts ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for capacity-first safety tests)"
@@ -1986,6 +2281,9 @@ fi
 
 # ---- sub2api: phase1 production activation safety contracts ----------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'phase1 production activation safety contracts'; then
 echo "=== sub2api: phase1 production activation safety contracts ==="
 _tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
@@ -2044,6 +2342,9 @@ fi
 # runtime state. A copy is cheap to reintroduce and invisible in review, so the
 # no-copy rule is mechanical rather than prose.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'single app-container resolver owner'; then
 echo "=== sub2api: single app-container resolver owner ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for resolver ownership check)"
@@ -2054,6 +2355,9 @@ fi
 
 # ---- sub2api: nonprod archive/restore rehearsal ----------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'nonprod archive/restore rehearsal'; then
 echo "=== sub2api: nonprod archive/restore rehearsal ==="
 if [ "$_preflight_skip_slow_ops" -eq 1 ]; then
     echo "  skip: unchanged CI surface; required preflight gate not needed"
@@ -2075,6 +2379,9 @@ fi
 
 # ---- sub2api: runtime resource config verdict selftest ---------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'runtime resource config verdict selftest'; then
 echo "=== sub2api: runtime resource config verdict selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for runtime resource config selftest)"
@@ -2095,6 +2402,9 @@ fi
 # threshold/logic regression fails preflight instead of silently mis-verdicting edge
 # health. Read-only, no AWS.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge-health verdict selftest'; then
 echo "=== sub2api: edge-health verdict selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for edge-health verdict selftest)"
@@ -2112,6 +2422,9 @@ fi
 # edge-health-alert.py; scheduled edge-health-watch GHA posts Feishu on change.
 # Fixtures pin the 2026-06-07 incident shapes + dedup behavior.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge-health alert decision selftest'; then
 echo "=== sub2api: edge-health alert decision selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for edge-health alert selftest)"
@@ -2127,6 +2440,9 @@ fi
 # Complete terminal buckets drive model-family and dynamic exact-model alerts.
 # Unknown models only become candidates after a real final empty-pool 429.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge model-unit health alert tests'; then
 echo "=== sub2api: edge model-unit health alert tests ==="
 if ! python3 -m unittest \
     ops.observability.test_edge_model_health_alert \
@@ -2143,6 +2459,9 @@ fi
 # External /health resolver+probe (scan-edge-health.sh leading signal for host
 # hang / blackhole). Pure unit fixtures — no network.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge HTTPS health probe selftest'; then
 echo "=== sub2api: edge HTTPS health probe selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for edge HTTPS health selftest)"
@@ -2158,6 +2477,9 @@ fi
 # The scan integration fixtures pin transport-only unreachable classification,
 # HTTP non-200 SSM fallback, and hard failure for helper/resolver errors.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge-health scan integration selftest'; then
 echo "=== sub2api: edge-health scan integration selftest ==="
 if ! bash ./ops/observability/test_scan_edge_health.sh >/dev/null 2>&1; then
     echo "  FAIL: edge-health scan integration selftest"
@@ -2170,6 +2492,9 @@ fi
 # Delivery owns the alert acknowledgment boundary: rejected/missing Feishu
 # delivery must never advance the cached structured state.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge-health delivery selftest'; then
 echo "=== sub2api: edge-health delivery selftest ==="
 if ! python3 ./ops/observability/edge_health_delivery.py --selftest >/dev/null 2>&1; then
     echo "  FAIL: edge-health delivery selftest"
@@ -2182,6 +2507,9 @@ fi
 # The helper tests can remain green after someone deletes or bypasses the actual
 # schedule. Anchor the load-bearing workflow trigger and scan/delivery call sites.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge-health watch workflow contract'; then
 echo "=== sub2api: edge-health watch workflow contract ==="
 if ! python3 ./scripts/checks/edge-health-watch-contract.py >/dev/null 2>&1; then
     echo "  FAIL: edge-health watch workflow contract"
@@ -2193,6 +2521,9 @@ fi
 
 # ---- sub2api: edge disk/memory host-alert script selftest ------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge disk/memory host-alert selftest'; then
 echo "=== sub2api: edge disk/memory host-alert selftest ==="
 if ! bash ./deploy/aws/lightsail/tokenkey-disk-metrics-edge.sh --selftest >/dev/null 2>&1; then
     echo "  FAIL: tokenkey-disk-metrics-edge.sh --selftest"
@@ -2201,6 +2532,9 @@ else
     echo "  ok: edge disk/memory alert awk fixtures pass"
 fi
 
+
+fi # preflight gate
+if _preflight_selected 'edge disk remediation script contract'; then
 echo "=== sub2api: edge disk remediation script contract ==="
 if ! bash ./ops/stage0/test_remediate_edge_disk.sh >/dev/null 2>&1; then
     echo "  FAIL: remediate-edge-disk-via-ssm contract test"
@@ -2210,6 +2544,9 @@ else
     echo "  ok: edge disk remediation + recovery anchors pass"
 fi
 
+
+fi # preflight gate
+if _preflight_selected 'env secret backup fail-closed contract'; then
 echo "=== sub2api: env secret backup fail-closed contract ==="
 if ! bash ./ops/stage0/test_backup_env_secrets_via_ssm.sh >/dev/null 2>&1 || \
    ! bash ./deploy/aws/lightsail/test_restore_edge_env_secrets.sh >/dev/null 2>&1 || \
@@ -2222,6 +2559,9 @@ else
     echo "  ok: rejected writes fail and verified backup/restore succeeds"
 fi
 
+
+fi # preflight gate
+if _preflight_selected 'QA single-owner SSM operator contract'; then
 echo "=== sub2api: QA single-owner SSM operator contract ==="
 if ! bash ./ops/stage0/test_activate_qa_single_owner_via_ssm.sh >/dev/null 2>&1; then
     echo "  FAIL: QA single-owner SSM operator contract test"
@@ -2231,6 +2571,9 @@ else
     echo "  ok: QA activation confirmation is fail-closed"
 fi
 
+
+fi # preflight gate
+if _preflight_selected 'Feishu release notes collection'; then
 echo "=== sub2api: Feishu release notes collection ==="
 if ! python3 ./ops/stage0/test_collect_feishu_release_notes.py >/dev/null 2>&1; then
     echo "  FAIL: Feishu release notes collection (shallow-clone changelog)"
@@ -2244,6 +2587,9 @@ else
     echo "  ok: Feishu rollout notes survive fetch-depth:1 and render 本次更新"
 fi
 
+
+fi # preflight gate
+if _preflight_selected 'ghcr-prune-daily timer contract'; then
 echo "=== sub2api: ghcr-prune-daily timer contract ==="
 if ! bash ./deploy/aws/stage0/tokenkey-ghcr-prune-daily.sh --selftest >/dev/null 2>&1; then
     echo "  FAIL: tokenkey-ghcr-prune-daily.sh --selftest"
@@ -2263,6 +2609,9 @@ fi
 # deploy_via_ssm-injected env key (the 2026-06 "3× repeat") — so a logic
 # regression fails preflight instead of going silent. Read-only, no AWS.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'live-host state verdict selftest'; then
 echo "=== sub2api: live-host state verdict selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for live-host state verdict selftest)"
@@ -2283,6 +2632,9 @@ fi
 # the single source of truth (--print-required); assert each key it requires
 # actually appears in every prod-capable injector script.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'live-host detector ↔ deploy injector env sync'; then
 echo "=== sub2api: live-host detector ↔ deploy injector env sync ==="
 _lh_injectors="ops/stage0/deploy_via_ssm.sh ops/stage0/deploy_via_ssm_bluegreen.sh"
 if ! command -v python3 >/dev/null 2>&1; then
@@ -2318,6 +2670,9 @@ fi
 # OnCalendar line across both (value-agnostic — extract + equal, so the cadence
 # can change freely as long as both move together).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'pgdump timer cadence parity'; then
 echo "=== sub2api: pgdump timer cadence parity ==="
 _pgdump_boot_cal="$(awk '/tokenkey-pgdump\.timer/{f=1} f&&/OnCalendar=/{print; exit}' deploy/aws/stage0/stage0-ec2-bootstrap.sh 2>/dev/null)"
 _pgdump_refresh_cal="$(grep -m1 'OnCalendar=' ops/stage0/pg_dump_refresh_via_ssm.sh 2>/dev/null)"
@@ -2342,6 +2697,9 @@ fi
 # 2026-05-06 v1.7.17 prod release was blocked exactly this way (PR #120
 # introduced; PR #122 fixed). This guard prevents recurrence.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'workflow job-level if env-context'; then
 echo "=== sub2api: workflow job-level if env-context ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to parse .github/workflows/*.yml)"
@@ -2362,6 +2720,9 @@ fi
 # at-rest default fails preflight + CI before merge. One-off amd64 releases
 # still work via manual `gh workflow run release.yml -f simple_release=true`.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'release.yml simple_release default'; then
 echo "=== sub2api: release.yml simple_release default ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to parse release.yml)"
@@ -2379,6 +2740,9 @@ fi
 # path. Default/full releases must also keep linux/arm64 because prod + Edge
 # Stage0 hosts are Graviton.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'GoReleaser Docker config'; then
 echo "=== sub2api: GoReleaser Docker config ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required to parse GoReleaser configs)"
@@ -2399,6 +2763,9 @@ fi
 # .github/workflows/main-ancestry-guard.yml catches the same failure mode
 # at PR-merge time (PR.base must be ancestor of PR.head).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'main ancestry anchor'; then
 echo "=== sub2api: main ancestry anchor ==="
 if [ "$_preflight_skip_main_ancestry" -eq 1 ]; then
     echo "  skip: owned by lightweight Main Ancestry Guard push job"
@@ -2416,6 +2783,9 @@ fi
 # truth for CloudFormation-embedded payloads. Parse failures here should block
 # before merge rather than surfacing during deploy.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Caddyfile syntax gate'; then
 echo "=== sub2api: Caddyfile syntax gate ==="
 if [ ! -x ./scripts/checks/caddyfile-syntax.sh ] || ! _bg_spawned caddyfile; then
     echo "  FAIL: scripts/checks/caddyfile-syntax.sh missing or not executable"
@@ -2434,6 +2804,9 @@ fi
 # Source of truth: edge-polluted-ips.json + lightsail matrix porkbun_a_ipv4.
 # --check reconciles polluted and current tables in tokenkey-edge-ip-history.md.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'edge-ip-status doc / live AWS drift'; then
 echo "=== sub2api: edge-ip-status doc / live AWS drift ==="
 if [ ! -x ./scripts/edge-ip-status.sh ]; then
     echo "  FAIL: scripts/edge-ip-status.sh missing or not executable"
@@ -2443,6 +2816,9 @@ elif ! ./scripts/edge-ip-status.sh --check; then
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Stage0 deployment primitive sharing'; then
 echo "=== sub2api: Stage0 deployment primitive sharing ==="
 # EC2 edge path removed 2026-06-07 (deploy-edge-stage0.yml deleted); edges are
 # Lightsail-only. Prod and Lightsail Edge share one blue/green SSM primitive.
@@ -2478,6 +2854,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'blue/green migration safety'; then
 echo "=== sub2api: blue/green migration safety ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for blue/green migration safety)"
@@ -2501,6 +2880,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'migration immutability'; then
 echo "=== sub2api: migration immutability ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for migration immutability)"
@@ -2524,6 +2906,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Stage0 deploy tag-validation sharing'; then
 echo "=== sub2api: Stage0 deploy tag-validation sharing ==="
 # The X.Y.Z(-rc.N/-beta.N) release-tag gate is a single shared script so the
 # three deploy workflows never grow divergent copies (the Lightsail copy had
@@ -2561,6 +2946,9 @@ fi
 unset _tag_script _tag_files _tag_ok _f
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Stage0 deploy job timeouts'; then
 echo "=== sub2api: Stage0 deploy job timeouts ==="
 # Every Stage0 deploy job has cancel-in-progress:false concurrency, so a hung
 # step (describe-stacks / health-poll) would hold the prod/edge lock to the 6h
@@ -2584,6 +2972,9 @@ unset _dt_ok _df
 # mode this dedup removed. Single-source wiring itself is asserted by the
 # ops/anthropic unittest suite below (render embeds the JSON values).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'anthropic tier baseline single-source'; then
 echo "=== sub2api: anthropic tier baseline single-source ==="
 if [ -f ./deploy/aws/stage0/anthropic-oauth-stability-tiered-apply-template.sql ]; then
     echo "  FAIL: retired SQL apply template reappeared — tier baseline values must"
@@ -2600,6 +2991,9 @@ fi
 #     --force-template-rewrite hatch; snapshot/verify don’t exercise those)
 #   · rebalance-anthropic-priority.py plan/scoring exits + SQL name guard
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'ops/anthropic orchestrators unittest'; then
 echo "=== sub2api: ops/anthropic orchestrators unittest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by ops/anthropic unittest suite)"
@@ -2623,6 +3017,9 @@ fi
 # always rewrite it. Same "no soft rule without a check" discipline as the ops
 # SQL-generator gate.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'servable-allowlist generator selftest'; then
 echo "=== sub2api: servable-allowlist generator selftest ==="
 _servable_go="backend/internal/service/pricing_catalog_supported_models_tk.go"
 if ! command -v python3 >/dev/null 2>&1; then
@@ -2656,6 +3053,9 @@ fi
 # catalog-serving-drift static check. This audit is the read-only live close-out: it checks
 # that complete-registry + allowlist expectations reached public /pricing.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'display-coverage audit selftest'; then
 echo "=== sub2api: display-coverage audit selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by audit-display-coverage)"
@@ -2674,6 +3074,9 @@ fi
 # catalog source. CI only runs its offline fixture selftest; live list/run/gate
 # remain operator actions.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'SSOT endpoint matrix selftest'; then
 echo "=== sub2api: SSOT endpoint matrix selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by gateway_model_ssot_matrix.py)"
@@ -2693,6 +3096,9 @@ fi
 # the diff-scoped pending-live models; prod HTTP proof runs after deployment,
 # when new mapping/catalog code is actually live.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'SSOT delta gate (structural)'; then
 echo "=== sub2api: SSOT delta gate (structural) ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by ssot-delta-gate.py)"
@@ -2713,6 +3119,9 @@ fi
 # every family config_errors on the remote. Hard-wire the invariant (a new caller
 # that forgets --with would otherwise fail silently only at live-probe time).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'probe-servable-models.sh --with companion guard'; then
 echo "=== sub2api: probe-servable-models.sh --with companion guard ==="
 _probe_flag="--script ops/pricing/probe-servable-models.sh"
 _with_flag="--with ops/pricing/probe_reserved_resources.sh"
@@ -2745,6 +3154,9 @@ fi
 # but their defaults must stay empty; otherwise an operator group rename becomes
 # a false config_error again.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'probe source group-id defaults'; then
 echo "=== sub2api: probe source group-id defaults ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by probe source group-id defaults check)"
@@ -2835,6 +3247,9 @@ fi
 # no AWS/network; the directories are listed individually because each ships
 # its own importlib-loaded scripts (filenames contain hyphens).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'determinism-baseline helper unittests'; then
 echo "=== sub2api: determinism-baseline helper unittests ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by determinism-baseline suites)"
@@ -2850,6 +3265,7 @@ else
     _det_baseline_failed=0
     for _det_dir in ops/observability ops/stage0 scripts deploy/aws/stage0 deploy/aws/lightsail; do
         _det_key="det_$(echo "$_det_dir" | tr '/' '_')"
+        if ! _preflight_selected "bg:$_det_key"; then continue; fi
         _bg_rc=1
         if _bg_spawned "$_det_key"; then
             _bg_join "$_det_key" replay-on-failure
@@ -2873,6 +3289,9 @@ fi
 # cicd-oidc-lightsail-addon.yaml shipped with 2010-10-09 in PR #380 and bypassed
 # two review rounds; the typo only blocked the actual migration setup days later.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'CloudFormation template version'; then
 echo "=== sub2api: CloudFormation template version ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for CFN template version check)"
@@ -2885,6 +3304,9 @@ fi
 # `DependsOn` is a string reference, so stale logical IDs can survive template
 # regeneration and local YAML parsing before AWS rejects the stack update.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'CloudFormation resource dependencies'; then
 echo "=== sub2api: CloudFormation resource dependencies ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for CFN dependency check)"
@@ -2901,6 +3323,9 @@ fi
 # `aws <service> <command>` call without a matching policy update) fails
 # preflight before a workflow dispatch can hit AccessDenied at runtime.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Lightsail OIDC perm coverage'; then
 echo "=== sub2api: Lightsail OIDC perm coverage ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for OIDC perm coverage check)"
@@ -2911,6 +3336,9 @@ fi
 
 # ---- sub2api: diagnostics OIDC perm coverage -------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'diagnostics OIDC perm coverage'; then
 echo "=== sub2api: diagnostics OIDC perm coverage ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for diagnostics OIDC perm coverage check)"
@@ -2919,6 +3347,9 @@ elif ! python3 ./scripts/checks/diagnostics-oidc-perm-coverage.py --quiet; then
     errors=$((errors + 1))
 fi
 
+
+fi # preflight gate
+if _preflight_selected 'public group aggregator channel (OpenRouter provider scheme C)'; then
 echo "=== sub2api: public group aggregator channel (OpenRouter provider scheme C) ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for public group aggregator channel check)"
@@ -2936,6 +3367,9 @@ fi
 # a reason. Forces the PR #563 class (generated SQL that Postgres rejects but
 # mocked/substring tests pass) into a real-parser gate fleet-wide.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'ops SQL generator coverage'; then
 echo "=== sub2api: ops SQL generator coverage ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for ops SQL coverage check)"
@@ -2950,6 +3384,9 @@ fi
 # the remote-shell wrapper owns the fail-closed guard and postcondition contract.
 # Keep that operator-facing success signal under an offline behavioral test.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'newapi live mapping mutation contract'; then
 echo "=== sub2api: newapi live mapping mutation contract ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for newapi live mapping mutation tests)"
@@ -2972,6 +3409,9 @@ fi
 # queries (reaper/audit/restore/verify) opt out with an `ops-allow-soft-deleted`
 # comment. Source: scripts/checks/ops-sql-soft-delete.py (+ --selftest).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'ops/deploy SQL soft-delete filter'; then
 echo "=== sub2api: ops/deploy SQL soft-delete filter ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for ops/deploy SQL soft-delete check)"
@@ -2994,6 +3434,9 @@ fi
 # operator-invoked so repo validation does not depend on each machine's current
 # Homebrew state. Source: scripts/checks/check-local-aws-pyexpat.py (+ --selftest).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'local aws/pyexpat helper selftest'; then
 echo "=== sub2api: local aws/pyexpat helper selftest ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for local aws/pyexpat helper selftest)"
@@ -3011,6 +3454,9 @@ fi
 # and unrooted reference cycles cannot establish an operational consumer.
 # Source: scripts/checks/ops-tool-orphan.py (+ --selftest).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'ops tool orphan check'; then
 echo "=== sub2api: ops tool orphan check ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for ops tool orphan check)"
@@ -3031,6 +3477,9 @@ fi
 # silently become un-covered. Source: scripts/checks/workflow-edge-coverage.py
 # + workflow-edge-coverage.json (registry + opt-outs).
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'workflow edge coverage'; then
 echo "=== sub2api: workflow edge coverage ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required for workflow edge coverage check)"
@@ -3047,6 +3496,9 @@ fi
 # drifts from those sources, so an editor touching compose/Caddyfile cannot
 # accidentally ship a Lightsail Edge instance running yesterday's bytes.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'lightsail edge launch-script drift'; then
 echo "=== sub2api: lightsail edge launch-script drift ==="
 if [ ! -x ./deploy/aws/lightsail/render-bootstrap.sh ]; then
     echo "  FAIL: deploy/aws/lightsail/render-bootstrap.sh missing or not executable"
@@ -3072,6 +3524,9 @@ fi
 # deploy/aws/README.md §3.5 explicitly mandates this as the mechanical
 # enforcement of "编辑后必须运行 build-cfn.sh".
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'stage0 CFN base64 drift'; then
 echo "=== sub2api: stage0 CFN base64 drift ==="
 if [ ! -x ./deploy/aws/stage0/build-cfn.sh ]; then
     echo "  FAIL: deploy/aws/stage0/build-cfn.sh missing or not executable"
@@ -3099,6 +3554,9 @@ fi
 # can leak secrets that the rendered log hides. Guard the redactor itself
 # with a self-test so a bad refactor cannot silently disarm it.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'agent stream redactor self-test'; then
 echo "=== sub2api: agent stream redactor self-test ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by redact-agent-stream.py)"
@@ -3117,6 +3575,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'headless-agent composite sharing'; then
 echo "=== sub2api: headless-agent composite sharing ==="
 # The headless `claude -p` scaffold is owned by ONE composite action plus its
 # file-backed runner (CLI install + origin/main redactor staging + canonical
@@ -3193,6 +3654,9 @@ fi
 unset _hac_action _hac_runner _hac_files _hac_daily _hac_ok _f
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'skip-ci marker (local commits)'; then
 echo "=== sub2api: skip-ci marker (local commits) ==="
 # Local pre-catch of the §9.2 bracketed [skip ci] / [ci skip] marker in this
 # branch's own commits, using the SAME matcher the two PR-gate workflows call
@@ -3216,6 +3680,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'issue ledger (schema + declared fix evidence)'; then
 echo "=== sub2api: issue ledger (schema + declared fix evidence) ==="
 # Curated evidence has one owner; scans derive triage/fixes without git writes.
 # Check anchors only for declared fixes, leaving historical rot to the watchdog.
@@ -3232,6 +3699,9 @@ fi
 unset _fl_base _fl_rc
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'upstream merge notify (detect-only)'; then
 echo "=== sub2api: upstream merge notify (detect-only) ==="
 # The periodic upstream job may only open/refresh an issue. Reintroducing a
 # headless merge agent or `git merge --no-ff` into the notify workflow fails
@@ -3248,6 +3718,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'upstream drift resolved regression (#1792)'; then
 echo "=== sub2api: upstream drift resolved regression (#1792) ==="
 # Upstream freshness is enforced only on dedicated merge/upstream-* PRs.
 # A pre-existing upstream drift must not fail main or unrelated feature/fix CI.
@@ -3271,6 +3744,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'merge-gate sentinel parity'; then
 echo "=== sub2api: merge-gate sentinel parity ==="
 # Keeps upstream-merge-pr-shape.yml checks 4-13 and preflight's sentinel set
 # mechanically coupled (manifest: scripts/sentinels/merge-gate-parity.json) so a
@@ -3285,6 +3761,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'release/warm Go cache key parity'; then
 echo "=== sub2api: release/warm Go cache key parity ==="
 # Keeps the cross-arch Go build-cache contract between backend-ci.yml's
 # `warm-release-cache` job (SAVES on main) and release.yml (RESTORE-ONLY on the
@@ -3304,6 +3783,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Go cache prune plan'; then
 echo "=== sub2api: Go cache prune plan ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by go cache prune contract)"
@@ -3317,6 +3799,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Go cache boundary contract'; then
 echo "=== sub2api: Go cache boundary contract ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by go cache boundary contract)"
@@ -3332,6 +3817,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'GitHub cache action Node runtime'; then
 echo "=== sub2api: GitHub cache action Node runtime ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by cache action runtime contract)"
@@ -3343,6 +3831,9 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Docker action Node runtime'; then
 echo "=== sub2api: Docker action Node runtime ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by Docker action runtime contract)"
@@ -3357,6 +3848,9 @@ fi
 # Project installs stay on pnpm 9, while security audit uses a pinned pnpm 11
 # owner because npm retired the quick-audit endpoint used by pnpm 9/10.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'pnpm audit owner contract'; then
 echo "=== sub2api: pnpm audit owner contract ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by pnpm-audit-contract.py)"
@@ -3371,6 +3865,9 @@ fi
 
 # ---- sub2api: stateless Cursor deployment ----------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Cursor deployment isolation'; then
 echo "=== sub2api: Cursor deployment isolation ==="
 if ! python3 -m unittest scripts.checks.test_cursor_deployment; then
     echo "  FAIL: Cursor must not introduce a separate runtime or bridge credentials"
@@ -3387,6 +3884,9 @@ fi
 # produce a repair candidate, so ops-repair-draft.yml was never once dispatched.
 # Gate: scripts/checks/gh-cli-repo-context.py.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'gh CLI repository context'; then
 echo "=== sub2api: gh CLI repository context ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by gh-cli-repo-context.py)"
@@ -3405,6 +3905,9 @@ fi
 # Dockerfile (ARG NODE_IMAGE). Drift → CI validates on a different runtime
 # than the shipped artifact. Gate: scripts/checks/node-version-align.py.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Node version alignment'; then
 echo "=== sub2api: Node version alignment ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by node-version-align.py)"
@@ -3419,6 +3922,9 @@ fi
 # backend/go.mod owns the CI toolchain version. Docker builders, standalone Go
 # tools, and user-facing version declarations must mirror it exactly.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Go version alignment'; then
 echo "=== sub2api: Go version alignment ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by go-version-align.py)"
@@ -3434,6 +3940,9 @@ fi
 
 # ---- sub2api: release cache toolchain parity ---------------------------------
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'release cache toolchain parity'; then
 echo "=== sub2api: release cache toolchain parity ==="
 if ! python3 -m unittest scripts.checks.test_release_cache_key_parity; then
     echo "  FAIL: release cache toolchain differs from CI consumers"
@@ -3446,6 +3955,9 @@ fi
 # maps. Drift → admin UI cannot render, cannot persist enum-constrained
 # platforms, or silently drops dispatch config. Gate: scripts/checks/platform-registry-drift.py.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'platform registry drift'; then
 echo "=== sub2api: platform registry drift ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by platform-registry-drift.py)"
@@ -3465,6 +3977,9 @@ fi
 # Ensures vendor-specific Claude tier mappings stay off GPT defaults and Go/FE
 # platform defaults match the registry. Gate: scripts/checks/messages-dispatch-family-drift.py
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'messages dispatch family registry'; then
 echo "=== sub2api: messages dispatch family registry ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by messages-dispatch-family-drift.py)"
@@ -3488,6 +4003,9 @@ fi
 # inject graph, so requiring a committed wire_gen.go name-only delta is a
 # false positive. Generate-and-diff matches the Ent staleness check.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Wire DI staleness'; then
 echo "=== sub2api: Wire DI staleness ==="
 _wire_gen="backend/cmd/server/wire_gen.go"
 _backend_go_version="$(awk '/^go / { print $2; exit }' backend/go.mod 2>/dev/null)"
@@ -3531,6 +4049,9 @@ fi
 # code may ship with wrong fields, edges, or predicates. This check regenerates
 # and diffs to catch drift. Non-destructive: restores the directory after.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'Ent generation staleness'; then
 echo "=== sub2api: Ent generation staleness ==="
 _ent_surface_changed=0
 _ent_has_base=0
@@ -3566,6 +4087,9 @@ fi
 # golangci-lint does not format-check build-tag files such as *_test.go with
 # //go:build unit; scan branch diff plus staged/unstaged/untracked Go files.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'changed Go file gofmt'; then
 echo "=== sub2api: changed Go file gofmt ==="
 _tk_clear_core_bare
 if ! command -v python3 >/dev/null 2>&1; then
@@ -3583,6 +4107,9 @@ fi
 # backend/). If the sibling clone is missing or the worktree symlink is broken,
 # the build will fail with a confusing error. Catch it early.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'go.mod replace path validation'; then
 echo "=== sub2api: go.mod replace path validation ==="
 _replace_path=$(grep 'QuantumNous/new-api =>' backend/go.mod 2>/dev/null | awk '{print $NF}')
 if [ "$_preflight_skip_go_contracts" -eq 1 ]; then
@@ -3605,6 +4132,9 @@ fi
 # docs/DEPRECATIONS.md (CLAUDE.md §5.x). Skips gracefully when the upstream
 # remote is absent. Gate: scripts/checks/upstream-deletion-ledger.py.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'upstream deletion ledger'; then
 echo "=== sub2api: upstream deletion ledger ==="
 if ! command -v python3 >/dev/null 2>&1; then
     echo "  FAIL: python3 not on PATH (required by upstream-deletion-ledger.py)"
@@ -3625,6 +4155,9 @@ fi
 # new conflict files. This prevents a long-lived known upstream fork surface
 # from becoming recurring warning noise.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'upstream conflict surface (advisory)'; then
 echo "=== sub2api: upstream conflict surface (advisory) ==="
 if ! git remote get-url upstream >/dev/null 2>&1; then
     echo "  skip: no upstream remote (clone without upstream fetch)"
@@ -3655,6 +4188,9 @@ fi
 # Go files (EOF append vs func-body insert). Never blocks locally; CI runs
 # the full report in upstream-conflict-surface.yml.
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'upstream insertion invasiveness (advisory)'; then
 echo "=== sub2api: upstream insertion invasiveness (advisory) ==="
 if ! git remote get-url upstream >/dev/null 2>&1; then
     echo "  skip: no upstream remote"
@@ -3672,14 +4208,19 @@ else
 fi
 
 echo ""
+
+fi # preflight gate
+if _preflight_selected 'gateway account-supply plan'; then
 echo "=== sub2api: gateway account-supply plan ==="
 if ! python3 scripts/stage0/update-capability-plan.py --check; then
     errors=$((errors + 1))
 fi
 
+fi # preflight gate
+
 echo ""
 if [ "$errors" -eq 0 ]; then
-    echo "=== preflight (with sub2api checks): PASS ==="
+    echo "=== preflight (with sub2api checks): PASS ($((SECONDS - _preflight_started))s) ==="
     exit 0
 else
     echo "=== preflight (with sub2api checks): FAIL ($errors check(s) failed) ==="

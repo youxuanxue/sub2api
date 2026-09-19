@@ -32,6 +32,7 @@ def _run_spawned_join(return_code: int, output_mode: str) -> subprocess.Complete
     with tempfile.TemporaryDirectory() as tmp:
         script = f"""
 set -u
+unset PREFLIGHT_SELECTION_FILE
 _preflight_bg_dir={tmp!s}
 {_shell_function("_bg_spawn")}
 {_shell_function("_bg_join")}
