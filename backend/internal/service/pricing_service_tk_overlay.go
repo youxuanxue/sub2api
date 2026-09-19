@@ -154,6 +154,9 @@ func parseTKOverlayDocument(data []byte) (*tkPricingOverlayDocument, error) {
 		if e.InputCostPerImageToken != nil {
 			p.InputCostPerImageToken = *e.InputCostPerImageToken
 		}
+		if e.CacheReadInputImageTokenCost != nil {
+			p.CacheReadInputImageTokenCost = *e.CacheReadInputImageTokenCost
+		}
 		if e.ImagePrice1K != nil {
 			p.ImagePrice1K = *e.ImagePrice1K
 		}

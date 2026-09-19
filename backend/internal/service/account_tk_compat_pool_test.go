@@ -112,6 +112,7 @@ func TestOpenAICompatPlatforms_ListsCanonicals(t *testing.T) {
 	want := map[string]bool{
 		PlatformOpenAI: false, PlatformNewAPI: false, PlatformGrok: false,
 		PlatformKimi: false, PlatformZhipu: false, PlatformDeepseek: false, PlatformMiniMax: false,
+		PlatformOpenCodeGo: false,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("OpenAICompatPlatforms must list exactly %d platforms today, got %d: %v", len(want), len(got), got)

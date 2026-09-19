@@ -167,6 +167,7 @@
     "issue ledger (schema + declared fix evidence)": "base",
     "upstream merge notify (detect-only)": "build",
     "upstream drift resolved regression (#1792)": "base",
+    "upstream merge VERSION floor": "base",
     "merge-gate sentinel parity": "build",
     "release/warm Go cache key parity": "build",
     "Go cache prune plan": "build",

@@ -354,8 +354,9 @@ func buildOpenAIWSHTTPBridgeErrorEvent(statusCode int, message string) []byte {
 		message = "upstream request failed"
 	}
 	event := map[string]any{
-		"type":   "error",
-		"status": statusCode,
+		"type":            "error",
+		"sequence_number": 0,
+		"status":          statusCode,
 		"error": map[string]any{
 			"type":    "upstream_error",
 			"message": message,
@@ -363,7 +364,7 @@ func buildOpenAIWSHTTPBridgeErrorEvent(statusCode int, message string) []byte {
 	}
 	body, err := json.Marshal(event)
 	if err != nil {
-		return []byte(`{"type":"error","error":{"type":"upstream_error","message":"upstream request failed"}}`)
+		return []byte(`{"type":"error","sequence_number":0,"error":{"type":"upstream_error","message":"upstream request failed"}}`)
 	}
 	return body
 }
@@ -398,9 +399,9 @@ func buildOpenAIWSHTTPBridgeFailedEvent(responseID, model string, source []byte,
 	if model = strings.TrimSpace(model); model != "" {
 		response["model"] = model
 	}
-	body, err := json.Marshal(map[string]any{"type": "response.failed", "response": response})
+	body, err := json.Marshal(map[string]any{"type": "response.failed", "sequence_number": 0, "response": response})
 	if err != nil {
-		return []byte(`{"type":"response.failed","response":{"status":"failed","output":[],"error":{"code":"upstream_error","message":"Upstream response failed"}}}`)
+		return []byte(`{"type":"response.failed","sequence_number":0,"response":{"status":"failed","output":[],"error":{"code":"upstream_error","message":"Upstream response failed"}}}`)
 	}
 	return body
 }
@@ -438,10 +439,8 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if err != nil {
 		return nil, fmt.Errorf("prepare http bridge body: %w", err)
 	}
-	body, _, err = applyCodexAccountIdentityClientMetadataRaw(body, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
-	if err != nil {
-		return nil, fmt.Errorf("scope http bridge account identity: %w", err)
-	}
+	// Account identity is scoped once in parseClientPayload (ingress). Do not
+	// re-apply here or session/thread UUIDs get double-hashed on later turns.
 	grokIntentSourceBody := append([]byte(nil), body...)
 	_, grokExplicitToolsField := openAIWSHTTPBridgeRawField(grokIntentSourceBody, "tools")
 	grokExplicitToolIntent := account.Platform == PlatformGrok && hasGrokResponsesToolIntent(grokIntentSourceBody)

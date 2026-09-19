@@ -3746,6 +3746,31 @@ fi
 echo ""
 
 fi # preflight gate
+if _preflight_selected 'upstream merge VERSION floor'; then
+echo "=== sub2api: upstream merge VERSION floor ==="
+# merge/upstream-* must not land a VERSION older than origin/main (Stage0 tag
+# confusion / apparent downgrade after a newer release already shipped).
+# shellcheck source=scripts/lib/upstream-drift.sh
+source "$REPO_ROOT/scripts/lib/upstream-drift.sh"
+if ! is_upstream_drift_gate_required; then
+    echo "  skip: VERSION floor applies only to merge/upstream-* branches"
+elif ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by upstream_merge_version_floor.py)"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/upstream_merge_version_floor.py --selftest >/dev/null; then
+    echo "  FAIL: upstream_merge_version_floor.py selftest failed"
+    errors=$((errors + 1))
+elif ! python3 ./scripts/checks/upstream_merge_version_floor.py; then
+    echo "  FAIL: VERSION on this merge branch is below origin/main"
+    echo "        — bump backend/cmd/server/VERSION to >= origin/main before merge"
+    errors=$((errors + 1))
+else
+    echo "  ok: merge/upstream VERSION floor"
+fi
+
+echo ""
+
+fi # preflight gate
 if _preflight_selected 'merge-gate sentinel parity'; then
 echo "=== sub2api: merge-gate sentinel parity ==="
 # Keeps upstream-merge-pr-shape.yml checks 4-13 and preflight's sentinel set
