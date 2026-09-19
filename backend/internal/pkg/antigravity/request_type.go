@@ -21,6 +21,17 @@ func ResolveV1InternalRequestType(model string, hasWebSearch, hasTools, hasToolI
 	return ""
 }
 
+// AgentEnabledCreditTypes declares Google One credits on the first agent
+// envelope. Plain text, image_gen, and web_search stay on the free pool.
+// Agent requests declare GOOGLE_ONE_AI immediately (Antigravity-Manager),
+// instead of waiting for a quota-exhausted 429.
+func AgentEnabledCreditTypes(requestType string) []string {
+	if requestType != "agent" {
+		return nil
+	}
+	return []string{"GOOGLE_ONE_AI"}
+}
+
 // GeminiRequestHasWebSearch reports googleSearch / google_search tool entries
 // on a Gemini-native generateContent body.
 func GeminiRequestHasWebSearch(request map[string]any) bool {
