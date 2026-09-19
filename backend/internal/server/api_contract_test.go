@@ -1953,6 +1953,10 @@ func (s *stubAccountRepo) CreateWithAccountGroups(ctx context.Context, account *
 	return errors.New("not implemented")
 }
 
+func (s *stubAccountRepo) CreateCopiesWithAccountGroups(ctx context.Context, accounts []*service.Account, groups []service.AccountGroup) error {
+	return errors.New("not implemented")
+}
+
 func (s *stubAccountRepo) GetByID(ctx context.Context, id int64) (*service.Account, error) {
 	return nil, service.ErrAccountNotFound
 }
