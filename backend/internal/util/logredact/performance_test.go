@@ -1,7 +1,9 @@
 package logredact
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -98,6 +100,82 @@ func BenchmarkRedactJSONResponses(b *testing.B) {
 	}
 }
 
+func TestRedactJSONValueMatchesQAEncodeDecode(t *testing.T) {
+	for _, prose := range []string{
+		"ordinary response text",
+		`token=synthetic "password":"synthetic"`,
+		"中文说明: 构建成功，结果 = 正常。",
+	} {
+		content := make([]any, 32)
+		for i := range content {
+			content[i] = map[string]any{"type": "output_text", "text": prose}
+		}
+		raw, err := json.Marshal(map[string]any{"output": content})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var want any
+		if err := json.Unmarshal([]byte(RedactJSON(raw)), &want); err != nil {
+			t.Fatal(err)
+		}
+		got, err := RedactJSONValue(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("RedactJSONValue mismatch for %q", prose)
+		}
+	}
+}
+
+func BenchmarkRedactJSONDecodeOnce(b *testing.B) {
+	content := make([]any, 512)
+	for i := range content {
+		content[i] = map[string]any{
+			"type": "output_text",
+			"text": strings.Repeat("The response explains how to build and verify the application. ", 8),
+		}
+	}
+	raw, err := json.Marshal(map[string]any{"output": content})
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.SetBytes(int64(len(raw)))
+	b.ReportAllocs()
+	b.Run("qa_current_encode_decode", func(b *testing.B) {
+		for b.Loop() {
+			var out any
+			trimmed := strings.TrimSpace(string(raw))
+			if json.Valid([]byte(trimmed)) {
+				if err := json.Unmarshal([]byte(RedactJSON([]byte(trimmed))), &out); err != nil {
+					b.Fatal(err)
+				}
+			}
+			_ = out
+		}
+	})
+	b.Run("decode_once", func(b *testing.B) {
+		for b.Loop() {
+			trimmed := strings.TrimSpace(string(raw))
+			out, err := RedactJSONValue([]byte(trimmed))
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = out
+		}
+	})
+	b.Run("decode_once_bytes", func(b *testing.B) {
+		for b.Loop() {
+			out, err := RedactJSONValue(bytes.TrimSpace(raw))
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = out
+		}
+	})
+}
+
 func BenchmarkRedactSSEChunk(b *testing.B) {
 	for _, size := range []struct {
 		name    string
@@ -115,6 +193,14 @@ func BenchmarkRedactSSEChunk(b *testing.B) {
 			}{
 				{"original", func(s string) string {
 					return redactUnstructuredReference(strings.TrimSpace(s), defaultTextRedactPatterns)
+				}},
+				{"qa_current", func(s string) string {
+					s = strings.TrimSpace(s)
+					raw := []byte(s)
+					if json.Valid(raw) {
+						return RedactJSON(raw)
+					}
+					return redactUnstructuredText(s, defaultTextRedactPatterns)
 				}},
 				{"optimized", func(s string) string { return RedactText(s) }},
 			} {

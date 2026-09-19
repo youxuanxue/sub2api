@@ -160,17 +160,30 @@ func RedactJSON(raw []byte, extraKeys ...string) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	redacted, err := RedactJSONValue(raw, extraKeys...)
+	if err != nil {
 		return "<non-json payload redacted>"
 	}
-	keys := buildKeySet(extraKeys)
-	redacted := redactValueWithDepth(value, keys, getTextRedactPatterns(extraKeys), 0)
 	encoded, err := json.Marshal(redacted)
 	if err != nil {
 		return "<redacted>"
 	}
 	return string(encoded)
+}
+
+// RedactJSONValue decodes and redacts a JSON payload once, returning the
+// resulting Go value. Callers that already need a decoded value can avoid the
+// marshal followed by a second unmarshal required by RedactJSON.
+func RedactJSONValue(raw []byte, extraKeys ...string) (any, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	keys := buildKeySet(extraKeys)
+	return redactValueWithDepth(value, keys, getTextRedactPatterns(extraKeys), 0), nil
 }
 
 // RedactText 对非结构化文本做轻量脱敏。

@@ -663,17 +663,14 @@ func sanitizeQABytes(raw []byte, maxBytes int) any {
 	if maxBytes > 0 && len(raw) > maxBytes {
 		raw = raw[:maxBytes]
 	}
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
 		return map[string]any{}
 	}
-	if json.Valid([]byte(trimmed)) {
-		var out any
-		if err := json.Unmarshal([]byte(logredact.RedactJSON([]byte(trimmed))), &out); err == nil {
-			return out
-		}
+	if out, err := logredact.RedactJSONValue(trimmed); err == nil {
+		return out
 	}
-	return logredact.RedactText(trimmed)
+	return logredact.RedactText(string(trimmed))
 }
 
 // sanitizeQABody 与 sanitizeQABytes 同语义；当 preserveThinking=true 时，在脱敏后把
