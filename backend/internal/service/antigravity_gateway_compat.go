@@ -264,23 +264,13 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 	projectID string,
 	mappedModel string,
 ) ([]byte, error) {
-	if strings.HasPrefix(strings.ToLower(mappedModel), "gemini-") {
+	if isAntigravityGeminiFamilyModel(mappedModel) {
+		// Chat/Responses → Claude intermediate → generateContent → ForwardGemini wire.
 		body, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 		if err != nil {
 			return nil, err
 		}
-		body, err = enableMixedGeminiToolInvocations(body)
-		if err != nil {
-			return nil, err
-		}
 		body = ensureGeminiFunctionCallThoughtSignatures(body)
-		body, err = injectIdentityPatchToGeminiRequest(body)
-		if err != nil {
-			return nil, err
-		}
-		if cleaned, cleanErr := cleanGeminiRequest(body); cleanErr == nil {
-			body = cleaned
-		}
 		return s.wrapAntigravityCompatGeminiRequest(projectID, mappedModel, body)
 	}
 

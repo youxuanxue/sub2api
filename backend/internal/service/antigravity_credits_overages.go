@@ -181,6 +181,8 @@ func (s *AntigravityGatewayService) attemptCreditsOveragesRetry(
 	if creditsBody == nil {
 		return &creditsOveragesRetryResult{handled: false}
 	}
+	p.body = creditsBody
+	setOpsUpstreamRequestBody(p.c, p.body)
 	modelKey := resolveCreditsOveragesModelKey(p.ctx, p.account, modelName, p.requestedModel)
 	logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 credit_overages_retry model=%s account=%d (injecting enabledCreditTypes)",
 		p.prefix, modelKey, p.account.ID)

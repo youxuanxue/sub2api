@@ -122,27 +122,10 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		proxyURL = account.Proxy.URL()
 	}
 
-	// Antigravity 上游要求必须包含身份提示词，注入到请求中
-	injectedBody, err := injectIdentityPatchToGeminiRequest(body)
+	injectedBody, err := s.normalizeForwardGeminiGenerateContentBody(body)
 	if err != nil {
 		return nil, s.writeGoogleError(c, http.StatusBadRequest, "Invalid request body")
 	}
-	injectedBody = tkEnsureGeminiContentRoles(injectedBody)
-
-	// 清理 Schema
-	if cleanedBody, err := cleanGeminiRequest(injectedBody); err == nil {
-		injectedBody = cleanedBody
-		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Cleaned request schema in forwarded request for account %s", account.Name)
-	} else {
-		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Failed to clean schema: %v", err)
-	}
-
-	// Antigravity v1internal rejects built-in + functionDeclarations mixes (#6464).
-	if reconciled, err := enableMixedGeminiToolInvocations(injectedBody); err == nil {
-		injectedBody = reconciled
-	}
-
-	// 包装请求
 	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody)
 	if err != nil {
 		return nil, s.writeGoogleError(c, http.StatusInternalServerError, "Failed to build upstream request")

@@ -1463,12 +1463,25 @@
     {
       "path": "backend/internal/service/antigravity_gateway_compat_tk.go",
       "must_contain": [
-        "return s.wrapV1InternalRequest(projectID, model, tkEnsureGeminiContentRoles(body))"
+        "func (s *AntigravityGatewayService) wrapAntigravityCompatGeminiRequest(projectID, model string, body []byte) ([]byte, error)",
+        "return s.prepareForwardGeminiWireBody(projectID, model, body)"
       ],
       "must_not_contain": [
         "delete(request, \"sessionId\")"
       ],
-      "rationale": "Antigravity OAuth Chat Completions must use the native v1internal envelope, including sessionId, then convert the response. Stripping sessionId is the VALIDATION_REQUIRED wire."
+      "rationale": "Antigravity OAuth Chat Completions must use the native v1internal envelope, including sessionId, then convert the response. Stripping sessionId is the VALIDATION_REQUIRED wire. Gemini-family prep is owned by prepareForwardGeminiWireBody (shared with ForwardGemini)."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_gemini_wire_tk.go",
+      "must_contain": [
+        "func (s *AntigravityGatewayService) prepareForwardGeminiWireBody(projectID, mappedModel string, generateContentBody []byte) ([]byte, error)",
+        "return s.wrapV1InternalRequest(projectID, mappedModel, normalized)",
+        "func (s *AntigravityGatewayService) buildMessagesForwardUpstreamBody("
+      ],
+      "must_not_contain": [
+        "delete(request, \"sessionId\")"
+      ],
+      "rationale": "AG Gemini-family messages/chat/responses must share ForwardGemini's wrapV1internalRequest wire (requestType/enabledCreditTypes), not a parallel envelope that drops sessionId."
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_chat_tools.go",
