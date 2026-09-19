@@ -47,7 +47,7 @@ func (r *accountRepository) ListSchedulableByGroupIDs(ctx context.Context, group
 				tempUnschedulablePredicate(),
 				notExpiredPredicate(now),
 				dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-				dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+				accountNotBlockedByAccountWideRateLimit(now),
 			),
 		).
 		Order(

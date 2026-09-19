@@ -543,6 +543,20 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 	return g
 }
 
+func edgeAccountRateLimitedAt(a *service.Account) *time.Time {
+	if service.NewAPIAccountWindowLockIgnored(a) {
+		return nil
+	}
+	return a.RateLimitedAt
+}
+
+func edgeAccountRateLimitResetAt(a *service.Account) *time.Time {
+	if service.NewAPIAccountWindowLockIgnored(a) {
+		return nil
+	}
+	return a.RateLimitResetAt
+}
+
 // toEdgeAccountDTO maps a service.Account to the sanitized read-model's static
 // fields. It reads ONLY non-sensitive fields/getters — Credentials/Proxy/Notes are
 // never touched. The sole Extra read is a curated, active-only projection of
@@ -572,8 +586,8 @@ func toEdgeAccountDTO(a *service.Account) edgeAccountDTO {
 		SessionWindowEnd:          a.SessionWindowEnd,
 		TempUnschedulableUntil:    a.TempUnschedulableUntil,
 		TempUnschedulableReason:   a.TempUnschedulableReason,
-		RateLimitedAt:             a.RateLimitedAt,
-		RateLimitResetAt:          a.RateLimitResetAt,
+		RateLimitedAt:             edgeAccountRateLimitedAt(a),
+		RateLimitResetAt:          edgeAccountRateLimitResetAt(a),
 		OverloadUntil:             a.OverloadUntil,
 		MaxSessions:               a.GetMaxSessions(),
 		SessionIdleTimeoutMinutes: a.GetSessionIdleTimeoutMinutes(),

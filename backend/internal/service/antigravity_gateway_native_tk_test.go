@@ -25,6 +25,29 @@ func TestAntigravityGatewayService_WrapNativeImageRequestUsesImageGenEnvelope(t 
 	require.NoError(t, json.Unmarshal(wrappedBody, &wrapped))
 	require.Equal(t, "image_gen", wrapped["requestType"])
 	require.Regexp(t, `^image_gen/[0-9]+/.+/12$`, wrapped["requestId"])
+	request, ok := wrapped["request"].(map[string]any)
+	require.True(t, ok)
+	gen, ok := request["generationConfig"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, []any{"TEXT", "IMAGE"}, gen["responseModalities"])
+}
+
+func TestAntigravityGatewayService_WrapNativeImageRequestPreservesExistingModalities(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"draw a cat"}]}],"generationConfig":{"responseModalities":["IMAGE"],"imageConfig":{"aspectRatio":"16:9"}}}`)
+
+	wrappedBody, err := svc.wrapV1InternalRequest("project-image", "gemini-3.1-flash-image", body)
+	require.NoError(t, err)
+	var wrapped map[string]any
+	require.NoError(t, json.Unmarshal(wrappedBody, &wrapped))
+	request, ok := wrapped["request"].(map[string]any)
+	require.True(t, ok)
+	gen, ok := request["generationConfig"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, []any{"IMAGE"}, gen["responseModalities"])
+	img, ok := gen["imageConfig"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "16:9", img["aspectRatio"])
 }
 
 func TestAntigravityGatewayService_ForwardGemini_NonStreamingCollectsStreamingUpstream(t *testing.T) {

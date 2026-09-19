@@ -233,8 +233,16 @@ func newAPIAliTokenPlanModelMappingPresetIDs() []string {
 		newapiconstant.ChannelTypeAli,
 		newapiintegration.AliTokenPlanBaseURL,
 	)
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		seen[id] = struct{}{}
+	}
 	for alias := range newAPIAliTokenPlanModelAliases() {
+		if _, exists := seen[alias]; exists {
+			continue
+		}
 		ids = append(ids, alias)
+		seen[alias] = struct{}{}
 	}
 	sort.Strings(ids)
 	return ids
@@ -258,12 +266,17 @@ func newAPIVolcEngineAgentPlanModelAliases() map[string]string {
 // PAYG aliases retain their original targets.
 func newAPIAliTokenPlanModelAliases() map[string]string {
 	return map[string]string{
-		"qwen-plus":       "qwen3.7-plus",
-		"qwen-max":        "qwen3.8-max",
-		"qwen-turbo":      "qwen3.8-flash",
-		"qwen3-32b":       "qwen3.7-plus",
-		"qwen3-235b-a22b": "qwen3.7-plus",
-		"qwen3-8b":        "qwen3.6-flash",
+		"deepseek-flash":       "deepseek-v4.1-flash",
+		"deepseek-v4-flash":    "deepseek-v4-flash-0731",
+		"deepseek-v4-pro-0813": "deepseek-v4-pro",
+		"qwen-plus":            "qwen3.7-plus",
+		"qwen-max":             "qwen3.8-max",
+		"qwen-turbo":           "qwen3.8-flash",
+		"qwen3-32b":            "qwen3.7-plus",
+		"qwen3-235b-a22b":      "qwen3.7-plus",
+		"qwen3-8b":             "qwen3.6-flash",
+		"qwen3.6-27b":          "qwen3.6-flash",
+		"qwen3.7-flash":        "qwen3.8-flash",
 	}
 }
 

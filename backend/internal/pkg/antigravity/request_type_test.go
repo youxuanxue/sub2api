@@ -18,6 +18,17 @@ func TestResolveV1InternalRequestType_ImageGen(t *testing.T) {
 	}
 }
 
+func TestAgentEnabledCreditTypes_OnlyAgent(t *testing.T) {
+	if got := AgentEnabledCreditTypes("agent"); len(got) != 1 || got[0] != "GOOGLE_ONE_AI" {
+		t.Fatalf("agent credits = %#v", got)
+	}
+	for _, requestType := range []string{"", "image_gen", "web_search"} {
+		if got := AgentEnabledCreditTypes(requestType); got != nil {
+			t.Fatalf("%q must not declare credits, got %#v", requestType, got)
+		}
+	}
+}
+
 func TestResolveV1InternalRequestType_AgentWhenTools(t *testing.T) {
 	t.Parallel()
 	got := ResolveV1InternalRequestType("gemini-3.1-pro-preview", false, true, false)

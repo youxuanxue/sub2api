@@ -6,8 +6,8 @@ existing file after merge causes startup failures such as:
 
     migration tk_044_....sql checksum mismatch (db=... file=...)
 
-This check scans backend/migrations/*.sql changed between the merge base and
-HEAD. Modifications, deletions, and renames of files that already exist on the
+This check scans backend/migrations/*.sql changed between the base ref and
+HEAD (the staged tree during a pending merge). Modifications, deletions, and renames of files that already exist on the
 base ref are rejected. Add a NEW numbered migration instead.
 
 Emergency restore of a mistakenly edited migration is allowed only when the
@@ -112,6 +112,14 @@ def changed_migration_paths(base: str, head: str) -> list[tuple[str, str, str]]:
     return rows
 
 def scan(base: str, head: str) -> list[Violation]:
+    # During a merge pre-commit, HEAD still names the old branch tip. Compare
+    # the tree about to be committed so migrations arriving from base are not
+    # reported as deletions. Explicit historical refs keep their old semantics.
+    if head == "HEAD" and git("rev-parse", "--verify", "MERGE_HEAD").returncode == 0:
+        tree = git("write-tree")
+        if tree.returncode != 0:
+            raise RuntimeError(tree.stderr.strip() or "cannot read merge index tree")
+        head = tree.stdout.strip()
     violations: list[Violation] = []
     shipped_tags = release_tags_ancestor_of(base)
     for status, old_path, new_path in changed_migration_paths(base, head):
@@ -189,7 +197,12 @@ def selftest() -> int:
             print(f"  - {failure}")
         return 1
     print("ok: migration-immutability selftest")
-    return 0
+    # Exercise the real Git merge/index behavior in the preflight selftest.
+    return subprocess.run(
+        [sys.executable, "-m", "unittest", "discover", "-s", str(Path(__file__).parent),
+         "-p", "test_migration_immutability.py"],
+        check=False,
+    ).returncode
 
 
 def main() -> int:

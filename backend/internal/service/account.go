@@ -201,7 +201,7 @@ func (a *Account) IsSchedulable() bool {
 	if a.OverloadUntil != nil && now.Before(*a.OverloadUntil) {
 		return false
 	}
-	if a.RateLimitResetAt != nil && now.Before(*a.RateLimitResetAt) {
+	if accountWideRateLimitBlocks(a, now) {
 		return false
 	}
 	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {
@@ -240,10 +240,7 @@ func (a *Account) IsCredentialUsableForShadow() bool {
 }
 
 func (a *Account) IsRateLimited() bool {
-	if a.RateLimitResetAt == nil {
-		return false
-	}
-	return time.Now().Before(*a.RateLimitResetAt)
+	return accountWideRateLimitBlocks(a, time.Now())
 }
 
 func (a *Account) IsOverloaded() bool {

@@ -223,6 +223,7 @@ interface OAuthFlowExposed {
 interface Props {
   show: boolean
   account: Account | null
+  autoGenerate?: boolean
 }
 
 const props = defineProps<Props>()
@@ -323,33 +324,6 @@ const canExchangeCode = computed(() => {
   const loading = currentLoading.value
   return authCode.trim() && sessionId && !loading
 })
-
-// Watchers
-watch(
-  () => props.show,
-  (newVal) => {
-    if (newVal && props.account) {
-      // Initialize addMethod based on current account type (Claude only)
-      if (
-        isAnthropic.value &&
-        (props.account.type === 'oauth' || props.account.type === 'setup-token')
-      ) {
-        addMethod.value = props.account.type as AddMethod
-      }
-      if (isGemini.value) {
-        const creds = (props.account.credentials || {}) as Record<string, unknown>
-        geminiOAuthType.value =
-          creds.oauth_type === 'google_one'
-            ? 'google_one'
-            : creds.oauth_type === 'ai_studio'
-              ? 'ai_studio'
-              : 'code_assist'
-      }
-    } else {
-      resetState()
-    }
-  }
-)
 
 // Methods
 const resetState = () => {
@@ -465,6 +439,7 @@ const handleExchangeCode = async () => {
     }
   } else if (isAntigravity.value) {
     // Antigravity OAuth flow
+    const accountID = props.account.id
     const sessionId = antigravityOAuth.sessionId.value
     if (!sessionId) return
 
@@ -483,11 +458,10 @@ const handleExchangeCode = async () => {
     const credentials = antigravityOAuth.buildCredentials(tokenInfo)
 
     try {
-      await adminAPI.accounts.update(props.account.id, {
+      const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(accountID, {
         type: 'oauth',
         credentials
       })
-      const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
       appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
       emit('reauthorized', updatedAccount)
       handleClose()
@@ -749,4 +723,32 @@ const handleGrokValidateRefreshToken = async (refreshTokenInput: string) => {
     grokOAuth.loading.value = false
   }
 }
+
+// Watchers
+watch(
+  [() => props.show, () => props.account?.id],
+  ([newVal]) => {
+    resetState()
+    if (newVal && props.account) {
+      if (props.autoGenerate && isAntigravity.value) void handleGenerateUrl()
+      // Initialize addMethod based on current account type (Claude only)
+      if (
+        isAnthropic.value &&
+        (props.account.type === 'oauth' || props.account.type === 'setup-token')
+      ) {
+        addMethod.value = props.account.type as AddMethod
+      }
+      if (isGemini.value) {
+        const creds = (props.account.credentials || {}) as Record<string, unknown>
+        geminiOAuthType.value =
+          creds.oauth_type === 'google_one'
+            ? 'google_one'
+            : creds.oauth_type === 'ai_studio'
+              ? 'ai_studio'
+              : 'code_assist'
+      }
+    }
+  },
+  { immediate: true }
+)
 </script>

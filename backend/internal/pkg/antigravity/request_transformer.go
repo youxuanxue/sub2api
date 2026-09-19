@@ -196,12 +196,13 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 
 	// 6. 包装为 v1internal 请求
 	v1Req := V1InternalRequest{
-		Project:     projectID,
-		RequestID:   "agent-" + uuid.New().String(),
-		UserAgent:   "antigravity", // 固定值，与官方客户端一致
-		RequestType: requestType,
-		Model:       targetModel,
-		Request:     innerRequest,
+		Project:            projectID,
+		RequestID:          "agent-" + uuid.New().String(),
+		UserAgent:          "antigravity", // 固定值，与官方客户端一致
+		RequestType:        requestType,
+		EnabledCreditTypes: AgentEnabledCreditTypes(requestType),
+		Model:              targetModel,
+		Request:            innerRequest,
 	}
 
 	return json.Marshal(v1Req)
@@ -698,6 +699,13 @@ func buildGenerationConfig(req *ClaudeRequest) *GeminiGenerationConfig {
 		if req.TopK != nil {
 			config.TopK = req.TopK
 		}
+	}
+
+	// TK: image models must request TEXT+IMAGE modalities. Claude→Gemini and
+	// Chat Completions conversion never carry responseModalities; without them
+	// cloudcode-pa returns empty content under requestType=image_gen.
+	if IsImageModel(req.Model) {
+		config.ResponseModalities = []string{"TEXT", "IMAGE"}
 	}
 
 	// TK: gemini-native image aspect-ratio passthrough. Only image models, and only

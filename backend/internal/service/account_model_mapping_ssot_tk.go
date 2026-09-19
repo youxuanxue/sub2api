@@ -12,7 +12,6 @@ import (
 	newapiconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/integration/cursor"
-	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
@@ -411,9 +410,6 @@ func accountModelMappingForbiddenPrefixesByScope() map[string][]string {
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeAnthropic, cursor.AgentBaseURL,
 		): {cursorExcludedModelPrefix},
-		"account_override:" + normalizeAccountModelMappingOverrideScope(
-			PlatformNewAPI, newapiconstant.ChannelTypeAli, newapiintegration.AliTokenPlanBaseURL,
-		): {"deepseek-", "glm-"},
 	}
 }
 

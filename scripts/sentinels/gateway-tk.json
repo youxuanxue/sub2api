@@ -190,9 +190,34 @@
     {
       "path": "backend/internal/util/logredact/redact.go",
       "must_contain": [
-        "return redactUnstructuredText(v, getTextRedactPatterns(extraKeys))"
+        "redactValueWithDepth(value, keys, getTextRedactPatterns(extraKeys), 0)",
+        "return redactUnstructuredText(v, patterns)",
+        "if !patterns.mayContainAssignment(out)",
+        "containsGitHubTokenPrefix(out)",
+        "n = n.children[foldKeyRune(r)]",
+        "encodedKeys = strconv.AppendInt(encodedKeys, int64(len(key)), 10)",
+        "cacheKey := string(encodedKeys)"
       ],
       "rationale": "US-053: preserve the security boundary and its regression coverage during upstream merges."
+    },
+    {
+      "path": "backend/internal/util/logredact/redact_test.go",
+      "must_contain": [
+        "TestRedactText_ExtraKeyCacheSeparatesKeyLists"
+      ],
+      "rationale": "Preserve behavioral coverage against custom-key cache collisions during upstream merges."
+    },
+    {
+      "path": "backend/internal/util/logredact/performance_test.go",
+      "must_contain": [
+        "TestRedactionGuardsMatchOriginalPipeline",
+        "FuzzRedactionGuardsMatchOriginalPipeline",
+        "TestRedactSSEPreservesOriginalCoverage",
+        "BenchmarkRedactJSONResponses",
+        "BenchmarkRedactSSEChunk",
+        "BenchmarkRedactContentLeaf"
+      ],
+      "rationale": "Keep conservative redaction guards covered by equivalence tests and JSON/SSE performance benchmarks."
     },
     {
       "path": "backend/internal/observability/qa/security_capture_test.go",
@@ -402,43 +427,113 @@
     },
     {
       "path": "ops/stage0/gateway_capability_matrix.py",
-      "must_contain": ["def build(", "def validate_inventory(", "account-supply-representatives", "def select(cases, limit=None)", "def delta(", "def report(", "coverage status must be derived", "verification_sha256", "harness-passed", "def replay_summary(", "def replay_details(", "def selected_case_ids(", "account_class_coverage", "unverified capability must remain blocked", "blocked_case_cannot_pass"],
+      "must_contain": [
+        "def build(",
+        "def validate_inventory(",
+        "account-supply-representatives",
+        "def select(cases, limit=None)",
+        "def delta(",
+        "def report(",
+        "coverage status must be derived",
+        "verification_sha256",
+        "harness-passed",
+        "def replay_summary(",
+        "def replay_details(",
+        "def selected_case_ids(",
+        "account_class_coverage",
+        "unverified capability must remain blocked",
+        "blocked_case_cannot_pass"
+      ],
       "rationale": "Capability obligations derive from reviewed account-supply classes and universal fixtures; catalog expansion and silent default truncation must not return. prepared_gateway receipts must surface account_class_coverage for approval."
     },
     {
       "path": "backend/internal/service/account.go",
-      "must_contain": ["a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()"],
+      "must_contain": [
+        "a.Type != AccountTypeAPIKey && !a.IsNewAPIVertexServiceAccount()"
+      ],
       "rationale": "Vertex embedding service accounts must survive the same scheduler capability gate as discovery, without admitting other OAuth/service-account shapes."
     },
     {
       "path": "backend/internal/service/openai_gateway_scheduling_tk_eligibility_reason_test.go",
-      "must_contain": ["TestVertexEmbeddingEligibilityRetainsServiceAccount"],
+      "must_contain": [
+        "TestVertexEmbeddingEligibilityRetainsServiceAccount"
+      ],
       "rationale": "Exercise the actual scheduler candidate filter including explicit capability denial and unavailable accounts."
     },
     {
       "path": "backend/internal/handler/openai_gateway_handler_tk_forward_usage.go",
-      "must_contain": ["tkSubmitOpenAISimpleForwardUsage", "SessionID:          sessionID,"],
+      "must_contain": [
+        "tkSubmitOpenAISimpleForwardUsage",
+        "SessionID:          sessionID,"
+      ],
       "rationale": "Simple audio/media usage must snapshot the ordinary client session before async recording."
     },
     {
       "path": "backend/internal/handler/openai_gateway_simple_usage_session_tk_test.go",
-      "must_contain": ["TestOpenAISimpleForwardUsagePersistsClientSession"],
+      "must_contain": [
+        "TestOpenAISimpleForwardUsagePersistsClientSession"
+      ],
       "rationale": "Exercise handler submission through RecordUsage to the persisted usage row, including absent-session behavior."
     },
     {
       "path": "ops/stage0/gateway_capability_host.py",
-      "must_contain": ["def test_key(", "def run_locked(", "def candidate_address(", "def attribution(", "prepared_gateway", "on_response_id=retain_id", "INTERVAL_SECONDS = 10", "route_unchanged", "normal_universal", "matrix.replay_summary(result, coverage)", "matrix.selected_case_ids(plan, case_ids)", "matrix.blocked_status(case)", "thinking_request_accepted"],
-      "must_not_contain": ["replay.Sandbox", "pg_dump", "pg_restore", "host_guard", "getloadavg", "/proc/pressure", "INSERT INTO", "UPDATE api_keys", "docker run"],
+      "must_contain": [
+        "def test_key(",
+        "def run_locked(",
+        "def candidate_address(",
+        "def attribution(",
+        "prepared_gateway",
+        "on_response_id=retain_id",
+        "INTERVAL_SECONDS = 10",
+        "route_unchanged",
+        "normal_universal",
+        "matrix.replay_summary(result, coverage)",
+        "matrix.selected_case_ids(plan, case_ids)",
+        "matrix.blocked_status(case)",
+        "thinking_request_accepted"
+      ],
+      "must_not_contain": [
+        "replay.Sandbox",
+        "pg_dump",
+        "pg_restore",
+        "host_guard",
+        "getloadavg",
+        "/proc/pressure",
+        "INSERT INTO",
+        "UPDATE api_keys",
+        "docker run"
+      ],
       "rationale": "Normal blue/green candidate verification uses an existing universal test key, serial requests, real usage and unchanged routing; no parallel sandbox deployment."
     },
     {
       "path": "ops/stage0/test_gateway_capability_host.py",
-      "must_contain": ["test_key_requires_one_active_universal_identity", "test_route_change_blocks_send_before_key_leaves_host", "test_full_plan_uses_existing_candidate_and_keeps_failures", "test_http_errors_and_timeouts_are_recorded_without_skipping_suite", "test_usage_verifies_test_key_and_reports_normal_account_selection", "test_missing_test_key_retains_every_obligation", "test_video_pending_operation_and_inline_mp4_completion", "test_blocked_capabilities_cannot_execute_even_when_called_directly", "test_thinking_proof_separates_acceptance_reasoning_and_quality", "test_vision_requires_expected_answer_not_just_blue_mention", "test_vision_checks_visible_answer_across_protocols", "test_vision_joins_streamed_visible_answer"],
+      "must_contain": [
+        "test_key_requires_one_active_universal_identity",
+        "test_route_change_blocks_send_before_key_leaves_host",
+        "test_full_plan_uses_existing_candidate_and_keeps_failures",
+        "test_http_errors_and_timeouts_are_recorded_without_skipping_suite",
+        "test_usage_verifies_test_key_and_reports_normal_account_selection",
+        "test_missing_test_key_retains_every_obligation",
+        "test_video_pending_operation_and_inline_mp4_completion",
+        "test_blocked_capabilities_cannot_execute_even_when_called_directly",
+        "test_thinking_proof_separates_acceptance_reasoning_and_quality",
+        "test_vision_requires_expected_answer_not_just_blue_mention",
+        "test_vision_checks_visible_answer_across_protocols",
+        "test_vision_joins_streamed_visible_answer"
+      ],
       "rationale": "Behavioral guards preserve candidate-only sends, test-key attribution and the full denominator without creating extra resources."
     },
     {
       "path": "ops/stage0/gateway_capability_check.py",
-      "must_contain": ["def validate_response(", "audio_payload_missing", "image_payload_missing", "def video_output_present(", "text = answer_text(protocol, events, stream)", "re.fullmatch(re.escape(expected.strip())", "vision_answer_mismatch"],
+      "must_contain": [
+        "def validate_response(",
+        "audio_payload_missing",
+        "image_payload_missing",
+        "def video_output_present(",
+        "text = answer_text(protocol, events, stream)",
+        "re.fullmatch(re.escape(expected.strip())",
+        "vision_answer_mismatch"
+      ],
       "rationale": "Synthetic responses require protocol and media semantics; execution targets the normal blue/green candidate."
     },
     {
@@ -458,7 +553,12 @@
     },
     {
       "path": "scripts/stage0/replay-prod-release.py",
-      "must_contain": ["matrix.replay_details(receipt, results)", "matrix.selected_case_ids(plan, args.case_id)", "arguments += ['--case-id', case_id]", "'selected_verdict' if case_ids is not None else 'verdict'"],
+      "must_contain": [
+        "matrix.replay_details(receipt, results)",
+        "matrix.selected_case_ids(plan, args.case_id)",
+        "arguments += ['--case-id', case_id]",
+        "'selected_verdict' if case_ids is not None else 'verdict'"
+      ],
       "rationale": "CLI consumes the shared receipt projection and forwards reviewed stable case IDs while keeping selected and full verdicts distinct."
     },
     {
@@ -1359,6 +1459,16 @@
         "adapterID: AdapterChatToGemini, transport: TransportHTTP, model: permitsGeminiModel, preserves: preservesChatToGemini"
       ],
       "rationale": "Standard Chat function tools must reach the Gemini converter through Plan."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat_tk.go",
+      "must_contain": [
+        "return s.wrapV1InternalRequest(projectID, model, tkEnsureGeminiContentRoles(body))"
+      ],
+      "must_not_contain": [
+        "delete(request, \"sessionId\")"
+      ],
+      "rationale": "Antigravity OAuth Chat Completions must use the native v1internal envelope, including sessionId, then convert the response. Stripping sessionId is the VALIDATION_REQUIRED wire."
     },
     {
       "path": "backend/internal/engine/protocolrouter/gemini_chat_tools.go",
@@ -5963,6 +6073,7 @@
         "func (s *RateLimitService) notifyAccountIncident(",
         "func (s *RateLimitService) notifyAccountRecovered(",
         "func isWholeAccountRuntimeBlockReason(reason string) bool",
+        "tkNewAPIModelWindowReason",
         "402_cloudwise_model_balance"
       ],
       "rationale": "把 AccountIncidentNotifier 注入 RateLimitService 的 glue：wire ProvideTKAccountIncidentNotifier 在构造后调 SetAccountIncidentNotifier 回填，挂钩点（ratelimit_service.go）经 notifyAccountIncident 转发。notifyAccountRecovered 是恢复绿卡的转发包装，由 notifyAccountSchedulingBlockCleared(ClearRateLimit/RecoverAccountState 真实清除事件)调用。isWholeAccountRuntimeBlockReason is the SSOT predicate for whether notifyAccountSchedulingBlocked also writes the in-memory whole-account runtime blocker (model-scoped 429 reasons excluded).删掉会让挂钩行编译失败或静默 no-op，账号失效/恢复告警链路断裂。"
@@ -13061,16 +13172,16 @@
       ],
       "rationale": "Cursor import and reconnect must not reintroduce GPT mappings from upstream discovery."
     },
-  {
-    "path": "backend/internal/service/antigravity_gateway_service.go",
-    "must_contain": [
-      "readOnlyAccountState: true",
-      "TestConnectionWithPrompt",
-      "extractImagesFromSSEResponse",
-      "responseModalities"
-    ],
-    "rationale": "Admin Antigravity TestConnection must stay read-only (no rate-limit / SetError writes) and image probes must request TEXT+IMAGE modalities. antigravity_gateway_service.go is upstream-shaped; a merge that restores the old mutating TestConnection would silently re-arm probe-side account disable. Pins the readOnlyAccountState=true injection and image modality path. Pairs with TestApplyErrorPolicy_ReadOnlySkipsAccountMutation and TestBuildGeminiTestRequest_ImageModelRequestsModalities."
-  },
+    {
+      "path": "backend/internal/service/antigravity_gateway_service.go",
+      "must_contain": [
+        "readOnlyAccountState: true",
+        "TestConnectionWithPrompt",
+        "extractImagesFromSSEResponse",
+        "responseModalities"
+      ],
+      "rationale": "Admin Antigravity TestConnection must stay read-only (no rate-limit / SetError writes) and image probes must request TEXT+IMAGE modalities. antigravity_gateway_service.go is upstream-shaped; a merge that restores the old mutating TestConnection would silently re-arm probe-side account disable. Pins the readOnlyAccountState=true injection and image modality path. Pairs with TestApplyErrorPolicy_ReadOnlySkipsAccountMutation and TestBuildGeminiTestRequest_ImageModelRequestsModalities."
+    },
     {
       "path": "backend/internal/pkg/antigravity/request_type.go",
       "must_contain": [
@@ -13079,6 +13190,8 @@
         "return \"web_search\"",
         "return \"agent\"",
         "return \"\"",
+        "func AgentEnabledCreditTypes(requestType string) []string {",
+        "return []string{\"GOOGLE_ONE_AI\"}",
         "func GeminiRequestHasWebSearch("
       ],
       "rationale": "Conditional cloudcode-pa requestType is load-bearing anti-VALIDATION_REQUIRED behavior: plain text must omit requestType; image/web_search/agent stay explicit. Anchor the resolver and googleSearch detection so an upstream merge cannot silently restore always-agent."
@@ -13090,19 +13203,51 @@
         "antigravity.GeminiRequestHasWebSearch(request)",
         "antigravity.GeminiRequestHasTools(request)",
         "if requestType != \"\" {",
-        "wrapped[\"requestType\"] = requestType"
+        "wrapped[\"requestType\"] = requestType",
+        "antigravity.AgentEnabledCreditTypes(requestType)"
       ],
-      "rationale": "Native Gemini wrap must use ResolveV1InternalRequestType (including googleSearch→web_search) and only emit requestType when non-empty. Prevents a merge from hard-coding requestType=agent again."
+      "rationale": "Native Gemini wrap must use ResolveV1InternalRequestType (including googleSearch→web_search) and only emit requestType when non-empty. Agent wraps must also declare GOOGLE_ONE_AI via AgentEnabledCreditTypes. Prevents a merge from hard-coding requestType=agent or dropping the credits declaration."
     },
-  {
-    "path": "backend/internal/service/antigravity_gateway_retry.go",
-    "must_contain": [
-      "readOnlyAccountState bool",
-      "if p.readOnlyAccountState {",
-      "!p.readOnlyAccountState && shouldMarkCreditsExhausted"
-    ],
-    "rationale": "Retry loop must honor readOnlyAccountState for admin probes — skip smart-retry capacity burns and credits-exhausted mutations. Upstream merges frequently touch this retry file; pin the flag and both gate sites."
-  },
+    {
+      "path": "backend/internal/service/antigravity_gateway_service.go",
+      "must_contain": [
+        "_ = antigravity.EnsureImageResponseModalities(request, model)"
+      ],
+      "rationale": "Chat Completions → AG image_gen must inject TEXT+IMAGE responseModalities via EnsureImageResponseModalities. Without it cloudcode-pa returns empty content (~token-only billing). The existing responseModalities sentinel only covers admin TestConnection; this pins the wrapV1InternalRequest chat/native injection call site. Pairs with image_modalities_tk.go and TestAntigravityGatewayService_WrapNativeImageRequestUsesImageGenEnvelope."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/image_modalities_tk.go",
+      "must_contain": [
+        "func EnsureImageResponseModalities(request map[string]any, model string) bool {",
+        "gen[\"responseModalities\"] = []string{\"TEXT\", \"IMAGE\"}"
+      ],
+      "rationale": "Owner of chat-path IMAGE modality injection for AG image models. Upstream/refactor deleting this companion would silently restore empty chat image content."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_native_tk_test.go",
+      "must_contain": [
+        "func TestAntigravityGatewayService_WrapNativeImageRequestUsesImageGenEnvelope(t *testing.T) {",
+        "require.Equal(t, []any{\"TEXT\", \"IMAGE\"}, gen[\"responseModalities\"])"
+      ],
+      "rationale": "Behavioral guard that wrap injects TEXT+IMAGE modalities for image models when absent."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_compat.go",
+      "must_contain": [
+        "if isImageGenerationModel(call.billingModel) {",
+        "ImageCount:                    imageCount,"
+      ],
+      "rationale": "Chat/Responses compat must bill ImageCount=1 for image models, matching ForwardGemini. Without this, successful chat image gens settle as token-only."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gateway_retry.go",
+      "must_contain": [
+        "readOnlyAccountState bool",
+        "if p.readOnlyAccountState {",
+        "!p.readOnlyAccountState && shouldMarkCreditsExhausted"
+      ],
+      "rationale": "Retry loop must honor readOnlyAccountState for admin probes — skip smart-retry capacity burns and credits-exhausted mutations. Upstream merges frequently touch this retry file; pin the flag and both gate sites."
+    },
     {
       "path": "backend/internal/repository/saturation_rolling_counter_test.go",
       "must_contain": [
@@ -13117,6 +13262,47 @@
         "saturationRollingIncrScript"
       ],
       "rationale": "Antigravity shares the versioned rolling counter owner."
+    },
+    {
+      "path": "backend/ent/schema/group.go",
+      "must_contain": [
+        "field.JSON(\"model_routing\", domain.GroupModelRouting{})"
+      ],
+      "rationale": "groups.model_routing must stay domain.GroupModelRouting so Ent Scan tolerates legacy JSON arrays (incl. []). Reverting to map[string][]int64 reopens ListActiveGroups fleet-wide 500 on one poisoned row (prod sticky237 incident)."
+    },
+    {
+      "path": "backend/internal/domain/group_model_routing.go",
+      "must_contain": [
+        "type GroupModelRouting map[string][]int64",
+        "if data[0] == '[' {",
+        "*m = GroupModelRouting{}",
+        "model_routing must be a JSON object, not an array"
+      ],
+      "rationale": "Read path coerces array→{} (ListActiveGroups survival); Admin Parse rejects arrays on write. Upstream merge dropping either half reopens the poison or loses the write gate."
+    },
+    {
+      "path": "backend/internal/repository/group_repo.go",
+      "must_contain": [
+        "builder = builder.SetModelRouting(domain.GroupModelRouting(groupIn.ModelRouting))"
+      ],
+      "rationale": "Create/Update must pass domain.GroupModelRouting into Ent setters after the schema type change; a merge that restores map[string][]int64 setters without this cast fails compile, but a partial revert that drops the cast while keeping the schema type is the silent drift this pin catches."
+    },
+    {
+      "path": "backend/internal/service/admin_group.go",
+      "must_contain": [
+        "ModelRouting:                           domain.NormalizeGroupModelRouting(input.ModelRoutingEnabled, input.ModelRouting),",
+        "ModelRoutingEnabled:                    input.ModelRoutingEnabled,"
+      ],
+      "rationale": "CreateGroup historically omitted ModelRoutingEnabled on the persisted Group (always defaulted false). Pin both Normalize + Enabled assignment so an upstream rewrite of the CreateGroup literal cannot drop Enabled again."
+    },
+    {
+      "path": "backend/internal/handler/admin/group_handler.go",
+      "must_contain": [
+        "type modelRoutingPayload map[string][]int64",
+        "parsed, err := domain.ParseGroupModelRoutingJSON(data)",
+        "ModelRouting:                           req.ModelRouting.asMap(),"
+      ],
+      "rationale": "Admin Create/Update must reject JSON-array model_routing before it reaches the DB. Pins the payload type, Parse reject path, and asMap() handoff so an upstream group_handler rewrite cannot restore bare map[string][]int64 binding that only fails with opaque bind errors."
     }
   ]
 }

@@ -342,6 +342,23 @@ func (s *groupRepoStubForAdmin) UpdateSortOrders(_ context.Context, updates []Gr
 	return nil
 }
 
+func TestAdminService_CreateGroup_PersistsModelRoutingEnabled(t *testing.T) {
+	repo := &groupRepoStubForAdmin{createID: 77}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	created, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:                "routing-enabled",
+		Platform:            PlatformAnthropic,
+		RateMultiplier:      1,
+		ModelRouting:        map[string][]int64{"claude-*": {9}},
+		ModelRoutingEnabled: true,
+	})
+	require.NoError(t, err)
+	require.Same(t, repo.created, created)
+	require.True(t, created.ModelRoutingEnabled)
+	require.Equal(t, map[string][]int64{"claude-*": {9}}, created.ModelRouting)
+}
+
 func TestAdminService_CreateGroup_RejectsTimePricing(t *testing.T) {
 	repo := &groupRepoStubForAdmin{createID: 51}
 	svc := &adminServiceImpl{groupRepo: repo}

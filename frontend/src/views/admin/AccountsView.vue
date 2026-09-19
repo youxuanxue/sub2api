@@ -359,7 +359,7 @@
           </template>
           <template #cell-status="{ row }">
             <div class="flex items-center gap-1.5">
-              <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
+              <AccountStatusIndicator :account="row" can-reauthorize @reauth="handleAuthorizationLink" @show-temp-unsched="handleShowTempUnsched" />
             </div>
           </template>
           <template #cell-schedulable="{ row }">
@@ -532,7 +532,7 @@
     <CursorConnectModal v-if="showCursorConnect" :show="showCursorConnect" :groups="groups" :account="cursorAccount" @close="showCursorConnect = false" @saved="reload" />
     <CreateAccountModal v-if="lazyMount('create', showCreate)" :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal v-if="lazyMount('edit', showEdit)" :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
-    <ReAuthAccountModal v-if="lazyMount('reauth', showReAuth)" :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
+    <ReAuthAccountModal v-if="lazyMount('reauth', showReAuth)" :show="showReAuth" :account="reAuthAcc" :auto-generate="autoGenerateAuthLink" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal v-if="lazyMount('test', showTest)" :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal v-if="lazyMount('stats', showStats)" :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel v-if="lazyMount('schedule', showSchedulePanel)" :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
@@ -776,6 +776,7 @@ const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
 const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
+const autoGenerateAuthLink = ref(false)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
 const showSchedulePanel = ref(false)
@@ -2591,8 +2592,13 @@ const handleSchedule = async (a: Account) => {
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
 const handleReAuth = (a: Account) => {
+  autoGenerateAuthLink.value = false
   reAuthAcc.value = a
   showReAuth.value = true
+}
+const handleAuthorizationLink = (a: Account) => {
+  handleReAuth(a)
+  autoGenerateAuthLink.value = true
 }
 const duplicatingAccountIDs = new Set<number>()
 const handleDuplicateAccount = async (a: Account) => {

@@ -51,7 +51,8 @@ type antigravityCompatUpstreamCall struct {
 	geminiBody   []byte
 }
 
-// ForwardAsChatCompletions 使用 Antigravity 原生 OAuth 账号转发 Chat Completions 请求。
+// ForwardAsChatCompletions 把客户端 Chat Completions 转成原生 Antigravity
+// generateContent 再转发，响应再转回 Chat Completions。上游不接收 /v1/chat/completions。
 func (s *AntigravityGatewayService) ForwardAsChatCompletions(
 	ctx context.Context,
 	c *gin.Context,
@@ -401,6 +402,12 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		streamResult.usage = &ClaudeUsage{}
 	}
 
+	imageCount := 0
+	if isImageGenerationModel(call.billingModel) {
+		// Gemini image APIs return one image per request; match ForwardGemini billing.
+		imageCount = 1
+	}
+
 	return &ForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
@@ -414,6 +421,7 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 		FirstTokenMs:                  streamResult.firstTokenMs,
 		ReasoningEffort:               call.request.reasoningEffort,
 		ClientDisconnect:              streamResult.clientDisconnect,
+		ImageCount:                    imageCount,
 	}, nil
 }
 

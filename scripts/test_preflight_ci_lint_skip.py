@@ -25,7 +25,7 @@ def configured_command() -> str:
     return commands[0]
 
 
-def run_configured_command(*, github_actions: bool) -> bool:
+def run_configured_command(*, github_actions: bool, backend_lint: str = "1") -> bool:
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
         (root / "backend").mkdir()
@@ -41,6 +41,7 @@ def run_configured_command(*, github_actions: bool) -> bool:
         )
         fake_make.chmod(0o755)
         env = os.environ.copy()
+        env["PREFLIGHT_BACKEND_LINT"] = backend_lint
         env["PATH"] = f"{fake_bin}:{env['PATH']}"
         if github_actions:
             env["GITHUB_ACTIONS"] = "true"
@@ -63,6 +64,9 @@ def run_configured_command(*, github_actions: bool) -> bool:
 class PreflightCILintSkipTest(unittest.TestCase):
     def test_github_actions_does_not_run_duplicate_lint(self) -> None:
         self.assertFalse(run_configured_command(github_actions=True))
+
+    def test_local_script_change_does_not_run_backend_lint(self) -> None:
+        self.assertFalse(run_configured_command(github_actions=False, backend_lint="0"))
 
     def test_local_preflight_still_runs_lint(self) -> None:
         self.assertTrue(run_configured_command(github_actions=False))

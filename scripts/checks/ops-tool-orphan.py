@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -76,18 +77,28 @@ def is_entry(path: str) -> bool:
     )
 
 
-def references(content: str, path: str) -> bool:
+@lru_cache(maxsize=None)
+def reference_matcher(path: str):
+    """Compile once per target; the graph visits each target from many sources."""
     name = os.path.basename(path)
     if path.startswith(".github/actions/") and name in ("action.yml", "action.yaml"):
-        action_dir = re.escape(str(Path(path).parent))
-        return bool(re.search(r"(?<![\w/-])(?:\./)?" + action_dir
-                              + r"(?:/" + re.escape(name) + r")?(?=[\s\"\'`)\]]|$)", content))
+        directory = str(Path(path).parent)
+        pattern = re.compile(r"(?<![\w/-])(?:\./)?" + re.escape(directory)
+                             + r"(?:/" + re.escape(name) + r")?(?=[\s\"\'`)\]]|$)")
+        return None, directory, pattern
+    stem = Path(path).stem if path.endswith(".py") else ""
+    pattern = re.compile(r"(?<![\w-])" + re.escape(stem) + r"(?![\w-])") if stem else None
+    return name, stem, pattern
+
+
+def references(content: str, path: str) -> bool:
+    name, needle, pattern = reference_matcher(path)
+    if name is None:  # Composite actions are referenced by their directory.
+        return needle in content and bool(pattern.search(content))
     if name in content:
         return True
-    # importlib and normal imports both use module names without .py.
-    return path.endswith(".py") and bool(
-        re.search(r"(?<![\w-])" + re.escape(Path(path).stem) + r"(?![\w-])", content)
-    )
+    # Fast literal rejection avoids a regex scan for every absent graph edge.
+    return bool(pattern and needle in content and pattern.search(content))
 
 
 def reachable_files(corpus: dict[str, str], entrypoints: set[str]) -> set[str]:
@@ -115,7 +126,7 @@ def scan(tools: list[str], corpus: dict[str, str], exempt: dict[str, str]):
         or not exempt[k].strip()
     )
     declared = {t for t in tools if os.path.basename(t) in exempt}
-    reached = reachable_files(corpus, roots | declared)
+    reached = reachable_files(corpus, roots | declared) if declared - wired else wired
     return [t for t in tools if t not in reached], stale
 
 
@@ -151,6 +162,16 @@ def _selftest() -> int:
     import unittest
 
     class WiringTests(unittest.TestCase):
+        def test_reference_boundaries_are_preserved(self):
+            path = "ops/helper.py"  # script-ref-allow-missing: in-memory graph fixture
+            for text in ("from helper import run", "helper.py", "prefix-helper.py"):
+                self.assertTrue(references(text, path), text)
+            for text in ("helper_extra", "prefix-helper", "helpers", "no matching module"):
+                self.assertFalse(references(text, path), text)
+            action = ".github/actions/maintain/action.yml"
+            self.assertTrue(references("uses: ./.github/actions/maintain\n", action))
+            self.assertFalse(references("uses: ./.github/actions/maintain-other\n", action))
+
         def test_rooted_transitive_import_is_discoverable(self):
             corpus = {
                 "docs/ops.md": "run ops/entry.sh",  # script-ref-allow-missing: in-memory graph fixture
