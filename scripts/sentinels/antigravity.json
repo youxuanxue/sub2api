@@ -58,6 +58,13 @@
         "ClaudeRequestHasToolInteractions(claudeReq.Messages)"
       ],
       "rationale": "Claude→Gemini transform must use ResolveV1InternalRequestType so plain-text omits requestType (anti-VALIDATION_REQUIRED). Upstream always set requestType=agent; a merge that restores the literal would silently re-enter the agent risk pool. Pairs with request_type.go + gateway wrap sentinels in gateway-tk.json."
+    },
+    {
+      "path": "backend/internal/pkg/antigravity/request_transformer.go",
+      "must_contain": [
+        "EnabledCreditTypes: AgentEnabledCreditTypes(requestType),"
+      ],
+      "rationale": "Agent envelopes must declare enabledCreditTypes GOOGLE_ONE_AI on the first Claude→Gemini request. Upstream has no credits field; a merge that drops this assignment silently returns to 429-then-inject and burns a failed round trip. Pairs with AgentEnabledCreditTypes in request_type.go and the native wrap sentinel in gateway-tk.json."
     }
   ]
 }
