@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import AccountStatusIndicator from '../AccountStatusIndicator.vue'
 import GoogleVerificationLink from '../GoogleVerificationLink.vue'
+import OAuthAuthorizationFlow from '../OAuthAuthorizationFlow.vue'
 import { accountGoogleVerificationURL, googleVerificationURL } from '@/utils/antigravityRecovery'
 import type { Account } from '@/types'
 
@@ -19,6 +20,22 @@ const account = {
 } as Account
 
 describe('Antigravity account recovery links', () => {
+  it.each(['', 'replacement-session'])('clears callback code and state when the session changes to %j', async sessionId => {
+    const wrapper = mount(OAuthAuthorizationFlow, {
+      props: { addMethod: 'oauth', platform: 'antigravity', authUrl: url, sessionId: 'original-session', showCookieOption: false }
+    })
+    await wrapper.get('textarea').setValue('http://localhost:8085/callback?code=old-code&state=old-state')
+    expect(wrapper.vm.authCode).toBe('old-code')
+    expect(wrapper.vm.oauthState).toBe('old-state')
+    await wrapper.setProps({ sessionId })
+    expect(wrapper.vm.authCode).toBe('')
+    expect(wrapper.vm.oauthState).toBe('')
+    await wrapper.get('textarea').setValue('new-code')
+    expect(wrapper.vm.authCode).toBe('new-code')
+    expect(wrapper.vm.oauthState).toBe('')
+    wrapper.unmount()
+  })
+
   it('opens and copies the exact stored verification URL even after the cooldown has elapsed', async () => {
     const wrapper = mount(AccountStatusIndicator, { props: { account, canReauthorize: true } })
     expect(wrapper.get('a').attributes('href')).toBe(url)

@@ -11,6 +11,7 @@ Google 403 的验证链接已由网关写进账号临时冷却原因，旧版本
 - Antigravity OAuth 账号状态新增授权链接入口。点击打开该账号的现有重新授权弹窗并自动生成链接，复制到使用所属 Edge 出口的指纹浏览器，回填完整 localhost 回调地址后完成授权。
 - 链接与 PKCE session 保持同一生命周期，不保存到账号 extra 或浏览器存储。服务器返回其实际过期时间；前端过期时清空链接和 session，同账号资料刷新保留正在进行的授权，关闭或切换账号后忽略迟到的生成响应。重启服务后仍须重新生成。
 - 授权回填使用已有 `apply-oauth-credentials` 接口，统一清除错误和失效 token 缓存，避免旧 `update` + `clear-error` 流程继续使用旧 token。
+- 共享授权组件在会话过期或被新会话替换时清空回调 code/state，避免重新生成链接后只回填 code 却误用旧 state。
 - Edge 概览复用验证链接展示；OAuth 继续从现有“管理 Edge”入口进入该 Edge 管理页进行，不从生产节点替 Edge 交换凭据。
 
 ## Owners

@@ -1031,6 +1031,12 @@ const showHelpDialog = ref(false)
 const oauthState = ref('')
 const projectId = ref('')
 
+// Callback code/state belong to one server session, including after expiry.
+watch(() => props.sessionId, () => {
+  authCodeInput.value = ''
+  oauthState.value = ''
+})
+
 watch(
   () => [props.platform, props.showEmailPasswordOption] as const,
   async ([platform, requested]) => {

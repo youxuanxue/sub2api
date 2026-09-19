@@ -2559,6 +2559,14 @@
       "rationale": "Usage verification shares the account-level presentation and URL validation owner."
     },
     {
+      "path": "frontend/src/components/account/OAuthAuthorizationFlow.vue",
+      "must_contain": [
+        "watch(() => props.sessionId",
+        "oauthState.value = ''"
+      ],
+      "rationale": "Callback code/state must be cleared with the server session; regression covered by AntigravityRecoveryLinks.spec.ts."
+    },
+    {
       "path": "frontend/src/composables/useAntigravityOAuth.ts",
       "must_contain": [
         "current !== generation",
