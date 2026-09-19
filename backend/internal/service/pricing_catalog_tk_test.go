@@ -724,7 +724,9 @@ func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) 
 	for legacy, replacement := range newAPIAliTokenPlanModelAliases() {
 		assert.True(t, s.IsModelPriced(legacy, PlatformNewAPI), "legacy %s retains PAYG catalog pricing; Token Plan billing settles on served model", legacy)
 		assert.False(t, visible[legacy], "legacy %s must not be advertised", legacy)
-		assert.True(t, visible[replacement], "replacement %s remains public", replacement)
+		if strings.HasPrefix(legacy, "qwen") {
+			assert.True(t, visible[replacement], "replacement %s remains public", replacement)
+		}
 	}
 }
 

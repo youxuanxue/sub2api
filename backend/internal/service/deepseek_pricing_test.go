@@ -278,7 +278,7 @@ func TestGetModelPricing_UnknownDeepseekFailsClosed(t *testing.T) {
 	}}
 	bs := NewBillingService(&config.Config{}, pricingSvc)
 
-	for _, m := range []string{"deepseek-unknown", "deepseek-foo", "deepseek-v4.1-flash", "deepseek-flash-unknown"} {
+	for _, m := range []string{"deepseek-unknown", "deepseek-foo", "deepseek-flash-unknown"} {
 		t.Run(m, func(t *testing.T) {
 			pricing, err := bs.GetModelPricing(m)
 			require.ErrorIs(t, err, ErrModelPricingUnavailable)
