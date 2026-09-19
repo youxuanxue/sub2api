@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "1b63c51d3c060f9ecfc2095fe2a8153bf97dd610c92ab9e3f7d53bd6ebd9d586",
+  "floor_sha256": "38c8fa6046cb5090e32d2a082ba7c19a07a8b30f7b8384044be367ca5db7ccc0",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -384,6 +384,14 @@
         "channel_type": 17,
         "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com",
         "model_mapping": {
+          "deepseek-flash": "deepseek-v4.1-flash",
+          "deepseek-v4-flash": "deepseek-v4-flash-0731",
+          "deepseek-v4-flash-0731": "deepseek-v4-flash-0731",
+          "deepseek-v4-pro": "deepseek-v4-pro",
+          "deepseek-v4-pro-0813": "deepseek-v4-pro",
+          "deepseek-v4.1-flash": "deepseek-v4.1-flash",
+          "glm-5.2": "glm-5.2",
+          "glm-5.3": "glm-5.3",
           "qwen-audio-3.0-tts-plus": "qwen-audio-3.0-tts-plus",
           "qwen-max": "qwen3.8-max",
           "qwen-plus": "qwen3.7-plus",
@@ -391,7 +399,9 @@
           "qwen3-235b-a22b": "qwen3.7-plus",
           "qwen3-32b": "qwen3.7-plus",
           "qwen3-8b": "qwen3.6-flash",
+          "qwen3.6-27b": "qwen3.6-flash",
           "qwen3.6-flash": "qwen3.6-flash",
+          "qwen3.7-flash": "qwen3.8-flash",
           "qwen3.7-max": "qwen3.7-max",
           "qwen3.7-plus": "qwen3.7-plus",
           "qwen3.8-flash": "qwen3.8-flash",
@@ -592,10 +602,6 @@
     "forbidden_model_mapping_prefixes": {
       "account_override:newapi:14:https://agentn.global.api5.cursor.sh": [
         "gpt-"
-      ],
-      "account_override:newapi:17:https://token-plan.cn-beijing.maas.aliyuncs.com": [
-        "deepseek-",
-        "glm-"
       ],
       "antigravity": [
         "gpt-oss-"

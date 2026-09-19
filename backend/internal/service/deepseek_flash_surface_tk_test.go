@@ -10,26 +10,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Fixed migration boundaries: a V4.1 request must never silently select a V4
-// snapshot, and continuing Pro service must not become a Flash alias.
+// Fixed migration boundaries: Ali Token Plan promotes the live Flash identity
+// while other provider floors keep their existing canonical DeepSeek names.
 func TestDeepSeekFlashSurfacePreservesProviderModelIdentity(t *testing.T) {
 	floor, err := AccountModelMappingFloorForOps(context.Background(), "")
 	require.NoError(t, err)
 	official := floor.NewAPIChannelTypes["43"]
 	require.Equal(t, "deepseek-flash", official["deepseek-flash"])
 	require.Equal(t, "deepseek-v4-pro", official["deepseek-v4-pro"])
-	require.NotContains(t, official, "deepseek-v4.1-flash", "the model version is not an accepted API name")
 	for _, override := range floor.AccountOverrides {
-		require.NotContains(t, override.ModelMapping, "deepseek-flash", override.BaseURL)
-		require.NotContains(t, override.ModelMapping, "deepseek-v4.1-flash", override.BaseURL)
-		for requested, target := range override.ModelMapping {
-			if requested == "deepseek-v4-pro" || requested == "deepseek-v4-pro-0813" {
-				require.NotContains(t, target, "flash", override.BaseURL)
-			}
+		if override.ChannelType == newapiconstant.ChannelTypeAli && override.BaseURL == "https://token-plan.cn-beijing.maas.aliyuncs.com" {
+			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-flash"], override.BaseURL)
+			require.Equal(t, "deepseek-v4.1-flash", override.ModelMapping["deepseek-v4.1-flash"], override.BaseURL)
+			require.Equal(t, "deepseek-v4-flash-0731", override.ModelMapping["deepseek-v4-flash"], override.BaseURL)
+			require.Equal(t, "deepseek-v4-pro", override.ModelMapping["deepseek-v4-pro-0813"], override.BaseURL)
 		}
 	}
 	display := tkServedModelsManifestDisplayPresetIDsByChannelType(newapiconstant.ChannelTypeDeepSeek)
-	require.Contains(t, display, "deepseek-flash")
+	require.NotContains(t, display, "deepseek-flash", "Ali migration alias stays hidden from the canonical DeepSeek display surface")
 	require.Contains(t, display, "deepseek-v4-pro")
 	require.NotContains(t, display, "deepseek-v4.1-flash")
 }
@@ -48,6 +46,12 @@ func TestDeepSeekFlashFallbackSharesCurrentPrice(t *testing.T) {
 		require.Equal(t, stable.OutputPricePerToken, price.OutputPricePerToken, model)
 		require.Equal(t, stable.CacheReadPricePerToken, price.CacheReadPricePerToken, model)
 	}
-	require.Nil(t, billing.getFallbackPricing("deepseek-v4.1-flash"))
+	v41, err := billing.GetModelPricing("deepseek-v4.1-flash")
+	require.NoError(t, err)
+	flashOwner, err := billing.GetModelPricing("deepseek-v4-flash")
+	require.NoError(t, err)
+	require.Equal(t, flashOwner.InputPricePerToken, v41.InputPricePerToken)
+	require.Equal(t, flashOwner.OutputPricePerToken, v41.OutputPricePerToken)
+	require.Equal(t, flashOwner.CacheReadPricePerToken, v41.CacheReadPricePerToken)
 	require.Nil(t, billing.getFallbackPricing("deepseek-flash-unknown"))
 }

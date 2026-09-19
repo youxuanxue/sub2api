@@ -53,6 +53,10 @@ func TestTKPricingOverlay_FillsDeepseekV4(t *testing.T) {
 	require.Equal(t, "deepseek", flash.LiteLLMProvider)
 	require.Equal(t, "chat", flash.Mode)
 
+	owner, declared := tkPricingRegistryAliasOwner("deepseek-v4.1-flash")
+	require.True(t, declared, "Ali Token Plan V4.1 Flash must use the DeepSeek Flash pricing owner")
+	require.Equal(t, "deepseek-v4-flash", owner)
+
 	pro := data["deepseek-v4-pro"]
 	require.NotNil(t, pro, "overlay must inject deepseek-v4-pro")
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(4.5), pro.InputCostPerToken, 1e-15)
@@ -70,6 +74,9 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 	require.InDelta(t, tkCNYPerMTokToUSDPerToken(0.02), flash.CacheReadInputTokenCost, 1e-15)
 	require.Equal(t, 1_000_000, flash.MaxInputTokens)
 	require.Equal(t, 384_000, flash.MaxOutputTokens)
+	owner, declared := tkPricingRegistryAliasOwner("deepseek-v4.1-flash")
+	require.True(t, declared)
+	require.Equal(t, "deepseek-v4-flash", owner)
 
 	pro := overlay["deepseek-v4-pro"]
 	require.NotNil(t, pro)
@@ -86,7 +93,7 @@ func TestTKPricingOverlay_DeepSeekOfficialIdleSSOTAndAliases(t *testing.T) {
 		require.Equal(t, "deepseek-v4-flash", owner)
 	}
 
-	owner, declared := tkPricingRegistryAliasOwner("deepseek-flash")
+	owner, declared = tkPricingRegistryAliasOwner("deepseek-flash")
 	require.True(t, declared)
 	require.Equal(t, "deepseek-v4-flash", owner)
 
