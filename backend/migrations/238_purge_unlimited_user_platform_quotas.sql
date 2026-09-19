@@ -3,6 +3,14 @@
 -- 幂等：重复执行影响 0 行。
 -- 行数约为历史用户数 × 平台数，整条语句在一个事务内执行；超大表需按
 -- SETUP_MIGRATION_TIMEOUT_SECONDS 调高迁移超时，或在升级前预先分批清理。
+-- TK Stage0: 部署前先估行数；大表将 statement_timeout 与 compose 超时一并调高。
+--   SELECT count(*) FROM user_platform_quotas
+--    WHERE daily_limit_usd IS NULL
+--      AND weekly_limit_usd IS NULL
+--      AND monthly_limit_usd IS NULL;
+
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '10min';
 
 DELETE FROM user_platform_quotas
  WHERE daily_limit_usd IS NULL
