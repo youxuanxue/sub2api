@@ -49,6 +49,10 @@ const (
 	// isWholeAccountRuntimeBlockReason so one model's weekly/5h quota does not
 	// block the rest of the account.
 	tkNewAPIModelWindowReason = "429_newapi_model_window"
+	// newAPIAccountWindowLockExtraKey marks an Agent Plan window that is really
+	// account-wide because the 429 carried no model. Historical false locks
+	// (one model's quota written onto the account columns) lack this key.
+	newAPIAccountWindowLockExtraKey = "newapi_account_window_lock"
 )
 
 var newAPIUsageWindowResetAtRE = regexp.MustCompile(`(?i)it will reset at\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+[+-]\d{4}(?:\s+\S+)?)`)
@@ -160,6 +164,11 @@ func (s *RateLimitService) tkTryHandleNewAPIUsageWindow429(ctx context.Context, 
 	}
 
 	s.persistNewAPIUsageWindowSnapshot(ctx, account, hit)
+	if isNewAPIVolcEngineAgentPlanAccount(account) {
+		// Without this marker the ignore predicate below matches the pair this
+		// branch just wrote, and the account stays schedulable.
+		s.markVolcAgentPlanAccountWindowLock(ctx, account)
+	}
 	s.notifyAccountSchedulingBlocked(account, hit.ResetAt, "429", "newapi_"+hit.Window+"_window_exhausted")
 	if err := s.accountRepo.SetRateLimited(ctx, account.ID, hit.ResetAt); err != nil {
 		slog.Warn("newapi_usage_window_set_rate_limited_failed",
@@ -224,7 +233,8 @@ func (s *RateLimitService) persistVolcAgentPlanModelUsageWindow(ctx context.Cont
 // VolcAgentPlanAccountWindowLockIgnored reports an account-wide rate limit that
 // was written from a VolcEngine Agent Plan per-model usage window. Other models
 // on the same account keep working, so scheduling and the admin badge must not
-// treat it as a whole-account 429.
+// treat it as a whole-account 429. A no-model write sets
+// newAPIAccountWindowLockExtraKey and stays a real account cooldown.
 func VolcAgentPlanAccountWindowLockIgnored(account *Account) bool {
 	return volcAgentPlanAccountWindowLockIgnored(account)
 }
@@ -234,6 +244,9 @@ func volcAgentPlanAccountWindowLockIgnored(account *Account) bool {
 		return false
 	}
 	if !isNewAPIVolcEngineAgentPlanAccount(account) {
+		return false
+	}
+	if parseExtraFloat64(account.Extra[newAPIAccountWindowLockExtraKey]) > 0 {
 		return false
 	}
 	resetUnix := float64(account.RateLimitResetAt.Unix())
@@ -258,12 +271,13 @@ func (s *RateLimitService) clearNewAPIUsageWindowSnapshot(ctx context.Context, a
 		return
 	}
 	updates := map[string]any{
-		newAPIWeeklyUtilExtraKey:    0.0,
-		newAPIWeeklyResetExtraKey:   0.0,
-		newAPIFiveHourUtilExtraKey:  0.0,
-		newAPIFiveHourResetExtraKey: 0.0,
-		newAPISevenDayUtilExtraKey:  0.0,
-		newAPISevenDayResetExtraKey: 0.0,
+		newAPIWeeklyUtilExtraKey:        0.0,
+		newAPIWeeklyResetExtraKey:       0.0,
+		newAPIFiveHourUtilExtraKey:      0.0,
+		newAPIFiveHourResetExtraKey:     0.0,
+		newAPISevenDayUtilExtraKey:      0.0,
+		newAPISevenDayResetExtraKey:     0.0,
+		newAPIAccountWindowLockExtraKey: 0.0,
 	}
 	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
 		slog.Warn("newapi_usage_window_extra_clear_failed", "account_id", account.ID, "error", err)
@@ -275,6 +289,22 @@ func (s *RateLimitService) clearNewAPIUsageWindowSnapshot(ctx context.Context, a
 	for k, v := range updates {
 		account.Extra[k] = v
 	}
+}
+
+func (s *RateLimitService) markVolcAgentPlanAccountWindowLock(ctx context.Context, account *Account) {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return
+	}
+	updates := map[string]any{newAPIAccountWindowLockExtraKey: 1.0}
+	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
+		slog.Warn("volc_agent_plan_account_window_lock_mark_failed",
+			"account_id", account.ID, "error", err)
+		return
+	}
+	if account.Extra == nil {
+		account.Extra = map[string]any{}
+	}
+	account.Extra[newAPIAccountWindowLockExtraKey] = 1.0
 }
 
 func (s *RateLimitService) persistNewAPIUsageWindowSnapshot(ctx context.Context, account *Account, hit *newAPIUsageWindowHit) {

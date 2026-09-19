@@ -38,11 +38,14 @@ func volcAgentPlanFalseWindowLockPredicate(s *entsql.Selector) *entsql.Predicate
 		return fmt.Sprintf(`(%[1]s->>'%[2]s' ~ '^[0-9]+(\.[0-9]+)?$' AND abs((%[1]s->>'%[2]s')::double precision - EXTRACT(EPOCH FROM %[3]s)) < 2)`,
 			extra, key, reset)
 	}
-	expr := fmt.Sprintf(`(%s = '%s' AND %s = %d AND ((%s->>'base_url') IN ('%s', '%s') OR (%s->>'base_url') LIKE '%%/api/plan/v3%%' OR (%s->>'base_url') LIKE '%%/api/plan') AND (%s OR %s OR %s))`,
+	intentional := fmt.Sprintf(`(%[1]s->>'%[2]s' ~ '^[0-9]+(\.[0-9]+)?$' AND (%[1]s->>'%[2]s')::double precision > 0)`,
+		extra, "newapi_account_window_lock")
+	expr := fmt.Sprintf(`(%s = '%s' AND %s = %d AND ((%s->>'base_url') IN ('%s', '%s') OR (%s->>'base_url') LIKE '%%/api/plan/v3%%' OR (%s->>'base_url') LIKE '%%/api/plan') AND NOT %s AND (%s OR %s OR %s))`,
 		platform, service.PlatformNewAPI,
 		channel, newapiconstant.ChannelTypeVolcEngine,
 		creds, newapiintegration.VolcEngineAgentPlanBaseKey, newapiintegration.VolcEngineAgentPlanBaseURL,
 		creds, creds,
+		intentional,
 		match("newapi_weekly_reset"), match("newapi_5h_reset"), match("newapi_7d_reset"),
 	)
 	return entsql.ExprP(expr)

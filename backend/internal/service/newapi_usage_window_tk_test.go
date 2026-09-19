@@ -272,6 +272,11 @@ func TestHandle429_VolcAgentPlanWithoutModelStaysAccountWide(t *testing.T) {
 	require.True(t, svc.handle429(context.Background(), account, nil, body))
 	require.Equal(t, 1, repo.setRateLimitedCalls)
 	require.Empty(t, repo.modelRateLimitCalls)
+	require.Equal(t, 1.0, account.Extra[newAPIAccountWindowLockExtraKey])
+	account.RateLimitedAt = &resetAt
+	account.RateLimitResetAt = &repo.lastRateLimitedResetAt
+	require.True(t, account.IsRateLimited(), "a no-model Agent Plan window must still cool the account after reload")
+	require.False(t, account.IsSchedulable())
 }
 
 func volcAgentPlanUsageWindowAccount() *Account {

@@ -15,6 +15,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
+	newapiconstant "github.com/QuantumNous/new-api/constant"
+	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -610,4 +612,33 @@ func TestEdgeAccountsHandler_NilReader(t *testing.T) {
 	w := performEdgeAccountsRequest(t, h, "?platform=anthropic")
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	require.False(t, strings.Contains(w.Body.String(), `"accounts"`))
+}
+
+func TestToEdgeAccountDTO_HidesVolcAgentPlanFalseWindowLock(t *testing.T) {
+	reset := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	account := &service.Account{
+		ID:          17,
+		Platform:    service.PlatformNewAPI,
+		Type:        service.AccountTypeAPIKey,
+		ChannelType: newapiconstant.ChannelTypeVolcEngine,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"base_url": newapiintegration.VolcEngineAgentPlanBaseURL},
+		Extra: map[string]any{
+			"newapi_weekly_utilization": 1.0,
+			"newapi_weekly_reset":       float64(reset.Unix()),
+		},
+		RateLimitedAt:    &reset,
+		RateLimitResetAt: &reset,
+	}
+	got := toEdgeAccountDTO(account)
+	require.True(t, got.IsSchedulable)
+	require.Nil(t, got.RateLimitedAt)
+	require.Nil(t, got.RateLimitResetAt)
+
+	account.Extra["newapi_account_window_lock"] = 1.0
+	got = toEdgeAccountDTO(account)
+	require.False(t, got.IsSchedulable)
+	require.Equal(t, &reset, got.RateLimitedAt)
+	require.Equal(t, &reset, got.RateLimitResetAt)
 }
