@@ -52,7 +52,6 @@ func (r *tokenRefreshCandidateRepo) ListOAuthRefreshCandidatePage(_ context.Cont
 			}
 		}
 		if options.ActiveOnly && account.Status != StatusActive ||
-			!account.Schedulable ||
 			account.Type != AccountTypeOAuth ||
 			!platformAllowed ||
 			options.RequireRefreshToken && strings.TrimSpace(refreshToken) == "" ||
@@ -71,10 +70,16 @@ func (r *tokenRefreshCandidateRepo) ListOAuthRefreshCandidatePage(_ context.Cont
 	return page, nil
 }
 
-func (r *tokenRefreshCandidateRepo) UpdateCredentials(_ context.Context, id int64, _ map[string]any) error {
+func (r *tokenRefreshCandidateRepo) UpdateCredentials(_ context.Context, id int64, credentials map[string]any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.updatedCredentialIDs = append(r.updatedCredentialIDs, id)
+	for i := range r.accounts {
+		if r.accounts[i].ID == id {
+			r.accounts[i].Credentials = shallowCopyMap(credentials)
+			break
+		}
+	}
 	return nil
 }
 
@@ -238,7 +243,25 @@ func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates(t *testing
 				Type:        AccountTypeOAuth,
 				Status:      StatusActive,
 				Schedulable: false,
+				Credentials: map[string]any{"refresh_token": "paused-refresh-token"},
+			},
+			{
+				ID:          10,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusError,
+				Schedulable: false,
 				Credentials: map[string]any{"refresh_token": "permanently-rejected-token"},
+			},
+			{
+				ID:                      11,
+				Platform:                PlatformOpenAI,
+				Type:                    AccountTypeOAuth,
+				Status:                  StatusActive,
+				Schedulable:             false,
+				Credentials:             map[string]any{"refresh_token": "paused-cooldown-token"},
+				TempUnschedulableUntil:  &future,
+				TempUnschedulableReason: "token refresh retry exhausted: network timeout",
 			},
 		},
 	}
@@ -259,9 +282,13 @@ func TestTokenRefreshService_ProcessRefreshUsesOAuthRefreshCandidates(t *testing
 	svc.processRefresh()
 
 	require.Zero(t, repo.listActiveCalls, "TokenRefreshService should not use the broad active-account query")
-	require.ElementsMatch(t, []int64{1, 6, 7, 8}, repo.updatedCredentialIDs,
+	require.ElementsMatch(t, []int64{1, 6, 7, 8, 9}, repo.updatedCredentialIDs,
 		"kiro/grok OAuth accounts must remain background-refresh candidates; "+
-			"antigravity with non-retry temp-unschedulable (OAuth 401) must also refresh")
+			"antigravity with non-retry temp-unschedulable (OAuth 401) and paused active accounts must also refresh; "+
+			"error accounts and paused accounts in retry cooldown must stay excluded")
+	require.Equal(t, "new-access-token", repo.accounts[8].Credentials["access_token"])
+	require.False(t, repo.accounts[8].Schedulable, "refresh must preserve the operator's pause")
+	require.Equal(t, StatusActive, repo.accounts[8].Status)
 	require.Equal(t, 1, repo.clearTempCalls, "successful refresh should clear the OAuth 401 temp-unschedulable state")
 }
 

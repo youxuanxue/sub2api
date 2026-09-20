@@ -31,11 +31,11 @@ func geminiV1BetaGroupPlatformAllowed(apiKey *service.APIKey) bool {
 
 // tkGeminiV1BetaTryForceAntigravityListModels serves the static Antigravity
 // model list when the request is on a force-platform Antigravity route.
-func (h *GatewayHandler) tkGeminiV1BetaTryForceAntigravityListModels(c *gin.Context, forcePlatform string) bool {
+func (h *GatewayHandler) tkGeminiV1BetaTryForceAntigravityListModels(c *gin.Context, forcePlatform string, models []gemini.Model) bool {
 	if forcePlatform != service.PlatformAntigravity {
 		return false
 	}
-	writeGroupGeminiModels(c, antigravity.FallbackGeminiModelsList())
+	writeGroupGeminiModels(c, gemini.ModelsListResponse{Models: models})
 	return true
 }
 

@@ -31,6 +31,7 @@ const (
 	EndpointVideosEdits          = "/v1/videos/edits"
 	EndpointVideosExtensions     = "/v1/videos/extensions"
 	EndpointVideos               = apipath.Videos
+	EndpointSeedanceTasks        = "/api/v3/contents/generations/tasks"
 	EndpointGeminiModels         = apipath.GeminiModels
 	EndpointModels               = apipath.Models
 )
@@ -87,6 +88,8 @@ func NormalizeInboundEndpoint(path string) string {
 		return normalized
 	}
 	switch {
+	case strings.Contains(path, "/contents/generations/tasks"):
+		return EndpointSeedanceTasks
 	case strings.Contains(path, EndpointResponsesInputTokens) || isResponsesInputTokensAliasPath(path):
 		return EndpointResponsesInputTokens
 	case strings.Contains(path, EndpointEmbeddings):
