@@ -41,7 +41,7 @@ func TestCursorRefreshCandidateAndAtomicExpiry(t *testing.T) {
 	}
 	require.Contains(t, ids, active.ID, "legacy Cursor access token is also its renewal grant")
 	require.NotContains(t, ids, ordinary.ID)
-	require.NotContains(t, ids, paused.ID)
+	require.Contains(t, ids, paused.ID, "paused Cursor accounts remain refresh candidates so their access token does not expire")
 
 	fresh, err := repo.GetByID(ctx, active.ID)
 	require.NoError(t, err)

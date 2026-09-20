@@ -52,22 +52,47 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
+	// Antigravity model mappings are part of the native Gemini surface when
+	// mixed scheduling is enabled. Resolve them once so every branch (forced
+	// platform, no native account, and native upstream) exposes the same set.
+	agModelIDs, err := h.geminiCompatService.AntigravityGeminiModelIDs(
+		c.Request.Context(), apiKey.GroupID, forcePlatform != service.PlatformAntigravity,
+	)
+	if err != nil {
+		googleError(c, http.StatusServiceUnavailable, "Unable to list Antigravity models")
+		return
+	}
+	agModels := make([]gemini.Model, 0, len(agModelIDs))
+	for _, id := range agModelIDs {
+		agModels = append(agModels, gemini.FallbackModel(id))
+	}
+
 	// TK: CatalogPolicy / force-platform branches — see gemini_v1beta_handler_tk_platform.go
-	if h.tkGeminiV1BetaTryForceAntigravityListModels(c, forcePlatform) {
+	if h.tkGeminiV1BetaTryForceAntigravityListModels(c, forcePlatform, agModels) {
 		return
 	}
 
 	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
 	if err != nil {
-		// 没有 gemini 账户，检查是否有 antigravity 账户可用
+		// Keep the legacy catalog fallback for allowlisted Gemini groups that
+		// only have a non-mixed Antigravity account. The allowlist is an
+		// explicit client-facing catalog request; mixed scheduling still
+		// requires the account-level opt-in above.
 		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
-		if hasAntigravity {
+		if len(agModels) == 0 && hasAntigravity && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			h.tkGeminiV1BetaListModelsCatalogFallback(c)
 			return
 		}
+		// 没有 gemini 账户，检查是否有 antigravity 账户可用
+		if len(agModels) > 0 {
+			writeGroupGeminiModels(c, gemini.ModelsListResponse{Models: agModels})
+			return
+		}
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		status, _, message := tkSelectFailureStatusMessage(c, err, "")
-		googleError(c, status, message)
+		// A model-list request has no requested model to classify. Keep an
+		// empty Gemini pool as a service-unavailable response instead of the
+		// request-level 429 capacity hint used by generation endpoints.
+		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
 		return
 	}
 
@@ -77,8 +102,13 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 	if shouldFallbackGeminiModels(res) {
-		h.tkGeminiV1BetaListModelsCatalogFallback(c)
+		writeGroupGeminiModels(c, gemini.ModelsListResponse{Models: geminiNativeScopeFallbackModels(agModels)})
 		return
+	}
+	if res.StatusCode == http.StatusOK && len(agModels) > 0 {
+		if merged, ok := appendUpstreamGeminiModels(res.Body, agModels); ok {
+			res.Body = merged
+		}
 	}
 	if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		if filtered, dropped, ok := filterUpstreamGeminiModelsBody(res.Body, apiKey.Group.ModelAllowlist); ok && dropped {
@@ -88,6 +118,76 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		}
 	}
 	writeUpstreamResponse(c, res)
+}
+
+// mergeGeminiModelLists keeps native metadata when both sources advertise a model.
+func mergeGeminiModelLists(native, extra []gemini.Model) []gemini.Model {
+	result := append([]gemini.Model{}, native...)
+	seen := make(map[string]bool, len(native))
+	for _, model := range native {
+		seen[model.Name] = true
+	}
+	for _, model := range extra {
+		if !seen[model.Name] {
+			result = append(result, model)
+			seen[model.Name] = true
+		}
+	}
+	return result
+}
+
+// geminiNativeScopeFallbackModels preserves the upstream Gemini compatibility
+// floor while adding Antigravity mappings. The TokenKey CatalogPolicy governs
+// the ordinary no-account fallback; this branch is specifically the native
+// upstream scope failure path and retains the upstream 2.5-pro floor expected
+// by Gemini clients.
+func geminiNativeScopeFallbackModels(extra []gemini.Model) []gemini.Model {
+	native := append([]gemini.Model{}, gemini.DefaultModels()...)
+	native = append(native, gemini.FallbackModel("gemini-2.5-pro"))
+	return mergeGeminiModelLists(native, extra)
+}
+
+// appendUpstreamGeminiModels preserves unknown model metadata and envelope fields
+// while adding catalog models discovered from the Antigravity provider.
+func appendUpstreamGeminiModels(body []byte, extra []gemini.Model) ([]byte, bool) {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
+		return body, false
+	}
+	var models []json.RawMessage
+	raw, exists := envelope["models"]
+	if !exists || json.Unmarshal(raw, &models) != nil {
+		return body, false
+	}
+	seen := make(map[string]bool, len(models))
+	for _, raw := range models {
+		var model struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(raw, &model) != nil {
+			return body, false
+		}
+		seen[model.Name] = true
+	}
+	changed := false
+	for _, model := range extra {
+		if seen[model.Name] {
+			continue
+		}
+		raw, err := json.Marshal(model)
+		if err != nil {
+			return body, false
+		}
+		models = append(models, raw)
+		seen[model.Name] = true
+		changed = true
+	}
+	if !changed {
+		return body, true
+	}
+	envelope["models"], _ = json.Marshal(models)
+	merged, err := json.Marshal(envelope)
+	return merged, err == nil
 }
 
 // filterUpstreamGeminiModelsBody 按白名单过滤上游 /v1beta/models 响应中的
