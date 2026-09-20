@@ -64,7 +64,7 @@ func TestResolveTLSProfile_AntigravityManagerByName(t *testing.T) {
 	}
 }
 
-func TestResolveTLSProfile_AntigravityManagerMissingProfileFallsBackToNil(t *testing.T) {
+func TestResolveTLSProfile_AntigravityManagerMissingProfileUsesPreset(t *testing.T) {
 	t.Parallel()
 	svc := newTLSSvcWithProfiles()
 	account := &Account{
@@ -72,8 +72,8 @@ func TestResolveTLSProfile_AntigravityManagerMissingProfileFallsBackToNil(t *tes
 		Type:     AccountTypeOAuth,
 		Extra:    map[string]any{"antigravity_client_profile": "manager"},
 	}
-	if got := svc.ResolveTLSProfile(account); got != nil {
-		t.Fatalf("manager profile without seed must resolve to nil, got %+v", got)
+	if got := svc.ResolveTLSProfile(account); got == nil || got.Name != CanonicalAntigravityManagerTLSProfileName {
+		t.Fatalf("manager profile without seed must resolve to the paired experimental preset, got %+v", got)
 	}
 }
 

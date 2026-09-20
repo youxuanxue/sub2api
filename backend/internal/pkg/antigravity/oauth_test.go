@@ -739,6 +739,17 @@ func TestManagerClientProfileRendersConsistentIdentity(t *testing.T) {
 	}
 }
 
+func TestManagerVersionIsIndependentFromCLIResolver(t *testing.T) {
+	SetUserAgentVersionResolver(func(context.Context) string { return "9.9.9" })
+	SetManagerUserAgentVersionResolver(nil)
+	t.Cleanup(func() { SetUserAgentVersionResolver(nil) })
+
+	ctx := WithClientProfile(context.Background(), ClientProfileManager)
+	if got := GetUserAgentForContext(ctx); !strings.Contains(got, "Antigravity/4.3.0 ") {
+		t.Fatalf("Manager UA was contaminated by CLI resolver: %q", got)
+	}
+}
+
 func TestScopes_包含必要范围(t *testing.T) {
 	expectedScopes := []string{
 		"https://www.googleapis.com/auth/cloud-platform",

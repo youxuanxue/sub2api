@@ -205,7 +205,17 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 				return p
 			}
 		}
-		return s.GetProfileByName(CanonicalAntigravityManagerTLSProfileName)
+		if p := s.GetProfileByName(CanonicalAntigravityManagerTLSProfileName); p != nil {
+			return p
+		}
+		// Keep Manager headers paired with the same experimental transport during
+		// migration/cache lag. This profile name activates the Chrome120
+		// compatibility preset in the dialer and is intentionally not presented as
+		// a captured Chrome123 profile.
+		return &tlsfingerprint.Profile{
+			Name:          CanonicalAntigravityManagerTLSProfileName,
+			ALPNProtocols: []string{"h2", "http/1.1"},
+		}
 	}
 	if id > 0 {
 		if p := s.GetProfileByID(id); p != nil {
@@ -228,7 +238,13 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 	// nil → 普通 TLS，禁止落到 Node.js 默认指纹。
 	if account.isAntigravityOAuth() {
 		if account.AntigravityClientProfile() == antigravity.ClientProfileManager {
-			return s.GetProfileByName(CanonicalAntigravityManagerTLSProfileName)
+			if p := s.GetProfileByName(CanonicalAntigravityManagerTLSProfileName); p != nil {
+				return p
+			}
+			return &tlsfingerprint.Profile{
+				Name:          CanonicalAntigravityManagerTLSProfileName,
+				ALPNProtocols: []string{"h2", "http/1.1"},
+			}
 		}
 		return s.GetProfileByName(CanonicalAntigravityCLITLSProfileName)
 	}

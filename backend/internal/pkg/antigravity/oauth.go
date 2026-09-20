@@ -33,6 +33,9 @@ const (
 	// AntigravityUserAgentVersionEnv 是 Antigravity User-Agent 版本号的环境变量名。
 	AntigravityUserAgentVersionEnv = "ANTIGRAVITY_USER_AGENT_VERSION"
 
+	// AntigravityManagerUserAgentVersionEnv 是 Manager 实验路线独立的版本号环境变量名。
+	AntigravityManagerUserAgentVersionEnv = "ANTIGRAVITY_MANAGER_VERSION"
+
 	// DefaultUserAgentVersion 是未通过环境变量或后台设置覆盖时使用的默认版本号。
 	// Ground truth = 本机 `agy`（Antigravity CLI，`brew install --cask antigravity-cli`）版本；
 	// UA 形如 `antigravity/cli/<ver> darwin/arm64`。运行时可经 admin 设置
@@ -141,6 +144,7 @@ var (
 	defaultUserAgentVersion  = DefaultUserAgentVersion
 	userAgentVersionMu       sync.RWMutex
 	userAgentVersionResolver UserAgentVersionResolver
+	managerUserAgentResolver UserAgentVersionResolver
 	managerUserAgentVersion  = DefaultManagerUserAgentVersion
 )
 
@@ -152,7 +156,7 @@ func init() {
 	if version := NormalizeUserAgentVersion(os.Getenv(AntigravityUserAgentVersionEnv)); version != "" {
 		defaultUserAgentVersion = version
 	}
-	if version := NormalizeUserAgentVersion(os.Getenv("ANTIGRAVITY_MANAGER_VERSION")); version != "" {
+	if version := NormalizeUserAgentVersion(os.Getenv(AntigravityManagerUserAgentVersionEnv)); version != "" {
 		managerUserAgentVersion = version
 	}
 	// 从环境变量读取 client_secret，未设置则使用默认值
@@ -180,6 +184,14 @@ func SetUserAgentVersionResolver(resolver UserAgentVersionResolver) {
 	userAgentVersionMu.Lock()
 	defer userAgentVersionMu.Unlock()
 	userAgentVersionResolver = resolver
+}
+
+// SetManagerUserAgentVersionResolver sets the independent Manager version
+// resolver. The CLI admin setting must not silently rewrite Manager identity.
+func SetManagerUserAgentVersionResolver(resolver UserAgentVersionResolver) {
+	userAgentVersionMu.Lock()
+	defer userAgentVersionMu.Unlock()
+	managerUserAgentResolver = resolver
 }
 
 // GetUserAgentVersionForContext 返回当前请求应使用的 Antigravity 版本号。
@@ -221,7 +233,7 @@ func BuildManagerUserAgent(version string) string {
 
 func GetManagerUserAgentVersionForContext(ctx context.Context) string {
 	userAgentVersionMu.RLock()
-	resolver := userAgentVersionResolver
+	resolver := managerUserAgentResolver
 	userAgentVersionMu.RUnlock()
 	if resolver != nil {
 		if version := NormalizeUserAgentVersion(resolver(ctx)); version != "" {
