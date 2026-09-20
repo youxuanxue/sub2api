@@ -13413,6 +13413,78 @@
         "if _, err := enableHTTP2KeepAlive(transport); err != nil {"
       ],
       "rationale": "TLS-fingerprint transports use DialTLSContext, which disables net/http auto-HTTP/2. Profiles advertising h2 (Antigravity CLI) must ForceAttemptHTTP2 + enableHTTP2KeepAlive or Google's h2 preface is misread as HTTP/1.1."
+    },
+    {
+      "path": "backend/internal/service/account_observed_usage_extra_tk.go",
+      "must_contain": [
+        "func ObservedUsageWindowExtraKeys() []string {",
+        "\"grok_sched_utilization\"",
+        "\"grok_sched_reset_at\"",
+        "\"grok_sched_usage_updated_at\"",
+        "func cnObservedUsageWindowExtraKeys() []string {",
+        "keys = append(keys, cnObservedUsageWindowExtraKeys()...)"
+      ],
+      "rationale": "SSOT Extra keys for provider-observed usage/window gauges cleared by admin recover-state / clear-rate-limit. Includes Grok soft-sched inputs and CN Coding Plan keys derived via cnExtraKey so stale percent cannot immediately re-pause after recover. Dropping this file or the grok/CN append silently restores sticky-gauge re-park."
+    },
+    {
+      "path": "backend/internal/service/account_observed_usage_extra_tk_test.go",
+      "must_contain": [
+        "func TestObservedUsageWindowExtraKeys_CoversCrossPlatformGauges(",
+        "\"grok_sched_utilization\"",
+        "cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed)",
+        "func TestRateLimitService_RecoverAccountState_ClearsObservedUsageWindows(",
+        "func TestRateLimitService_RecoverAccountAfterSuccessfulTest_DoesNotClearObservedUsage("
+      ],
+      "rationale": "Regression: SSOT covers grok_sched + CN coding-plan gauges; admin recover clears observed usage; successful-test recovery must NOT clear observed gauges."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_observed_usage_tk.go",
+      "must_contain": [
+        "func (r *accountRepository) ClearObservedUsageWindows(",
+        "keys := service.ObservedUsageWindowExtraKeys()"
+      ],
+      "rationale": "Ent Extra delete path for ObservedUsageWindowExtraKeys. Must consume the SSOT list so recover/clear cannot drift to a hand-maintained key set."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "ClearObservedUsageWindows bool",
+        "if options.ClearObservedUsageWindows {",
+        "func (s *RateLimitService) ClearObservedUsageWindows(ctx context.Context, accountID int64) error {",
+        "s.accountRepo.ClearObservedUsageWindows(ctx, accountID)"
+      ],
+      "rationale": "RecoverAccountState / ClearObservedUsageWindows injection in upstream-shaped ratelimit_service.go. Without these hooks, admin recover clears locks but leaves stale observed percent that soft-scheduling immediately re-applies."
+    },
+    {
+      "path": "backend/internal/service/admin_account.go",
+      "must_contain": [
+        "for _, key := range ObservedUsageWindowExtraKeys() {",
+        "delete(cloned, key)"
+      ],
+      "rationale": "Duplicate-account Extra scrub must reuse ObservedUsageWindowExtraKeys SSOT so copies do not inherit stale provider gauges."
+    },
+    {
+      "path": "backend/internal/service/openai_quota_reset_workflow.go",
+      "must_contain": [
+        "ClearObservedUsageWindows: true,"
+      ],
+      "rationale": "OpenAI quota-reset post-process recover must clear observed usage windows with InvalidateToken so reset does not leave sticky Codex/header gauges."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler.go",
+      "must_contain": [
+        "ClearObservedUsageWindows: true,",
+        "h.rateLimitService.ClearObservedUsageWindows(c.Request.Context(), accountID)"
+      ],
+      "rationale": "Admin RecoverState and ClearRateLimit must clear ObservedUsageWindowExtraKeys so operators wait for fresh upstream evidence after unblock."
+    },
+    {
+      "path": "backend/internal/handler/edge_tk_account_ops_handler.go",
+      "must_contain": [
+        "ClearObservedUsageWindows(ctx context.Context, id int64) error",
+        "h.rateLimit.ClearObservedUsageWindows(c.Request.Context(), id)"
+      ],
+      "rationale": "Edge clear-rate-limit must clear ObservedUsageWindowExtraKeys in lockstep with admin, otherwise edge/prod recover semantics diverge."
     }
   ]
 }
