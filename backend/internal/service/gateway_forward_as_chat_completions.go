@@ -238,7 +238,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	if clientStream {
 		result, handleErr = s.handleCCStreamingFromAnthropic(resp, c, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
 	} else if isAnthropicMessagesJSONResponse(resp) {
-		result, handleErr = s.handleCCBufferedFromAnthropicJSON(resp, c, originalModel, mappedModel, reasoningEffort, startTime)
+		result, handleErr = s.handleCCBufferedFromAnthropicJSON(resp, c, account, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
 		result, handleErr = s.handleCCBufferedFromAnthropic(resp, c, account, originalModel, mappedModel, reasoningEffort, startTime)
 	}
@@ -392,9 +392,15 @@ func isAnthropicMessagesJSONResponse(resp *http.Response) bool {
 // handleCCBufferedFromAnthropicJSON converts a non-streaming Anthropic Messages
 // JSON body (e.g. Kiro forwardNonStreaming or Bedrock /v1/messages stream=false)
 // into Chat Completions for the downstream client.
+//
+// SSOT: read / invalid-JSON failures must return UpstreamFailoverError without
+// writing the client body — same contract as /v1/messages
+// handleNonStreamingResponse and the SSE buffered CC path. Committing a CC 502
+// here sets upstream_error_response_already_written and blocks handler failover.
 func (s *GatewayService) handleCCBufferedFromAnthropicJSON(
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	originalModel string,
 	mappedModel string,
 	reasoningEffort *string,
@@ -403,14 +409,21 @@ func (s *GatewayService) handleCCBufferedFromAnthropicJSON(
 	requestID := resp.Header.Get("x-request-id")
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream response read failed")
-		return nil, fmt.Errorf("read anthropic json response: %w", err)
+		return nil, s.tkAnthropicBufferedFailoverError(
+			c, account, resp, requestID, mappedModel,
+			tkAnthropicBufferedSyntheticFailure("response_read_error", "Upstream response read failed"),
+		)
 	}
 
 	var finalResp apicompat.AnthropicResponse
 	if err := json.Unmarshal(body, &finalResp); err != nil {
-		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream returned invalid JSON")
-		return nil, fmt.Errorf("parse anthropic json response: %w", err)
+		ctx := context.Background()
+		if c != nil && c.Request != nil {
+			ctx = c.Request.Context()
+		}
+		return nil, invalidNonStreamingJSONFailoverError(
+			ctx, s.rateLimitService, resp, account, body, err, mappedModel,
+		)
 	}
 	if requestID == "" {
 		requestID = finalResp.ID

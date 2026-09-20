@@ -517,3 +517,65 @@ func TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent(t *testing.T) {
 	require.NotContains(t, events[0].Message, "secret")
 	require.Equal(t, "https://api-us6.tokenkey.dev/v1/messages", events[0].UpstreamURL)
 }
+
+type failingReadCloser struct {
+	err error
+}
+
+func (r failingReadCloser) Read([]byte) (int, error) { return 0, r.err }
+func (r failingReadCloser) Close() error             { return nil }
+
+func TestHandleCCBufferedFromAnthropicJSON_ReadErrorReturnsFailoverUncommitted(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-cc-json-read"}},
+		Body:       failingReadCloser{err: io.ErrUnexpectedEOF},
+	}
+	account := &Account{ID: 77, Name: "cc-json-read", Platform: PlatformAnthropic}
+
+	result, err := (&GatewayService{}).handleCCBufferedFromAnthropicJSON(
+		resp, c, account, "claude-sonnet-4-5", "claude-sonnet-4-5", nil, time.Now(),
+	)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "JSON body read failure must enter UpstreamFailoverError, got %T: %v", err, err)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, c.Writer.Written(), "must not commit CC 502 before handler failover")
+	require.Empty(t, rec.Body.String())
+}
+
+func TestHandleCCBufferedFromAnthropicJSON_InvalidJSONReturnsFailoverUncommitted(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	body := []byte("(upstream request failed)")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid-cc-json-bad"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
+	}
+	account := &Account{ID: 78, Name: "cc-json-bad", Platform: PlatformAnthropic}
+
+	result, err := (&GatewayService{cfg: &config.Config{}, rateLimitService: &RateLimitService{}}).handleCCBufferedFromAnthropicJSON(
+		resp, c, account, "claude-sonnet-4-5", "claude-sonnet-4-5", nil, time.Now(),
+	)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "invalid JSON 2xx must enter shared invalidNonStreamingJSONFailoverError owner, got %T: %v", err, err)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Equal(t, body, failoverErr.ResponseBody)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, c.Writer.Written(), "must not commit CC 502 before handler failover")
+	require.Empty(t, rec.Body.String())
+}
