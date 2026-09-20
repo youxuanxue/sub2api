@@ -2126,6 +2126,9 @@ func (s *stubAccountRepo) ClearAntigravityQuotaScopes(ctx context.Context, id in
 func (s *stubAccountRepo) ClearModelRateLimits(ctx context.Context, id int64) error {
 	return errors.New("not implemented")
 }
+func (s *stubAccountRepo) ClearObservedUsageWindows(ctx context.Context, id int64) error {
+	return nil
+}
 
 func (s *stubAccountRepo) UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error {
 	return errors.New("not implemented")

@@ -133,28 +133,8 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"quota_daily_reset_at":  {},
 	"quota_weekly_reset_at": {},
 	// Provider observations, capability probes, and transient scheduling state.
-	"model_rate_limits":                      {},
-	"session_window_utilization":             {},
-	"passive_usage_7d_utilization":           {},
-	"passive_usage_7d_reset":                 {},
-	"passive_usage_7d_oi_utilization":        {},
-	"passive_usage_7d_oi_reset":              {},
-	"passive_usage_sampled_at":               {},
-	"grok_usage_snapshot":                    {},
-	"grok_billing_snapshot":                  {},
-	NewAPIAccountWindowLockExtraKey:          {},
-	newAPIMonthlyUtilExtraKey:                {},
-	newAPIMonthlyResetExtraKey:               {},
-	newAPIMonthlySampledExtraKey:             {},
-	"newapi_weekly_utilization":              {},
-	"newapi_weekly_reset":                    {},
-	"newapi_weekly_sampled_at":               {},
-	"newapi_5h_utilization":                  {},
-	"newapi_5h_reset":                        {},
-	"newapi_5h_sampled_at":                   {},
-	"newapi_7d_utilization":                  {},
-	"newapi_7d_reset":                        {},
-	"newapi_7d_sampled_at":                   {},
+	"model_rate_limits": {},
+	// Observed usage/window gauges: SSOT ObservedUsageWindowExtraKeys (applied in duplicateAccountExtra).
 	"openai_responses_supported":             {},
 	"openai_native_messages_supported":       {},
 	"openai_compact_supported":               {},
@@ -169,26 +149,10 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"drive_storage_usage":                    {},
 	"drive_tier_updated_at":                  {},
 	// Codex fingerprint convergence uses a per-account random seed, never copied from another account.
-	codexFingerprintSeedExtraKey:           {},
-	"codex_primary_used_percent":           {},
-	"codex_primary_reset_after_seconds":    {},
-	"codex_primary_window_minutes":         {},
-	"codex_secondary_used_percent":         {},
-	"codex_secondary_reset_after_seconds":  {},
-	"codex_secondary_window_minutes":       {},
-	"codex_primary_over_secondary_percent": {},
-	"codex_usage_updated_at":               {},
-	"codex_5h_used_percent":                {},
-	"codex_5h_reset_after_seconds":         {},
-	"codex_5h_window_minutes":              {},
-	"codex_5h_reset_at":                    {},
-	"codex_7d_used_percent":                {},
-	"codex_7d_reset_after_seconds":         {},
-	"codex_7d_window_minutes":              {},
-	"codex_7d_reset_at":                    {},
-	SupportedProtocolsExtraKey:             {},
-	SupplierSourceIDExtraKey:               {},
-	SupplierDiscountBandExtraKey:           {},
+	codexFingerprintSeedExtraKey: {},
+	SupportedProtocolsExtraKey:   {},
+	SupplierSourceIDExtraKey:     {},
+	SupplierDiscountBandExtraKey: {},
 }
 
 func duplicateAccountExtra(value map[string]any) (map[string]any, error) {
@@ -197,6 +161,9 @@ func duplicateAccountExtra(value map[string]any) (map[string]any, error) {
 		return nil, err
 	}
 	for key := range duplicateAccountDiscardedExtraKeys {
+		delete(cloned, key)
+	}
+	for _, key := range ObservedUsageWindowExtraKeys() {
 		delete(cloned, key)
 	}
 	return cloned, nil

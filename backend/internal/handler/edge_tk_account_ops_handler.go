@@ -43,6 +43,7 @@ type EdgeAccountOpsHandler struct {
 // edgeOpsRateLimiter clears cooldown state. *service.RateLimitService satisfies it.
 type edgeOpsRateLimiter interface {
 	ClearRateLimit(ctx context.Context, id int64) error
+	ClearObservedUsageWindows(ctx context.Context, id int64) error
 	ClearTempUnschedulable(ctx context.Context, id int64) error
 }
 
@@ -101,6 +102,10 @@ func (h *EdgeAccountOpsHandler) ClearRateLimit(c *gin.Context) {
 	}
 	if err := h.rateLimit.ClearRateLimit(c.Request.Context(), id); err != nil {
 		response.Error(c, http.StatusInternalServerError, "failed to clear rate limit")
+		return
+	}
+	if err := h.rateLimit.ClearObservedUsageWindows(c.Request.Context(), id); err != nil {
+		response.Error(c, http.StatusInternalServerError, "failed to clear observed usage windows")
 		return
 	}
 	h.respondWithAccount(c, id)

@@ -201,6 +201,7 @@ func TestOpenAIResetQuota_RecoversAccountStateBeforeRefreshingCache(t *testing.T
 	require.False(t, envelope.Data.Account.Schedulable, "manual scheduling switch must not be flipped")
 	require.Equal(t, int64(42), recoverer.accountID)
 	require.True(t, recoverer.lastOptions.InvalidateToken)
+	require.True(t, recoverer.lastOptions.ClearObservedUsageWindows)
 	require.Equal(t, 1, quota.resetCalls)
 	require.Equal(t, 1, quota.queryCalls)
 	require.Equal(t, 1, quota.cacheCalls)

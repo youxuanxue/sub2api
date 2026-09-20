@@ -21,11 +21,13 @@ type rateLimitClearRepoStub struct {
 	clearRateLimitCalls       int
 	clearAntigravityCalls     int
 	clearModelRateLimitCalls  int
+	clearObservedUsageCalls   int
 	clearTempUnschedCalls     int
 	clearErrorErr             error
 	clearRateLimitErr         error
 	clearAntigravityErr       error
 	clearModelRateLimitErr    error
+	clearObservedUsageErr     error
 	clearTempUnschedulableErr error
 }
 
@@ -55,6 +57,18 @@ func (r *rateLimitClearRepoStub) ClearAntigravityQuotaScopes(ctx context.Context
 func (r *rateLimitClearRepoStub) ClearModelRateLimits(ctx context.Context, id int64) error {
 	r.clearModelRateLimitCalls++
 	return r.clearModelRateLimitErr
+}
+func (r *rateLimitClearRepoStub) ClearObservedUsageWindows(ctx context.Context, id int64) error {
+	r.clearObservedUsageCalls++
+	if r.clearObservedUsageErr != nil {
+		return r.clearObservedUsageErr
+	}
+	if r.getByIDAccount != nil && r.getByIDAccount.Extra != nil {
+		for _, key := range ObservedUsageWindowExtraKeys() {
+			delete(r.getByIDAccount.Extra, key)
+		}
+	}
+	return nil
 }
 
 func (r *rateLimitClearRepoStub) ClearTempUnschedulable(ctx context.Context, id int64) error {
@@ -262,6 +276,7 @@ func TestRateLimitService_RecoverAccountAfterSuccessfulTest_NoRecoverableStateIs
 	require.Equal(t, 0, repo.clearRateLimitCalls)
 	require.Equal(t, 0, repo.clearAntigravityCalls)
 	require.Equal(t, 0, repo.clearModelRateLimitCalls)
+	require.Equal(t, 0, repo.clearObservedUsageCalls)
 	require.Equal(t, 0, repo.clearTempUnschedCalls)
 	require.Empty(t, cache.deletedIDs)
 }

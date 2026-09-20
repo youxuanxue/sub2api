@@ -48,6 +48,9 @@ func (r *accountRepoStubForClearAccountError) ClearModelRateLimits(ctx context.C
 	r.clearModelRateLimitCalls++
 	return nil
 }
+func (r *accountRepoStubForClearAccountError) ClearObservedUsageWindows(ctx context.Context, id int64) error {
+	return nil
+}
 
 func (r *accountRepoStubForClearAccountError) ClearTempUnschedulable(ctx context.Context, id int64) error {
 	r.clearTempUnschedCalls++
