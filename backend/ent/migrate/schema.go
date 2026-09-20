@@ -1690,7 +1690,7 @@ var (
 		{Name: "request_blob_uri", Type: field.TypeString, Nullable: true},
 		{Name: "response_blob_uri", Type: field.TypeString, Nullable: true},
 		{Name: "stream_blob_uri", Type: field.TypeString, Nullable: true},
-		{Name: "redaction_version", Type: field.TypeString, Default: "logredact-v3"},
+		{Name: "redaction_version", Type: field.TypeString, Default: "logredact-v4"},
 		{Name: "capture_status", Type: field.TypeString, Default: "captured"},
 		{Name: "tags", Type: field.TypeJSON},
 		{Name: "synth_session_id", Type: field.TypeString, Nullable: true},

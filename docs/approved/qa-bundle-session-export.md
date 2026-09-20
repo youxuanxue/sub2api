@@ -26,6 +26,8 @@ QA 存储、授权、归档与下载生命周期继续由
   不把 signature 当作明文推理，不新增样例兼容格式。
 - `export-manifest.json`：Bundle generation、水位、页校验和、导出 schema 和记录/会话计数。
 
+`qa-records.jsonl` 继续携带每条记录的脱敏版本；`logredact-v4` 只保证已识别格式的自动脱敏，未知格式可能包含未识别的秘密。
+
 导出版本参与 ZIP job identity，已有 immutable ZIP 不被覆盖，也不会被误复用为新格式。
 旧无版本 ZIP job 保持可读；新请求只创建当前版本。更改 projector 必须刷新 Bundle Worker，
 沿用既有 worker-surface 发布门禁。发布由另一次明确授权完成。

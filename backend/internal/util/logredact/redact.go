@@ -131,6 +131,10 @@ type textRedactPatterns struct {
 	reQueryLike *regexp.Regexp
 	rePlain     *regexp.Regexp
 	keySuffixes keySuffixNode
+	keys        map[string]struct{}
+	// Simple keys can be redacted by the linear scanner below. Unusual
+	// configured keys keep the conservative regexp path for compatibility.
+	linearAssignments bool
 }
 
 var (
@@ -207,6 +211,146 @@ func RedactText(input string, extraKeys ...string) string {
 	return redactUnstructuredText(input, getTextRedactPatterns(extraKeys))
 }
 
+// RedactSSE preserves line endings and fields, replacing a single JSON data
+// payload structurally. Unknown events use only the known text credential rules.
+func RedactSSE(input string, extraKeys ...string) string {
+	patterns := getTextRedactPatterns(extraKeys)
+	if !mayNeedJSONRedaction(input, patterns) {
+		return input
+	}
+	rawTextCredentials := false
+	var b strings.Builder
+	b.Grow(len(input))
+	for len(input) > 0 {
+		start, length := sseEventSeparator(input)
+		end := start
+		if end < 0 {
+			end = len(input)
+		}
+		redacted, rawCredentials := redactSSEEvent(input[:end], patterns, extraKeys...)
+		rawTextCredentials = rawTextCredentials || rawCredentials
+		_, _ = b.WriteString(redacted)
+		if start < 0 {
+			break
+		}
+		_, _ = b.WriteString(input[start : start+length])
+		input = input[start+length:]
+	}
+	if rawTextCredentials {
+		// Raw credentials can span fields and event separators (PEM blocks,
+		// or whitespace after Bearer / an assignment). Keep their whole span
+		// in scope after JSON payloads have been decoded and redacted.
+		return redactUnstructuredText(b.String(), patterns)
+	}
+	return b.String()
+}
+
+// Return a physical line's content end and the next line's offset. SSE allows
+// LF, CRLF and CR, including a mix of them in a single stream.
+func sseLine(input string, start int) (end, next int) {
+	i := strings.IndexAny(input[start:], "\r\n")
+	if i < 0 {
+		return len(input), len(input)
+	}
+	end = start + i
+	next = end + 1
+	if input[end] == '\r' && next < len(input) && input[next] == '\n' {
+		next++
+	}
+	return end, next
+}
+
+func sseEventSeparator(input string) (start, length int) {
+	previousEnd := 0
+	for pos := 0; pos < len(input); {
+		end, next := sseLine(input, pos)
+		if end == pos {
+			return previousEnd, next - previousEnd
+		}
+		previousEnd = end
+		pos = next
+	}
+	return -1, 0
+}
+
+func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...string) (string, bool) {
+	dataStart, dataEnd, dataCount := 0, 0, 0
+	for pos := 0; pos < len(event); {
+		end, next := sseLine(event, pos)
+		line := event[pos:end]
+		if strings.HasPrefix(line, "data:") {
+			dataCount++
+			dataStart, dataEnd = pos+len("data:"), end
+			if dataStart < end && event[dataStart] == ' ' {
+				dataStart++
+			}
+		}
+		pos = next
+	}
+	if dataCount == 1 {
+		payload := event[dataStart:dataEnd]
+		if json.Valid([]byte(payload)) {
+			prefix, suffix := event[:dataStart], event[dataEnd:]
+			if mayNeedJSONRedaction(payload, patterns) {
+				payload = RedactJSON([]byte(payload), extraKeys...)
+				// JSON key-name policy handles values. Keep the previous SSE
+				// text coverage for credentials embedded in member names too.
+				payload = redactUnstructuredText(payload, patterns)
+			}
+			return prefix + payload + suffix, mayNeedTextRedaction(prefix, patterns) || mayNeedTextRedaction(suffix, patterns)
+		}
+	}
+	return event, mayNeedTextRedaction(event, patterns)
+}
+
+func mayNeedTextRedaction(input string, patterns *textRedactPatterns) bool {
+	return patterns.mayContainAssignment(input) || mayContainKnownToken(input)
+}
+
+func mayNeedJSONRedaction(input string, patterns *textRedactPatterns) bool {
+	// Escapes can hide both key names and tokens. Decode instead of guessing
+	// about the spelling (including surrogate pairs) in the wire representation.
+	if strings.Contains(input, `\`) || mayNeedTextRedaction(input, patterns) {
+		return true
+	}
+	// With escapes ruled out, quoted object keys can be checked without a
+	// second JSON parser. False positives only trigger structured redaction.
+	for offset := 0; offset < len(input); {
+		i := strings.IndexByte(input[offset:], ':')
+		if i < 0 {
+			break
+		}
+		end := offset + i
+		offset = end + 1
+		for end > 0 && isAssignmentSpace(input[end-1]) {
+			end--
+		}
+		if end == 0 || input[end-1] != '"' {
+			continue
+		}
+		end--
+		start := strings.LastIndexByte(input[:end], '"')
+		if start >= 0 && isSensitiveKey(input[start+1:end], patterns.keys) {
+			return true
+		}
+	}
+	return false
+}
+
+func mayContainKnownToken(input string) bool {
+	return strings.Contains(input, "-----BEGIN ") ||
+		strings.Contains(input, "sk-") ||
+		containsGitHubTokenPrefix(input) ||
+		strings.Contains(input, "github_pat_") ||
+		strings.Contains(input, "glpat-") ||
+		strings.Contains(input, "AKIA") ||
+		strings.Contains(input, "ASIA") ||
+		strings.Contains(input, "LTAI") ||
+		containsBearer(input) ||
+		strings.Contains(input, "GOCSPX-") ||
+		strings.Contains(input, "AIza")
+}
+
 // Do not parse JSON here: JSON strings also pass through this function, and
 // reparsing a quoted scalar would recurse indefinitely. Preserve ordinary text
 // whitespace; only RedactText's legacy top-level API trims its input.
@@ -235,6 +379,9 @@ func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	}
 	if !patterns.mayContainAssignment(out) {
 		return out
+	}
+	if patterns.linearAssignments && !containsNonASCII(out) {
+		return redactSimpleAssignments(out, patterns)
 	}
 	if strings.Contains(out, ":") && strings.Contains(out, `"`) {
 		out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
@@ -267,11 +414,17 @@ func containsBearer(input string) bool {
 func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 	keyAlt := buildKeyAlternation(extraKeys)
 	var suffixes keySuffixNode
+	linearAssignments := true
 	for _, key := range append(append([]string(nil), defaultSensitiveKeyList...), normalizeAndSortExtraKeys(extraKeys)...) {
 		suffixes.add(key)
+		if !isLinearAssignmentKey(key) {
+			linearAssignments = false
+		}
 	}
 	return &textRedactPatterns{
-		keySuffixes: suffixes,
+		keySuffixes:       suffixes,
+		keys:              buildKeySet(extraKeys),
+		linearAssignments: linearAssignments,
 		// JSON-like: "access_token":"..."
 		reJSONLike: regexp.MustCompile(`(?i)("(?:` + keyAlt + `)"\s*:\s*")([^"]*)(")`),
 		// Query-like: access_token=...
@@ -279,6 +432,161 @@ func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 		// Plain: access_token: ... / access_token = ...
 		rePlain: regexp.MustCompile(`(?i)\b((?:` + keyAlt + `))\b(\s*[:=]\s*)([^,\s]+)`),
 	}
+}
+
+func isLinearAssignmentKey(key string) bool {
+	if key == "" || !isWordByte(key[0]) || !isWordByte(key[len(key)-1]) {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		c := key[i]
+		if !isWordByte(c) && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func isWordByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') || c == '_'
+}
+
+func (p *textRedactPatterns) hasExactKey(input string) bool {
+	n := &p.keySuffixes
+	for len(input) > 0 {
+		r, size := utf8.DecodeLastRuneInString(input)
+		input = input[:len(input)-size]
+		n = n.children[foldKeyRune(r)]
+		if n == nil {
+			return false
+		}
+	}
+	return n.terminal
+}
+
+const (
+	jsonAssignment = iota
+	queryAssignment
+	plainAssignment
+)
+
+// redactSimpleAssignments keeps the regexp pipeline's JSON/query/plain order.
+// Combining these passes changes the values seen by later rules and can leave
+// secret suffixes behind. Identifier-shaped keys need no regexp engine.
+func redactSimpleAssignments(input string, patterns *textRedactPatterns) string {
+	for pass := jsonAssignment; pass <= plainAssignment; pass++ {
+		input = redactAssignmentPass(input, patterns, pass)
+	}
+	return input
+}
+
+func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) string {
+	var b strings.Builder
+	last, matchEnd := 0, 0
+	for delimiter := 0; delimiter < len(input); delimiter++ {
+		if input[delimiter] != ':' && input[delimiter] != '=' {
+			continue
+		}
+		if (pass == jsonAssignment && input[delimiter] != ':') || (pass == queryAssignment && input[delimiter] != '=') {
+			continue
+		}
+		keyEnd := delimiter
+		if pass != queryAssignment {
+			for keyEnd > 0 && isAssignmentSpace(input[keyEnd-1]) {
+				keyEnd--
+			}
+		}
+		if pass == jsonAssignment {
+			if keyEnd == 0 || input[keyEnd-1] != '"' {
+				continue
+			}
+			quoteEnd := keyEnd - 1
+			quoteStart := strings.LastIndexByte(input[:quoteEnd], '"')
+			if quoteStart < matchEnd || !patterns.hasExactKey(input[quoteStart+1:quoteEnd]) {
+				continue
+			}
+		} else {
+			keyStart := keyEnd
+			for keyStart > 0 && isLinearKeyByte(input[keyStart-1]) {
+				keyStart--
+			}
+			for keyStart < keyEnd && !patterns.hasExactKey(input[keyStart:keyEnd]) {
+				i := strings.IndexByte(input[keyStart:keyEnd], '-')
+				if i < 0 {
+					keyStart = keyEnd
+					break
+				}
+				keyStart += i + 1
+			}
+			if keyStart == keyEnd || (keyStart > 0 && isWordByte(input[keyStart-1])) {
+				continue
+			}
+		}
+		valueStart := delimiter + 1
+		if pass != queryAssignment {
+			for valueStart < len(input) && isAssignmentSpace(input[valueStart]) {
+				valueStart++
+			}
+		}
+		valueEnd := valueStart
+		if pass == jsonAssignment {
+			if valueStart >= len(input) || input[valueStart] != '"' {
+				continue
+			}
+			valueStart++
+			i := strings.IndexByte(input[valueStart:], '"')
+			if i < 0 {
+				continue
+			}
+			valueEnd = valueStart + i
+			delimiter = valueEnd
+			matchEnd = valueEnd + 1
+		} else {
+			stop := byte(',')
+			if pass == queryAssignment {
+				stop = '&'
+			}
+			for valueEnd < len(input) && input[valueEnd] != stop && !isAssignmentSpace(input[valueEnd]) {
+				valueEnd++
+			}
+			if valueEnd == valueStart {
+				continue
+			}
+			delimiter = valueEnd - 1
+		}
+		if input[valueStart:valueEnd] == "***" {
+			continue
+		}
+		if b.Len() == 0 {
+			b.Grow(len(input))
+		}
+		_, _ = b.WriteString(input[last:valueStart])
+		_, _ = b.WriteString("***")
+		last = valueEnd
+	}
+	if last == 0 {
+		return input
+	}
+	_, _ = b.WriteString(input[last:])
+	return b.String()
+}
+
+func isLinearKeyByte(c byte) bool {
+	return isWordByte(c) || c == '-'
+}
+
+func isAssignmentSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f'
+}
+
+func containsNonASCII(input string) bool {
+	for i := 0; i < len(input); i++ {
+		if input[i] >= utf8.RuneSelf {
+			return true
+		}
+	}
+	return false
 }
 
 // All key regexps require a sensitive key immediately before a : or =,
