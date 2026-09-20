@@ -13,7 +13,7 @@ package service
 // scheduling locks, not passive gauges; recover-state already clears them via
 // ClearRateLimit.
 func ObservedUsageWindowExtraKeys() []string {
-	return []string{
+	keys := []string{
 		// Anthropic OAuth / Claude Code passive windows
 		"session_window_utilization",
 		"passive_usage_7d_utilization",
@@ -73,9 +73,38 @@ func ObservedUsageWindowExtraKeys() []string {
 		"kiro_sched_utilization",
 		"kiro_sched_reset_at",
 
-		// Grok / Ollama cloud observed snapshots (not session cookies / toggles)
+		// Grok observed snapshots + soft-sched threshold inputs
 		"grok_usage_snapshot",
 		"grok_billing_snapshot",
+		"grok_sched_utilization",
+		"grok_sched_reset_at",
+		"grok_sched_usage_updated_at",
 		OllamaCloudUsageSnapshotExtraKey,
 	}
+	keys = append(keys, cnObservedUsageWindowExtraKeys()...)
+	return keys
+}
+
+// cnObservedUsageWindowExtraKeys derives Coding Plan quota Extra keys from the
+// same cnExtraKey/cnExtraSuffix* owners that cnQuotaExtraUpdates writes.
+// These feed cnProviderThresholdCandidates — omitting them lets recover-state
+// leave stale % that immediately re-pause scheduling.
+func cnObservedUsageWindowExtraKeys() []string {
+	providers := []string{PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformOpenCodeGo}
+	suffixes := []string{
+		cnExtraSuffix5hUsed,
+		cnExtraSuffix5hReset,
+		cnExtraSuffixWeeklyUsed,
+		cnExtraSuffixWeeklyReset,
+		cnExtraSuffixMonthlyUsed,
+		cnExtraSuffixMonthlyReset,
+		cnExtraSuffixUsageUpdated,
+	}
+	keys := make([]string, 0, len(providers)*len(suffixes))
+	for _, provider := range providers {
+		for _, suffix := range suffixes {
+			keys = append(keys, cnExtraKey(provider, suffix))
+		}
+	}
+	return keys
 }

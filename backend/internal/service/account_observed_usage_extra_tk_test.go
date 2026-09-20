@@ -33,6 +33,13 @@ func TestObservedUsageWindowExtraKeys_CoversCrossPlatformGauges(t *testing.T) {
 		"kiro_usage_percent",
 		"kiro_sched_utilization",
 		"grok_usage_snapshot",
+		"grok_sched_utilization",
+		"grok_sched_reset_at",
+		"grok_sched_usage_updated_at",
+		cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed),
+		cnExtraKey(PlatformZhipu, cnExtraSuffixWeeklyReset),
+		cnExtraKey(PlatformMiniMax, cnExtraSuffixUsageUpdated),
+		cnExtraKey(PlatformOpenCodeGo, cnExtraSuffixMonthlyUsed),
 		OllamaCloudUsageSnapshotExtraKey,
 	} {
 		_, ok := set[key]
