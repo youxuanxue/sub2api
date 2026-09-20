@@ -1037,7 +1037,8 @@ func (r *usageLogRepository) GetUpstreamEndpointStatsWithFilters(ctx context.Con
 
 // GetAccountUsageStats returns comprehensive usage statistics for an account over a time range
 func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (resp *AccountUsageStatsResponse, err error) {
-	daysCount := int(endTime.Sub(startTime).Hours()/24) + 1
+	// endTime is the exclusive upper bound of the [startTime, endTime) range.
+	daysCount := int(endTime.Sub(startTime).Hours() / 24)
 	if daysCount <= 0 {
 		daysCount = 30
 	}
@@ -1209,6 +1210,8 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 	}
 
 	resp = &AccountUsageStatsResponse{
+		StartDate:         startTime.Format("2006-01-02"),
+		EndDate:           endTime.Add(-24 * time.Hour).Format("2006-01-02"),
 		History:           history,
 		Summary:           summary,
 		Models:            models,

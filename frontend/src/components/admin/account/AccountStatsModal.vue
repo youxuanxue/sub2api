@@ -409,18 +409,33 @@
         </div>
 
         <!-- Model Distribution -->
-        <ModelDistributionChart :model-stats="stats.models" :loading="false" />
+        <ModelDistributionChart
+          :model-stats="stats.models"
+          :loading="false"
+          :start-date="stats.start_date"
+          :end-date="stats.end_date"
+          :filters="{ account_id: account?.id }"
+          breakdown-cost-field="account_cost"
+        />
 
         <EndpointDistributionChart
           :endpoint-stats="stats.endpoints || []"
           :loading="false"
           :title="t('usage.inboundEndpoint')"
+          :start-date="stats.start_date"
+          :end-date="stats.end_date"
+          :filters="{ account_id: account?.id }"
+          breakdown-cost-field="account_cost"
         />
 
         <EndpointDistributionChart
           :endpoint-stats="stats.upstream_endpoints || []"
           :loading="false"
           :title="t('usage.upstreamEndpoint')"
+          :start-date="stats.start_date"
+          :end-date="stats.end_date"
+          :filters="{ account_id: account?.id }"
+          breakdown-cost-field="account_cost"
         />
       </template>
 

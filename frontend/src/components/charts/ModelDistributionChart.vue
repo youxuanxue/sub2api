@@ -158,6 +158,7 @@
                     :items="breakdownItems"
                     :loading="breakdownLoading"
                     :show-account-cost="showAccountCost"
+                    :breakdown-cost-field="breakdownCostField"
                   />
                 </td>
               </tr>
@@ -283,6 +284,7 @@ const props = withDefaults(defineProps<{
   startTs?: number
   endTs?: number
   filters?: Record<string, any>
+  breakdownCostField?: 'actual_cost' | 'account_cost'
 }>(), {
   upstreamModelStats: () => [],
   mappingModelStats: () => [],
@@ -299,6 +301,7 @@ const props = withDefaults(defineProps<{
   enableBreakdown: true,
   showAccountCost: true,
   showStandardCost: true,
+  breakdownCostField: 'actual_cost',
   rankingLoading: false,
   rankingError: false
 })
@@ -343,6 +346,7 @@ const emit = defineEmits<{
 const enableRankingView = computed(() => props.enableRankingView)
 const showAccountCost = computed(() => props.showAccountCost)
 const showStandardCost = computed(() => props.showStandardCost)
+const breakdownCostField = computed(() => props.breakdownCostField)
 const costColumnLabel = computed(() =>
   showStandardCost.value ? t('admin.dashboard.actual') : t('usage.cost')
 )

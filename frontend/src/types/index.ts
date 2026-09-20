@@ -2398,6 +2398,8 @@ export interface AccountUsageSummary {
 }
 
 export interface AccountUsageStatsResponse {
+  start_date: string
+  end_date: string
   history: AccountUsageHistory[]
   summary: AccountUsageSummary
   models: ModelStat[]
