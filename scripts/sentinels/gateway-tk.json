@@ -7436,7 +7436,23 @@
       "must_contain": [
         "body = tkStripTokenseaFableContextManagement(account, body)"
       ],
-      "rationale": "Native Anthropic Messages egress (prod user16 Cursor→tokensea failover path for newapi channel accounts) must call tkStripTokenseaFableContextManagement after beta-body sanitize. Dropping the call site while leaving the helper intact re-opens claude-fable-5 400s on agent.tokensea.ai."
+      "rationale": "Native Anthropic Messages egress via buildNativeAnthropicUpstreamRequest (CN/Anthropic-protocol accounts) must call tkStripTokenseaFableContextManagement after beta-body sanitize."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_native.go",
+      "must_contain": [
+        "body = tkStripTokenseaFableContextManagement(account, body)",
+        "func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest("
+      ],
+      "rationale": "Prod user16 Cursor→tokensea failover uses ForwardAsAnthropic → forwardAnthropicViaNativeMessages → sendNativeAnthropicMessagesRequest (platform=newapi agent.tokensea.ai). This path builds http.NewRequest directly and does NOT call buildNativeAnthropicUpstreamRequest; the strip must live here or claude-fable-5 still 400s with context_management Extra inputs."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_native_test.go",
+      "must_contain": [
+        "TestForwardAsAnthropic_NativeMessages_TokenseaFableStripsContextManagement",
+        "native messages egress must strip context_management for tokensea+fable"
+      ],
+      "rationale": "End-to-end regression for the real newapi tokensea native-messages egress path: ForwardAsAnthropic must strip context_management from the upstream body for claude-fable-5."
     },
     {
       "path": "backend/internal/service/gateway_upstream_request.go",
