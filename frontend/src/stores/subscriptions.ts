@@ -121,6 +121,7 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
   function clear() {
     requestGeneration++
     activePromise = null
+    loading.value = false
     activeSubscriptions.value = []
     loaded.value = false
     lastFetchedAt.value = null

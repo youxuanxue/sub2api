@@ -36,7 +36,11 @@ type rateLimitAccountRepoStub struct {
 	// PR #338 (P3): track exact-reset-time writes so tests can assert
 	// handle429 / handle529 ran the upstream-precise path before the
 	// ladder write got suppressed via skipCooldownWrite.
-	setRateLimitedCalls    int
+	setRateLimitedCalls int
+	// CN provider quota tests assert the same write using concise names.
+	rateLimitedCalls       int
+	lastRateLimitedID      int64
+	lastRateLimitedAt      time.Time
 	setOverloadedCalls     int
 	lastRateLimitedResetAt time.Time
 	lastOverloadedUntil    time.Time
@@ -129,6 +133,9 @@ func (r *rateLimitAccountRepoStub) UpdateCredentials(ctx context.Context, id int
 
 func (r *rateLimitAccountRepoStub) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
 	r.setRateLimitedCalls++
+	r.rateLimitedCalls++
+	r.lastRateLimitedID = id
+	r.lastRateLimitedAt = resetAt
 	r.lastRateLimitedResetAt = resetAt
 	return nil
 }

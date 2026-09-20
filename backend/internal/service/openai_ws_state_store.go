@@ -138,7 +138,12 @@ func (s *defaultOpenAIWSStateStore) BindHTTPResponseOwner(ctx context.Context, g
 		return nil
 	}
 	// Keep the old group record for rolling rollback and add an owner index for
-	// billing-origin-independent continuation. Both HTTP and WS use this path.
+	// billing-origin-independent continuation when the request carries the
+	// candidate identity. Plain legacy HTTP bindings only need the group record;
+	// avoiding an unscoped candidate index keeps the write set bounded.
+	if identity, ok := candidateIdentityFromContext(ctx); !ok || identity.userID != userID || identity.keyID != apiKeyID {
+		return nil
+	}
 	indexedID := candidateResponseID(userID, responseID)
 	return s.bindHTTPResponseOwner(ctx, 0, indexedID, userID, apiKeyID, ttl)
 }

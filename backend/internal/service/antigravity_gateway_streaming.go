@@ -197,6 +197,18 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamKeepaliveInterval > 0 {
 		keepaliveInterval = time.Duration(s.settingService.cfg.Gateway.StreamKeepaliveInterval) * time.Second
 	}
+	// go-genai / python-genai 不会忽略 SSE 注释行，收到 ":\n\n" 会直接把整个流判成
+	// invalid stream chunk 而中断（Antigravity CLI 在用 go-genai）。对这类客户端宁可不发心跳。
+	if keepaliveInterval > 0 && downstreamRejectsSSEComments(c) {
+		keepaliveInterval = 0
+	}
+	keepaliveFrame := geminiNativeSSEKeepaliveFrame
+	// Preserve the standard SSE comment heartbeat for ordinary clients. The
+	// Google GenAI Go/Python SDKs are the exceptional clients that require the
+	// whitespace-only frame above.
+	if keepaliveInterval > 0 && c.GetHeader("User-Agent") != "" && !downstreamRejectsSSEComments(c) {
+		keepaliveFrame = ":\n\n"
+	}
 	var keepaliveTicker *time.Ticker
 	if keepaliveInterval > 0 {
 		keepaliveTicker = time.NewTicker(keepaliveInterval)
@@ -336,7 +348,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				continue
 			}
 			// Gemini-CLI-safe keepalive (whitespace only; never SSE comments).
-			if !cw.Fprintf("%s", geminiNativeSSEKeepaliveFrame) {
+			if !cw.Fprintf("%s", keepaliveFrame) {
 				logger.LegacyPrintf("service.antigravity_gateway", "Client disconnected during keepalive ping (antigravity gemini), continuing to drain upstream for billing")
 				continue
 			}
