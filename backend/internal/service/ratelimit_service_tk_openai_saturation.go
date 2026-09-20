@@ -7,12 +7,14 @@ import (
 
 // TK — OpenAI soft scheduling de-prioritization (increment side).
 //
-// Writers:
+// Writers (gated by shouldRecordOpenAICapacitySaturation):
 //   - prod openai-us* edge-mirror stubs: downstream-empty envelopes
 //     (ratelimit_service_tk_openai_downstream.go) and sanitized edge capacity
 //     502/503 (openai_capacity_saturation_tk.go)
 //   - edge OpenAI OAuth / setup-token: native upstream overloaded / 503
-//     temporarily unavailable (openai_capacity_saturation_tk.go)
+//     temporarily unavailable via HTTP errors and stream terminal
+//     response.failed / error (openai_capacity_saturation_tk.go /
+//     openai_gateway_passthrough.go stream_capacity)
 //
 // Fail over without cooling the account; the counter only nudges the scheduler
 // away from the hot account/stub for the rolling window in
