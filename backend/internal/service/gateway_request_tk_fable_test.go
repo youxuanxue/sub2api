@@ -96,3 +96,89 @@ func TestTkStripFableDisabledThinking_SanitizeChainShape(t *testing.T) {
 	require.Equal(t, "claude-fable-5", gjson.GetBytes(out, "model").String())
 	require.True(t, gjson.ValidBytes(out))
 }
+
+func tokenseaNewAPIAccount(id int64) *Account {
+	return &Account{
+		ID:       id,
+		Name:     "tokensea/anthropic",
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agent.tokensea.ai",
+			"api_key":  "sk-test",
+		},
+	}
+}
+
+// TestTkStripTokenseaFableContextManagement_StripsOnTokenseaFable pins the
+// prod 2026-09-20 user16 failover path: newapi tokensea + claude-fable-5 must
+// lose context_management before upstream forward.
+func TestTkStripTokenseaFableContextManagement_StripsOnTokenseaFable(t *testing.T) {
+	account := tokenseaNewAPIAccount(136)
+	body := []byte(`{"model":"claude-fable-5","thinking":{"type":"adaptive"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"messages":[{"role":"user","content":"hi"}],"max_tokens":100}`)
+
+	got := tkStripTokenseaFableContextManagement(account, body)
+
+	require.False(t, gjson.GetBytes(got, "context_management").Exists())
+	require.Equal(t, "adaptive", gjson.GetBytes(got, "thinking.type").String())
+	require.Equal(t, "claude-fable-5", gjson.GetBytes(got, "model").String())
+	require.True(t, gjson.GetBytes(got, "messages").Exists())
+}
+
+func TestTkStripTokenseaFableContextManagement_NoTouch(t *testing.T) {
+	tokensea := tokenseaNewAPIAccount(136)
+	cursor := &Account{
+		ID:       150,
+		Platform: PlatformNewAPI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://agentn.global.api5.cursor.sh",
+			"api_key":  "sk-test",
+		},
+		Extra: map[string]any{"upstream_provider": "cursor"},
+	}
+	cmBody := `{"model":"claude-fable-5","context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"max_tokens":100}`
+	opusBody := `{"model":"claude-opus-4-8","context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"max_tokens":100}`
+	noCM := `{"model":"claude-fable-5","thinking":{"type":"adaptive"},"max_tokens":100}`
+
+	cases := []struct {
+		name    string
+		account *Account
+		body    string
+	}{
+		{"cursor+fable keeps CM", cursor, cmBody},
+		{"tokensea+opus keeps CM", tokensea, opusBody},
+		{"tokensea+fable without CM is no-op", tokensea, noCM},
+		{"nil account keeps CM", nil, cmBody},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tkStripTokenseaFableContextManagement(tc.account, []byte(tc.body))
+			require.Equal(t, tc.body, string(got))
+		})
+	}
+}
+
+func TestTkStripTokenseaFableContextManagement_OpenAIAndAnthropicTypedRelays(t *testing.T) {
+	cmBody := []byte(`{"model":"claude-fable-5","context_management":{"edits":[{"type":"clear_thinking_20251015"}]},"max_tokens":32}`)
+	openaiRelay := &Account{
+		Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://agent.tokensea.ai/v1"},
+	}
+	anthropicRelay := &Account{
+		Platform: PlatformAnthropic, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://agent.tokensea.ai"},
+	}
+	for _, account := range []*Account{openaiRelay, anthropicRelay} {
+		got := tkStripTokenseaFableContextManagement(account, cmBody)
+		require.False(t, gjson.GetBytes(got, "context_management").Exists())
+	}
+}
+
+func TestIsTokenseaRelayUpstream_NewAPIChannel(t *testing.T) {
+	require.True(t, isTokenseaRelayUpstream(tokenseaNewAPIAccount(136)))
+	require.False(t, isTokenseaRelayUpstream(&Account{
+		Platform: PlatformNewAPI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"base_url": "https://agentn.global.api5.cursor.sh"},
+	}))
+}

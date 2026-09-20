@@ -71,3 +71,43 @@ func tkStripFableDisabledThinking(body []byte) []byte {
 		model, len(body), len(stripped))
 	return stripped
 }
+
+// isTokenseaRelayUpstream reports whether this account's wire base_url is
+// agent.tokensea.ai. Covers openai / anthropic typed relays plus newapi
+// Anthropic-channel accounts (prod account 136) that share the same host.
+func isTokenseaRelayUpstream(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	if account.IsOpenAITokenseaRelay() || account.IsAnthropicTokenseaRelay() {
+		return true
+	}
+	return isTokenseaRelayBaseURL(account.GetCredential("base_url"))
+}
+
+// tkStripTokenseaFableContextManagement drops body.context_management before
+// forwarding Fable models to agent.tokensea.ai.
+//
+// Prod 2026-09-20 user 16 (ops_error_logs id 4222978): Claude CLI 2.1.276 →
+// Cursor Connect 429 → failover to tokensea/anthropic (account 136) returned
+// HTTP 400 "context_management: Extra inputs are not permitted" for
+// claude-fable-5. Cursor accepts the same client payload; 7d prod only saw
+// this 400 on account 136 × fable. Strip is surgical and account+model gated
+// so Sonnet/Opus on tokensea and Fable on Cursor keep context_management.
+func tkStripTokenseaFableContextManagement(account *Account, body []byte) []byte {
+	if len(body) == 0 || !isTokenseaRelayUpstream(account) {
+		return body
+	}
+	model := gjson.GetBytes(body, "model").String()
+	if !isFableModel(model) || !gjson.GetBytes(body, "context_management").Exists() {
+		return body
+	}
+	stripped, err := sjson.DeleteBytes(body, "context_management")
+	if err != nil {
+		return body
+	}
+	logger.LegacyPrintf("service.gateway",
+		"[Forward] stripped context_management for tokensea+fable before upstream forward (tokensea returns 400 Extra inputs are not permitted): account=%d model=%s original_bytes=%d stripped_bytes=%d",
+		account.ID, model, len(body), len(stripped))
+	return stripped
+}
