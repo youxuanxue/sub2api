@@ -560,6 +560,12 @@ class OrchestrationTest(unittest.TestCase):
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn('invalid choice', proc.stderr)
 
+    def test_normalize_deploy_tag_strips_leading_v(self):
+        self.assertEqual(cli.normalize_deploy_tag('v1.8.243'), '1.8.243')
+        self.assertEqual(cli.normalize_deploy_tag('1.8.243'), '1.8.243')
+        with self.assertRaises(ValueError):
+            cli.normalize_deploy_tag('vv1.8.243')
+
     def test_workflow_runs_executor_and_resume_keeps_existing_checks(self):
         workflow = yaml.safe_load((ROOT/'.github/workflows/deploy-stage0.yml').read_text())
         job = workflow['jobs']['replay']

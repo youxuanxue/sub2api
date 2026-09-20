@@ -19,7 +19,8 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
 
 1. `operation=check`：只读对比 prev release tag → HEAD（`git log/diff` + deploy 契约文件），不 bump/tag/deploy。
 2. `operation=release` + `target=prod|all`：`bash scripts/release-bump-and-tag.sh`（worktree 隔离）→
-   watch `release.yml` → warm（可选）→ `deploy-stage0.yml` → CI `tk_post_deploy_smoke: OK`。
+   watch `release.yml` → warm（可选：`dispatch-prod-deploy.sh --operation warm`）→
+   `dispatch-prod-deploy.sh --operation deploy` → CI `tk_post_deploy_smoke: OK`。
 3. `target=all`：canary `pick_release_canary_edge.py` + `dispatch-edge-deploy.sh`（full）→ prod →
    `rollout-edges.sh`（默认 `--parallel 1`，infra）→ post-release checks。
 4. 单 edge：`dispatch-edge-deploy.sh --edge-id …`（不要手选 workflow）。
@@ -29,6 +30,8 @@ release、目标解析、canary 选择、rollout、smoke/post-check verdict 均�
    `Check traffic and 5xx after 5 minutes`、`### Traffic / 5xx (+5 min)`（含
    completed requests / top paths）。
 6. Prod smoke 后 advisory：`check-account-group-bindings.sh` 只读检查每个健康、可调度且有显式 `model_mapping` 的账号；无 active group 或与同模型 peer 分组完全不相交时输出 `review`，无 peer 的新模型只记 inconclusive。workflow 必须保持 `continue-on-error`。
+
+Tag 域 SSOT：git / `release.yml` 用 `vX.Y.Z`；deploy/warm/edge 镜像 input 用裸 `X.Y.Z`。本地入口经 `normalize-deploy-tag.sh`，可传两种形态。
 
 Hard rules：`simple_release` 默认 false；bump/tag 提交不得带 skip-ci 字面标记（见 `CLAUDE.md` §9）。
 

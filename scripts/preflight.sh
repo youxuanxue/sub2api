@@ -2139,7 +2139,8 @@ for _smoke_script in \
   ./ops/stage0/post_deploy_smoke.sh \
   ./ops/stage0/edge_post_deploy_smoke.sh \
   ./ops/observability/probe-ssot-recent-success.sh \
-  ./scripts/stage0/dispatch-edge-deploy.sh; do
+  ./scripts/stage0/dispatch-edge-deploy.sh \
+  ./scripts/stage0/dispatch-prod-deploy.sh; do
   if ! bash -n "${_smoke_script}"; then
     echo "  FAIL: ${_smoke_script} has bash syntax errors"
     errors=$((errors + 1))
@@ -2941,9 +2942,34 @@ if [ -x "$_tag_script" ]; then
         echo "  FAIL: $_tag_script accepted a malformed/empty tag"
         errors=$((errors + 1)); _tag_ok=0
     fi
+    # Workflow inputs stay bare X.Y.Z; local dispatch strips an optional leading v.
+    if bash "$_tag_script" v1.2.3 >/dev/null 2>&1; then
+        echo "  FAIL: $_tag_script must reject leading-v tags (normalize at local dispatch only)"
+        errors=$((errors + 1)); _tag_ok=0
+    fi
 fi
-[ "$_tag_ok" = 1 ] && echo "  ok: prod + Edge deploy workflows share the tag-format gate ($_tag_script)"
-unset _tag_script _tag_files _tag_ok _f
+_norm_script="ops/stage0/normalize-deploy-tag.sh"
+if [ ! -x "$_norm_script" ]; then
+    echo "  FAIL: $_norm_script missing or not executable (local dispatch v-prefix strip)"
+    errors=$((errors + 1)); _tag_ok=0
+elif [ "$(bash "$_norm_script" v1.2.3 2>/dev/null)" != "1.2.3" ] \
+  || [ "$(bash "$_norm_script" 1.2.3 2>/dev/null)" != "1.2.3" ]; then
+    echo "  FAIL: $_norm_script must strip optional leading v and emit bare X.Y.Z"
+    errors=$((errors + 1)); _tag_ok=0
+fi
+for _dispatch in \
+  scripts/stage0/dispatch-edge-deploy.sh \
+  scripts/stage0/dispatch-prod-deploy.sh \
+  scripts/stage0/rollout-edges.sh \
+  scripts/stage0/replay-prod-release.py
+do
+    if ! grep -q "normalize-deploy-tag.sh" "$_dispatch"; then
+        echo "  FAIL: $_dispatch must call $_norm_script before using a deploy tag"
+        errors=$((errors + 1)); _tag_ok=0
+    fi
+done
+[ "$_tag_ok" = 1 ] && echo "  ok: prod + Edge deploy workflows share the tag-format gate ($_tag_script); local dispatch normalizes v-prefix"
+unset _tag_script _tag_files _tag_ok _f _norm_script _dispatch
 
 echo ""
 

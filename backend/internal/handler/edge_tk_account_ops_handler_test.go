@@ -18,13 +18,18 @@ import (
 // --- stubs for the edge ops handler's narrow dependencies ---
 
 type opsRateLimiterStub struct {
-	clearedRateLimit   []int64
-	clearedTempUnsched []int64
-	err                error
+	clearedRateLimit     []int64
+	clearedObservedUsage []int64
+	clearedTempUnsched   []int64
+	err                  error
 }
 
 func (s *opsRateLimiterStub) ClearRateLimit(_ context.Context, id int64) error {
 	s.clearedRateLimit = append(s.clearedRateLimit, id)
+	return s.err
+}
+func (s *opsRateLimiterStub) ClearObservedUsageWindows(_ context.Context, id int64) error {
+	s.clearedObservedUsage = append(s.clearedObservedUsage, id)
 	return s.err
 }
 func (s *opsRateLimiterStub) ClearTempUnschedulable(_ context.Context, id int64) error {
@@ -110,6 +115,7 @@ func TestEdgeAccountOps_ClearRateLimit_CallsServiceAndReturnsSanitizedDTO(t *tes
 
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, []int64{51}, rl.clearedRateLimit)
+	require.Equal(t, []int64{51}, rl.clearedObservedUsage)
 	body := w.Body.String()
 	require.Contains(t, body, "edge-acct")
 	// CRITICAL: the credential-free DTO must never carry secrets through prod.

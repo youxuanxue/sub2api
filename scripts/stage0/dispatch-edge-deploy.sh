@@ -5,6 +5,9 @@
 #   bash scripts/stage0/dispatch-edge-deploy.sh \
 #     --edge-id uk1 --operation upgrade --tag 1.2.3 [--smoke-phase infra|full|edge-native-oauth|main-via-edge] [--ref REF]
 #
+# --tag accepts X.Y.Z or vX.Y.Z; a leading v is stripped before workflow_dispatch
+# (Edge workflows require the bare image tag). See ops/stage0/normalize-deploy-tag.sh.
+#
 # Resolves platform via scripts/stage0/resolve-edge-deploy-route.py and calls
 # gh workflow run on deploy-edge-lightsail-stage0.yml (EC2 edge path removed 2026-06-07).
 set -euo pipefail
@@ -19,7 +22,7 @@ SMOKE_PHASE=""
 WORKFLOW_REF=""
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -54,6 +57,13 @@ esac
 if [[ "${OPERATION}" == "provision" || "${OPERATION}" == "upgrade" || "${OPERATION}" == "rollback" ]]; then
   if [[ -z "${TAG}" ]]; then
     echo "dispatch-edge-deploy: --tag is required for operation=${OPERATION}" >&2
+    exit 1
+  fi
+fi
+
+if [[ -n "${TAG}" ]]; then
+  if ! TAG="$(bash ops/stage0/normalize-deploy-tag.sh "${TAG}")"; then
+    echo "dispatch-edge-deploy: invalid --tag (want X.Y.Z or vX.Y.Z, optionally -rc.N/-beta.N)" >&2
     exit 1
   fi
 fi

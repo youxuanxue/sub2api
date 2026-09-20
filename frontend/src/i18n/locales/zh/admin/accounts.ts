@@ -641,7 +641,7 @@ export default {
       bulkDeletePartial: '部分删除成功：成功 {success} 个，失败 {failed} 个',
       bulkDeleteFailed: '批量删除失败',
       recoverState: '恢复状态',
-      recoverStateHint: '用于恢复错误、限流和临时不可调度等可恢复状态。',
+      recoverStateHint: '恢复错误、限流、临时不可调度，并清空过期的上游用量窗口观测，等待新请求重新采样。不会清零本地计费配额（请用重置配额）。',
       recoverStateSuccess: '账号状态已恢复',
       recoverStateFailed: '恢复账号状态失败',
       fallbackActive: '已回退',

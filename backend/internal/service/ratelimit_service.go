@@ -53,13 +53,19 @@ type AccountRuntimeBlocker interface {
 
 // SuccessfulTestRecoveryResult 表示测试成功后恢复了哪些运行时状态。
 type SuccessfulTestRecoveryResult struct {
-	ClearedError     bool
-	ClearedRateLimit bool
+	ClearedError         bool
+	ClearedRateLimit     bool
+	ClearedObservedUsage bool
 }
 
 // AccountRecoveryOptions 控制账号恢复时的附加行为。
 type AccountRecoveryOptions struct {
 	InvalidateToken bool
+	// ClearObservedUsageWindows drops provider-observed usage/window Extra gauges
+	// (SSOT: ObservedUsageWindowExtraKeys). Admin recover-state sets this true so
+	// UI waits for fresh evidence; successful-test recovery leaves it false so a
+	// just-written response-header snapshot is not wiped.
+	ClearObservedUsageWindows bool
 }
 
 type geminiUsageCacheEntry struct {
@@ -2087,6 +2093,12 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 		}
 		result.ClearedRateLimit = true
 	}
+	if options.ClearObservedUsageWindows {
+		if err := s.ClearObservedUsageWindows(ctx, accountID); err != nil {
+			return nil, err
+		}
+		result.ClearedObservedUsage = true
+	}
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
 		s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
@@ -2096,6 +2108,18 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	}
 
 	return result, nil
+}
+
+// ClearObservedUsageWindows removes provider-observed usage/window Extra gauges.
+func (s *RateLimitService) ClearObservedUsageWindows(ctx context.Context, accountID int64) error {
+	if s == nil || s.accountRepo == nil {
+		return nil
+	}
+	if err := s.accountRepo.ClearObservedUsageWindows(ctx, accountID); err != nil {
+		return err
+	}
+	s.notifyAccountSchedulingBlockCleared(accountID)
+	return nil
 }
 
 // RecoverAccountAfterSuccessfulTest 将一次成功测试视为正常请求，

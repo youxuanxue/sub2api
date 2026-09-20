@@ -190,6 +190,9 @@ func (s *accountRepoStub) ClearAntigravityQuotaScopes(ctx context.Context, id in
 func (s *accountRepoStub) ClearModelRateLimits(ctx context.Context, id int64) error {
 	panic("unexpected ClearModelRateLimits call")
 }
+func (s *accountRepoStub) ClearObservedUsageWindows(ctx context.Context, id int64) error {
+	return nil
+}
 
 func (s *accountRepoStub) UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error {
 	panic("unexpected UpdateSessionWindow call")
