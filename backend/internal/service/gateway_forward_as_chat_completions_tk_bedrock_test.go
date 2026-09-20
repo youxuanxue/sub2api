@@ -154,7 +154,7 @@ func TestHandleCCBufferedFromAnthropicJSON_BedrockBridgeRegression(t *testing.T)
 	}
 
 	svc := &GatewayService{}
-	result, err := svc.handleCCBufferedFromAnthropicJSON(resp, c, "claude-sonnet-4-6", "claude-sonnet-4-6", nil, time.Now())
+	result, err := svc.handleCCBufferedFromAnthropicJSON(resp, c, &Account{ID: 91, Platform: PlatformAnthropic}, "claude-sonnet-4-6", "claude-sonnet-4-6", nil, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "bedrock-json-ok", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
