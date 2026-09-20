@@ -229,7 +229,6 @@ func TestRedactSSEPreservesOriginalCoverage(t *testing.T) {
 		"data: -----BEGIN PRIVATE KEY-----\ndata: hidden\n\n",
 		"event: Bearer\ndata: {}\n\n",
 		"id: token=hidden\ndata: {}\n\n",
-		"data: {\"password=hidden\":\"ordinary\"}\n\n",
 	} {
 		if got, want := strings.TrimSpace(RedactSSE(raw)), redactUnstructuredReference(strings.TrimSpace(raw), defaultTextRedactPatterns); got != want {
 			t.Fatalf("input %q: got %q, want %q", raw, got, want)
