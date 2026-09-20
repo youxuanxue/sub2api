@@ -227,10 +227,10 @@ func RedactSSE(input string, extraKeys ...string) string {
 	for len(input) > 0 {
 		separatorStart, separatorLen := sseEventSeparator(input)
 		if separatorStart < 0 {
-			_, _ = b.WriteString(redactSSEEvent(input, extraKeys...))
+			_, _ = b.WriteString(redactSSEEvent(input, patterns, extraKeys...))
 			break
 		}
-		_, _ = b.WriteString(redactSSEEvent(input[:separatorStart], extraKeys...))
+		_, _ = b.WriteString(redactSSEEvent(input[:separatorStart], patterns, extraKeys...))
 		_, _ = b.WriteString(input[separatorStart : separatorStart+separatorLen])
 		input = input[separatorStart+separatorLen:]
 	}
@@ -250,7 +250,7 @@ func sseEventSeparator(input string) (start, length int) {
 	}
 }
 
-func redactSSEEvent(event string, extraKeys ...string) string {
+func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...string) string {
 	if event == "" {
 		return ""
 	}
@@ -271,7 +271,6 @@ func redactSSEEvent(event string, extraKeys ...string) string {
 		line := strings.TrimSuffix(lines[dataLine], "\r")
 		payload := strings.TrimPrefix(line, "data:")
 		payload = strings.TrimPrefix(payload, " ")
-		patterns := getTextRedactPatterns(extraKeys)
 		if json.Valid([]byte(payload)) && (patterns.mayContainAssignment(payload) || mayContainKnownToken(payload)) {
 			redacted := RedactJSON([]byte(payload), extraKeys...)
 			prefixLen := len("data:")

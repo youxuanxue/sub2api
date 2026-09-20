@@ -46,16 +46,16 @@ QA 采集会对请求、响应和流式片段做自动脱敏。当前非结构�
 ## 识别契约
 
 - JSON 只接受完整的 RFC 8259 值。对象 key 使用现有 `defaultSensitiveKeys`、敏感后缀和调用方传入的 `extraKeys`，大小写不敏感；敏感 key 的值直接替换为 `***`，不再递归扫描。
-- SSE 按空行分隔事件；为了保持 framing，只有恰好一行 `data:` 且该 payload 整体通过 JSON 解码时才替换该 payload，`event:`、`id:`、注释和空行原样保留。多行 `data:`、截断事件和未知字段组合视为未知格式，只接受已知 token/assignment 规则，不做旧正则兜底。
+- SSE 按空行分隔事件；为了保持 framing，只有恰好一行 `data:` 且该 payload 整体通过 JSON 解码时才替换该 payload，`event:`、`id:`、注释和空行的结构保留，字段中的已知 token 仍会被替换。多行 `data:`、截断事件和未知字段组合视为未知格式，只接受已知 token/assignment 规则，不做旧正则兜底。
 - 已知 token 集合与现有 `logredact` 模式保持一致：私钥头 `-----BEGIN ... PRIVATE KEY-----`、大小写不敏感的 `Bearer` 加 token、`GOCSPX-`（至少 24 个字符）、`AIza`（后接 35 个字符）、provider token（`glpat-`、`gh[pousr]_`、`github_pat_`、`sk-`、`AKIA`、`ASIA`、`LTAI` 及现有长度约束）。这些模式在任何输入格式上都可扫描，但不扩展为通用正则 DLP。
-- assignment 只识别现有敏感 key、敏感后缀或 `extraKeys` 的 `key=value`、`key: value`、JSON-like key 形式；未知自定义 key、非完整 assignment 和无法确认边界的文本直接保留。ASCII 标识符形 key 使用单遍扫描器；含 Unicode/特殊标点的已知 key 为兼容现有覆盖可走窄范围正则路径，不视为未知格式。
+- assignment 只识别现有正文正则已覆盖的敏感 key 或 `extraKeys` 的 `key=value`、`key: value`、JSON-like key 形式；未知自定义 key、非完整 assignment 和无法确认边界的文本直接保留。JSON 对象 key 仍额外支持现有敏感后缀规则。ASCII 标识符形 key 使用单遍扫描器；含 Unicode/特殊标点的已知 key 为兼容现有覆盖可走窄范围正则路径，不视为未知格式。
 - 分类结果是内部实现细节，不新增对外 API；现有 `RedactText`/`RedactJSON` 返回类型保持不变。SSE 处理由 QA service 保持 framing 和 thinking signature 回填契约。
 
 # 数据与接口契约
 
 - QA record、blob 和导出 JSON 的结构不变；`redactions` 元数据中的版本值从 `logredact-v3` 切换为 `logredact-v4`。
 - `sanitizeQABytes`、`sanitizeQABody`、`RedactText` 和 `RedactJSON` 的参数及返回类型不变；实现只新增包内分类/扫描辅助函数。
-- 内部分类枚举固定为 `json`、`sse_json`、`assignment`、`known_token`、`unknown_passthrough`，仅用于计数和测试，不写入正文或用户可控字段。
+- benchmark 和 differential 测试使用固定分类标签 `json`、`sse_json`、`assignment`、`known_token`、`unknown_passthrough`；标签不写入正文、QA record 或用户可控字段，运行时不增加热路径计数器。
 - 版本变更必须同步 [`scripts/sentinels/redaction.json`](../../scripts/sentinels/redaction.json)；实现入口、QA service 调用点和 focused 回归测试必须同步更新 [`scripts/sentinels/gateway-tk.json`](../../scripts/sentinels/gateway-tk.json)。若上游共享文件继续有冲突，优先采用 `*_tk_*` companion 或纯追加入口，不能静默丢失脱敏行为。
 
 # 版本与兼容
@@ -70,7 +70,7 @@ QA 采集会对请求、响应和流式片段做自动脱敏。当前非结构�
 - differential 测试确认识别格式的输出与当前安全基线一致；未知格式明确验证不调用旧正则链。
 - fuzz 测试覆盖截断 JSON、畸形 SSE、嵌套数组和长普通文本，要求不 panic 且不误判为结构化输入。
 - benchmark 对比大响应普通字符串叶子、SSE JSON 和 assignment 三类输入的 CPU/分配。
-- 增加固定枚举的识别路径计数（`json`、`sse_json`、`assignment`、`known_token`、`unknown_passthrough`），不记录正文内容，不使用用户输入作为 label。
+- benchmark 按固定分类标签报告识别路径（`json`、`sse_json`、`assignment`、`known_token`、`unknown_passthrough`），不记录正文内容，不使用用户输入作为 label。
 - 性能验收要求：普通字符串叶子和 `unknown_passthrough` 不调用旧的 `ReplaceAllString` assignment 正则链；只有命中 JSON key、assignment 或已知 token 的输入才进入对应扫描器。benchmark 必须同时报告吞吐、CPU 和分配，并与 `logredact-v3` 基线比较。
 
 # 回滚
