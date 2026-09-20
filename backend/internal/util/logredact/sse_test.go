@@ -13,6 +13,17 @@ func TestRedactSSEStructuredDataPreservesFraming(t *testing.T) {
 	}
 }
 
+func TestRedactSSEStructuredDataRedactsSensitiveSuffixKeys(t *testing.T) {
+	input := "data: {\"customer_password\":\"secret\",\"content\":\"hello\"}\n\n"
+	got := RedactSSE(input)
+	if strings.Contains(got, "secret") {
+		t.Fatalf("sensitive suffix key leaked: %q", got)
+	}
+	if !strings.Contains(got, `"customer_password":"***"`) {
+		t.Fatalf("expected suffix key redaction, got %q", got)
+	}
+}
+
 func TestRedactSSEPreservesCRLFFraming(t *testing.T) {
 	input := "event: message\r\ndata: {\"token\":\"secret\"}\r\n\r\n"
 	want := "event: message\r\ndata: {\"token\":\"***\"}\r\n\r\n"

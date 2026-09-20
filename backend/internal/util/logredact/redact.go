@@ -219,7 +219,8 @@ func RedactSSE(input string, extraKeys ...string) string {
 		return ""
 	}
 	patterns := getTextRedactPatterns(extraKeys)
-	if !patterns.mayContainAssignment(input) && !mayContainKnownToken(input) {
+	if !patterns.mayContainAssignment(input) && !mayContainKnownToken(input) &&
+		!mayContainSensitiveJSONKey(input, patterns) && !strings.Contains(input, "data:") {
 		return input
 	}
 	var b strings.Builder
@@ -271,7 +272,8 @@ func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...str
 		line := strings.TrimSuffix(lines[dataLine], "\r")
 		payload := strings.TrimPrefix(line, "data:")
 		payload = strings.TrimPrefix(payload, " ")
-		if json.Valid([]byte(payload)) && (patterns.mayContainAssignment(payload) || mayContainKnownToken(payload)) {
+		if json.Valid([]byte(payload)) && (patterns.mayContainAssignment(payload) ||
+			mayContainSensitiveJSONKey(payload, patterns) || mayContainKnownToken(payload)) {
 			redacted := RedactJSON([]byte(payload), extraKeys...)
 			prefixLen := len("data:")
 			if len(line) > prefixLen && line[prefixLen] == ' ' {
@@ -296,6 +298,61 @@ func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...str
 		}
 	}
 	return RedactText(event, extraKeys...)
+}
+
+func mayContainSensitiveJSONKey(input string, patterns *textRedactPatterns) bool {
+	for i := 0; i < len(input); i++ {
+		if input[i] != '"' {
+			continue
+		}
+		start := i
+		i++
+		for i < len(input) {
+			if input[i] == '\\' {
+				i += 2
+				continue
+			}
+			if input[i] == '"' {
+				break
+			}
+			i++
+		}
+		if i >= len(input) {
+			break
+		}
+		end := i
+		i++
+		for i < len(input) && isAssignmentSpace(input[i]) {
+			i++
+		}
+		if i >= len(input) || input[i] != ':' {
+			continue
+		}
+		key, err := strconv.Unquote(input[start : end+1])
+		if err != nil {
+			continue
+		}
+		if isSensitiveJSONKey(key, patterns) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSensitiveJSONKey(key string, patterns *textRedactPatterns) bool {
+	normalized := normalizeKey(key)
+	if _, ok := defaultNonCredentialKeys[normalized]; ok {
+		return false
+	}
+	if patterns.hasExactKey(normalized) {
+		return true
+	}
+	for _, suffix := range defaultSensitiveKeySuffixes {
+		if strings.HasSuffix(normalized, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func mayContainKnownToken(input string) bool {
