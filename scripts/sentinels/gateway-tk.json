@@ -554,12 +554,41 @@
     {
       "path": "scripts/stage0/replay-prod-release.py",
       "must_contain": [
+        "def normalize_deploy_tag(",
+        "ops/stage0/normalize-deploy-tag.sh",
         "matrix.replay_details(receipt, results)",
         "matrix.selected_case_ids(plan, args.case_id)",
         "arguments += ['--case-id', case_id]",
         "'selected_verdict' if case_ids is not None else 'verdict'"
       ],
-      "rationale": "CLI consumes the shared receipt projection and forwards reviewed stable case IDs while keeping selected and full verdicts distinct."
+      "rationale": "CLI consumes the shared receipt projection and forwards reviewed stable case IDs while keeping selected and full verdicts distinct; deploy tags are normalized via the shared X.Y.Z owner before SSM/AWS work."
+    },
+    {
+      "path": "ops/stage0/normalize-deploy-tag.sh",
+      "must_contain": [
+        "case \"$TAG\" in",
+        "v*) TAG=\"${TAG#v}\" ;;",
+        "validate-deploy-tag.sh"
+      ],
+      "rationale": "Local deploy/warm/edge dispatch must strip an optional leading v and reuse the workflow-side bare X.Y.Z gate; without this helper agents re-dispatch v-prefixed tags into workflows that checkout refs/tags/v${tag}."
+    },
+    {
+      "path": "scripts/stage0/dispatch-prod-deploy.sh",
+      "must_contain": [
+        "normalize-deploy-tag.sh",
+        "deploy-stage0.yml",
+        "warm-image-stage0.yml",
+        "-f \"tag=${TAG}\""
+      ],
+      "rationale": "Canonical prod dispatch entry must normalize tags before workflow_dispatch; bypassing it with raw gh -f tag=v… reopens the recurring canary/prod format failure."
+    },
+    {
+      "path": "scripts/stage0/dispatch-edge-deploy.sh",
+      "must_contain": [
+        "normalize-deploy-tag.sh",
+        "resolve-edge-deploy-route.py"
+      ],
+      "rationale": "Edge canary/upgrade dispatch is the path that repeatedly received v-prefixed tags; it must keep calling the shared normalize owner before gh workflow run."
     },
     {
       "path": "ops/stage0/test_prod_replay.py",
@@ -574,9 +603,10 @@
         "test_cli_consumes_real_host_summary_and_rejects_tampered_results",
         "test_cli_selected_rerun_keeps_full_verdict_and_denominator",
         "test_case_selection_is_validated_before_aws_or_prepare",
-        "test_ssm_delivery_preserves_case_selection"
+        "test_ssm_delivery_preserves_case_selection",
+        "test_normalize_deploy_tag_strips_leading_v"
       ],
-      "rationale": "Behavioral regressions stop a no-op workflow or an observations-only green receipt from replacing real replay."
+      "rationale": "Behavioral regressions stop a no-op workflow or an observations-only green receipt from replacing real replay; tag normalize must keep accepting git-shaped vX.Y.Z."
     },
     {
       "path": "ops/stage0/deploy_via_ssm_bluegreen.sh",

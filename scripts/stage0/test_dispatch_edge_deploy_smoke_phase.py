@@ -14,6 +14,9 @@ import textwrap
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "dispatch-edge-deploy.sh"
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_NORMALIZE = _REPO_ROOT / "ops/stage0/normalize-deploy-tag.sh"
+_VALIDATE = _REPO_ROOT / "ops/stage0/validate-deploy-tag.sh"
 
 
 class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
@@ -22,8 +25,13 @@ class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
         self.repo = pathlib.Path(self._tmp.name) / "repo"
         self.repo.mkdir()
         (self.repo / "scripts/stage0").mkdir(parents=True)
+        (self.repo / "ops/stage0").mkdir(parents=True)
         shutil.copy(_SCRIPT, self.repo / "scripts/stage0/dispatch-edge-deploy.sh")
         (self.repo / "scripts/stage0/dispatch-edge-deploy.sh").chmod(0o755)
+        shutil.copy(_NORMALIZE, self.repo / "ops/stage0/normalize-deploy-tag.sh")
+        (self.repo / "ops/stage0/normalize-deploy-tag.sh").chmod(0o755)
+        shutil.copy(_VALIDATE, self.repo / "ops/stage0/validate-deploy-tag.sh")
+        (self.repo / "ops/stage0/validate-deploy-tag.sh").chmod(0o755)
         self.fakebin = self.repo / "fakebin"
         self.fakebin.mkdir()
         self.gh_log = self.repo / "gh-args.log"
@@ -108,6 +116,28 @@ class DispatchEdgeDeploySmokePhaseTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
         self.assertIn("smoke_phase=full", proc.stdout)
         self.assertIn("smoke_phase=full", self._gh_args())
+
+    def test_strips_leading_v_from_tag(self) -> None:
+        proc = self._run(
+            "--edge-id",
+            "uk1",
+            "--operation",
+            "upgrade",
+            "--tag",
+            "v1.8.243",
+            "--smoke-phase",
+            "full",
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("tag=1.8.243", proc.stdout)
+        self.assertIn("tag=1.8.243", self._gh_args())
+        self.assertNotIn("tag=v1.8.243", self._gh_args())
+
+    def test_rejects_malformed_tag(self) -> None:
+        proc = self._run("--edge-id", "uk1", "--operation", "upgrade", "--tag", "vv1.2.3")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("invalid --tag", proc.stderr)
+        self.assertFalse(self.gh_log.exists())
 
 
 if __name__ == "__main__":

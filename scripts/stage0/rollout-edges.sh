@@ -23,7 +23,7 @@
 #   bash scripts/stage0/rollout-edges.sh --tag 1.7.88 --edges "uk2 uk3 us2"
 #
 # Flags:
-#   --tag X.Y.Z      image tag (no leading v). Required.
+#   --tag X.Y.Z|vX.Y.Z  image tag (leading v stripped). Required.
 #   --skip a[,b]     edges to exclude from the deployable matrix (e.g. canary).
 #   --edges "a b c"  explicit edge list; overrides the matrix + --skip.
 #   --ref REF        Git ref of deployment automation (image still uses --tag).
@@ -59,12 +59,13 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$TAG" ]; then
-  echo "rollout-edges: --tag is required (e.g. --tag 1.7.88, no leading v)" >&2
+  echo "rollout-edges: --tag is required (e.g. --tag 1.7.88 or v1.7.88)" >&2
   exit 1
 fi
-case "$TAG" in
-  v*) echo "rollout-edges: --tag must not carry the leading 'v' (workflows take the bare version)" >&2; exit 1 ;;
-esac
+if ! TAG="$(bash ops/stage0/normalize-deploy-tag.sh "$TAG")"; then
+  echo "rollout-edges: invalid --tag (want X.Y.Z or vX.Y.Z, optionally -rc.N/-beta.N)" >&2
+  exit 1
+fi
 case "$PARALLEL" in
   ''|*[!0-9]*) echo "rollout-edges: --parallel must be a positive integer" >&2; exit 1 ;;
 esac
