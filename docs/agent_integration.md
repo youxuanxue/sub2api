@@ -331,6 +331,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `PUT /api/v1/admin/plugins/:id/config` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/plugins/:id/disable` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/plugins/:id/enable` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/plugins/:id/status` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/plugins/:id/test` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/plugins/:id/ui-session` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/plugins/upload` from `backend/internal/server/routes/admin.go`
@@ -649,6 +650,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/users/me/qa/bundles` from `backend/internal/server/routes/user_tk_routes.go`
 - `GET /api/v1/users/me/qa/bundles/:job_id` from `backend/internal/server/routes/user_tk_routes.go`
 - `POST /api/v1/users/me/qa/bundles/:job_id/export` from `backend/internal/server/routes/user_tk_routes.go`
+- `POST /api/v3/contents/generations/tasks` from `backend/internal/server/routes/gateway.go`
+- `DELETE /api/v3/contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
+- `GET /api/v3/contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
 - `POST /audio/speech` from `backend/internal/server/routes/gateway.go`
 - `POST /audio/transcriptions` from `backend/internal/server/routes/gateway.go`
 - `GET /backend-api/codex/:call_id` from `backend/internal/server/routes/gateway.go`
@@ -659,6 +663,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /backend-api/codex/responses` from `backend/internal/server/routes/gateway.go`
 - `POST /backend-api/codex/responses/*subpath` from `backend/internal/server/routes/gateway.go`
 - `POST /chat/completions` from `backend/internal/server/routes/gateway.go`
+- `POST /contents/generations/tasks` from `backend/internal/server/routes/gateway.go`
+- `DELETE /contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
+- `GET /contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
 - `GET /custom-voices` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `POST /custom-voices` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `DELETE /custom-voices/:voice_id` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
@@ -692,6 +699,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /v1/audio/speech` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/audio/transcriptions` from `backend/internal/server/routes/gateway.go`
 - `POST /v1/chat/completions` from `backend/internal/server/routes/gateway.go`
+- `POST /v1/contents/generations/tasks` from `backend/internal/server/routes/gateway.go`
+- `DELETE /v1/contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
+- `GET /v1/contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
 - `GET /v1/custom-voices` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `POST /v1/custom-voices` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
 - `DELETE /v1/custom-voices/:voice_id` from `backend/internal/server/routes/gateway_tk_grok_voice_routes.go`
@@ -747,6 +757,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /v1beta/models` from `backend/internal/server/routes/gateway.go`
 - `POST /v1beta/models/*modelAction` from `backend/internal/server/routes/gateway.go`
 - `GET /v1beta/models/:model` from `backend/internal/server/routes/gateway.go`
+- `POST /v3/contents/generations/tasks` from `backend/internal/server/routes/gateway.go`
+- `DELETE /v3/contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
+- `GET /v3/contents/generations/tasks/:task_id` from `backend/internal/server/routes/gateway.go`
 - `POST /video/generations` from `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`
 - `GET /video/generations/:task_id` from `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`
 - `POST /videos` from `backend/internal/server/routes/gateway_tk_openai_compat_handlers.go`
