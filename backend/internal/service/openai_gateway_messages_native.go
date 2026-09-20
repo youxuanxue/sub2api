@@ -125,6 +125,12 @@ func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest(
 	stream bool,
 	bearerToken string,
 ) (*http.Response, error) {
+	// tokensea + fable: strip context_management before native Messages egress.
+	// Prod 2026-09-20 user16: Cursor→tokensea failover uses this path
+	// (ForwardAsAnthropic → forwardAnthropicViaNativeMessages), not
+	// buildNativeAnthropicUpstreamRequest.
+	body = tkStripTokenseaFableContextManagement(account, body)
+
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	if account.IsCursor() {
 		upstreamCtx = ctx

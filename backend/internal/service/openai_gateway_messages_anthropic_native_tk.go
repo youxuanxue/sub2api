@@ -189,6 +189,8 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
 		body = sanitized
 	}
+	// tokensea + fable: strip context_management (prod 2026-09-20 user16).
+	body = tkStripTokenseaFableContextManagement(account, body)
 
 	// Ollama Cloud DeepSeek 出站 max_tokens clamp：判定与 nativeAnthropicTargetURL
 	// 的 base 取值同源（GetAnthropicProtocolBaseURL，adaptive 时是 Anthropic 协议
