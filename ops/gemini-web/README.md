@@ -1,0 +1,82 @@
+# Gemini Web HTTP adapter
+
+Contract and live evidence: [`docs/approved/gemini-web-channel.md`](../../docs/approved/gemini-web-channel.md), §10.
+
+Private edge companion, with one Google Web cookie jar per account. TokenKey accounts use
+`platform=gemini`, `type=apikey`, `base_url=http://tokenkey-gemini-web:8091` and separate
+worker keys. No new backend account type; no cookies in TokenKey credentials.
+
+## Supported subset
+
+`POST /v1beta/models/{model}:generateContent` and `:streamGenerateContent?alt=sse`.
+Header: `x-goog-api-key`. Models: `gemini-web-flash`, `gemini-web-pro`,
+`gemini-web-pro-image`. These select live Web categories, **not** API model versions.
+
+One user turn, text parts, optional `generationConfig.responseModalities`.
+Unknown controls, system instructions, tools, multimodal inputs and multi-turn history
+return 400 before generation; they are not silently ignored. Streaming currently emits
+one complete SSE response after generation/download, so it does not improve first-token
+latency. Only original-image RPC output is downloaded. No preview fallback, upscaling,
+automatic generation retries, claimed modelVersion or fabricated usageMetadata.
+
+## State
+
+A protected volume (directories 0700, files 0600, owner UID 1000) contains:
+
+```text
+accounts.json                 # [{"id":"133","api_key":"<random 32+ characters>"}, ...]
+133/bundle.json               # {"ua":"<source UA>","cookies":[<domain-aware cookies>]}
+133/state.json                # worker-owned atomic cookie/refresh/pause state
+483/bundle.json
+483/state.json
+owner.lock                    # one process/volume owner, including across restarts
+```
+
+Export only from the explicitly selected AdsPower profile over local CDP; all browser
+Google requests must already use the edge proxy. Never bake these files into an image,
+pass them as CLI arguments, or print them. Import an updated session with the worker
+stopped, preserve the old protected state for rollback, replace the account bundle and
+retire that account's `state.json`. Do not overwrite the other account. Restart checks
+the volume lease; launching two owners against one volume fails.
+
+On import, and every ten minutes including idle periods, the single session owner
+renews via RotateCookies and bootstraps again under the account lock. Every response persists all cookie changes. Auth loss pauses that
+account durably; quota rejection applies a five-minute cooldown. Operators re-import
+valid cookies after verification. There is no unattended login or browser migration.
+Long-term refresh longevity needs observation; a short successful refresh is not proof
+of indefinite operation.
+
+## Validation and deployment
+
+```sh
+python3 -m venv /tmp/tk-gemini-web-test
+/tmp/tk-gemini-web-test/bin/pip install -r ops/gemini-web/requirements.txt
+/tmp/tk-gemini-web-test/bin/python -m unittest discover -s ops/gemini-web -v
+python3 -m unittest discover -s ops/stage0 -p 'test_probe_account_model*.py'
+./scripts/preflight.sh
+```
+
+Build/run on the authorized edge, from this directory:
+
+```sh
+sudo docker build -t tokenkey-gemini-web:canary .
+sudo docker run -d --name tokenkey-gemini-web --restart unless-stopped \
+  --network tokenkey_tokenkey-network --user 1000:1000 --read-only \
+  --memory 384m --memory-swap 384m --cpus 1 --pids-limit 64 \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --mount type=bind,src=/var/lib/tokenkey/gemini-web,dst=/state \
+  tokenkey-gemini-web:canary
+```
+
+No host port and no Caddy/public route. Confirm gateway URL security permits that
+private HTTP upstream; do not weaken global security to make an import pass. Import
+accounts with the canonical `ops/accounts/import-accounts.sh` validation/dry-run/apply
+workflow. Test each account exclusively via `ops/observability/run-probe.sh` and
+`ops/stage0/probe_account_model.sh`, `ENDPOINT=gemini` / `gemini_image`. Correlation uses
+the response X-Request-ID. API-only checks are integration probes, not UI e2e tests.
+
+Commercial price/catalog activation is separate from the private Web account canary.
+Do not alias an official paid API model to Web merely to bypass model admission.
+Rollback: disable only these two gateway accounts, then stop this companion; the
+existing gateway, OAuth accounts and cookie backups are preserved.

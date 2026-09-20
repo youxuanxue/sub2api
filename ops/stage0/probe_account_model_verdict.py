@@ -4,7 +4,36 @@
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
 from typing import Any
+
+
+def gemini_response_summary(body_text: str) -> dict[str, Any]:
+    """No prompts, answers or image bytes in probe output."""
+    result: dict[str, Any] = {"valid": False, "text_parts": 0, "images": []}
+    try:
+        body = json.loads(body_text)
+        candidate = body["candidates"][0]
+        if candidate.get("finishReason") != "STOP":
+            return result
+        for part in candidate["content"]["parts"]:
+            if isinstance(part.get("text"), str) and part["text"]:
+                result["text_parts"] += 1
+            if "inlineData" in part:
+                inline = part["inlineData"]
+                data = base64.b64decode(inline["data"], validate=True)
+                if len(data) < 16 or inline["mimeType"] not in ("image/jpeg", "image/png", "image/webp"):
+                    return result
+                if not (data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG\r\n\x1a\n") or
+                        (data.startswith(b"RIFF") and data[8:12] == b"WEBP")):
+                    return result
+                result["images"].append({"mime_type": inline["mimeType"], "bytes": len(data),
+                                         "sha256": hashlib.sha256(data).hexdigest()})
+        result["valid"] = bool(result["text_parts"] or result["images"])
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return result
+    return result
 
 
 def embedding_response_valid(body_text: str) -> bool:
@@ -39,6 +68,10 @@ def classify_probe_verdict(
     low = body_text.lower()
 
     if 200 <= status < 300:
+        if endpoint in ("gemini", "gemini_image"):
+            summary = gemini_response_summary(body_text)
+            if not summary["valid"] or (endpoint == "gemini_image" and not summary["images"]):
+                return "uncorrelated_success"
         if endpoint == "transcriptions":
             try:
                 transcript = json.loads(body_text)

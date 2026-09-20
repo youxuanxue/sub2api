@@ -4,26 +4,32 @@ approved_by: pending
 source_baseline: 75e38806d7f04202f3ee02148f10975b7d26871c
 pr_base: 6cfe353d765cf0f2868fcf56d1f22475e79785d3
 direction_acknowledged_by: user
-implementation_approval: pending
+implementation_approval: user-explicit-cookie-http-two-account-edge-us4
 observed_on: 2026-09-20
 target: edge-us4
 ---
 
 # Gemini Web 新通路方案与抓包结论
 
+## 当前执行范围（用户已明确授权）
+
+以 Cookie＋纯 HTTP 在 edge-us4 新增 profile 133、483 两个账号，提供文本和原图网关服务。
+当前实现与验收以第 10 节为准；下文浏览器执行器和迁移方案保留为历史调查记录。
+不再运行 Linux Chromium，不再以旧图下载代替新图生成验收。所有 Google 请求从 us4 出口发出。
+
 ## 结论与当前边界
 
-**最新迁移实验以第 9 节为准：**运营重新登录 483 后，us4 纯 HTTP 下载及容器重建后再次下载均成功，逐步回查 Mac 源会话均正常。随后 Linux Chromium 初始页面识别身份，但加载后源会话的后台新请求再次失去登录态；已停止探测。原图下载和短时 HTTP 凭据持久化有证据，自动续期仍未验收，不将通用 Linux Chromium 迁移作为当前生产依赖。下文此前“HTTP 图片授权未打通”的记录保留为历史对照。
+**第 9 节是历史迁移实验；第 12 节是当前实现与实测结论。** Linux Chromium 迁移已停止，当前生产 canary 采用 edge-us4 纯 HTTP Worker。
 
 建议新增独立的 `Gemini Web` 账号通路：一个 SessionOwner 管理凭据与页面状态，HTTP 执行器处理已验证的文本/refresh，浏览器网络执行器处理图片。浏览器网络执行器在已登录上下文中直接使用 fetch，执行生成、原图 RPC、授权和文件读取；不依赖逐次点击页面或截图提取图片。两种执行器共享账号租约、会话版本和错误状态，不能分别维护 Cookie 或重复提交同一轮生成。人工登录/验证及未知页面动态状态仍由浏览器 UI 承接。
 
-已经实测：483 浏览器对应 us4 #24 的 Google 身份；浏览器通过 us4 生图并下载 2816×1536 原图成功；浏览器网络执行器无需 UI 点击，能够下载字节级一致的原图，并独立发起新图生成和下载；us4 独立 HTTP 文本生成与 Cookie refresh 成功，刷新后重新 bootstrap 并生成文本成功。尚未完成：纯 HTTP 图片授权下载，以及在 us4 Linux 上独立建立浏览器会话后的图片验收。当前 Mac 指纹浏览器成功，不等于把其 Cookie 导入任意 Linux Chromium 就一定成功。
+已经实测：483 浏览器对应 us4 #24 的 Google 身份；浏览器通过 us4 生图并下载 2816×1536 原图成功；浏览器网络执行器无需 UI 点击，能够下载字节级一致的原图，并独立发起新图生成和下载；us4 独立 HTTP 文本生成与 Cookie refresh 成功，刷新后重新 bootstrap 并生成文本成功。纯 HTTP 图片授权下载、官方响应和 TokenKey 网关验收已完成；Linux Chromium 迁移不再属于当前路径。当前 Mac 指纹浏览器成功，不等于把其 Cookie 导入任意 Linux Chromium 就一定成功。
 
 这条路径使用 Google 的 Gemini Web 前端数据面，不调用 `cloudcode-pa.googleapis.com`，不恢复或替代 #24 的 Antigravity OAuth 身份，也不能据此认定 Code Assist 的 403 已解除。
 
-当前验收范围为 profile 133、483，484 不纳入本轮。两号均已有全尺寸图片源证据，但 TokenKey 尚未实现并验证官方 `GenerateContentResponse` 返回，不能标记为生产链路完成。现有 us4 先按单活跃浏览器槽做 Linux 验证；两个热账号同时服务建议至少 4 GiB 内存，具体预算见下文容量评估。
+当前验收范围为 profile 133、483，484 不纳入本轮。两号均已通过 TokenKey 官方 `GenerateContentResponse` 文本与全尺寸图片验收，账号已在 edge-us4 建立 canary。现有 us4 先按单活跃浏览器槽做 Linux 验证；两个热账号同时服务建议至少 4 GiB 内存，具体预算见下文容量评估。
 
-本方案未部署、未修改账户类型、未开新计费模型。涉及新凭据类型与路由契约的生产实现需要以本方案为审批基线。
+当前已部署 edge-us4 私有 Worker canary，新增账号 #28/#29 和专用 `gemini-web` 分组；未把 Web 账号伪装为官方 API 模型，也未自动发布商业定价。
 
 ## 1. 证据与环境
 
@@ -554,3 +560,61 @@ Google 图片链可以观察到短期的 `gg-dl`、`work.fife` 和 `rd-gg-dl` �
 - https://github.com/HanaokaYuzu/Gemini-API/blob/master/src/gemini_webapi/utils/upload_file.py
 
 这些是社区逆向实现，不是 Google 稳定 API 承诺。本文将本次抓包、实际重放与社区代码推断分别标注。普通 curl 和 Chrome145 模拟都失败，不能再武断归结为“仅缺一个头”或“必然是 TLS”；设备绑定、地址授权有效期、额外浏览器状态仍需针对性证据。
+
+
+## 12. Cookie＋纯 HTTP 双账号实现
+
+### 契约与 owner
+
+用户已在本会话明确授权实现、us4 部署、新增两号和实测；PR 合并仍待人工确认。
+实现 owner 为 `ops/gemini-web/worker.py`，独立进程通过已有 Gemini API Key 账号接入。
+账号密钥选择对应 SessionOwner；每号独立 Cookie、互斥锁、刷新时间和暂停状态。
+`owner.lock` 禁止同一 volume 有两个写入者，`state.json` 用 0600 临时文件、fsync、rename 持久化。
+TokenKey 仅保存 worker key，Google Cookie 留在 us4 的受限挂载目录。无公开 worker 端口。
+
+API 为官方 generateContent/streamGenerateContent 结构；返回 text 或 inlineData，原图下载失败整次失败，
+不返回预览、不重新生成、不虚构 usageMetadata/modelVersion。流式当前是完成后单个 SSE 帧。
+请求范围明确限制为单轮 user text 和 responseModalities；未知控制项在上游生成前返回 400。
+模型使用 `gemini-web-*` 名称，实时发现 Web Flash/Pro selector，不声称与官方 API 版本等价。
+商业模型上架、定价不从本次探测自动推出。
+
+状态流：导入 Cookie → bootstrap/模型发现 → ready → 独占生成/原图下载 → ready；
+首次导入及每十分钟（包括空闲）由同一 owner RotateCookies/重新 bootstrap；401/403/登录态丢失 → 持久化暂停；
+429 → 五分钟冷却。所有响应接收的 Cookie 更新由同一 owner 保存，不自动重新登录。
+跨重启和显式刷新需要实测，短时成功不等于长期续期已验收。
+
+### 当前实测证据
+
+两号均由 us4 新建纯 HTTP 请求完成文本与新图生成，未启动 Linux Chromium：
+
+| profile | 文本 | 新图原图 | 授权 |
+|---|---|---|---|
+| 133 | 精确返回探测标记 | JPEG 2816×1536，3,120,177 bytes | c8o8Fe → gg-dl → work.fife → 原图，均 200 |
+| 483 | 精确返回探测标记 | JPEG 2816×1536，2,936,104 bytes | c8o8Fe → gg-dl → work.fife → 原图，均 200 |
+
+上表是 Worker 直连协议实测；网关结果见下方最终验收表。
+社区当前实现注释提及 chrome145 避免 DBSC；本轮使用该 HTTP profile，但这只是选型线索，
+不能据此宣称前轮 Chromium 导致退出的精确根因已经证实。
+
+
+### 最终 edge-us4 网关验收
+
+| 账号 | TokenKey 账号 | 文本 | 新图 | 官方响应与归属 |
+|---|---:|---|---|---|
+| AdsPower 133 | #28 | `generateContent` HTTP 200 | JPEG 2816×1536，3,053,070 bytes | `inlineData`，usage account_id=28 |
+| AdsPower 483 | #29 | `generateContent` HTTP 200 | JPEG 2816×1536，3,214,707 bytes | `inlineData`，usage account_id=29 |
+
+两次网关生图均经 `c8o8Fe → gg-dl → work.fife → rd-gg-dl` 原图链，响应校验为 JPEG，未返回预览或签名 URL。#28 重启 Worker 后再次生图成功；#29 也完成重启后的生图，且用量归属仍为 #29。文本和图片请求均从 edge-us4 出口发起，探测响应 X-Request-ID 与 usage log 已关联。
+
+网关探测使用保留的 debug key，因此 usage log 中的费用为 0；专用 `gemini-web-us4-operator` key 已绑定独立 `gemini-web` 分组，商业价格和公开目录仍需单独审批。
+
+纯 HTTP 续期验证：旧 Cookie 快照 RotateCookies 返回 401；从在线指纹浏览器读取当前轮换后的 Cookie 后，RotateCookies 返回 200，bootstrap 重新确认登录态；Worker 每十分钟自动续期并在 403/不确定传输时持久化暂停，避免重复生图。
+
+### 验证与发布边界
+
+单元/本地 HTTP 测试覆盖官方响应、截断帧、原图授权、Cookie 隔离与持久化、鉴权、SSRF、
+下载失败不重新生成和暂停状态；CI 工作流为 `gemini-web-worker.yml`。
+网关探测复用 canonical account/model probe，新增 gemini/gemini_image 端点，并按服务端响应
+X-Request-ID 查 usage_logs。无新 UI，不将 API 集成测试称为 UI e2e。
+部署/回滚及密钥布局见 `ops/gemini-web/README.md`。初始容器上限 384 MiB / 1 CPU；
+纯 HTTP 容量成本替代此前双热浏览器的 4 GiB 建议，实际并发和峰值仍需测量。

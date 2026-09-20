@@ -4,11 +4,25 @@
 from __future__ import annotations
 
 import unittest
+import json
 
 from probe_account_model_verdict import classify_probe_verdict, embedding_response_valid
 
 
 class ProbeAccountModelVerdictTest(unittest.TestCase):
+    def test_gemini_requires_complete_response_and_exact_account(self) -> None:
+        body = json.dumps({"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}]})
+        for endpoint, payload, usage, expected in [
+            ("gemini", body, {"account_id": 90}, "servable"),
+            ("gemini", body, {"account_id": 91}, "wrong_account"),
+            ("gemini", body, None, "uncorrelated_success"),
+            ("gemini_image", body, {"account_id": 90}, "uncorrelated_success"),
+            ("gemini", '{}', {"account_id": 90}, "uncorrelated_success"),
+            ("gemini", body.replace('STOP', 'MAX_TOKENS'), {"account_id": 90}, "uncorrelated_success"),
+        ]:
+            self.assertEqual(classify_probe_verdict(endpoint=endpoint, http_code="200",
+                body_text=payload, target_account_id=90, usage_row=usage, curl_err=""), expected)
+
     def test_transcriptions_require_text_and_target_account_usage(self) -> None:
         cases = [
             ('{"text":"recognized"}', {"account_id": 90}, "servable"),
