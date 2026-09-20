@@ -42,3 +42,17 @@ func TestRedactSSEMultilineDataDoesNotRewriteFraming(t *testing.T) {
 		t.Fatalf("SSE framing changed: %q", got)
 	}
 }
+
+func FuzzRedactSSENoPanic(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"data: {}\n\n",
+		"data: {\"token\":\"secret\"\n\n",
+		"event: message\r\ndata: [DONE]\r\n\r\n",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		_ = RedactSSE(input)
+	})
+}
