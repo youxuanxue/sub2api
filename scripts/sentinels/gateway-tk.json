@@ -7411,9 +7411,46 @@
       "path": "backend/internal/service/gateway_request_tk_fable.go",
       "must_contain": [
         "func tkStripFableDisabledThinking(body []byte) []byte",
-        "sjson.DeleteBytes(body, \"thinking\")"
+        "sjson.DeleteBytes(body, \"thinking\")",
+        "func isTokenseaRelayUpstream(account *Account) bool",
+        "func tkStripTokenseaFableContextManagement(account *Account, body []byte) []byte",
+        "sjson.DeleteBytes(body, \"context_management\")",
+        "isTokenseaRelayBaseURL(account.GetCredential(\"base_url\"))"
       ],
-      "rationale": "Proactive pre-send strip of explicit thinking:{type:\"disabled\"} for Fable-tier models. Upstream rejects the explicit disabled shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — so the gate is isFableModel, NOT requiresAdaptiveOnlyThinking, and omitting the field is the documented equivalent (same rule the bedrock path already applies in sanitizeBedrockThinking's disabled case). If this function is silently dropped, fable clients sending thinking.type=disabled regress to raw upstream 400s on the direct Anthropic path."
+      "rationale": "Two Fable-tier pre-send strips. (1) Explicit thinking:{type:\"disabled\"}: upstream rejects that shape on fable with a 400 ('\"thinking.type.disabled\" is not supported for this model …', prod 2026-06-10 user 16) while Opus 4.7+ still accepts it — gate is isFableModel, NOT requiresAdaptiveOnlyThinking; omitting the field is the documented equivalent (same rule bedrock sanitizeBedrockThinking already applies). (2) tokensea+fable context_management: prod 2026-09-20 user 16 (ops_error 4222978) Claude CLI → Cursor Connect 429 → failover to newapi tokensea account 136 returned HTTP 400 'context_management: Extra inputs are not permitted' for claude-fable-5; Cursor accepts the same payload and 7d prod only saw this 400 on account 136 × fable. isTokenseaRelayUpstream must cover openai/anthropic typed relays AND platform=newapi base_url agent.tokensea.ai (account 136). Dropping either strip silently re-surfaces raw upstream 400s on the matching path."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_fable_test.go",
+      "must_contain": [
+        "TestTkStripTokenseaFableContextManagement_StripsOnTokenseaFable",
+        "TestTkStripTokenseaFableContextManagement_NoTouch",
+        "TestTkStripTokenseaFableContextManagement_OpenAIAndAnthropicTypedRelays",
+        "TestIsTokenseaRelayUpstream_NewAPIChannel",
+        "cursor+fable keeps CM",
+        "tokensea+opus keeps CM"
+      ],
+      "rationale": "Focused regressions for tokensea+fable context_management strip: positive strip on newapi tokensea×fable, negative no-touch for Cursor×fable / tokensea×opus / nil account, and typed openai/anthropic tokensea relays. Dropping these lets the helper regress without CI catching the prod failover shape."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
+      "must_contain": [
+        "body = tkStripTokenseaFableContextManagement(account, body)"
+      ],
+      "rationale": "Native Anthropic Messages egress (prod user16 Cursor→tokensea failover path for newapi channel accounts) must call tkStripTokenseaFableContextManagement after beta-body sanitize. Dropping the call site while leaving the helper intact re-opens claude-fable-5 400s on agent.tokensea.ai."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_request.go",
+      "must_contain": [
+        "body = tkStripTokenseaFableContextManagement(account, body)"
+      ],
+      "rationale": "Main Anthropic buildUpstreamRequest egress must call tkStripTokenseaFableContextManagement after beta-body sanitize so anthropic-platform tokensea relays get the same fable CM strip as the OpenAI-gateway native path."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": [
+        "body = tkStripTokenseaFableContextManagement(account, body)"
+      ],
+      "rationale": "API-key Anthropic passthrough egress must call tkStripTokenseaFableContextManagement after beta-body sanitize so tokensea+fable CM strip is not limited to the OAuth/mimic Forward path."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_deprecated_sampling.go",
