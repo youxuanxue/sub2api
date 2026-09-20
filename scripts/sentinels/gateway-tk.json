@@ -13430,12 +13430,14 @@
       "path": "backend/internal/service/account_observed_usage_extra_tk_test.go",
       "must_contain": [
         "func TestObservedUsageWindowExtraKeys_CoversCrossPlatformGauges(",
+        "func TestObservedUsageWindowExtraKeys_CoversSchedulingThresholdInputs(",
+        "func TestClearingObservedUsageWindows_PreventsSchedulingThresholdRepause(",
         "\"grok_sched_utilization\"",
         "cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed)",
         "func TestRateLimitService_RecoverAccountState_ClearsObservedUsageWindows(",
         "func TestRateLimitService_RecoverAccountAfterSuccessfulTest_DoesNotClearObservedUsage("
       ],
-      "rationale": "Regression: SSOT covers grok_sched + CN coding-plan gauges; admin recover clears observed usage; successful-test recovery must NOT clear observed gauges."
+      "rationale": "Regression: SSOT covers threshold Extra inputs; clearing SSOT keys prevents Grok/CN/Codex threshold re-pause; admin recover clears observed usage; successful-test recovery must NOT clear observed gauges."
     },
     {
       "path": "backend/internal/repository/account_repo_observed_usage_tk.go",

@@ -53,6 +53,111 @@ func TestObservedUsageWindowExtraKeys_CoversCrossPlatformGauges(t *testing.T) {
 	}
 }
 
+// schedulingThresholdObservedExtraKeys lists Extra keys that can drive
+// EvaluateAccountSchedulingThreshold / openAICodexSnapshotStaleForPause.
+// Keep this list in sync with account_scheduling_threshold_eval.go readers —
+// the subset assertion below is the mechanical guard against silent SSOT drift.
+func schedulingThresholdObservedExtraKeys() []string {
+	keys := []string{
+		"session_window_utilization",
+		"passive_usage_7d_utilization",
+		"passive_usage_7d_reset",
+		"passive_usage_7d_oi_utilization",
+		"passive_usage_7d_oi_reset",
+		"codex_5h_used_percent",
+		"codex_5h_reset_at",
+		"codex_5h_reset_after_seconds",
+		"codex_7d_used_percent",
+		"codex_7d_reset_at",
+		"codex_7d_reset_after_seconds",
+		"codex_usage_updated_at",
+		"grok_sched_utilization",
+		"grok_sched_reset_at",
+	}
+	return append(keys, cnObservedUsageWindowExtraKeys()...)
+}
+
+func TestObservedUsageWindowExtraKeys_CoversSchedulingThresholdInputs(t *testing.T) {
+	set := make(map[string]struct{})
+	for _, key := range ObservedUsageWindowExtraKeys() {
+		set[key] = struct{}{}
+	}
+	for _, key := range schedulingThresholdObservedExtraKeys() {
+		_, ok := set[key]
+		require.True(t, ok, "threshold gauge %q must be cleared by ObservedUsageWindowExtraKeys", key)
+	}
+}
+
+func TestClearingObservedUsageWindows_PreventsSchedulingThresholdRepause(t *testing.T) {
+	now := time.Now().UTC()
+	until := now.Add(6 * time.Hour).Format(time.RFC3339)
+	thresholds := map[string]int{
+		PlatformOpenAI: 80,
+		PlatformGrok:   80,
+		PlatformKimi:   80,
+	}
+
+	cases := []struct {
+		name     string
+		platform string
+		extra    map[string]any
+	}{
+		{
+			name:     "openai_codex_7d",
+			platform: PlatformOpenAI,
+			extra: map[string]any{
+				"codex_7d_used_percent":  95.0,
+				"codex_7d_reset_at":      until,
+				"codex_usage_updated_at": now.Format(time.RFC3339),
+			},
+		},
+		{
+			name:     "grok_sched",
+			platform: PlatformGrok,
+			extra: map[string]any{
+				"grok_sched_utilization": 95.0,
+				"grok_sched_reset_at":    until,
+			},
+		},
+		{
+			name:     "kimi_coding_plan",
+			platform: PlatformKimi,
+			extra: map[string]any{
+				cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed):  95.0,
+				cnExtraKey(PlatformKimi, cnExtraSuffix5hReset): until,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			account := &Account{
+				ID:          42,
+				Platform:    tc.platform,
+				Status:      StatusActive,
+				Schedulable: true,
+				Extra:       cloneStringAnyMap(tc.extra),
+			}
+			before := EvaluateAccountSchedulingThreshold(account, thresholds, now)
+			require.True(t, before.ShouldPause, "stale gauges must pause before clear")
+
+			for _, key := range ObservedUsageWindowExtraKeys() {
+				delete(account.Extra, key)
+			}
+			after := EvaluateAccountSchedulingThreshold(account, thresholds, now)
+			require.False(t, after.ShouldPause, "recover SSOT clear must wait for fresh evidence")
+		})
+	}
+}
+
+func cloneStringAnyMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func TestRateLimitService_RecoverAccountState_ClearsObservedUsageWindows(t *testing.T) {
 	repo := &rateLimitClearRepoStub{
 		getByIDAccount: &Account{
@@ -60,9 +165,12 @@ func TestRateLimitService_RecoverAccountState_ClearsObservedUsageWindows(t *test
 			Status:      StatusActive,
 			Schedulable: true,
 			Extra: map[string]any{
-				"newapi_weekly_utilization": 1.0,
-				"codex_7d_used_percent":     100.0,
-				"kiro_usage_percent":        100.0,
+				"newapi_weekly_utilization":                   1.0,
+				"codex_7d_used_percent":                       100.0,
+				"kiro_usage_percent":                          100.0,
+				"grok_sched_utilization":                      95.0,
+				cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed): 90.0,
+				"keep_me": "ok",
 			},
 		},
 	}
@@ -78,6 +186,10 @@ func TestRateLimitService_RecoverAccountState_ClearsObservedUsageWindows(t *test
 	require.True(t, result.ClearedObservedUsage)
 	require.Equal(t, 1, repo.clearObservedUsageCalls)
 	require.Equal(t, 0, repo.clearRateLimitCalls)
+	require.NotContains(t, repo.getByIDAccount.Extra, "codex_7d_used_percent")
+	require.NotContains(t, repo.getByIDAccount.Extra, "grok_sched_utilization")
+	require.NotContains(t, repo.getByIDAccount.Extra, cnExtraKey(PlatformKimi, cnExtraSuffix5hUsed))
+	require.Equal(t, "ok", repo.getByIDAccount.Extra["keep_me"])
 }
 
 func TestRateLimitService_RecoverAccountAfterSuccessfulTest_DoesNotClearObservedUsage(t *testing.T) {
@@ -103,4 +215,5 @@ func TestRateLimitService_RecoverAccountAfterSuccessfulTest_DoesNotClearObserved
 	require.False(t, result.ClearedObservedUsage)
 	require.Equal(t, 0, repo.clearObservedUsageCalls)
 	require.Equal(t, 1, repo.clearRateLimitCalls)
+	require.Equal(t, 12.0, repo.getByIDAccount.Extra["codex_7d_used_percent"])
 }

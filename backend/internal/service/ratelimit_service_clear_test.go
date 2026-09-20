@@ -60,7 +60,15 @@ func (r *rateLimitClearRepoStub) ClearModelRateLimits(ctx context.Context, id in
 }
 func (r *rateLimitClearRepoStub) ClearObservedUsageWindows(ctx context.Context, id int64) error {
 	r.clearObservedUsageCalls++
-	return r.clearObservedUsageErr
+	if r.clearObservedUsageErr != nil {
+		return r.clearObservedUsageErr
+	}
+	if r.getByIDAccount != nil && r.getByIDAccount.Extra != nil {
+		for _, key := range ObservedUsageWindowExtraKeys() {
+			delete(r.getByIDAccount.Extra, key)
+		}
+	}
+	return nil
 }
 
 func (r *rateLimitClearRepoStub) ClearTempUnschedulable(ctx context.Context, id int64) error {
