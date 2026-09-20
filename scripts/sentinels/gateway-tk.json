@@ -1766,9 +1766,28 @@
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
-        "candidateTransportFailure(ctx,"
+        "s.handleUpstreamTransportError(ctx, c, account, err,",
+        "s.tkAnthropicBufferedFailoverError(",
+        "invalidNonStreamingJSONFailoverError("
       ],
-      "rationale": "Messages-to-Chat transport failures retain candidate attribution."
+      "must_not_contain": [
+        "writeGatewayCCError(c, http.StatusBadGateway, \"server_error\", \"Upstream request failed\")",
+        "writeGatewayCCError(c, http.StatusBadGateway, \"server_error\", \"Upstream response read failed\")",
+        "writeGatewayCCError(c, http.StatusBadGateway, \"server_error\", \"Upstream returned invalid JSON\")"
+      ],
+      "rationale": "Chat Completions→Anthropic transport and buffered-JSON body failures must use the shared failover owners (handleUpstreamTransportError / tkAnthropicBufferedFailoverError / invalidNonStreamingJSONFailoverError) without writing the client body. Writing a CC 502 here sets upstream_error_response_already_written and blocks the handler failover loop (prod 2026-09-20 Cursor #150 chat/completions malformed-HTTP final 502s while /v1/messages recovered via kiro). HTTP≥400 statuses that shouldFailoverUpstreamError already return UpstreamFailoverError uncommitted; non-failover statuses may still writeGatewayCCError as the final client answer."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent",
+        "TestHandleCCBufferedFromAnthropicJSON_ReadErrorReturnsFailoverUncommitted",
+        "TestHandleCCBufferedFromAnthropicJSON_InvalidJSONReturnsFailoverUncommitted",
+        "UpstreamFailoverError",
+        "ShouldRetryNextAccount",
+        "c.Writer.Written()"
+      ],
+      "rationale": "Regression for the Chat Completions transport + buffered-JSON failover SSOT: DoWithTLS / body-read / invalid-JSON failures must surface UpstreamFailoverError, allow next-account retry, leave the response uncommitted, and still persist sanitized ops upstream_errors where applicable."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses.go",

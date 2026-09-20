@@ -80,7 +80,7 @@ func (s *GatewayService) forwardAsChatCompletionsViaBedrock(
 	if clientStream {
 		result, err = s.handleCCStreamingFromAnthropic(upstreamResp, c, originalModel, mappedModel, reasoningEffort, startTime, includeUsage)
 	} else if isAnthropicMessagesJSONResponse(upstreamResp) {
-		result, err = s.handleCCBufferedFromAnthropicJSON(upstreamResp, c, originalModel, mappedModel, reasoningEffort, startTime)
+		result, err = s.handleCCBufferedFromAnthropicJSON(upstreamResp, c, account, originalModel, mappedModel, reasoningEffort, startTime)
 	} else {
 		result, err = s.handleCCBufferedFromAnthropic(upstreamResp, c, account, originalModel, mappedModel, reasoningEffort, startTime)
 	}
