@@ -548,7 +548,7 @@ export default {
       bulkDeletePartial: 'Partially deleted: {success} succeeded, {failed} failed',
       bulkDeleteFailed: 'Bulk delete failed',
       recoverState: 'Recover State',
-      recoverStateHint: 'Used to recover error, rate-limit, and temporary unschedulable runtime state.',
+      recoverStateHint: 'Clears error, rate-limit, temp-unschedulable state, and stale upstream usage-window observations so gauges wait for fresh request evidence. Does not zero local billing quota (use Reset Quota).',
       recoverStateSuccess: 'Account state recovered successfully',
       recoverStateFailed: 'Failed to recover account state',
       fallbackActive: 'Fallback',

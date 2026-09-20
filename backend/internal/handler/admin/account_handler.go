@@ -1237,7 +1237,8 @@ func (h *AccountHandler) RecoverState(c *gin.Context) {
 	}
 
 	if _, err := h.rateLimitService.RecoverAccountState(c.Request.Context(), accountID, service.AccountRecoveryOptions{
-		InvalidateToken: true,
+		InvalidateToken:           true,
+		ClearObservedUsageWindows: true,
 	}); err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2377,6 +2378,12 @@ func (h *AccountHandler) ClearRateLimit(c *gin.Context) {
 
 	err = h.rateLimitService.ClearRateLimit(c.Request.Context(), accountID)
 	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	// Admin clear-rate-limit also drops stale usage gauges so UI matches the
+	// unblock intent (same SSOT as recover-state observed-usage clear).
+	if err := h.rateLimitService.ClearObservedUsageWindows(c.Request.Context(), accountID); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
