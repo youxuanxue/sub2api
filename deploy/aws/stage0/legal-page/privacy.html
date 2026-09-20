@@ -81,7 +81,7 @@
       </p>
       <ul>
         <li>The production gateway retains QA records and bounded content from successful and unsuccessful calls. Authorized users can view and export their QA history; authorized operators process the records for service operations. Edge gateways do not separately capture QA history.</li>
-        <li>Capture applies automated credential redaction and size limits. These controls do not identify every secret or remove all personal or confidential information. Avoid sending private keys, passwords or other unnecessary sensitive content. Operational error tooling may also retain bounded excerpts.</li>
+        <li>Capture applies size limits and automated credential redaction for recognized structured fields and credential patterns. Unrecognized formats are retained without redaction and may contain secrets. These controls do not remove all personal or confidential information. Avoid sending private keys, passwords or other unnecessary sensitive content. Operational error tooling may also retain bounded excerpts.</li>
         <li>Content is not used to train or fine-tune models (see §6).</li>
       </ul>
 
@@ -208,7 +208,7 @@
         <li><strong>账号数据</strong> — 邮箱、认证标识、资料设置等</li>
         <li><strong>账单数据</strong> — 余额、发票、支付凭证（经支付服务商处理；TokenKey 服务器不保存完整银行卡号）</li>
         <li><strong>API 用量元数据</strong> — 时间戳、模型 ID、token 数、延迟、状态码、API key 标识，以及安全所需的 IP / User-Agent</li>
-        <li><strong>请求 / prompt 内容</strong> — 为完成调用而处理；错误路径可能保留截断的请求体片段</li>
+        <li><strong>请求 / prompt 内容</strong> — 为完成调用而处理。生产网关也会采集有大小限制的请求与响应内容，包括成功调用、工具结果和流式片段，用于 QA 历史、排障和经授权的会话导出。</li>
         <li><strong>支持沟通</strong> — 你发给我们的消息</li>
         <li><strong>Cookie 与类似技术</strong> — 使用运营控制台与保护账号所需的会话/认证 Cookie（以及在启用时由验证码等安全挑战机制使用的相关技术）。我们不在 TokenKey 服务上使用第三方广告 Cookie。</li>
       </ul>
@@ -225,8 +225,8 @@
       <h2>4. Prompt 处理与日志</h2>
       <p>运营网关必须处理请求内容（含 prompt 与参数），以便转发到你选择的上游模型供应商并进行计量。</p>
       <ul>
-        <li>我们<strong>不</strong>启用平台级完整 prompt-audit 持久化（默认不会把每条成功请求的完整 prompt 做成可长期检索的内容库）。</li>
-        <li>运维与防滥用工具可能记录元数据，并在需要时（尤其是错误场景）保留有限的截断请求体片段。</li>
+        <li>生产网关保留成功与失败调用的 QA 记录及有大小限制的内容。经授权的用户可查看、导出自己的 QA 历史；经授权的运维人员可为服务运营处理这些记录。边缘网关不单独采集 QA 历史。</li>
+        <li>采集执行大小限制，并仅对已识别的结构化敏感字段和凭证形态自动脱敏。未知格式会不经脱敏保留，可能包含秘密；这些措施也不能移除所有个人或机密信息。请避免发送不必要的私钥、密码等敏感内容。运维排障工具也可能保留有大小限制的片段。</li>
         <li>内容不用于训练或微调模型（见第 6 节）。</li>
       </ul>
 
@@ -238,7 +238,8 @@
         <tbody>
           <tr><td>明细 API 用量 / 计量记录</td><td>运营系统中 90 天</td></tr>
           <tr><td>运维 / 错误 / 安全排障日志</td><td>30 天</td></tr>
-          <tr><td>错误路径截断请求片段</td><td>≤ 30 天</td></tr>
+          <tr><td>原始 QA 内容归档</td><td>对象保留 7 天；生产暂存数据在归档验证后清理。归档失败时，暂存数据可能保留至恢复完成。</td></tr>
+          <tr><td>QA 历史 Bundle 与导出任务对象</td><td>对象保留 2 天；下载副本由接收方控制。</td></tr>
           <tr><td>账号资料</td><td>账号存续期间；之后按第 11 节删除或匿名化，法律要求更长的除外</td></tr>
           <tr><td>账单 / 发票 / 充值记录（含会计所需汇总）</td><td>账号存续 + 至少 24 个月，或在法律要求时更长（含税务与会计）</td></tr>
           <tr><td>备份</td><td>仅随备份轮转淘汰</td></tr>

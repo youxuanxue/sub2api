@@ -4,7 +4,7 @@
 - Title: 正文采集与入口安全边界
 - Priority: P0
 - As a / I want / So that: 作为 TokenKey 用户，我希望 QA 历史继续可用，同时客户端输入不能覆盖其他请求的证据、绕过采集上限或伪造安全身份。
-- Trace: `docs/approved/security-capture-and-ingress.md`
+- Trace: `docs/approved/security-capture-and-ingress.md`、`docs/approved/qa-redaction-identified-formats-only.md`
 
 - Risk Focus:
   - 安全问题：不可信输入影响存储、凭据和安全身份。
@@ -14,7 +14,7 @@
 
 1. 重复客户端请求 ID 不能决定服务端身份；本地 blob/DLQ 禁止目录越界、符号链接逃逸和覆盖。入站 X-Client-Request-ID 仅作为 client_request_id 标记；若只传遗留 X-Request-ID，降级为同一标记以便响应丢失时仍可检索，但永不成为存储主键。
 2. QA 长响应、未结束帧和密集小帧的采集有界，客户端收到的响应不被采集截断。
-3. 结构化内容中的常见凭据会遮蔽，普通文本和字符串 JSON 不改变、不无限递归。
+3. 结构化内容中的常见凭据会遮蔽，普通文本和字符串 JSON 不改变、不无限递归。SSE 的转义凭据、敏感 key 与跨事件的已知凭证继续覆盖；完整正文、upstream body 与 base64 流片段采用相同规则。assignment 保持既有替换顺序，未知自定义格式原样保留。
 4. 兼容日志开关不覆盖 ACL、限流和会话绑定的可信代理链。
 5. 默认图片下载拒绝内部地址及重定向，固定经过检查的 DNS 地址，并拒绝伪造图片类型的文本。
 6. 对外披露保留现有采集并加强保护后的真实数据处理；保持原 QA 生命周期。
@@ -36,6 +36,10 @@
 - `backend/internal/observability/qa/security_capture_test.go`::`TestQACaptureBoundsIncompleteAndTinyFrames`
 - `backend/internal/observability/qa/security_capture_test.go`::`TestQABlobStoreConfinesReadsAndDeletes`
 - `backend/internal/util/logredact/content_test.go`::`TestRedactSecretsInContentAndToolResults`
+- `backend/internal/util/logredact/sse_test.go`::`TestRedactSSEEscapedCredentialsAndFraming`
+- `backend/internal/util/logredact/sse_test.go`::`TestRedactSSERawPrivateKeyAcrossEvents`
+- `backend/internal/util/logredact/assignment_test.go`::`TestRedactAssignmentScannerOrdering`
+- `backend/internal/observability/qa/sse_redaction_test.go`::`TestBuildBlobRedactsSSEBodyAndChunks`
 - `backend/internal/util/logredact/content_test.go`::`TestRedactJSONStringPreservesOrdinaryContentAndTerminates`
 - `backend/internal/server/middleware/request_access_logger_test.go`::`TestRequestLogger_DoesNotTrustIncomingRequestID`
 - `backend/internal/server/middleware/client_request_id_test.go`::`TestClientRequestIDAcceptsInboundHeader`

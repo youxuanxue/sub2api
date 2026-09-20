@@ -84,7 +84,7 @@ var (
 )
 
 const (
-	qaRedactionVersion               = "logredact-v3"
+	qaRedactionVersion               = "logredact-v4"
 	captureStatusCaptured            = "captured"
 	qaCaptureStatusCapturedToDLQ     = "captured_dlq"
 	qaCapturePersistModeAsync        = "async"
@@ -587,7 +587,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 			chunk.Bytes = chunk.Bytes[:remaining]
 		}
 		remaining -= len(chunk.Bytes)
-		redacted := logredact.RedactText(string(chunk.Bytes))
+		redacted := logredact.RedactSSE(string(chunk.Bytes))
 		if preserveThinking {
 			redacted = restoreThinkingSignatureInChunk(redacted, chunk.Bytes)
 		}
@@ -670,7 +670,7 @@ func sanitizeQABytes(raw []byte, maxBytes int) any {
 	if out, err := logredact.RedactJSONValue(trimmed); err == nil {
 		return out
 	}
-	return logredact.RedactText(string(trimmed))
+	return logredact.RedactSSE(string(trimmed))
 }
 
 // sanitizeQABody 与 sanitizeQABytes 同语义；当 preserveThinking=true 时，在脱敏后把
@@ -701,7 +701,7 @@ func (s *Service) sanitizeQABody(raw []byte, preserveThinking bool) any {
 			return out
 		}
 	}
-	return logredact.RedactText(trimmed)
+	return logredact.RedactSSE(trimmed)
 }
 
 func captureRequestedModel(body []byte) string {
