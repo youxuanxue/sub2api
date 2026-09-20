@@ -1411,6 +1411,15 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	statusCode := openAIStreamFailureStatus(payload, message)
 	switch statusCode {
 	case http.StatusServiceUnavailable:
+		// SSOT with HTTP capacity 503: stream response.failed / error overloaded
+		// cannot always failover (client output may already be committed), but the
+		// selected account still feeds the same soft saturation preference so the
+		// next request prefers a healthier peer.
+		ctx := context.Background()
+		if c != nil && c.Request != nil {
+			ctx = c.Request.Context()
+		}
+		s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, "stream_capacity")
 		return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {

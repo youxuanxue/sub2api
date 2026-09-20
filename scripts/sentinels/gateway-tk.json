@@ -8037,22 +8037,20 @@
       "path": "backend/internal/service/openai_gateway_passthrough.go",
       "must_contain": [
         "case http.StatusServiceUnavailable:",
+        "s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, \"stream_capacity\")",
         "return statusCode, s.tkHandleOpenAIStreamCapacityRule(c, account, payload, message, canonicalModel...)"
       ],
-      "must_not_contain": [
-        "s.maybeRecordOpenAICapacitySaturation(ctx, account, statusCode, message, payload, \"stream_capacity\")"
-      ],
-      "rationale": "Stream terminal ServiceUnavailable capacity remains request/model-scoped: keep the stream-capacity rule, but never increment account saturation for a shared model-capacity shed."
+      "rationale": "Stream terminal ServiceUnavailable (response.failed overloaded) must feed the same maybeRecordOpenAICapacitySaturation SSOT as HTTP 503 before the optional model-scoped stream-capacity rule. Failover may be blocked once client output is committed, but the selected account still soft-deprioritizes for the next request. Dropping the stream_capacity call re-opens prod/edge GPT overloaded sticky preference."
     },
     {
       "path": "backend/internal/service/openai_capacity_saturation_tk_test.go",
       "must_contain": [
         "TestHandleOpenAIAccountUpstreamError_NativeCapacityIncrementsSaturationNoCooldown",
-        "TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityDoesNotIncrementSaturation",
+        "TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityIncrementsSaturation",
         "TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount",
         "TestShouldRecordOpenAICapacitySaturation_StubSeesSanitizedEnvelope"
       ],
-      "rationale": "Focused regressions for native capacity soft preference: OAuth/stub increment without cooldown, stub sanitized envelope, stream capacity feed, and OAuth read-path penalty."
+      "rationale": "Focused regressions for native capacity soft preference: OAuth/stub HTTP increment without cooldown, stream response.failed saturates via the same gate, stub sanitized envelope, and OAuth read-path penalty."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_openai_downstream.go",

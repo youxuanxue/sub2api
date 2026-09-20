@@ -12,6 +12,12 @@ import (
 // preference as prod edge-mirror empty-pool saturation: IncrementSaturation on
 // the selected account, never hard cooldown.
 //
+// Writers (same shouldRecordOpenAICapacitySaturation gate):
+//   - HTTP upstream errors: openai_account_runtime_block_fastpath.go (http_capacity)
+//   - Stream terminal response.failed / error with semantic 503 capacity:
+//     openai_gateway_passthrough.go handleOpenAIStreamTerminalAccountSideEffects
+//     (stream_capacity) — still recorded when failover is blocked by committed output
+//
 //   - Edge OAuth / setup-token: deprioritize the unhealthy OAuth among peers
 //   - Prod edge-mirror stub: deprioritize the usN relay so traffic prefers other edges
 //

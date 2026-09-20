@@ -84,7 +84,7 @@ func TestHandleOpenAIAccountUpstreamError_NativeCapacityIncrementsSaturationNoCo
 	})
 }
 
-func TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityDoesNotIncrementSaturation(t *testing.T) {
+func TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityIncrementsSaturation(t *testing.T) {
 	repo := &capacityShedAccountRepoStub{}
 	sat := &fakeOpenAISaturationCounterRL{}
 	rateLimitService := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -92,14 +92,39 @@ func TestHandleOpenAIStreamTerminalAccountSideEffects_CapacityDoesNotIncrementSa
 	gateway := &OpenAIGatewayService{rateLimitService: rateLimitService}
 
 	payload := []byte(`{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}}`)
-	account := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	message := "Our servers are currently overloaded. Please try again later."
 
-	status, disabled := gateway.handleOpenAIStreamTerminalAccountSideEffects(
-		nil, account, payload, "Our servers are currently overloaded. Please try again later.", nil, "gpt-5.6-terra")
-	require.Equal(t, http.StatusServiceUnavailable, status)
-	require.False(t, disabled)
-	require.Zero(t, repo.tempUnschedCalls)
-	require.Empty(t, sat.incrementIDs, "stream capacity is request-scoped and must not sink the account")
+	t.Run("oauth_response_failed", func(t *testing.T) {
+		*sat = fakeOpenAISaturationCounterRL{}
+		account := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+		status, disabled := gateway.handleOpenAIStreamTerminalAccountSideEffects(
+			nil, account, payload, message, nil, "gpt-5.6-terra")
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.False(t, disabled)
+		require.Zero(t, repo.tempUnschedCalls)
+		require.Equal(t, []int64{9}, sat.incrementIDs,
+			"stream capacity must feed the same saturation SSOT as HTTP 503 even when failover is blocked")
+	})
+
+	t.Run("stub_response_failed", func(t *testing.T) {
+		*sat = fakeOpenAISaturationCounterRL{}
+		status, disabled := gateway.handleOpenAIStreamTerminalAccountSideEffects(
+			nil, openAIEdgeStub(63), payload, message, nil, "gpt-5.6-terra")
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.False(t, disabled)
+		require.Equal(t, []int64{63}, sat.incrementIDs)
+	})
+
+	t.Run("non_capacity_stream_failure_skips", func(t *testing.T) {
+		*sat = fakeOpenAISaturationCounterRL{}
+		ctxWin := []byte(`{"type":"response.failed","response":{"error":{"code":"invalid_request_error","message":"Your input exceeds the context window of this model."}}}`)
+		account := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+		status, disabled := gateway.handleOpenAIStreamTerminalAccountSideEffects(
+			nil, account, ctxWin, "Your input exceeds the context window of this model.", nil, "gpt-5.6-terra")
+		require.NotEqual(t, http.StatusServiceUnavailable, status)
+		require.False(t, disabled)
+		require.Empty(t, sat.incrementIDs, "non-capacity stream failures must not feed saturation")
+	})
 }
 
 func TestComputeOpenAISaturationPenalties_DeprioritizesOAuthAccount(t *testing.T) {
