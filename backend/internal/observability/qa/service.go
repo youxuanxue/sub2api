@@ -670,7 +670,7 @@ func sanitizeQABytes(raw []byte, maxBytes int) any {
 	if out, err := logredact.RedactJSONValue(trimmed); err == nil {
 		return out
 	}
-	return logredact.RedactText(string(trimmed))
+	return logredact.RedactSSE(string(trimmed))
 }
 
 // sanitizeQABody 与 sanitizeQABytes 同语义；当 preserveThinking=true 时，在脱敏后把
@@ -701,7 +701,7 @@ func (s *Service) sanitizeQABody(raw []byte, preserveThinking bool) any {
 			return out
 		}
 	}
-	return logredact.RedactText(trimmed)
+	return logredact.RedactSSE(trimmed)
 }
 
 func captureRequestedModel(body []byte) string {

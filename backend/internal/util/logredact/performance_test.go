@@ -24,6 +24,10 @@ func redactUnstructuredReference(input string, patterns *textRedactPatterns) str
 func redactionGuardCorpus() []string {
 	inputs := []string{
 		"token=,secret", "token=\t,secret", "token=secret&safe=yes",
+		`"token":"token" : "hidden"`, `"token"="hidden"`, `"token":"secret"token=hidden`,
+		`token=,secret&safe=yes`, `token=,secret&password=hidden`,
+		`token=abc,"password":"a b"`, `token="password":"a b"`,
+		`token=abc&safe="password":"a b"`,
 		"high throughput thought right", "中文：普通内容；说明: 成功。",
 		"中文 \"token\":\"secret\"", "凭证 Key: abc", "例子 ς=abc", "μ=abc", "é=abc",
 		"token=\xffsecret", "", "***", " ordinary text\n中文内容 ", `{"message":"ordinary: content"}`,
@@ -226,9 +230,8 @@ func TestRedactSSEPreservesOriginalCoverage(t *testing.T) {
 		"event: Bearer\ndata: {}\n\n",
 		"id: token=hidden\ndata: {}\n\n",
 		"data: {\"password=hidden\":\"ordinary\"}\n\n",
-		"event: content_block_delta\ndata: {\"delta\":{\"type\":\"signature_delta\",\"signature\":\"hidden\"}}\n\n",
 	} {
-		if got, want := RedactText(raw), redactUnstructuredReference(strings.TrimSpace(raw), defaultTextRedactPatterns); got != want {
+		if got, want := strings.TrimSpace(RedactSSE(raw)), redactUnstructuredReference(strings.TrimSpace(raw), defaultTextRedactPatterns); got != want {
 			t.Fatalf("input %q: got %q, want %q", raw, got, want)
 		}
 	}

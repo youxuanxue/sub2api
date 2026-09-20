@@ -131,6 +131,7 @@ type textRedactPatterns struct {
 	reQueryLike *regexp.Regexp
 	rePlain     *regexp.Regexp
 	keySuffixes keySuffixNode
+	keys        map[string]struct{}
 	// Simple keys can be redacted by the linear scanner below. Unusual
 	// configured keys keep the conservative regexp path for compatibility.
 	linearAssignments bool
@@ -210,145 +211,126 @@ func RedactText(input string, extraKeys ...string) string {
 	return redactUnstructuredText(input, getTextRedactPatterns(extraKeys))
 }
 
-// RedactSSE preserves SSE framing and takes the structured path for an event
-// with exactly one JSON data line. Unknown or partial events retain the
-// established text redaction path, which still covers known token shapes and
-// sensitive assignments without scanning unrelated prose with the regex chain.
+// RedactSSE preserves line endings and fields, replacing a single JSON data
+// payload structurally. Unknown events use only the known text credential rules.
 func RedactSSE(input string, extraKeys ...string) string {
-	if input == "" {
-		return ""
-	}
 	patterns := getTextRedactPatterns(extraKeys)
-	if !patterns.mayContainAssignment(input) && !mayContainKnownToken(input) &&
-		!mayContainSensitiveJSONKey(input, patterns) && !strings.Contains(input, "data:") {
+	if !mayNeedJSONRedaction(input, patterns) {
 		return input
 	}
+	rawTextCredentials := false
 	var b strings.Builder
 	b.Grow(len(input))
 	for len(input) > 0 {
-		separatorStart, separatorLen := sseEventSeparator(input)
-		if separatorStart < 0 {
-			_, _ = b.WriteString(redactSSEEvent(input, patterns, extraKeys...))
+		start, length := sseEventSeparator(input)
+		end := start
+		if end < 0 {
+			end = len(input)
+		}
+		redacted, rawCredentials := redactSSEEvent(input[:end], patterns, extraKeys...)
+		rawTextCredentials = rawTextCredentials || rawCredentials
+		_, _ = b.WriteString(redacted)
+		if start < 0 {
 			break
 		}
-		_, _ = b.WriteString(redactSSEEvent(input[:separatorStart], patterns, extraKeys...))
-		_, _ = b.WriteString(input[separatorStart : separatorStart+separatorLen])
-		input = input[separatorStart+separatorLen:]
+		_, _ = b.WriteString(input[start : start+length])
+		input = input[start+length:]
+	}
+	if rawTextCredentials {
+		// Raw credentials can span fields and event separators (PEM blocks,
+		// or whitespace after Bearer / an assignment). Keep their whole span
+		// in scope after JSON payloads have been decoded and redacted.
+		return redactUnstructuredText(b.String(), patterns)
 	}
 	return b.String()
 }
 
-func sseEventSeparator(input string) (start, length int) {
-	lf := strings.Index(input, "\n\n")
-	crlf := strings.Index(input, "\r\n\r\n")
-	switch {
-	case lf < 0 && crlf < 0:
-		return -1, 0
-	case crlf >= 0 && (lf < 0 || crlf < lf):
-		return crlf, 4
-	default:
-		return lf, 2
+// Return a physical line's content end and the next line's offset. SSE allows
+// LF, CRLF and CR, including a mix of them in a single stream.
+func sseLine(input string, start int) (end, next int) {
+	i := strings.IndexAny(input[start:], "\r\n")
+	if i < 0 {
+		return len(input), len(input)
 	}
+	end = start + i
+	next = end + 1
+	if input[end] == '\r' && next < len(input) && input[next] == '\n' {
+		next++
+	}
+	return end, next
 }
 
-func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...string) string {
-	if event == "" {
-		return ""
-	}
-	lineSeparator := "\n"
-	if strings.Contains(event, "\r\n") {
-		lineSeparator = "\r\n"
-	}
-	lines := strings.Split(event, lineSeparator)
-	dataLine := -1
-	dataCount := 0
-	for i, line := range lines {
-		if strings.HasPrefix(line, "data:") {
-			dataLine = i
-			dataCount++
+func sseEventSeparator(input string) (start, length int) {
+	previousEnd := 0
+	for pos := 0; pos < len(input); {
+		end, next := sseLine(input, pos)
+		if end == pos {
+			return previousEnd, next - previousEnd
 		}
+		previousEnd = end
+		pos = next
+	}
+	return -1, 0
+}
+
+func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...string) (string, bool) {
+	dataStart, dataEnd, dataCount := 0, 0, 0
+	for pos := 0; pos < len(event); {
+		end, next := sseLine(event, pos)
+		line := event[pos:end]
+		if strings.HasPrefix(line, "data:") {
+			dataCount++
+			dataStart, dataEnd = pos+len("data:"), end
+			if dataStart < end && event[dataStart] == ' ' {
+				dataStart++
+			}
+		}
+		pos = next
 	}
 	if dataCount == 1 {
-		line := strings.TrimSuffix(lines[dataLine], "\r")
-		payload := strings.TrimPrefix(line, "data:")
-		payload = strings.TrimPrefix(payload, " ")
-		if json.Valid([]byte(payload)) && (patterns.mayContainAssignment(payload) ||
-			mayContainSensitiveJSONKey(payload, patterns) || mayContainKnownToken(payload)) {
-			redacted := RedactJSON([]byte(payload), extraKeys...)
-			prefixLen := len("data:")
-			if len(line) > prefixLen && line[prefixLen] == ' ' {
-				prefixLen++
-			}
-			prefix := line[:prefixLen]
-			lines[dataLine] = prefix + redacted
-			for i := range lines {
-				if i != dataLine {
-					lines[i] = RedactText(lines[i], extraKeys...)
-				}
-			}
-			return strings.Join(lines, lineSeparator)
-		}
+		payload := event[dataStart:dataEnd]
 		if json.Valid([]byte(payload)) {
-			for i := range lines {
-				if i != dataLine {
-					lines[i] = RedactText(lines[i], extraKeys...)
-				}
+			prefix, suffix := event[:dataStart], event[dataEnd:]
+			if mayNeedJSONRedaction(payload, patterns) {
+				payload = RedactJSON([]byte(payload), extraKeys...)
+				// JSON key-name policy handles values. Keep the previous SSE
+				// text coverage for credentials embedded in member names too.
+				payload = redactUnstructuredText(payload, patterns)
 			}
-			return strings.Join(lines, lineSeparator)
+			return prefix + payload + suffix, mayNeedTextRedaction(prefix, patterns) || mayNeedTextRedaction(suffix, patterns)
 		}
 	}
-	return RedactText(event, extraKeys...)
+	return event, mayNeedTextRedaction(event, patterns)
 }
 
-func mayContainSensitiveJSONKey(input string, patterns *textRedactPatterns) bool {
-	for i := 0; i < len(input); i++ {
-		if input[i] != '"' {
-			continue
-		}
-		start := i
-		i++
-		for i < len(input) {
-			if input[i] == '\\' {
-				i += 2
-				continue
-			}
-			if input[i] == '"' {
-				break
-			}
-			i++
-		}
-		if i >= len(input) {
-			break
-		}
-		end := i
-		i++
-		for i < len(input) && isAssignmentSpace(input[i]) {
-			i++
-		}
-		if i >= len(input) || input[i] != ':' {
-			continue
-		}
-		key, err := strconv.Unquote(input[start : end+1])
-		if err != nil {
-			continue
-		}
-		if isSensitiveJSONKey(key, patterns) {
-			return true
-		}
-	}
-	return false
+func mayNeedTextRedaction(input string, patterns *textRedactPatterns) bool {
+	return patterns.mayContainAssignment(input) || mayContainKnownToken(input)
 }
 
-func isSensitiveJSONKey(key string, patterns *textRedactPatterns) bool {
-	normalized := normalizeKey(key)
-	if _, ok := defaultNonCredentialKeys[normalized]; ok {
-		return false
-	}
-	if patterns.hasExactKey(normalized) {
+func mayNeedJSONRedaction(input string, patterns *textRedactPatterns) bool {
+	// Escapes can hide both key names and tokens. Decode instead of guessing
+	// about the spelling (including surrogate pairs) in the wire representation.
+	if strings.Contains(input, `\`) || mayNeedTextRedaction(input, patterns) {
 		return true
 	}
-	for _, suffix := range defaultSensitiveKeySuffixes {
-		if strings.HasSuffix(normalized, suffix) {
+	// With escapes ruled out, quoted object keys can be checked without a
+	// second JSON parser. False positives only trigger structured redaction.
+	for offset := 0; offset < len(input); {
+		i := strings.IndexByte(input[offset:], ':')
+		if i < 0 {
+			break
+		}
+		end := offset + i
+		offset = end + 1
+		for end > 0 && isAssignmentSpace(input[end-1]) {
+			end--
+		}
+		if end == 0 || input[end-1] != '"' {
+			continue
+		}
+		end--
+		start := strings.LastIndexByte(input[:end], '"')
+		if start >= 0 && isSensitiveKey(input[start+1:end], patterns.keys) {
 			return true
 		}
 	}
@@ -398,10 +380,8 @@ func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	if !patterns.mayContainAssignment(out) {
 		return out
 	}
-	if patterns.linearAssignments {
-		if scanned := redactSimpleAssignments(out, patterns); scanned != out && !containsNonASCII(out) {
-			return scanned
-		}
+	if patterns.linearAssignments && !containsNonASCII(out) {
+		return redactSimpleAssignments(out, patterns)
 	}
 	if strings.Contains(out, ":") && strings.Contains(out, `"`) {
 		out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
@@ -443,6 +423,7 @@ func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 	}
 	return &textRedactPatterns{
 		keySuffixes:       suffixes,
+		keys:              buildKeySet(extraKeys),
 		linearAssignments: linearAssignments,
 		// JSON-like: "access_token":"..."
 		reJSONLike: regexp.MustCompile(`(?i)("(?:` + keyAlt + `)"\s*:\s*")([^"]*)(")`),
@@ -454,7 +435,7 @@ func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 }
 
 func isLinearAssignmentKey(key string) bool {
-	if key == "" || !isWordByte(key[len(key)-1]) {
+	if key == "" || !isWordByte(key[0]) || !isWordByte(key[len(key)-1]) {
 		return false
 	}
 	for i := 0; i < len(key); i++ {
@@ -484,119 +465,108 @@ func (p *textRedactPatterns) hasExactKey(input string) bool {
 	return n.terminal
 }
 
-type assignmentReplacement struct {
-	start int
-	end   int
+const (
+	jsonAssignment = iota
+	queryAssignment
+	plainAssignment
+)
+
+// redactSimpleAssignments keeps the regexp pipeline's JSON/query/plain order.
+// Combining these passes changes the values seen by later rules and can leave
+// secret suffixes behind. Identifier-shaped keys need no regexp engine.
+func redactSimpleAssignments(input string, patterns *textRedactPatterns) string {
+	for pass := jsonAssignment; pass <= plainAssignment; pass++ {
+		input = redactAssignmentPass(input, patterns, pass)
+	}
+	return input
 }
 
-// redactSimpleAssignments replaces values for the common identifier-shaped
-// sensitive keys in one linear pass. It preserves the old regexp behaviour for
-// key names containing punctuation or non-ASCII characters.
-func redactSimpleAssignments(input string, patterns *textRedactPatterns) string {
-	var replacementBuffer [8]assignmentReplacement
-	replacements := replacementBuffer[:0]
+func redactAssignmentPass(input string, patterns *textRedactPatterns, pass int) string {
+	var b strings.Builder
+	last, matchEnd := 0, 0
 	for delimiter := 0; delimiter < len(input); delimiter++ {
 		if input[delimiter] != ':' && input[delimiter] != '=' {
 			continue
 		}
-
-		// JSON-like: "token": "value". The legacy regexp intentionally
-		// ignores escaped quotes, so keep that exact conservative boundary.
-		keyEnd := delimiter
-		for keyEnd > 0 && isAssignmentSpace(input[keyEnd-1]) {
-			keyEnd--
-		}
-		if keyEnd > 0 && input[keyEnd-1] == '"' {
-			quoteEnd := keyEnd - 1
-			quoteStart := strings.LastIndexByte(input[:quoteEnd], '"')
-			if quoteStart >= 0 && patterns.hasExactKey(input[quoteStart+1:quoteEnd]) {
-				valueStart := delimiter + 1
-				for valueStart < len(input) && isAssignmentSpace(input[valueStart]) {
-					valueStart++
-				}
-				if valueStart < len(input) && input[valueStart] == '"' {
-					valueEnd := strings.IndexByte(input[valueStart+1:], '"')
-					if valueEnd >= 0 {
-						replacements = append(replacements, assignmentReplacement{valueStart + 1, valueStart + 1 + valueEnd})
-						// Skip the delimiter immediately following the quoted value;
-						// otherwise a malformed `"key":"value":...` sequence can
-						// treat the value as a second JSON key.
-						delimiter = valueStart + 1 + valueEnd + 1
-						continue
-					}
-				}
-			}
-		}
-
-		keyStart := keyEnd
-		for keyStart > 0 && isLinearKeyByte(input[keyStart-1]) {
-			keyStart--
-		}
-		candidateStart := keyStart
-		if candidateStart != keyEnd && !patterns.hasExactKey(input[candidateStart:keyEnd]) {
-			for i := keyStart; i < keyEnd; i++ {
-				if input[i] == '-' && i+1 < keyEnd && patterns.hasExactKey(input[i+1:keyEnd]) {
-					candidateStart = i + 1
-					break
-				}
-			}
-		}
-		if candidateStart == keyEnd || !patterns.hasExactKey(input[candidateStart:keyEnd]) ||
-			(candidateStart > 0 && isWordByte(input[candidateStart-1])) || !isWordByte(input[keyEnd-1]) {
+		if (pass == jsonAssignment && input[delimiter] != ':') || (pass == queryAssignment && input[delimiter] != '=') {
 			continue
 		}
-
+		keyEnd := delimiter
+		if pass != queryAssignment {
+			for keyEnd > 0 && isAssignmentSpace(input[keyEnd-1]) {
+				keyEnd--
+			}
+		}
+		if pass == jsonAssignment {
+			if keyEnd == 0 || input[keyEnd-1] != '"' {
+				continue
+			}
+			quoteEnd := keyEnd - 1
+			quoteStart := strings.LastIndexByte(input[:quoteEnd], '"')
+			if quoteStart < matchEnd || !patterns.hasExactKey(input[quoteStart+1:quoteEnd]) {
+				continue
+			}
+		} else {
+			keyStart := keyEnd
+			for keyStart > 0 && isLinearKeyByte(input[keyStart-1]) {
+				keyStart--
+			}
+			for keyStart < keyEnd && !patterns.hasExactKey(input[keyStart:keyEnd]) {
+				i := strings.IndexByte(input[keyStart:keyEnd], '-')
+				if i < 0 {
+					keyStart = keyEnd
+					break
+				}
+				keyStart += i + 1
+			}
+			if keyStart == keyEnd || (keyStart > 0 && isWordByte(input[keyStart-1])) {
+				continue
+			}
+		}
 		valueStart := delimiter + 1
-		queryLike := input[delimiter] == '=' && valueStart < len(input) && !isAssignmentSpace(input[valueStart])
-		if !queryLike {
+		if pass != queryAssignment {
 			for valueStart < len(input) && isAssignmentSpace(input[valueStart]) {
 				valueStart++
 			}
 		}
-		if valueStart >= len(input) || (!queryLike && input[valueStart] == ',') || isAssignmentSpace(input[valueStart]) {
-			continue
-		}
 		valueEnd := valueStart
-		if queryLike {
-			for valueEnd < len(input) && input[valueEnd] != '&' && !isAssignmentSpace(input[valueEnd]) {
-				valueEnd++
+		if pass == jsonAssignment {
+			if valueStart >= len(input) || input[valueStart] != '"' {
+				continue
 			}
-			// The legacy query replacement runs before the plain assignment
-			// replacement. For ordinary values, the latter extends across `&`
-			// until a comma or whitespace; a value beginning with a comma does
-			// not match that second form.
-			if valueStart < len(input) && input[valueStart] != ',' {
-				plainEnd := valueStart
-				for plainEnd < len(input) && input[plainEnd] != ',' && !isAssignmentSpace(input[plainEnd]) {
-					plainEnd++
-				}
-				if plainEnd > valueEnd {
-					valueEnd = plainEnd
-				}
+			valueStart++
+			i := strings.IndexByte(input[valueStart:], '"')
+			if i < 0 {
+				continue
 			}
+			valueEnd = valueStart + i
+			delimiter = valueEnd
+			matchEnd = valueEnd + 1
 		} else {
-			for valueEnd < len(input) && input[valueEnd] != ',' && !isAssignmentSpace(input[valueEnd]) {
+			stop := byte(',')
+			if pass == queryAssignment {
+				stop = '&'
+			}
+			for valueEnd < len(input) && input[valueEnd] != stop && !isAssignmentSpace(input[valueEnd]) {
 				valueEnd++
 			}
-		}
-		if valueEnd > valueStart {
-			replacements = append(replacements, assignmentReplacement{valueStart, valueEnd})
+			if valueEnd == valueStart {
+				continue
+			}
 			delimiter = valueEnd - 1
 		}
-	}
-	if len(replacements) == 0 {
-		return input
-	}
-	var b strings.Builder
-	b.Grow(len(input))
-	last := 0
-	for _, replacement := range replacements {
-		if replacement.start < last {
+		if input[valueStart:valueEnd] == "***" {
 			continue
 		}
-		_, _ = b.WriteString(input[last:replacement.start])
+		if b.Len() == 0 {
+			b.Grow(len(input))
+		}
+		_, _ = b.WriteString(input[last:valueStart])
 		_, _ = b.WriteString("***")
-		last = replacement.end
+		last = valueEnd
+	}
+	if last == 0 {
+		return input
 	}
 	_, _ = b.WriteString(input[last:])
 	return b.String()

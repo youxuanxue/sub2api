@@ -1,6 +1,7 @@
 package logredact
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -65,5 +66,58 @@ func FuzzRedactSSENoPanic(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		_ = RedactSSE(input)
+	})
+}
+
+func TestRedactSSEEscapedCredentialsAndFraming(t *testing.T) {
+	for _, tc := range []struct{ name, input, want string }{
+		{"escaped token", `data: {"text":"\u0042earer hidden"}` + "\n\n", "data: {\"text\":\"Bearer ***\"}\n\n"},
+		{"escaped key", `data: {"to\u006ben":"hidden"}` + "\n\n", "data: {\"token\":\"***\"}\n\n"},
+		{"surrogate key", `data: {"\ud83d\ude00_password":"hidden"}` + "\n\n", "data: {\"😀_password\":\"***\"}\n\n"},
+		{"key whitespace", "data: {\" token \":\"hidden\"}\n\n", "data: {\" token \":\"***\"}\n\n"},
+		{"mixed newlines", "event: message\r\ndata: {\"token\":\"hidden\"}\n\n", "event: message\r\ndata: {\"token\":\"***\"}\n\n"},
+		{"metadata whitespace", " : keep  \nevent: message  \ndata: {\"token\":\"hidden\"}\n\n", " : keep  \nevent: message  \ndata: {\"token\":\"***\"}\n\n"},
+		{"multiline data", " data: header  \ndata: {\ndata: \"token\":\"hidden\"}\n", " data: header  \ndata: {\ndata: \"token\":\"***\"}\n"},
+		{"CR frames", "data: {\"token\":\"hidden\"}\r\rdata: [DONE]\r\r", "data: {\"token\":\"***\"}\r\rdata: [DONE]\r\r"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RedactSSE(tc.input); got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRedactSSERawPrivateKeyAcrossEvents(t *testing.T) {
+	for _, input := range []string{
+		"data: -----BEGIN PRIVATE KEY-----\n\nhidden\n-----END PRIVATE KEY-----\n\n",
+		"event: -----BEGIN PRIVATE KEY-----\nhidden\ndata: {}\n\n",
+		"event: Bearer\n\nhidden\n\n",
+		"data: token=\n\nhidden\n\n",
+	} {
+		if got := RedactSSE(input); strings.Contains(got, "hidden") {
+			t.Fatalf("private key leaked: %q", got)
+		}
+	}
+}
+
+func FuzzRedactSSEStructuredEquivalence(f *testing.F) {
+	for _, seed := range [][2]string{
+		{"text", "Bearer hidden"}, {" token ", "hidden"},
+		{"custom_password", "hidden"}, {"text", "ordinary prose"},
+		{"password=hidden", "ordinary"}, {"text", "token=abc,\"password\":\"a b\""},
+		{"text", "-----BEGIN PRIVATE KEY-----\nhidden"},
+	} {
+		f.Add(seed[0], seed[1])
+	}
+	f.Fuzz(func(t *testing.T, key, value string) {
+		raw, err := json.Marshal(map[string]string{key: value})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "data: " + redactUnstructuredReference(RedactJSON(raw), defaultTextRedactPatterns) + "\n\n"
+		if got := RedactSSE("data: " + string(raw) + "\n\n"); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
 	})
 }

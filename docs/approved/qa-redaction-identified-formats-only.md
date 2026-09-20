@@ -19,7 +19,7 @@ QA 采集会对请求、响应和流式片段做自动脱敏。当前非结构�
 - JSON 对象、数组和字符串叶子继续走结构化脱敏。
 - 敏感 key 名及其子树继续脱敏；已被敏感 key 替换为 `***` 的子树不再重复扫描。
 - SSE `data:` 事件在能确认是 JSON 时走结构化脱敏。
-- 能确认是受支持 assignment 格式（`key=value` 或 `key: value`）的内容使用单遍扫描器处理。
+- 能确认是受支持 assignment 格式（`key=value` 或 `key: value`）的内容使用保持原替换顺序的线性扫描器处理。
 - 已知凭证形态（例如 `Bearer`、`sk-`、私钥头、provider token、`AIza`、`GOCSPX`）继续覆盖。
 - 明确不属于上述格式的文本直接原样保留，以避免无谓的正则扫描。
 
@@ -37,7 +37,7 @@ QA 采集会对请求、响应和流式片段做自动脱敏。当前非结构�
   ├─ 可解析 JSON？        → RedactJSONValue（结构化 key + 已知 token）
   ├─ SSE data 事件为 JSON？→ 只替换 data payload，保留 SSE framing
   ├─ 命中已知 token 形态？ → 已知 token 扫描器
-  ├─ 受支持 assignment？  → 单遍 assignment 扫描器
+  ├─ 受支持 assignment？  → 按 JSON-like/query/plain 顺序线性扫描
   └─ 其他                  → 原样保留，不运行旧正则链
 ```
 
@@ -46,15 +46,15 @@ QA 采集会对请求、响应和流式片段做自动脱敏。当前非结构�
 ## 识别契约
 
 - JSON 只接受完整的 RFC 8259 值。对象 key 使用现有 `defaultSensitiveKeys`、敏感后缀和调用方传入的 `extraKeys`，大小写不敏感；敏感 key 的值直接替换为 `***`，不再递归扫描。
-- SSE 按空行分隔事件；为了保持 framing，只有恰好一行 `data:` 且该 payload 整体通过 JSON 解码时才替换该 payload，`event:`、`id:`、注释和空行的结构保留，字段中的已知 token 仍会被替换。多行 `data:`、截断事件和未知字段组合视为未知格式，只接受已知 token/assignment 规则，不做旧正则兜底。
+- SSE 按空行分隔事件；为了保持 framing，支持 LF、CRLF、CR 及混合行尾；只有恰好一行 `data:` 且该 payload 整体通过 JSON 解码时才替换该 payload，`event:`、`id:`、注释和空行的结构保留，字段中的已知 token 仍会被替换。JSON 转义必须先解码后识别凭证，不能仅凭原始字节排除；原始多行私钥按整个 chunk 的凭证范围处理，必要时移除其覆盖的 framing，避免空行切分泄露后半段。多行 `data:`、截断事件和未知字段组合视为未知格式，只接受已知 token/assignment 规则，不做旧正则兜底。
 - 已知 token 集合与现有 `logredact` 模式保持一致：私钥头 `-----BEGIN ... PRIVATE KEY-----`、大小写不敏感的 `Bearer` 加 token、`GOCSPX-`（至少 24 个字符）、`AIza`（后接 35 个字符）、provider token（`glpat-`、`gh[pousr]_`、`github_pat_`、`sk-`、`AKIA`、`ASIA`、`LTAI` 及现有长度约束）。这些模式在任何输入格式上都可扫描，但不扩展为通用正则 DLP。
-- assignment 只识别现有正文正则已覆盖的敏感 key 或 `extraKeys` 的 `key=value`、`key: value`、JSON-like key 形式；未知自定义 key、非完整 assignment 和无法确认边界的文本直接保留。JSON 对象 key 仍额外支持现有敏感后缀规则。ASCII 标识符形 key 使用单遍扫描器；含 Unicode/特殊标点的已知 key 为兼容现有覆盖可走窄范围正则路径，不视为未知格式。
+- assignment 只识别现有正文正则已覆盖的敏感 key 或 `extraKeys` 的 `key=value`、`key: value`、JSON-like key 形式；未知自定义 key、非完整 assignment 和无法确认边界的文本直接保留。JSON 对象 key 仍额外支持现有敏感后缀规则。ASCII 标识符形 key 使用按原顺序执行的线性扫描器；含 Unicode/特殊标点的已知 key 为兼容现有覆盖可走窄范围正则路径，不视为未知格式。
 - 分类结果是内部实现细节，不新增对外 API；现有 `RedactText`/`RedactJSON` 返回类型保持不变。SSE 处理由 QA service 保持 framing 和 thinking signature 回填契约。
 
 # 数据与接口契约
 
 - QA record、blob 和导出 JSON 的结构不变；`redactions` 元数据中的版本值从 `logredact-v3` 切换为 `logredact-v4`。
-- `sanitizeQABytes`、`sanitizeQABody`、`RedactText` 和 `RedactJSON` 的参数及返回类型不变；实现只新增包内分类/扫描辅助函数。
+- `sanitizeQABytes`、`sanitizeQABody`、`RedactText` 和 `RedactJSON` 的参数及返回类型不变；新增包入口 `RedactSSE`，QA 完整非 JSON 正文和流片段共用此入口；JSON 和文本的敏感 key 判定复用现有 owner。
 - benchmark 和 differential 测试使用固定分类标签 `json`、`sse_json`、`assignment`、`known_token`、`unknown_passthrough`；标签不写入正文、QA record 或用户可控字段，运行时不增加热路径计数器。
 - 版本变更必须同步 [`scripts/sentinels/redaction.json`](../../scripts/sentinels/redaction.json)；实现入口、QA service 调用点和 focused 回归测试必须同步更新 [`scripts/sentinels/gateway-tk.json`](../../scripts/sentinels/gateway-tk.json)。若上游共享文件继续有冲突，优先采用 `*_tk_*` companion 或纯追加入口，不能静默丢失脱敏行为。
 
@@ -62,7 +62,7 @@ QA 采集会对请求、响应和流式片段做自动脱敏。当前非结构�
 
 - `qaRedactionVersion` 固定升级为 `logredact-v4`，便于导出方和审计区分新旧保护边界。
 - 已有 QA blob 不重写、不迁移。
-- QA 导出元数据继续携带脱敏版本；实现 PR 同步更新 [`security-capture-and-ingress.md`](security-capture-and-ingress.md)、[`qa-bundle-session-export.md`](qa-bundle-session-export.md) 及产品隐私说明，明确“自动脱敏仅覆盖已识别格式，未知格式可能包含秘密”。
+- QA 导出元数据继续携带脱敏版本；实现 PR 同步更新 [`security-capture-and-ingress.md`](security-capture-and-ingress.md)、[`qa-bundle-session-export.md`](qa-bundle-session-export.md) 及[产品隐私说明](../../deploy/aws/stage0/legal-page/privacy.html)，明确“自动脱敏仅覆盖已识别格式，未知格式可能包含秘密”。
 
 # 验证与观测
 
