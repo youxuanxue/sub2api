@@ -239,10 +239,64 @@ func RedactSSE(input string, extraKeys ...string) string {
 	if rawTextCredentials {
 		// Raw credentials can span fields and event separators (PEM blocks,
 		// or whitespace after Bearer / an assignment). Keep their whole span
-		// in scope after JSON payloads have been decoded and redacted.
-		return redactUnstructuredText(b.String(), patterns)
+		// in scope, but protect structured payloads from a second text pass.
+		return redactSSEUnstructuredPreservingJSON(b.String(), patterns)
 	}
 	return b.String()
+}
+
+func redactSSEUnstructuredPreservingJSON(input string, patterns *textRedactPatterns) string {
+	original := input
+	var b strings.Builder
+	b.Grow(len(input))
+	payloads := make([]string, 0, 1)
+	markers := make([]string, 0, 1)
+	usedMarkers := make(map[string]struct{})
+	for len(input) > 0 {
+		start, length := sseEventSeparator(input)
+		end := start
+		if end < 0 {
+			end = len(input)
+		}
+		event := input[:end]
+		if dataStart, dataEnd, ok := sseJSONPayloadRange(event); ok {
+			marker := sseJSONPayloadMarker(original, len(payloads), usedMarkers)
+			_, _ = b.WriteString(event[:dataStart])
+			_, _ = b.WriteString(marker)
+			_, _ = b.WriteString(event[dataEnd:])
+			payloads = append(payloads, event[dataStart:dataEnd])
+			markers = append(markers, marker)
+		} else {
+			_, _ = b.WriteString(event)
+		}
+		if start < 0 {
+			break
+		}
+		_, _ = b.WriteString(input[start : start+length])
+		input = input[start+length:]
+	}
+
+	redacted := redactUnstructuredText(b.String(), patterns)
+	for i, marker := range markers {
+		redacted = strings.Replace(redacted, marker, payloads[i], 1)
+	}
+	return redacted
+}
+
+// The marker is deliberately free of ':' and '=' so the unstructured scanner
+// never classifies it as an assignment while the surrounding SSE text is
+// being redacted.
+func sseJSONPayloadMarker(input string, index int, used map[string]struct{}) string {
+	for {
+		marker := "\x00logredact-json-" + strconv.Itoa(index) + "\x00"
+		if !strings.Contains(input, marker) {
+			if _, exists := used[marker]; !exists {
+				used[marker] = struct{}{}
+				return marker
+			}
+		}
+		index++
+	}
 }
 
 // Return a physical line's content end and the next line's offset. SSE allows
@@ -274,6 +328,19 @@ func sseEventSeparator(input string) (start, length int) {
 }
 
 func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...string) (string, bool) {
+	dataStart, dataEnd, ok := sseJSONPayloadRange(event)
+	if ok {
+		prefix, suffix := event[:dataStart], event[dataEnd:]
+		payload := event[dataStart:dataEnd]
+		if mayNeedJSONRedaction(payload, patterns) {
+			payload = RedactJSON([]byte(payload), extraKeys...)
+		}
+		return prefix + payload + suffix, mayNeedTextRedaction(prefix, patterns) || mayNeedTextRedaction(suffix, patterns)
+	}
+	return event, mayNeedTextRedaction(event, patterns)
+}
+
+func sseJSONPayloadRange(event string) (dataStart, dataEnd int, ok bool) {
 	dataStart, dataEnd, dataCount := 0, 0, 0
 	for pos := 0; pos < len(event); {
 		end, next := sseLine(event, pos)
@@ -287,20 +354,11 @@ func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...str
 		}
 		pos = next
 	}
-	if dataCount == 1 {
-		payload := event[dataStart:dataEnd]
-		if json.Valid([]byte(payload)) {
-			prefix, suffix := event[:dataStart], event[dataEnd:]
-			if mayNeedJSONRedaction(payload, patterns) {
-				payload = RedactJSON([]byte(payload), extraKeys...)
-				// JSON key-name policy handles values. Keep the previous SSE
-				// text coverage for credentials embedded in member names too.
-				payload = redactUnstructuredText(payload, patterns)
-			}
-			return prefix + payload + suffix, mayNeedTextRedaction(prefix, patterns) || mayNeedTextRedaction(suffix, patterns)
-		}
+	if dataCount != 1 {
+		return 0, 0, false
 	}
-	return event, mayNeedTextRedaction(event, patterns)
+	payload := event[dataStart:dataEnd]
+	return dataStart, dataEnd, json.Valid([]byte(payload))
 }
 
 func mayNeedTextRedaction(input string, patterns *textRedactPatterns) bool {
@@ -787,7 +845,11 @@ func redactValueWithDepth(value any, keys map[string]struct{}, patterns *textRed
 				out[k] = "***"
 				continue
 			}
-			out[k] = redactValueWithDepth(val, keys, patterns, depth+1)
+			redactedKey := k
+			if mayNeedTextRedaction(k, patterns) {
+				redactedKey = redactUnstructuredText(k, patterns)
+			}
+			out[redactedKey] = redactValueWithDepth(val, keys, patterns, depth+1)
 		}
 		return out
 	case []any:

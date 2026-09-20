@@ -25,6 +25,27 @@ func TestRedactSSEStructuredDataRedactsSensitiveSuffixKeys(t *testing.T) {
 	}
 }
 
+func TestRedactSSEStructuredDataRedactsEmbeddedAssignmentKey(t *testing.T) {
+	input := "data: {\"password=hidden\":\"ordinary\",\"content\":\"hello\"}\n\n"
+	got := RedactSSE(input)
+	want := "data: {\"content\":\"hello\",\"password=***\":\"ordinary\"}\n\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestRedactSSERawFramingCredentialsPreserveStructuredPayload(t *testing.T) {
+	input := "data: {\"password=hidden\":\"ordinary\"}\nid: password=hidden\n\n"
+	want := "data: {\"password=***\":\"ordinary\"}\nid: password=***\n\n"
+	if got := RedactSSE(input); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	payload := strings.TrimPrefix(strings.SplitN(want, "\n", 2)[0], "data: ")
+	if !json.Valid([]byte(payload)) {
+		t.Fatalf("expected structured payload to remain valid JSON: %q", want)
+	}
+}
+
 func TestRedactSSEPreservesCRLFFraming(t *testing.T) {
 	input := "event: message\r\ndata: {\"token\":\"secret\"}\r\n\r\n"
 	want := "event: message\r\ndata: {\"token\":\"***\"}\r\n\r\n"
@@ -115,7 +136,7 @@ func FuzzRedactSSEStructuredEquivalence(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := "data: " + redactUnstructuredReference(RedactJSON(raw), defaultTextRedactPatterns) + "\n\n"
+		want := "data: " + RedactJSON(raw) + "\n\n"
 		if got := RedactSSE("data: " + string(raw) + "\n\n"); got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
