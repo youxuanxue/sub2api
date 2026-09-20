@@ -13,6 +13,8 @@ target: edge-us4
 
 ## 结论与当前边界
 
+**最新迁移实验以第 9 节为准：**483 的现有图片已通过 us4 纯 HTTP 取得与浏览器一致的全尺寸原图，但之后出现会话失效迹象，Cookie refresh 返回 401，Linux Chromium 导入也未恢复登录态。原图下载可脱离浏览器的证据成立，长期无人值守与无登录迁移仍未通过；下文此前“HTTP 图片授权未打通”的记录保留为历史对照。
+
 建议新增独立的 `Gemini Web` 账号通路：一个 SessionOwner 管理凭据与页面状态，HTTP 执行器处理已验证的文本/refresh，浏览器网络执行器处理图片。浏览器网络执行器在已登录上下文中直接使用 fetch，执行生成、原图 RPC、授权和文件读取；不依赖逐次点击页面或截图提取图片。两种执行器共享账号租约、会话版本和错误状态，不能分别维护 Cookie 或重复提交同一轮生成。人工登录/验证及未知页面动态状态仍由浏览器 UI 承接。
 
 已经实测：483 浏览器对应 us4 #24 的 Google 身份；浏览器通过 us4 生图并下载 2816×1536 原图成功；浏览器网络执行器无需 UI 点击，能够下载字节级一致的原图，并独立发起新图生成和下载；us4 独立 HTTP 文本生成与 Cookie refresh 成功，刷新后重新 bootstrap 并生成文本成功。尚未完成：纯 HTTP 图片授权下载，以及在 us4 Linux 上独立建立浏览器会话后的图片验收。当前 Mac 指纹浏览器成功，不等于把其 Cookie 导入任意 Linux Chromium 就一定成功。
@@ -372,7 +374,7 @@ HTTP 适合已验证的文本/refresh；浏览器网络执行器适合当前图�
 | refresh 后调用 | Cookie 更新后重新 bootstrap、核对身份并成功调用 | 483 对应身份已有 us4 HTTP refresh + 文本成功证据；两号长期、重启后的刷新仍待验证 |
 | 官方 API 交付 | 经 TokenKey 返回 GenerateContentResponse，客户端解码得到全尺寸原图 | 未实现、未验证 |
 
-两号 `fullsize_ready` 已有证据；下一阶段仍须分别完成 Linux 原始字节、尺寸与哈希校验，不能仅靠预览图或 URL 路径判定全尺寸交付。483 全尺寸文件 SHA-256 为 `b41778df03063c08b62a819a57bcd893ca750bf31b49c308733b342ca1b8d3d9`。
+两号 `fullsize_ready` 已有证据；第 9 节新增 483 的 us4 HTTP 字节、尺寸与哈希一致性证据，下一阶段仍须完成持续可用性与 133 的 Linux 验收，不能仅靠预览图或 URL 路径判定全尺寸交付。483 全尺寸文件 SHA-256 为 `b41778df03063c08b62a819a57bcd893ca750bf31b49c308733b342ca1b8d3d9`。
 
 这次复核修正了图片完成判定：不能等待页面文案从 `Creating your image` 消失，也不能只等待单一最终事件。浏览器已经完成生成与预览图片加载，并把预览图片放入 `blob:` URL；可靠的 `preview_ready` 条件应检查生成图片元素的自然尺寸和可读像素。`fullsize_ready` 必须另外看到全尺寸下载触发的 `gg/rd-gg` 链、原图授权响应和文件 MIME/尺寸/字节。483 的关键是下载请求会被浏览器标记为 Fetch/Download，普通 Network body 可能在 `ERR_ABORTED` 后不可读；生产 Worker 应在 response 阶段拦截或使用浏览器下载文件，而不是把 Network 缓存为空误判为上游失败。页面 spinner 只作为 UI 状态异常记录；预览已成功时不得因 spinner 超时重新生成图片。
 
@@ -454,7 +456,61 @@ Google 图片链可以观察到短期的 `gg-dl`、`work.fife` 和 `rd-gg-dl` �
 
 浏览器网络实测通过本机 CDP 控制已绑定 us4 代理的 483；原始请求、动态字段与图片 URL 不随文档入库。
 
-## 9. 实施与验收顺序
+## 9. 2026-09-20 双路径迁移实验：下载成功与会话有效性分开判定
+
+本节是此前“纯 HTTP 全尺寸授权链未打通”结论的后续证据。目标是从 Mac AdsPower 483 复制会话到 us4，完全不重新登录，复用已生成图片对照纯 HTTP 与 Linux Chromium。没有再次生图，也没有改动 TokenKey 账号、路由或线上服务。
+
+### 环境与隔离
+
+- us4 实际出口核对为 `32.188.80.151`。Mac 483 继续使用已绑定 us4 的 SOCKS 1109；容器在 us4 本机出网，没有本机直连 Google。
+- 使用独立临时目录、通过 SSH 传输会话。凭据文件不入库、不输出日志、不写入镜像层。镜像只安装 Python、curl_cffi、Playwright、Pillow 与 Debian Chromium。
+- 纯 HTTP 容器上限 256 MiB / 0.5 CPU；浏览器容器上限 640 MiB / 0.75 CPU，禁止额外 swap、限制 PID、移除 Linux capabilities，无暴露端口、无生产 Docker socket 或数据库挂载。这些是隔离限额，不是测得的实际内存消耗。
+- Mac 浏览器报告 Chrome 151；Linux 为 Chromium 153.0.8010.52，使用复制的 UA，但没有复制 Mac 指纹浏览器内核或完整设备环境。本轮不将 UA 相同解释为浏览器等价。
+
+### 路径一：不启动 Chromium 的全尺寸下载已成功一次
+
+从当前 Cookie jar 初始化 curl_cffi HTTP 会话，重新请求 Gemini 页面获取 `at/bl/f.sid`，再用原图 RPC `c8o8Fe` 获取已有图片的地址。RPC 本轮返回的是 `gg`，不是之前探针限定的 `gg-dl`。按返回地址和原图参数解析 HTTP 200 正文里的下一跳，逐域使用 Cookie，成功走完：
+
+`Gemini bootstrap → c8o8Fe → lh3.googleusercontent.com/gg → lh3.google.com/rd-gg 授权 → lh3.googleusercontent.com/rd-gg JPEG`
+
+| 阶段 | HTTP 状态 | 单次耗时 |
+| --- | ---: | ---: |
+| bootstrap | 200 | 264 ms |
+| 原图 RPC | 200 | 338 ms |
+| 地址解析 | 200 | 260 ms |
+| Cookie 授权 | 200 | 55 ms |
+| 最终 JPEG | 200 | 238 ms |
+
+图片为 **2816×1536、2,088,976 字节**，SHA-256 `b41778df03063c08b62a819a57bcd893ca750bf31b49c308733b342ca1b8d3d9`，与此前 483 浏览器全尺寸原图一致。图片授权链三跳合计约 553 ms；加 RPC 约 891 ms，加 bootstrap 约 1,155 ms。它是复用已有图片的热缓存可能性未排除的单次下载样本，不含新图生成、队列与官方响应编码，不是 p95。
+
+该路径没有启动 Chromium、没有使用 OAuth token，也没有使用浏览器转交的最终签名 URL 作为起点。它证明“浏览器必不可少才能下载原图”并非普遍成立。但本轮使用了当前 Cookie、curl_cffi 和 RPC 新返回的路径，不能单凭成功归因于 TLS、Cookie 或路径中的某一项；也未证明旧 `work.fife` 403 路径已修复，或只需两个核心 Cookie。
+
+### 路径二：Cookie 已导入并发出，但 Linux 登录态未恢复
+
+在独立持久化 profile 中导入导出的 Cookie，Playwright 驱动真实 Chromium 页面打开同一 Gemini 会话。页面显示 Sign in，没有原图下载按钮；初始化响应缺少登录态必需的 `SNlM0e`，未匹配预期身份。
+
+进一步通过 CDP 核对：SID、1PSID、1PSIDTS、SAPISID 等核心 Cookie 均未过期，已保存并随 Gemini 主文档请求发出；被浏览器阻止的 Cookie 属于其他域或路径，不能把正常的 DomainMismatch/NotOnPath 当作核心 Cookie 丢失。因此当前失败不是“没有把 Cookie 加进浏览器”的简单导入问题，尚不能归因于 Chromium 版本、设备绑定或 Google 对新环境的判断。
+
+另做了独立的断网持久化对照：使用 `--network none` 创建新 profile，导入后退出并销毁容器，再以同一目录启动新容器。SID、1PSID、1PSIDTS、SAPISID 的值全部保留，证明基本 Cookie 导入与跨容器持久化可行。这不验证 Google 接受会话，也不等于重启后可下载。此前访问过 Google 的实验 profile 在离线重开时核心 Cookie 已不再保留原值；还未捕获其准确清除/修改时刻，不能把两者混成磁盘加密故障或确定的上游撤销机制。
+
+### 会话变化与停止条件
+
+纯 HTTP 下载成功之后，用原导出快照执行 `RotateCookies` 返回 **401**，没有 Cookie 更新。随后旧快照与从 Mac 重新读取的当前快照都只能拿到未登录 bootstrap；Mac 原浏览器后台重新请求 `/app` 也没有取得 `SNlM0e`。期间 Mac 的 SIDCC、1PSIDTS/3PSIDTS 等 Cookie 已变化。
+
+这些证据说明后续样本的会话有效性发生变化，不能继续拿它与首次成功样本当作稳定 A/B 对照。不能据现有证据认定是跨环境复制导致账号会话失效，也不能认定仅重新导出 Cookie 就能恢复。已暂停 Google 侧探测，等待运营确认原 483 页面刷新后的实际登录状态；没有自动重新登录、没有触发人工验证，也没有通过重复刷新掩盖 401。
+
+后续应先恢复可确认的源会话基线，再按“单一执行器独占会话 → 更新后的 Cookie 原子保存 → 重启 → 原图复验”验证生命周期。迁移时须协调源浏览器与 edge 的刷新归属，不能把长期运行的两个独立刷新循环作为生产方案。
+
+### 对方案的影响
+
+- 低成本方向调整为：优先验证纯 HTTP 原图 RPC 与授权下载，浏览器保留为协议和会话恢复的候选执行器；暂不以两账号常驻 Chromium 为生产前提。
+- 当前只完成一次纯 HTTP 全尺寸下载；自动续期、跨重启后可用性和新图生成闭环均未通过本轮验证。此前 Mac 生图证据仍然有效，但不能替代新的容器端生成与交付验收。
+- Linux Chromium 的完整迁移验收未通过；登录态未恢复，因而重启后原图下载、浏览器 refresh 后原图下载也不能标记为通过。
+- 对外契约仍是官方 `GenerateContentResponse` / `Part.inlineData`；本轮没有实现 TokenKey 网关返回。
+
+## 10. 实施与验收顺序
+
+第 9 节发现的会话有效性阻塞应先处理：确认源浏览器刷新后的登录态，以新基线串行验证纯 HTTP 与 Chromium 生命周期；期间不进行自动失败重试或新图生成。此前的实现顺序如下，不能把其中的浏览器必需性当作已经定论。
 
 1. 在 main 基线上建立独立 Web Worker 原型，把当前抓包与已验证 refresh/text 流程整理成可重复脚本；隔离于线上账号调度。
 2. 在 us4 上的浏览器建立真实登录会话，完成生成与图片下载；验证重启后的 profile 恢复和浏览器 Cookie 刷新。这是当前最重要的缺口。
@@ -464,7 +520,7 @@ Google 图片链可以观察到短期的 `gg-dl`、`work.fife` 和 `rd-gg-dl` �
 
 需要审批的实质决策是新网页登录凭据边界、浏览器 Worker 的运行位置与资源、公开能力/计费口径；当前证据不足以承诺无浏览器图片下载或长期无人值守。
 
-## 10. 社区参考与解释边界
+## 11. 社区参考与解释边界
 
 - https://github.com/HanaokaYuzu/Gemini-API
 - https://github.com/HanaokaYuzu/Gemini-API/blob/master/src/gemini_webapi/client.py
