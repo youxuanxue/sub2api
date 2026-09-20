@@ -168,14 +168,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
+		// SSOT: same transport-failover owner as /v1/messages and
+		// ForwardAsResponses. Do NOT write the client body here — that would
+		// set upstream_error_response_already_written and block the handler
+		// failover loop (prod 2026-09-20 Cursor #150 chat/completions 502s).
 		upstreamURL := ""
 		if upstreamReq != nil && upstreamReq.URL != nil {
 			upstreamURL = upstreamReq.URL.String()
 		}
-		recordCCUpstreamRequestError(c, account, upstreamURL, "request_error", safeErr)
-		writeGatewayCCError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-		return nil, candidateTransportFailure(ctx, fmt.Errorf("upstream request failed: %s", safeErr), err)
+		return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
+			UpstreamURL: safeUpstreamURL(upstreamURL),
+		})
 	}
 	defer func() { _ = resp.Body.Close() }()
 

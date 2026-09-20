@@ -1766,9 +1766,22 @@
     {
       "path": "backend/internal/service/gateway_forward_as_chat_completions.go",
       "must_contain": [
-        "candidateTransportFailure(ctx,"
+        "s.handleUpstreamTransportError(ctx, c, account, err,"
       ],
-      "rationale": "Messages-to-Chat transport failures retain candidate attribution."
+      "must_not_contain": [
+        "writeGatewayCCError(c, http.StatusBadGateway, \"server_error\", \"Upstream request failed\")"
+      ],
+      "rationale": "Chat Completions→Anthropic transport failures must use the same handleUpstreamTransportError owner as /v1/messages and ForwardAsResponses: return UpstreamFailoverError without writing the client body. Writing a CC 502 here sets upstream_error_response_already_written and blocks the handler failover loop (prod 2026-09-20 Cursor #150 chat/completions malformed-HTTP final 502s while /v1/messages recovered via kiro). UpstreamFailoverError 5xx remains candidate-attributable via candidateFailureAttributable."
+    },
+    {
+      "path": "backend/internal/service/gateway_forward_as_chat_completions_test.go",
+      "must_contain": [
+        "TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent",
+        "UpstreamFailoverError",
+        "ShouldRetryNextAccount",
+        "c.Writer.Written()"
+      ],
+      "rationale": "Regression for the Chat Completions transport-failover SSOT: a DoWithTLS failure must surface UpstreamFailoverError, allow next-account retry, leave the response uncommitted, and still persist sanitized ops upstream_errors."
     },
     {
       "path": "backend/internal/service/gateway_forward_as_responses.go",

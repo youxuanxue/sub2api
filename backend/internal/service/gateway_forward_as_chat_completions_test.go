@@ -490,10 +490,15 @@ func TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent(t *testing.T) {
 	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, nil)
 	require.Nil(t, result)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "http2: server sent GOAWAY")
-	require.NotContains(t, err.Error(), "secret")
-	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "Upstream request failed", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "transport errors must enter shared UpstreamFailoverError owner, got %T: %v", err, err)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.True(t, failoverErr.ShouldRetryNextAccount(), "handler must be able to switch accounts")
+	// Handler owns the client response; writing here would block failover
+	// (prod Cursor #150 /v1/chat/completions 2026-09-20).
+	require.False(t, c.Writer.Written(), "service must not commit the CC error body before failover")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Empty(t, rec.Body.String())
 
 	msg, ok := c.Get(OpsUpstreamErrorMessageKey)
 	require.True(t, ok)
@@ -509,5 +514,6 @@ func TestForwardAsChatCompletions_TransportErrorPersistsOpsEvent(t *testing.T) {
 	require.Equal(t, int64(66), events[0].AccountID)
 	require.Equal(t, "kiro-us6", events[0].AccountName)
 	require.Contains(t, events[0].Message, "http2: server sent GOAWAY")
+	require.NotContains(t, events[0].Message, "secret")
 	require.Equal(t, "https://api-us6.tokenkey.dev/v1/messages", events[0].UpstreamURL)
 }
