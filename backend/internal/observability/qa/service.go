@@ -84,7 +84,7 @@ var (
 )
 
 const (
-	qaRedactionVersion               = "logredact-v3"
+	qaRedactionVersion               = "logredact-v4"
 	captureStatusCaptured            = "captured"
 	qaCaptureStatusCapturedToDLQ     = "captured_dlq"
 	qaCapturePersistModeAsync        = "async"
@@ -587,7 +587,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 			chunk.Bytes = chunk.Bytes[:remaining]
 		}
 		remaining -= len(chunk.Bytes)
-		redacted := logredact.RedactText(string(chunk.Bytes))
+		redacted := logredact.RedactSSE(string(chunk.Bytes))
 		if preserveThinking {
 			redacted = restoreThinkingSignatureInChunk(redacted, chunk.Bytes)
 		}

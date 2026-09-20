@@ -194,6 +194,8 @@
         "return redactUnstructuredText(v, patterns)",
         "if !patterns.mayContainAssignment(out)",
         "containsGitHubTokenPrefix(out)",
+        "func RedactSSE(input string, extraKeys ...string) string",
+        "redactSimpleAssignments(out, patterns)",
         "n = n.children[foldKeyRune(r)]",
         "encodedKeys = strconv.AppendInt(encodedKeys, int64(len(key)), 10)",
         "cacheKey := string(encodedKeys)"
@@ -218,6 +220,14 @@
         "BenchmarkRedactContentLeaf"
       ],
       "rationale": "Keep conservative redaction guards covered by equivalence tests and JSON/SSE performance benchmarks."
+    },
+    {
+      "path": "backend/internal/util/logredact/sse_test.go",
+      "must_contain": [
+        "TestRedactSSEStructuredDataPreservesFraming",
+        "TestRedactSSEPreservesCRLFFraming"
+      ],
+      "rationale": "Keep structured SSE redaction and both newline framings anchored during upstream merges."
     },
     {
       "path": "backend/internal/observability/qa/security_capture_test.go",

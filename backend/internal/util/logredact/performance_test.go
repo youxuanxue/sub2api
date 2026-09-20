@@ -203,6 +203,7 @@ func BenchmarkRedactSSEChunk(b *testing.B) {
 					return redactUnstructuredText(s, defaultTextRedactPatterns)
 				}},
 				{"optimized", func(s string) string { return RedactText(s) }},
+				{"sse_structured", func(s string) string { return RedactSSE(s) }},
 			} {
 				b.Run(path.name, func(b *testing.B) {
 					b.SetBytes(int64(len(input)))
