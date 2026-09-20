@@ -292,10 +292,15 @@ func redactSSEEvent(event string, patterns *textRedactPatterns, extraKeys ...str
 		if json.Valid([]byte(payload)) {
 			prefix, suffix := event[:dataStart], event[dataEnd:]
 			if mayNeedJSONRedaction(payload, patterns) {
+				originalPayload := payload
 				payload = RedactJSON([]byte(payload), extraKeys...)
-				// JSON key-name policy handles values. Keep the previous SSE
-				// text coverage for credentials embedded in member names too.
-				payload = redactUnstructuredText(payload, patterns)
+				// RedactJSON already handles every value and every exact/suffix
+				// sensitive key. Keep the legacy coverage for a credential embedded
+				// in an otherwise non-sensitive object key, but avoid rescanning the
+				// whole serialized body for ordinary JSON fields.
+				if mayNeedJSONTextFallback(originalPayload, patterns) {
+					payload = redactUnstructuredText(payload, patterns)
+				}
 			}
 			return prefix + payload + suffix, mayNeedTextRedaction(prefix, patterns) || mayNeedTextRedaction(suffix, patterns)
 		}
@@ -332,6 +337,69 @@ func mayNeedJSONRedaction(input string, patterns *textRedactPatterns) bool {
 		start := strings.LastIndexByte(input[:end], '"')
 		if start >= 0 && isSensitiveKey(input[start+1:end], patterns.keys) {
 			return true
+		}
+	}
+	return false
+}
+
+func mayNeedJSONTextFallback(input string, patterns *textRedactPatterns) bool {
+	if mayNeedJSONKeyTextRedaction(input, patterns) {
+		return true
+	}
+	// An escaped quote can represent an embedded assignment inside a JSON
+	// string. Preserve the legacy behavior for that unusual shape; ordinary
+	// JSON strings never pay for the serialized-body scan.
+	return strings.Contains(input, `\"`) &&
+		(patterns.mayContainAssignment(input) || mayContainKnownToken(input))
+}
+
+// mayNeedJSONKeyTextRedaction finds the narrow compatibility cases that the
+// structured walker cannot see: a known assignment or token embedded in an
+// otherwise non-sensitive object key (for example, "password=hidden"). It
+// scans JSON string tokens without decoding the tree a second time, and skips
+// exact/suffix sensitive keys whose values were already replaced structurally.
+func mayNeedJSONKeyTextRedaction(input string, patterns *textRedactPatterns) bool {
+	for i := 0; i < len(input); {
+		if input[i] != '"' {
+			i++
+			continue
+		}
+		start := i
+		i++
+		escaped := false
+	scanString:
+		for i < len(input) {
+			switch {
+			case escaped:
+				escaped = false
+				i++
+			case input[i] == '\\':
+				escaped = true
+				i++
+			case input[i] == '"':
+				quoteEnd := i
+				i++
+				for i < len(input) && isAssignmentSpace(input[i]) {
+					i++
+				}
+				if i >= len(input) || input[i] != ':' {
+					break scanString
+				}
+				rawKey := input[start+1 : quoteEnd]
+				if !strings.Contains(rawKey, `\`) {
+					if !isSensitiveKey(rawKey, patterns.keys) && mayNeedTextRedaction(rawKey, patterns) {
+						return true
+					}
+					break scanString
+				}
+				key, err := strconv.Unquote(input[start : quoteEnd+1])
+				if err == nil && !isSensitiveKey(key, patterns.keys) && mayNeedTextRedaction(key, patterns) {
+					return true
+				}
+				break scanString
+			default:
+				i++
+			}
 		}
 	}
 	return false

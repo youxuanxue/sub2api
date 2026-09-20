@@ -25,6 +25,14 @@ func TestRedactSSEStructuredDataRedactsSensitiveSuffixKeys(t *testing.T) {
 	}
 }
 
+func TestRedactSSEStructuredDataRedactsEmbeddedAssignmentKey(t *testing.T) {
+	input := "data: {\"password=hidden\":\"ordinary\",\"content\":\"hello\"}\n\n"
+	got := RedactSSE(input)
+	if strings.Contains(got, "password=hidden") {
+		t.Fatalf("embedded assignment key leaked: %q", got)
+	}
+}
+
 func TestRedactSSEPreservesCRLFFraming(t *testing.T) {
 	input := "event: message\r\ndata: {\"token\":\"secret\"}\r\n\r\n"
 	want := "event: message\r\ndata: {\"token\":\"***\"}\r\n\r\n"
