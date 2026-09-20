@@ -13553,6 +13553,15 @@
       "rationale": "Edge clear-rate-limit must clear ObservedUsageWindowExtraKeys in lockstep with admin, otherwise edge/prod recover semantics diverge."
     },
     {
+      "path": "backend/internal/repository/usage_log_repo_stats.go",
+      "must_contain": [
+        "daysCount := accountUsageCalendarDays(startTime, endTime)",
+        "EndDate:           accountUsageEndDate(startTime, endTime),",
+        "func accountUsageCalendarDays(startTime, endTime time.Time) int"
+      ],
+      "rationale": "Account usage statistics must keep the selected calendar window and end date stable across daylight-saving transitions."
+    },
+    {
       "path": "backend/internal/observability/qa/sse_redaction_test.go",
       "must_contain": [
         "TestBuildBlobRedactsSSEBodyAndChunks"

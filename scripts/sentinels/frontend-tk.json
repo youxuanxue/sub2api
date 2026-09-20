@@ -2593,6 +2593,30 @@
         "Number.isInteger"
       ],
       "rationale": "Account duplication uses one count/retry dialog across platforms."
+    },
+    {
+      "path": "frontend/src/components/account/AccountStatsModal.vue",
+      "must_contain": [
+        "breakdown-cost-field=\"account_cost\"",
+        ":filters=\"{ account_id: account?.id }\""
+      ],
+      "rationale": "Account statistics breakdowns stay scoped to the selected account and use the account-cost billing surface."
+    },
+    {
+      "path": "frontend/src/components/admin/account/AccountStatsModal.vue",
+      "must_contain": [
+        "breakdown-cost-field=\"account_cost\"",
+        ":filters=\"{ account_id: account?.id }\""
+      ],
+      "rationale": "Admin account statistics breakdowns stay scoped to the selected account and use the account-cost billing surface."
+    },
+    {
+      "path": "frontend/src/components/charts/UserBreakdownSubTable.vue",
+      "must_contain": [
+        "formatCost(user[breakdownCostField])",
+        "breakdownCostField?: 'actual_cost' | 'account_cost'"
+      ],
+      "rationale": "Expanded usage rows render the billing field selected by the owning chart instead of silently changing cost semantics."
     }
   ]
 }

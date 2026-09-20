@@ -1037,7 +1037,8 @@ func (r *usageLogRepository) GetUpstreamEndpointStatsWithFilters(ctx context.Con
 
 // GetAccountUsageStats returns comprehensive usage statistics for an account over a time range
 func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (resp *AccountUsageStatsResponse, err error) {
-	daysCount := int(endTime.Sub(startTime).Hours()/24) + 1
+	// endTime is the exclusive upper bound of the [startTime, endTime) range.
+	daysCount := accountUsageCalendarDays(startTime, endTime)
 	if daysCount <= 0 {
 		daysCount = 30
 	}
@@ -1209,6 +1210,8 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 	}
 
 	resp = &AccountUsageStatsResponse{
+		StartDate:         startTime.Format("2006-01-02"),
+		EndDate:           accountUsageEndDate(startTime, endTime),
 		History:           history,
 		Summary:           summary,
 		Models:            models,
@@ -1216,4 +1219,20 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		UpstreamEndpoints: upstreamEndpoints,
 	}
 	return resp, nil
+}
+
+// accountUsageCalendarDays counts calendar dates in the half-open usage range.
+// Using date-only UTC values avoids daylight-saving transitions changing the
+// result when the range is represented by local midnight timestamps.
+func accountUsageCalendarDays(startTime, endTime time.Time) int {
+	loc := startTime.Location()
+	start := startTime.In(loc)
+	end := endTime.In(loc)
+	startDate := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, time.UTC)
+	return int(endDate.Sub(startDate) / (24 * time.Hour))
+}
+
+func accountUsageEndDate(startTime, endTime time.Time) string {
+	return endTime.In(startTime.Location()).AddDate(0, 0, -1).Format("2006-01-02")
 }

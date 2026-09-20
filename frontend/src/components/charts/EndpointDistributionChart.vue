@@ -118,6 +118,7 @@
                   <UserBreakdownSubTable
                     :items="breakdownItems"
                     :loading="breakdownLoading"
+                    :breakdown-cost-field="breakdownCostField"
                   />
                 </td>
               </tr>
@@ -167,6 +168,7 @@ const props = withDefaults(
     startTs?: number
     endTs?: number
     filters?: Record<string, any>
+    breakdownCostField?: 'actual_cost' | 'account_cost'
   }>(),
   {
     upstreamEndpointStats: () => [],
@@ -179,10 +181,12 @@ const props = withDefaults(
     showSourceToggle: false,
     enableBreakdown: true,
     showStandardCost: true,
+    breakdownCostField: 'actual_cost',
   }
 )
 
 const showStandardCost = computed(() => props.showStandardCost)
+const breakdownCostField = computed(() => props.breakdownCostField)
 const costColumnLabel = computed(() =>
   showStandardCost.value ? t('admin.dashboard.actual') : t('usage.cost')
 )

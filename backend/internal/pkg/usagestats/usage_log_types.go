@@ -411,6 +411,8 @@ type AccountUsageSummary struct {
 
 // AccountUsageStatsResponse represents the full usage statistics response for an account
 type AccountUsageStatsResponse struct {
+	StartDate         string                `json:"start_date"`
+	EndDate           string                `json:"end_date"`
 	History           []AccountUsageHistory `json:"history"`
 	Summary           AccountUsageSummary   `json:"summary"`
 	Models            []ModelStat           `json:"models"`

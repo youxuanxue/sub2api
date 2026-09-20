@@ -3,6 +3,14 @@ import { mount } from '@vue/test-utils'
 
 import ModelDistributionChart from '../ModelDistributionChart.vue'
 
+const { getUserBreakdown } = vi.hoisted(() => ({
+  getUserBreakdown: vi.fn(),
+}))
+
+vi.mock('@/api/admin/dashboard', () => ({
+  getUserBreakdown,
+}))
+
 const messages: Record<string, string> = {
   'admin.dashboard.modelDistribution': 'Model Distribution',
   'admin.dashboard.spendingRankingTitle': 'User Spending Ranking',
@@ -171,6 +179,49 @@ describe('ModelDistributionChart', () => {
     expect(wrapper.text()).toContain('Cost')
     expect(wrapper.findAll('thead th')).toHaveLength(4)
     expect(wrapper.findAll('tbody tr')[0].findAll('td')).toHaveLength(4)
+  })
+
+  it('passes the parent account and date window to model breakdowns', async () => {
+    getUserBreakdown.mockResolvedValueOnce({
+      users: [{
+        user_id: 16,
+        email: 'compute@example.com',
+        requests: 25,
+        input_tokens: 10,
+        output_tokens: 5,
+        cache_tokens: 0,
+        total_tokens: 15,
+        cost: 8,
+        actual_cost: 2,
+        account_cost: 8,
+      }],
+    })
+
+    const wrapper = mount(ModelDistributionChart, {
+      props: {
+        modelStats,
+        startDate: '2026-08-22',
+        endDate: '2026-09-20',
+        filters: { account_id: 150 },
+        breakdownCostField: 'account_cost',
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true,
+        },
+      },
+    })
+
+    await wrapper.findAll('tbody tr')[0].trigger('click')
+
+    expect(getUserBreakdown).toHaveBeenCalledWith(expect.objectContaining({
+      account_id: 150,
+      start_date: '2026-08-22',
+      end_date: '2026-09-20',
+      model: 'model-a',
+    }))
+    expect(wrapper.text()).toContain('$8.00')
+    expect(wrapper.text()).not.toContain('$2.00')
   })
 
   it('uses the dashboard user label policy and renders Others with a dedicated chart color', async () => {
