@@ -1,0 +1,256 @@
+{
+  "capture": {
+    "account_authenticated": false,
+    "cloudcode_model_request_observed": false,
+    "connections": 2,
+    "method": "local CONNECT proxy; returned 200 then recorded bytes and did not forward upstream",
+    "observed_sni": [
+      "antigravity-unleash.goog"
+    ],
+    "raw_fixture": "local-only capture; raw bytes intentionally not committed"
+  },
+  "capture_status": "real-clienthello-captured",
+  "captured_at": "2026-09-20",
+  "client": {
+    "app_version": "2.14.0",
+    "electron_version": "41.10.3",
+    "language_server_arch": "arm64",
+    "language_server_stamp": {
+      "baseline": "978854442",
+      "built_on": "2026-09-16",
+      "cl": "981899915"
+    }
+  },
+  "grease": {
+    "cipher_suites": [],
+    "extensions": [],
+    "supported_groups": []
+  },
+  "interpretation": {
+    "profile_replay_ready": false,
+    "reason": "This is an official LS control-plane/unleash capture without an authenticated cloudcode image request; it validates the Go TLS family but does not prove the image path uses the same client.",
+    "same_as_tokenkey_cli_canonical_ja3": true
+  },
+  "note": "Randoms and key-share payloads are intentionally omitted; this report is for comparison, not replay.",
+  "sample_count": 2,
+  "samples": [
+    {
+      "alpn_protocols": [
+        "h2",
+        "http/1.1"
+      ],
+      "cipher_suites": [
+        49195,
+        49199,
+        49196,
+        49200,
+        52393,
+        52392,
+        49161,
+        49171,
+        49162,
+        49172,
+        4865,
+        4866,
+        4867
+      ],
+      "extension_names": [
+        "server_name",
+        "ec_point_formats",
+        "unknown_65281",
+        "unknown_23",
+        "unknown_18",
+        "unknown_5",
+        "supported_groups",
+        "signature_algorithms",
+        "unknown_50",
+        "alpn",
+        "supported_versions",
+        "key_share"
+      ],
+      "extension_payload_lengths": {
+        "0": 29,
+        "10": 16,
+        "11": 2,
+        "13": 28,
+        "16": 14,
+        "18": 0,
+        "23": 0,
+        "43": 5,
+        "5": 5,
+        "50": 32,
+        "51": 1258,
+        "65281": 1
+      },
+      "extensions": [
+        0,
+        11,
+        65281,
+        23,
+        18,
+        5,
+        10,
+        13,
+        50,
+        16,
+        43,
+        51
+      ],
+      "ja3_hash": "03117a8ed39ef02427ebbc39f121275c",
+      "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+      "key_share_groups": [
+        4588,
+        29
+      ],
+      "legacy_version": 771,
+      "point_formats": [
+        0
+      ],
+      "record_version": 769,
+      "server_name": "antigravity-unleash.goog",
+      "signature_algorithms": [
+        2308,
+        2309,
+        2310,
+        2052,
+        1027,
+        2055,
+        2053,
+        2054,
+        1025,
+        1281,
+        1537,
+        1283,
+        1539
+      ],
+      "supported_groups": [
+        4588,
+        4587,
+        4589,
+        29,
+        23,
+        24,
+        25
+      ],
+      "supported_versions": [
+        772,
+        771
+      ]
+    },
+    {
+      "alpn_protocols": [
+        "h2",
+        "http/1.1"
+      ],
+      "cipher_suites": [
+        49195,
+        49199,
+        49196,
+        49200,
+        52393,
+        52392,
+        49161,
+        49171,
+        49162,
+        49172,
+        4865,
+        4866,
+        4867
+      ],
+      "extension_names": [
+        "server_name",
+        "ec_point_formats",
+        "unknown_65281",
+        "unknown_23",
+        "unknown_18",
+        "unknown_5",
+        "supported_groups",
+        "signature_algorithms",
+        "unknown_50",
+        "alpn",
+        "supported_versions",
+        "key_share"
+      ],
+      "extension_payload_lengths": {
+        "0": 29,
+        "10": 16,
+        "11": 2,
+        "13": 28,
+        "16": 14,
+        "18": 0,
+        "23": 0,
+        "43": 5,
+        "5": 5,
+        "50": 32,
+        "51": 1258,
+        "65281": 1
+      },
+      "extensions": [
+        0,
+        11,
+        65281,
+        23,
+        18,
+        5,
+        10,
+        13,
+        50,
+        16,
+        43,
+        51
+      ],
+      "ja3_hash": "03117a8ed39ef02427ebbc39f121275c",
+      "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+      "key_share_groups": [
+        4588,
+        29
+      ],
+      "legacy_version": 771,
+      "point_formats": [
+        0
+      ],
+      "record_version": 769,
+      "server_name": "antigravity-unleash.goog",
+      "signature_algorithms": [
+        2308,
+        2309,
+        2310,
+        2052,
+        1027,
+        2055,
+        2053,
+        2054,
+        1025,
+        1281,
+        1537,
+        1283,
+        1539
+      ],
+      "supported_groups": [
+        4588,
+        4587,
+        4589,
+        29,
+        23,
+        24,
+        25
+      ],
+      "supported_versions": [
+        772,
+        771
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "source": "official-antigravity-language-server-local-connect",
+  "stability": {
+    "alpn_stable": true,
+    "cipher_suite_order_stable": true,
+    "extension_order_stable": true,
+    "extension_set_stable": true,
+    "extension_set_without_grease_stable": true,
+    "ja3_stable": true,
+    "key_share_groups_stable": true,
+    "supported_versions_stable": true
+  }
+}

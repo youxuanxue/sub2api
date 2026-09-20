@@ -3,6 +3,7 @@
 package antigravity
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -711,6 +712,30 @@ func TestConstants_值正确(t *testing.T) {
 	}
 	if URLAvailabilityTTL != 5*time.Minute {
 		t.Errorf("URLAvailabilityTTL 不匹配: got %v", URLAvailabilityTTL)
+	}
+}
+
+func TestManagerClientProfileRendersConsistentIdentity(t *testing.T) {
+	ctx := WithManagerIdentity(
+		WithClientProfile(context.Background(), ClientProfileManager),
+		ManagerIdentity{MachineID: "machine-test", SessionID: "session-test"},
+	)
+	if got := GetUserAgentForContext(ctx); got != "Antigravity/4.3.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/132.0.6834.160 Electron/39.2.3" {
+		t.Fatalf("manager UA mismatch: %q", got)
+	}
+	req, err := NewAPIRequestWithURL(ctx, "https://example.com", "streamGenerateContent", "token", []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"x-client-name":      "antigravity",
+		"x-client-version":   "4.3.0",
+		"x-machine-id":       "machine-test",
+		"x-vscode-sessionid": "session-test",
+	} {
+		if got := req.Header.Get(key); got != want {
+			t.Fatalf("%s mismatch: got %q want %q", key, got, want)
+		}
 	}
 }
 

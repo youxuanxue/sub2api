@@ -1464,6 +1464,9 @@ func profileSupportsHTTP2(profile *tlsfingerprint.Profile) bool {
 	if profile == nil {
 		return false
 	}
+	if tlsfingerprint.IsAntigravityManagerChromePreset(profile) && len(profile.ALPNProtocols) == 0 {
+		return true
+	}
 	for _, protocol := range profile.ALPNProtocols {
 		if strings.EqualFold(protocol, "h2") {
 			return true

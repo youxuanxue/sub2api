@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/model"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
@@ -195,6 +196,17 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 		return nil
 	}
 	id := account.GetTLSFingerprintProfileID()
+	// Manager identity and transport must move as one unit. If an older account
+	// carries an explicit CLI/custom profile while opting into Manager headers,
+	// ignore that incompatible binding and resolve the Manager canonical profile.
+	if account.isAntigravityOAuth() && account.AntigravityClientProfile() == antigravity.ClientProfileManager {
+		if id > 0 {
+			if p := s.GetProfileByID(id); p != nil && p.Name == CanonicalAntigravityManagerTLSProfileName {
+				return p
+			}
+		}
+		return s.GetProfileByName(CanonicalAntigravityManagerTLSProfileName)
+	}
 	if id > 0 {
 		if p := s.GetProfileByID(id); p != nil {
 			return p
@@ -212,8 +224,12 @@ func (s *TLSFingerprintProfileService) ResolveTLSProfile(account *Account) *tlsf
 	if account.IsKiro() {
 		return s.GetProfileByName(CanonicalKiroTLSProfileName)
 	}
-	// Antigravity OAuth：按名解析 CLI 模板；未播种时 nil → 普通 TLS，禁止落到 Node.js 默认指纹。
+	// Antigravity OAuth：按账号 profile 解析 CLI 或 Manager 模板；未播种时
+	// nil → 普通 TLS，禁止落到 Node.js 默认指纹。
 	if account.isAntigravityOAuth() {
+		if account.AntigravityClientProfile() == antigravity.ClientProfileManager {
+			return s.GetProfileByName(CanonicalAntigravityManagerTLSProfileName)
+		}
 		return s.GetProfileByName(CanonicalAntigravityCLITLSProfileName)
 	}
 	// TLS 启用但无绑定 profile → 空 Profile → dialer 使用内置默认值

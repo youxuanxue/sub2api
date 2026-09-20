@@ -49,6 +49,22 @@ func NewAPIRequestWithURL(ctx context.Context, baseURL, action, accessToken stri
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
 
+	// Antigravity-Manager sends these client identity headers together with its
+	// Chrome-style transport. Keep them behind the same explicit profile switch
+	// as the UA so a CLI UA cannot be paired with Manager-only headers.
+	if ClientProfileForContext(ctx) == ClientProfileManager {
+		req.Header.Set("x-client-name", "antigravity")
+		req.Header.Set("x-client-version", GetManagerUserAgentVersionForContext(ctx))
+		if identity, ok := ManagerIdentityForContext(ctx); ok {
+			if identity.MachineID != "" {
+				req.Header.Set("x-machine-id", identity.MachineID)
+			}
+			if identity.SessionID != "" {
+				req.Header.Set("x-vscode-sessionid", identity.SessionID)
+			}
+		}
+	}
+
 	return req, nil
 }
 

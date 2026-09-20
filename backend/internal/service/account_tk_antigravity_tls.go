@@ -1,11 +1,20 @@
 package service
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+)
 
 // CanonicalAntigravityCLITLSProfileName is the seeded TLS template that matches
-// Antigravity CLI JA3/HTTP2 (paired with the CLI User-Agent). Do not fall back
-// to Chrome123 / Node.js defaults for Antigravity OAuth egress.
+// the captured Antigravity CLI ClientHello (paired with the CLI User-Agent).
 const CanonicalAntigravityCLITLSProfileName = "tk_canonical_antigravity_cli"
+
+// CanonicalAntigravityManagerTLSProfileName is an opt-in experimental profile
+// paired with Antigravity-Manager headers and its Chrome-compatible transport.
+const CanonicalAntigravityManagerTLSProfileName = "tk_canonical_antigravity_manager_chrome123"
+
+const antigravityClientProfileExtraKey = "antigravity_client_profile"
 
 func (a *Account) isAntigravityOAuth() bool {
 	if a == nil {
@@ -13,6 +22,19 @@ func (a *Account) isAntigravityOAuth() bool {
 	}
 	return strings.EqualFold(strings.TrimSpace(a.Platform), PlatformAntigravity) &&
 		strings.EqualFold(strings.TrimSpace(a.Type), AccountTypeOAuth)
+}
+
+// AntigravityClientProfile returns the account-scoped wire identity family.
+// Existing accounts remain on the captured CLI route until an operator sets
+// extra.antigravity_client_profile=manager for a controlled experiment.
+func (a *Account) AntigravityClientProfile() string {
+	if a == nil || !a.isAntigravityOAuth() || a.Extra == nil {
+		return antigravity.ClientProfileCLI
+	}
+	if v, ok := a.Extra[antigravityClientProfileExtraKey].(string); ok && strings.EqualFold(strings.TrimSpace(v), antigravity.ClientProfileManager) {
+		return antigravity.ClientProfileManager
+	}
+	return antigravity.ClientProfileCLI
 }
 
 // isAntigravityTLSFingerprintEnabled mirrors Kiro: default ON for Antigravity

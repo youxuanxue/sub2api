@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/net/proxy"
@@ -32,6 +33,14 @@ type Profile struct {
 	KeyShareGroups      []uint16 // Empty uses [X25519]
 	PSKModes            []uint16 // Empty uses [psk_dhe_ke]
 	Extensions          []uint16 // Extension type IDs in order; empty uses default Node.js 24.x order
+}
+
+// IsAntigravityManagerChromePreset identifies the explicit Manager experiment
+// profile. The database schema remains backward-compatible: the canonical
+// profile name selects the uTLS Chrome preset until a real Manager ClientHello
+// is captured and its arrays are imported.
+func IsAntigravityManagerChromePreset(profile *Profile) bool {
+	return profile != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(profile.Name)), "tk_canonical_antigravity_manager_chrome")
 }
 
 // Dialer creates TLS connections with custom fingerprints.
@@ -374,6 +383,15 @@ func isGREASEValue(v uint16) bool {
 // buildClientHelloSpecFromProfile constructs ClientHelloSpec from a Profile.
 // This is a standalone function that can be used by both Dialer and HTTPProxyDialer.
 func buildClientHelloSpecFromProfile(profile *Profile) *utls.ClientHelloSpec {
+	if IsAntigravityManagerChromePreset(profile) && len(profile.CipherSuites) == 0 && len(profile.Extensions) == 0 {
+		// rquest's Manager route is Chrome123. The vendored uTLS release has no
+		// Chrome123 constant; Chrome120 is the nearest stable Chrome preset and is
+		// deliberately marked experimental until a real Manager ClientHello is
+		// captured and imported.
+		if spec, err := utls.UTLSIdToSpec(utls.HelloChrome_120); err == nil {
+			return &spec
+		}
+	}
 	// Resolve effective values (profile overrides or built-in defaults)
 	cipherSuites := defaultCipherSuites
 	if profile != nil && len(profile.CipherSuites) > 0 {

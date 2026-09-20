@@ -58,6 +58,18 @@ const (
 	// Antigravity API 端点
 	antigravityProdBaseURL  = "https://cloudcode-pa.googleapis.com"
 	antigravityDailyBaseURL = "https://daily-cloudcode-pa.googleapis.com"
+
+	// ClientProfileCLI keeps the agy CLI identity currently used by production.
+	// ClientProfileManager is an explicit experiment mode that mirrors the
+	// Antigravity-Manager HTTP identity. It is opt-in per account so a profile
+	// experiment cannot silently change every OAuth account at once.
+	ClientProfileCLI     = "cli"
+	ClientProfileManager = "manager"
+
+	// DefaultManagerUserAgentVersion follows Antigravity-Manager's current
+	// stable floor at the investigated revision. It is independent from agy's
+	// CLI version so the two identities cannot be mixed accidentally.
+	DefaultManagerUserAgentVersion = "4.3.0"
 )
 
 // DailyBaseURL / ProdBaseURL 是网关与隐私请求共用的端点 owner。
@@ -78,11 +90,58 @@ var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 // UserAgentVersionResolver 提供运行时 User-Agent 版本号覆盖能力。
 type UserAgentVersionResolver func(ctx context.Context) string
 
+type clientProfileContextKey struct{}
+type managerIdentityContextKey struct{}
+
+type ManagerIdentity struct {
+	MachineID string
+	SessionID string
+}
+
+// WithClientProfile selects the wire identity family for an upstream request.
+// Unknown values intentionally fall back to the CLI profile.
+func WithClientProfile(ctx context.Context, profile string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.EqualFold(strings.TrimSpace(profile), ClientProfileManager) {
+		return context.WithValue(ctx, clientProfileContextKey{}, ClientProfileManager)
+	}
+	return context.WithValue(ctx, clientProfileContextKey{}, ClientProfileCLI)
+}
+
+func ClientProfileForContext(ctx context.Context) string {
+	if ctx != nil {
+		if profile, ok := ctx.Value(clientProfileContextKey{}).(string); ok && profile == ClientProfileManager {
+			return ClientProfileManager
+		}
+	}
+	return ClientProfileCLI
+}
+
+// WithManagerIdentity carries stable per-account identity headers without
+// placing account identifiers or tokens in the request body.
+func WithManagerIdentity(ctx context.Context, identity ManagerIdentity) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, managerIdentityContextKey{}, identity)
+}
+
+func ManagerIdentityForContext(ctx context.Context) (ManagerIdentity, bool) {
+	if ctx == nil {
+		return ManagerIdentity{}, false
+	}
+	identity, ok := ctx.Value(managerIdentityContextKey{}).(ManagerIdentity)
+	return identity, ok && (identity.MachineID != "" || identity.SessionID != "")
+}
+
 var (
 	// defaultUserAgentVersion 可通过环境变量 ANTIGRAVITY_USER_AGENT_VERSION 配置。
 	defaultUserAgentVersion  = DefaultUserAgentVersion
 	userAgentVersionMu       sync.RWMutex
 	userAgentVersionResolver UserAgentVersionResolver
+	managerUserAgentVersion  = DefaultManagerUserAgentVersion
 )
 
 // defaultClientSecret 可通过环境变量 ANTIGRAVITY_OAUTH_CLIENT_SECRET 配置
@@ -92,6 +151,9 @@ func init() {
 	// 从环境变量读取版本号，未设置则使用默认值
 	if version := NormalizeUserAgentVersion(os.Getenv(AntigravityUserAgentVersionEnv)); version != "" {
 		defaultUserAgentVersion = version
+	}
+	if version := NormalizeUserAgentVersion(os.Getenv("ANTIGRAVITY_MANAGER_VERSION")); version != "" {
+		managerUserAgentVersion = version
 	}
 	// 从环境变量读取 client_secret，未设置则使用默认值
 	if secret := os.Getenv(AntigravityOAuthClientSecretEnv); secret != "" {
@@ -146,8 +208,34 @@ func BuildUserAgent(version string) string {
 	return fmt.Sprintf("antigravity/cli/%s darwin/arm64", defaultUserAgentVersion)
 }
 
+// BuildManagerUserAgent mirrors Antigravity-Manager's current Rust client
+// shape. The Chrome/Electron values are the Manager implementation's declared
+// defaults; they are kept in one function so capture/update tooling can diff
+// the complete string rather than mixing fragments from different clients.
+func BuildManagerUserAgent(version string) string {
+	if normalized := NormalizeUserAgentVersion(version); normalized != "" {
+		return fmt.Sprintf("Antigravity/%s (Macintosh; Intel Mac OS X 10_15_7) Chrome/132.0.6834.160 Electron/39.2.3", normalized)
+	}
+	return fmt.Sprintf("Antigravity/%s (Macintosh; Intel Mac OS X 10_15_7) Chrome/132.0.6834.160 Electron/39.2.3", managerUserAgentVersion)
+}
+
+func GetManagerUserAgentVersionForContext(ctx context.Context) string {
+	userAgentVersionMu.RLock()
+	resolver := userAgentVersionResolver
+	userAgentVersionMu.RUnlock()
+	if resolver != nil {
+		if version := NormalizeUserAgentVersion(resolver(ctx)); version != "" {
+			return version
+		}
+	}
+	return managerUserAgentVersion
+}
+
 // GetUserAgentForContext 返回当前请求应使用的 User-Agent。
 func GetUserAgentForContext(ctx context.Context) string {
+	if ClientProfileForContext(ctx) == ClientProfileManager {
+		return BuildManagerUserAgent(GetManagerUserAgentVersionForContext(ctx))
+	}
 	return BuildUserAgent(GetUserAgentVersionForContext(ctx))
 }
 

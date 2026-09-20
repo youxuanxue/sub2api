@@ -1540,6 +1540,14 @@
       "rationale": "ForwardGemini must call the shared prepareForwardGeminiWire owner; duplicating normalize+wrap here drifts from messages/chat/responses."
     },
     {
+      "path": "backend/internal/service/antigravity_credits_overages.go",
+      "must_contain": [
+        "requestCtx := antigravityRequestContext(p.ctx, p.account, p.sessionHash)",
+        "antigravity.NewAPIRequestWithURL(requestCtx, baseURL, p.action, p.accessToken, creditsBody)"
+      ],
+      "rationale": "Credits-overages retry must carry the same account/session Antigravity request context as the primary gateway path; an upstream merge that restores the bare context silently drops the aligned identity and TLS/profile routing on this retry."
+    },
+    {
       "path": "backend/internal/service/antigravity_gateway_claude.go",
       "must_contain": [
         "geminiBody, err := s.buildMessagesForwardUpstreamBody(ctx, body, &claudeReq, projectID, mappedModel, transformOpts)",

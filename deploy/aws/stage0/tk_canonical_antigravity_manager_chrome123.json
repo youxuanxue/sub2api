@@ -1,0 +1,22 @@
+{
+  "name": "tk_canonical_antigravity_manager_chrome123",
+  "description": "Experimental Manager-compatible Antigravity profile. Uses the runtime uTLS Chrome120 compatibility preset until a real rquest Chrome123 ClientHello capture is imported.",
+  "enable_grease": false,
+  "shuffle_extensions": false,
+  "cipher_suites": [],
+  "curves": [],
+  "point_formats": [],
+  "signature_algorithms": [],
+  "alpn_protocols": ["h2", "http/1.1"],
+  "supported_versions": [],
+  "key_share_groups": [],
+  "psk_modes": [],
+  "extensions": [],
+  "observed": {
+    "source": "manager-rquest-emulation",
+    "manager_emulation": "Chrome123",
+    "runtime_compatibility_preset": "uTLS-HelloChrome_120",
+    "capture_status": "pending-real-manager-clienthello",
+    "ja3_status": "not-captured"
+  }
+}

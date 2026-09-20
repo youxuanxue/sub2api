@@ -198,7 +198,8 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 				fallbackWrapped, err := s.wrapV1InternalRequest(projectID, fallbackModel, injectedBody)
 				if err == nil {
-					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
+					fallbackCtx := antigravityRequestContext(ctx, account, getSessionID(c))
+					fallbackReq, err := antigravity.NewAPIRequest(fallbackCtx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
 						fallbackHWKA := s.beginHeaderWaitKeepalive(c, stream, geminiNativeSSEKeepaliveFrame)
 						fallbackResp, err := s.httpUpstream.DoWithTLS(fallbackReq, proxyURL, account.ID, account.Concurrency, s.resolveTLSProfile(account))

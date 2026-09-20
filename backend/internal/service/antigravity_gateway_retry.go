@@ -237,7 +237,8 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			}
 
 			// 智能重试：创建新请求
-			retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
+			retryCtx := antigravityRequestContext(p.ctx, p.account, p.sessionHash)
+			retryReq, err := antigravity.NewAPIRequestWithURL(retryCtx, baseURL, p.action, p.accessToken, p.body)
 			if err != nil {
 				logger.LegacyPrintf("service.antigravity_gateway", "%s status=smart_retry_request_build_failed error=%v", p.prefix, err)
 				p.handleError(p.ctx, p.prefix, p.account, resp.StatusCode, resp.Header, respBody, p.requestedModel, p.groupID, p.sessionHash, p.isStickySession)
@@ -426,7 +427,8 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 		totalWaited += waitDuration
 
 		// 创建新请求
-		retryReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
+		retryCtx := antigravityRequestContext(p.ctx, p.account, p.sessionHash)
+		retryReq, err := antigravity.NewAPIRequestWithURL(retryCtx, baseURL, p.action, p.accessToken, p.body)
 		if err != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s single_account_503_retry: request_build_failed error=%v", p.prefix, err)
 			break
@@ -574,7 +576,8 @@ urlFallbackLoop:
 			default:
 			}
 
-			upstreamReq, err := antigravity.NewAPIRequestWithURL(p.ctx, baseURL, p.action, p.accessToken, p.body)
+			requestCtx := antigravityRequestContext(p.ctx, p.account, p.sessionHash)
+			upstreamReq, err := antigravity.NewAPIRequestWithURL(requestCtx, baseURL, p.action, p.accessToken, p.body)
 			if err != nil {
 				return nil, err
 			}

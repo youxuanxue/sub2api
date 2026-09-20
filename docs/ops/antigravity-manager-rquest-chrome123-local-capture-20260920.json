@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "capture_status": "partial-clienthello-captured",
+  "source": "local-rquest-openssl-tlsextdebug",
+  "captured_at": "2026-09-20",
+  "transport": {
+    "manager_source_commit": "477e11e7eb20a9b8d3234babf2457ccd100c04ed",
+    "rquest": "5.1.0",
+    "rquest_util": "2.2.1",
+    "emulation": "Chrome123",
+    "ua": "Antigravity/4.3.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/132.0.6834.160 Electron/39.2.3",
+    "x_client_name": "antigravity",
+    "x_client_version": "4.3.0"
+  },
+  "clienthello": {
+    "legacy_version": 771,
+    "cipher_suites_without_grease": [
+      4865, 4866, 4867, 49195, 49199, 49196, 49200,
+      52393, 52392, 49171, 49172, 156, 157, 47, 53
+    ],
+    "supported_groups_without_grease": [29, 23, 24],
+    "key_share_groups_without_grease": [29],
+    "supported_versions": [772, 771],
+    "signature_algorithms": [1027, 2052, 1025, 1283, 2053, 1281, 2054, 1537],
+    "alpn_protocols": ["h2", "http/1.1"],
+    "extension_set_without_grease": [0, 5, 10, 11, 13, 16, 18, 23, 27, 35, 43, 45, 51, 17513, 65037, 65281],
+    "sample_count": 5,
+    "extension_order_stable": false,
+    "extension_set_without_grease_stable": true,
+    "grease_extension_values_seen": [6682, 10794, 14906, 23130, 27242, 35466, 47802, 60138, 64250],
+    "ja3_hashes_by_sample": [
+      "a5af68ace9a0ecf8878755592af258a2",
+      "c9bd10e5c062c3b8014e348977cef96f",
+      "4c7fd129d8df6d760f38d9358558ba5f",
+      "b8c526c6c70731c7f9a8c55fc82380b0",
+      "8d6883e6abea580b34c338145c12001d"
+    ]
+  },
+  "limitations": [
+    "The local Go TLS server exposes parsed ClientHello fields; macOS BPF capture was unavailable to the unprivileged user.",
+    "OpenSSL extension debug does not retain complete extension payloads or raw packet bytes.",
+    "The local SNI was localhost, so this proves rquest transport behavior but not Google endpoint behavior.",
+    "This artifact is evidence for a Chrome123 transport family and is not yet a production canonical TLS profile."
+  ]
+}
