@@ -14,6 +14,9 @@ import textwrap
 import unittest
 
 _SCRIPT = pathlib.Path(__file__).resolve().parent / "rollout-edges.sh"
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_NORMALIZE = _REPO_ROOT / "ops/stage0/normalize-deploy-tag.sh"
+_VALIDATE = _REPO_ROOT / "ops/stage0/validate-deploy-tag.sh"
 
 
 class RolloutEdgesTest(unittest.TestCase):
@@ -22,9 +25,14 @@ class RolloutEdgesTest(unittest.TestCase):
         self.repo = pathlib.Path(self._tmp.name) / "repo"
         self.repo.mkdir()
         (self.repo / "scripts/stage0").mkdir(parents=True)
+        (self.repo / "ops/stage0").mkdir(parents=True)
         (self.repo / "deploy/aws/stage0").mkdir(parents=True)
         shutil.copy(_SCRIPT, self.repo / "scripts/stage0/rollout-edges.sh")
         (self.repo / "scripts/stage0/rollout-edges.sh").chmod(0o755)
+        shutil.copy(_NORMALIZE, self.repo / "ops/stage0/normalize-deploy-tag.sh")
+        (self.repo / "ops/stage0/normalize-deploy-tag.sh").chmod(0o755)
+        shutil.copy(_VALIDATE, self.repo / "ops/stage0/validate-deploy-tag.sh")
+        (self.repo / "ops/stage0/validate-deploy-tag.sh").chmod(0o755)
         self.fakebin = self.repo / "fakebin"
         self.fakebin.mkdir()
         self.events = self.repo / "events.log"
@@ -142,6 +150,12 @@ class RolloutEdgesTest(unittest.TestCase):
         proc = self._run("--tag", "1.2.3", "--edges", "a", "--parallel", "0")
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("--parallel must be >= 1", proc.stderr)
+
+    def test_accepts_leading_v_tag(self) -> None:
+        self._write_fake_gh()
+        proc = self._run("--tag", "v1.2.3", "--edges", "a")
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr + proc.stdout)
+        self.assertIn("rollout-edges: ALL_OK n=1", proc.stdout)
 
 
 if __name__ == "__main__":

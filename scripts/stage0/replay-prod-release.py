@@ -20,6 +20,19 @@ from ssm_execution import PROD_REGION, resolve_prod_instance  # noqa: E402
 import gateway_capability_matrix as matrix  # noqa: E402
 
 
+def normalize_deploy_tag(tag: str) -> str:
+    """Bare X.Y.Z for image/deploy domain; strips optional leading v via shared owner."""
+    proc = subprocess.run(
+        ['bash', str(ROOT / 'ops/stage0/normalize-deploy-tag.sh'), tag],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise ValueError('invalid release tag')
+    return proc.stdout.strip()
+
+
 def remote(instance, operation, tag, receipt='', timeout=6000, replace_receipt='', offset=0, key_name='TK_FULLTEST_KEY', case_ids=None):
     files = {name: (ROOT / 'ops/stage0' / name).read_text() for name in
              ('prod_replay.py', 'prod_replay_manifest.py', 'prod-replay-capabilities.json',
@@ -130,7 +143,9 @@ def main():
     p.add_argument('--replace-receipt', default='', help='existing prepared fingerprint; replace inactive candidate only')
     p.add_argument('--approved-replay', default='', help='reviewed receipt SHA; validate only, never cut over')
     args = p.parse_args()
-    if not re.fullmatch(r'\d+\.\d+\.\d+', args.tag):
+    try:
+        args.tag = normalize_deploy_tag(args.tag)
+    except ValueError:
         p.error('invalid release tag')
     if args.replace_receipt and (args.approved_replay or not re.fullmatch(r'[a-f0-9]{64}', args.replace_receipt)):
         p.error('replacement requires SHA256 and cannot accompany approval')

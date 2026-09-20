@@ -10,7 +10,7 @@
 |---|---|
 | `operation=check` | 只做预发布风险检查：对比上一个 release tag 到待发布 HEAD 的代码事实，判断上线 prod/Edge 的潜在影响；不 bump、不 tag、不 dispatch deploy。 |
 | `operation=replay` | **仅允许 `target=prod`**：以 `STAGE0_BLUEGREEN_STAGE=prepare` 部署 inactive color，再用测试 universal key 对该候选执行完整用例。请求并发与间隔由 host runner 固定；每条用例均生成结果，停止时保留剩余义务。不得调用 promote、Caddy reload 或 edge rollout；回执交用户审核，不是切流授权。 |
-| `target=prod` | release（必要时 bump/tag/build）→ `deploy-stage0.yml -f tag=…`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。 |
+| `target=prod` | release（必要时 bump/tag/build）→ `bash scripts/stage0/dispatch-prod-deploy.sh --operation deploy --tag …`（绑定 **`prod`** Environment）→ prod smoke → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。 |
 | `target=edge-<edge_id>` | 默认 tag 已存在：用 **`bash scripts/stage0/dispatch-edge-deploy.sh`**（edges 均为 Lightsail，路由到 `deploy-edge-lightsail-stage0.yml`）→ watch → 按 phase 验收 smoke。`operation=smoke` 只 smoke；`operation=rollback` 用 `previous_tag`。不要手选 workflow 或手填 confirm_instance。 |
 | `target=all` | release 一次 → canary **upgrade (full)** → prod deploy（CI smoke）→ **默认跳过** canary `main-via-edge` → 其余 Edge **infra rollout** → followup → **默认** Anthropic OAuth snapshot/check + Account model_mapping check。`main_via_edge=true` 才跑可选段。 |
 | `main_via_edge` | 默认 **false**。`target=all` 时不跑 prod→Edge 中转 smoke；缺 key 或 by-design 503 不得据此 rollback。 |
@@ -20,7 +20,7 @@
 ### 回放与审核
 
 用户说“回放 / 只部署 prod，不切流”时，使用 `operation=replay target=prod`。
-必要时先完成 release/build，再 dispatch `deploy-stage0.yml -f operation=replay -f tag=X.Y.Z`。
+必要时先完成 release/build，再 `bash scripts/stage0/dispatch-prod-deploy.sh --operation replay --tag X.Y.Z`。
 已有同 tag 且指纹一致的 prepared candidate 直接复用。仅 ops 验证器变更时可从通过
 preflight 的版本化工作区运行同一个 `scripts/stage0/replay-prod-release.py`，验证已有镜像。
 

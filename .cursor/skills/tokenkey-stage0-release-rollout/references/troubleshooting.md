@@ -12,6 +12,7 @@
 | `tag already exists on origin` | 升 `VERSION` 再打新 tag，或仅 dispatch deploy 已有 tag。 |
 | deploy 报单架构 manifest | 重新跑 `release.yml` 且 `simple_release=false`；prod / Edge 都不要 override。 |
 | 误 dispatch 了一个多余 prod deploy run | release 不再自动 queue，多出来的一定是手动重复 dispatch；取消多余 run、watch 留下的那个即可。 |
+| Edge/prod workflow `tag must match X.Y.Z, got: v…` | 本地入口已修：`dispatch-prod-deploy.sh` / `dispatch-edge-deploy.sh` / `rollout-edges.sh` 经 `normalize-deploy-tag.sh` 剥 `v`。若仍出现，说明绕过了这些入口（手写 `gh workflow run … -f tag=v…`）；改传裸 `X.Y.Z` 或走脚本重试。 |
 | Edge `confirm_stack` mismatch | 停止；检查 Lightsail `edge-targets-lightsail.json` / `resolve-edge-deploy-route.py`，不要手改 confirm。 |
 | Edge smoke 403 | public runner 访问 `/v1/models` 403 是预期；主网关来源 403 才查 `EDGE_MAIN_GATEWAY_ALLOWED_CIDR` 与 prod EIP。 |
 | main-via-edge smoke HTTP 503 `"no available accounts"` | 先在 prod 上确认对应账号（如 `cc-<edge_id>-oauth`）是否被设为可调度；这是 prod 路由策略，与本次镜像无关。若设计上就不可调度，把这条 smoke 从 hard-fail 降为"infra OK / business-link by design"，**不要 rollback**。若运维想恢复该链路，请按 `/tokenkey-anthropic-oauth-config` 调可调度位再 `dispatch-edge-deploy.sh --operation smoke --smoke-phase main-via-edge` 复验。 |
