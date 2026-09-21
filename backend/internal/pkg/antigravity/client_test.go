@@ -1894,8 +1894,8 @@ func TestPrivacyCalls_无GlNode且UA带cli(t *testing.T) {
 	if v := rt.got.Header.Get("X-Goog-Api-Client"); v != "" {
 		t.Errorf("setUserSettings 不应发 X-Goog-Api-Client(gl-node)，got %q", v)
 	}
-	if ua := rt.got.Header.Get("User-Agent"); ua != GetUserAgent() || !strings.Contains(ua, "antigravity/cli/") {
-		t.Errorf("setUserSettings UA 应为 %q(含 /cli/)，got %q", GetUserAgent(), ua)
+	if ua := rt.got.Header.Get("User-Agent"); ua != GetUserAgentForContext(ctx) || !strings.Contains(ua, "antigravity/cli/") {
+		t.Errorf("setUserSettings UA 应为 %q(含 /cli/)，got %q", GetUserAgentForContext(ctx), ua)
 	}
 
 	if _, err := c.FetchUserInfo(ctx, "tok", "proj"); err != nil {
