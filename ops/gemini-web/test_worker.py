@@ -264,6 +264,18 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(worker.ControlAdapter.warm_account_id({'account_id': '30'}), '30')
         self.assertEqual(worker.ControlAdapter.warm_account_id({'account_id': 0}), '')
 
+    def test_control_maintenance_refreshes_compact_account_list(self):
+        control = SimpleNamespace(warm_accounts=lambda: {'accounts': [28, 29]})
+        adapter = worker.ControlAdapter(control)
+        maintained = []
+        with patch.object(adapter, 'authorize', side_effect=lambda key, account_id:
+                          SimpleNamespace(maintain=lambda: maintained.append(account_id))) as authorize:
+            with patch.object(worker.time, 'sleep', side_effect=InterruptedError):
+                with self.assertRaises(InterruptedError):
+                    adapter.maintain()
+        self.assertEqual(maintained, ['28', '29'])
+        self.assertEqual(authorize.call_count, 2)
+
     def test_keys_select_separate_accounts_and_second_owner_is_refused(self):
         seed(self.root, 'two', 'cookie-two')
         (self.root / 'accounts.json').write_text(json.dumps([
