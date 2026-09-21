@@ -283,6 +283,11 @@ func (s *OpenAIGatewayService) forwardResponsesViaNewAPIBridgeChatCompletions(
 	}
 	chatBody = applyNewAPIResponsesChatFallbackShape(upstreamModel, chatBody)
 	chatBody = applyNewAPIAliFixedSamplingShape(upstreamModel, chatBody)
+	var shapeErr error
+	chatBody, shapeErr = applyMoonshotThinkingShape(c, upstreamModel, chatBody)
+	if shapeErr != nil {
+		return nil, shapeErr
+	}
 	chatBody = ensureNewAPIChatFallbackStreamOptions(chatBody)
 	upstreamStream := chatFallbackUpstreamRequiresStream(chatBody)
 	chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)
