@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -303,16 +304,29 @@ func needForceCacheBilling(hasBoundSession bool, failoverErr *service.UpstreamFa
 	return (hasBoundSession && !sameAccountRetry) || (failoverErr != nil && failoverErr.ForceCacheBilling)
 }
 
-// failoverClientGone 判断下游客户端是否已断开（请求 context 已取消）。
-// 客户端断开后 failover 必须静默终止：用已取消的 context 重新选号只会得到
-// context.Canceled，并被误报成账号耗尽（通用 502）；上游 detach 的在途请求
-// 照常完成计费，但不再为无人接收的响应启动新的上游尝试。
-// 响应尚未提交时把状态码标记为 499（client closed request），供访问日志归类。
+// failoverClientGone 判断下游请求 context 是否已结束（Canceled 或 DeadlineExceeded）。
+// 两者都必须静默终止 failover：用已结束的 context 重新选号只会得到取消/
+// deadline 错误，并被误报成账号耗尽（通用 502）。
+//
+// 状态终结分流：
+//   - context.Canceled → 499 / MarkOpsClientClosedRequest（调用方断开）
+//   - context.DeadlineExceeded → 响应未提交时写 504（平台超时），不得冒充 499
 func failoverClientGone(c *gin.Context) bool {
-	if c == nil || c.Request == nil || c.Request.Context().Err() == nil {
+	if c == nil || c.Request == nil {
 		return false
 	}
-	markClientClosedForwardRequest(c)
+	err := c.Request.Context().Err()
+	if err == nil {
+		return false
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		markClientClosedForwardRequest(c)
+	case errors.Is(err, context.DeadlineExceeded):
+		if c.Writer != nil && !c.Writer.Written() && !service.IsResponseCommitted(c) {
+			c.Status(http.StatusGatewayTimeout)
+		}
+	}
 	return true
 }
 

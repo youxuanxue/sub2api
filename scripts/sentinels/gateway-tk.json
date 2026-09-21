@@ -1868,9 +1868,10 @@
         "candidateChatReplayable",
         "r.continuationAccountID > 0",
         "a.abortBeforeOutput(errCandidateChatFirstOutput)",
+        "a.abortOnClientGone(ctx.Err())",
         "errCandidateChatIncomplete"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
     },
     {
       "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",
@@ -7885,7 +7886,7 @@
       "path": "backend/internal/service/edge_mirror_stub_saturation_tk.go",
       "must_contain": [
         "edgeMirrorStubSaturationWindowSeconds = 600",
-        "edgeMirrorStubSaturationThreshold int64 = 12",
+        "edgeMirrorStubSaturationThreshold int64 = 5",
         "anthropicSaturationPriorityPenalty = 1000",
         "openAISaturationScorePenalty = 50.0"
       ],
@@ -7898,7 +7899,7 @@
         "edgeMirrorStubSaturationWindowSeconds",
         "anthropic_stub_saturated_deprioritized"
       ],
-      "rationale": "Write side of the saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path (no-available / failover-exhausted). The fixed window (90s) self-clears so the preference evaporates ~1.5min after an edge recovers; threshold 3 (see edge_mirror_stub_saturation_tk.go) preserves transient blips. Crucially this NEVER advances the 3/3 ladder / SetTempUnschedulable — it is a preference feed, not a whole-account cooldown."
+      "rationale": "Write side of the saturation de-prioritization: increments the per-stub short-window counter ONLY on the downstream-capacity skip-penalty path (no-available / failover-exhausted). The rolling window self-clears so the preference evaporates after the edge recovers; threshold (see edge_mirror_stub_saturation_tk.go) preserves transient blips. Crucially this NEVER advances the 3/3 ladder / SetTempUnschedulable — it is a preference feed, not a whole-account cooldown."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_handle429_extras.go",

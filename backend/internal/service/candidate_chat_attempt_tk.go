@@ -43,8 +43,12 @@ type candidateChatAttempt struct {
 func newCandidateChatAttempt(ctx context.Context, writer gin.ResponseWriter, stream bool, timeout time.Duration) *candidateChatAttempt {
 	upstream, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	a := &candidateChatAttempt{ResponseWriter: writer, ctx: upstream, cancel: cancel, stream: stream, header: writer.Header().Clone(), status: http.StatusOK}
+	// First-output timeout only aborts before useful output commits (replayable).
 	a.timer = time.AfterFunc(timeout, func() { a.abortBeforeOutput(errCandidateChatFirstOutput) })
-	a.stopClient = context.AfterFunc(ctx, func() { a.abortBeforeOutput(ctx.Err()) })
+	// Client cancel always stops the upstream transport — including mid-stream —
+	// so account concurrency is released promptly instead of draining a dead
+	// request (NewAPI transport cancellation opt-in; candidate-eligibility-ssot).
+	a.stopClient = context.AfterFunc(ctx, func() { a.abortOnClientGone(ctx.Err()) })
 	return a
 }
 
@@ -54,6 +58,15 @@ func (a *candidateChatAttempt) abortBeforeOutput(err error) {
 	if !a.started {
 		a.cancel(err)
 	}
+}
+
+// abortOnClientGone cancels the upstream attempt even after useful output has
+// started. Partial usage already observed is retained by the caller; continuing
+// the upstream after the caller left only holds concurrency.
+func (a *candidateChatAttempt) abortOnClientGone(err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.cancel(err)
 }
 
 func (a *candidateChatAttempt) close() {
@@ -71,7 +84,8 @@ func (a *candidateChatAttempt) release() error {
 	if !a.started {
 		a.started = true
 		a.timer.Stop()
-		a.stopClient()
+		// Keep stopClient armed: after useful output commits, a mid-stream
+		// disconnect must still cancel the upstream transport and free the slot.
 		for key, values := range a.header {
 			a.ResponseWriter.Header()[key] = values
 		}
@@ -236,10 +250,13 @@ func (s *OpenAIGatewayService) beginCandidateChatAttempt(ctx context.Context, c 
 		defer a.close()
 		c.Writer, c.Request = a.ResponseWriter, request
 		cause := context.Cause(a.ctx)
+		// Prefer the inbound caller error so handler marks 499 and retains any
+		// partial result for billing, whether cancel landed before or after the
+		// first useful output.
+		if reqErr := request.Context().Err(); reqErr != nil {
+			return result, reqErr
+		}
 		if !a.started {
-			if request.Context().Err() != nil {
-				return nil, request.Context().Err()
-			}
 			if cause != nil || err == nil {
 				return nil, &UpstreamFailoverError{StatusCode: http.StatusGatewayTimeout, Scope: GatewayFailureScopeAccount, Reason: "first_output_unavailable", ClientStatusCode: http.StatusGatewayTimeout, ClientMessage: "Upstream did not produce a complete response before failover"}
 			}

@@ -84,6 +84,11 @@ func (s *GatewayService) ForwardAsChatCompletionsDispatched(
 		body = rewriteNewAPIBridgeBodyModel(account, body, "")
 	}
 	body = applyNewAPIAliFixedSamplingShape(gjson.GetBytes(body, "model").String(), body)
+	var shapeErr error
+	body, shapeErr = applyMoonshotThinkingShape(c, gjson.GetBytes(body, "model").String(), body)
+	if shapeErr != nil {
+		return nil, shapeErr
+	}
 	auth := bridgeAuthFromGin(c)
 	body, in, err := bindProtocolPlanToNewAPIBridge(ctx, account, body, auth.UserID, auth.GroupName, newapitypes.RelayFormatOpenAI)
 	if err != nil {

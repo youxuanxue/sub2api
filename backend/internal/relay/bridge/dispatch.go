@@ -71,14 +71,23 @@ func installBodyStorage(c *gin.Context, body []byte) error {
 	return nil
 }
 
+// bindChatUpstreamRequestContext opts chat into caller-owned transport
+// cancellation. Bounded attempts use the attempt ctx; other chat dispatches use
+// the inbound request context. Returns a restore func for the original request.
+func bindChatUpstreamRequestContext(c *gin.Context, ctx context.Context, bounded bool) func() {
+	request := c.Request
+	upstreamCtx := request.Context()
+	if bounded {
+		upstreamCtx = ctx
+	}
+	c.Request = request.WithContext(relaycommon.WithUpstreamRequestContext(upstreamCtx))
+	return func() { c.Request = request }
+}
+
 // DispatchChatCompletions runs the New API adaptor for OpenAI Chat Completions.
 func DispatchChatCompletions(ctx context.Context, c *gin.Context, in ChannelContextInput, body []byte) (*DispatchOutcome, *types.NewAPIError) {
 	ensureNewAPIDeps()
-	if in.BoundedChatAttempt {
-		request := c.Request
-		c.Request = request.WithContext(relaycommon.WithUpstreamRequestContext(ctx))
-		defer func() { c.Request = request }()
-	}
+	defer bindChatUpstreamRequestContext(c, ctx, in.BoundedChatAttempt)()
 	if err := installBodyStorage(c, body); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 	}
