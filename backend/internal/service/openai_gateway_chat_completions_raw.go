@@ -94,6 +94,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
 		upstreamBody = normalizedBody
 	}
+	var moonshotErr error
+	upstreamBody, moonshotErr = applyMoonshotThinkingShape(c, upstreamModel, upstreamBody)
+	if moonshotErr != nil {
+		return nil, moonshotErr
+	}
 
 	// 4. Apply OpenAI fast policy on the CC body
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, upstreamBody)

@@ -24,7 +24,7 @@ const (
 
 	// edgeMirrorStubSaturationThreshold: transient blips stay on the account;
 	// sustained capacity failures in the rolling window trigger preference.
-	edgeMirrorStubSaturationThreshold int64 = 12
+	edgeMirrorStubSaturationThreshold int64 = 5
 
 	// anthropicSaturationPriorityPenalty is the shared additive priority penalty
 	// in the generic gateway's legacy and load-aware selectors.

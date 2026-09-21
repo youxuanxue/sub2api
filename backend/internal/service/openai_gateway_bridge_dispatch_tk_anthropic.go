@@ -64,6 +64,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropicDispatched(
 		return nil, fmt.Errorf("convert anthropic to chat completions: %w", err)
 	}
 	chatBody = applyNewAPIAliFixedSamplingShape(upstreamModel, chatBody)
+	var shapeErr error
+	chatBody, shapeErr = applyMoonshotThinkingShape(c, upstreamModel, chatBody)
+	if shapeErr != nil {
+		return nil, shapeErr
+	}
 
 	// 4. Prepare bridge channel input
 	chatBody = applyStickyToNewAPIBridge(ctx, c, s.settingService, account, chatBody, upstreamModel)
