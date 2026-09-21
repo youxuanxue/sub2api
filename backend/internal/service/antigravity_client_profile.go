@@ -11,13 +11,17 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
-// antigravityRequestContext applies one account's complete Manager identity to
-// every retry of one upstream request. Keeping this at the request boundary
-// prevents a Manager UA from being paired with a CLI TLS profile or from
-// changing machine/session headers between retries.
+// antigravityRequestContext applies one account's complete Antigravity identity
+// to every retry of one upstream request. Keeping this at the request boundary
+// prevents an IDE/CLI/Manager UA from being paired with another route's TLS
+// profile or from changing machine/session headers between retries.
 func antigravityRequestContext(ctx context.Context, account *Account, sessionHash string) context.Context {
-	if account == nil || account.AntigravityClientProfile() != antigravity.ClientProfileManager {
-		return antigravity.WithClientProfile(ctx, antigravity.ClientProfileCLI)
+	if account == nil {
+		return antigravity.WithClientProfile(ctx, antigravity.ClientProfileIDE)
+	}
+	profile := account.AntigravityClientProfile()
+	if profile != antigravity.ClientProfileManager {
+		return antigravity.WithClientProfile(ctx, profile)
 	}
 
 	accountKey := strconv.FormatInt(account.ID, 10)

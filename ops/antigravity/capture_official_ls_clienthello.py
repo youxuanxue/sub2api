@@ -130,7 +130,7 @@ def report(args: argparse.Namespace) -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 2
-    report_data = parser.build_report(b"".join(raw_records), args.source)
+    report_data = parser.build_report(b"".join(raw_records), args.source, args.sni)
     report_data["note"] = "Records are per-connection sink captures; randoms and key-share payloads are omitted."
     if errors:
         report_data["parse_errors"] = errors
@@ -158,6 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     rep.add_argument("--capture-dir", type=Path, required=True)
     rep.add_argument("--out", type=Path)
     rep.add_argument("--source", default="official-antigravity-language-server-local-connect")
+    rep.add_argument("--sni", help="only include ClientHello samples for this exact SNI")
     rep.set_defaults(func=report)
     args = ap.parse_args(argv)
     try:

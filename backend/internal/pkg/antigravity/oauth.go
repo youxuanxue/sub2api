@@ -36,7 +36,10 @@ const (
 	// AntigravityManagerUserAgentVersionEnv 是 Manager 实验路线独立的版本号环境变量名。
 	AntigravityManagerUserAgentVersionEnv = "ANTIGRAVITY_MANAGER_VERSION"
 
-	// DefaultUserAgentVersion 是未通过环境变量或后台设置覆盖时使用的默认版本号。
+	// AntigravityIDEUserAgentVersionEnv 是官方 Antigravity IDE/LS 路线的版本号环境变量名。
+	AntigravityIDEUserAgentVersionEnv = "ANTIGRAVITY_IDE_VERSION"
+
+	// DefaultUserAgentVersion 是 CLI 显式兼容路线的默认版本号。
 	// Ground truth = 本机 `agy`（Antigravity CLI，`brew install --cask antigravity-cli`）版本；
 	// UA 形如 `antigravity/cli/<ver> darwin/arm64`。运行时可经 admin 设置
 	// antigravity_user_agent_version 热推覆盖。
@@ -62,7 +65,11 @@ const (
 	antigravityProdBaseURL  = "https://cloudcode-pa.googleapis.com"
 	antigravityDailyBaseURL = "https://daily-cloudcode-pa.googleapis.com"
 
-	// ClientProfileCLI keeps the agy CLI identity currently used by production.
+	// ClientProfileIDE is the default official Antigravity IDE/LS identity.
+	// ClientProfileCLI remains an explicit compatibility route for agy callers.
+	// ClientProfileManager is an explicit experiment mode that mirrors the
+	// Antigravity-Manager HTTP identity.
+	ClientProfileIDE = "ide"
 	// ClientProfileManager is an explicit experiment mode that mirrors the
 	// Antigravity-Manager HTTP identity. It is opt-in per account so a profile
 	// experiment cannot silently change every OAuth account at once.
@@ -73,6 +80,10 @@ const (
 	// stable floor at the investigated revision. It is independent from agy's
 	// CLI version so the two identities cannot be mixed accidentally.
 	DefaultManagerUserAgentVersion = "4.3.0"
+
+	// DefaultIDEUserAgentVersion is sourced from the installed official
+	// Antigravity app package. It can be hot-updated independently of agy.
+	DefaultIDEUserAgentVersion = "2.14.0"
 )
 
 // DailyBaseURL / ProdBaseURL 是网关与隐私请求共用的端点 owner。
@@ -102,24 +113,31 @@ type ManagerIdentity struct {
 }
 
 // WithClientProfile selects the wire identity family for an upstream request.
-// Unknown values intentionally fall back to the CLI profile.
+// Unknown values intentionally fall back to the official IDE profile.
 func WithClientProfile(ctx context.Context, profile string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if strings.EqualFold(strings.TrimSpace(profile), ClientProfileManager) {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case ClientProfileManager:
 		return context.WithValue(ctx, clientProfileContextKey{}, ClientProfileManager)
+	case ClientProfileCLI:
+		return context.WithValue(ctx, clientProfileContextKey{}, ClientProfileCLI)
+	default:
+		return context.WithValue(ctx, clientProfileContextKey{}, ClientProfileIDE)
 	}
-	return context.WithValue(ctx, clientProfileContextKey{}, ClientProfileCLI)
 }
 
 func ClientProfileForContext(ctx context.Context) string {
 	if ctx != nil {
-		if profile, ok := ctx.Value(clientProfileContextKey{}).(string); ok && profile == ClientProfileManager {
-			return ClientProfileManager
+		if profile, ok := ctx.Value(clientProfileContextKey{}).(string); ok {
+			switch profile {
+			case ClientProfileManager, ClientProfileCLI, ClientProfileIDE:
+				return profile
+			}
 		}
 	}
-	return ClientProfileCLI
+	return ClientProfileIDE
 }
 
 // WithManagerIdentity carries stable per-account identity headers without
@@ -146,6 +164,8 @@ var (
 	userAgentVersionResolver UserAgentVersionResolver
 	managerUserAgentResolver UserAgentVersionResolver
 	managerUserAgentVersion  = DefaultManagerUserAgentVersion
+	ideUserAgentResolver     UserAgentVersionResolver
+	ideUserAgentVersion      = DefaultIDEUserAgentVersion
 )
 
 // defaultClientSecret 可通过环境变量 ANTIGRAVITY_OAUTH_CLIENT_SECRET 配置
@@ -158,6 +178,9 @@ func init() {
 	}
 	if version := NormalizeUserAgentVersion(os.Getenv(AntigravityManagerUserAgentVersionEnv)); version != "" {
 		managerUserAgentVersion = version
+	}
+	if version := NormalizeUserAgentVersion(os.Getenv(AntigravityIDEUserAgentVersionEnv)); version != "" {
+		ideUserAgentVersion = version
 	}
 	// 从环境变量读取 client_secret，未设置则使用默认值
 	if secret := os.Getenv(AntigravityOAuthClientSecretEnv); secret != "" {
@@ -192,6 +215,14 @@ func SetManagerUserAgentVersionResolver(resolver UserAgentVersionResolver) {
 	userAgentVersionMu.Lock()
 	defer userAgentVersionMu.Unlock()
 	managerUserAgentResolver = resolver
+}
+
+// SetIDEUserAgentVersionResolver sets the official IDE version resolver. It is
+// intentionally independent from the agy CLI setting.
+func SetIDEUserAgentVersionResolver(resolver UserAgentVersionResolver) {
+	userAgentVersionMu.Lock()
+	defer userAgentVersionMu.Unlock()
+	ideUserAgentResolver = resolver
 }
 
 // GetUserAgentVersionForContext 返回当前请求应使用的 Antigravity 版本号。
@@ -231,6 +262,15 @@ func BuildManagerUserAgent(version string) string {
 	return fmt.Sprintf("Antigravity/%s (Macintosh; Intel Mac OS X 10_15_7) Chrome/132.0.6834.160 Electron/39.2.3", managerUserAgentVersion)
 }
 
+// BuildIDEUserAgent renders the official Antigravity language-server identity
+// observed on the IDE cloudcode route.
+func BuildIDEUserAgent(version string) string {
+	if normalized := NormalizeUserAgentVersion(version); normalized != "" {
+		return fmt.Sprintf("antigravity/hub/%s darwin/arm64", normalized)
+	}
+	return fmt.Sprintf("antigravity/hub/%s darwin/arm64", ideUserAgentVersion)
+}
+
 func GetManagerUserAgentVersionForContext(ctx context.Context) string {
 	userAgentVersionMu.RLock()
 	resolver := managerUserAgentResolver
@@ -243,12 +283,28 @@ func GetManagerUserAgentVersionForContext(ctx context.Context) string {
 	return managerUserAgentVersion
 }
 
+func GetIDEUserAgentVersionForContext(ctx context.Context) string {
+	userAgentVersionMu.RLock()
+	resolver := ideUserAgentResolver
+	userAgentVersionMu.RUnlock()
+	if resolver != nil {
+		if version := NormalizeUserAgentVersion(resolver(ctx)); version != "" {
+			return version
+		}
+	}
+	return ideUserAgentVersion
+}
+
 // GetUserAgentForContext 返回当前请求应使用的 User-Agent。
 func GetUserAgentForContext(ctx context.Context) string {
-	if ClientProfileForContext(ctx) == ClientProfileManager {
+	switch ClientProfileForContext(ctx) {
+	case ClientProfileManager:
 		return BuildManagerUserAgent(GetManagerUserAgentVersionForContext(ctx))
+	case ClientProfileCLI:
+		return BuildUserAgent(GetUserAgentVersionForContext(ctx))
+	default:
+		return BuildIDEUserAgent(GetIDEUserAgentVersionForContext(ctx))
 	}
-	return BuildUserAgent(GetUserAgentVersionForContext(ctx))
 }
 
 // GetUserAgent 返回当前配置的 User-Agent。

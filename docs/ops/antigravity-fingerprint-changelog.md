@@ -1,18 +1,20 @@
 # Antigravity fingerprint changelog
 
 One line per alignment. The canonical truth is the Go constants in
-`backend/internal/pkg/antigravity/` (oauth.go / client.go / request_transformer.go) —
+`backend/internal/pkg/antigravity/` and `backend/internal/pkg/tlsfingerprint/` —
 this file is just the human-readable history of when each value moved and why.
 
 Capture tool: `ops/antigravity/capture-antigravity-fingerprint.sh` — default path reads
 locally installed `agy --version` (static owner, like Codex). Optional mitmproxy of
-`agy --print` for HTTP body/ideType regression. Antigravity's load-bearing fingerprint
-is HTTP (UA *version*, body `userAgent`, ideType metadata); JA3 is non-load-bearing.
+`agy --print` for HTTP body/ideType regression, or the official IDE local sinks for
+target-specific HTTP/TLS evidence. HTTP identity and the cloudcode transport are
+paired; JA3 alone is never sufficient to claim a complete client match.
 
 Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
-- UA version bump (most common): edit `DefaultUserAgentVersion` in `oauth.go` +
-  the `GetUserAgent()` assertion in `oauth_test.go`, add a row below. Hot-push
-  without release via the admin setting `antigravity_user_agent_version`.
+- CLI UA version bump: edit `DefaultUserAgentVersion` in `oauth.go` + the
+  `GetUserAgent()` assertion in `oauth_test.go`. Official IDE version updates
+  use `ANTIGRAVITY_IDE_VERSION` or the local package check script; add a row below.
+  The existing admin setting `antigravity_user_agent_version` remains CLI-only.
 - gl-node / ideType / metadata drift: edit the constant in `client.go` + its test.
 
 | date (UTC) | UA version | type | change | note |
@@ -38,3 +40,4 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 | 2026-08-23 | **1.1.19** | **align (cli-only)** | UA `antigravity/hub/%s windows/amd64` → `antigravity/cli/%s darwin/arm64`; `DefaultUserAgentVersion` 2.8.1 → 1.1.19; remove IDE spawn-validate tooling | **Mimic target switched to Antigravity CLI (`agy`) only.** Release watch tracks `brew install --cask antigravity-cli`. Version owner = `agy --version`. IDE `language_server` / `validate-antigravity-spawn.sh` removed from alignment path. Closes #1772. |
 | 2026-09-13 | **1.2.2** | pure UA | `DefaultUserAgentVersion` 1.2.0 → 1.2.2 | 本机 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2149。 |
 | 2026-09-19 | **1.2.7** | pure UA | `DefaultUserAgentVersion` 1.2.2 → 1.2.7 | 本机升级后的 `agy --version` 静态验证；UA 格式不变，本次未采集 wire 证据。关联 #2235。 |
+| 2026-09-21 | **2.14.0 IDE** | **align (official LS cloudcode)** | 默认 Antigravity OAuth identity 从 CLI 切为 `antigravity/hub/2.14.0 darwin/arm64`；新增 `tk_canonical_antigravity_ide_cloudcode`，按 SNI 过滤的官方 LS cloudcode ClientHello 使用 JA3 `9b7dcdf3f997f1fb7b4409c94cb7ef36` 且无 ALPN 扩展 | 本地非转发 CONNECT sink，8 次 `cloudcode-pa.googleapis.com` ClientHello 稳定；当前主机未登录，2.14.0 生图 HTTP 未重新采集，profile replay 保持 false。CLI/Manager 通过账号 Extra 显式保留。 |

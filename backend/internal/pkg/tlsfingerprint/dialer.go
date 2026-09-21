@@ -35,6 +35,40 @@ type Profile struct {
 	Extensions          []uint16 // Extension type IDs in order; empty uses default Node.js 24.x order
 }
 
+// AntigravityIDECloudcodeProfileName is the canonical profile captured from
+// the official Antigravity language server when it dials cloudcode-pa. The
+// cloudcode transport deliberately has no ALPN extension; this is distinct
+// from the control-plane profile, which advertises h2/http1.1.
+const AntigravityIDECloudcodeProfileName = "tk_canonical_antigravity_ide_cloudcode"
+
+// NewAntigravityIDECloudcodeProfile returns the redacted, replayable shape of
+// the official LS cloudcode ClientHello. A fresh value is returned on every
+// call so callers may safely attach it to request-scoped state.
+func NewAntigravityIDECloudcodeProfile() *Profile {
+	return &Profile{
+		Name:                AntigravityIDECloudcodeProfileName,
+		EnableGREASE:        false,
+		ShuffleExtensions:   false,
+		CipherSuites:        []uint16{49195, 49199, 49196, 49200, 52393, 52392, 49161, 49171, 49162, 49172, 4865, 4866, 4867},
+		Curves:              []uint16{4588, 4587, 4589, 29, 23, 24, 25},
+		PointFormats:        []uint16{0},
+		SignatureAlgorithms: []uint16{2308, 2309, 2310, 2052, 1027, 2055, 2053, 2054, 1025, 1281, 1537, 1283, 1539},
+		// Empty means no ALPN only because Extensions below is explicit and
+		// omits extension 16. Do not add extension 16 here.
+		ALPNProtocols:     []string{},
+		SupportedVersions: []uint16{772, 771},
+		KeyShareGroups:    []uint16{4588, 29},
+		PSKModes:          []uint16{},
+		Extensions:        []uint16{0, 11, 65281, 23, 18, 5, 10, 13, 50, 43, 51},
+	}
+}
+
+// IsAntigravityIDECloudcodePreset identifies the official LS cloudcode
+// profile, including a profile loaded from the database with only its name.
+func IsAntigravityIDECloudcodePreset(profile *Profile) bool {
+	return profile != nil && strings.EqualFold(strings.TrimSpace(profile.Name), AntigravityIDECloudcodeProfileName)
+}
+
 // IsAntigravityManagerChromePreset identifies the explicit Manager experiment
 // profile. The database schema remains backward-compatible: the canonical
 // profile name selects the uTLS Chrome preset until a real Manager ClientHello
@@ -383,6 +417,9 @@ func isGREASEValue(v uint16) bool {
 // buildClientHelloSpecFromProfile constructs ClientHelloSpec from a Profile.
 // This is a standalone function that can be used by both Dialer and HTTPProxyDialer.
 func buildClientHelloSpecFromProfile(profile *Profile) *utls.ClientHelloSpec {
+	if IsAntigravityIDECloudcodePreset(profile) && len(profile.CipherSuites) == 0 {
+		profile = NewAntigravityIDECloudcodeProfile()
+	}
 	if IsAntigravityManagerChromePreset(profile) && len(profile.CipherSuites) == 0 && len(profile.Extensions) == 0 {
 		// rquest's Manager route is Chrome123. The vendored uTLS release has no
 		// Chrome123 constant; Chrome120 is the nearest stable Chrome preset and is

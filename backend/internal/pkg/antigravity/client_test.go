@@ -1881,12 +1881,12 @@ func (rt *captureRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-// 锁定 agy CLI on-wire 对齐：setUserSettings/fetchUserInfo 不发 X-Goog-Api-Client(gl-node)，
+// 锁定 agy CLI 兼容路线：setUserSettings/fetchUserInfo 不发 X-Goog-Api-Client(gl-node)，
 // 且 UA 用 `antigravity/cli/...` 形态。
 func TestPrivacyCalls_无GlNode且UA带cli(t *testing.T) {
 	rt := &captureRT{}
 	c := &Client{httpClient: &http.Client{Transport: rt}}
-	ctx := context.Background()
+	ctx := WithClientProfile(context.Background(), ClientProfileCLI)
 
 	if _, err := c.SetUserSettings(ctx, "tok"); err != nil {
 		t.Fatalf("SetUserSettings: %v", err)

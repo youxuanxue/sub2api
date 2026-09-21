@@ -20,10 +20,10 @@ def _vector(length_bytes: int, body: bytes) -> bytes:
     return len(body).to_bytes(length_bytes, "big") + body
 
 
-def _hello() -> bytes:
+def _hello(server_name: bytes = b"antigravity-unleash.goog") -> bytes:
     # The values mirror the shape of the local LS capture while keeping all
     # payloads synthetic.  The parser must not retain random/key-share bytes.
-    sni = _vector(2, b"\x00" + _vector(2, b"antigravity-unleash.goog"))
+    sni = _vector(2, b"\x00" + _vector(2, server_name))
     groups = _vector(2, struct.pack(">HH", 4588, 29))
     points = _vector(1, b"\x00")
     sigs = _vector(2, struct.pack(">HH", 1027, 2052))
@@ -97,6 +97,14 @@ class OfficialLsParserTests(unittest.TestCase):
         self.assertEqual(parser.compare_report_to_profile(report, profile), [])
         profile["alpn_protocols"] = ["http/1.1"]
         self.assertTrue(parser.compare_report_to_profile(report, profile))
+
+    def test_sni_filter_keeps_cloudcode_samples_separate(self):
+        cloudcode = _hello(b"cloudcode-pa.googleapis.com")
+        report = parser.build_report(_hello() + cloudcode, "test", "cloudcode-pa.googleapis.com")
+        self.assertEqual(report["sample_count"], 1)
+        self.assertEqual(report["filtered_out_sample_count"], 1)
+        self.assertEqual(report["sni_filter"], "cloudcode-pa.googleapis.com")
+        self.assertEqual(report["samples"][0]["server_name"], "cloudcode-pa.googleapis.com")
 
 
 if __name__ == "__main__":

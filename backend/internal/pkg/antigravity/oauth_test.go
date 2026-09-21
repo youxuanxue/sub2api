@@ -704,7 +704,7 @@ func TestConstants_值正确(t *testing.T) {
 	if RedirectURI != "http://localhost:8085/callback" {
 		t.Errorf("RedirectURI 不匹配: got %s", RedirectURI)
 	}
-	if GetUserAgent() != "antigravity/cli/1.2.7 darwin/arm64" {
+	if GetUserAgent() != "antigravity/hub/2.14.0 darwin/arm64" {
 		t.Errorf("UserAgent 不匹配: got %s", GetUserAgent())
 	}
 	if SessionTTL != 30*time.Minute {
@@ -712,6 +712,13 @@ func TestConstants_值正确(t *testing.T) {
 	}
 	if URLAvailabilityTTL != 5*time.Minute {
 		t.Errorf("URLAvailabilityTTL 不匹配: got %v", URLAvailabilityTTL)
+	}
+}
+
+func TestOfficialIDEClientProfileRendersHubIdentity(t *testing.T) {
+	ctx := WithClientProfile(context.Background(), ClientProfileIDE)
+	if got := GetUserAgentForContext(ctx); got != "antigravity/hub/2.14.0 darwin/arm64" {
+		t.Fatalf("official IDE UA mismatch: %q", got)
 	}
 }
 

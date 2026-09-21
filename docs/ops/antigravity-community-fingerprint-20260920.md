@@ -2,14 +2,14 @@
 
 调查时间：2026-09-20 UTC。针对 edge-us4 / #24 `anti-478` 的 `403 PERMISSION_DENIED / VALIDATION_REQUIRED`，核对社区当前实现与官方本机 App。本文是带日期的研究记录，不替代运行时指纹 owner，不改变账号或调度策略。
 
-本地分支 `chore/antigravity0919` 已从原 HEAD 快进到本次 fetch 的 `origin/main@9f544129d8e136447fae957bc7826680c56b3bff`（1.8.242），包含 `agy 1.2.7` UA 更新。本次改动保持 CLI 默认路线不变，仅增加账号级 Manager 实验开关、兼容 TLS 预设、采集工具和测试；没有修改生产部署或调用 #24 的上游模型。
+本地分支 `chore/antigravity0919` 已从原 HEAD 快进到本次 fetch 的 `origin/main@9f544129d8e136447fae957bc7826680c56b3bff`（1.8.242），包含 `agy 1.2.7` UA 更新。本轮把默认 Antigravity OAuth 路线切到官方 IDE/LS identity，并增加按 cloudcode SNI 隔离的 TLS profile、HTTP/TLS 本地采集脚本；CLI 与 Manager 仍可按账号显式选择。没有修改生产部署或调用 #24 的上游模型。
 
 ## 判断
 
 1. **针对真人客户端生图，ground truth 应是官方 IDE / 官方 language_server 的真实出口；Antigravity-Manager 只是社区对照组，不是目标客户端。** 目前没有证据证明把 TokenKey 换成 IDE UA 或某个 TLS profile 就能解除 #24 的验证状态。
 2. 社区不存在统一的 Antigravity TLS 方案：CLIProxyAPI 用 Go HTTP/1.1 且不发 ALPN；Manager 用 Chrome123 模拟；AIClient2API 可选 Chrome uTLS；若干插件只修改 HTTP 身份字段。不能把这些都称为“还原 IDE 指纹”。
 3. 官方 App 的 UI 是 Electron，但模型请求由独立 Go `language_server` 发起。**Electron/Chrome 版本不等于模型出口 TLS 指纹。** 官方二进制构建也可能与普通 Go、第三方 uTLS 存在差异。
-4. TokenKey 已有 TLS profile 和 H2 传输支持，不能说它只改了 UA；但 canonical TLS 样本来自未登录 CLI 的非推理域名，还缺真实生图路径证据。
+4. TokenKey 现有 CLI canonical TLS 样本来自未登录 CLI 的非推理域名；新增的官方 LS cloudcode profile 来自 8 次 `cloudcode-pa.googleapis.com` ClientHello，仍缺真实生图路径与当前版本已登录 HTTP 证据。
 5. 原生官方 CLI 也有同样的验证循环报告。`VALIDATION_REQUIRED` 是 Google 返回的账号验证要求；它没有披露触发因素，不能从错误文案单独判断 TLS、IP、请求信封或账号资格哪个是根因。
 
 ## 证据与范围
@@ -60,7 +60,7 @@
 
 ## 官方 LS 原始 ClientHello：本地隔离采集
 
-随后用官方 `language_server` 连接本地 CONNECT 代理采集了 2 次原始 TLS ClientHello。代理在返回 `200 Connection Established` 后只读取并保存客户端字节，**没有向 Google 转发**；独立启动的 LS 报告未登录，因此这不是生图请求抓包。
+随后用官方 `language_server` 连接本地 CONNECT 代理采集了控制面 2 次和 cloudcode SNI 8 次原始 TLS ClientHello。代理在返回 `200 Connection Established` 后只读取并保存客户端字节，**没有向 Google 转发**；独立启动的 LS 报告未登录，因此这不是生图请求抓包。
 
 解析结果见 [antigravity-official-ls-clienthello-20260920.json](antigravity-official-ls-clienthello-20260920.json)。两次样本完全一致：
 
@@ -70,7 +70,7 @@
 - supported groups 与 key share 都包含 `4588`（X25519MLKEM768）以及传统 `29`（X25519）；
 - 没有观察到 GREASE 值；SNI 是 `antigravity-unleash.goog`。
 
-这与现有 `tk_canonical_antigravity_cli` 的 ClientHello 字段和 JA3 完全相同，说明该 canonical Go TLS profile 同时得到当前官方 LS 控制面握手的本地交叉验证。它仍然不能推出 cloudcode 生图路径一定复用该握手：需要在已登录官方 App 中触发真实生图，并用同样的被动采集方法确认目标 SNI、连接复用和请求时序。因而本次采集不会把 Manager Chrome123 profile 或 Chrome153 浏览器指纹提升为默认目标，也不会把该报告标记为生图 profile ready。
+控制面握手与 `tk_canonical_antigravity_cli` 相同，但 cloudcode transport 是独立 profile：JA3 `9b7dcdf3f997f1fb7b4409c94cb7ef36`，扩展列表不含 ALPN 16。该 profile 已用于默认 IDE 路线，但报告仍标记 `profile_replay_ready=false`：需要在已登录官方 App 中触发真实生图，并用同样的被动方法确认连接复用、HTTP 身份和请求时序。Manager Chrome123 与 Chrome153 浏览器指纹仍是独立实验组。
 
 后续采集使用 `ops/antigravity/capture_official_ls_clienthello.py`：
 
@@ -80,8 +80,12 @@ python3 ops/antigravity/capture_official_ls_clienthello.py serve \
 # 在另一个终端仅启动官方 LS，并将 HTTPS_PROXY 指向 http://127.0.0.1:18080
 python3 ops/antigravity/capture_official_ls_clienthello.py report \
   --capture-dir /tmp/antigravity-ls-capture \
+  --sni cloudcode-pa.googleapis.com \
   --out /tmp/antigravity-ls-capture/report.json
 ```
+
+版本检查、TLS sink、SNI 报告和 HTTP 脱敏 sink 也可统一从
+`ops/antigravity/capture-official-ide-fingerprint.sh` 调用；HTTP sink 只保留 UA、身份头和 IDE metadata，不保存 Authorization 值或完整请求体。
 
 采集器按连接保存首个 TLS record 和目标主机索引，避免旧代理把多个连接无边界串接，也不会保存 CONNECT 请求头。`report` 只输出可比较的 ClientHello 元数据；更新 canonical profile 前仍需满足“已登录官方 App + 真实生图任务 + 目标 cloudcode SNI”的证据条件。
 
@@ -99,9 +103,9 @@ Tools-LS README 的“原生连接完全相同”是项目自述：它调用官�
 
 | 维度 | `origin/main@9f544129d8` 的状态 | 本次判断 |
 | --- | --- | --- |
-| HTTP UA | `antigravity/cli/1.2.7 darwin/arm64` | 明确模拟 CLI；与 App 的 hub 身份不同。若研究 IDE 生图，必须把它当成独立候选，不能只更新 CLI 版本后宣称已对齐 IDE |
-| TLS profile | `tk_canonical_antigravity_cli`，无 GREASE／无扩展随机化，ALPN `h2,http/1.1` | 与 CLIProxyAPI 的 no-ALPN/H1 实现有实质差异；需要抓当前原生生图流量裁决，不能凭两边代码注释决定谁正确 |
-| TLS 样本来源 | `agy 1.2.2`，5 个样本，未登录；SNI 是 `antigravity-unleash.goog` 和 Playwright 下载域名 | 证明这些握手存在。**不能证明同一程序到 cloudcode 生图路径也用相同 TLS 配置**；同进程可用不同 HTTP client，或每条路径有不同协议配置 |
+| HTTP UA | 默认 `antigravity/hub/2.14.0 darwin/arm64`；CLI 显式兼容路线仍为 `antigravity/cli/1.2.7 darwin/arm64` | Hub 格式由官方 App 启动参数和历史已登录 IDE on-wire 证据支持；当前 2.14.0 已登录生图 HTTP 仍待本地采集 |
+| TLS profile | 默认 `tk_canonical_antigravity_ide_cloudcode`，无 GREASE／无扩展随机化／无 ALPN；CLI profile 保留 `h2,http/1.1` | 官方 LS 控制面与 cloudcode transport 已分离；新 profile 只代表 cloudcode SNI transport，不能把未登录样本称为生图成功证据 |
+| TLS 样本来源 | CLI：`agy 1.2.2`，5 个样本，未登录；IDE cloudcode：8 个样本，未登录，SNI 为 `cloudcode-pa.googleapis.com` | 证明两类握手存在且 cloudcode 样本稳定。**不能证明未登录进程与已登录生图连接在连接复用、请求时序上完全相同** |
 | profile 生效条件 | `ResolveTLSProfile` 先检查账号是否启用 TLS fingerprint，再处理显式绑定／随机／按名 canonical fallback | 仓库有 JSON 不等于 #24 正在使用它。未读取 edge-us4 当前部署与账号配置，所以不能把源码状态称为线上状态 |
 | 生图分类 | `request_type.go` 已将 image 分为 `image_gen` | 这个字段已存在仍不等于完整 IDE 生图信封已复刻；额度池注释也不是上游权益证明 |
 | 证据约定 | capture 脚本与 changelog 开头仍写 JA3 “non-load-bearing”；近期又加入 TLS seed | 仓库说明存在证据口径不一致。“TLS 无影响”与“换 TLS 能解决”两种结论目前都过强 |

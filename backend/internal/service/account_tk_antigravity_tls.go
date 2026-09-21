@@ -4,11 +4,16 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
 // CanonicalAntigravityCLITLSProfileName is the seeded TLS template that matches
 // the captured Antigravity CLI ClientHello (paired with the CLI User-Agent).
 const CanonicalAntigravityCLITLSProfileName = "tk_canonical_antigravity_cli"
+
+// CanonicalAntigravityIDECloudcodeTLSProfileName is the official LS cloudcode
+// ClientHello captured from a local non-forwarding CONNECT sink.
+const CanonicalAntigravityIDECloudcodeTLSProfileName = tlsfingerprint.AntigravityIDECloudcodeProfileName
 
 // CanonicalAntigravityManagerTLSProfileName is an opt-in experimental profile
 // paired with Antigravity-Manager headers and its Chrome-compatible transport.
@@ -25,22 +30,32 @@ func (a *Account) isAntigravityOAuth() bool {
 }
 
 // AntigravityClientProfile returns the account-scoped wire identity family.
-// Existing accounts remain on the captured CLI route until an operator sets
-// extra.antigravity_client_profile=manager for a controlled experiment.
+// Official IDE/LS is the default. CLI and Manager remain explicit opt-in
+// compatibility routes through extra.antigravity_client_profile.
 func (a *Account) AntigravityClientProfile() string {
-	if a == nil || !a.isAntigravityOAuth() || a.Extra == nil {
+	if a == nil || !a.isAntigravityOAuth() {
 		return antigravity.ClientProfileCLI
 	}
-	if v, ok := a.Extra[antigravityClientProfileExtraKey].(string); ok && strings.EqualFold(strings.TrimSpace(v), antigravity.ClientProfileManager) {
-		return antigravity.ClientProfileManager
+	if a.Extra == nil {
+		return antigravity.ClientProfileIDE
 	}
-	return antigravity.ClientProfileCLI
+	if v, ok := a.Extra[antigravityClientProfileExtraKey].(string); ok {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case antigravity.ClientProfileManager:
+			return antigravity.ClientProfileManager
+		case antigravity.ClientProfileCLI:
+			return antigravity.ClientProfileCLI
+		case antigravity.ClientProfileIDE:
+			return antigravity.ClientProfileIDE
+		}
+	}
+	return antigravity.ClientProfileIDE
 }
 
 // isAntigravityTLSFingerprintEnabled mirrors Kiro: default ON for Antigravity
 // OAuth unless explicitly disabled via extra.enable_tls_fingerprint=false.
-// Profile is resolved by name in ResolveTLSProfile; when the CLI template is
-// not seeded yet, GetProfileByName returns nil → plain TLS (never Node.js default).
+// Profile is resolved by identity name in ResolveTLSProfile; missing canonical
+// data uses the selected built-in preset rather than the Node.js default.
 func (a *Account) isAntigravityTLSFingerprintEnabled() bool {
 	if a == nil || !a.isAntigravityOAuth() {
 		return false

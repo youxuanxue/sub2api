@@ -7,10 +7,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
-func TestAntigravityClientProfileDefaultsToCLI(t *testing.T) {
+func TestAntigravityClientProfileDefaultsToOfficialIDE(t *testing.T) {
 	account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth}
-	if got := account.AntigravityClientProfile(); got != antigravity.ClientProfileCLI {
-		t.Fatalf("default profile = %q, want %q", got, antigravity.ClientProfileCLI)
+	if got := account.AntigravityClientProfile(); got != antigravity.ClientProfileIDE {
+		t.Fatalf("default profile = %q, want %q", got, antigravity.ClientProfileIDE)
 	}
 }
 
@@ -25,12 +25,12 @@ func TestAntigravityClientProfileManagerIsOptIn(t *testing.T) {
 	}
 }
 
-func TestResolveTLSProfile_AntigravityMissingProfileFallsBackToNil(t *testing.T) {
+func TestResolveTLSProfile_AntigravityMissingProfileUsesOfficialIDEPreset(t *testing.T) {
 	t.Parallel()
 	svc := newTLSSvcWithProfiles() // empty cache, profile not seeded yet
 	account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth}
-	if got := svc.ResolveTLSProfile(account); got != nil {
-		t.Fatalf("AG without seeded CLI profile must resolve to nil (not Node default), got %+v", got)
+	if got := svc.ResolveTLSProfile(account); got == nil || got.Name != CanonicalAntigravityIDECloudcodeTLSProfileName {
+		t.Fatalf("AG without seeded IDE profile must resolve to official IDE preset, got %+v", got)
 	}
 }
 
@@ -41,10 +41,24 @@ func TestResolveTLSProfile_AntigravityByName(t *testing.T) {
 		ShuffleExtensions: true,
 		CipherSuites:      []uint16{4865, 4866},
 	})
-	account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth, Extra: map[string]any{"antigravity_client_profile": "cli"}}
 	got := svc.ResolveTLSProfile(account)
 	if got == nil || got.Name != CanonicalAntigravityCLITLSProfileName {
 		t.Fatalf("want %q, got %+v", CanonicalAntigravityCLITLSProfileName, got)
+	}
+}
+
+func TestResolveTLSProfile_AntigravityIDEByName(t *testing.T) {
+	t.Parallel()
+	svc := newTLSSvcWithProfiles(&model.TLSFingerprintProfile{
+		Name:              CanonicalAntigravityIDECloudcodeTLSProfileName,
+		ShuffleExtensions: false,
+		Extensions:        []uint16{0, 11, 65281, 23, 18, 5, 10, 13, 50, 43, 51},
+	})
+	account := &Account{Platform: PlatformAntigravity, Type: AccountTypeOAuth}
+	got := svc.ResolveTLSProfile(account)
+	if got == nil || got.Name != CanonicalAntigravityIDECloudcodeTLSProfileName {
+		t.Fatalf("want %q, got %+v", CanonicalAntigravityIDECloudcodeTLSProfileName, got)
 	}
 }
 

@@ -29,11 +29,22 @@ func TestAntigravityRequestContextManagerIdentityIsStable(t *testing.T) {
 	}
 }
 
-func TestAntigravityRequestContextCLIHasNoManagerIdentity(t *testing.T) {
+func TestAntigravityRequestContextDefaultsToOfficialIDE(t *testing.T) {
 	account := &Account{ID: 42, Platform: PlatformAntigravity, Type: AccountTypeOAuth}
 	ctx := antigravityRequestContext(context.Background(), account, "session-hash")
+	if antigravity.ClientProfileForContext(ctx) != antigravity.ClientProfileIDE {
+		t.Fatal("default account did not select official IDE context")
+	}
+	if _, ok := antigravity.ManagerIdentityForContext(ctx); ok {
+		t.Fatal("IDE context unexpectedly carried Manager identity")
+	}
+}
+
+func TestAntigravityRequestContextCLIOptInHasNoManagerIdentity(t *testing.T) {
+	account := &Account{ID: 42, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Extra: map[string]any{"antigravity_client_profile": "cli"}}
+	ctx := antigravityRequestContext(context.Background(), account, "session-hash")
 	if antigravity.ClientProfileForContext(ctx) != antigravity.ClientProfileCLI {
-		t.Fatal("default account did not select CLI context")
+		t.Fatal("CLI opt-in account did not select CLI context")
 	}
 	if _, ok := antigravity.ManagerIdentityForContext(ctx); ok {
 		t.Fatal("CLI context unexpectedly carried Manager identity")

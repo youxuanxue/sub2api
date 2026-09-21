@@ -1,0 +1,45 @@
+{
+  "capture": {
+    "account_authenticated": false,
+    "cloudcode_model_request_observed": false,
+    "method": "local CONNECT proxy; returned 200 then recorded ClientHello and did not forward upstream",
+    "observed_sni": ["cloudcode-pa.googleapis.com"],
+    "raw_fixture": "local-only capture; raw bytes intentionally not committed"
+  },
+  "capture_status": "real-clienthello-captured",
+  "captured_at": "2026-09-21",
+  "client": {
+    "app_version": "2.14.0",
+    "electron_version": "41.10.3",
+    "language_server_arch": "arm64"
+  },
+  "profile": {
+    "name": "tk_canonical_antigravity_ide_cloudcode",
+    "cipher_suites": [49195, 49199, 49196, 49200, 52393, 52392, 49161, 49171, 49162, 49172, 4865, 4866, 4867],
+    "curves": [4588, 4587, 4589, 29, 23, 24, 25],
+    "point_formats": [0],
+    "signature_algorithms": [2308, 2309, 2310, 2052, 1027, 2055, 2053, 2054, 1025, 1281, 1537, 1283, 1539],
+    "alpn_protocols": [],
+    "supported_versions": [772, 771],
+    "key_share_groups": [4588, 29],
+    "extensions": [0, 11, 65281, 23, 18, 5, 10, 13, 50, 43, 51],
+    "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-43-51,4588-4587-4589-29-23-24-25,0",
+    "ja3_hash": "9b7dcdf3f997f1fb7b4409c94cb7ef36"
+  },
+  "stability": {
+    "sample_count": 8,
+    "cipher_suite_order_stable": true,
+    "extension_order_stable": true,
+    "extension_set_stable": true,
+    "alpn_stable": true,
+    "alpn_observed": false,
+    "key_share_groups_stable": true,
+    "ja3_stable": true
+  },
+  "interpretation": {
+    "profile_replay_ready": false,
+    "reason": "The SNI-specific TLS transport is stable across official LS cloudcode connections. This host was unauthenticated, so no authenticated image request or current 2.14.0 on-wire HTTP capture was available.",
+    "http_identity": "Static app.asar launch flags plus prior authenticated IDE evidence support antigravity/hub/2.14.0 darwin/arm64; current-version HTTP remains pending a local logged-in capture."
+  },
+  "note": "Randoms and key-share payloads are intentionally omitted. No OAuth token, refresh token, cookie, or complete authorization URL is stored."
+}

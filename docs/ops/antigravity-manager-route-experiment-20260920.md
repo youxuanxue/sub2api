@@ -4,7 +4,7 @@
 
 ## 实现边界
 
-- 默认账号仍使用 `antigravity/cli/<version> darwin/arm64` 和 `tk_canonical_antigravity_cli`。
+- 默认账号现使用官方 IDE/LS 的 `antigravity/hub/<version> darwin/arm64` 和 `tk_canonical_antigravity_ide_cloudcode`；CLI 只有在 `extra.antigravity_client_profile=cli` 时启用。
 - 只有 OAuth 账号 `extra.antigravity_client_profile=manager` 才选择 Manager 路线。
 - Manager 路线发送 Manager 形态 UA 以及 `x-client-name`、`x-client-version`、`x-machine-id`、`x-vscode-sessionid`；machine/session 值按账号和会话稳定生成，重试不改变。
 - `tk_canonical_antigravity_manager_chrome123` 当前使用 uTLS `HelloChrome_120` 兼容预设，因为 vendored uTLS 没有 Chrome123 常量。数据库和 JSON artifact 都标记 `pending-real-manager-clienthello`，不能作为“已捕获 Chrome123”的证明。

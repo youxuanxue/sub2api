@@ -235,9 +235,15 @@ def _stable(samples: list[dict[str, Any]], field: str) -> bool:
     return len({json.dumps(sample.get(field), sort_keys=True) for sample in samples}) == 1
 
 
-def build_report(data: bytes, source: str) -> dict[str, Any]:
+def build_report(data: bytes, source: str, server_name: str | None = None) -> dict[str, Any]:
     samples = parse_tls_records(data)
-    return {
+    total_samples = len(samples)
+    if server_name:
+        wanted = server_name.strip().lower()
+        samples = [sample for sample in samples if str(sample.get("server_name", "")).lower() == wanted]
+        if not samples:
+            raise ParseError(f"no ClientHello matched SNI {server_name!r}")
+    report = {
         "schema_version": SCHEMA_VERSION,
         "source": source,
         "capture_status": "real-clienthello-captured",
@@ -265,6 +271,10 @@ def build_report(data: bytes, source: str) -> dict[str, Any]:
         },
         "note": "Randoms and key-share payloads are intentionally omitted; this report is for comparison, not replay.",
     }
+    if server_name:
+        report["sni_filter"] = server_name
+        report["filtered_out_sample_count"] = total_samples - len(samples)
+    return report
 
 
 def compare_report_to_profile(report: dict[str, Any], profile: dict[str, Any]) -> list[str]:
@@ -309,10 +319,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("capture", type=Path, help="concatenated raw TLS records")
     parser.add_argument("--out", type=Path, help="write JSON report instead of stdout")
     parser.add_argument("--source", default="official-antigravity-language-server-local-connect")
+    parser.add_argument("--sni", help="only include ClientHello samples for this exact SNI")
     parser.add_argument("--check-profile", type=Path, help="compare the report with a TokenKey profile JSON")
     args = parser.parse_args(argv)
     try:
-        report = build_report(args.capture.read_bytes(), args.source)
+        report = build_report(args.capture.read_bytes(), args.source, args.sni)
     except (OSError, ParseError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

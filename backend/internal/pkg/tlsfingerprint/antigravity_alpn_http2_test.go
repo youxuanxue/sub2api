@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	utls "github.com/refraction-networking/utls"
@@ -98,6 +99,26 @@ func TestAntigravityCLIProfileHTTPRoundTripUsesHTTP2(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	require.Equal(t, 2, resp.ProtoMajor)
 	require.NoError(t, resp.Body.Close())
+}
+
+func TestAntigravityIDECloudcodeProfileOmitsALPN(t *testing.T) {
+	profile := NewAntigravityIDECloudcodeProfile()
+	spec := buildClientHelloSpecFromProfile(profile)
+	if containsExtension(spec.Extensions, 16) {
+		t.Fatal("official IDE cloudcode profile must omit ALPN extension")
+	}
+	if len(profile.ALPNProtocols) != 0 {
+		t.Fatalf("official IDE cloudcode profile unexpectedly advertises ALPN: %v", profile.ALPNProtocols)
+	}
+	if profile.Name != AntigravityIDECloudcodeProfileName {
+		t.Fatalf("unexpected profile name %q", profile.Name)
+	}
+	if got, want := profile.Extensions, []uint16{0, 11, 65281, 23, 18, 5, 10, 13, 50, 43, 51}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("official IDE cloudcode extension order drifted: got %v want %v", got, want)
+	}
+	if got, want := profile.CipherSuites, []uint16{49195, 49199, 49196, 49200, 52393, 52392, 49161, 49171, 49162, 49172, 4865, 4866, 4867}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("official IDE cloudcode cipher order drifted: got %v want %v", got, want)
+	}
 }
 
 func TestStdTLSConnectionStatePreservesNegotiationMetadata(t *testing.T) {
