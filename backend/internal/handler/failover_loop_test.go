@@ -1331,6 +1331,34 @@ func TestFailoverClientGone(t *testing.T) {
 		require.Equal(t, statusClientClosedRequest, c.Writer.Status())
 	})
 
+	t.Run("服务端deadline_停止failover并标504", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+		defer cancel()
+		<-ctx.Done()
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+
+		require.True(t, failoverClientGone(c), "deadline 也必须停止 failover")
+		require.Equal(t, http.StatusGatewayTimeout, c.Writer.Status(), "服务端超时应终结为 504，不得默认为 200")
+		require.NotEqual(t, statusClientClosedRequest, c.Writer.Status())
+		require.False(t, service.HasOpsClientClosedRequest(c))
+	})
+
+	t.Run("服务端deadline_已提交响应不改状态码", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+		defer cancel()
+		<-ctx.Done()
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+		c.String(http.StatusOK, "partial")
+
+		require.True(t, failoverClientGone(c))
+		require.Equal(t, http.StatusOK, c.Writer.Status(), "已提交的状态码不应被覆盖")
+		require.False(t, service.HasOpsClientClosedRequest(c))
+	})
+
 	t.Run("响应已提交_不改状态码", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
