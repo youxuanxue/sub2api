@@ -225,6 +225,7 @@ func ProvideHandlers(
 	edgeAccountsHandler *EdgeAccountsHandler,
 	edgeAdminSessionHandler *EdgeAdminSessionHandler,
 	edgeAccountOpsHandler *EdgeAccountOpsHandler,
+	geminiWebSessionHandler *GeminiWebSessionHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	_ *service.IdempotencyCoordinator,
@@ -259,6 +260,7 @@ func ProvideHandlers(
 		EdgeAccounts:     edgeAccountsHandler,
 		EdgeAdminSession: edgeAdminSessionHandler,
 		EdgeAccountOps:   edgeAccountOpsHandler,
+		GeminiWebSession: geminiWebSessionHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
 	}

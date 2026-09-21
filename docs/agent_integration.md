@@ -571,6 +571,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/edge/scheduling-capacity` from `backend/internal/server/routes/edge_tk_routes.go`
 - `GET /api/v1/groups/available` from `backend/internal/server/routes/user.go`
 - `GET /api/v1/groups/rates` from `backend/internal/server/routes/user.go`
+- `PUT /api/v1/internal/gemini-web/accounts/:id/runtime` from `backend/internal/server/routes/edge_tk_routes.go`
+- `GET /api/v1/internal/gemini-web/accounts/:id/session` from `backend/internal/server/routes/edge_tk_routes.go`
+- `GET /api/v1/internal/gemini-web/warm-accounts` from `backend/internal/server/routes/edge_tk_routes.go`
 - `GET /api/v1/keys` from `backend/internal/server/routes/user.go`
 - `POST /api/v1/keys` from `backend/internal/server/routes/user.go`
 - `DELETE /api/v1/keys/:id` from `backend/internal/server/routes/user.go`

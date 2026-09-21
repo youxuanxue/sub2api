@@ -19,6 +19,8 @@ import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from urllib.parse import urlsplit
 
 from curl_cffi import requests
@@ -43,6 +45,46 @@ class Failure(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class SessionVersionConflict(Exception):
+    """The operator installed a newer session while this owner was refreshing."""
+
+
+class SessionControl:
+    """Narrow client for the edge-local Gemini Web session control plane."""
+    def __init__(self, base_url, token):
+        if not base_url.startswith('http://') and not base_url.startswith('https://'):
+            raise ValueError('Invalid Gemini Web control URL')
+        if len(token) < 32:
+            raise ValueError('Gemini Web control token is required')
+        self.base_url = base_url.rstrip('/')
+        self.token = token
+
+    def request(self, method, path, payload=None):
+        body = None if payload is None else json.dumps(payload, separators=(',', ':')).encode()
+        request = Request(self.base_url + path, data=body, method=method,
+                          headers={'Authorization': 'Bearer ' + self.token,
+                                   'Content-Type': 'application/json'})
+        try:
+            with urlopen(request, timeout=15) as response:
+                return json.loads(response.read())
+        except HTTPError as exc:
+            if exc.code == 409:
+                raise SessionVersionConflict() from exc
+            raise Failure(503, 'Gemini Web session control unavailable') from exc
+        except (URLError, ValueError, TimeoutError) as exc:
+            raise Failure(503, 'Gemini Web session control unavailable') from exc
+
+    def load(self, account_id):
+        return self.request('GET', '/internal/gemini-web/accounts/%s/session' % account_id)
+
+    def save_runtime(self, account_id, version, state):
+        return self.request('PUT', '/internal/gemini-web/accounts/%s/runtime' % account_id,
+                            {'expected_version': version, 'runtime': state})
+
+    def warm_accounts(self):
+        return self.request('GET', '/internal/gemini-web/warm-accounts')
 
 
 def nested(value, *indices, default=None):
@@ -182,15 +224,31 @@ def atomic_json(path, value):
 
 
 class Account:
-    def __init__(self, root):
-        self.root = Path(root)
-        bundle = json.loads((self.root / 'bundle.json').read_text())
+    def __init__(self, root=None, bundle=None, state=None, persist_callback=None):
+        """Create one account-local session owner.
+
+        `root` is retained only for the pre-control-plane canary migration. The
+        control-plane path passes a bundle/state directly and persists through
+        `persist_callback`; it never reads or writes session files.
+        """
+        self.root = Path(root) if root is not None else None
+        if bundle is None:
+            if self.root is None:
+                raise ValueError('Gemini Web session bundle is required')
+            bundle = json.loads((self.root / 'bundle.json').read_text())
         if (not isinstance(bundle, dict) or not isinstance(bundle.get('ua'), str)
                 or not bundle['ua'] or not isinstance(bundle.get('cookies'), list)
                 or not bundle['cookies']):
             raise ValueError('Invalid Gemini Web session bundle')
-        saved = self.root / 'state.json'
-        state = json.loads(saved.read_text()) if saved.exists() else {}
+        if state is None:
+            if self.root is None:
+                state = {}
+            else:
+                saved = self.root / 'state.json'
+                state = json.loads(saved.read_text()) if saved.exists() else {}
+        if not isinstance(state, dict):
+            raise ValueError('Invalid Gemini Web session state')
+        self.persist_callback = persist_callback
         self.blocked = state.get('blocked', False)
         self.generation_pending = state.get('generation_pending', False)
         self.cooldown_until = state.get('cooldown_until', 0)
@@ -199,6 +257,7 @@ class Account:
         self.session = requests.Session(impersonate=BROWSER_PROFILE, timeout=180, trust_env=False)
         self.session.headers['User-Agent'] = bundle['ua']
         usable_cookies = 0
+        self.cookie_records = {}
         for c in state.get('cookies', bundle['cookies']):
             if not isinstance(c, dict) or not all(isinstance(c.get(field), str) and c[field]
                                                   for field in ('name', 'value', 'domain')):
@@ -214,6 +273,7 @@ class Account:
                 0, c['name'], c['value'], None, False, domain, domain.startswith('.'),
                 domain.startswith('.'), c.get('path', '/'), True, c.get('secure', True),
                 int(expires) if expires and expires > 0 else None, False, None, None, {}, False))
+            self.cookie_records[(c['name'], domain, c.get('path', '/'))] = dict(c)
             usable_cookies += 1
         if not usable_cookies:
             raise ValueError('Gemini Web session bundle contains no supported cookies')
@@ -226,11 +286,24 @@ class Account:
         self.session.close()
 
     def persist(self):
-        cookies = [dict(name=c.name, value=c.value, domain=c.domain, path=c.path,
-                        secure=c.secure, expires=c.expires or -1) for c in self.session.cookies.jar]
-        atomic_json(self.root / 'state.json', dict(cookies=cookies, blocked=self.blocked,
-                    generation_pending=self.generation_pending,
-                    last_refresh=self.last_refresh, cooldown_until=self.cooldown_until))
+        records = dict(self.cookie_records)
+        for cookie in self.session.cookies.jar:
+            key = (cookie.name, cookie.domain, cookie.path)
+            updated = dict(records.get(key, {}))
+            updated.update(name=cookie.name, value=cookie.value, domain=cookie.domain,
+                           path=cookie.path, secure=cookie.secure,
+                           expires=cookie.expires or -1)
+            records[key] = updated
+        state = dict(cookies=list(records.values()), blocked=self.blocked,
+                     generation_pending=self.generation_pending,
+                     last_refresh=self.last_refresh, cooldown_until=self.cooldown_until)
+        self.cookie_records = {(c['name'], c['domain'], c.get('path', '/')): c for c in state['cookies']}
+        if self.persist_callback is not None:
+            self.persist_callback(state)
+            return
+        if self.root is None:
+            raise RuntimeError('Gemini Web session persistence is not configured')
+        atomic_json(self.root / 'state.json', state)
 
     def call(self, method, url, **kwargs):
         data = bytearray()
@@ -476,6 +549,134 @@ class ManagedAccount:
             self.account.close()
 
 
+def control_account(record, control):
+    """Build one account from a control-plane record without filesystem state."""
+    if not isinstance(record, dict) or not re.fullmatch(r'[1-9][0-9]*', str(record.get('account_id', ''))):
+        raise ValueError('Invalid Gemini Web control session')
+    runtime = record.get('runtime')
+    if not isinstance(runtime, dict) or not isinstance(runtime.get('version'), int):
+        raise ValueError('Invalid Gemini Web runtime session')
+    ua = runtime.get('user_agent', runtime.get('ua'))
+    bundle = {'ua': ua, 'cookies': runtime.get('cookies')}
+    state = runtime.get('state', {})
+    account_id, version = str(record['account_id']), runtime['version']
+
+    def persist(updated):
+        nonlocal version
+        replacement = dict(runtime)
+        replacement['user_agent'] = ua
+        replacement.pop('ua', None)
+        replacement['cookies'] = updated['cookies']
+        replacement['state'] = {key: value for key, value in updated.items() if key != 'cookies'}
+        response = control.save_runtime(account_id, version, replacement)
+        try:
+            version = response['runtime']['version']
+            runtime.clear()
+            runtime.update(response['runtime'])
+        except (KeyError, TypeError):
+            raise Failure(503, 'Invalid Gemini Web session control response')
+
+    account = Account(bundle=bundle, state=state, persist_callback=persist)
+    return account, version
+
+
+class ControlManagedAccount:
+    """A swappable owner backed by one account's versioned database session."""
+    def __init__(self, account_id, control, record):
+        self.account_id = account_id
+        self.control = control
+        self.operation = threading.Lock()
+        self.account, self.version = control_account(record, control)
+
+    def reload(self, record):
+        replacement, version = control_account(record, self.control)
+        with self.operation:
+            previous, self.account, self.version = self.account, replacement, version
+        previous.close()
+
+    def generate(self, model, body):
+        with self.operation:
+            try:
+                return self.account.generate(model, body)
+            except SessionVersionConflict as exc:
+                self.account.close()
+                raise Failure(409, 'Gemini Web session changed; retry the request') from exc
+
+    def maintain(self):
+        if not self.operation.acquire(blocking=False):
+            return
+        try:
+            account = self.account
+            if (not account.blocked and not account.generation_pending
+                    and time.time() >= account.cooldown_until
+                    and time.time() - account.last_refresh >= REFRESH_SECONDS):
+                try:
+                    account.refresh()
+                    print(json.dumps({'event': 'session_refreshed', 'account': self.account_id}), flush=True)
+                except SessionVersionConflict:
+                    print(json.dumps({'event': 'session_refresh_stale', 'account': self.account_id}), flush=True)
+                except Failure as exc:
+                    account.cooldown_until = time.time() + REFRESH_SECONDS
+                    try:
+                        account.persist()
+                    except SessionVersionConflict:
+                        pass
+                    print(json.dumps({'event': 'session_refresh_failed', 'account': self.account_id,
+                                      'status': exc.code}), flush=True)
+        finally:
+            self.operation.release()
+
+    def close(self):
+        with self.operation:
+            self.account.close()
+
+
+class ControlAdapter:
+    """Fileless account registry: sessions enter memory only by account id."""
+    def __init__(self, control):
+        self.control = control
+        self.registry_lock = threading.RLock()
+        self.accounts = {}
+
+    def authorize(self, key, account_id=None):
+        # The Worker service credential authenticates this hop. The gateway owns
+        # account selection and supplies the account reference; client headers do
+        # not reach this private network.
+        if not isinstance(account_id, str) or not re.fullmatch(r'[1-9][0-9]*', account_id):
+            raise Failure(401, 'Missing Gemini Web account reference')
+        with self.registry_lock:
+            managed = self.accounts.get(account_id)
+        record = self.control.load(account_id)
+        if str(record.get('account_id')) != account_id:
+            raise Failure(403, 'Gemini Web account reference mismatch')
+        version = nested(record, 'runtime', 'version')
+        if managed is None:
+            managed = ControlManagedAccount(account_id, self.control, record)
+            with self.registry_lock:
+                existing = self.accounts.setdefault(account_id, managed)
+            if existing is not managed:
+                managed.close()
+                managed = existing
+        elif managed.version != version:
+            managed.reload(record)
+        return managed
+
+    def maintain(self):
+        while True:
+            try:
+                records = self.control.warm_accounts()
+                for record in records.get('accounts', []):
+                    account_id = str(record.get('account_id', ''))
+                    if re.fullmatch(r'[1-9][0-9]*', account_id):
+                        try:
+                            self.authorize('', account_id).maintain()
+                        except Failure:
+                            pass
+            except Failure:
+                pass
+            time.sleep(HOT_RELOAD_SECONDS)
+
+
 class Adapter:
     def __init__(self, root):
         root = Path(root)
@@ -568,7 +769,7 @@ class Adapter:
                 account.maintain()
             time.sleep(HOT_RELOAD_SECONDS)
 
-    def authorize(self, key):
+    def authorize(self, key, account_id=None):
         digest = hashlib.sha256(key.encode()).digest()
         with self.registry_lock:
             accounts = list(self.accounts.items())
@@ -635,7 +836,9 @@ class Handler(BaseHTTPRequestHandler):
         started = time.monotonic()
         code = 500
         try:
-            account = self.server.adapter.authorize(self.headers.get('x-goog-api-key', ''))
+            account = self.server.adapter.authorize(
+                self.headers.get('x-goog-api-key', ''),
+                self.headers.get('x-tokenkey-gemini-web-account-id'))
             match = re.fullmatch(r'/v1beta/models/([a-z0-9-]+):(generateContent|streamGenerateContent)(?:\?alt=sse)?', self.path)
             if not match:
                 raise Failure(404, 'Unsupported endpoint')
@@ -660,6 +863,7 @@ class Handler(BaseHTTPRequestHandler):
         except Failure as exc:
             code = exc.code
             status = {400: 'INVALID_ARGUMENT', 401: 'UNAUTHENTICATED', 403: 'PERMISSION_DENIED',
+                409: 'ABORTED',
                 404: 'NOT_FOUND', 413: 'RESOURCE_EXHAUSTED', 429: 'RESOURCE_EXHAUSTED', 502: 'UNAVAILABLE'}.get(code, 'INTERNAL')
             self.reply(code, {'error': {'code': code, 'status': status, 'message': exc.message}})
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
@@ -672,6 +876,10 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     os.umask(0o077)
-    adapter = Adapter(os.environ.get('GEMINI_WEB_STATE_DIR', '/state'))
+    control_url = os.environ.get('GEMINI_WEB_CONTROL_URL', '').strip()
+    if control_url:
+        adapter = ControlAdapter(SessionControl(control_url, os.environ.get('GEMINI_WEB_CONTROL_TOKEN', '')))
+    else:
+        adapter = Adapter(os.environ.get('GEMINI_WEB_STATE_DIR', '/state'))
     threading.Thread(target=adapter.maintain, daemon=True).start()
     Server(('0.0.0.0', 8091), adapter).serve_forever()

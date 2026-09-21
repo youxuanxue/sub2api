@@ -95,9 +95,10 @@ type Handlers struct {
 	// TK: edge least-privilege account WRITE ops (clear-rate-limit / reset-quota /
 	// temp-unschedulable / schedulable / usage) the prod /accounts page proxies to
 	// for inline edge-account management — see edge_tk_account_ops_handler.go.
-	EdgeAccountOps *EdgeAccountOpsHandler
-	AsyncImage     *AsyncImageHandler
-	BatchImage     *BatchImageHandler
+	EdgeAccountOps   *EdgeAccountOpsHandler
+	GeminiWebSession *GeminiWebSessionHandler
+	AsyncImage       *AsyncImageHandler
+	BatchImage       *BatchImageHandler
 }
 
 // BuildInfo contains build-time information

@@ -684,9 +684,9 @@ prod #200 `gemini-us4` 正常；us4 #29 仍为 `error / schedulable=false`，本
    副本显示“待导入凭证”，保持不可调度；不得激活来源账号的 Worker key、会话引用或 Cookie。
 3. 点击编辑，在一个“Gemini Web 会话凭证”控件内粘贴完整凭证，或选择导出的 JSON 文件。
    两种输入解析为同一会话包，复用相同校验与保存流程；运营无需修改 base URL 或内部密钥。
-4. 保存后由目标 edge 校验会话身份、登录状态和模型能力，创建或更新独立 Worker 绑定。
-   显示文本、原图验证进度；只有对应能力验证成功才标记可用，失败显示具体阶段。
-   原图验证会真实消耗一次生成额度，应在保存验证操作中说明，不能后台反复自动生图。
+4. 保存后由目标 edge 校验会话身份、登录状态和模型能力，并创建或更新该账号的独立 runtime。
+   保存验证只做 bootstrap 与模型状态检查，不自动生成图片。账号卡分别显示会话有效、文本已验证、
+   图片已验证和保活状态；“验证图片能力”是明确的运营操作，因为它会真实消耗一次生成额度。
 5. 后续登录失效时，在原指纹浏览器完成登录或验证，再编辑原 TokenKey 账号替换凭证。
    保留账号 ID、分组和用量历史，不要求重新建号。
 
@@ -723,19 +723,57 @@ prod 已有该 edge 的中继且分组/模型权限匹配时，新增 edge 账�
 AdsPower 原生导出格式须用真实脱敏样本确认兼容性，不能假定所有指纹浏览器都导出同一种 JSON。
 不以普通 Cookie header 字符串或仅两个 Cookie 作为已经验证的全尺寸图片凭据格式。
 
-保存后，目标 edge 将会话包交给受认证的本地 Worker 管理接口，自动生成该账号独立的 Worker key
-和会话引用。Google Cookie 由 Worker 的唯一会话 owner 持久化并刷新；TokenKey 账号继续只绑定内部密钥/引用。
+保存后，会话包作为该账号 `accounts.credentials.gemini_web` 的一部分持久化在目标 edge：
+
+```json
+{
+  "source_bundle": { "format": "tokenkey-gemini-web-session-v1", "user_agent": "...", "cookies": [] },
+  "runtime": { "version": 42, "user_agent": "...", "cookies": [], "identity_hash": "...", "updated_at": "..." }
+}
+```
+
+`source_bundle` 是运营导入时的只读快照，只用于审计和重新核验，不能被 Worker 自动作为失效会话的回退。
+`runtime` 是唯一可执行会话；它保留完整 UA 与 Cookie 对象，不把 Cookie 拆成会随浏览器协议变化的关系型字段。
+运营导入会同时替换两个对象并递增 `runtime.version`；Worker refresh 只比较交换 `runtime`。
 运营在编辑界面看到凭证是否已设置、脱敏身份和验证结果；普通账号详情、复制响应和错误日志不回显会话包。
 “留空保留原凭证”只适用于已有绑定的账号；新副本没有有效绑定时必须输入新凭证。
 
 会话以目标 edge 和稳定账号引用隔离，浏览器编号仅作为来源信息，不能用编号代替 Google 身份。
-同一 Google 身份重复导入须识别为更新/重复绑定，不能靠复制账号制造两个独立额度池。
+同一 Google 身份重复导入须识别为更新/重复绑定，不能靠复制账号制造两个独立额度池。复制 Gemini Web
+账号时必须清空 `source_bundle`、`runtime`、身份哈希、版本、验证状态和租约信息；副本天然为
+`credential_required` 且不可调度。
 凭证更新按账号串行执行，验证新版本后原子替换；失败不覆盖其他账号，也不得让后台旧刷新结果覆盖新凭证。
-Worker 已支持按账号热加载：它每五秒检查 `accounts.json` 与每个账号的 `bundle.json`。
-替换一个 bundle 会等待该账号自己的在途请求完成，再替换内存会话；其他账号继续服务，
-Worker 不重启。读取/构造新会话失败时保留现有内存会话。新增/移除账号同样只影响该账号。
-导入安装的严格顺序为“临时写新 bundle → 删除该账号 state.json → 原子替换 bundle.json”；
-删除旧 state 必须先于最终 bundle 替换，避免旧刷新 Cookie 覆盖新导入的浏览器会话。
+
+### 无文件 Worker 控制面
+
+Gemini Web Worker 启动后没有账号清单，不读取或写入 `accounts.json`、`bundle.json`、`state.json`。
+它是无状态执行器，运行时只在内存中维护按 `account_id` 隔离的 SessionOwner：
+
+1. 网关已经选择实际 edge account；转发给 Worker 时附带不可由客户端伪造的 account reference。
+2. Worker 首次收到该 account 的请求时，经仅 edge 内网可访问、持服务令牌的控制接口读取当前
+   `credentials.gemini_web_session` 与 `version`，然后构造该 account 的 SessionOwner。
+3. 每个已加载 account 单独检查版本。运营导入新会话后，只等待该 account 的在途请求结束，再替换
+   它的 SessionOwner；其他 account 继续处理请求。
+4. `RotateCookies`、暂停和冷却仅更新该 account 的 `runtime`。Worker 用 `expected_version` 写回；
+   冲突表示存在较新的运营导入或另一位 owner，Worker 必须丢弃本地 SessionOwner 并重新读取，
+   不得合并旧 Cookie 或覆盖新 session。
+5. 容器重启后 Worker 内存为空；下一次请求或保活任务从 edge 数据库恢复该 account，无文件恢复步骤。
+
+控制接口只允许 Worker 服务凭据访问，运行在 Docker 私有网络或 Unix socket，绝不经 Caddy、宿主端口、
+prod、普通 admin API、账号列表、审计日志或浏览器客户端。每次执行使用带 account_id、request_id 与过期时间的
+账号范围短期票据；接口不提供枚举或批量导出会话的能力。它只接受 Gemini Web 账号且校验 account 状态、edge 归属
+和 session 格式；无 session、disabled、或身份不匹配账号一律拒绝加载。日志仅记录 account_id、version、状态和
+request_id，绝不记录 Cookie、UA、请求体或上游 URL。
+
+每个 account 在 edge Redis 中持有单写者租约 `gemini-web:owner:<account_id>`。只有持有租约的 Worker
+可以访问 Google、刷新 Cookie 或回写 runtime；失去租约的 Worker 丢弃该 account 的 SessionOwner。该租约覆盖
+部署重叠和多 Worker 副本，不能以单进程内存锁代替。
+
+账号保活由 edge 后端调度器驱动，而非 Worker 启动时批量访问 Google 或自行扫描数据库。调度器读取不含 Cookie 的元数据，
+将 `warm` account 的任务以抖动分散；任务执行时 Worker 再按 account_id 读取 session，串行执行
+`RotateCookies → bootstrap → 模型状态检查`，并回写同一 account 的 runtime。初期使用十分钟加抖动
+的 warm 周期和 edge 级单并发；`cold` 账号不主动访问 Google，在首请求时再加载验证。保活不生成文本或图片。
+Worker 的职责仅是“接收 account_id 并执行”，不拥有账号发现或调度策略。
 
 ### 当前缺口与验收边界
 

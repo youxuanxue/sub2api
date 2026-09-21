@@ -212,6 +212,52 @@ class WorkerTests(unittest.TestCase):
         imported.session.close()
         restored.session.close()
 
+    def test_memory_session_persists_complete_cookie_records(self):
+        writes = []
+        account = worker.Account(bundle={'ua': 'test', 'cookies': [{
+            'name': '__Secure-1PSID', 'value': 'cookie', 'domain': '.google.com',
+            'path': '/', 'secure': True, 'httpOnly': True, 'sameSite': 'Lax',
+            'partitionKey': {'topLevelSite': 'https://gemini.google.com'}}]},
+            persist_callback=writes.append)
+        try:
+            account.session.cookies.set('SIDCC', 'rotated', domain='.google.com', path='/')
+            account.persist()
+            self.assertEqual(writes[-1]['cookies'][0]['httpOnly'], True)
+            self.assertEqual(writes[-1]['cookies'][0]['sameSite'], 'Lax')
+            self.assertIn('partitionKey', writes[-1]['cookies'][0])
+            self.assertEqual(next(c for c in writes[-1]['cookies'] if c['name'] == 'SIDCC')['value'], 'rotated')
+        finally:
+            account.close()
+
+    def test_control_adapter_loads_one_account_and_reloads_only_its_version(self):
+        class Control:
+            def __init__(self):
+                self.records = {'28': {'account_id': '28', 'runtime': {
+                    'version': 1, 'user_agent': 'ua-one', 'cookies': [{
+                        'name': '__Secure-1PSID', 'value': 'one', 'domain': '.google.com'}], 'state': {}}}}
+                self.writes = []
+            def load(self, account_id):
+                return self.records[account_id]
+            def save_runtime(self, account_id, version, state):
+                self.writes.append((account_id, version, state))
+                self.records[account_id]['runtime']['version'] += 1
+                return self.records[account_id]
+            def warm_accounts(self):
+                return {'accounts': []}
+        control = Control()
+        adapter = worker.ControlAdapter(control)
+        one = adapter.authorize('', '28')
+        self.assertEqual(one.account.session.cookies.get('__Secure-1PSID'), 'one')
+        control.records['28']['runtime'] = {'version': 2, 'user_agent': 'ua-two', 'cookies': [{
+            'name': '__Secure-1PSID', 'value': 'two', 'domain': '.google.com'}], 'state': {}}
+        same = adapter.authorize('', '28')
+        self.assertIs(one, same)
+        self.assertEqual(same.account.session.headers['User-Agent'], 'ua-two')
+        self.assertEqual(same.account.session.cookies.get('__Secure-1PSID'), 'two')
+        with self.assertRaises(worker.Failure):
+            adapter.authorize('', 'not-an-account')
+        same.close()
+
     def test_keys_select_separate_accounts_and_second_owner_is_refused(self):
         seed(self.root, 'two', 'cookie-two')
         (self.root / 'accounts.json').write_text(json.dumps([
@@ -281,7 +327,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_http_auth_and_buffered_sse(self):
         key = 'a' * 40
-        adapter = SimpleNamespace(authorize=lambda value: self.account if value == key else (_ for _ in ()).throw(worker.Failure(401, 'Invalid worker API key')))
+        adapter = SimpleNamespace(authorize=lambda value, _account_id=None: self.account if value == key else (_ for _ in ()).throw(worker.Failure(401, 'Invalid worker API key')))
         server = worker.Server(('127.0.0.1', 0), adapter)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()

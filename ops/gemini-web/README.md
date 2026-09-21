@@ -21,6 +21,30 @@ automatic generation retries, claimed modelVersion or fabricated usageMetadata.
 
 ## State
 
+### Database control plane
+
+The production mode has no account/session JSON files. Give both the edge
+backend and this companion the same 32+ character `GEMINI_WEB_CONTROL_TOKEN`,
+then start the companion with:
+
+```text
+GEMINI_WEB_CONTROL_URL=http://<edge-backend>/api/v1
+GEMINI_WEB_CONTROL_TOKEN=<private service token>
+```
+
+The URL must resolve only on the edge's private Docker network. In this mode
+the Worker starts with no accounts, loads one account's `credentials.gemini_web.runtime`
+only after the gateway selects it, and writes refreshed state back with its
+version. Do not publish `/api/v1/internal/gemini-web` through Caddy or assign
+the service token to an admin or client API key.
+
+A Worker request carries `X-TokenKey-Gemini-Web-Account-ID`, injected by the
+gateway from its selected account. It is not an operator input or a public API
+header. Cookie values, session exports and the control token must never enter
+logs, image configuration, shell arguments or source control.
+
+### Legacy canary volume
+
 A protected volume (directories 0700, files 0600, owner UID 1000) contains:
 
 ```text
