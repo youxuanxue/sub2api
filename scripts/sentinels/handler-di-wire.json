@@ -15,16 +15,40 @@
     {
       "path": "backend/internal/server/routes/edge_tk_routes.go",
       "must_contain": [
+        "control := edge.Group(\"/gemini-web\")",
+        "h.GeminiWebSession.Enabled() && userService != nil",
+        "edge.Use(middleware2.NewEdgeAdminOwnerMiddleware(apiKeyService, userService))",
         "control.GET(\"/accounts/:id/session\", h.GeminiWebSession.Get)",
         "control.PUT(\"/accounts/:id/runtime\", h.GeminiWebSession.PutRuntime)",
-        "control.GET(\"/warm-accounts\", h.GeminiWebSession.WarmAccounts)"
+        "control.GET(\"/warm-accounts\", h.GeminiWebSession.WarmAccounts)",
+        "control.POST(\"/accounts/:id/lease\", h.GeminiWebSession.Lease)"
       ],
       "rationale": "Protect all control routes alongside the handler implementation and production DI."
     },
     {
       "path": "backend/internal/handler/gemini_web_session_handler.go",
-      "must_contain": ["func (h *GeminiWebSessionHandler) WarmAccounts", "if !h.authorize(c)"],
+      "must_contain": ["func (h *GeminiWebSessionHandler) WarmAccounts", "middleware.EdgeCallerAPIKeyCtxKey", "geminiWebLeaseOwner.MatchString(owner)"],
       "rationale": "Anchor the control implementation together with its injection points."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": ["setGeminiWebAccountHeader(upstreamReq, account)"],
+      "rationale": "Gateway-selected account identity must reach the worker. Both call paths are verified by the focused regression."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_tk_test.go",
+      "must_contain": ["func TestGeminiWebSelectedAccountHeaderBothEntryPoints"],
+      "rationale": "Keep the native and Messages account-header behavior regression."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": ["mergeGeminiWebCredentialsLocked(ctx, client, account.ID, account.Credentials)", "mergeGeminiWebCredentialsLocked(ctx, client, id, credentials)"],
+      "rationale": "Both ordinary account edits and credentials updates must preserve current runtime and cannot revoke a live worker lease."
+    },
+    {
+      "path": "backend/internal/service/account_credentials_redact.go",
+      "must_contain": ["\"gemini_web\""],
+      "rationale": "The shared DTO/audit/merge credential owner must include browser sessions."
     },
     {
       "path": "ops/gemini-web/test_worker.py",

@@ -153,7 +153,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 
 ## Pending baselines
 
-- [Gemini Web 新通路](gemini-web-channel.md) — 两账号全尺寸图片证据、官方 generateContent 响应契约与 edge 容量预算；生产实现及 Linux 验收待完成。
+- [Gemini Web 新通路](gemini-web-channel.md) — 数据库会话、共享 edge 鉴权、官方响应与单 owner 契约；后台导入 UI 和本次部署验收尚未完成。
 
 - [Gateway capability verification](prod-replay-capability-matrix.md) — offline matrix planning and explicit isolated checks, independent of deployment.
 

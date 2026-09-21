@@ -130,6 +130,9 @@ case "$ENDPOINT" in
   messages|count_tokens|chat|responses|embeddings|images|speech|transcriptions|gemini|gemini_image) ;;
   *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, images, speech, transcriptions, gemini, or gemini_image" ;;
 esac
+if [[ "$ENDPOINT" == "gemini_image" ]]; then
+  python3 -c 'from PIL import Image' >/dev/null 2>&1 || fail_json "gemini_image requires Pillow in the probe Python environment"
+fi
 if [[ "$ENDPOINT" == "transcriptions" ]]; then
   [[ -n "$AUDIO_FILE" && -f "$AUDIO_FILE" && -r "$AUDIO_FILE" && -s "$AUDIO_FILE" ]] || fail_json "transcriptions requires AUDIO_FILE pointing to a readable nonempty MP3/WAV"
   [[ -z "$REQUEST_EXTRA_JSON" ]] || fail_json "transcriptions does not accept REQUEST_EXTRA_JSON"

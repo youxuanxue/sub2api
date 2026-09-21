@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
-"""Private Gemini Web HTTP adapter. Contract: docs/approved/gemini-web-channel.md.
+"""Gemini Web HTTP adapter. Contract: docs/approved/gemini-web-channel.md.
 
 One process owns all account jars; no browser, OAuth token, automatic regeneration,
 preview fallback, or invented token usage. Web wire fields are an unstable protocol.
 """
 import base64
-import fcntl
-import hashlib
 import hmac
 import http.cookiejar
 import io
 import json
 import os
-from pathlib import Path
 import re
 import secrets
 import threading
@@ -26,6 +23,7 @@ from urllib.parse import urlsplit
 from curl_cffi import requests
 from curl_cffi.requests.impersonate import BrowserType
 from PIL import Image
+from session_contract import ALLOWED_COOKIE_DOMAINS
 
 ORIGIN = 'https://gemini.google.com'
 BATCH = ORIGIN + '/_/BardChatUi/data/batchexecute'
@@ -61,11 +59,12 @@ class SessionControl:
         self.base_url = base_url.rstrip('/')
         self.token = token
 
-    def request(self, method, path, payload=None):
+    def request(self, method, path, payload=None, owner=None):
         body = None if payload is None else json.dumps(payload, separators=(',', ':')).encode()
         request = Request(self.base_url + path, data=body, method=method,
                           headers={'Authorization': 'Bearer ' + self.token,
-                                   'Content-Type': 'application/json'})
+                                   'Content-Type': 'application/json',
+                                   'X-Gemini-Web-Lease': owner or ''})
         try:
             with urlopen(request, timeout=15) as response:
                 return json.loads(response.read())
@@ -77,14 +76,20 @@ class SessionControl:
             raise Failure(503, 'Gemini Web session control unavailable') from exc
 
     def load(self, account_id):
-        return self.request('GET', '/internal/gemini-web/accounts/%s/session' % account_id)
+        return self.request('GET', '/edge/gemini-web/accounts/%s/session' % account_id)
 
-    def save_runtime(self, account_id, version, state):
-        return self.request('PUT', '/internal/gemini-web/accounts/%s/runtime' % account_id,
-                            {'expected_version': version, 'runtime': state})
+    def save_runtime(self, account_id, version, state, owner):
+        return self.request('PUT', '/edge/gemini-web/accounts/%s/runtime' % account_id,
+                            {'expected_version': version, 'runtime': state}, owner)
+
+    def acquire(self, account_id, owner):
+        return self.request('POST', '/edge/gemini-web/accounts/%s/lease' % account_id, owner=owner)
+
+    def release(self, account_id, owner):
+        return self.request('DELETE', '/edge/gemini-web/accounts/%s/lease' % account_id, owner=owner)
 
     def warm_accounts(self):
-        return self.request('GET', '/internal/gemini-web/warm-accounts')
+        return self.request('GET', '/edge/gemini-web/warm-accounts')
 
 
 def nested(value, *indices, default=None):
@@ -205,47 +210,15 @@ def request_prompt(body, model):
     return prompt, modalities
 
 
-def atomic_json(path, value):
-    temporary = path.with_name(path.name + '.' + secrets.token_hex(6))
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, 'w') as output:
-            json.dump(value, output, separators=(',', ':'))
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 class Account:
-    def __init__(self, root=None, bundle=None, state=None, persist_callback=None):
-        """Create one account-local session owner.
-
-        `root` is retained only for the pre-control-plane canary migration. The
-        control-plane path passes a bundle/state directly and persists through
-        `persist_callback`; it never reads or writes session files.
-        """
-        self.root = Path(root) if root is not None else None
-        if bundle is None:
-            if self.root is None:
-                raise ValueError('Gemini Web session bundle is required')
-            bundle = json.loads((self.root / 'bundle.json').read_text())
-        if (not isinstance(bundle, dict) or not isinstance(bundle.get('ua'), str)
-                or not bundle['ua'] or not isinstance(bundle.get('cookies'), list)
+    def __init__(self, bundle, state=None, persist_callback=None, deadline=None):
+        self.deadline = deadline
+        if (not isinstance(bundle, dict) or not isinstance(bundle.get('user_agent'), str)
+                or not bundle['user_agent'] or not isinstance(bundle.get('cookies'), list)
                 or not bundle['cookies']):
             raise ValueError('Invalid Gemini Web session bundle')
         if state is None:
-            if self.root is None:
-                state = {}
-            else:
-                saved = self.root / 'state.json'
-                state = json.loads(saved.read_text()) if saved.exists() else {}
+            state = {}
         if not isinstance(state, dict):
             raise ValueError('Invalid Gemini Web session state')
         self.persist_callback = persist_callback
@@ -253,9 +226,8 @@ class Account:
         self.generation_pending = state.get('generation_pending', False)
         self.cooldown_until = state.get('cooldown_until', 0)
         self.last_refresh = state.get('last_refresh', 0)
-        self.lock = threading.Lock()
         self.session = requests.Session(impersonate=BROWSER_PROFILE, timeout=180, trust_env=False)
-        self.session.headers['User-Agent'] = bundle['ua']
+        self.session.headers['User-Agent'] = bundle['user_agent']
         usable_cookies = 0
         self.cookie_records = {}
         for c in state.get('cookies', bundle['cookies']):
@@ -264,9 +236,7 @@ class Account:
                 raise ValueError('Invalid Gemini Web cookie')
             domain = c['domain']
             # Only Google auth/image domains, never arbitrary imported cookie scopes.
-            if domain.lstrip('.') not in ('google.com', 'gemini.google.com', 'accounts.google.com',
-                                           'lh3.google.com', 'lh3.googleusercontent.com',
-                                           'work.fife.usercontent.google.com'):
+            if domain.lstrip('.') not in ALLOWED_COOKIE_DOMAINS:
                 continue
             expires = c.get('expires', -1)
             self.session.cookies.jar.set_cookie(http.cookiejar.Cookie(
@@ -286,10 +256,12 @@ class Account:
         self.session.close()
 
     def persist(self):
-        records = dict(self.cookie_records)
+        records = {}
         for cookie in self.session.cookies.jar:
+            if cookie.is_expired():
+                continue
             key = (cookie.name, cookie.domain, cookie.path)
-            updated = dict(records.get(key, {}))
+            updated = dict(self.cookie_records.get(key, {}))
             updated.update(name=cookie.name, value=cookie.value, domain=cookie.domain,
                            path=cookie.path, secure=cookie.secure,
                            expires=cookie.expires or -1)
@@ -301,9 +273,7 @@ class Account:
         if self.persist_callback is not None:
             self.persist_callback(state)
             return
-        if self.root is None:
-            raise RuntimeError('Gemini Web session persistence is not configured')
-        atomic_json(self.root / 'state.json', state)
+        raise RuntimeError('Gemini Web session persistence is not configured')
 
     def call(self, method, url, **kwargs):
         data = bytearray()
@@ -312,6 +282,11 @@ class Account:
                 raise Failure(502, 'Upstream response exceeds size limit')
             data.extend(chunk)
             return len(chunk)
+        if self.deadline is not None:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise Failure(503, 'Gemini Web operation lease expired')
+            kwargs['timeout'] = min(180, remaining)
         try:
             response = self.session.request(method, url, allow_redirects=False,
                                              content_callback=collect, **kwargs)
@@ -418,6 +393,8 @@ class Account:
                         # The original-image RPC is mandatory; dimensions are evidence,
                         # never a reason to upscale a preview and call it an original.
                         image.verify()
+                    with Image.open(io.BytesIO(data)) as image:
+                        image.load()
                 except Exception as exc:
                     raise Failure(502, 'Invalid original image bytes') from exc
                 return {'inlineData': {'mimeType': mime, 'data': base64.b64encode(data).decode('ascii')}}
@@ -431,8 +408,6 @@ class Account:
 
     def generate(self, model, body):
         prompt, modalities = request_prompt(body, model)
-        if not self.lock.acquire(blocking=False):
-            raise Failure(429, 'This account already has an active request')
         try:
             if self.blocked or self.generation_pending:
                 raise Failure(403, 'Session paused; operator verification or re-import required')
@@ -496,300 +471,161 @@ class Account:
                 self.generation_pending = False
                 self.persist()
             raise
-        finally:
-            self.lock.release()
 
 
-def file_signature(path):
-    stat = path.stat()
-    return stat.st_mtime_ns, stat.st_size
-
-
-class ManagedAccount:
-    """One swappable session owner. Its lock isolates one account only."""
-    def __init__(self, account_id, api_key, root, signature):
-        self.account_id = account_id
-        self.api_key = api_key
-        self.root = Path(root)
-        self.signature = signature
-        self.operation = threading.Lock()
-        self.account = Account(self.root)
-
-    def generate(self, model, body):
-        with self.operation:
-            return self.account.generate(model, body)
-
-    def maintain(self):
-        if not self.operation.acquire(blocking=False):
-            return
-        try:
-            account = self.account
-            if (not account.blocked and not account.generation_pending
-                    and time.time() >= account.cooldown_until
-                    and time.time() - account.last_refresh >= REFRESH_SECONDS):
-                try:
-                    account.refresh()
-                    print(json.dumps({'event': 'session_refreshed', 'account': self.account_id}), flush=True)
-                except Failure as exc:
-                    account.cooldown_until = time.time() + REFRESH_SECONDS
-                    account.persist()
-                    print(json.dumps({'event': 'session_refresh_failed', 'account': self.account_id,
-                                      'status': exc.code}), flush=True)
-        finally:
-            self.operation.release()
-
-    def replace(self, replacement, signature):
-        with self.operation:
-            previous, self.account = self.account, replacement
-            self.signature = signature
-        previous.close()
-
-    def close(self):
-        with self.operation:
-            self.account.close()
-
-
-def control_account(record, control):
-    """Build one account from a control-plane record without filesystem state."""
-    if not isinstance(record, dict) or not re.fullmatch(r'[1-9][0-9]*', str(record.get('account_id', ''))):
-        raise ValueError('Invalid Gemini Web control session')
-    runtime = record.get('runtime')
-    if not isinstance(runtime, dict) or not isinstance(runtime.get('version'), int):
-        raise ValueError('Invalid Gemini Web runtime session')
-    ua = runtime.get('user_agent', runtime.get('ua'))
-    bundle = {'ua': ua, 'cookies': runtime.get('cookies')}
-    state = runtime.get('state', {})
-    account_id, version = str(record['account_id']), runtime['version']
-
-    def persist(updated):
-        nonlocal version
-        replacement = dict(runtime)
-        replacement['user_agent'] = ua
-        replacement.pop('ua', None)
-        replacement['cookies'] = updated['cookies']
-        replacement['state'] = {key: value for key, value in updated.items() if key != 'cookies'}
-        response = control.save_runtime(account_id, version, replacement)
-        try:
-            version = response['runtime']['version']
-            runtime.clear()
-            runtime.update(response['runtime'])
-        except (KeyError, TypeError):
-            raise Failure(503, 'Invalid Gemini Web session control response')
-
-    account = Account(bundle=bundle, state=state, persist_callback=persist)
-    return account, version
-
-
-class ControlManagedAccount:
-    """A swappable owner backed by one account's versioned database session."""
-    def __init__(self, account_id, control, record):
+class SessionOwner:
+    """One serialized lifecycle for generation, refresh, reload and persistence."""
+    def __init__(self, account_id, control):
         self.account_id = account_id
         self.control = control
         self.operation = threading.Lock()
-        self.account, self.version = control_account(record, control)
+        self.account = None
+        self.runtime = None
+        self.owner = None
+        self.deadline = 0
 
-    def reload(self, record):
-        replacement, version = control_account(record, self.control)
-        with self.operation:
-            previous, self.account, self.version = self.account, replacement, version
-        previous.close()
+    def persist(self, updated):
+        if time.monotonic() >= self.deadline:
+            raise Failure(503, 'Gemini Web operation lease expired')
+        runtime = dict(self.runtime)
+        runtime['cookies'] = updated['cookies']
+        runtime['state'] = {k: v for k, v in updated.items() if k != 'cookies'}
+        response = self.control.save_runtime(
+            self.account_id, self.runtime['version'], runtime, self.owner)
+        self.runtime = response['runtime']
 
-    def generate(self, model, body):
-        with self.operation:
-            try:
-                return self.account.generate(model, body)
-            except SessionVersionConflict as exc:
-                self.account.close()
-                raise Failure(409, 'Gemini Web session changed; retry the request') from exc
-
-    def maintain(self):
+    def run(self, key=None, model=None, body=None):
+        if model is not None:
+            request_prompt(body, model)
         if not self.operation.acquire(blocking=False):
-            return
+            raise Failure(409, 'Account already has an active operation')
+        acquired = False
+        owner = secrets.token_hex(16)
+        # Start before acquisition: control-plane latency consumes the budget.
+        deadline = time.monotonic() + 480
         try:
+            self.control.acquire(self.account_id, owner)
+            acquired = True
+            record = self.control.load(self.account_id)
+            if str(record.get('account_id')) != self.account_id:
+                raise Failure(403, 'Gemini Web account reference mismatch')
+            if key is not None:
+                validate_key(key, record)
+            runtime = record.get('runtime')
+            if (not isinstance(runtime, dict)
+                    or type(runtime.get('version')) is not int
+                    or runtime['version'] < 0):
+                raise Failure(503, 'Invalid Gemini Web runtime')
+            # Read and replace only inside the operation lock and DB lease.
+            if self.runtime != runtime:
+                replacement = Account(
+                    bundle=runtime, state=runtime.get('state', {}),
+                    persist_callback=self.persist, deadline=deadline)
+                if self.account is not None:
+                    self.account.close()
+                self.account = replacement
+                self.runtime = runtime
+            self.owner, self.deadline = owner, deadline
+            self.account.deadline = deadline
+            if model is not None:
+                return self.account.generate(model, body)
             account = self.account
             if (not account.blocked and not account.generation_pending
                     and time.time() >= account.cooldown_until
                     and time.time() - account.last_refresh >= REFRESH_SECONDS):
                 try:
                     account.refresh()
-                    print(json.dumps({'event': 'session_refreshed', 'account': self.account_id}), flush=True)
-                except SessionVersionConflict:
-                    print(json.dumps({'event': 'session_refresh_stale', 'account': self.account_id}), flush=True)
-                except Failure as exc:
+                except Failure:
                     account.cooldown_until = time.time() + REFRESH_SECONDS
-                    try:
-                        account.persist()
-                    except SessionVersionConflict:
-                        pass
-                    print(json.dumps({'event': 'session_refresh_failed', 'account': self.account_id,
-                                      'status': exc.code}), flush=True)
+                    account.persist()
+                    raise
+        except SessionVersionConflict as exc:
+            self.invalidate()
+            raise Failure(409, 'Gemini Web session is busy or changed') from exc
+        except Exception:
+            self.invalidate()
+            raise
         finally:
-            self.operation.release()
+            try:
+                if acquired:
+                    try:
+                        self.control.release(self.account_id, owner)
+                    except (Failure, SessionVersionConflict):
+                        # Cleanup failure must not turn completed generation into
+                        # a retryable error. The DB crash lease still fences peers.
+                        self.invalidate()
+                        print(json.dumps({'event': 'session_lease_release_failed',
+                                          'account': self.account_id}), flush=True)
+            finally:
+                self.owner = None
+                self.operation.release()
+
+    def invalidate(self):
+        if self.account is not None:
+            self.account.close()
+        self.account = None
+        self.runtime = None
 
     def close(self):
         with self.operation:
-            self.account.close()
+            self.invalidate()
+
+
+def validate_key(key, record):
+    expected = record.get('api_key')
+    if (not isinstance(expected, str) or not expected or not key
+            or not hmac.compare_digest(key.encode(), expected.encode())):
+        raise Failure(401, 'Invalid worker API key')
+
+
+class AuthorizedAccount:
+    def __init__(self, owner, key):
+        self.owner, self.key = owner, key
+
+    def generate(self, model, body):
+        return self.owner.run(key=self.key, model=model, body=body)
 
 
 class ControlAdapter:
-    """Fileless account registry: sessions enter memory only by account id."""
+    """Database-backed registry; maintenance never impersonates a data caller."""
     def __init__(self, control):
         self.control = control
-        self.registry_lock = threading.RLock()
+        self.registry_lock = threading.Lock()
         self.accounts = {}
 
-    def authorize(self, key, account_id=None):
-        # The Worker service credential authenticates this hop. The gateway owns
-        # account selection and supplies the account reference; client headers do
-        # not reach this private network.
+    def session_owner(self, account_id):
         if not isinstance(account_id, str) or not re.fullmatch(r'[1-9][0-9]*', account_id):
             raise Failure(401, 'Missing Gemini Web account reference')
         with self.registry_lock:
-            managed = self.accounts.get(account_id)
-        record = self.control.load(account_id)
-        if str(record.get('account_id')) != account_id:
-            raise Failure(403, 'Gemini Web account reference mismatch')
-        version = nested(record, 'runtime', 'version')
-        if managed is None:
-            managed = ControlManagedAccount(account_id, self.control, record)
-            with self.registry_lock:
-                existing = self.accounts.setdefault(account_id, managed)
-            if existing is not managed:
-                managed.close()
-                managed = existing
-        elif managed.version != version:
-            managed.reload(record)
-        return managed
-
-    @staticmethod
-    def warm_account_id(record):
-        """Accept the edge control API's compact integer account references."""
-        if isinstance(record, int) and record > 0:
-            return str(record)
-        if isinstance(record, dict):
-            value = record.get('account_id', '')
-            if isinstance(value, int) and value > 0:
-                return str(value)
-            if isinstance(value, str):
-                return value
-        return ''
-
-    def maintain(self):
-        while True:
-            try:
-                records = self.control.warm_accounts()
-                for record in records.get('accounts', []):
-                    account_id = self.warm_account_id(record)
-                    if re.fullmatch(r'[1-9][0-9]*', account_id):
-                        try:
-                            self.authorize('', account_id).maintain()
-                        except Failure:
-                            pass
-            except Failure:
-                pass
-            time.sleep(HOT_RELOAD_SECONDS)
-
-
-class Adapter:
-    def __init__(self, root):
-        root = Path(root)
-        self.root = root
-        self.lease = (root / 'owner.lock').open('a')
-        fcntl.flock(self.lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        self.registry_lock = threading.RLock()
-        self.accounts = {}
-        self.accounts_by_id = {}
-        self.reload_from_disk(initial=True)
-
-    def configured_accounts(self):
-        entries = json.loads((self.root / 'accounts.json').read_text())
-        if not isinstance(entries, list):
-            raise ValueError('Invalid account configuration')
-        configured = []
-        digests = set()
-        account_ids = set()
-        for entry in entries:
-            if not isinstance(entry, dict):
-                raise ValueError('Invalid account configuration')
-            account_id, key = entry['id'], entry['api_key']
-            if not re.fullmatch(r'[a-zA-Z0-9_-]+', account_id) or len(key) < 32:
-                raise ValueError('Invalid account configuration')
-            digest = hashlib.sha256(key.encode()).digest()
-            if digest in digests or account_id in account_ids:
-                raise ValueError('Duplicate API key')
-            bundle = self.root / account_id / 'bundle.json'
-            configured.append((account_id, key, digest, bundle, file_signature(bundle)))
-            digests.add(digest)
-            account_ids.add(account_id)
-        return configured
-
-    def reload_from_disk(self, initial=False):
-        """Apply account manifest/bundle changes without replacing unrelated sessions."""
-        configured = self.configured_accounts()
-        replacements = []
-        additions = []
-        with self.registry_lock:
-            current = dict(self.accounts_by_id)
-        for account_id, key, digest, bundle, signature in configured:
-            managed = current.get(account_id)
-            if managed is None or managed.api_key != key:
-                additions.append((account_id, digest, ManagedAccount(account_id, key, bundle.parent, signature)))
-            elif managed.signature != signature:
-                replacements.append((managed, signature))
-
-        # Read every candidate before replacing any live session. A malformed
-        # multi-account import leaves the current set untouched.
-        prepared = [(managed, signature, Account(managed.root)) for managed, signature in replacements]
-        # A bundle replacement waits only for that account's active request.
-        for managed, signature, replacement in prepared:
-            managed.replace(replacement, signature)
-
-        with self.registry_lock:
-            next_by_id = {}
-            next_by_digest = {}
-            added = {account_id: (digest, managed) for account_id, digest, managed in additions}
-            for account_id, key, digest, _bundle, _signature in configured:
-                if account_id in added:
-                    _, managed = added[account_id]
-                else:
-                    managed = self.accounts_by_id[account_id]
-                next_by_id[account_id] = managed
-                next_by_digest[digest] = managed
-            retired = [managed for account_id, managed in self.accounts_by_id.items()
-                       if account_id not in next_by_id or next_by_id[account_id] is not managed]
-            self.accounts_by_id = next_by_id
-            self.accounts = next_by_digest
-        for managed in retired:
-            # A replaced key/removed account is no longer selectable. Let a
-            # request that already held it finish before releasing its session.
-            threading.Thread(target=managed.close, daemon=True).start()
-        if not initial and (replacements or additions or retired):
-            print(json.dumps({'event': 'accounts_hot_reloaded', 'reloaded': len(replacements),
-                              'added': len(additions), 'retired': len(retired)}), flush=True)
-
-    def maintain(self):
-        # A background owner renews idle accounts too. Browser sessions may rotate
-        # independently; a six-hour, request-only renewal cannot preserve a clone.
-        while True:
-            try:
-                self.reload_from_disk()
-            except Exception as exc:
-                # Preserve existing sessions when an import is incomplete or invalid.
-                print(json.dumps({'event': 'accounts_hot_reload_failed', 'type': type(exc).__name__}), flush=True)
-            with self.registry_lock:
-                accounts = list(self.accounts.values())
-            for account in accounts:
-                account.maintain()
-            time.sleep(HOT_RELOAD_SECONDS)
+            if account_id not in self.accounts:
+                self.accounts[account_id] = SessionOwner(account_id, self.control)
+            return self.accounts[account_id]
 
     def authorize(self, key, account_id=None):
-        digest = hashlib.sha256(key.encode()).digest()
-        with self.registry_lock:
-            accounts = list(self.accounts.items())
-        for expected, account in accounts:
-            if hmac.compare_digest(digest, expected):
-                return account
-        raise Failure(401, 'Invalid worker API key')
+        if not key:
+            raise Failure(401, 'Invalid worker API key')
+        if not isinstance(account_id, str) or not re.fullmatch(r'[1-9][0-9]*', account_id):
+            raise Failure(401, 'Missing Gemini Web account reference')
+        validate_key(key, self.control.load(account_id))
+        owner = self.session_owner(account_id)
+        return AuthorizedAccount(owner, key)
+
+    def maintain(self):
+        while True:
+            try:
+                records = self.control.warm_accounts()['accounts']
+                if not isinstance(records, list) or any(type(x) is not int or x <= 0 for x in records):
+                    raise Failure(503, 'Invalid warm account list')
+                for account_id in records:
+                    try:
+                        self.session_owner(str(account_id)).run()
+                    except Exception as exc:
+                        print(json.dumps({'event': 'session_maintenance_failed',
+                                          'account': account_id, 'type': type(exc).__name__}), flush=True)
+            except Exception as exc:
+                print(json.dumps({'event': 'session_poll_failed',
+                                  'type': type(exc).__name__}), flush=True)
+            time.sleep(HOT_RELOAD_SECONDS)
 
 
 class Server(ThreadingHTTPServer):
@@ -890,9 +726,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     os.umask(0o077)
     control_url = os.environ.get('GEMINI_WEB_CONTROL_URL', '').strip()
-    if control_url:
-        adapter = ControlAdapter(SessionControl(control_url, os.environ.get('GEMINI_WEB_CONTROL_TOKEN', '')))
-    else:
-        adapter = Adapter(os.environ.get('GEMINI_WEB_STATE_DIR', '/state'))
+    adapter = ControlAdapter(SessionControl(control_url, os.environ.get('GEMINI_WEB_CONTROL_TOKEN', '')))
     threading.Thread(target=adapter.maintain, daemon=True).start()
     Server(('0.0.0.0', 8091), adapter).serve_forever()

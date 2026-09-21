@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import tempfile
 import urllib.request
+from session_contract import ALLOWED_COOKIE_DOMAINS
 
 try:
     import websocket
@@ -25,34 +26,6 @@ except ModuleNotFoundError as exc:
 
 
 ADSPower_API = "http://127.0.0.1:50325"
-ALLOWED_COOKIE_DOMAINS = frozenset(
-    {
-        "google.com",
-        "gemini.google.com",
-        "accounts.google.com",
-        "lh3.google.com",
-        "lh3.googleusercontent.com",
-        "work.fife.usercontent.google.com",
-    }
-)
-COOKIE_FIELDS = (
-    "name",
-    "value",
-    "domain",
-    "path",
-    "expires",
-    "size",
-    "httpOnly",
-    "secure",
-    "session",
-    "sameSite",
-    "priority",
-    "sameParty",
-    "sourceScheme",
-    "sourcePort",
-    "partitionKey",
-    "partitionKeyOpaque",
-)
 
 
 def request_json(url: str) -> object:

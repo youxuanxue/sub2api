@@ -21,6 +21,7 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 		"service_account_json":  map[string]any{"private_key": "..."},
 		"private_key":           "raw-key",
 		"agent_private_key":     "agent-key-secret",
+		"gemini_web":            map[string]any{"runtime": map[string]any{"cookies": "secret-cookie"}},
 		// 非敏感
 		"base_url":      "https://api.example.com",
 		"model_mapping": map[string]any{"foo": "bar"},
@@ -37,6 +38,7 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	require.NotContains(t, out, "service_account_json")
 	require.NotContains(t, out, "private_key")
 	require.NotContains(t, out, "agent_private_key")
+	require.NotContains(t, out, "gemini_web")
 
 	require.Equal(t, "https://api.example.com", out["base_url"])
 	require.Equal(t, map[string]any{"foo": "bar"}, out["model_mapping"])

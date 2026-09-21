@@ -1,9 +1,8 @@
 import base64
+import copy
 import http.client
 import io
 import json
-from pathlib import Path
-import tempfile
 import threading
 import time
 import unittest
@@ -27,12 +26,41 @@ def wire(text='answer', images=False, completed=True, sparse=False):
     return ")]}'\n\n12\n" + json.dumps([['wrb.fr', None, json.dumps(value), None]]) + '\n'
 
 
-def seed(root, name, cookie):
-    directory = root / name
-    directory.mkdir()
-    (directory / 'bundle.json').write_text(json.dumps({'ua': 'test', 'cookies': [
-        {'name': '__Secure-1PSID', 'value': cookie, 'domain': '.google.com', 'path': '/', 'secure': True}]}))
-    return directory
+def bundle(cookie='cookie-one'):
+    return {'user_agent': 'test', 'cookies': [
+        {'name': '__Secure-1PSID', 'value': cookie, 'domain': '.google.com',
+         'path': '/', 'secure': True}]}
+
+
+class Control:
+    def __init__(self):
+        self.records = {'28': {'account_id': 28, 'api_key': 'a' * 40,
+                              'runtime': dict(bundle(), version=1, state={})}}
+        self.leases = {}
+        self.writes = []
+
+    def load(self, account_id):
+        return copy.deepcopy(self.records[account_id])
+
+    def acquire(self, account_id, owner):
+        if account_id in self.leases:
+            raise worker.SessionVersionConflict()
+        self.leases[account_id] = owner
+
+    def release(self, account_id, owner):
+        if self.leases.get(account_id) == owner:
+            del self.leases[account_id]
+
+    def save_runtime(self, account_id, version, runtime, owner):
+        if (self.leases.get(account_id) != owner
+                or self.records[account_id]['runtime']['version'] != version):
+            raise worker.SessionVersionConflict()
+        self.records[account_id]['runtime'] = dict(copy.deepcopy(runtime), version=version + 1)
+        self.writes.append(version)
+        return self.load(account_id)
+
+    def warm_accounts(self):
+        return {'accounts': [int(k) for k in self.records]}
 
 
 class WorkerTests(unittest.TestCase):
@@ -45,17 +73,21 @@ class WorkerTests(unittest.TestCase):
             curl.close()
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        self.account = worker.Account(seed(self.root, 'one', 'cookie-one'))
+        self.saved = {}
+        self.account = worker.Account(bundle(), persist_callback=self.save)
         self.account.models = {'Flash': ('id-flash', 1, 2), 'Pro': ('id-pro', 3, 2)}
         self.account.ready_at = time.time()
         self.account.last_refresh = time.time()
         self.account.fields = {'SNlM0e': 'fixture-at', 'cfb2h': 'fixture-build', 'FdrFJe': 'fixture-session'}
 
+    def save(self, state):
+        self.saved = copy.deepcopy(state)
+
+    def restore(self):
+        return worker.Account(bundle(), state=self.saved, persist_callback=self.save)
+
     def tearDown(self):
         self.account.session.close()
-        self.temp.cleanup()
 
     def test_completed_candidates_and_sparse_images(self):
         self.assertEqual(worker.generation_result(wire('中文 answer')), ('中文 answer', []))
@@ -150,29 +182,27 @@ class WorkerTests(unittest.TestCase):
                     self.account.download(('i', 'c', 'r', 'rc'))
                 self.assertEqual(call.call_count, 1)
 
-    def test_isolation_atomic_persistence_and_restart(self):
-        other = worker.Account(seed(self.root, 'two', 'cookie-two'))
+    def test_cookie_deletion_persistence_and_restart(self):
+        other = worker.Account(bundle('cookie-two'), persist_callback=lambda state: None)
         self.account.session.cookies.set('SIDCC', 'updated', domain='.google.com', path='/')
         self.account.persist()
-        restored = worker.Account(self.root / 'one')
-        self.assertEqual(restored.session.cookies.get('SIDCC'), 'updated')
-        self.assertEqual(other.session.cookies.get('__Secure-1PSID'), 'cookie-two')
-        self.assertIsNone(other.session.cookies.get('SIDCC'))
-        self.assertEqual((self.root / 'one' / 'state.json').stat().st_mode & 0o777, 0o600)
-        self.account.lock.acquire()
-        with patch.object(self.account, 'call') as call:
-            with self.assertRaisesRegex(worker.Failure, 'active request'):
-                self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
-            call.assert_not_called()
-        self.account.lock.release()
-        restored.session.close()
-        other.session.close()
+        self.account.session.cookies.delete('__Secure-1PSID', domain='.google.com', path='/')
+        self.account.persist()
+        restored = self.restore()
+        try:
+            self.assertIsNone(restored.session.cookies.get('__Secure-1PSID'))
+            self.assertEqual(restored.session.cookies.get('SIDCC'), 'updated')
+            self.assertEqual(other.session.cookies.get('__Secure-1PSID'), 'cookie-two')
+            self.assertIsNone(other.session.cookies.get('SIDCC'))
+        finally:
+            restored.close()
+            other.close()
 
     def test_auth_failure_persists_pause_and_transport_error_is_redacted(self):
         with patch.object(self.account.session, 'request', return_value=SimpleNamespace(status_code=403, headers={})):
             with self.assertRaises(worker.Failure):
                 self.account.call('GET', worker.ORIGIN + '/app')
-        restored = worker.Account(self.root / 'one')
+        restored = self.restore()
         with patch.object(restored, 'call') as call:
             with self.assertRaisesRegex(worker.Failure, 'paused'):
                 restored.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
@@ -188,7 +218,7 @@ class WorkerTests(unittest.TestCase):
             with self.assertRaises(worker.Failure):
                 self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
             self.assertEqual(call.call_count, 1)
-        restored = worker.Account(self.root / 'one')
+        restored = self.restore()
         with patch.object(restored, 'call') as call:
             with self.assertRaisesRegex(worker.Failure, 'paused'):
                 restored.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
@@ -196,7 +226,7 @@ class WorkerTests(unittest.TestCase):
         restored.session.close()
 
     def test_import_requires_renewal_and_refresh_uses_same_jar(self):
-        imported = worker.Account(seed(self.root, 'fresh', 'cookie-fresh'))
+        imported = worker.Account(bundle('cookie-fresh'), persist_callback=self.save)
         self.assertEqual(imported.last_refresh, 0)
         def rotate(*args, **kwargs):
             imported.session.cookies.set('__Secure-1PSIDTS', 'rotated', domain='.google.com', path='/')
@@ -206,7 +236,7 @@ class WorkerTests(unittest.TestCase):
                 imported.refresh()
         self.assertEqual(call.call_args.args[1], 'https://accounts.google.com/RotateCookies')
         bootstrap.assert_called_once()
-        restored = worker.Account(self.root / 'fresh')
+        restored = self.restore()
         self.assertEqual(restored.session.cookies.get('__Secure-1PSIDTS'), 'rotated')
         self.assertGreater(restored.last_refresh, 0)
         imported.session.close()
@@ -214,7 +244,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_memory_session_persists_complete_cookie_records(self):
         writes = []
-        account = worker.Account(bundle={'ua': 'test', 'cookies': [{
+        account = worker.Account(bundle={'user_agent': 'test', 'cookies': [{
             'name': '__Secure-1PSID', 'value': 'cookie', 'domain': '.google.com',
             'path': '/', 'secure': True, 'httpOnly': True, 'sameSite': 'Lax',
             'partitionKey': {'topLevelSite': 'https://gemini.google.com'}}]},
@@ -229,123 +259,84 @@ class WorkerTests(unittest.TestCase):
         finally:
             account.close()
 
-    def test_control_adapter_loads_one_account_and_reloads_only_its_version(self):
-        class Control:
-            def __init__(self):
-                self.records = {'28': {'account_id': '28', 'runtime': {
-                    'version': 1, 'user_agent': 'ua-one', 'cookies': [{
-                        'name': '__Secure-1PSID', 'value': 'one', 'domain': '.google.com'}], 'state': {}}}}
-                self.writes = []
-            def load(self, account_id):
-                return self.records[account_id]
-            def save_runtime(self, account_id, version, state):
-                self.writes.append((account_id, version, state))
-                self.records[account_id]['runtime']['version'] += 1
-                return self.records[account_id]
-            def warm_accounts(self):
-                return {'accounts': []}
+    def test_control_owner_keeps_its_saved_version_and_reloads_operator_import(self):
         control = Control()
-        adapter = worker.ControlAdapter(control)
-        one = adapter.authorize('', '28')
-        self.assertEqual(one.account.session.cookies.get('__Secure-1PSID'), 'one')
-        control.records['28']['runtime'] = {'version': 2, 'user_agent': 'ua-two', 'cookies': [{
-            'name': '__Secure-1PSID', 'value': 'two', 'domain': '.google.com'}], 'state': {}}
-        same = adapter.authorize('', '28')
-        self.assertIs(one, same)
-        self.assertEqual(same.account.session.headers['User-Agent'], 'ua-two')
-        self.assertEqual(same.account.session.cookies.get('__Secure-1PSID'), 'two')
-        with self.assertRaises(worker.Failure):
-            adapter.authorize('', 'not-an-account')
-        same.close()
-
-    def test_control_adapter_accepts_compact_warm_account_ids(self):
-        self.assertEqual(worker.ControlAdapter.warm_account_id(28), '28')
-        self.assertEqual(worker.ControlAdapter.warm_account_id({'account_id': 29}), '29')
-        self.assertEqual(worker.ControlAdapter.warm_account_id({'account_id': '30'}), '30')
-        self.assertEqual(worker.ControlAdapter.warm_account_id({'account_id': 0}), '')
+        owner = worker.SessionOwner('28', control)
+        with patch.object(worker.Account, 'refresh', autospec=True,
+                          side_effect=lambda account: account.persist()):
+            owner.run()
+            account = owner.account
+            self.assertEqual(owner.runtime['version'], 2)
+            owner.run()
+            self.assertIs(owner.account, account)
+            self.assertEqual(control.writes, [1, 2])
+            control.records['28']['runtime']['user_agent'] = 'new-browser'
+            control.records['28']['runtime']['version'] += 1
+            owner.run()
+            self.assertIsNot(owner.account, account)
+            self.assertEqual(owner.account.session.headers['User-Agent'], 'new-browser')
+        owner.close()
 
     def test_control_maintenance_refreshes_compact_account_list(self):
-        control = SimpleNamespace(warm_accounts=lambda: {'accounts': [28, 29]})
+        control = Control()
         adapter = worker.ControlAdapter(control)
-        maintained = []
-        with patch.object(adapter, 'authorize', side_effect=lambda key, account_id:
-                          SimpleNamespace(maintain=lambda: maintained.append(account_id))) as authorize:
+        with patch.object(worker.Account, 'refresh', autospec=True,
+                          side_effect=lambda account: account.persist()) as refresh:
             with patch.object(worker.time, 'sleep', side_effect=InterruptedError):
                 with self.assertRaises(InterruptedError):
                     adapter.maintain()
-        self.assertEqual(maintained, ['28', '29'])
-        self.assertEqual(authorize.call_count, 2)
+        self.assertEqual(refresh.call_count, 1)
+        self.assertEqual(control.writes, [1])
+        adapter.accounts['28'].close()
 
-    def test_keys_select_separate_accounts_and_second_owner_is_refused(self):
-        seed(self.root, 'two', 'cookie-two')
-        (self.root / 'accounts.json').write_text(json.dumps([
-            {'id': 'one', 'api_key': 'a' * 40}, {'id': 'two', 'api_key': 'b' * 40}]))
-        adapter = worker.Adapter(self.root)
-        try:
-            self.assertEqual(adapter.authorize('a' * 40).account.session.cookies.get('__Secure-1PSID'), 'cookie-one')
-            self.assertEqual(adapter.authorize('b' * 40).account.session.cookies.get('__Secure-1PSID'), 'cookie-two')
+    def test_control_lease_prevents_a_second_process_and_fences_stale_save(self):
+        control = Control()
+        one, two = worker.SessionOwner('28', control), worker.SessionOwner('28', control)
+        def refresh(account):
+            with self.assertRaisesRegex(worker.Failure, 'busy'):
+                two.run()
+            account.persist()
+        with patch.object(worker.Account, 'refresh', side_effect=refresh, autospec=True):
+            one.run()
+        self.assertEqual(control.writes, [1])
+        self.assertEqual(control.leases, {})
+        with patch.object(worker.Account, 'refresh', side_effect=worker.SessionVersionConflict()):
             with self.assertRaises(worker.Failure):
-                adapter.authorize('wrong-key')
-            with self.assertRaises(BlockingIOError):
-                worker.Adapter(self.root)
-        finally:
-            for account in adapter.accounts.values():
-                account.close()
-            adapter.lease.close()
+                one.run()
+        self.assertIsNone(one.account)
+        self.assertEqual(control.leases, {})
+        one.close()
+        two.close()
 
-    def test_hot_reload_replaces_only_the_changed_account(self):
-        seed(self.root, 'two', 'cookie-two')
-        (self.root / 'accounts.json').write_text(json.dumps([
-            {'id': 'one', 'api_key': 'a' * 40}, {'id': 'two', 'api_key': 'b' * 40}]))
-        adapter = worker.Adapter(self.root)
-        try:
-            one = adapter.authorize('a' * 40)
-            two = adapter.authorize('b' * 40)
-            previous_two = two.account
-            # An importer discards worker-owned refreshed state before it makes
-            # a newly exported browser session visible.
-            worker.atomic_json(two.root / 'state.json', {'cookies': [{
-                'name': '__Secure-1PSID', 'value': 'old-worker-cookie',
-                'domain': '.google.com', 'path': '/', 'secure': True}]})
-            (two.root / 'state.json').unlink()
-            worker.atomic_json(two.root / 'bundle.json', {'ua': 'updated', 'cookies': [
-                {'name': '__Secure-1PSID', 'value': 'cookie-two-updated',
-                 'domain': '.google.com', 'path': '/', 'secure': True}]})
-            # A request for account one must not prevent account two's session
-            # update. Only the account being swapped acquires its operation lock.
-            self.assertTrue(one.operation.acquire(blocking=False))
-            try:
-                adapter.reload_from_disk()
-            finally:
-                one.operation.release()
-            self.assertIs(one, adapter.authorize('a' * 40))
-            self.assertIs(two, adapter.authorize('b' * 40))
-            self.assertIsNot(two.account, previous_two)
-            self.assertEqual(two.account.session.headers['User-Agent'], 'updated')
-            self.assertEqual(two.account.session.cookies.get('__Secure-1PSID'), 'cookie-two-updated')
-        finally:
-            for account in adapter.accounts.values():
-                account.close()
-            adapter.lease.close()
+    def test_expired_operation_cannot_contact_google_or_persist(self):
+        self.account.deadline = time.monotonic() - 1
+        with patch.object(self.account.session, 'request') as request:
+            with self.assertRaisesRegex(worker.Failure, 'expired'):
+                self.account.call('GET', worker.ORIGIN)
+        request.assert_not_called()
+        owner = worker.SessionOwner('28', Control())
+        with self.assertRaisesRegex(worker.Failure, 'expired'):
+            owner.persist({})
+        with self.assertRaises(ValueError):
+            worker.SessionControl('', 'a' * 40)
 
-    def test_bad_hot_reload_preserves_live_account(self):
-        (self.root / 'accounts.json').write_text(json.dumps([{'id': 'one', 'api_key': 'a' * 40}]))
-        adapter = worker.Adapter(self.root)
-        try:
-            managed = adapter.authorize('a' * 40)
-            previous = managed.account
-            worker.atomic_json(managed.root / 'bundle.json', {'ua': '', 'cookies': []})
-            with self.assertRaises((KeyError, ValueError)):
-                adapter.reload_from_disk()
-            self.assertIs(adapter.authorize('a' * 40).account, previous)
-        finally:
-            for account in adapter.accounts.values():
-                account.close()
-            adapter.lease.close()
+    def test_release_failure_does_not_turn_completed_generation_into_retry(self):
+        control = Control()
+        owner = worker.SessionOwner('28', control)
+        with patch.object(control, 'release', side_effect=worker.Failure(503, 'unavailable')):
+            with patch.object(worker.Account, 'generate', return_value={'completed': True}) as generate:
+                result = owner.run(key='a' * 40, model='gemini-web-flash',
+                                   body={'contents': [{'parts': [{'text': 'test'}]}]})
+        self.assertEqual(result, {'completed': True})
+        self.assertEqual(generate.call_count, 1)
+        self.assertIsNone(owner.account)
+        with self.assertRaises(worker.SessionVersionConflict):
+            control.acquire('28', 'another-owner')
 
     def test_http_auth_and_buffered_sse(self):
         key = 'a' * 40
-        adapter = SimpleNamespace(authorize=lambda value, _account_id=None: self.account if value == key else (_ for _ in ()).throw(worker.Failure(401, 'Invalid worker API key')))
+        control = Control()
+        adapter = worker.ControlAdapter(control)
         server = worker.Server(('127.0.0.1', 0), adapter)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -353,12 +344,16 @@ class WorkerTests(unittest.TestCase):
             connection = http.client.HTTPConnection(*server.server_address)
             path = '/v1beta/models/gemini-web-flash:streamGenerateContent?alt=sse'
             request = json.dumps({'contents': [{'parts': [{'text': 'test'}]}]})
-            connection.request('POST', path, request, {'x-goog-api-key': 'bad'})
-            response = connection.getresponse()
-            self.assertEqual(response.status, 401)
-            response.read()
-            with patch.object(self.account, 'call', return_value=(None, wire().encode())):
-                connection.request('POST', path, request, {'x-goog-api-key': key})
+            for invalid in ('', 'bad'):
+                connection.request('POST', path, request, {
+                    'x-goog-api-key': invalid, 'x-tokenkey-gemini-web-account-id': '28'})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 401)
+                response.read()
+            with patch.object(worker.Account, 'generate', return_value={
+                    'candidates': [{'content': {'parts': [{'text': 'answer'}]}}]}):
+                connection.request('POST', path, request, {
+                    'x-goog-api-key': key, 'x-tokenkey-gemini-web-account-id': '28'})
                 response = connection.getresponse()
                 self.assertEqual(response.status, 200)
                 self.assertEqual(response.headers['Content-Type'], 'text/event-stream')
@@ -369,6 +364,8 @@ class WorkerTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+            for owner in adapter.accounts.values():
+                owner.close()
 
 
 if __name__ == '__main__':

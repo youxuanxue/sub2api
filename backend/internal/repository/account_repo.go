@@ -1062,6 +1062,12 @@ func (r *accountRepository) updateLockedAccount(
 		return nil, err
 	}
 	account.Extra = extra
+	if account.Platform == service.PlatformGemini {
+		account.Credentials, err = mergeGeminiWebCredentialsLocked(ctx, client, account.ID, account.Credentials)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	schedulable := account.Schedulable
 	if account.Status == service.StatusError {
@@ -1336,10 +1342,6 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 }
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
-	payload, err := json.Marshal(normalizeJSONMap(credentials))
-	if err != nil {
-		return err
-	}
 	baseCtx := ctx
 	contextTx := dbent.TxFromContext(ctx)
 	client := r.client
@@ -1358,10 +1360,24 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			client = tx.Client()
 		}
 	}
+	if _, hasSession := credentials["gemini_web"]; hasSession {
+		var err error
+		credentials, err = mergeGeminiWebCredentialsLocked(ctx, client, id, credentials)
+		if err != nil {
+			return err
+		}
+	}
+	payload, err := json.Marshal(normalizeJSONMap(credentials))
+	if err != nil {
+		return err
+	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET
-			credentials = $1::jsonb,
+			credentials = CASE
+				WHEN credentials ? 'gemini_web' AND NOT ($1::jsonb ? 'gemini_web')
+				THEN $1::jsonb || jsonb_build_object('gemini_web', credentials->'gemini_web')
+				ELSE $1::jsonb END,
 			extra = CASE
 				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
 				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
@@ -1422,40 +1438,6 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		r.syncSchedulerAccountSnapshot(baseCtx, id)
 	}
 	return nil
-}
-
-// CompareAndSwapGeminiWebRuntime replaces only credentials.gemini_web.runtime
-// when the worker still owns the version it loaded. Browser session refreshes
-// must never overwrite an operator's newer import.
-func (r *accountRepository) CompareAndSwapGeminiWebRuntime(ctx context.Context, id int64, expectedVersion int64, runtime map[string]any) (bool, error) {
-	if id <= 0 || expectedVersion < 0 {
-		return false, errors.New("invalid Gemini Web runtime version")
-	}
-	payload, err := json.Marshal(normalizeJSONMap(runtime))
-	if err != nil {
-		return false, err
-	}
-	result, err := r.sql.ExecContext(ctx, `
-		UPDATE accounts
-		SET credentials = jsonb_set(
-			COALESCE(credentials, '{}'::jsonb),
-			'{gemini_web,runtime}',
-			jsonb_set($1::jsonb, '{version}', to_jsonb($2::bigint + 1), true),
-			true
-		), updated_at = NOW()
-		WHERE id = $3
-			AND deleted_at IS NULL
-			AND platform = 'gemini'
-			AND COALESCE(credentials->'gemini_web'->'runtime'->>'version', '') = $2::text
-	`, payload, expectedVersion, id)
-	if err != nil {
-		return false, err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-	return affected == 1, nil
 }
 
 func loadAccountForProtocolCapabilityLifecycle(ctx context.Context, db protocolCapabilitySQL, id int64) (*service.Account, error) {

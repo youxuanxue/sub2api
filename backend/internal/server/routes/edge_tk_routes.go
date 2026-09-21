@@ -78,14 +78,13 @@ func RegisterTKEdgeRoutes(v1 *gin.RouterGroup, h *handler.Handlers, apiKeyServic
 		ops.GET("/:id/usage", h.EdgeAccountOps.GetActiveUsage)
 	}
 
-	// Gemini Web sessions are never available through the edge inventory or
-	// admin APIs. This private worker control surface is enabled only when the
-	// edge has an explicit service token and must be reachable solely from the
-	// companion's private network.
-	if h.GeminiWebSession != nil && h.GeminiWebSession.Enabled() {
-		control := v1.Group("/internal/gemini-web")
+	// Reuse the edge API-key and admin-owner gates for session control too.
+	if h.GeminiWebSession != nil && h.GeminiWebSession.Enabled() && userService != nil {
+		control := edge.Group("/gemini-web")
 		control.GET("/accounts/:id/session", h.GeminiWebSession.Get)
 		control.PUT("/accounts/:id/runtime", h.GeminiWebSession.PutRuntime)
 		control.GET("/warm-accounts", h.GeminiWebSession.WarmAccounts)
+		control.POST("/accounts/:id/lease", h.GeminiWebSession.Lease)
+		control.DELETE("/accounts/:id/lease", h.GeminiWebSession.Lease)
 	}
 }

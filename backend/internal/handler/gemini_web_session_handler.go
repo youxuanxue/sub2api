@@ -2,12 +2,11 @@ package handler
 
 import (
 	"context"
-	"crypto/subtle"
 	"net/http"
-	"os"
+	"regexp"
 	"strconv"
-	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -17,21 +16,22 @@ import (
 type geminiWebRuntimeStore interface {
 	GetByID(context.Context, int64) (*service.Account, error)
 	ListByPlatform(context.Context, string) ([]service.Account, error)
-	CompareAndSwapGeminiWebRuntime(context.Context, int64, int64, map[string]any) (bool, error)
+	CompareAndSwapGeminiWebRuntime(context.Context, int64, int64, string, map[string]any) (bool, error)
+	AcquireGeminiWebLease(context.Context, int64, string) (bool, error)
+	ReleaseGeminiWebLease(context.Context, int64, string) error
 }
 
 type GeminiWebSessionHandler struct {
 	store geminiWebRuntimeStore
-	token string
 }
 
 func NewGeminiWebSessionHandler(accounts service.AccountRepository) *GeminiWebSessionHandler {
 	store, _ := accounts.(geminiWebRuntimeStore)
-	return &GeminiWebSessionHandler{store: store, token: strings.TrimSpace(os.Getenv("GEMINI_WEB_CONTROL_TOKEN"))}
+	return &GeminiWebSessionHandler{store: store}
 }
 
 func (h *GeminiWebSessionHandler) Enabled() bool {
-	return h != nil && h.store != nil && len(h.token) >= 32
+	return h != nil && h.store != nil
 }
 
 func (h *GeminiWebSessionHandler) authorize(c *gin.Context) bool {
@@ -39,8 +39,7 @@ func (h *GeminiWebSessionHandler) authorize(c *gin.Context) bool {
 		c.Status(http.StatusNotFound)
 		return false
 	}
-	value := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
-	if len(value) != len(h.token) || subtle.ConstantTimeCompare([]byte(value), []byte(h.token)) != 1 {
+	if _, ok := c.Get(middleware.EdgeCallerAPIKeyCtxKey); !ok {
 		c.Status(http.StatusUnauthorized)
 		return false
 	}
@@ -89,7 +88,8 @@ func (h *GeminiWebSessionHandler) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"account_id": account.ID, "runtime": runtime})
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"account_id": account.ID, "api_key": account.Credentials["api_key"], "runtime": runtime})
 }
 
 func (h *GeminiWebSessionHandler) PutRuntime(c *gin.Context) {
@@ -105,7 +105,12 @@ func (h *GeminiWebSessionHandler) PutRuntime(c *gin.Context) {
 		c.Status(http.StatusBadRequest)
 		return
 	}
-	updated, err := h.store.CompareAndSwapGeminiWebRuntime(c.Request.Context(), account.ID, request.ExpectedVersion, request.Runtime)
+	owner := c.GetHeader("X-Gemini-Web-Lease")
+	if !geminiWebLeaseOwner.MatchString(owner) {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	updated, err := h.store.CompareAndSwapGeminiWebRuntime(c.Request.Context(), account.ID, request.ExpectedVersion, owner, request.Runtime)
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
@@ -137,4 +142,38 @@ func (h *GeminiWebSessionHandler) WarmAccounts(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"accounts": ids})
+}
+
+var geminiWebLeaseOwner = regexp.MustCompile(`^[a-f0-9]{32}$`)
+
+// Lease ownership lives in the same database row as runtime CAS, so an expired
+// worker cannot publish over its successor, even across edge processes.
+func (h *GeminiWebSessionHandler) Lease(c *gin.Context) {
+	account, _, ok := h.session(c)
+	if !ok {
+		return
+	}
+	owner := c.GetHeader("X-Gemini-Web-Lease")
+	if !geminiWebLeaseOwner.MatchString(owner) {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if c.Request.Method == http.MethodDelete {
+		if err := h.store.ReleaseGeminiWebLease(c.Request.Context(), account.ID, owner); err != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+	acquired, err := h.store.AcquireGeminiWebLease(c.Request.Context(), account.ID, owner)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	if !acquired {
+		c.Status(http.StatusConflict)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{})
 }

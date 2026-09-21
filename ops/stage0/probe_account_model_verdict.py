@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import io
 from typing import Any
 
 
@@ -25,13 +26,18 @@ def gemini_response_summary(body_text: str) -> dict[str, Any]:
                 data = base64.b64decode(inline["data"], validate=True)
                 if len(data) < 16 or inline["mimeType"] not in ("image/jpeg", "image/png", "image/webp"):
                     return result
-                if not (data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG\r\n\x1a\n") or
-                        (data.startswith(b"RIFF") and data[8:12] == b"WEBP")):
-                    return result
+                from PIL import Image
+                with Image.open(io.BytesIO(data)) as image:
+                    if (Image.MIME.get(image.format) != inline["mimeType"]
+                            or image.width * image.height > 32_000_000):
+                        return result
+                    image.verify()
+                with Image.open(io.BytesIO(data)) as image:
+                    image.load()
                 result["images"].append({"mime_type": inline["mimeType"], "bytes": len(data),
                                          "sha256": hashlib.sha256(data).hexdigest()})
         result["valid"] = bool(result["text_parts"] or result["images"])
-    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError, OSError, ImportError):
         return result
     return result
 

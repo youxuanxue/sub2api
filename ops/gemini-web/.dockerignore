@@ -2,3 +2,4 @@
 !Dockerfile
 !requirements.txt
 !worker.py
+!session_contract.py

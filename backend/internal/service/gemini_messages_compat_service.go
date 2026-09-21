@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -695,12 +694,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 			upstreamReq.Header.Set("Content-Type", "application/json")
 			upstreamReq.Header.Set("x-goog-api-key", apiKey)
-			// Gemini Web is a private companion protocol. Account selection has
-			// already happened in the gateway; carry that selected edge account
-			// to the companion instead of maintaining its own key-to-account map.
-			if _, ok := account.Credentials["gemini_web"].(map[string]any); ok {
-				upstreamReq.Header.Set("X-TokenKey-Gemini-Web-Account-ID", strconv.FormatInt(account.ID, 10))
-			}
+			setGeminiWebAccountHeader(upstreamReq, account)
 			return upstreamReq, "x-request-id", nil
 		}
 		requestIDHeader = "x-request-id"
@@ -1235,6 +1229,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}
 			upstreamReq.Header.Set("Content-Type", "application/json")
 			upstreamReq.Header.Set("x-goog-api-key", apiKey)
+			setGeminiWebAccountHeader(upstreamReq, account)
 			return upstreamReq, "x-request-id", nil
 		}
 		requestIDHeader = "x-request-id"

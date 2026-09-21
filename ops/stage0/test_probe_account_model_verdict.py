@@ -5,11 +5,31 @@ from __future__ import annotations
 
 import unittest
 import json
+import base64
+import io
+import importlib.util
 
 from probe_account_model_verdict import classify_probe_verdict, embedding_response_valid
 
 
 class ProbeAccountModelVerdictTest(unittest.TestCase):
+    @unittest.skipUnless(importlib.util.find_spec('PIL'), 'image decoder installed by Gemini Web CI job')
+    def test_gemini_images_require_matching_mime_and_full_decode(self):
+        from PIL import Image
+        output = io.BytesIO()
+        Image.new('RGB', (4, 4), 'blue').save(output, 'PNG')
+        valid = output.getvalue()
+        for data, mime, expected in [
+            (valid, 'image/png', 'servable'),
+            (valid, 'image/jpeg', 'uncorrelated_success'),
+            (b'\x89PNG\r\n\x1a\n' + b'garbage' * 10, 'image/png', 'uncorrelated_success'),
+            (valid[:40], 'image/png', 'uncorrelated_success'),
+        ]:
+            body = json.dumps({'candidates': [{'finishReason': 'STOP', 'content': {'parts': [
+                {'inlineData': {'mimeType': mime, 'data': base64.b64encode(data).decode()}}]}}]})
+            self.assertEqual(classify_probe_verdict(endpoint='gemini_image', http_code='200',
+                body_text=body, target_account_id=90, usage_row={'account_id': 90}, curl_err=''), expected)
+
     def test_gemini_requires_complete_response_and_exact_account(self) -> None:
         body = json.dumps({"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}]})
         for endpoint, payload, usage, expected in [
