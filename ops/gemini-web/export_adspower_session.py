@@ -14,7 +14,14 @@ from pathlib import Path
 import tempfile
 import urllib.request
 
-import websocket
+try:
+    import websocket
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing websocket-client. Run with: "
+        "uv run --with-requirements ops/gemini-web/export-requirements.txt "
+        "python3 ops/gemini-web/export_adspower_session.py ..."
+    ) from exc
 
 
 ADSPower_API = "http://127.0.0.1:50325"

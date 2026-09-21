@@ -46,20 +46,27 @@ AdsPower profile through its local CDP endpoint. It does not log in, upload anyt
 change the TokenKey edge. Keep the browser on Gemini and keep its Google traffic bound to
 the intended edge proxy before running it.
 
-Install the local export dependency once, if needed:
+Run it in uv's temporary isolated environment. This is the supported command on this
+Mac and does not modify the uv-managed system Python:
 
 ```sh
-python3 -m pip install --user -r ops/gemini-web/export-requirements.txt
-```
-
-Then run from the repository root, replacing the profile's AdsPower `user_id` and the
-output path. The visible serial number (for example `133`) is not necessarily the
-`user_id`; obtain the latter from AdsPower's local profile list/API.
-
-```sh
-python3 ops/gemini-web/export_adspower_session.py \
+uv run --with-requirements ops/gemini-web/export-requirements.txt \
+  python3 ops/gemini-web/export_adspower_session.py \
   k1e54ley \
   --output /tmp/gemini-web-session-133.json
+```
+
+Replace the profile's AdsPower `user_id` and output path. The visible serial number
+(for example `133`) is not necessarily the `user_id`; obtain the latter from AdsPower's
+local profile list/API. If `websocket-client` is already installed in a dedicated venv,
+running that venv's Python directly is also valid. Do not use `pip --user` against
+the uv-managed Python.
+
+```sh
+uv run --with-requirements ops/gemini-web/export-requirements.txt \
+  python3 ops/gemini-web/export_adspower_session.py \
+  <AdsPower user_id> \
+  --output /tmp/gemini-web-session-<serial>.json
 ```
 
 The command prints only a safe summary: profile ID, page URL, User-Agent, cookie count,
