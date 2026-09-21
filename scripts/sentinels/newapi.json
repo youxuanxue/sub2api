@@ -532,9 +532,10 @@
         "forwardResponsesViaNewAPIBridgeChatCompletions",
         "isNewAPIResponsesProactiveChatFallbackModel(requestedModel)",
         "applyNewAPIQwenAccountShape",
-        "applyNewAPIAliFixedSamplingShape"
+        "applyNewAPIAliFixedSamplingShape",
+        "applyMoonshotThinkingShape"
       ],
-      "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Native chat dispatch must also normalize dense Qwen3 non-streaming requests through applyNewAPIQwenAccountShape after planned alias resolution, retaining Token Plan thinking intent and the legacy DashScope buffered workaround. Chat and account-test dispatch must also pin kimi-k3 fixed sampling via applyNewAPIAliFixedSamplingShape before the Ali adaptor coerces missing top_p to 0.001. Dropping either injection silently breaks a supported NewAPI path."
+      "rationale": "NewAPI channels can support /v1/chat/completions while their adaptor does not implement ConvertOpenAIResponsesRequest for /v1/responses (prod probes: Vertex ch41 and DeepSeek ch43). ForwardAsResponsesDispatched must detect that convert_request_failed/not implemented capability gap and route through the Responses->Chat fallback companion instead of returning a client 500. Native chat dispatch must also normalize dense Qwen3 non-streaming requests through applyNewAPIQwenAccountShape after planned alias resolution, retaining Token Plan thinking intent and the legacy DashScope buffered workaround. Chat and account-test dispatch must also pin kimi-k3 fixed sampling via applyNewAPIAliFixedSamplingShape before the Ali adaptor coerces missing top_p to 0.001, and normalize Moonshot/Kimi thinking via applyMoonshotThinkingShape (bool→object, k2/k3 field mutual exclusion, field-level 400). Dropping either injection silently breaks a supported NewAPI path."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_responses_fallback.go",
@@ -547,11 +548,12 @@
         "applyNewAPIQwenAccountShape",
         "applyNewAPIQwenNonStreamingShape",
         "applyNewAPIAliFixedSamplingShape",
+        "applyMoonshotThinkingShape",
         "bufferChatCompletionsAsResponses",
         "bufferStreamChatCompletionsAsResponses",
         "streamChatCompletionsAsResponses"
       ],
-      "rationale": "TK companion for NewAPI /v1/responses fallback: convert the client Responses request to Chat Completions, dispatch through the NewAPI bridge, then convert the captured Chat response back to Responses JSON/SSE. It also owns the shared dense-Qwen3 non-streaming request shape used by native chat dispatch. GLM/Qwen stream-only upstream shaping must buffer SSE into JSON for non-stream clients, while dense Qwen3 must send enable_thinking=false when stream=false. Responses→chat fallback must also pin kimi-k3 fixed sampling before the Ali adaptor. Without this file ch41/ch43 regress to conversion errors or upstream request-validation 400s."
+      "rationale": "TK companion for NewAPI /v1/responses fallback: convert the client Responses request to Chat Completions, dispatch through the NewAPI bridge, then convert the captured Chat response back to Responses JSON/SSE. It also owns the shared dense-Qwen3 non-streaming request shape used by native chat dispatch. GLM/Qwen stream-only upstream shaping must buffer SSE into JSON for non-stream clients, while dense Qwen3 must send enable_thinking=false when stream=false. Responses→chat fallback must also pin kimi-k3 fixed sampling and Moonshot thinking shape before the Ali adaptor. Without this file ch41/ch43 regress to conversion errors or upstream request-validation 400s."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_ali_fixed_sampling.go",
@@ -571,6 +573,41 @@
         "TestAnthropicToChatBody_AppliesAliFixedSamplingForKimiK3"
       ],
       "rationale": "Focused regressions for kimi-k3 fixed sampling: helper pins top_p=0.95, account-test and chat bridge call sites capture the shaped body, and Anthropic→chat convert-then-shape composition stays wired."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk.go",
+      "must_contain": [
+        "func NormalizeMoonshotThinking(",
+        "func applyMoonshotThinkingShape(",
+        "func writeOpenAIInvalidParameterError(",
+        "\"invalid_parameter\"",
+        "thinking.type"
+      ],
+      "rationale": "Owner for Moonshot/Kimi thinking parameter compatibility before upstream relay. Coerces thinking bool→object, strips/rejects model-family-incompatible fields (k3 vs k2.x vs k2.7-code), and returns field-level OpenAI 400 with error.param. Dropping it reopens the dominant Kimi client-induced 400 class (boolean thinking / mutual exclusion / wrong family fields)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk_test.go",
+      "must_contain": [
+        "TestNormalizeMoonshotThinking_BoolToObject",
+        "TestNormalizeMoonshotThinking_K3StripsThinkingKeepsEffort",
+        "TestNormalizeMoonshotThinking_K3RejectsDisableAndBadEffort",
+        "TestApplyMoonshotThinkingShape_WritesParamError"
+      ],
+      "rationale": "Focused regressions for Moonshot thinking shape: bool coerce, k3 strip+effort keep, reject paths with param, and gin error envelope with error.param."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
+      "must_contain": [
+        "applyMoonshotThinkingShape"
+      ],
+      "rationale": "PlatformKimi / CN raw chat completions must normalize Moonshot thinking before upstream passthrough; without this call site only the newapi bridge path is protected and direct kimi accounts keep returning upstream 400s for boolean thinking."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_chat_fallback.go",
+      "must_contain": [
+        "applyMoonshotThinkingShape"
+      ],
+      "rationale": "Anthropic Messages→raw Chat Completions fallback must normalize Moonshot/Kimi thinking before sendCCUpstreamRequest; without this call site only OpenAI-shaped raw CC / newapi bridge paths are protected and Anthropic→Kimi traffic keeps hitting upstream thinking-bool 400s."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping_test.go",
@@ -726,20 +763,22 @@
       "must_contain": [
         "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)",
         "rewriteNewAPIBridgeBodyModel(account, body, \"\")",
-        "applyNewAPIAliFixedSamplingShape"
+        "applyNewAPIAliFixedSamplingShape",
+        "applyMoonshotThinkingShape"
       ],
       "must_not_contain": [
         "tkWrapBridgeRelayError(c, apiErr)"
       ],
-      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic. Both bridge dispatch sites must also rewrite body.model via rewriteNewAPIBridgeBodyModel so dated GLM ids reach DashScope as glm-4.7. Chat dispatch must also pin kimi-k3 fixed sampling before the Ali adaptor."
+      "rationale": "The Anthropic-gateway bridge boundary (GatewayService ForwardAsChatCompletionsDispatched / ForwardAsResponsesDispatched, 2 sites) is the same penalty chokepoint class as openai_gateway_bridge_dispatch.go and must stay wired identically: zero penalty-less tkWrapBridgeRelayError(c, apiErr) calls. Without this entry only the OpenAI-gateway file was anchored and a refactor here would silently drop the account penalty for messages-dispatch newapi traffic. Both bridge dispatch sites must also rewrite body.model via rewriteNewAPIBridgeBodyModel so dated GLM ids reach DashScope as glm-4.7. Chat dispatch must also pin kimi-k3 fixed sampling and Moonshot thinking shape before the Ali adaptor."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_anthropic.go",
       "must_contain": [
         "s.tkWrapBridgeRelayErrorWithPenalty(ctx, c, account, apiErr)",
-        "applyNewAPIAliFixedSamplingShape"
+        "applyNewAPIAliFixedSamplingShape",
+        "applyMoonshotThinkingShape"
       ],
-      "rationale": "ForwardAsAnthropicDispatched is the 7th penalty wiring site (anthropic-shaped requests routed over the newapi bridge). Same risk class as the other dispatch boundaries: reverting to the plain wrapper compiles clean and silently disconnects the account penalty. Anthropic→chat conversion must also pin kimi-k3 fixed sampling before bridge.DispatchChatCompletions or DashScope rejects top_p=0.001."
+      "rationale": "ForwardAsAnthropicDispatched is the 7th penalty wiring site (anthropic-shaped requests routed over the newapi bridge). Same risk class as the other dispatch boundaries: reverting to the plain wrapper compiles clean and silently disconnects the account penalty. Anthropic→chat conversion must also pin kimi-k3 fixed sampling and Moonshot thinking shape before bridge.DispatchChatCompletions or DashScope rejects top_p=0.001 / thinking bool."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_video.go",
