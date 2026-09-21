@@ -1062,12 +1062,6 @@ func (r *accountRepository) updateLockedAccount(
 		return nil, err
 	}
 	account.Extra = extra
-	if account.Platform == service.PlatformGemini {
-		account.Credentials, err = mergeGeminiWebCredentialsLocked(ctx, client, account.ID, account.Credentials)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	schedulable := account.Schedulable
 	if account.Status == service.StatusError {
@@ -1198,7 +1192,8 @@ func lockAndMergeAccountProbeExtra(
 			extra -> 'upstream_billing_probe',
 			extra -> 'ollama_cloud_usage_session',
 			extra -> 'ollama_cloud_usage_auto_refresh',
-			extra -> 'ollama_cloud_usage_snapshot'
+			extra -> 'ollama_cloud_usage_snapshot',
+			credentials ? 'gemini_web'
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -1224,6 +1219,7 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaSession         []byte
 		currentOllamaAutoRefresh     []byte
 		currentOllamaSnapshot        []byte
+		currentGeminiWeb             bool
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -1235,11 +1231,23 @@ func lockAndMergeAccountProbeExtra(
 		&currentOllamaSession,
 		&currentOllamaAutoRefresh,
 		&currentOllamaSnapshot,
+		&currentGeminiWeb,
 	); err != nil {
 		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	_, incomingGeminiWeb := account.Credentials["gemini_web"]
+	if currentGeminiWeb || incomingGeminiWeb {
+		account.Credentials, err = mergeGeminiWebCredentialsLocked(ctx, client, account.ID, account.Credentials)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	extra := copyJSONMap(normalizeJSONMap(account.Extra))

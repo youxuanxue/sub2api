@@ -22,8 +22,11 @@ type geminiWebStoreStub struct {
 func (s *geminiWebStoreStub) GetByID(context.Context, int64) (*service.Account, error) {
 	return s.account, nil
 }
-func (s *geminiWebStoreStub) ListByPlatform(context.Context, string) ([]service.Account, error) {
-	return []service.Account{*s.account}, nil
+func (s *geminiWebStoreStub) ListDueGeminiWebAccounts(context.Context) ([]int64, error) {
+	if s.account.Schedulable {
+		return []int64{s.account.ID}, nil
+	}
+	return []int64{}, nil
 }
 func (s *geminiWebStoreStub) CompareAndSwapGeminiWebRuntime(_ context.Context, _ int64, expected int64, _ string, _ map[string]any) (bool, error) {
 	s.expected = expected
@@ -110,7 +113,7 @@ func TestGeminiWebControlRejectsInvalidAccessAndConflicts(t *testing.T) {
 	auth.role = service.RoleUser
 	require.Equal(t, 403, request(http.MethodGet, "/accounts/28/session", "edge-key", "").Code)
 	auth.role = service.RoleAdmin
-	require.JSONEq(t, `{"accounts":[28]}`, request(http.MethodGet, "/warm-accounts", "edge-key", "").Body.String())
+	require.JSONEq(t, `{"accounts":[28],"protocol_version":1}`, request(http.MethodGet, "/warm-accounts", "edge-key", "").Body.String())
 	store.updated = false
 	body := `{"expected_version":7,"runtime":{"user_agent":"ua","cookies":[]}}`
 	require.Equal(t, 409, request(http.MethodPut, "/accounts/28/runtime", "edge-key", body).Code)
@@ -118,7 +121,7 @@ func TestGeminiWebControlRejectsInvalidAccessAndConflicts(t *testing.T) {
 	require.Equal(t, 400, request(http.MethodGet, "/accounts/no/session", "edge-key", "").Code)
 	store.account.Schedulable = false
 	require.Equal(t, 404, request(http.MethodGet, "/accounts/28/session", "edge-key", "").Code)
-	require.JSONEq(t, `{"accounts":[]}`, request(http.MethodGet, "/warm-accounts", "edge-key", "").Body.String())
+	require.JSONEq(t, `{"accounts":[],"protocol_version":1}`, request(http.MethodGet, "/warm-accounts", "edge-key", "").Body.String())
 	store.account.Schedulable = true
 	delete(store.account.Credentials, "gemini_web")
 	require.Equal(t, 404, request(http.MethodGet, "/accounts/28/session", "edge-key", "").Code)

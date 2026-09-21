@@ -15,7 +15,7 @@ import (
 // worker may replace only one account's mutable runtime through a CAS write.
 type geminiWebRuntimeStore interface {
 	GetByID(context.Context, int64) (*service.Account, error)
-	ListByPlatform(context.Context, string) ([]service.Account, error)
+	ListDueGeminiWebAccounts(context.Context) ([]int64, error)
 	CompareAndSwapGeminiWebRuntime(context.Context, int64, int64, string, map[string]any) (bool, error)
 	AcquireGeminiWebLease(context.Context, int64, string) (bool, error)
 	ReleaseGeminiWebLease(context.Context, int64, string) error
@@ -89,7 +89,7 @@ func (h *GeminiWebSessionHandler) Get(c *gin.Context) {
 		return
 	}
 	c.Header("Cache-Control", "no-store")
-	c.JSON(http.StatusOK, gin.H{"account_id": account.ID, "api_key": account.Credentials["api_key"], "runtime": runtime})
+	c.JSON(http.StatusOK, gin.H{"account_id": account.ID, "api_key": account.Credentials["api_key"], "concurrency": account.Concurrency, "runtime": runtime})
 }
 
 func (h *GeminiWebSessionHandler) PutRuntime(c *gin.Context) {
@@ -129,19 +129,12 @@ func (h *GeminiWebSessionHandler) WarmAccounts(c *gin.Context) {
 	if !h.authorize(c) {
 		return
 	}
-	accounts, err := h.store.ListByPlatform(c.Request.Context(), service.PlatformGemini)
+	ids, err := h.store.ListDueGeminiWebAccounts(c.Request.Context())
 	if err != nil {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-	ids := make([]int64, 0)
-	for i := range accounts {
-		runtime, ok := geminiWebRuntime(&accounts[i])
-		if ok && accounts[i].Schedulable && accounts[i].Status == service.StatusActive && runtime != nil {
-			ids = append(ids, accounts[i].ID)
-		}
-	}
-	c.JSON(http.StatusOK, gin.H{"accounts": ids})
+	c.JSON(http.StatusOK, gin.H{"accounts": ids, "protocol_version": 1})
 }
 
 var geminiWebLeaseOwner = regexp.MustCompile(`^[a-f0-9]{32}$`)

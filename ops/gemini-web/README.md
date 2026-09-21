@@ -60,6 +60,7 @@ environment file containing the two variables above:
 ```sh
 sudo docker build -t tokenkey-gemini-web:canary .
 sudo docker run -d --name tokenkey-gemini-web --restart unless-stopped \
+  --stop-timeout 600 \
   --network tokenkey_tokenkey-network --user 1000:1000 --read-only \
   --memory 384m --memory-swap 384m --cpus 1 --pids-limit 64 \
   --cap-drop ALL --security-opt no-new-privileges \
@@ -71,7 +72,29 @@ Use normal edge networking and upstream URL-security settings. Do not weaken glo
 security to admit an upstream URL. Database-mode rollout must install valid runtimes
 before enabling those accounts; the old volume is not a fallback.
 
+Upgrade the backend first, keep Web accounts out of user-facing groups during validation,
+and install reviewed runtime credentials through the existing account update API.
+Use the new image with the same environment/network settings to run `python worker.py --check
+<account-id> [<account-id>...]` before starting service. The check requires active, schedulable
+accounts with concurrency=1, valid local cookie records and no paused/pending/cooldown state.
+It is read-only and does not establish Google session validity. Only enable user-facing
+routing after an authorized account-attributed canary succeeds.
+
+The container health check uses `/readyz` (recent compatible control API response);
+`/healthz` only proves process liveness. Health status alone does not remove an account
+from gateway scheduling or restart an unhealthy Docker container. Allow the configured
+stop timeout for graceful draining. A forced kill retains crash lease and uncertain-generation
+protection; never clear these automatically to make a retry succeed.
+
+The worker bounds image operations and decoded pixels to reduce memory pressure. The
+synthetic maximum-pixel test is not a sustained-load guarantee under the container limit.
+The control token retains existing edge admin permissions; redirect rejection prevents
+accidental forwarding, not misuse after process compromise.
+
 Authorized integration probes use the existing run-probe / probe_account_model workflow
 with `ENDPOINT=gemini` or `gemini_image` and exact account attribution. They are not UI e2e.
 Commercial catalog activation is separate. Rollback disables affected Gemini Web accounts
 and stops the Worker; it does not alter other gateway accounts.
+Drain the Worker before rolling back the backend control API. Preserve current database
+cookies and paused state; restoring an old file Worker or stale cookie snapshot is not a
+compatible rollback. A backend-only rollback makes this Worker unready.

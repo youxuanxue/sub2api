@@ -4,9 +4,56 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 )
+
+// Only read maintenance metadata, never cookie jars or unrelated Gemini accounts.
+// A poll performs no writes. Due accounts still acquire the fenced lease before
+// touching Google, so concurrent workers and foreground requests remain safe.
+func (r *accountRepository) ListDueGeminiWebAccounts(ctx context.Context) ([]int64, error) {
+	rows, err := r.sql.QueryContext(ctx, `SELECT id,
+		credentials #> '{gemini_web,runtime,state}', credentials #> '{gemini_web,lease}'
+		FROM accounts WHERE deleted_at IS NULL AND platform='gemini' AND type='apikey'
+		AND status='active' AND schedulable=true
+		AND jsonb_typeof(credentials #> '{gemini_web,runtime}')='object'
+		ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	ids := make([]int64, 0)
+	now := float64(time.Now().Unix())
+	for rows.Next() {
+		var id int64
+		var stateRaw, leaseRaw []byte
+		if err := rows.Scan(&id, &stateRaw, &leaseRaw); err != nil {
+			return nil, err
+		}
+		state, lease := map[string]any{}, map[string]any{}
+		if len(stateRaw) > 0 {
+			if err := json.Unmarshal(stateRaw, &state); err != nil {
+				continue
+			}
+		}
+		if len(leaseRaw) > 0 {
+			if err := json.Unmarshal(leaseRaw, &lease); err != nil {
+				continue
+			}
+		}
+		lastRefresh, _ := state["last_refresh"].(float64)
+		cooldown, _ := state["cooldown_until"].(float64)
+		expiresAt, _ := lease["expires_at"].(float64)
+		if state["blocked"] == true || state["generation_pending"] == true || cooldown > now || expiresAt > now {
+			continue
+		}
+		if now-lastRefresh >= 600 {
+			ids = append(ids, id)
+		}
+	}
+	return ids, rows.Err()
+}
 
 // Ordinary account edits carry a redacted or stale credential snapshot. Keep the
 // live session under the row lock; only an explicitly newer version can import.

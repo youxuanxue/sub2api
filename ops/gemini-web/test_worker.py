@@ -3,14 +3,16 @@ import copy
 import http.client
 import io
 import json
+import subprocess
+import sys
 import threading
 import time
 import unittest
-from unittest.mock import patch
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from PIL import Image
 import worker
+from PIL import Image
 
 
 def wire(text='answer', images=False, completed=True, sparse=False):
@@ -34,7 +36,7 @@ def bundle(cookie='cookie-one'):
 
 class Control:
     def __init__(self):
-        self.records = {'28': {'account_id': 28, 'api_key': 'a' * 40,
+        self.records = {'28': {'account_id': 28, 'api_key': 'a' * 40, 'concurrency': 1,
                               'runtime': dict(bundle(), version=1, state={})}}
         self.leases = {}
         self.writes = []
@@ -60,7 +62,7 @@ class Control:
         return self.load(account_id)
 
     def warm_accounts(self):
-        return {'accounts': [int(k) for k in self.records]}
+        return {'accounts': [int(k) for k in self.records], 'protocol_version': 1}
 
 
 class WorkerTests(unittest.TestCase):
@@ -269,7 +271,7 @@ class WorkerTests(unittest.TestCase):
             self.assertEqual(owner.runtime['version'], 2)
             owner.run()
             self.assertIs(owner.account, account)
-            self.assertEqual(control.writes, [1, 2])
+            self.assertEqual(control.writes, [1])  # unchanged state does not write again
             control.records['28']['runtime']['user_agent'] = 'new-browser'
             control.records['28']['runtime']['version'] += 1
             owner.run()
@@ -282,12 +284,159 @@ class WorkerTests(unittest.TestCase):
         adapter = worker.ControlAdapter(control)
         with patch.object(worker.Account, 'refresh', autospec=True,
                           side_effect=lambda account: account.persist()) as refresh:
-            with patch.object(worker.time, 'sleep', side_effect=InterruptedError):
+            with patch.object(adapter.stopping, 'wait', side_effect=InterruptedError):
                 with self.assertRaises(InterruptedError):
                     adapter.maintain()
         self.assertEqual(refresh.call_count, 1)
         self.assertEqual(control.writes, [1])
         adapter.accounts['28'].close()
+
+    def test_idle_poll_is_read_only_and_paused_sessions_fail_deploy_check(self):
+        control = Control()
+        adapter = worker.ControlAdapter(control)
+        with patch.object(control, 'warm_accounts', return_value={'accounts': [], 'protocol_version': 1}):
+            with patch.object(control, 'acquire') as acquire, patch.object(control, 'load') as load:
+                for _ in range(5):
+                    self.assertEqual(adapter.check_control(), [])
+                acquire.assert_not_called()
+                load.assert_not_called()
+        with patch.object(control, 'acquire') as acquire, patch.object(worker.Account, 'call') as upstream:
+            adapter.check_accounts(['28'])
+            self.assertTrue(adapter.ready())
+            control.records['28']['concurrency'] = 20
+            with self.assertRaisesRegex(worker.Failure, 'concurrency'):
+                adapter.check_accounts(['28'])
+            control.records['28']['concurrency'] = 1
+            control.records['28']['runtime']['state']['generation_pending'] = True
+            with self.assertRaisesRegex(worker.Failure, 'paused'):
+                adapter.check_accounts(['28'])
+            acquire.assert_not_called()
+            upstream.assert_not_called()
+        with patch.object(control, 'warm_accounts', return_value={'accounts': [28]}):
+            with self.assertRaisesRegex(worker.Failure, 'Incompatible'):
+                adapter.check_control()
+            adapter.last_control_ok = time.monotonic() - 4 * worker.POLL_SECONDS
+            self.assertFalse(adapter.ready())
+        self.assertTrue(adapter.ready(), 'long maintenance must not mask a healthy control API')
+        adapter.stopping.set()
+        self.assertFalse(adapter.ready())
+
+    def test_image_pixel_limit_rejects_before_decode(self):
+        output = io.BytesIO()
+        Image.new('RGB', (16, 8), 'blue').save(output, 'PNG')
+        response = SimpleNamespace(status_code=200, headers={'content-type': 'image/png'})
+        with patch.object(self.account, 'batch', return_value=['https://lh3.googleusercontent.com/gg-dl/ref']):
+            with patch.object(self.account, 'call', return_value=(response, output.getvalue())) as call:
+                with patch.object(worker, 'MAX_IMAGE_PIXELS', 100), patch.object(Image.Image, 'load') as decode:
+                    with self.assertRaisesRegex(worker.Failure, 'Invalid original'):
+                        self.account.download(('i', 'c', 'r', 'rc'))
+                    decode.assert_not_called()
+                    self.assertEqual(call.call_count, 1)
+
+    def test_control_redirect_never_forwards_admin_key(self):
+        paths = []
+        class Redirect(worker.BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+            def do_GET(self):
+                paths.append(self.path)
+                self.send_response(302)
+                self.send_header('Location', '/credential-trap')
+                self.end_headers()
+        server = worker.ThreadingHTTPServer(('127.0.0.1', 0), Redirect)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            control = worker.SessionControl('http://127.0.0.1:%s' % server.server_port, 'a' * 40)
+            with self.assertRaises(worker.Failure):
+                control.load('28')
+            self.assertEqual(paths, ['/edge/gemini-web/accounts/28/session'])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_drain_finishes_inflight_request_and_releases_lease(self):
+        control = Control()
+        adapter = worker.ControlAdapter(control)
+        server = worker.Server(('127.0.0.1', 0), adapter)
+        serving = threading.Thread(target=server.serve_forever)
+        serving.start()
+        entered, complete, closed = threading.Event(), threading.Event(), threading.Event()
+        statuses = []
+        def generate(*_):
+            entered.set()
+            self.assertTrue(complete.wait(5))
+            return {'candidates': []}
+        def request():
+            connection = http.client.HTTPConnection(*server.server_address, timeout=5)
+            connection.request('POST', '/v1beta/models/gemini-web-flash:generateContent',
+                json.dumps({'contents': [{'parts': [{'text': 'test'}]}]}),
+                {'x-goog-api-key': 'a' * 40, 'x-tokenkey-gemini-web-account-id': '28'})
+            response = connection.getresponse()
+            statuses.append(response.status)
+            response.read()
+            connection.close()
+        def close():
+            server.server_close()
+            closed.set()
+        try:
+            with patch.object(worker.Account, 'generate', side_effect=generate):
+                client = threading.Thread(target=request)
+                client.start()
+                self.assertTrue(entered.wait(5))
+                server.drain()
+                serving.join(timeout=5)
+                closing = threading.Thread(target=close)
+                closing.start()
+                self.assertFalse(closed.wait(0.05))
+                self.assertFalse(adapter.ready())
+                complete.set()
+                client.join(timeout=5)
+                closing.join(timeout=5)
+                self.assertTrue(closed.is_set())
+            self.assertEqual(statuses, [200])
+            self.assertEqual(control.leases, {})
+        finally:
+            complete.set()
+            server.shutdown()
+            server.server_close()
+            serving.join(timeout=5)
+            for owner in adapter.accounts.values():
+                owner.close()
+
+    def test_large_image_decode_and_buffer_fit_container_budget(self):
+        # Measure C-level Pillow/curl allocations too; tracemalloc omits them.
+        script = '''
+import io, json, resource, sys
+from types import SimpleNamespace
+from PIL import Image
+import worker
+output = io.BytesIO()
+picture = Image.effect_noise((4000, 4000), 100).convert('RGB')
+picture.save(output, 'JPEG', quality=95)
+picture.close()
+data = output.getvalue()
+output.close()
+account = worker.Account({'user_agent':'synthetic', 'cookies':[
+    {'name':'SID','value':'synthetic','domain':'.google.com'}]}, persist_callback=lambda state: None)
+account.batch = lambda *_: ['https://lh3.googleusercontent.com/gg-dl/ref']
+def request(*args, **kwargs):
+    kwargs['content_callback'](data)
+    return SimpleNamespace(status_code=200, headers={'content-type':'image/jpeg'})
+account.session.request = request
+part = account.download(('i','c','r','rc'))
+payload = json.dumps({'candidates':[{'content':{'parts':[part]}}]}).encode()
+assert len(payload) > 1000000
+account.close()
+rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+rss_bytes = rss if sys.platform == 'darwin' else rss * 1024
+print(rss_bytes)
+assert rss_bytes < 384 * 1024 * 1024, rss_bytes
+'''
+        result = subprocess.run([sys.executable, '-c', script], cwd=worker.os.path.dirname(worker.__file__),
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_control_lease_prevents_a_second_process_and_fences_stale_save(self):
         control = Control()
@@ -359,6 +508,42 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(response.headers['Content-Type'], 'text/event-stream')
                 value = json.loads(response.read().decode().removeprefix('data: ').strip())
                 self.assertEqual(value['candidates'][0]['content']['parts'], [{'text': 'answer'}])
+            held = []
+            for _ in range(4):
+                server.generations.acquire()
+                held.append(True)
+            try:
+                with patch.object(worker.Account, 'generate') as generate:
+                    connection.request('POST', path, request, {
+                        'x-goog-api-key': key, 'x-tokenkey-gemini-web-account-id': '28'})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 503)
+                    self.assertEqual(response.headers['Retry-After'], '1')
+                    response.read()
+                    generate.assert_not_called()
+                connection.request('GET', '/healthz')
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                response.read()
+            finally:
+                for _ in held:
+                    server.generations.release()
+            server.images.acquire()
+            try:
+                with patch.object(worker.Account, 'generate') as generate:
+                    connection.request('POST', '/v1beta/models/gemini-web-pro-image:generateContent', request, {
+                        'x-goog-api-key': key, 'x-tokenkey-gemini-web-account-id': '28'})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 503)
+                    response.read()
+                    generate.assert_not_called()
+            finally:
+                server.images.release()
+            adapter.stopping.set()
+            connection.request('GET', '/readyz')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 503)
+            response.read()
             connection.close()
         finally:
             server.shutdown()

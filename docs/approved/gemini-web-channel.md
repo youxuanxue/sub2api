@@ -49,7 +49,7 @@ Worker 以当前 jar 为准保存，已删除或过期的 Cookie 不得从导出
 - `GET /accounts/:id/session`：读取该 active、schedulable 的 Gemini API-key 账号 runtime 和 Worker key。
 - `PUT /accounts/:id/runtime`：以 expected_version 和租约 owner 比较交换 runtime，服务端递增版本。
 - `POST /accounts/:id/lease`、`DELETE /accounts/:id/lease`：取得/释放数据库账号租约。
-- `GET /warm-accounts`：仅返回整数账号 ID，不批量返回 Cookie。
+- `GET /warm-accounts`：返回到期账号的整数 ID 和 `protocol_version=1`，不批量返回 Cookie。
 
 Messages 与 native 两条网关入口都从实际选中账号注入 account ID；
 Worker 校验该账号的 API key，不能仅凭 account ID 执行。维护任务使用独立内部调用路径，
@@ -60,14 +60,24 @@ Worker 校验该账号的 API key，不能仅凭 account ID 执行。维护任�
 每次上游请求 timeout 不超过剩余预算。到期禁止新请求与写回；竞争/版本冲突丢弃本地 owner。
 释放只删除匹配 owner 的租约。故障后不自动重试生成。
 
-Worker 轮询 warm ID，每个账号到期才执行 RotateCookies → bootstrap，
-正常续期间隔十分钟；暂停和未确认生成不会触发续期。每次 HTTP 响应保存 Cookie 更新。
+Worker 每分钟只读维护元数据，只有到期账号才申请租约并执行 RotateCookies → bootstrap，
+正常续期间隔十分钟；暂停、冷却、在途租约和未确认生成不会进入维护列表。
+每次 HTTP 响应保存 Cookie 更新；runtime 未变化时不重复写入。
 生成前持久化 generation_pending，只有完整成功或明确 quota 拒绝才清除；
 下载失败或未知生成结果跨重启保持暂停，防止重复消耗额度。
 
 普通账号编辑和 credentials 更新在数据库行锁内保留当前会话，防止旧快照覆盖 Worker 更新。
 导入必须显式使用当前版本加一；持有在途租约时拒绝导入，不能通过全量 credentials 覆盖绕开并发保护。
 未来后台导入控件必须复用此 owner。
+
+普通账号编辑复用已有行锁查询判断会话绑定，无绑定的普通 Gemini 账号不执行额外会话查询。
+Worker 启动校验控制协议；只读 `--check` 检查账号绑定、密钥、runtime 和 concurrency=1，
+不申请租约或请求 Google，不能证明 Google 会话仍有效。控制请求拒绝重定向以避免转发管理员 key；
+该 key 仍继承现有 edge 管理权限，本轮不新增 Gemini 专用权限或网络规则。
+
+Worker 保留健康请求容量，生成最多四并发、图片操作最多一并发，过载返回 503 和 Retry-After。
+`/healthz` 表示进程存活；`/readyz` 要求最近控制检查成功且未排空，Docker 健康检查使用后者。
+SIGTERM 停止接收新任务并等待在途操作释放租约；异常崩溃仍沿用租约到期和未知生成暂停保护。
 
 ## 请求与图片契约
 
@@ -78,6 +88,7 @@ streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首
 
 图片必须经 original RPC 和受限域名下载，实际解码并核对 MIME；不返回预览、不放大、
 不因下载失败重新生成。探测同样要求完整解码和正确账号用量归属。
+解码前拒绝超过 1600 万像素的图片；图片准入锁覆盖下载、解码及响应缓冲。
 不虚构 usageMetadata、modelVersion 或返回内部 thoughts。
 
 ## Implementation / Owners

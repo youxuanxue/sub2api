@@ -4,6 +4,7 @@
 One process owns all account jars; no browser, OAuth token, automatic regeneration,
 preview fallback, or invented token usage. Web wire fields are an unstable protocol.
 """
+import argparse
 import base64
 import hmac
 import http.cookiejar
@@ -12,13 +13,14 @@ import json
 import os
 import re
 import secrets
+import signal
 import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from curl_cffi import requests
 from curl_cffi.requests.impersonate import BrowserType
@@ -34,8 +36,15 @@ MODELS = {'gemini-web-flash': ('Flash', False), 'gemini-web-pro': ('Pro', False)
 MAX_BYTES = 24 * 1024 * 1024
 BROWSER_PROFILE = BrowserType.chrome145.value  # Fail startup if dependency cannot provide it.
 REFRESH_SECONDS = 600
-HOT_RELOAD_SECONDS = 5
-Image.MAX_IMAGE_PIXELS = 32_000_000
+POLL_SECONDS = 60
+MAX_IMAGE_PIXELS = 16_000_000
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+
+class NoControlRedirects(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # A deployment URL mistake must not send the edge admin key elsewhere.
+        return None
 
 
 class Failure(Exception):
@@ -58,6 +67,7 @@ class SessionControl:
             raise ValueError('Gemini Web control token is required')
         self.base_url = base_url.rstrip('/')
         self.token = token
+        self.opener = build_opener(NoControlRedirects())
 
     def request(self, method, path, payload=None, owner=None):
         body = None if payload is None else json.dumps(payload, separators=(',', ':')).encode()
@@ -66,7 +76,7 @@ class SessionControl:
                                    'Content-Type': 'application/json',
                                    'X-Gemini-Web-Lease': owner or ''})
         try:
-            with urlopen(request, timeout=15) as response:
+            with self.opener.open(request, timeout=15) as response:
                 return json.loads(response.read())
         except HTTPError as exc:
             if exc.code == 409:
@@ -239,6 +249,8 @@ class Account:
             if domain.lstrip('.') not in ALLOWED_COOKIE_DOMAINS:
                 continue
             expires = c.get('expires', -1)
+            if expires and expires > 0 and expires <= time.time():
+                continue
             self.session.cookies.jar.set_cookie(http.cookiejar.Cookie(
                 0, c['name'], c['value'], None, False, domain, domain.startswith('.'),
                 domain.startswith('.'), c.get('path', '/'), True, c.get('secure', True),
@@ -390,6 +402,8 @@ class Account:
                         actual = Image.MIME.get(image.format)
                         if actual not in ('image/jpeg', 'image/png', 'image/webp') or actual != mime:
                             raise ValueError('image type mismatch')
+                        if image.width * image.height > MAX_IMAGE_PIXELS:
+                            raise ValueError('image exceeds decoded pixel budget')
                         # The original-image RPC is mandatory; dimensions are evidence,
                         # never a reason to upscale a preview and call it an original.
                         image.verify()
@@ -490,6 +504,8 @@ class SessionOwner:
         runtime = dict(self.runtime)
         runtime['cookies'] = updated['cookies']
         runtime['state'] = {k: v for k, v in updated.items() if k != 'cookies'}
+        if runtime == self.runtime:
+            return
         response = self.control.save_runtime(
             self.account_id, self.runtime['version'], runtime, self.owner)
         self.runtime = response['runtime']
@@ -592,6 +608,48 @@ class ControlAdapter:
         self.control = control
         self.registry_lock = threading.Lock()
         self.accounts = {}
+        self.stopping = threading.Event()
+        self.last_control_ok = 0
+
+    def check_control(self):
+        response = self.control.warm_accounts()
+        records = response.get('accounts')
+        if (response.get('protocol_version') != 1 or not isinstance(records, list)
+                or any(type(x) is not int or x <= 0 for x in records)):
+            raise Failure(503, 'Incompatible Gemini Web control API')
+        self.last_control_ok = time.monotonic()
+        return records
+
+    def ready(self):
+        if self.stopping.is_set():
+            return False
+        # Long maintenance operations must not age out a healthy control plane.
+        if time.monotonic() - self.last_control_ok >= POLL_SECONDS:
+            try:
+                self.check_control()
+            except (Failure, ValueError, TypeError):
+                return False
+        return self.last_control_ok > 0
+
+    def check_accounts(self, account_ids):
+        """Read-only deployment check: no lease, persistence or Google calls."""
+        self.check_control()
+        for account_id in account_ids:
+            if not re.fullmatch(r'[1-9][0-9]*', account_id):
+                raise Failure(400, 'Invalid account reference')
+            record = self.control.load(account_id)
+            if (str(record.get('account_id')) != account_id or record.get('concurrency') != 1
+                    or not isinstance(record.get('api_key'), str) or len(record['api_key']) < 32):
+                raise Failure(503, 'Account binding/key/concurrency is not ready: ' + account_id)
+            runtime = record.get('runtime', {})
+            if type(runtime.get('version')) is not int or runtime['version'] < 0:
+                raise Failure(503, 'Account runtime version is invalid: ' + account_id)
+            account = Account(runtime, state=runtime.get('state', {}))
+            try:
+                if account.blocked or account.generation_pending or account.cooldown_until > time.time():
+                    raise Failure(503, 'Account session is paused or cooling down: ' + account_id)
+            finally:
+                account.close()
 
     def session_owner(self, account_id):
         if not isinstance(account_id, str) or not re.fullmatch(r'[1-9][0-9]*', account_id):
@@ -611,12 +669,12 @@ class ControlAdapter:
         return AuthorizedAccount(owner, key)
 
     def maintain(self):
-        while True:
+        while not self.stopping.is_set():
             try:
-                records = self.control.warm_accounts()['accounts']
-                if not isinstance(records, list) or any(type(x) is not int or x <= 0 for x in records):
-                    raise Failure(503, 'Invalid warm account list')
+                records = self.check_control()
                 for account_id in records:
+                    if self.stopping.is_set():
+                        break
                     try:
                         self.session_owner(str(account_id)).run()
                     except Exception as exc:
@@ -625,20 +683,29 @@ class ControlAdapter:
             except Exception as exc:
                 print(json.dumps({'event': 'session_poll_failed',
                                   'type': type(exc).__name__}), flush=True)
-            time.sleep(HOT_RELOAD_SECONDS)
+            self.stopping.wait(POLL_SECONDS)
 
 
 class Server(ThreadingHTTPServer):
-    daemon_threads = True
+    daemon_threads = False
     request_queue_size = 8
 
     def __init__(self, address, adapter):
         self.adapter = adapter
-        self.slots = threading.BoundedSemaphore(4)
+        # Leave handler capacity for health/readiness while generation is busy.
+        self.slots = threading.BoundedSemaphore(8)
+        self.generations = threading.BoundedSemaphore(4)
+        self.images = threading.BoundedSemaphore(1)
         super().__init__(address, Handler)
 
     def process_request(self, request, address):
         if not self.slots.acquire(blocking=False):
+            try:
+                request.settimeout(1)
+                request.sendall(b'HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\n'
+                                b'Connection: close\r\nContent-Length: 0\r\n\r\n')
+            except OSError:
+                pass  # Peer may already have disconnected; no operation started.
             self.shutdown_request(request)
             return
         try:
@@ -652,6 +719,10 @@ class Server(ThreadingHTTPServer):
             super().process_request_thread(request, address)
         finally:
             self.slots.release()
+
+    def drain(self):
+        self.adapter.stopping.set()
+        threading.Thread(target=self.shutdown, daemon=True).start()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -672,19 +743,31 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'text/event-stream' if stream else 'application/json')
         self.send_header('Content-Length', str(len(payload)))
         self.send_header('Cache-Control', 'no-store')
+        if code in (409, 429, 503):
+            self.send_header('Retry-After', '1')
         self.end_headers()
         self.wfile.write(payload)
 
     def do_GET(self):
         if self.path == '/healthz':
             self.reply(200, {'status': 'ok'})
+        elif self.path == '/readyz':
+            ready = self.server.adapter.ready()
+            self.reply(200 if ready else 503, {'status': 'ready' if ready else 'not_ready'})
         else:
             self.reply(404, {'error': {'code': 404, 'status': 'NOT_FOUND', 'message': 'Not found'}})
 
     def do_POST(self):
         started = time.monotonic()
         code = 500
+        admitted = False
+        image_admitted = False
         try:
+            if self.server.adapter.stopping.is_set():
+                raise Failure(503, 'Worker is draining')
+            admitted = self.server.generations.acquire(blocking=False)
+            if not admitted:
+                raise Failure(503, 'Worker is at capacity')
             account = self.server.adapter.authorize(
                 self.headers.get('x-goog-api-key', ''),
                 self.headers.get('x-tokenkey-gemini-web-account-id'))
@@ -706,6 +789,11 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.loads(raw)
             except (ValueError, UnicodeDecodeError) as exc:
                 raise Failure(400, 'Invalid JSON') from exc
+            request_prompt(body, match[1])
+            if MODELS[match[1]][1]:
+                image_admitted = self.server.images.acquire(blocking=False)
+                if not image_admitted:
+                    raise Failure(503, 'Image worker is at capacity')
             result = account.generate(match[1], body)
             code = 200
             self.reply(code, result, match[2] == 'streamGenerateContent')
@@ -720,12 +808,45 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             self.reply(500, {'error': {'code': 500, 'status': 'INTERNAL', 'message': 'Worker internal error'}})
         finally:
+            if image_admitted:
+                self.server.images.release()
+            if admitted:
+                self.server.generations.release()
             print(json.dumps({'event': 'request', 'status': code, 'duration_ms': round((time.monotonic() - started) * 1000)}), flush=True)
 
 
-if __name__ == '__main__':
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--check', nargs='+', metavar='ACCOUNT_ID',
+                        help='Read-only control/runtime/concurrency check before rollout')
+    args = parser.parse_args()
     os.umask(0o077)
     control_url = os.environ.get('GEMINI_WEB_CONTROL_URL', '').strip()
-    adapter = ControlAdapter(SessionControl(control_url, os.environ.get('GEMINI_WEB_CONTROL_TOKEN', '')))
-    threading.Thread(target=adapter.maintain, daemon=True).start()
-    Server(('0.0.0.0', 8091), adapter).serve_forever()
+    try:
+        adapter = ControlAdapter(SessionControl(control_url, os.environ.pop('GEMINI_WEB_CONTROL_TOKEN', '')))
+        if args.check:
+            adapter.check_accounts(args.check)
+            print(json.dumps({'status': 'ready', 'accounts': args.check}), flush=True)
+            return 0
+        adapter.check_control()
+    except (Failure, ValueError, TypeError) as exc:
+        print(json.dumps({'event': 'startup_check_failed', 'type': type(exc).__name__}), flush=True)
+        return 1
+    server = Server(('0.0.0.0', 8091), adapter)
+    signal.signal(signal.SIGTERM, lambda *_: server.drain())
+    signal.signal(signal.SIGINT, lambda *_: server.drain())
+    maintenance = threading.Thread(target=adapter.maintain)
+    maintenance.start()
+    try:
+        server.serve_forever()
+    finally:
+        adapter.stopping.set()
+        maintenance.join()
+        server.server_close()
+        for owner in adapter.accounts.values():
+            owner.close()
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

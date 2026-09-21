@@ -19,6 +19,7 @@
 4. AC-004 回归：图片下载失败不再次发起生成，也不退回预览；过期会话暂停状态跨重启保存。
 5. AC-005 安全：普通 DTO/审计不含 Cookie；复制不保留会话且不可调度；控制接口拒绝普通用户。
 6. AC-006 并发：竞争 owner 与过期租约不能执行/写回；自身保存不触发错误重载。
+7. AC-007 部署影响：空闲维护不写库、旧编辑不覆盖新导入；过载明确拒绝且健康检查可用；排空完成在途请求；超预算图片在解码前拒绝；不兼容控制 API 和暂停账号不能通过部署检查。
 
 ## Assertions
 
@@ -41,6 +42,14 @@
 - AC-006: `ops/gemini-web/test_worker.py`::`WorkerTests.test_control_lease_prevents_a_second_process_and_fences_stale_save`
 - AC-006: `ops/gemini-web/test_worker.py`::`WorkerTests.test_control_owner_keeps_its_saved_version_and_reloads_operator_import`
 - AC-006: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`AccountRepoSuite.TestGeminiWebLeaseAndCAS`
+- AC-007: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`AccountRepoSuite.TestGeminiWebMaintenanceOnlyReturnsDueAccounts`
+- AC-007: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`AccountRepoSuite.TestGeminiWebImportSurvivesPreBindingEditor`
+- AC-007: `ops/gemini-web/test_worker.py`::`WorkerTests.test_idle_poll_is_read_only_and_paused_sessions_fail_deploy_check`
+- AC-007: `ops/gemini-web/test_worker.py`::`WorkerTests.test_http_auth_and_buffered_sse`
+- AC-007: `ops/gemini-web/test_worker.py`::`WorkerTests.test_drain_finishes_inflight_request_and_releases_lease`
+- AC-007: `ops/gemini-web/test_worker.py`::`WorkerTests.test_image_pixel_limit_rejects_before_decode`
+- AC-007: `ops/gemini-web/test_worker.py`::`WorkerTests.test_large_image_decode_and_buffer_fit_container_budget`
+- AC-005: `ops/gemini-web/test_worker.py`::`WorkerTests.test_control_redirect_never_forwards_admin_key`
 
 运行命令：
 
