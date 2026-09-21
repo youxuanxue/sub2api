@@ -1,6 +1,6 @@
 # Gemini Web HTTP adapter
 
-Contract and live evidence: [`docs/approved/gemini-web-channel.md`](../../docs/approved/gemini-web-channel.md), §10.
+Contract and live evidence: [`docs/approved/gemini-web-channel.md`](../../docs/approved/gemini-web-channel.md), §12–13.
 
 Private edge companion, with one Google Web cookie jar per account. TokenKey accounts use
 `platform=gemini`, `type=apikey`, `base_url=http://tokenkey-gemini-web:8091` and separate

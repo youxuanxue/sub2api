@@ -358,13 +358,22 @@ class Account:
             if selector is None:
                 raise Failure(404, 'Requested Web model is unavailable for this account')
             identifier, number, capacity = selector
-            inner = [None] * 81
+            wants_image = MODELS[model][1]
+            inner = [None] * (99 if wants_image else 81)
             inner[0] = [prompt, 0, None, None, None, None, 0]
             inner[1] = ['en']
             inner[2] = ['', '', '', None, None, None, None, None, None, '']
             for index, value in {6: [1], 7: 1, 10: 1, 11: 0, 17: [[0]], 18: 0, 27: 1,
                 30: [4], 41: [1], 53: 0, 61: [], 68: 1, 79: number, 80: 1}.items():
                 inner[index] = value
+            if wants_image:
+                # Current Web image mode (us4 replay, 2026-09-21). The text
+                # shape is insufficient for this operation. Browser-only opaque
+                # fields 3/4 are deliberately absent: Pro + original download
+                # was verified without them or the browser's timing header.
+                for index, value in {49: 14, 54: [], 55: [], 68: 2,
+                                     91: 0, 96: 0, 98: 1}.items():
+                    inner[index] = value
             request_id = str(uuid.uuid4()).upper()
             inner[59] = request_id
             headers = {'Origin': ORIGIN, 'Referer': ORIGIN + '/', 'X-Same-Domain': '1',

@@ -82,6 +82,41 @@ class WorkerTests(unittest.TestCase):
                     self.account.generate('gemini-web-flash', body)
                 call.assert_not_called()
 
+    def test_image_mode_uses_live_pro_selector_without_browser_tokens(self):
+        original = {'inlineData': {'mimeType': 'image/jpeg', 'data': 'b3JpZ2luYWw='}}
+        def upstream(method, url, **kwargs):
+            inner = json.loads(json.loads(kwargs['data']['f.req'])[1])
+            selector = json.loads(kwargs['headers']['x-goog-ext-525001261-jspb'])
+            # Model an upstream that rejects the old text-shaped image request.
+            if len(inner) != 99 or inner[49] != 14 or inner[68] != 2 or inner[98] != 1:
+                raise worker.Failure(403, 'Image mode required')
+            self.assertEqual(selector[4], 'id-pro')
+            self.assertEqual((selector[14], inner[79]), (3, 3))
+            self.assertEqual(inner[3:5], [None, None])
+            self.assertEqual(inner[0][0], 'Draw a cube')
+            self.assertEqual(inner[2][:3], ['', '', ''])
+            return None, wire(images=True).encode()
+        with patch.object(self.account, 'call', side_effect=upstream) as call:
+            with patch.object(self.account, 'download', return_value=original) as download:
+                result = self.account.generate('gemini-web-pro-image', {
+                    'contents': [{'parts': [{'text': 'Draw a cube'}]}],
+                    'generationConfig': {'responseModalities': ['IMAGE']}})
+        self.assertEqual(result['candidates'][0]['content']['parts'], [original])
+        download.assert_called_once_with(('image-id', 'c_one', 'r_one', 'rc_one'))
+        self.assertEqual(call.call_count, 1)
+        self.assertFalse(self.account.generation_pending)
+
+    def test_text_request_retains_text_mode_and_current_model(self):
+        with patch.object(self.account, 'call', return_value=(None, wire().encode())) as call:
+            self.account.generate('gemini-web-flash', {
+                'contents': [{'parts': [{'text': 'hello'}]}]})
+        inner = json.loads(json.loads(call.call_args.kwargs['data']['f.req'])[1])
+        selector = json.loads(call.call_args.kwargs['headers']['x-goog-ext-525001261-jspb'])
+        self.assertEqual(len(inner), 81)
+        self.assertEqual(inner[68], 1)
+        self.assertIsNone(inner[49])
+        self.assertEqual(selector[4], 'id-flash')
+
     def test_download_failure_does_not_regenerate_or_return_preview(self):
         with patch.object(self.account, 'call', return_value=(None, wire(images=True).encode())) as call:
             with patch.object(self.account, 'download', side_effect=worker.Failure(502, 'download failed')):

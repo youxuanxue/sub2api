@@ -14,12 +14,12 @@ target: edge-us4
 ## 当前执行范围（用户已明确授权）
 
 以 Cookie＋纯 HTTP 在 edge-us4 新增 profile 133、483 两个账号，提供文本和原图网关服务。
-当前实现与验收以第 10 节为准；下文浏览器执行器和迁移方案保留为历史调查记录。
+当前实现与验收以第 12、13 节为准；下文浏览器执行器和迁移方案保留为历史调查记录。
 不再运行 Linux Chromium，不再以旧图下载代替新图生成验收。所有 Google 请求从 us4 出口发出。
 
 ## 结论与当前边界
 
-**第 9 节是历史迁移实验；第 12 节是当前实现与实测结论。** Linux Chromium 迁移已停止，当前生产 canary 采用 edge-us4 纯 HTTP Worker。
+**第 9 节是历史迁移实验；第 12 节记录初次验收，第 13 节记录最近恢复与实测。** Linux Chromium 迁移已停止，当前生产 canary 采用 edge-us4 纯 HTTP Worker。初次双号成功不代表两号持续健康；最近只恢复和验证 133，483 仍暂停。
 
 建议新增独立的 `Gemini Web` 账号通路：一个 SessionOwner 管理凭据与页面状态，HTTP 执行器处理已验证的文本/refresh，浏览器网络执行器处理图片。浏览器网络执行器在已登录上下文中直接使用 fetch，执行生成、原图 RPC、授权和文件读取；不依赖逐次点击页面或截图提取图片。两种执行器共享账号租约、会话版本和错误状态，不能分别维护 Cookie 或重复提交同一轮生成。人工登录/验证及未知页面动态状态仍由浏览器 UI 承接。
 
@@ -27,7 +27,7 @@ target: edge-us4
 
 这条路径使用 Google 的 Gemini Web 前端数据面，不调用 `cloudcode-pa.googleapis.com`，不恢复或替代 #24 的 Antigravity OAuth 身份，也不能据此认定 Code Assist 的 403 已解除。
 
-当前验收范围为 profile 133、483，484 不纳入本轮。两号均已通过 TokenKey 官方 `GenerateContentResponse` 文本与全尺寸图片验收，账号已在 edge-us4 建立 canary。现有 us4 先按单活跃浏览器槽做 Linux 验证；两个热账号同时服务建议至少 4 GiB 内存，具体预算见下文容量评估。
+当前验收范围为 profile 133、483，484 不纳入本轮。两号曾通过 TokenKey 官方 `GenerateContentResponse` 文本与全尺寸图片验收，账号已在 edge-us4 建立 canary。当前使用纯 HTTP 容器；下文双热浏览器的 4 GiB 建议仅属于历史方案，不能用于估算当前 Worker 成本。
 
 当前已部署 edge-us4 私有 Worker canary，新增账号 #28/#29 和专用 `gemini-web` 分组；未把 Web 账号伪装为官方 API 模型，也未自动发布商业定价。
 
@@ -618,3 +618,51 @@ API 为官方 generateContent/streamGenerateContent 结构；返回 text 或 inl
 X-Request-ID 查 usage_logs。无新 UI，不将 API 集成测试称为 UI e2e。
 部署/回滚及密钥布局见 `ops/gemini-web/README.md`。初始容器上限 384 MiB / 1 CPU；
 纯 HTTP 容量成本替代此前双热浏览器的 4 GiB 建议，实际并发和峰值仍需测量。
+
+## 13. 2026-09-21：133 重新登录后的图片模式修复
+
+运营在 AdsPower 133 重新登录后，us4 #28 已恢复文本，但旧 Worker 图片请求得到上游 403，
+网关表现为 502。该失败发生在 StreamGenerate，尚未进入原图 RPC 或下载阶段。
+UA 已按源浏览器恢复为 Chrome 134；仅改 UA、或仅把 Pro 换成 Flash，均未解决旧请求失败。
+
+浏览器图片请求使用 99 位 JSPB 内层数组；旧 Worker 对图片也发送 81 位文本模式数组。
+在 us4 隔离 HTTP 会话里逐步缩小差异后，Pro 配合图片模式数组与原有 17 字段模型头成功。
+修复仅对图片操作补入 `49=14, 54=[], 55=[], 68=2, 91=0, 96=0, 98=1`；
+文本操作保持原结构，Pro selector 与 model number 仍从当前账号能力 RPC 获取。
+浏览器捕获的 opaque 字符串 `inner[3]/[4]` 和额外 timing header 均不是本次成功的必要条件，
+不导入或硬编码它们。这组请求形状修复已获实测支持，但尚未逐字段证明哪个位置是唯一触发因素。
+
+| us4 隔离实测 | 结果 | SSM CommandId |
+|---|---|---|
+| 浏览器形状短时重放 | HTTP 200，1 个图片引用；未下载，不能算完整交付 | `8694c304-b476-458b-817c-d466fcaf29ec` |
+| 移除 opaque 字段，Flash 图片模式 | JPEG 2816×1536，2,083,241 bytes，inlineData | `79ecec1e-c203-4c87-bd54-a06999fd4419` |
+| 移除 opaque 字段及额外 timing header，保留 Pro | JPEG 2816×1536，2,014,078 bytes，inlineData | `c2dacda3-bca2-46ce-8ff6-662a77e6f7e8` |
+
+纯 HTTP 完整链仍是：bootstrap → StreamGenerate → c8o8Fe → 原图 URL 的逐域授权/下载
+→ 校验 JPEG 字节 → `candidates[].content.parts[].inlineData`。不是复用网页预览或旧图，
+没有启动 Linux Chromium；Google 请求仍全部从 edge-us4 发出。
+
+单元回归覆盖图片模式、动态 Pro selector、无浏览器 token、官方图片响应和原图 RPC，
+并验证文本请求形状未变。配置并发 20 仅为网关上限；Worker 当前每号互斥执行，不能据此声称支持 20 路同时生成。
+
+### 修复部署后的 prod → us4 验收
+
+修复镜像 `sha256:c9f43d607b381ffcf1d763bab15dabcac2306d60b80fd3dfc43d17cb3bed2189`
+已更新到 us4 私有 Worker；旧容器停止并保留供回滚。部署前本地与镜像内测试通过；
+重启后未重新导入 Cookie 或登录。#483 的会话状态文件哈希未变。
+
+2026-09-21 06:41–06:43 UTC（北京时间 14:41–14:43）通过 prod 专用 key 验证：
+
+| 操作 | 对客结果 | prod #200 用量 | edge #28 用量 |
+|---|---|---|---|
+| `gemini-web-pro-image:generateContent` | HTTP 200，JPEG 2816×1536，2,778,476 bytes，官方 inlineData | 29,522 ms | 28,965 ms |
+| `gemini-web-flash:generateContent` | HTTP 200，精确返回 `TK_133_RESTORED_OK` | 3,200 ms | 3,099 ms |
+
+图片 SHA-256：`9c3ae23fde616a093502ac17d391ef3d09d99c50469f9ed8afac1fbbf3d09559`。
+图片请求 prod ID `3daa3f2c-9616-43c6-b813-489542e29a82`，对应窗口的 edge ID
+`39c15fb6-78c7-4fba-842c-fe12e8c4168e`；两个网关各自生成请求 ID，用量记录分别归属 #200、#28。
+图片 SSM `9026b8ac-52c9-465a-beb4-2000ab261d22`，文本 SSM
+`63df030a-e41f-459b-b03b-45a89a03bff5`；这些耗时是单次观测，不是 p95 或容量测试。
+
+最终状态：us4 #28 `active / schedulable=true / concurrency=20`，无错误或冷却；
+prod #200 `gemini-us4` 正常；us4 #29 仍为 `error / schedulable=false`，本轮没有恢复 #483。
