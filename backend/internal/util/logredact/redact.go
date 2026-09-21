@@ -438,7 +438,10 @@ func redactUnstructuredText(input string, patterns *textRedactPatterns) string {
 	if !patterns.mayContainAssignment(out) {
 		return out
 	}
-	if patterns.linearAssignments && !containsNonASCII(out) {
+	// The scanner uses ASCII word boundaries, as Go's regexp does. Unicode
+	// prose and values need no fallback: only ſ and K can simple-fold into
+	// an ASCII key while escaping the scanner's byte-wise key boundaries.
+	if patterns.linearAssignments && !strings.Contains(out, "ſ") && !strings.Contains(out, "K") {
 		return redactSimpleAssignments(out, patterns)
 	}
 	if strings.Contains(out, ":") && strings.Contains(out, `"`) {
@@ -636,15 +639,6 @@ func isLinearKeyByte(c byte) bool {
 
 func isAssignmentSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f'
-}
-
-func containsNonASCII(input string) bool {
-	for i := 0; i < len(input); i++ {
-		if input[i] >= utf8.RuneSelf {
-			return true
-		}
-	}
-	return false
 }
 
 // All key regexps require a sensitive key immediately before a : or =,

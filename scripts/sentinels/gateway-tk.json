@@ -13573,6 +13573,15 @@
         "TestRedactAssignmentScannerOrdering"
       ],
       "rationale": "Preserve replacement-order regressions where merging assignment scans leaves credential suffixes exposed."
+    },
+    {
+      "path": "backend/internal/util/logredact/unicode_assignment_test.go",
+      "must_contain": [
+        "TestRedactUnicodeAssignmentsMatchOriginal",
+        "TestRedactAssignmentUnicodeFoldCoverage",
+        "BenchmarkRedactUnicodeAssignment"
+      ],
+      "rationale": "Preserve Unicode assignment boundary and simple-fold differential coverage while avoiding whole-body regexp fallback for ordinary non-ASCII prose."
     }
   ]
 }
