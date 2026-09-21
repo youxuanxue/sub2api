@@ -603,6 +603,13 @@
       "rationale": "PlatformKimi / CN raw chat completions must normalize Moonshot thinking before upstream passthrough; without this call site only the newapi bridge path is protected and direct kimi accounts keep returning upstream 400s for boolean thinking."
     },
     {
+      "path": "backend/internal/service/openai_gateway_messages_chat_fallback.go",
+      "must_contain": [
+        "applyMoonshotThinkingShape"
+      ],
+      "rationale": "Anthropic Messages→raw Chat Completions fallback must normalize Moonshot/Kimi thinking before sendCCUpstreamRequest; without this call site only OpenAI-shaped raw CC / newapi bridge paths are protected and Anthropic→Kimi traffic keeps hitting upstream thinking-bool 400s."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping_test.go",
       "must_contain": [
         "TestForwardAsChatCompletionsDispatched_QwenNonStreamingDisablesThinking"
