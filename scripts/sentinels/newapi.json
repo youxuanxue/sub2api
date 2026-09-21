@@ -506,8 +506,9 @@
     {
       "path": "backend/internal/relay/bridge/dispatch.go",
       "must_contain": [
-        "request.WithContext(relaycommon.WithUpstreamRequestContext(upstreamCtx))",
-        "if in.BoundedChatAttempt {\n\t\tupstreamCtx = ctx\n\t}",
+        "bindChatUpstreamRequestContext(c, ctx, in.BoundedChatAttempt)",
+        "relaycommon.WithUpstreamRequestContext(upstreamCtx)",
+        "if bounded {\n\t\tupstreamCtx = ctx\n\t}",
         "relayInfo.DisablePing = in.BoundedChatAttempt"
       ],
       "rationale": "NewAPI chat always opts into caller-owned transport cancellation so disconnect stops the upstream HTTP request and frees account concurrency. Bounded Chat attempts still bind the attempt context (first-output budget + mid-stream cancel) and suppress concurrent pings before output."

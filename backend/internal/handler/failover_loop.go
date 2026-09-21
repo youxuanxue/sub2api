@@ -308,8 +308,9 @@ func needForceCacheBilling(hasBoundSession bool, failoverErr *service.UpstreamFa
 // 两者都必须静默终止 failover：用已结束的 context 重新选号只会得到取消/
 // deadline 错误，并被误报成账号耗尽（通用 502）。
 //
-// 499 归类只属于调用方断开（context.Canceled）。服务端 deadline 是平台故障，
-// 不得标成 client-closed（client-closed-499-ssot：DeadlineExceeded 优先排除）。
+// 状态终结分流：
+//   - context.Canceled → 499 / MarkOpsClientClosedRequest（调用方断开）
+//   - context.DeadlineExceeded → 响应未提交时写 504（平台超时），不得冒充 499
 func failoverClientGone(c *gin.Context) bool {
 	if c == nil || c.Request == nil {
 		return false
@@ -318,8 +319,13 @@ func failoverClientGone(c *gin.Context) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.Canceled) {
+	switch {
+	case errors.Is(err, context.Canceled):
 		markClientClosedForwardRequest(c)
+	case errors.Is(err, context.DeadlineExceeded):
+		if c.Writer != nil && !c.Writer.Written() && !service.IsResponseCommitted(c) {
+			c.Status(http.StatusGatewayTimeout)
+		}
 	}
 	return true
 }
