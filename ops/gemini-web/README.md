@@ -39,6 +39,48 @@ stopped, preserve the old protected state for rollback, replace the account bund
 retire that account's `state.json`. Do not overwrite the other account. Restart checks
 the volume lease; launching two owners against one volume fails.
 
+## Export a session for review
+
+This is the current operator-only export step. It reads the selected, already logged-in
+AdsPower profile through its local CDP endpoint. It does not log in, upload anything, or
+change the TokenKey edge. Keep the browser on Gemini and keep its Google traffic bound to
+the intended edge proxy before running it.
+
+Install the local export dependency once, if needed:
+
+```sh
+python3 -m pip install --user -r ops/gemini-web/export-requirements.txt
+```
+
+Then run from the repository root, replacing the profile's AdsPower `user_id` and the
+output path. The visible serial number (for example `133`) is not necessarily the
+`user_id`; obtain the latter from AdsPower's local profile list/API.
+
+```sh
+python3 ops/gemini-web/export_adspower_session.py \
+  k1e54ley \
+  --output /tmp/gemini-web-session-133.json
+```
+
+The command prints only a safe summary: profile ID, page URL, User-Agent, cookie count,
+domains and cookie names. It never prints cookie values. The output file is created with
+mode `0600`, and its parent directory is restricted to `0700` when created. Check it
+locally without exposing values:
+
+```sh
+stat -f '%Sp %N' /tmp/gemini-web-session-133.json  # macOS
+python3 -c 'import json,sys; x=json.load(open(sys.argv[1])); print(x["format"], x["source"], len(x["cookies"]), x["user_agent"])' \
+  /tmp/gemini-web-session-133.json
+```
+
+The exported package contains the browser's actual User-Agent and every CDP cookie field
+for the allowlisted Google/Gemini domains, including domain, path, expiry, `httpOnly`,
+`secure`, `sameSite`, partition and source attributes. It preserves unknown future CDP
+fields as well. This is why a plain `Cookie:` header copied from DevTools, or a small
+two-cookie export, is not equivalent. Treat the JSON as a password: do not paste it into
+chat, tickets, shell history, Git, or a public upload. This step only prepares a package;
+the TokenKey backend import and per-account hot reload are separate implementation work.
+
 On import, and every ten minutes including idle periods, the single session owner
 renews via RotateCookies and bootstraps again under the account lock. Every response persists all cookie changes. Auth loss pauses that
 account durably; quota rejection applies a five-minute cooldown. Operators re-import
