@@ -218,15 +218,65 @@ class WorkerTests(unittest.TestCase):
             {'id': 'one', 'api_key': 'a' * 40}, {'id': 'two', 'api_key': 'b' * 40}]))
         adapter = worker.Adapter(self.root)
         try:
-            self.assertEqual(adapter.authorize('a' * 40).session.cookies.get('__Secure-1PSID'), 'cookie-one')
-            self.assertEqual(adapter.authorize('b' * 40).session.cookies.get('__Secure-1PSID'), 'cookie-two')
+            self.assertEqual(adapter.authorize('a' * 40).account.session.cookies.get('__Secure-1PSID'), 'cookie-one')
+            self.assertEqual(adapter.authorize('b' * 40).account.session.cookies.get('__Secure-1PSID'), 'cookie-two')
             with self.assertRaises(worker.Failure):
                 adapter.authorize('wrong-key')
             with self.assertRaises(BlockingIOError):
                 worker.Adapter(self.root)
         finally:
             for account in adapter.accounts.values():
-                account.session.close()
+                account.close()
+            adapter.lease.close()
+
+    def test_hot_reload_replaces_only_the_changed_account(self):
+        seed(self.root, 'two', 'cookie-two')
+        (self.root / 'accounts.json').write_text(json.dumps([
+            {'id': 'one', 'api_key': 'a' * 40}, {'id': 'two', 'api_key': 'b' * 40}]))
+        adapter = worker.Adapter(self.root)
+        try:
+            one = adapter.authorize('a' * 40)
+            two = adapter.authorize('b' * 40)
+            previous_two = two.account
+            # An importer discards worker-owned refreshed state before it makes
+            # a newly exported browser session visible.
+            worker.atomic_json(two.root / 'state.json', {'cookies': [{
+                'name': '__Secure-1PSID', 'value': 'old-worker-cookie',
+                'domain': '.google.com', 'path': '/', 'secure': True}]})
+            (two.root / 'state.json').unlink()
+            worker.atomic_json(two.root / 'bundle.json', {'ua': 'updated', 'cookies': [
+                {'name': '__Secure-1PSID', 'value': 'cookie-two-updated',
+                 'domain': '.google.com', 'path': '/', 'secure': True}]})
+            # A request for account one must not prevent account two's session
+            # update. Only the account being swapped acquires its operation lock.
+            self.assertTrue(one.operation.acquire(blocking=False))
+            try:
+                adapter.reload_from_disk()
+            finally:
+                one.operation.release()
+            self.assertIs(one, adapter.authorize('a' * 40))
+            self.assertIs(two, adapter.authorize('b' * 40))
+            self.assertIsNot(two.account, previous_two)
+            self.assertEqual(two.account.session.headers['User-Agent'], 'updated')
+            self.assertEqual(two.account.session.cookies.get('__Secure-1PSID'), 'cookie-two-updated')
+        finally:
+            for account in adapter.accounts.values():
+                account.close()
+            adapter.lease.close()
+
+    def test_bad_hot_reload_preserves_live_account(self):
+        (self.root / 'accounts.json').write_text(json.dumps([{'id': 'one', 'api_key': 'a' * 40}]))
+        adapter = worker.Adapter(self.root)
+        try:
+            managed = adapter.authorize('a' * 40)
+            previous = managed.account
+            worker.atomic_json(managed.root / 'bundle.json', {'ua': '', 'cookies': []})
+            with self.assertRaises((KeyError, ValueError)):
+                adapter.reload_from_disk()
+            self.assertIs(adapter.authorize('a' * 40).account, previous)
+        finally:
+            for account in adapter.accounts.values():
+                account.close()
             adapter.lease.close()
 
     def test_http_auth_and_buffered_sse(self):

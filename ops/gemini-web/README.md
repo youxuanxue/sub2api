@@ -34,10 +34,23 @@ owner.lock                    # one process/volume owner, including across resta
 
 Export only from the explicitly selected AdsPower profile over local CDP; all browser
 Google requests must already use the edge proxy. Never bake these files into an image,
-pass them as CLI arguments, or print them. Import an updated session with the worker
-stopped, preserve the old protected state for rollback, replace the account bundle and
-retire that account's `state.json`. Do not overwrite the other account. Restart checks
-the volume lease; launching two owners against one volume fails.
+pass them as CLI arguments, or print them. Do not overwrite another account's directory.
+The worker owns one volume lease; launching two owners against one volume fails.
+
+### Per-account hot reload
+
+The running Worker checks `accounts.json` and each configured `bundle.json` every five
+seconds. Replacing one account's bundle reloads only that account after its in-flight
+request completes. Other accounts keep serving; the Worker process does not restart.
+
+Until the TokenKey admin import UI is implemented, its future installer must use this
+order for one account: write the new bundle to a temporary file, remove that account's
+`state.json`, then atomically rename the new file to `bundle.json`. The old state must be
+removed *before* the final bundle rename, otherwise its refreshed cookies can supersede
+the newly imported browser session. A malformed replacement is rejected and the existing
+in-memory session remains active. `accounts.json` can add/remove independent accounts in
+the same way; an added account still needs its own 32+ character Worker key and protected
+directory.
 
 ## Export a session for review
 

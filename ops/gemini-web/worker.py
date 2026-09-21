@@ -34,6 +34,7 @@ MODELS = {'gemini-web-flash': ('Flash', False), 'gemini-web-pro': ('Pro', False)
 MAX_BYTES = 24 * 1024 * 1024
 BROWSER_PROFILE = BrowserType.chrome145.value  # Fail startup if dependency cannot provide it.
 REFRESH_SECONDS = 600
+HOT_RELOAD_SECONDS = 5
 Image.MAX_IMAGE_PIXELS = 32_000_000
 
 
@@ -184,6 +185,10 @@ class Account:
     def __init__(self, root):
         self.root = Path(root)
         bundle = json.loads((self.root / 'bundle.json').read_text())
+        if (not isinstance(bundle, dict) or not isinstance(bundle.get('ua'), str)
+                or not bundle['ua'] or not isinstance(bundle.get('cookies'), list)
+                or not bundle['cookies']):
+            raise ValueError('Invalid Gemini Web session bundle')
         saved = self.root / 'state.json'
         state = json.loads(saved.read_text()) if saved.exists() else {}
         self.blocked = state.get('blocked', False)
@@ -193,7 +198,11 @@ class Account:
         self.lock = threading.Lock()
         self.session = requests.Session(impersonate=BROWSER_PROFILE, timeout=180, trust_env=False)
         self.session.headers['User-Agent'] = bundle['ua']
+        usable_cookies = 0
         for c in state.get('cookies', bundle['cookies']):
+            if not isinstance(c, dict) or not all(isinstance(c.get(field), str) and c[field]
+                                                  for field in ('name', 'value', 'domain')):
+                raise ValueError('Invalid Gemini Web cookie')
             domain = c['domain']
             # Only Google auth/image domains, never arbitrary imported cookie scopes.
             if domain.lstrip('.') not in ('google.com', 'gemini.google.com', 'accounts.google.com',
@@ -205,10 +214,16 @@ class Account:
                 0, c['name'], c['value'], None, False, domain, domain.startswith('.'),
                 domain.startswith('.'), c.get('path', '/'), True, c.get('secure', True),
                 int(expires) if expires and expires > 0 else None, False, None, None, {}, False))
+            usable_cookies += 1
+        if not usable_cookies:
+            raise ValueError('Gemini Web session bundle contains no supported cookies')
         self.fields = {}
         self.models = {}
         self.ready_at = 0
         self.session_id = str(uuid.uuid4())
+
+    def close(self):
+        self.session.close()
 
     def persist(self):
         cookies = [dict(name=c.name, value=c.value, domain=c.domain, path=c.path,
@@ -412,46 +427,152 @@ class Account:
             self.lock.release()
 
 
+def file_signature(path):
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size
+
+
+class ManagedAccount:
+    """One swappable session owner. Its lock isolates one account only."""
+    def __init__(self, account_id, api_key, root, signature):
+        self.account_id = account_id
+        self.api_key = api_key
+        self.root = Path(root)
+        self.signature = signature
+        self.operation = threading.Lock()
+        self.account = Account(self.root)
+
+    def generate(self, model, body):
+        with self.operation:
+            return self.account.generate(model, body)
+
+    def maintain(self):
+        if not self.operation.acquire(blocking=False):
+            return
+        try:
+            account = self.account
+            if (not account.blocked and not account.generation_pending
+                    and time.time() >= account.cooldown_until
+                    and time.time() - account.last_refresh >= REFRESH_SECONDS):
+                try:
+                    account.refresh()
+                    print(json.dumps({'event': 'session_refreshed', 'account': self.account_id}), flush=True)
+                except Failure as exc:
+                    account.cooldown_until = time.time() + REFRESH_SECONDS
+                    account.persist()
+                    print(json.dumps({'event': 'session_refresh_failed', 'account': self.account_id,
+                                      'status': exc.code}), flush=True)
+        finally:
+            self.operation.release()
+
+    def replace(self, replacement, signature):
+        with self.operation:
+            previous, self.account = self.account, replacement
+            self.signature = signature
+        previous.close()
+
+    def close(self):
+        with self.operation:
+            self.account.close()
+
+
 class Adapter:
     def __init__(self, root):
         root = Path(root)
+        self.root = root
         self.lease = (root / 'owner.lock').open('a')
         fcntl.flock(self.lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.registry_lock = threading.RLock()
         self.accounts = {}
-        for entry in json.loads((root / 'accounts.json').read_text()):
+        self.accounts_by_id = {}
+        self.reload_from_disk(initial=True)
+
+    def configured_accounts(self):
+        entries = json.loads((self.root / 'accounts.json').read_text())
+        if not isinstance(entries, list):
+            raise ValueError('Invalid account configuration')
+        configured = []
+        digests = set()
+        account_ids = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError('Invalid account configuration')
             account_id, key = entry['id'], entry['api_key']
             if not re.fullmatch(r'[a-zA-Z0-9_-]+', account_id) or len(key) < 32:
                 raise ValueError('Invalid account configuration')
             digest = hashlib.sha256(key.encode()).digest()
-            if digest in self.accounts:
+            if digest in digests or account_id in account_ids:
                 raise ValueError('Duplicate API key')
-            self.accounts[digest] = Account(root / account_id)
+            bundle = self.root / account_id / 'bundle.json'
+            configured.append((account_id, key, digest, bundle, file_signature(bundle)))
+            digests.add(digest)
+            account_ids.add(account_id)
+        return configured
+
+    def reload_from_disk(self, initial=False):
+        """Apply account manifest/bundle changes without replacing unrelated sessions."""
+        configured = self.configured_accounts()
+        replacements = []
+        additions = []
+        with self.registry_lock:
+            current = dict(self.accounts_by_id)
+        for account_id, key, digest, bundle, signature in configured:
+            managed = current.get(account_id)
+            if managed is None or managed.api_key != key:
+                additions.append((account_id, digest, ManagedAccount(account_id, key, bundle.parent, signature)))
+            elif managed.signature != signature:
+                replacements.append((managed, signature))
+
+        # Read every candidate before replacing any live session. A malformed
+        # multi-account import leaves the current set untouched.
+        prepared = [(managed, signature, Account(managed.root)) for managed, signature in replacements]
+        # A bundle replacement waits only for that account's active request.
+        for managed, signature, replacement in prepared:
+            managed.replace(replacement, signature)
+
+        with self.registry_lock:
+            next_by_id = {}
+            next_by_digest = {}
+            added = {account_id: (digest, managed) for account_id, digest, managed in additions}
+            for account_id, key, digest, _bundle, _signature in configured:
+                if account_id in added:
+                    _, managed = added[account_id]
+                else:
+                    managed = self.accounts_by_id[account_id]
+                next_by_id[account_id] = managed
+                next_by_digest[digest] = managed
+            retired = [managed for account_id, managed in self.accounts_by_id.items()
+                       if account_id not in next_by_id or next_by_id[account_id] is not managed]
+            self.accounts_by_id = next_by_id
+            self.accounts = next_by_digest
+        for managed in retired:
+            # A replaced key/removed account is no longer selectable. Let a
+            # request that already held it finish before releasing its session.
+            threading.Thread(target=managed.close, daemon=True).start()
+        if not initial and (replacements or additions or retired):
+            print(json.dumps({'event': 'accounts_hot_reloaded', 'reloaded': len(replacements),
+                              'added': len(additions), 'retired': len(retired)}), flush=True)
 
     def maintain(self):
         # A background owner renews idle accounts too. Browser sessions may rotate
         # independently; a six-hour, request-only renewal cannot preserve a clone.
         while True:
-            for account in self.accounts.values():
-                if not account.lock.acquire(blocking=False):
-                    continue
-                try:
-                    if (not account.blocked and not account.generation_pending
-                            and time.time() >= account.cooldown_until
-                            and time.time() - account.last_refresh >= REFRESH_SECONDS):
-                        try:
-                            account.refresh()
-                            print(json.dumps({'event': 'session_refreshed', 'account': account.root.name}), flush=True)
-                        except Failure as exc:
-                            account.cooldown_until = time.time() + REFRESH_SECONDS
-                            account.persist()
-                            print(json.dumps({'event': 'session_refresh_failed', 'account': account.root.name, 'status': exc.code}), flush=True)
-                finally:
-                    account.lock.release()
-            time.sleep(30)
+            try:
+                self.reload_from_disk()
+            except Exception as exc:
+                # Preserve existing sessions when an import is incomplete or invalid.
+                print(json.dumps({'event': 'accounts_hot_reload_failed', 'type': type(exc).__name__}), flush=True)
+            with self.registry_lock:
+                accounts = list(self.accounts.values())
+            for account in accounts:
+                account.maintain()
+            time.sleep(HOT_RELOAD_SECONDS)
 
     def authorize(self, key):
         digest = hashlib.sha256(key.encode()).digest()
-        for expected, account in self.accounts.items():
+        with self.registry_lock:
+            accounts = list(self.accounts.items())
+        for expected, account in accounts:
             if hmac.compare_digest(digest, expected):
                 return account
         raise Failure(401, 'Invalid worker API key')
