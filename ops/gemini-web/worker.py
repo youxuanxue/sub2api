@@ -661,12 +661,25 @@ class ControlAdapter:
             managed.reload(record)
         return managed
 
+    @staticmethod
+    def warm_account_id(record):
+        """Accept the edge control API's compact integer account references."""
+        if isinstance(record, int) and record > 0:
+            return str(record)
+        if isinstance(record, dict):
+            value = record.get('account_id', '')
+            if isinstance(value, int) and value > 0:
+                return str(value)
+            if isinstance(value, str):
+                return value
+        return ''
+
     def maintain(self):
         while True:
             try:
                 records = self.control.warm_accounts()
                 for record in records.get('accounts', []):
-                    account_id = str(record.get('account_id', ''))
+                    account_id = self.warm_account_id(record)
                     if re.fullmatch(r'[1-9][0-9]*', account_id):
                         try:
                             self.authorize('', account_id).maintain()

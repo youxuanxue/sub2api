@@ -258,6 +258,12 @@ class WorkerTests(unittest.TestCase):
             adapter.authorize('', 'not-an-account')
         same.close()
 
+    def test_control_adapter_accepts_compact_warm_account_ids(self):
+        self.assertEqual(worker.ControlAdapter.warm_account_id(28), '28')
+        self.assertEqual(worker.ControlAdapter.warm_account_id({'account_id': 29}), '29')
+        self.assertEqual(worker.ControlAdapter.warm_account_id({'account_id': '30'}), '30')
+        self.assertEqual(worker.ControlAdapter.warm_account_id({'account_id': 0}), '')
+
     def test_keys_select_separate_accounts_and_second_owner_is_refused(self):
         seed(self.root, 'two', 'cookie-two')
         (self.root / 'accounts.json').write_text(json.dumps([
