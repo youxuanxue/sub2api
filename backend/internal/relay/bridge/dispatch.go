@@ -74,11 +74,17 @@ func installBodyStorage(c *gin.Context, body []byte) error {
 // DispatchChatCompletions runs the New API adaptor for OpenAI Chat Completions.
 func DispatchChatCompletions(ctx context.Context, c *gin.Context, in ChannelContextInput, body []byte) (*DispatchOutcome, *types.NewAPIError) {
 	ensureNewAPIDeps()
+	// Always opt chat into caller-owned transport cancellation so a disconnect
+	// stops the upstream HTTP request and frees account concurrency. Bounded
+	// attempts use the attempt context (first-output budget + mid-stream cancel);
+	// other chat dispatches use the inbound request context directly.
+	request := c.Request
+	upstreamCtx := request.Context()
 	if in.BoundedChatAttempt {
-		request := c.Request
-		c.Request = request.WithContext(relaycommon.WithUpstreamRequestContext(ctx))
-		defer func() { c.Request = request }()
+		upstreamCtx = ctx
 	}
+	c.Request = request.WithContext(relaycommon.WithUpstreamRequestContext(upstreamCtx))
+	defer func() { c.Request = request }()
 	if err := installBodyStorage(c, body); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
 	}

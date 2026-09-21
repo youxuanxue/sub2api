@@ -1868,9 +1868,10 @@
         "candidateChatReplayable",
         "r.continuationAccountID > 0",
         "a.abortBeforeOutput(errCandidateChatFirstOutput)",
+        "a.abortOnClientGone(ctx.Err())",
         "errCandidateChatIncomplete"
       ],
-      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output."
+      "rationale": "Bounded pre-output recovery preserves hard continuation and forbids replay after semantic output. Client cancel always aborts the upstream attempt (including mid-stream) so account concurrency is released promptly."
     },
     {
       "path": "backend/internal/handler/candidate_chat_failover_tk_test.go",

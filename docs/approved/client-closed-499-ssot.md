@@ -43,9 +43,11 @@ middleware、handler、ops 分类器各有一套平行判定，语义不一致�
 
 以下判定**故意**不消费 `IsClientClosedRequest`，修改它们前先读这里：
 
-- `failover_loop.go` `failoverClientGone` / `HandleSelectionExhausted`：用 `ctx.Err() != nil`。
-  failover 对 Canceled **和** DeadlineExceeded 都必须停止重试——用已取消/deadline 的 context
-  重新选号只会得到取消错误并被误报成账号耗尽。
+- `failover_loop.go` `failoverClientGone` / `HandleSelectionExhausted`：用 `ctx.Err() != nil`
+  停止重试（Canceled **和** DeadlineExceeded 都必须停）——用已取消/deadline 的 context
+  重新选号只会得到取消错误并被误报成账号耗尽。**但 499 / `MarkOpsClientClosedRequest`
+  仅在 `errors.Is(err, context.Canceled)` 时写入**；DeadlineExceeded 保持平台故障语义，
+  不得冒充 client-closed。
 - `service/gateway_upstream_transport_error.go` / `openai_upstream_transport_error.go`：
   upstream 维度的 client-gone 判定（`err` 或 `ctx.Err()` 是 Canceled；deadline 只有在
   `ctx.Err()` 同为 deadline 时才算 client gone）。这是「上游传输层是否 failover/evict」的问题，
@@ -53,6 +55,10 @@ middleware、handler、ops 分类器各有一套平行判定，语义不一致�
 - service 层约 40 处流式读取的 `!Canceled && !DeadlineExceeded` 抑制性检查：语言习惯层面的
   错误抑制，不承担分类职责。
 - `handler/ops_error_logger_tk_client_canceled.go`：见 owner 表。
+- NewAPI chat：`relay/bridge.DispatchChatCompletions` 对 chat 一律启用
+  `WithUpstreamRequestContext`；candidate bounded attempt 在
+  `candidate_chat_attempt_tk.go` 上于客户端取消时（含首包后）取消上游 ctx，以便及时停流
+  并释放账号并发。首包超时仍只在 `!started` 时中止以便换号。
 
 ## 已知边界（非 owner，记录在案）
 

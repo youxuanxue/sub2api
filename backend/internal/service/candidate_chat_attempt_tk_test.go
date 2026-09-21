@@ -81,8 +81,7 @@ func TestCandidateChatUsefulOutputStopsTimerAndPreservesBytes(t *testing.T) {
 	for _, delta := range []string{`{"content":"hello"}`, `{"reasoning_content":"thinking"}`, `{"tool_calls":[{"index":0,"function":{"name":"lookup","arguments":"{}"}}]}`} {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
-		parent, cancel := context.WithCancel(context.Background())
-		a := newCandidateChatAttempt(parent, c.Writer, true, time.Second)
+		a := newCandidateChatAttempt(context.Background(), c.Writer, true, time.Second)
 		heartbeat := ": waiting\n\n"
 		content := "data: {\"choices\":[{\"delta\":" + delta + "}]}\n\n"
 		_, err := a.WriteString(heartbeat)
@@ -90,14 +89,60 @@ func TestCandidateChatUsefulOutputStopsTimerAndPreservesBytes(t *testing.T) {
 		_, err = a.WriteString(content)
 		require.NoError(t, err)
 		a.abortBeforeOutput(errCandidateChatFirstOutput)
-		cancel()
 		_, err = a.WriteString("data: [DONE]\n\n")
 		require.NoError(t, err)
-		require.NoError(t, a.ctx.Err())
+		require.NoError(t, a.ctx.Err(), "first-output timeout must not abort after useful output")
 		require.True(t, a.terminal)
 		require.Equal(t, heartbeat+content+"data: [DONE]\n\n", rec.Body.String())
 		a.close()
 	}
+}
+
+func TestCandidateChatClientCancelStopsAfterUsefulOutput(t *testing.T) {
+	canceled := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, ": waiting\n\n")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		close(canceled)
+	}))
+	defer server.Close()
+
+	parent, cancel := context.WithCancel(context.Background())
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	a := newCandidateChatAttempt(parent, c.Writer, true, time.Minute)
+	defer a.close()
+
+	_, err := a.WriteString("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n")
+	require.NoError(t, err)
+	require.True(t, a.started, "useful output must commit the attempt")
+
+	req, err := http.NewRequestWithContext(a.ctx, http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	resp, err := server.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = io.Copy(io.Discard, resp.Body)
+	}()
+
+	cancel()
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("upstream was not canceled after client disconnect mid-stream")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("response body did not unblock after upstream cancel")
+	}
+	require.ErrorIs(t, context.Cause(a.ctx), context.Canceled)
 }
 
 func TestCandidateChatUsesActualAdaptorOutputFormat(t *testing.T) {
