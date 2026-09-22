@@ -47,11 +47,12 @@ func antigravityEffectiveDefaultModelMapping() map[string]string {
 
 func overlayAntigravityDefaultModelMapping(runtime map[string]string) map[string]string {
 	compiled := domain.DefaultAntigravityModelMapping
-	if len(runtime) == 0 {
-		return compiled
-	}
-	out := make(map[string]string, len(compiled)+len(runtime))
+	wires := domain.AntigravityThinkingWireFloorEntries()
+	out := make(map[string]string, len(compiled)+len(wires)+len(runtime))
 	for key, value := range compiled {
+		out[key] = value
+	}
+	for key, value := range wires {
 		out[key] = value
 	}
 	for key, value := range runtime {

@@ -50,7 +50,7 @@ func TestResolveAccountUpstreamModel_Antigravity(t *testing.T) {
 	}
 	// Antigravity 平台使用 DefaultAntigravityModelMapping
 	got := resolveAccountUpstreamModel(account, "gemini-3.8-flash")
-	require.Equal(t, "gemini-3.8-flash-medium", got)
+	require.Equal(t, "gemini-3.8-flash-high", got)
 }
 
 func TestResolveAccountUpstreamModel_Antigravity_Unsupported(t *testing.T) {
@@ -253,9 +253,9 @@ func TestIsUpstreamModelRestrictedByChannel_Restricted(t *testing.T) {
 	svc := &GatewayService{channelService: channelSvc}
 
 	account := &Account{Platform: PlatformAntigravity}
-	// gemini-3.8-flash → gemini-3.8-flash-medium，不在 anthropic 定价列表中
+	// gemini-3.8-flash → gemini-3.8-flash-high，不在 anthropic 定价列表中
 	require.True(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "gemini-3.8-flash"),
-		"upstream model gemini-3.8-flash-medium NOT in pricing → restricted")
+		"upstream model gemini-3.8-flash-high NOT in pricing → restricted")
 }
 
 func TestIsUpstreamModelRestrictedByChannel_Allowed(t *testing.T) {
@@ -266,7 +266,7 @@ func TestIsUpstreamModelRestrictedByChannel_Allowed(t *testing.T) {
 		GroupIDs:       []int64{10},
 		RestrictModels: true,
 		ModelPricing: []ChannelModelPricing{
-			{Platform: "antigravity", Models: []string{"gemini-3.8-flash-medium"}},
+			{Platform: "antigravity", Models: []string{"gemini-3.8-flash-high"}},
 		},
 	}
 	channelSvc := newTestChannelService(makeStandardRepo(ch, map[int64]string{10: "antigravity"}))
@@ -274,7 +274,7 @@ func TestIsUpstreamModelRestrictedByChannel_Allowed(t *testing.T) {
 
 	account := &Account{Platform: PlatformAntigravity}
 	require.False(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "gemini-3.8-flash"),
-		"upstream model gemini-3.8-flash-medium IS in pricing → allowed")
+		"upstream model gemini-3.8-flash-high IS in pricing → allowed")
 }
 
 func TestIsUpstreamModelRestrictedByChannel_UnsupportedModel(t *testing.T) {

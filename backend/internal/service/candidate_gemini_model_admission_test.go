@@ -55,7 +55,7 @@ func TestCandidateEligibilityGeminiNativeModelAdmission(t *testing.T) {
 						require.Contains(t, plan.Endpoint(), "/locations/global/")
 					} else {
 						want := map[string]string{
-							"gemini-3-flash-preview": "gemini-3.8-flash-medium",
+							"gemini-3-flash-preview": "gemini-3.8-flash-high",
 							"gemini-3.5-flash-lite":  "gemini-3.6-flash-tiered",
 						}[model]
 						require.Equal(t, want, plan.ResolvedModel())

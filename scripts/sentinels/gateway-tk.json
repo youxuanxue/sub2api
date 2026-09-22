@@ -1532,12 +1532,13 @@
     {
       "path": "backend/internal/service/antigravity_gateway_gemini.go",
       "must_contain": [
-        "injectedBody, wrappedBody, err := s.prepareForwardGeminiWire(projectID, mappedModel, body)"
+        "injectedBody, wrappedBody, err := s.prepareForwardGeminiWire(projectID, mappedModel, body)",
+        "mappedModel, variantResolved := resolveGeminiThinkingVariant(account, originalModel, body)"
       ],
       "must_not_contain": [
         "injectIdentityPatchToGeminiRequest(body)"
       ],
-      "rationale": "ForwardGemini must call the shared prepareForwardGeminiWire owner; duplicating normalize+wrap here drifts from messages/chat/responses."
+      "rationale": "ForwardGemini must call the shared prepareForwardGeminiWire owner; duplicating normalize+wrap here drifts from messages/chat/responses. ForwardGemini must resolve explicit Gemini thinkingConfig into AG -low/-medium/-high wire ids before mapping."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_claude.go",
@@ -13582,6 +13583,16 @@
         "BenchmarkRedactUnicodeAssignment"
       ],
       "rationale": "Preserve Unicode assignment boundary and simple-fold differential coverage while avoiding whole-body regexp fallback for ordinary non-ASCII prose."
+    },
+    {
+      "path": "backend/internal/service/antigravity_gemini_thinking_variant.go",
+      "must_contain": [
+        "func resolveGeminiThinkingVariant(",
+        "func geminiThinkingPreferenceFromBody(",
+        "preferred, explicit := geminiThinkingPreferenceFromBody(body)",
+        "if !explicit {"
+      ],
+      "rationale": "Native AG Gemini bare ids keep the floor remap unless thinkingLevel/thinkingBudget is actionable; empty thinkingConfig must not rewrite 3.6-flash-tiered to -high."
     }
   ]
 }

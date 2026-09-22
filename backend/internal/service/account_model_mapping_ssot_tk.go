@@ -765,7 +765,32 @@ func antigravityAccountModelMappingFloor(ctx context.Context, pricing *PricingCa
 			out[from] = to
 		}
 	}
+	mergeAntigravityThinkingWireFloor(out, displaySet)
 	return out
+}
+
+// mergeAntigravityThinkingWireFloor injects non-public -low/-medium/-high
+// (and 3.6 -tiered) identity keys when the corresponding public Flash family
+// is already on the floor. These keys are not display/catalog members.
+func mergeAntigravityThinkingWireFloor(out map[string]string, displaySet map[string]struct{}) {
+	if out == nil {
+		return
+	}
+	for wireID, target := range domain.AntigravityThinkingWireFloorEntries() {
+		base := wireID
+		for _, suffix := range []string{"-low", "-medium", "-high", "-tiered"} {
+			if strings.HasSuffix(wireID, suffix) {
+				base = strings.TrimSuffix(wireID, suffix)
+				break
+			}
+		}
+		_, displayBase := displaySet[base]
+		_, floorBase := out[base]
+		if !displayBase && !floorBase {
+			continue
+		}
+		out[wireID] = target
+	}
 }
 
 func grokAccountModelMappingFloor(ctx context.Context, pricing *PricingCatalogService, availability MePricingAvailability) map[string]string {
