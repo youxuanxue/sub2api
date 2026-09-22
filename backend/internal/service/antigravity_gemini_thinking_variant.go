@@ -70,8 +70,9 @@ func geminiThinkingPreferenceFromBody(body []byte) (level string, explicit bool)
 		return "high", true
 	}
 	if tc.ThinkingBudget == nil {
-		// Empty thinkingConfig object: treat as explicit native default (high).
-		return "high", true
+		// thinkingConfig present but neither level nor budget: leave the bare
+		// floor remap alone (keeps gemini-3.6-flash → -tiered).
+		return "", false
 	}
 	budget, err := tc.ThinkingBudget.Float64()
 	if err != nil {

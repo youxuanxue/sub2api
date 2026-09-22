@@ -27,6 +27,7 @@ func TestResolveGeminiThinkingVariant(t *testing.T) {
 		match bool
 	}{
 		{name: "no thinking config keeps floor", body: `{"contents":[]}`, want: "", match: false},
+		{name: "empty thinkingConfig keeps floor", body: `{"generationConfig":{"thinkingConfig":{}}}`, want: "", match: false},
 		{name: "low budget", body: `{"generationConfig":{"thinkingConfig":{"thinkingBudget":1000}}}`, want: "gemini-3.8-flash-low", match: true},
 		{name: "medium budget", body: `{"generationConfig":{"thinkingConfig":{"thinkingBudget":4000}}}`, want: "gemini-3.8-flash-medium", match: true},
 		{name: "dynamic budget", body: `{"generationConfig":{"thinkingConfig":{"thinkingBudget":-1}}}`, want: "gemini-3.8-flash-high", match: true},
@@ -40,6 +41,25 @@ func TestResolveGeminiThinkingVariant(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestResolveGeminiThinkingVariantPreservesTieredFloorWithoutPreference(t *testing.T) {
+	account := &Account{Platform: PlatformAntigravity, Credentials: map[string]any{
+		"model_mapping": map[string]any{
+			"gemini-3.6-flash":        "gemini-3.6-flash-tiered",
+			"gemini-3.6-flash-low":    "gemini-3.6-flash-low",
+			"gemini-3.6-flash-high":   "gemini-3.6-flash-high",
+			"gemini-3.6-flash-tiered": "gemini-3.6-flash-tiered",
+		},
+	}}
+	got, matched := resolveGeminiThinkingVariant(account, "gemini-3.6-flash", []byte(`{"generationConfig":{"thinkingConfig":{}}}`))
+	require.False(t, matched)
+	require.Empty(t, got)
+	require.Equal(t, "gemini-3.6-flash-tiered", mapAntigravityModel(account, "gemini-3.6-flash"))
+
+	got, matched = resolveGeminiThinkingVariant(account, "gemini-3.6-flash", []byte(`{"generationConfig":{"thinkingConfig":{"thinkingLevel":"low"}}}`))
+	require.True(t, matched)
+	require.Equal(t, "gemini-3.6-flash-low", got)
 }
 
 func TestResolveGeminiThinkingVariantSkipsNonTierRemap(t *testing.T) {
