@@ -544,17 +544,11 @@ func (h *EdgeAccountsHandler) collectRuntimeGauges(ctx context.Context, accounts
 }
 
 func edgeAccountRateLimitedAt(a *service.Account) *time.Time {
-	if service.NewAPIAccountWindowLockIgnored(a) {
-		return nil
-	}
-	return a.RateLimitedAt
+	return service.AccountWideRateLimitedAt(a, time.Now())
 }
 
 func edgeAccountRateLimitResetAt(a *service.Account) *time.Time {
-	if service.NewAPIAccountWindowLockIgnored(a) {
-		return nil
-	}
-	return a.RateLimitResetAt
+	return service.AccountWideRateLimitResetAt(a, time.Now())
 }
 
 // toEdgeAccountDTO maps a service.Account to the sanitized read-model's static

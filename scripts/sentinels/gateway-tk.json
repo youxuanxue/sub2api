@@ -5385,6 +5385,16 @@
       "rationale": "TK fifth-edge visibility companion: ActiveModelRateLimits enumerates the STILL-active per-model-class cooldowns stored in account.Extra[\"model_rate_limits\"] (written at scope anthropic:class:<class> by ratelimit_service_tk_model_cooldown.go on an Anthropic unified-window 429; read by model_rate_limit.go for scheduler filtering). It mirrors modelRateLimitResetAt's RFC3339 parse contract (nil-on-error, reset_at strictly in the future) so a lapsed cooldown never produces a phantom badge, and returns nil (not an empty map) when none are active so the edge DTO field omits cleanly. The edge accounts handler (toEdgeAccountDTO → toEdgeModelRateLimits) is the SOLE consumer: it projects these onto edgeAccountDTO.ModelRateLimits so prod's Edge Accounts overview can surface the edge's per-class sonnet 5h/7d window that sits null on the prod mirror account. Pure read path — never writes or mutates Extra; deleting it (or weakening the future-only filter) re-buries the per-class window from prod operators."
     },
     {
+      "path": "backend/internal/service/account_wide_model_rate_limit_ssot_tk.go",
+      "must_contain": [
+        "AccountWideModelRateLimitThreshold = 3",
+        "func AccountWideRateLimitResetAt(",
+        "func countedActiveModelRateLimits(",
+        "creditsExhaustedKey"
+      ],
+      "rationale": "Account-wide rate-limit SSOT: more than three still-active model_rate_limits scopes (AICredits excluded) cascade into an account-wide block for every platform/account type. IsSchedulable/IsRateLimited, admin/edge DTO projections, and SQL list filters must consume AccountWideRateLimitResetAt / accountWideRateLimitBlocks rather than inventing a second threshold."
+    },
+    {
       "path": "backend/internal/service/edge_accounts_aggregator_tk.go",
       "must_contain": [
         "func (a *EdgeAccountsAggregator) Aggregate(",

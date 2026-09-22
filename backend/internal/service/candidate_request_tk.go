@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -42,6 +43,8 @@ type CandidateRequest struct {
 	capacityDiag          *CandidateCapacityDiag
 	bodyModelCandidates   []string
 	bodyModelsResolved    bool
+	requestProfile        protocolrouter.RequestProfile
+	requestProfileValid   bool
 }
 
 type candidateRequestContextKey struct{}
@@ -184,6 +187,13 @@ func (r *UniversalRoutingResolver) prepareCandidateRequest(ctx context.Context, 
 	ctx = WithCandidateIdentity(ctx, key.UserID, key.ID)
 	state := &CandidateRequest{resolver: r, key: key, groups: eligible, shape: shape, path: path, model: model,
 		body: append([]byte(nil), body...), contentType: contentType, forcePlatform: forcedPlatform, session: session, websocket: websocket}
+	canonicalInbound, canonicalPath, canonicalShapeOK := candidateCanonicalProtocol(shape, path)
+	if canonical, ok := ProtocolRoutingRequest(ctx); ok && canonicalShapeOK &&
+		canonical.InboundProtocol() == canonicalInbound && canonical.ResponsesPath() == canonicalPath && bytes.Equal(canonical.Body(), body) {
+		state.requestProfile, state.requestProfileValid = canonical.Profile(), true
+	} else {
+		state.requestProfile, state.requestProfileValid = candidateRequestProfile(shape, path, model, body)
+	}
 	ctx = context.WithValue(ctx, candidateRequestContextKey{}, state)
 	if previous := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String()); previous != "" {
 		owner, err := r.candidateOpenAI.ResolveCandidateContinuation(ctx, key, eligible, previous)
@@ -217,7 +227,8 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 	r.model, r.body = model, append([]byte(nil), body...)
 	r.bodyModelsResolved = false
 	r.bodyModelCandidates = nil
-	ctx = r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
+	r.requestProfile, r.requestProfileValid = candidateRequestProfile(r.shape, r.path, model, body)
+	ctx = r.withRequest(ctx, model, body)
 	_, err := r.selectAccount(ctx, candidateSelectOptions{})
 	return err
 }
@@ -348,10 +359,17 @@ func (r *CandidateRequest) pathContext(ctx context.Context, group *Group) (conte
 			return ctx, "", mapping, err
 		}
 	}
-	ctx = r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
+	ctx = r.withRequest(ctx, model, body)
 	ctx = withProtocolNativeOnly(ctx, (r.shape == ShapeAnthropicMessages || r.shape == ShapeAnthropicCountTokens) && !group.AllowMessagesDispatch)
 	ctx = context.WithValue(ctx, ctxkey.Group, group)
 	return ctx, model, mapping, nil
+}
+
+func (r *CandidateRequest) withRequest(ctx context.Context, model string, body []byte) context.Context {
+	if r.requestProfileValid {
+		return r.resolver.WithRequestProfile(ctx, r.shape, r.path, model, body, r.requestProfile)
+	}
+	return r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
 }
 
 func candidateAccountInGroup(account *Account, groupID int64) bool {
