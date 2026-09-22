@@ -1768,19 +1768,26 @@
         "service.NewAPIAccountWindowLockExtraKey",
         "service.NewAPIUsageWindowResetExtraKeys()",
         "accountNotBlockedByAccountWideRateLimit",
-        "CASE WHEN pg_input_is_valid"
+        "CASE WHEN pg_input_is_valid",
+        "activeModelRateLimitCountNotOverflowingSQL",
+        "accountWideRateLimitNotBlockingSQL",
+        "service.AccountWideModelRateLimitThreshold",
+        "jsonb_each(COALESCE(%s->'model_rate_limits'",
+        "m.key <> 'AICredits'"
       ],
-      "rationale": "SQL admission shares reset/marker keys with Go and safely parses missing or malformed JSON without SQL NULL or unsafe casts."
+      "rationale": "SQL admission shares reset/marker keys with Go and safely parses missing or malformed JSON without SQL NULL or unsafe casts. The model-count cascade twin (activeModelRateLimitCountNotOverflowingSQL / accountWideRateLimitNotBlockingSQL) must stay wired into Ent and raw-SQL admission so >3 active model_rate_limits scopes continue to exclude the whole account."
     },
     {
       "path": "backend/internal/repository/account_repo_tk_window_lock_integration_test.go",
       "must_contain": [
         "TestNewAPIWindowLockSQLMatchesSchedulingAndCapacity",
+        "TestModelRateLimitCascadeSQLMatchesSchedulingAndCapacity",
         "repo.ListSchedulableByGroupIDs",
         "repo.ListSchedulableAccountLoads",
-        "repo.ListWithFilters"
+        "repo.ListWithFilters",
+        "repo.ListSchedulableCapacityByGroupIDs"
       ],
-      "rationale": "Real PostgreSQL regression keeps grouped, ungrouped, platform, capacity and admin status filters aligned with Go scheduling for legacy and explicit account locks."
+      "rationale": "Real PostgreSQL regression keeps grouped, ungrouped, platform, capacity and admin status filters aligned with Go scheduling for legacy and explicit account locks, plus the >3 model_rate_limits cascade."
     },
     {
       "path": "backend/internal/repository/account_repo_tk_capacity_batch.go",
@@ -1792,9 +1799,17 @@
     {
       "path": "backend/internal/repository/account_repo.go",
       "must_contain": [
-        "accountNotBlockedByAccountWideRateLimit(now)"
+        "accountNotBlockedByAccountWideRateLimit(now)",
+        "accountWideRateLimitNotBlockingSQL(\"a\")"
       ],
-      "rationale": "Grouped scheduler admission (queryAccountsByGroup, used by ListSchedulableByGroupIDAndPlatform) must keep admitting VolcEngine Agent Plan accounts whose account columns were written from a per-model usage window. account_repo.go is upstream-shared; restoring RateLimitResetAtIsNil OR LTE compiles and leaves the TK predicate file unused, so unit tests of IsSchedulable still pass while the snapshot drops the account again."
+      "rationale": "Grouped scheduler admission (queryAccountsByGroup, used by ListSchedulableByGroupIDAndPlatform) must keep admitting VolcEngine Agent Plan accounts whose account columns were written from a per-model usage window. Raw ListSchedulableCapacityByGroupIDs must also consume accountWideRateLimitNotBlockingSQL so the model-count cascade cannot regress to rate_limit_reset_at-only filters. account_repo.go is upstream-shared; restoring RateLimitResetAtIsNil OR LTE compiles and leaves the TK predicate file unused, so unit tests of IsSchedulable still pass while the snapshot drops the account again."
+    },
+    {
+      "path": "backend/internal/repository/group_repo.go",
+      "must_contain": [
+        "accountWideRateLimitNotBlockingSQL(\"a\")"
+      ],
+      "rationale": "Group available/temporarily-limited account counts must share the same account-wide rate-limit admission twin as ListSchedulable, including the model-count cascade."
     }
   ]
 }
