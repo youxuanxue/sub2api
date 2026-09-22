@@ -64,8 +64,9 @@ var edgeIDPattern = regexp.MustCompile(`^https?://api-([a-z0-9]+)\.tokenkey\.dev
 
 // edgeStubPlatforms are the platforms that can host a prod→edge mirror stub. The
 // per-stub fan-out loads candidates across all of them (ListByPlatform is platform-
-// scoped, so we union rather than change the interface — rule 6). gemini (direct to
-// Vertex/AI Studio) never relays through an edge, so it is intentionally absent.
+// scoped, so we union rather than change the interface — rule 6). Gemini Web is an
+// edge relay just like the other platform mirrors, so gemini stays in this list even
+// though direct Gemini accounts may also target Vertex/AI Studio.
 //
 // newapi remains present for legacy edge-host bridge stubs created before Grok
 // relay converged to platform=grok,type=apikey. isEdgeMirrorStub's precise
@@ -78,6 +79,7 @@ var edgeIDPattern = regexp.MustCompile(`^https?://api-([a-z0-9]+)\.tokenkey\.dev
 var edgeStubPlatforms = []string{
 	PlatformAnthropic,
 	PlatformOpenAI,
+	PlatformGemini,
 	PlatformAntigravity,
 	PlatformGrok,
 	PlatformKiro,
