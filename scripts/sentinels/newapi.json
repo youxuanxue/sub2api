@@ -87,9 +87,10 @@
         "(*progress).UtilizationUnknown = false",
         "protocolExecutionResolvedModel(ctx, tempUnschedulableModel(ctx, requestedModel))",
         "SetModelRateLimit",
-        "newapi_account_window_lock"
+        "newapi_account_window_lock",
+        "AccountWideRateLimitResetAt(account, now)"
       ],
-      "rationale": "NewAPI usage windows cool the executed model and project scoped quota dimensions; observations without a model atomically persist an explicit account marker with the snapshot. Monthly quota never overwrites local 5h/7d statistics."
+      "rationale": "NewAPI usage windows cool the executed model and project scoped quota dimensions; observations without a model atomically persist an explicit account marker with the snapshot. Monthly quota never overwrites local 5h/7d statistics. accountWideRateLimitBlocks must delegate to AccountWideRateLimitResetAt so the >3 model cascade remains the shared account-wide admission SSOT."
     },
     {
       "path": "backend/internal/service/ratelimit_service.go",
