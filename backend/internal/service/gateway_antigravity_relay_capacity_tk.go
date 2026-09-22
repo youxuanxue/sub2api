@@ -26,7 +26,9 @@ func tkIsAntigravityRelayCapacityResponse(account *Account, statusCode int, resp
 	}
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(responseBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-	return tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody)
+	return tkSkipDownstreamNoAvailableAccountsPenalty(statusCode, upstreamMsg, responseBody) ||
+		tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody) ||
+		tkIsDownstreamRateLimitEnvelope(statusCode, upstreamMsg, responseBody)
 }
 
 func tkAntigravityRelayCapacityFailoverError(
