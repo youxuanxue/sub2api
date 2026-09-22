@@ -12,6 +12,7 @@ func TestDefaultAntigravityModelMapping_ConvergedPublicSurface(t *testing.T) {
 		"gemini-3.6-flash":               "gemini-3.6-flash-tiered",
 		"gemini-3.7-flash":               "gemini-3.7-flash-medium",
 		"gemini-3.8-flash":               "gemini-3.8-flash-medium",
+		"gemini-3-flash":                 "gemini-3.8-flash-medium",
 		"gemini-3-flash-preview":         "gemini-3.8-flash-medium",
 		"gemini-3.5-flash-lite":          "gemini-3.6-flash-tiered",
 		"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
@@ -33,7 +34,7 @@ func TestDefaultAntigravityModelMapping_ConvergedPublicSurface(t *testing.T) {
 
 func TestDefaultAntigravityModelMapping_DropsRetiredFamilies(t *testing.T) {
 	t.Parallel()
-	for _, retired := range []string{"claude-sonnet-4-6", "gemini-2.5-flash", "gemini-3-flash", "gemini-pro-agent"} {
+	for _, retired := range []string{"claude-sonnet-4-6", "gemini-2.5-flash", "gemini-pro-agent"} {
 		if _, ok := DefaultAntigravityModelMapping[retired]; ok {
 			t.Fatalf("retired %q still present", retired)
 		}

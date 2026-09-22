@@ -120,13 +120,16 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // tk_account_model_mapping_runtime.platforms.antigravity）
 // 与前端 useModelWhitelist.ts 中的 antigravityDefaultMappings 保持一致。
 //
-// 2026-09-17 收敛：对外只保留 3.6/3.7/3.8 文本 + 两张图片，以及两条高流量
+// 2026-09-17 收敛：对外只保留 3.6/3.7/3.8 文本 + 两张图片，以及高流量
 // 兼容别名。Antigravity OAuth 仍不能服务真 gemini-3-pro-image（404），继续
 // 重指 3.1-flash-image；3.6/3.7/3.8 公共 id 仍走已验证的 wire remap。
+// 2026-09-22：补回 gemini-3-flash→3.8-medium 高流量别名（7d 证据：裸
+// gemini-3-flash 仍有成功流量，且 Vertex Unsupported 压力同源）。
 var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.6-flash":               "gemini-3.6-flash-tiered",
 	"gemini-3.7-flash":               "gemini-3.7-flash-medium",
 	"gemini-3.8-flash":               "gemini-3.8-flash-medium",
+	"gemini-3-flash":                 "gemini-3.8-flash-medium",
 	"gemini-3-flash-preview":         "gemini-3.8-flash-medium",
 	"gemini-3.5-flash-lite":          "gemini-3.6-flash-tiered",
 	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
