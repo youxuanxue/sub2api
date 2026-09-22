@@ -1,7 +1,7 @@
 ---
 title: Candidate Eligibility SSOT
 status: approved
-approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09 and 2026-09-10)"
+approved_by: "feng (conversation approvals, 2026-09-07, 2026-09-08, 2026-09-09, 2026-09-10 and 2026-09-22)"
 created: 2026-09-07
 ---
 
@@ -376,6 +376,7 @@ consume the same selected path, including retries and final slot checks.
 | Relay-scoped model rejection | `candidate_edge_model_rejection_tk.go` | A relay's own model verdict covers that path only, and must not exclude other authorized candidates at the main gateway. |
 | Discovery request/account snapshot | `candidate_discovery_snapshot_tk.go` | One immutable request and account set per discovery shape; prepare each group's request policy once while runtime selection keeps fresh account validation. |
 | Model discovery | `candidate_discovery_tk.go` | Direct and Universal model/capability surfaces and `me_pricing_candidate_tk.go` project the same authorization and support paths without live payment or slot admission. |
+| Account-wide rate-limit admission (column lock + model-count cascade) | `account_wide_model_rate_limit_ssot_tk.go` via `accountWideRateLimitBlocks` / `AccountWideRateLimitResetAt`; SQL twin `accountNotBlockedByAccountWideRateLimit` | More than `AccountWideModelRateLimitThreshold` (3) active `model_rate_limits` scopes (excluding `AICredits`) blocks the whole account for every platform and account type. Admin/edge DTOs project the effective reset; list/schedulable SQL must stay aligned. |
 
 ### Implemented behavior
 
@@ -400,6 +401,10 @@ consume the same selected path, including retries and final slot checks.
 8. Scoped requests disable old CC-only and prompt-too-long group replacement.
    Ordinary retries stay in the authorized pool and rebind billing through the
    shared owner. Universal settlement no longer uses billing-platform quotas.
+9. When more than three still-active per-model rate-limit scopes are present on
+   an account (`AICredits` excluded), the account is account-wide rate-limited
+   for scheduling and admin/edge status. This cascade is read-time SSOT for
+   every platform and account type (conversation approval 2026-09-22).
 
 ### Existing validation
 
