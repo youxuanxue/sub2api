@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 )
 
 func TestCandidatePathContextPreparerCachesPerGroup(t *testing.T) {
@@ -124,6 +125,27 @@ func TestWithRequestRejectsMistypedStreamWithoutFullUnmarshal(t *testing.T) {
 	req, ok = ProtocolRoutingRequest(ctx)
 	require.True(t, ok)
 	require.True(t, req.Profile().Stream)
+}
+
+func TestWithRequestProfileReusesProfileAcrossModelRewrite(t *testing.T) {
+	r := NewUniversalRoutingResolver(&stubSpanLister{})
+	r.router = NewProtocolRouter()
+	body := []byte(`{"model":"alias","stream":false,"tools":[{"type":"function","function":{"name":"lookup"}}],"reasoning_effort":"low","prompt_cache_key":"cache","messages":[{"role":"user","content":[{"type":"text","text":"hi"},{"type":"image_url","image_url":{"url":"x"}}]}]}`)
+	profile, ok := candidateRequestProfile(ShapeOpenAIChat, "/v1/chat/completions", "alias", body)
+	require.True(t, ok)
+	groupBody, err := sjson.SetBytes(body, "model", "gpt-5.4")
+	require.NoError(t, err)
+	ctxOriginal := r.WithRequestProfile(context.Background(), ShapeOpenAIChat, "/v1/chat/completions", "alias", body, profile)
+	ctxGroup := r.WithRequestProfile(context.Background(), ShapeOpenAIChat, "/v1/chat/completions", "gpt-5.4", groupBody, profile)
+	original, ok := ProtocolRoutingRequest(ctxOriginal)
+	require.True(t, ok)
+	group, ok := ProtocolRoutingRequest(ctxGroup)
+	require.True(t, ok)
+	require.Equal(t, original.Profile(), group.Profile())
+	require.Equal(t, "alias", original.RequestedModel())
+	require.Equal(t, "gpt-5.4", group.RequestedModel())
+	require.NotEqual(t, original.Digest(), group.Digest(), "digest must include the group-specific body/model")
+	require.Equal(t, groupBody, group.Body())
 }
 
 func BenchmarkCandidatePathContextPrepareCachedVsUncached(b *testing.B) {

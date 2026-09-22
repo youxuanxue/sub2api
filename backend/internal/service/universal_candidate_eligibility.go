@@ -55,6 +55,19 @@ func (r *UniversalRoutingResolver) SetCandidateEvaluator(router *protocolrouter.
 // WithRequest uses the same canonical parser as execution, before billing binds
 // a group. Malformed/non-text requests retain their handler's validation path.
 func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape UniversalShape, path, model string, body []byte) context.Context {
+	return r.withRequestProfile(ctx, shape, path, model, body, nil)
+}
+
+// WithRequestProfile is the candidate-selection fast path. The profile is
+// derived from the original request and is invariant when a group only
+// rewrites the model field. Keeping it separate from the body preserves the
+// canonical digest and the actual request sent to the selected account while
+// avoiding another full JSON walk for every entitled group.
+func (r *UniversalRoutingResolver) WithRequestProfile(ctx context.Context, shape UniversalShape, path, model string, body []byte, profile protocolrouter.RequestProfile) context.Context {
+	return r.withRequestProfile(ctx, shape, path, model, body, &profile)
+}
+
+func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape UniversalShape, path, model string, body []byte, profile *protocolrouter.RequestProfile) context.Context {
 	if r == nil {
 		return ctx
 	}
@@ -64,31 +77,11 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 	if router == nil || antigravity.IsImageModel(model) {
 		return ctx
 	}
-	var inbound protocolrouter.Protocol
-	responsesPath := protocolrouter.ResponsesPathNone
-	switch shape {
-	case ShapeAnthropicMessages:
-		inbound = protocolrouter.ProtocolMessages
-	case ShapeAnthropicCountTokens:
-		return WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(body, string(protocolrouter.ProtocolMessages)), false)
-	case ShapeOpenAIChat:
-		inbound = protocolrouter.ProtocolChatCompletions
-		if strings.Contains(path, "/responses") {
-			inbound = protocolrouter.ProtocolResponses
-			responsesPath = protocolrouter.ResponsesPathRoot
-			if strings.HasSuffix(path, "/compact") {
-				responsesPath = protocolrouter.ResponsesPathCompact
-			}
-			if strings.HasSuffix(path, "/input_tokens") {
-				responsesPath = protocolrouter.ResponsesPathInputTokens
-			}
+	inbound, responsesPath, ok := candidateCanonicalProtocol(shape, path)
+	if !ok {
+		if shape == ShapeAnthropicCountTokens {
+			return WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(body, string(protocolrouter.ProtocolMessages)), false)
 		}
-	case ShapeGemini:
-		if !strings.Contains(path, "generateContent") && !strings.Contains(path, "streamGenerateContent") {
-			return ctx
-		}
-		inbound = protocolrouter.ProtocolGeminiGenerateContent
-	default:
 		return context.WithValue(ctx, protocolRoutingContextKey{}, false)
 	}
 	// Only stream/type are needed here. Full encoding/json Unmarshal walks the
@@ -104,7 +97,20 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 		return ctx
 	}
 	stream := streamRes.Bool() || typeRes.String() == "response.create" || strings.Contains(path, ":streamGenerateContent")
-	request, err := protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
+	var request protocolrouter.CanonicalRequest
+	var err error
+	if profile != nil {
+		profile.Stream = stream
+		request, err = protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
+			InboundProtocol: inbound,
+			RequestedModel:  model,
+			ResponsesPath:   responsesPath,
+			Profile:         *profile,
+			Body:            body,
+		})
+	} else {
+		request, err = protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
+	}
 	if err != nil {
 		return ctx
 	}
@@ -112,6 +118,51 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 		ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(body, string(inbound)), false)
 	}
 	return WithProtocolRouting(ctx, router, request)
+}
+
+func candidateCanonicalProtocol(shape UniversalShape, path string) (protocolrouter.Protocol, protocolrouter.ResponsesPathKind, bool) {
+	switch shape {
+	case ShapeAnthropicMessages:
+		return protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone, true
+	case ShapeOpenAIChat:
+		if strings.Contains(path, "/responses") {
+			responsesPath := protocolrouter.ResponsesPathRoot
+			if strings.HasSuffix(path, "/compact") {
+				responsesPath = protocolrouter.ResponsesPathCompact
+			}
+			if strings.HasSuffix(path, "/input_tokens") {
+				responsesPath = protocolrouter.ResponsesPathInputTokens
+			}
+			return protocolrouter.ProtocolResponses, responsesPath, true
+		}
+		return protocolrouter.ProtocolChatCompletions, protocolrouter.ResponsesPathNone, true
+	case ShapeGemini:
+		if strings.Contains(path, "generateContent") || strings.Contains(path, "streamGenerateContent") {
+			return protocolrouter.ProtocolGeminiGenerateContent, protocolrouter.ResponsesPathNone, true
+		}
+	}
+	return "", protocolrouter.ResponsesPathNone, false
+}
+
+func candidateRequestProfile(shape UniversalShape, path, model string, body []byte) (protocolrouter.RequestProfile, bool) {
+	inbound, responsesPath, ok := candidateCanonicalProtocol(shape, path)
+	if !ok || shape == ShapeAnthropicCountTokens {
+		return protocolrouter.RequestProfile{}, false
+	}
+	streamRes := gjson.GetBytes(body, "stream")
+	if streamRes.Exists() && streamRes.Type != gjson.True && streamRes.Type != gjson.False && streamRes.Type != gjson.Null {
+		return protocolrouter.RequestProfile{}, false
+	}
+	typeRes := gjson.GetBytes(body, "type")
+	if typeRes.Exists() && typeRes.Type != gjson.String && typeRes.Type != gjson.Null {
+		return protocolrouter.RequestProfile{}, false
+	}
+	stream := streamRes.Bool() || typeRes.String() == "response.create" || strings.Contains(path, ":streamGenerateContent")
+	request, err := protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)
+	if err != nil {
+		return protocolrouter.RequestProfile{}, false
+	}
+	return request.Profile(), true
 }
 
 func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context, userID int64, eligible []Group, model string, shape UniversalShape, evaluate groupCandidateEvaluator) (*Group, error) {
