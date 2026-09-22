@@ -674,7 +674,7 @@ func TestAntigravityGatewayService_ForwardGemini_ModelRateLimitTriggersFailover(
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gemini-3.8-flash-medium": map[string]any{
+				"gemini-3.8-flash-high": map[string]any{
 					"rate_limit_reset_at": futureResetAt,
 				},
 			},
@@ -786,7 +786,7 @@ func TestAntigravityGatewayService_ForwardGemini_StickySessionForceCacheBilling(
 		},
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gemini-3.8-flash-medium": map[string]any{
+				"gemini-3.8-flash-high": map[string]any{
 					"rate_limit_reset_at": futureResetAt,
 				},
 			},
@@ -824,7 +824,7 @@ func TestAntigravityGatewayService_ForwardGemini_ClearsStickySessionOnGeminiRate
 		"error": {
 			"status": "RESOURCE_EXHAUSTED",
 			"details": [
-				{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "metadata": {"model": "gemini-3.8-flash-medium"}, "reason": "RATE_LIMIT_EXCEEDED"},
+				{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "metadata": {"model": "gemini-3.8-flash-high"}, "reason": "RATE_LIMIT_EXCEEDED"},
 				{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "15s"}
 			]
 		}
@@ -878,7 +878,7 @@ func TestAntigravityGatewayService_ForwardGemini_ClearsStickySessionOnGeminiRate
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusServiceUnavailable, failoverErr.StatusCode)
 	require.Len(t, repo.modelRateLimitCalls, 2)
-	require.Equal(t, "gemini-3.8-flash-medium", repo.modelRateLimitCalls[0].modelKey)
+	require.Equal(t, "gemini-3.8-flash-high", repo.modelRateLimitCalls[0].modelKey)
 	require.Equal(t, antigravityGeminiModelRateLimitKey, repo.modelRateLimitCalls[1].modelKey)
 	require.Len(t, cache.deleteCalls, 1)
 	require.Equal(t, int64(77), cache.deleteCalls[0].groupID)

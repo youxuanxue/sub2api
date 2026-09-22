@@ -123,14 +123,15 @@ const AntigravityGemini31ProAgentModel = "gemini-pro-agent"
 // 2026-09-17 收敛：对外只保留 3.6/3.7/3.8 文本 + 两张图片，以及高流量
 // 兼容别名。Antigravity OAuth 仍不能服务真 gemini-3-pro-image（404），继续
 // 重指 3.1-flash-image；3.6/3.7/3.8 公共 id 仍走已验证的 wire remap。
-// 2026-09-22：补回 gemini-3-flash→3.8-medium 高流量别名（7d 证据：裸
-// gemini-3-flash 仍有成功流量，且 Vertex Unsupported 压力同源）。
+// 2026-09-22：补回 gemini-3-flash→3.8 高流量别名。
+// 2026-09-22：裸名默认 wire 锁 high（非 medium）；-{low,medium,high} 为非公开
+// wire 档位，由 AntigravityThinkingWireFloorEntries 注入 account floor。
 var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3.6-flash":               "gemini-3.6-flash-tiered",
-	"gemini-3.7-flash":               "gemini-3.7-flash-medium",
-	"gemini-3.8-flash":               "gemini-3.8-flash-medium",
-	"gemini-3-flash":                 "gemini-3.8-flash-medium",
-	"gemini-3-flash-preview":         "gemini-3.8-flash-medium",
+	"gemini-3.7-flash":               "gemini-3.7-flash-high",
+	"gemini-3.8-flash":               "gemini-3.8-flash-high",
+	"gemini-3-flash":                 "gemini-3.8-flash-high",
+	"gemini-3-flash-preview":         "gemini-3.8-flash-high",
 	"gemini-3.5-flash-lite":          "gemini-3.6-flash-tiered",
 	"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 	"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
@@ -139,6 +140,41 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3-pro-image": "gemini-3.1-flash-image",
 	"nano-2":             "gemini-3.1-flash-image",
 	"nano-pro":           "gemini-3.1-flash-image",
+}
+
+// antigravityThinkingWireBases lists public Flash families whose AG upstream
+// catalog exposes -low/-medium/-high (and for 3.6, -tiered) wire IDs. These
+// tier IDs are NOT public display names; they exist so explicit model requests
+// and generationConfig.thinkingConfig can select native AG depth.
+var antigravityThinkingWireBases = []string{
+	"gemini-3.6-flash",
+	"gemini-3.7-flash",
+	"gemini-3.8-flash",
+}
+
+// AntigravityThinkingWireFloorEntries returns identity mappings for non-public
+// AG thinking-tier wire IDs. Callers merge these into account floors / empty
+// default serving maps without advertising them on /v1/models or pricing menus.
+func AntigravityThinkingWireFloorEntries() map[string]string {
+	out := make(map[string]string)
+	for _, base := range antigravityThinkingWireBases {
+		suffixes := []string{"-low", "-medium", "-high"}
+		if base == "gemini-3.6-flash" {
+			suffixes = append(suffixes, "-tiered")
+		}
+		for _, suffix := range suffixes {
+			id := base + suffix
+			out[id] = id
+		}
+	}
+	return out
+}
+
+// IsAntigravityThinkingWireModel reports whether id is a non-public AG
+// thinking-tier wire ID derived from AntigravityThinkingWireFloorEntries.
+func IsAntigravityThinkingWireModel(id string) bool {
+	_, ok := AntigravityThinkingWireFloorEntries()[id]
+	return ok
 }
 
 var antigravityStructuralDeadModelMappingKeys = map[string]struct{}{

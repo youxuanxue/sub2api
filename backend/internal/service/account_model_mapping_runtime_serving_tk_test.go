@@ -27,6 +27,12 @@ func TestAntigravityEffectiveDefaultModelMapping_EmptyRuntimeUsesCompiledDefault
 	if mapping["gemini-3.6-flash"] != domain.DefaultAntigravityModelMapping["gemini-3.6-flash"] {
 		t.Fatalf("compiled gemini-3.6-flash mapping = %q", mapping["gemini-3.6-flash"])
 	}
+	if mapping["gemini-3.8-flash-low"] != "gemini-3.8-flash-low" {
+		t.Fatalf("thinking wire floor missing: gemini-3.8-flash-low = %q", mapping["gemini-3.8-flash-low"])
+	}
+	if mapping["gemini-3.8-flash"] != "gemini-3.8-flash-high" {
+		t.Fatalf("bare default must lock high, got %q", mapping["gemini-3.8-flash"])
+	}
 	if !account.IsModelSupported("gemini-3.6-flash") {
 		t.Fatal("compiled default must keep existing models servable")
 	}

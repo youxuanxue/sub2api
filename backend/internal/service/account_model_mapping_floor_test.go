@@ -27,7 +27,8 @@ func TestAccountModelMappingForAccount_AntigravityConvergedFloor(t *testing.T) {
 	for from, to := range mapping {
 		_, fromServable := servableSet[from]
 		_, toServable := servableSet[to]
-		require.True(t, fromServable || toServable, "mapping %s -> %s must be anchored in Antigravity SSOT", from, to)
+		require.True(t, fromServable || toServable || domain.IsAntigravityThinkingWireModel(from),
+			"mapping %s -> %s must be anchored in Antigravity SSOT or thinking wire floor", from, to)
 		require.False(t, strings.HasPrefix(from, "gpt-oss-"), "gpt-oss must not enter Antigravity model_mapping")
 	}
 	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini} {
@@ -39,7 +40,10 @@ func TestAccountModelMappingForAccount_AntigravityConvergedFloor(t *testing.T) {
 	require.NotContains(t, mapping, "gemini-2.5-flash")
 	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-2"])
 	require.Equal(t, "gemini-3.1-flash-image", mapping["nano-pro"])
-	require.Equal(t, "gemini-3.8-flash-medium", mapping["gemini-3.8-flash"])
+	require.Equal(t, "gemini-3.8-flash-high", mapping["gemini-3.8-flash"])
+	require.Equal(t, "gemini-3.8-flash-low", mapping["gemini-3.8-flash-low"])
+	require.Equal(t, "gemini-3.8-flash-high", mapping["gemini-3.8-flash-high"])
+	require.NotContains(t, servableSet, "gemini-3.8-flash-high", "thinking wire tiers must stay non-public")
 }
 
 func TestAccountModelMappingForAccount_GrokAppliesCompatibilityAliases(t *testing.T) {
@@ -156,6 +160,7 @@ func expectedAntigravityModelMappingForReconcilerTest() map[string]string {
 			expected[from] = to
 		}
 	}
+	mergeAntigravityThinkingWireFloor(expected, servable)
 	return expected
 }
 

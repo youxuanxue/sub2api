@@ -9,6 +9,12 @@ import (
 // depth in generationConfig.thinkingConfig. Antigravity's upstream catalog
 // exposes the corresponding -low/-medium/-high/-tiered ids instead of the
 // bare id, so resolve the wire id before forwarding the request.
+//
+// Contract (native-aligned):
+//   - No thinkingConfig → leave bare→floor remap alone (3.8/3.7 lock high;
+//     3.6 locks tiered).
+//   - Explicit thinkingLevel / thinkingBudget → rewrite to the matching
+//     wire tier when that tier is present in account model_mapping.
 var geminiThinkingVariantSuffixes = []string{"-low", "-medium", "-high", "-tiered"}
 
 const (
@@ -34,56 +40,58 @@ func hasGeminiThinkingVariantSuffix(model string) bool {
 	return false
 }
 
-func geminiThinkingLevelFromBody(body []byte) string {
+func stripGeminiThinkingVariantSuffix(model string) string {
+	for _, suffix := range geminiThinkingVariantSuffixes {
+		if strings.HasSuffix(model, suffix) {
+			return strings.TrimSuffix(model, suffix)
+		}
+	}
+	return model
+}
+
+// geminiThinkingPreferenceFromBody returns the preferred AG thinking tier and
+// whether the client explicitly set thinkingConfig (level and/or budget).
+// Absent thinkingConfig → explicit=false so the bare floor remap stays in force.
+func geminiThinkingPreferenceFromBody(body []byte) (level string, explicit bool) {
 	if len(body) == 0 {
-		return "high"
+		return "", false
 	}
 	var probe geminiThinkingConfigProbe
 	if err := json.Unmarshal(body, &probe); err != nil || probe.GenerationConfig.ThinkingConfig == nil {
-		return "high"
+		return "", false
 	}
 	tc := probe.GenerationConfig.ThinkingConfig
 	switch strings.ToLower(strings.TrimSpace(tc.ThinkingLevel)) {
 	case "low":
-		return "low"
+		return "low", true
 	case "medium":
-		return "medium"
+		return "medium", true
 	case "high":
-		return "high"
+		return "high", true
 	}
 	if tc.ThinkingBudget == nil {
-		return "high"
+		// Empty thinkingConfig object: treat as explicit native default (high).
+		return "high", true
 	}
 	budget, err := tc.ThinkingBudget.Float64()
 	if err != nil {
-		return "high"
+		return "high", true
 	}
 	switch {
 	case budget < 0:
-		return "high"
+		return "high", true
 	case budget <= geminiThinkingBudgetLowMax:
-		return "low"
+		return "low", true
 	case budget <= geminiThinkingBudgetMediumMax:
-		return "medium"
+		return "medium", true
 	default:
-		return "high"
+		return "high", true
 	}
-}
-
-// accountRawModelMappingHasKey distinguishes an explicit account mapping from
-// the runtime default projection, which may add a bare passthrough entry.
-func accountRawModelMappingHasKey(account *Account, key string) bool {
-	if account == nil || account.Credentials == nil {
-		return false
-	}
-	raw, _ := account.Credentials["model_mapping"].(map[string]any)
-	_, ok := raw[key]
-	return ok
 }
 
 // resolveGeminiThinkingVariant returns the mapped upstream model and whether
-// the bare request was resolved from a thinking variant. Explicit bare model
-// mappings remain authoritative; runtime injected passthrough entries do not.
+// an explicit thinkingConfig selected a wire tier. Bare requests without
+// thinkingConfig leave the account floor remap untouched.
 func resolveGeminiThinkingVariant(account *Account, requestedModel string, body []byte) (string, bool) {
 	if account == nil {
 		return "", false
@@ -92,17 +100,27 @@ func resolveGeminiThinkingVariant(account *Account, requestedModel string, body 
 	if !strings.HasPrefix(model, "gemini-") || hasGeminiThinkingVariantSuffix(model) {
 		return "", false
 	}
+	preferred, explicit := geminiThinkingPreferenceFromBody(body)
+	if !explicit {
+		return "", false
+	}
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		return "", false
 	}
+
+	base := model
 	if mapped, matched := resolveRequestedModelInMapping(mapping, model); matched {
-		if strings.TrimSpace(mapped) != model || accountRawModelMappingHasKey(account, model) {
+		mapped = strings.TrimSpace(mapped)
+		switch {
+		case hasGeminiThinkingVariantSuffix(mapped):
+			base = stripGeminiThinkingVariantSuffix(mapped)
+		case mapped != model:
+			// Non-tier remaps (e.g. image aliases) stay authoritative.
 			return "", false
 		}
 	}
 
-	preferred := geminiThinkingLevelFromBody(body)
 	order := []string{preferred}
 	for _, level := range []string{"high", "medium", "low", "tiered"} {
 		if level != preferred {
@@ -110,7 +128,7 @@ func resolveGeminiThinkingVariant(account *Account, requestedModel string, body 
 		}
 	}
 	for _, level := range order {
-		candidate := model + "-" + level
+		candidate := base + "-" + level
 		if mapped, matched := resolveRequestedModelInMapping(mapping, candidate); matched && strings.TrimSpace(mapped) != "" {
 			return mapped, true
 		}

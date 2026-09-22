@@ -115,7 +115,7 @@ func TestIsModelRateLimited(t *testing.T) {
 					modelRateLimitsKey: map[string]any{
 						// 2026-06-15 起 gemini-3.1-pro → gemini-pro-agent
 						// （gemini-3.1-pro-high 上游目录已无）。
-						"gemini-3.8-flash-medium": map[string]any{
+						"gemini-3.8-flash-high": map[string]any{
 							"rate_limit_reset_at": future,
 						},
 					},
@@ -325,12 +325,12 @@ func TestIsModelRateLimited_OpenAIImageGenerationIntentBlocksTextModelImageTool(
 	require.True(t, account.isModelRateLimitedWithContext(WithOpenAIImageGenerationIntent(context.Background()), "gpt-5.4"))
 }
 
-func TestIsModelRateLimited_Antigravity_PreviewAliasUsesMediumWireKey(t *testing.T) {
+func TestIsModelRateLimited_Antigravity_PreviewAliasUsesHighWireKey(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,
 		Extra: map[string]any{
 			modelRateLimitsKey: map[string]any{
-				"gemini-3.8-flash-medium": map[string]any{
+				"gemini-3.8-flash-high": map[string]any{
 					"rate_limited_at":     time.Now().UTC().Format(time.RFC3339),
 					"rate_limit_reset_at": time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339),
 				},
@@ -338,7 +338,7 @@ func TestIsModelRateLimited_Antigravity_PreviewAliasUsesMediumWireKey(t *testing
 		},
 	}
 	if !account.isModelRateLimitedWithContext(context.Background(), "gemini-3-flash-preview") {
-		t.Fatal("expected preview alias to honour medium wire rate-limit key")
+		t.Fatal("expected preview alias to honour high wire rate-limit key")
 	}
 }
 
@@ -522,7 +522,7 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"gemini-3.8-flash-medium": map[string]any{
+						"gemini-3.8-flash-high": map[string]any{
 							"rate_limit_reset_at": future15m,
 						},
 					},
@@ -538,7 +538,7 @@ func TestGetRateLimitRemainingTime(t *testing.T) {
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						"gemini-3.8-flash-medium": map[string]any{
+						"gemini-3.8-flash-high": map[string]any{
 							"rate_limit_reset_at": future5m,
 						},
 					},
