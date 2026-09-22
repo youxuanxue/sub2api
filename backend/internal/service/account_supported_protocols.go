@@ -245,15 +245,16 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	resolvedModel := protocolResolvedUpstreamModel(account, requestedModel, requireCompact)
 	customBaseURL, customBaseURLs, officialProfile := protocolAccountEndpoints(account)
 	geminiProfile := protocolGeminiEndpointProfile(account)
+	modelAdmitted := accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled)
 	modelAllowed := make(map[protocolrouter.Protocol]bool, len(protocols))
 	for _, protocol := range protocols {
-		modelAllowed[protocol] = protocolResolvedModelAllowedForTarget(
+		modelAllowed[protocol] = protocolResolvedModelAllowedForTargetWithAdmission(
 			account,
 			officialProfile,
 			protocol,
 			requestedModel,
 			resolvedModel,
-			thinkingEnabled,
+			modelAdmitted,
 		)
 	}
 	// Edge-relay hops keep the public client model in the URL; mapped provider
@@ -284,7 +285,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		OfficialProfile:    officialProfile,
 		GeminiProfile:      geminiProfile,
 		ModelAllowed:       modelAllowed,
-		ModelPolicyDenied:  !accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled),
+		ModelPolicyDenied:  !modelAdmitted,
 		Transports:         []protocolrouter.TransportID{protocolrouter.TransportHTTP},
 	})
 }
@@ -297,10 +298,28 @@ func protocolResolvedModelAllowedForTarget(
 	resolvedModel string,
 	thinkingEnabled *bool,
 ) bool {
+	return protocolResolvedModelAllowedForTargetWithAdmission(
+		account,
+		profile,
+		target,
+		requestedModel,
+		resolvedModel,
+		accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled),
+	)
+}
+
+func protocolResolvedModelAllowedForTargetWithAdmission(
+	account *Account,
+	profile protocolrouter.OfficialEndpointProfile,
+	target protocolrouter.Protocol,
+	requestedModel string,
+	resolvedModel string,
+	modelAdmitted bool,
+) bool {
 	if account == nil || strings.TrimSpace(resolvedModel) == "" {
 		return false
 	}
-	if !accountAdmitsRequestedModel(account, requestedModel, thinkingEnabled) {
+	if !modelAdmitted {
 		return false
 	}
 	if account.IsCursor() {
