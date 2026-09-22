@@ -172,11 +172,12 @@ var claudeModels = []modelDef{
 }
 
 // Antigravity 支持的 Gemini 模型（与 domain.DefaultAntigravityModelMapping 公共
-// request surface 对齐：3.6/3.7/3.8 文本 + 两张图片 + 两条高流量兼容别名）。
+// request surface 对齐：3.6/3.7/3.8 文本 + 两张图片 + 高流量兼容别名）。
 var geminiModels = []modelDef{
 	{ID: "gemini-3.6-flash", DisplayName: "Gemini 3.6 Flash", CreatedAt: "2026-07-22T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.7-flash", DisplayName: "Gemini 3.7 Flash", CreatedAt: "2026-08-15T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.8-flash", DisplayName: "Gemini 3.8 Flash", CreatedAt: "2026-09-01T00:00:00Z", IsReasoning: true},
+	{ID: "gemini-3-flash", DisplayName: "Gemini 3 Flash", CreatedAt: "2025-06-01T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3-flash-preview", DisplayName: "Gemini 3 Flash Preview", CreatedAt: "2025-06-01T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.5-flash-lite", DisplayName: "Gemini 3.5 Flash Lite", CreatedAt: "2026-06-27T00:00:00Z", IsReasoning: true},
 	{ID: "gemini-3.1-flash-image", DisplayName: "Gemini 3.1 Flash Image", CreatedAt: "2026-02-19T00:00:00Z"},

@@ -5,7 +5,7 @@ import { PLATFORM_ANTIGRAVITY, PLATFORM_GEMINI } from '@/constants/gatewayPlatfo
 // media even when a newly served model has no curated display preference.
 const geminiTestPreference = [
   'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash',
-  'gemini-3-flash-preview', 'gemini-3.5-flash-lite',
+  'gemini-3-flash', 'gemini-3-flash-preview', 'gemini-3.5-flash-lite',
 ]
 const priority = new Map(geminiTestPreference.map((id, index) => [id, index]))
 

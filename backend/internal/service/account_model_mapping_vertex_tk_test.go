@@ -14,6 +14,7 @@ func TestVertexSharedMappingIncludesTrafficAliases(t *testing.T) {
 		"vertexSharedModelMappingIDs and vertexSharedModelMapping keys must stay identical")
 	mapping := vertexSharedModelMappingPreset()
 	require.Equal(t, "gemini-3.8-flash", mapping["gemini-3-flash-preview"])
+	require.Equal(t, "gemini-3.8-flash", mapping["gemini-3-flash"])
 	require.Equal(t, "gemini-3.6-flash", mapping["gemini-3.5-flash-lite"])
 	require.Equal(t, "gemini-embedding-001", mapping["gemini-embedding-001"])
 	require.Len(t, mapping, len(vertexSharedModelMappingIDs))

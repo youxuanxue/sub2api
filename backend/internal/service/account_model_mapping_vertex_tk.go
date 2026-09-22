@@ -22,6 +22,7 @@ const (
 // vertexSharedModelMappingIDs is the converged Vertex ch41 public request surface.
 // Profile extras stay empty until a named capability is re-verified.
 var vertexSharedModelMappingIDs = []string{
+	"gemini-3-flash",
 	"gemini-3-flash-preview",
 	"gemini-3.5-flash-lite",
 	"gemini-3.6-flash",
@@ -35,6 +36,7 @@ var vertexSharedModelMapping = map[string]string{
 	"gemini-3.6-flash":       "gemini-3.6-flash",
 	"gemini-3.7-flash":       "gemini-3.7-flash",
 	"gemini-3.8-flash":       "gemini-3.8-flash",
+	"gemini-3-flash":         "gemini-3.8-flash",
 	"gemini-3-flash-preview": "gemini-3.8-flash",
 	"gemini-3.5-flash-lite":  "gemini-3.6-flash",
 	"gemini-embedding-001":   "gemini-embedding-001",

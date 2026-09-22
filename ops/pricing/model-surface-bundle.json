@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "floor_sha256": "38c8fa6046cb5090e32d2a082ba7c19a07a8b30f7b8384044be367ca5db7ccc0",
+  "floor_sha256": "2aa1b2133a955eef426efc9d76b026416ab54fff597563b2430e27fd7789b839",
   "account_model_mapping": {
     "platforms": {
       "anthropic": {
@@ -43,6 +43,7 @@
         "nano-pro": "gemini-3-pro-image"
       },
       "antigravity": {
+        "gemini-3-flash": "gemini-3.8-flash-medium",
         "gemini-3-flash-preview": "gemini-3.8-flash-medium",
         "gemini-3-pro-image": "gemini-3.1-flash-image",
         "gemini-3.1-flash-image": "gemini-3.1-flash-image",
@@ -77,6 +78,7 @@
         "claude-sonnet-5": "us.anthropic.claude-sonnet-5-v1"
       },
       "gemini": {
+        "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
         "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
@@ -292,6 +294,7 @@
         "moonshot-v1-auto": "moonshot-v1-auto"
       },
       "41": {
+        "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
         "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
@@ -509,6 +512,7 @@
     ],
     "vertex_capability_profiles": {
       "core-imagen-ultra": {
+        "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
         "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
@@ -518,6 +522,7 @@
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro": {
+        "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
         "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
@@ -527,6 +532,7 @@
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro-imagen-fast-standard": {
+        "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
         "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",
@@ -536,6 +542,7 @@
         "veo-3.1-generate-001": "veo-3.1-generate-001"
       },
       "core-pro-imagen-standard": {
+        "gemini-3-flash": "gemini-3.8-flash",
         "gemini-3-flash-preview": "gemini-3.8-flash",
         "gemini-3.5-flash-lite": "gemini-3.6-flash",
         "gemini-3.6-flash": "gemini-3.6-flash",

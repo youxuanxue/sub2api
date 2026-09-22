@@ -164,6 +164,7 @@ var supportedAnthropicTokenseaRelayCatalogModels = map[string]struct{}{
 // An empty set preserves the existing passthrough/canonical fallback.
 var supportedGeminiCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin gemini
+	"gemini-3-flash":         {},
 	"gemini-3-flash-preview": {},
 	"gemini-3.5-flash-lite":  {},
 	"gemini-3.6-flash":       {},
@@ -179,6 +180,7 @@ var supportedGeminiCatalogModels = map[string]struct{}{
 // an empty set preserves the existing passthrough/canonical fallback.
 var supportedAntigravityCatalogModels = map[string]struct{}{
 	// servable-allowlist:begin antigravity
+	"gemini-3-flash":                 {},
 	"gemini-3-flash-preview":         {},
 	"gemini-3-pro-image":             {},
 	"gemini-3.1-flash-image":         {},
