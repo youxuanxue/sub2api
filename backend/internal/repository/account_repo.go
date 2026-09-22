@@ -1192,7 +1192,8 @@ func lockAndMergeAccountProbeExtra(
 			extra -> 'upstream_billing_probe',
 			extra -> 'ollama_cloud_usage_session',
 			extra -> 'ollama_cloud_usage_auto_refresh',
-			extra -> 'ollama_cloud_usage_snapshot'
+			extra -> 'ollama_cloud_usage_snapshot',
+			credentials ? 'gemini_web'
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -1218,6 +1219,7 @@ func lockAndMergeAccountProbeExtra(
 		currentOllamaSession         []byte
 		currentOllamaAutoRefresh     []byte
 		currentOllamaSnapshot        []byte
+		currentGeminiWeb             bool
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -1229,11 +1231,23 @@ func lockAndMergeAccountProbeExtra(
 		&currentOllamaSession,
 		&currentOllamaAutoRefresh,
 		&currentOllamaSnapshot,
+		&currentGeminiWeb,
 	); err != nil {
 		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	_, incomingGeminiWeb := account.Credentials["gemini_web"]
+	if currentGeminiWeb || incomingGeminiWeb {
+		account.Credentials, err = mergeGeminiWebCredentialsLocked(ctx, client, account.ID, account.Credentials)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	extra := copyJSONMap(normalizeJSONMap(account.Extra))
@@ -1336,10 +1350,6 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 }
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
-	payload, err := json.Marshal(normalizeJSONMap(credentials))
-	if err != nil {
-		return err
-	}
 	baseCtx := ctx
 	contextTx := dbent.TxFromContext(ctx)
 	client := r.client
@@ -1358,10 +1368,24 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			client = tx.Client()
 		}
 	}
+	if _, hasSession := credentials["gemini_web"]; hasSession {
+		var err error
+		credentials, err = mergeGeminiWebCredentialsLocked(ctx, client, id, credentials)
+		if err != nil {
+			return err
+		}
+	}
+	payload, err := json.Marshal(normalizeJSONMap(credentials))
+	if err != nil {
+		return err
+	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET
-			credentials = $1::jsonb,
+			credentials = CASE
+				WHEN credentials ? 'gemini_web' AND NOT ($1::jsonb ? 'gemini_web')
+				THEN $1::jsonb || jsonb_build_object('gemini_web', credentials->'gemini_web')
+				ELSE $1::jsonb END,
 			extra = CASE
 				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
 				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。

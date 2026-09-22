@@ -127,9 +127,12 @@ if [[ ! "$PROBE_LOCK_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [[ "$PROBE_LOCK_TIMEOUT_
   fail_json "PROBE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 fi
 case "$ENDPOINT" in
-  messages|count_tokens|chat|responses|embeddings|images|speech|transcriptions) ;;
-  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, images, speech, or transcriptions" ;;
+  messages|count_tokens|chat|responses|embeddings|images|speech|transcriptions|gemini|gemini_image) ;;
+  *) fail_json "ENDPOINT must be messages, count_tokens, chat, responses, embeddings, images, speech, transcriptions, gemini, or gemini_image" ;;
 esac
+if [[ "$ENDPOINT" == "gemini_image" ]]; then
+  python3 -c 'from PIL import Image' >/dev/null 2>&1 || fail_json "gemini_image requires Pillow in the probe Python environment"
+fi
 if [[ "$ENDPOINT" == "transcriptions" ]]; then
   [[ -n "$AUDIO_FILE" && -f "$AUDIO_FILE" && -r "$AUDIO_FILE" && -s "$AUDIO_FILE" ]] || fail_json "transcriptions requires AUDIO_FILE pointing to a readable nonempty MP3/WAV"
   [[ -z "$REQUEST_EXTRA_JSON" ]] || fail_json "transcriptions does not accept REQUEST_EXTRA_JSON"
@@ -308,7 +311,11 @@ import json, sys
 endpoint, model, max_tokens, prompt = sys.argv[1:5]
 max_tokens = int(max_tokens)
 
-if endpoint == "chat":
+if endpoint in ("gemini", "gemini_image"):
+    payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
+    if endpoint == "gemini_image":
+        payload["generationConfig"] = {"responseModalities": ["TEXT", "IMAGE"]}
+elif endpoint == "chat":
     payload = {
         "model": model,
         "max_tokens": max_tokens,
@@ -377,6 +384,9 @@ PY
 fi
 
 case "$ENDPOINT" in
+  gemini|gemini_image)
+    [[ "$MODEL" =~ ^[a-zA-Z0-9._-]+$ ]] || fail_json "unsafe Gemini model path"
+    PATH_SUFFIX="/v1beta/models/${MODEL}:generateContent"; AUTH_HEADER_NAME="x-api-key";;
   messages) PATH_SUFFIX="/v1/messages"; AUTH_HEADER_NAME="x-api-key";;
   count_tokens) PATH_SUFFIX="/v1/messages/count_tokens"; AUTH_HEADER_NAME="x-api-key";;
   chat) PATH_SUFFIX="/v1/chat/completions"; AUTH_HEADER_NAME="Authorization";;
@@ -400,7 +410,7 @@ esac
 # - Pre-overlay / forced: set IMAGE_PROBE_PRICE=<usd> to seed flat
 #   image_price_{1k,2k,4k}. Requests often settle as size=2K, so all three tiers
 #   must be set together.
-if [[ "$ENDPOINT" == "images" && -n "${GROUP_ID:-}" ]]; then
+if [[ ( "$ENDPOINT" == "images" || "$ENDPOINT" == "gemini_image" ) && -n "${GROUP_ID:-}" ]]; then
   if [[ -n "${IMAGE_PROBE_PRICE:-}" ]]; then
     "${PSQL[@]}" -c "
 UPDATE groups
@@ -513,6 +523,15 @@ sudo docker exec "$APP_CONTAINER" test -f /tmp/tk-probe-headers.txt >/dev/null 2
   sudo docker exec "$APP_CONTAINER" cat /tmp/tk-probe-headers.txt >"$tmp_headers" || : >"$tmp_headers"
 sudo docker logs "$APP_CONTAINER" --since "$LOG_WINDOW" >"$tmp_logs" 2>&1 || true # preflight-allow: swallow
 
+SERVER_REQUEST_ID="$(python3 - "$tmp_headers" <<'PYRID'
+import sys
+from pathlib import Path
+for line in Path(sys.argv[1]).read_text().splitlines():
+    if line.lower().startswith('x-request-id:'):
+        print(line.split(':', 1)[1].strip())
+        break
+PYRID
+)"
 usage_row=""
 for ((attempt=1; attempt<=USAGE_POLL_ATTEMPTS; attempt++)); do
   usage_row="$("${PSQL[@]}" -c "
@@ -523,6 +542,7 @@ FROM (
          stream, created_at AT TIME ZONE 'UTC' AS created_at_utc
   FROM usage_logs
   WHERE api_key_id = ${API_KEY_ID}
+    AND request_id IN ('$(sql_escape "$SERVER_REQUEST_ID")', 'local:$(sql_escape "$SERVER_REQUEST_ID")')
     AND created_at >= TIMESTAMPTZ '$(sql_escape "$PROBE_STARTED_AT")'
   ORDER BY id DESC
   LIMIT 1
@@ -565,7 +585,7 @@ except Exception:
     request_extra = {}
 
 sys.path.insert(0, os.environ.get("PROBE_SCRIPT_DIR", "."))
-from probe_account_model_verdict import classify_probe_verdict
+from probe_account_model_verdict import classify_probe_verdict, gemini_response_summary
 
 def classify(code: str, body_text: str, usage_row, curl_err: str):
     return classify_probe_verdict(
@@ -599,6 +619,7 @@ for line in logs.splitlines():
     if len(log_lines) >= 12:
         break
 
+gemini_summary = gemini_response_summary(body) if endpoint in ("gemini", "gemini_image") and http_code == "200" else None
 body_excerpt = re.sub(r"\s+", " ", body).strip()[:1200]
 out = {
     "verdict": classify(http_code, body, usage, curl_error),
@@ -626,7 +647,8 @@ out = {
     "response": {
         "headers_excerpt": headers[:1200],
         "x_request_id": server_request_id or None,
-        "body_excerpt": body_excerpt,
+        "body_excerpt": "[Gemini response summarized]" if gemini_summary else body_excerpt,
+        "gemini": gemini_summary,
         "curl_error": curl_error[:600],
     },
     "recent_log_excerpt": {

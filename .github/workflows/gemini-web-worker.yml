@@ -1,0 +1,26 @@
+name: Gemini Web HTTP adapter
+on:
+  pull_request:
+    paths:
+      - 'ops/gemini-web/**'
+      - 'ops/stage0/*probe_account_model*'
+      - '.github/workflows/gemini-web-worker.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ops/gemini-web/**'
+      - 'ops/stage0/*probe_account_model*'
+      - '.github/workflows/gemini-web-worker.yml'
+permissions:
+  contents: read
+jobs:
+  protocol-and-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r ops/gemini-web/requirements.txt
+      - run: python -m unittest discover -s ops/gemini-web -v
+      - run: python -m unittest discover -s ops/stage0 -p 'test_probe_account_model*.py'

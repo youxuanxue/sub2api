@@ -20,6 +20,7 @@ var TKProviderSet = wire.NewSet(
 	ProvideEdgeAccountsHandler,
 	ProvideEdgeAdminSessionHandler,
 	ProvideEdgeAccountOpsHandler,
+	NewGeminiWebSessionHandler,
 	admin.NewTierHandler,
 	ProvideTKEdgeAccountsAdminHandler,
 	ProvideTKEdgeAccountOpsAdminHandler,

@@ -272,6 +272,22 @@ func TestDuplicateAccountPreservesUngroupedState(t *testing.T) {
 	require.NotContains(t, repo.groupsOf, duplicate.ID)
 }
 
+func TestDuplicateAccountRemovesGeminiWebSession(t *testing.T) {
+	ctx := context.Background()
+	repo := newDuplicateAccountRepoStub()
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+	source := &Account{Name: "web", Platform: PlatformGemini, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "worker-key", "gemini_web": map[string]any{
+			"runtime": map[string]any{"version": 1, "cookies": "secret"}}}}
+	require.NoError(t, repo.Create(ctx, source))
+	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+	require.NoError(t, err)
+	require.NotContains(t, duplicate.Credentials, "gemini_web")
+	require.False(t, duplicate.Schedulable)
+	require.Contains(t, source.Credentials, "gemini_web")
+	require.NotContains(t, RedactAuditBody([]byte(`{"credentials":{"gemini_web":{"runtime":{"cookies":"secret-cookie"}}}}`), "application/json"), "secret-cookie")
+}
+
 // Regression: copying a newapi/VolcEngine account dropped channel_type (defaulted to 0),
 // so the admin edit form showed an empty channel selector until the operator re-selected it.
 func TestDuplicateAccountPreservesNewAPIChannelType(t *testing.T) {

@@ -3,6 +3,64 @@
   "rationale": "Load-bearing TokenKey DI registration and handler wiring that live in upstream-shaped hotspot files. These struct fields and Wire providers are the only thing connecting TK handlers to the application — they compile cleanly if dropped, so an upstream merge can silently deregister entire TK surfaces (admin tiers, edge accounts, pricing catalog, trial provisioning, compliance gate) unless preflight anchors their literal presence.",
   "sentinels": [
     {
+      "path": "backend/internal/handler/wire.go",
+      "must_contain": ["GeminiWebSession: geminiWebSessionHandler"],
+      "rationale": "Retain the session handler assignment; dropping it silently disables the Gemini Web control surface."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": ["geminiWebSessionHandler := handler.NewGeminiWebSessionHandler(accountRepository)"],
+      "rationale": "Retain the Gemini Web handler in the generated production graph."
+    },
+    {
+      "path": "backend/internal/server/routes/edge_tk_routes.go",
+      "must_contain": [
+        "control := edge.Group(\"/gemini-web\")",
+        "h.GeminiWebSession.Enabled() && userService != nil",
+        "edge.Use(middleware2.NewEdgeAdminOwnerMiddleware(apiKeyService, userService))",
+        "control.GET(\"/accounts/:id/session\", h.GeminiWebSession.Get)",
+        "control.PUT(\"/accounts/:id/runtime\", h.GeminiWebSession.PutRuntime)",
+        "control.GET(\"/warm-accounts\", h.GeminiWebSession.WarmAccounts)",
+        "control.POST(\"/accounts/:id/lease\", h.GeminiWebSession.Lease)"
+      ],
+      "rationale": "Protect all control routes alongside the handler implementation and production DI."
+    },
+    {
+      "path": "backend/internal/handler/gemini_web_session_handler.go",
+      "must_contain": ["func (h *GeminiWebSessionHandler) WarmAccounts", "ListDueGeminiWebAccounts(c.Request.Context())", "middleware.EdgeCallerAPIKeyCtxKey", "geminiWebLeaseOwner.MatchString(owner)"],
+      "rationale": "Anchor the control implementation together with its injection points."
+    },
+    {
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
+      "must_contain": ["setGeminiWebAccountHeader(upstreamReq, account)"],
+      "rationale": "Gateway-selected account identity must reach the worker. Both call paths are verified by the focused regression."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_tk_test.go",
+      "must_contain": ["func TestGeminiWebSelectedAccountHeaderBothEntryPoints"],
+      "rationale": "Keep the native and Messages account-header behavior regression."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": ["mergeGeminiWebCredentialsLocked(ctx, client, account.ID, account.Credentials)", "mergeGeminiWebCredentialsLocked(ctx, client, id, credentials)"],
+      "rationale": "Both ordinary account edits and credentials updates must preserve current runtime and cannot revoke a live worker lease."
+    },
+    {
+      "path": "backend/internal/service/account_credentials_redact.go",
+      "must_contain": ["\"gemini_web\""],
+      "rationale": "The shared DTO/audit/merge credential owner must include browser sessions."
+    },
+    {
+      "path": "ops/gemini-web/test_worker.py",
+      "must_contain": ["def test_control_maintenance_refreshes_compact_account_list", "def test_drain_finishes_inflight_request_and_releases_lease", "def test_large_image_decode_and_buffer_fit_container_budget"],
+      "rationale": "Preserve the regression proving compact warm-account references drive maintenance."
+    },
+    {
+      "path": "backend/internal/repository/account_gemini_web_tk_integration_test.go",
+      "must_contain": ["TestGeminiWebMaintenanceOnlyReturnsDueAccounts", "TestGeminiWebImportSurvivesPreBindingEditor"],
+      "rationale": "Protect read-only maintenance polling and imported sessions against stale editors."
+    },
+    {
       "path": "backend/internal/handler/handler.go",
       "must_contain": [
         "Tier *admin.TierHandler",
@@ -13,7 +71,8 @@
         "MePricingCatalog *MePricingCatalogHandler",
         "QA *QAHandler",
         "EdgeCapacity *EdgeCapacityHandler",
-        "EdgeAdminSession *EdgeAdminSessionHandler"
+        "EdgeAdminSession *EdgeAdminSessionHandler",
+        "GeminiWebSession *GeminiWebSessionHandler"
       ],
       "rationale": "DI registration center: AdminHandlers and Handlers struct fields are the sole compile-time link between TK handler implementations and the application. Dropping any field silently deregisters the corresponding TK surface (routes still reference the handler but get nil, causing runtime panics or silent 404s). The 8 anchors cover all TK-only struct fields across both structs."
     },
@@ -28,7 +87,8 @@
         "ProvideEdgeAccountOpsHandler",
         "ProvideTKEdgeAccountsAdminHandler",
         "ProvideTKEdgeAccountOpsAdminHandler",
-        "ProvideTrialProvisionHandler"
+        "ProvideTrialProvisionHandler",
+        "NewGeminiWebSessionHandler"
       ],
       "rationale": "Wire provider functions and ProviderSet entries that construct TK handlers with post-construction wiring (e.g. SetModelListFilter, SetAvailabilityService). Without these providers, Wire regeneration would fail to resolve TK handler dependencies — but if the providers are dropped AND the struct fields are dropped together (e.g. a clean upstream merge), the app compiles and silently loses the TK surfaces. These 9 anchors cover every TK-specific Wire provider."
     },
