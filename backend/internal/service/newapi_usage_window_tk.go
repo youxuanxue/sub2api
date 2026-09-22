@@ -255,7 +255,7 @@ func newAPIAccountWindowLockIgnoredAt(account *Account, now time.Time) bool {
 }
 
 func accountWideRateLimitBlocks(account *Account, now time.Time) bool {
-	return account != nil && account.RateLimitResetAt != nil && now.Before(*account.RateLimitResetAt) && !newAPIAccountWindowLockIgnoredAt(account, now)
+	return AccountWideRateLimitResetAt(account, now) != nil
 }
 
 func (s *RateLimitService) persistNewAPIUsageWindowSnapshot(ctx context.Context, account *Account, hit *newAPIUsageWindowHit) bool {
