@@ -177,6 +177,8 @@ func protocolPlanForAccount(
 	var snapshot protocolrouter.AccountSnapshot
 	var err error
 	if !routing.immutableAccounts {
+		// Execution keeps this pre-cache validation so every scheduler recheck
+		// sees current account facts before it can reuse a plan.
 		snapshot, err = protocolAccountSnapshotForRouting(ctx, account, routing.request)
 		if err != nil {
 			return protocolrouter.Plan{}, true, fmt.Errorf("%w: %w", ErrProtocolRouteUnavailable, err)
@@ -184,8 +186,9 @@ func protocolPlanForAccount(
 	}
 	key := protocolPlanCacheKey{accountID: account.ID}
 	plan, err := routing.plans.getOrPlan(key, func() (protocolrouter.Plan, error) {
-		// Discovery owns a fixed account slice. Only that path may skip repeated
-		// snapshot construction; execution still validates fresh account facts.
+		// Discovery owns a fixed account slice. Defer snapshot construction until
+		// the first Plan call so repeated scheduler checks do not rebuild the
+		// endpoint and request-parameter projection.
 		if routing.immutableAccounts {
 			snapshot, err = protocolAccountSnapshotForRouting(ctx, account, routing.request)
 			if err != nil {
