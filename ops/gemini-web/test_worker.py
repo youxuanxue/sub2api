@@ -3,6 +3,7 @@ import copy
 import http.client
 import io
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -67,6 +68,18 @@ class Control:
 
 
 class WorkerTests(unittest.TestCase):
+    def test_admin_cookie_scope_matches_worker_owner(self):
+        handler = (Path(__file__).resolve().parents[2] / 'backend/internal/handler/admin/account_handler_gemini_web_import.go').read_text()
+        projection = handler.split('var geminiWebAllowedCookieDomains =', 1)[1].split('\n}', 1)[0]
+        domains = set(re.findall(r'"([a-z0-9.-]+)"\s*:', projection))
+        self.assertEqual(domains, worker.ALLOWED_COOKIE_DOMAINS)
+        for domain in domains:
+            exported = bundle()
+            exported['cookies'][0].update(domain='.' + domain, expires=-1)
+            account = worker.Account(exported)
+            self.assertEqual(account.session.cookies.get('__Secure-1PSID'), 'cookie-one')
+            account.close()
+
     def test_scheduler_admission_contract_fixtures(self):
         cases = json.loads(Path(__file__).with_name('request_contract_cases.json').read_text())
         for case in cases:

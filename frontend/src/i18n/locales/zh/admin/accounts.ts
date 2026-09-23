@@ -1462,8 +1462,10 @@ export default {
         baseUrlHint: '留空使用官方 Gemini API',
         apiKeyHint: '您的 Gemini API Key（以 AIza 开头）',
         webSessionImportTitle: '导入 Gemini Web 浏览器会话',
-        webSessionImportHint: '选择总指纹浏览器导出的 JSON 文件。Cookie 只会直接发送到服务器，不会在界面展示；导入后保持当前调度状态。',
+        webSessionImportHint: '在实际运行 Worker 的 edge 后台，选择总指纹浏览器导出的 JSON（最大 2 MiB）。仅更新此账号的浏览器会话，保持当前调度状态；导入成功不代表已通过 Google 登录验证。',
         webSessionImportInvalid: 'Gemini Web 会话 JSON 无效',
+        webSessionImportTooLarge: '会话文件超过 2 MiB，请重新导出',
+        webSessionImportConflict: '会话已更新或 Worker 正在使用，请稍后重新导入',
         webSessionImportDone: 'Gemini Web 会话导入成功',
         webSessionImportSuccess: '已导入 {count} 个 Cookie（运行时版本 {version}）',
         tier: {

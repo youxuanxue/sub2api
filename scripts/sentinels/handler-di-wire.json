@@ -3,6 +3,21 @@
   "rationale": "Load-bearing TokenKey DI registration and handler wiring that live in upstream-shaped hotspot files. These struct fields and Wire providers are the only thing connecting TK handlers to the application — they compile cleanly if dropped, so an upstream merge can silently deregister entire TK surfaces (admin tiers, edge accounts, pricing catalog, trial provisioning, compliance gate) unless preflight anchors their literal presence.",
   "sentinels": [
     {
+      "path": "backend/internal/server/routes/admin.go",
+      "must_contain": ["accounts.POST(\"/:id/gemini-web-session\", h.Admin.Account.ImportGeminiWebSession)"],
+      "rationale": "Keep the dedicated admin import route connected to the scoped runtime CAS instead of full-account edits."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_gemini_web_import.go",
+      "must_contain": ["service.CanImportGeminiWebSession(account)", "importer.ImportGeminiWebSession(c.Request.Context(), accountID, currentVersion, runtime)"],
+      "rationale": "Protect the local Worker boundary and explicit import call from upstream refactors."
+    },
+    {
+      "path": "backend/internal/handler/admin/account_handler_gemini_web_import_test.go",
+      "must_contain": ["func TestGeminiWebCookieScopeMatchesPythonOwner", "func TestGeminiWebImportHandlerSuccessAndConflict", "func TestGeminiWebImportHandlerRejectsInvalidInputAndNonWorker"],
+      "rationale": "Retain executable scope parity, no-success-on-conflict, and credential redaction regressions."
+    },
+    {
       "path": "backend/internal/handler/wire.go",
       "must_contain": ["GeminiWebSession: geminiWebSessionHandler"],
       "rationale": "Retain the session handler assignment; dropping it silently disables the Gemini Web control surface."

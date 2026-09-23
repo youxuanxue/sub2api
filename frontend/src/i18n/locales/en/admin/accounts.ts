@@ -1367,8 +1367,10 @@ export default {
         baseUrlHint: 'Leave default for official Gemini API',
         apiKeyHint: 'Your Gemini API Key (starts with AIza)',
         webSessionImportTitle: 'Import Gemini Web browser session',
-        webSessionImportHint: 'Choose the JSON exported by the Total Fingerprint Browser. Cookies are sent directly to the server and are never shown in the UI. Importing keeps the current scheduling state.',
+        webSessionImportHint: 'In the edge admin running the Worker, choose the exported browser JSON (up to 2 MiB). This updates only this account’s browser session and keeps scheduling unchanged. Import success does not verify Google sign-in.',
         webSessionImportInvalid: 'Invalid Gemini Web session JSON',
+        webSessionImportTooLarge: 'Session file exceeds 2 MiB. Export it again.',
+        webSessionImportConflict: 'The session changed or the Worker is using it. Retry the import later.',
         webSessionImportDone: 'Gemini Web session imported successfully',
         webSessionImportSuccess: 'Imported {count} cookies (runtime version {version})',
         tier: {

@@ -3,7 +3,7 @@ status: approved
 approved_by: user
 source_baseline: 75e38806d7f04202f3ee02148f10975b7d26871c
 pr_base: 6cfe353d765cf0f2868fcf56d1f22475e79785d3
-implementation_approval: user-explicit-database-only-and-review-fixes
+implementation_approval: user-explicit-database-only-admin-import-and-review-risk-fixes
 observed_on: 2026-09-21
 target: edge-us4
 ---
@@ -18,8 +18,9 @@ GenerateContentResponse 格式。用户明确要求删除文件模式，控制�
 操作步骤不再是实施指令，历史调查保存在
 [先前版本](https://github.com/youxuanxue/sub2api/blob/f48c07d3fb4799392ebe0b113238cd2d43a61267/docs/approved/gemini-web-channel.md)。
 
-本轮不部署、不调用真实 Google、不启用商业定价。后台会话导入控件、身份去重与
-保存时 bootstrap 验证尚未实现，不属于本轮修复的完成声明。现有 API Key 输入框不能直接粘贴 Cookie。
+本轮不部署、不调用真实 Google、不启用商业定价。用户已确认在编辑账号中导入浏览器
+JSON，并要求消除并发、适用边界与凭证泄露风险。身份去重与保存时 bootstrap 验证
+不属于完成声明；导入成功仅证明持久化成功。API Key 输入框不能直接粘贴 Cookie。
 
 ## 数据与会话 SSOT
 
@@ -68,7 +69,36 @@ Worker 每分钟只读维护元数据，只有到期账号才申请租约并执�
 
 普通账号编辑和 credentials 更新在数据库行锁内保留当前会话，防止旧快照覆盖 Worker 更新。
 导入必须显式使用当前版本加一；持有在途租约时拒绝导入，不能通过全量 credentials 覆盖绕开并发保护。
-未来后台导入控件必须复用此 owner。
+后台导入复用此数据库 owner 的专用原子更新，不走通用全量账号更新。
+
+## Admin UI 会话导入
+
+`POST /api/v1/admin/accounts/:id/gemini-web-session` 复用管理员鉴权。仅允许已有
+`credentials.gemini_web.runtime` 对象的本地 Gemini API-key Worker 账号；
+`gemini_web_relay` 或 `extra.relay_kind=gemini_web` 的 prod 中继、普通 API Key、
+未绑定账号均不可导入。UI 使用脱敏后的绑定状态显示控件，Handler 与 SQL 再验证边界。
+首次 Worker 绑定仍由现有运维流程完成，不能通过此控件把普通 API 账号转换为 Worker。
+运营在目标 edge 后台编辑真实 Worker 账号，导入 `tokenkey-gemini-web-session-v1` JSON；
+不会自动向 prod 中继或其他 edge 转发 Cookie。
+
+- 前端读取文件前检查 2 MiB 限制，后端独立限制请求体；校验格式、UA、Cookie
+  数量、域、字段类型与长度。域写入前规范化，缺少 path 使用 `/`；CDP 的
+  `expires=-1` 会话 Cookie 和小数时间戳合法，其他 CDP 元数据原样保留。
+- 显式导入根据读取的 expected version 执行单条 SQL CAS，重新检查绑定、版本及
+  租约；只有实际更新一行才成功。竞争导入、Worker 更新或活跃租约返回 409，
+  不返回成功摘要，不自动重试覆盖更新。普通编辑保留当前 runtime 的合并语义
+  不用于判定显式导入成功。
+- SQL 仅替换 runtime、删除过期 lease 并更新 updated_at，不修改其他凭据、模型映射、
+  status、schedulable 或 extra。新 runtime 清除 blocked/pending/cooldown 并重置
+  last_refresh，后续实际 Worker 请求仍执行认证与 bootstrap。
+- 成功摘要是本次已提交版本的回执，不是随后 GET 可能读到的更新版本；账号 DTO
+  沿用凭据脱敏。审计整体省略导入请求体。文件解析/读取/API 错误统一显示固定
+  文案；409 提示稍后重试，禁止将原始错误中的凭据片段带入 UI。
+- 选文件时固定目标 ID；关闭、卸载或换账号使旧操作失效。尚未发送的操作不提交；
+  已发送请求仍只作用于原账号，迟到响应不更新新弹窗。同一账号对象刷新不清空摘要。
+
+前端 Playwright 使用真实编辑页面和文件输入、模拟后台响应；数据库并发另用真实
+PostgreSQL 验证。两者均不代表线上部署或 Google 会话有效性验证。
 
 普通账号编辑复用已有行锁查询判断会话绑定，无绑定的普通 Gemini 账号不执行额外会话查询。
 Worker 启动校验控制协议；只读 `--check` 检查账号绑定、密钥、runtime 和 concurrency=1，
@@ -111,7 +141,10 @@ prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修
 
 | 行为 | 唯一 owner |
 |---|---|
-| 浏览器导出与 Worker 共用 Cookie 域范围 | ops/gemini-web/session_contract.py |
+| 浏览器导出与 Worker 共用 Cookie 域范围；Go 为测试约束的投影 | ops/gemini-web/session_contract.py；Go/Python 双向契约测试 |
+| 管理后台会话导入校验与回执 | backend/internal/handler/admin/account_handler_gemini_web_import.go |
+| 本地 Worker 导入资格 | backend/internal/service/gemini_web_request_tk.go 的 CanImportGeminiWebSession；SQL 写入重验 |
+| 文件选择、大小限制与弹窗异步生命周期 | frontend/src/components/account/EditAccountModal.vue |
 | 会话生命周期及 HTTP 协议执行 | ops/gemini-web/worker.py 的 SessionOwner / Account |
 | edge 控制请求 | backend/internal/handler/gemini_web_session_handler.go |
 | 数据库租约与 runtime CAS | backend/internal/repository/account_gemini_web_tk.go |

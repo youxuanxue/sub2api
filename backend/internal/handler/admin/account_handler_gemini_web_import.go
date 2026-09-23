@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -68,20 +69,20 @@ func (h *AccountHandler) ImportGeminiWebSession(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if account == nil || account.Platform != service.PlatformGemini || account.Type != service.AccountTypeAPIKey {
-		response.BadRequest(c, "Gemini Web session import requires a Gemini API key account")
+	if !service.CanImportGeminiWebSession(account) {
+		response.BadRequest(c, "Import requires a bound local Gemini Web Worker account; relay accounts cannot hold browser sessions")
 		return
 	}
 
 	web, _ := account.Credentials["gemini_web"].(map[string]any)
-	currentVersion := geminiWebRuntimeVersion(web)
-	nextVersion := currentVersion + 1
-	cookies, err := normalizeGeminiWebCookies(bundle.Cookies)
+	currentVersion, err := geminiWebRuntimeVersion(web)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	web["runtime"] = map[string]any{
+	nextVersion := currentVersion + 1
+	cookies := normalizeGeminiWebCookies(bundle.Cookies)
+	runtime := map[string]any{
 		"version":    nextVersion,
 		"user_agent": strings.TrimSpace(bundle.UserAgent),
 		"cookies":    cookies,
@@ -90,17 +91,11 @@ func (h *AccountHandler) ImportGeminiWebSession(c *gin.Context) {
 			"last_refresh": float64(0), "cooldown_until": float64(0),
 		},
 	}
-	delete(web, "lease")
 	importer, ok := h.adminService.(interface {
 		ImportGeminiWebSession(context.Context, int64, int64, map[string]any) (*service.Account, error)
 	})
 	if !ok {
 		response.Error(c, http.StatusInternalServerError, "Gemini Web session import is unavailable")
-		return
-	}
-	runtime, ok := web["runtime"].(map[string]any)
-	if !ok {
-		response.Error(c, http.StatusBadRequest, "Invalid Gemini Web runtime")
 		return
 	}
 	updated, err := importer.ImportGeminiWebSession(c.Request.Context(), accountID, currentVersion, runtime)
@@ -112,7 +107,7 @@ func (h *AccountHandler) ImportGeminiWebSession(c *gin.Context) {
 		"account": h.buildAccountResponseWithRuntime(c.Request.Context(), updated),
 		"session": gin.H{
 			"cookie_count":    len(bundle.Cookies),
-			"cookie_domains":  geminiWebCookieDomains(bundle.Cookies),
+			"cookie_domains":  geminiWebCookieDomains(cookies),
 			"runtime_version": nextVersion,
 		},
 	})
@@ -129,7 +124,7 @@ func validateGeminiWebSessionImport(bundle geminiWebSessionImportRequest) error 
 	if len(bundle.Cookies) == 0 || len(bundle.Cookies) > geminiWebSessionImportMaxCookies {
 		return errors.New("gemini Web session must contain between 1 and 500 cookies")
 	}
-	for i, cookie := range bundle.Cookies {
+	for _, cookie := range bundle.Cookies {
 		name, nameOK := cookie["name"].(string)
 		value, valueOK := cookie["value"].(string)
 		domain, domainOK := cookie["domain"].(string)
@@ -148,7 +143,8 @@ func validateGeminiWebSessionImport(bundle geminiWebSessionImportRequest) error 
 		}
 		if expires, ok := cookie["expires"]; ok {
 			number, numberOK := expires.(float64)
-			if !numberOK || number < 0 || number != float64(int64(number)) {
+			// CDP uses -1 for session cookies and fractional epoch seconds.
+			if !numberOK || math.IsNaN(number) || math.IsInf(number, 0) || number < -1 || number > 253402300799 {
 				return errors.New("gemini Web session cookie expiration is invalid")
 			}
 		}
@@ -162,14 +158,11 @@ func validateGeminiWebSessionImport(bundle geminiWebSessionImportRequest) error 
 				return errors.New("gemini Web session cookie secure flag is invalid")
 			}
 		}
-		if i >= geminiWebSessionImportMaxCookies {
-			return errors.New("too many cookies")
-		}
 	}
 	return nil
 }
 
-func normalizeGeminiWebCookies(cookies []map[string]any) ([]map[string]any, error) {
+func normalizeGeminiWebCookies(cookies []map[string]any) []map[string]any {
 	normalized := make([]map[string]any, 0, len(cookies))
 	for _, cookie := range cookies {
 		copy := make(map[string]any, len(cookie))
@@ -184,51 +177,30 @@ func normalizeGeminiWebCookies(cookies []map[string]any) ([]map[string]any, erro
 		}
 		normalized = append(normalized, copy)
 	}
-	return normalized, nil
+	return normalized
 }
 
-func cloneGeminiWebCredentials(credentials map[string]any) (map[string]any, error) {
-	encoded, err := json.Marshal(credentials)
-	if err != nil {
-		return nil, err
-	}
-	cloned := map[string]any{}
-	if err := json.Unmarshal(encoded, &cloned); err != nil {
-		return nil, err
-	}
-	web, _ := cloned["gemini_web"].(map[string]any)
-	if web == nil {
-		web = map[string]any{}
-		cloned["gemini_web"] = web
-	}
-	return cloned, nil
-}
-
-func geminiWebRuntimeVersion(web map[string]any) int64 {
+func geminiWebRuntimeVersion(web map[string]any) (int64, error) {
 	runtime, _ := web["runtime"].(map[string]any)
-	if runtime == nil {
-		return 0
-	}
+	var version int64 = -1
 	switch value := runtime["version"].(type) {
 	case float64:
 		if value >= 0 && value == float64(int64(value)) {
-			return int64(value)
+			version = int64(value)
 		}
 	case int:
-		if value >= 0 {
-			return int64(value)
-		}
+		version = int64(value)
 	case int64:
-		if value >= 0 {
-			return value
-		}
+		version = value
 	case json.Number:
-		parsed, _ := value.Int64()
-		if parsed >= 0 {
-			return parsed
+		if parsed, err := value.Int64(); err == nil {
+			version = parsed
 		}
 	}
-	return 0
+	if version < 0 || version >= 1<<53-1 {
+		return 0, errors.New("invalid Gemini Web runtime version")
+	}
+	return version, nil
 }
 
 func geminiWebCookieDomains(cookies []map[string]any) []string {
