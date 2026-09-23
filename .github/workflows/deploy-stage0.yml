@@ -254,6 +254,16 @@ jobs:
           path: qa-target-release
           fetch-depth: 1
 
+      - name: Validate Gemini Web relay declarations before deployment
+        # Older rollback targets do not consume this capability declaration.
+        if: hashFiles('qa-target-release/backend/internal/service/gemini_web_request_tk.go') != ''
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.id }}
+        run: |
+          bash ops/observability/run-probe.sh --target prod \
+            --expected-instance-id "$INSTANCE_ID" \
+            --script ops/observability/probe-gemini-web-relay-declarations.sh
+
       - name: Read legacy rollback maintenance pin
         if: needs.release-contract.outputs.mode == 'legacy_rollback'
         env:

@@ -127,3 +127,17 @@ probe/refresh 成功不能覆盖撤下决策。移动这些 owner 时保留 pric
 - 不让价格 presence 自动上架、自动写 mapping 或自动声明协议能力。
 
 审查只问：新执行还是续接？读哪个 owner？owner 被绕过时哪个检查会失败？
+
+## 推理倍率滚动升级兼容
+
+上游迁移 `239_channel_reasoning_effort_multipliers.sql` 由迁移 runner 记录校验和但不执行；
+`tk_099_reasoning_pricing_rolling_compat.sql` 负责增量扩展和历史数据转换，避免新颜色准备时
+删除仍由旧颜色读取的分组 `max_reasoning_effort_multiplier`。已执行上游 239 的数据库也可修复。
+
+新倍率映射是新版本的定价输入，旧 `max` 字段是同一价格的兼容投影。数据库触发器统一维护
+渠道列与分组 JSON 的投影，覆盖新旧版本写入；新映射显式清空时清除旧倍率，迁移重放不恢复
+已清空的价格。渠道旧版只改 `max` 时保留其他等级；旧版不具备非 `max` 等级计费能力，
+回滚期间不能依赖旧版执行这些新增定价策略。旧版替换整份分组价目仍按其提交内容生效。
+
+行为验证：`TestReasoningPricingRollingCompatibility` 使用真实 PostgreSQL，覆盖旧版升级、
+已执行 239 后修复、迁移事务间无旧字段删除窗口、新旧写入与清空、重放和旧版读取。

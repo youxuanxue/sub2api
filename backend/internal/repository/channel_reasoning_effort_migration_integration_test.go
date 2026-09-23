@@ -13,7 +13,10 @@ import (
 func TestMigration239ReasoningEffortMultipliers(t *testing.T) {
 	tx := testTx(t)
 	ctx := context.Background()
-	_, err := tx.ExecContext(ctx, `ALTER TABLE channel_model_pricing DROP COLUMN reasoning_effort_multipliers`)
+	// Reconstruct the schema before either 239 or its TK compatibility replacement.
+	_, err := tx.ExecContext(ctx, `DROP TRIGGER tk_channel_reasoning_max_compat ON channel_model_pricing`)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `ALTER TABLE channel_model_pricing DROP COLUMN reasoning_effort_multipliers`)
 	require.NoError(t, err)
 	_, err = tx.ExecContext(ctx, `ALTER TABLE channel_account_stats_model_pricing DROP COLUMN reasoning_effort_multipliers`)
 	require.NoError(t, err)
@@ -76,8 +79,8 @@ VALUES ('migration-group-reasoning', 'anthropic', '[
 		var actual string
 		require.NoError(t, tx.QueryRowContext(ctx, `SELECT model_pricing::text FROM groups WHERE id = $1`, groupID).Scan(&actual))
 		require.JSONEq(t, `[
-            {"models":["custom-model"],"input_price":2,"reasoning_effort_multipliers":{"max":2.5}},
-            {"models":["existing-map"],"reasoning_effort_multipliers":{"high":1.5,"max":4}},
+            {"models":["custom-model"],"input_price":2,"reasoning_effort_multipliers":{"max":2.5},"max_reasoning_effort_multiplier":2.5},
+            {"models":["existing-map"],"reasoning_effort_multipliers":{"high":1.5,"max":4},"max_reasoning_effort_multiplier":4},
             {"models":["cleared-map"],"reasoning_effort_multipliers":{}},
             {"models":["claude-fable-5-1"]}
         ]`, actual)
