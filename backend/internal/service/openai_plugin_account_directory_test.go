@@ -106,8 +106,8 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 		"SessionWindowStart": {}, "SessionWindowEnd": {}, "SessionWindowStatus": {},
 		"ParentAccountID": {}, "QuotaDimension": {}, "GroupIDs": {},
 		"ProtocolEndpointCapabilityID": {},
-		"ProtocolEndpointCapability": {},
-		"ChannelType": {}, "TierID": {},
+		"ProtocolEndpointCapability":   {},
+		"ChannelType":                  {}, "TierID": {},
 	}
 	tp := reflect.TypeOf(Account{})
 	for i := 0; i < tp.NumField(); i++ {
