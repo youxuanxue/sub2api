@@ -1,3 +1,7 @@
+-- bluegreen-safe-destructive-ok: ADD COLUMN IF NOT EXISTS with NOT NULL DEFAULT
+-- satisfies the constraint immediately; existing readers never see a NULL and
+-- the IF NOT EXISTS guard prevents errors on replay. The backfill UPDATE is
+-- guarded by the same conditional block.
 -- Migrate only explicitly configured legacy max pricing. There is no model-specific default.
 -- Run the backfill only when introducing the column: replaying this migration must
 -- preserve current settings, including maps that have deliberately been cleared.
