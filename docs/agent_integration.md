@@ -251,6 +251,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `GET /api/v1/admin/groups/usage-summary` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/openai/accounts/:id/quota` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/openai/accounts/:id/quota/refresh` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/openai/accounts/:id/referrals/invite` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/openai/accounts/:id/referrals/refresh` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/openai/accounts/:id/refresh` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/openai/accounts/:id/reset-quota` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/openai/create-from-codex-pat` from `backend/internal/server/routes/admin.go`

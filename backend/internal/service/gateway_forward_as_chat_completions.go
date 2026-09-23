@@ -90,6 +90,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	mappedModel = protocolExecutionResolvedModel(ctx, mappedModel)
 	anthropicReq.Model = mappedModel
 
+	// Align with upstream CC→Responses→Anthropic chain: top-level thinking is
+	// dropped when no explicit effort is present. PassbackRequired models
+	// (Kimi/GLM/MiniMax) do not consume Anthropic thinking blocks; retaining a
+	// backfilled block here would make ApplyThinkingEnabledFallback inject the
+	// default "high" and diverge from upstream's unforwarded_thinking billing
+	// contract. ThinkingNative models keep the block.
+	if anthropicReq.Thinking != nil && extractCCReasoningEffortFromBody(body) == nil &&
+		ResolveThinkingProtocol(mappedModel) == ThinkingProtocolPassbackRequired {
+		anthropicReq.Thinking = nil
+	}
+
 	if !s.tkPricedServingGate(ctx, c, tkGateWireOpenAI, account.Platform, originalModel, originalModel) {
 		return nil, fmt.Errorf("priced serving gate: model %q not priced for platform %q", originalModel, account.Platform)
 	}
@@ -154,13 +165,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 
 	// 10. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildAnthropicCompatUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+	upstreamReq, forwardedBody, err := s.buildAnthropicCompatUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
 	releaseUpstreamCtx()
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		recordCCUpstreamRequestError(c, account, "", "request_error", safeErr)
 		return nil, fmt.Errorf("build upstream request: %s", safeErr)
 	}
+	// Bill the final Anthropic effort after conversion and account normalization.
+	// For example, OpenAI xhigh is forwarded as output_config.effort=max.
+	reasoningEffort := NormalizeClaudeOutputEffort(gjson.GetBytes(forwardedBody, "output_config.effort").String())
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, mappedModel)
 
 	// 11. Send request
 	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
@@ -224,14 +239,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("upstream error: %d %s", resp.StatusCode, upstreamMsg)
 	}
 
-	// 13. Extract reasoning effort from CC request body
-	reasoningEffort := extractCCReasoningEffortFromBody(body, mappedModel, originalModel)
-	// 国产模型默认 effort 补充：本路径是客户端 CC 请求 → Anthropic 上游，
-	// 如果上游是 passback-required 国产模型 (Kimi-anthropic / GLM-anthropic / MiniMax)
-	// 且客户端在 body 里传了 thinking.type=enabled，补中默认 effort。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
-
-	// 14. Handle normal response
+	// 13. Handle normal response
 	// Read Anthropic SSE → convert to Responses events → convert to CC format
 	var result *ForwardResult
 	var handleErr error

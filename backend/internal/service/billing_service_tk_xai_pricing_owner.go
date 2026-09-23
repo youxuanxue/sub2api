@@ -24,6 +24,7 @@ import (
 // cross-owner policy exception because it has no standalone public price card.
 // Absent entries signal "known model, no public pricing" and must fail closed.
 var grokCanonicalPricingOwner = map[string]string{
+	"grok-4.7":                     "grok-4.7",
 	"grok-4.6":                     "grok-4.6",
 	"grok-4.5":                     "grok-4.5",
 	"grok-4.3":                     "grok-4.3",

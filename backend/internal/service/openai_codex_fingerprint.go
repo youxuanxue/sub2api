@@ -188,11 +188,23 @@ func sanitizedCodexFingerprintExtraUpdates(updates map[string]any) map[string]an
 // ShouldEnsureCodexFingerprintSeedForExtraUpdates reports whether a JSONB key-level
 // extra update is enabling Codex fingerprint convergence and therefore must atomically
 // preserve or create the system-managed per-account seed in the repository update.
+//
+// Only wraps the update when the mode key is explicitly present in the update map
+// (e.g. `codex_fingerprint_mode: device|session|full`). This ensures snapshot-only
+// updates (credits, referral, passive usage) keep the simplest SQL shape — the seed
+// invariant is owned by the service-layer prepare functions (Create/Update lifecycle),
+// not by the repository extra-update sweep path. When the mode key is absent, the
+// update clearly is not about convergence configuration, so no seed wrapping is needed.
+// See also: prepareCodexFingerprintExtraForCreate, prepareCodexFingerprintExtraForUpdate.
 func ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates map[string]any) bool {
 	if updates == nil {
 		return false
 	}
-	return codexFingerprintModeRequiresSeed(codexFingerprintModeFromExtra(updates))
+	raw, ok := updates[codexFingerprintModeExtraKey].(string)
+	if !ok {
+		return false
+	}
+	return codexFingerprintModeRequiresSeed(codexFingerprintMode(strings.TrimSpace(raw)))
 }
 
 // GetCodexFingerprintMode 从账号 extra JSON 读取指纹收敛模式。

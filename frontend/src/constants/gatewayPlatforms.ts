@@ -6,6 +6,12 @@ export const GATEWAY_PLATFORMS = [
   'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'composite'
 ] as const satisfies readonly AccountPlatform[]
 
+/** Platforms represented by a composite group in the channel editor. */
+export const COMPOSITE_PLATFORM_MEMBERS = [
+  'anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu',
+  'deepseek', 'minimax', 'opencode_go',
+] as const satisfies readonly Exclude<AccountPlatform, 'composite'>[]
+
 /**
  * Platforms that support per-user quota limits (daily/weekly/monthly).
  * Mirrors `service.AllowedQuotaPlatforms` in the Go backend

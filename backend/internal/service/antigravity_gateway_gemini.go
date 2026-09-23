@@ -86,8 +86,8 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
 	}
 
-	// Bare Gemini ids are selected by thinkingConfig; resolve them to the
-	// upstream variant before the regular account mapping lookup.
+	// 裸模型名（gemini-3.8-flash）按 thinkingConfig 解析到 -low/-medium/-high 变体；
+	// 裸名有显式映射时保持原行为。
 	mappedModel, variantResolved := resolveGeminiThinkingVariant(account, originalModel, body)
 	if !variantResolved {
 		mappedModel = s.getMappedModel(account, originalModel)
@@ -466,6 +466,7 @@ handleSuccess:
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        stream,
+		ReasoningEffort:               extractGeminiReasoningEffortFromBody(injectedBody),
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,

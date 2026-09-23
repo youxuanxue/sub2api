@@ -1822,17 +1822,17 @@
     {
       "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
-        "candidateTransportFailure(ctx, s.writeClaudeError",
-        "candidateTransportFailure(ctx, s.writeGoogleError"
+        "return nil, s.handleUpstreamTransportError(ctx, c, account, err)",
+        "transportErr := s.handleUpstreamTransportError(ctx, c, account, err)"
       ],
-      "rationale": "Gemini Messages and native execution preserve terminal transport attribution after their existing retries."
+      "rationale": "Gemini Messages (Claude compat) and native execution terminal transport attribution after upstream 2026-09 merge: handleUpstreamTransportError returns UpstreamFailoverError{502} without writing the response, the handler failover re-routes, and candidate_failure_tk.go's UpstreamFailoverError branch retains candidate attribution. Restoring a wrapping candidateTransportFailure call would break errors.As failover, so the sentinel pins both new call sites instead."
     },
     {
       "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
       "must_contain": [
-        "candidateTransportFailure(ctx,"
+        "return nil, s.handleUpstreamTransportError(ctx, c, account, err)"
       ],
-      "rationale": "Gemini Chat preserves terminal transport attribution."
+      "rationale": "Gemini Chat terminal transport attribution after upstream 2026-09 merge: handleUpstreamTransportError returns UpstreamFailoverError{502} without writing the response, the handler failover re-routes, and candidate_failure_tk.go's UpstreamFailoverError branch retains candidate attribution. Restoring a wrapping candidateTransportFailure call would break errors.As failover, so the sentinel pins the new call site instead."
     },
     {
       "path": "backend/internal/service/gemini_responses_compat_service.go",
@@ -11191,6 +11191,13 @@
       "rationale": "The declared-alias exemption inside IsServedViaFamilyFloor is the single call site that separates a settled alias from an accidental substring match. Without this line every declared alias re-raises served_at_fallback; the surrounding predicate is otherwise upstream-shaped and an upstream merge would drop the branch compile-clean."
     },
     {
+      "path": "backend/internal/service/billing_service.go",
+      "must_contain": [
+        "claudeFable51MaxReasoningEffortMultiplier = 3.0"
+      ],
+      "rationale": "TK billing divergence: fable-5-1 max reasoning effort is implicitly billed at 3× (product decision 2026-09-02, upstream asserts xhigh==max parity). Kept deliberately; upstream merge must not silently drop it."
+    },
+    {
       "path": "backend/internal/service/billing_service_tk_pricing_alias_test.go",
       "must_contain": [
         "TestRegistryPricingAliasIsNotServedViaFamilyFloor",
@@ -13521,7 +13528,7 @@
       "must_contain": [
         "if profileSupportsHTTP2(profile) {",
         "transport.ForceAttemptHTTP2 = true",
-        "if _, err := enableHTTP2KeepAlive(transport); err != nil {"
+        "if _, err := enableHTTP2KeepAlive(transport, protocolMode); err != nil {"
       ],
       "rationale": "TLS-fingerprint transports use DialTLSContext, which disables net/http auto-HTTP/2. Profiles advertising h2 (Antigravity CLI) must ForceAttemptHTTP2 + enableHTTP2KeepAlive or Google's h2 preface is misread as HTTP/1.1."
     },

@@ -96,6 +96,7 @@ type Config struct {
 	UsageCleanup            UsageCleanupConfig            `mapstructure:"usage_cleanup"`
 	Concurrency             ConcurrencyConfig             `mapstructure:"concurrency"`
 	TokenRefresh            TokenRefreshConfig            `mapstructure:"token_refresh"`
+	SimpleMode              SimpleModeConfig              `mapstructure:"simple_mode" yaml:"simple_mode"`
 	RunMode                 string                        `mapstructure:"run_mode" yaml:"run_mode"`
 	Timezone                string                        `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
@@ -111,6 +112,13 @@ type Config struct {
 	Plugins                 PluginConfig                  `mapstructure:"plugins"`
 }
 
+// SimpleModeConfig controls startup behavior in simple mode.
+type SimpleModeConfig struct {
+	AutoCreateDefaultGroups bool `mapstructure:"auto_create_default_groups" yaml:"auto_create_default_groups"`
+}
+
+// PluginConfig 控制管理员手动上传的本地进程插件。
+// 默认不包含插件，也不允许安装未签名插件；TrustedPublishers 用于追加第三方发布者。
 type PluginConfig struct {
 	DataDir              string            `mapstructure:"data_dir"`
 	AllowUnsigned        bool              `mapstructure:"allow_unsigned"`
@@ -2203,6 +2211,7 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("simple_mode.auto_create_default_groups", true)
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")

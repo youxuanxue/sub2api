@@ -227,7 +227,12 @@ func TestCandidateTransportForwardersPreserveAttribution(t *testing.T) {
 				require.Equal(t, http.StatusBadGateway, failover.StatusCode)
 				require.False(t, c.Writer.Written(), "failover must leave the response available for the next account")
 			} else {
-				require.Equal(t, http.StatusBadGateway, recorder.Code)
+				// Upstream contract (gemini 传输层错误转 failover): service 不写响应，
+				// 502 由 handler 在换号耗尽后渲染；终态错误仍需保留传输归因。
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.Equal(t, http.StatusBadGateway, failover.StatusCode)
+				require.False(t, c.Writer.Written(), "failover must leave the response available for the next account")
 			}
 			require.True(t, candidateFailureAttributable(err), "terminal forwarder must retain transport attribution")
 		})

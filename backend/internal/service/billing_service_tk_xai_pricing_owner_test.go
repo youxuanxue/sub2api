@@ -14,7 +14,7 @@ import (
 
 func expectedGrokPricingOwner(canonical string) (string, bool) {
 	switch canonical {
-	case "grok-4.6", "grok-4.5", "grok-4.3", "grok-build-0.1":
+	case "grok-4.7", "grok-4.6", "grok-4.5", "grok-4.3", "grok-build-0.1":
 		return canonical, true
 	case "grok-composer-2.5-fast":
 		return "grok-build-0.1", true

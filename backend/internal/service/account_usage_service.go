@@ -527,10 +527,12 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 
 	switch accountUsageWindowAdapterFor(account) {
 	case accountUsageWindowAdapterOpenAI:
+		// Upstream invariant (account_usage_service_batch_test.go:211): OpenAI OAuth
+		// usage can come from a stored snapshot even when a probe fails; neither that
+		// nor a valid access token proves a rejected refresh token recovered. Do NOT
+		// call tryClearRecoverableAccountError here (Anthropic/Gemini/Antigravity
+		// real-probe paths below keep TK's auto-recovery).
 		usage, err = s.getOpenAIUsage(ctx, account, forceProbe)
-		if err == nil {
-			s.tryClearRecoverableAccountError(ctx, account)
-		}
 	case accountUsageWindowAdapterLocal:
 		usage = s.buildLocalWindowUsage(ctx, account)
 		applyNewAPIUsageWindowSnapshot(account, usage)

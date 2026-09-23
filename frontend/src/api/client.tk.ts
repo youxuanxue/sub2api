@@ -60,7 +60,8 @@ const NETWORK_ERROR_CODES = new Set([
   'ERR_INTERNET_DISCONNECTED',
   'ERR_NETWORK_CHANGED',
   'ERR_CONNECTION_RESET',
-  'ECONNABORTED'
+  'ECONNABORTED',
+  'ETIMEDOUT'
 ])
 
 export interface ApiNetworkError {
@@ -105,5 +106,14 @@ export function createNetworkError(url?: string): ApiError {
 }
 
 export function networkErrorFromAxios(error: AxiosError): ApiError {
-  return createNetworkError(error.config?.url)
+  const code = typeof error.code === 'string' && NETWORK_ERROR_CODES.has(error.code)
+    ? error.code
+    : 'ERR_NETWORK'
+  return new ApiError({
+    status: 0,
+    code,
+    message: NETWORK_ERROR_MESSAGE,
+    offline: isBrowserOffline(),
+    ...(error.config?.url ? { url: error.config.url } : {})
+  })
 }

@@ -9844,6 +9844,28 @@
     "supports_web_search": true,
     "long_context_threshold_inclusive": true
   },
+  "grok-4.7": {
+    "litellm_provider": "xai",
+    "mode": "chat",
+    "input_cost_per_token": 2e-06,
+    "cache_read_input_token_cost": 5e-07,
+    "output_cost_per_token": 6e-06,
+    "long_context_input_token_threshold": 200000,
+    "long_context_input_cost_multiplier": 2,
+    "long_context_output_cost_multiplier": 2,
+    "source": "xAI official grok-4.7 pricing, mirrored from upstream model_prices_and_context_window.json at upstream v1.8.247 (grok-4.7 card shipped 2026-09): input $2/Mtok, cached input $0.50/Mtok, output $6/Mtok below 200k; all three rates double when prompt reaches 200k. Same card as grok-4.6; xAI 200k long-context billing SSOT.",
+    "max_input_tokens": 500000,
+    "max_output_tokens": 500000,
+    "max_tokens": 500000,
+    "supports_function_calling": true,
+    "supports_prompt_caching": true,
+    "supports_reasoning": true,
+    "supports_response_schema": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_web_search": true,
+    "long_context_threshold_inclusive": true
+  },
   "glm-5.2-fast-preview": {
     "litellm_provider": "zhipu",
     "mode": "chat",

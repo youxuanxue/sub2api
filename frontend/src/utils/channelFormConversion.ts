@@ -26,11 +26,17 @@ import {
   apiIntervalsToForm,
   apiTimePricingToForm,
   formIntervalsToAPI,
+  formReasoningEffortMultipliersToAPI,
   formTimePricingToAPI,
   mTokToPerToken,
   perTokenToMTok,
 } from '@/components/admin/channel/types'
-import { GATEWAY_PLATFORMS, PLATFORM_ANTHROPIC, PLATFORM_OPENAI } from '@/constants/gatewayPlatforms'
+import {
+  COMPOSITE_PLATFORM_MEMBERS,
+  GATEWAY_PLATFORMS,
+  PLATFORM_ANTHROPIC,
+  PLATFORM_OPENAI,
+} from '@/constants/gatewayPlatforms'
 import type { AdminGroup, GroupPlatform } from '@/types'
 
 /** Form-level pricing rule (per-platform sub-rule rendered inside a section). */
@@ -90,7 +96,13 @@ export function apiToFormSections(
 
   for (const gid of channel.group_ids || []) {
     const p = groupPlatformMap.get(gid)
-    if (p && allowed.has(p)) activePlatforms.add(p)
+    if (p === 'composite') {
+      for (const member of COMPOSITE_PLATFORM_MEMBERS) {
+        if (allowed.has(member)) activePlatforms.add(member)
+      }
+    } else if (p && allowed.has(p)) {
+      activePlatforms.add(p)
+    }
   }
   for (const p of channel.model_pricing || []) {
     if (p.platform && allowed.has(p.platform as GroupPlatform)) {
@@ -107,9 +119,15 @@ export function apiToFormSections(
   for (const platform of platforms) {
     if (!activePlatforms.has(platform)) continue
 
-    const groupIds = (channel.group_ids || []).filter(
-      (gid) => groupPlatformMap.get(gid) === platform,
-    )
+    const groupIds = (channel.group_ids || []).filter((gid) => {
+      const groupPlatform = groupPlatformMap.get(gid)
+      return groupPlatform === platform || (
+        groupPlatform === 'composite' &&
+        COMPOSITE_PLATFORM_MEMBERS.includes(
+          platform as typeof COMPOSITE_PLATFORM_MEMBERS[number],
+        )
+      )
+    })
     const mapping = (channel.model_mapping || {})[platform] || {}
     const pricing = (channel.model_pricing || [])
       .filter((p) => (p.platform || 'anthropic') === platform)
@@ -121,13 +139,18 @@ export function apiToFormSections(
             input_price: perTokenToMTok(p.input_price),
             output_price: perTokenToMTok(p.output_price),
             cache_write_price: perTokenToMTok(p.cache_write_price),
+            cache_write_1h_price: perTokenToMTok(p.cache_write_1h_price),
             cache_read_price: perTokenToMTok(p.cache_read_price),
             fast_multiplier: p.fast_multiplier,
             flex_multiplier: p.flex_multiplier,
+            reasoning_effort_multipliers: p.reasoning_effort_multipliers
+              ? { ...p.reasoning_effort_multipliers }
+              : null,
+            image_input_price: perTokenToMTok(p.image_input_price),
             image_output_price: perTokenToMTok(p.image_output_price),
             per_request_price: p.per_request_price,
-        intervals: apiIntervalsToForm(p.intervals || []),
-        time_pricing: apiTimePricingToForm(p.time_pricing),
+            intervals: apiIntervalsToForm(p.intervals || []),
+            time_pricing: apiTimePricingToForm(p.time_pricing),
           }) as PricingFormEntry,
       )
 
@@ -202,6 +225,7 @@ export function formSectionsToApi(
         input_price: mTokToPerToken(entry.input_price),
         output_price: mTokToPerToken(entry.output_price),
         cache_write_price: mTokToPerToken(entry.cache_write_price),
+        cache_write_1h_price: mTokToPerToken(entry.cache_write_1h_price),
         cache_read_price: mTokToPerToken(entry.cache_read_price),
         fast_multiplier:
           entry.fast_multiplier != null && entry.fast_multiplier !== ''
@@ -211,6 +235,9 @@ export function formSectionsToApi(
           entry.flex_multiplier != null && entry.flex_multiplier !== ''
             ? Number(entry.flex_multiplier)
             : null,
+        reasoning_effort_multipliers: formReasoningEffortMultipliersToAPI(
+          entry.reasoning_effort_multipliers,
+        ),
         image_input_price: mTokToPerToken(entry.image_input_price),
         image_output_price: mTokToPerToken(entry.image_output_price),
         per_request_price:
@@ -269,5 +296,10 @@ export function formSectionsToApi(
     delete featuresConfig.bedrock_cc_compat
   }
 
-  return { group_ids, model_pricing, model_mapping, features_config: featuresConfig }
+  return {
+    group_ids: Array.from(new Set(group_ids)),
+    model_pricing,
+    model_mapping,
+    features_config: featuresConfig,
+  }
 }
