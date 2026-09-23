@@ -20,7 +20,7 @@
       "rationale": "OpenAI retirement observations must reach the shared account-fault failover policy."
     },
     {
-      "path": "backend/internal/service/ratelimit_service_tk_model_not_found.go",
+      "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "case isUpstreamModelRetiredError(statusCode, responseBody):",
         "upstreamModelRetiredCooldown",
@@ -2499,12 +2499,25 @@
     },
     {
       "path": "backend/internal/service/gemini_web_request_tk.go",
-      "must_contain": ["func geminiWebSupportsRequest(", "GeminiWebRelayCredentialKey", "CandidateRequestFromContext(ctx)", "geminiWebNativeBodySupported", "shouldEstimateCountTokensLocally(account)"],
+      "must_contain": [
+        "func geminiWebSupportsRequest(",
+        "GeminiWebRelayCredentialKey",
+        "CandidateRequestFromContext(ctx)",
+        "geminiWebNativeBodySupported",
+        "shouldEstimateCountTokensLocally(account)"
+      ],
       "rationale": "Restricted Web session and relay capabilities share one native admission projection; native image requests must retain their request body outside the text Plan context."
     },
     {
       "path": "backend/internal/service/gemini_web_request_tk_test.go",
-      "must_contain": ["func TestGeminiWebCandidateRejectsProductionChatWithoutPoisoningPeer(", "func TestGeminiWebCandidateNativeTextAndImageRemainAvailable(", "func TestGeminiWebCandidateNativeActionCapability(", "func TestGeminiWebCandidatePreservesLocalCountTokens(", "func TestGeminiWebAdmissionMatchesWorkerContractFixtures(", "func TestGeminiWebCandidateRechecksCapabilityAfterWait("],
+      "must_contain": [
+        "func TestGeminiWebCandidateRejectsProductionChatWithoutPoisoningPeer(",
+        "func TestGeminiWebCandidateNativeTextAndImageRemainAvailable(",
+        "func TestGeminiWebCandidateNativeActionCapability(",
+        "func TestGeminiWebCandidatePreservesLocalCountTokens(",
+        "func TestGeminiWebAdmissionMatchesWorkerContractFixtures(",
+        "func TestGeminiWebCandidateRechecksCapabilityAfterWait("
+      ],
       "rationale": "Anchor behavior regressions for authorized fallback, native generation preservation, action admission, Worker contract parity and post-wait capability revalidation."
     },
     {
@@ -2997,7 +3010,7 @@
       "rationale": "Code Assist 429 fallback-model protection depends on upstream-file hooks plus precise reset-delay extraction. Forwarding must store resolved upstream Gemini model in context, upstream 429 handling must delegate to the TK companion before account-level SetRateLimited, and ParseGeminiRateLimitResetTime must keep structured RetryInfo retryDelay parsing. Dropping any of these reintroduces whole-account long cooldown when upstream already provides a short retry window. The handleGeminiUpstreamError fallback branch must route all Gemini OAuth accounts (google_one + aistudio OAuth + code_assist) through tier cooldown — only API Key accounts may fall through to PST-midnight reset (see upstream #641). Also locks the TkEnrichForbiddenMessage hook in writeGeminiMappedError's case-403 branch so the 403 client message keeps body-size context instead of regressing to the unhelpful default. (oauth cooldown companion)"
     },
     {
-      "path": "backend/internal/service/gemini_messages_compat_service_tk_429.go",
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "s.tryGeminiCodeAssistApplyModelRateLimit(ctx, account, body)",
         "s.tkGeminiDefaultRateLimitResetAt("
@@ -7138,7 +7151,7 @@
       "rationale": "tkWrapSelectionFailure must short-circuit retired Anthropic model names to ErrDeprecatedAnthropicModel and, only when the resolved scheduling platform is anthropic, non-claude-* cross-vendor dirty names to ErrUnsupportedModel before empty-pool classification. The platform guard prevents an empty Gemini/Antigravity pool from misclassifying gemini-* as an Anthropic namespace error and populating the group unsupported-model negative cache; the Anthropic branch still prevents mixed model_unsupported + unschedulable stats or load-batch bare ErrNoAvailableAccounts from surfacing routing 429 for client-fault model names (prod 2026-07-07 user16 key121 model=gpt). CloudWise prefix families (glm/kimi/minimax/deepseek) must pass this ingress check so anthropic-platform dual-stack account #94 can be selected; empty-mapping OAuth stays blocked by tkIsForwardableAnthropicModelName."
     },
     {
-      "path": "backend/internal/service/ratelimit_service_tk_model_not_found.go",
+      "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "anthropic_model_not_found_skip_penalty"
       ],
@@ -10124,7 +10137,7 @@
       "rationale": "PR #1461 regression: without an admin passthrough rule, context_length_exceeded response.failed on buffered chat/completions must return HTTP 400 invalid_request_error, not 502."
     },
     {
-      "path": "backend/internal/service/gemini_messages_compat_service_tk_429.go",
+      "path": "backend/internal/service/gemini_messages_compat_service.go",
       "must_contain": [
         "tkIsAntigravityRelayCapacityResponse(account, statusCode, body)"
       ],
@@ -12549,7 +12562,7 @@
       "rationale": "Anthropic model-not-found 404s are CLIENT errors (a model name no account serves — Anthropic's catalog is global, not per-account) and must SKIP the account penalty (slog `anthropic_model_not_found_skip_penalty`, return false → shouldDisable=false, no UpstreamFailoverError wrap) so one bad-model client cannot cool accounts and drain a thin edge pool into 'No available accounts' 429s; the gateway then surfaces a 400 'Unsupported model' to the client (path B, prod P0 2026-06-06 edge us5). An upstr"
     },
     {
-      "path": "backend/internal/service/ratelimit_service_tk_model_not_found.go",
+      "path": "backend/internal/service/ratelimit_service.go",
       "must_contain": [
         "anthropic_model_not_found_skip_penalty"
       ],
