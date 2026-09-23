@@ -1707,6 +1707,8 @@
         "r.peekGroupRPM(ctx, billing, r.key.User, group)",
         "r.checkRPM(ctx, billing, r.key.User, selected.group)",
         "r.rpm = candidateRPMAdmission{}",
+        "cursorContent *cursorRequestContentCache",
+        "r.cursorContent = nil",
         "IsExplicitImageGenerationIntent(\"\", model, request.Body())",
         "func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error"
       ],
@@ -12951,6 +12953,16 @@
         "BenchmarkCursorCachedContent"
       ],
       "rationale": "Regression coverage pins actual image-size admission and Cursor forwarding/content-cache behavior, including rejection and freshness boundaries."
+    },
+    {
+      "path": "backend/internal/service/candidate_content_reuse_tk_test.go",
+      "must_contain": [
+        "TestCandidateMappedCursorContentReuseKeepsFreshFacts",
+        "TestCandidateCursorContentResetsEachTurn",
+        "TestCandidateDiscoveryCursorContentResetsPerShape",
+        "BenchmarkCandidateMappedCursorContent"
+      ],
+      "rationale": "Candidate routing may reuse only immutable Cursor content verdicts; account facts, endpoint permissions, model normalization and turn/discovery lifetimes remain fresh."
     },
     {
       "path": "backend/internal/pkg/apicompat/gemini_chat_tk.go",
