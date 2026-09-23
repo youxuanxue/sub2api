@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"math"
 	"strings"
 	"sync"
@@ -94,31 +95,32 @@ type BillingCache interface {
 // ModelPricing 模型价格配置（per-token价格，与LiteLLM格式一致）
 type ModelPricing struct {
 	MaxReasoningEffortMultiplier       *float64
-	InputPricePerToken                 float64           // 每token输入价格 (USD)
-	InputPricePerTokenPriority         float64           // priority service tier 下每token输入价格 (USD)
-	ImageInputPricePerToken            float64           // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
-	ImageCacheReadPricePerToken        float64           // 图片缓存输入价格；无独立价格时沿用缓存读取价
-	OutputPricePerToken                float64           // 每token输出价格 (USD)
-	OutputPricePerTokenPriority        float64           // priority service tier 下每token输出价格 (USD)
-	ThinkingOutputPricePerToken        float64           // 思考模式下每token输出价格 (USD)；0 = 该模型无思考溢价
-	CacheCreationPricePerToken         float64           // 缓存创建每token价格 (USD)
-	CacheCreationPricePerTokenPriority float64           // priority service tier 下缓存创建每token价格 (USD)
-	CacheCreationPriceExplicit         bool              // 是否由渠道/区间定价显式设定（为 true 时即使 == 0 也不回退）
-	CacheReadPricePerToken             float64           // 缓存读取每token价格 (USD)
-	CacheReadPricePerTokenPriority     float64           // priority service tier 下缓存读取每token价格 (USD)
-	FastMultiplier                     *float64          // 渠道显式 Fast/priority 倍率；nil 时沿用模型目录行为
-	FlexMultiplier                     *float64          // 渠道显式 Flex 倍率；nil 时沿用默认行为
-	CacheCreation5mPrice               float64           // 5分钟缓存创建每token价格 (USD)
-	CacheCreation1hPrice               float64           // 1小时缓存创建每token价格 (USD)
-	SupportsCacheBreakdown             bool              // 是否支持详细的缓存分类
-	LongContextInputThreshold          int               // 超过阈值后按整次会话提升输入价格
-	LongContextThresholdInclusive      bool              // 达到阈值即应用（xAI）；默认保持严格大于以兼容既有模型
-	LongContextInputMultiplier         float64           // 长上下文整次会话输入倍率
-	LongContextOutputMultiplier        float64           // 长上下文整次会话输出倍率
-	ImageOutputPricePerToken           float64           // 图片输出 token 价格 (USD)
-	ImageOutputPriceExplicit           bool              // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
-	Intervals                          []PricingInterval // 输入-token 区间分档（来自 active registry；空 = 扁平）
-	registryOwner                      string            // non-empty only when dimensions were materialized from the active registry
+	InputPricePerToken                 float64            // 每token输入价格 (USD)
+	InputPricePerTokenPriority         float64            // priority service tier 下每token输入价格 (USD)
+	ImageInputPricePerToken            float64            // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
+	ImageCacheReadPricePerToken        float64            // 图片缓存输入价格；无独立价格时沿用缓存读取价
+	OutputPricePerToken                float64            // 每token输出价格 (USD)
+	OutputPricePerTokenPriority        float64            // priority service tier 下每token输出价格 (USD)
+	ThinkingOutputPricePerToken        float64            // 思考模式下每token输出价格 (USD)；0 = 该模型无思考溢价
+	CacheCreationPricePerToken         float64            // 缓存创建每token价格 (USD)
+	CacheCreationPricePerTokenPriority float64            // priority service tier 下缓存创建每token价格 (USD)
+	CacheCreationPriceExplicit         bool               // 是否由渠道/区间定价显式设定（为 true 时即使 == 0 也不回退）
+	CacheReadPricePerToken             float64            // 缓存读取每token价格 (USD)
+	CacheReadPricePerTokenPriority     float64            // priority service tier 下缓存读取每token价格 (USD)
+	FastMultiplier                     *float64           // 渠道显式 Fast/priority 倍率；nil 时沿用模型目录行为
+	FlexMultiplier                     *float64           // 渠道显式 Flex 倍率；nil 时沿用默认行为
+	ReasoningEffortMultipliers         map[string]float64 // 最终转发的推理等级对应的计费倍率；未配置的等级按 1 倍计费
+	CacheCreation5mPrice               float64            // 5分钟缓存创建每token价格 (USD)
+	CacheCreation1hPrice               float64            // 1小时缓存创建每token价格 (USD)
+	SupportsCacheBreakdown             bool               // 是否支持详细的缓存分类
+	LongContextInputThreshold          int                // 超过阈值后按整次会话提升输入价格
+	LongContextThresholdInclusive      bool               // 达到阈值即应用（xAI）；默认保持严格大于以兼容既有模型
+	LongContextInputMultiplier         float64            // 长上下文整次会话输入倍率
+	LongContextOutputMultiplier        float64            // 长上下文整次会话输出倍率
+	ImageOutputPricePerToken           float64            // 图片输出 token 价格 (USD)
+	ImageOutputPriceExplicit           bool               // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
+	Intervals                          []PricingInterval  // 输入-token 区间分档（来自 active registry；空 = 扁平）
+	registryOwner                      string             // non-empty only when dimensions were materialized from the active registry
 	registrySnapshot                   *tkPricingOverlaySnapshot
 }
 
@@ -227,8 +229,6 @@ func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
 	cost.ActualCost *= multiplier
 }
 
-const claudeFable51MaxReasoningEffortMultiplier = 3.0
-
 func isClaudeFable51Model(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	for _, marker := range []string{"fable-5-1", "fable-5.1", "fable5.1", "fable51"} {
@@ -241,6 +241,8 @@ func isClaudeFable51Model(model string) bool {
 	}
 	return false
 }
+
+const claudeFable51MaxReasoningEffortMultiplier = 3.0
 
 func defaultMaxReasoningEffortMultiplier(model string) *float64 {
 	if !isClaudeFable51Model(model) {
@@ -261,6 +263,21 @@ func maxReasoningEffortBillingMultiplier(model, effort string, pricing *ModelPri
 		return *multiplier
 	}
 	return 1
+}
+
+func reasoningEffortBillingMultiplier(effort string, multipliers map[string]float64) float64 {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort != "none" {
+		effort = NormalizeMaxReasoningEffort(effort)
+	}
+	if effort == "" {
+		return 1
+	}
+	multiplier := multipliers[effort]
+	if multiplier <= 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
+		return 1
+	}
+	return multiplier
 }
 
 func resolvedChannelTimeMultiplier(resolved *ResolvedPricing, at time.Time) float64 {
@@ -409,6 +426,19 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextOutputMultiplier:   2,
 	}
 
+	// xAI Grok 4.7: $2 input / $0.50 cached input / $6 output below 200k;
+	// long-context rates are $4 / $1 / $12 (>=200k prompt tokens).
+	s.fallbackPrices["grok-4.7"] = &ModelPricing{
+		InputPricePerToken:            2e-6,
+		OutputPricePerToken:           6e-6,
+		CacheReadPricePerToken:        0.5e-6,
+		SupportsCacheBreakdown:        false,
+		LongContextInputThreshold:     200000,
+		LongContextThresholdInclusive: true,
+		LongContextInputMultiplier:    2,
+		LongContextOutputMultiplier:   2,
+	}
+
 	// xAI Grok 4.3: $1.25 input / $0.20 cached / $2.50 output below 200k;
 	// long-context rates are $2.50 / $0.40 / $5.
 	s.fallbackPrices["grok-4.3"] = &ModelPricing{
@@ -534,6 +564,8 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	switch modelLower {
 	case "grok", "grok-latest", "grok-4.6", "grok-4.6-latest":
 		return s.fallbackPrices["grok-4.6"]
+	case "grok-4.7", "grok-4.7-latest":
+		return s.fallbackPrices["grok-4.7"]
 	case "grok-4.5", "grok-4.5-latest":
 		return s.fallbackPrices["grok-4.5"]
 	case "grok-3-mini":
@@ -707,9 +739,7 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	applyChannelTokenPriceOverrides(pricing, channelPricing)
 	pricing.FastMultiplier = channelPricing.FastMultiplier
 	pricing.FlexMultiplier = channelPricing.FlexMultiplier
-	if channelPricing.MaxReasoningEffortMultiplier != nil {
-		pricing.MaxReasoningEffortMultiplier = channelPricing.MaxReasoningEffortMultiplier
-	}
+	pricing.ReasoningEffortMultipliers = maps.Clone(channelPricing.ReasoningEffortMultipliers)
 	if channelPricing.ImageOutputPrice != nil {
 		pricing.ImageOutputPricePerToken = *channelPricing.ImageOutputPrice
 	} else {
@@ -771,7 +801,7 @@ func applyChannelTokenPriceOverrides(pricing *ModelPricing, channelPricing *Chan
 
 // CostInput 统一计费输入
 type CostInput struct {
-	ReasoningEffort           string
+	ReasoningEffort           string // 最终转发的推理等级，按匹配定价中配置的等级倍率计费
 	Ctx                       context.Context
 	Model                     string
 	GroupID                   *int64 // 用于渠道定价查找
@@ -818,20 +848,13 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 		if input.LongContextBillingEnabled != nil {
 			applyLongContextBilling = *input.LongContextBillingEnabled
 		}
-		billingAt := costInputBillingAt(input)
-		breakdown, err := s.calculateCostInternalWithPolicyAt(
-			input.Model,
-			input.Tokens,
-			input.RateMultiplier,
-			input.ServiceTier,
-			nil,
-			applyLongContextBilling,
-			billingAt,
-		)
-		if err == nil {
-			applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, nil))
+		pricing, err := s.GetModelPricing(input.Model)
+		if err != nil {
+			return nil, err
 		}
-		return breakdown, err
+		breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongContextBilling)
+		applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
+		return breakdown, nil
 	}
 
 	// 优先使用预解析结果，避免重复 Resolve 调用
@@ -854,6 +877,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	switch resolved.Mode {
 	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
 		breakdown, err = s.calculatePerRequestCost(resolved, input)
+		if err == nil && resolved.channelPricing != nil {
+			applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, resolved.channelPricing.ReasoningEffortMultipliers))
+		}
 	default: // BillingModeToken
 		breakdown, err = s.calculateTokenCost(resolved, input)
 	}
@@ -896,7 +922,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, input.EnableThinking, applyLongCtx)
 	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
-	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing))
+	applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
 	return breakdown, nil
 }
 

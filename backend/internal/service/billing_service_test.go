@@ -1240,6 +1240,44 @@ func TestCalculateCost_Grok46LongContextAppliesOfficialTier(t *testing.T) {
 	require.True(t, cost.LongContextBillingApplied)
 }
 
+func TestGetModelPricing_Grok47OfficialFallback(t *testing.T) {
+	svc := newTestBillingService()
+
+	for _, model := range []string{"grok-4.7", "grok-4.7-latest"} {
+		model := model
+		t.Run(model, func(t *testing.T) {
+			pricing, err := svc.GetModelPricing(model)
+			require.NoError(t, err)
+			require.InDelta(t, 2e-6, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, 6e-6, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, 0.5e-6, pricing.CacheReadPricePerToken, 1e-12)
+			require.Equal(t, 200000, pricing.LongContextInputThreshold)
+			require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
+			require.InDelta(t, 2.0, pricing.LongContextOutputMultiplier, 1e-12)
+			require.False(t, pricing.SupportsCacheBreakdown)
+		})
+	}
+}
+
+func TestGetModelPricing_GrokOfficialFamilyCards(t *testing.T) {
+	svc := newTestBillingService()
+	for _, tc := range []struct {
+		model                 string
+		input, cached, output float64
+	}{
+		{"grok-4.3", 1.25e-6, 0.2e-6, 2.5e-6},
+		{"grok-4.20-0309-reasoning", 1.25e-6, 0.2e-6, 2.5e-6},
+		{"grok-build-0.1", 1e-6, 0.2e-6, 2e-6},
+	} {
+		p, err := svc.GetModelPricing(tc.model)
+		require.NoError(t, err, tc.model)
+		require.InDelta(t, tc.input, p.InputPricePerToken, 1e-12)
+		require.InDelta(t, tc.cached, p.CacheReadPricePerToken, 1e-12)
+		require.InDelta(t, tc.output, p.OutputPricePerToken, 1e-12)
+		require.Equal(t, 200000, p.LongContextInputThreshold)
+	}
+}
+
 func TestCalculateCostUnified_GroupLongContextToggleUsesPresetLadder(t *testing.T) {
 	svc := newTestBillingService()
 	resolver := NewModelPricingResolver(nil, svc)

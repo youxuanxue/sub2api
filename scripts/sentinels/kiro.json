@@ -558,7 +558,7 @@
     {
       "path": "backend/internal/service/gateway_usage_billing.go",
       "must_contain": [
-        "BillingTier:           optionalTrimmedStringPtr(result.BillingTier)",
+        "BillingTier:              optionalTrimmedStringPtr(result.BillingTier)",
         "buildRecordUsageLog"
       ],
       "rationale": "ForwardResult.BillingTier -> UsageLog.BillingTier passthrough in buildRecordUsageLog persists the kiro 'kiro-estimated' provenance label. Upstream owns buildRecordUsageLog in gateway_usage_billing.go after the 2026-07-25 merge; the BillingTier line must stay or kiro usage logs lose the estimated-billing label."
