@@ -28,7 +28,10 @@ export interface PublicPricing {
   output_cost_per_second?: number
   output_cost_per_character?: number
   input_cost_per_second?: number
+  /** USD per image-input token (LiteLLM per-token). Used by embeddings and GPT Image. */
   input_cost_per_image_token?: number
+  /** USD per image-output token (LiteLLM per-token). GPT Image token-billed owners. */
+  output_cost_per_image_token?: number
   /** Official resolution×audio (and Grok image-input) ladder for video models. */
   video_price_tiers?: PublicPricingVideoTier[]
   /** Input-token interval (阶梯) pricing for models whose unit price varies by

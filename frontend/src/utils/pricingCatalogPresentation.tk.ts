@@ -59,3 +59,54 @@ export function formatCatalogMediaPrice(value?: number): string {
   if (value == null || value <= 0) return '—'
   return formatCatalogUsd(value)
 }
+
+/**
+ * Public catalog stores image-token rates as USD per token (LiteLLM shape).
+ * Convert to the per-1K unit consumed by formatCatalogTokenPrice.
+ */
+export function catalogImageTokenPricePer1K(perToken?: number | null): number | undefined {
+  if (perToken == null || !(perToken > 0)) return undefined
+  return perToken * CATALOG_TOKEN_STORAGE_UNIT
+}
+
+export type CatalogImagePriceLine = {
+  labelKey: 'pricing.modality.text' | 'pricing.imageInput' | 'pricing.imageOutput'
+  /** Stored per-1K token price for formatCatalogTokenPrice. */
+  per1k: number
+}
+
+export type CatalogImagePriceView =
+  | { kind: 'per_image'; price: number }
+  | { kind: 'image_tokens'; lines: CatalogImagePriceLine[] }
+  | { kind: 'missing' }
+
+/**
+ * Decide how an image billing_mode row should render. Flat per-image owners keep
+ * the "/ image" unit; GPT Image token owners (no output_cost_per_image) surface
+ * text/image input + image output rates as / 1M tokens.
+ */
+export function catalogImagePrice(opts: {
+  outputCostPerImage?: number | null
+  outputCostPerImageToken?: number | null
+  inputCostPerImageToken?: number | null
+  /** Text-input rate already stored per 1K tokens. */
+  inputPer1kTokens?: number | null
+}): CatalogImagePriceView {
+  if (opts.outputCostPerImage != null && opts.outputCostPerImage > 0) {
+    return { kind: 'per_image', price: opts.outputCostPerImage }
+  }
+  const lines: CatalogImagePriceLine[] = []
+  if (opts.inputPer1kTokens != null && opts.inputPer1kTokens > 0) {
+    lines.push({ labelKey: 'pricing.modality.text', per1k: opts.inputPer1kTokens })
+  }
+  const imageIn = catalogImageTokenPricePer1K(opts.inputCostPerImageToken)
+  if (imageIn != null) {
+    lines.push({ labelKey: 'pricing.imageInput', per1k: imageIn })
+  }
+  const imageOut = catalogImageTokenPricePer1K(opts.outputCostPerImageToken)
+  if (imageOut != null) {
+    lines.push({ labelKey: 'pricing.imageOutput', per1k: imageOut })
+  }
+  if (lines.length > 0) return { kind: 'image_tokens', lines }
+  return { kind: 'missing' }
+}

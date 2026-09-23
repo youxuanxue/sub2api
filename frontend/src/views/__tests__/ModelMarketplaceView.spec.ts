@@ -44,6 +44,10 @@ vi.mock('vue-i18n', async () => {
     'models.capabilities.video_generation': 'Video generation',
     'pricing.perImage': '/ image',
     'pricing.perSecond': '/ second',
+    'pricing.perMillionTokens': '/ 1M tokens',
+    'pricing.imageInput': 'Image input',
+    'pricing.imageOutput': 'Image output',
+    'pricing.modality.text': 'Text',
     'pricing.variant.tierRange': '{lo}–{hi}',
     'pricing.video.withAudio': 'with audio',
     'pricing.video.withoutAudio': 'silent',
@@ -205,6 +209,32 @@ describe('CatalogHubView', () => {
     expect(wrapper.text()).toContain('— / image')
     expect(wrapper.text()).not.toContain('Free')
     expect(wrapper.text()).not.toContain('/ 1M tokens')
+  })
+
+  it('shows GPT Image token rates instead of a blank per-image dash', async () => {
+    getPublicPricing.mockResolvedValue(
+      catalog([
+        model('gpt-image-2.5-flare', 'openai', {
+          pricing: {
+            currency: 'USD',
+            billing_mode: 'image',
+            input_per_1k_tokens: 0.005,
+            output_per_1k_tokens: 0.01,
+            input_cost_per_image_token: 8e-6,
+            output_cost_per_image_token: 3e-5,
+          },
+        }),
+      ])
+    )
+
+    const wrapper = mountMarketplace()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('gpt-image-2.5-flare')
+    expect(wrapper.text()).toContain('$30')
+    expect(wrapper.text()).toContain('/ 1M tokens')
+    expect(wrapper.text()).toContain('Image output')
+    expect(wrapper.text()).not.toContain('— / image')
   })
 
   it('shows video tier range and per-bracket lines when video_price_tiers is present', async () => {

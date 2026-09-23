@@ -68,7 +68,7 @@ func TestOpenAIGatewayService_HandleOpenAIAccountUpstreamError_ImageCapability40
 	body := []byte(`{"error":{"message":"The image_generation tool is not supported for this account."}}`)
 
 	disabled := svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadRequest, http.Header{}, body, "gpt-image-2")
-	require.False(t, disabled)
+	require.True(t, disabled, "image capability loss must signal failover to the next account")
 	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, openAIImageGenerationRateLimitKey, repo.modelRateLimitCalls[0].scope)
 	_, wholeAccountBlocked := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)

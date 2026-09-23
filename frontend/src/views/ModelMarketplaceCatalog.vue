@@ -170,15 +170,13 @@
                 :input-per1k="model.pricing.input_per_1k_tokens"
                 :per-image-input-token="model.pricing.input_cost_per_image_token"
               />
-              <template v-else-if="modelListingCategory(model) === 'image'">
-                <div class="min-w-0">
-                  <span class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-500">{{ t('models.outputPrice') }}</span>
-                  <p class="flex flex-wrap items-baseline gap-1 text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ formatCatalogMediaPrice(model.pricing.output_cost_per_image) }}
-                    <span class="text-[10px] font-normal text-gray-400 dark:text-dark-500">{{ t('pricing.perImage') }}</span>
-                  </p>
-                </div>
-              </template>
+              <CatalogImagePrice
+                v-else-if="modelListingCategory(model) === 'image'"
+                :output-cost-per-image="model.pricing.output_cost_per_image"
+                :output-cost-per-image-token="model.pricing.output_cost_per_image_token"
+                :input-cost-per-image-token="model.pricing.input_cost_per_image_token"
+                :input-per1k-tokens="model.pricing.input_per_1k_tokens"
+              />
               <template v-else-if="modelListingCategory(model) === 'video'">
                 <div class="min-w-0">
                   <template v-if="videoVariantOf(model).lines.length">
@@ -247,6 +245,7 @@ import {
   pricingCatalogModality,
   type PricingCatalogModality,
 } from '@/utils/pricingCatalogPresentation.tk'
+import CatalogImagePrice from '@/components/catalog/CatalogImagePrice.tk.vue'
 import {
   formatCatalogVendorLabel,
   normalizeCatalogVendorSlug,

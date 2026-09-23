@@ -28,12 +28,17 @@ import (
 //
 // The account is perfectly capable of serving chat/completions — only the IMAGE
 // capability is unauthorized. So this sub-class of 401 must:
-//  1. NOT cool / disable the account (HandleUpstreamError returns shouldDisable=false),
-//  2. NOT trigger account failover (shouldFailoverOpenAIUpstreamResponse=false) —
-//     every account in the pool shares the same missing scope, so failing over
-//     just poisons each account in turn,
-//  3. surface a clear client-facing 400 for THAT request only, analogous to how
-//     TK returns 400 for retired/unservable model names.
+//  1. NOT cool / disable the WHOLE account (HandleUpstreamError returns
+//     shouldDisable=false for the generic capability-scope path; image-scoped
+//     variants cool openai:image_generation only via
+//     tkHandleOpenAIImageScope401Fastpath),
+//  2. For IMAGE scopes: failover to the next account after cooling image
+//     capability (mixed pools may still have image-capable accounts). Homogeneous
+//     pools exhaust failover and surface a clear client-facing 400,
+//  3. For NON-image capability scopes: keep SharedFault (no failover) so unrelated
+//     missing scopes do not rotate the pool,
+//  4. surface a clear client-facing 400 when failover is exhausted, analogous to
+//     how TK returns 400 for retired/unservable model names.
 //
 // A GENUINE account-level 401 (invalid/revoked credentials, expired token,
 // {"detail":"Unauthorized"}, token_invalidated/token_revoked) keeps the existing

@@ -62,6 +62,26 @@ describe('useTkPricingExport.buildPricingCsv', () => {
     expect(row).toHaveLength(header.length)
   })
 
+  it('exports GPT Image output token rates alongside image input', () => {
+    const csv = buildPricingCsv(catalog([{
+      model_id: 'gpt-image-2.5-flare',
+      vendor: 'openai',
+      capabilities: ['vision'],
+      pricing: {
+        currency: 'USD',
+        billing_mode: 'image',
+        input_per_1k_tokens: 0.005,
+        output_per_1k_tokens: 0.01,
+        input_cost_per_image_token: 8e-6,
+        output_cost_per_image_token: 3e-5,
+      },
+    }]))
+    const [header, row] = csv.split('\r\n').map(parseCsvRow)
+    expect(row[header.indexOf('image_input_per_1M')]).toBe('8')
+    expect(row[header.indexOf('image_output_per_1M')]).toBe('30')
+    expect(row).toHaveLength(header.length)
+  })
+
   it('emits header + one row per model, prices converted to per-1M', () => {
     const csv = buildPricingCsv(
       catalog([

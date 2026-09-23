@@ -391,9 +391,35 @@
                         :input-per1k="row.inputPer1K"
                         :per-image-input-token="row.perImageInputToken"
                       />
-                      <template v-else-if="row.billingMode === 'image' && row.perImage != null">
+                      <template v-else-if="row.billingMode === 'image' && row.perImage != null && row.perImage > 0">
                         {{ formatPrice(row.perImage) }}
                         <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perImage') }}</span>
+                      </template>
+                      <template
+                        v-else-if="
+                          row.billingMode === 'image' &&
+                          (row.perImageOutputToken != null ||
+                            row.perImageInputToken != null ||
+                            (row.inputPer1K != null && row.inputPer1K > 0))
+                        "
+                      >
+                        <div
+                          v-if="row.inputPer1K != null && row.inputPer1K > 0"
+                          class="leading-relaxed"
+                          data-tk="pricing-image-token-text-in"
+                        >
+                          <span class="mr-1 text-xs text-gray-400">{{ t('pricing.modality.text') }}</span>
+                          {{ formatCatalogTokenPrice(row.inputPer1K) }}
+                        </div>
+                        <div
+                          v-if="row.perImageInputToken != null && row.perImageInputToken > 0"
+                          class="leading-relaxed"
+                          data-tk="pricing-image-token-image-in"
+                        >
+                          <span class="mr-1 text-xs text-gray-400">{{ t('pricing.imageInput') }}</span>
+                          {{ formatCatalogTokenPrice(row.perImageInputToken * 1000) }}
+                        </div>
+                        <span class="text-xs text-gray-400">{{ t('pricing.perMillionTokens') }}</span>
                       </template>
                       <template v-else-if="row.billingMode === 'video' && videoVariantOf(row).lines.length">
                         <p class="font-medium">
@@ -458,6 +484,18 @@
                       </template>
                       <template v-else-if="row.billingMode === 'video' && row.perSecond != null">
                         <span class="text-xs text-gray-500 dark:text-dark-400">{{ t('pricing.videoClipExample', { five: formatPrice(row.perSecond * 5), ten: formatPrice(row.perSecond * 10) }) }}</span>
+                      </template>
+                      <template
+                        v-else-if="
+                          row.billingMode === 'image' &&
+                          row.perImageOutputToken != null &&
+                          row.perImageOutputToken > 0
+                        "
+                      >
+                        <span data-tk="pricing-image-token-image-out">
+                          {{ formatCatalogTokenPrice(row.perImageOutputToken * 1000) }}
+                        </span>
+                        <span class="ml-0.5 text-xs text-gray-400">{{ t('pricing.perMillionTokens') }}</span>
                       </template>
                       <template v-else-if="row.billingMode === 'image' || row.billingMode === 'per_request' || row.billingMode === 'tts' || row.billingMode === 'stt'">—</template>
                       <!-- Same lines, same order as the input column (see there). -->
@@ -710,6 +748,7 @@ interface NormalizedRow {
   perCharacter?: number | null
   perInputSecond?: number | null
   perImageInputToken?: number | null
+  perImageOutputToken?: number | null
   /** Official video ladder from the public / me catalog (SSOT: videoPricingVariants.tk.ts). */
   videoPriceTiers?: PublicPricingVideoTier[]
   /** Context-length interval (阶梯) ladder, normalized from either catalog source. */
@@ -877,6 +916,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
       perCharacter: m.pricing.output_cost_per_character ?? null,
       perInputSecond: m.pricing.input_cost_per_second ?? null,
       perImageInputToken: m.pricing.input_cost_per_image_token ?? null,
+      perImageOutputToken: m.pricing.output_cost_per_image_token ?? null,
       videoPriceTiers: m.pricing.video_price_tiers,
       tiers: m.pricing.tiers?.map((tt) => ({
         minTokens: tt.min_tokens,
@@ -920,6 +960,7 @@ const normalizedRows = computed<NormalizedRow[]>(() => {
     perCharacter: m.your_price.per_character ?? null,
     perInputSecond: m.your_price.per_input_second ?? null,
     perImageInputToken: m.your_price.per_image_input_token ?? null,
+    perImageOutputToken: m.your_price.per_image_output_token ?? null,
     videoPriceTiers: m.your_price.video_price_tiers,
     tiers: m.your_price.tiers?.map((tt) => ({
       minTokens: tt.min_tokens,

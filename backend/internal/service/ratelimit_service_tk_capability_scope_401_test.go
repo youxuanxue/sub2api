@@ -48,10 +48,10 @@ func TestTkCapabilityScope401ClientMessage(t *testing.T) {
 	require.Contains(t, withDetail, "Upstream detail: Missing scopes: api.model.images.request")
 }
 
-// Branch (a): a capability-scope 401 must NOT cool/disable the account.
-// HandleUpstreamError returns shouldDisable=false and writes NEITHER
-// temp_unschedulable NOR error — the account stays schedulable for every other
-// model (claude-opus-4-7, gpt-5.5, ...).
+// Branch (a): a capability-scope 401 must NOT cool/disable the WHOLE account.
+// Image-scoped variants cool openai:image_generation only (see
+// tkHandleOpenAIImageScope401Fastpath) and may failover; non-image variants stay
+// SharedFault with no penalty.
 func TestRateLimitService_HandleUpstreamError_CapabilityScope401_DoesNotCoolAccount(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
@@ -99,17 +99,38 @@ func TestRateLimitService_HandleUpstreamError_GenericOAuth401_StillCoolsAccount(
 	require.Equal(t, 0, repo.setErrorCalls)
 }
 
-// A capability-scope 401 must NOT trigger account failover (every account in the
-// pool shares the same missing scope), but a generic 401 still must.
-func TestOpenAIGatewayService_ShouldFailover_CapabilityScope401Suppressed(t *testing.T) {
+// Image-scoped capability 401 must failover so mixed pools can try another
+// account; non-image capability-scope 401 stays SharedFault (no failover).
+func TestOpenAIGatewayService_ShouldFailover_ImageCapabilityScope401AllowsFailover(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	capBody := []byte(tkCapabilityScope401IncidentBody)
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, 401, "", capBody),
-		"capability-scope 401 must not failover")
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, 401, "", capBody),
+		"image capability-scope 401 must failover")
+
+	nonImage := []byte(`{"error":{"message":"You have insufficient permissions for this operation. Missing scopes: api.model.other.request.","type":"invalid_request_error","code":"insufficient_scope"}}`)
+	require.True(t, tkIsCapabilityScope401(401, nonImage))
+	require.False(t, tkIsImageCapabilityScope401(401, nonImage))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, 401, "", nonImage),
+		"non-image capability-scope 401 must not failover")
 
 	genericBody := []byte(`{"error":{"message":"invalid or expired credentials"}}`)
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, 401, "invalid or expired credentials", genericBody),
 		"generic 401 must still failover")
+}
+
+func TestOpenAIGatewayService_HandleOpenAIAccountUpstreamError_ImageScope401CoolsImageOnlyAndFailovers(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{accountRepo: repo}}
+	account := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive}
+	body := []byte(tkCapabilityScope401IncidentBody)
+
+	disabled := svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, body, "gpt-image-2.5-flare")
+	require.True(t, disabled, "image-scope 401 must signal failover")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, openAIImageGenerationRateLimitKey, repo.modelRateLimitCalls[0].scope)
+	_, wholeAccountBlocked := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
+	require.False(t, wholeAccountBlocked)
+	require.Zero(t, repo.tempCalls)
 }
 
 // Branch (b'): a genuine permanent-auth 401 ({"detail":"Unauthorized"}) on an
