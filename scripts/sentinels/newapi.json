@@ -589,38 +589,48 @@
         "\"invalid_parameter\"",
         "thinking.type"
       ],
-      "rationale": "Owner for Moonshot/Kimi thinking parameter compatibility before upstream relay. Coerces thinking bool→object, strips/rejects model-family-incompatible fields (k3 vs k2.x vs k2.7-code), and returns field-level OpenAI 400 with error.param. Dropping it reopens the dominant Kimi client-induced 400 class (boolean thinking / mutual exclusion / wrong family fields)."
+      "rationale": "Owner for Moonshot/Kimi thinking parameter compatibility before upstream relay. Coerces thinking bool→object, soft-strips always-on disable (k3 / k2.7-code), remaps common effort aliases, and returns field-level OpenAI 400 with error.param only for truly invalid shapes. Dropping it reopens the dominant Kimi client-induced 400 class."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk_test.go",
       "must_contain": [
         "TestNormalizeMoonshotThinking_BoolToObject",
         "TestNormalizeMoonshotThinking_K3StripsThinkingKeepsEffort",
-        "TestNormalizeMoonshotThinking_K3RejectsDisableAndBadEffort",
+        "TestNormalizeMoonshotThinking_K3SoftRemapsDisableAndEffortAliases",
         "TestApplyMoonshotThinkingShape_WritesParamError"
       ],
-      "rationale": "Focused regressions for Moonshot thinking shape: bool coerce, k3 strip+effort keep, reject paths with param, and gin error envelope with error.param."
+      "rationale": "Focused regressions for Moonshot thinking shape: bool coerce, k3 strip+effort keep, soft disable/effort aliases, and gin error envelope with error.param for unknown tokens."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",
       "must_contain": [
+        "NormalizeGLMOpenAIReasoningEffort",
         "applyMoonshotThinkingShape"
       ],
-      "rationale": "PlatformKimi / CN raw chat completions must normalize Moonshot thinking before upstream passthrough; without this call site only the newapi bridge path is protected and direct kimi accounts keep returning upstream 400s for boolean thinking."
+      "rationale": "PlatformKimi / CN raw chat completions must normalize Moonshot thinking and GLM always-thinking soft-remap before upstream passthrough; without these call sites only the newapi bridge path is protected and direct glm/kimi accounts keep returning upstream/client 400s for thinking-disable shapes."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_chat_fallback.go",
       "must_contain": [
+        "NormalizeGLMOpenAIReasoningEffort",
         "applyMoonshotThinkingShape"
       ],
-      "rationale": "Anthropic Messages→raw Chat Completions fallback must normalize Moonshot/Kimi thinking before sendCCUpstreamRequest; without this call site only OpenAI-shaped raw CC / newapi bridge paths are protected and Anthropic→Kimi traffic keeps hitting upstream thinking-bool 400s."
+      "rationale": "Anthropic Messages→raw Chat Completions fallback must normalize GLM always-thinking and Moonshot/Kimi thinking before sendCCUpstreamRequest; without these call sites only OpenAI-shaped raw CC / newapi bridge paths are protected."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping.go",
+      "must_contain": [
+        "NormalizeGLMOpenAIReasoningEffort(rewritten, modelForNorm)"
+      ],
+      "rationale": "Bridge body rewrite must run GLM always-thinking soft-remap even when upstream model equals the client id; skipping normalize on identity mapping re-surfaces thinking-disable 400s for glm-5.3-flash identity maps."
     },
     {
       "path": "backend/internal/service/openai_gateway_bridge_dispatch_tk_model_mapping_test.go",
       "must_contain": [
-        "TestForwardAsChatCompletionsDispatched_QwenNonStreamingDisablesThinking"
+        "TestForwardAsChatCompletionsDispatched_QwenNonStreamingDisablesThinking",
+        "TestRewriteNewAPIBridgeBodyModel_GLM53FlashStripsDisabledThinking"
       ],
-      "rationale": "Full bridge-boundary regression for the production Qwen3 non-streaming failure: a client-supplied enable_thinking=true must reach the NewAPI adaptor as false after model rewrite. This anchors the real dispatch call site rather than only testing the shape helper."
+      "rationale": "Full bridge-boundary regressions: Qwen3 non-streaming enable_thinking rewrite, and identity-mapped glm-5.3-flash thinking-disable strip before adaptor dispatch."
     },
     {
       "path": "backend/internal/service/openai_gateway_responses_chat_fallback_test.go",

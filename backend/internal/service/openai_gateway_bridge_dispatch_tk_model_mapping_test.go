@@ -29,6 +29,25 @@ func TestRewriteNewAPIBridgeBodyModel_GLMDatedAlias(t *testing.T) {
 	}
 }
 
+func TestRewriteNewAPIBridgeBodyModel_GLM53FlashStripsDisabledThinking(t *testing.T) {
+	account := &Account{
+		Platform: PlatformNewAPI,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"glm-5.3-flash": "glm-5.3-flash",
+			},
+		},
+	}
+	body := []byte(`{"model":"glm-5.3-flash","thinking":{"type":"disabled"},"messages":[{"role":"user","content":"hi"}]}`)
+	got := rewriteNewAPIBridgeBodyModel(account, body, "")
+	if gjson.GetBytes(got, "thinking").Exists() {
+		t.Fatalf("thinking should be stripped for always-thinking flash, got %s", got)
+	}
+	if gotEffort := gjson.GetBytes(got, "reasoning_effort").String(); gotEffort != "low" {
+		t.Fatalf("reasoning_effort = %q, want low", gotEffort)
+	}
+}
+
 func TestResolveOpenAIForwardModel_GLMDatedVolcengineAlias(t *testing.T) {
 	account := &Account{
 		Platform: PlatformNewAPI,

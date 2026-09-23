@@ -89,8 +89,10 @@ func applyMoonshotThinkingShape(c *gin.Context, model string, body []byte) ([]by
 // per-model thinking contract and rejects shapes that cannot be safely rewritten.
 //
 // Contract (platform.kimi.ai):
-//   - kimi-k3: no thinking; optional reasoning_effort low|high|max
-//   - kimi-k2.7-code*: thinking always on; only enabled(+keep=all) or omit
+//   - kimi-k3: no thinking field; optional reasoning_effort low|high|max.
+//     Unsupported thinking / disable is stripped (AlwaysThinking SSOT); common
+//     effort aliases soft-map; unknown effort tokens still 400.
+//   - kimi-k2.7-code*: thinking always on; enabled(+keep=all) or omit; disable soft-omitted
 //   - kimi-k2.6: thinking.type enabled|disabled; optional keep=all
 //   - kimi-k2.5: thinking.type enabled|disabled; no keep / no reasoning_effort
 //
@@ -268,32 +270,62 @@ func promoteMoonshotNestedReasoningEffort(body []byte) []byte {
 
 func normalizeMoonshotK3Thinking(body []byte) ([]byte, error) {
 	shaped := body
+	disabledIntent := false
 	if gjson.GetBytes(shaped, "thinking").Exists() {
 		thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(shaped, "thinking.type").String()))
-		if thinkingType == "disabled" {
-			return body, newOpenAIInvalidParameterError(
-				"thinking",
-				"kimi-k3 always reasons; remove thinking (cannot disable). Use reasoning_effort: low|high|max instead",
-			)
-		}
+		disabledIntent = thinkingType == "disabled"
+		// kimi-k3 has no thinking field; always-on reasoning is controlled only via
+		// reasoning_effort. Strip any thinking shape (including unsupported disable)
+		// instead of teaching the client with a local 400 — same AlwaysThinking SSOT
+		// as GLM-5.3 family.
 		next, err := sjson.DeleteBytes(shaped, "thinking")
 		if err != nil {
 			return body, err
 		}
 		shaped = next
 	}
+	if disabledIntent &&
+		!gjson.GetBytes(shaped, "reasoning_effort").Exists() &&
+		!gjson.GetBytes(shaped, "reasoning.effort").Exists() {
+		injected, err := sjson.SetBytes(shaped, "reasoning_effort", "low")
+		if err != nil {
+			return shaped, nil
+		}
+		shaped = injected
+	}
 	if !gjson.GetBytes(shaped, "reasoning_effort").Exists() {
 		return shaped, nil
 	}
-	effort := strings.ToLower(strings.TrimSpace(gjson.GetBytes(shaped, "reasoning_effort").String()))
-	switch effort {
-	case "low", "high", "max":
-		return shaped, nil
-	default:
+	effort := strings.TrimSpace(gjson.GetBytes(shaped, "reasoning_effort").String())
+	mapped := mapMoonshotK3ReasoningEffort(effort)
+	if mapped == "" {
 		return body, newOpenAIInvalidParameterError(
 			"reasoning_effort",
 			"kimi-k3 reasoning_effort must be one of: low, high, max",
 		)
+	}
+	if mapped == effort {
+		return shaped, nil
+	}
+	next, err := sjson.SetBytes(shaped, "reasoning_effort", mapped)
+	if err != nil {
+		return body, err
+	}
+	return next, nil
+}
+
+// mapMoonshotK3ReasoningEffort soft-maps common abandon/alias efforts onto the
+// wire vocabulary low|high|max. Unknown tokens return "" for a hard 400.
+func mapMoonshotK3ReasoningEffort(raw string) string {
+	switch normalizeEffortToken(raw) {
+	case "none", "minimal", "off", "disabled", "low":
+		return "low"
+	case "medium", "high":
+		return "high"
+	case "xhigh", "extrahigh", "max", "ultracode":
+		return "max"
+	default:
+		return ""
 	}
 }
 
@@ -303,13 +335,15 @@ func normalizeMoonshotK27Thinking(body []byte) ([]byte, error) {
 		return shaped, nil
 	}
 	thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(shaped, "thinking.type").String()))
-	if thinkingType == "disabled" || thinkingType == "" {
-		if thinkingType == "disabled" {
-			return body, newOpenAIInvalidParameterError(
-				"thinking",
-				"kimi-k2.7-code always thinks; omit thinking or use {\"type\":\"enabled\",\"keep\":\"all\"}",
-			)
+	if thinkingType == "disabled" {
+		// Always-on: omit is the documented equivalent of enabled; do not 400.
+		next, err := sjson.DeleteBytes(shaped, "thinking")
+		if err != nil {
+			return body, err
 		}
+		return next, nil
+	}
+	if thinkingType == "" {
 		return body, newOpenAIInvalidParameterError(
 			"thinking",
 			"kimi-k2.7-code thinking.type must be \"enabled\" when thinking is set",

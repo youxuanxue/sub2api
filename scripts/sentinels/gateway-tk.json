@@ -2418,6 +2418,27 @@
       "rationale": "Thinking-dependent model admission and readiness share the execution parser's semantic owner before Universal billing binds a group."
     },
     {
+      "path": "backend/internal/service/gateway_request.go",
+      "must_contain": [
+        "func NormalizeGLMOpenAIReasoningEffort(",
+        "func isGLM53AlwaysThinkingModel(",
+        "func stripGLMAlwaysThinkingDisabledChat(",
+        "func NormalizeGLM53AnthropicThinking("
+      ],
+      "rationale": "Always-thinking GLM-5.3 family soft-remap (strip unsupported thinking-disable; map none/minimal→low) lives in upstream-hot gateway_request.go. Without these owner symbols pinned, an upstream merge can drop the soft-remap and re-surface BigModel 400 始终思考/不支持关闭思考 while ordinary smoke still passes."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_test.go",
+      "must_contain": [
+        "TestNormalizeGLMOpenAIReasoningEffort",
+        "glm 5.3 flash strips thinking disabled and injects low",
+        "glm 5.2 keeps thinking disabled",
+        "TestNormalizeGLM53AnthropicThinking",
+        "flash disabled becomes enabled low"
+      ],
+      "rationale": "Focused regressions for GLM always-thinking soft-remap: flash disable→strip+low, 5.2 disable preserved, Anthropic flash disabled→enabled+low."
+    },
+    {
       "path": "backend/internal/service/wire_tk.go",
       "must_contain": [
         "resolver.candidateGateway, resolver.candidateOpenAI, resolver.candidateSubscriptions = gw, openai, subs",
@@ -7521,9 +7542,10 @@
     {
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
       "must_contain": [
+        "NormalizeGLM53AnthropicThinking",
         "body = tkStripTokenseaFableContextManagement(account, body)"
       ],
-      "rationale": "Native Anthropic Messages egress via buildNativeAnthropicUpstreamRequest (CN/Anthropic-protocol accounts) must call tkStripTokenseaFableContextManagement after beta-body sanitize."
+      "rationale": "Native Anthropic Messages egress via buildNativeAnthropicUpstreamRequest (CN/Anthropic-protocol accounts) must call tkStripTokenseaFableContextManagement after beta-body sanitize, and must soft-remap always-thinking GLM-5.3 family thinking-disable via NormalizeGLM53AnthropicThinking before upstream."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
