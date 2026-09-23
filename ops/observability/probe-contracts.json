@@ -99,6 +99,10 @@
       "setup_error"
     ]
   },
+  "probe-gemini-web-relay-declarations.sh": {
+    "companions": ["ops/observability/gemini_web_relay_check.py"],
+    "verdicts": ["aligned", "review", "setup_error"]
+  },
   "probe-account-group-bindings.sh": {
     "companions": [
       "ops/observability/account_group_binding_check.py"

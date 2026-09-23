@@ -61,6 +61,7 @@ const opsSystemLogsAPIKeyIDIndex = "idx_ops_system_logs_api_key_id_created_at"
 const opsSystemLogsAPIKeyIDIndexDDL = `CREATE INDEX IF NOT EXISTS idx_ops_system_logs_api_key_id_created_at ON ops_system_logs (api_key_id, created_at DESC)`
 const opsMonthlyPartitionsMigration = "tk_041_provision_ops_monthly_partitions.sql"
 const userPlatformQuotasCNProvidersMigration = "224_user_platform_quotas_add_cn_providers.sql"
+const supersededReasoningPricingMigration = "239_channel_reasoning_effort_multipliers.sql"
 const supersededOpenCodeGoPlatformMigration = "238_opencode_go_platform.sql"
 const latestAPIKeyIPIndexMigration = "174_add_usage_logs_api_key_latest_ip_index_notx.sql"
 const latestAPIKeyIPIndex = "idx_usage_logs_api_key_latest_ip"
@@ -375,6 +376,11 @@ func applyMigrationsSession(ctx context.Context, db migrationDB, fsys fs.FS) (re
 }
 
 func shouldRecordMigrationWithoutExecution(ctx context.Context, db migrationDB, name string) (bool, error) {
+	// Upstream 239 removes the legacy group max price while the old color still
+	// reads it. tk_099 expands both representations without a destructive window.
+	if name == supersededReasoningPricingMigration {
+		return true, nil
+	}
 	// 238_opencode_go_platform.sql was released with a user_platform_quotas
 	// allowlist that omitted already-live newapi/kiro rows. Recording it without
 	// execution lets the follow-up 239 migration repair the constraint without

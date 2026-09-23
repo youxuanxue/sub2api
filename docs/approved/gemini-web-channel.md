@@ -96,7 +96,11 @@ edge 以 `credentials.gemini_web` 会话对象识别此能力边界；专用 pro
 Messages 的 max_tokens 也不能被静默丢弃，因此这些兼容入口不由该受限账号承接。
 Anthropic `count_tokens` 继续复用网关本地估算，不受 Worker 生成能力限制。
 调度投影与 Worker 共享请求测试样本，防止准入约束漂移。上线需要部署后端并给
-prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修复变更。
+prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修复变更。 发布流程在目标镜像包含该准入逻辑时、
+任何 prod 变更前执行 `probe-gemini-web-relay-declarations.sh`：按显式
+`extra.relay_kind=gemini_web` 核对布尔能力声明，也检查错误类型的声明；包含关闭调度的账号。
+声明缺失或读取失败阻止部署；旧版回滚目标不消费此声明，跳过该检查。检查只读取脱敏投影，
+不根据账号名、URL、模型映射推断能力，也不自动启用账号或修改凭据。
 
 图片必须经 original RPC 和受限域名下载，实际解码并核对 MIME；不返回预览、不放大、
 不因下载失败重新生成。探测同样要求完整解码和正确账号用量归属。

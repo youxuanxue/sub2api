@@ -9847,6 +9847,21 @@
       "rationale": "Focused regressions: OAuth passthrough must preserve client UA/anthropic-beta and must NOT inject OAuth fingerprint headers on the forward path."
     },
     {
+      "path": "backend/migrations/tk_099_reasoning_pricing_rolling_compat.sql",
+      "must_contain": [
+        "CREATE OR REPLACE FUNCTION tk_sync_channel_reasoning_max()",
+        "CREATE OR REPLACE FUNCTION tk_sync_group_reasoning_max()"
+      ],
+      "rationale": "Preserve old max pricing while upstream reasoning maps roll out; replacement 239 is record-only and must retain an executable compatibility migration."
+    },
+    {
+      "path": "backend/internal/repository/reasoning_pricing_tk_compat_integration_test.go",
+      "must_contain": [
+        "func TestReasoningPricingRollingCompatibility(t *testing.T)"
+      ],
+      "rationale": "Real PostgreSQL regression covers pre-239 upgrades, already-migrated databases, old/new writes and migration replay."
+    },
+    {
       "path": "backend/internal/repository/migrations_runner.go",
       "must_contain": [
         "opsSystemLogsHostIndexMigration = \"175a_add_ops_system_logs_host_index_notx.sql\"",
@@ -9859,7 +9874,9 @@
         "for _, policy := range nonTransactionalIndexPolicies[name] {",
         "if err := dropInvalidIndexIfPresent(ctx, db, policy.indexName); err != nil {",
         "return applyMigrationsInUTCSession(ctx, conn, fsys)",
-        "migrationSessionCleanupError{err: err}"
+        "migrationSessionCleanupError{err: err}",
+        "supersededReasoningPricingMigration = \"239_channel_reasoning_effort_multipliers.sql\"",
+        "if name == supersededReasoningPricingMigration {"
       ],
       "rationale": "The upstream-shared migration runner owns only declarative policies and thin TokenKey call sites. A migration may own multiple index policies: migration 226 must keep both effective-model expression indexes on the partition-aware child-index/parent-attach path, and non-partitioned retries must prepare every registered index. The online partition-index implementation and UTC migration-session lifecycle stay in companion files to minimize upstream conflict surface. Every caller must execute partition-bound migrations on the pinned connection in UTC, surface advisory-unlock failure, and restore the original application timezone before the connection returns to the pool."
     },
