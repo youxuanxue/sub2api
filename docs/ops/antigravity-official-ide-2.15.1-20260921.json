@@ -1,0 +1,693 @@
+{
+  "schema_version": 1,
+  "collected_at": "2026-09-21T03:23:41.140183+00:00",
+  "package": {
+    "app_version": "2.15.1",
+    "bundle_id": "com.google.antigravity",
+    "electron_version": "41.10.3",
+    "ls_sha256": "46a296d040163fd311948fbcb3ff0c9fb4ebf153083b4c17a89039e64fe85354",
+    "ls_build_info": "go1.28-20260721-RC01 cl/951519500 +3ebc191975 X:fieldtrack,boringcrypto,simd,mapsplitgroup",
+    "ls_stamp": "Built on: 2026-09-20 05:08:25 +0800 CST\nBuilt at CL: 984509791\nBuild label: \nBuilt info: changelist 984509791 with baseline 980846608 in a mint client based on //depot/branches/antigravity_web_release_branch/980846608.1/google3",
+    "launch_source": "app.asar/dist/languageServer.js",
+    "launch_source_sha256": "83c88e4e482968c20b109365d6ec3c113152bfb1e3d9c8d370f580b5fe7a7001",
+    "launch_identity_excerpt": "'--standalone',\n            '--override_ide_name',\n            'antigravity',\n            '--subclient_type',\n            'hub',\n            '--override_ide_version',\n            electron_1.app.getVersion(),\n            '--override_user_agent_name',\n            'antigravity',\n            '--https_server_port',\n            String(port),\n            '--csrf_token',\n            csrf,\n            '--app_data_dir',\n            (0, paths_1.getAppDataDirName)(),\n            '--api_server_url',\n            'https://generativelanguage.googleapis.com',\n            '--cloud_code_endpoint',\n            'https://daily-cloudcode-pa.googleapis.com',\n            '--enable_sidecars',"
+  },
+  "http_identity": {
+    "status": "not-captured"
+  },
+  "authenticated_image_validation": "not-performed",
+  "tls": {
+    "raw_records": [
+      {
+        "file": "clienthello-0001.bin",
+        "sha256": "75190e27774b5f089c794496c64eeda2ea59de82bc069a9a74c8935a06f7b5bd"
+      },
+      {
+        "file": "clienthello-0002.bin",
+        "sha256": "69558505cafd9f81784ed0e8cfd90e49802526aeb152ccb121421abe630e08c8"
+      },
+      {
+        "file": "clienthello-0003.bin",
+        "sha256": "b5f88733074f93ca6976f2879623898e1b42558d29b898de1cc1c87883ddce07"
+      },
+      {
+        "file": "clienthello-0004.bin",
+        "sha256": "070a41654dd2104b5a079f34d26f0f433409f69cbb1b36ba40fe9c5f7a0e7f0b"
+      },
+      {
+        "file": "clienthello-0005.bin",
+        "sha256": "3c10d82b4d6021d4607509de2714582368d3e0dca0328315e11f3ab019edc155"
+      }
+    ],
+    "by_sni": {
+      "antigravity-unleash.goog": {
+        "schema_version": 1,
+        "source": "official-ls-local-connect",
+        "capture_status": "real-clienthello-captured",
+        "sample_count": 2,
+        "samples": [
+          {
+            "record_version": 769,
+            "legacy_version": 771,
+            "cipher_suites": [
+              49195,
+              49199,
+              49196,
+              49200,
+              52393,
+              52392,
+              49161,
+              49171,
+              49162,
+              49172,
+              4865,
+              4866,
+              4867
+            ],
+            "extensions": [
+              0,
+              11,
+              65281,
+              23,
+              18,
+              5,
+              10,
+              13,
+              50,
+              16,
+              43,
+              51
+            ],
+            "extension_names": [
+              "server_name",
+              "ec_point_formats",
+              "unknown_65281",
+              "unknown_23",
+              "unknown_18",
+              "unknown_5",
+              "supported_groups",
+              "signature_algorithms",
+              "unknown_50",
+              "alpn",
+              "supported_versions",
+              "key_share"
+            ],
+            "extension_payload_lengths": {
+              "0": 29,
+              "11": 2,
+              "65281": 1,
+              "23": 0,
+              "18": 0,
+              "5": 5,
+              "10": 16,
+              "13": 28,
+              "50": 32,
+              "16": 14,
+              "43": 5,
+              "51": 1258
+            },
+            "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+            "ja3_hash": "03117a8ed39ef02427ebbc39f121275c",
+            "server_name": "antigravity-unleash.goog",
+            "point_formats": [
+              0
+            ],
+            "supported_groups": [
+              4588,
+              4587,
+              4589,
+              29,
+              23,
+              24,
+              25
+            ],
+            "signature_algorithms": [
+              2308,
+              2309,
+              2310,
+              2052,
+              1027,
+              2055,
+              2053,
+              2054,
+              1025,
+              1281,
+              1537,
+              1283,
+              1539
+            ],
+            "alpn_protocols": [
+              "h2",
+              "http/1.1"
+            ],
+            "supported_versions": [
+              772,
+              771
+            ],
+            "key_share_groups": [
+              4588,
+              29
+            ]
+          },
+          {
+            "record_version": 769,
+            "legacy_version": 771,
+            "cipher_suites": [
+              49195,
+              49199,
+              49196,
+              49200,
+              52393,
+              52392,
+              49161,
+              49171,
+              49162,
+              49172,
+              4865,
+              4866,
+              4867
+            ],
+            "extensions": [
+              0,
+              11,
+              65281,
+              23,
+              18,
+              5,
+              10,
+              13,
+              50,
+              16,
+              43,
+              51
+            ],
+            "extension_names": [
+              "server_name",
+              "ec_point_formats",
+              "unknown_65281",
+              "unknown_23",
+              "unknown_18",
+              "unknown_5",
+              "supported_groups",
+              "signature_algorithms",
+              "unknown_50",
+              "alpn",
+              "supported_versions",
+              "key_share"
+            ],
+            "extension_payload_lengths": {
+              "0": 29,
+              "11": 2,
+              "65281": 1,
+              "23": 0,
+              "18": 0,
+              "5": 5,
+              "10": 16,
+              "13": 28,
+              "50": 32,
+              "16": 14,
+              "43": 5,
+              "51": 1258
+            },
+            "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+            "ja3_hash": "03117a8ed39ef02427ebbc39f121275c",
+            "server_name": "antigravity-unleash.goog",
+            "point_formats": [
+              0
+            ],
+            "supported_groups": [
+              4588,
+              4587,
+              4589,
+              29,
+              23,
+              24,
+              25
+            ],
+            "signature_algorithms": [
+              2308,
+              2309,
+              2310,
+              2052,
+              1027,
+              2055,
+              2053,
+              2054,
+              1025,
+              1281,
+              1537,
+              1283,
+              1539
+            ],
+            "alpn_protocols": [
+              "h2",
+              "http/1.1"
+            ],
+            "supported_versions": [
+              772,
+              771
+            ],
+            "key_share_groups": [
+              4588,
+              29
+            ]
+          }
+        ],
+        "stability": {
+          "cipher_suite_order_stable": true,
+          "extension_order_stable": true,
+          "extension_set_stable": true,
+          "extension_set_without_grease_stable": true,
+          "alpn_stable": true,
+          "supported_versions_stable": true,
+          "key_share_groups_stable": true,
+          "ja3_stable": true
+        },
+        "grease": {
+          "cipher_suites": [],
+          "extensions": [],
+          "supported_groups": []
+        },
+        "note": "Randoms and key-share payloads are intentionally omitted; this report is for comparison, not replay.",
+        "sni_filter": "antigravity-unleash.goog",
+        "filtered_out_sample_count": 3
+      },
+      "playwright-akamai.azureedge.net": {
+        "schema_version": 1,
+        "source": "official-ls-local-connect",
+        "capture_status": "real-clienthello-captured",
+        "sample_count": 1,
+        "samples": [
+          {
+            "record_version": 769,
+            "legacy_version": 771,
+            "cipher_suites": [
+              49195,
+              49199,
+              49196,
+              49200,
+              52393,
+              52392,
+              49161,
+              49171,
+              49162,
+              49172,
+              4865,
+              4866,
+              4867
+            ],
+            "extensions": [
+              0,
+              11,
+              65281,
+              23,
+              18,
+              5,
+              10,
+              13,
+              50,
+              16,
+              43,
+              51
+            ],
+            "extension_names": [
+              "server_name",
+              "ec_point_formats",
+              "unknown_65281",
+              "unknown_23",
+              "unknown_18",
+              "unknown_5",
+              "supported_groups",
+              "signature_algorithms",
+              "unknown_50",
+              "alpn",
+              "supported_versions",
+              "key_share"
+            ],
+            "extension_payload_lengths": {
+              "0": 36,
+              "11": 2,
+              "65281": 1,
+              "23": 0,
+              "18": 0,
+              "5": 5,
+              "10": 16,
+              "13": 28,
+              "50": 32,
+              "16": 14,
+              "43": 5,
+              "51": 1258
+            },
+            "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+            "ja3_hash": "03117a8ed39ef02427ebbc39f121275c",
+            "server_name": "playwright-akamai.azureedge.net",
+            "point_formats": [
+              0
+            ],
+            "supported_groups": [
+              4588,
+              4587,
+              4589,
+              29,
+              23,
+              24,
+              25
+            ],
+            "signature_algorithms": [
+              2308,
+              2309,
+              2310,
+              2052,
+              1027,
+              2055,
+              2053,
+              2054,
+              1025,
+              1281,
+              1537,
+              1283,
+              1539
+            ],
+            "alpn_protocols": [
+              "h2",
+              "http/1.1"
+            ],
+            "supported_versions": [
+              772,
+              771
+            ],
+            "key_share_groups": [
+              4588,
+              29
+            ]
+          }
+        ],
+        "stability": {
+          "cipher_suite_order_stable": true,
+          "extension_order_stable": true,
+          "extension_set_stable": true,
+          "extension_set_without_grease_stable": true,
+          "alpn_stable": true,
+          "supported_versions_stable": true,
+          "key_share_groups_stable": true,
+          "ja3_stable": true
+        },
+        "grease": {
+          "cipher_suites": [],
+          "extensions": [],
+          "supported_groups": []
+        },
+        "note": "Randoms and key-share payloads are intentionally omitted; this report is for comparison, not replay.",
+        "sni_filter": "playwright-akamai.azureedge.net",
+        "filtered_out_sample_count": 4
+      },
+      "playwright-verizon.azureedge.net": {
+        "schema_version": 1,
+        "source": "official-ls-local-connect",
+        "capture_status": "real-clienthello-captured",
+        "sample_count": 1,
+        "samples": [
+          {
+            "record_version": 769,
+            "legacy_version": 771,
+            "cipher_suites": [
+              49195,
+              49199,
+              49196,
+              49200,
+              52393,
+              52392,
+              49161,
+              49171,
+              49162,
+              49172,
+              4865,
+              4866,
+              4867
+            ],
+            "extensions": [
+              0,
+              11,
+              65281,
+              23,
+              18,
+              5,
+              10,
+              13,
+              50,
+              16,
+              43,
+              51
+            ],
+            "extension_names": [
+              "server_name",
+              "ec_point_formats",
+              "unknown_65281",
+              "unknown_23",
+              "unknown_18",
+              "unknown_5",
+              "supported_groups",
+              "signature_algorithms",
+              "unknown_50",
+              "alpn",
+              "supported_versions",
+              "key_share"
+            ],
+            "extension_payload_lengths": {
+              "0": 37,
+              "11": 2,
+              "65281": 1,
+              "23": 0,
+              "18": 0,
+              "5": 5,
+              "10": 16,
+              "13": 28,
+              "50": 32,
+              "16": 14,
+              "43": 5,
+              "51": 1258
+            },
+            "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+            "ja3_hash": "03117a8ed39ef02427ebbc39f121275c",
+            "server_name": "playwright-verizon.azureedge.net",
+            "point_formats": [
+              0
+            ],
+            "supported_groups": [
+              4588,
+              4587,
+              4589,
+              29,
+              23,
+              24,
+              25
+            ],
+            "signature_algorithms": [
+              2308,
+              2309,
+              2310,
+              2052,
+              1027,
+              2055,
+              2053,
+              2054,
+              1025,
+              1281,
+              1537,
+              1283,
+              1539
+            ],
+            "alpn_protocols": [
+              "h2",
+              "http/1.1"
+            ],
+            "supported_versions": [
+              772,
+              771
+            ],
+            "key_share_groups": [
+              4588,
+              29
+            ]
+          }
+        ],
+        "stability": {
+          "cipher_suite_order_stable": true,
+          "extension_order_stable": true,
+          "extension_set_stable": true,
+          "extension_set_without_grease_stable": true,
+          "alpn_stable": true,
+          "supported_versions_stable": true,
+          "key_share_groups_stable": true,
+          "ja3_stable": true
+        },
+        "grease": {
+          "cipher_suites": [],
+          "extensions": [],
+          "supported_groups": []
+        },
+        "note": "Randoms and key-share payloads are intentionally omitted; this report is for comparison, not replay.",
+        "sni_filter": "playwright-verizon.azureedge.net",
+        "filtered_out_sample_count": 4
+      },
+      "playwright.azureedge.net": {
+        "schema_version": 1,
+        "source": "official-ls-local-connect",
+        "capture_status": "real-clienthello-captured",
+        "sample_count": 1,
+        "samples": [
+          {
+            "record_version": 769,
+            "legacy_version": 771,
+            "cipher_suites": [
+              49195,
+              49199,
+              49196,
+              49200,
+              52393,
+              52392,
+              49161,
+              49171,
+              49162,
+              49172,
+              4865,
+              4866,
+              4867
+            ],
+            "extensions": [
+              0,
+              11,
+              65281,
+              23,
+              18,
+              5,
+              10,
+              13,
+              50,
+              16,
+              43,
+              51
+            ],
+            "extension_names": [
+              "server_name",
+              "ec_point_formats",
+              "unknown_65281",
+              "unknown_23",
+              "unknown_18",
+              "unknown_5",
+              "supported_groups",
+              "signature_algorithms",
+              "unknown_50",
+              "alpn",
+              "supported_versions",
+              "key_share"
+            ],
+            "extension_payload_lengths": {
+              "0": 29,
+              "11": 2,
+              "65281": 1,
+              "23": 0,
+              "18": 0,
+              "5": 5,
+              "10": 16,
+              "13": 28,
+              "50": 32,
+              "16": 14,
+              "43": 5,
+              "51": 1258
+            },
+            "ja3_raw": "771,49195-49199-49196-49200-52393-52392-49161-49171-49162-49172-4865-4866-4867,0-11-65281-23-18-5-10-13-50-16-43-51,4588-4587-4589-29-23-24-25,0",
+            "ja3_hash": "03117a8ed39ef02427ebbc39f121275c",
+            "server_name": "playwright.azureedge.net",
+            "point_formats": [
+              0
+            ],
+            "supported_groups": [
+              4588,
+              4587,
+              4589,
+              29,
+              23,
+              24,
+              25
+            ],
+            "signature_algorithms": [
+              2308,
+              2309,
+              2310,
+              2052,
+              1027,
+              2055,
+              2053,
+              2054,
+              1025,
+              1281,
+              1537,
+              1283,
+              1539
+            ],
+            "alpn_protocols": [
+              "h2",
+              "http/1.1"
+            ],
+            "supported_versions": [
+              772,
+              771
+            ],
+            "key_share_groups": [
+              4588,
+              29
+            ]
+          }
+        ],
+        "stability": {
+          "cipher_suite_order_stable": true,
+          "extension_order_stable": true,
+          "extension_set_stable": true,
+          "extension_set_without_grease_stable": true,
+          "alpn_stable": true,
+          "supported_versions_stable": true,
+          "key_share_groups_stable": true,
+          "ja3_stable": true
+        },
+        "grease": {
+          "cipher_suites": [],
+          "extensions": [],
+          "supported_groups": []
+        },
+        "note": "Randoms and key-share payloads are intentionally omitted; this report is for comparison, not replay.",
+        "sni_filter": "playwright.azureedge.net",
+        "filtered_out_sample_count": 4
+      }
+    },
+    "provenance_note": "Caller-supplied records. Bind their process/version and capture conditions in the experiment record; the snapshot does not attest their origin."
+  },
+  "experiment": {
+    "capture_started_at": "2026-09-21T03:14:47Z",
+    "capture_kind": "isolated-official-ls-startup",
+    "app_version_at_launch": "2.15.1",
+    "account_authenticated": false,
+    "local_raw_directory": ".antigravity_ide_fp/20260921-2.15.1-startup",
+    "network": "macOS sandbox-exec denies non-loopback outbound; HTTP and HTTPS proxy point at non-forwarding local CONNECT sink",
+    "state": "fresh temporary --gemini_dir and --app_data_dir capture",
+    "identity_flags": [
+      "--standalone",
+      "--override_ide_name",
+      "antigravity",
+      "--subclient_type",
+      "hub",
+      "--override_ide_version",
+      "2.15.1",
+      "--override_user_agent_name",
+      "antigravity"
+    ],
+    "deviations_from_app_launch": [
+      "api_server_url and cloud_code_endpoint overridden to http://127.0.0.1:18081 for local HTTP observation",
+      "disable_telemetry enabled",
+      "no enable_sidecars or host bridge flags",
+      "no GUI or model task"
+    ],
+    "http_events": 0,
+    "cloudcode_clienthello_observed": false
+  }
+}

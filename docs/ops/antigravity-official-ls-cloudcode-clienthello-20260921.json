@@ -6,7 +6,7 @@
     "observed_sni": ["cloudcode-pa.googleapis.com"],
     "raw_fixture": "local-only capture; raw bytes intentionally not committed"
   },
-  "capture_status": "real-clienthello-captured",
+  "capture_status": "historical-summary-unverified",
   "captured_at": "2026-09-21",
   "client": {
     "app_version": "2.14.0",
@@ -41,5 +41,12 @@
     "reason": "The SNI-specific TLS transport is stable across official LS cloudcode connections. This host was unauthenticated, so no authenticated image request or current 2.14.0 on-wire HTTP capture was available.",
     "http_identity": "Static app.asar launch flags plus prior authenticated IDE evidence support antigravity/hub/2.14.0 darwin/arm64; current-version HTTP remains pending a local logged-in capture."
   },
-  "note": "Randoms and key-share payloads are intentionally omitted. No OAuth token, refresh token, cookie, or complete authorization URL is stored."
+  "note": "Randoms and key-share payloads are intentionally omitted. No OAuth token, refresh token, cookie, or complete authorization URL is stored.",
+  "evidence_audit": {
+    "audited_at": "2026-09-21",
+    "raw_records_available": false,
+    "status": "not-independently-reproduced",
+    "reason": "Historical report was assembled from a prior session summary. Matching raw records are unavailable in this workspace; sample counts and stability claims below are retained as historical claims, not revalidated observations.",
+    "current_capture": "antigravity-official-ide-2.15.1-20260921.json"
+  }
 }

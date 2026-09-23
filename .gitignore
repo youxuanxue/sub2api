@@ -1,6 +1,8 @@
 # 本地杂项文档、测试数据和外部项目副本
 /docs-local/
 .codex
+# Local official IDE ClientHello records; commit only parsed, redacted reports.
+/.antigravity_ide_fp/
 
 # ===================
 # Go 后端
@@ -228,3 +230,7 @@ ssm-params.json
 stderr.txt
 stdout.txt
 tokenkey-competitor-research/
+
+# Incoming colleague captures stay local; publish normalized evidence only.
+/ops/antigravity/profile-488-capture.zip
+/ops/antigravity/snapshot.json

@@ -19,6 +19,8 @@ Drift-fix recipe (see the `tokenkey-antigravity-fingerprint-alignment` skill):
 
 | date (UTC) | UA version | type | change | note |
 |---|---|---|---|---|
+| 2026-09-21 | **2.15.1 (installed; runtime pin remains 2.14.0)** | **local package + startup TLS** | Evidence refresh only | LS CL 984509791; control-plane JA3 unchanged. Current HTTP/cloudcode/image capture absent; historical cloudcode summary downgraded because raw records are unavailable. See [updated evaluation](antigravity-ide-2.15.1-community-20260921.md). |
+| 2026-09-22 | **Linux App 1.107.0 / LS 1.23.2** | **official-app startup TLS** | Cross-platform evidence | 32 ClientHello records; 13 `antigravity-unleash.goog` samples match control-plane JA3 `03117a8ed39ef02427ebbc39f121275c`; no cloudcode SNI or HTTP phase, so no canonical profile change. See [profile-488 analysis](antigravity-profile-488-20260922.md). |
 | 2026-09-18 | **1.2.2** | **tls seed** | seed `tk_canonical_antigravity_cli` from real `agy` ClientHello via mitm `tls_clienthello` (5 identical samples; ja3_hash=`03117a8ed39ef02427ebbc39f121275c`; X25519MLKEM768 key_share). Wiring resolves by name for Antigravity OAuth egress. | Local capture; agy not logged in — SNI was unleash/playwright hosts (TLS identity host-independent). |
 | 2026-09-10 | **1.2.0** | pure UA | `DefaultUserAgentVersion` 1.1.27 → 1.2.0 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2086. |
 | 2026-09-06 | **1.1.27** | pure UA | `DefaultUserAgentVersion` 1.1.26 → 1.1.27 | Local `agy --version` ground truth; HTTP UA format unchanged. Closes #2014. |

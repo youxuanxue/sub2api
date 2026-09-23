@@ -1,5 +1,10 @@
 # Antigravity 社区与 IDE 出口指纹调查（2026-09-20）
 
+> 2026-09-21 证据修订：以 [2.15.1 更新采集与评价](antigravity-ide-2.15.1-community-20260921.md) 为准。
+> 下文 2.14.0 cloudcode「8 次原始捕获」本轮找不到原始文件，不能独立复算，降级为待复核历史摘要；
+> 不作为当前官方生图指纹已验证的结论。下文“与 TokenKey 主线的实际差异”表内 IDE 默认/profile
+> 描述的是 PR #2265 分支修改后的状态，表头标作 `origin/main@9f544129d8` 不准确；也不代表线上配置。
+
 调查时间：2026-09-20 UTC。针对 edge-us4 / #24 `anti-478` 的 `403 PERMISSION_DENIED / VALIDATION_REQUIRED`，核对社区当前实现与官方本机 App。本文是带日期的研究记录，不替代运行时指纹 owner，不改变账号或调度策略。
 
 本地分支 `chore/antigravity0919` 已从原 HEAD 快进到本次 fetch 的 `origin/main@9f544129d8e136447fae957bc7826680c56b3bff`（1.8.242），包含 `agy 1.2.7` UA 更新。本轮把默认 Antigravity OAuth 路线切到官方 IDE/LS identity，并增加按 cloudcode SNI 隔离的 TLS profile、HTTP/TLS 本地采集脚本；CLI 与 Manager 仍可按账号显式选择。没有修改生产部署或调用 #24 的上游模型。

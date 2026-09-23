@@ -1,0 +1,288 @@
+{
+  "recorded_at": "2026-09-21T03:27:26.262428+00:00",
+  "retrieval_date_utc": "2026-09-21",
+  "method": "gh api commits/HEAD, contents at fixed SHA, search/issues sorted by updated, issue comments",
+  "repositories": [
+    {
+      "repo": "lbjlaq/Antigravity-Manager",
+      "sha": "61b95bd65c0a9c694c1733e0e62f412e7a0a891a",
+      "date": "2026-09-21T01:31:51Z",
+      "message": "fix(quota): 修复打开账号管理 TypeError 崩溃 (fixes #3491) 并发布 v4.7.11",
+      "files": [
+        {
+          "path": "src-tauri/Cargo.toml",
+          "sha256": "993e65a890ce3406377e0b328636db8efd014af36602f8e8c85611a2d1f03756",
+          "url": "https://github.com/lbjlaq/Antigravity-Manager/blob/61b95bd65c0a9c694c1733e0e62f412e7a0a891a/src-tauri/Cargo.toml"
+        },
+        {
+          "path": "src-tauri/src/constants.rs",
+          "sha256": "37e9fdf3945f88a190cb4336ae4a415aff7f569be2370edc4644a6eb6c3a0383",
+          "url": "https://github.com/lbjlaq/Antigravity-Manager/blob/61b95bd65c0a9c694c1733e0e62f412e7a0a891a/src-tauri/src/constants.rs"
+        },
+        {
+          "path": "src-tauri/src/proxy/mappers/gemini/wrapper.rs",
+          "sha256": "c7f8ba0bf5d4d16e59151476507154ad8e3eb0abc507080c8b9c52ff69e1b0cd",
+          "url": "https://github.com/lbjlaq/Antigravity-Manager/blob/61b95bd65c0a9c694c1733e0e62f412e7a0a891a/src-tauri/src/proxy/mappers/gemini/wrapper.rs"
+        },
+        {
+          "path": "src-tauri/src/proxy/upstream/client.rs",
+          "sha256": "00dd086c09f8e88a80cabe758c8a83f1cbe67b1be5483adaf47260c9fe2feacb",
+          "url": "https://github.com/lbjlaq/Antigravity-Manager/blob/61b95bd65c0a9c694c1733e0e62f412e7a0a891a/src-tauri/src/proxy/upstream/client.rs"
+        }
+      ]
+    },
+    {
+      "repo": "router-for-me/CLIProxyAPI",
+      "sha": "a5ab69521f7b4e0f244836d0419da8fcd89408ea",
+      "date": "2026-09-20T20:13:44Z",
+      "message": "feat: add full support for kimi.ai oauth and runtime execution",
+      "files": [
+        {
+          "path": "internal/misc/antigravity_version.go",
+          "sha256": "a393b67962923ef53630845f78b5303124a6a5730330979d4222b892def2b014",
+          "url": "https://github.com/router-for-me/CLIProxyAPI/blob/a5ab69521f7b4e0f244836d0419da8fcd89408ea/internal/misc/antigravity_version.go"
+        },
+        {
+          "path": "internal/runtime/executor/antigravity_executor.go",
+          "sha256": "34efca98c3d611a6ca0ab573e518d7c003101c28b6f9e098e90c7e37a12920c2",
+          "url": "https://github.com/router-for-me/CLIProxyAPI/blob/a5ab69521f7b4e0f244836d0419da8fcd89408ea/internal/runtime/executor/antigravity_executor.go"
+        },
+        {
+          "path": "internal/runtime/executor/antigravity_executor_request.go",
+          "sha256": "6f3a0e28045944b807ca2cf92c0e503bd15ca9636d8cf6183387c7344aa468a6",
+          "url": "https://github.com/router-for-me/CLIProxyAPI/blob/a5ab69521f7b4e0f244836d0419da8fcd89408ea/internal/runtime/executor/antigravity_executor_request.go"
+        }
+      ]
+    },
+    {
+      "repo": "NoeFabris/opencode-antigravity-auth",
+      "sha": "16e0056431d0a1291ee66e5938c732720b13a851",
+      "date": "2026-08-27T23:19:22Z",
+      "message": "Merge pull request #593 from NoeFabris/NoeFabris-patch-1",
+      "files": [
+        {
+          "path": "src/plugin/fingerprint.ts",
+          "sha256": "c171fb334303e67ad4590e6d99a81662c32b2b988844149201562377e687fc6c",
+          "url": "https://github.com/NoeFabris/opencode-antigravity-auth/blob/16e0056431d0a1291ee66e5938c732720b13a851/src/plugin/fingerprint.ts"
+        },
+        {
+          "path": "src/plugin/request.ts",
+          "sha256": "b1047ae3464e50a65c50459353740561bcd841aca0df71a4fe377baf3fabb9f3",
+          "url": "https://github.com/NoeFabris/opencode-antigravity-auth/blob/16e0056431d0a1291ee66e5938c732720b13a851/src/plugin/request.ts"
+        }
+      ]
+    },
+    {
+      "repo": "justlovemaki/AIClient2API",
+      "sha": "b12e25ea2840c880dd60f2ab4c45bc5bbfd10fab",
+      "date": "2026-09-16T14:03:16Z",
+      "message": "chore: 升级版本至3.5.0，移除Fenno与七牛云AI支持，重构Kiro认证逻辑",
+      "files": [
+        {
+          "path": "src/providers/gemini/antigravity-core.js",
+          "sha256": "208aea46fa4e9c7086cd5239db669913156caea19f2f3992479c75c92e2864a8",
+          "url": "https://github.com/justlovemaki/AIClient2API/blob/b12e25ea2840c880dd60f2ab4c45bc5bbfd10fab/src/providers/gemini/antigravity-core.js"
+        },
+        {
+          "path": "tls-sidecar/main.go",
+          "sha256": "d5b6122012b05410e76817ab01bfa93d05a2eb29d86230e5cfd41bd0f76398b6",
+          "url": "https://github.com/justlovemaki/AIClient2API/blob/b12e25ea2840c880dd60f2ab4c45bc5bbfd10fab/tls-sidecar/main.go"
+        }
+      ]
+    },
+    {
+      "repo": "lbjlaq/Antigravity-Tools-LS",
+      "sha": "d312237af83820ca15a636e81c5e61660bdf13f4",
+      "date": "2026-03-27T05:22:02Z",
+      "message": "chore: release v0.0.3 - Integrated PR #10, #12 and fixed Issue #13",
+      "files": [
+        {
+          "path": "README.md",
+          "sha256": "595ab8c4745d69d7567e26fa83c960d651f6ee2f34ab2fdbcd4b9e6644616820",
+          "url": "https://github.com/lbjlaq/Antigravity-Tools-LS/blob/d312237af83820ca15a636e81c5e61660bdf13f4/README.md"
+        },
+        {
+          "path": "ls-orchestrator/src/native.rs",
+          "sha256": "02a94ab12b36ddb088ffd76c5c3bf165a341b81ff45f0ba7e397603e0c99dc4e",
+          "url": "https://github.com/lbjlaq/Antigravity-Tools-LS/blob/d312237af83820ca15a636e81c5e61660bdf13f4/ls-orchestrator/src/native.rs"
+        }
+      ]
+    }
+  ],
+  "issue_searches": [
+    {
+      "query": "repo:lbjlaq/Antigravity-Manager TLS",
+      "total": 4,
+      "items": [
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/655",
+          "number": 655,
+          "title": "这是被封号的意思吗？",
+          "state": "open",
+          "created_at": "2026-01-15T02:12:01Z",
+          "updated_at": "2026-09-12T12:56:12Z",
+          "comments": 90
+        },
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/3260",
+          "number": 3260,
+          "title": "[Linux] Critical: Auto-updater fails on RPM (ENOEXEC) & Account Switcher fails to kill IDE process (Wayland/Keyring Race Condition) Description",
+          "state": "open",
+          "created_at": "2026-07-18T18:20:57Z",
+          "updated_at": "2026-07-18T18:20:57Z",
+          "comments": 0
+        },
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/2115",
+          "number": 2115,
+          "title": "Antigravity-Request contains an invalid argument",
+          "state": "open",
+          "created_at": "2026-02-25T09:54:45Z",
+          "updated_at": "2026-06-02T11:14:24Z",
+          "comments": 1
+        },
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/2004",
+          "number": 2004,
+          "title": "v4.1.20 regression: proxy panics at client.rs:72 with InvalidHeaderValue on Linux — service cannot start",
+          "state": "closed",
+          "created_at": "2026-02-16T15:25:25Z",
+          "updated_at": "2026-02-17T10:27:05Z",
+          "comments": 1
+        }
+      ]
+    },
+    {
+      "query": "repo:lbjlaq/Antigravity-Manager \"Verify your account\"",
+      "total": 18,
+      "items": [
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/2362",
+          "number": 2362,
+          "title": "为什么一直让我验证，验证成功了一开始调用就又要验证？",
+          "state": "open",
+          "created_at": "2026-03-21T17:40:06Z",
+          "updated_at": "2026-07-20T05:46:39Z",
+          "comments": 4
+        },
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/1394",
+          "number": 1394,
+          "title": "出现403",
+          "state": "open",
+          "created_at": "2026-01-31T05:08:49Z",
+          "updated_at": "2026-04-24T05:55:20Z",
+          "comments": 23
+        },
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/2070",
+          "number": 2070,
+          "title": "标题： 【紧急】持续出现 403 Forbidden 错误及专业版账号被封禁问题",
+          "state": "open",
+          "created_at": "2026-02-21T16:36:46Z",
+          "updated_at": "2026-04-22T17:23:51Z",
+          "comments": 10
+        },
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/3007",
+          "number": 3007,
+          "title": "打开claude，发送消息，账号就提示403，禁用反代",
+          "state": "open",
+          "created_at": "2026-04-01T01:55:12Z",
+          "updated_at": "2026-04-02T06:24:47Z",
+          "comments": 5
+        },
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Manager/issues/1521",
+          "number": 1521,
+          "title": "谷歌家庭会员需要验证手机号码，这种怎么搞？使用我绑定的说验证次数过多，有大神能给解答下吗",
+          "state": "open",
+          "created_at": "2026-02-04T07:53:47Z",
+          "updated_at": "2026-02-28T10:26:09Z",
+          "comments": 5
+        }
+      ]
+    },
+    {
+      "query": "repo:router-for-me/CLIProxyAPI antigravity ALPN",
+      "total": 6,
+      "items": [
+        {
+          "html_url": "https://github.com/router-for-me/CLIProxyAPI/pull/5288",
+          "number": 5288,
+          "title": "fix(proxyutil): tunnel HTTPS proxies over an HTTP/1.1 CONNECT dialer",
+          "state": "closed",
+          "created_at": "2026-08-27T07:55:39Z",
+          "updated_at": "2026-08-29T07:22:27Z",
+          "comments": 1
+        },
+        {
+          "html_url": "https://github.com/router-for-me/CLIProxyAPI/issues/5287",
+          "number": 5287,
+          "title": "[Bug] HTTPS proxies fail with \"unexpected EOF\": BuildHTTPTransport lets the proxy negotiate h2, then writes an HTTP/1.1 CONNECT",
+          "state": "closed",
+          "created_at": "2026-08-27T07:55:17Z",
+          "updated_at": "2026-08-28T09:30:10Z",
+          "comments": 0
+        },
+        {
+          "html_url": "https://github.com/router-for-me/CLIProxyAPI/pull/4012",
+          "number": 4012,
+          "title": "fix(upstream): force HTTP/1.1 on fallback transport to eliminate mid-stream RST_STREAM(INTERNAL_ERROR) leak",
+          "state": "closed",
+          "created_at": "2026-06-26T06:55:03Z",
+          "updated_at": "2026-07-07T18:16:55Z",
+          "comments": 2
+        },
+        {
+          "html_url": "https://github.com/router-for-me/CLIProxyAPI/issues/4011",
+          "number": 4011,
+          "title": "Intermittent \"stream error: INTERNAL_ERROR; received from peer\" on non-fingerprinted upstreams (HTTP/2 RST_STREAM leaks mid-stream)",
+          "state": "closed",
+          "created_at": "2026-06-26T06:54:08Z",
+          "updated_at": "2026-07-07T18:16:52Z",
+          "comments": 1
+        },
+        {
+          "html_url": "https://github.com/router-for-me/CLIProxyAPI/pull/3364",
+          "number": 3364,
+          "title": "Add tls-skip-verify config option for Antigravity behind corp proxies",
+          "state": "closed",
+          "created_at": "2026-05-12T14:10:11Z",
+          "updated_at": "2026-05-20T19:52:13Z",
+          "comments": 2
+        }
+      ]
+    },
+    {
+      "query": "repo:lbjlaq/Antigravity-Tools-LS 403",
+      "total": 1,
+      "items": [
+        {
+          "html_url": "https://github.com/lbjlaq/Antigravity-Tools-LS/issues/28",
+          "number": 28,
+          "title": "Please run /login · API Error: 403",
+          "state": "open",
+          "created_at": "2026-04-24T14:51:53Z",
+          "updated_at": "2026-04-25T10:42:09Z",
+          "comments": 1
+        }
+      ]
+    },
+    {
+      "query": "repo:google-antigravity/antigravity-cli VALIDATION_REQUIRED",
+      "total": 1,
+      "items": [
+        {
+          "html_url": "https://github.com/google-antigravity/antigravity-cli/issues/785",
+          "number": 785,
+          "title": "[Bug]: eligibility check is block my login",
+          "state": "open",
+          "created_at": "2026-08-13T01:48:51Z",
+          "updated_at": "2026-09-16T07:45:24Z",
+          "comments": 3
+        }
+      ]
+    }
+  ]
+}

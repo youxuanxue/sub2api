@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "source": "profile-488-capture.zip",
+  "captured_at": "2026-09-22T13:53:41.036416Z",
+  "collection_kind": "full-local-collector",
+  "host": "Linux profile-488 7.0.14-orbstack-00380-ga7e0a2dc9535 #1 SMP PREEMPT Fri Aug  7 03:48:40 UTC 2026 aarch64",
+  "package": {
+    "layout": "linux-deb",
+    "app_path": "/usr/share/antigravity",
+    "app_version": "1.107.0",
+    "ide_version": "1.23.2",
+    "bundle_id": "antigravity",
+    "commit": "15487b3041e65228cae24980a3f796c905ef582c",
+    "quality": "stable",
+    "electron_version": "39.2.3",
+    "ls_path": "/usr/share/antigravity/resources/app/extensions/antigravity/bin/language_server_linux_arm",
+    "ls_sha256": "a4fbb73985e7f2eb28d8f41d241bc49c0f6ce504f88b415f611bb3e633c9ac71",
+    "launch_identity_excerpt": "getLsArgs.js\"(){\"use strict\";Hfe(),s8a=async(e,t,r,n)=>{const a=[\"--csrf_token\",t,\"--extension_server_port\",e.port.toString(),\"--extension_server_csrf_token\",e.csrfToken,\"--app_data_dir\",gA.ideName];r.quality===\"dev\"&&a.push(\"--dev_mode\");const i=await n.getCloudCodeUrl();return a.push(\"--cloud_code_endpoint\",i),a}}}),OGe,o8a=ee({\"out-build/vs/platform/browserLauncher/common/browserLauncherMainService.js\"(){\"use strict\";ca(),OGe=qn(\"browserLauncherMainService\")}});import{spawn as aUs}from\"child_process\";import{randomUUID as iUs}from\"crypto\";import{existsSync as GPt}from\"fs\";import{homedir as sUs}from\"os\";function oUs(e=process.platform,t=process.arch){if(e===\"linux\"){if(t===\"arm64\")return\"la",
+    "ls_build_info": "unavailable",
+    "ls_stamp": "Built on: 2026-04-16 01:04:13 -0700 PDT\nBuilt at CL: 900566399\nBuild label: \nBuilt info: changelist 900566399 with baseline 896081098 in a mint client based on //depot/branches/agy_ls_release_branch/1.23/google3"
+  },
+  "privacy": {
+    "tokens_saved": false,
+    "cookies_saved": false,
+    "authorization_values_saved": false,
+    "raw_tls_records_saved": true
+  },
+  "phase_types": [
+    "official-app-startup"
+  ],
+  "tls": {
+    "record_count": 32,
+    "sni_counts": {
+      "redirector.gvt1.com": 2,
+      "antigravity-unleash.goog": 13,
+      "playwright.azureedge.net": 1,
+      "playwright-akamai.azureedge.net": 1,
+      "playwright-verizon.azureedge.net": 1,
+      "antigravity-auto-updater-974169037036.us-central1.run.app": 4,
+      "browser.events.data.microsoft.com": 8,
+      "mobile.events.data.microsoft.com": 2
+    },
+    "profiles": {
+      "antigravity-auto-updater-974169037036.us-central1.run.app": {
+        "sample_count": 4,
+        "field_unique_counts": {
+          "ja3_hash": 4,
+          "cipher_suites": 2,
+          "extensions": 4,
+          "supported_groups": 4,
+          "key_share_groups": 4,
+          "alpn_protocols": 1,
+          "supported_versions": 3
+        },
+        "ja3_hashes": [
+          "178885f853a906efdfdbfdac3fa25d50",
+          "431917f2ff65330e5d9413930e3f5b6f",
+          "78067ffd84807425d15f8d79292dbc68",
+          "a7f1ff77dfb9173211c10b97fa6ccc0a"
+        ]
+      },
+      "antigravity-unleash.goog": {
+        "sample_count": 13,
+        "field_unique_counts": {
+          "ja3_hash": 1,
+          "cipher_suites": 1,
+          "extensions": 1,
+          "supported_groups": 1,
+          "key_share_groups": 1,
+          "alpn_protocols": 1,
+          "supported_versions": 1
+        },
+        "ja3_hashes": [
+          "03117a8ed39ef02427ebbc39f121275c"
+        ]
+      },
+      "browser.events.data.microsoft.com": {
+        "sample_count": 8,
+        "field_unique_counts": {
+          "ja3_hash": 8,
+          "cipher_suites": 7,
+          "extensions": 8,
+          "supported_groups": 7,
+          "key_share_groups": 7,
+          "alpn_protocols": 1,
+          "supported_versions": 6
+        },
+        "ja3_hashes": [
+          "18b8b3858b318fa24279114e91fe2ec9",
+          "39c03da7c8174eb9ae8089d34b2eb6ae",
+          "4e40a7e5779fe99d789fa8eb1a6ac839",
+          "56c6cd3fb4823689715fbb9c659c4b6c",
+          "89f38e29a49c24d088dac744dde40b45",
+          "bb3a70cc2da0ee9b0e818ad19e3fc9b4",
+          "e8a5d9a0ea9b73a7e240aa03802aca78",
+          "f1168c48ebf4c1e38085699de0e8a666"
+        ]
+      },
+      "mobile.events.data.microsoft.com": {
+        "sample_count": 2,
+        "field_unique_counts": {
+          "ja3_hash": 1,
+          "cipher_suites": 1,
+          "extensions": 1,
+          "supported_groups": 1,
+          "key_share_groups": 1,
+          "alpn_protocols": 1,
+          "supported_versions": 1
+        },
+        "ja3_hashes": [
+          "51bddd625044f75a235ba857ac8b0145"
+        ]
+      },
+      "playwright-akamai.azureedge.net": {
+        "sample_count": 1,
+        "field_unique_counts": {
+          "ja3_hash": 1,
+          "cipher_suites": 1,
+          "extensions": 1,
+          "supported_groups": 1,
+          "key_share_groups": 1,
+          "alpn_protocols": 1,
+          "supported_versions": 1
+        },
+        "ja3_hashes": [
+          "03117a8ed39ef02427ebbc39f121275c"
+        ]
+      },
+      "playwright-verizon.azureedge.net": {
+        "sample_count": 1,
+        "field_unique_counts": {
+          "ja3_hash": 1,
+          "cipher_suites": 1,
+          "extensions": 1,
+          "supported_groups": 1,
+          "key_share_groups": 1,
+          "alpn_protocols": 1,
+          "supported_versions": 1
+        },
+        "ja3_hashes": [
+          "03117a8ed39ef02427ebbc39f121275c"
+        ]
+      },
+      "playwright.azureedge.net": {
+        "sample_count": 1,
+        "field_unique_counts": {
+          "ja3_hash": 1,
+          "cipher_suites": 1,
+          "extensions": 1,
+          "supported_groups": 1,
+          "key_share_groups": 1,
+          "alpn_protocols": 1,
+          "supported_versions": 1
+        },
+        "ja3_hashes": [
+          "03117a8ed39ef02427ebbc39f121275c"
+        ]
+      },
+      "redirector.gvt1.com": {
+        "sample_count": 2,
+        "field_unique_counts": {
+          "ja3_hash": 2,
+          "cipher_suites": 2,
+          "extensions": 2,
+          "supported_groups": 2,
+          "key_share_groups": 2,
+          "alpn_protocols": 1,
+          "supported_versions": 2
+        },
+        "ja3_hashes": [
+          "94fc3a707a7cbce5dba8cf84b09b4a1d",
+          "9c57e12bfcc736854d8665ba189e7ad5"
+        ]
+      }
+    },
+    "canonical_cli_match": false,
+    "cloudcode_sni_observed": false,
+    "http_phase_observed": false
+  }
+}

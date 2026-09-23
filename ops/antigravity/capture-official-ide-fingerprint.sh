@@ -11,14 +11,19 @@ usage() {
   cat <<'EOF'
 Usage:
   capture-official-ide-fingerprint.sh check-version
+  capture-official-ide-fingerprint.sh snapshot --out PATH [--capture-dir DIR]
   capture-official-ide-fingerprint.sh serve-tls [--out-dir DIR] [--port N] [--seconds N]
   capture-official-ide-fingerprint.sh report-tls --capture-dir DIR [--out PATH]
   capture-official-ide-fingerprint.sh serve-http --out PATH [--port N] [--seconds N]
 
-The TLS sink is a non-forwarding CONNECT listener. After starting it, launch
-the locally installed official language_server with endpoint overrides that
-point to the sink, then run report-tls with --sni cloudcode-pa.googleapis.com.
+The TLS sink is a non-forwarding CONNECT listener. Point the language_server's
+HTTPS_PROXY at this sink and preserve its HTTPS endpoint hostnames/SNI; do not
+replace HTTPS endpoints with the proxy address. Use an OS egress restriction
+for an offline experiment because proxy settings alone do not block direct traffic.
+Then run report-tls with the exact captured SNI (daily and prod are separate).
 The HTTP sink records only redacted headers and JSON metadata.
+snapshot reads package/build metadata (including LS --stamp) and optionally parses
+existing raw records; it does not start the LS service or attest record provenance.
 EOF
 }
 
@@ -99,6 +104,7 @@ serve_http() {
 
 case "${1:-}" in
   check-version) shift; check_version "$@" ;;
+  snapshot) shift; exec python3 "$SCRIPT_DIR/snapshot_official_ide.py" --app "$APP_PATH" "$@" ;;
   serve-tls) shift; serve_tls "$@" ;;
   report-tls) shift; report_tls "$@" ;;
   serve-http) shift; serve_http "$@" ;;
