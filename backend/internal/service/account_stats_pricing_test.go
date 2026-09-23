@@ -547,6 +547,9 @@ func TestTryModelFilePricing_AppliesDeepSeekPeakValleyAtBillingAt(t *testing.T) 
 }
 
 func TestTryModelFilePricing_Fable51HasNoImplicitReasoningMultiplier(t *testing.T) {
+	// TK 分叉：claude-fable-5-1 的 max reasoning effort 隐式按
+	// claudeFable51MaxReasoningEffortMultiplier (3×) 计费，计费组产品决策。
+	// upstream 断言 xhigh==max 平价；TK 保留此隐式乘数，sentinel 守卫。
 	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
 		"claude-fable-5-1": {InputPricePerToken: 0.001},
 	})
@@ -555,7 +558,8 @@ func TestTryModelFilePricing_Fable51HasNoImplicitReasoningMultiplier(t *testing.
 	max := tryModelFilePricing(bs, "claude-fable-5-1", tokens, "", time.Time{}, "max")
 	require.NotNil(t, standard)
 	require.NotNil(t, max)
-	require.Equal(t, *standard, *max)
+	require.InDelta(t, *standard*claudeFable51MaxReasoningEffortMultiplier, *max, 1e-9,
+		"TK: fable-5-1 max reasoning effort 隐式 3× 计费")
 }
 
 func TestTryModelFilePricing_AppliesLongContextPricing(t *testing.T) {
