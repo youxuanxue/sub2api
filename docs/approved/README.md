@@ -150,6 +150,7 @@ Watchlist 机器源：`ops/pricing/servable-reprobe-ledger.json`。
 | File | Topic |
 | --- | --- |
 | [`upstream-merge-2026-08-15-migrations.md`](upstream-merge-2026-08-15-migrations.md) | Upstream merge 2026-08-15 migrations |
+| [`upstream-merge-20260923.md`](upstream-merge-20260923.md) | TokenKey upstream merge 2026-09-23 |
 
 ## Pending baselines
 
