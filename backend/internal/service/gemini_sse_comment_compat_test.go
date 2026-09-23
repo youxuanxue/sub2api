@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -73,7 +74,11 @@ func runAntigravityGeminiStreamWithIdle(t *testing.T, userAgent string, idle tim
 		`data: {"response":{"responseId":"resp_1","candidates":[{"content":{"parts":[{"text":"partial"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1}}}`+"\n\n",
 	)
 	require.NoError(t, err)
+	// Drain the first event before advancing virtual time; wall-clock sleeps race
+	// the ticker phase and can close the upstream before the first idle heartbeat.
+	synctest.Wait()
 	time.Sleep(idle)
+	synctest.Wait()
 	require.NoError(t, writer.Close())
 	require.NoError(t, <-done)
 	require.NoError(t, reader.Close())
@@ -81,15 +86,19 @@ func runAntigravityGeminiStreamWithIdle(t *testing.T, userAgent string, idle tim
 }
 
 func TestAntigravityGeminiStreamKeepsCommentKeepaliveForOrdinaryClients(t *testing.T) {
-	out := runAntigravityGeminiStreamWithIdle(t, "curl/8.7.1", 1200*time.Millisecond)
-	require.Contains(t, out, ":\n\n", "ordinary clients should still get the idle keepalive")
-	require.Contains(t, out, `"text":"partial"`)
+	synctest.Test(t, func(t *testing.T) {
+		out := runAntigravityGeminiStreamWithIdle(t, "curl/8.7.1", 1200*time.Millisecond)
+		require.Contains(t, out, ":\n\n", "ordinary clients should still get the idle keepalive")
+		require.Contains(t, out, `"text":"partial"`)
+	})
 }
 
 func TestAntigravityGeminiStreamSkipsCommentKeepaliveForGoGenai(t *testing.T) {
-	out := runAntigravityGeminiStreamWithIdle(t, "google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03", 1200*time.Millisecond)
-	require.Contains(t, out, `"text":"partial"`)
-	for _, event := range strings.Split(out, "\n\n") {
-		require.False(t, strings.HasPrefix(event, ":"), "go-genai must never receive an SSE comment event, got %q", event)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		out := runAntigravityGeminiStreamWithIdle(t, "google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03", 1200*time.Millisecond)
+		require.Contains(t, out, `"text":"partial"`)
+		for _, event := range strings.Split(out, "\n\n") {
+			require.False(t, strings.HasPrefix(event, ":"), "go-genai must never receive an SSE comment event, got %q", event)
+		}
+	})
 }
