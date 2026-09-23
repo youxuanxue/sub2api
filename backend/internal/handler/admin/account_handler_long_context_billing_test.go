@@ -78,7 +78,7 @@ func TestAccountAdminBoundariesRejectMalformedOpenAILongContextBillingValue(t *t
 			if tt.setup != nil {
 				tt.setup(stub)
 			}
-			handler := NewAccountHandler(stub, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			handler := NewAccountHandler(stub, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 			router := gin.New()
 			tt.mount(router, handler)
 			recorder := httptest.NewRecorder()
@@ -99,7 +99,7 @@ func TestAccountAdminBoundariesRejectMalformedOpenAILongContextBillingValue(t *t
 
 func TestAccountCreateBoundaryDoesNotApplyOpenAIValidationToOtherPlatforms(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(newStubAdminService(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router := gin.New()
 	router.POST("/accounts", handler.Create)
 	recorder := httptest.NewRecorder()
@@ -121,7 +121,7 @@ func TestApplyOAuthCredentialsRejectsMalformedOpenAILongContextBillingBeforeMuta
 		Platform: service.PlatformOpenAI,
 		Type:     service.AccountTypeOAuth,
 	}
-	handler := NewAccountHandler(stub, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewAccountHandler(stub, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router := gin.New()
 	router.POST("/accounts/:id/apply-oauth-credentials", handler.ApplyOAuthCredentials)
 	recorder := httptest.NewRecorder()
@@ -140,6 +140,44 @@ func TestApplyOAuthCredentialsRejectsMalformedOpenAILongContextBillingBeforeMuta
 	require.Equal(t, "OPENAI_LONG_CONTEXT_BILLING_INVALID", responseBody.Reason)
 	require.Zero(t, stub.updateAccountCalls)
 	require.Zero(t, stub.updateAccountExtraCalls)
+}
+
+func TestApplyOAuthCredentialsPreservesExistingNonAuthCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := newStubAdminService()
+	stub.getAccountResult = &service.Account{
+		ID:       1,
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":  "old-token",
+			"refresh_token": "old-refresh-token",
+			"model_mapping": map[string]any{"gpt-5": "gpt-5"},
+			"account_id":    "existing-account-id",
+			"password":      "must-not-survive",
+			"sso_token":     "must-not-survive",
+			"cookie":        "must-not-survive",
+		},
+	}
+	handler := NewAccountHandler(stub, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := gin.New()
+	router.POST("/accounts/:id/apply-oauth-credentials", handler.ApplyOAuthCredentials)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/accounts/1/apply-oauth-credentials", bytes.NewBufferString(
+		`{"type":"oauth","credentials":{"access_token":"new-token","refresh_token":"new-refresh-token"}}`,
+	))
+	request.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, 1, stub.updateAccountCalls)
+	require.Equal(t, map[string]any{
+		"access_token":  "new-token",
+		"refresh_token": "new-refresh-token",
+		"model_mapping": map[string]any{"gpt-5": "gpt-5"},
+		"account_id":    "existing-account-id",
+	}, stub.lastUpdateAccountInput.Credentials)
 }
 
 func TestOpenAIOAuthCodexPATBoundaryRejectsMalformedOpenAILongContextBillingValueBeforeTokenValidation(t *testing.T) {

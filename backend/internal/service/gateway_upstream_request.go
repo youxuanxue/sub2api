@@ -85,8 +85,13 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		}
 	}
 
+	// 一致性铁律：同一次请求内只取一次 mimic UA，出站 User-Agent 头与
+	// 请求体 x-anthropic-billing-header 的 cc_version 都源自这一个字符串，
+	// 避免运行期版本缓存翻转瞬间头/体版本自相矛盾（会被判非正版客户端）。
+	mimicUserAgent := claude.DefaultUserAgent()
+
 	// Mimicry may override the cached User-Agent later, even without a fingerprint.
-	if billingUA := effectiveBillingUserAgent(tokenType, mimicClaudeCode, fingerprint); billingUA != "" {
+	if billingUA := effectiveBillingUserAgent(mimicUserAgent, tokenType, mimicClaudeCode, fingerprint); billingUA != "" {
 		body = syncBillingHeaderVersion(body, billingUA)
 	}
 
@@ -182,7 +187,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// OAuth + mimic Claude Code：强制注入 CLI 指纹相关 header
 	// （user-agent/x-stainless-*/x-app/Accept/x-stainless-helper-method/x-client-request-id）
 	if tokenType == "oauth" && mimicClaudeCode {
-		applyClaudeCodeMimicHeaders(req, reqStream)
+		applyClaudeCodeMimicHeaders(req, reqStream, mimicUserAgent)
 	}
 
 	// 写入最终 anthropic-beta header
@@ -891,7 +896,16 @@ var defaultDroppedBetasSet = buildBetaTokenSet(claude.DroppedBetas)
 // applyClaudeCodeMimicHeaders forces "Claude Code-like" request headers.
 // This mirrors opencode-anthropic-auth behavior: do not trust downstream
 // headers when using Claude Code-scoped OAuth credentials.
-func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
+// mimicUserAgent 由调用方在同一请求内取一次传入，保证出站 User-Agent 头与
+// 请求体 billing attribution 的 cc_version 版本号严格一致。
+func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool, userAgent ...string) {
+	mimicUserAgent := ""
+	if len(userAgent) > 0 {
+		mimicUserAgent = userAgent[0]
+	}
+	if mimicUserAgent == "" {
+		mimicUserAgent = getHeaderRaw(req.Header, "User-Agent")
+	}
 	if req == nil {
 		return
 	}
@@ -906,6 +920,10 @@ func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
 		lowerKey := strings.ToLower(key)
 		if (lowerKey == "user-agent" || lowerKey == "x-stainless-package-version") && getHeaderRaw(req.Header, key) != "" {
 			continue
+		}
+		if key == "User-Agent" {
+			// 版本号与 billing 路径共用同一字符串（见 mimicUserAgent 注释）。
+			value = mimicUserAgent
 		}
 		setHeaderRaw(req.Header, resolveWireCasing(key), value)
 	}
@@ -963,3 +981,6 @@ func (s *GatewayService) validateUpstreamBaseURL(raw string) (string, error) {
 	}
 	return normalized, nil
 }
+
+// applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) remains the canonical header owner.
+// func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool)

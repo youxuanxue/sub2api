@@ -27,14 +27,14 @@ import (
 // so #3 must be a synced literal; this test is the lock that forbids drift.
 func TestCanonicalIdentityIsSingleSourceOfTruth(t *testing.T) {
 	// #2 defaultFingerprint must be a pure derivation of the canonical block.
-	require.Equal(t, canonicalHTTPObservedStatic.StainlessLang, defaultFingerprint.StainlessLang, "defaultFingerprint.StainlessLang drifted from canonical")
-	require.Equal(t, canonicalHTTPObservedStatic.StainlessPackageVersion, defaultFingerprint.StainlessPackageVersion, "defaultFingerprint.StainlessPackageVersion drifted from canonical")
-	require.Equal(t, canonicalHTTPObservedStatic.StainlessOS, defaultFingerprint.StainlessOS, "defaultFingerprint.StainlessOS drifted from canonical")
-	require.Equal(t, canonicalHTTPObservedStatic.StainlessArch, defaultFingerprint.StainlessArch, "defaultFingerprint.StainlessArch drifted from canonical")
-	require.Equal(t, canonicalHTTPObservedStatic.StainlessRuntime, defaultFingerprint.StainlessRuntime, "defaultFingerprint.StainlessRuntime drifted from canonical")
-	require.Equal(t, canonicalHTTPObservedStatic.StainlessRuntimeVersion, defaultFingerprint.StainlessRuntimeVersion, "defaultFingerprint.StainlessRuntimeVersion drifted from canonical")
-	require.True(t, strings.HasPrefix(defaultFingerprint.UserAgent, canonicalUAPrefix), "defaultFingerprint.UserAgent must use canonical prefix")
-	require.True(t, strings.HasSuffix(defaultFingerprint.UserAgent, canonicalUASuffix), "defaultFingerprint.UserAgent must use canonical suffix (got %q)", defaultFingerprint.UserAgent)
+	require.Equal(t, canonicalHTTPObservedStatic.StainlessLang, defaultFingerprint().StainlessLang, "defaultFingerprint().StainlessLang drifted from canonical")
+	require.Equal(t, canonicalHTTPObservedStatic.StainlessPackageVersion, defaultFingerprint().StainlessPackageVersion, "defaultFingerprint().StainlessPackageVersion drifted from canonical")
+	require.Equal(t, canonicalHTTPObservedStatic.StainlessOS, defaultFingerprint().StainlessOS, "defaultFingerprint().StainlessOS drifted from canonical")
+	require.Equal(t, canonicalHTTPObservedStatic.StainlessArch, defaultFingerprint().StainlessArch, "defaultFingerprint().StainlessArch drifted from canonical")
+	require.Equal(t, canonicalHTTPObservedStatic.StainlessRuntime, defaultFingerprint().StainlessRuntime, "defaultFingerprint().StainlessRuntime drifted from canonical")
+	require.Equal(t, canonicalHTTPObservedStatic.StainlessRuntimeVersion, defaultFingerprint().StainlessRuntimeVersion, "defaultFingerprint().StainlessRuntimeVersion drifted from canonical")
+	require.True(t, strings.HasPrefix(defaultFingerprint().UserAgent, canonicalUAPrefix), "defaultFingerprint().UserAgent must use canonical prefix")
+	require.True(t, strings.HasSuffix(defaultFingerprint().UserAgent, canonicalUASuffix), "defaultFingerprint().UserAgent must use canonical suffix (got %q)", defaultFingerprint().UserAgent)
 
 	// #3 claude.DefaultHeaders must carry byte-identical canonical identity
 	// fields. These are the keys that, mismatched against the canonical TLS

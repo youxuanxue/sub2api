@@ -417,14 +417,14 @@ func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Con
 
 		res, err := r.sql.ExecContext(ctx, `
 			WITH victims AS (
-				SELECT ctid
+				SELECT tableoid, ctid
 				FROM usage_logs
 				WHERE created_at < $1
 				ORDER BY created_at ASC, id ASC
 				LIMIT $2
 			)
 			DELETE FROM usage_logs
-			WHERE ctid IN (SELECT ctid FROM victims)
+			WHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM victims)
 		`, cutoff.UTC(), usageLogsCleanupBatchSize)
 		if err != nil {
 			return err
@@ -455,14 +455,14 @@ func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB
 	}
 	row := tx.QueryRowContext(ctx, `
 		WITH victims AS (
-			SELECT ctid
+			SELECT tableoid, ctid
 			FROM usage_logs
 			WHERE created_at < $1
 			ORDER BY created_at ASC, id ASC
 			LIMIT $2
 		), deleted AS (
 			DELETE FROM usage_logs
-			WHERE ctid IN (SELECT ctid FROM victims)
+			WHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM victims)
 			RETURNING created_at
 		)
 		SELECT COUNT(*) AS affected, MIN(created_at) AS earliest_deleted_at

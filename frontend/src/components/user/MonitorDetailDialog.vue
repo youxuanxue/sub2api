@@ -88,23 +88,27 @@ const { statusLabel, statusBadgeClass, formatLatency, formatPercent, formatMonit
 
 const detail = ref<UserMonitorDetail | null>(null)
 const loading = ref(false)
+let requestVersion = 0
 
 async function load(ids: readonly number[]) {
+  const version = ++requestVersion
   detail.value = null
   loading.value = true
   try {
     const details = await Promise.all(ids.map(fetchChannelMonitorDetail))
-    detail.value = mergePublicMonitorDetails(details)
+    if (version === requestVersion) detail.value = mergePublicMonitorDetails(details)
   } catch (err: unknown) {
+    if (version !== requestVersion) return
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   } finally {
-    loading.value = false
+    if (version === requestVersion) loading.value = false
   }
 }
 
 watch(
   () => [props.show, props.monitorIds.join(',')] as const,
-  ([show]) => {
+  ([show], _, onCleanup) => {
+    onCleanup(() => { requestVersion++ })
     if (!show) {
       detail.value = null
       return

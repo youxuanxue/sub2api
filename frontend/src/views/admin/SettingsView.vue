@@ -717,6 +717,9 @@ const form = reactive<SettingsForm>({
   openai_codex_client_version: "",
   openai_codex_client_version_synced: "",
   openai_codex_version_auto_sync_enabled: true,
+  claude_code_client_version: "",
+  claude_code_client_version_synced: "",
+  claude_code_version_auto_sync_enabled: true,
   min_codex_version: "",
   max_codex_version: "",
   codex_cli_only_blacklist: "",
@@ -771,6 +774,8 @@ provideSettingsState({
 
 // ── Load Settings ──
 
+
+
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -782,6 +787,9 @@ async function loadSettings() {
       if (value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value;
       }
+    }
+    if (settings.openai_oauth_scheduling_rate_multiplier === null) {
+      form.openai_oauth_scheduling_rate_multiplier = null;
     }
     // Gateway panel-local state (Claude OAuth blocks, codex rows, fingerprint signals)
     // is hydrated automatically via watchers on form fields in GatewayPanel.vue.
@@ -1085,6 +1093,16 @@ async function saveSettings() {
     form.claude_oauth_system_prompt_blocks =
       claudeOAuthSystemPromptBlocksJSON;
 
+    const oauthSchedulingRate = form.openai_oauth_scheduling_rate_multiplier;
+    if (
+      oauthSchedulingRate !== "" &&
+      oauthSchedulingRate !== null &&
+      (!Number.isFinite(oauthSchedulingRate) || oauthSchedulingRate < 0)
+    ) {
+      appStore.showError(t("admin.settings.openaiExperimentalScheduler.oauthRateInvalid"));
+      return;
+    }
+
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
       email_verify_enabled: form.email_verify_enabled,
@@ -1296,6 +1314,9 @@ async function saveSettings() {
         form.openai_codex_client_version?.trim() || "",
       openai_codex_version_auto_sync_enabled:
         form.openai_codex_version_auto_sync_enabled,
+      claude_code_client_version: form.claude_code_client_version?.trim() || "",
+      claude_code_version_auto_sync_enabled:
+        form.claude_code_version_auto_sync_enabled,
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:
@@ -1346,7 +1367,7 @@ async function saveSettings() {
       openai_low_upstream_rate_priority_enabled:
         form.openai_low_upstream_rate_priority_enabled,
       openai_oauth_scheduling_rate_multiplier:
-        form.openai_oauth_scheduling_rate_multiplier,
+        oauthSchedulingRate === "" ? null : oauthSchedulingRate,
       openai_advanced_scheduler_enabled: form.openai_advanced_scheduler_enabled,
       openai_advanced_scheduler_sticky_weighted_enabled:
         form.openai_advanced_scheduler_sticky_weighted_enabled,
@@ -1450,6 +1471,9 @@ async function saveSettings() {
       if (value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value;
       }
+    }
+    if (updated.openai_oauth_scheduling_rate_multiplier === null) {
+      form.openai_oauth_scheduling_rate_multiplier = null;
     }
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(updated));
     form.default_platform_quotas = normalizePlatformQuotasMap(updated.default_platform_quotas);

@@ -2604,6 +2604,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, tkInsufficientBalanceForHoldMsg)
 		return
 	}
+	// A WebSocket may outlive a key's remaining spending window. Recheck
+	// after acquiring turn slots, including the first account-selection wait.
+	// Restrict this extra check to the opt-in mode so standard-mode RPM checks
+	// are not charged a second time for the same request.
+	checkSimpleModeTurnBilling := func() error {
+		if h.cfg == nil || h.cfg.RunMode != config.RunModeSimple || !h.cfg.SimpleModeKeyRateLimitEnabled {
+			return nil
+		}
+		if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(ctx, apiKey)); err != nil {
+			return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing check failed", err)
+		}
+		return nil
+	}
 
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(
 		c,
@@ -2863,6 +2876,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// turn 级定价：BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号；
 		// Legacy passthrough 没有 BeforeTurn 时，AfterTurn 回退到所属 turn 的开始时刻。
 		var turnPricing openAIWSTurnPricing
+		// Passthrough ingress does not invoke BeforeTurn for the first frame.
+		if err := checkSimpleModeTurnBilling(); err != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
+			return
+		}
 		hooks := &service.OpenAIWSIngressHooks{
 			ClientLifecycleContext: clientLifecycleCtx,
 			InitialRequestModel:    reqModel,
@@ -2955,7 +2973,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return service.CandidateEffectiveModel(ctx, mapping.MappedModel), nil
 			},
 			BeforeTurn: func(turn int) error {
-				return h.tkWSBeforeTurn(ctx, tkWSBeforeTurnInput{
+				if err := h.tkWSBeforeTurn(ctx, tkWSBeforeTurnInput{
 					Turn:                  turn,
 					CyberBlockedThisConn:  cyberBlockedThisConn,
 					APIKey:                apiKey,
@@ -2967,7 +2985,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					ReleaseTurnSlots:      releaseTurnSlots,
 					CurrentUserRelease:    &currentUserRelease,
 					CurrentAccountRelease: &currentAccountRelease,
-				})
+				}); err != nil {
+					return err
+				}
+				return checkSimpleModeTurnBilling()
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				turnStart := getTurnStart(turn)
@@ -3383,6 +3404,7 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
 		return
 	}
+	copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
 	if failoverErr.IsOpenAIRequestBodyTooLarge() {
 		service.SetOpsUpstreamError(c, http.StatusRequestEntityTooLarge, service.OpenAIRequestBodyTooLargeClientMessage, "")
 		h.handleStreamingAwareError(
@@ -3402,7 +3424,19 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", message, streamStarted)
 		return
 	}
-	copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
+	if failoverErr.Reason == service.OpenAIImagesInsufficientBalanceReason {
+		status := failoverErr.ClientStatusCode
+		if status <= 0 {
+			status = http.StatusPaymentRequired
+		}
+		message := strings.TrimSpace(failoverErr.ClientMessage)
+		if message == "" {
+			message = service.OpenAIImagesInsufficientBalanceMessage
+		}
+		service.SetOpsUpstreamError(c, failoverErr.StatusCode, message, "")
+		h.handleStreamingAwareErrorWithCode(c, status, "upstream_error", service.OpenAIImagesInsufficientBalanceCode, message, streamStarted, false)
+		return
+	}
 	if failoverErr.IsCredentialFailure() {
 		status, message := credentialFailoverClientResponse(failoverErr)
 		h.handleStreamingAwareError(c, status, "upstream_error", message, streamStarted)

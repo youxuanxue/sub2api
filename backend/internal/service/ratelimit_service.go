@@ -865,7 +865,7 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,
 	// 且 403 在 failover 状态集里会被逐账号重放——直接 SetError 会让一个坏请求/
 	// 一层坏代理连环永久禁用整组账号。走 HTML 豁免 + N 次累计 + 临时冷却。
-	if account.Platform == PlatformOpenAI || IsCNProvider(account.Platform) {
+	if account.Platform == PlatformOpenAI || account.Platform == PlatformOpenCodeGo || IsCNProvider(account.Platform) {
 		if IsCNProvider(account.Platform) && openAIIsHTMLBody(responseBody) {
 			// CN provider CDN/proxy HTML is request-level noise. Do not report
 			// it as an account failover/disable signal or mutate account state.
@@ -879,6 +879,15 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
 	if handled, disable := s.tkOpenAI403PrePenaltyGates(account, upstreamMsg, responseBody); handled {
 		return disable
+	}
+	if isCloudflareBotBlockResponse(responseBody) {
+		slog.Warn(
+			"openai_403_cloudflare_bot_block_skips_account_penalty",
+			"account_id", account.ID,
+			"platform", account.Platform,
+			"upstream_message", upstreamMsg,
+		)
+		return false
 	}
 
 	msg := buildForbiddenErrorMessage(
@@ -923,6 +932,14 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		"threshold", openAI403DisableThreshold,
 	)
 	return true
+}
+
+// isCloudflareBotBlockResponse reports Cloudflare's WAF bot-signature response
+// (error code 1010). The upstream never reached the account API, so this is a
+// request/edge-level failure and must not consume the account 403 strike budget.
+func isCloudflareBotBlockResponse(body []byte) bool {
+	normalized := strings.ToLower(strings.TrimSpace(string(body)))
+	return strings.Contains(normalized, "error code: 1010")
 }
 
 // handleAntigravity403 处理 Antigravity 平台的 403 错误。
@@ -2738,6 +2755,7 @@ func (s *RateLimitService) triggerStreamTimeoutError(ctx context.Context, accoun
 // TokenKey owner migration: retained from backend/internal/service/ratelimit_service_tk_model_not_found.go during upstream convergence.
 const upstreamModelNotFoundCooldown = 30 * time.Minute
 const upstreamModelNotFoundReason = "upstream_404_model_not_found"
+const upstreamModelNotFound401Reason = "upstream_401_model_not_found"
 const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
 const upstreamModelRetiredCooldown = 30 * time.Minute
@@ -2765,6 +2783,8 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 		cooldown, reason = upstreamModelRetiredCooldown, upstreamModelRetiredReason
 	case isUpstreamModelNotFoundError(statusCode, responseBody):
 		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason
+	case statusCode == http.StatusUnauthorized && account.Type == AccountTypeAPIKey && account.IsOpenAICompatible() && isOpenAICompatibleModelNotFoundBody(responseBody):
+		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFound401Reason
 	case isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody):
 		cooldown, reason = upstreamCodexPlanGatedModelCooldown, upstreamCodexPlanGatedModelReason
 	default:

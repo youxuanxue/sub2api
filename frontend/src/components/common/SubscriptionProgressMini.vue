@@ -185,6 +185,7 @@ import { useSubscriptionStore } from '@/stores'
 import { isNetworkError } from '@/api/client.tk'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import type { UserSubscription } from '@/types'
+import { getExpirationDateRelation } from '@/utils/subscriptionQuota'
 
 const { t } = useI18n()
 
@@ -265,10 +266,11 @@ function formatDaysRemaining(expiresAt: string): string {
   const now = new Date()
   const expires = new Date(expiresAt)
   const diff = expires.getTime() - now.getTime()
-  if (diff < 0) return t('subscriptionProgress.expired')
+  const relation = getExpirationDateRelation(expires, now)
+  if (relation === 'expired') return t('subscriptionProgress.expired')
+  if (relation === 'today') return t('subscriptionProgress.expiresToday')
+  if (relation === 'tomorrow') return t('subscriptionProgress.expiresTomorrow')
   const days = Math.ceil(diff / (1000 * 60 * 60 * 24))
-  if (days === 0) return t('subscriptionProgress.expiresToday')
-  if (days === 1) return t('subscriptionProgress.expiresTomorrow')
   return t('subscriptionProgress.daysRemaining', { days })
 }
 

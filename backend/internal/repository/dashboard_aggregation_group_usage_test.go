@@ -279,7 +279,7 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsNonPartitionedFailureRoll
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
-	mock.ExpectQuery(`(?s)SELECT ctid.*ORDER BY created_at ASC, id ASC.*DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
+	mock.ExpectQuery(`(?s)SELECT tableoid, ctid.*ORDER BY created_at ASC, id ASC.*DELETE FROM usage_logs.*RETURNING created_at.*SELECT COUNT\(\*\) AS affected, MIN\(created_at\) AS earliest_deleted_at`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
 		WillReturnRows(sqlmock.NewRows([]string{"affected", "earliest_deleted_at"}).AddRow(1, deletedAt))
 	mock.ExpectExec(`UPDATE usage_group_rollup_state`).

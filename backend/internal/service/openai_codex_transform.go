@@ -76,12 +76,16 @@ var codexModelMap = map[string]string{
 	"gpt-5.1-codex-mini":  "gpt-5.3-codex-spark",
 	"codex-mini-latest":   "gpt-5.3-codex-spark",
 	"gpt-5.3-chat-latest": "gpt-5.3-codex-spark",
+	"gpt-6-sol":           "gpt-6-sol",
+	"gpt-6-luna":          "gpt-6-luna",
 }
 
 var codexVersionModelPrefixes = []struct {
 	prefix string
 	target string
 }{
+	{prefix: "gpt-6-sol", target: "gpt-6-sol"},
+	{prefix: "gpt-6-luna", target: "gpt-6-luna"},
 	// Longer GPT-5.6 prefixes first so sol/terra/luna/chat-latest win over bare gpt-5.6.
 	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
@@ -683,6 +687,12 @@ func remapOpenAICodexWireModel(modelID string) string {
 	modelID = strings.TrimSpace(modelID)
 	if modelID == "" {
 		return ""
+	}
+	if openai.IsGPT6SolOrLunaModelSpelling(modelID) {
+		if strings.HasPrefix(strings.ToLower(lastOpenAIModelSegment(modelID)), "gpt-6-sol") {
+			return "gpt-6-sol"
+		}
+		return "gpt-6-luna"
 	}
 	if mapped := getNormalizedCodexModel(modelID); mapped != "" {
 		return mapped

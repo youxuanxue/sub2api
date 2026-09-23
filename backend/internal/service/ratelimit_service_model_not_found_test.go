@@ -425,3 +425,26 @@ func TestModelRetirementDoesNotCoolUnrelatedGone(t *testing.T) {
 	require.Empty(t, repo.modelRateLimitCalls)
 	require.Zero(t, repo.tempCalls)
 }
+
+func TestRateLimitService_HandleUpstreamError_APIKeyModel401UsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusUnauthorized,
+		http.Header{},
+		[]byte(`{"error":{"message":"unknown model definitely-not-real"}}`),
+		"definitely-not-real",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "definitely-not-real", call.scope)
+	require.Equal(t, upstreamModelNotFound401Reason, call.reason)
+}

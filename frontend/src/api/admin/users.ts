@@ -330,7 +330,12 @@ export async function bindUserAuthIdentity(
 /**
  * Platform quota types
  */
-export type PlatformQuotaPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'google' | 'grok'
+// Keep aligned with backend/internal/service/domain_constants.go AllowedQuotaPlatforms.
+export const PLATFORM_QUOTA_PLATFORMS = [
+  'anthropic', 'openai', 'gemini', 'antigravity', 'newapi', 'kiro', 'grok',
+  'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go',
+] as const
+export type PlatformQuotaPlatform = typeof PLATFORM_QUOTA_PLATFORMS[number]
 export type PlatformQuotaWindow = 'daily' | 'weekly' | 'monthly'
 
 export interface PlatformQuotaItem {

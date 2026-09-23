@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -16,12 +15,12 @@ var ccVersionInBillingRe = regexp.MustCompile(`cc_version=\d+\.\d+\.\d+`)
 var ccVersionWithFingerprintInBillingRe = regexp.MustCompile(`cc_version=\d+\.\d+\.\d+\.[0-9a-fA-F]{3}\b`)
 
 // TokenKey keeps the selected account identity ahead of the mimicry fallback.
-func effectiveBillingUserAgent(tokenType string, mimicClaudeCode bool, fingerprint *Fingerprint) string {
+func effectiveBillingUserAgent(mimicUserAgent, tokenType string, mimicClaudeCode bool, fingerprint *Fingerprint) string {
 	if fingerprint != nil && fingerprint.UserAgent != "" {
 		return fingerprint.UserAgent
 	}
 	if tokenType == "oauth" && mimicClaudeCode {
-		return claude.DefaultHeaders()["User-Agent"]
+		return mimicUserAgent
 	}
 	return ""
 }

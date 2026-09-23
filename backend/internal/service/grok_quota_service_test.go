@@ -962,3 +962,9 @@ func TestShouldAutoPauseGrokAccountByQuota(t *testing.T) {
 		})
 	}
 }
+
+func (u *grokHybridUpstream) quotaSnapshot() ([]*http.Request, [][]byte) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return append([]*http.Request(nil), u.requests...), append([][]byte(nil), u.bodies...)
+}
