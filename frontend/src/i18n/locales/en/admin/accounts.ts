@@ -1366,6 +1366,11 @@ export default {
           'All model requests are forwarded directly to the Gemini API without model restrictions or mappings.',
         baseUrlHint: 'Leave default for official Gemini API',
         apiKeyHint: 'Your Gemini API Key (starts with AIza)',
+        webSessionImportTitle: 'Import Gemini Web browser session',
+        webSessionImportHint: 'Choose the JSON exported by the Total Fingerprint Browser. Cookies are sent directly to the server and are never shown in the UI. Importing keeps the current scheduling state.',
+        webSessionImportInvalid: 'Invalid Gemini Web session JSON',
+        webSessionImportDone: 'Gemini Web session imported successfully',
+        webSessionImportSuccess: 'Imported {count} cookies (runtime version {version})',
         tier: {
           label: 'Account Tier',
           hint: 'Tip: The system will try to auto-detect the tier first; if auto-detection is unavailable or fails, your selected tier is used as a fallback (simulated quota).',

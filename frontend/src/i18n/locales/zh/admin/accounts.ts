@@ -1461,6 +1461,11 @@ export default {
         modelPassthroughDesc: '所有模型请求将直接转发至 Gemini API，不进行模型限制或映射。',
         baseUrlHint: '留空使用官方 Gemini API',
         apiKeyHint: '您的 Gemini API Key（以 AIza 开头）',
+        webSessionImportTitle: '导入 Gemini Web 浏览器会话',
+        webSessionImportHint: '选择总指纹浏览器导出的 JSON 文件。Cookie 只会直接发送到服务器，不会在界面展示；导入后保持当前调度状态。',
+        webSessionImportInvalid: 'Gemini Web 会话 JSON 无效',
+        webSessionImportDone: 'Gemini Web 会话导入成功',
+        webSessionImportSuccess: '已导入 {count} 个 Cookie（运行时版本 {version}）',
         tier: {
           label: '账号等级',
           hint: '提示：系统会优先尝试自动识别账号等级；若自动识别不可用或失败，则使用你选择的等级作为回退（本地模拟配额）。',
