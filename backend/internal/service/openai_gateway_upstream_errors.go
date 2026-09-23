@@ -299,8 +299,12 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		semantic = gatewayFailureSemanticAccountFault
 	} else if tkIsCapabilityScope401(statusCode, upstreamBody) {
 		semantic = gatewayFailureSemanticSharedFault
-	} else if isOpenAIImageCapabilityLoss400(statusCode, upstreamBody) ||
-		isOpenAIImageCapabilityLossError(statusCode, upstreamBody) {
+	} else if isOpenAIImageCapabilityLoss400(statusCode, upstreamBody) {
+		// Account-level "image_generation not supported/available" — failover.
+		// Do NOT include isOpenAIImageCapabilityLossError here: that shape is
+		// "tool_choice not in tools" and is only safe under self-built images
+		// requests (ctx gate in handleOpenAIAccountUpstreamError). Passthrough
+		// clients own their tools and must not rotate the pool on a bad request.
 		semantic = gatewayFailureSemanticAccountFault
 	} else if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) ||
 		isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {

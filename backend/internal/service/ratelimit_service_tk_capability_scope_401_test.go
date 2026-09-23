@@ -118,6 +118,18 @@ func TestOpenAIGatewayService_ShouldFailover_ImageCapabilityScope401AllowsFailov
 		"generic 401 must still failover")
 }
 
+func TestOpenAIGatewayService_ShouldFailover_ImageCapabilityLoss400ButNotClientToolChoice(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	accountLoss := []byte(`{"error":{"message":"The image_generation tool is not supported for this account."}}`)
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, http.StatusBadRequest, "", accountLoss),
+		"account-level image capability loss must failover")
+
+	clientToolChoice := []byte(`{"error":{"message":"Tool choice 'image_generation' not found in 'tools' parameter.","param":"tool_choice","type":"invalid_request_error"}}`)
+	require.True(t, isOpenAIImageCapabilityLossError(http.StatusBadRequest, clientToolChoice))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, http.StatusBadRequest, "", clientToolChoice),
+		"client/passthrough tool_choice mismatch must not rotate the pool via shouldFailover")
+}
+
 func TestOpenAIGatewayService_HandleOpenAIAccountUpstreamError_ImageScope401CoolsImageOnlyAndFailovers(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{accountRepo: repo}}

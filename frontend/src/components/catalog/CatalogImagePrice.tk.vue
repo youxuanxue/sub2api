@@ -53,7 +53,7 @@ const tokenLines = computed(() => {
     v-else-if="view.kind === 'image_tokens'"
     mode="single"
     :lines="tokenLines"
-    :price-label="t('models.outputPrice')"
+    price-label=""
     :unit-label="t('pricing.perMillionTokens')"
     data-tk="catalog-image-price-tokens"
   />
