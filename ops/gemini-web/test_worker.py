@@ -241,6 +241,16 @@ class WorkerTests(unittest.TestCase):
             self.assertNotIn('secret', str(error.exception))
         restored.session.close()
 
+    def test_generation_auth_failure_clears_pending_but_keeps_session_blocked(self):
+        with patch.object(self.account.session, 'request', return_value=SimpleNamespace(status_code=403, headers={})):
+            with self.assertRaisesRegex(worker.Failure, 'operator verification'):
+                self.account.generate('gemini-web-flash', {
+                    'contents': [{'parts': [{'text': 'x'}]}]})
+        self.assertTrue(self.account.blocked)
+        self.assertFalse(self.account.generation_pending)
+        self.assertFalse(self.saved['generation_pending'])
+        self.assertTrue(self.saved['blocked'])
+
     def test_uncertain_generation_is_not_repeated_after_restart(self):
         with patch.object(self.account, 'call', side_effect=worker.Failure(502, 'uncertain transport')) as call:
             with self.assertRaises(worker.Failure):
@@ -252,6 +262,18 @@ class WorkerTests(unittest.TestCase):
                 restored.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
             call.assert_not_called()
         restored.session.close()
+
+    def test_local_pending_pause_survives_repeated_retries(self):
+        with patch.object(self.account, 'call', side_effect=worker.Failure(502, 'uncertain transport')):
+            with self.assertRaises(worker.Failure):
+                self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
+        self.assertTrue(self.account.generation_pending)
+        with patch.object(self.account, 'call', return_value=(None, wire().encode())) as call:
+            for _ in range(2):
+                with self.assertRaisesRegex(worker.Failure, 'paused'):
+                    self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
+            call.assert_not_called()
+        self.assertTrue(self.account.generation_pending)
 
     def test_import_requires_renewal_and_refresh_uses_same_jar(self):
         imported = worker.Account(bundle('cookie-fresh'), persist_callback=self.save)

@@ -64,7 +64,9 @@ Worker 校验该账号的 API key，不能仅凭 account ID 执行。维护任�
 Worker 每分钟只读维护元数据，只有到期账号才申请租约并执行 RotateCookies → bootstrap，
 正常续期间隔十分钟；暂停、冷却、在途租约和未确认生成不会进入维护列表。
 每次 HTTP 响应保存 Cookie 更新；runtime 未变化时不重复写入。
-生成前持久化 generation_pending，只有完整成功或明确 quota 拒绝才清除；
+生成前持久化 generation_pending，完整成功或明确 quota 拒绝后清除；本次调用收到上游
+明确鉴权拒绝且已将会话标记 blocked 时，也清除 pending，但 blocked 继续阻止请求。
+本地暂停返回的 403 不清除 pending，连续重试不能绕过暂停。
 下载失败或未知生成结果跨重启保持暂停，防止重复消耗额度。
 
 普通账号编辑和 credentials 更新在数据库行锁内保留当前会话，防止旧快照覆盖 Worker 更新。
