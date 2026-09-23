@@ -484,6 +484,16 @@ class Account:
                 self.cooldown_until = time.time() + 300
                 self.generation_pending = False
                 self.persist()
+            elif exc.code in (401, 403):
+                # Authentication/authorization failures are terminal for this
+                # session: call() has already persisted blocked=True when the
+                # upstream rejected the Google session.  Clear the in-flight
+                # marker so a gateway retry observes the blocked session rather
+                # than a misleading "generation pending" state.  Keep the
+                # marker for 5xx/transport/parse failures because the upstream
+                # may have generated a response and retrying could duplicate it.
+                self.generation_pending = False
+                self.persist()
             raise
 
 
