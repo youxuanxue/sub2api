@@ -45,6 +45,9 @@ type CandidateRequest struct {
 	bodyModelsResolved    bool
 	requestProfile        protocolrouter.RequestProfile
 	requestProfileValid   bool
+	// Only immutable content outcomes cross group preparation and reselection;
+	// account snapshots and permission-specific plans retain their own lifetime.
+	cursorContent *cursorRequestContentCache
 }
 
 type candidateRequestContextKey struct{}
@@ -227,6 +230,7 @@ func (r *CandidateRequest) RevalidateTurn(ctx context.Context, accountID int64, 
 	r.model, r.body = model, append([]byte(nil), body...)
 	r.bodyModelsResolved = false
 	r.bodyModelCandidates = nil
+	r.cursorContent = nil
 	r.requestProfile, r.requestProfileValid = candidateRequestProfile(r.shape, r.path, model, body)
 	ctx = r.withRequest(ctx, model, body)
 	_, err := r.selectAccount(ctx, candidateSelectOptions{})
@@ -367,9 +371,22 @@ func (r *CandidateRequest) pathContext(ctx context.Context, group *Group) (conte
 
 func (r *CandidateRequest) withRequest(ctx context.Context, model string, body []byte) context.Context {
 	if r.requestProfileValid {
-		return r.resolver.WithRequestProfile(ctx, r.shape, r.path, model, body, r.requestProfile)
+		ctx = r.resolver.WithRequestProfile(ctx, r.shape, r.path, model, body, r.requestProfile)
+	} else {
+		ctx = r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
 	}
-	return r.resolver.WithRequest(ctx, r.shape, r.path, model, body)
+	routing, ok := ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
+	if !ok {
+		return ctx
+	}
+	if r.cursorContent == nil {
+		r.cursorContent = &cursorRequestContentCache{}
+	}
+	if routing.content == r.cursorContent {
+		return ctx
+	}
+	routing.content = r.cursorContent
+	return context.WithValue(ctx, protocolRoutingContextKey{}, routing)
 }
 
 func candidateAccountInGroup(account *Account, groupID int64) bool {
