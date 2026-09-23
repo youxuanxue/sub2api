@@ -51,54 +51,53 @@ func TestDownstreamRejectsSSECommentsReadsBothHeaders(t *testing.T) {
 
 // runAntigravityGeminiStreamWithIdle 起一条上游流：先发一个 data 事件，然后空闲 idle 时长再关闭，
 // 返回写给下游的全部字节。用来观察空闲期间网关是否发了 ":\n\n" 心跳。
-func runAntigravityGeminiStreamWithIdle(t *testing.T, userAgent string, idle time.Duration) string {
+func runAntigravityGeminiStreamWithIdle(t *testing.T, userAgent string, idle time.Duration) (out string) {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
-	svc := newAntigravityCompatService(
-		config.GatewayConfig{MaxLineSize: defaultMaxLineSize, StreamKeepaliveInterval: 1},
-		nil,
-	)
-	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1beta/models/gemini-3.8-flash:streamGenerateContent", nil)
-	if userAgent != "" {
-		c.Request.Header.Set("User-Agent", userAgent)
-	}
-	reader, writer := io.Pipe()
-	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: reader}
-	done := make(chan error, 1)
-	go func() {
-		_, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
-		done <- err
-	}()
-	_, err := io.WriteString(
-		writer,
-		`data: {"response":{"responseId":"resp_1","candidates":[{"content":{"parts":[{"text":"partial"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1}}}`+"\n\n",
-	)
-	require.NoError(t, err)
-	// Drain the first event before advancing virtual time; wall-clock sleeps race
-	// the ticker phase and can close the upstream before the first idle heartbeat.
-	synctest.Wait()
-	time.Sleep(idle)
-	synctest.Wait()
-	require.NoError(t, writer.Close())
-	require.NoError(t, <-done)
-	require.NoError(t, reader.Close())
-	return recorder.Body.String()
+	synctest.Test(t, func(t *testing.T) {
+		gin.SetMode(gin.TestMode)
+		svc := newAntigravityCompatService(
+			config.GatewayConfig{MaxLineSize: defaultMaxLineSize, StreamKeepaliveInterval: 1},
+			nil,
+		)
+		c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1beta/models/gemini-3.8-flash:streamGenerateContent", nil)
+		if userAgent != "" {
+			c.Request.Header.Set("User-Agent", userAgent)
+		}
+		reader, writer := io.Pipe()
+		resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: reader}
+		done := make(chan error, 1)
+		go func() {
+			_, err := svc.handleGeminiStreamingResponse(c, resp, time.Now())
+			done <- err
+		}()
+		_, err := io.WriteString(
+			writer,
+			`data: {"response":{"responseId":"resp_1","candidates":[{"content":{"parts":[{"text":"partial"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1}}}`+"\n\n",
+		)
+		require.NoError(t, err)
+		// Drain the first event before advancing virtual time; wall-clock sleeps race
+		// the ticker phase and can close the upstream before the first idle heartbeat.
+		synctest.Wait()
+		time.Sleep(idle)
+		synctest.Wait()
+		require.NoError(t, writer.Close())
+		require.NoError(t, <-done)
+		require.NoError(t, reader.Close())
+		out = recorder.Body.String()
+	})
+	return out
 }
 
 func TestAntigravityGeminiStreamKeepsCommentKeepaliveForOrdinaryClients(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		out := runAntigravityGeminiStreamWithIdle(t, "curl/8.7.1", 1200*time.Millisecond)
-		require.Contains(t, out, ":\n\n", "ordinary clients should still get the idle keepalive")
-		require.Contains(t, out, `"text":"partial"`)
-	})
+	out := runAntigravityGeminiStreamWithIdle(t, "curl/8.7.1", 1200*time.Millisecond)
+	require.Contains(t, out, ":\n\n", "ordinary clients should still get the idle keepalive")
+	require.Contains(t, out, `"text":"partial"`)
 }
 
 func TestAntigravityGeminiStreamSkipsCommentKeepaliveForGoGenai(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		out := runAntigravityGeminiStreamWithIdle(t, "google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03", 1200*time.Millisecond)
-		require.Contains(t, out, `"text":"partial"`)
-		for _, event := range strings.Split(out, "\n\n") {
-			require.False(t, strings.HasPrefix(event, ":"), "go-genai must never receive an SSE comment event, got %q", event)
-		}
-	})
+	out := runAntigravityGeminiStreamWithIdle(t, "google-genai-sdk/1.71.0 gl-go/go1.28-20260721-RC03", 1200*time.Millisecond)
+	require.Contains(t, out, `"text":"partial"`)
+	for _, event := range strings.Split(out, "\n\n") {
+		require.False(t, strings.HasPrefix(event, ":"), "go-genai must never receive an SSE comment event, got %q", event)
+	}
 }
