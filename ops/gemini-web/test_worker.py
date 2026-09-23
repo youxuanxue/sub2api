@@ -250,6 +250,18 @@ class WorkerTests(unittest.TestCase):
             call.assert_not_called()
         restored.session.close()
 
+    def test_local_pending_pause_survives_repeated_retries(self):
+        with patch.object(self.account, 'call', side_effect=worker.Failure(502, 'uncertain transport')):
+            with self.assertRaises(worker.Failure):
+                self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
+        self.assertTrue(self.account.generation_pending)
+        with patch.object(self.account, 'call', return_value=(None, wire().encode())) as call:
+            for _ in range(2):
+                with self.assertRaisesRegex(worker.Failure, 'paused'):
+                    self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
+            call.assert_not_called()
+        self.assertTrue(self.account.generation_pending)
+
     def test_import_requires_renewal_and_refresh_uses_same_jar(self):
         imported = worker.Account(bundle('cookie-fresh'), persist_callback=self.save)
         self.assertEqual(imported.last_refresh, 0)

@@ -422,6 +422,7 @@ class Account:
 
     def generate(self, model, body):
         prompt, modalities = request_prompt(body, model)
+        blocked_at_start = self.blocked
         try:
             if self.blocked or self.generation_pending:
                 raise Failure(403, 'Session paused; operator verification or re-import required')
@@ -484,14 +485,12 @@ class Account:
                 self.cooldown_until = time.time() + 300
                 self.generation_pending = False
                 self.persist()
-            elif exc.code in (401, 403):
+            elif exc.code in (401, 403) and self.blocked and not blocked_at_start:
                 # Authentication/authorization failures are terminal for this
-                # session: call() has already persisted blocked=True when the
-                # upstream rejected the Google session.  Clear the in-flight
-                # marker so a gateway retry observes the blocked session rather
-                # than a misleading "generation pending" state.  Keep the
-                # marker for 5xx/transport/parse failures because the upstream
-                # may have generated a response and retrying could duplicate it.
+                # session: call() has already persisted blocked=True during this
+                # operation when Google rejected the session.  A local pause
+                # (generation_pending) also raises 403, but must retain the
+                # marker so an uncertain upstream operation cannot be retried.
                 self.generation_pending = False
                 self.persist()
             raise
