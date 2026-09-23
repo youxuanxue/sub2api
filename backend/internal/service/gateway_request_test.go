@@ -1630,6 +1630,7 @@ func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 		wantPath      string
 		wantValue     string
 		wantUnchanged bool
+		wantNoThink   bool
 	}{
 		{
 			name:        "flat xhigh maps to max",
@@ -1687,6 +1688,45 @@ func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 			wantUnchanged: true,
 		},
 		{
+			name:          "glm 5.3 flash low unchanged",
+			model:         "glm-5.3-flash",
+			input:         `{"model":"glm-5.3-flash","reasoning_effort":"low","messages":[]}`,
+			wantApplied:   false,
+			wantUnchanged: true,
+		},
+		{
+			name:        "glm 5.3 flash none maps to low",
+			model:       "glm-5.3-flash",
+			input:       `{"model":"glm-5.3-flash","reasoning_effort":"none","messages":[]}`,
+			wantApplied: true,
+			wantPath:    "reasoning_effort",
+			wantValue:   "low",
+		},
+		{
+			name:        "glm 5.3 flash medium maps to high",
+			model:       "glm-5.3-flash",
+			input:       `{"model":"glm-5.3-flash","reasoning_effort":"medium","messages":[]}`,
+			wantApplied: true,
+			wantPath:    "reasoning_effort",
+			wantValue:   "high",
+		},
+		{
+			name:        "glm 5.3 flash strips thinking disabled and injects low",
+			model:       "glm-5.3-flash",
+			input:       `{"model":"glm-5.3-flash","thinking":{"type":"disabled"},"messages":[]}`,
+			wantApplied: true,
+			wantPath:    "reasoning_effort",
+			wantValue:   "low",
+			wantNoThink: true,
+		},
+		{
+			name:          "glm 5.2 keeps thinking disabled",
+			model:         "glm-5.2",
+			input:         `{"model":"glm-5.2","thinking":{"type":"disabled"},"messages":[]}`,
+			wantApplied:   false,
+			wantUnchanged: true,
+		},
+		{
 			name:          "native max unchanged",
 			model:         "glm-5.2",
 			input:         `{"model":"glm-5.2","reasoning_effort":"max","messages":[]}`,
@@ -1724,7 +1764,30 @@ func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 				require.Equal(t, tt.input, string(got))
 				return
 			}
-			require.Equal(t, tt.wantValue, gjson.GetBytes(got, tt.wantPath).String())
+			if tt.wantNoThink {
+				require.False(t, gjson.GetBytes(got, "thinking").Exists())
+			}
+			if tt.wantPath != "" {
+				require.Equal(t, tt.wantValue, gjson.GetBytes(got, tt.wantPath).String())
+			}
 		})
 	}
+}
+
+func TestNormalizeGLM53AnthropicThinking(t *testing.T) {
+	t.Run("flash disabled becomes enabled low", func(t *testing.T) {
+		got, applied := NormalizeGLM53AnthropicThinking(
+			[]byte(`{"model":"glm-5.3-flash","thinking":{"type":"disabled"},"messages":[]}`),
+			"glm-5.3-flash",
+		)
+		require.True(t, applied)
+		require.Equal(t, "enabled", gjson.GetBytes(got, "thinking.type").String())
+		require.Equal(t, "low", gjson.GetBytes(got, "output_config.effort").String())
+	})
+	t.Run("glm-5.2 unchanged", func(t *testing.T) {
+		in := `{"model":"glm-5.2","thinking":{"type":"disabled"},"messages":[]}`
+		got, applied := NormalizeGLM53AnthropicThinking([]byte(in), "glm-5.2")
+		require.False(t, applied)
+		require.Equal(t, in, string(got))
+	})
 }

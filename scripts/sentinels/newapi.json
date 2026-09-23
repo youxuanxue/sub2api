@@ -589,17 +589,17 @@
         "\"invalid_parameter\"",
         "thinking.type"
       ],
-      "rationale": "Owner for Moonshot/Kimi thinking parameter compatibility before upstream relay. Coerces thinking bool→object, strips/rejects model-family-incompatible fields (k3 vs k2.x vs k2.7-code), and returns field-level OpenAI 400 with error.param. Dropping it reopens the dominant Kimi client-induced 400 class (boolean thinking / mutual exclusion / wrong family fields)."
+      "rationale": "Owner for Moonshot/Kimi thinking parameter compatibility before upstream relay. Coerces thinking bool→object, soft-strips always-on disable (k3 / k2.7-code), remaps common effort aliases, and returns field-level OpenAI 400 with error.param only for truly invalid shapes. Dropping it reopens the dominant Kimi client-induced 400 class."
     },
     {
       "path": "backend/internal/service/openai_gateway_moonshot_thinking_shape_tk_test.go",
       "must_contain": [
         "TestNormalizeMoonshotThinking_BoolToObject",
         "TestNormalizeMoonshotThinking_K3StripsThinkingKeepsEffort",
-        "TestNormalizeMoonshotThinking_K3RejectsDisableAndBadEffort",
+        "TestNormalizeMoonshotThinking_K3SoftRemapsDisableAndEffortAliases",
         "TestApplyMoonshotThinkingShape_WritesParamError"
       ],
-      "rationale": "Focused regressions for Moonshot thinking shape: bool coerce, k3 strip+effort keep, reject paths with param, and gin error envelope with error.param."
+      "rationale": "Focused regressions for Moonshot thinking shape: bool coerce, k3 strip+effort keep, soft disable/effort aliases, and gin error envelope with error.param for unknown tokens."
     },
     {
       "path": "backend/internal/service/openai_gateway_chat_completions_raw.go",

@@ -72,16 +72,38 @@ func TestNormalizeMoonshotThinking_K3StripsThinkingKeepsEffort(t *testing.T) {
 	}
 }
 
-func TestNormalizeMoonshotThinking_K3RejectsDisableAndBadEffort(t *testing.T) {
-	_, err := NormalizeMoonshotThinking("kimi-k3", []byte(`{"thinking":false}`))
-	var inv *OpenAIInvalidParameterError
-	if !errors.As(err, &inv) || inv.Param != "thinking" {
-		t.Fatalf("want thinking invalid_parameter, got %v", err)
+func TestNormalizeMoonshotThinking_K3SoftRemapsDisableAndEffortAliases(t *testing.T) {
+	got, err := NormalizeMoonshotThinking("kimi-k3", []byte(`{"thinking":false}`))
+	if err != nil {
+		t.Fatalf("disable must soft-remap, got %v", err)
+	}
+	if gjson.GetBytes(got, "thinking").Exists() {
+		t.Fatal("thinking must be stripped")
+	}
+	if gjson.GetBytes(got, "reasoning_effort").String() != "low" {
+		t.Fatalf("reasoning_effort=%q want low after disable", gjson.GetBytes(got, "reasoning_effort").String())
 	}
 
-	_, err = NormalizeMoonshotThinking("kimi-k3", []byte(`{"reasoning_effort":"medium"}`))
+	got, err = NormalizeMoonshotThinking("kimi-k3", []byte(`{"reasoning_effort":"medium"}`))
+	if err != nil {
+		t.Fatalf("medium must soft-remap, got %v", err)
+	}
+	if gjson.GetBytes(got, "reasoning_effort").String() != "high" {
+		t.Fatalf("reasoning_effort=%q want high", gjson.GetBytes(got, "reasoning_effort").String())
+	}
+
+	got, err = NormalizeMoonshotThinking("kimi-k3", []byte(`{"reasoning_effort":"none"}`))
+	if err != nil {
+		t.Fatalf("none must soft-remap, got %v", err)
+	}
+	if gjson.GetBytes(got, "reasoning_effort").String() != "low" {
+		t.Fatalf("reasoning_effort=%q want low", gjson.GetBytes(got, "reasoning_effort").String())
+	}
+
+	_, err = NormalizeMoonshotThinking("kimi-k3", []byte(`{"reasoning_effort":"banana"}`))
+	var inv *OpenAIInvalidParameterError
 	if !errors.As(err, &inv) || inv.Param != "reasoning_effort" {
-		t.Fatalf("want reasoning_effort invalid_parameter, got %v", err)
+		t.Fatalf("want reasoning_effort invalid_parameter for unknown token, got %v", err)
 	}
 }
 
@@ -99,11 +121,13 @@ func TestNormalizeMoonshotThinking_K2StripsReasoningEffort(t *testing.T) {
 	}
 }
 
-func TestNormalizeMoonshotThinking_K27RejectsDisabled(t *testing.T) {
-	_, err := NormalizeMoonshotThinking("kimi-k2.7-code", []byte(`{"thinking":{"type":"disabled"}}`))
-	var inv *OpenAIInvalidParameterError
-	if !errors.As(err, &inv) || inv.Param != "thinking" {
-		t.Fatalf("want thinking invalid_parameter, got %v", err)
+func TestNormalizeMoonshotThinking_K27OmitsDisabled(t *testing.T) {
+	got, err := NormalizeMoonshotThinking("kimi-k2.7-code", []byte(`{"thinking":{"type":"disabled"}}`))
+	if err != nil {
+		t.Fatalf("disabled must soft-omit, got %v", err)
+	}
+	if gjson.GetBytes(got, "thinking").Exists() {
+		t.Fatal("disabled thinking must be omitted for always-on k2.7-code")
 	}
 }
 
@@ -142,7 +166,7 @@ func TestApplyMoonshotThinkingShape_WritesParamError(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	_, err := applyMoonshotThinkingShape(c, "kimi-k3", []byte(`{"thinking":false}`))
+	_, err := applyMoonshotThinkingShape(c, "kimi-k3", []byte(`{"reasoning_effort":"banana"}`))
 	var inv *OpenAIInvalidParameterError
 	if !errors.As(err, &inv) {
 		t.Fatalf("want OpenAIInvalidParameterError, got %v", err)
@@ -155,8 +179,8 @@ func TestApplyMoonshotThinkingShape_WritesParamError(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	errObj, _ := payload["error"].(map[string]any)
-	if errObj["param"] != "thinking" {
-		t.Fatalf("param=%v want thinking", errObj["param"])
+	if errObj["param"] != "reasoning_effort" {
+		t.Fatalf("param=%v want reasoning_effort", errObj["param"])
 	}
 	if errObj["code"] != "invalid_parameter" {
 		t.Fatalf("code=%v want invalid_parameter", errObj["code"])

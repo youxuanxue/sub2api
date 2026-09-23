@@ -1623,13 +1623,34 @@ func ApplyThinkingEnabledFallback(effort *string, body []byte, mappedModel strin
 }
 
 // NormalizeGLMOpenAIReasoningEffort rewrites OpenAI Chat Completions
-// reasoning_effort values to the GLM native scale used by z.ai: high/max.
-// It only applies to glm-* mapped models and leaves all other providers untouched.
+// reasoning_effort values to the GLM native scale used by z.ai. For the
+// always-thinking GLM-5.3 family it also omits unsupported thinking-disable
+// (injecting reasoning_effort=low when effort was unset) so upstream 400
+// "始终思考，不支持关闭思考" does not surface to clients.
 func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool) {
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(mappedModel)), "glm-") {
+	model := normalizeGLMModelID(mappedModel)
+	if !strings.HasPrefix(model, "glm-") {
 		return body, false
 	}
 
+	alwaysThinking := isGLM53AlwaysThinkingModel(model)
+	next := body
+	changed := false
+
+	if reshaped, ok := normalizeGLMChatReasoningEffort(next, alwaysThinking); ok {
+		next = reshaped
+		changed = true
+	}
+	if alwaysThinking {
+		if reshaped, ok := stripGLMAlwaysThinkingDisabledChat(next); ok {
+			next = reshaped
+			changed = true
+		}
+	}
+	return next, changed
+}
+
+func normalizeGLMChatReasoningEffort(body []byte, alwaysThinking bool) ([]byte, bool) {
 	path := "reasoning.effort"
 	raw := strings.TrimSpace(gjson.GetBytes(body, path).String())
 	if raw == "" {
@@ -1640,10 +1661,7 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 		return body, false
 	}
 
-	mapped := normalizeGLMOpenAIReasoningEffort(raw)
-	if isGLM53Model(mappedModel) && mapped == "high" && normalizeEffortToken(raw) == "low" {
-		mapped = "low"
-	}
+	mapped := normalizeGLMOpenAIReasoningEffort(raw, alwaysThinking)
 	if mapped == "" || mapped == raw {
 		return body, false
 	}
@@ -1655,23 +1673,74 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 	return modified, true
 }
 
+// stripGLMAlwaysThinkingDisabledChat omits explicit thinking-off for Chat
+// Completions. When the client asked to disable thinking and left effort
+// unset, inject reasoning_effort=low so the intent is honored via the only
+// supported control (Coding Plan none/minimal → low).
+func stripGLMAlwaysThinkingDisabledChat(body []byte) ([]byte, bool) {
+	thinking := gjson.GetBytes(body, "thinking")
+	if !thinking.Exists() {
+		return body, false
+	}
+
+	disable := thinking.Type == gjson.False ||
+		(thinking.IsObject() && strings.EqualFold(strings.TrimSpace(thinking.Get("type").String()), "disabled"))
+	if !disable {
+		return body, false
+	}
+
+	next, err := sjson.DeleteBytes(body, "thinking")
+	if err != nil {
+		return body, false
+	}
+	if gjson.GetBytes(next, "reasoning_effort").Exists() || gjson.GetBytes(next, "reasoning.effort").Exists() {
+		return next, true
+	}
+	injected, err := sjson.SetBytes(next, "reasoning_effort", "low")
+	if err != nil {
+		return next, true
+	}
+	return injected, true
+}
+
 func normalizeEffortToken(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	return strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
 }
 
-func isGLM53Model(model string) bool {
-	return strings.EqualFold(strings.TrimSpace(model), "glm-5.3")
+func normalizeGLMModelID(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.LastIndex(m, "/"); i >= 0 {
+		m = m[i+1:]
+	}
+	return m
 }
 
-func normalizeGLMOpenAIReasoningEffort(raw string) string {
+// isGLM53AlwaysThinkingModel reports models that reject thinking.type=disabled
+// (BigModel: GLM-5.3 / GLM-5.3-Flash / FlashX are force-thinking).
+func isGLM53AlwaysThinkingModel(model string) bool {
+	m := normalizeGLMModelID(model)
+	return m == "glm-5.3" || strings.HasPrefix(m, "glm-5.3-")
+}
+
+func normalizeGLMOpenAIReasoningEffort(raw string, alwaysThinking bool) string {
 	value := normalizeEffortToken(raw)
 	if value == "" {
 		return ""
 	}
 
 	switch value {
-	case "low", "medium", "high":
+	case "none", "minimal":
+		if alwaysThinking {
+			return "low"
+		}
+		return ""
+	case "low":
+		if alwaysThinking {
+			return "low"
+		}
+		return "high"
+	case "medium", "high":
 		return "high"
 	case "xhigh", "extrahigh", "max", "ultracode":
 		return "max"
@@ -1681,16 +1750,20 @@ func normalizeGLMOpenAIReasoningEffort(raw string) string {
 }
 
 // NormalizeGLM53AnthropicThinking maps explicit client thinking effort onto the
-// GLM-5.3 Anthropic-compatible scale. Requests without an effort or thinking
-// preference are left unchanged so the upstream default remains in effect.
+// GLM-5.3 Anthropic-compatible scale. Always-thinking family models convert
+// unsupported disabled/none into enabled + output_config.effort=low. Requests
+// without an effort or thinking preference are left unchanged.
 func NormalizeGLM53AnthropicThinking(body []byte, mappedModel string) ([]byte, bool) {
-	if !isGLM53Model(mappedModel) {
+	if !isGLM53AlwaysThinkingModel(mappedModel) {
 		return body, false
 	}
 
 	raw := gjson.GetBytes(body, "output_config.effort").String()
 	if strings.TrimSpace(raw) == "" {
 		raw = gjson.GetBytes(body, "thinking.type").String()
+	}
+	if strings.TrimSpace(raw) == "" {
+		return body, false
 	}
 
 	var effort string

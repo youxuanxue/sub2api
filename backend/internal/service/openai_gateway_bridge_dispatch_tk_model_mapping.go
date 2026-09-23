@@ -17,11 +17,15 @@ func rewriteNewAPIBridgeBodyModel(account *Account, body []byte, defaultMappedMo
 		return body
 	}
 	_, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
-	if upstreamModel == "" || upstreamModel == originalModel {
-		return body
+	rewritten := body
+	modelForNorm := originalModel
+	if upstreamModel != "" && upstreamModel != originalModel {
+		rewritten = ReplaceModelInBody(body, upstreamModel)
+		modelForNorm = upstreamModel
+	} else if upstreamModel != "" {
+		modelForNorm = upstreamModel
 	}
-	rewritten := ReplaceModelInBody(body, upstreamModel)
-	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(rewritten, upstreamModel); normalized {
+	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(rewritten, modelForNorm); normalized {
 		return normalizedBody
 	}
 	return rewritten
