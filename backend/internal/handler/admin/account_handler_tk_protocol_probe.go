@@ -22,6 +22,10 @@ type protocolCapabilityProbeRunner interface {
 	ProbeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64) (service.ProtocolProbeRunResult, error)
 }
 
+type accountConnectivityTester interface {
+	TestAccountConnection(c *gin.Context, accountID int64, modelID, prompt, mode string, opts ...service.AccountTestOptions) error
+}
+
 type protocolCapabilityProbeResponse struct {
 	CapabilityKey        string     `json:"capability_key"`
 	SupportedProtocols   []string   `json:"supported_protocols"`
@@ -59,6 +63,10 @@ func (h *AccountHandler) scheduleProtocolCapabilityProbes(account *service.Accou
 		return
 	}
 	if len(service.ProtocolProbeCandidates(account)) == 0 {
+		return
+	}
+	// Same-key add / repaired witness with conclusive evidence: do not re-probe.
+	if service.ShouldSkipAutoProtocolCapabilityProbe(account) {
 		return
 	}
 	h.scheduleProtocolCapabilityProbeBatch([]int64{account.ID})

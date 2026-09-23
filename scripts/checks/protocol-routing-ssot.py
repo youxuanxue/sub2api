@@ -911,6 +911,8 @@ def check(root: Path) -> list[str]:
                 errors.append("admin account handler does not gate the canonical protocol candidate set")
             if not contains_identifier(body, "scheduleProtocolCapabilityProbeBatch"):
                 errors.append("admin account handler does not delegate to the bounded account probe batch")
+            if not contains_identifier(body, "ShouldSkipAutoProtocolCapabilityProbe"):
+                errors.append("admin account handler does not skip auto-probe when capability evidence is already verified")
             for forbidden in (
                 "ProbeOpenAIAPIKeyChatCompletionsSupport",
                 "ProbeOpenAIAPIKeyResponsesSupport",

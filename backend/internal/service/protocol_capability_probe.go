@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
@@ -213,6 +214,12 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 		return ProtocolProbeRunResult{}, err
 	}
 	if !allowDestructive && protocolCapabilityMutationIsDestructive(capability, resolution) {
+		slog.Warn("protocol_capability_probe_destructive_refused",
+			"capability_key", capability.CapabilityKey,
+			"reason", "destructive_conflict_refused",
+			"identity_conflict", resolution.IdentityConflict,
+			"supported_protocols", resolution.SupportedProtocols,
+		)
 		updated, affected, commitErr := commitProtocolProbeResult(ctx, repo, lease, ProtocolCapabilityMutation{
 			SupportedProtocols:    capability.SupportedProtocols,
 			ProbeEvidence:         capability.ProbeEvidence,
@@ -264,6 +271,16 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 		reason = "inconclusive_evidence"
 	}
 	return ProtocolProbeRunResult{Outcome: outcome, Reason: reason, Capability: updated, AffectedAccountCount: affected}, nil
+}
+
+// ShouldSkipAutoProtocolCapabilityProbe reports whether admin-side-effect /
+// same-key add scheduling should skip probing because the linked capability
+// already has conclusive or official-seed routing evidence (SSOT §7).
+func ShouldSkipAutoProtocolCapabilityProbe(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	return protocolCapabilityHasVerifiedRoutingEvidence(account.ProtocolEndpointCapability)
 }
 
 // protocolCapabilityMutationIsDestructive reports whether applying resolution would

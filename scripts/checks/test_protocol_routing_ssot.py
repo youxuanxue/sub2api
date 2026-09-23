@@ -210,7 +210,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         account_handler = root / "backend/internal/handler/admin/account_handler.go"
         account_handler.write_text(
             "package fixture\n"
-            "func scheduleProtocolCapabilityProbes(){ service.ProtocolProbeCandidates(); scheduleProtocolCapabilityProbeBatch() }\n"
+            "func scheduleProtocolCapabilityProbes(){ service.ProtocolProbeCandidates(); service.ShouldSkipAutoProtocolCapabilityProbe(); scheduleProtocolCapabilityProbeBatch() }\n"
             "func scheduleProtocolCapabilityProbeBatch(){ service.ProbeAccountProtocolCapabilitiesBatch() }\n",
             encoding="utf-8",
         )

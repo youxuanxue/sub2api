@@ -53,17 +53,19 @@ type AccountHandler struct {
 	accountUsageService     *service.AccountUsageService
 	accountTestService      *service.AccountTestService
 	protocolProbeScheduler  protocolCapabilityProbeScheduler
-	concurrencyService      *service.ConcurrencyService
-	crsSyncService          *service.CRSSyncService
-	sessionLimitCache       service.SessionLimitCache
-	rpmCache                service.RPMCache
-	tokenCacheInvalidator   service.TokenCacheInvalidator
-	accountTierService      *service.AccountTierService
-	grokImportProber        grokImportProber
-	upstreamBillingProbe    *service.UpstreamBillingProbeService
-	ollamaCloudUsage        *service.OllamaCloudUsageService
-	cursorOAuth             *cursor.Client
-	cfg                     *config.Config
+	// Optional test seam for connectivity Test handler (production uses accountTestService).
+	connectivityTester    accountConnectivityTester
+	concurrencyService    *service.ConcurrencyService
+	crsSyncService        *service.CRSSyncService
+	sessionLimitCache     service.SessionLimitCache
+	rpmCache              service.RPMCache
+	tokenCacheInvalidator service.TokenCacheInvalidator
+	accountTierService    *service.AccountTierService
+	grokImportProber      grokImportProber
+	upstreamBillingProbe  *service.UpstreamBillingProbeService
+	ollamaCloudUsage      *service.OllamaCloudUsageService
+	cursorOAuth           *cursor.Client
+	cfg                   *config.Config
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -1207,7 +1209,15 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	}
 
 	// Use AccountTestService to test the account with SSE streaming
-	if err := h.accountTestService.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
+	tester := accountConnectivityTester(h.accountTestService)
+	if h.connectivityTester != nil {
+		tester = h.connectivityTester
+	}
+	if tester == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Account test service unavailable")
+		return
+	}
+	if err := tester.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
 		// Error already sent via SSE, just log
 		return
 	}

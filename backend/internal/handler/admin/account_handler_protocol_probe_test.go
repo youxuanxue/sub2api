@@ -289,6 +289,65 @@ func TestSetSchedulableDoesNotScheduleProtocolProbe(t *testing.T) {
 	}
 }
 
+type stubAccountConnectivityTester struct{}
+
+func (stubAccountConnectivityTester) TestAccountConnection(*gin.Context, int64, string, string, string, ...service.AccountTestOptions) error {
+	return nil
+}
+
+func TestConnectivityTestDoesNotScheduleProtocolProbe(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
+	handler := &AccountHandler{
+		protocolProbeScheduler: scheduler,
+		connectivityTester:     stubAccountConnectivityTester{},
+	}
+	router := gin.New()
+	router.POST("/accounts/:id/test", handler.Test)
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/accounts/61/test", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	select {
+	case got := <-scheduler.calls:
+		t.Fatalf("connectivity test scheduled protocol probe for %v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestScheduleProtocolCapabilityProbesSkipsWhenCapabilityAlreadyVerified(t *testing.T) {
+	scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
+	handler := &AccountHandler{protocolProbeScheduler: scheduler}
+	account := governedProtocolProbeAccount(77)
+	account.ProtocolEndpointCapability = &service.ProtocolEndpointCapability{
+		ID:                 1061,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses},
+		ProbeEvidence: service.ProtocolProbeEvidence{
+			InitialProbeCompleted: true,
+			Verdicts: map[string]any{
+				string(protocolrouter.ProtocolChatCompletions): string(service.ProtocolProbePositive),
+				string(protocolrouter.ProtocolResponses):       string(service.ProtocolProbePositive),
+			},
+		},
+	}
+	handler.scheduleProtocolCapabilityProbes(account)
+	select {
+	case got := <-scheduler.calls:
+		t.Fatalf("verified same-key account scheduled protocol probe for %v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	unverified := governedProtocolProbeAccount(78)
+	handler.scheduleProtocolCapabilityProbes(unverified)
+	if got, want := awaitProtocolProbeCall(t, scheduler), []int64{78}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unverified account probe IDs = %v, want %v", got, want)
+	}
+}
+
 func TestClearErrorSchedulesProtocolProbeAfterSuccessfulRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adminService := newStubAdminService()

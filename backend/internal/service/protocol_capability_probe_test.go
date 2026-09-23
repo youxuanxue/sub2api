@@ -480,7 +480,7 @@ func TestProtocolCapabilityMutationIsDestructive(t *testing.T) {
 	}
 }
 
-func TestBackgroundProtocolProbeRefusesDestructiveConflictOnVerifiedCapability(t *testing.T) {
+func TestPreparationProtocolProbeRefusesDestructiveConflictOnVerifiedCapability(t *testing.T) {
 	account := &Account{
 		ID:          71,
 		Name:        "china-volc",
@@ -533,20 +533,20 @@ func TestBackgroundProtocolProbeRefusesDestructiveConflictOnVerifiedCapability(t
 		}}},
 	}
 
-	svc.ProbeAccountProtocolCapabilities(context.Background(), account.ID)
+	svc.ProbeAccountProtocolCapabilitiesForPreparation(context.Background(), account.ID)
 	got, err := repo.GetByID(context.Background(), account.ID)
 	if err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
 	cap := got.ProtocolEndpointCapability
 	if cap == nil {
-		t.Fatal("capability missing after background probe")
+		t.Fatal("capability missing after preparation probe")
 	}
 	if cap.IdentityConflict || cap.ProbeEvidence.IdentityConflict {
-		t.Fatalf("background probe persisted identity_conflict: %#v", cap)
+		t.Fatalf("preparation probe persisted identity_conflict: %#v", cap)
 	}
 	if !slices.Contains(cap.SupportedProtocols, protocolrouter.ProtocolChatCompletions) {
-		t.Fatalf("background probe dropped chat_completions: %v", cap.SupportedProtocols)
+		t.Fatalf("preparation probe dropped chat_completions: %v", cap.SupportedProtocols)
 	}
 }
 
