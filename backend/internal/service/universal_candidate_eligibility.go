@@ -238,6 +238,15 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 		if !supported && unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable)) {
 			return nil, fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
 		}
+		capacity := ErrUniversalCapacityUnavailable
+		if supported && capacityHint != nil {
+			capacity = newUniversalCapacityError(capacityHint.Platform, capacityHint.ID, nil)
+		}
+		// Bare protocol-capability failures (no concrete unsupportedModel peer)
+		// become capacity — retryable platform state, not opaque prepare-500.
+		if remapped, ok := remapProtocolSelectionFailure(evaluationErr, capacity); ok {
+			return nil, remapped
+		}
 		return nil, evaluationErr
 	}
 	if supported {

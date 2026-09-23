@@ -490,6 +490,48 @@ func TestMaybeResolveUniversal_UnsupportedModelIs400(t *testing.T) {
 	}
 }
 
+func TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs429Not500(t *testing.T) {
+	for _, path := range []string{"/v1/chat/completions", "/v1/messages", "/v1beta/models/gemini-3-flash:generateContent"} {
+		t.Run(path, func(t *testing.T) {
+			c, recorder := newTestCtx(http.MethodPost, path, `{"model":"gemini-3-flash","messages":[{"role":"user","content":"hi"}]}`)
+			c.Params = gin.Params{{Key: "modelAction", Value: "gemini-3-flash:generateContent"}}
+			resolver := service.NewUniversalRoutingResolver(&stubSpanLister{groups: []service.Group{activeGroup(21, service.PlatformAntigravity)}})
+			resolver.SetCandidateEvaluator(service.NewProtocolRouter(), func(context.Context, service.Group, string, service.UniversalShape) (service.GroupCandidateEligibility, error) {
+				return service.GroupCandidateEligibility{}, fmt.Errorf("%w: protocol endpoint capability is invalid or conflicted", service.ErrProtocolCapabilityUnknown)
+			})
+			key := &service.APIKey{ID: 1, UserID: 1, RoutingMode: service.RoutingModeUniversal}
+			require.True(t, MaybeResolveUniversal(c, key, resolver))
+			require.Equal(t, http.StatusTooManyRequests, recorder.Code, recorder.Body.String())
+			require.NotContains(t, recorder.Body.String(), "Failed to prepare authorized candidates")
+			require.Contains(t, recorder.Body.String(), "No available accounts for this request")
+			require.True(t, service.HasOpsRoutingCapacityLimited(c))
+			require.False(t, c.GetBool(service.OpsRoutingInternalErrorKey))
+		})
+	}
+}
+
+func TestMaybeResolveUniversal_MiddlewareProtocolLeakIs429WithOpsDetail(t *testing.T) {
+	c, recorder := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gemini-3-flash","messages":[{"role":"user","content":"hi"}]}`)
+	writeUniversalRoutingInternalError(c, service.ShapeOpenAIChat, fmt.Errorf("%w: conflicted", service.ErrProtocolCapabilityUnknown))
+	require.Equal(t, http.StatusInternalServerError, recorder.Code)
+	detail, ok := c.Get(service.OpsInternalErrorDetailKey)
+	require.True(t, ok)
+	require.Contains(t, detail.(string), "protocol")
+
+	c2, recorder2 := newTestCtx(http.MethodPost, "/v1/chat/completions", `{"model":"gemini-3-flash","messages":[{"role":"user","content":"hi"}]}`)
+	err := fmt.Errorf("%w: conflicted", service.ErrProtocolCapabilityUnknown)
+	if detail := sanitizeMiddlewareInternalErrorDetail(err); detail != "" {
+		c2.Set(service.OpsInternalErrorDetailKey, detail)
+	}
+	service.MarkOpsRoutingCapacityLimited(c2)
+	writeUniversalRoutingCapacityError(c2, service.ShapeOpenAIChat)
+	require.Equal(t, http.StatusTooManyRequests, recorder2.Code)
+	require.Contains(t, recorder2.Body.String(), "No available accounts")
+	stored, ok := c2.Get(service.OpsInternalErrorDetailKey)
+	require.True(t, ok)
+	require.Contains(t, stored.(string), "conflicted")
+}
+
 func TestMaybeResolveUniversal_CapacityDoesNotDenyEntitlement(t *testing.T) {
 	for _, path := range []string{"/v1/chat/completions", "/v1/messages", "/v1beta/models/gemini-3.8-flash:generateContent"} {
 		t.Run(path, func(t *testing.T) {

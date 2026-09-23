@@ -1279,6 +1279,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		}
 		applyOpsLatencyFieldsFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)
+		applyOpsInternalErrorDetailFromContext(c, entry)
 		if parsed.StreamFailure {
 			if message := strings.TrimSpace(parsed.Message); message != "" {
 				entry.UpstreamErrorMessage = &message
@@ -1343,6 +1344,7 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 
 	entry := &service.OpsInsertErrorLogInput{StatusCode: finalStatus}
 	applyOpsUpstreamFieldsFromContext(c, entry)
+	applyOpsInternalErrorDetailFromContext(c, entry)
 	if len(entry.UpstreamErrors) > 0 {
 		filtered := opsUpstreamEventsForRecoveredLogging(entry.UpstreamErrors)
 		if len(filtered) == 0 {
@@ -1624,6 +1626,7 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 	if !streamErr.RequestScoped {
 		applyOpsUpstreamFieldsFromContext(c, entry)
 	}
+	applyOpsInternalErrorDetailFromContext(c, entry)
 	if streamErr.Turn > 0 && !streamErr.RequestScoped {
 		applyOpsStreamErrorSnapshot(entry, streamErr)
 	}
@@ -1776,6 +1779,32 @@ func applyOpsUpstreamFieldsFromContext(c *gin.Context, entry *service.OpsInsertE
 			applyOpsUpstreamErrorEvents(entry, events)
 		}
 	}
+}
+
+// applyOpsInternalErrorDetailFromContext copies middleware-sanitized internal
+// failure detail into upstream_error_detail when that column is still empty.
+// Client-facing error_message stays generic; ops digests need the real cause
+// (e.g. protocol capability unknown) without a schema migration.
+func applyOpsInternalErrorDetailFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput) {
+	if c == nil || entry == nil {
+		return
+	}
+	v, ok := c.Get(service.OpsInternalErrorDetailKey)
+	if !ok {
+		return
+	}
+	raw, ok := v.(string)
+	if !ok {
+		return
+	}
+	detail := strings.TrimSpace(raw)
+	if detail == "" {
+		return
+	}
+	if entry.UpstreamErrorDetail != nil && strings.TrimSpace(*entry.UpstreamErrorDetail) != "" {
+		return
+	}
+	entry.UpstreamErrorDetail = &detail
 }
 
 func applyOpsUpstreamErrorEvents(entry *service.OpsInsertErrorLogInput, events []*service.OpsUpstreamErrorEvent) {
