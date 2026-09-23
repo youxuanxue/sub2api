@@ -86,6 +86,18 @@ Worker 支持 `gemini-web-flash`、`gemini-web-pro`、`gemini-web-pro-image`，
 其他 controls、tools、system、多模态输入和多轮历史在 Google 副作用前拒绝。
 streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首 token 流式延迟。
 
+用户已确认先修复调度能力判断，不扩展或降级上述输入语义。共享候选准入在计费、
+选槽及等待后刷新时排除 Worker 不支持的请求，继续在原授权范围选择其他兼容账号。
+edge 以 `credentials.gemini_web` 会话对象识别此能力边界；专用 prod 中继显式声明
+`credentials.gemini_web_relay=true`，不根据账号名、域名或公开模型别名推断。
+现有 Gemini API-key 账号仍走 native 能力 owner，不扩张 protocolrouter 的受管账号范围。
+原生单轮文本与生图保留（generateContent / streamGenerateContent）；原生 countTokens
+不由 Worker 承接，继续选择其他授权兼容账号。Chat/Responses 转换会补入 Worker 不支持的 maxOutputTokens，
+Messages 的 max_tokens 也不能被静默丢弃，因此这些兼容入口不由该受限账号承接。
+Anthropic `count_tokens` 继续复用网关本地估算，不受 Worker 生成能力限制。
+调度投影与 Worker 共享请求测试样本，防止准入约束漂移。上线需要部署后端并给
+prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修复变更。
+
 图片必须经 original RPC 和受限域名下载，实际解码并核对 MIME；不返回预览、不放大、
 不因下载失败重新生成。探测同样要求完整解码和正确账号用量归属。
 解码前拒绝超过 1600 万像素的图片；图片准入锁覆盖下载、解码及响应缓冲。

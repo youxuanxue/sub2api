@@ -20,6 +20,7 @@
 5. AC-005 安全：普通 DTO/审计不含 Cookie；复制不保留会话且不可调度；控制接口拒绝普通用户。
 6. AC-006 并发：竞争 owner 与过期租约不能执行/写回；自身保存不触发错误重载。
 7. AC-007 部署影响：空闲维护不写库、旧编辑不覆盖新导入；过载明确拒绝且健康检查可用；排空完成在途请求；超预算图片在解码前拒绝；不兼容控制 API 和暂停账号不能通过部署检查。
+8. AC-008 请求能力准入：不兼容 system、历史、tools、controls 的请求在选账号前跳过 Web 账号；万能 key 可选择其他授权账号，Direct 不越权换组；原生单轮文本与生图仍可用，等待后刷新重验能力声明。
 
 ## Assertions
 
@@ -50,6 +51,14 @@
 - AC-007: `ops/gemini-web/test_worker.py`::`WorkerTests.test_image_pixel_limit_rejects_before_decode`
 - AC-007: `ops/gemini-web/test_worker.py`::`WorkerTests.test_large_image_decode_and_buffer_fit_container_budget`
 - AC-005: `ops/gemini-web/test_worker.py`::`WorkerTests.test_control_redirect_never_forwards_admin_key`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidateRejectsProductionChatWithoutPoisoningPeer`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidateNativeTextAndImageRemainAvailable`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidateNativeActionCapability`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidatePreservesLocalCountTokens`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidateRechecksCapabilityAfterWait`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebAdmissionMatchesWorkerContractFixtures`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebChatAndResponsesDefaultLimitIsNotWorkerCapability`
+- AC-008: `ops/gemini-web/test_worker.py`::`WorkerTests.test_scheduler_admission_contract_fixtures`
 
 运行命令：
 
