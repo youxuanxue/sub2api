@@ -32,6 +32,12 @@ func TestReasoningEffortBillingMultiplier(t *testing.T) {
 	}
 }
 
+func TestTokenKeyReasoningEffortBillingMultiplierPreservesFableDefault(t *testing.T) {
+	require.Equal(t, 3.0, tokenKeyReasoningEffortBillingMultiplier("claude-fable-5-1", "max", nil))
+	require.Equal(t, 1.0, tokenKeyReasoningEffortBillingMultiplier("claude-fable-5-1", "max", map[string]float64{"max": 1}))
+	require.Equal(t, 1.0, tokenKeyReasoningEffortBillingMultiplier("claude-sonnet-5", "max", nil))
+}
+
 func TestReasoningEffortBillingSupportsAllModelsAndLevels(t *testing.T) {
 	for _, model := range []string{"claude-fable-5-1", "gpt-5.4", "gemini-2.5-pro", "custom-model"} {
 		t.Run(model, func(t *testing.T) {

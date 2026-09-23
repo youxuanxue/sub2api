@@ -280,6 +280,23 @@ func reasoningEffortBillingMultiplier(effort string, multipliers map[string]floa
 	return multiplier
 }
 
+// tokenKeyReasoningEffortBillingMultiplier preserves TokenKey's established
+// Fable 5.1 policy: an unconfigured max effort is billed at 3x. Explicit
+// channel multipliers, including an explicit max: 1 entry, always win.
+func tokenKeyReasoningEffortBillingMultiplier(model, effort string, multipliers map[string]float64) float64 {
+	normalizedEffort := strings.ToLower(strings.TrimSpace(effort))
+	if normalizedEffort != "none" {
+		normalizedEffort = NormalizeMaxReasoningEffort(normalizedEffort)
+	}
+	if _, configured := multipliers[normalizedEffort]; configured {
+		return reasoningEffortBillingMultiplier(normalizedEffort, multipliers)
+	}
+	if normalizedEffort == "max" && isClaudeFable51Model(model) {
+		return claudeFable51MaxReasoningEffortMultiplier
+	}
+	return 1
+}
+
 func resolvedChannelTimeMultiplier(resolved *ResolvedPricing, at time.Time) float64 {
 	if resolved == nil || resolved.Source != PricingSourceChannel || resolved.channelPricing == nil {
 		return 1
@@ -853,7 +870,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 			return nil, err
 		}
 		breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongContextBilling)
-		applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
+		applyCostBreakdownMultiplier(breakdown, tokenKeyReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
 		return breakdown, nil
 	}
 
@@ -878,7 +895,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
 		breakdown, err = s.calculatePerRequestCost(resolved, input)
 		if err == nil && resolved.channelPricing != nil {
-			applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, resolved.channelPricing.ReasoningEffortMultipliers))
+			applyCostBreakdownMultiplier(breakdown, tokenKeyReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, resolved.channelPricing.ReasoningEffortMultipliers))
 		}
 	default: // BillingModeToken
 		breakdown, err = s.calculateTokenCost(resolved, input)
@@ -922,7 +939,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, input.EnableThinking, applyLongCtx)
 	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
-	applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
+	applyCostBreakdownMultiplier(breakdown, tokenKeyReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
 	return breakdown, nil
 }
 
