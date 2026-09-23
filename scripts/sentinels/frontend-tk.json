@@ -216,6 +216,16 @@
       "rationale": "One shared embedding component displays both text and image input rates in million-token units across catalog views."
     },
     {
+      "path": "frontend/src/components/catalog/CatalogImagePrice.tk.vue",
+      "must_contain": [
+        "catalogImagePrice(",
+        "outputCostPerImageToken",
+        "formatCatalogTokenPrice(line.per1k)",
+        "data-tk=\"catalog-image-price-tokens\""
+      ],
+      "rationale": "Shared image price owner: flat per-image owners keep /image; GPT Image token owners surface text/image-in/image-out as /1M tokens so marketplace cards cannot regress to blank — / 张."
+    },
+    {
       "path": "frontend/e2e/volcengine-plan-audio-catalog.e2e.ts",
       "must_contain": [
         "multimodal embedding prices",
@@ -238,9 +248,11 @@
         "<CatalogAudioPrice",
         ":per-input-second=\"model.pricing.input_cost_per_second\"",
         "<CatalogEmbeddingPrice",
-        ":per-image-input-token=\"model.pricing.input_cost_per_image_token\""
+        ":per-image-input-token=\"model.pricing.input_cost_per_image_token\"",
+        "<CatalogImagePrice",
+        ":output-cost-per-image-token=\"model.pricing.output_cost_per_image_token\""
       ],
-      "rationale": "Marketplace cards consume shared audio and embedding components, preserving duration and image-token rates."
+      "rationale": "Marketplace cards consume shared audio, embedding, and image components — GPT Image token rates must not fall back to blank per-image dashes."
     },
     {
       "path": "frontend/src/views/PricingView.vue",
@@ -248,9 +260,11 @@
         "<CatalogAudioPrice",
         "perInputSecond: m.your_price.per_input_second ?? null",
         "<CatalogEmbeddingPrice",
-        "perImageInputToken: m.your_price.per_image_input_token ?? null"
+        "perImageInputToken: m.your_price.per_image_input_token ?? null",
+        "perImageOutputToken: m.your_price.per_image_output_token ?? null",
+        "pricing-image-token-image-out"
       ],
-      "rationale": "Group pricing preserves audio duration and embedding image-token rates through its shared presentation."
+      "rationale": "Group pricing preserves audio duration, embedding image-input, and GPT Image image-output token rates through shared presentation."
     },
     {
       "path": "frontend/src/composables/useTkPricingExport.ts",
@@ -260,9 +274,11 @@
         "unitUsd(p.output_cost_per_character)",
         "unitUsd(p.input_cost_per_second)",
         "image_input_per_1M",
-        "p.input_cost_per_image_token * 1000"
+        "image_output_per_1M",
+        "p.input_cost_per_image_token * 1000",
+        "p.output_cost_per_image_token * 1000"
       ],
-      "rationale": "CSV export carries both audio price units and the separate embedding image input price."
+      "rationale": "CSV export carries audio units plus separate embedding/GPT Image input and image-output token prices so sales quotes match /pricing."
     },
     {
       "path": "frontend/src/utils/studioMediaCatalog.tk.ts",
@@ -473,9 +489,10 @@
         "export function pricingCatalogModality",
         "export function formatCatalogUsdNumeric",
         "export function formatCatalogPrice",
-        "export function formatCatalogMediaPrice"
+        "export function formatCatalogMediaPrice",
+        "export function catalogImagePrice"
       ],
-      "rationale": "Single source of truth for public pricing-catalog modality and price presentation across /models, /pricing, and Studio catalog consumers. Losing this owner can compile green if pages reintroduce local billing_mode branches, then silently split text/image/video membership or price precision between catalog surfaces."
+      "rationale": "Single source of truth for public pricing-catalog modality and price presentation across /models, /pricing, and Studio catalog consumers. catalogImagePrice owns GPT Image token vs per-image display so token-priced owners cannot silently render as blank /image dashes."
     },
     {
       "path": "frontend/src/views/ModelMarketplaceCatalog.vue",

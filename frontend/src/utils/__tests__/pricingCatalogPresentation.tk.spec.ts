@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   catalogAudioPrice,
+  catalogImagePrice,
+  catalogImageTokenPricePer1K,
   catalogTokenPricePer1M,
   formatCatalogMediaPrice,
   formatCatalogPrice,
@@ -58,5 +60,26 @@ describe('pricingCatalogPresentation', () => {
     expect(formatCatalogMediaPrice()).toBe('—')
     expect(formatCatalogMediaPrice(0)).toBe('—')
     expect(formatCatalogMediaPrice(-1)).toBe('—')
+  })
+
+  it('renders GPT Image token owners as / 1M token lines instead of a blank per-image price', () => {
+    const tokenView = catalogImagePrice({
+      outputCostPerImageToken: 3e-5,
+      inputCostPerImageToken: 8e-6,
+      inputPer1kTokens: 0.005,
+    })
+    expect(tokenView.kind).toBe('image_tokens')
+    if (tokenView.kind !== 'image_tokens') return
+    expect(tokenView.lines).toHaveLength(3)
+    expect(tokenView.lines[0]).toEqual({ labelKey: 'pricing.modality.text', per1k: 0.005 })
+    expect(tokenView.lines[1]).toEqual({ labelKey: 'pricing.imageInput', per1k: 0.008 })
+    expect(tokenView.lines[2].labelKey).toBe('pricing.imageOutput')
+    expect(tokenView.lines[2].per1k).toBeCloseTo(0.03, 12)
+    expect(catalogImagePrice({ outputCostPerImage: 0.04 })).toEqual({
+      kind: 'per_image',
+      price: 0.04,
+    })
+    expect(catalogImagePrice({})).toEqual({ kind: 'missing' })
+    expect(formatCatalogTokenPrice(catalogImageTokenPricePer1K(3e-5)!)).toBe('$30')
   })
 })

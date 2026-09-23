@@ -101,6 +101,8 @@ const en: LocaleOverlay = {
     "perSecond": "/ second",
     "perHour": "/ hour",
     "perTenThousandCharacters": "/ 10k characters",
+    "imageInput": "Image input",
+    "imageOutput": "Image output",
     "videoClipExample": "5s {five} · 10s {ten}",
     "modality": {
       "all": "All",
@@ -1065,6 +1067,8 @@ const zh: LocaleOverlay = {
     "perSecond": "/ 秒",
     "perHour": "/ 小时",
     "perTenThousandCharacters": "/ 万字符",
+    "imageInput": "图片输入",
+    "imageOutput": "图片输出",
     "videoClipExample": "5秒 {five} · 10秒 {ten}",
     "modality": {
       "all": "全部",

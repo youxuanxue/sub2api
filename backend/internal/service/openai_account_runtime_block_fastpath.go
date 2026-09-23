@@ -129,8 +129,14 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		}
 		return false
 	}
+	// Image capability loss: cool openai:image_generation only, then failover so a
+	// mixed pool can try another account. Returning true here skips BlockAccountScheduling
+	// (that path is below) while still signalling shouldDisable to OAuth image callers.
 	if s.tkHandleOpenAIImageCapabilityLossFastpath(stateCtx, account, statusCode, responseBody) {
-		return false
+		return true
+	}
+	if s.tkHandleOpenAIImageScope401Fastpath(stateCtx, account, statusCode, responseBody) {
+		return true
 	}
 
 	// Self-built images requests always carry a matching image_generation tool, so a
@@ -141,7 +147,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		if s != nil && s.rateLimitService != nil {
 			_ = s.rateLimitService.HandleOpenAIImageCapabilityLoss(stateCtx, account, statusCode, responseBody)
 		}
-		return false
+		return true
 	}
 
 	if s == nil || account == nil {

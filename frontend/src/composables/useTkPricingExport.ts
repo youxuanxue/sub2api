@@ -53,7 +53,8 @@ const CSV_COLUMNS = [
   'capabilities',
   'price_per_character_USD',
   'price_per_input_second_USD',
-  'image_input_per_1M'
+  'image_input_per_1M',
+  'image_output_per_1M'
 ] as const
 
 /** per-1k → per-1M; same precision as catalog UI (formatCatalogUsd). */
@@ -148,7 +149,8 @@ function rowFor(m: PublicCatalogModel): string[] {
     (m.capabilities ?? []).join(';'),
     unitUsd(p.output_cost_per_character),
     unitUsd(p.input_cost_per_second),
-    per1M(p.input_cost_per_image_token == null ? undefined : p.input_cost_per_image_token * 1000)
+    per1M(p.input_cost_per_image_token == null ? undefined : p.input_cost_per_image_token * 1000),
+    per1M(p.output_cost_per_image_token == null ? undefined : p.output_cost_per_image_token * 1000)
   ]
 }
 
