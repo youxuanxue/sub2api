@@ -97,6 +97,10 @@ func TestProtocolCapabilityProbeRequiredForUpdateOnlyOnCapabilityInputs(t *testi
 func TestBulkUpdateSchedulesBoundedProtocolProbeBatchForCredentialChanges(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adminService := newStubAdminService()
+	adminService.accountsByID = map[int64]*service.Account{
+		11: governedProtocolProbeAccount(11),
+		12: governedProtocolProbeAccount(12),
+	}
 	scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
 	handler := &AccountHandler{adminService: adminService, protocolProbeScheduler: scheduler}
 	router := gin.New()
@@ -118,6 +122,28 @@ func TestBulkUpdateSchedulesBoundedProtocolProbeBatchForCredentialChanges(t *tes
 		}
 	case <-time.After(time.Second):
 		t.Fatal("bulk credential update did not schedule protocol capability probes")
+	}
+}
+
+func TestScheduleProtocolCapabilityProbesForIDsSkipsVerifiedCapabilities(t *testing.T) {
+	adminService := newStubAdminService()
+	verified := governedProtocolProbeAccount(21)
+	verified.ProtocolEndpointCapability = &service.ProtocolEndpointCapability{
+		ID:                 1,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions},
+		ProbeEvidence:      service.ProtocolProbeEvidence{InitialProbeCompleted: true},
+	}
+	unverified := governedProtocolProbeAccount(22)
+	adminService.accountsByID = map[int64]*service.Account{
+		21: verified,
+		22: unverified,
+	}
+	scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
+	handler := &AccountHandler{adminService: adminService, protocolProbeScheduler: scheduler}
+
+	handler.scheduleProtocolCapabilityProbesForIDs(context.Background(), []int64{21, 22})
+	if got, want := awaitProtocolProbeCall(t, scheduler), []int64{22}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered probe IDs = %v, want %v", got, want)
 	}
 }
 

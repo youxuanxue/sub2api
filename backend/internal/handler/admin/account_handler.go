@@ -1975,7 +1975,7 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	h.scheduleProtocolCapabilityProbeBatch(successIDs)
+	h.scheduleProtocolCapabilityProbesForIDs(ctx, successIDs)
 
 	response.Success(c, gin.H{
 		"total":    len(req.AccountIDs),
@@ -2185,7 +2185,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		return
 	}
 	if (len(req.Credentials) > 0 || protocolCapabilityExtraChanged(req.Extra)) && result != nil {
-		h.scheduleProtocolCapabilityProbeBatch(result.SuccessIDs)
+		h.scheduleProtocolCapabilityProbesForIDs(c.Request.Context(), result.SuccessIDs)
 	}
 
 	response.Success(c, result)

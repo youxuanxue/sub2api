@@ -211,6 +211,7 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
         account_handler.write_text(
             "package fixture\n"
             "func scheduleProtocolCapabilityProbes(){ service.ProtocolProbeCandidates(); service.ShouldSkipAutoProtocolCapabilityProbe(); scheduleProtocolCapabilityProbeBatch() }\n"
+            "func scheduleProtocolCapabilityProbesForIDs(){ service.ShouldSkipAutoProtocolCapabilityProbe(); scheduleProtocolCapabilityProbeBatch() }\n"
             "func scheduleProtocolCapabilityProbeBatch(){ service.ProbeAccountProtocolCapabilitiesBatch() }\n",
             encoding="utf-8",
         )

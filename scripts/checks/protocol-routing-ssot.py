@@ -933,6 +933,14 @@ def check(root: Path) -> list[str]:
             ):
                 if contains_identifier(body, forbidden):
                     errors.append(f"admin account handler fans out per-protocol probe {forbidden}")
+        filtered_batch_bodies = function_bodies(source, "scheduleProtocolCapabilityProbesForIDs")
+        if not filtered_batch_bodies:
+            errors.append("admin account handler is missing filtered batch protocol probe scheduling")
+        for body in filtered_batch_bodies:
+            if not contains_identifier(body, "ShouldSkipAutoProtocolCapabilityProbe"):
+                errors.append("filtered batch protocol probe scheduling does not skip verified capabilities")
+            if not contains_identifier(body, "scheduleProtocolCapabilityProbeBatch"):
+                errors.append("filtered batch protocol probe scheduling does not enqueue the bounded batch")
 
     # Diagnosis actions must not schedule capability probes (us4 china 2026-09-23).
     diagnosis_handler = root / "backend/internal/handler/admin/account_handler.go"
@@ -945,6 +953,16 @@ def check(root: Path) -> list[str]:
                 ):
                     errors.append(
                         f"admin diagnosis action {method} must not schedule protocol capability probes"
+                    )
+        for method in ("BulkUpdate", "BatchRefresh"):
+            for body in function_bodies(diagnosis_source, method):
+                if not contains_identifier(body, "scheduleProtocolCapabilityProbesForIDs"):
+                    errors.append(
+                        f"admin {method} must schedule protocol probes through verified-capability filtering"
+                    )
+                if contains_identifier(body, "scheduleProtocolCapabilityProbeBatch"):
+                    errors.append(
+                        f"admin {method} must not bypass verified-capability filtering via raw probe batch"
                     )
 
     probe_owner = root / "backend/internal/service/protocol_capability_probe.go"
