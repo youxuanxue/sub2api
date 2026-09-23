@@ -89,8 +89,15 @@ func digestRequest(req CanonicalRequest) RequestDigest {
 	writeDigestString(&encoded, string(req.profile.Reasoning))
 	writeDigestString(&encoded, string(req.profile.PromptCache))
 	_ = binary.Write(&encoded, binary.BigEndian, uint32(req.profile.ContentKinds))
-	writeDigestBytes(&encoded, req.body)
-	return sha256.Sum256(encoded.Bytes())
+	_ = binary.Write(&encoded, binary.BigEndian, uint64(len(req.body)))
+	// Preserve the length-prefixed wire digest without copying the entire body
+	// into a second buffer. The canonical request already owns immutable bytes.
+	hash := sha256.New()
+	_, _ = hash.Write(encoded.Bytes())
+	_, _ = hash.Write(req.body)
+	var digest RequestDigest
+	hash.Sum(digest[:0])
+	return digest
 }
 
 func writeDigestString(buf *bytes.Buffer, value string) {
