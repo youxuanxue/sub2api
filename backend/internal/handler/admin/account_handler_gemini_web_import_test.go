@@ -37,6 +37,36 @@ func TestValidateGeminiWebSessionImportRejectsMalformedBundle(t *testing.T) {
 	require.Error(t, validateGeminiWebSessionImport(bundle))
 }
 
+func TestValidateGeminiWebSessionImportRejectsWorkerIncompatibleCookies(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{"empty value", ""},
+		{"string expires", "123"},
+		{"array path", []any{}},
+		{"string secure", "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := validGeminiWebImportBundle()
+			bundle.Cookies[0][map[string]string{
+				"empty value": "value", "string expires": "expires",
+				"array path": "path", "string secure": "secure",
+			}[tc.name]] = tc.value
+			require.Error(t, validateGeminiWebSessionImport(bundle))
+		})
+	}
+}
+
+func TestNormalizeGeminiWebCookiesCanonicalizesDomainAndPath(t *testing.T) {
+	cookies, err := normalizeGeminiWebCookies([]map[string]any{{
+		"name": "SID", "value": "secret", "domain": " .GOOGLE.COM ",
+	}})
+	require.NoError(t, err)
+	require.Equal(t, ".google.com", cookies[0]["domain"])
+	require.Equal(t, "/", cookies[0]["path"])
+}
+
 func TestCloneGeminiWebCredentialsKeepsAPIKeyAndInitializesWeb(t *testing.T) {
 	credentials, err := cloneGeminiWebCredentials(map[string]any{"api_key": "keep-me"})
 	require.NoError(t, err)

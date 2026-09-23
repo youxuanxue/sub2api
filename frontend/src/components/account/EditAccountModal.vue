@@ -3320,10 +3320,13 @@ const handleGeminiWebSessionFile = async (event: Event) => {
   input.value = ''
   if (!file || !props.account || props.account.platform !== PLATFORM_GEMINI || props.account.type !== 'apikey') return
 
+  const targetAccountID = props.account.id
+  const operationToken = ++geminiWebSessionImportToken
   geminiWebSessionImportSummary.value = ''
   geminiWebSessionImporting.value = true
   try {
     const parsed = JSON.parse(await file.text()) as Record<string, unknown>
+    if (operationToken !== geminiWebSessionImportToken || props.account?.id !== targetAccountID) return
     const format = parsed?.format
     const userAgent = parsed?.user_agent
     const cookies = parsed?.cookies
@@ -3342,7 +3345,7 @@ const handleGeminiWebSessionFile = async (event: Event) => {
       throw new Error(t('admin.accounts.gemini.webSessionImportInvalid'))
     }
 
-    const result = await adminAPI.accounts.importGeminiWebSession(props.account.id, parsed)
+    const result = await adminAPI.accounts.importGeminiWebSession(targetAccountID, parsed)
     emit('updated', result.account)
     geminiWebSessionImportSummary.value = t('admin.accounts.gemini.webSessionImportSuccess', {
       count: result.session.cookie_count,
@@ -3350,9 +3353,13 @@ const handleGeminiWebSessionFile = async (event: Event) => {
     })
     appStore.showSuccess(t('admin.accounts.gemini.webSessionImportDone'))
   } catch (error: any) {
-    appStore.showError(error?.message || t('admin.accounts.gemini.webSessionImportInvalid'))
+    if (operationToken === geminiWebSessionImportToken) {
+      appStore.showError(error instanceof SyntaxError
+        ? t('admin.accounts.gemini.webSessionImportInvalid')
+        : (error?.message || t('admin.accounts.gemini.webSessionImportInvalid')))
+    }
   } finally {
-    geminiWebSessionImporting.value = false
+    if (operationToken === geminiWebSessionImportToken) geminiWebSessionImporting.value = false
   }
 }
 const {
@@ -3403,6 +3410,7 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const geminiWebSessionImporting = ref(false)
 const geminiWebSessionImportSummary = ref('')
+let geminiWebSessionImportToken = 0
 const geminiWebSessionFileInput = ref<HTMLInputElement | null>(null)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
@@ -5241,6 +5249,8 @@ const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
 const handleClose = () => {
+  geminiWebSessionImportToken++
+  geminiWebSessionImporting.value = false
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')

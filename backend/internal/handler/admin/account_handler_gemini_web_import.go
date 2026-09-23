@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -72,34 +73,41 @@ func (h *AccountHandler) ImportGeminiWebSession(c *gin.Context) {
 		return
 	}
 
-	credentials, err := cloneGeminiWebCredentials(account.Credentials)
-	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "Failed to prepare account credentials")
-		return
-	}
-	web, _ := credentials["gemini_web"].(map[string]any)
+	web, _ := account.Credentials["gemini_web"].(map[string]any)
 	currentVersion := geminiWebRuntimeVersion(web)
 	nextVersion := currentVersion + 1
+	cookies, err := normalizeGeminiWebCookies(bundle.Cookies)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	web["runtime"] = map[string]any{
 		"version":    nextVersion,
 		"user_agent": strings.TrimSpace(bundle.UserAgent),
-		"cookies":    bundle.Cookies,
+		"cookies":    cookies,
 		"state": map[string]any{
 			"blocked": false, "generation_pending": false,
 			"last_refresh": float64(0), "cooldown_until": float64(0),
 		},
 	}
 	delete(web, "lease")
-	credentials["gemini_web"] = web
-
-	updated, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
-		Credentials: credentials,
+	importer, ok := h.adminService.(interface {
+		ImportGeminiWebSession(context.Context, int64, int64, map[string]any) (*service.Account, error)
 	})
+	if !ok {
+		response.Error(c, http.StatusInternalServerError, "Gemini Web session import is unavailable")
+		return
+	}
+	runtime, ok := web["runtime"].(map[string]any)
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "Invalid Gemini Web runtime")
+		return
+	}
+	updated, err := importer.ImportGeminiWebSession(c.Request.Context(), accountID, currentVersion, runtime)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-
 	response.Success(c, gin.H{
 		"account": h.buildAccountResponseWithRuntime(c.Request.Context(), updated),
 		"session": gin.H{
@@ -128,7 +136,7 @@ func validateGeminiWebSessionImport(bundle geminiWebSessionImportRequest) error 
 		if !nameOK || strings.TrimSpace(name) == "" || len([]rune(name)) > geminiWebSessionImportMaxCookieName {
 			return errors.New("gemini Web session cookie name is invalid")
 		}
-		if !valueOK || len([]byte(value)) > geminiWebSessionImportMaxCookieValue {
+		if !valueOK || strings.TrimSpace(value) == "" || len([]byte(value)) > geminiWebSessionImportMaxCookieValue {
 			return errors.New("gemini Web session cookie value is invalid")
 		}
 		if !domainOK {
@@ -138,11 +146,45 @@ func validateGeminiWebSessionImport(bundle geminiWebSessionImportRequest) error 
 		if _, ok := geminiWebAllowedCookieDomains[domain]; !ok {
 			return errors.New("gemini Web session contains a cookie from an unsupported domain")
 		}
+		if expires, ok := cookie["expires"]; ok {
+			number, numberOK := expires.(float64)
+			if !numberOK || number < 0 || number != float64(int64(number)) {
+				return errors.New("gemini Web session cookie expiration is invalid")
+			}
+		}
+		if path, ok := cookie["path"]; ok {
+			if pathValue, pathOK := path.(string); !pathOK || pathValue == "" {
+				return errors.New("gemini Web session cookie path is invalid")
+			}
+		}
+		if secure, ok := cookie["secure"]; ok {
+			if _, secureOK := secure.(bool); !secureOK {
+				return errors.New("gemini Web session cookie secure flag is invalid")
+			}
+		}
 		if i >= geminiWebSessionImportMaxCookies {
 			return errors.New("too many cookies")
 		}
 	}
 	return nil
+}
+
+func normalizeGeminiWebCookies(cookies []map[string]any) ([]map[string]any, error) {
+	normalized := make([]map[string]any, 0, len(cookies))
+	for _, cookie := range cookies {
+		copy := make(map[string]any, len(cookie))
+		for key, value := range cookie {
+			copy[key] = value
+		}
+		if domain, ok := copy["domain"].(string); ok {
+			copy["domain"] = strings.ToLower(strings.TrimSpace(domain))
+		}
+		if _, ok := copy["path"]; !ok {
+			copy["path"] = "/"
+		}
+		normalized = append(normalized, copy)
+	}
+	return normalized, nil
 }
 
 func cloneGeminiWebCredentials(credentials map[string]any) (map[string]any, error) {
