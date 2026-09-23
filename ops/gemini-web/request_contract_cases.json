@@ -1,0 +1,23 @@
+[
+  {"name":"single_text","model":"gemini-web-flash","accepted":true,"body":{"contents":[{"parts":[{"text":"hello"}]}]}},
+  {"name":"text_parts","model":"gemini-web-pro","accepted":true,"body":{"contents":[{"role":"user","parts":[{"text":"hello"},{"text":"world"}]}],"generationConfig":{"responseModalities":["TEXT"]}}},
+  {"name":"image","model":"gemini-web-pro-image","accepted":true,"body":{"contents":[{"parts":[{"text":"draw a cube"}]}],"generationConfig":{"responseModalities":["IMAGE"]}}},
+  {"name":"image_defaults","model":"gemini-web-pro-image","accepted":true,"body":{"contents":[{"parts":[{"text":"draw a cube"}]}]}},
+  {"name":"system","model":"gemini-web-flash","accepted":false,"body":{"systemInstruction":{"parts":[{"text":"instruction"}]},"contents":[{"parts":[{"text":"hello"}]}]}},
+  {"name":"history","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"role":"user","parts":[{"text":"first"}]},{"role":"user","parts":[{"text":"second"}]}]}},
+  {"name":"assistant","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"role":"model","parts":[{"text":"hello"}]}]}},
+  {"name":"max_output","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"maxOutputTokens":8192}}},
+  {"name":"sampling","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"temperature":0}}},
+  {"name":"tools","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"tools":[]}},
+  {"name":"image_input","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"inlineData":{"mimeType":"image/png","data":"AA=="}}]}]}},
+  {"name":"empty","model":"gemini-web-flash","accepted":false,"body":{"contents":[]}},
+  {"name":"whitespace","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"  \n"}]}]}},
+  {"name":"null_config","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":null}},
+  {"name":"unknown_modality","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"responseModalities":["AUDIO"]}}},
+  {"name":"empty_modality","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"responseModalities":[]}}},
+  {"name":"unknown_turn_field","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}],"unknown":true}]}},
+  {"name":"unknown_part_field","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello","unknown":true}]}]}},
+  {"name":"non_text","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":123}]}]}},
+  {"name":"image_on_text","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"responseModalities":["IMAGE"]}}},
+  {"name":"text_on_image","model":"gemini-web-pro-image","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"responseModalities":["TEXT"]}}}
+]

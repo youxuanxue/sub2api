@@ -24,6 +24,9 @@ func (s *GatewayService) candidateSupportsRequest(ctx context.Context, account *
 	if account == nil {
 		return false, nil
 	}
+	if !geminiWebSupportsRequest(ctx, account, model, shape) {
+		return false, nil
+	}
 	if !s.isClaudeNewAPICrossPlatformAccountAllowed(ctx, account, platform, model, false) {
 		if IsOpenAICompatPlatform(platform) {
 			if !account.IsOpenAICompatPoolMember(platform) {

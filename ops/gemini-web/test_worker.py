@@ -3,6 +3,7 @@ import copy
 import http.client
 import io
 import json
+from pathlib import Path
 import subprocess
 import sys
 import threading
@@ -66,6 +67,18 @@ class Control:
 
 
 class WorkerTests(unittest.TestCase):
+    def test_scheduler_admission_contract_fixtures(self):
+        cases = json.loads(Path(__file__).with_name('request_contract_cases.json').read_text())
+        for case in cases:
+            with self.subTest(case=case['name']):
+                if case['accepted']:
+                    prompt, modalities = worker.request_prompt(case['body'], case['model'])
+                    self.assertTrue(prompt.strip())
+                    self.assertEqual('IMAGE' in modalities, worker.MODELS[case['model']][1])
+                else:
+                    with self.assertRaises(worker.Failure):
+                        worker.request_prompt(case['body'], case['model'])
+
     def test_pinned_transport_can_configure_profile_without_network(self):
         from curl_cffi import Curl
         curl = Curl()

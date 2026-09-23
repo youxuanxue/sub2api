@@ -2458,6 +2458,7 @@
     {
       "path": "backend/internal/service/candidate_eligibility.go",
       "must_contain": [
+        "geminiWebSupportsRequest(ctx, account, model, shape)",
         "func (s *GatewayService) evaluateGroupCandidates(",
         "protocolPlanForAccount(ctx, account, model)",
         "s.isClaudeNewAPICrossPlatformAccountAllowed",
@@ -2472,6 +2473,11 @@
         "result.Supported"
       ],
       "rationale": "Shared request support and the legacy group adapter retain support/error classification, including main Gemini and count-token fixes. Non-admitting peers must not surface capability-unknown as a platform routing fault. Production account selection is separately anchored."
+    },
+    {
+      "path": "backend/internal/service/gemini_web_request_tk.go",
+      "must_contain": ["func geminiWebSupportsRequest(", "GeminiWebRelayCredentialKey", "CandidateRequestFromContext(ctx)", "geminiWebNativeBodySupported"],
+      "rationale": "Restricted Web session and relay capabilities share one native admission projection; native image requests must retain their request body outside the text Plan context."
     },
     {
       "path": "backend/internal/service/candidate_saturation.go",
