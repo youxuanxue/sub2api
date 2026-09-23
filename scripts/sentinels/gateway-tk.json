@@ -5385,6 +5385,16 @@
       "rationale": "TK fifth-edge visibility companion: ActiveModelRateLimits enumerates the STILL-active per-model-class cooldowns stored in account.Extra[\"model_rate_limits\"] (written at scope anthropic:class:<class> by ratelimit_service_tk_model_cooldown.go on an Anthropic unified-window 429; read by model_rate_limit.go for scheduler filtering). It mirrors modelRateLimitResetAt's RFC3339 parse contract (nil-on-error, reset_at strictly in the future) so a lapsed cooldown never produces a phantom badge, and returns nil (not an empty map) when none are active so the edge DTO field omits cleanly. The edge accounts handler (toEdgeAccountDTO → toEdgeModelRateLimits) is the SOLE consumer: it projects these onto edgeAccountDTO.ModelRateLimits so prod's Edge Accounts overview can surface the edge's per-class sonnet 5h/7d window that sits null on the prod mirror account. Pure read path — never writes or mutates Extra; deleting it (or weakening the future-only filter) re-buries the per-class window from prod operators."
     },
     {
+      "path": "backend/internal/service/account_wide_model_rate_limit_ssot_tk.go",
+      "must_contain": [
+        "AccountWideModelRateLimitThreshold = 3",
+        "func AccountWideRateLimitResetAt(",
+        "func countedActiveModelRateLimits(",
+        "creditsExhaustedKey"
+      ],
+      "rationale": "Account-wide rate-limit SSOT: more than three still-active model_rate_limits scopes (AICredits excluded) cascade into an account-wide block for every platform/account type. IsSchedulable/IsRateLimited, admin/edge DTO projections, and SQL list filters must consume AccountWideRateLimitResetAt / accountWideRateLimitBlocks rather than inventing a second threshold."
+    },
+    {
       "path": "backend/internal/service/edge_accounts_aggregator_tk.go",
       "must_contain": [
         "func (a *EdgeAccountsAggregator) Aggregate(",
@@ -10052,15 +10062,41 @@
       "rationale": "PR #1461 regression: without an admin passthrough rule, context_length_exceeded response.failed on buffered chat/completions must return HTTP 400 invalid_request_error, not 502."
     },
     {
+      "path": "backend/internal/service/gemini_messages_compat_service_tk_429.go",
+      "must_contain": [
+        "tkIsAntigravityRelayCapacityResponse(account, statusCode, body)"
+      ],
+      "rationale": "Shared state-write boundary must reject internal edge capacity envelopes even for legacy stubs without pool_mode, preventing a prod account-wide midnight cooldown from any Gemini entrypoint."
+    },
+    {
+      "path": "backend/internal/service/gemini_chat_completions_compat_service.go",
+      "must_contain": [
+        "s.checkErrorPolicyInLoop(ctx, account, resp, req.Model)",
+        "!tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody)",
+        "newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)"
+      ],
+      "rationale": "Chat must retain pre-mapping model attribution for edge saturation and the same capacity failover metadata and error-policy bypass as native Gemini, Messages, and Responses."
+    },
+    {
+      "path": "backend/internal/service/gemini_relay_capacity_tk_test.go",
+      "must_contain": [
+        "TestGeminiRelayCapacity_AllEntrypoints",
+        "TestGeminiRelayCapacity_RealProvider429StillCools"
+      ],
+      "rationale": "Forwarding regression matrix protects all four Gemini entrypoints with and without pool_mode: one attempt, saturation-only routing, no account/model cooldown, and preserved real provider quota handling."
+    },
+    {
       "path": "backend/internal/service/gateway_antigravity_relay_capacity_tk.go",
       "must_contain": [
         "func tkIsAntigravityRelayCapacityResponse(",
+        "tkSkipDownstreamFailoverExhaustedPenalty(statusCode, upstreamMsg, responseBody)",
+        "tkIsDownstreamRateLimitEnvelope(statusCode, upstreamMsg, responseBody)",
         "isEdgeMirrorStub(account, edgeIDPattern)",
         "resolveFinalAntigravityModelKey(ctx, account, requestedModel)",
         "ClientStatusCode: http.StatusTooManyRequests",
         "ResponseHeaders:  responseHeaders"
       ],
-      "rationale": "Narrow owner for cross-edge Antigravity capacity semantics. Only internal Antigravity API-key relays carrying TokenKey's no-available-accounts envelope may become client 429; raw upstream status/body and safe Retry-After remain available for diagnostics. Losing or broadening these anchors either restores terminal 503s or misclassifies arbitrary provider faults."
+      "rationale": "Narrow owner for cross-edge Antigravity capacity semantics. Only internal Antigravity API-key relays carrying TokenKey's empty-pool, failover-exhausted, or rate-limit envelope may become client 429; raw upstream status/body and safe Retry-After remain available for diagnostics. Losing or broadening these anchors either restores terminal 503s or misclassifies arbitrary provider faults."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_antigravity_relay_capacity.go",

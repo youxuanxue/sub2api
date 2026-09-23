@@ -459,6 +459,7 @@ func TestIsEdgeMirrorStub(t *testing.T) {
 	}{
 		{"anthropic apikey + edge base_url", mk(PlatformAnthropic, AccountTypeAPIKey, "https://api-us4.tokenkey.dev"), true},
 		{"openai apikey + edge base_url (v2 widened)", mk(PlatformOpenAI, AccountTypeAPIKey, "https://api-us3.tokenkey.dev"), true},
+		{"gemini apikey + edge base_url (Gemini Web relay)", mk(PlatformGemini, AccountTypeAPIKey, "https://api-us4.tokenkey.dev"), true},
 		{"grok apikey + edge base_url (v2 widened)", mk(PlatformGrok, AccountTypeAPIKey, "https://api-us4.tokenkey.dev"), true},
 		{"kiro apikey + edge base_url (v2 widened)", mk(PlatformKiro, AccountTypeAPIKey, "https://api-uk2.tokenkey.dev"), true},
 		{"oauth type is never a mirror stub", mk(PlatformAnthropic, AccountTypeOAuth, "https://api-us4.tokenkey.dev"), false},
@@ -520,6 +521,44 @@ func TestEdgeAccountsAggregator_ByStubDiscoversGrokAPIKeyRelay(t *testing.T) {
 	require.Equal(t, PlatformGrok, got.StubPlatform)
 	require.Equal(t, "grok-edge-key", doer.keysSeen["api-us4.tokenkey.dev"],
 		"the fan-out must authenticate with the grok stub's api_key")
+}
+
+// TestEdgeAccountsAggregator_ByStubDiscoversGeminiWebRelay keeps the Gemini Web
+// prod mirror visible in the inline /accounts panel. Gemini direct accounts also
+// use platform=gemini, but a Gemini Web account whose base_url points at a
+// TokenKey edge is a relay stub and must be fanned out like the other mirrors.
+func TestEdgeAccountsAggregator_ByStubDiscoversGeminiWebRelay(t *testing.T) {
+	gemini := Account{
+		ID: 200, Name: "gemini-us4", Platform: PlatformGemini, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"base_url": "https://api-us4.tokenkey.dev",
+			"api_key":  "gemini-edge-key",
+		},
+	}
+	store := &platformAwareEdgeStore{byPlatform: map[string][]Account{PlatformGemini: {gemini}}}
+	doer := &fakeEdgeDoer{bodyByHost: map[string]string{
+		"api-us4.tokenkey.dev": `{"data":{"accounts":[{"id":28,"name":"gemini-web-133","platform":"gemini","status":"active","is_schedulable":true}],"group":"gemini-web-us4"}}`,
+	}}
+	agg := NewEdgeAccountsAggregator(store, doer)
+
+	out, err := agg.AggregateByStub(context.Background())
+	require.NoError(t, err)
+
+	var got *EdgeAccountsResult
+	for i := range out.Edges {
+		if out.Edges[i].StubAccountID == 200 {
+			got = &out.Edges[i]
+		}
+	}
+	require.NotNil(t, got, "Gemini Web stub id 200 must be discovered by the inline panel")
+	require.True(t, got.OK)
+	require.Equal(t, "us4", got.EdgeID)
+	require.Equal(t, PlatformGemini, got.StubPlatform)
+	require.Equal(t, PlatformGemini, doer.platformSeen["api-us4.tokenkey.dev"])
+	require.Equal(t, "gemini-edge-key", doer.keysSeen["api-us4.tokenkey.dev"])
+	require.Len(t, got.Accounts, 1)
+	require.Contains(t, string(got.Accounts[0]), `"id":28`)
 }
 
 // TestEdgeAccountsAggregator_ByStubDiscoversLegacyGrokNewAPIBridge keeps the old

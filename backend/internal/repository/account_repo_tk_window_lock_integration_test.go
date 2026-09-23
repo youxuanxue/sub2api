@@ -83,3 +83,74 @@ func TestNewAPIWindowLockSQLMatchesSchedulingAndCapacity(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, want, idsOfAccounts(ungroupedAll))
 }
+
+func TestModelRateLimitCascadeSQLMatchesSchedulingAndCapacity(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	client := tx.Client()
+	repo := newAccountRepositoryWithSQL(client, tx, nil, nil)
+	now := time.Now().UTC().Truncate(time.Second)
+	group := mustCreateGroup(t, client, &service.Group{Name: "model-cascade-parity"})
+
+	mkLimits := func(count int) map[string]any {
+		limits := make(map[string]any, count)
+		for i := 0; i < count; i++ {
+			limits[fmt.Sprintf("model-%d", i+1)] = map[string]any{
+				"rate_limited_at":     now.Add(-time.Hour).Format(time.RFC3339),
+				"rate_limit_reset_at": now.Add(time.Duration(i+1) * time.Hour).Format(time.RFC3339),
+			}
+		}
+		return map[string]any{"model_rate_limits": limits}
+	}
+
+	under := mustCreateAccount(t, client, &service.Account{
+		Name: "cascade-under", Platform: service.PlatformNewAPI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, Extra: mkLimits(service.AccountWideModelRateLimitThreshold),
+	})
+	over := mustCreateAccount(t, client, &service.Account{
+		Name: "cascade-over", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth,
+		Status: service.StatusActive, Schedulable: true, Extra: mkLimits(service.AccountWideModelRateLimitThreshold + 1),
+	})
+	mustBindAccountToGroup(t, client, under.ID, group.ID, 1)
+	mustBindAccountToGroup(t, client, over.ID, group.ID, 2)
+
+	require.True(t, under.IsSchedulable())
+	require.False(t, under.IsRateLimited())
+	require.False(t, over.IsSchedulable())
+	require.True(t, over.IsRateLimited())
+
+	grouped, err := repo.ListSchedulableByGroupID(ctx, group.ID)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int64{under.ID}, idsOfAccounts(grouped))
+
+	all, err := repo.ListSchedulable(ctx)
+	require.NoError(t, err)
+	require.Contains(t, idsOfAccounts(all), under.ID)
+	require.NotContains(t, idsOfAccounts(all), over.ID)
+
+	platform, err := repo.ListSchedulableByPlatform(ctx, service.PlatformAnthropic)
+	require.NoError(t, err)
+	require.NotContains(t, idsOfAccounts(platform), over.ID)
+
+	batch, err := repo.ListSchedulableByGroupIDs(ctx, []int64{group.ID})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int64{under.ID}, idsOfAccounts(batch[group.ID]))
+
+	capacity, err := repo.ListSchedulableCapacityByGroupIDs(ctx, []int64{group.ID})
+	require.NoError(t, err)
+	capacityIDs := make([]int64, 0, len(capacity))
+	for _, row := range capacity {
+		if row.GroupID == group.ID {
+			capacityIDs = append(capacityIDs, row.AccountID)
+		}
+	}
+	require.ElementsMatch(t, []int64{under.ID}, capacityIDs)
+
+	active, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 100}, "", "", service.StatusActive, "", group.ID, "", 0)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int64{under.ID}, idsOfAccounts(active))
+
+	limited, _, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 100}, "", "", "rate_limited", "", group.ID, "", 0)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []int64{over.ID}, idsOfAccounts(limited))
+}

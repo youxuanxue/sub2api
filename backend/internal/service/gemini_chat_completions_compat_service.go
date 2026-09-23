@@ -131,7 +131,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, req.Model); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -196,7 +196,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
 		policy := ErrorPolicyNone
-		if s.rateLimitService != nil {
+		if s.rateLimitService != nil && !tkIsAntigravityRelayCapacityResponse(account, resp.StatusCode, respBody) {
 			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
 		}
 		// 与 messages 兼容层一致：只有 None / Matched 才走账号状态处理。
@@ -219,11 +219,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           evBody,
-				RetryableOnSameAccount: tkRetryableOnSameAccount(account, resp, evBody),
-			}
+			failoverErr := newUpstreamFailoverErrorWithTKCapacity(account, resp.StatusCode, resp.Header, evBody)
+			failoverErr.RetryableOnSameAccount = tkRetryableOnSameAccount(account, resp, evBody)
+			return nil, failoverErr
 		}
 
 		if policy == ErrorPolicySkipped && account.IsCustomErrorCodesEnabled() {

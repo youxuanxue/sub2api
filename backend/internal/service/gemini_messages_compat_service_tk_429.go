@@ -14,6 +14,11 @@ import (
 // Code Assist per-model and OAuth cooldown hooks). Moved from the upstream-
 // shaped gemini_messages_compat_service.go as a behavior-preserving companion.
 func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, body []byte) {
+	// An internal relay represents an edge pool, not a provider quota. Keep this
+	// guard at the shared state-write boundary, including legacy non-pool stubs.
+	if tkIsAntigravityRelayCapacityResponse(account, statusCode, body) {
+		return
+	}
 	// 遵守自定义错误码策略：未命中则跳过所有限流处理
 	if !account.ShouldHandleErrorCode(statusCode) {
 		return

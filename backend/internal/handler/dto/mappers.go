@@ -243,17 +243,11 @@ func groupFromServiceBase(g *service.Group) Group {
 }
 
 func accountRateLimitedAtForResponse(a *service.Account) *time.Time {
-	if a == nil || service.NewAPIAccountWindowLockIgnored(a) {
-		return nil
-	}
-	return a.RateLimitedAt
+	return service.AccountWideRateLimitedAt(a, time.Now())
 }
 
 func accountRateLimitResetAtForResponse(a *service.Account) *time.Time {
-	if a == nil || service.NewAPIAccountWindowLockIgnored(a) {
-		return nil
-	}
-	return a.RateLimitResetAt
+	return service.AccountWideRateLimitResetAt(a, time.Now())
 }
 
 func AccountFromServiceShallow(a *service.Account) *Account {
