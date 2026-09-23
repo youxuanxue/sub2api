@@ -260,17 +260,10 @@ func TestProbeProtocolsSurfacesSynchronousProbeFailure(t *testing.T) {
 	}
 }
 
-func TestSetSchedulableSchedulesProtocolProbeOnlyWhenEnabling(t *testing.T) {
+func TestSetSchedulableDoesNotScheduleProtocolProbe(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, tt := range []struct {
-		name          string
-		schedulable   bool
-		wantScheduled bool
-	}{
-		{name: "enable", schedulable: true, wantScheduled: true},
-		{name: "disable", schedulable: false, wantScheduled: false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, schedulable := range []bool{true, false} {
+		t.Run(strconv.FormatBool(schedulable), func(t *testing.T) {
 			adminService := newStubAdminService()
 			adminService.setSchedulableResult = governedProtocolProbeAccount(51)
 			scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
@@ -278,7 +271,7 @@ func TestSetSchedulableSchedulesProtocolProbeOnlyWhenEnabling(t *testing.T) {
 			router := gin.New()
 			router.POST("/accounts/:id/schedulable", handler.SetSchedulable)
 
-			body := []byte(`{"schedulable":` + strconv.FormatBool(tt.schedulable) + `}`)
+			body := []byte(`{"schedulable":` + strconv.FormatBool(schedulable) + `}`)
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/accounts/51/schedulable", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
@@ -287,15 +280,9 @@ func TestSetSchedulableSchedulesProtocolProbeOnlyWhenEnabling(t *testing.T) {
 				t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
 			}
 
-			if tt.wantScheduled {
-				if got, want := awaitProtocolProbeCall(t, scheduler), []int64{51}; !reflect.DeepEqual(got, want) {
-					t.Fatalf("probe account IDs = %v, want %v", got, want)
-				}
-				return
-			}
 			select {
 			case got := <-scheduler.calls:
-				t.Fatalf("disabling account scheduled protocol probe for %v", got)
+				t.Fatalf("schedulable toggle scheduled protocol probe for %v", got)
 			case <-time.After(50 * time.Millisecond):
 			}
 		})

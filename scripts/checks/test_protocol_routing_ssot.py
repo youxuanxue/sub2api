@@ -230,11 +230,12 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func probeOpenAIAPIKeyChatCompletionsSupport(){}\n"
             "func probeOpenAIAPIKeyResponsesSupport(){}\n"
             "func probeGeminiGenerateContentSupport(){}\n"
-            "func ProbeAccountProtocolCapabilities(){ ProbeAccountProtocolCapabilitiesNow() }\n"
-            "func ProbeAccountProtocolCapabilitiesForPreparation(){ probeAccountProtocolCapabilitiesNow(false) }\n"
-            "func ProbeAccountProtocolCapabilitiesNow(){ probeAccountProtocolCapabilitiesNow(true) }\n"
-            "func probeAccountProtocolCapabilitiesNow(publish bool){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe(publish) }) }\n"
-            "func runEndpointProtocolProbe(publish bool){ AcquireProbeLease(); ListLinkedAccountIDs(); selectProtocolProbeWitnesses(); probeProtocolWitnesses(); probeProtocolCapability(); IdentityConflict(); ProbeEvidence(); commitProtocolProbeResult(publish) }\n"
+            "func ProbeAccountProtocolCapabilities(){ probeAccountProtocolCapabilitiesNow(true, false) }\n"
+            "func ProbeAccountProtocolCapabilitiesForPreparation(){ probeAccountProtocolCapabilitiesNow(false, false) }\n"
+            "func ProbeAccountProtocolCapabilitiesNow(){ probeAccountProtocolCapabilitiesNow(true, true) }\n"
+            "func probeAccountProtocolCapabilitiesNow(publish, allowDestructive bool){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe(publish, allowDestructive) }) }\n"
+            "func runEndpointProtocolProbe(publish, allowDestructive bool){ AcquireProbeLease(); ListLinkedAccountIDs(); selectProtocolProbeWitnesses(); probeProtocolWitnesses(); probeProtocolCapability(); IdentityConflict(); ProbeEvidence(); if !allowDestructive && protocolCapabilityMutationIsDestructive() { Reason: \"destructive_conflict_refused\" }; commitProtocolProbeResult(publish) }\n"
+            "func protocolCapabilityMutationIsDestructive() bool { return false }\n"
             "func commitProtocolProbeResult(publish bool){ if publish { CommitProbeResult() } else { CommitPreparedProbeResult() } }\n"
             "func selectProtocolProbeWitnesses(){ protocolProbeAuthorizationUsable() }\n"
             "func protocolProbeAuthorizationUsable(account Account){ ProtocolAuthorizationPresent(account) }\n"
@@ -345,11 +346,12 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             "func probeOpenAIAPIKeyChatCompletionsSupport(){}\n"
             "func probeOpenAIAPIKeyResponsesSupport(){}\n"
             "func probeGeminiGenerateContentSupport(){}\n"
-            "func ProbeAccountProtocolCapabilities(){ ProbeAccountProtocolCapabilitiesNow() }\n"
-            "func ProbeAccountProtocolCapabilitiesForPreparation(){ probeAccountProtocolCapabilitiesNow(false) }\n"
-            "func ProbeAccountProtocolCapabilitiesNow(){ probeAccountProtocolCapabilitiesNow(true) }\n"
-            "func probeAccountProtocolCapabilitiesNow(publish bool){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe(publish) }) }\n"
-            "func runEndpointProtocolProbe(publish bool){ AcquireProbeLease(); ListLinkedAccountIDs(); selectProtocolProbeWitnesses(); probeProtocolWitnesses(); probeProtocolCapability(); IdentityConflict(); ProbeEvidence(); commitProtocolProbeResult(publish) }\n"
+            "func ProbeAccountProtocolCapabilities(){ probeAccountProtocolCapabilitiesNow(true, false) }\n"
+            "func ProbeAccountProtocolCapabilitiesForPreparation(){ probeAccountProtocolCapabilitiesNow(false, false) }\n"
+            "func ProbeAccountProtocolCapabilitiesNow(){ probeAccountProtocolCapabilitiesNow(true, true) }\n"
+            "func probeAccountProtocolCapabilitiesNow(publish, allowDestructive bool){ EnsureAccountLink(); ProtocolProbeCandidates(); protocolProbeCoordinator.Do(capability.CapabilityKey, func(){ runEndpointProtocolProbe(publish, allowDestructive) }) }\n"
+            "func runEndpointProtocolProbe(publish, allowDestructive bool){ AcquireProbeLease(); ListLinkedAccountIDs(); selectProtocolProbeWitnesses(); probeProtocolWitnesses(); probeProtocolCapability(); IdentityConflict(); ProbeEvidence(); if !allowDestructive && protocolCapabilityMutationIsDestructive() { Reason: \"destructive_conflict_refused\" }; commitProtocolProbeResult(publish) }\n"
+            "func protocolCapabilityMutationIsDestructive() bool { return false }\n"
             "func commitProtocolProbeResult(publish bool){ if publish { CommitProbeResult() } else { CommitPreparedProbeResult() } }\n"
             "func selectProtocolProbeWitnesses(){ protocolProbeAuthorizationUsable() }\n"
             "func protocolProbeAuthorizationUsable(account Account){ ProtocolAuthorizationPresent(account) }\n"
@@ -534,6 +536,19 @@ class ProtocolRoutingSSOTTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertTrue(any("selection performs secondary protocol planning" in error for error in MODULE.check(root)))
+
+    def test_rejects_diagnosis_action_that_schedules_protocol_probe(self) -> None:
+        root = self.fixture()
+        handler = root / "backend/internal/handler/admin/account_handler.go"
+        handler.write_text(
+            handler.read_text(encoding="utf-8")
+            + "func (h *AccountHandler) Test(){ scheduleProtocolCapabilityProbes() }\n"
+            + "func (h *AccountHandler) SetSchedulable(){ scheduleProtocolCapabilityProbeBatch() }\n",
+            encoding="utf-8",
+        )
+        errors = MODULE.check(root)
+        self.assertTrue(any("diagnosis action Test" in error for error in errors))
+        self.assertTrue(any("diagnosis action SetSchedulable" in error for error in errors))
 
     def test_rejects_per_protocol_probe_fanout(self) -> None:
         root = self.fixture()

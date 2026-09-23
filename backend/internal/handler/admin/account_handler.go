@@ -1217,9 +1217,8 @@ func (h *AccountHandler) Test(c *gin.Context) {
 			_ = c.Error(err)
 		}
 	}
-	if account, err := h.adminService.GetAccount(c.Request.Context(), accountID); err == nil {
-		h.scheduleProtocolCapabilityProbes(account)
-	}
+	// Connectivity test must not mutate shared protocol_endpoint_capabilities.
+	// Explicit POST /accounts/:id/protocol-probe owns capability discovery.
 }
 
 // RecoverState handles unified recovery of recoverable account runtime state.
@@ -2592,9 +2591,9 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if req.Schedulable {
-		h.scheduleProtocolCapabilityProbes(account)
-	}
+	// Enabling schedulable is a runtime gate, not capability discovery. Auto-probe
+	// here poisoned shared endpoint capabilities (us4 china 2026-09-23). Use
+	// POST /accounts/:id/protocol-probe when evidence must be refreshed.
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
