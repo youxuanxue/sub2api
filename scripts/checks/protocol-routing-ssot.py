@@ -911,6 +911,8 @@ def check(root: Path) -> list[str]:
                 errors.append("admin account handler does not gate the canonical protocol candidate set")
             if not contains_identifier(body, "scheduleProtocolCapabilityProbeBatch"):
                 errors.append("admin account handler does not delegate to the bounded account probe batch")
+            if not contains_identifier(body, "ShouldSkipAutoProtocolCapabilityProbe"):
+                errors.append("admin account handler does not skip auto-probe when capability evidence is already verified")
             for forbidden in (
                 "ProbeOpenAIAPIKeyChatCompletionsSupport",
                 "ProbeOpenAIAPIKeyResponsesSupport",
@@ -931,10 +933,42 @@ def check(root: Path) -> list[str]:
             ):
                 if contains_identifier(body, forbidden):
                     errors.append(f"admin account handler fans out per-protocol probe {forbidden}")
+        filtered_batch_bodies = function_bodies(source, "scheduleProtocolCapabilityProbesForIDs")
+        if not filtered_batch_bodies:
+            errors.append("admin account handler is missing filtered batch protocol probe scheduling")
+        for body in filtered_batch_bodies:
+            if not contains_identifier(body, "ShouldSkipAutoProtocolCapabilityProbe"):
+                errors.append("filtered batch protocol probe scheduling does not skip verified capabilities")
+            if not contains_identifier(body, "scheduleProtocolCapabilityProbeBatch"):
+                errors.append("filtered batch protocol probe scheduling does not enqueue the bounded batch")
+
+    # Diagnosis actions must not schedule capability probes (us4 china 2026-09-23).
+    diagnosis_handler = root / "backend/internal/handler/admin/account_handler.go"
+    if diagnosis_handler.is_file():
+        diagnosis_source = strip_go_comments_and_literals(diagnosis_handler.read_text(encoding="utf-8"))
+        for method in ("Test", "SetSchedulable"):
+            for body in function_bodies(diagnosis_source, method):
+                if contains_identifier(body, "scheduleProtocolCapabilityProbes") or contains_identifier(
+                    body, "scheduleProtocolCapabilityProbeBatch"
+                ):
+                    errors.append(
+                        f"admin diagnosis action {method} must not schedule protocol capability probes"
+                    )
+        for method in ("BulkUpdate", "BatchRefresh"):
+            for body in function_bodies(diagnosis_source, method):
+                if not contains_identifier(body, "scheduleProtocolCapabilityProbesForIDs"):
+                    errors.append(
+                        f"admin {method} must schedule protocol probes through verified-capability filtering"
+                    )
+                if contains_identifier(body, "scheduleProtocolCapabilityProbeBatch"):
+                    errors.append(
+                        f"admin {method} must not bypass verified-capability filtering via raw probe batch"
+                    )
 
     probe_owner = root / "backend/internal/service/protocol_capability_probe.go"
     if probe_owner.is_file():
-        source = strip_go_comments_and_literals(probe_owner.read_text(encoding="utf-8"))
+        raw_probe_source = probe_owner.read_text(encoding="utf-8")
+        source = strip_go_comments_and_literals(raw_probe_source)
         dispatch_bodies = function_bodies(source, "probeProtocolCapability")
         if not dispatch_bodies or not all(
             contains_identifier(body, "ProtocolGeminiGenerateContent")
@@ -963,19 +997,32 @@ def check(root: Path) -> list[str]:
         aggregate_bodies = function_bodies(source, "probeAccountProtocolCapabilitiesNow")
         if not legacy_bodies:
             errors.append("protocol capability owner is missing aggregate account probe job")
+        # Background/auto probes publish but refuse destructive fail-closed writes.
         for body in legacy_bodies:
-            if len(call_spans(body, "ProbeAccountProtocolCapabilitiesNow")) != 1:
-                errors.append("legacy account probe wrapper must delegate to the result-returning aggregate job exactly once")
+            if (
+                len(call_spans(body, "probeAccountProtocolCapabilitiesNow")) != 1
+                or not re.search(r"\btrue\s*,\s*false\b", body)
+                or contains_identifier(body, "ProbeAccountProtocolCapabilitiesNow")
+            ):
+                errors.append(
+                    "background account probe wrapper must call probeAccountProtocolCapabilitiesNow(publish=true, allowDestructive=false)"
+                )
         if result_bodies and aggregate_bodies:
             for body in result_bodies:
-                if len(call_spans(body, "probeAccountProtocolCapabilitiesNow")) != 1 or not re.search(r"\btrue\b", body):
-                    errors.append("normal account probe wrapper does not select published persistence")
+                if len(call_spans(body, "probeAccountProtocolCapabilitiesNow")) != 1 or not re.search(
+                    r"\btrue\s*,\s*true\b", body
+                ):
+                    errors.append(
+                        "explicit admin protocol-probe wrapper must call probeAccountProtocolCapabilitiesNow(publish=true, allowDestructive=true)"
+                    )
         if not prepared_bodies or not all(
             len(call_spans(body, "probeAccountProtocolCapabilitiesNow")) == 1
-            and re.search(r"\bfalse\b", body)
+            and re.search(r"\bfalse\s*,\s*false\b", body)
             for body in prepared_bodies
         ):
-            errors.append("startup preparation probe wrapper does not select silent persistence")
+            errors.append(
+                "startup preparation probe wrapper must call probeAccountProtocolCapabilitiesNow(publish=false, allowDestructive=false)"
+            )
         bodies = aggregate_bodies or result_bodies or legacy_bodies
         for body in bodies:
             for required in (
@@ -997,9 +1044,15 @@ def check(root: Path) -> list[str]:
                 "ListLinkedAccountIDs",
                 "probeProtocolCapability",
                 "commitProtocolProbeResult",
+                "allowDestructive",
+                "protocolCapabilityMutationIsDestructive",
             ):
                 if not contains_identifier(body, required):
                     errors.append(f"endpoint-scoped probe execution is missing {required}")
+        if endpoint_probe_bodies and "destructive_conflict_refused" not in raw_probe_source:
+            errors.append("endpoint-scoped probe execution is missing destructive_conflict_refused refuse path")
+        if not function_bodies(source, "protocolCapabilityMutationIsDestructive"):
+            errors.append("protocol capability owner is missing destructive mutation gate")
         commit_dispatch_bodies = function_bodies(source, "commitProtocolProbeResult")
         if not commit_dispatch_bodies or not all(
             contains_identifier(body, "CommitProbeResult")

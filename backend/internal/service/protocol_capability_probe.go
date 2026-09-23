@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
@@ -86,18 +87,21 @@ type protocolProbeGenerationResolution struct {
 }
 
 func (s *AccountTestService) ProbeAccountProtocolCapabilities(ctx context.Context, accountID int64) {
-	_, _ = s.ProbeAccountProtocolCapabilitiesNow(ctx, accountID)
+	// Background/admin-side-effect probes must not fail-close a previously verified
+	// shared capability (diagnosis actions used to schedule this path).
+	_, _ = s.probeAccountProtocolCapabilitiesNow(ctx, accountID, true, false)
 }
 
 func (s *AccountTestService) ProbeAccountProtocolCapabilitiesForPreparation(ctx context.Context, accountID int64) {
-	_, _ = s.probeAccountProtocolCapabilitiesNow(ctx, accountID, false)
+	_, _ = s.probeAccountProtocolCapabilitiesNow(ctx, accountID, false, false)
 }
 
 func (s *AccountTestService) ProbeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64) (ProtocolProbeRunResult, error) {
-	return s.probeAccountProtocolCapabilitiesNow(ctx, accountID, true)
+	// Explicit admin POST /protocol-probe may persist conflict/removal evidence.
+	return s.probeAccountProtocolCapabilitiesNow(ctx, accountID, true, true)
 }
 
-func (s *AccountTestService) probeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64, publish bool) (ProtocolProbeRunResult, error) {
+func (s *AccountTestService) probeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64, publish, allowDestructive bool) (ProtocolProbeRunResult, error) {
 	account, err := s.accountRepo.GetByID(ctx, accountID)
 	if err != nil {
 		return ProtocolProbeRunResult{}, err
@@ -130,7 +134,7 @@ func (s *AccountTestService) probeAccountProtocolCapabilitiesNow(ctx context.Con
 		}, nil
 	}
 	return s.protocolProbeCoordinator.Do(capability.CapabilityKey, func() (ProtocolProbeRunResult, error) {
-		return s.runEndpointProtocolProbe(ctx, capabilityRepo, capability, candidates, publish)
+		return s.runEndpointProtocolProbe(ctx, capabilityRepo, capability, candidates, publish, allowDestructive)
 	})
 }
 
@@ -144,7 +148,7 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 	repo ProtocolEndpointCapabilityRepository,
 	capability *ProtocolEndpointCapability,
 	candidates []protocolrouter.Protocol,
-	publish bool,
+	publish, allowDestructive bool,
 ) (ProtocolProbeRunResult, error) {
 	beforeProtocols := append([]protocolrouter.Protocol(nil), capability.SupportedProtocols...)
 	lease, acquired, err := repo.AcquireProbeLease(ctx, capability.CapabilityKey, uuid.NewString(), time.Now().UTC(), protocolProbeLeaseTTL)
@@ -209,6 +213,30 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 	if err != nil {
 		return ProtocolProbeRunResult{}, err
 	}
+	if !allowDestructive && protocolCapabilityMutationIsDestructive(capability, resolution) {
+		slog.Warn("protocol_capability_probe_destructive_refused",
+			"capability_key", capability.CapabilityKey,
+			"reason", "destructive_conflict_refused",
+			"identity_conflict", resolution.IdentityConflict,
+			"supported_protocols", resolution.SupportedProtocols,
+		)
+		updated, affected, commitErr := commitProtocolProbeResult(ctx, repo, lease, ProtocolCapabilityMutation{
+			SupportedProtocols:    capability.SupportedProtocols,
+			ProbeEvidence:         capability.ProbeEvidence,
+			InitialProbeCompleted: capability.ProbeEvidence.InitialProbeCompleted,
+			IdentityConflict:      capability.IdentityConflict || capability.ProbeEvidence.IdentityConflict,
+			LastProbedAt:          time.Now().UTC(),
+		}, publish)
+		if commitErr != nil {
+			return ProtocolProbeRunResult{}, commitErr
+		}
+		return ProtocolProbeRunResult{
+			Outcome:              ProtocolProbeRunInconclusive,
+			Reason:               "destructive_conflict_refused",
+			Capability:           updated,
+			AffectedAccountCount: affected,
+		}, nil
+	}
 	evidence := capability.ProbeEvidence
 	verdictEvidence := make(map[string]any, len(evidence.Verdicts)+len(resolution.Evidence))
 	for protocol, verdict := range evidence.Verdicts {
@@ -243,6 +271,43 @@ func (s *AccountTestService) runEndpointProtocolProbe(
 		reason = "inconclusive_evidence"
 	}
 	return ProtocolProbeRunResult{Outcome: outcome, Reason: reason, Capability: updated, AffectedAccountCount: affected}, nil
+}
+
+// ShouldSkipAutoProtocolCapabilityProbe reports whether admin-side-effect /
+// same-key add scheduling should skip probing because the linked capability
+// already has conclusive or official-seed routing evidence (SSOT §7).
+func ShouldSkipAutoProtocolCapabilityProbe(account *Account) bool {
+	if account == nil {
+		return false
+	}
+	return protocolCapabilityHasVerifiedRoutingEvidence(account.ProtocolEndpointCapability)
+}
+
+// protocolCapabilityMutationIsDestructive reports whether applying resolution would
+// fail-close a previously verified shared capability (new identity_conflict or
+// dropping chat_completions). Background probes must refuse this transition.
+func protocolCapabilityMutationIsDestructive(prior *ProtocolEndpointCapability, resolution protocolProbeGenerationResolution) bool {
+	if prior == nil || !protocolCapabilityHasVerifiedRoutingEvidence(prior) {
+		return false
+	}
+	priorConflict := prior.IdentityConflict || prior.ProbeEvidence.IdentityConflict
+	if resolution.IdentityConflict && !priorConflict {
+		return true
+	}
+	if protocolListContainsProtocol(prior.SupportedProtocols, protocolrouter.ProtocolChatCompletions) &&
+		!protocolListContainsProtocol(resolution.SupportedProtocols, protocolrouter.ProtocolChatCompletions) {
+		return true
+	}
+	return false
+}
+
+func protocolListContainsProtocol(protocols []protocolrouter.Protocol, want protocolrouter.Protocol) bool {
+	for _, protocol := range protocols {
+		if protocol == want {
+			return true
+		}
+	}
+	return false
 }
 
 func commitProtocolProbeResult(

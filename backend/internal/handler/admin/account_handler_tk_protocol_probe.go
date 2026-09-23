@@ -22,6 +22,10 @@ type protocolCapabilityProbeRunner interface {
 	ProbeAccountProtocolCapabilitiesNow(ctx context.Context, accountID int64) (service.ProtocolProbeRunResult, error)
 }
 
+type accountConnectivityTester interface {
+	TestAccountConnection(c *gin.Context, accountID int64, modelID, prompt, mode string, opts ...service.AccountTestOptions) error
+}
+
 type protocolCapabilityProbeResponse struct {
 	CapabilityKey        string     `json:"capability_key"`
 	SupportedProtocols   []string   `json:"supported_protocols"`
@@ -61,7 +65,45 @@ func (h *AccountHandler) scheduleProtocolCapabilityProbes(account *service.Accou
 	if len(service.ProtocolProbeCandidates(account)) == 0 {
 		return
 	}
+	// Same-key add / repaired witness with conclusive evidence: do not re-probe.
+	if service.ShouldSkipAutoProtocolCapabilityProbe(account) {
+		return
+	}
 	h.scheduleProtocolCapabilityProbeBatch([]int64{account.ID})
+}
+
+// scheduleProtocolCapabilityProbesForIDs applies the same auto-probe gates as
+// scheduleProtocolCapabilityProbes, then enqueues one bounded batch.
+func (h *AccountHandler) scheduleProtocolCapabilityProbesForIDs(ctx context.Context, accountIDs []int64) {
+	if h == nil || h.protocolProbeScheduler == nil || h.adminService == nil || len(accountIDs) == 0 {
+		return
+	}
+	accounts, err := h.adminService.GetAccountsByIDs(ctx, accountIDs)
+	if err != nil {
+		slog.Warn("protocol_capability_probe_batch_load_failed", "account_count", len(accountIDs), "err", err)
+		return
+	}
+	byID := make(map[int64]*service.Account, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			byID[account.ID] = account
+		}
+	}
+	need := make([]int64, 0, len(accountIDs))
+	for _, id := range accountIDs {
+		account := byID[id]
+		if account == nil {
+			continue
+		}
+		if len(service.ProtocolProbeCandidates(account)) == 0 {
+			continue
+		}
+		if service.ShouldSkipAutoProtocolCapabilityProbe(account) {
+			continue
+		}
+		need = append(need, id)
+	}
+	h.scheduleProtocolCapabilityProbeBatch(need)
 }
 
 func (h *AccountHandler) scheduleProtocolCapabilityProbeBatch(accountIDs []int64) {

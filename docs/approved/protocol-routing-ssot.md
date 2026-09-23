@@ -4,8 +4,11 @@ status: approved
 approved_by: "feng (conversation approval, 2026-08-27)"
 authors: [codex]
 created: 2026-08-24
-revised: 2026-09-01
+revised: 2026-09-23
 revision_note: >
+  §7: diagnosis actions (test/schedulable/same-key add) do not probe; background
+  probes refuse destructive identity_conflict / chat_completions drop on verified
+  shared capabilities; explicit admin protocol-probe remains the write path.
   Slimmed §§7–14 to contract-only after ship; §§1–6 unchanged.
   Plans and Execute no longer compare account or capability revision tokens.
   Send-time freshness is authoritative reload plus route-fact equivalence.
@@ -409,15 +412,20 @@ failures retain existing cooldown and account-failover classification.
 ## 7. Capability discovery (contract only)
 
 Probe coordination is **endpoint-scoped** (`capability_key + probe_generation`), never
-account-scoped. Triggers: new key without conclusive/seed evidence; admin re-probe;
-structured endpoint drift; repaired witness while capability still empty/inconclusive.
-Same-key account add and credential rotation do **not** probe.
+account-scoped. Triggers: new key without conclusive/seed evidence; **explicit** admin
+`POST /accounts/:id/protocol-probe`; structured endpoint drift; repaired witness while
+capability still empty/inconclusive. Diagnosis actions — connectivity `POST .../test`,
+toggling `schedulable`, and same-key account add — do **not** probe. Credential rotation
+that changes endpoint identity still probes.
 
 Witness selection is deterministic (auth → schedulable → no error → priority → id).
 Verdicts: `positive` adds; `endpoint_negative` removes; `model_specific` /
 `inconclusive` preserve membership. Contradictory positive+negative →
 `identity_conflict` (fail-closed). Customer failures may enqueue probes but never
-directly mutate capability.
+directly mutate capability. Background/auto probes must refuse persisting a new
+`identity_conflict` (or dropping previously verified `chat_completions`) onto a shared
+capability that already had verified routing evidence; only the explicit admin
+protocol-probe path may write that fail-closed transition.
 
 ## 8. Governed profiles and admin surface
 

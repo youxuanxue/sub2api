@@ -437,6 +437,150 @@ func TestResolveProtocolProbeGenerationFailsClosedOnContradictoryEvidence(t *tes
 	}
 }
 
+func TestProtocolCapabilityMutationIsDestructive(t *testing.T) {
+	verified := &ProtocolEndpointCapability{
+		SupportedProtocols: []protocolrouter.Protocol{
+			protocolrouter.ProtocolChatCompletions,
+			protocolrouter.ProtocolResponses,
+		},
+		ProbeEvidence: ProtocolProbeEvidence{
+			InitialProbeCompleted: true,
+			Verdicts: map[string]any{
+				string(protocolrouter.ProtocolChatCompletions): string(ProtocolProbePositive),
+				string(protocolrouter.ProtocolResponses):       string(ProtocolProbePositive),
+			},
+		},
+	}
+	if protocolCapabilityMutationIsDestructive(verified, protocolProbeGenerationResolution{
+		SupportedProtocols: verified.SupportedProtocols,
+		IdentityConflict:   false,
+	}) {
+		t.Fatal("identical verified resolution must not be destructive")
+	}
+	if !protocolCapabilityMutationIsDestructive(verified, protocolProbeGenerationResolution{
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+		IdentityConflict:   true,
+	}) {
+		t.Fatal("new identity_conflict on verified capability must be destructive")
+	}
+	if !protocolCapabilityMutationIsDestructive(verified, protocolProbeGenerationResolution{
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolResponses},
+		IdentityConflict:   false,
+	}) {
+		t.Fatal("dropping chat_completions from verified capability must be destructive")
+	}
+	unverified := &ProtocolEndpointCapability{
+		SupportedProtocols: nil,
+		ProbeEvidence:      ProtocolProbeEvidence{},
+	}
+	if protocolCapabilityMutationIsDestructive(unverified, protocolProbeGenerationResolution{
+		IdentityConflict: true,
+	}) {
+		t.Fatal("unverified capability may accept conflict evidence")
+	}
+}
+
+func TestPreparationProtocolProbeRefusesDestructiveConflictOnVerifiedCapability(t *testing.T) {
+	account := &Account{
+		ID:          71,
+		Name:        "china-volc",
+		Platform:    PlatformNewAPI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"api_key":  "secret",
+			"base_url": "https://ark.example.test/api/plan/v3",
+			"model_mapping": map[string]any{
+				"deepseek-v4-pro": "deepseek-v4-pro",
+			},
+		},
+	}
+	identity, governed, err := BuildProtocolEndpointIdentity(account)
+	if err != nil || !governed {
+		t.Fatalf("BuildProtocolEndpointIdentity: governed=%t err=%v", governed, err)
+	}
+	account.ProtocolEndpointCapabilityID = int64Ptr(1061)
+	account.ProtocolEndpointCapability = &ProtocolEndpointCapability{
+		ID:                 1061,
+		CapabilityKey:      identity.Key(),
+		Identity:           identity,
+		Revision:           4,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses},
+		ProbeEvidence: ProtocolProbeEvidence{
+			InitialProbeCompleted: true,
+			Verdicts: map[string]any{
+				string(protocolrouter.ProtocolMessages):        string(ProtocolProbeEndpointNegative),
+				string(protocolrouter.ProtocolChatCompletions): string(ProtocolProbePositive),
+				string(protocolrouter.ProtocolResponses):       string(ProtocolProbePositive),
+			},
+		},
+	}
+	repo := &protocolProbeCASRepo{account: cloneProtocolProbeAccount(account)}
+	// Mixed witnesses on responses: positive+negative → identity_conflict.
+	upstream := &protocolProbeAlternatingUpstream{
+		bodies: []protocolProbeAlternatingResponse{
+			{status: http.StatusOK, body: `{"id":"chatcmpl","choices":[{"message":{"content":"ok"}}]}`},
+			{status: http.StatusNotFound, body: `{"error":{"message":"not found"}}`},
+		},
+	}
+	svc := &AccountTestService{
+		accountRepo:            repo,
+		protocolCapabilityRepo: repo,
+		httpUpstream:           upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+
+	svc.ProbeAccountProtocolCapabilitiesForPreparation(context.Background(), account.ID)
+	got, err := repo.GetByID(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	cap := got.ProtocolEndpointCapability
+	if cap == nil {
+		t.Fatal("capability missing after preparation probe")
+	}
+	if cap.IdentityConflict || cap.ProbeEvidence.IdentityConflict {
+		t.Fatalf("preparation probe persisted identity_conflict: %#v", cap)
+	}
+	if !slices.Contains(cap.SupportedProtocols, protocolrouter.ProtocolChatCompletions) {
+		t.Fatalf("preparation probe dropped chat_completions: %v", cap.SupportedProtocols)
+	}
+}
+
+type protocolProbeAlternatingResponse struct {
+	status int
+	body   string
+}
+
+type protocolProbeAlternatingUpstream struct {
+	mu     sync.Mutex
+	n      int
+	bodies []protocolProbeAlternatingResponse
+}
+
+func (u *protocolProbeAlternatingUpstream) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	return u.DoWithTLS(req, proxyURL, accountID, accountConcurrency, nil)
+}
+
+func (u *protocolProbeAlternatingUpstream) DoWithTLS(req *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if len(u.bodies) == 0 {
+		return nil, errors.New("no alternating bodies")
+	}
+	item := u.bodies[u.n%len(u.bodies)]
+	u.n++
+	return &http.Response{
+		StatusCode: item.status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(item.body)),
+		Request:    req,
+	}, nil
+}
+
 func TestResolveProtocolProbeGenerationClearsConflictAfterConsistentProbe(t *testing.T) {
 	resolution, err := resolveProtocolProbeGeneration(
 		[]protocolrouter.Protocol{protocolrouter.ProtocolMessages},

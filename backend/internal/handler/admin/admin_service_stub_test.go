@@ -21,6 +21,7 @@ type stubAdminService struct {
 	apiKeys                             []service.APIKey
 	groups                              []service.Group
 	accounts                            []service.Account
+	accountsByID                        map[int64]*service.Account
 	accountSchedulerScoreFilterAccounts []service.Account
 	openAISchedulerScorePoolAccounts    []service.Account
 	schedulerScoreFilterCalls           int
@@ -514,6 +515,12 @@ func (s *stubAdminService) GetAccount(ctx context.Context, id int64) (*service.A
 func (s *stubAdminService) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
 	out := make([]*service.Account, 0, len(ids))
 	for _, id := range ids {
+		if s.accountsByID != nil {
+			if account, ok := s.accountsByID[id]; ok && account != nil {
+				out = append(out, account)
+				continue
+			}
+		}
 		account := service.Account{ID: id, Name: "account", Status: service.StatusActive}
 		out = append(out, &account)
 	}

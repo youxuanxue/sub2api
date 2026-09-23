@@ -97,6 +97,10 @@ func TestProtocolCapabilityProbeRequiredForUpdateOnlyOnCapabilityInputs(t *testi
 func TestBulkUpdateSchedulesBoundedProtocolProbeBatchForCredentialChanges(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adminService := newStubAdminService()
+	adminService.accountsByID = map[int64]*service.Account{
+		11: governedProtocolProbeAccount(11),
+		12: governedProtocolProbeAccount(12),
+	}
 	scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
 	handler := &AccountHandler{adminService: adminService, protocolProbeScheduler: scheduler}
 	router := gin.New()
@@ -118,6 +122,28 @@ func TestBulkUpdateSchedulesBoundedProtocolProbeBatchForCredentialChanges(t *tes
 		}
 	case <-time.After(time.Second):
 		t.Fatal("bulk credential update did not schedule protocol capability probes")
+	}
+}
+
+func TestScheduleProtocolCapabilityProbesForIDsSkipsVerifiedCapabilities(t *testing.T) {
+	adminService := newStubAdminService()
+	verified := governedProtocolProbeAccount(21)
+	verified.ProtocolEndpointCapability = &service.ProtocolEndpointCapability{
+		ID:                 1,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions},
+		ProbeEvidence:      service.ProtocolProbeEvidence{InitialProbeCompleted: true},
+	}
+	unverified := governedProtocolProbeAccount(22)
+	adminService.accountsByID = map[int64]*service.Account{
+		21: verified,
+		22: unverified,
+	}
+	scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
+	handler := &AccountHandler{adminService: adminService, protocolProbeScheduler: scheduler}
+
+	handler.scheduleProtocolCapabilityProbesForIDs(context.Background(), []int64{21, 22})
+	if got, want := awaitProtocolProbeCall(t, scheduler), []int64{22}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("filtered probe IDs = %v, want %v", got, want)
 	}
 }
 
@@ -260,17 +286,10 @@ func TestProbeProtocolsSurfacesSynchronousProbeFailure(t *testing.T) {
 	}
 }
 
-func TestSetSchedulableSchedulesProtocolProbeOnlyWhenEnabling(t *testing.T) {
+func TestSetSchedulableDoesNotScheduleProtocolProbe(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, tt := range []struct {
-		name          string
-		schedulable   bool
-		wantScheduled bool
-	}{
-		{name: "enable", schedulable: true, wantScheduled: true},
-		{name: "disable", schedulable: false, wantScheduled: false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, schedulable := range []bool{true, false} {
+		t.Run(strconv.FormatBool(schedulable), func(t *testing.T) {
 			adminService := newStubAdminService()
 			adminService.setSchedulableResult = governedProtocolProbeAccount(51)
 			scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
@@ -278,7 +297,7 @@ func TestSetSchedulableSchedulesProtocolProbeOnlyWhenEnabling(t *testing.T) {
 			router := gin.New()
 			router.POST("/accounts/:id/schedulable", handler.SetSchedulable)
 
-			body := []byte(`{"schedulable":` + strconv.FormatBool(tt.schedulable) + `}`)
+			body := []byte(`{"schedulable":` + strconv.FormatBool(schedulable) + `}`)
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/accounts/51/schedulable", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
@@ -287,18 +306,71 @@ func TestSetSchedulableSchedulesProtocolProbeOnlyWhenEnabling(t *testing.T) {
 				t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
 			}
 
-			if tt.wantScheduled {
-				if got, want := awaitProtocolProbeCall(t, scheduler), []int64{51}; !reflect.DeepEqual(got, want) {
-					t.Fatalf("probe account IDs = %v, want %v", got, want)
-				}
-				return
-			}
 			select {
 			case got := <-scheduler.calls:
-				t.Fatalf("disabling account scheduled protocol probe for %v", got)
+				t.Fatalf("schedulable toggle scheduled protocol probe for %v", got)
 			case <-time.After(50 * time.Millisecond):
 			}
 		})
+	}
+}
+
+type stubAccountConnectivityTester struct{}
+
+func (stubAccountConnectivityTester) TestAccountConnection(*gin.Context, int64, string, string, string, ...service.AccountTestOptions) error {
+	return nil
+}
+
+func TestConnectivityTestDoesNotScheduleProtocolProbe(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
+	handler := &AccountHandler{
+		protocolProbeScheduler: scheduler,
+		connectivityTester:     stubAccountConnectivityTester{},
+	}
+	router := gin.New()
+	router.POST("/accounts/:id/test", handler.Test)
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/accounts/61/test", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	select {
+	case got := <-scheduler.calls:
+		t.Fatalf("connectivity test scheduled protocol probe for %v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestScheduleProtocolCapabilityProbesSkipsWhenCapabilityAlreadyVerified(t *testing.T) {
+	scheduler := &recordingProtocolCapabilityProbeScheduler{calls: make(chan []int64, 1)}
+	handler := &AccountHandler{protocolProbeScheduler: scheduler}
+	account := governedProtocolProbeAccount(77)
+	account.ProtocolEndpointCapability = &service.ProtocolEndpointCapability{
+		ID:                 1061,
+		SupportedProtocols: []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions, protocolrouter.ProtocolResponses},
+		ProbeEvidence: service.ProtocolProbeEvidence{
+			InitialProbeCompleted: true,
+			Verdicts: map[string]any{
+				string(protocolrouter.ProtocolChatCompletions): string(service.ProtocolProbePositive),
+				string(protocolrouter.ProtocolResponses):       string(service.ProtocolProbePositive),
+			},
+		},
+	}
+	handler.scheduleProtocolCapabilityProbes(account)
+	select {
+	case got := <-scheduler.calls:
+		t.Fatalf("verified same-key account scheduled protocol probe for %v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	unverified := governedProtocolProbeAccount(78)
+	handler.scheduleProtocolCapabilityProbes(unverified)
+	if got, want := awaitProtocolProbeCall(t, scheduler), []int64{78}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("unverified account probe IDs = %v, want %v", got, want)
 	}
 }
 
