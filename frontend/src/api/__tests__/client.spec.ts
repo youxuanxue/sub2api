@@ -665,7 +665,7 @@ describe('API Client', () => {
       })
       apiClient.defaults.adapter = adapter
 
-      await expect(apiClient.get('/test')).rejects.toEqual(
+      await expect(apiClient.get('/test')).rejects.toMatchObject(
         expect.objectContaining({
           status: 0,
           code: code || 'ERR_NETWORK',

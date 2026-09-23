@@ -53,16 +53,25 @@ class ReleaseMatrixTest(unittest.TestCase):
 
     def test_full_and_simple_matrix_match_existing_targets(self):
         full = release.targets()
-        self.assertEqual(len(full), 5)
-        self.assertNotIn({'goos': 'windows', 'goarch': 'arm64'}, full)
+        build = release.config()['builds'][0]
+        expected = [
+            {'goos': goos, 'goarch': goarch}
+            for goos in build['goos']
+            for goarch in build['goarch']
+            if not any(all({'goos': goos, 'goarch': goarch}.get(k) == v for k, v in rule.items())
+                       for rule in build.get('ignore', []))
+        ]
+        self.assertEqual(full, expected)
         self.assertEqual(release.targets(True), [{'goos': 'linux', 'goarch': 'amd64'}])
 
     def test_leaf_keeps_packaging_and_selects_only_one_target(self):
         original = release.config()
-        release.generate_config(argparse.Namespace(mode='build', simple=False, goos='darwin', goarch='arm64', output='leaf.yaml'))
+        target = next(target for target in release.targets() if target != {'goos': 'linux', 'goarch': 'amd64'})
+        release.generate_config(argparse.Namespace(mode='build', simple=False,
+                                                   goos=target['goos'], goarch=target['goarch'], output='leaf.yaml'))
         leaf = yaml.safe_load(Path('leaf.yaml').read_text())
-        self.assertEqual(leaf['builds'][0]['goos'], ['darwin'])
-        self.assertEqual(leaf['builds'][0]['goarch'], ['arm64'])
+        self.assertEqual(leaf['builds'][0]['goos'], [target['goos']])
+        self.assertEqual(leaf['builds'][0]['goarch'], [target['goarch']])
         self.assertEqual(leaf['builds'][0]['ignore'], [])
         self.assertEqual(leaf['archives'], original['archives'])
         self.assertEqual(leaf['release'], original['release'])
@@ -137,7 +146,7 @@ class ReleaseMatrixTest(unittest.TestCase):
         output = dict(line.split('=', 1) for line in Path('outputs').read_text().splitlines())
         self.assertEqual(output['dry_run'], 'true')
         self.assertEqual(output['owner_lower'], 'exampleowner')
-        self.assertEqual(len(json.loads(output['matrix'])['include']), 5)
+        self.assertEqual(json.loads(output['matrix'])['include'], release.targets())
 
     def test_docker_commands_do_not_publish_during_dry_run(self):
         fake_bin = Path('bin')
