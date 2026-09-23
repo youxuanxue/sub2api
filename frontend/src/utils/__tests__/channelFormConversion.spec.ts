@@ -49,6 +49,7 @@ const ALL_GROUPS: AdminGroup[] = [
   makeGroup(4, 'antigravity', 'antigravity-pool'),
   makeGroup(5, 'newapi', 'newapi-deepseek'),
   makeGroup(6, 'newapi', 'newapi-zhipu'),
+  makeGroup(7, 'composite', 'all-platforms'),
 ]
 
 function makeChannel(overrides: Partial<Channel> = {}): Channel {
@@ -108,6 +109,35 @@ describe('channelFormConversion (US-017 — round-trip preserves all 5 gateway p
     const payload = formSectionsToApi(sections, channel.features_config)
     expect(payload.model_pricing[0].fast_multiplier).toBe(1.5)
     expect(payload.model_pricing[0].flex_multiplier).toBe(0.6)
+  })
+
+  it('round-trips reasoning multipliers and expands composite groups without duplicating converter logic', () => {
+    const channel = makeChannel({
+      group_ids: [7],
+      model_pricing: [{
+        platform: 'openai',
+        models: ['gpt-5.4'],
+        billing_mode: 'token',
+        input_price: 0.000002,
+        output_price: 0.000008,
+        cache_write_price: null,
+        cache_read_price: null,
+        reasoning_effort_multipliers: { high: 1.5, max: 3 },
+        image_output_price: null,
+        per_request_price: null,
+        intervals: [],
+      }],
+    })
+
+    const sections = apiToFormSections(channel, ALL_GROUPS)
+    expect(sections.map((section) => section.platform)).toContain('openai')
+    expect(sections.find((section) => section.platform === 'openai')?.group_ids).toEqual([7])
+    expect(sections.find((section) => section.platform === 'openai')?.model_pricing[0].reasoning_effort_multipliers)
+      .toEqual({ high: 1.5, max: 3 })
+
+    const payload = formSectionsToApi(sections, channel.features_config)
+    expect(payload.model_pricing[0].reasoning_effort_multipliers).toEqual({ high: 1.5, max: 3 })
+    expect(payload.group_ids).toEqual([7])
   })
 
   it('round-trips a channel that mixes anthropic + newapi without dropping newapi data (the data-loss bug we are fixing)', () => {
