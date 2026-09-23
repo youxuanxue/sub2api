@@ -21,7 +21,7 @@ func effectiveBillingUserAgent(tokenType string, mimicClaudeCode bool, fingerpri
 		return fingerprint.UserAgent
 	}
 	if tokenType == "oauth" && mimicClaudeCode {
-		return claude.DefaultHeaders["User-Agent"]
+		return claude.DefaultHeaders()["User-Agent"]
 	}
 	return ""
 }

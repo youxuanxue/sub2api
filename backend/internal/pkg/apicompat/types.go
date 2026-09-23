@@ -754,7 +754,8 @@ type ChatMessage struct {
 
 // ChatContentPart is a typed content part in a multi-modal message.
 type ChatContentPart struct {
-	CacheControl *AnthropicCacheControl `json:"cache_control,omitempty"`
+	PromptCacheBreakpoint json.RawMessage        `json:"prompt_cache_breakpoint,omitempty"`
+	CacheControl          *AnthropicCacheControl `json:"cache_control,omitempty"`
 
 	Type     string        `json:"type"` // "text" | "image_url" | "file"
 	Text     string        `json:"text,omitempty"`
