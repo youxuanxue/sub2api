@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
@@ -31,6 +32,10 @@ func geminiWebSupportsRequest(ctx context.Context, account *Account, model strin
 	if !isGeminiWebAccount(account) || shape == ShapeSkip {
 		return true
 	}
+	if shape == ShapeAnthropicCountTokens {
+		// This endpoint is served locally and never invokes the Worker.
+		return shouldEstimateCountTokensLocally(account)
+	}
 	if shape != ShapeGemini {
 		// Chat/Responses conversion supplies maxOutputTokens even when omitted by
 		// the client. Messages requires max_tokens. None is a Worker capability;
@@ -39,6 +44,10 @@ func geminiWebSupportsRequest(ctx context.Context, account *Account, model strin
 	}
 	var body []byte
 	if candidate := CandidateRequestFromContext(ctx); candidate != nil {
+		// ShapeGemini also includes countTokens, which the Worker does not serve.
+		if !strings.HasSuffix(candidate.path, ":generateContent") && !strings.HasSuffix(candidate.path, ":streamGenerateContent") {
+			return false
+		}
 		// Native image requests intentionally bypass the text Plan context.
 		body = candidate.body
 	} else if request, ok := protocolRoutingCanonicalRequest(ctx); ok && request.InboundProtocol() == protocolrouter.ProtocolGeminiGenerateContent {
@@ -82,7 +91,11 @@ func geminiWebNativeBodySupported(body []byte, image bool) bool {
 		texts = append(texts, text)
 	}
 	prompt := strings.Join(texts, "\n")
-	if strings.TrimSpace(prompt) == "" || utf8.RuneCountInString(prompt) > 32000 {
+	// Python str.strip additionally treats these four separators as whitespace.
+	blank := strings.TrimFunc(prompt, func(r rune) bool {
+		return unicode.IsSpace(r) || (r >= '\u001c' && r <= '\u001f')
+	}) == ""
+	if blank || utf8.RuneCountInString(prompt) > 32000 {
 		return false
 	}
 	if raw, exists := root["generationConfig"]; exists {

@@ -12,6 +12,7 @@
   {"name":"image_input","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"inlineData":{"mimeType":"image/png","data":"AA=="}}]}]}},
   {"name":"empty","model":"gemini-web-flash","accepted":false,"body":{"contents":[]}},
   {"name":"whitespace","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"  \n"}]}]}},
+  {"name":"python_control_whitespace","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"\u001c\u001d\u001e\u001f"}]}]}},
   {"name":"null_config","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":null}},
   {"name":"unknown_modality","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"responseModalities":["AUDIO"]}}},
   {"name":"empty_modality","model":"gemini-web-flash","accepted":false,"body":{"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"responseModalities":[]}}},

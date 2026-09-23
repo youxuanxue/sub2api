@@ -53,6 +53,8 @@
 - AC-005: `ops/gemini-web/test_worker.py`::`WorkerTests.test_control_redirect_never_forwards_admin_key`
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidateRejectsProductionChatWithoutPoisoningPeer`
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidateNativeTextAndImageRemainAvailable`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidateNativeActionCapability`
+- AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidatePreservesLocalCountTokens`
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebCandidateRechecksCapabilityAfterWait`
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebAdmissionMatchesWorkerContractFixtures`
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebChatAndResponsesDefaultLimitIsNotWorkerCapability`

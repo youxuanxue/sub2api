@@ -5,12 +5,16 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,6 +71,55 @@ func TestGeminiWebCandidateNativeTextAndImageRemainAvailable(t *testing.T) {
 			_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeGemini, "/v1beta/models/"+model+":generateContent", model, body, "", "")
 			require.NoError(t, err)
 			require.Equal(t, web.ID, state.current.account.ID)
+		}
+	}
+}
+
+func TestGeminiWebCandidatePreservesLocalCountTokens(t *testing.T) {
+	for _, relay := range []bool{false, true} {
+		web := webCandidateAccount(relay)
+		r, _, key := globalCandidateFixture([]Group{grp(740, PlatformGemini, 1, false)}, []Account{web})
+		body := []byte(`{"model":"gemini-3-flash","system":"abcd","messages":[{"role":"user","content":"hello"}]}`)
+		ctx, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeAnthropicCountTokens, "/v1/messages/count_tokens", "gemini-3-flash", body, "", "")
+		require.NoError(t, err)
+		require.Equal(t, web.ID, state.current.account.ID)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", nil).WithContext(ctx)
+		parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
+		require.NoError(t, err)
+		// No upstream client: this capability is implemented by the local estimator.
+		require.NoError(t, (&GatewayService{}).ForwardCountTokens(ctx, c, state.current.account, parsed))
+		require.Equal(t, http.StatusOK, recorder.Code)
+		require.JSONEq(t, `{"input_tokens":3}`, recorder.Body.String())
+	}
+}
+
+func TestGeminiWebCandidateNativeActionCapability(t *testing.T) {
+	for _, relay := range []bool{false, true} {
+		for _, action := range []string{"generateContent", "streamGenerateContent", "countTokens"} {
+			t.Run(fmt.Sprintf("relay=%t/%s", relay, action), func(t *testing.T) {
+				web := webCandidateAccount(relay)
+				peer := webCandidateAccount(false)
+				peer.ID = 62
+				delete(peer.Credentials, "gemini_web")
+				group := grp(740, PlatformGemini, 1, false)
+				r, _, key := globalCandidateFixture([]Group{group}, []Account{web})
+				body := []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`)
+				path := "/v1beta/models/gemini-3-flash:" + action
+				_, state, err := r.PrepareCandidateRequest(context.Background(), key, ShapeGemini, path, "gemini-3-flash", body, "", "")
+				if action != "countTokens" {
+					require.NoError(t, err)
+					require.Equal(t, web.ID, state.current.account.ID)
+					return
+				}
+				require.Error(t, err)
+				require.Nil(t, state)
+				r, _, key = globalCandidateFixture([]Group{group}, []Account{web, peer})
+				_, state, err = r.PrepareCandidateRequest(context.Background(), key, ShapeGemini, path, "gemini-3-flash", body, "", "")
+				require.NoError(t, err)
+				require.Equal(t, peer.ID, state.current.account.ID)
+			})
 		}
 	}
 }
