@@ -1710,9 +1710,11 @@
         "cursorContent *cursorRequestContentCache",
         "r.cursorContent = nil",
         "IsExplicitImageGenerationIntent(\"\", model, request.Body())",
-        "func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error"
+        "func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error",
+        "remapProtocolSelectionFailure(err, capacity)",
+        "func remapProtocolSelectionFailure(err, capacity error) (error, bool)"
       ],
-      "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution. Empty-pool capacity errors carry the request-local selection diagnostics."
+      "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution. Empty-pool capacity errors carry the request-local selection diagnostics. Protocol capability unknown/route-unavailable must remap to capacity 429 via remapProtocolSelectionFailure — never opaque prepare-500."
     },
     {
       "path": "backend/internal/service/candidate_failure_tk.go",
@@ -2499,12 +2501,25 @@
     },
     {
       "path": "backend/internal/service/gemini_web_request_tk.go",
-      "must_contain": ["func geminiWebSupportsRequest(", "GeminiWebRelayCredentialKey", "CandidateRequestFromContext(ctx)", "geminiWebNativeBodySupported", "shouldEstimateCountTokensLocally(account)"],
+      "must_contain": [
+        "func geminiWebSupportsRequest(",
+        "GeminiWebRelayCredentialKey",
+        "CandidateRequestFromContext(ctx)",
+        "geminiWebNativeBodySupported",
+        "shouldEstimateCountTokensLocally(account)"
+      ],
       "rationale": "Restricted Web session and relay capabilities share one native admission projection; native image requests must retain their request body outside the text Plan context."
     },
     {
       "path": "backend/internal/service/gemini_web_request_tk_test.go",
-      "must_contain": ["func TestGeminiWebCandidateRejectsProductionChatWithoutPoisoningPeer(", "func TestGeminiWebCandidateNativeTextAndImageRemainAvailable(", "func TestGeminiWebCandidateNativeActionCapability(", "func TestGeminiWebCandidatePreservesLocalCountTokens(", "func TestGeminiWebAdmissionMatchesWorkerContractFixtures(", "func TestGeminiWebCandidateRechecksCapabilityAfterWait("],
+      "must_contain": [
+        "func TestGeminiWebCandidateRejectsProductionChatWithoutPoisoningPeer(",
+        "func TestGeminiWebCandidateNativeTextAndImageRemainAvailable(",
+        "func TestGeminiWebCandidateNativeActionCapability(",
+        "func TestGeminiWebCandidatePreservesLocalCountTokens(",
+        "func TestGeminiWebAdmissionMatchesWorkerContractFixtures(",
+        "func TestGeminiWebCandidateRechecksCapabilityAfterWait("
+      ],
       "rationale": "Anchor behavior regressions for authorized fallback, native generation preservation, action admission, Worker contract parity and post-wait capability revalidation."
     },
     {
@@ -2549,9 +2564,10 @@
         "ErrUniversalCapacityUnavailable",
         "Diag     *CandidateCapacityDiag",
         "!state.Supported || !state.Available",
-        "unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable))"
+        "unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable))",
+        "remapProtocolSelectionFailure(evaluationErr, capacity)"
       ],
-      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence. UniversalCapacityError may carry selection diagnostics."
+      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence. UniversalCapacityError may carry selection diagnostics. Bare protocol-capability failures (no concrete unsupportedModel peer) remap to capacity."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -2563,9 +2579,10 @@
         "writeUniversalRoutingCapacityError",
         "service.CandidateCapacityDiagFromError(err)",
         "zap.String(\"reject_reasons\", summary)",
-        "apiKey.GroupID = &backing.ID"
+        "apiKey.GroupID = &backing.ID",
+        "errors.Is(err, service.ErrProtocolCapabilityUnknown) || errors.Is(err, service.ErrProtocolRouteUnavailable)"
       ],
-      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model. capacity_unavailable logs selection filter counts when present."
+      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model. capacity_unavailable logs selection filter counts when present. Residual protocol capability/route errors must write capacity 429 (defense in depth), not opaque prepare-500."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",
@@ -13709,6 +13726,31 @@
         "if !explicit {"
       ],
       "rationale": "Native AG Gemini bare ids keep the floor remap unless thinkingLevel/thinkingBudget is actionable; empty thinkingConfig must not rewrite 3.6-flash-tiered to -high."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "func applyOpsInternalErrorDetailFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput)",
+        "applyOpsInternalErrorDetailFromContext(c, entry)",
+        "c.Get(service.OpsInternalErrorDetailKey)"
+      ],
+      "rationale": "Middleware-sanitized OpsInternalErrorDetail must persist into upstream_error_detail when empty so protocol-capability capacity remaps remain diggable without schema change. Dropping the helper or its call sites re-blinds ops on prepare→429 storms."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_error_tk_test.go",
+      "must_contain": [
+        "TestRemapProtocolSelectionFailure",
+        "TestCandidateSelectionError_ProtocolDoesNotOpaque500",
+        "remapProtocolSelectionFailure(err, capacity)"
+      ],
+      "rationale": "Focused regression that protocol capability unknown/route-unavailable becomes capacity 429 (not unsupported-model and not opaque 500)."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk_test.go",
+      "must_contain": [
+        "TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs429Not500"
+      ],
+      "rationale": "Middleware defense-in-depth: residual ErrProtocolCapabilityUnknown must still emit capacity 429 with ops detail."
     }
   ]
 }
