@@ -2559,13 +2559,14 @@
       "path": "backend/internal/service/universal_candidate_eligibility.go",
       "must_contain": [
         "protocolrouter.ParseCanonicalRequest",
-        "gatewayRequestThinkingEnabled(body, string(inbound))",
+        "gatewayRequestThinkingEnabled(metadata, string(inbound))",
         "group.IsSubscriptionType() != best.group.IsSubscriptionType()",
         "ErrUniversalCapacityUnavailable",
         "Diag     *CandidateCapacityDiag",
         "!state.Supported || !state.Available",
         "unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable))",
-        "remapProtocolSelectionFailure(evaluationErr, capacity)"
+        "remapProtocolSelectionFailure(evaluationErr, capacity)",
+        "metadata := gatewayRequestRoutingMetadata(body)"
       ],
       "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence. UniversalCapacityError may carry selection diagnostics. Bare protocol-capability failures (no concrete unsupportedModel peer) remap to capacity."
     },
@@ -12989,7 +12990,8 @@
         "ForwardAsAnthropic(ctx, c, account, body",
         "TestCursorContentCacheKeepsRequestModelAndAccountBoundaries",
         "TestCursorCachedContentDoesNotCopyLongRequest",
-        "BenchmarkCursorCachedContent"
+        "BenchmarkCursorCachedContent",
+        "BenchmarkCursorUncachedResponsesHistory"
       ],
       "rationale": "Regression coverage pins actual image-size admission and Cursor forwarding/content-cache behavior, including rejection and freshness boundaries."
     },
@@ -13751,6 +13753,53 @@
         "TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs429Not500"
       ],
       "rationale": "Middleware defense-in-depth: residual ErrProtocolCapabilityUnknown must still emit capacity 429 with ops detail."
+    },
+    {      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+      "must_contain": [
+        "for end < len(messages) && messages[end].Role == messages[start].Role",
+        "blocks = append(blocks, parseContentBlocks(messages[i].Content)...)",
+        "messages = normalizeAnthropicToolPairing(messages)"
+      ],
+      "rationale": "Merge each same-role run once to avoid quadratic history conversion while retaining shared tool-pair repair for eligibility and execution."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/responses_merge_performance_test.go",
+      "must_contain": [
+        "TestMergeConsecutiveMessagesPreservesContentAndInput",
+        "TestResponsesParallelHistoryPreservesToolOrder",
+        "TestMergeConsecutiveMessagesAllocationGrowth",
+        "BenchmarkResponsesParallelHistory"
+      ],
+      "rationale": "Preserve mixed content, singleton bytes, tool order and caller ownership while bounding allocation growth for long same-role histories."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_routing_metadata_tk.go",
+      "must_contain": [
+        "func gatewayRequestRoutingMetadata(",
+        "root.ForEach(",
+        "metadata = append(metadata, key.Raw...)",
+        "metadata = append(metadata, value.Raw...)"
+      ],
+      "rationale": "Extract stream/thinking metadata in one walk while preserving raw selector semantics; the original body still owns the canonical request."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_routing_metadata_tk_test.go",
+      "must_contain": [
+        "TestGatewayRoutingMetadataPreservesSelectorSemantics",
+        "FuzzGatewayRoutingMetadataPreservesSelectors",
+        "TestWithRequestProfileRoutingMetadataKeepsCanonicalBody"
+      ],
+      "rationale": "Protect duplicate/escaped keys, effort precedence, mistyped stream rejection, original canonical body and digest during metadata extraction."
+    },
+    {
+      "path": "backend/internal/service/candidate_path_context_cache_tk_test.go",
+      "must_contain": [
+        "TestCandidatePathContextPreparerCachesPerGroup",
+        "TestWithRequestRejectsMistypedStreamWithoutFullUnmarshal",
+        "TestWithRequestProfileReusesProfileAcrossModelRewrite",
+        "BenchmarkWithRequestProfileRoutingFields"
+      ],
+      "rationale": "Preserve per-group request context lifetime, stream validation and model rewrite semantics; measure routing preparation with fields before/after long histories."
     }
   ]
 }

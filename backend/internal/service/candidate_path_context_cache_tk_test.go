@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -188,4 +189,31 @@ func BenchmarkCandidatePathContextPrepareCachedVsUncached(b *testing.B) {
 			}
 		}
 	})
+}
+
+func BenchmarkWithRequestProfileRoutingFields(b *testing.B) {
+	r := NewUniversalRoutingResolver(&stubSpanLister{})
+	r.router = NewProtocolRouter()
+	for _, size := range []int{4096, 131072} {
+		for _, fieldsFirst := range []bool{true, false} {
+			b.Run(fmt.Sprintf("bytes_%d/fields_first_%t", size, fieldsFirst), func(b *testing.B) {
+				fields := `"model":"gpt-5.4","stream":false,"reasoning":{"effort":"high"}`
+				content := `"input":[{"role":"user","content":"` + strings.Repeat("x", size) + `"}]`
+				body := []byte(`{` + content + `,` + fields + `}`)
+				if fieldsFirst {
+					body = []byte(`{` + fields + `,` + content + `}`)
+				}
+				profile, ok := candidateRequestProfile(ShapeOpenAIChat, "/v1/responses", "gpt-5.4", body)
+				require.True(b, ok)
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					ctx := r.WithRequestProfile(context.Background(), ShapeOpenAIChat, "/v1/responses", "gpt-5.4", body, profile)
+					if _, ok := ProtocolRoutingRequest(ctx); !ok {
+						b.Fatal("missing canonical request")
+					}
+				}
+			})
+		}
+	}
 }
