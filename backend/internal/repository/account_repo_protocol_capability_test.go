@@ -50,14 +50,14 @@ func TestLoadProtocolEndpointCapabilitiesIncludesSharedAccountCount(t *testing.T
 	t.Cleanup(func() { _ = db.Close() })
 
 	now := time.Date(2026, time.August, 27, 0, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`SELECT a\.id,[\s\S]*linked_account_count`).
+	mock.ExpectQuery(`SELECT a\.account_ids,[\s\S]*linked_account_count`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"account_id", "id", "capability_key", "identity", "supported_protocols", "probe_evidence", "revision",
+			"account_ids", "id", "capability_key", "identity", "supported_protocols", "probe_evidence", "revision",
 			"last_probed_at", "probe_lease_owner", "probe_lease_until", "probe_generation",
 			"identity_conflict", "created_at", "updated_at", "linked_account_count",
 		}).AddRow(
-			int64(42), int64(9), "endpoint-capability-key",
+			"{42}", int64(9), "endpoint-capability-key",
 			`{"key_schema_version":1,"platform":"openai","endpoint_profile":"custom_api_key","channel_type":"openai","protocol_endpoints":{"responses":{"url":"https://relay.example.test/v1/responses","api_version":""}},"upstream_request_profile":"openai_json_v1","routing_headers":{}}`,
 			`["responses"]`, `{"initial_probe_completed":true}`, int64(7), now,
 			nil, nil, int64(3), false, now, now, 4,

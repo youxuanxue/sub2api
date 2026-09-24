@@ -4352,8 +4352,10 @@ func (r *accountRepository) loadProtocolEndpointCapabilities(
 	if capabilityRepo == nil || capabilityRepo.db == nil {
 		return result, nil
 	}
+	// Read shared endpoint JSON and count links once per capability in this
+	// statement's snapshot, not once per account. Every call still reads the DB.
 	rows, err := capabilityRepo.db.QueryContext(ctx, `
-SELECT a.id,
+SELECT a.account_ids,
        c.id, c.capability_key, c.identity, c.supported_protocols, c.probe_evidence, c.revision,
        c.last_probed_at, c.probe_lease_owner, c.probe_lease_until, c.probe_generation,
        c.identity_conflict, c.created_at, c.updated_at,
@@ -4363,17 +4365,22 @@ SELECT a.id,
            WHERE linked.protocol_endpoint_capability_id=c.id
              AND linked.deleted_at IS NULL
        ) AS linked_account_count
-FROM accounts a
-JOIN protocol_endpoint_capabilities c ON c.id=a.protocol_endpoint_capability_id
-WHERE a.id = ANY($1) AND a.deleted_at IS NULL`, pq.Array(accountIDs))
+FROM (
+    SELECT protocol_endpoint_capability_id, array_agg(id) AS account_ids
+    FROM accounts
+    WHERE id = ANY($1) AND deleted_at IS NULL
+      AND protocol_endpoint_capability_id IS NOT NULL
+    GROUP BY protocol_endpoint_capability_id
+) a
+JOIN protocol_endpoint_capabilities c ON c.id=a.protocol_endpoint_capability_id`, pq.Array(accountIDs))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
-		var accountID int64
+		var linkedAccountIDs pq.Int64Array
 		state := newProtocolCapabilityScanState()
-		destinations := append([]any{&accountID}, state.destinations()...)
+		destinations := append([]any{&linkedAccountIDs}, state.destinations()...)
 		destinations = append(destinations, &state.capability.LinkedAccountCount)
 		if err := rows.Scan(destinations...); err != nil {
 			return nil, err
@@ -4382,7 +4389,13 @@ WHERE a.id = ANY($1) AND a.deleted_at IS NULL`, pq.Array(accountIDs))
 		if err != nil {
 			return nil, err
 		}
-		result[accountID] = capability
+		for i, accountID := range linkedAccountIDs {
+			if i == len(linkedAccountIDs)-1 {
+				result[accountID] = capability
+			} else {
+				result[accountID] = cloneLoadedProtocolCapability(capability)
+			}
+		}
 	}
 	return result, rows.Err()
 }
