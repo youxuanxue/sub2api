@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 // openAICandidates is the shared candidate filter; scoring and acquisition stay
@@ -38,7 +40,15 @@ func (s *defaultOpenAIAccountScheduler) openAICandidatesBeforeWindow(ctx context
 	// require_privacy_set: 获取分组配置。GetByID 会聚合账号计数，选号不能走它。
 	var schedGroup *Group
 	if req.GroupID != nil && s.service.schedulerSnapshot != nil {
-		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByIDLite(ctx, *req.GroupID)
+		// Candidate selection already binds the hydrated group into the path
+		// context. Reuse it for this read-only filter; falling back to the lite
+		// snapshot keeps standalone scheduler callers fresh and preserves the
+		// existing behavior when no trusted group context is available.
+		if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(group) && group.ID == *req.GroupID {
+			schedGroup = group
+		} else {
+			schedGroup, _ = s.service.schedulerSnapshot.GetGroupByIDLite(ctx, *req.GroupID)
+		}
 	}
 
 	filterStats := openAISelectionFilterStats{pool: len(accounts)}
