@@ -81,6 +81,15 @@ func TestCandidatesReusesPreparedPathContextAcrossAccounts(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, path)
 	require.NotSame(t, firstCtx, path.ctx, "refresh/revalidate path must see a fresh pathContext")
+	freshRouting, ok := path.ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
+	require.True(t, ok)
+	require.True(t, freshRouting.immutableAccounts, "each selection preparer may reuse its fixed account slice")
+	rebuilt, err := request.evaluatePath(context.Background(), &accounts[0], &groups[0])
+	require.NoError(t, err)
+	require.NotNil(t, rebuilt)
+	rebuiltRouting, ok := rebuilt.ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue)
+	require.True(t, ok)
+	require.False(t, rebuiltRouting.immutableAccounts, "refresh/revalidate must rebuild current account facts")
 }
 
 func TestEvaluatePathBodyModelCandidatesCachedWhenAllowlistEnabled(t *testing.T) {
