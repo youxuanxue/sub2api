@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14; Cursor serving-family allowlist Claude/Grok/Composer/Muse and Opus 5.5 Cursor scope, 2026-09-24)"
 created: 2026-09-07
 ---
 
@@ -49,6 +49,17 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   parameters and legacy wire slugs. Imported catalog entries do not bypass
   pricing, activation, candidate eligibility or protocol capability gates.
   A missing wire slug prevents direct native candidate admission.
+  Cursor import only admits the `claude-` / `grok-` / `composer-` / `muse-`
+  families from that catalog (`cursorServingModelAllowed` in
+  `account_tk_cursor.go`). That allowlist is the complete import gate.
+  `gpt-*` stays excluded; retired `composer-2` stays a forbidden key.
+  The Cursor served-models scope and floor desired mapping carry the same
+  families (unpriced allowlisted IDs such as Muse may appear on import but
+  do not enter the floor until they have a shared TokenKey price). Floor
+  forbidden prefixes cover the known non-family offenders historically
+  present in the Cursor catalog (`gpt-` / `gemini-` / `glm-` / `kimi-` /
+  `deepseek-` via `cursorForbiddenModelMappingPrefixes`); other keys remain
+  subject to the shared floor tool's compatible-extra preservation rules.
 - The integration package adapts native Cursor frames to Messages once.
   Chat and Responses continue through the existing protocol registry and
   converters. All converted and native Messages sends use
