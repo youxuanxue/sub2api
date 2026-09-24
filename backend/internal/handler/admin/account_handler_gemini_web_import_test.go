@@ -129,6 +129,25 @@ func geminiImportAccount() *service.Account {
 			"lease":   map[string]any{"owner": "worker"},
 		}}}
 }
+
+func TestGeminiWebImportHandlerInitializesCopiedWorker(t *testing.T) {
+	stub := &geminiImportAdminStub{account: &service.Account{ID: 28, Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "PRIVATE_KEY", "gemini_web": map[string]any{}}, Schedulable: false}}
+	body, err := json.Marshal(validGeminiWebImportBundle())
+	require.NoError(t, err)
+	w := runGeminiImportHandler(t, stub, string(body))
+	require.Equal(t, http.StatusOK, w.Code)
+	require.EqualValues(t, -1, stub.expectedVersion)
+	require.EqualValues(t, 1, stub.runtime["version"])
+	require.False(t, stub.account.Schedulable)
+	require.Equal(t, map[string]any{}, stub.account.Credentials["gemini_web"], "handler does not mutate its input")
+	require.Contains(t, w.Body.String(), `"mode":"initialized"`)
+	require.Contains(t, w.Body.String(), `"runtime_version":1`)
+	stub.importErr = infraerrors.New(http.StatusConflict, "GEMINI_WEB_SESSION_CONFLICT", "Session changed")
+	w = runGeminiImportHandler(t, stub, string(body))
+	require.Equal(t, http.StatusConflict, w.Code)
+	require.NotContains(t, w.Body.String(), "cookie_count")
+}
 func runGeminiImportHandler(t *testing.T, stub *geminiImportAdminStub, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	r := gin.New()
@@ -166,6 +185,7 @@ func TestGeminiWebImportHandlerSuccessAndConflict(t *testing.T) {
 				require.NotContains(t, w.Body.String(), "cookie_count")
 			} else {
 				require.Equal(t, http.StatusOK, w.Code)
+				require.Contains(t, w.Body.String(), `"mode":"replaced"`)
 				require.Contains(t, w.Body.String(), `"runtime_version":8`)
 				require.Contains(t, w.Body.String(), `"cookie_count":2`)
 				cookies, ok := stub.runtime["cookies"].([]map[string]any)
@@ -186,7 +206,7 @@ func TestGeminiWebImportHandlerRejectsInvalidInputAndNonWorker(t *testing.T) {
 		require.Zero(t, stub.calls)
 		require.NotContains(t, w.Body.String(), "PRIVATE_COOKIE")
 	}
-	for _, kind := range []string{"plain", "relay", "relay-extra", "unbound", "oauth"} {
+	for _, kind := range []string{"plain", "relay", "relay-extra", "oauth", "unbound-enabled", "null-runtime", "bad-version"} {
 		t.Run(kind, func(t *testing.T) {
 			a := geminiImportAccount()
 			switch kind {
@@ -196,10 +216,15 @@ func TestGeminiWebImportHandlerRejectsInvalidInputAndNonWorker(t *testing.T) {
 				a.Credentials[service.GeminiWebRelayCredentialKey] = true
 			case "relay-extra":
 				a.Extra = map[string]any{"relay_kind": "gemini_web"}
-			case "unbound":
-				a.Credentials["gemini_web"] = map[string]any{}
 			case "oauth":
 				a.Type = service.AccountTypeOAuth
+			case "unbound-enabled":
+				a.Credentials["gemini_web"] = map[string]any{}
+				a.Schedulable = true
+			case "null-runtime":
+				a.Credentials["gemini_web"] = map[string]any{"runtime": nil}
+			case "bad-version":
+				a.Credentials["gemini_web"] = map[string]any{"runtime": map[string]any{"version": "broken"}}
 			}
 			stub := &geminiImportAdminStub{account: a}
 			w := runGeminiImportHandler(t, stub, string(valid))

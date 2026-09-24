@@ -3,7 +3,7 @@ status: approved
 approved_by: user
 source_baseline: 75e38806d7f04202f3ee02148f10975b7d26871c
 pr_base: 6cfe353d765cf0f2868fcf56d1f22475e79785d3
-implementation_approval: user-explicit-database-only-admin-import-and-review-risk-fixes
+implementation_approval: user-explicit-database-only-admin-import-and-copy-initialization
 observed_on: 2026-09-21
 target: edge-us4
 ---
@@ -40,7 +40,9 @@ Worker 以当前 jar 为准保存，已删除或过期的 Cookie 不得从导出
 不保存第二份可执行 source bundle，不读写账号清单、会话或状态文件。
 
 普通 DTO、审计日志共享 SensitiveCredentialKeys 脱敏清单，整个 `gemini_web`
-不回显。编辑未提供该字段时保留已有凭据；复制账号清空整个会话绑定及租约，副本保持不可调度。
+不回显。编辑未提供该字段时保留已有凭据；复制账号保留空的 `gemini_web` 能力声明，
+清除其中全部会话、状态及租约，副本保持不可调度。声明与会话不混淆：
+runtime 是否存在仍是会话绑定 SSOT，不增加 extra 初始化标志。
 
 ## 控制接口与执行
 
@@ -75,29 +77,35 @@ Worker 每分钟只读维护元数据，只有到期账号才申请租约并执�
 
 ## Admin UI 会话导入
 
-`POST /api/v1/admin/accounts/:id/gemini-web-session` 复用管理员鉴权。仅允许已有
-`credentials.gemini_web.runtime` 对象的本地 Gemini API-key Worker 账号；
-`gemini_web_relay` 或 `extra.relay_kind=gemini_web` 的 prod 中继、普通 API Key、
-未绑定账号均不可导入。UI 使用脱敏后的绑定状态显示控件，Handler 与 SQL 再验证边界。
-首次 Worker 绑定仍由现有运维流程完成，不能通过此控件把普通 API 账号转换为 Worker。
-运营在目标 edge 后台编辑真实 Worker 账号，导入 `tokenkey-gemini-web-session-v1` JSON；
-不会自动向 prod 中继或其他 edge 转发 Cookie。
+`POST /api/v1/admin/accounts/:id/gemini-web-session` 复用管理员鉴权。仅允许声明了
+`credentials.gemini_web` 对象的本地 Gemini API-key Worker 账号；复制账号保留空对象，
+因此同一个入口可执行首次初始化（无 runtime，版本从 1 开始）或替换（按当前版本 CAS）。
+初始化只接受已关闭调度的账号；SQL 重验，若并发编辑启用调度则返回 409。
+`gemini_web_relay` 或 `extra.relay_kind=gemini_web` 的 prod 中继、普通 API Key 均不可导入。
+UI 用 `has_gemini_web` 显示资格、用 `has_gemini_web_runtime` 区分初始化和替换，Handler
+与 SQL 再验证边界。不会自动向 prod 中继或其他 edge 转发 Cookie。
 
 - 前端读取文件前检查 2 MiB 限制，后端独立限制请求体；校验格式、UA、Cookie
   数量、域、字段类型与长度。域写入前规范化，缺少 path 使用 `/`；CDP 的
   `expires=-1` 会话 Cookie 和小数时间戳合法，其他 CDP 元数据原样保留。
-- 显式导入根据读取的 expected version 执行单条 SQL CAS，重新检查绑定、版本及
+- 显式导入根据读取的 expected version 执行单条 SQL CAS（内部 -1 代表 runtime 不存在），重新检查声明、绑定、版本及
   租约；只有实际更新一行才成功。竞争导入、Worker 更新或活跃租约返回 409，
   不返回成功摘要，不自动重试覆盖更新。普通编辑保留当前 runtime 的合并语义
   不用于判定显式导入成功。
 - SQL 仅替换 runtime、删除过期 lease 并更新 updated_at，不修改其他凭据、模型映射、
   status、schedulable 或 extra。新 runtime 清除 blocked/pending/cooldown 并重置
   last_refresh，后续实际 Worker 请求仍执行认证与 bootstrap。
-- 成功摘要是本次已提交版本的回执，不是随后 GET 可能读到的更新版本；账号 DTO
+- 初始化成功保持 `schedulable=false`，运营确认后再手动启用调度。成功摘要是本次已提交版本的回执，不是随后 GET 可能读到的更新版本；账号 DTO
   沿用凭据脱敏。审计整体省略导入请求体。文件解析/读取/API 错误统一显示固定
   文案；409 提示稍后重试，禁止将原始错误中的凭据片段带入 UI。
 - 选文件时固定目标 ID；关闭、卸载或换账号使旧操作失效。尚未发送的操作不提交；
   已发送请求仍只作用于原账号，迟到响应不更新新弹窗。同一账号对象刷新不清空摘要。
+
+运营流程为：复制本地 Worker 账号 → 编辑副本 → 选择凭证 JSON 完成初始化 →
+核对导入回执 → 手动启用调度。响应 `session.mode` 为 `initialized` 或 `replaced`；
+替换保留原调度状态。一个 edge Worker 继续按账号 ID 隔离会话，无须为副本新建进程。
+升级前已复制且缺少声明的账号不能按名称或分组自动识别；需重新复制真实 Worker 账号。
+本轮不迁移旧副本、不修改线上数据。未初始化账号即使误开调度，候选准入也拒绝承接请求。
 
 前端 Playwright 使用真实编辑页面和文件输入、模拟后台响应；数据库并发另用真实
 PostgreSQL 验证。两者均不代表线上部署或 Google 会话有效性验证。

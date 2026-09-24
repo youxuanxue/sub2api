@@ -343,8 +343,12 @@ func (s *adminServiceImpl) buildDuplicateAccount(ctx context.Context, source *Ac
 	if err != nil {
 		return nil, nil, fmt.Errorf("clone account credentials: %w", err)
 	}
-	// Browser cookies and runtime ownership must never be shared by duplicates.
-	delete(credentials, "gemini_web")
+	// Retain the Worker declaration for initialization, never its session or lease.
+	if _, declared := credentials["gemini_web"].(map[string]any); declared {
+		credentials["gemini_web"] = map[string]any{}
+	} else {
+		delete(credentials, "gemini_web")
+	}
 	extra, err := duplicateAccountExtra(source.Extra)
 	if err != nil {
 		return nil, nil, fmt.Errorf("clone account extra configuration: %w", err)

@@ -70,17 +70,24 @@ func (h *AccountHandler) ImportGeminiWebSession(c *gin.Context) {
 		return
 	}
 	if !service.CanImportGeminiWebSession(account) {
-		response.BadRequest(c, "Import requires a bound local Gemini Web Worker account; relay accounts cannot hold browser sessions")
+		response.BadRequest(c, "Import requires a local Gemini Web Worker account; relay and ordinary API accounts cannot hold browser sessions")
 		return
 	}
 
 	web, _ := account.Credentials["gemini_web"].(map[string]any)
-	currentVersion, err := geminiWebRuntimeVersion(web)
-	if err != nil {
-		response.BadRequest(c, err.Error())
-		return
+	expectedVersion := int64(-1)
+	nextVersion := int64(1)
+	mode := "initialized"
+	if _, exists := web["runtime"]; exists {
+		currentVersion, err := geminiWebRuntimeVersion(web)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		expectedVersion = currentVersion
+		nextVersion = currentVersion + 1
+		mode = "replaced"
 	}
-	nextVersion := currentVersion + 1
 	cookies := normalizeGeminiWebCookies(bundle.Cookies)
 	runtime := map[string]any{
 		"version":    nextVersion,
@@ -98,7 +105,7 @@ func (h *AccountHandler) ImportGeminiWebSession(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "Gemini Web session import is unavailable")
 		return
 	}
-	updated, err := importer.ImportGeminiWebSession(c.Request.Context(), accountID, currentVersion, runtime)
+	updated, err := importer.ImportGeminiWebSession(c.Request.Context(), accountID, expectedVersion, runtime)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -106,6 +113,7 @@ func (h *AccountHandler) ImportGeminiWebSession(c *gin.Context) {
 	response.Success(c, gin.H{
 		"account": h.buildAccountResponseWithRuntime(c.Request.Context(), updated),
 		"session": gin.H{
+			"mode":            mode,
 			"cookie_count":    len(bundle.Cookies),
 			"cookie_domains":  geminiWebCookieDomains(cookies),
 			"runtime_version": nextVersion,

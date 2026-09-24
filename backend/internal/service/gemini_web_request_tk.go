@@ -15,7 +15,9 @@ import (
 // Account names, public model aliases and edge hostnames are not capabilities.
 const GeminiWebRelayCredentialKey = "gemini_web_relay"
 
-// CanImportGeminiWebSession accepts only an existing local Worker binding.
+// CanImportGeminiWebSession accepts local Gemini Web Worker declarations with
+// or without a runtime. An empty gemini_web object is the copied account's
+// explicit capability declaration; the runtime itself remains the binding SSOT.
 // Production relays reference an edge account; importing into their database
 // would not update that edge's session. Names, URLs and model aliases are not identity.
 func CanImportGeminiWebSession(account *Account) bool {
@@ -28,9 +30,20 @@ func CanImportGeminiWebSession(account *Account) bool {
 	if account.Extra["relay_kind"] == "gemini_web" {
 		return false
 	}
+	web, declared := account.Credentials["gemini_web"].(map[string]any)
+	if !declared || web == nil {
+		return false
+	}
+	if _, exists := web["runtime"]; exists {
+		return geminiWebRuntimeBound(account)
+	}
+	return !account.Schedulable
+}
+
+func geminiWebRuntimeBound(account *Account) bool {
 	web, _ := account.Credentials["gemini_web"].(map[string]any)
-	_, bound := web["runtime"].(map[string]any)
-	return bound
+	runtime, _ := web["runtime"].(map[string]any)
+	return runtime != nil
 }
 
 func isGeminiWebAccount(account *Account) bool {
@@ -47,7 +60,14 @@ func isGeminiWebAccount(account *Account) bool {
 // call this projection, before billing or an upstream request. Worker validation
 // remains authoritative; shared fixtures check the projection against it.
 func geminiWebSupportsRequest(ctx context.Context, account *Account, model string, shape UniversalShape) bool {
-	if !isGeminiWebAccount(account) || shape == ShapeSkip {
+	if !isGeminiWebAccount(account) {
+		return true
+	}
+	relay, _ := account.Credentials[GeminiWebRelayCredentialKey].(bool)
+	if !relay && !geminiWebRuntimeBound(account) {
+		return false
+	}
+	if shape == ShapeSkip {
 		return true
 	}
 	if shape == ShapeAnthropicCountTokens {

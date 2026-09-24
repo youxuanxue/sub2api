@@ -382,7 +382,7 @@ function mountModal(account = buildAccount(), groups: any[] = [], renderGroupSel
 describe('EditAccountModal', () => {
   describe('Gemini Web session import', () => {
     const worker = (id = 28) => ({ ...buildAccount(), id, platform: 'gemini', type: 'apikey',
-      credentials: {}, credentials_status: { has_gemini_web: true, has_api_key: true } })
+      credentials: {}, credentials_status: { has_gemini_web: true, has_gemini_web_runtime: true, has_api_key: true } })
     const bundle = { format: 'tokenkey-gemini-web-session-v1', user_agent: 'fixture',
       cookies: [{ name: 'SID', value: 'SYNTHETIC_COOKIE', domain: '.google.com', expires: -1 }] }
     const choose = async (wrapper: ReturnType<typeof mountModal>, file: { size: number; text: () => Promise<string> }) => {
@@ -404,12 +404,34 @@ describe('EditAccountModal', () => {
       expect(wrapper.text()).not.toContain('SYNTHETIC_COOKIE')
       wrapper.unmount()
     })
-    it.each(['plain', 'relay', 'relay-extra', 'oauth'])('hides import for %s accounts', (kind) => {
+    it('initializes a copied Worker and leaves scheduling disabled', async () => {
+      const account = { ...worker(), schedulable: false,
+        credentials_status: { has_gemini_web: true, has_api_key: true, has_gemini_web_runtime: false } }
+      const updated = { ...account, credentials_status: { ...account.credentials_status, has_gemini_web_runtime: true } }
+      importGeminiWebSessionMock.mockResolvedValue({ account: updated,
+        session: { mode: 'initialized', cookie_count: 1, runtime_version: 1 } })
+      const wrapper = mountModal(account)
+      expect(wrapper.text()).toContain('admin.accounts.gemini.webSessionImportTitle.initialize')
+      await choose(wrapper, { size: 200, text: async () => JSON.stringify(bundle) })
+      expect(importGeminiWebSessionMock).toHaveBeenCalledWith(28, bundle)
+      expect(updateAccountMock).not.toHaveBeenCalled()
+      expect(wrapper.emitted('updated')).toEqual([[updated]])
+      expect(updated.schedulable).toBe(false)
+      expect(wrapper.text()).toContain('admin.accounts.gemini.webSessionInitializeSuccess')
+      await wrapper.setProps({ account: updated })
+      expect(wrapper.text()).toContain('admin.accounts.gemini.webSessionImportTitle.replace')
+      wrapper.unmount()
+    })
+    it.each(['plain', 'relay', 'relay-extra', 'oauth', 'unbound-enabled'])('hides import for %s accounts', (kind) => {
       const account = worker() as any
       if (kind === 'plain') account.credentials_status = { has_api_key: true }
       if (kind === 'relay') account.credentials.gemini_web_relay = true
       if (kind === 'relay-extra') account.extra = { relay_kind: 'gemini_web' }
       if (kind === 'oauth') account.type = 'oauth'
+      if (kind === 'unbound-enabled') {
+        account.credentials_status.has_gemini_web_runtime = false
+        account.schedulable = true
+      }
       const wrapper = mountModal(account)
       expect(wrapper.find('[data-testid="gemini-web-session-file"]').exists()).toBe(false)
       expect(importGeminiWebSessionMock).not.toHaveBeenCalled()

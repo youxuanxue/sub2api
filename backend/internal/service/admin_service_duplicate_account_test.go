@@ -278,14 +278,21 @@ func TestDuplicateAccountRemovesGeminiWebSession(t *testing.T) {
 	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
 	source := &Account{Name: "web", Platform: PlatformGemini, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "worker-key", "gemini_web": map[string]any{
-			"runtime": map[string]any{"version": 1, "cookies": "secret"}}}}
+			"runtime": map[string]any{"version": 1, "cookies": "secret"},
+			"lease":   map[string]any{"owner": "busy"}}}}
 	require.NoError(t, repo.Create(ctx, source))
 	duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
 	require.NoError(t, err)
-	require.NotContains(t, duplicate.Credentials, "gemini_web")
+	require.Equal(t, map[string]any{}, duplicate.Credentials["gemini_web"])
+	require.True(t, CanImportGeminiWebSession(duplicate))
+	require.Equal(t, "worker-key", duplicate.Credentials["api_key"])
 	require.False(t, duplicate.Schedulable)
 	require.Contains(t, source.Credentials, "gemini_web")
 	require.NotContains(t, RedactAuditBody([]byte(`{"credentials":{"gemini_web":{"runtime":{"cookies":"secret-cookie"}}}}`), "application/json"), "secret-cookie")
+	source.Credentials["gemini_web"] = "malformed-secret"
+	invalidCopy, _, err := svc.buildDuplicateAccount(ctx, source, "")
+	require.NoError(t, err)
+	require.NotContains(t, invalidCopy.Credentials, "gemini_web", "malformed legacy credential must not be copied")
 }
 
 // Regression: copying a newapi/VolcEngine account dropped channel_type (defaulted to 0),

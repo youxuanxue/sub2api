@@ -52,10 +52,17 @@ func TestRedactCredentials_StripsSensitiveKeysAndReportsStatus(t *testing.T) {
 	require.True(t, status["has_service_account_json"])
 	require.True(t, status["has_private_key"])
 	require.True(t, status["has_agent_private_key"])
+	require.True(t, status["has_gemini_web_runtime"])
 
 	// 状态 map 不应携带非敏感键的 has_*
 	require.NotContains(t, status, "has_base_url")
 	require.NotContains(t, status, "has_project_id")
+}
+
+func TestRedactCredentials_GeminiWebDeclarationSeparatesRuntimeBinding(t *testing.T) {
+	_, status := RedactCredentials(map[string]any{"gemini_web": map[string]any{}})
+	require.True(t, status["has_gemini_web"])
+	require.False(t, status["has_gemini_web_runtime"])
 }
 
 func TestRedactCredentials_EmptyValuesNotMarkedPresent(t *testing.T) {
