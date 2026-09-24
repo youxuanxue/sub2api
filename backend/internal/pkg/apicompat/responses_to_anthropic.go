@@ -985,13 +985,12 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 	}
 	state.ContentBlockOpen = false
 	state.ContentBlockIndex++
-	// Drop output-index mappings that pointed at the closed block so a late
-	// reasoning delta reopens instead of emitting an orphan thinking_delta.
-	for outIdx, blockIdx := range state.OutputIndexToBlockIdx {
-		if blockIdx == idx {
-			delete(state.OutputIndexToBlockIdx, outIdx)
-		}
-	}
+	// Do NOT clear OutputIndexToBlockIdx here: parallel tool_use blocks keep
+	// historical output_index→block maps after stop so a later packed
+	// function_call_arguments.done can resolve its own index and skip when
+	// blockIdx != ContentBlockIndex. Stale reasoning maps are handled in
+	// resToAnthEnsureReasoningBlockOpen (reopen when the mapped block is no
+	// longer the live thinking block).
 	state.CurrentToolName = ""
 	state.CurrentToolArgs = ""
 	state.CurrentToolHadDelta = false
