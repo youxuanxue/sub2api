@@ -13829,6 +13829,45 @@
         "BenchmarkWithRequestProfileRoutingFields"
       ],
       "rationale": "Preserve per-group request context lifetime, stream validation and model rewrite semantics; measure routing preparation with fields before/after long histories."
+    },
+    {
+      "path": "backend/internal/repository/account_repo.go",
+      "must_contain": [
+        "SELECT a.account_ids,",
+        "SELECT protocol_endpoint_capability_id, array_agg(id) AS account_ids",
+        "GROUP BY protocol_endpoint_capability_id",
+        "cloneLoadedProtocolCapability(capability)"
+      ],
+      "rationale": "Batch account hydration reads shared endpoint capabilities once per statement while preserving all requested links, live linked counts and independently mutable account results."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_capability_clone.go",
+      "must_contain": [
+        "func cloneLoadedProtocolCapability(",
+        "maps.Clone(in.Identity.ProtocolEndpoints)",
+        "cloneProtocolEvidenceMap(in.ProbeEvidence.Verdicts)",
+        "maps.Clone(protocols)"
+      ],
+      "rationale": "Sharing JSON decode work must not share mutable endpoint identity, evidence, protocol lists or lease/probe pointers between returned accounts."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_capability_batch_test.go",
+      "must_contain": [
+        "TestLoadAccountCapabilitiesAreIndependentAndFresh",
+        "TestLoadAccountCapabilityBatchErrorsRemainVisible",
+        "TestLoadAccountCapabilityBatchPreservesNullFields",
+        "BenchmarkLoadAccountCapabilityBatch"
+      ],
+      "rationale": "Protect nested mutation isolation, freshness across loads, decode/SQL errors and null semantics; benchmark shared and distinct endpoint batches."
+    },
+    {
+      "path": "backend/internal/repository/account_repo_capability_batch_integration_test.go",
+      "must_contain": [
+        "TestAccountCapabilityBatchMatchesSingleReadsAndRefreshes",
+        "TestCandidateAccountBatchKeepsFreshMembershipAndRuntimeFacts",
+        "BenchmarkAccountCapabilityBatchPostgres"
+      ],
+      "rationale": "Real PostgreSQL must preserve account membership, soft deletion, disabled support candidates, global link counts, transaction-local revisions/relinks and runtime facts through candidate hydration."
     }
   ]
 }
