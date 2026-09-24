@@ -786,9 +786,11 @@
         "firstUserPrepared",
         "input.Messages = preparedMessages",
         "newAgentHTTPRejection(resp.StatusCode",
-        "&agentTransportError{cause: err}"
+        "&agentTransportError{cause: err}",
+        "if len(input.Tools) > 0 {",
+        "req.Header.Set(\"X-Cursor-Agent-Allowed-Tools\", \"mcp_tool_call\")"
       ],
-      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes."
+      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Text-only Cursor runs must not advertise mcp_tool_call or upstream requires GET_MCP_TOOLS (prod #150 Connect internal)."
     },
     {
       "path": "backend/internal/integration/cursor/agent_test.go",
@@ -796,9 +798,11 @@
         "TestAgentPromptToolNamesMatchProviderHistory",
         "TestAgentSystemCompatibilityPreservesHistory",
         "TestAgentUsagePresenceOnNativeWire",
-        "TestAgentHistoryReconstructsNativeToolTurns"
+        "TestAgentHistoryReconstructsNativeToolTurns",
+        "TestAgentAllowedToolsHeaderOnlyWithDeclaredTools",
+        "text-only runs must not advertise mcp_tool_call"
       ],
-      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history."
+      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard the GET_MCP_TOOLS allowlist only-when-tools-declared contract."
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",
@@ -2530,12 +2534,18 @@
     },
     {
       "path": "backend/internal/service/admin_account.go",
-      "must_contain": ["credentials[\"gemini_web\"] = map[string]any{}", "duplicate.Schedulable = false"],
+      "must_contain": [
+        "credentials[\"gemini_web\"] = map[string]any{}",
+        "duplicate.Schedulable = false"
+      ],
       "rationale": "Worker copies retain only their declaration and stay paused until the operator imports their own session."
     },
     {
       "path": "backend/internal/service/admin_service_duplicate_account_test.go",
-      "must_contain": ["func TestDuplicateAccountRemovesGeminiWebSession", "require.Equal(t, map[string]any{}, duplicate.Credentials[\"gemini_web\"])"],
+      "must_contain": [
+        "func TestDuplicateAccountRemovesGeminiWebSession",
+        "require.Equal(t, map[string]any{}, duplicate.Credentials[\"gemini_web\"])"
+      ],
       "rationale": "Keep the behavior regression that a copied Worker cannot inherit browser credentials or lease ownership."
     },
     {
@@ -9520,9 +9530,11 @@
         "service.WithProtocolRouting(",
         "service.ExecuteSelectedProtocol(",
         "h.tkForwardChatCompletionsByOpenAIShape(",
-        "ChatToGemini:"
+        "ChatToGemini:",
+        "if account.IsCursor() {",
+        "h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, \"\", channelMapping.MappedModel)"
       ],
-      "rationale": "Gateway /v1/chat/completions governed protocol boundary: WithProtocolRouting attach + ExecuteSelectedProtocol (incl. ChatToGemini / gemini-native branch) must stay co-located in this companion per protocol-routing SSOT. Bound adapters must execute the Plan-selected protocol without platform/model redispatch. P2: extracted from gateway_handler_chat_completions.go."
+      "rationale": "Gateway /v1/chat/completions governed protocol boundary: WithProtocolRouting attach + ExecuteSelectedProtocol (incl. ChatToGemini / gemini-native branch) must stay co-located in this companion per protocol-routing SSOT. Bound adapters must execute the Plan-selected protocol without platform/model redispatch. P2: extracted from gateway_handler_chat_completions.go. Anthropic-group Cursor ChatToMessages/NonGoverned must not classic-POST /v1/messages (same malformed HTTP class as MessagesIdentity)."
     },
     {
       "path": "backend/internal/handler/gateway_handler_tk_openai_shape_forward.go",
@@ -9640,9 +9652,11 @@
       "must_contain": [
         "h.tkForwardResponsesByOpenAIShape(",
         "groupUsesGeminiCompat = service.UsesGeminiNativeOpenAICompat(groupPlatform, reqModel)",
-        "selectionSessionHash = \"gemini:\" + selectionSessionHash"
+        "selectionSessionHash = \"gemini:\" + selectionSessionHash",
+        "if account.IsCursor() {",
+        "h.openAIGatewayService.Forward(executionCtx, c, account, forwardBody)"
       ],
-      "rationale": "Gateway /v1/responses must share OpenAI-shape SSOT via tkForwardResponsesByOpenAIShape, with the same gemini sticky session hash and platform guards as /v1/chat/completions. P3: Responses Gemini/Antigravity branch + sticky hash live in tk_responses_execute companion."
+      "rationale": "Gateway /v1/responses must share OpenAI-shape SSOT via tkForwardResponsesByOpenAIShape, with the same gemini sticky session hash and platform guards as /v1/chat/completions. P3: Responses Gemini/Antigravity branch + sticky hash live in tk_responses_execute companion. Anthropic-group Cursor ResponsesToMessages/NonGoverned must use OpenAI Cursor-native forward, not classic GatewayService responses→messages HTTP."
     },
     {
       "path": "backend/internal/service/gateway_governed_openai_shape_tk.go",
@@ -13810,7 +13824,8 @@
       ],
       "rationale": "Middleware defense-in-depth: residual ErrProtocolCapabilityUnknown must still emit capacity 429 with ops detail."
     },
-    {      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+    {
+      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
       "must_contain": [
         "for end < len(messages) && messages[end].Role == messages[start].Role",
         "blocks = append(blocks, parseContentBlocks(messages[i].Content)...)",
@@ -13895,6 +13910,25 @@
         "BenchmarkAccountCapabilityBatchPostgres"
       ],
       "rationale": "Real PostgreSQL must preserve account membership, soft deletion, disabled support candidates, global link counts, transaction-local revisions/relinks and runtime facts through candidate hydration."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_protocol_execute.go",
+      "must_contain": [
+        "if account.IsCursor() {",
+        "h.openAIGatewayService.ForwardAsAnthropic(executionCtx, c, account, attemptBody, \"\", channelMapping.MappedModel)",
+        "return service.ForwardResultFromOpenAI(openAIResult), forwardErr"
+      ],
+      "rationale": "Anthropic-group Cursor MessagesIdentity/NonGoverned must use native AgentService/Run, not classic /v1/messages HTTP/1 (prod #150 malformed)."
+    },
+    {
+      "path": "backend/internal/handler/gateway_handler_tk_cursor_messages_identity_test.go",
+      "must_contain": [
+        "TestAnthropicGroupCursorMessagesIdentityUsesNativeAgentRun",
+        "cursor.AgentBaseURL+\"/agent.v1.AgentService/Run\"",
+        "service.HTTPUpstreamProfileCursor",
+        "require.NotContains(t, upstream.url, \"/v1/messages\")"
+      ],
+      "rationale": "Regression: anthropic-group MessagesIdentity for Cursor must hit AgentService/Run with Cursor HTTP/2 profile."
     }
   ]
 }

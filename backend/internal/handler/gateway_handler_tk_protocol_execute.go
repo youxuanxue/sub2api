@@ -75,17 +75,28 @@ func (h *GatewayHandler) executeMessagesSelectedProtocol(
 				if prepareErr != nil {
 					return nil, prepareErr
 				}
+				if account.IsCursor() {
+					// Anthropic-group MessagesIdentity used to call GatewayService.Forward,
+					// which POSTs JSON to agentn.../v1/messages over HTTP/1 and mis-parses
+					// Cursor's HTTP/2 preface (prod #150 malformed HTTP Recovered-200).
+					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsAnthropic(executionCtx, c, account, attemptBody, "", channelMapping.MappedModel)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				}
 				if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 					return h.antigravityGatewayService.Forward(executionCtx, c, account, attemptBody, hasBoundSession)
 				}
 				return h.gatewayService.Forward(executionCtx, c, account, executionParsedReq)
 			},
 			MessagesIdentity: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {
-				executionParsedReq, _, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
+				executionParsedReq, attemptBody, prepareErr := prepareGatewayMessagesExecution(c, h.gatewayService, account, apiKey.GroupID, attemptParsedReq, channelMapping, request)
 				if prepareErr != nil {
 					return nil, prepareErr
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+				if account.IsCursor() {
+					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsAnthropic(executionCtx, c, account, attemptBody, "", channelMapping.MappedModel)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				}
 				return h.gatewayService.Forward(executionCtx, c, account, executionParsedReq)
 			},
 			MessagesToResponses: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {

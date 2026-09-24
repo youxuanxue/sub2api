@@ -120,11 +120,27 @@ func TestAgentUsagePreservesCacheBuckets(t *testing.T) {
 		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(11), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}}}))
 	result, err := RunAgent(context.Background(), "test-credential", AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}},
 		func(req *http.Request) (*http.Response, error) {
-			require.Equal(t, "mcp_tool_call", req.Header.Get("X-Cursor-Agent-Allowed-Tools"))
+			require.Empty(t, req.Header.Get("X-Cursor-Agent-Allowed-Tools"),
+				"text-only runs must not advertise mcp_tool_call (triggers GET_MCP_TOOLS)")
 			return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&stream)}, nil
 		}, nil)
 	require.NoError(t, err)
 	require.Equal(t, &AgentUsage{Input: 11, Output: 3, CacheRead: 7, CacheWrite: 2}, result.Usage)
+}
+
+func TestAgentAllowedToolsHeaderOnlyWithDeclaredTools(t *testing.T) {
+	var stream bytes.Buffer
+	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{
+		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(1), OutputTokens: proto.Int64(1), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)}}}))
+	_, err := RunAgent(context.Background(), "test-credential", AgentRequest{
+		Model:    "composer-2.5",
+		Messages: []AgentMessage{{Role: "user", Text: "use lookup"}},
+		Tools:    []AgentTool{{Name: "lookup", Description: "Look up a key.", Schema: map[string]any{"type": "object"}}},
+	}, func(req *http.Request) (*http.Response, error) {
+		require.Equal(t, "mcp_tool_call", req.Header.Get("X-Cursor-Agent-Allowed-Tools"))
+		return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&stream)}, nil
+	}, nil)
+	require.NoError(t, err)
 }
 
 func TestAgentUsagePresenceOnNativeWire(t *testing.T) {
