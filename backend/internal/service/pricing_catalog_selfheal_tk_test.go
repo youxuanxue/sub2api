@@ -96,7 +96,7 @@ func TestMePricingPruneStructurallyGoneIDs(t *testing.T) {
 
 func firstNPlatformServableIDsForSelfHealTest(t *testing.T, platform string, n int) []string {
 	t.Helper()
-	ids := supportedCatalogModelIDsForPlatform(platform)
+	ids := recommendedModelIDsForTest(supportedCatalogModelIDsForPlatform(platform))
 	sort.Strings(ids)
 	require.GreaterOrEqual(t, len(ids), n, "platform %s SSOT must have enough ids for this test", platform)
 	return append([]string{}, ids[:n]...)

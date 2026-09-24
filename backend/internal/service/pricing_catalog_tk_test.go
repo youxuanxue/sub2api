@@ -626,9 +626,9 @@ func TestPricingCatalogService_ZeroPlaceholderRowGetsOverlayPrice(t *testing.T) 
 // display=true in tk_served_models.json, and unknown vendors stay hidden until
 // a universal platform mapping exists.
 func TestPublicCatalog_FiltersUnservableClaudeAndGpt(t *testing.T) {
-	anthropicServable := firstMapKeyForTest(t, supportedAnthropicCatalogModels)
-	openAIServable := firstMapKeyForTest(t, supportedOpenAICatalogModels)
-	geminiServable := firstMapKeyForTest(t, supportedGeminiCatalogModels)
+	anthropicServable := firstRecommendedCatalogIDForTest(t, supportedAnthropicCatalogModels)
+	openAIServable := firstRecommendedCatalogIDForTest(t, supportedOpenAICatalogModels)
+	geminiServable := firstRecommendedCatalogIDForTest(t, supportedGeminiCatalogModels)
 	deepSeekDisplayID := firstManifestDisplayIDForChannelTypeForTest(t, newapiconstant.ChannelTypeDeepSeek)
 	fixture := fmt.Sprintf(`{
 	  %q: {"input_cost_per_token":0.000005,"output_cost_per_token":0.000025,"litellm_provider":"anthropic"},
@@ -705,7 +705,8 @@ func TestPublicCatalog_RetiredNativeIDsRequireAnotherDeclaredSupply(t *testing.T
 		}
 		assert.Equal(t, cursorDeclared, got[retired], "retired native id %q needs a separate declared supply", retired)
 	}
-	assert.True(t, got["gpt-5.5"], "gpt-5.5 remains public")
+	assert.False(t, got["gpt-5.5"], "operator display=false hides gpt-5.5")
+	assert.True(t, s.IsModelPriced("gpt-5.5", PlatformOpenAI), "display withdrawal preserves settlement pricing")
 	assert.True(t, got["gpt-5.6-terra"], "terra remains public")
 	assert.True(t, got["gpt-5.6-luna"], "luna remains public")
 }
@@ -730,13 +731,16 @@ func TestPublicCatalog_HidesLegacyTokenPlanAliasesButKeepsPricing(t *testing.T) 
 	}
 }
 
-func firstMapKeyForTest(t *testing.T, m map[string]struct{}) string {
+func firstRecommendedCatalogIDForTest(t *testing.T, m map[string]struct{}) string {
 	t.Helper()
 	require.NotEmpty(t, m, "SSOT map must be populated for this assertion to be meaningful")
 	keys := make([]string, 0, len(m))
 	for k := range m {
-		keys = append(keys, k)
+		if isCatalogModelRecommended(k) {
+			keys = append(keys, k)
+		}
 	}
+	require.NotEmpty(t, keys, "SSOT map must contain a recommended catalog sample")
 	sort.Strings(keys)
 	return keys[0]
 }
@@ -745,20 +749,6 @@ func firstManifestDisplayIDForChannelTypeForTest(t *testing.T, channelType int) 
 	t.Helper()
 	ids := tkServedModelsManifestDisplayPresetIDsByChannelType(channelType)
 	require.NotEmpty(t, ids, "channel_type %d must have a display=true manifest sample", channelType)
-	sort.Strings(ids)
-	return ids[0]
-}
-
-func firstQianfanManifestDisplayIDForTest(t *testing.T) string {
-	t.Helper()
-	loadTkServedModelsManifest()
-	ids := make([]string, 0, 8)
-	for id := range tkServedModelsManifestDisplayIDs {
-		if strings.HasPrefix(id, "ernie-") || strings.HasPrefix(id, "bge-") || id == "qianfan-ocr" {
-			ids = append(ids, id)
-		}
-	}
-	require.NotEmpty(t, ids, "manifest must expose at least one qianfan display model")
 	sort.Strings(ids)
 	return ids[0]
 }
@@ -850,8 +840,14 @@ func TestIsPublicCatalogModelSupported(t *testing.T) {
 	})
 
 	t.Run("qianfan wenxin vendor requires manifest display=true", func(t *testing.T) {
-		displayed := firstQianfanManifestDisplayIDForTest(t)
-		assert.True(t, isPublicCatalogModelSupported("wenxin", displayed), "owner-derived qianfan model is manifest display=true")
+		owner := loadTkServedModelsOwnerProjectionForTest(t)
+		for modelID := range owner.listedIDs {
+			_, displayed := owner.displayIDs[modelID]
+			assert.Equal(t, displayed, isPublicCatalogModelSupported("wenxin", modelID),
+				"qianfan catalog visibility follows manifest display intent for %s", modelID)
+			assert.Equal(t, displayed, isMePricingModelDisplayed(modelID),
+				"user-menu visibility follows manifest display intent for %s", modelID)
+		}
 		assert.False(t, isPublicCatalogModelSupported("wenxin", "ernie-totally-unlisted-zzz"))
 	})
 

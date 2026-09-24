@@ -265,10 +265,13 @@ describe('CatalogHubView', () => {
     expect(wrapper.text()).toContain('/ second')
   })
 
-  it('groups all Vertex provider variants under vertex_ai', async () => {
+  it('groups Google and Vertex text, image and video models under Google', async () => {
     getPublicPricing.mockResolvedValue(
       catalog([
         model('gemini-2.5-pro', 'vertex_ai-language-models'),
+        model('gemini-google', 'Google'),
+        model('gemini-antigravity', 'antigravity'),
+        model('unrelated', 'openai'),
         model('imagen-4.0-generate-001', 'vertex_ai', {
           pricing: {
             currency: 'USD',
@@ -293,14 +296,18 @@ describe('CatalogHubView', () => {
     const wrapper = mountMarketplace()
     await flushPromises()
 
-    const vertexButtons = wrapper
+    const googleButtons = wrapper
       .findAll('button')
-      .filter((button) => button.text().includes('Vertex AI') && button.text().includes('(3)'))
-    expect(vertexButtons).toHaveLength(2)
+      .filter((button) => button.text().includes('Google') && button.text().includes('(5)'))
+    expect(googleButtons).toHaveLength(2)
     expect(wrapper.findAll('button').some((button) => button.text().includes('vertex_ai-language-models'))).toBe(false)
 
-    await vertexButtons[0].trigger('click')
+    await googleButtons[0].trigger('click')
     expect(wrapper.text()).toContain('gemini-2.5-pro')
+    expect(wrapper.text()).toContain('gemini-google')
+    expect(wrapper.text()).toContain('gemini-antigravity')
+    expect(wrapper.text()).not.toContain('unrelated')
+    expect(wrapper.text()).not.toContain('Vertex AI')
     expect(wrapper.text()).toContain('imagen-4.0-generate-001')
     expect(wrapper.text()).toContain('veo-3.1-generate-001')
   })

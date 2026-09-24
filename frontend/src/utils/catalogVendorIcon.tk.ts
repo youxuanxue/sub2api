@@ -3,7 +3,7 @@
  * Vendor strings come from LiteLLM/upstream and vary (OpenAI, vertex_ai-language-models, …).
  */
 export function resolveCatalogVendorIconKey(vendor: string): string | null {
-  const raw = vendor.trim().toLowerCase()
+  const raw = normalizeCatalogVendorSlug(vendor).toLowerCase()
   if (!raw || raw === 'unknown') return null
 
   if (raw === 'openai' || raw.startsWith('openai-')) return 'openai'
@@ -44,12 +44,16 @@ export function resolveCatalogVendorIconKey(vendor: string): string | null {
   return null
 }
 
-/** Same grouping rule as ModelMarketplaceCatalog.marketplaceVendor. */
+/** Shared public vendor identity for grouping, labels and icons. */
 export function normalizeCatalogVendorSlug(vendor: string): string {
   const trimmed = vendor.trim() || 'Unknown'
   const normalized = trimmed.toLowerCase()
-  if (normalized === 'gemini' || normalized === 'antigravity') return 'google'
-  return trimmed === 'vertex_ai' || trimmed.startsWith('vertex_ai-') ? 'vertex_ai' : trimmed
+  if (
+    ['google', 'gemini', 'antigravity', 'vertex', 'vertexai', 'vertex_ai'].includes(normalized)
+    || normalized.startsWith('vertex_ai-')
+  ) return 'google'
+  if (['wenxin', 'qianfan', 'baidu'].includes(normalized)) return 'baidu'
+  return trimmed
 }
 
 export function formatCatalogVendorLabel(vendor: string): string {
@@ -58,7 +62,6 @@ export function formatCatalogVendorLabel(vendor: string): string {
     openai: 'OpenAI',
     cursor: 'Composer',
     anthropic: 'Anthropic',
-    vertex_ai: 'Vertex AI',
     volcengine: 'VolcEngine',
     xai: 'xAI',
     google: 'Google',
@@ -73,9 +76,7 @@ export function formatCatalogVendorLabel(vendor: string): string {
     hunyuan: 'Hunyuan',
     midjourney: 'Midjourney',
     perplexity: 'Perplexity',
-    wenxin: 'Qianfan',
-    qianfan: 'Qianfan',
-    baidu: 'Qianfan',
+    baidu: 'Baidu',
   }
   const key = slug.toLowerCase()
   if (labels[key]) return labels[key]

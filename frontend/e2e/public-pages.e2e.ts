@@ -41,6 +41,26 @@ async function openPricing(page: Page) {
   await expect(page.locator('tbody tr')).toHaveCount(catalog.data.length)
 }
 
+test('catalog groups Google and Baidu vendor aliases with working filters', async ({ page }) => {
+  const vendors = ['Google', 'gemini', 'antigravity', 'vertex_ai-language-models', 'vertex_ai', 'vertex_ai-video-models', 'wenxin', 'qianfan', 'baidu', 'openai']
+  const data = vendors.map((vendor, index) => ({ ...catalog.data[0], model_id: `vendor-model-${index}`, vendor }))
+  await page.route('**/api/v1/public/pricing', route => route.fulfill({ json: ok({ ...catalog, data }) }))
+  await page.goto('/models')
+  const cards = page.locator('[data-tk^="models-marketplace-card-"]')
+  await expect(cards).toHaveCount(data.length)
+  const google = page.getByRole('button', { name: /^Google\s*\(6\)$/ }).filter({ visible: true })
+  const baidu = page.getByRole('button', { name: /^Baidu\s*\(3\)$/ }).filter({ visible: true })
+  await expect(google).toHaveCount(1)
+  await expect(baidu).toHaveCount(1)
+  await expect(page.getByRole('button', { name: /Vertex AI|Qianfan/ })).toHaveCount(0)
+  await google.click()
+  await expect(cards).toHaveCount(6)
+  for (let index = 0; index < 6; index++) await expect(cards.nth(index)).toContainText('Google')
+  await baidu.click()
+  await expect(cards).toHaveCount(3)
+  for (let index = 0; index < 3; index++) await expect(cards.nth(index)).toContainText('Baidu')
+})
+
 test('a model card reapplies exact search to an already cached price table', async ({ page }) => {
   await openPricing(page)
   await page.getByRole('tab', { name: '浏览', exact: true }).click()
