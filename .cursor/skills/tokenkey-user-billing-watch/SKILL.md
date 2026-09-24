@@ -43,7 +43,7 @@ bash ops/observability/run-probe.sh \
 
 ## §2 报告格式（固定）—— 先结论、再细节，别把 schema 甩给读者
 
-生成报告时读取固定口径与示例；先给业务结论，区分客户端噪声与真实计量/系统错误，不把 schema 原样甩给用户。 见 [操作细则](references/report.md)。
+生成报告时读取固定口径与示例；先给业务结论，区分客户端噪声与真实计量/系统错误，不把 schema 原样甩给用户。用户概览表必须包含“用户邮箱”列，按 `user_id` 从 `active users (discovery)` 结果关联 `email`，不得猜测或改写邮箱。见 [操作细则](references/report.md)。
 
 ## §3 推送判据（仅这四类才 PushNotification）
 
