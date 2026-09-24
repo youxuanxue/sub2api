@@ -166,7 +166,7 @@ func geminiWebNativeBodySupported(body []byte, image bool) bool {
 				return false
 			}
 		}
-		if raw, exists := config["imageConfig"]; exists {
+		if raw := config["imageConfig"]; raw != nil {
 			imageConfig, ok := raw.(map[string]any)
 			if !ok || !geminiWebOnlyKeys(imageConfig, "aspectRatio") {
 				return false

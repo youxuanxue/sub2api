@@ -133,9 +133,10 @@ Worker 支持 `gemini-web-flash`、`gemini-web-pro`、`gemini-web-pro-image`，
 表示 Web 类别而非官方付费 API 型号。只接受单轮文本和 responseModalities；
 生图可额外接受 `generationConfig.imageConfig.aspectRatio` 的 `1:1`、`9:16`、`3:4`、
 `4:3`、`16:9`，并映射到网页 RPC 已实测的比例字段。其他 controls、tools、system、
-多模态输入和多轮历史在 Google 副作用前拒绝。显式传入的 imageConfig 必须为仅含
-aspectRatio 的对象，且比例为上述字符串；null、错误类型和额外字段在写会话或
-请求 Google 前返回 400，与 Go 候选准入保持一致。
+多模态输入和多轮历史在 Google 副作用前拒绝。生图请求省略 imageConfig 或传入
+`imageConfig: null` 均表示未指定图片配置，沿用默认生图 RPC。非 null 的 imageConfig
+必须为仅含 aspectRatio 的对象，且比例为上述字符串；错误类型和额外字段在写会话或
+请求 Google 前返回 400，与 Go 候选准入保持一致。文本模型不接受 imageConfig。
 streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首 token 流式延迟。
 
 用户已确认先修复调度能力判断，不扩展或降级上述输入语义。共享候选准入在计费、
@@ -165,6 +166,12 @@ prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修
 `16:9→63`。`4:3` 返回 HTTP 200 和 1024×765，`9:16` 返回 HTTP 200 和
 572×1024。该证据仅验证网页协议映射；线上 TokenKey Worker 仍需部署后再做账号归属
 和 Cookie 会话验证。
+
+同日以 11 号浏览器 Pro 生图实测未指定比例与显式 null：基准请求的 `inner[0]`
+无索引 9 图片选项、`inner[55]=[]`；另一请求设置 `inner[0][9]=null`、
+`inner[55]=null`。两者均返回 HTTP 200 和 1024×559 图片。因此本适配器将生图
+`imageConfig: null` 解释为未指定配置；该证据来自 Web 位置数组 RPC，不代表官方
+付费 API 对同名 JSON 字段的验证结果。
 
 ## Implementation / Owners
 

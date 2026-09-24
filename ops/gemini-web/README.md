@@ -106,7 +106,8 @@ The worker bounds image operations and decoded pixels to reduce memory pressure.
 synthetic maximum-pixel test is not a sustained-load guarantee under the container limit.
 Web image requests may set `generationConfig.imageConfig.aspectRatio` to `1:1`, `9:16`,
 `3:4`, `4:3`, or `16:9`; these values are mapped to the captured Gemini Images RPC
-shape. Other image configuration fields are rejected before contacting Google.
+shape. For image requests, an omitted or null `imageConfig` uses default image
+options. Other image configuration fields are rejected before contacting Google.
 The control token retains existing edge admin permissions; redirect rejection prevents
 accidental forwarding, not misuse after process compromise.
 

@@ -220,8 +220,8 @@ def request_prompt(body, model):
             or ('IMAGE' in modalities) != MODELS[model][1]):
         raise Failure(400, 'responseModalities must match the selected Web text/image model')
     aspect_ratio = None
-    if 'imageConfig' in config:
-        image_config = config['imageConfig']
+    image_config = config.get('imageConfig')
+    if image_config is not None:
         if not MODELS[model][1] or not isinstance(image_config, dict) or set(image_config) != {'aspectRatio'}:
             raise Failure(400, 'imageConfig.aspectRatio is supported only for the Web image model')
         aspect_ratio = image_config.get('aspectRatio')

@@ -187,6 +187,26 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(inner[0][9][6][1][1], ratio)
                 self.assertEqual(inner[55], [[enum]])
 
+    def test_null_image_config_uses_default_image_options(self):
+        original = {'inlineData': {'mimeType': 'image/jpeg', 'data': 'b3JpZ2luYWw='}}
+        requests = []
+        for image_config in ({}, {'imageConfig': None}):
+            with self.subTest(image_config=image_config):
+                with patch.object(self.account, 'call', return_value=(None, wire(images=True).encode())) as call:
+                    with patch.object(self.account, 'download', return_value=original):
+                        result = self.account.generate('gemini-web-pro-image', {
+                            'contents': [{'parts': [{'text': 'Draw a cube'}]}],
+                            'generationConfig': {'responseModalities': ['IMAGE'], **image_config},
+                        })
+                self.assertEqual(result['candidates'][0]['content']['parts'], [original])
+                call.assert_called_once()
+                inner = json.loads(json.loads(call.call_args.kwargs['data']['f.req'])[1])
+                self.assertEqual(inner[0], ['Draw a cube', 0, None, None, None, None, 0])
+                self.assertEqual(inner[55], [])
+                inner[59] = None  # Each generation has an independent request ID.
+                requests.append(inner)
+        self.assertEqual(requests[0], requests[1])
+
     def test_text_request_retains_text_mode_and_current_model(self):
         with patch.object(self.account, 'call', return_value=(None, wire().encode())) as call:
             self.account.generate('gemini-web-flash', {
