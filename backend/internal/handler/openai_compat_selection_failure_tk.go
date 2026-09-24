@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -10,8 +12,9 @@ import (
 // routingModel is the model account selection compared; displayModel is the
 // client-facing model name in error bodies.
 //
-// Order: unsupported model name → 400; persistent mapping gap → 404 model_not_found
-// (via group platform diagnosis); empty pool / scheduler faults → 429 or 503.
+// Concrete candidate verdicts bypass legacy group diagnosis. For ambiguous
+// empty selections, a persistent mapping gap returns 404 model_not_found;
+// otherwise empty pools / scheduler faults return 429 or 503.
 func openAICompatFirstAttemptSelectionFailure(
 	c *gin.Context,
 	diag service.ModelAvailabilityDiagnoser,
@@ -20,6 +23,12 @@ func openAICompatFirstAttemptSelectionFailure(
 	displayModel string,
 	err error,
 ) (status int, errType string, message string) {
+	// Candidate selection already established support across authorized pools;
+	// the API key's billing group cannot reclassify that verdict as a mapping gap.
+	if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
+		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+		return tkSelectFailureStatusMessage(c, err, displayModel)
+	}
 	// Persistent mapping diagnosis only explains an empty selection. It must
 	// never overwrite a concrete scheduler fault (DB/context/etc.) with a 404.
 	if err != nil && !isOpsNoAvailableAccountError(err) {

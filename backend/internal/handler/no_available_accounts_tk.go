@@ -106,6 +106,9 @@ func tkSelectFailureStatusMessage(c *gin.Context, err error, reqModel string) (i
 			return http.StatusBadRequest, service.TkDeprecatedAnthropicErrorType,
 				service.TkBuildDeprecatedAnthropicMessage(reqModel, replacement)
 		}
+		if errors.Is(err, service.ErrUniversalCapacityUnavailable) {
+			return tkNoAvailableAccounts(c), "api_error", "No available accounts"
+		}
 		return tkNoAvailableAccounts(c), "api_error", "No available accounts: " + err.Error()
 	}
 	return http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable"

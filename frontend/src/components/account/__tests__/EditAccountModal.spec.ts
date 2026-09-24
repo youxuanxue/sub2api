@@ -412,6 +412,7 @@ describe('EditAccountModal', () => {
         session: { mode: 'initialized', cookie_count: 1, runtime_version: 1 } })
       const wrapper = mountModal(account)
       expect(wrapper.text()).toContain('admin.accounts.gemini.webSessionImportTitle.initialize')
+      await wrapper.get('[data-tour="edit-account-form-name"]').setValue('Renamed copy')
       await choose(wrapper, { size: 200, text: async () => JSON.stringify(bundle) })
       expect(importGeminiWebSessionMock).toHaveBeenCalledWith(28, bundle)
       expect(updateAccountMock).not.toHaveBeenCalled()
@@ -420,6 +421,7 @@ describe('EditAccountModal', () => {
       expect(wrapper.text()).toContain('admin.accounts.gemini.webSessionInitializeSuccess')
       await wrapper.setProps({ account: updated })
       expect(wrapper.text()).toContain('admin.accounts.gemini.webSessionImportTitle.replace')
+      expect(wrapper.get<HTMLInputElement>('[data-tour="edit-account-form-name"]').element.value).toBe('Renamed copy')
       wrapper.unmount()
     })
     it.each(['plain', 'relay', 'relay-extra', 'oauth', 'unbound-enabled'])('hides import for %s accounts', (kind) => {
@@ -716,6 +718,21 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
       'gpt-5.2': 'gpt-5.2'
     })
+  })
+
+  it('keeps an editing draft on account refresh and rehydrates when switching accounts', async () => {
+    const account = buildAccount()
+    const wrapper = mountModal(account)
+    const name = () => wrapper.get<HTMLInputElement>('[data-tour="edit-account-form-name"]')
+    await name().setValue('Unsaved name')
+    await wrapper.get('[data-testid="rewrite-to-snapshot"]').trigger('click')
+    await wrapper.setProps({ account: { ...account, name: 'Refreshed server name' } })
+    expect(name().element.value).toBe('Unsaved name')
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-5.2-2025-12-11')
+    await wrapper.setProps({ account: { ...account, id: 99, name: 'Another account' } })
+    expect(name().element.value).toBe('Another account')
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('gpt-5.2')
+    wrapper.unmount()
   })
 
   it('preserves OpenCode Zen account type and endpoints on submit', async () => {

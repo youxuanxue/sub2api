@@ -127,6 +127,61 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		assert.Contains(t, msg, "No available accounts")
 	})
 
+	t.Run("candidate capacity errors retain retry and ops routing semantics", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			err  error
+		}{
+			{"sentinel", service.ErrUniversalCapacityUnavailable},
+			{"wrapped", fmt.Errorf("candidate selection: %w", service.ErrUniversalCapacityUnavailable)},
+			{"diagnostic", fmt.Errorf("candidate selection: %w", &service.UniversalCapacityError{Platform: service.PlatformNewAPI, GroupID: 38})},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				c, w := newCtx(t)
+				groupID := int64(38)
+				apiKey := &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformNewAPI}}
+				fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}}
+
+				status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "doubao-embedding-vision", "doubao-embedding-vision", tc.err)
+				writeJSON(t, w, status, errType, msg)
+
+				require.Equal(t, http.StatusTooManyRequests, w.Code)
+				assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
+				var body errorBody
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+				assert.Equal(t, "api_error", body.Error.Type)
+				assert.Equal(t, "No available accounts", body.Error.Message)
+				phase, limited, owner, source := classifyOpsErrorLog(c, errType, msg, "", status)
+				assert.Equal(t, "routing", phase)
+				assert.True(t, limited)
+				assert.Equal(t, "platform", owner)
+				assert.Equal(t, "gateway", source)
+			})
+		}
+	})
+
+	t.Run("candidate capacity bypasses billing group mapping gap", func(t *testing.T) {
+		c, w := newCtx(t)
+		groupID := int64(18)
+		apiKey := &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformNewAPI}}
+		fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
+		err := fmt.Errorf("candidate selection: %w", &service.UniversalCapacityError{Platform: service.PlatformNewAPI, GroupID: 38})
+
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "doubao-embedding-vision", "doubao-embedding-vision", err)
+		writeJSON(t, w, status, errType, msg)
+
+		require.Equal(t, http.StatusTooManyRequests, w.Code)
+		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
+		assert.Equal(t, "api_error", errType)
+		assert.Equal(t, "No available accounts", msg)
+		assert.Empty(t, fd.calls, "candidate capacity already establishes model support across authorized pools")
+		phase, limited, owner, source := classifyOpsErrorLog(c, errType, msg, "", status)
+		assert.Equal(t, "routing", phase)
+		assert.True(t, limited)
+		assert.Equal(t, "platform", owner)
+		assert.Equal(t, "gateway", source)
+	})
+
 	t.Run("nil selection without err -> 404 when mapping gap", func(t *testing.T) {
 		c, _ := newCtx(t)
 		groupID := int64(18)
@@ -186,6 +241,11 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		assert.Equal(t, "api_error", errType)
 		assert.Equal(t, "Service temporarily unavailable", msg)
 		assert.Empty(t, fd.calls, "concrete scheduler faults must not be re-diagnosed as mapping gaps")
+		assert.Empty(t, c.Writer.Header().Get("Retry-After"))
+		phase, limited, owner, _ := classifyOpsErrorLog(c, errType, msg, "", status)
+		assert.Equal(t, "internal", phase)
+		assert.False(t, limited)
+		assert.Equal(t, "platform", owner)
 	})
 
 	t.Run("deprecated model stays 400 before mapping diagnosis", func(t *testing.T) {

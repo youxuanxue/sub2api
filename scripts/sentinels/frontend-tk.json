@@ -8,6 +8,11 @@
       "rationale": "The account editor must keep the local Worker import boundary and invalidate stale file reads/HTTP completions when switching accounts."
     },
     {
+      "path": "frontend/src/components/account/__tests__/EditAccountModal.spec.ts",
+      "must_contain": ["keeps an editing draft on account refresh and rehydrates when switching accounts"],
+      "rationale": "Import/status refreshes must preserve unsaved inputs, while account switches rehydrate the editor."
+    },
+    {
       "path": "frontend/e2e/gemini-web-import.e2e.ts",
       "must_contain": ["Worker import success, redacted errors, size limit and relay boundary", "switching accounts during file read cannot submit credentials to either account", "copy Worker and initialize its own session while scheduling stays disabled"],
       "rationale": "Retain real browser import and cross-account isolation regressions alongside the editor."

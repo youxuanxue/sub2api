@@ -4950,7 +4950,9 @@ watch(
     if (!show || !newAccount) {
       return
     }
-    if (!wasShow || newAccount !== previousAccount) {
+    // Live status/import responses must not overwrite the current editing draft.
+    if (!wasShow || newAccount.id !== previousAccount?.id ||
+      newAccount.platform !== previousAccount?.platform || newAccount.type !== previousAccount?.type) {
       syncFormFromAccount(newAccount)
       loadTLSProfiles()
     }
