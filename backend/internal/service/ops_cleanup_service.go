@@ -354,6 +354,11 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 
 	effective := s.snapshotEffective()
 	policy := resolveDataLifecyclePolicy(s.cfg, effective.OpsCleanupConfig)
+	requestDays, err := s.requestRetentionDays(ctx)
+	if err != nil {
+		return out, fmt.Errorf("read request retention; deletion skipped: %w", err)
+	}
+	policy.usageLogRetentionDays = requestDays
 	now := time.Now().UTC()
 
 	if s.dashboardRepo == nil {

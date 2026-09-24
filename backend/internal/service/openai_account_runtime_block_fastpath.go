@@ -101,6 +101,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// Any non-2xx upstream HTTP response means the model request was actually sent.
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
+		scheduleOpenCodeGoUsageActivity(s.deferredService, account)
 	}
 	// Soft preference only: native capacity 503 (and stub-sanitized edge capacity)
 	// deprioritize the selected OAuth/stub without hard cooldown.

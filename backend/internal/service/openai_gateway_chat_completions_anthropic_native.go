@@ -57,18 +57,20 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
-	// 2. Use the shared Messages converter, including cache placement.
-	anthropicReq, err := apicompat.ChatCompletionsToAnthropicRequest(&ccReq)
-	if err != nil {
-		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
-		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
-	}
-
-	// 3. Model mapping（OpenAI 网关统一入口的映射语义）
+	// Resolve the selected protocol plan before model-specific conversion.
 	billingModel, upstreamModel := resolveOpenAICompatForwardModels(account, originalModel, defaultMappedModel)
 	upstreamModel = protocolExecutionResolvedModel(ctx, upstreamModel)
 	billingModel = settleOpenAIBillingFromUpstream(billingModel, upstreamModel)
-	anthropicReq.Model = upstreamModel
+	if err := validateClaudeOpus55Request(body, upstreamModel); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
+	ccReq.Model = upstreamModel
+	anthropicReq, err := apicompat.ChatCompletionsToAnthropicRequest(&ccReq)
+	if err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
+	}
 
 	// 4. Force upstream streaming（客户端原始终决定响应格式；
 	// 上游恒为流式，非流式由缓冲路径组装）。

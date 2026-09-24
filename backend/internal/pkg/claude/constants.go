@@ -144,18 +144,22 @@ func FullClaudeCodeHaikuMimicryBetas() []string {
 // 这一致性由 identity_canonical_consistency_test.go 机械锁死：任何一处漂移即测试失败。
 // 包依赖方向为 service → claude，claude 无法反向 import service，故这里以同步字面量
 // 承载，由守卫测试强制对齐。
-var DefaultHeaders = map[string]string{
-	"User-Agent":                                "claude-cli/2.1.280 (external, cli)",
-	"X-Stainless-Lang":                          "js",
-	"X-Stainless-Package-Version":               "0.112.1",
-	"X-Stainless-OS":                            "MacOS",
-	"X-Stainless-Arch":                          "arm64",
-	"X-Stainless-Runtime":                       "node",
-	"X-Stainless-Runtime-Version":               "v26.3.0",
-	"X-Stainless-Retry-Count":                   "0",
-	"X-Stainless-Timeout":                       "600",
-	"X-App":                                     "cli",
-	"Anthropic-Dangerous-Direct-Browser-Access": "true",
+func DefaultHeaders() map[string]string {
+	headers := map[string]string{
+		"User-Agent":                                "claude-cli/2.1.280 (external, cli)",
+		"X-Stainless-Lang":                          "js",
+		"X-Stainless-Package-Version":               "0.112.1",
+		"X-Stainless-OS":                            "MacOS",
+		"X-Stainless-Arch":                          "arm64",
+		"X-Stainless-Runtime":                       "node",
+		"X-Stainless-Runtime-Version":               "v26.3.0",
+		"X-Stainless-Retry-Count":                   "0",
+		"X-Stainless-Timeout":                       "600",
+		"X-App":                                     "cli",
+		"Anthropic-Dangerous-Direct-Browser-Access": "true",
+	}
+	headers["User-Agent"] = DefaultUserAgent()
+	return headers
 }
 
 // Model 表示一个 Claude 模型
@@ -209,6 +213,12 @@ var DefaultModels = []Model{
 		Type:        "model",
 		DisplayName: "Claude Opus 4.8",
 		CreatedAt:   "2026-05-29T00:00:00Z",
+	},
+	{
+		ID:          "claude-opus-5-5",
+		Type:        "model",
+		DisplayName: "Claude Opus 5.5",
+		CreatedAt:   "2026-09-22T00:00:00Z",
 	},
 	{
 		ID:          "claude-opus-5",

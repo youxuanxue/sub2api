@@ -82,6 +82,7 @@ import { getPlatformLabel } from '@/composables/usePlatformOptions'
 import { STATUS_ACTIVE } from '@/constants/channel'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import type { AdminUser, AdminGroup } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -125,6 +126,7 @@ const handleReplace = async () => {
     emit('success')
     emit('close')
   } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
     console.error('Failed to replace group:', error)
   } finally {
     submitting.value = false

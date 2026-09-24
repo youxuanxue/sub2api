@@ -47,26 +47,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, failoverErr
 	}
 
-	// 2. Convert to Messages while preserving tool and cache semantics.
-	anthropicReq, err := apicompat.ChatCompletionsToAnthropicRequest(&ccReq)
-	if err != nil {
-		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
-	}
-
-	// 3. Upstream streaming shape. Native Anthropic upstreams are forced to SSE
-	// even for non-streaming CC clients so handleCCBufferedFromAnthropic can
-	// assemble the response. Kiro (native + prod mirror stubs relaying to edge)
-	// and Bedrock must preserve stream=false — forced SSE on multi-turn agent
-	// payloads was timing out (~32s) with upstream 502 before any content arrived;
-	// Bedrock non-stream invoke returns JSON directly.
-	reqStream := clientStream
-	anthropicReq.Stream = clientStream
-	if !tkCCPreservesKiroUpstreamStream(account, clientStream) && !account.IsBedrock() {
-		anthropicReq.Stream = true
-		reqStream = true
-	}
-
-	// 4. Model mapping
+	// Resolve the final upstream model before model-specific conversion.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
@@ -88,7 +69,29 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		}
 	}
 	mappedModel = protocolExecutionResolvedModel(ctx, mappedModel)
-	anthropicReq.Model = mappedModel
+	if err := validateClaudeOpus55Request(body, mappedModel); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
+	ccReq.Model = mappedModel
+	// 2. Convert to Messages while preserving tool and cache semantics.
+	anthropicReq, err := apicompat.ChatCompletionsToAnthropicRequest(&ccReq)
+	if err != nil {
+		return nil, fmt.Errorf("convert chat completions to anthropic: %w", err)
+	}
+
+	// 3. Upstream streaming shape. Native Anthropic upstreams are forced to SSE
+	// even for non-streaming CC clients so handleCCBufferedFromAnthropic can
+	// assemble the response. Kiro (native + prod mirror stubs relaying to edge)
+	// and Bedrock must preserve stream=false — forced SSE on multi-turn agent
+	// payloads was timing out (~32s) with upstream 502 before any content arrived;
+	// Bedrock non-stream invoke returns JSON directly.
+	reqStream := clientStream
+	anthropicReq.Stream = clientStream
+	if !tkCCPreservesKiroUpstreamStream(account, clientStream) && !account.IsBedrock() {
+		anthropicReq.Stream = true
+		reqStream = true
+	}
 
 	// Align with upstream CC→Responses→Anthropic chain: top-level thinking is
 	// dropped when no explicit effort is present. PassbackRequired models
@@ -539,6 +542,15 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	}
 
 	processAnthropicEvent := func(event *apicompat.AnthropicStreamEvent) bool {
+		if event == nil {
+			return false
+		}
+		// Drop Anthropic keepalive pings before OpenAI conversion:
+		// leaking `event: ping` frames crashes OpenAI-stream clients.
+		// Error events must still forward — they carry upstream failures.
+		if event.Type == "ping" {
+			return false
+		}
 		if firstChunk {
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())

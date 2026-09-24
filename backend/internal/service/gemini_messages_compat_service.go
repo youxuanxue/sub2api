@@ -40,6 +40,16 @@ const (
 	geminiRetryMaxDelay  = 16 * time.Second
 )
 
+const (
+	// google.rpc.RetryInfo 的标准 @type（Vertex AI 429 响应携带，retryDelay 形如 "39s"）
+	geminiRetryInfoTypeURL = "type.googleapis.com/google.rpc.RetryInfo"
+	// RetryInfo.retryDelay 的上限，防止异常值导致账号长时间不可用
+	geminiRetryInfoMaxDelay = 15 * time.Minute
+	// Vertex（service_account，按量付费）429 无法解析重置时间时的兜底冷却：
+	// 按量付费限速是短窗口 RPM/TPM，没有每日配额，不适用 PST 午夜重置
+	geminiVertexFallbackCooldown = time.Minute
+)
+
 // Gemini tool calling now requires `thoughtSignature` in parts that include `functionCall`.
 // Many clients don't send it; we inject a known dummy signature to satisfy the validator.
 // Ref: https://ai.google.dev/gemini-api/docs/thought-signatures
@@ -3058,14 +3068,20 @@ func ParseGeminiRateLimitResetTime(body []byte) *int64 {
 			detail.Get("retryDelay").String(),
 			detail.Get("metadata.retryDelay").String(),
 		}
-		for _, v := range candidates {
+		for index, v := range candidates {
+			if index > 0 && detail.Get("@type").String() != "" && detail.Get("@type").String() != geminiRetryInfoTypeURL {
+				continue
+			}
 			v = strings.TrimSpace(v)
 			if v == "" {
 				continue
 			}
-			if dur, err := time.ParseDuration(v); err == nil {
+			if dur, err := time.ParseDuration(v); err == nil && dur > 0 {
 				// Use ceil to avoid undercounting fractional seconds (e.g. 10.1s should not become 10s),
 				// which can affect scheduling decisions around thresholds (like 10s).
+				if index > 0 && dur > geminiRetryInfoMaxDelay {
+					dur = geminiRetryInfoMaxDelay
+				}
 				ts := time.Now().Unix() + int64(math.Ceil(dur.Seconds()))
 				found = &ts
 				return false

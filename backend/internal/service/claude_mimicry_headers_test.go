@@ -18,7 +18,7 @@ func TestApplyClaudeCodeMimicHeadersPreservesCapturedFingerprint(t *testing.T) {
 
 	require.Equal(t, "claude-cli/2.2.10 (external, cli)", getHeaderRaw(req.Header, "User-Agent"))
 	require.Equal(t, "0.71.0", getHeaderRaw(req.Header, "X-Stainless-Package-Version"))
-	require.Equal(t, claude.DefaultHeaders["X-App"], getHeaderRaw(req.Header, "x-app"))
+	require.Equal(t, claude.DefaultHeaders()["X-App"], getHeaderRaw(req.Header, "x-app"))
 	require.Equal(t, "application/json", getHeaderRaw(req.Header, "Accept"))
 	require.NotEmpty(t, getHeaderRaw(req.Header, "x-client-request-id"))
 }

@@ -2388,9 +2388,10 @@
         "normalizePlatformDashboardStats",
         "getPublicPlatformLabel",
         "data-testid=\"platform-usage-breakdown\"",
-        "quota.platform !== 'gemini' && quota.platform !== 'antigravity'"
+        "normalizePublicPlatformQuotas(props.platformQuotas)",
+        ".filter(hasAnyLimit)"
       ],
-      "rationale": "Shared per-platform usage presentation for both customer and admin dashboards. It consumes the public taxonomy owner and keeps raw source-specific quota channels out of customer-facing cards, so the two dashboards cannot drift back to separate platform state machines."
+      "rationale": "Shared per-platform usage presentation for both customer and admin dashboards. It consumes the public taxonomy owner and keeps raw source-specific quota channels out of customer-facing cards, so the two dashboards cannot drift back to separate platform state machines. Only configured quotas add cards; source quota names normalize through the shared public owner before filtering."
     },
     {
       "path": "frontend/src/router/admin.tk.ts",
@@ -2649,6 +2650,14 @@
         "breakdownCostField?: 'actual_cost' | 'account_cost'"
       ],
       "rationale": "Expanded usage rows render the billing field selected by the owning chart instead of silently changing cost semantics."
+    },
+    {
+      "path": "frontend/src/views/admin/UsersView.vue",
+      "must_contain": [
+        "users.value = users.value.map((row) => row.id === user.id",
+        "? { ...row, status: updated.status, updated_at: updated.updated_at }"
+      ],
+      "rationale": "Status updates must replace the shallowRef array so the visible user row updates while preserving list-only concurrency and subscription fields."
     }
   ]
 }

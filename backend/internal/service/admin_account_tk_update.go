@@ -35,6 +35,7 @@ func (s *adminServiceImpl) tkApplyUpdateAccountTKFields(ctx context.Context, acc
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
+	previousOpenCodeUsageIdentity := openCodeGoUsageIdentity(account)
 	// 安全/身份不变量(影子账号):通用更新路径被 edit/re-auth/refresh/batch 共用,
 	// 必须在此守住,否则仅在创建时的保证可被这些路径绕过。
 	if account.IsCredentialShadow() {
@@ -115,6 +116,8 @@ func (s *adminServiceImpl) tkApplyUpdateAccountTKFields(ctx context.Context, acc
 		delete(normalizedExtra, OllamaCloudUsageSessionExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
+		delete(normalizedExtra, OpenCodeGoUsageAutoRefreshExtraKey)
+		delete(normalizedExtra, OpenCodeGoUsageSnapshotExtraKey)
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
 			SupportedProtocolsExtraKey,
@@ -130,6 +133,8 @@ func (s *adminServiceImpl) tkApplyUpdateAccountTKFields(ctx context.Context, acc
 			OllamaCloudUsageSessionExtraKey,
 			OllamaCloudUsageAutoRefreshExtraKey,
 			OllamaCloudUsageSnapshotExtraKey,
+			OpenCodeGoUsageAutoRefreshExtraKey,
+			OpenCodeGoUsageSnapshotExtraKey,
 			SupplierSourceIDExtraKey,
 			SupplierDiscountBandExtraKey,
 		} {
@@ -227,6 +232,10 @@ func (s *adminServiceImpl) tkApplyUpdateAccountTKFields(ctx context.Context, acc
 			delete(account.Extra, OllamaCloudUsageAutoRefreshExtraKey)
 			delete(account.Extra, OllamaCloudUsageSnapshotExtraKey)
 		}
+	}
+	if account.Extra != nil && (!IsOpenCodeGoUsageAccount(account) || !reflect.DeepEqual(previousOpenCodeUsageIdentity, openCodeGoUsageIdentity(account))) {
+		delete(account.Extra, OpenCodeGoUsageAutoRefreshExtraKey)
+		delete(account.Extra, OpenCodeGoUsageSnapshotExtraKey)
 	}
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
 	if input.Concurrency != nil {

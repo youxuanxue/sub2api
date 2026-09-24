@@ -279,6 +279,8 @@ describe('admin AccountsView lite account list', () => {
     const wrapper = mountView(false)
     await flushPromises()
 
+    await wrapper.get('[data-testid="account-more-btn"]').trigger('click')
+    await flushPromises()
     wrapper.findComponent(AccountActionMenu).vm.$emit('refresh-token', listRow)
     await flushPromises()
 

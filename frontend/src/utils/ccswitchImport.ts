@@ -62,7 +62,7 @@ export function resolveCcSwitchImportConfig(input: CcSwitchImportResolveInput): 
   if (platform === 'antigravity') {
     return {
       app: ccsApp === 'gemini' ? 'gemini' : 'claude',
-      endpoint: `${baseUrl}/antigravity`,
+      endpoint: `${baseUrl.replace(/\/+$/, '')}/antigravity`,
     }
   }
 

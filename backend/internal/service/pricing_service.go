@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -31,14 +32,13 @@ var (
 	// Official GPT Image 2.5 token rates (2026-09-08):
 	// https://developers.openai.com/api/docs/pricing#image-generation-models
 	openAIGPTImage25FallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:            5e-06,
-		CacheReadInputTokenCost:      1.25e-06,
-		InputCostPerImageToken:       8e-06,
-		CacheReadInputImageTokenCost: 2e-06,
-		OutputCostPerImageToken:      3e-05,
-		LiteLLMProvider:              "openai",
-		Mode:                         "image_generation",
-		SupportsPromptCaching:        true,
+		InputCostPerToken:       5e-06,
+		CacheReadInputTokenCost: 1.25e-06,
+		InputCostPerImageToken:  8e-06, CacheReadInputImageTokenCost: 2e-06,
+		OutputCostPerImageToken: 3e-05,
+		LiteLLMProvider:         "openai",
+		Mode:                    "image_generation",
+		SupportsPromptCaching:   true,
 	}
 	openAIModelDatePattern = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
@@ -47,10 +47,11 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
-	InputCostPerToken          float64 `json:"input_cost_per_token"`
-	InputCostPerTokenPriority  float64 `json:"input_cost_per_token_priority"`
-	OutputCostPerToken         float64 `json:"output_cost_per_token"`
-	OutputCostPerTokenPriority float64 `json:"output_cost_per_token_priority"`
+	CacheCreationInputTokenCostExplicit bool    `json:"-"`
+	InputCostPerToken                   float64 `json:"input_cost_per_token"`
+	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
+	OutputCostPerToken                  float64 `json:"output_cost_per_token"`
+	OutputCostPerTokenPriority          float64 `json:"output_cost_per_token_priority"`
 	// ThinkingOutputCostPerToken is a registry-owned extension to the LiteLLM shape:
 	// the higher output price the provider charges when the request runs
 	// in thinking mode. Mirrors Alibaba DashScope's two-rate table for one model id
@@ -650,6 +651,7 @@ func (s *PricingService) parsePricingSensorData(body []byte) (map[string]*LiteLL
 		}
 		if entry.CacheCreationInputTokenCost != nil {
 			pricing.CacheCreationInputTokenCost = *entry.CacheCreationInputTokenCost
+			pricing.CacheCreationInputTokenCostExplicit = true
 		}
 		if entry.CacheCreationInputTokenCostPriority != nil {
 			pricing.CacheCreationInputTokenCostPriority = *entry.CacheCreationInputTokenCostPriority
@@ -1266,6 +1268,12 @@ func (s *PricingService) extractBaseName(model string) string {
 
 // matchByModelFamily 基于模型系列匹配
 func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
+	if claude.IsOpus55(model) {
+		if pricing, ok := s.pricingData["claude-opus-5-5"]; ok {
+			return pricing
+		}
+		return nil
+	}
 	// modelFamily 定义一个模型系列的匹配和定价查找规则。
 	type modelFamily struct {
 		name    string   // 系列名称
@@ -1388,6 +1396,11 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 				Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.3-codex-spark"))
 			return pricing
 		}
+	}
+
+	// New upstream spellings resolve only prices present in the registry.
+	if openai.IsGPT6SolOrLunaModelSpelling(model) {
+		return s.pricingData[normalizeKnownOpenAICodexModel(model)]
 	}
 
 	// 尝试的回退变体

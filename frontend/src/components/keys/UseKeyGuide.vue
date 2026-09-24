@@ -1013,21 +1013,21 @@ const currentFiles = computed((): FileConfig[] => {
   switch (platformForFiles()) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(baseUrl, apiKey, model, isOpenAIMessagesDispatchClaudeTab.value)
+        return generateAnthropicFiles(baseRoot, apiKey, model, isOpenAIMessagesDispatchClaudeTab.value)
       }
       if (activeClientTab.value === 'codex-ws') {
-        return generateOpenAIWsFiles(baseUrl, apiKey, model)
+        return generateOpenAIWsFiles(apiBase, apiKey, model)
       }
-      return generateOpenAIFiles(baseUrl, apiKey, model)
+      return generateOpenAIFiles(apiBase, apiKey, model)
     case 'newapi':
     case 'grok':
       // newapi/grok: OpenAI-compat HTTP, no OAuth WS path (codex-ws not offered
       // in their tabs). claude tab only appears when the group enables messages
       // dispatch. grok (xAI) is OpenAI-compatible, so it shares the openai files.
       if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(baseUrl, apiKey, model, isOpenAIMessagesDispatchClaudeTab.value)
+        return generateAnthropicFiles(baseRoot, apiKey, model, isOpenAIMessagesDispatchClaudeTab.value)
       }
-      return generateOpenAIFiles(baseUrl, apiKey, model)
+      return generateOpenAIFiles(apiBase, apiKey, model)
     case 'gemini':
       return [generateGeminiCliContent(baseUrl, apiKey, model)]
     case 'antigravity':
@@ -1515,6 +1515,8 @@ function generateOpenCodeConfig(
   // (normalizeOpenAIModelForUpstream, scripts/sentinels/gateway-tk.json).
   // gpt-5.3-codex is a non-display alias to spark and is not shown here.
   const openaiModels = {
+    'gpt-6-sol': { name: 'GPT-6 Sol', limit: { context: 1050000, output: 128000 }, options: { store: false }, variants: { low: {}, medium: {}, high: {}, xhigh: {}, none: {} } },
+    'gpt-6-luna': { name: 'GPT-6 Luna', limit: { context: 1050000, output: 128000 }, options: { store: false }, variants: { low: {}, medium: {}, high: {}, xhigh: {}, none: {} } },
     'gpt-5.5': {
       name: 'GPT-5.5',
       limit: {
@@ -1689,6 +1691,7 @@ function generateOpenCodeConfig(
     }
   }
   const claudeModels = {
+    'claude-opus-5-5': { name: 'Claude Opus 5.5', limit: { context: 1000000, output: 128000 }, modalities: { input: ['text', 'image', 'pdf'], output: ['text'] }, options: { thinking: { type: 'adaptive' }, effort: 'medium' }, variants: { low: { effort: 'low' }, medium: { effort: 'medium' }, high: { effort: 'high' }, xhigh: { effort: 'xhigh' }, max: { effort: 'max' } } },
     'claude-fable-5': {
       name: 'Claude Fable 5',
       limit: {
@@ -1769,9 +1772,7 @@ function generateOpenCodeConfig(
     provider[platform].models = restrictModels(geminiModels, 'gemini')
   } else if (platform === PLATFORM_ANTHROPIC) {
     provider[platform].npm = '@ai-sdk/anthropic'
-    if (allowedModels !== undefined) {
-      provider[platform].models = restrictModels({}, 'anthropic')
-    }
+    provider[platform].models = restrictModels(claudeModels, 'anthropic')
   } else if (platform === 'antigravity-claude') {
     provider[platform].npm = '@ai-sdk/anthropic'
     provider[platform].name = 'Antigravity (Claude)'

@@ -37,6 +37,9 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/accounts/:id/ollama-cloud-usage/refresh` from `backend/internal/server/routes/admin.go`
 - `DELETE /api/v1/admin/accounts/:id/ollama-cloud-usage/session` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/accounts/:id/ollama-cloud-usage/session` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/accounts/:id/opencode-go-usage` from `backend/internal/server/routes/admin.go`
+- `PUT /api/v1/admin/accounts/:id/opencode-go-usage/auto-refresh` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/accounts/:id/opencode-go-usage/refresh` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/protocol-probe` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/recover-state` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/refresh` from `backend/internal/server/routes/admin.go`
@@ -82,6 +85,8 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/accounts/models/sync-upstream-preview` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/accounts/ollama-cloud-usage/settings` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/accounts/ollama-cloud-usage/settings` from `backend/internal/server/routes/admin.go`
+- `GET /api/v1/admin/accounts/opencode-go-usage/settings` from `backend/internal/server/routes/admin.go`
+- `PUT /api/v1/admin/accounts/opencode-go-usage/settings` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/setup-token-cookie-auth` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/sync/crs` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/sync/crs/preview` from `backend/internal/server/routes/admin.go`
@@ -97,6 +102,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `DELETE /api/v1/admin/affiliates/users/:user_id` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/affiliates/users/:user_id` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/affiliates/users/:user_id/overview` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/affiliates/users/:user_id/withdraw` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/affiliates/users/batch-rate` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/affiliates/users/lookup` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/announcements` from `backend/internal/server/routes/admin.go`

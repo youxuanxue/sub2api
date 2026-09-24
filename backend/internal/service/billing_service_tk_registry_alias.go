@@ -1,6 +1,9 @@
 package service
 
-import "strings"
+import (
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"strings"
+)
 
 // tkRegistryAliasOwnerPricing presents one owner and the executable pricing
 // policy from the same immutable registry snapshot. This prevents a hot reload
@@ -86,6 +89,11 @@ func (s *BillingService) getRegistryAliasPricing(model string) *ModelPricing {
 	}
 	if owner, declared := tkPricingRegistryAliasOwner(lower); declared {
 		return tkRegistryAliasOwnerPricing(owner)
+	}
+
+	// Recognized Opus 5.5 aliases must never inherit the older Opus 5 floor.
+	if claude.IsOpus55(lower) {
+		return tkRegistryAliasOwnerPricing("claude-opus-5-5")
 	}
 
 	// xAI: resolve known aliases via their routing canonical → pricing owner.

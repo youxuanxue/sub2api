@@ -256,7 +256,7 @@ func TestOpenAIPassthroughDropsEmptySSEDataFrames(t *testing.T) {
 		"empty `data:` SSE frame leaked to client through passthrough path: transcript=%q", out)
 
 	payloads := dataPayloadsInSSE(out)
-	// 3 real events + the [DONE] sentinel = 4 surviving data lines.
-	require.Lenf(t, payloads, 4, "expected 3 events + [DONE] payloads on passthrough path; got %d (%v)", len(payloads), payloads)
-	require.Equal(t, "[DONE]", payloads[len(payloads)-1], "[DONE] sentinel must survive the empty-frame filter")
+	// Passthrough returns after the complete terminal event, without waiting for EOF or [DONE].
+	require.Len(t, payloads, 3)
+	require.JSONEq(t, `{"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":3,"output_tokens":5}}}`, payloads[2])
 }

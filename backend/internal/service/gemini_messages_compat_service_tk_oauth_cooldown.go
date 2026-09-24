@@ -31,6 +31,9 @@ func (s *GeminiMessagesCompatService) tkGeminiDefaultRateLimitResetAt(
 		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini 429] Account %d (OAuth oauth_type=%s, tier=%s, project=%s, code_assist=%v) rate limited, cooldown=%v", account.ID, oauthType, tierID, projectID, isCodeAssist, time.Until(ra).Truncate(time.Second))
 		return ra
 	}
+	if account.IsVertexServiceAccount() {
+		return time.Now().Add(geminiVertexFallbackCooldown)
+	}
 	// API Key (AI Studio): PST 午夜
 	if ts := nextGeminiDailyResetUnix(); ts != nil {
 		ra := time.Unix(*ts, 0)

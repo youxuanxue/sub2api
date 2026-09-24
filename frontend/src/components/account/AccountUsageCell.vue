@@ -1,6 +1,11 @@
 <template>
+  <OpenCodeGoUsageCell
+    v-if="account.opencode_go_usage?.eligible"
+    :account="account"
+    @updated="onOpenCodeUpdated"
+  />
   <component
-    v-if="activeCell"
+    v-else-if="activeCell"
     :is="activeCell"
     v-bind="props"
     @account-updated="emit('account-updated', $event)"
@@ -11,6 +16,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import OpenCodeGoUsageCell from './OpenCodeGoUsageCell.vue'
 import type { Account, OllamaCloudUsageState } from '@/types'
 import {
   accountUsageCellPropDefaults,
@@ -40,6 +46,10 @@ const emit = defineEmits<{ 'account-updated': [account: Account] }>()
 
 function onOllamaUpdated(state: OllamaCloudUsageState) {
   emit('account-updated', { ...props.account, ollama_cloud_usage: state })
+}
+
+function onOpenCodeUpdated(state: NonNullable<Account['opencode_go_usage']>) {
+  emit('account-updated', { ...props.account, opencode_go_usage: state })
 }
 
 const activeCell = computed(() => {
