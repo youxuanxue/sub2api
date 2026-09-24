@@ -595,7 +595,7 @@
       ]
     },
     "ernie-4.5-turbo-vl-32k": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -671,7 +671,7 @@
       ]
     },
     "ernie-4.5-turbo-128k": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -680,7 +680,7 @@
       ]
     },
     "ernie-4.5-turbo-20260402": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -689,7 +689,7 @@
       ]
     },
     "ernie-4.5-turbo-32k": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -698,7 +698,7 @@
       ]
     },
     "ernie-4.5-turbo-vl": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -707,7 +707,7 @@
       ]
     },
     "ernie-5.0": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -716,7 +716,7 @@
       ]
     },
     "ernie-5.0-thinking-preview": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -725,7 +725,7 @@
       ]
     },
     "ernie-5.1": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -752,7 +752,7 @@
       ]
     },
     "internvl3-38b": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,
@@ -761,7 +761,7 @@
       ]
     },
     "qianfan-ocr": {
-      "display": true,
+      "display": false,
       "scopes": [
         {
           "channel_type": 46,

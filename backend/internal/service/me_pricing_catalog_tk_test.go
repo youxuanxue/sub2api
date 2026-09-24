@@ -865,7 +865,7 @@ func TestBuildForUser_ChannelAndAccountHideLegacyTokenPlanAliases(t *testing.T) 
 
 func TestBuildForUser_AnnouncedWithdrawalsHiddenAcrossSources(t *testing.T) {
 	for platform, current := range map[string]string{
-		PlatformNewAPI: "glm-5.2", PlatformOpenAI: "gpt-5.5",
+		PlatformNewAPI: "glm-5.2", PlatformOpenAI: firstRecommendedCatalogIDForTest(t, supportedOpenAICatalogModels),
 		PlatformAnthropic: "claude-sonnet-4-5", PlatformGemini: "gemini-2.5-pro",
 		PlatformAntigravity: "gemini-3.1-flash-image",
 	} {

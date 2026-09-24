@@ -6,15 +6,21 @@ import {
 } from '../catalogVendorIcon.tk'
 
 describe('catalogVendorIcon.tk', () => {
-  it('normalizes vertex_ai modality suffixes to vertex_ai', () => {
-    expect(normalizeCatalogVendorSlug('vertex_ai-language-models')).toBe('vertex_ai')
-    expect(normalizeCatalogVendorSlug('vertex_ai')).toBe('vertex_ai')
-  })
+  it.each(['google', 'Google', 'gemini', 'Antigravity', 'vertexai', 'vertex_ai', 'vertex_ai-language-models', 'Vertex_AI-video-models', 'vertex_ai-embedding-models'])(
+    'groups %s under Google with the same label and icon', (vendor) => {
+      expect(normalizeCatalogVendorSlug(vendor)).toBe('google')
+      expect(formatCatalogVendorLabel(vendor)).toBe('Google')
+      expect(resolveCatalogVendorIconKey(vendor)).toBe('gemini')
+    },
+  )
 
-  it('groups Gemini and Antigravity under the public Google vendor', () => {
-    expect(normalizeCatalogVendorSlug('gemini')).toBe('google')
-    expect(normalizeCatalogVendorSlug('Antigravity')).toBe('google')
-  })
+  it.each(['wenxin', 'qianfan', 'Baidu'])(
+    'groups %s under Baidu with the same label and icon', (vendor) => {
+      expect(normalizeCatalogVendorSlug(vendor)).toBe('baidu')
+      expect(formatCatalogVendorLabel(vendor)).toBe('Baidu')
+      expect(resolveCatalogVendorIconKey(vendor)).toBe('wenxin')
+    },
+  )
 
   it('maps common catalog vendors to icon keys', () => {
     expect(resolveCatalogVendorIconKey('OpenAI')).toBe('openai')
@@ -27,10 +33,10 @@ describe('catalogVendorIcon.tk', () => {
   })
 
   it('formats friendly vendor labels for display', () => {
-    expect(formatCatalogVendorLabel('vertex_ai')).toBe('Vertex AI')
+    expect(formatCatalogVendorLabel('vertex_ai')).toBe('Google')
     expect(formatCatalogVendorLabel('volcengine')).toBe('VolcEngine')
     expect(formatCatalogVendorLabel('antigravity')).toBe('Google')
     expect(formatCatalogVendorLabel('gemini')).toBe('Google')
-    expect(formatCatalogVendorLabel('wenxin')).toBe('Qianfan')
+    expect(formatCatalogVendorLabel('wenxin')).toBe('Baidu')
   })
 })

@@ -130,7 +130,14 @@ var catalogModelWithdrawals = []catalogModelWithdrawal{
 }
 
 var catalogWithdrawnModelIDs = func() map[string]struct{} {
-	out := make(map[string]struct{})
+	// Operator display=false decision (2026-09-24), not API retirement facts.
+	// GPT-5.5 remains available through the official API; these IDs are hidden
+	// from the shared public catalog and user-menu recommendation surfaces only.
+	out := map[string]struct{}{
+		"codex-auto-review":   {},
+		"gpt-5.3-codex-spark": {},
+		"gpt-5.5":             {},
+	}
 	for _, withdrawal := range catalogModelWithdrawals {
 		for _, id := range withdrawal.ModelIDs {
 			out[id] = struct{}{}
