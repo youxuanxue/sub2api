@@ -737,6 +737,17 @@ Simple Mode is designed for individual developers or internal teams who want qui
 
 Long-running OpenAI/Grok image generation and editing can be submitted through `/v1/images/generations/async` or `/v1/images/edits/async`, then polled at `/v1/images/tasks/{task_id}` without holding a CDN connection open. See [Asynchronous Image Tasks](docs/operator/async-image-tasks.md) for request and response examples.
 
+OpenAI image requests keep the historical passthrough behavior by default. Clients
+that require returned image parameters to match the observed upstream behavior can
+add `"tk_image_contract":"exact"`. In this mode, only values with response
+evidence are admitted (`size=auto|1254x1254`,
+`quality=auto|low|medium|high|xhigh|max`, `output_format=png|auto`, and
+`background=auto|opaque`); unsupported dimensions, formats, and option values,
+transparent background, compression, and native fields without response metadata
+return `400` before upstream. The TokenKey-only field is stripped before
+forwarding. Quality values are admitted from successful upstream probes; the
+Images response does not echo a quality field.
+
 ---
 
 ## Grok / xAI Support

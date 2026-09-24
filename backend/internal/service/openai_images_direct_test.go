@@ -17,6 +17,16 @@ func directImagesTestAccount() *Account {
 		Credentials: map[string]any{"access_token": "test-token", "chatgpt_account_id": "test-account"}}
 }
 
+func TestCodexDirectImagesDropsTokenKeyContract(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","size":"auto","output_format":"png","tk_image_contract":"exact"}`)
+	c, _ := newOpenAIImagesTestContext(t, body)
+	parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	upstreamBody, _, err := buildOpenAIImagesOAuthPayload(parsed, parsed.Model)
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(upstreamBody, "tk_image_contract").Exists())
+}
+
 func TestCodexDirectImagesRouting(t *testing.T) {
 	for _, model := range []string{"gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08", "gpt-image-2.5-sunburst-2026-09-08"} {
 		t.Run(model, func(t *testing.T) {
