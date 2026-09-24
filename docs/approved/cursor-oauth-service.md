@@ -49,14 +49,17 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   parameters and legacy wire slugs. Imported catalog entries do not bypass
   pricing, activation, candidate eligibility or protocol capability gates.
   A missing wire slug prevents direct native candidate admission.
-  Cursor import and the Cursor account-mapping floor only admit the
-  `claude-` / `grok-` / `composer-` / `muse-` families from that catalog
-  (`cursorServingModelAllowed` in `account_tk_cursor.go`). `gpt-*` stays
-  excluded; retired `composer-2` stays forbidden. Gemini / GLM / Kimi and
-  other non-allowlisted rows are stripped from the Cursor served-models
-  scope and from floor forbidden-prefix policy. Unpriced allowlisted IDs
-  (for example Muse) may appear on import but do not enter the floor until
-  they have a shared TokenKey price.
+  Cursor import only admits the `claude-` / `grok-` / `composer-` / `muse-`
+  families from that catalog (`cursorServingModelAllowed` in
+  `account_tk_cursor.go`). That allowlist is the complete import gate.
+  `gpt-*` stays excluded; retired `composer-2` stays a forbidden key.
+  The Cursor served-models scope and floor desired mapping carry the same
+  families (unpriced allowlisted IDs such as Muse may appear on import but
+  do not enter the floor until they have a shared TokenKey price). Floor
+  forbidden prefixes cover the known non-family offenders historically
+  present in the Cursor catalog (`gpt-` / `gemini-` / `glm-` / `kimi-` /
+  `deepseek-` via `cursorForbiddenModelMappingPrefixes`); other keys remain
+  subject to the shared floor tool's compatible-extra preservation rules.
 - The integration package adapts native Cursor frames to Messages once.
   Chat and Responses continue through the existing protocol registry and
   converters. All converted and native Messages sends use

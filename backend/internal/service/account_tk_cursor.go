@@ -31,8 +31,10 @@ const cursorRetiredComposerModel = "composer-2"
 // composer-2 remains retired even though it matches the composer- prefix.
 var cursorServingModelPrefixes = []string{"claude-", "grok-", "composer-", "muse-"}
 
-// Cursor floor apply also strips these prefixes so legacy Gemini/GLM/Kimi rows
-// cannot survive an ops floor pass after the serving-family trim.
+// Cursor floor apply also strips these known non-family prefixes so legacy
+// Gemini/GLM/Kimi/GPT/DeepSeek rows cannot survive an ops floor pass. This is
+// not the complement of cursorServingModelPrefixes; unknown families may still
+// remain as compatible extras under the shared floor apply tool.
 var cursorForbiddenModelMappingPrefixes = []string{
 	cursorExcludedModelPrefix,
 	"gemini-",
