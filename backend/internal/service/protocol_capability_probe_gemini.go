@@ -160,7 +160,7 @@ func (s *AccountTestService) probeGeminiGenerateContentSupport(
 			observation.verdict = ProtocolProbeInconclusive
 			return observation, true
 		}
-		payload := createGeminiTestPayload(model, defaultGeminiTextTestPrompt)
+		payload := createGeminiTestPayload(account, model, defaultGeminiTextTestPrompt)
 		req, err := s.buildGeminiServiceAccountRequest(ctx, account, model, payload)
 		if err != nil {
 			observation.verdict = ProtocolProbeInconclusive
@@ -174,7 +174,7 @@ func (s *AccountTestService) probeGeminiGenerateContentSupport(
 			return observation, true
 		}
 		mappedModel, requestModel := resolveGeminiForwardModels(account, model)
-		payload := createGeminiTestPayload(mappedModel, defaultGeminiTextTestPrompt)
+		payload := createGeminiTestPayload(account, mappedModel, defaultGeminiTextTestPrompt)
 		req, err := s.buildGeminiAPIKeyRequest(ctx, account, requestModel, payload)
 		if err != nil {
 			observation.verdict = ProtocolProbeInconclusive

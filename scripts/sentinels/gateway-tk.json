@@ -3111,6 +3111,8 @@
       "must_contain": [
         "mappedModelID, requestModelID := resolveGeminiForwardModels(account, requestedModelID)",
         "s.buildGeminiAPIKeyRequest(ctx, account, requestModelID, payload)",
+        "createGeminiTestPayload(account, mappedModelID, prompt)",
+        "setGeminiWebAccountHeader(req, account)",
         "baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)",
         "s.sendEvent(c, TestEvent{Type: \"test_start\", Model: requestedModelID})",
         "s.completeAntigravityAccountTest(c, result.Text)",
@@ -3121,7 +3123,8 @@
     {
       "path": "backend/internal/service/account_test_service_gemini_test.go",
       "must_contain": [
-        "TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop"
+        "TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop",
+        "TestGeminiWebAdminTestUsesWorkerReferenceAndSupportedPayload"
       ],
       "rationale": "Regression coverage proves the admin account-test URL uses the Antigravity namespace with the public Gemini ID for Edge relays while direct Gemini API-key accounts stay in the root namespace with the mapped provider wire ID."
     },

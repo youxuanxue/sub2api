@@ -58,6 +58,12 @@ Messages 与 native 两条网关入口都从实际选中账号注入 account ID�
 Worker 校验该账号的 API key，不能仅凭 account ID 执行。维护任务使用独立内部调用路径，
 不以空 key 假装通过鉴权。
 
+Admin 的“测试账号”复用同一 account ID header owner，绑定本地 runtime 的账号才注入；
+prod 中继不携带本地 ID。测试请求按显式 Worker/relay 声明生成单轮文本或
+TEXT+IMAGE，不附加 Worker 不支持的 systemInstruction 或 imageConfig。
+普通 Gemini 测试保持原请求形状；用户实际请求的角色、参数不作删减。
+此修复不绕过控制接口既有 active/schedulable 检查，也不自动恢复错误或开启调度。
+
 每个账号只有一个 SessionOwner。生成、后台续期、读取最新版本、替换内存和保存共用操作锁。
 跨进程租约和 runtime CAS 在同一数据库账号行执行；租约 600 秒，Worker 总操作预算 480 秒，
 每次上游请求 timeout 不超过剩余预算。到期禁止新请求与写回；竞争/版本冲突丢弃本地 owner。

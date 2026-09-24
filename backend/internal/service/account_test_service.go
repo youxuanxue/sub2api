@@ -1422,7 +1422,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create test payload (Gemini format)
-	payload := createGeminiTestPayload(mappedModelID, prompt)
+	payload := createGeminiTestPayload(account, mappedModelID, prompt)
 
 	// Build request based on account type
 	var req *http.Request
@@ -1561,6 +1561,7 @@ func (s *AccountTestService) buildGeminiAPIKeyRequest(ctx context.Context, accou
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-goog-api-key", apiKey)
+	setGeminiWebAccountHeader(req, account)
 
 	return req, nil
 }
@@ -1661,13 +1662,17 @@ func (s *AccountTestService) buildCodeAssistRequest(ctx context.Context, accessT
 
 // createGeminiTestPayload creates a minimal test payload for Gemini API.
 // Image models use the image-generation path so the frontend can preview the returned image.
-func createGeminiTestPayload(modelID string, prompt string) []byte {
+func createGeminiTestPayload(account *Account, modelID string, prompt string) []byte {
 	if isImageGenerationModel(modelID) {
 		imagePrompt := strings.TrimSpace(prompt)
 		if imagePrompt == "" {
 			imagePrompt = defaultGeminiImageTestPrompt
 		}
 
+		generationConfig := map[string]any{"responseModalities": []string{"TEXT", "IMAGE"}}
+		if !isGeminiWebAccount(account) {
+			generationConfig["imageConfig"] = map[string]any{"aspectRatio": "1:1"}
+		}
 		payload := map[string]any{
 			"contents": []map[string]any{
 				{
@@ -1677,12 +1682,7 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 					},
 				},
 			},
-			"generationConfig": map[string]any{
-				"responseModalities": []string{"TEXT", "IMAGE"},
-				"imageConfig": map[string]any{
-					"aspectRatio": "1:1",
-				},
-			},
+			"generationConfig": generationConfig,
 		}
 		bytes, _ := json.Marshal(payload)
 		return bytes
@@ -1702,11 +1702,15 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 				},
 			},
 		},
-		"systemInstruction": map[string]any{
+	}
+	// The Web Worker supports single-turn text, without system roles or controls.
+	// This is a synthetic probe; user requests retain their original semantics.
+	if !isGeminiWebAccount(account) {
+		payload["systemInstruction"] = map[string]any{
 			"parts": []map[string]any{
 				{"text": "You are a helpful AI assistant."},
 			},
-		},
+		}
 	}
 	bytes, _ := json.Marshal(payload)
 	return bytes
