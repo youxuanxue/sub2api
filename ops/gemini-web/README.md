@@ -34,12 +34,19 @@ uv run --with-requirements ops/gemini-web/export-requirements.txt \
 
 The export is a protected operator artifact, not Worker runtime storage. It contains
 `user_agent` and complete CDP cookie records, with a safe summary printed separately.
-In the target edge admin, open Accounts → edit the already-bound Gemini Web Worker account
-→ choose this JSON under **Import Gemini Web browser session**. The file must be at most
-2 MiB. Check the imported cookie count and committed runtime version. The account keeps its
-current scheduling state. A session conflict means a Worker operation or another import won;
-retry later after checking the account. Plain API-key accounts and production relays cannot
-receive browser sessions here. Initial Worker binding remains an operator setup action.
+In the target edge admin, copy the Worker account when a separate session is needed, then open
+the copy under Accounts → edit. The copy keeps an empty `gemini_web` declaration without any
+cookies, so the same control is labelled **Initialize Gemini Web Worker session**; an existing
+runtime is labelled **Replace Gemini Web browser session**. Choose this JSON and review the cookie
+count and committed runtime version. Initialization requires scheduling to be disabled and leaves
+it disabled; enable it manually after review. Replacement preserves the existing scheduling state.
+The file must be at most 2 MiB. A session conflict means a Worker operation or another import
+won; retry later after checking the account. Plain API-key accounts and production relays cannot
+receive browser sessions here.
+
+One edge Worker serves multiple accounts with separate runtimes; copying an account does not
+require another Worker. Copies made before this support was deployed lost their Worker declaration:
+copy the real Worker account again after upgrading instead of guessing identity from its name.
 
 Import success confirms database persistence, not Google sign-in or browser identity.
 Never put this export into an API Key field; do not send it to the production relay account.
@@ -80,8 +87,9 @@ security to admit an upstream URL. Database-mode rollout must install valid runt
 before enabling those accounts; the old volume is not a fallback.
 
 Upgrade the backend first, keep Web accounts out of user-facing groups during validation,
-and establish the initial Worker binding through the existing account update API.
-Once bound, replace browser sessions through the dedicated admin import described above.
+and establish the first local Worker declaration through the existing account update API.
+Further accounts use the copy → edit → import flow above. Do not use the check below as a
+prerequisite for importing into a paused copy: it requires scheduling to be enabled.
 Use the new image with the same environment/network settings to run `python worker.py --check
 <account-id> [<account-id>...]` before starting service. The check requires active, schedulable
 accounts with concurrency=1, valid local cookie records and no paused/pending/cooldown state.

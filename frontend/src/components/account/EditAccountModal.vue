@@ -330,7 +330,7 @@
           class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/60 dark:bg-blue-950/20"
           data-testid="gemini-web-session-import"
         >
-          <label class="input-label">{{ t('admin.accounts.gemini.webSessionImportTitle') }}</label>
+          <label class="input-label">{{ t(`admin.accounts.gemini.webSessionImportTitle.${hasGeminiWebRuntime ? 'replace' : 'initialize'}`) }}</label>
           <p class="mb-2 text-xs text-blue-700 dark:text-blue-300">
             {{ t('admin.accounts.gemini.webSessionImportHint') }}
           </p>
@@ -3446,7 +3446,9 @@ const handleGeminiWebSessionFile = async (event: Event) => {
     const result = await adminAPI.accounts.importGeminiWebSession(targetAccountID, parsed)
     if (!isCurrent()) return
     emit('updated', result.account)
-    geminiWebSessionImportSummary.value = t('admin.accounts.gemini.webSessionImportSuccess', {
+    geminiWebSessionImportSummary.value = t(result.session.mode === 'initialized'
+      ? 'admin.accounts.gemini.webSessionInitializeSuccess'
+      : 'admin.accounts.gemini.webSessionImportSuccess', {
       count: result.session.cookie_count,
       version: result.session.runtime_version
     })
@@ -3593,9 +3595,11 @@ const submitting = ref(false)
 const geminiWebSessionImporting = ref(false)
 const geminiWebSessionImportSummary = ref('')
 let geminiWebSessionImportToken = 0
+const hasGeminiWebRuntime = computed(() => props.account?.credentials_status?.has_gemini_web_runtime === true)
 const canImportGeminiWebSession = computed(() =>
   props.account?.platform === PLATFORM_GEMINI && props.account.type === 'apikey' &&
   props.account.credentials_status?.has_gemini_web === true &&
+  (hasGeminiWebRuntime.value || !props.account.schedulable) &&
   (props.account.credentials?.gemini_web_relay === undefined || props.account.credentials?.gemini_web_relay === false) &&
   props.account.extra?.relay_kind !== 'gemini_web'
 )
@@ -4946,7 +4950,9 @@ watch(
     if (!show || !newAccount) {
       return
     }
-    if (!wasShow || newAccount !== previousAccount) {
+    // Live status/import responses must not overwrite the current editing draft.
+    if (!wasShow || newAccount.id !== previousAccount?.id ||
+      newAccount.platform !== previousAccount?.platform || newAccount.type !== previousAccount?.type) {
       syncFormFromAccount(newAccount)
       loadTLSProfiles()
     }

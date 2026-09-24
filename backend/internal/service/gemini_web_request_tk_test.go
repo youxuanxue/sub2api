@@ -26,7 +26,7 @@ func webCandidateAccount(relay bool) Account {
 	if relay {
 		a.Credentials[GeminiWebRelayCredentialKey] = true
 	} else {
-		a.Credentials["gemini_web"] = map[string]any{}
+		a.Credentials["gemini_web"] = map[string]any{"runtime": map[string]any{"version": 1}}
 	}
 	return a
 }
@@ -158,6 +158,22 @@ func TestGeminiWebCapabilityMarkerDoesNotGuessFromModelOrName(t *testing.T) {
 	web.Credentials[GeminiWebRelayCredentialKey] = true
 	require.False(t, geminiWebSupportsRequest(ctx, &web, "gemini-3-flash", ShapeOpenAIChat))
 	require.False(t, geminiWebSupportsRequest(context.Background(), &web, "gemini-3-flash", ShapeGemini))
+}
+
+func TestCanImportGeminiWebSessionAcceptsCopiedDeclarationOnly(t *testing.T) {
+	plain := Account{Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "key"}}
+	require.False(t, CanImportGeminiWebSession(&plain))
+	worker := plain
+	worker.Credentials = map[string]any{"api_key": "key", "gemini_web": map[string]any{}}
+	require.True(t, CanImportGeminiWebSession(&worker))
+	worker.Schedulable = true
+	require.False(t, CanImportGeminiWebSession(&worker))
+	for _, shape := range []UniversalShape{ShapeGemini, ShapeOpenAIChat, ShapeAnthropicCountTokens, ShapeSkip} {
+		require.False(t, geminiWebSupportsRequest(context.Background(), &worker, "gemini-3-flash", shape))
+	}
+	worker.Schedulable = false
+	worker.Credentials[GeminiWebRelayCredentialKey] = true
+	require.False(t, CanImportGeminiWebSession(&worker))
 }
 
 func TestGeminiWebChatAndResponsesDefaultLimitIsNotWorkerCapability(t *testing.T) {

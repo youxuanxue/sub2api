@@ -151,11 +151,13 @@ func (r *accountRepository) CompareAndSwapGeminiWebRuntime(ctx context.Context, 
 	return affected == 1, nil
 }
 
-// ImportGeminiWebSession atomically replaces only the browser runtime. The
-// version predicate turns a stale editor/import into a conflict and the JSONB
-// expression preserves every unrelated credential and account column.
+// ImportGeminiWebSession atomically initializes or replaces only the browser
+// runtime. expectedVersion=-1 means initialization and requires no runtime;
+// non-negative versions replace an existing runtime. The predicate turns a
+// stale editor/import into a conflict and preserves every unrelated credential
+// and account column.
 func (r *accountRepository) ImportGeminiWebSession(ctx context.Context, id, expectedVersion int64, runtime map[string]any) (bool, error) {
-	if id <= 0 || expectedVersion < 0 || expectedVersion >= 1<<53-1 || runtime == nil {
+	if id <= 0 || expectedVersion < -1 || expectedVersion >= 1<<53-1 || runtime == nil {
 		return false, errors.New("invalid Gemini Web runtime version")
 	}
 	payload, err := json.Marshal(normalizeJSONMap(runtime))
@@ -167,16 +169,22 @@ func (r *accountRepository) ImportGeminiWebSession(ctx context.Context, id, expe
 		SET credentials = jsonb_set(
 			credentials #- '{gemini_web,lease}',
 			'{gemini_web,runtime}',
-			jsonb_set($1::jsonb, '{version}', to_jsonb($2::bigint + 1), true),
+			jsonb_set($1::jsonb, '{version}', to_jsonb(CASE WHEN $2::bigint = -1 THEN 1 ELSE $2::bigint + 1 END), true),
 			true
 		), updated_at = NOW()
 		WHERE id = $3
 			AND deleted_at IS NULL
 			AND platform = 'gemini' AND type = 'apikey'
-			AND jsonb_typeof(credentials->'gemini_web'->'runtime') = 'object'
+			AND jsonb_typeof(credentials->'gemini_web') = 'object'
 			AND COALESCE(credentials->'gemini_web_relay', 'false'::jsonb) = 'false'::jsonb
 			AND extra->>'relay_kind' IS DISTINCT FROM 'gemini_web'
-			AND COALESCE(credentials->'gemini_web'->'runtime'->>'version', '0') = $2::text
+			AND (
+				($2::bigint = -1 AND schedulable = false AND NOT (credentials->'gemini_web' ? 'runtime'))
+				OR
+				($2::bigint >= 0
+					AND jsonb_typeof(credentials->'gemini_web'->'runtime') = 'object'
+					AND credentials->'gemini_web'->'runtime'->>'version' = $2::text)
+			)
 			AND COALESCE((credentials->'gemini_web'->'lease'->>'expires_at')::numeric, 0)
 				<= EXTRACT(EPOCH FROM clock_timestamp())
 	`, payload, expectedVersion, id)

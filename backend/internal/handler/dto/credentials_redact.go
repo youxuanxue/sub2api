@@ -20,6 +20,13 @@ func RedactCredentials(in map[string]any) (out map[string]any, status map[string
 					status = make(map[string]bool, 4)
 				}
 				status["has_"+k] = true
+				if k == "gemini_web" {
+					if web, ok := v.(map[string]any); ok {
+						if _, bound := web["runtime"].(map[string]any); bound {
+							status["has_gemini_web_runtime"] = true
+						}
+					}
+				}
 			}
 			continue
 		}

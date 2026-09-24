@@ -247,6 +247,7 @@ export async function update(id: number, updates: UpdateAccountRequest): Promise
 export interface GeminiWebSessionImportResult {
   account: Account
   session: {
+    mode: 'initialized' | 'replaced'
     cookie_count: number
     cookie_domains: string[]
     runtime_version: number

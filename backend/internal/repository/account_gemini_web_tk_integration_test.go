@@ -106,6 +106,101 @@ func TestGeminiWebConcurrentImportsHaveOneWinner(t *testing.T) {
 	require.Equal(t, float64(2), runtime["version"])
 }
 
+func TestGeminiWebConcurrentInitializationsHaveOneWinner(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	a := mustCreateAccount(t, client, &service.Account{Name: "concurrent-init", Platform: service.PlatformGemini,
+		Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "key", "gemini_web": map[string]any{}}})
+	t.Cleanup(func() { require.NoError(t, client.Account.DeleteOneID(a.ID).Exec(ctx)) })
+	r := newAccountRepositoryWithSQL(client, integrationDB, nil, nil)
+	require.NoError(t, r.SetSchedulable(ctx, a.ID, false))
+	start := make(chan struct{})
+	won := make([]bool, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range won {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			won[i], errs[i] = r.ImportGeminiWebSession(ctx, a.ID, -1, map[string]any{"user_agent": []string{"first", "second"}[i]})
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	require.NotEqual(t, won[0], won[1])
+	loaded, err := r.GetByID(ctx, a.ID)
+	require.NoError(t, err)
+	runtime := loaded.Credentials["gemini_web"].(map[string]any)["runtime"].(map[string]any)
+	require.Equal(t, float64(1), runtime["version"])
+	winner := "second"
+	if won[0] {
+		winner = "first"
+	}
+	require.Equal(t, winner, runtime["user_agent"])
+	require.False(t, loaded.Schedulable)
+	require.Equal(t, "key", loaded.Credentials["api_key"])
+}
+
+func (s *AccountRepoSuite) TestGeminiWebInitializationGuardsAndPreservesAccount() {
+	a := mustCreateAccount(s.T(), s.client, &service.Account{Name: "copy-init", Platform: service.PlatformGemini,
+		Type: service.AccountTypeAPIKey, Extra: map[string]any{"operator": "keep"},
+		Credentials: map[string]any{"api_key": "key", "model_mapping": map[string]any{"public": "upstream"}, "gemini_web": map[string]any{}}})
+	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "copy-init-group", Platform: service.PlatformGemini})
+	s.Require().NoError(s.repo.BindGroups(s.ctx, a.ID, []int64{group.ID}))
+	apply := func(want bool) {
+		ok, err := s.repo.ImportGeminiWebSession(s.ctx, a.ID, -1, map[string]any{"user_agent": "new"})
+		s.Require().NoError(err)
+		s.Require().Equal(want, ok)
+	}
+	apply(false) // Enabling scheduling concurrently must prevent initialization.
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, a.ID, false))
+	// Even an unbound declaration cannot revoke an active lease.
+	_, err := s.client.ExecContext(s.ctx, `UPDATE accounts SET credentials=jsonb_set(credentials,
+		'{gemini_web,lease}', jsonb_build_object('expires_at', EXTRACT(EPOCH FROM clock_timestamp())+600)) WHERE id=$1`, a.ID)
+	s.Require().NoError(err)
+	apply(false)
+	_, err = s.client.ExecContext(s.ctx, `UPDATE accounts SET status='error',
+		credentials=jsonb_set(credentials #- '{gemini_web,lease}', '{api_key}', '"rotated"') WHERE id=$1`, a.ID)
+	s.Require().NoError(err)
+	apply(true)
+	apply(false) // A late initialization may never replace the new runtime.
+	loaded, err := s.repo.GetByID(s.ctx, a.ID)
+	s.Require().NoError(err)
+	s.Require().Equal("rotated", loaded.Credentials["api_key"])
+	s.Require().Equal(a.Credentials["model_mapping"], loaded.Credentials["model_mapping"])
+	s.Require().Equal(a.Extra, loaded.Extra)
+	s.Require().Equal([]int64{group.ID}, loaded.GroupIDs)
+	s.Require().Equal("error", loaded.Status)
+	s.Require().False(loaded.Schedulable)
+	// A settings editor loaded the empty declaration before import.
+	loaded.Credentials["gemini_web"] = map[string]any{}
+	loaded.Name = "edited"
+	s.Require().NoError(s.repo.Update(s.ctx, loaded))
+	s.Require().NoError(s.repo.UpdateCredentials(s.ctx, a.ID, loaded.Credentials))
+	loaded, err = s.repo.GetByID(s.ctx, a.ID)
+	s.Require().NoError(err)
+	s.Require().Equal("new", loaded.Credentials["gemini_web"].(map[string]any)["runtime"].(map[string]any)["user_agent"])
+
+	for _, credentials := range []map[string]any{
+		{}, {"gemini_web": nil}, {"gemini_web": "invalid"},
+		{"gemini_web": map[string]any{"runtime": nil}},
+		{"gemini_web": map[string]any{"runtime": map[string]any{"version": 0}}},
+		{"gemini_web": map[string]any{}, "gemini_web_relay": true},
+		{"gemini_web": map[string]any{}, "gemini_web_relay": "true"},
+	} {
+		b := mustCreateAccount(s.T(), s.client, &service.Account{Name: "init-rejected", Platform: service.PlatformGemini,
+			Type: service.AccountTypeAPIKey, Credentials: credentials})
+		s.Require().NoError(s.repo.SetSchedulable(s.ctx, b.ID, false))
+		ok, err := s.repo.ImportGeminiWebSession(s.ctx, b.ID, -1, map[string]any{"user_agent": "reject"})
+		s.Require().NoError(err)
+		s.Require().False(ok)
+	}
+}
+
 func (s *AccountRepoSuite) TestGeminiWebMaintenanceOnlyReturnsDueAccounts() {
 	now := time.Now().Unix()
 	states := []struct {

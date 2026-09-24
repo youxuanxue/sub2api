@@ -23,7 +23,7 @@ func TestGeminiWebSelectedAccountHeaderBothEntryPoints(t *testing.T) {
 			account := &Account{ID: 28, Platform: PlatformGemini, Type: AccountTypeAPIKey,
 				Credentials: map[string]any{"api_key": "worker-key"}}
 			if web {
-				account.Credentials["gemini_web"] = map[string]any{}
+				account.Credentials["gemini_web"] = map[string]any{"runtime": map[string]any{"version": 1}}
 			}
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, "/", nil)

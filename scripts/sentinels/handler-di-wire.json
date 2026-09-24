@@ -9,12 +9,12 @@
     },
     {
       "path": "backend/internal/handler/admin/account_handler_gemini_web_import.go",
-      "must_contain": ["service.CanImportGeminiWebSession(account)", "importer.ImportGeminiWebSession(c.Request.Context(), accountID, currentVersion, runtime)"],
+      "must_contain": ["service.CanImportGeminiWebSession(account)", "importer.ImportGeminiWebSession(c.Request.Context(), accountID, expectedVersion, runtime)"],
       "rationale": "Protect the local Worker boundary and explicit import call from upstream refactors."
     },
     {
       "path": "backend/internal/handler/admin/account_handler_gemini_web_import_test.go",
-      "must_contain": ["func TestGeminiWebCookieScopeMatchesPythonOwner", "func TestGeminiWebImportHandlerSuccessAndConflict", "func TestGeminiWebImportHandlerRejectsInvalidInputAndNonWorker"],
+      "must_contain": ["func TestGeminiWebCookieScopeMatchesPythonOwner", "func TestGeminiWebImportHandlerSuccessAndConflict", "func TestGeminiWebImportHandlerRejectsInvalidInputAndNonWorker", "func TestGeminiWebImportHandlerInitializesCopiedWorker"],
       "rationale": "Retain executable scope parity, no-success-on-conflict, and credential redaction regressions."
     },
     {
@@ -72,7 +72,7 @@
     },
     {
       "path": "backend/internal/repository/account_gemini_web_tk_integration_test.go",
-      "must_contain": ["TestGeminiWebMaintenanceOnlyReturnsDueAccounts", "TestGeminiWebImportSurvivesPreBindingEditor"],
+      "must_contain": ["TestGeminiWebMaintenanceOnlyReturnsDueAccounts", "TestGeminiWebImportSurvivesPreBindingEditor", "TestGeminiWebConcurrentInitializationsHaveOneWinner", "TestGeminiWebInitializationGuardsAndPreservesAccount"],
       "rationale": "Protect read-only maintenance polling and imported sessions against stale editors."
     },
     {
