@@ -1,0 +1,5 @@
+# Local business snapshots and packaged copies; retain source materials in Git.
+*.zip
+__pycache__/
+phase1/generated/seller-snapshot.json
+phase1/generated/seller-offers.json
