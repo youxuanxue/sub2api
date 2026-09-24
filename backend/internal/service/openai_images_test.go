@@ -66,6 +66,130 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_JSON(t *testing.T) {
 	require.False(t, parsed.Multipart)
 }
 
+func TestOpenAIImagesContractExact(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name: "default passthrough remains unchanged",
+			body: `{"model":"gpt-image-2","prompt":"draw","size":"1024x1536","output_format":"webp"}`,
+		},
+		{
+			name: "exact accepts values observed to survive normalization",
+			body: `{"model":"gpt-image-2.5-sunburst","prompt":"draw","size":"1254x1254","quality":"auto","output_format":"auto","background":"opaque","moderation":"auto","tk_image_contract":"exact"}`,
+		},
+		{
+			name:    "exact rejects explicit size normalized by upstream",
+			body:    `{"model":"gpt-image-2","prompt":"draw","size":"1024x1536","tk_image_contract":"exact"}`,
+			wantErr: "size must be auto or 1254x1254",
+		},
+		{
+			name: "exact accepts all observed quality values",
+			body: `{"model":"gpt-image-2","prompt":"draw","quality":"low","tk_image_contract":"exact"}`,
+		},
+		{
+			name:    "exact rejects unknown quality",
+			body:    `{"model":"gpt-image-2","prompt":"draw","quality":"ultra","tk_image_contract":"exact"}`,
+			wantErr: "quality must be auto, low, medium, high, xhigh, or max",
+		},
+		{
+			name:    "exact rejects format normalized by upstream",
+			body:    `{"model":"gpt-image-2","prompt":"draw","output_format":"webp","tk_image_contract":"exact"}`,
+			wantErr: "output_format must be png or auto",
+		},
+		{
+			name:    "exact rejects transparent background normalized by upstream",
+			body:    `{"model":"gpt-image-2","prompt":"draw","background":"transparent","tk_image_contract":"exact"}`,
+			wantErr: "background must be auto or opaque",
+		},
+		{
+			name:    "exact rejects compression without response evidence",
+			body:    `{"model":"gpt-image-2","prompt":"draw","output_compression":75,"tk_image_contract":"exact"}`,
+			wantErr: "output_compression cannot be confirmed",
+		},
+		{
+			name:    "exact rejects unconfirmed option",
+			body:    `{"model":"gpt-image-2","prompt":"draw","style":"cinematic","tk_image_contract":"exact"}`,
+			wantErr: "style cannot be confirmed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = req
+
+			parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, []byte(tt.body))
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				require.NotNil(t, parsed)
+				if strings.Contains(tt.name, "default") {
+					require.Empty(t, parsed.ImageContract)
+				} else {
+					require.Equal(t, OpenAIImagesContractExact, parsed.ImageContract)
+				}
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "tk_image_contract_violation")
+			require.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+
+	for _, quality := range []string{"auto", "low", "medium", "high", "xhigh", "max"} {
+		t.Run("exact accepts quality="+quality, func(t *testing.T) {
+			body := fmt.Sprintf(`{"model":"gpt-image-2","prompt":"draw","quality":%q,"tk_image_contract":"exact"}`, quality)
+			req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = req
+
+			parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, []byte(body))
+			require.NoError(t, err)
+			require.Equal(t, quality, parsed.Quality)
+		})
+	}
+}
+
+func TestOpenAIImagesExactAllowsOmittedOptionalParameters(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","tk_image_contract":"exact"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	require.Equal(t, OpenAIImagesContractExact, parsed.ImageContract)
+	require.False(t, parsed.ExplicitSize)
+	require.False(t, parsed.ExplicitQuality)
+	require.False(t, parsed.ExplicitOutputFormat)
+	require.False(t, parsed.ExplicitBackground)
+
+	upstreamBody, _, err := buildOpenAIImagesOAuthPayload(parsed, parsed.Model)
+	require.NoError(t, err)
+	for _, key := range []string{"size", "quality", "output_format", "background"} {
+		require.False(t, gjson.GetBytes(upstreamBody, key).Exists(), key)
+	}
+}
+
+func TestRewriteOpenAIImagesModelStripsTokenKeyContract(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","tk_image_contract":"exact"}`)
+	rewritten, _, err := rewriteOpenAIImagesModel(body, "application/json", "gpt-image-2.5-sunburst")
+	require.NoError(t, err)
+	require.Equal(t, "gpt-image-2.5-sunburst", gjson.GetBytes(rewritten, "model").String())
+	require.False(t, gjson.GetBytes(rewritten, "tk_image_contract").Exists())
+}
+
 func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEdit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

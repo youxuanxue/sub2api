@@ -50,6 +50,42 @@ func TestOpenAIGatewayHandlerImages_DisabledGroupRejectsBeforeScheduling(t *test
 	require.Contains(t, rec.Body.String(), service.ImageGenerationPermissionMessage())
 }
 
+func TestOpenAIGatewayHandlerImages_ExactContractRejectsBeforeScheduling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","size":"3840x2160","tk_image_contract":"exact"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+	groupID := int64(111)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		ID:      222,
+		GroupID: &groupID,
+		Group: &service.Group{
+			ID:                   groupID,
+			AllowImageGeneration: false,
+		},
+		User: &service.User{ID: 333},
+	})
+	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 333, Concurrency: 1})
+
+	h := &OpenAIGatewayHandler{
+		gatewayService:      &service.OpenAIGatewayService{},
+		billingCacheService: &service.BillingCacheService{},
+		apiKeyService:       &service.APIKeyService{},
+		concurrencyHelper:   &ConcurrencyHelper{concurrencyService: &service.ConcurrencyService{}},
+	}
+
+	h.Images(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.Contains(t, rec.Body.String(), "tk_image_contract_violation")
+	require.Contains(t, rec.Body.String(), "size must be auto or 1254x1254")
+}
+
 func TestOpenAIImageHandlersRejectUnpricedRequestedSize(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for name, handle := range map[string]func(*OpenAIGatewayHandler, *gin.Context){"images": (*OpenAIGatewayHandler).Images, "generations": (*OpenAIGatewayHandler).ImageGenerations} {

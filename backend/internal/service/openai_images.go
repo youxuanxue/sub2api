@@ -74,35 +74,129 @@ type OpenAIImagesUpload struct {
 }
 
 type OpenAIImagesRequest struct {
-	Endpoint           string
-	ContentType        string
-	Multipart          bool
-	Model              string
-	ExplicitModel      bool
-	Prompt             string
-	Stream             bool
-	N                  int
-	Size               string
-	ExplicitSize       bool
-	SizeTier           string
-	ResponseFormat     string
-	Quality            string
-	Background         string
-	OutputFormat       string
-	Moderation         string
-	InputFidelity      string
-	Style              string
-	OutputCompression  *int
-	PartialImages      *int
-	HasMask            bool
-	HasNativeOptions   bool
-	RequiredCapability OpenAIImagesCapability
-	InputImageURLs     []string
-	MaskImageURL       string
-	Uploads            []OpenAIImagesUpload
-	MaskUpload         *OpenAIImagesUpload
-	Body               []byte
-	bodyHash           string
+	Endpoint              string
+	ContentType           string
+	Multipart             bool
+	Model                 string
+	ExplicitModel         bool
+	Prompt                string
+	Stream                bool
+	N                     int
+	Size                  string
+	ExplicitSize          bool
+	SizeTier              string
+	ResponseFormat        string
+	Quality               string
+	Background            string
+	OutputFormat          string
+	Moderation            string
+	InputFidelity         string
+	Style                 string
+	OutputCompression     *int
+	PartialImages         *int
+	ImageContract         string
+	ExplicitImageContract bool
+	ExplicitQuality       bool
+	ExplicitBackground    bool
+	ExplicitOutputFormat  bool
+	ExplicitModeration    bool
+	ExplicitInputFidelity bool
+	ExplicitStyle         bool
+	HasMask               bool
+	HasNativeOptions      bool
+	RequiredCapability    OpenAIImagesCapability
+	InputImageURLs        []string
+	MaskImageURL          string
+	Uploads               []OpenAIImagesUpload
+	MaskUpload            *OpenAIImagesUpload
+	Body                  []byte
+	bodyHash              string
+}
+
+const OpenAIImagesContractExact = "exact"
+
+// ValidateOpenAIImagesContract validates the opt-in TokenKey image contract.
+// The default empty contract deliberately preserves the historical passthrough
+// behavior. In "exact" mode, only values observed to survive upstream
+// normalization are admitted. Omitted/auto fields remain wildcard defaults;
+// fields with no reliable response evidence fail closed before scheduling.
+func ValidateOpenAIImagesContract(req *OpenAIImagesRequest) error {
+	if req == nil {
+		return nil
+	}
+	contract := strings.ToLower(strings.TrimSpace(req.ImageContract))
+	if contract == "" && !req.ExplicitImageContract {
+		return nil
+	}
+	if contract != OpenAIImagesContractExact {
+		return fmt.Errorf("tk_image_contract_violation: tk_image_contract must be %q", OpenAIImagesContractExact)
+	}
+	if req.ExplicitSize && !openAIImagesExactSizeSupported(req.Size) {
+		return fmt.Errorf("tk_image_contract_violation: size must be auto or 1254x1254; other sizes are normalized by the upstream")
+	}
+	if req.ExplicitQuality && !openAIImagesExactQualitySupported(req.Quality) {
+		return fmt.Errorf("tk_image_contract_violation: quality must be auto, low, medium, high, xhigh, or max")
+	}
+	if req.ExplicitOutputFormat && !openAIImagesExactOutputFormatSupported(req.OutputFormat) {
+		return fmt.Errorf("tk_image_contract_violation: output_format must be png or auto; other formats are normalized by the upstream")
+	}
+	if req.ExplicitBackground {
+		switch strings.ToLower(strings.TrimSpace(req.Background)) {
+		case "auto", "opaque":
+		default:
+			return fmt.Errorf("tk_image_contract_violation: background must be auto or opaque; transparent is normalized by the upstream")
+		}
+	}
+	if req.ResponseFormat != "" && !strings.EqualFold(req.ResponseFormat, "b64_json") {
+		return fmt.Errorf("tk_image_contract_violation: response_format must be b64_json")
+	}
+	if req.OutputCompression != nil {
+		return fmt.Errorf("tk_image_contract_violation: output_compression cannot be confirmed in the upstream response")
+	}
+	if req.PartialImages != nil {
+		return fmt.Errorf("tk_image_contract_violation: partial_images cannot be confirmed in the upstream response")
+	}
+	if req.ExplicitModeration && !openAIImagesExactModerationSupported(req.Moderation) {
+		return fmt.Errorf("tk_image_contract_violation: moderation must be auto; explicit moderation is not returned by the upstream")
+	}
+	if req.ExplicitInputFidelity {
+		return fmt.Errorf("tk_image_contract_violation: input_fidelity cannot be confirmed in the upstream response")
+	}
+	if req.ExplicitStyle {
+		return fmt.Errorf("tk_image_contract_violation: style cannot be confirmed in the upstream response")
+	}
+	return nil
+}
+
+func openAIImagesExactSizeSupported(size string) bool {
+	switch strings.ToLower(strings.TrimSpace(size)) {
+	case "auto", "1254x1254":
+		return true
+	default:
+		return false
+	}
+}
+
+func openAIImagesExactQualitySupported(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "auto", "low", "medium", "high", "xhigh", "max":
+		return true
+	default:
+		return false
+	}
+}
+
+func openAIImagesExactOutputFormatSupported(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "png", "auto":
+		return true
+	default:
+		return false
+	}
+}
+
+func openAIImagesExactModerationSupported(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "auto")
 }
 
 func (r *OpenAIImagesRequest) ModerationBody() []byte {
@@ -237,6 +331,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	if err := validateCompatibleImagesModel(validationModel); err != nil {
 		return nil, err
 	}
+	if err := ValidateOpenAIImagesContract(req); err != nil {
+		return nil, err
+	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
 	req.RequiredCapability = classifyOpenAIImagesCapability(req)
 	return req, nil
@@ -271,12 +368,37 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		req.ExplicitSize = req.Size != ""
 	}
 	req.ResponseFormat = strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "response_format").String()))
-	req.Quality = strings.TrimSpace(gjson.GetBytes(body, "quality").String())
-	req.Background = strings.TrimSpace(gjson.GetBytes(body, "background").String())
-	req.OutputFormat = strings.TrimSpace(gjson.GetBytes(body, "output_format").String())
-	req.Moderation = strings.TrimSpace(gjson.GetBytes(body, "moderation").String())
-	req.InputFidelity = strings.TrimSpace(gjson.GetBytes(body, "input_fidelity").String())
-	req.Style = strings.TrimSpace(gjson.GetBytes(body, "style").String())
+	if value := gjson.GetBytes(body, "quality"); value.Exists() {
+		req.ExplicitQuality = true
+		req.Quality = strings.TrimSpace(value.String())
+	}
+	if value := gjson.GetBytes(body, "background"); value.Exists() {
+		req.ExplicitBackground = true
+		req.Background = strings.TrimSpace(value.String())
+	}
+	if value := gjson.GetBytes(body, "output_format"); value.Exists() {
+		req.ExplicitOutputFormat = true
+		req.OutputFormat = strings.TrimSpace(value.String())
+	}
+	if value := gjson.GetBytes(body, "moderation"); value.Exists() {
+		req.ExplicitModeration = true
+		req.Moderation = strings.TrimSpace(value.String())
+	}
+	if value := gjson.GetBytes(body, "input_fidelity"); value.Exists() {
+		req.ExplicitInputFidelity = true
+		req.InputFidelity = strings.TrimSpace(value.String())
+	}
+	if value := gjson.GetBytes(body, "style"); value.Exists() {
+		req.ExplicitStyle = true
+		req.Style = strings.TrimSpace(value.String())
+	}
+	if value := gjson.GetBytes(body, "tk_image_contract"); value.Exists() {
+		if value.Type != gjson.String {
+			return fmt.Errorf("invalid tk_image_contract field type")
+		}
+		req.ExplicitImageContract = true
+		req.ImageContract = strings.TrimSpace(value.String())
+	}
 	req.HasMask = gjson.GetBytes(body, "mask").Exists()
 	if outputCompression := gjson.GetBytes(body, "output_compression"); outputCompression.Exists() {
 		if outputCompression.Type != gjson.Number {
@@ -412,22 +534,31 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 			req.N = n
 		case "quality":
 			req.Quality = value
+			req.ExplicitQuality = true
 			req.HasNativeOptions = true
 		case "background":
 			req.Background = value
+			req.ExplicitBackground = true
 			req.HasNativeOptions = true
 		case "output_format":
 			req.OutputFormat = value
+			req.ExplicitOutputFormat = true
 			req.HasNativeOptions = true
 		case "moderation":
 			req.Moderation = value
+			req.ExplicitModeration = true
 			req.HasNativeOptions = true
 		case "input_fidelity":
 			req.InputFidelity = value
+			req.ExplicitInputFidelity = true
 			req.HasNativeOptions = true
 		case "style":
 			req.Style = value
+			req.ExplicitStyle = true
 			req.HasNativeOptions = true
+		case "tk_image_contract":
+			req.ExplicitImageContract = true
+			req.ImageContract = value
 		case "output_compression":
 			n, err := strconv.Atoi(value)
 			if err != nil {
@@ -883,6 +1014,12 @@ func rewriteOpenAIImagesModel(body []byte, contentType string, model string) ([]
 	if err != nil {
 		return nil, "", fmt.Errorf("rewrite image request model: %w", err)
 	}
+	// tk_image_contract is a TokenKey-only admission control field. It must
+	// never be sent to an OpenAI-compatible API-key upstream.
+	rewritten, err = sjson.DeleteBytes(rewritten, "tk_image_contract")
+	if err != nil {
+		return nil, "", fmt.Errorf("strip image contract: %w", err)
+	}
 	return rewritten, contentType, nil
 }
 
@@ -911,6 +1048,10 @@ func rewriteOpenAIImagesMultipartModel(body []byte, contentType string, model st
 		}
 
 		formName := strings.TrimSpace(part.FormName())
+		if formName == "tk_image_contract" && part.FileName() == "" {
+			_ = part.Close()
+			continue
+		}
 		partHeader := cloneMultipartHeader(part.Header)
 		target, err := writer.CreatePart(partHeader)
 		if err != nil {
