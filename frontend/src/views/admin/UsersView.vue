@@ -1807,11 +1807,9 @@ const handleToggleStatus = async (user: AdminUser) => {
       return
     }
     // 更新接口的响应不含 current_concurrency、subscriptions 等列表专属字段，只回写状态相关字段。
-    const row = users.value.find((u) => u.id === user.id)
-    if (row) {
-      row.status = updated.status
-      row.updated_at = updated.updated_at
-    }
+    users.value = users.value.map((row) => row.id === user.id
+      ? { ...row, status: updated.status, updated_at: updated.updated_at }
+      : row)
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.users.failedToToggle'))
     console.error('Error toggling user status:', error)

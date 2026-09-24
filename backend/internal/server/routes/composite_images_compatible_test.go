@@ -146,7 +146,7 @@ func TestCompositeCompatibleImagesEndToEnd(t *testing.T) {
 				if scenario == "disabled" {
 					require.Equal(t, http.StatusForbidden, rec.Code)
 				} else {
-					require.Equal(t, http.StatusServiceUnavailable, rec.Code, rec.Body.String())
+					require.Equal(t, http.StatusTooManyRequests, rec.Code, rec.Body.String())
 				}
 				require.Empty(t, upstream.accountIDs)
 				require.Empty(t, usage.logs)

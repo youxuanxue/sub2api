@@ -70,6 +70,8 @@ func (a *tkAnthropicBufferedAssembly) applyEvent(event *apicompat.AnthropicStrea
 				a.FinalResp.Content[idx].Text += event.Delta.Text
 			case "thinking_delta":
 				a.FinalResp.Content[idx].Thinking += event.Delta.Thinking
+			case "signature_delta":
+				a.FinalResp.Content[idx].Signature += event.Delta.Signature
 			case "input_json_delta":
 				a.FinalResp.Content[idx].Input = appendRawJSON(a.FinalResp.Content[idx].Input, event.Delta.PartialJSON)
 			}

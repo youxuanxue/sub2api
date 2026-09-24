@@ -1067,5 +1067,3 @@ func (s *OpenAIGatewayService) mirrorOpenAIAccountStatsTokenCost(
 	}
 	return nil
 }
-
-// TkHoldRequestID:       input.TkHoldRequestID,

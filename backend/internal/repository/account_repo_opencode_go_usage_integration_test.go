@@ -142,15 +142,15 @@ func TestUpdateCredentialsOpenCodeGoClearsAllManagedStateOnIdentityChange(t *tes
 	require.NotContains(t, loaded.Extra, service.OllamaCloudUsageSnapshotExtraKey)
 }
 
-// F3：新 credentials 缺 base_url（NULL）时 OpenCode 分支必须仍命中（NULL-safe），
-// 否则 OpenCode 受管状态会残留。api_key 保持不变，专门压 NOT regex(NULL) 路径。
-func TestUpdateCredentialsOpenCodeGoMissingBaseURLClearsManagedState(t *testing.T) {
+// TokenKey rejects a credential update without an endpoint identity atomically.
+// Moving to a valid non-OpenCode endpoint clears the old managed usage state.
+func TestUpdateCredentialsOpenCodeGoRequiresEndpointBeforeClearingManagedState(t *testing.T) {
 	ctx := context.Background()
-	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	client := testEntClient(t)
+	repo := newAccountRepositoryWithSQL(client, integrationDB, nil)
 	now := time.Now().UTC()
 
-	account := mustCreateAccount(t, tx.Client(), &service.Account{
+	account := mustCreateAccount(t, client, &service.Account{
 		Name: "opencode-missing-base-url", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "old-key", "base_url": "https://opencode.ai/zen/go/v1"},
 		Extra: map[string]any{
@@ -161,8 +161,20 @@ func TestUpdateCredentialsOpenCodeGoMissingBaseURLClearsManagedState(t *testing.
 		},
 	})
 
-	require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id=$1", account.ID)
+		require.NoError(t, err)
+	})
+
+	require.ErrorContains(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{
 		"api_key": "old-key",
+	}), "no explicit protocol endpoint identity")
+	unchanged, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "https://opencode.ai/zen/go/v1", unchanged.Credentials["base_url"])
+	require.Contains(t, unchanged.Extra, service.OpenCodeGoUsageSnapshotExtraKey)
+	require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{
+		"api_key": "old-key", "base_url": "https://example.com/v1",
 	}))
 	loaded, err := repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)

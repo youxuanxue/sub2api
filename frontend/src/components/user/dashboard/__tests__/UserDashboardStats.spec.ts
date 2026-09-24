@@ -14,6 +14,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 import UserDashboardStats from '../UserDashboardStats.vue'
+import { getPublicPlatformLabel } from '@/utils/publicPlatforms'
 import type { UserDashboardStats as UserStatsType, PlatformDashboardStats } from '@/api/usage'
 import type { PlatformQuotaItem } from '@/types'
 
@@ -119,7 +120,7 @@ describe('UserDashboardStats 按平台拆分', () => {
 
   it('限额为 0 的平台视为已配置，渲染禁用态', () => {
     const w = mountStats(makeStats(), [quota({ platform: 'gemini', weekly_limit_usd: 0 })])
-    expect(cardPlatforms(w)).toEqual(['gemini'])
+    expect(cardPlatforms(w)).toEqual(['google'])
     expect(w.text()).toContain('dashboard.platformQuota.disabled')
     expect(w.text()).toContain('dashboard.platformCount:{"count":1}')
   })
@@ -129,7 +130,7 @@ describe('UserDashboardStats 按平台拆分', () => {
       makeStats({ total_actual_cost: 0.5, today_actual_cost: 0, by_platform: [usage('kimi', 0.3), usage('anthropic', 0.2)] })
     )
     expect(cardPlatforms(w)).toEqual(['anthropic', 'kimi'])
-    expect(w.text()).toContain('Kimi')
+    expect(w.text()).toContain(getPublicPlatformLabel('kimi'))
   })
 
   it('总值大于各平台之和时追加"其他"卡片，且不计入平台计数', () => {

@@ -17,7 +17,7 @@ async function chooseDraft() {
     },
   })
   await wrapper.get('.date-picker-trigger').trigger('click')
-  await wrapper.findAll('.date-picker-preset').find(node => node.text() === 'dates.last7Days')!.trigger('click')
+  await wrapper.findAll('input[type="date"]')[0].setValue('2026-09-07')
 }
 
 describe('DateRangePicker unapplied changes', () => {

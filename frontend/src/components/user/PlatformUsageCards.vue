@@ -9,13 +9,15 @@
         {{ t('dashboard.platformBreakdown') }}
       </h3>
       <span class="text-xs text-gray-500 dark:text-gray-400">
-        {{ t('dashboard.platformCount', { count: publicStats.length }) }}
+        {{ t('dashboard.platformCount', { count: cards.filter((item) => !item.isOther).length }) }}
       </span>
     </div>
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <div
         v-for="item in cards"
         :key="item.platform"
+        data-testid="platform-card"
+        :data-platform="item.platform"
         :class="[
           'rounded-lg border p-3',
           item.isOther
@@ -122,7 +124,7 @@ const OTHER_THRESHOLD = 0.0001
 const cards = computed<PlatformCard[]>(() => {
   const stats = new Map(publicStats.value.map((item) => [item.platform, item]))
   const publicQuotas = normalizePublicPlatformQuotas(props.platformQuotas)
-    .filter((quota) => quota.platform !== 'gemini' && quota.platform !== 'antigravity')
+    .filter(hasAnyLimit)
   const quotas = new Map<string, PlatformQuotaItem>(publicQuotas.map((item) => [item.platform, item]))
   const platforms = new Set(stats.keys())
 

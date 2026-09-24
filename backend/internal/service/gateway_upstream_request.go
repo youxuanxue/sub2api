@@ -899,15 +899,15 @@ var defaultDroppedBetasSet = buildBetaTokenSet(claude.DroppedBetas)
 // mimicUserAgent 由调用方在同一请求内取一次传入，保证出站 User-Agent 头与
 // 请求体 billing attribution 的 cc_version 版本号严格一致。
 func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool, userAgent ...string) {
+	if req == nil {
+		return
+	}
 	mimicUserAgent := ""
 	if len(userAgent) > 0 {
 		mimicUserAgent = userAgent[0]
 	}
 	if mimicUserAgent == "" {
 		mimicUserAgent = getHeaderRaw(req.Header, "User-Agent")
-	}
-	if req == nil {
-		return
 	}
 	// Start with the standard defaults (fill missing).
 	applyClaudeOAuthHeaderDefaults(req)
@@ -981,6 +981,3 @@ func (s *GatewayService) validateUpstreamBaseURL(raw string) (string, error) {
 	}
 	return normalized, nil
 }
-
-// applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) remains the canonical header owner.
-// func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool)

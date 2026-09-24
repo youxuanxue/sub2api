@@ -1800,5 +1800,3 @@ func dedupeStrings(values []string) []string {
 	}
 	return out
 }
-
-// validateOpenAIImagesModel(CandidateEffectiveModel(c.Request.Context(), req.Model))

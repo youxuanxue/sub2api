@@ -2988,6 +2988,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}); err != nil {
 					return err
 				}
+				if turn == 1 {
+					return nil // The first turn was checked after account selection above.
+				}
 				return checkSimpleModeTurnBilling()
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {

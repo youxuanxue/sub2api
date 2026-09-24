@@ -8,6 +8,8 @@ Reads `scripts/sentinels/gateway-tk.json` and for each entry verifies:
   2. Every literal string in `must_contain` appears at least once in the file.
   3. Every literal string in `must_not_contain` is absent from the file.
 
+Entries marked `code_only` match Go tokens with comments and literals blanked.
+
 It also lints registry hygiene WITHIN each entry (anti-bloat guard):
 
   - duplicate `must_contain` needles in the same entry are noise;
@@ -113,6 +115,10 @@ def check_sentinel(entry: dict) -> tuple[bool, list[str]]:
         content = read_file_cached(path_str)
     except OSError as exc:
         return False, [f"cannot read {path_str}: {exc}"]
+    if entry.get("code_only"):
+        if file_path.suffix != ".go":
+            return False, ["code_only requires a Go source file"]
+        content = _strip_go_comments_and_literals(content)
     for needle in must_contain:
         if needle not in content:
             failures.append(f"missing literal `{needle}` in {path_str}")

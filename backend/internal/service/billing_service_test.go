@@ -2036,18 +2036,19 @@ func TestTKPricingOverlay_Qwen3DenseThinkingRate(t *testing.T) {
 	}
 }
 
+// Upstream catalog and legacy tables are fixtures, not TokenKey publication owners.
 func TestNewModelPricingCatalogFallbackAndContext(t *testing.T) {
 	data, err := os.ReadFile("../../resources/model-pricing/model_prices_and_context_window.json")
 	require.NoError(t, err)
 	catalog := &PricingService{}
-	catalog.pricingData, err = catalog.parsePricingData(data)
+	catalog.pricingData, err = catalog.parsePricingSensorData(data)
 	require.NoError(t, err)
 	sources := map[string]*BillingService{
-		"billing fallback": newTestBillingService(),
-		"pricing fallback": NewBillingService(&config.Config{}, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
-			"gpt-6":         {InputCostPerToken: 10e-6, OutputCostPerToken: 50e-6},
-			"claude-opus-5": {InputCostPerToken: 5e-6, OutputCostPerToken: 25e-6},
-		}}),
+		"legacy fixture": func() *BillingService {
+			svc := &BillingService{fallbackPrices: make(map[string]*ModelPricing)}
+			svc.initFallbackPricing()
+			return svc
+		}(),
 		"catalog": NewBillingService(&config.Config{}, catalog),
 	}
 	for source, svc := range sources {
@@ -2095,7 +2096,12 @@ func TestNewModelPricingCatalogFallbackAndContext(t *testing.T) {
 }
 
 func TestNewModelPricingChannelOverridesAndFamilyIsolation(t *testing.T) {
-	svc := newTestBillingService()
+	data, err := os.ReadFile("../../resources/model-pricing/model_prices_and_context_window.json")
+	require.NoError(t, err)
+	catalog := &PricingService{}
+	catalog.pricingData, err = catalog.parsePricingSensorData(data)
+	require.NoError(t, err)
+	svc := NewBillingService(&config.Config{}, catalog)
 	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "claude-opus-5-5"} {
 		t.Run(model, func(t *testing.T) {
 			zero := 0.0
@@ -2108,6 +2114,8 @@ func TestNewModelPricingChannelOverridesAndFamilyIsolation(t *testing.T) {
 			require.Positive(t, fresh.InputPricePerToken)
 		})
 	}
+	// Existing families retain TokenKey registry pricing.
+	svc = newTestBillingService()
 	prices, err := svc.GetModelPricing("claude-opus-5")
 	require.NoError(t, err)
 	require.Equal(t, 5e-6, prices.InputPricePerToken)
@@ -2121,7 +2129,7 @@ func TestNewModelPricingChannelOverridesAndFamilyIsolation(t *testing.T) {
 func TestNewModelPricingExplicitZeroCacheWrite(t *testing.T) {
 	svc := &PricingService{}
 	var err error
-	svc.pricingData, err = svc.parsePricingData([]byte(`{"gpt-6-sol":{"litellm_provider":"openai","input_cost_per_token":0.000002,"output_cost_per_token":0.00001,"input_cost_per_token_flex":0.000001,"cache_creation_input_token_cost":0}}`))
+	svc.pricingData, err = svc.parsePricingSensorData([]byte(`{"gpt-6-sol":{"litellm_provider":"openai","input_cost_per_token":0.000002,"output_cost_per_token":0.00001,"input_cost_per_token_flex":0.000001,"cache_creation_input_token_cost":0}}`))
 	require.NoError(t, err)
 	billing := NewBillingService(&config.Config{}, svc)
 	for _, tier := range []string{"", "priority", "flex"} {
@@ -2138,5 +2146,21 @@ func TestNewModelPricingAliasesRetainExplicitOverrides(t *testing.T) {
 	}}
 	for _, model := range []string{"gpt-6-sol-max", "openai/gpt-6-luna-openai-compact", "claude-opus-5-5-thinking"} {
 		require.Same(t, zero, svc.GetModelPricing(model))
+	}
+}
+
+// Protocol support alone must not publish prices for new upstream models.
+func TestNewModelPricingRequiresRegistryOwner(t *testing.T) {
+	data, err := os.ReadFile("../../resources/model-pricing/model_prices_and_context_window.json")
+	require.NoError(t, err)
+	catalog := &PricingService{}
+	catalog.pricingData, err = catalog.parsePricingData(data)
+	require.NoError(t, err)
+	for _, source := range []*PricingService{nil, catalog, {}} {
+		billing := NewBillingService(&config.Config{}, source)
+		for _, model := range []string{"gpt-6-sol", "gpt-6-sol-max", "gpt-6-luna", "gpt-6-luna-openai-compact", "claude-opus-5-5", "claude-opus-5-5-thinking"} {
+			_, err := billing.CalculateCost(model, UsageTokens{InputTokens: 1000, OutputTokens: 100}, 1)
+			require.ErrorIs(t, err, ErrModelPricingUnavailable, model)
+		}
 	}
 }

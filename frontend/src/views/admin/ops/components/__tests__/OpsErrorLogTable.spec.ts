@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import OpsErrorLogTable from '../OpsErrorLogTable.vue'
 import zhLocale from '@/i18n/locales/zh'
@@ -76,6 +76,11 @@ describe('OpsErrorLogTable user/api-key/account columns', () => {
 })
 
 describe('OpsErrorLogTable column order', () => {
+  beforeEach(() => {
+    const original = window.matchMedia
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({ ...original(query), matches: query === '(min-width: 768px)' }))
+  })
+  afterEach(() => vi.restoreAllMocks())
   it('puts time and response content first for ops without changing time sorting', async () => {
     const wrapper = mountTable({})
     await wrapper.setProps({ summaryFirst: true })

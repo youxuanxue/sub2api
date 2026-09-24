@@ -15,14 +15,14 @@ function deferred() {
 }
 const detail = (model: string) => ({ models: [{ model, latest_status: 'operational' }] })
 function open() {
-  return mount(MonitorDetailDialog, { props: { show: true, monitorId: 1, title: 'Monitor' },
+  return mount(MonitorDetailDialog, { props: { show: true, monitorIds: [1], title: 'Monitor' },
     global: { stubs: { BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' } } } })
 }
 describe('monitor detail request ownership', () => {
   it('keeps the new monitor response when the old response arrives last', async () => {
     const old = deferred()
     mocks.status.mockReturnValueOnce(old.promise).mockResolvedValueOnce(detail('new-model'))
-    const w = open(); await w.setProps({ monitorId: 2 }); await flushPromises()
+    const w = open(); await w.setProps({ monitorIds: [2] }); await flushPromises()
     old.resolve(detail('old-model')); await flushPromises()
     expect(w.text()).toContain('new-model'); expect(w.text()).not.toContain('old-model')
   })

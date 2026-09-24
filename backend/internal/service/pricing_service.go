@@ -40,131 +40,6 @@ var (
 		Mode:                    "image_generation",
 		SupportsPromptCaching:   true,
 	}
-	openAIGPT54FallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:       2.5e-06, // $2.5 per MTok
-		OutputCostPerToken:      1.5e-05, // $15 per MTok
-		CacheReadInputTokenCost: 2.5e-07, // $0.25 per MTok
-		LiteLLMProvider:         "openai",
-		Mode:                    "chat",
-		SupportsPromptCaching:   true,
-	}
-	openAIGPT6AstraFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   1e-05,
-		InputCostPerTokenPriority:           2e-05,
-		OutputCostPerToken:                  5e-05,
-		OutputCostPerTokenPriority:          1e-04,
-		CacheCreationInputTokenCost:         1.25e-05,
-		CacheCreationInputTokenCostPriority: 2.5e-05,
-		CacheReadInputTokenCost:             1e-06,
-		CacheReadInputTokenCostPriority:     2e-06,
-		LongContextInputTokenThreshold:      272_000,
-		LongContextInputCostMultiplier:      2,
-		LongContextOutputCostMultiplier:     1.5,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	openAIGPT6SolFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   2e-6,
-		InputCostPerTokenPriority:           4e-6,
-		OutputCostPerToken:                  10e-6,
-		OutputCostPerTokenPriority:          20e-6,
-		CacheCreationInputTokenCost:         2.5e-6,
-		CacheCreationInputTokenCostPriority: 5e-6,
-		CacheReadInputTokenCost:             0.2e-6,
-		CacheReadInputTokenCostPriority:     0.4e-6,
-		LongContextInputTokenThreshold:      272_000,
-		LongContextInputCostMultiplier:      2,
-		LongContextOutputCostMultiplier:     1.5,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	openAIGPT6LunaFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   0.1e-6,
-		InputCostPerTokenPriority:           0.2e-6,
-		OutputCostPerToken:                  0.5e-6,
-		OutputCostPerTokenPriority:          1e-6,
-		CacheCreationInputTokenCost:         0.125e-6,
-		CacheCreationInputTokenCostPriority: 0.25e-6,
-		CacheReadInputTokenCost:             0.01e-6,
-		CacheReadInputTokenCostPriority:     0.02e-6,
-		LongContextInputTokenThreshold:      272_000,
-		LongContextInputCostMultiplier:      2,
-		LongContextOutputCostMultiplier:     1.5,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	claudeOpus55FallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken: 4e-6, OutputCostPerToken: 20e-6,
-		CacheCreationInputTokenCost: 5e-6, CacheCreationInputTokenCostAbove1hr: 8e-6,
-		CacheReadInputTokenCost:   0.2e-6,
-		InputCostPerTokenPriority: 8e-6, OutputCostPerTokenPriority: 40e-6,
-		CacheCreationInputTokenCostPriority: 10e-6, CacheReadInputTokenCostPriority: 0.4e-6,
-		SupportsServiceTier: true, LiteLLMProvider: "anthropic", Mode: "chat", SupportsPromptCaching: true,
-	}
-	openAIGPT56SolFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   5e-06,
-		InputCostPerTokenPriority:           1e-05,
-		OutputCostPerToken:                  3e-05,
-		OutputCostPerTokenPriority:          6e-05,
-		CacheCreationInputTokenCost:         6.25e-06,
-		CacheCreationInputTokenCostPriority: 1.25e-05,
-		CacheReadInputTokenCost:             5e-07,
-		CacheReadInputTokenCostPriority:     1e-06,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	openAIGPT56TerraFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   2e-06,
-		InputCostPerTokenPriority:           4e-06,
-		OutputCostPerToken:                  1.2e-05,
-		OutputCostPerTokenPriority:          2.4e-05,
-		CacheCreationInputTokenCost:         2.5e-06,
-		CacheCreationInputTokenCostPriority: 5e-06,
-		CacheReadInputTokenCost:             2e-07,
-		CacheReadInputTokenCostPriority:     4e-07,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	openAIGPT56LunaFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   2e-07,
-		InputCostPerTokenPriority:           4e-07,
-		OutputCostPerToken:                  1.2e-06,
-		OutputCostPerTokenPriority:          2.4e-06,
-		CacheCreationInputTokenCost:         2.5e-07,
-		CacheCreationInputTokenCostPriority: 5e-07,
-		CacheReadInputTokenCost:             2e-08,
-		CacheReadInputTokenCostPriority:     4e-08,
-		SupportsServiceTier:                 true,
-		LiteLLMProvider:                     "openai",
-		Mode:                                "chat",
-		SupportsPromptCaching:               true,
-	}
-	openAIGPT54MiniFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:       7.5e-07,
-		OutputCostPerToken:      4.5e-06,
-		CacheReadInputTokenCost: 7.5e-08,
-		LiteLLMProvider:         "openai",
-		Mode:                    "chat",
-		SupportsPromptCaching:   true,
-	}
-	openAIGPT54NanoFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:       2e-07,
-		OutputCostPerToken:      1.25e-06,
-		CacheReadInputTokenCost: 2e-08,
-		LiteLLMProvider:         "openai",
-		Mode:                    "chat",
-		SupportsPromptCaching:   true,
-	}
 	openAIModelDatePattern = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
 )
@@ -1397,7 +1272,7 @@ func (s *PricingService) matchByModelFamily(model string) *LiteLLMModelPricing {
 		if pricing, ok := s.pricingData["claude-opus-5-5"]; ok {
 			return pricing
 		}
-		return claudeOpus55FallbackPricing
+		return nil
 	}
 	// modelFamily 定义一个模型系列的匹配和定价查找规则。
 	type modelFamily struct {
@@ -1523,21 +1398,9 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		}
 	}
 
-	if isOpenAIGPT6AstraModel(model) {
-		if p := s.pricingData["gpt-6"]; p != nil {
-			return p
-		}
-		return openAIGPT6AstraFallbackPricing
-	}
-
+	// New upstream spellings resolve only prices present in the registry.
 	if openai.IsGPT6SolOrLunaModelSpelling(model) {
-		if pricing, ok := s.pricingData[normalizeKnownOpenAICodexModel(model)]; ok {
-			return pricing
-		}
-		if strings.HasPrefix(model, "gpt-6-sol") {
-			return openAIGPT6SolFallbackPricing
-		}
-		return openAIGPT6LunaFallbackPricing
+		return s.pricingData[normalizeKnownOpenAICodexModel(model)]
 	}
 
 	// 尝试的回退变体
@@ -1571,51 +1434,26 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 	// effort suffixes) share normalizeOpenAIBillingModel with BillingService.
 	if normalized := normalizeOpenAIBillingModel(model); normalized != "" {
 		switch normalized {
-		case "gpt-5.6-sol":
-			if p := s.pricingData[normalized]; p != nil {
-				return p
-			}
-			return openAIGPT56SolFallbackPricing
-		case "gpt-5.6-terra":
-			if p := s.pricingData[normalized]; p != nil {
-				return p
-			}
-			return openAIGPT56TerraFallbackPricing
-		case "gpt-5.6-luna":
-			if p := s.pricingData[normalized]; p != nil {
-				return p
-			}
-			return openAIGPT56LunaFallbackPricing
+		case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
+			return s.pricingData[normalized]
 		}
 	}
 
 	// GPT-5.5 compatibility variants resolve to the routed GPT-5.5 owner.
 	if strings.HasPrefix(model, "gpt-5.5") {
-		if p := s.pricingData["gpt-5.5"]; p != nil {
-			return p
-		}
-		return openAIGPT54FallbackPricing
+		return s.pricingData["gpt-5.5"]
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4-mini") {
-		if p := s.pricingData["gpt-5.4-mini"]; p != nil {
-			return p
-		}
-		return openAIGPT54MiniFallbackPricing
+		return s.pricingData["gpt-5.4-mini"]
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4-nano") {
-		if p := s.pricingData["gpt-5.4-nano"]; p != nil {
-			return p
-		}
-		return openAIGPT54NanoFallbackPricing
+		return s.pricingData["gpt-5.4-nano"]
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4") {
-		if p := s.pricingData["gpt-5.4"]; p != nil {
-			return p
-		}
-		return openAIGPT54FallbackPricing
+		return s.pricingData["gpt-5.4"]
 	}
 
 	// Remote price mirrors can lag new releases. Never bill GPT Image 2.5
