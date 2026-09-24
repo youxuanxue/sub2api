@@ -29,25 +29,8 @@ import (
 //     they are not forwarded to Messages. Interaction queries and non-MCP
 //     tool_call_started envelopes are skipped without failing the Messages turn.
 
-// errAgentRunOutsideMessages documents a non-Messages AgentRun surface. Production
-// egress answers native exec with ExecClientThrow instead of returning this error
-// to Messages clients; the type remains for classifiers and tests.
-type errAgentRunOutsideMessages struct {
-	Surface string
-	Fields  []int
-}
-
-func (e *errAgentRunOutsideMessages) Error() string {
-	base := "cursor AgentRun emitted a non-Messages surface (" + e.Surface + "); TokenKey only maps text/thinking and declared tool_use"
-	if len(e.Fields) == 0 {
-		return base
-	}
-	parts := make([]string, 0, len(e.Fields))
-	for _, n := range e.Fields {
-		parts = append(parts, fmt.Sprintf("%d", n))
-	}
-	return base + "; fields=" + strings.Join(parts, ",")
-}
+// testOutsideExecThrowHook is set only by unit tests to observe the throw path.
+var testOutsideExecThrowHook func(fields []int, replyCount int)
 
 // execClientThrowAndClose answers an unserviceable ExecServerMessage in-band so
 // Cursor can surface the error to the model and keep generating instead of

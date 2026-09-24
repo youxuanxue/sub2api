@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"io"
 	"net/http"
 	"testing"
@@ -38,8 +37,8 @@ func TestExecClientThrowAndCloseShapes(t *testing.T) {
 }
 
 func TestAgentRunOutsideExecThrowsAndContinuesText(t *testing.T) {
-	// Positive: unknown shell_args (field 2) does not fail the Messages turn; later
-	// text+usage still surface. Negative: must not return errAgentRunOutsideMessages.
+	// Positive: unknown shell_args (field 2) triggers throw (2 replies) and later
+	// text+usage still surface. Negative: must not fail the Messages turn.
 	var wire []byte
 	wire = protowire.AppendTag(wire, 1, protowire.VarintType)
 	wire = protowire.AppendVarint(wire, 9)
@@ -59,7 +58,14 @@ func TestAgentRunOutsideExecThrowsAndContinuesText(t *testing.T) {
 		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(3), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)},
 	}}))
 
-	// Drain the duplex request body so pipe writes (RunRequest + throw + close) do not stall.
+	var sawFields []int
+	var sawReplies int
+	testOutsideExecThrowHook = func(fields []int, replyCount int) {
+		sawFields = append([]int(nil), fields...)
+		sawReplies = replyCount
+	}
+	t.Cleanup(func() { testOutsideExecThrowHook = nil })
+
 	result, err := RunAgent(context.Background(), "test-credential", AgentRequest{
 		Model:    "composer-2.5",
 		Messages: []AgentMessage{{Role: "user", Text: "hello"}},
@@ -68,11 +74,11 @@ func TestAgentRunOutsideExecThrowsAndContinuesText(t *testing.T) {
 		return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(bytes.NewReader(stream.Bytes()))}, nil
 	}, nil)
 	require.NoError(t, err)
-	var outside *errAgentRunOutsideMessages
-	require.False(t, errors.As(err, &outside))
 	require.Equal(t, "hello after throw", result.Text)
 	require.NotNil(t, result.Usage)
 	require.EqualValues(t, 2, result.Usage.Output)
+	require.Contains(t, sawFields, 2)
+	require.Equal(t, 2, sawReplies, "throw + stream_close")
 }
 
 func TestAgentRunMapsInteractionToolCallStartedToMessagesHandoff(t *testing.T) {
