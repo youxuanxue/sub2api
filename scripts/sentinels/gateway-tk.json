@@ -2506,6 +2506,8 @@
       "path": "backend/internal/service/gemini_web_request_tk.go",
       "must_contain": [
         "func geminiWebSupportsRequest(",
+        "func CanImportGeminiWebSession(",
+        "if !relay && !geminiWebRuntimeBound(account)",
         "GeminiWebRelayCredentialKey",
         "CandidateRequestFromContext(ctx)",
         "geminiWebNativeBodySupported",
@@ -2520,10 +2522,21 @@
         "func TestGeminiWebCandidateNativeTextAndImageRemainAvailable(",
         "func TestGeminiWebCandidateNativeActionCapability(",
         "func TestGeminiWebCandidatePreservesLocalCountTokens(",
+        "func TestCanImportGeminiWebSessionAcceptsCopiedDeclarationOnly(",
         "func TestGeminiWebAdmissionMatchesWorkerContractFixtures(",
         "func TestGeminiWebCandidateRechecksCapabilityAfterWait("
       ],
-      "rationale": "Anchor behavior regressions for authorized fallback, native generation preservation, action admission, Worker contract parity and post-wait capability revalidation."
+      "rationale": "Anchor behavior regressions for authorized fallback, native generation preservation, action admission, Worker contract parity, uninitialized copy admission and post-wait capability revalidation."
+    },
+    {
+      "path": "backend/internal/service/admin_account.go",
+      "must_contain": ["credentials[\"gemini_web\"] = map[string]any{}", "duplicate.Schedulable = false"],
+      "rationale": "Worker copies retain only their declaration and stay paused until the operator imports their own session."
+    },
+    {
+      "path": "backend/internal/service/admin_service_duplicate_account_test.go",
+      "must_contain": ["func TestDuplicateAccountRemovesGeminiWebSession", "require.Equal(t, map[string]any{}, duplicate.Credentials[\"gemini_web\"])"],
+      "rationale": "Keep the behavior regression that a copied Worker cannot inherit browser credentials or lease ownership."
     },
     {
       "path": "backend/internal/service/candidate_saturation.go",
