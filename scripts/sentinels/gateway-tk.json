@@ -6582,6 +6582,7 @@
       "path": "backend/internal/handler/openai_compat_selection_failure_tk.go",
       "must_contain": [
         "func openAICompatFirstAttemptSelectionFailure(",
+        "errors.Is(err, service.ErrUniversalCapacityUnavailable)",
         "err != nil && !isOpsNoAvailableAccountError(err)",
         "classifyOpenAICompatibleNoAccountErrorFromGin(c, diag, apiKey, routingModel, displayModel)",
         "tkSelectFailureStatusMessage(c, err, displayModel)"
@@ -6603,7 +6604,8 @@
         "deprecated model stays 400 before mapping diagnosis",
         "embeddings regression newapi group model not in mapping -> 404 model_not_found",
         "genuine empty pool -> 429 with Retry-After",
-        "candidate capacity errors retain retry and ops routing semantics"
+        "candidate capacity errors retain retry and ops routing semantics",
+        "candidate capacity bypasses billing group mapping gap"
       ],
       "rationale": "Behavior-level regression matrix pins client-owned 400, persistent mapping-gap 404, empty-pool 429 and genuine scheduler-fault 503 precedence. Bare, wrapped and diagnostic candidate capacity errors must retain Retry-After and routing attribution (#2286/#2287)."
     },

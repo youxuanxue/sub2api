@@ -160,6 +160,28 @@ func TestOpenAICompatFirstAttemptSelectionFailure(t *testing.T) {
 		}
 	})
 
+	t.Run("candidate capacity bypasses billing group mapping gap", func(t *testing.T) {
+		c, w := newCtx(t)
+		groupID := int64(18)
+		apiKey := &service.APIKey{GroupID: &groupID, Group: &service.Group{ID: groupID, Platform: service.PlatformNewAPI}}
+		fd := &fakeDiagnoser{resp: service.ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: false}}
+		err := fmt.Errorf("candidate selection: %w", &service.UniversalCapacityError{Platform: service.PlatformNewAPI, GroupID: 38})
+
+		status, errType, msg := openAICompatFirstAttemptSelectionFailure(c, fd, apiKey, "doubao-embedding-vision", "doubao-embedding-vision", err)
+		writeJSON(t, w, status, errType, msg)
+
+		require.Equal(t, http.StatusTooManyRequests, w.Code)
+		assert.Equal(t, tkNoAvailableAccountsRetryAfterSeconds, w.Header().Get("Retry-After"))
+		assert.Equal(t, "api_error", errType)
+		assert.Equal(t, "No available accounts", msg)
+		assert.Empty(t, fd.calls, "candidate capacity already establishes model support across authorized pools")
+		phase, limited, owner, source := classifyOpsErrorLog(c, errType, msg, "", status)
+		assert.Equal(t, "routing", phase)
+		assert.True(t, limited)
+		assert.Equal(t, "platform", owner)
+		assert.Equal(t, "gateway", source)
+	})
+
 	t.Run("nil selection without err -> 404 when mapping gap", func(t *testing.T) {
 		c, _ := newCtx(t)
 		groupID := int64(18)
