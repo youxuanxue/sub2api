@@ -89,8 +89,12 @@ class WorkerTests(unittest.TestCase):
                     self.assertTrue(prompt.strip())
                     self.assertEqual('IMAGE' in modalities, worker.MODELS[case['model']][1])
                 else:
-                    with self.assertRaises(worker.Failure):
-                        worker.request_prompt(case['body'], case['model'])
+                    with patch.object(self.account, 'call') as call, patch.object(self.account, 'persist') as persist:
+                        with self.assertRaises(worker.Failure) as failure:
+                            self.account.generate(case['model'], case['body'])
+                        self.assertEqual(failure.exception.code, 400)
+                        call.assert_not_called()
+                        persist.assert_not_called()
 
     def test_pinned_transport_can_configure_profile_without_network(self):
         from curl_cffi import Curl

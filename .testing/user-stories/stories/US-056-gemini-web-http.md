@@ -65,6 +65,7 @@
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebAdmissionMatchesWorkerContractFixtures`
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebChatAndResponsesDefaultLimitIsNotWorkerCapability`
 - AC-008: `ops/gemini-web/test_worker.py`::`WorkerTests.test_scheduler_admission_contract_fixtures`
+- AC-008: `ops/gemini-web/test_worker.py`::`WorkerTests.test_image_mode_applies_captured_aspect_ratio_fields`
 - AC-009: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`TestGeminiWebConcurrentImportsHaveOneWinner`
 - AC-009: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`AccountRepoSuite.TestGeminiWebExplicitImportConflictsAndPreservesAccount`
 - AC-009: `backend/internal/service/admin_gemini_web_import_test.go`::`TestGeminiWebImportServiceReportsCASConflict`

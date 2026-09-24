@@ -219,13 +219,13 @@ def request_prompt(body, model):
             or any(x not in ('TEXT', 'IMAGE') for x in modalities)
             or ('IMAGE' in modalities) != MODELS[model][1]):
         raise Failure(400, 'responseModalities must match the selected Web text/image model')
-    image_config = config.get('imageConfig')
     aspect_ratio = None
-    if image_config is not None:
+    if 'imageConfig' in config:
+        image_config = config['imageConfig']
         if not MODELS[model][1] or not isinstance(image_config, dict) or set(image_config) != {'aspectRatio'}:
             raise Failure(400, 'imageConfig.aspectRatio is supported only for the Web image model')
         aspect_ratio = image_config.get('aspectRatio')
-        if aspect_ratio not in IMAGE_ASPECT_ENUM:
+        if not isinstance(aspect_ratio, str) or aspect_ratio not in IMAGE_ASPECT_ENUM:
             raise Failure(400, 'Unsupported imageConfig.aspectRatio')
     return prompt, modalities, aspect_ratio
 

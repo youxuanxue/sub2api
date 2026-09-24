@@ -133,7 +133,9 @@ Worker 支持 `gemini-web-flash`、`gemini-web-pro`、`gemini-web-pro-image`，
 表示 Web 类别而非官方付费 API 型号。只接受单轮文本和 responseModalities；
 生图可额外接受 `generationConfig.imageConfig.aspectRatio` 的 `1:1`、`9:16`、`3:4`、
 `4:3`、`16:9`，并映射到网页 RPC 已实测的比例字段。其他 controls、tools、system、
-多模态输入和多轮历史在 Google 副作用前拒绝。
+多模态输入和多轮历史在 Google 副作用前拒绝。显式传入的 imageConfig 必须为仅含
+aspectRatio 的对象，且比例为上述字符串；null、错误类型和额外字段在写会话或
+请求 Google 前返回 400，与 Go 候选准入保持一致。
 streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首 token 流式延迟。
 
 用户已确认先修复调度能力判断，不扩展或降级上述输入语义。共享候选准入在计费、
