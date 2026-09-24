@@ -268,17 +268,21 @@ func ResponsesEventToAnthropicEvents(
 		return resToAnthHandleOutputItemDone(evt, state)
 	case "response.reasoning_summary_part.added":
 		return resToAnthEnsureReasoningBlockOpen(state, evt.OutputIndex)
-	case "response.reasoning_summary_part.done":
-		return resToAnthHandleBlockDone(state)
+	case "response.reasoning_summary_part.done",
+		"response.reasoning_summary_text.done",
+		// reasoning_text.done 与 summary 结束帧同形：只标记片段结束，不关 thinking。
+		"response.reasoning_text.done":
+		// Keep the thinking block open until response.output_item.done.
+		// gpt-5.6-terra (and Grok/Codex) may emit more reasoning_* deltas after a
+		// summary part finishes; closing here produced orphan thinking_delta
+		// events after content_block_stop, which Claude CLI rejects as a
+		// malformed stream ("no response was produced"). Encrypted signatures
+		// also arrive on output_item.done — closing early would drop them.
+		return nil
 	case "response.reasoning_summary_text.delta",
 		// 原始推理文本增量，与 reasoning summary 一样映射为 thinking。
 		"response.reasoning_text.delta":
 		return resToAnthHandleReasoningDelta(evt, state)
-	case "response.reasoning_summary_text.done":
-		// Keep the thinking block open until response.output_item.done.
-		// Grok/Codex attach encrypted_content on the finished reasoning item;
-		// closing early would drop signature_delta and break multi-turn cache.
-		return nil
 	// response.done 是 Realtime/WS 与项目透传路径使用的终止别名；
 	// 普通 Responses HTTP SSE 的公开终止事件仍以 response.completed 为主。
 	case "response.completed", "response.done", "response.incomplete", "response.failed":
@@ -694,8 +698,14 @@ func resToAnthHandleFuncArgsDone(evt *ResponsesStreamEvent, state *ResponsesEven
 }
 
 func resToAnthEnsureReasoningBlockOpen(state *ResponsesEventToAnthropicState, outputIndex int) []AnthropicStreamEvent {
-	if _, ok := state.OutputIndexToBlockIdx[outputIndex]; ok {
-		return nil
+	if blockIdx, ok := state.OutputIndexToBlockIdx[outputIndex]; ok {
+		// Mapping is only live while that thinking block is still the open one.
+		// A stale map (block already stopped) must reopen; otherwise a late
+		// reasoning delta is emitted with no content_block_start.
+		if state.ContentBlockOpen && state.CurrentBlockType == "thinking" && state.ContentBlockIndex == blockIdx {
+			return nil
+		}
+		delete(state.OutputIndexToBlockIdx, outputIndex)
 	}
 
 	var events []AnthropicStreamEvent
@@ -975,6 +985,12 @@ func closeCurrentBlock(state *ResponsesEventToAnthropicState) []AnthropicStreamE
 	}
 	state.ContentBlockOpen = false
 	state.ContentBlockIndex++
+	// Do NOT clear OutputIndexToBlockIdx here: parallel tool_use blocks keep
+	// historical output_index→block maps after stop so a later packed
+	// function_call_arguments.done can resolve its own index and skip when
+	// blockIdx != ContentBlockIndex. Stale reasoning maps are handled in
+	// resToAnthEnsureReasoningBlockOpen (reopen when the mapped block is no
+	// longer the live thinking block).
 	state.CurrentToolName = ""
 	state.CurrentToolArgs = ""
 	state.CurrentToolHadDelta = false

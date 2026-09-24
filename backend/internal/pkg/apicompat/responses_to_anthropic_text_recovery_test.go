@@ -530,3 +530,113 @@ func TestResponsesEventToAnthropicEvents_EmitsDoneTextWhileAToolBlockIsOpen(t *t
 	assert.Equal(t, "spoken after the call", collectAnthropicText(events))
 	requireAnthropicBlockLifecycle(t, events)
 }
+
+// gpt-5.6-terra (prod 2026-09-24) emitted reasoning_summary_part.done then more
+// reasoning_* deltas. Closing the thinking block on part.done produced orphan
+// thinking_delta after content_block_stop; Claude CLI reported a malformed
+// stream with no response. Keep the block open across part.done and absorb the
+// late deltas into the same thinking block before tool_use.
+func TestResponsesEventToAnthropicEvents_KeepsThinkingOpenAcrossSummaryPartDone(t *testing.T) {
+	events := feedResponsesEvents(
+		responsesCreated(),
+		&ResponsesStreamEvent{Type: "response.output_item.added", OutputIndex: 0, Item: &ResponsesOutput{Type: "reasoning"}},
+		&ResponsesStreamEvent{Type: "response.reasoning_summary_part.added", OutputIndex: 0},
+		&ResponsesStreamEvent{Type: "response.reasoning_summary_text.delta", OutputIndex: 0, Delta: "step one"},
+		&ResponsesStreamEvent{Type: "response.reasoning_summary_part.done", OutputIndex: 0},
+		// Late deltas after part.done — previously orphaned outside any block.
+		&ResponsesStreamEvent{Type: "response.reasoning_text.delta", OutputIndex: 0, Delta: " step two"},
+		&ResponsesStreamEvent{Type: "response.reasoning_summary_text.delta", OutputIndex: 0, Delta: " step three"},
+		&ResponsesStreamEvent{
+			Type:        "response.output_item.done",
+			OutputIndex: 0,
+			Item:        &ResponsesOutput{Type: "reasoning", EncryptedContent: "sig-terra"},
+		},
+		&ResponsesStreamEvent{
+			Type:        "response.output_item.added",
+			OutputIndex: 1,
+			Item:        &ResponsesOutput{Type: "function_call", CallID: "call_read1", Name: "Read"},
+		},
+		&ResponsesStreamEvent{
+			Type:        "response.function_call_arguments.done",
+			OutputIndex: 1,
+			Arguments:   `{"file_path":"/tmp/x"}`,
+		},
+		&ResponsesStreamEvent{Type: "response.completed", Response: &ResponsesResponse{Status: "completed"}},
+	)
+
+	requireAnthropicBlockLifecycle(t, events)
+	require.NotEmpty(t, events)
+	assert.Equal(t, "message_stop", events[len(events)-1].Type)
+
+	var thinkingChars int
+	var signatures int
+	var blockTypes []string
+	open := false
+	for _, event := range events {
+		switch event.Type {
+		case "content_block_start":
+			require.False(t, open)
+			require.NotNil(t, event.ContentBlock)
+			blockTypes = append(blockTypes, event.ContentBlock.Type)
+			open = true
+		case "content_block_delta":
+			require.True(t, open, "thinking_delta must not arrive outside an open block")
+			require.NotNil(t, event.Delta)
+			if event.Delta.Type == "thinking_delta" {
+				thinkingChars += len(event.Delta.Thinking)
+			}
+			if event.Delta.Type == "signature_delta" {
+				assert.Equal(t, "sig-terra", event.Delta.Signature)
+				signatures++
+			}
+		case "content_block_stop":
+			require.True(t, open)
+			open = false
+		}
+	}
+	assert.Equal(t, []string{"thinking", "tool_use"}, blockTypes)
+	assert.Equal(t, len("step one step two step three"), thinkingChars)
+	assert.Equal(t, 1, signatures)
+}
+
+// Defensive path: if a thinking block was closed while OutputIndexToBlockIdx
+// still pointed at it, a late reasoning delta must reopen rather than orphan.
+func TestResponsesEventToAnthropicEvents_ReopensThinkingAfterStaleMapping(t *testing.T) {
+	state := NewResponsesEventToAnthropicState()
+	var events []AnthropicStreamEvent
+	feed := func(evt *ResponsesStreamEvent) {
+		events = append(events, ResponsesEventToAnthropicEvents(evt, state)...)
+	}
+
+	feed(responsesCreated())
+	feed(&ResponsesStreamEvent{Type: "response.reasoning_summary_part.added", OutputIndex: 0})
+	feed(&ResponsesStreamEvent{Type: "response.reasoning_summary_text.delta", OutputIndex: 0, Delta: "before"})
+	// Force-close as older converters did on part.done.
+	events = append(events, closeCurrentBlock(state)...)
+	require.False(t, state.ContentBlockOpen)
+
+	feed(&ResponsesStreamEvent{Type: "response.reasoning_text.delta", OutputIndex: 0, Delta: " after"})
+	feed(&ResponsesStreamEvent{
+		Type:        "response.output_item.done",
+		OutputIndex: 0,
+		Item:        &ResponsesOutput{Type: "reasoning", EncryptedContent: "sig-reopen"},
+	})
+	feed(&ResponsesStreamEvent{Type: "response.completed", Response: &ResponsesResponse{Status: "completed"}})
+
+	requireAnthropicBlockLifecycle(t, events)
+	assert.Equal(t, "message_stop", events[len(events)-1].Type)
+
+	var thinkingStarts int
+	var thinkingText string
+	for _, event := range events {
+		if event.Type == "content_block_start" && event.ContentBlock != nil && event.ContentBlock.Type == "thinking" {
+			thinkingStarts++
+		}
+		if event.Type == "content_block_delta" && event.Delta != nil && event.Delta.Type == "thinking_delta" {
+			thinkingText += event.Delta.Thinking
+		}
+	}
+	assert.Equal(t, 2, thinkingStarts, "stale mapping must reopen a second thinking block")
+	assert.Contains(t, thinkingText, "before")
+	assert.Contains(t, thinkingText, "after")
+}
