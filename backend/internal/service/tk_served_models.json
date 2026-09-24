@@ -97,10 +97,6 @@
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
-        },
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -119,10 +115,6 @@
         {
           "channel_type": 45,
           "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"
-        },
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
         }
       ]
     },
@@ -445,10 +437,6 @@
         {
           "channel_type": 46,
           "base_url": "https://qianfan.baidubce.com/v2/tokenplan/personal"
-        },
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
         },
         {
           "channel_type": 17,
@@ -979,24 +967,6 @@
         }
       ]
     },
-    "gemini-3.8-flash": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gemini-3.7-flash": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "claude-sonnet-5": {
       "display": true,
       "scopes": [
@@ -1042,24 +1012,6 @@
         }
       ]
     },
-    "gemini-3.6-flash": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gemini-3.1-pro": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "claude-haiku-4-5": {
       "display": true,
       "scopes": [
@@ -1078,24 +1030,6 @@
         }
       ]
     },
-    "gemini-3-flash": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
-    "gemini-3.5-flash": {
-      "display": true,
-      "scopes": [
-        {
-          "channel_type": 14,
-          "base_url": "https://agentn.global.api5.cursor.sh"
-        }
-      ]
-    },
     "claude-sonnet-4": {
       "display": true,
       "scopes": [
@@ -1105,7 +1039,7 @@
         }
       ]
     },
-    "gemini-2.5-flash": {
+    "claude-opus-5-5": {
       "display": true,
       "scopes": [
         {

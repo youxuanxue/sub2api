@@ -409,7 +409,7 @@ func accountModelMappingForbiddenPrefixesByScope() map[string][]string {
 		PlatformAntigravity: {"gpt-oss-"},
 		"account_override:" + normalizeAccountModelMappingOverrideScope(
 			PlatformNewAPI, newapiconstant.ChannelTypeAnthropic, cursor.AgentBaseURL,
-		): {cursorExcludedModelPrefix},
+		): append([]string(nil), cursorForbiddenModelMappingPrefixes...),
 	}
 }
 

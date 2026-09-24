@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14; Cursor serving-family allowlist Claude/Grok/Composer/Muse and Opus 5.5 Cursor scope, 2026-09-24)"
 created: 2026-09-07
 ---
 
@@ -49,6 +49,14 @@ The native adapter follows the MIT protocol subset from can1357/oh-my-pi
   parameters and legacy wire slugs. Imported catalog entries do not bypass
   pricing, activation, candidate eligibility or protocol capability gates.
   A missing wire slug prevents direct native candidate admission.
+  Cursor import and the Cursor account-mapping floor only admit the
+  `claude-` / `grok-` / `composer-` / `muse-` families from that catalog
+  (`cursorServingModelAllowed` in `account_tk_cursor.go`). `gpt-*` stays
+  excluded; retired `composer-2` stays forbidden. Gemini / GLM / Kimi and
+  other non-allowlisted rows are stripped from the Cursor served-models
+  scope and from floor forbidden-prefix policy. Unpriced allowlisted IDs
+  (for example Muse) may appear on import but do not enter the floor until
+  they have a shared TokenKey price.
 - The integration package adapts native Cursor frames to Messages once.
   Chat and Responses continue through the existing protocol registry and
   converters. All converted and native Messages sends use

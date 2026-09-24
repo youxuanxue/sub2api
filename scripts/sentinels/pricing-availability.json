@@ -881,9 +881,9 @@
     {
       "path": "backend/internal/service/account_model_mapping_ssot_tk.go",
       "must_contain": [
-        "): {cursorExcludedModelPrefix}"
+        "append([]string(nil), cursorForbiddenModelMappingPrefixes...),"
       ],
-      "rationale": "Export the Cursor-only GPT removal policy so account convergence cannot preserve GPT as compatible extras."
+      "rationale": "Export the Cursor serving-family forbidden-prefix policy so account convergence cannot preserve GPT/Gemini/GLM/Kimi as compatible extras."
     },
     {
       "path": "backend/internal/service/account_model_mapping_cursor_tk_test.go",

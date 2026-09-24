@@ -26,6 +26,51 @@ const cursorExcludedModelPrefix = "gpt-"
 // Retired from the authenticated Cursor catalog; do not reintroduce via imports or floor apply.
 const cursorRetiredComposerModel = "composer-2"
 
+// Cursor accounts only serve these authenticated-catalog families. Import, floor
+// presets and forbidden-prefix policy share this allowlist. GPT remains excluded;
+// composer-2 remains retired even though it matches the composer- prefix.
+var cursorServingModelPrefixes = []string{"claude-", "grok-", "composer-", "muse-"}
+
+// Cursor floor apply also strips these prefixes so legacy Gemini/GLM/Kimi rows
+// cannot survive an ops floor pass after the serving-family trim.
+var cursorForbiddenModelMappingPrefixes = []string{
+	cursorExcludedModelPrefix,
+	"gemini-",
+	"glm-",
+	"kimi-",
+	"deepseek-",
+}
+
+func cursorServingModelAllowed(id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" || id == "default" || id == "auto" || id == cursorRetiredComposerModel {
+		return false
+	}
+	lower := strings.ToLower(id)
+	if strings.HasPrefix(lower, cursorExcludedModelPrefix) {
+		return false
+	}
+	for _, prefix := range cursorServingModelPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterCursorServingModelIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if cursorServingModelAllowed(id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func (a *Account) IsCursor() bool {
 	return a != nil && a.Platform == PlatformNewAPI && a.Type == AccountTypeAPIKey &&
 		a.ChannelType == newapiconstant.ChannelTypeAnthropic && a.Extra[CursorSourceExtraKey] == "cursor"
@@ -173,7 +218,7 @@ func ImportCursorAccount(ctx context.Context, admin cursorAccountAdmin, client c
 	parameters := make(map[string]any)
 	wireModels := make(map[string]any)
 	for _, model := range claim.Models {
-		if model.ID == "" || model.ID == "default" || model.ID == "auto" || model.ID == cursorRetiredComposerModel || strings.HasPrefix(model.ID, cursorExcludedModelPrefix) {
+		if !cursorServingModelAllowed(model.ID) {
 			continue
 		}
 		selected := cursor.DefaultParameters(model)

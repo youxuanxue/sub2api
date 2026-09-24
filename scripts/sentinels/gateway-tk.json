@@ -13488,9 +13488,11 @@
     {
       "path": "backend/internal/service/account_tk_cursor.go",
       "must_contain": [
-        "strings.HasPrefix(model.ID, cursorExcludedModelPrefix)"
+        "func cursorServingModelAllowed(",
+        "cursorServingModelPrefixes",
+        "!cursorServingModelAllowed(model.ID)"
       ],
-      "rationale": "Cursor import and reconnect must not reintroduce GPT mappings from upstream discovery."
+      "rationale": "Cursor import and reconnect must only admit Claude/Grok/Composer/Muse families and must not reintroduce GPT or other non-allowlisted catalog rows."
     },
     {
       "path": "backend/internal/service/antigravity_gateway_service.go",

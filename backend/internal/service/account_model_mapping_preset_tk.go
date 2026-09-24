@@ -192,7 +192,8 @@ func NewAPIModelMappingPresetIDsForAccount(account *Account) []string {
 		return nil
 	}
 	if account.IsCursor() {
-		return tkServedModelsManifestPresetIDsForSelector(PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh")
+		return filterCursorServingModelIDs(tkServedModelsManifestPresetIDsForSelector(
+			PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh"))
 	}
 	if isNewAPINVIDIABuildAccount(account) {
 		return tkServedModelsManifestPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
@@ -243,7 +244,8 @@ func NewAPIModelDisplayIDsForAccount(account *Account) []string {
 		return nil
 	}
 	if account.IsCursor() {
-		return tkServedModelsManifestDisplayPresetIDsForSelector(PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh")
+		return filterCursorServingModelIDs(tkServedModelsManifestDisplayPresetIDsForSelector(
+			PlatformNewAPI, 14, "https://agentn.global.api5.cursor.sh"))
 	}
 	if isNewAPINVIDIABuildAccount(account) {
 		return tkServedModelsManifestDisplayPresetIDsForSelector(account.Platform, account.ChannelType, account.GetBaseURL())
