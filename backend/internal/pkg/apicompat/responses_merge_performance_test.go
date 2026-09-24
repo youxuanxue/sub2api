@@ -104,3 +104,11 @@ func TestMergeConsecutiveMessagesAllocationGrowth(t *testing.T) {
 	small, large := allocated(16), allocated(64)
 	require.Less(t, large, small*6, "4x history must not incur quadratic allocation growth")
 }
+
+// mergeConsecutiveMessages adapts the standalone merge contract for regression tests.
+func mergeConsecutiveMessages(messages []AnthropicMessage) []AnthropicMessage {
+	if len(messages) <= 1 {
+		return messages
+	}
+	return materializeAnthropicHistory(mergeAnthropicHistory(newAnthropicHistory(messages)))
+}

@@ -131,16 +131,25 @@ func BuildProtocolEndpointCapabilityLinkInput(account *Account) (ProtocolEndpoin
 }
 
 func (i ProtocolEndpointIdentity) CanonicalJSON() ([]byte, error) {
-	if i.KeySchemaVersion != protocolEndpointCapabilityKeySchemaVersion {
-		return nil, fmt.Errorf("unsupported protocol endpoint identity schema version %d", i.KeySchemaVersion)
-	}
-	if strings.TrimSpace(i.Platform) == "" || strings.TrimSpace(i.EndpointProfile) == "" || strings.TrimSpace(i.UpstreamRequestProfile) == "" {
-		return nil, errors.New("protocol endpoint identity is incomplete")
-	}
-	if len(i.ProtocolEndpoints) == 0 {
-		return nil, errors.New("protocol endpoint identity requires at least one endpoint")
+	if err := i.validate(); err != nil {
+		return nil, err
 	}
 	return json.Marshal(i)
+}
+
+// Identity fields are strings and string-keyed maps of concrete values. Validate
+// their contract without encoding a throwaway copy before the caller hashes it.
+func (i ProtocolEndpointIdentity) validate() error {
+	if i.KeySchemaVersion != protocolEndpointCapabilityKeySchemaVersion {
+		return fmt.Errorf("unsupported protocol endpoint identity schema version %d", i.KeySchemaVersion)
+	}
+	if strings.TrimSpace(i.Platform) == "" || strings.TrimSpace(i.EndpointProfile) == "" || strings.TrimSpace(i.UpstreamRequestProfile) == "" {
+		return errors.New("protocol endpoint identity is incomplete")
+	}
+	if len(i.ProtocolEndpoints) == 0 {
+		return errors.New("protocol endpoint identity requires at least one endpoint")
+	}
+	return nil
 }
 
 func (i ProtocolEndpointIdentity) Key() string {
@@ -195,7 +204,7 @@ func BuildProtocolEndpointIdentity(account *Account) (ProtocolEndpointIdentity, 
 	if len(identity.ProtocolEndpoints) == 0 {
 		return ProtocolEndpointIdentity{}, true, errors.New("governed account has no explicit protocol endpoint identity")
 	}
-	if _, err := identity.CanonicalJSON(); err != nil {
+	if err := identity.validate(); err != nil {
 		return ProtocolEndpointIdentity{}, true, err
 	}
 	return identity, true, nil
@@ -213,6 +222,9 @@ func fillCustomTextProtocolEndpoints(
 	if identity.ProtocolEndpoints == nil {
 		identity.ProtocolEndpoints = make(map[protocolrouter.Protocol]ProtocolEndpoint)
 	}
+	// Reuse only within this construction. Every later call still observes the
+	// account's current endpoint and header configuration.
+	normalized := make(map[string]*url.URL, 3)
 	for _, protocol := range []protocolrouter.Protocol{
 		protocolrouter.ProtocolMessages,
 		protocolrouter.ProtocolChatCompletions,
@@ -225,7 +237,16 @@ func fillCustomTextProtocolEndpoints(
 		if configured == "" {
 			continue
 		}
-		endpointURL, err := normalizeProtocolEndpointURL(configured, protocol)
+		parsed := normalized[configured]
+		if parsed == nil {
+			var err error
+			parsed, err = normalizeEndpointIdentityURL(configured)
+			if err != nil {
+				return fmt.Errorf("normalize %s endpoint identity: %w", protocol, err)
+			}
+			normalized[configured] = parsed
+		}
+		endpointURL, err := protocolEndpointURL(*parsed, protocol)
 		if err != nil {
 			return fmt.Errorf("normalize %s endpoint identity: %w", protocol, err)
 		}
@@ -322,11 +343,8 @@ func protocolAPIVersion(account *Account, protocol protocolrouter.Protocol) stri
 	return ""
 }
 
-func normalizeProtocolEndpointURL(raw string, protocol protocolrouter.Protocol) (string, error) {
-	parsed, err := normalizeEndpointIdentityURL(raw)
-	if err != nil {
-		return "", err
-	}
+// Work on a value copy so appending one protocol's path cannot affect another.
+func protocolEndpointURL(parsed url.URL, protocol protocolrouter.Protocol) (string, error) {
 	endpointPath := ""
 	switch protocol {
 	case protocolrouter.ProtocolMessages:

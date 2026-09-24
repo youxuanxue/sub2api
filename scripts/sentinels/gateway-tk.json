@@ -13829,12 +13829,28 @@
     },
     {
       "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+      "must_contain": ["messages = normalizeAnthropicHistory(messages)"],
+      "rationale": "Responses eligibility and execution share decoded history normalization."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/chat_to_anthropic_request.go",
+      "must_contain": ["return systemJSON, normalizeAnthropicHistory(messages), nil"],
+      "rationale": "Chat uses the same history owner as Responses."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/anthropic_history.go",
       "must_contain": [
         "for end < len(messages) && messages[end].Role == messages[start].Role",
-        "blocks = append(blocks, parseContentBlocks(messages[i].Content)...)",
-        "messages = normalizeAnthropicToolPairing(messages)"
+        "blocks = append(blocks, messages[i].contentBlocks()...)",
+        "history = normalizeAnthropicToolPairing(history)",
+        "return materializeAnthropicHistory(mergeAnthropicHistory(history))"
       ],
-      "rationale": "Merge each same-role run once to avoid quadratic history conversion while retaining shared tool-pair repair for eligibility and execution."
+      "rationale": "Keep linear merges and tool-pair repair on one decoded representation, materializing changed messages only at the boundary."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/anthropic_history_test.go",
+      "must_contain": ["TestAnthropicHistoryMatchesLegacy", "FuzzAnthropicHistoryMatchesLegacy", "BenchmarkAnthropicHistory"],
+      "rationale": "Differential checks preserve legacy tool-pairing semantics and caller ownership while benchmarking reduced JSON work."
     },
     {
       "path": "backend/internal/pkg/apicompat/responses_merge_performance_test.go",
@@ -13915,6 +13931,25 @@
       "rationale": "Real PostgreSQL must preserve account membership, soft deletion, disabled support candidates, global link counts, transaction-local revisions/relinks and runtime facts through candidate hydration."
     },
     {
+      "path": "backend/internal/service/protocol_endpoint_identity.go",
+      "must_contain": [
+        "func (i ProtocolEndpointIdentity) validate() error",
+        "normalized := make(map[string]*url.URL, 3)",
+        "endpointURL, err := protocolEndpointURL(*parsed, protocol)",
+        "func protocolEndpointURL(parsed url.URL, protocol protocolrouter.Protocol)"
+      ],
+      "rationale": "Avoid throwaway identity encoding and repeated same-base parsing within a single build, keeping independent per-protocol URL values and fresh account reads."
+    },
+    {
+      "path": "backend/internal/service/protocol_endpoint_identity_reuse_test.go",
+      "must_contain": [
+        "TestProtocolEndpointIdentityURLReusePreservesPathsAndFreshness",
+        "TestProtocolEndpointIdentityReuseKeepsURLRejections",
+        "TestProtocolEndpointIdentityValidationKeepsCanonicalEncoding"
+      ],
+      "rationale": "Preserve canonical identity bytes, per-protocol paths and API versions, URL rejections and observation of subsequent account changes."
+    },
+    {
       "path": "backend/internal/handler/gateway_handler_tk_protocol_execute.go",
       "must_contain": [
         "if account.IsCursor() {",
@@ -13933,5 +13968,6 @@
       ],
       "rationale": "Regression: anthropic-group MessagesIdentity for Cursor must hit AgentService/Run with Cursor HTTP/2 profile."
     }
+
   ]
 }
