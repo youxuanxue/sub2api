@@ -15,7 +15,9 @@ import (
 	"time"
 
 	pb "github.com/Wei-Shaw/sub2api/internal/integration/cursor/agentpb"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -690,7 +692,18 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 			default:
 				fields := protobufFieldNumbers(exec)
 				errText, errCode := outsideExecThrowMessage(fields)
-				for _, reply := range execClientThrowAndClose(exec, errText, errCode) {
+				logger.FromContext(ctx).Warn("cursor_agentrun_outside_exec_throw",
+					zap.String("surface", "exec"),
+					zap.Ints("fields", fields),
+					zap.String("exec_id", exec.GetExecId()),
+					zap.Uint32("exec_frame_id", exec.GetId()),
+					zap.String("error_code", errCode),
+				)
+				replies := execClientThrowAndClose(exec, errText, errCode)
+				if testOutsideExecThrowHook != nil {
+					testOutsideExecThrowHook(fields, len(replies))
+				}
+				for _, reply := range replies {
 					if err := send(reply); err != nil {
 						return result, err
 					}
