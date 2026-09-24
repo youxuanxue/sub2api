@@ -6570,6 +6570,7 @@
         "func tkNoAvailableAccounts",
         "func tkSelectFailureStatusMessage",
         "isOpsNoAvailableAccountError(err)",
+        "errors.Is(err, service.ErrUniversalCapacityUnavailable)",
         "http.StatusTooManyRequests",
         "Retry-After",
         "errors.Is(err, service.ErrUnsupportedModel)",
@@ -6581,6 +6582,7 @@
       "path": "backend/internal/handler/openai_compat_selection_failure_tk.go",
       "must_contain": [
         "func openAICompatFirstAttemptSelectionFailure(",
+        "errors.Is(err, service.ErrUniversalCapacityUnavailable)",
         "err != nil && !isOpsNoAvailableAccountError(err)",
         "classifyOpenAICompatibleNoAccountErrorFromGin(c, diag, apiKey, routingModel, displayModel)",
         "tkSelectFailureStatusMessage(c, err, displayModel)"
@@ -6588,14 +6590,24 @@
       "rationale": "SSOT for first-attempt openai/newapi/grok compat account-selection HTTP semantics: unsupported model name -> 400 invalid_request_error; persistent group mapping gap -> 404 model_not_found via classifyOpenAICompatibleNoAccountErrorFromGin (group platform, not hard-coded PlatformOpenAI); genuine empty pool -> 429+Retry-After via tkSelectFailureStatusMessage. Fixes prod embeddings 503 misclassification (user16/newapi/text-embedding-3-small) and prevents per-route drift across chat/responses/messages/count_tokens/images/embeddings/video. Regression: openai_compat_selection_failure_tk_test.go."
     },
     {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "func isOpsNoAvailableAccountError(err error) bool",
+        "errors.Is(err, service.ErrUniversalCapacityUnavailable)"
+      ],
+      "rationale": "The shared capacity predicate must recognize candidate scheduler capacity errors through wrapping. Both first-selection HTTP handling and ops attribution consume it; losing the typed sentinel turns capacity into opaque internal 503 (#2286/#2287)."
+    },
+    {
       "path": "backend/internal/handler/openai_compat_selection_failure_tk_test.go",
       "must_contain": [
         "scheduler fault stays 503 even when mapping is absent",
         "deprecated model stays 400 before mapping diagnosis",
         "embeddings regression newapi group model not in mapping -> 404 model_not_found",
-        "genuine empty pool -> 429 with Retry-After"
+        "genuine empty pool -> 429 with Retry-After",
+        "candidate capacity errors retain retry and ops routing semantics",
+        "candidate capacity bypasses billing group mapping gap"
       ],
-      "rationale": "Behavior-level regression matrix pins client-owned 400, persistent mapping-gap 404, empty-pool 429 and genuine scheduler-fault 503 precedence."
+      "rationale": "Behavior-level regression matrix pins client-owned 400, persistent mapping-gap 404, empty-pool 429 and genuine scheduler-fault 503 precedence. Bare, wrapped and diagnostic candidate capacity errors must retain Retry-After and routing attribution (#2286/#2287)."
     },
     {
       "path": "backend/internal/handler/openai_embeddings.go",
