@@ -27,6 +27,7 @@ Generated from live Gin route registrations; do not edit this section.
 - `POST /api/v1/admin/accounts/:id/clear-error` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/clear-rate-limit` from `backend/internal/server/routes/admin.go`
 - `POST /api/v1/admin/accounts/:id/duplicate` from `backend/internal/server/routes/admin.go`
+- `POST /api/v1/admin/accounts/:id/gemini-web-session` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/accounts/:id/grok-media-eligibility` from `backend/internal/server/routes/admin.go`
 - `PUT /api/v1/admin/accounts/:id/grok-media-eligibility` from `backend/internal/server/routes/admin.go`
 - `GET /api/v1/admin/accounts/:id/models` from `backend/internal/server/routes/admin.go`

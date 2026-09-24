@@ -3,10 +3,108 @@
 package repository
 
 import (
+	"context"
+	"sync"
+	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
 )
+
+func (s *AccountRepoSuite) TestGeminiWebExplicitImportConflictsAndPreservesAccount() {
+	a := mustCreateAccount(s.T(), s.client, &service.Account{Name: "import-cas", Platform: service.PlatformGemini,
+		Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{"api_key": "key", "model_mapping": map[string]any{"public": "upstream"},
+			"gemini_web": map[string]any{"runtime": map[string]any{"version": 1, "user_agent": "old"}}}})
+	lease, err := s.repo.AcquireGeminiWebLease(s.ctx, a.ID, "worker")
+	s.Require().NoError(err)
+	s.Require().True(lease)
+	apply := func(version int64, ua string, want bool) {
+		ok, err := s.repo.ImportGeminiWebSession(s.ctx, a.ID, version, map[string]any{"user_agent": ua})
+		s.Require().NoError(err)
+		s.Require().Equal(want, ok)
+	}
+	apply(1, "busy-import", false)
+	ok, err := s.repo.CompareAndSwapGeminiWebRuntime(s.ctx, a.ID, 1, "worker", map[string]any{"user_agent": "worker-refresh"})
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	s.Require().NoError(s.repo.ReleaseGeminiWebLease(s.ctx, a.ID, "worker"))
+	apply(1, "stale-import", false)
+	// A pause and credential rotation after the import's read must survive.
+	_, err = s.client.ExecContext(s.ctx, `UPDATE accounts SET schedulable=false, status='error',
+		credentials=jsonb_set(credentials,'{api_key}','"rotated"') WHERE id=$1`, a.ID)
+	s.Require().NoError(err)
+	apply(2, "imported", true)
+	apply(2, "competing-import", false)
+	loaded, err := s.repo.GetByID(s.ctx, a.ID)
+	s.Require().NoError(err)
+	s.Require().False(loaded.Schedulable)
+	s.Require().Equal("error", loaded.Status)
+	s.Require().Equal("rotated", loaded.Credentials["api_key"])
+	s.Require().Equal(a.Credentials["model_mapping"], loaded.Credentials["model_mapping"])
+	web := loaded.Credentials["gemini_web"].(map[string]any)
+	s.Require().Equal("imported", web["runtime"].(map[string]any)["user_agent"])
+	s.Require().Equal(float64(3), web["runtime"].(map[string]any)["version"])
+	// An old ordinary editor must not resurrect its earlier runtime.
+	loaded.Credentials["gemini_web"] = a.Credentials["gemini_web"]
+	loaded.Name = "edited"
+	s.Require().NoError(s.repo.Update(s.ctx, loaded))
+	loaded, err = s.repo.GetByID(s.ctx, a.ID)
+	s.Require().NoError(err)
+	s.Require().Equal("imported", loaded.Credentials["gemini_web"].(map[string]any)["runtime"].(map[string]any)["user_agent"])
+	// Repeat the target boundary in SQL, including a relay changed after handler read.
+	for _, credentials := range []map[string]any{
+		{"api_key": "plain"},
+		{"gemini_web": map[string]any{}},
+		{"gemini_web_relay": true, "gemini_web": web},
+	} {
+		b := mustCreateAccount(s.T(), s.client, &service.Account{Name: "non-worker", Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey, Credentials: credentials})
+		version := int64(0)
+		if credentials["gemini_web_relay"] == true {
+			version = 3
+		}
+		ok, err := s.repo.ImportGeminiWebSession(s.ctx, b.ID, version, map[string]any{"user_agent": "reject"})
+		s.Require().NoError(err)
+		s.Require().False(ok)
+	}
+}
+
+func TestGeminiWebConcurrentImportsHaveOneWinner(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	a := mustCreateAccount(t, client, &service.Account{Name: "concurrent-import", Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"gemini_web": map[string]any{"runtime": map[string]any{"version": 1}}}})
+	t.Cleanup(func() { require.NoError(t, client.Account.DeleteOneID(a.ID).Exec(ctx)) })
+	r := newAccountRepositoryWithSQL(client, integrationDB, nil, nil)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	won := make([]bool, 2)
+	errs := make([]error, 2)
+	for i := range won {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			won[i], errs[i] = r.ImportGeminiWebSession(ctx, a.ID, 1, map[string]any{"user_agent": []string{"first", "second"}[i]})
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	require.NotEqual(t, won[0], won[1], "exactly one import can commit expected version 1")
+	loaded, err := r.GetByID(ctx, a.ID)
+	require.NoError(t, err)
+	runtime := loaded.Credentials["gemini_web"].(map[string]any)["runtime"].(map[string]any)
+	winner := "second"
+	if won[0] {
+		winner = "first"
+	}
+	require.Equal(t, winner, runtime["user_agent"])
+	require.Equal(t, float64(2), runtime["version"])
+}
 
 func (s *AccountRepoSuite) TestGeminiWebMaintenanceOnlyReturnsDueAccounts() {
 	now := time.Now().Unix()

@@ -439,12 +439,36 @@ func candidatePathAllowsEndpoint(ctx context.Context, account *Account, group *G
 
 func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error {
 	if err != nil && (!supported || !errors.Is(err, protocolrouter.ErrNoLegalRoute)) {
+		capacity := newUniversalCapacityError(platformHint, groupID, diag)
+		if remapped, ok := remapProtocolSelectionFailure(err, capacity); ok {
+			return remapped
+		}
 		return err
 	}
 	if supported {
 		return newUniversalCapacityError(platformHint, groupID, diag)
 	}
 	return fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
+}
+
+// remapProtocolSelectionFailure classifies unknown/conflicted protocol capability
+// away from opaque platform 500s ("Failed to prepare authorized candidates").
+//
+// These failures are treated as capacity (429): capability links can recover
+// without a client model change (us4 2026-09-23 prepare storm self-healed in
+// ~45m). They are NOT unsupported-model — see candidate-eligibility SSOT /
+// TestCandidateEligibilityUnknownCapabilityIsNotEntitlement.
+func remapProtocolSelectionFailure(err, capacity error) (error, bool) {
+	if err == nil {
+		return nil, false
+	}
+	if !errors.Is(err, ErrProtocolCapabilityUnknown) && !errors.Is(err, ErrProtocolRouteUnavailable) {
+		return nil, false
+	}
+	if capacity != nil {
+		return capacity, true
+	}
+	return ErrUniversalCapacityUnavailable, true
 }
 
 func candidateIgnorableSupportError(err error) bool {

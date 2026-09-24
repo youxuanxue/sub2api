@@ -84,15 +84,16 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 		}
 		return context.WithValue(ctx, protocolRoutingContextKey{}, false)
 	}
-	// Only stream/type are needed here. Full encoding/json Unmarshal walks the
-	// entire payload and dominated live CPU under candidate selection. Match the
-	// old Unmarshal-into-struct fail-closed rules for mistyped fields; JSON null
-	// still maps to the zero value (false / "") like encoding/json.
-	streamRes := gjson.GetBytes(body, "stream")
+	// Stream/type and thinking share one metadata projection, avoiding repeated
+	// scans of long message histories. Match the old Unmarshal-into-struct
+	// fail-closed rules for mistyped fields; JSON null still maps to the zero
+	// value (false / "") like encoding/json.
+	metadata := gatewayRequestRoutingMetadata(body)
+	streamRes := gjson.GetBytes(metadata, "stream")
 	if streamRes.Exists() && streamRes.Type != gjson.True && streamRes.Type != gjson.False && streamRes.Type != gjson.Null {
 		return ctx
 	}
-	typeRes := gjson.GetBytes(body, "type")
+	typeRes := gjson.GetBytes(metadata, "type")
 	if typeRes.Exists() && typeRes.Type != gjson.String && typeRes.Type != gjson.Null {
 		return ctx
 	}
@@ -115,7 +116,7 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 		return ctx
 	}
 	if shape != ShapeGemini {
-		ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(body, string(inbound)), false)
+		ctx = WithThinkingEnabled(ctx, gatewayRequestThinkingEnabled(metadata, string(inbound)), false)
 	}
 	return WithProtocolRouting(ctx, router, request)
 }
@@ -237,6 +238,15 @@ func (r *UniversalRoutingResolver) pickCandidateBackingGroup(ctx context.Context
 		// another peer already classified an unsupported model.
 		if !supported && unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable)) {
 			return nil, fmt.Errorf("%w: %s", ErrUniversalUnsupportedModel, model)
+		}
+		capacity := ErrUniversalCapacityUnavailable
+		if supported && capacityHint != nil {
+			capacity = newUniversalCapacityError(capacityHint.Platform, capacityHint.ID, nil)
+		}
+		// Bare protocol-capability failures (no concrete unsupportedModel peer)
+		// become capacity — retryable platform state, not opaque prepare-500.
+		if remapped, ok := remapProtocolSelectionFailure(evaluationErr, capacity); ok {
+			return nil, remapped
 		}
 		return nil, evaluationErr
 	}

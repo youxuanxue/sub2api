@@ -1713,9 +1713,11 @@
         "cursorContent *cursorRequestContentCache",
         "r.cursorContent = nil",
         "IsExplicitImageGenerationIntent(\"\", model, request.Body())",
-        "func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error"
+        "func candidateSelectionError(supported bool, err error, model, platformHint string, groupID int64, diag *CandidateCapacityDiag) error",
+        "remapProtocolSelectionFailure(err, capacity)",
+        "func remapProtocolSelectionFailure(err, capacity error) (error, bool)"
       ],
-      "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution. Empty-pool capacity errors carry the request-local selection diagnostics."
+      "rationale": "One request owns authorization, canonical model preparation, continuation account and billing rebinding before execution. Empty-pool capacity errors carry the request-local selection diagnostics. Protocol capability unknown/route-unavailable must remap to capacity 429 via remapProtocolSelectionFailure — never opaque prepare-500."
     },
     {
       "path": "backend/internal/service/candidate_failure_tk.go",
@@ -2560,14 +2562,16 @@
       "path": "backend/internal/service/universal_candidate_eligibility.go",
       "must_contain": [
         "protocolrouter.ParseCanonicalRequest",
-        "gatewayRequestThinkingEnabled(body, string(inbound))",
+        "gatewayRequestThinkingEnabled(metadata, string(inbound))",
         "group.IsSubscriptionType() != best.group.IsSubscriptionType()",
         "ErrUniversalCapacityUnavailable",
         "Diag     *CandidateCapacityDiag",
         "!state.Supported || !state.Available",
-        "unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable))"
+        "unsupportedModel && (errors.Is(evaluationErr, ErrProtocolCapabilityUnknown) || errors.Is(evaluationErr, ErrProtocolRouteUnavailable))",
+        "remapProtocolSelectionFailure(evaluationErr, capacity)",
+        "metadata := gatewayRequestRoutingMetadata(body)"
       ],
-      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence. UniversalCapacityError may carry selection diagnostics."
+      "rationale": "Canonical parsing and the remaining legacy Universal adapter retain request features, subscription priority and capacity/error classification. Concrete model misses outrank unknown peer capability evidence. UniversalCapacityError may carry selection diagnostics. Bare protocol-capability failures (no concrete unsupportedModel peer) remap to capacity."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk.go",
@@ -2579,9 +2583,10 @@
         "writeUniversalRoutingCapacityError",
         "service.CandidateCapacityDiagFromError(err)",
         "zap.String(\"reject_reasons\", summary)",
-        "apiKey.GroupID = &backing.ID"
+        "apiKey.GroupID = &backing.ID",
+        "errors.Is(err, service.ErrProtocolCapabilityUnknown) || errors.Is(err, service.ErrProtocolRouteUnavailable)"
       ],
-      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model. capacity_unavailable logs selection filter counts when present."
+      "rationale": "Actual request profile reaches candidate admission before billing binding; the legacy fallback remains explicit. True routing internals stay platform-owned 500 with sanitized ops detail — not remapped to client unsupported_model. capacity_unavailable logs selection filter counts when present. Residual protocol capability/route errors must write capacity 429 (defense in depth), not opaque prepare-500."
     },
     {
       "path": "backend/internal/server/middleware/universal_routing_tk_alias_test.go",
@@ -12992,7 +12997,8 @@
         "ForwardAsAnthropic(ctx, c, account, body",
         "TestCursorContentCacheKeepsRequestModelAndAccountBoundaries",
         "TestCursorCachedContentDoesNotCopyLongRequest",
-        "BenchmarkCursorCachedContent"
+        "BenchmarkCursorCachedContent",
+        "BenchmarkCursorUncachedResponsesHistory"
       ],
       "rationale": "Regression coverage pins actual image-size admission and Cursor forwarding/content-cache behavior, including rejection and freshness boundaries."
     },
@@ -13751,6 +13757,78 @@
         "return tkRegistryAliasOwnerPricing(\"claude-opus-5-5\")"
       ],
       "rationale": "Recognized Opus 5.5 spellings must resolve their own registry owner before the broad Opus 5 floor; protocol support must not silently activate old-family billing."
+    },
+    {
+      "path": "backend/internal/handler/ops_error_logger.go",
+      "must_contain": [
+        "func applyOpsInternalErrorDetailFromContext(c *gin.Context, entry *service.OpsInsertErrorLogInput)",
+        "applyOpsInternalErrorDetailFromContext(c, entry)",
+        "c.Get(service.OpsInternalErrorDetailKey)"
+      ],
+      "rationale": "Middleware-sanitized OpsInternalErrorDetail must persist into upstream_error_detail when empty so protocol-capability capacity remaps remain diggable without schema change. Dropping the helper or its call sites re-blinds ops on prepare→429 storms."
+    },
+    {
+      "path": "backend/internal/service/candidate_selection_error_tk_test.go",
+      "must_contain": [
+        "TestRemapProtocolSelectionFailure",
+        "TestCandidateSelectionError_ProtocolDoesNotOpaque500",
+        "remapProtocolSelectionFailure(err, capacity)"
+      ],
+      "rationale": "Focused regression that protocol capability unknown/route-unavailable becomes capacity 429 (not unsupported-model and not opaque 500)."
+    },
+    {
+      "path": "backend/internal/server/middleware/universal_routing_tk_test.go",
+      "must_contain": [
+        "TestMaybeResolveUniversal_ProtocolCapabilityUnknownIs429Not500"
+      ],
+      "rationale": "Middleware defense-in-depth: residual ErrProtocolCapabilityUnknown must still emit capacity 429 with ops detail."
+    },
+    {      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+      "must_contain": [
+        "for end < len(messages) && messages[end].Role == messages[start].Role",
+        "blocks = append(blocks, parseContentBlocks(messages[i].Content)...)",
+        "messages = normalizeAnthropicToolPairing(messages)"
+      ],
+      "rationale": "Merge each same-role run once to avoid quadratic history conversion while retaining shared tool-pair repair for eligibility and execution."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/responses_merge_performance_test.go",
+      "must_contain": [
+        "TestMergeConsecutiveMessagesPreservesContentAndInput",
+        "TestResponsesParallelHistoryPreservesToolOrder",
+        "TestMergeConsecutiveMessagesAllocationGrowth",
+        "BenchmarkResponsesParallelHistory"
+      ],
+      "rationale": "Preserve mixed content, singleton bytes, tool order and caller ownership while bounding allocation growth for long same-role histories."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_routing_metadata_tk.go",
+      "must_contain": [
+        "func gatewayRequestRoutingMetadata(",
+        "root.ForEach(",
+        "metadata = append(metadata, key.Raw...)",
+        "metadata = append(metadata, value.Raw...)"
+      ],
+      "rationale": "Extract stream/thinking metadata in one walk while preserving raw selector semantics; the original body still owns the canonical request."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_routing_metadata_tk_test.go",
+      "must_contain": [
+        "TestGatewayRoutingMetadataPreservesSelectorSemantics",
+        "FuzzGatewayRoutingMetadataPreservesSelectors",
+        "TestWithRequestProfileRoutingMetadataKeepsCanonicalBody"
+      ],
+      "rationale": "Protect duplicate/escaped keys, effort precedence, mistyped stream rejection, original canonical body and digest during metadata extraction."
+    },
+    {
+      "path": "backend/internal/service/candidate_path_context_cache_tk_test.go",
+      "must_contain": [
+        "TestCandidatePathContextPreparerCachesPerGroup",
+        "TestWithRequestRejectsMistypedStreamWithoutFullUnmarshal",
+        "TestWithRequestProfileReusesProfileAcrossModelRewrite",
+        "BenchmarkWithRequestProfileRoutingFields"
+      ],
+      "rationale": "Preserve per-group request context lifetime, stream validation and model rewrite semantics; measure routing preparation with fields before/after long histories."
     }
   ]
 }

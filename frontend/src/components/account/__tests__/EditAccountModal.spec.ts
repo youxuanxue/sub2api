@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
-const { updateAccountMock, probeProtocolsMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock, listSupplierSourcesMock, showErrorMock, showInfoMock, showSuccessMock, authIsSimpleMode } = vi.hoisted(() => ({
+const { importGeminiWebSessionMock, updateAccountMock, probeProtocolsMock, checkMixedChannelRiskMock, getWebSearchEmulationConfigMock, getSettingsMock, listTLSFingerprintProfilesMock, listSupplierSourcesMock, showErrorMock, showInfoMock, showSuccessMock, authIsSimpleMode } = vi.hoisted(() => ({
+  importGeminiWebSessionMock: vi.fn(),
   updateAccountMock: vi.fn(),
   probeProtocolsMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock('@/stores/auth', () => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      importGeminiWebSession: importGeminiWebSessionMock,
       update: updateAccountMock,
       probeProtocols: probeProtocolsMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
@@ -73,6 +75,7 @@ vi.mock('vue-i18n', async () => {
 import EditAccountModal from '../EditAccountModal.vue'
 
 beforeEach(() => {
+  importGeminiWebSessionMock.mockReset()
   updateAccountMock.mockReset()
   probeProtocolsMock.mockReset()
   checkMixedChannelRiskMock.mockReset()
@@ -377,6 +380,89 @@ function mountModal(account = buildAccount(), groups: any[] = [], renderGroupSel
 }
 
 describe('EditAccountModal', () => {
+  describe('Gemini Web session import', () => {
+    const worker = (id = 28) => ({ ...buildAccount(), id, platform: 'gemini', type: 'apikey',
+      credentials: {}, credentials_status: { has_gemini_web: true, has_api_key: true } })
+    const bundle = { format: 'tokenkey-gemini-web-session-v1', user_agent: 'fixture',
+      cookies: [{ name: 'SID', value: 'SYNTHETIC_COOKIE', domain: '.google.com', expires: -1 }] }
+    const choose = async (wrapper: ReturnType<typeof mountModal>, file: { size: number; text: () => Promise<string> }) => {
+      const input = wrapper.get('[data-testid="gemini-web-session-file"]')
+      Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+      await input.trigger('change')
+      await flushPromises()
+    }
+    it('imports only into the bound Worker and emits a redacted account', async () => {
+      const account = worker()
+      importGeminiWebSessionMock.mockResolvedValue({ account, session: { cookie_count: 1, runtime_version: 8 } })
+      const wrapper = mountModal(account)
+      await choose(wrapper, { size: 200, text: async () => JSON.stringify(bundle) })
+      expect(importGeminiWebSessionMock).toHaveBeenCalledWith(28, bundle)
+      expect(updateAccountMock).not.toHaveBeenCalled()
+      expect(wrapper.emitted('updated')).toEqual([[account]])
+      await wrapper.setProps({ account: { ...account } })
+      expect(wrapper.text()).toContain('"version":8')
+      expect(wrapper.text()).not.toContain('SYNTHETIC_COOKIE')
+      wrapper.unmount()
+    })
+    it.each(['plain', 'relay', 'relay-extra', 'oauth'])('hides import for %s accounts', (kind) => {
+      const account = worker() as any
+      if (kind === 'plain') account.credentials_status = { has_api_key: true }
+      if (kind === 'relay') account.credentials.gemini_web_relay = true
+      if (kind === 'relay-extra') account.extra = { relay_kind: 'gemini_web' }
+      if (kind === 'oauth') account.type = 'oauth'
+      const wrapper = mountModal(account)
+      expect(wrapper.find('[data-testid="gemini-web-session-file"]').exists()).toBe(false)
+      expect(importGeminiWebSessionMock).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
+    it('rejects oversized files before reading, and never renders raw parser or API errors', async () => {
+      const wrapper = mountModal(worker())
+      const text = vi.fn()
+      await choose(wrapper, { size: 2 * 1024 * 1024 + 1, text })
+      expect(text).not.toHaveBeenCalled()
+      expect(showErrorMock).toHaveBeenLastCalledWith('admin.accounts.gemini.webSessionImportTooLarge')
+      await choose(wrapper, { size: 20, text: async () => '{"value":SECRET_COOKIE}' })
+      expect(showErrorMock).toHaveBeenLastCalledWith('admin.accounts.gemini.webSessionImportInvalid')
+      expect(importGeminiWebSessionMock).not.toHaveBeenCalled()
+      importGeminiWebSessionMock.mockRejectedValue({ status: 409, message: 'SECRET_COOKIE' })
+      await choose(wrapper, { size: 200, text: async () => JSON.stringify(bundle) })
+      expect(showErrorMock).toHaveBeenLastCalledWith('admin.accounts.gemini.webSessionImportConflict')
+      expect(wrapper.emitted('updated')).toBeUndefined()
+      importGeminiWebSessionMock.mockRejectedValue(new Error('SECRET_COOKIE'))
+      await choose(wrapper, { size: 200, text: async () => JSON.stringify(bundle) })
+      expect(showErrorMock).toHaveBeenLastCalledWith('admin.accounts.gemini.webSessionImportInvalid')
+      expect(JSON.stringify(showErrorMock.mock.calls)).not.toContain('SECRET_COOKIE')
+      wrapper.unmount()
+    })
+    it.each(['switch', 'close', 'unmount'])('invalidates deferred file reads on %s', async (action) => {
+      const wrapper = mountModal(worker())
+      let resolve!: (value: string) => void
+      const reading = new Promise<string>(done => { resolve = done })
+      await choose(wrapper, { size: 200, text: () => reading })
+      if (action === 'switch') await wrapper.setProps({ account: worker(31) })
+      else if (action === 'close') await wrapper.setProps({ show: false })
+      else wrapper.unmount()
+      resolve(JSON.stringify(bundle))
+      await flushPromises()
+      expect(importGeminiWebSessionMock).not.toHaveBeenCalled()
+      expect(showSuccessMock).not.toHaveBeenCalled()
+      if (action !== 'unmount') wrapper.unmount()
+    })
+    it('ignores an old HTTP completion after opening another account', async () => {
+      const wrapper = mountModal(worker())
+      let resolve!: (value: unknown) => void
+      importGeminiWebSessionMock.mockReturnValue(new Promise(done => { resolve = done }))
+      await choose(wrapper, { size: 200, text: async () => JSON.stringify(bundle) })
+      await wrapper.setProps({ account: worker(31) })
+      resolve({ account: worker(), session: { cookie_count: 1, runtime_version: 8 } })
+      await flushPromises()
+      expect(importGeminiWebSessionMock).toHaveBeenCalledWith(28, bundle)
+      expect(wrapper.emitted('updated')).toBeUndefined()
+      expect(showSuccessMock).not.toHaveBeenCalled()
+      expect(wrapper.text()).not.toContain('"version":8')
+      wrapper.unmount()
+    })
+  })
   it.each(['inherit', 'enabled', 'disabled', 'block'] as const)('persists the single Codex image control in %s mode', async (mode) => {
     const account = buildAccount()
     account.extra = { codex_image_generation_bridge_enabled: true }

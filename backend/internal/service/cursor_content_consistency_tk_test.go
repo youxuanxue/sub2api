@@ -130,3 +130,31 @@ func (u *cursorContentHTTPUpstream) Do(req *http.Request, _ string, _ int64, _ i
 	u.responses = u.responses[1:]
 	return response, nil
 }
+
+// Exercise conversion on every iteration, independently of the warm content cache.
+func BenchmarkCursorUncachedResponsesHistory(b *testing.B) {
+	const model = "claude-sonnet-4-6"
+	for _, n := range []int{1, 16, 64} {
+		b.Run(fmt.Sprintf("tools_%d", n), func(b *testing.B) {
+			var input strings.Builder
+			input.WriteString(`{"model":"` + model + `","input":[{"role":"user","content":"run tools"}`)
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(&input, `,{"type":"function_call","call_id":"call_%d","name":"exec","arguments":"{}"}`, i)
+			}
+			for i := 0; i < n; i++ {
+				fmt.Fprintf(&input, `,{"type":"function_call_output","call_id":"call_%d","output":%q}`, i, strings.Repeat("result ", 600))
+			}
+			input.WriteString(`]}`)
+			request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolResponses, protocolrouter.ResponsesPathRoot, model, false, []byte(input.String()))
+			require.NoError(b, err)
+			require.True(b, cursorProtocolContentSupported(request, model))
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if !cursorProtocolContentSupported(request, model) {
+					b.Fatal("supported history rejected")
+				}
+			}
+		})
+	}
+}

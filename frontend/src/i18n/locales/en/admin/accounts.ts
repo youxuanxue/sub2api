@@ -1391,6 +1391,13 @@ export default {
           'All model requests are forwarded directly to the Gemini API without model restrictions or mappings.',
         baseUrlHint: 'Leave default for official Gemini API',
         apiKeyHint: 'Your Gemini API Key (starts with AIza)',
+        webSessionImportTitle: 'Import Gemini Web browser session',
+        webSessionImportHint: 'In the edge admin running the Worker, choose the exported browser JSON (up to 2 MiB). This updates only this account’s browser session and keeps scheduling unchanged. Import success does not verify Google sign-in.',
+        webSessionImportInvalid: 'Invalid Gemini Web session JSON',
+        webSessionImportTooLarge: 'Session file exceeds 2 MiB. Export it again.',
+        webSessionImportConflict: 'The session changed or the Worker is using it. Retry the import later.',
+        webSessionImportDone: 'Gemini Web session imported successfully',
+        webSessionImportSuccess: 'Imported {count} cookies (runtime version {version})',
         tier: {
           label: 'Account Tier',
           hint: 'Tip: The system will try to auto-detect the tier first; if auto-detection is unavailable or fails, your selected tier is used as a fallback (simulated quota).',

@@ -15,6 +15,24 @@ import (
 // Account names, public model aliases and edge hostnames are not capabilities.
 const GeminiWebRelayCredentialKey = "gemini_web_relay"
 
+// CanImportGeminiWebSession accepts only an existing local Worker binding.
+// Production relays reference an edge account; importing into their database
+// would not update that edge's session. Names, URLs and model aliases are not identity.
+func CanImportGeminiWebSession(account *Account) bool {
+	if account == nil || account.Platform != PlatformGemini || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	if relay, exists := account.Credentials[GeminiWebRelayCredentialKey]; exists && relay != false {
+		return false
+	}
+	if account.Extra["relay_kind"] == "gemini_web" {
+		return false
+	}
+	web, _ := account.Credentials["gemini_web"].(map[string]any)
+	_, bound := web["runtime"].(map[string]any)
+	return bound
+}
+
 func isGeminiWebAccount(account *Account) bool {
 	if account == nil || account.Platform != PlatformGemini || account.Type != AccountTypeAPIKey {
 		return false

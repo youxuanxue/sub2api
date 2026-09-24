@@ -66,7 +66,7 @@ func TestCursorCandidateRuntimeAndCapabilityGates(t *testing.T) {
 		{"disabled", func(a *Account) { a.Schedulable = false }, ErrUniversalCapacityUnavailable},
 		{"cooldown", func(a *Account) { until := time.Now().Add(time.Hour); a.RateLimitResetAt = &until }, ErrUniversalCapacityUnavailable},
 		{"no_credential", func(a *Account) { delete(a.Credentials, "api_key") }, ErrUniversalCapacityUnavailable},
-		{"no_protocol", func(a *Account) { attachTestProtocolCapability(a) }, ErrProtocolCapabilityUnknown},
+		{"no_protocol", func(a *Account) { attachTestProtocolCapability(a) }, ErrUniversalCapacityUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			a := cursorCandidateAccount(model)

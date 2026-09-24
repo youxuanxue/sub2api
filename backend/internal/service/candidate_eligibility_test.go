@@ -193,6 +193,7 @@ func TestCandidateEligibilityUnknownCapabilityIsNotEntitlement(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrUniversalNoEntitledGroup)
 	require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
+	require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
 }
 
 func TestCandidateEligibilityKnownRouteRejectionIsNotInternal(t *testing.T) {
@@ -237,6 +238,19 @@ func TestCandidateEligibilityErrorPrecedence(t *testing.T) {
 			require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
 		}
 	}
+}
+
+func TestCandidateEligibilityAllProtocolUnknownIsCapacityNot500(t *testing.T) {
+	resolver := NewUniversalRoutingResolver(&stubSpanLister{})
+	groups := []Group{grp(1, PlatformNewAPI, 1, false), grp(2, PlatformNewAPI, 2, false)}
+	_, err := resolver.pickCandidateBackingGroup(context.Background(), 1, groups, "kimi-k2.7-code", ShapeOpenAIChat,
+		func(context.Context, Group, string, UniversalShape) (GroupCandidateEligibility, error) {
+			return GroupCandidateEligibility{}, fmt.Errorf("%w: conflicted", ErrProtocolCapabilityUnknown)
+		})
+	require.ErrorIs(t, err, ErrUniversalCapacityUnavailable)
+	require.NotErrorIs(t, err, ErrProtocolCapabilityUnknown)
+	require.NotErrorIs(t, err, ErrUniversalUnsupportedModel)
+	require.NotErrorIs(t, err, ErrUniversalNoEntitledGroup)
 }
 
 func TestCandidateEligibilityGeminiChatMappingWithInvalidPeer(t *testing.T) {

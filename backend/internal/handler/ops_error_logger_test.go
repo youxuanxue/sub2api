@@ -1709,6 +1709,41 @@ func TestApplyOpsUpstreamFieldsFinalStatuslessAttemptClearsStaleContext(t *testi
 	require.Equal(t, "connection reset", *entry.UpstreamErrorDetail)
 }
 
+func TestApplyOpsInternalErrorDetailFromContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("fills_empty_upstream_error_detail", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, "protocol route unavailable: capability conflicted")
+		c.Set(service.OpsRoutingInternalErrorKey, true)
+		entry := &service.OpsInsertErrorLogInput{
+			ErrorMessage: "Failed to prepare authorized candidates for this request. Please retry.",
+			StatusCode:   http.StatusInternalServerError,
+		}
+		applyOpsInternalErrorDetailFromContext(c, entry)
+		require.NotNil(t, entry.UpstreamErrorDetail)
+		require.Equal(t, "protocol route unavailable: capability conflicted", *entry.UpstreamErrorDetail)
+		require.Equal(t, "Failed to prepare authorized candidates for this request. Please retry.", entry.ErrorMessage)
+	})
+
+	t.Run("does_not_overwrite_real_upstream_detail", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, "middleware detail")
+		upstream := "real upstream body"
+		entry := &service.OpsInsertErrorLogInput{UpstreamErrorDetail: &upstream}
+		applyOpsInternalErrorDetailFromContext(c, entry)
+		require.Equal(t, "real upstream body", *entry.UpstreamErrorDetail)
+	})
+
+	t.Run("ignores_blank_detail", func(t *testing.T) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Set(service.OpsInternalErrorDetailKey, "   ")
+		entry := &service.OpsInsertErrorLogInput{}
+		applyOpsInternalErrorDetailFromContext(c, entry)
+		require.Nil(t, entry.UpstreamErrorDetail)
+	})
+}
+
 func TestOpsCaptureWriter_ProtocolLevelTerminalFrameDetection(t *testing.T) {
 	state := &opsCaptureWriterState{limit: opsCaptureWriterLimit}
 	chunks := []string{

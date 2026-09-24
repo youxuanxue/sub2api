@@ -3,6 +3,7 @@ import copy
 import http.client
 import io
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -67,6 +68,18 @@ class Control:
 
 
 class WorkerTests(unittest.TestCase):
+    def test_admin_cookie_scope_matches_worker_owner(self):
+        handler = (Path(__file__).resolve().parents[2] / 'backend/internal/handler/admin/account_handler_gemini_web_import.go').read_text()
+        projection = handler.split('var geminiWebAllowedCookieDomains =', 1)[1].split('\n}', 1)[0]
+        domains = set(re.findall(r'"([a-z0-9.-]+)"\s*:', projection))
+        self.assertEqual(domains, worker.ALLOWED_COOKIE_DOMAINS)
+        for domain in domains:
+            exported = bundle()
+            exported['cookies'][0].update(domain='.' + domain, expires=-1)
+            account = worker.Account(exported)
+            self.assertEqual(account.session.cookies.get('__Secure-1PSID'), 'cookie-one')
+            account.close()
+
     def test_scheduler_admission_contract_fixtures(self):
         cases = json.loads(Path(__file__).with_name('request_contract_cases.json').read_text())
         for case in cases:
@@ -228,6 +241,16 @@ class WorkerTests(unittest.TestCase):
             self.assertNotIn('secret', str(error.exception))
         restored.session.close()
 
+    def test_generation_auth_failure_clears_pending_but_keeps_session_blocked(self):
+        with patch.object(self.account.session, 'request', return_value=SimpleNamespace(status_code=403, headers={})):
+            with self.assertRaisesRegex(worker.Failure, 'operator verification'):
+                self.account.generate('gemini-web-flash', {
+                    'contents': [{'parts': [{'text': 'x'}]}]})
+        self.assertTrue(self.account.blocked)
+        self.assertFalse(self.account.generation_pending)
+        self.assertFalse(self.saved['generation_pending'])
+        self.assertTrue(self.saved['blocked'])
+
     def test_uncertain_generation_is_not_repeated_after_restart(self):
         with patch.object(self.account, 'call', side_effect=worker.Failure(502, 'uncertain transport')) as call:
             with self.assertRaises(worker.Failure):
@@ -239,6 +262,18 @@ class WorkerTests(unittest.TestCase):
                 restored.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
             call.assert_not_called()
         restored.session.close()
+
+    def test_local_pending_pause_survives_repeated_retries(self):
+        with patch.object(self.account, 'call', side_effect=worker.Failure(502, 'uncertain transport')):
+            with self.assertRaises(worker.Failure):
+                self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
+        self.assertTrue(self.account.generation_pending)
+        with patch.object(self.account, 'call', return_value=(None, wire().encode())) as call:
+            for _ in range(2):
+                with self.assertRaisesRegex(worker.Failure, 'paused'):
+                    self.account.generate('gemini-web-flash', {'contents': [{'parts': [{'text': 'x'}]}]})
+            call.assert_not_called()
+        self.assertTrue(self.account.generation_pending)
 
     def test_import_requires_renewal_and_refresh_uses_same_jar(self):
         imported = worker.Account(bundle('cookie-fresh'), persist_callback=self.save)

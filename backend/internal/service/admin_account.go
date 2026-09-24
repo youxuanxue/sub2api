@@ -567,6 +567,27 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	return updated, nil
 }
 
+// ImportGeminiWebSession atomically replaces only the managed browser runtime.
+// It deliberately bypasses the generic full-account update path so an editor
+// cannot overwrite API keys, model mappings, status, or scheduling fields from
+// a stale account snapshot.
+func (s *adminServiceImpl) ImportGeminiWebSession(ctx context.Context, id, expectedVersion int64, runtime map[string]any) (*Account, error) {
+	importer, ok := s.accountRepo.(interface {
+		ImportGeminiWebSession(context.Context, int64, int64, map[string]any) (bool, error)
+	})
+	if !ok {
+		return nil, errors.New("gemini web session import is unavailable")
+	}
+	applied, err := importer.ImportGeminiWebSession(ctx, id, expectedVersion, runtime)
+	if err != nil {
+		return nil, err
+	}
+	if !applied {
+		return nil, infraerrors.New(http.StatusConflict, "GEMINI_WEB_SESSION_CONFLICT", "Gemini Web session changed while importing; retry with the latest account")
+	}
+	return s.GetAccount(ctx, id)
+}
+
 func (s *adminServiceImpl) GetAccountModelMappingPresetIDs(ctx context.Context, platform string, channelType int) ([]string, error) {
 	return AccountModelMappingPresetIDs(ctx, platform, channelType, nil), nil
 }

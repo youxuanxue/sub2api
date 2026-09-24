@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -150,6 +151,39 @@ func TestPasskeyLoginAuditUsesCanonicalLoginActionAndOmitsCredentialBody(t *test
 	route := "POST /api/v1/auth/passkey/login/finish"
 	require.Equal(t, service.AuditActionLogin, auditActionOverrides[route])
 	require.Contains(t, auditBodyOmittedRoutes, route)
+}
+
+func TestGeminiWebSessionImportAuditOmitsCredentialBody(t *testing.T) {
+	route := "POST /api/v1/admin/accounts/:id/gemini-web-session"
+	require.Equal(t, "admin.accounts.gemini_web_session.import", auditActionOverrides[route])
+	for _, status := range []int{http.StatusOK, http.StatusConflict} {
+		repository := &auditCaptureRepository{}
+		auditService := service.NewAuditLogService(repository, nil)
+		auditService.Start()
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set(string(ContextKeyUser), AuthSubject{UserID: 77})
+			c.Set(string(ContextKeyUserRole), "admin")
+			c.Next()
+		})
+		router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+		router.POST("/api/v1/admin/accounts/:id/gemini-web-session", func(c *gin.Context) {
+			c.JSON(status, gin.H{"code": status})
+		})
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/28/gemini-web-session",
+			strings.NewReader(`{"user_agent":"private-browser","cookies":[{"name":"SID","value":"audit-canary-cookie"}]}`))
+		request.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, request)
+		auditService.Stop()
+		require.Equal(t, status, w.Code)
+		repository.mu.Lock()
+		logs := append([]*service.AuditLog(nil), repository.logs...)
+		repository.mu.Unlock()
+		require.Len(t, logs, 1)
+		require.Equal(t, "<credential-bearing body omitted>", logs[0].RequestBody)
+		require.NotContains(t, logs[0].RequestBody, "audit-canary")
+	}
 }
 
 // Ollama 会话保存的请求体整体就是浏览器 Cookie 明文，键级脱敏清单曾漏掉裸键
