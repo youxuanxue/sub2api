@@ -67,8 +67,8 @@
     },
     {
       "path": "ops/gemini-web/test_worker.py",
-      "must_contain": ["def test_control_maintenance_refreshes_compact_account_list", "def test_drain_finishes_inflight_request_and_releases_lease", "def test_large_image_decode_and_buffer_fit_container_budget"],
-      "rationale": "Preserve the regression proving compact warm-account references drive maintenance."
+      "must_contain": ["def test_control_maintenance_refreshes_compact_account_list", "def test_drain_finishes_inflight_request_and_releases_lease", "def test_large_image_decode_and_buffer_fit_container_budget", "def test_image_mode_applies_captured_aspect_ratio_fields"],
+      "rationale": "Preserve the regression proving compact warm-account references drive maintenance and the captured image-ratio RPC mapping."
     },
     {
       "path": "backend/internal/repository/account_gemini_web_tk_integration_test.go",

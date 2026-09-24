@@ -33,6 +33,7 @@ GENERATE = ORIGIN + '/_/BardChatUi/data/assistant.lamda.BardFrontendService/Stre
 IMAGE_HOSTS = frozenset(('lh3.googleusercontent.com', 'lh3.google.com', 'work.fife.usercontent.google.com'))
 MODELS = {'gemini-web-flash': ('Flash', False), 'gemini-web-pro': ('Pro', False),
           'gemini-web-pro-image': ('Pro', True)}
+IMAGE_ASPECT_ENUM = {'9:16': 59, '3:4': 60, '1:1': 61, '4:3': 62, '16:9': 63}
 MAX_BYTES = 24 * 1024 * 1024
 BROWSER_PROFILE = BrowserType.chrome145.value  # Fail startup if dependency cannot provide it.
 REFRESH_SECONDS = 600
@@ -193,7 +194,7 @@ def request_prompt(body, model):
     if model not in MODELS:
         raise Failure(404, 'Unknown Gemini Web model')
     if not isinstance(body, dict) or set(body) - {'contents', 'generationConfig'}:
-        raise Failure(400, 'Supported request fields: contents and generationConfig.responseModalities')
+        raise Failure(400, 'Supported request fields: contents and generationConfig')
     contents = body.get('contents')
     if not isinstance(contents, list) or len(contents) != 1:
         raise Failure(400, 'This adapter currently supports one user turn per request')
@@ -210,14 +211,23 @@ def request_prompt(body, model):
     if not prompt.strip() or len(prompt) > 32000:
         raise Failure(400, 'Prompt must contain 1 to 32000 characters')
     config = body.get('generationConfig', {})
-    if not isinstance(config, dict) or set(config) - {'responseModalities'}:
+    allowed_config = {'responseModalities'} | ({'imageConfig'} if MODELS[model][1] else set())
+    if not isinstance(config, dict) or set(config) - allowed_config:
         raise Failure(400, 'Unsupported generationConfig field')
     modalities = config.get('responseModalities', ['TEXT', 'IMAGE'] if MODELS[model][1] else ['TEXT'])
     if (not isinstance(modalities, list) or not modalities
             or any(x not in ('TEXT', 'IMAGE') for x in modalities)
             or ('IMAGE' in modalities) != MODELS[model][1]):
         raise Failure(400, 'responseModalities must match the selected Web text/image model')
-    return prompt, modalities
+    image_config = config.get('imageConfig')
+    aspect_ratio = None
+    if image_config is not None:
+        if not MODELS[model][1] or not isinstance(image_config, dict) or set(image_config) != {'aspectRatio'}:
+            raise Failure(400, 'imageConfig.aspectRatio is supported only for the Web image model')
+        aspect_ratio = image_config.get('aspectRatio')
+        if aspect_ratio not in IMAGE_ASPECT_ENUM:
+            raise Failure(400, 'Unsupported imageConfig.aspectRatio')
+    return prompt, modalities, aspect_ratio
 
 
 class Account:
@@ -421,7 +431,7 @@ class Account:
         raise Failure(502, 'Full-size image authorization did not finish; no preview fallback')
 
     def generate(self, model, body):
-        prompt, modalities = request_prompt(body, model)
+        prompt, modalities, aspect_ratio = request_prompt(body, model)
         blocked_at_start = self.blocked
         try:
             if self.blocked or self.generation_pending:
@@ -452,6 +462,14 @@ class Account:
                 for index, value in {49: 14, 54: [], 55: [], 68: 2,
                                      91: 0, 96: 0, 98: 1}.items():
                     inner[index] = value
+                if aspect_ratio is not None:
+                    # Captured from the real Gemini Images page. The ratio is
+                    # represented twice in the browser RPC: the string in the
+                    # image request options and the numeric aspect enum.
+                    inner[0] = [prompt, 0, None, None, None, None, 0, None, None,
+                                [None, None, None, None, None, None,
+                                 [None, [None, aspect_ratio]]]]
+                    inner[55] = [[IMAGE_ASPECT_ENUM[aspect_ratio]]]
             request_id = str(uuid.uuid4()).upper()
             inner[59] = request_id
             headers = {'Origin': ORIGIN, 'Referer': ORIGIN + '/', 'X-Same-Domain': '1',

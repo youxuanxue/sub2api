@@ -18,7 +18,7 @@ GenerateContentResponse 格式。用户明确要求删除文件模式，控制�
 操作步骤不再是实施指令，历史调查保存在
 [先前版本](https://github.com/youxuanxue/sub2api/blob/f48c07d3fb4799392ebe0b113238cd2d43a61267/docs/approved/gemini-web-channel.md)。
 
-本轮不部署、不调用真实 Google、不启用商业定价。用户已确认在编辑账号中导入浏览器
+导入实现阶段不部署、不调用真实 Google、不启用商业定价。用户已确认在编辑账号中导入浏览器
 JSON，并要求消除并发、适用边界与凭证泄露风险。身份去重与保存时 bootstrap 验证
 不属于完成声明；导入成功仅证明持久化成功。API Key 输入框不能直接粘贴 Cookie。
 
@@ -60,7 +60,8 @@ Worker 校验该账号的 API key，不能仅凭 account ID 执行。维护任�
 
 Admin 的“测试账号”复用同一 account ID header owner，绑定本地 runtime 的账号才注入；
 prod 中继不携带本地 ID。测试请求按显式 Worker/relay 声明生成单轮文本或
-TEXT+IMAGE，不附加 Worker 不支持的 systemInstruction 或 imageConfig。
+TEXT+IMAGE，不附加 Worker 不支持的 systemInstruction；生图可传入契约允许的
+imageConfig.aspectRatio。
 普通 Gemini 测试保持原请求形状；用户实际请求的角色、参数不作删减。
 此修复不绕过控制接口既有 active/schedulable 检查，也不自动恢复错误或开启调度。
 
@@ -130,7 +131,9 @@ SIGTERM 停止接收新任务并等待在途操作释放租约；异常崩溃仍
 
 Worker 支持 `gemini-web-flash`、`gemini-web-pro`、`gemini-web-pro-image`，
 表示 Web 类别而非官方付费 API 型号。只接受单轮文本和 responseModalities；
-其他 controls、tools、system、多模态输入和多轮历史在 Google 副作用前拒绝。
+生图可额外接受 `generationConfig.imageConfig.aspectRatio` 的 `1:1`、`9:16`、`3:4`、
+`4:3`、`16:9`，并映射到网页 RPC 已实测的比例字段。其他 controls、tools、system、
+多模态输入和多轮历史在 Google 副作用前拒绝。
 streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首 token 流式延迟。
 
 用户已确认先修复调度能力判断，不扩展或降级上述输入语义。共享候选准入在计费、
@@ -138,7 +141,7 @@ streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首
 edge 以 `credentials.gemini_web` 会话对象识别此能力边界；专用 prod 中继显式声明
 `credentials.gemini_web_relay=true`，不根据账号名、域名或公开模型别名推断。
 现有 Gemini API-key 账号仍走 native 能力 owner，不扩张 protocolrouter 的受管账号范围。
-原生单轮文本与生图保留（generateContent / streamGenerateContent）；原生 countTokens
+原生单轮文本与生图保留（generateContent / streamGenerateContent），包括上述五种比例；原生 countTokens
 不由 Worker 承接，继续选择其他授权兼容账号。Chat/Responses 转换会补入 Worker 不支持的 maxOutputTokens，
 Messages 的 max_tokens 也不能被静默丢弃，因此这些兼容入口不由该受限账号承接。
 Anthropic `count_tokens` 继续复用网关本地估算，不受 Worker 生成能力限制。
@@ -153,6 +156,13 @@ prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修
 不因下载失败重新生成。探测同样要求完整解码和正确账号用量归属。
 解码前拒绝超过 1600 万像素的图片；图片准入锁覆盖下载、解码及响应缓冲。
 不虚构 usageMetadata、modelVersion 或返回内部 thoughts。
+
+2026-09-24 在已登录的 11 号 AdsPower Gemini 页面逐项选择五种比例并抓取真实
+`StreamGenerate` 请求：比例字符串位于 `inner[0][9][6][1][1]`，枚举值位于
+`inner[55][0][0]`，映射为 `1:1→61`、`9:16→59`、`3:4→60`、`4:3→62`、
+`16:9→63`。`4:3` 返回 HTTP 200 和 1024×765，`9:16` 返回 HTTP 200 和
+572×1024。该证据仅验证网页协议映射；线上 TokenKey Worker 仍需部署后再做账号归属
+和 Cookie 会话验证。
 
 ## Implementation / Owners
 

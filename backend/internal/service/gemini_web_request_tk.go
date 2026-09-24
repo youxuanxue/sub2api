@@ -138,7 +138,14 @@ func geminiWebNativeBodySupported(body []byte, image bool) bool {
 	}
 	if raw, exists := root["generationConfig"]; exists {
 		config, ok := raw.(map[string]any)
-		if !ok || !geminiWebOnlyKeys(config, "responseModalities") {
+		if !ok {
+			return false
+		}
+		allowedConfigKeys := []string{"responseModalities"}
+		if image {
+			allowedConfigKeys = append(allowedConfigKeys, "imageConfig")
+		}
+		if !geminiWebOnlyKeys(config, allowedConfigKeys...) {
 			return false
 		}
 		if raw, exists := config["responseModalities"]; exists {
@@ -159,8 +166,27 @@ func geminiWebNativeBodySupported(body []byte, image bool) bool {
 				return false
 			}
 		}
+		if raw, exists := config["imageConfig"]; exists {
+			imageConfig, ok := raw.(map[string]any)
+			if !ok || !geminiWebOnlyKeys(imageConfig, "aspectRatio") {
+				return false
+			}
+			ratio, ok := imageConfig["aspectRatio"].(string)
+			if !ok || !geminiWebImageAspectRatioSupported(ratio) {
+				return false
+			}
+		}
 	}
 	return true
+}
+
+func geminiWebImageAspectRatioSupported(ratio string) bool {
+	switch ratio {
+	case "1:1", "9:16", "3:4", "4:3", "16:9":
+		return true
+	default:
+		return false
+	}
 }
 
 func geminiWebOnlyKeys(object map[string]any, allowed ...string) bool {
