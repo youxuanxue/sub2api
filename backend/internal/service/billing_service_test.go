@@ -2150,6 +2150,7 @@ func TestNewModelPricingAliasesRetainExplicitOverrides(t *testing.T) {
 }
 
 // Protocol support alone must not publish prices for new upstream models.
+// Models that already have a tk_pricing_overlay.json owner must not appear here.
 func TestNewModelPricingRequiresRegistryOwner(t *testing.T) {
 	data, err := os.ReadFile("../../resources/model-pricing/model_prices_and_context_window.json")
 	require.NoError(t, err)
@@ -2158,9 +2159,16 @@ func TestNewModelPricingRequiresRegistryOwner(t *testing.T) {
 	require.NoError(t, err)
 	for _, source := range []*PricingService{nil, catalog, {}} {
 		billing := NewBillingService(&config.Config{}, source)
-		for _, model := range []string{"gpt-6-sol", "gpt-6-sol-max", "gpt-6-luna", "gpt-6-luna-openai-compact", "claude-opus-5-5", "claude-opus-5-5-thinking"} {
+		for _, model := range []string{"gpt-6-sol", "gpt-6-sol-max", "gpt-6-luna", "gpt-6-luna-openai-compact"} {
 			_, err := billing.CalculateCost(model, UsageTokens{InputTokens: 1000, OutputTokens: 100}, 1)
 			require.ErrorIs(t, err, ErrModelPricingUnavailable, model)
 		}
+		// Published Cursor Opus 5.5 owner must settle once the registry is active.
+		cost, err := billing.CalculateCost("claude-opus-5-5", UsageTokens{InputTokens: 1000, OutputTokens: 100}, 1)
+		require.NoError(t, err, "claude-opus-5-5 must use the overlay registry owner")
+		require.Greater(t, cost.TotalCost, 0.0)
+		cost, err = billing.CalculateCost("claude-opus-5-5-thinking", UsageTokens{InputTokens: 1000, OutputTokens: 100}, 1)
+		require.NoError(t, err, "claude-opus-5-5 aliases must resolve to the overlay owner")
+		require.Greater(t, cost.TotalCost, 0.0)
 	}
 }
