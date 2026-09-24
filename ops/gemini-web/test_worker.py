@@ -85,12 +85,16 @@ class WorkerTests(unittest.TestCase):
         for case in cases:
             with self.subTest(case=case['name']):
                 if case['accepted']:
-                    prompt, modalities = worker.request_prompt(case['body'], case['model'])
+                    prompt, modalities, _ = worker.request_prompt(case['body'], case['model'])
                     self.assertTrue(prompt.strip())
                     self.assertEqual('IMAGE' in modalities, worker.MODELS[case['model']][1])
                 else:
-                    with self.assertRaises(worker.Failure):
-                        worker.request_prompt(case['body'], case['model'])
+                    with patch.object(self.account, 'call') as call, patch.object(self.account, 'persist') as persist:
+                        with self.assertRaises(worker.Failure) as failure:
+                            self.account.generate(case['model'], case['body'])
+                        self.assertEqual(failure.exception.code, 400)
+                        call.assert_not_called()
+                        persist.assert_not_called()
 
     def test_pinned_transport_can_configure_profile_without_network(self):
         from curl_cffi import Curl
@@ -165,6 +169,43 @@ class WorkerTests(unittest.TestCase):
         download.assert_called_once_with(('image-id', 'c_one', 'r_one', 'rc_one'))
         self.assertEqual(call.call_count, 1)
         self.assertFalse(self.account.generation_pending)
+
+    def test_image_mode_applies_captured_aspect_ratio_fields(self):
+        expected = {'9:16': 59, '3:4': 60, '1:1': 61, '4:3': 62, '16:9': 63}
+        for ratio, enum in expected.items():
+            with self.subTest(ratio=ratio):
+                with patch.object(self.account, 'call', return_value=(None, wire(images=True).encode())) as call:
+                    with patch.object(self.account, 'download', return_value={'inlineData': {'mimeType': 'image/jpeg', 'data': 'aW1hZ2U='}}):
+                        self.account.generate('gemini-web-pro-image', {
+                            'contents': [{'parts': [{'text': 'Draw a cube'}]}],
+                            'generationConfig': {
+                                'responseModalities': ['IMAGE'],
+                                'imageConfig': {'aspectRatio': ratio},
+                            },
+                        })
+                inner = json.loads(json.loads(call.call_args.kwargs['data']['f.req'])[1])
+                self.assertEqual(inner[0][9][6][1][1], ratio)
+                self.assertEqual(inner[55], [[enum]])
+
+    def test_null_image_config_uses_default_image_options(self):
+        original = {'inlineData': {'mimeType': 'image/jpeg', 'data': 'b3JpZ2luYWw='}}
+        requests = []
+        for image_config in ({}, {'imageConfig': None}):
+            with self.subTest(image_config=image_config):
+                with patch.object(self.account, 'call', return_value=(None, wire(images=True).encode())) as call:
+                    with patch.object(self.account, 'download', return_value=original):
+                        result = self.account.generate('gemini-web-pro-image', {
+                            'contents': [{'parts': [{'text': 'Draw a cube'}]}],
+                            'generationConfig': {'responseModalities': ['IMAGE'], **image_config},
+                        })
+                self.assertEqual(result['candidates'][0]['content']['parts'], [original])
+                call.assert_called_once()
+                inner = json.loads(json.loads(call.call_args.kwargs['data']['f.req'])[1])
+                self.assertEqual(inner[0], ['Draw a cube', 0, None, None, None, None, 0])
+                self.assertEqual(inner[55], [])
+                inner[59] = None  # Each generation has an independent request ID.
+                requests.append(inner)
+        self.assertEqual(requests[0], requests[1])
 
     def test_text_request_retains_text_mode_and_current_model(self):
         with patch.object(self.account, 'call', return_value=(None, wire().encode())) as call:
