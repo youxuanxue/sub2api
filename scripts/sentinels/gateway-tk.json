@@ -13810,13 +13810,30 @@
       ],
       "rationale": "Middleware defense-in-depth: residual ErrProtocolCapabilityUnknown must still emit capacity 429 with ops detail."
     },
-    {      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+    {
+      "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
+      "must_contain": ["messages = normalizeAnthropicHistory(messages)"],
+      "rationale": "Responses eligibility and execution share decoded history normalization."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/chat_to_anthropic_request.go",
+      "must_contain": ["return systemJSON, normalizeAnthropicHistory(messages), nil"],
+      "rationale": "Chat uses the same history owner as Responses."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/anthropic_history.go",
       "must_contain": [
         "for end < len(messages) && messages[end].Role == messages[start].Role",
-        "blocks = append(blocks, parseContentBlocks(messages[i].Content)...)",
-        "messages = normalizeAnthropicToolPairing(messages)"
+        "blocks = append(blocks, messages[i].contentBlocks()...)",
+        "history = normalizeAnthropicToolPairing(history)",
+        "return materializeAnthropicHistory(mergeAnthropicHistory(history))"
       ],
-      "rationale": "Merge each same-role run once to avoid quadratic history conversion while retaining shared tool-pair repair for eligibility and execution."
+      "rationale": "Keep linear merges and tool-pair repair on one decoded representation, materializing changed messages only at the boundary."
+    },
+    {
+      "path": "backend/internal/pkg/apicompat/anthropic_history_test.go",
+      "must_contain": ["TestAnthropicHistoryMatchesLegacy", "FuzzAnthropicHistoryMatchesLegacy", "BenchmarkAnthropicHistory"],
+      "rationale": "Differential checks preserve legacy tool-pairing semantics and caller ownership while benchmarking reduced JSON work."
     },
     {
       "path": "backend/internal/pkg/apicompat/responses_merge_performance_test.go",

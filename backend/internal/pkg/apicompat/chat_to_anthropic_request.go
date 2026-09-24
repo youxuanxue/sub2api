@@ -159,7 +159,5 @@ func chatCacheAwareAnthropicMessages(req *ChatCompletionsRequest) (json.RawMessa
 	if len(system) > 0 {
 		systemJSON, _ = json.Marshal(system)
 	}
-	messages = mergeConsecutiveMessages(messages)
-	messages = normalizeAnthropicToolPairing(messages)
-	return systemJSON, mergeConsecutiveMessages(messages), nil
+	return systemJSON, normalizeAnthropicHistory(messages), nil
 }
