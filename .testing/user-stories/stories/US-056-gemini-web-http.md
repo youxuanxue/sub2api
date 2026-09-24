@@ -25,6 +25,7 @@
 10. AC-010 初始化：复制 Worker 账号保留空 `gemini_web` 声明；首次导入以版本 1 原子初始化并保持调度关闭，普通 Gemini API Key 和 prod 中继仍拒绝。
 11. AC-011 导入安全：仅声明本地 Worker 能力的账号可导入，中继/普通账号拒绝；错误和响应不含 Cookie；文件上限、Cookie 类型、版本、域范围与 CDP 会话有效期均按契约处理。
 12. AC-012 UI 生命周期：真实编辑页面可选文件导入并显示提交摘要；成功导入保留未保存的表单输入；畸形/超限文件不发送；读文件中关闭/切换或迟到 HTTP 响应不串号、不更新新弹窗。
+13. AC-013 后台账号测试：本地 Worker 注入真实选中账号引用；prod 中继不注入本地引用；文本及图片测试符合 Worker 请求契约，普通 Gemini 请求保持原样。
 
 ## Assertions
 
@@ -32,6 +33,7 @@
 
 ## Linked Tests
 
+- AC-013: `backend/internal/service/account_test_service_gemini_test.go`::`TestGeminiWebAdminTestUsesWorkerReferenceAndSupportedPayload`
 - AC-001: `ops/gemini-web/test_worker.py`::`WorkerTests.test_official_response_omits_unobserved_usage_and_thoughts`
 - AC-001: `ops/gemini-web/test_worker.py`::`WorkerTests.test_original_rpc_and_text_url_hops_return_real_bytes`
 - AC-002: `ops/gemini-web/test_worker.py`::`WorkerTests.test_http_auth_and_buffered_sse`

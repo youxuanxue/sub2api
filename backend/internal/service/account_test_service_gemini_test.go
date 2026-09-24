@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func (u *geminiAccountTestUpstream) DoWithTLS(req *http.Request, proxyURL string
 func TestCreateGeminiTestPayload_ImageModel(t *testing.T) {
 	t.Parallel()
 
-	payload := createGeminiTestPayload("gemini-2.5-flash-image", "draw a tiny robot")
+	payload := createGeminiTestPayload(nil, "gemini-2.5-flash-image", "draw a tiny robot")
 
 	var parsed struct {
 		Contents []struct {
@@ -137,5 +138,56 @@ func TestGeminiAccountConnection_UsesPublicModelOnlyForAntigravityRelayHop(t *te
 			require.Contains(t, recorder.Body.String(), "\"model\":\""+publicModel+"\"")
 			require.Contains(t, recorder.Body.String(), "\"text\":\"ok\"")
 		})
+	}
+}
+
+func TestGeminiWebAdminTestUsesWorkerReferenceAndSupportedPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, kind := range []string{"worker", "relay", "ordinary"} {
+		for _, image := range []bool{false, true} {
+			t.Run(kind+"/image="+strconv.FormatBool(image), func(t *testing.T) {
+				model, mapped := "gemini-3.8-flash", "gemini-web-flash"
+				if image {
+					model, mapped = "gemini-3.1-flash-image", "gemini-web-pro-image"
+				}
+				account := &Account{ID: 38, Platform: PlatformGemini, Type: AccountTypeAPIKey,
+					Credentials: map[string]any{"api_key": "worker-key", "base_url": "https://worker.example.test",
+						"model_mapping": map[string]any{model: mapped}}}
+				wantReference := ""
+				switch kind {
+				case "worker":
+					account.Credentials["gemini_web"] = map[string]any{"runtime": map[string]any{"version": 1}}
+					wantReference = "38"
+				case "relay":
+					account.Credentials[GeminiWebRelayCredentialKey] = true
+				}
+				upstream := &geminiAccountTestUpstream{response: &http.Response{StatusCode: http.StatusOK,
+					Body: io.NopCloser(strings.NewReader("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}]},\"finishReason\":\"STOP\"}]}\n\n"))}}
+				svc := &AccountTestService{httpUpstream: upstream, cfg: &config.Config{}}
+				ctx, recorder := newTestContext()
+				ctx.Request.Header.Set("X-TokenKey-Gemini-Web-Account-ID", "999")
+				require.NoError(t, svc.testGeminiAccountConnection(ctx, account, model, "hi"))
+				require.Equal(t, wantReference, upstream.request.Header.Get("X-TokenKey-Gemini-Web-Account-ID"))
+				require.Equal(t, "worker-key", upstream.request.Header.Get("x-goog-api-key"))
+				require.Equal(t, "/v1beta/models/"+mapped+":streamGenerateContent", upstream.request.URL.Path)
+				body, err := io.ReadAll(upstream.request.Body)
+				require.NoError(t, err)
+				var payload map[string]any
+				require.NoError(t, json.Unmarshal(body, &payload))
+				if kind != "ordinary" {
+					require.True(t, geminiWebNativeBodySupported(body, image), string(body))
+					require.NotContains(t, payload, "systemInstruction")
+					if image {
+						require.Equal(t, map[string]any{"responseModalities": []any{"TEXT", "IMAGE"}}, payload["generationConfig"])
+					}
+				} else if image {
+					require.Equal(t, map[string]any{"aspectRatio": "1:1"}, payload["generationConfig"].(map[string]any)["imageConfig"])
+				} else {
+					require.Equal(t, map[string]any{"parts": []any{map[string]any{"text": "You are a helpful AI assistant."}}}, payload["systemInstruction"])
+				}
+				require.Equal(t, []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": "hi"}}}}, payload["contents"])
+				require.Contains(t, recorder.Body.String(), `"success":true`)
+			})
+		}
 	}
 }
