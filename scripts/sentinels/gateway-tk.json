@@ -787,10 +787,13 @@
         "input.Messages = preparedMessages",
         "newAgentHTTPRejection(resp.StatusCode",
         "&agentTransportError{cause: err}",
-        "if len(input.Tools) > 0 {",
+        "Never set X-Cursor-Agent-Allowed-Tools=mcp_tool_call",
+        "Required tool GET_MCP_TOOLS not found in allTools"
+      ],
+      "must_not_contain": [
         "req.Header.Set(\"X-Cursor-Agent-Allowed-Tools\", \"mcp_tool_call\")"
       ],
-      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Text-only Cursor runs must not advertise mcp_tool_call or upstream requires GET_MCP_TOOLS (prod #150 Connect internal)."
+      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Never advertise mcp_tool_call allowlist: Cursor then requires GET_MCP_TOOLS in allTools and returns Connect internal (prod #150 user16 claude-opus-5-5 final-502). Caller tools stay on RunAgent McpTools only."
     },
     {
       "path": "backend/internal/integration/cursor/agent_test.go",
@@ -799,10 +802,12 @@
         "TestAgentSystemCompatibilityPreservesHistory",
         "TestAgentUsagePresenceOnNativeWire",
         "TestAgentHistoryReconstructsNativeToolTurns",
-        "TestAgentAllowedToolsHeaderOnlyWithDeclaredTools",
-        "text-only runs must not advertise mcp_tool_call"
+        "TestAgentNeverAdvertisesMCPToolCallAllowlist",
+        "text-only runs must not advertise mcp_tool_call",
+        "mcp_tool_call allowlist triggers Required tool GET_MCP_TOOLS not found in allTools",
+        "require.Len(t, run.GetMcpTools().GetMcpTools(), 1)"
       ],
-      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard the GET_MCP_TOOLS allowlist only-when-tools-declared contract."
+      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard that tools never reintroduce the mcp_tool_call allowlist that caused prod #150 GET_MCP_TOOLS Connect internal, while still encoding caller tools on McpTools."
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",

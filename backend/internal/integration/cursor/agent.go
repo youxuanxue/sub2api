@@ -456,12 +456,12 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 	req.Header.Set("Connect-Accept-Encoding", "gzip")
 	req.Header.Set("X-Cursor-Client-Version", AgentClientVersion)
 	req.Header.Set("X-Cursor-Client-Type", "cli")
-	// Advertise mcp_tool_call only when we already declared tools in McpTools.
-	// An empty allTools list plus this header makes Cursor require GET_MCP_TOOLS
-	// and fail with Connect internal (prod #150 Recovered-502).
-	if len(input.Tools) > 0 {
-		req.Header.Set("X-Cursor-Agent-Allowed-Tools", "mcp_tool_call")
-	}
+	// Never set X-Cursor-Agent-Allowed-Tools=mcp_tool_call. That allowlist makes
+	// Cursor require built-in GET_MCP_TOOLS in allTools; TokenKey declares caller
+	// tools only via McpTools and does not ship GET_MCP_TOOLS. Advertising the
+	// header — even with declared tools — yields Connect internal
+	// "Required tool GET_MCP_TOOLS not found in allTools" (prod #150 user16
+	// claude-opus-5-5 final-502 burst). Tools remain on the RunAgent protobuf.
 	req.Header.Set("X-Ghost-Mode", "true")
 	req.Header.Set("X-Request-Id", uuid.NewString())
 	if err := send(&pb.AgentClientMessage{RunRequest: run}); err != nil {
