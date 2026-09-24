@@ -129,16 +129,22 @@ func TestAgentUsagePreservesCacheBuckets(t *testing.T) {
 }
 
 func TestAgentNeverAdvertisesMCPToolCallAllowlist(t *testing.T) {
-	// Positive: tools still travel on McpTools. Negative: allowlist header must
-	// stay absent — otherwise Cursor requires GET_MCP_TOOLS (prod #150 final-502).
-	var stream bytes.Buffer
-	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{
-		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(1), OutputTokens: proto.Int64(1), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)}}}))
-	_, err := RunAgent(context.Background(), "test-credential", AgentRequest{
+	// Positive: caller tools still encode on McpTools. Negative: allowlist header
+	// must stay absent — otherwise Cursor requires GET_MCP_TOOLS (prod #150 final-502).
+	input := AgentRequest{
 		Model:    "composer-2.5",
 		Messages: []AgentMessage{{Role: "user", Text: "use lookup"}},
 		Tools:    []AgentTool{{Name: "lookup", Description: "Look up a key.", Schema: map[string]any{"type": "object"}}},
-	}, func(req *http.Request) (*http.Response, error) {
+	}
+	run, _, err := buildAgentRun(input)
+	require.NoError(t, err)
+	require.Len(t, run.GetMcpTools().GetMcpTools(), 1)
+	require.Equal(t, "mcp__tokenkey__lookup", run.GetMcpTools().GetMcpTools()[0].GetName())
+
+	var stream bytes.Buffer
+	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{
+		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(1), OutputTokens: proto.Int64(1), CacheReadTokens: proto.Int64(0), CacheWriteTokens: proto.Int64(0)}}}))
+	_, err = RunAgent(context.Background(), "test-credential", input, func(req *http.Request) (*http.Response, error) {
 		require.Empty(t, req.Header.Get("X-Cursor-Agent-Allowed-Tools"),
 			"mcp_tool_call allowlist triggers Required tool GET_MCP_TOOLS not found in allTools")
 		return &http.Response{StatusCode: 200, ProtoMajor: 2, Body: io.NopCloser(&stream)}, nil

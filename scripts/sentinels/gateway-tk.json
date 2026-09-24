@@ -804,9 +804,10 @@
         "TestAgentHistoryReconstructsNativeToolTurns",
         "TestAgentNeverAdvertisesMCPToolCallAllowlist",
         "text-only runs must not advertise mcp_tool_call",
-        "mcp_tool_call allowlist triggers Required tool GET_MCP_TOOLS not found in allTools"
+        "mcp_tool_call allowlist triggers Required tool GET_MCP_TOOLS not found in allTools",
+        "require.Len(t, run.GetMcpTools().GetMcpTools(), 1)"
       ],
-      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard that tools never reintroduce the mcp_tool_call allowlist that caused prod #150 GET_MCP_TOOLS Connect internal."
+      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard that tools never reintroduce the mcp_tool_call allowlist that caused prod #150 GET_MCP_TOOLS Connect internal, while still encoding caller tools on McpTools."
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",
