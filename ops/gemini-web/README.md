@@ -34,8 +34,15 @@ uv run --with-requirements ops/gemini-web/export-requirements.txt \
 
 The export is a protected operator artifact, not Worker runtime storage. It contains
 `user_agent` and complete CDP cookie records, with a safe summary printed separately.
-The backend import UI and identity validation remain unimplemented; past file-canary
-installation commands are removed. Never put this export into an API Key field.
+In the target edge admin, open Accounts → edit the already-bound Gemini Web Worker account
+→ choose this JSON under **Import Gemini Web browser session**. The file must be at most
+2 MiB. Check the imported cookie count and committed runtime version. The account keeps its
+current scheduling state. A session conflict means a Worker operation or another import won;
+retry later after checking the account. Plain API-key accounts and production relays cannot
+receive browser sessions here. Initial Worker binding remains an operator setup action.
+
+Import success confirms database persistence, not Google sign-in or browser identity.
+Never put this export into an API Key field; do not send it to the production relay account.
 
 ## Validation
 
@@ -73,7 +80,8 @@ security to admit an upstream URL. Database-mode rollout must install valid runt
 before enabling those accounts; the old volume is not a fallback.
 
 Upgrade the backend first, keep Web accounts out of user-facing groups during validation,
-and install reviewed runtime credentials through the existing account update API.
+and establish the initial Worker binding through the existing account update API.
+Once bound, replace browser sessions through the dedicated admin import described above.
 Use the new image with the same environment/network settings to run `python worker.py --check
 <account-id> [<account-id>...]` before starting service. The check requires active, schedulable
 accounts with concurrency=1, valid local cookie records and no paused/pending/cooldown state.

@@ -151,6 +151,45 @@ func (r *accountRepository) CompareAndSwapGeminiWebRuntime(ctx context.Context, 
 	return affected == 1, nil
 }
 
+// ImportGeminiWebSession atomically replaces only the browser runtime. The
+// version predicate turns a stale editor/import into a conflict and the JSONB
+// expression preserves every unrelated credential and account column.
+func (r *accountRepository) ImportGeminiWebSession(ctx context.Context, id, expectedVersion int64, runtime map[string]any) (bool, error) {
+	if id <= 0 || expectedVersion < 0 || expectedVersion >= 1<<53-1 || runtime == nil {
+		return false, errors.New("invalid Gemini Web runtime version")
+	}
+	payload, err := json.Marshal(normalizeJSONMap(runtime))
+	if err != nil {
+		return false, err
+	}
+	result, err := r.sql.ExecContext(ctx, `
+		UPDATE accounts
+		SET credentials = jsonb_set(
+			credentials #- '{gemini_web,lease}',
+			'{gemini_web,runtime}',
+			jsonb_set($1::jsonb, '{version}', to_jsonb($2::bigint + 1), true),
+			true
+		), updated_at = NOW()
+		WHERE id = $3
+			AND deleted_at IS NULL
+			AND platform = 'gemini' AND type = 'apikey'
+			AND jsonb_typeof(credentials->'gemini_web'->'runtime') = 'object'
+			AND COALESCE(credentials->'gemini_web_relay', 'false'::jsonb) = 'false'::jsonb
+			AND extra->>'relay_kind' IS DISTINCT FROM 'gemini_web'
+			AND COALESCE(credentials->'gemini_web'->'runtime'->>'version', '0') = $2::text
+			AND COALESCE((credentials->'gemini_web'->'lease'->>'expires_at')::numeric, 0)
+				<= EXTRACT(EPOCH FROM clock_timestamp())
+	`, payload, expectedVersion, id)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected == 1, nil
+}
+
 // The 600s crash lease exceeds the worker's 480s total operation budget.
 // CAS and lease updates serialize on the account row, without holding a DB
 // connection throughout a potentially slow Google request.

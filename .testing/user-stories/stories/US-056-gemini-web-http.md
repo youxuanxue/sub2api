@@ -21,6 +21,9 @@
 6. AC-006 并发：竞争 owner 与过期租约不能执行/写回；自身保存不触发错误重载。
 7. AC-007 部署影响：空闲维护不写库、旧编辑不覆盖新导入；过载明确拒绝且健康检查可用；排空完成在途请求；超预算图片在解码前拒绝；不兼容控制 API 和暂停账号不能通过部署检查。
 8. AC-008 请求能力准入：不兼容 system、历史、tools、controls 的请求在选账号前跳过 Web 账号；万能 key 可选择其他授权账号，Direct 不越权换组；原生单轮文本与生图仍可用，等待后刷新重验能力声明。
+9. AC-009 导入并发：显式导入成功必须实际落库；竞争导入只有一个成功，Worker 更新或活跃租约使旧导入冲突；保留并发更新的 API Key、模型映射和暂停状态，旧编辑不覆盖新会话。
+10. AC-010 导入安全：仅已有本地 Worker 绑定可导入，中继/普通账号拒绝；错误和响应不含 Cookie；文件上限、Cookie 类型、版本、域范围与 CDP 会话有效期均按契约处理。
+11. AC-011 UI 生命周期：真实编辑页面可选文件导入并显示提交摘要；畸形/超限文件不发送；读文件中关闭/切换或迟到 HTTP 响应不串号、不更新新弹窗。
 
 ## Assertions
 
@@ -59,6 +62,16 @@
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebAdmissionMatchesWorkerContractFixtures`
 - AC-008: `backend/internal/service/gemini_web_request_tk_test.go`::`TestGeminiWebChatAndResponsesDefaultLimitIsNotWorkerCapability`
 - AC-008: `ops/gemini-web/test_worker.py`::`WorkerTests.test_scheduler_admission_contract_fixtures`
+- AC-009: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`TestGeminiWebConcurrentImportsHaveOneWinner`
+- AC-009: `backend/internal/repository/account_gemini_web_tk_integration_test.go`::`AccountRepoSuite.TestGeminiWebExplicitImportConflictsAndPreservesAccount`
+- AC-009: `backend/internal/service/admin_gemini_web_import_test.go`::`TestGeminiWebImportServiceReportsCASConflict`
+- AC-009: `backend/internal/handler/admin/account_handler_gemini_web_import_test.go`::`TestGeminiWebImportHandlerSuccessAndConflict`
+- AC-010: `backend/internal/handler/admin/account_handler_gemini_web_import_test.go`::`TestGeminiWebImportHandlerRejectsInvalidInputAndNonWorker`
+- AC-010: `backend/internal/handler/admin/account_handler_gemini_web_import_test.go`::`TestGeminiWebCookieScopeMatchesPythonOwner`
+- AC-010: `ops/gemini-web/test_worker.py`::`WorkerTests.test_admin_cookie_scope_matches_worker_owner`
+- AC-011: `frontend/src/components/account/__tests__/EditAccountModal.spec.ts`::`Gemini Web session import`
+- AC-011: `frontend/e2e/gemini-web-import.e2e.ts`::`Worker import success, redacted errors, size limit and relay boundary`
+- AC-011: `frontend/e2e/gemini-web-import.e2e.ts`::`switching accounts during file read cannot submit credentials to either account`
 
 运行命令：
 
@@ -66,12 +79,22 @@
 python3 -m pip install -r ops/gemini-web/requirements.txt
 python3 -m unittest discover -s ops/gemini-web -v
 python3 -m unittest discover -s ops/stage0 -p 'test_probe_account_model*.py'
+cd backend
+go test ./internal/handler/admin ./internal/service -run 'Test(GeminiWeb|ValidateGeminiWeb|NormalizeGeminiWeb)'
+go test -tags=integration ./internal/repository -run 'TestGeminiWebConcurrentImportsHaveOneWinner|TestAccountRepoSuite/TestGeminiWeb' -v
+cd ../frontend
+pnpm exec vitest run src/components/account/__tests__/EditAccountModal.spec.ts
+pnpm exec playwright test --config playwright.gemini-import.config.ts
 ```
 
 ## Evidence
 
 本地验证覆盖数据库模式的协议、HTTP、鉴权与会话生命周期。旧 canary 的在线证据见契约历史证据节；不能替代本次数据库实现的部署验收。
-无 UI 工件；以上为协议/集成验证，不是 UI e2e。
+2026-09-23 补齐导入 Handler/Service、真实 PostgreSQL 并发与保留语义测试、编辑弹窗组件测试及
+Playwright Chromium 真实 UI 文件上传验收。浏览器使用模拟后台与假凭证，截图输出
+`frontend/e2e/artifacts/gemini-import-success.png` 和 `gemini-import-account-switch.png`。
+本机 Docker 数据盘不足，数据库测试以临时 Go overlay 将 PostgreSQL 数据目录放入 tmpfs；
+业务代码和 SQL 未替换，标准 CI 仍使用既有 Testcontainers 环境。
 
 ## Status
 

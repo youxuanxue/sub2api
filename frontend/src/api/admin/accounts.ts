@@ -242,6 +242,26 @@ export async function update(id: number, updates: UpdateAccountRequest): Promise
   return data
 }
 
+export interface GeminiWebSessionImportResult {
+  account: Account
+  session: {
+    cookie_count: number
+    cookie_domains: string[]
+    runtime_version: number
+  }
+}
+
+export async function importGeminiWebSession(
+  id: number,
+  bundle: Record<string, unknown>
+): Promise<GeminiWebSessionImportResult> {
+  const { data } = await apiClient.post<GeminiWebSessionImportResult>(
+    `/admin/accounts/${id}/gemini-web-session`,
+    bundle
+  )
+  return data
+}
+
 export async function getGrokMediaEligibility(id: number): Promise<GrokMediaEligibilityState> {
   const { data } = await apiClient.get<GrokMediaEligibilityState>(
     `/admin/accounts/${id}/grok-media-eligibility`
@@ -1191,6 +1211,7 @@ export const accountsAPI = {
   duplicate,
   duplicateMany,
   update,
+  importGeminiWebSession,
   getGrokMediaEligibility,
   updateGrokMediaEligibility,
   checkMixedChannelRisk,

@@ -325,6 +325,29 @@
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 
+        <div
+          v-if="canImportGeminiWebSession"
+          class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/60 dark:bg-blue-950/20"
+          data-testid="gemini-web-session-import"
+        >
+          <label class="input-label">{{ t('admin.accounts.gemini.webSessionImportTitle') }}</label>
+          <p class="mb-2 text-xs text-blue-700 dark:text-blue-300">
+            {{ t('admin.accounts.gemini.webSessionImportHint') }}
+          </p>
+          <input
+            ref="geminiWebSessionFileInput"
+            type="file"
+            accept=".json,application/json"
+            class="input text-sm"
+            :disabled="geminiWebSessionImporting"
+            data-testid="gemini-web-session-file"
+            @change="handleGeminiWebSessionFile"
+          />
+          <p v-if="geminiWebSessionImportSummary" class="mt-2 text-xs text-green-700 dark:text-green-300">
+            {{ geminiWebSessionImportSummary }}
+          </p>
+        </div>
+
         <!-- TK: edge mirror-stub pool selector (anthropic apikey only) -->
         <div v-if="account.platform === 'anthropic'">
           <label class="input-label">{{ t('admin.accounts.anthropic.mirrorPlatform') }}</label>
@@ -3096,7 +3119,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 
@@ -3290,6 +3313,62 @@ const handleProtocolProbe = async () => {
     protocolProbeLoading.value = false
   }
 }
+
+const handleGeminiWebSessionFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !props.account || !props.show || !canImportGeminiWebSession.value) return
+
+  const targetAccountID = props.account.id
+  const operationToken = ++geminiWebSessionImportToken
+  geminiWebSessionImportSummary.value = ''
+  geminiWebSessionImporting.value = true
+  const isCurrent = () => operationToken === geminiWebSessionImportToken && props.show && props.account?.id === targetAccountID
+  try {
+    if (file.size > 2 * 1024 * 1024) {
+      appStore.showError(t('admin.accounts.gemini.webSessionImportTooLarge'))
+      return
+    }
+    const parsed = JSON.parse(await file.text()) as Record<string, unknown>
+    if (!isCurrent()) return
+    const format = parsed?.format
+    const userAgent = parsed?.user_agent
+    const cookies = parsed?.cookies
+    if (
+      format !== 'tokenkey-gemini-web-session-v1' ||
+      typeof userAgent !== 'string' ||
+      !userAgent.trim() ||
+      !Array.isArray(cookies) ||
+      cookies.length === 0 ||
+      cookies.some((cookie) => {
+        if (!cookie || typeof cookie !== 'object') return true
+        const item = cookie as Record<string, unknown>
+        return typeof item.name !== 'string' || !item.name.trim() || typeof item.value !== 'string' || typeof item.domain !== 'string' || !item.domain.trim()
+      })
+    ) {
+      throw new Error(t('admin.accounts.gemini.webSessionImportInvalid'))
+    }
+
+    const result = await adminAPI.accounts.importGeminiWebSession(targetAccountID, parsed)
+    if (!isCurrent()) return
+    emit('updated', result.account)
+    geminiWebSessionImportSummary.value = t('admin.accounts.gemini.webSessionImportSuccess', {
+      count: result.session.cookie_count,
+      version: result.session.runtime_version
+    })
+    appStore.showSuccess(t('admin.accounts.gemini.webSessionImportDone'))
+  } catch (error: any) {
+    if (isCurrent()) {
+      // Neither parser nor HTTP error text is safe for a credential upload.
+      appStore.showError(t(error?.response?.status === 409 || error?.status === 409
+        ? 'admin.accounts.gemini.webSessionImportConflict'
+        : 'admin.accounts.gemini.webSessionImportInvalid'))
+    }
+  } finally {
+    if (operationToken === geminiWebSessionImportToken) geminiWebSessionImporting.value = false
+  }
+}
 const {
   inspect: inspectSupplierManaged,
   viewHint: supplierManagedViewHint,
@@ -3336,6 +3415,23 @@ interface TempUnschedRuleForm {
 
 // State
 const submitting = ref(false)
+const geminiWebSessionImporting = ref(false)
+const geminiWebSessionImportSummary = ref('')
+let geminiWebSessionImportToken = 0
+const canImportGeminiWebSession = computed(() =>
+  props.account?.platform === PLATFORM_GEMINI && props.account.type === 'apikey' &&
+  props.account.credentials_status?.has_gemini_web === true &&
+  (props.account.credentials?.gemini_web_relay === undefined || props.account.credentials?.gemini_web_relay === false) &&
+  props.account.extra?.relay_kind !== 'gemini_web'
+)
+const invalidateGeminiWebSessionImport = () => {
+  geminiWebSessionImportToken++
+  geminiWebSessionImporting.value = false
+  geminiWebSessionImportSummary.value = ''
+}
+watch([() => props.show, () => props.account?.id], invalidateGeminiWebSessionImport, { flush: 'sync' })
+onBeforeUnmount(invalidateGeminiWebSessionImport)
+const geminiWebSessionFileInput = ref<HTMLInputElement | null>(null)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
 // TK: edge mirror-stub pool selector (anthropic + apikey only). See
@@ -5173,6 +5269,7 @@ const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
 const handleClose = () => {
+  invalidateGeminiWebSessionImport()
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
