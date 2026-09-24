@@ -498,14 +498,6 @@ func dataURIToAnthropicImageSource(dataURI string) *AnthropicImageSource {
 	}
 }
 
-// mergeConsecutiveMessages retains the standalone merge contract.
-func mergeConsecutiveMessages(messages []AnthropicMessage) []AnthropicMessage {
-	if len(messages) <= 1 {
-		return messages
-	}
-	return materializeAnthropicHistory(mergeAnthropicHistory(newAnthropicHistory(messages)))
-}
-
 // parseContentBlocks attempts to parse content as []AnthropicContentBlock.
 // If it's a string, wraps it in a text block.
 func parseContentBlocks(raw json.RawMessage) []AnthropicContentBlock {

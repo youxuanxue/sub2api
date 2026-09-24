@@ -343,14 +343,6 @@ func protocolAPIVersion(account *Account, protocol protocolrouter.Protocol) stri
 	return ""
 }
 
-func normalizeProtocolEndpointURL(raw string, protocol protocolrouter.Protocol) (string, error) {
-	parsed, err := normalizeEndpointIdentityURL(raw)
-	if err != nil {
-		return "", err
-	}
-	return protocolEndpointURL(*parsed, protocol)
-}
-
 // Work on a value copy so appending one protocol's path cannot affect another.
 func protocolEndpointURL(parsed url.URL, protocol protocolrouter.Protocol) (string, error) {
 	endpointPath := ""

@@ -83,6 +83,10 @@ func (h *GatewayHandler) executeResponsesSelectedProtocol(
 				return h.tkForwardResponsesByOpenAIShape(
 					executionCtx, c, account, reqModel, forwardBody, parsedReq,
 					func() (*service.ForwardResult, error) {
+						if account.IsCursor() {
+							openAIResult, forwardErr := h.openAIGatewayService.Forward(executionCtx, c, account, forwardBody)
+							return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+						}
 						return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
 					},
 				)
@@ -121,6 +125,10 @@ func (h *GatewayHandler) executeResponsesSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+				if account.IsCursor() {
+					openAIResult, forwardErr := h.openAIGatewayService.Forward(executionCtx, c, account, forwardBody)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				}
 				return h.gatewayService.ForwardAsResponses(executionCtx, c, account, forwardBody, parsedReq)
 			},
 			ResponsesToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {

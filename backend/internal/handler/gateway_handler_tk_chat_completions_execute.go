@@ -66,6 +66,10 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 				return h.tkForwardChatCompletionsByOpenAIShape(
 					executionCtx, c, account, reqModel, forwardBody, parsedReq,
 					func() (*service.ForwardResult, error) {
+						if account.IsCursor() {
+							openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
+							return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+						}
 						return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
 					},
 				)
@@ -104,6 +108,13 @@ func (h *GatewayHandler) executeChatCompletionsSelectedProtocol(
 					forwardBody = h.gatewayService.ReplaceModelInBody(forwardBody, channelMapping.MappedModel)
 				}
 				setActualUpstreamEndpoint(c, protocolPlanEndpoint(plan.Endpoint()))
+				// Cursor only admits Messages; Chat inbound becomes ChatToMessages.
+				// Classic GatewayService.ForwardAsChatCompletions POSTs /v1/messages
+				// over HTTP/1 (same prod #150 malformed class as MessagesIdentity).
+				if account.IsCursor() {
+					openAIResult, forwardErr := h.openAIGatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, "", channelMapping.MappedModel)
+					return service.ForwardResultFromOpenAI(openAIResult), forwardErr
+				}
 				return h.gatewayService.ForwardAsChatCompletions(executionCtx, c, account, forwardBody, parsedReq)
 			},
 			ChatToGemini: func(executionCtx context.Context, account *service.Account, plan protocolrouter.Plan, request protocolrouter.CanonicalRequest) (any, error) {

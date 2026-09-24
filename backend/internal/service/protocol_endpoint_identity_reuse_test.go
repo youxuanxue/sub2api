@@ -99,3 +99,12 @@ func TestProtocolEndpointIdentityValidationKeepsCanonicalEncoding(t *testing.T) 
 		})
 	}
 }
+
+// Test adapter for the standalone pre-refactor contract.
+func normalizeProtocolEndpointURL(raw string, protocol protocolrouter.Protocol) (string, error) {
+	parsed, err := normalizeEndpointIdentityURL(raw)
+	if err != nil {
+		return "", err
+	}
+	return protocolEndpointURL(*parsed, protocol)
+}
