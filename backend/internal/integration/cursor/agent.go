@@ -27,6 +27,40 @@ const maxAgentFrame = 4 << 20
 const maxAgentBlobs = 16 << 20
 const maxAgentOutput = 4 << 20
 
+// AgentMode values from agent.v1 (oh-my-pi / Cursor CLI proto). TokenKey is a
+// Messages↔Agent relay for local CLIs, not a workspace agent runtime.
+const (
+	agentModeAgent = 1
+	agentModeAsk   = 2
+)
+
+// relayConversationMode is the mode TokenKey advertises on ConversationState and
+// UserMessage. AGENT invites Cursor to emit native shell/read/Pi-* ExecServerMessage
+// frames against this gateway (prod #150 "unsupported local execution" after
+// 1.8.253). ASK keeps inference + declared McpTools handoff without claiming a
+// local coding-agent runtime.
+const relayConversationMode = agentModeAsk
+
+// relayRequestContext is the capability surface TokenKey advertises to Cursor.
+// Caller tools are listed on McpTools / RequestContext.tools and returned via
+// McpArgs handoff; this gateway has no workspace, git, filesystem MCP, skills or
+// subagents. *InfoComplete=true with empty payloads means "category finished and
+// empty" — leaving them false invites fill-in exec frames we cannot serve.
+func relayRequestContext() *pb.RequestContext {
+	return &pb.RequestContext{
+		Env:                         &pb.Empty{},
+		McpInfoComplete:             true,
+		RulesInfoComplete:           true,
+		EnvInfoComplete:             true,
+		GitRepoInfoComplete:         true,
+		RepositoryInfoComplete:      true,
+		GitStatusInfoComplete:       true,
+		CustomSubagentsInfoComplete: true,
+		AgentSkillsInfoComplete:     true,
+		McpFileSystemInfoComplete:   true,
+	}
+}
+
 // AgentMessage is request history, supplied by the caller on every request.
 // No run id, upstream checkpoint, or previous connection is accepted.
 type AgentMessage struct {
@@ -126,6 +160,8 @@ func agentCallArgs(call AgentToolCall) (*pb.McpArgs, error) {
 }
 
 func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error) {
+	// Ingress: Messages-shaped AgentRequest → trimmed AgentRun (ASK mode, relay
+	// RequestContext, declared tools only). See messages_agentrun_tk.go.
 	if input.Model == "" || input.Model == "default" || input.Model == "auto" || len(input.Messages) == 0 {
 		return nil, nil, errors.New("cursor requires a fixed model and messages")
 	}
@@ -133,7 +169,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 		return nil, nil, errors.New("cursor request item limit exceeded")
 	}
 	blobs := &agentBlobs{data: make(map[string][]byte)}
-	state := &pb.ConversationStateStructure{Mode: 1}
+	state := &pb.ConversationStateStructure{Mode: relayConversationMode}
 	root := func(value any) error {
 		raw, err := json.Marshal(value)
 		if err != nil {
@@ -181,9 +217,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 	if input.Messages[active].Role != "user" {
 		active = -1
 	}
-	contextInfo := &pb.RequestContext{Env: &pb.Empty{}, GitRepoInfoComplete: true, McpInfoComplete: true,
-		RulesInfoComplete: true, EnvInfoComplete: true, RepositoryInfoComplete: true, CustomSubagentsInfoComplete: true,
-		AgentSkillsInfoComplete: true, McpFileSystemInfoComplete: true, GitStatusInfoComplete: true}
+	contextInfo := relayRequestContext()
 	if input.System != "" {
 		contextInfo.NonFileRules = []*pb.CursorRule{{Content: input.System, Source: 2, Type: &pb.CursorRuleType{Global: &pb.Empty{}}}}
 	}
@@ -243,7 +277,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 				return nil, nil, errors.New("empty Cursor user message")
 			}
 			run.Action = &pb.ConversationAction{UserMessageAction: &pb.UserMessageAction{
-				UserMessage: &pb.UserMessage{Text: message.Text, MessageId: uuid.NewString(), Mode: 1}, RequestContext: contextInfo}}
+				UserMessage: &pb.UserMessage{Text: message.Text, MessageId: uuid.NewString(), Mode: relayConversationMode}, RequestContext: contextInfo}}
 			break
 		}
 		content := []map[string]any{}
@@ -255,7 +289,7 @@ func buildAgentRun(input AgentRequest) (*pb.AgentRunRequest, *agentBlobs, error)
 			if err := flushTurn(); err != nil {
 				return nil, nil, err
 			}
-			id, err := blobs.storeProto(&pb.UserMessage{Text: message.Text, MessageId: uuid.NewString(), Mode: 1})
+			id, err := blobs.storeProto(&pb.UserMessage{Text: message.Text, MessageId: uuid.NewString(), Mode: relayConversationMode})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -577,6 +611,23 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 			}
 		}
 		if update := message.InteractionUpdate; update != nil {
+			// Egress: only Messages-expressible interaction surfaces.
+			if args := mcpArgsFromInteractionToolCall(update.ToolCallStarted); args != nil {
+				if args.SmartModeApprovalOnly {
+					return result, errors.New("cursor tool approval requires an external policy decision")
+				}
+				if err := publishCall(args); err != nil {
+					return result, err
+				}
+				if !result.ToolHandoff {
+					result.ToolHandoff = true
+					if err := send(&pb.AgentClientMessage{ConversationAction: &pb.ConversationAction{CancelAction: &pb.CancelAction{Reason: "External client tool handoff"}}}); err != nil {
+						return result, err
+					}
+				}
+			}
+			// Non-MCP tool_call_started is Agent bookkeeping; paired Exec (if any)
+			// is answered with ExecClientThrow below. tool_call_completed is ignored.
 			if update.ThinkingDelta != nil && !result.ToolHandoff {
 				thinking := update.ThinkingDelta.Text
 				if thinkingOutput.Len()+textOutput.Len()+toolOutputBytes+len(thinking) > maxAgentOutput {
@@ -617,13 +668,13 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 			}
 		}
 		if exec := message.ExecServerMessage; exec != nil {
-			switch {
-			case exec.RequestContextArgs != nil:
+			switch classifyMessagesAlignedExec(exec) {
+			case messagesExecRequestContext:
 				if err := send(&pb.AgentClientMessage{ExecClientMessage: &pb.ExecClientMessage{Id: exec.Id, ExecId: exec.ExecId,
 					RequestContextResult: &pb.RequestContextResult{Success: &pb.RequestContextSuccess{RequestContext: requestContext}}}}); err != nil {
 					return result, err
 				}
-			case exec.McpArgs != nil:
+			case messagesExecToolUse:
 				if exec.McpArgs.SmartModeApprovalOnly {
 					return result, errors.New("cursor tool approval requires an external policy decision")
 				}
@@ -637,11 +688,17 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 					}
 				}
 			default:
-				return result, errors.New("cursor requested unsupported local execution")
+				fields := protobufFieldNumbers(exec)
+				errText, errCode := outsideExecThrowMessage(fields)
+				for _, reply := range execClientThrowAndClose(exec, errText, errCode) {
+					if err := send(reply); err != nil {
+						return result, err
+					}
+				}
 			}
 		}
-		if message.InteractionQuery != nil {
-			return result, errors.New("cursor requested unsupported interaction")
+		if len(message.InteractionQuery) > 0 {
+			continue // no Messages counterpart; keep reading for text/usage
 		}
 	}
 	return result, errors.New("cursor frame count limit exceeded")

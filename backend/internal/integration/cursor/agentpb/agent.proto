@@ -12,6 +12,9 @@ message AgentClientMessage {
   ExecClientMessage exec_client_message = 2;
   KvClientMessage kv_client_message = 3;
   ConversationAction conversation_action = 4;
+  // Fail one exec in-band (oh-my-pi / Cursor CLI): throw then stream_close so the
+  // server surfaces the error to the model instead of blocking on a reply.
+  ExecClientControlMessage exec_client_control_message = 5;
 }
 message AgentServerMessage {
   InteractionUpdate interaction_update = 1;
@@ -42,6 +45,8 @@ message ConversationStateStructure {
   repeated bytes root_prompt_messages_json = 1;
   repeated string pending_tool_calls = 4;
   repeated bytes turns = 8;
+  // AgentMode: 0 UNSPECIFIED, 1 AGENT, 2 ASK, 3 PLAN, 4 DEBUG, 5 TRIAGE, 6 PROJECT.
+  // TokenKey uses ASK — AGENT invites native FS/shell ExecServerMessage.
   int32 mode = 10;
 }
 message ConversationAction {
@@ -96,6 +101,17 @@ message ExecClientMessage {
   RequestContextResult request_context_result = 10;
   McpResult mcp_result = 11;
   string exec_id = 15;
+}
+message ExecClientStreamClose { uint32 id = 1; }
+message ExecClientThrow {
+  uint32 id = 1;
+  string error = 2;
+  optional string stack_trace = 3;
+  optional string error_code = 4;
+}
+message ExecClientControlMessage {
+  ExecClientStreamClose stream_close = 1;
+  ExecClientThrow throw = 2;
 }
 message RequestContextResult { RequestContextSuccess success = 1; }
 message RequestContextSuccess { RequestContext request_context = 1; }

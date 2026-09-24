@@ -28,6 +28,15 @@ func messagesTestTransport(t *testing.T, messages ...*pb.AgentServerMessage) fun
 		binary.BigEndian.PutUint32(header[1:], uint32(len(trailer)))
 		_, _ = data.Write(header[:])
 		_, _ = data.Write(trailer)
+	} else if len(messages) > 0 {
+		last := messages[len(messages)-1].GetInteractionUpdate()
+		if last != nil && mcpArgsFromInteractionToolCall(last.GetToolCallStarted()) != nil {
+			trailer := []byte(`{"error":{"code":"canceled"}}`)
+			header := [5]byte{2}
+			binary.BigEndian.PutUint32(header[1:], uint32(len(trailer)))
+			_, _ = data.Write(header[:])
+			_, _ = data.Write(trailer)
+		}
 	}
 	return func(req *http.Request) (*http.Response, error) {
 		require.Equal(t, AgentBaseURL+agentRunPath, req.URL.String())
