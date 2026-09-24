@@ -26,9 +26,10 @@ const cursorExcludedModelPrefix = "gpt-"
 // Retired from the authenticated Cursor catalog; do not reintroduce via imports or floor apply.
 const cursorRetiredComposerModel = "composer-2"
 
-// Cursor accounts only serve these authenticated-catalog families. Import, floor
-// presets and forbidden-prefix policy share this allowlist. GPT remains excluded;
-// composer-2 remains retired even though it matches the composer- prefix.
+// Cursor accounts only serve these authenticated-catalog families. Import and
+// floor presets share this allowlist. GPT remains excluded; composer-2 remains
+// retired even though it matches the composer- prefix. Floor forbidden prefixes
+// are a separate known-offender deny list (see cursorForbiddenModelMappingPrefixes).
 var cursorServingModelPrefixes = []string{"claude-", "grok-", "composer-", "muse-"}
 
 // Cursor floor apply also strips these known non-family prefixes so legacy

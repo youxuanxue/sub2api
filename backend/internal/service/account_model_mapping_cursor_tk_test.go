@@ -31,6 +31,7 @@ func TestCursorMappingFloorExcludesGPTWithoutChangingOtherProviders(t *testing.T
 	require.Contains(t, floor.ForbiddenModelMappingPrefixes[scope], "gemini-")
 	require.Contains(t, floor.ForbiddenModelMappingPrefixes[scope], "glm-")
 	require.Contains(t, floor.ForbiddenModelMappingPrefixes[scope], "kimi-")
+	require.Contains(t, floor.ForbiddenModelMappingPrefixes[scope], "deepseek-")
 	require.Contains(t, floor.ForbiddenModelMappingKeys[scope], "composer-2")
 	require.NotContains(t, floor.ForbiddenModelMappingPrefixes[PlatformNewAPI], "gpt-")
 	hasOpenAIGPT := false
