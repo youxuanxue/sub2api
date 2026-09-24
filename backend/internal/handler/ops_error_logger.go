@@ -551,7 +551,8 @@ func isOpsNoAvailableAccountError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, service.ErrNoAvailableAccounts) || errors.Is(err, service.ErrNoAvailableCompactAccounts) {
+	if errors.Is(err, service.ErrNoAvailableAccounts) || errors.Is(err, service.ErrNoAvailableCompactAccounts) ||
+		errors.Is(err, service.ErrUniversalCapacityUnavailable) {
 		return true
 	}
 	return isOpsNoAvailableAccountMessage(err.Error())
