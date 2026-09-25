@@ -1,9 +1,7 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -34,10 +32,19 @@ func (s *OpenAIGatewayService) allowAnthropicThinkingContract400Repair(
 	return s.settingService.IsSignatureRectifierEnabled(ctx)
 }
 
+func closeHTTPResponseBody(resp *http.Response) {
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+}
+
 // retryAnthropicThinkingContract400HTTP runs the shared cannot-be-modified /
 // signature 400 ladder (rectify → optional signature-sensitive escalate).
 // send must POST an already-prepared body and return the upstream response.
-// readErr consumes and closes resp.Body, returning body + message.
+// readErr should match readOpenAIUpstreamError (consume, close, restore Body).
+//
+// Callers must not Close resp.Body before calling — pass the response after
+// readOpenAIUpstreamError has restored a readable Body.
 func (s *OpenAIGatewayService) retryAnthropicThinkingContract400HTTP(
 	ctx context.Context,
 	c *gin.Context,
@@ -73,13 +80,13 @@ func (s *OpenAIGatewayService) retryAnthropicThinkingContract400HTTP(
 	if retryErr != nil || retryResp == nil {
 		return outResp, outWire, outBody, outMsg, false
 	}
+	closeHTTPResponseBody(outResp)
 	outResp = retryResp
 	outWire = repaired
 	if outResp.StatusCode < 400 {
 		return outResp, outWire, nil, "", true
 	}
 	outBody, outMsg = readErr(outResp)
-	_ = outResp.Body.Close()
 
 	if outResp.StatusCode == http.StatusBadRequest &&
 		kind == "thinking_cannot_modify_strip_historical" &&
@@ -95,17 +102,15 @@ func (s *OpenAIGatewayService) retryAnthropicThinkingContract400HTTP(
 		})
 		escResp, escErr := send(escalated)
 		if escErr != nil || escResp == nil {
-			outResp.Body = io.NopCloser(bytes.NewReader(outBody))
 			return outResp, outWire, outBody, outMsg, false
 		}
+		closeHTTPResponseBody(outResp)
 		outResp = escResp
 		outWire = escalated
 		if outResp.StatusCode < 400 {
 			return outResp, outWire, nil, "", true
 		}
 		outBody, outMsg = readErr(outResp)
-		_ = outResp.Body.Close()
 	}
-	outResp.Body = io.NopCloser(bytes.NewReader(outBody))
 	return outResp, outWire, outBody, outMsg, false
 }

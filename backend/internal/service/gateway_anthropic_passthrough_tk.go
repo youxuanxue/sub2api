@@ -111,12 +111,12 @@ func (s *GatewayService) tkPrepareAnthropicPassthroughBody(
 	return nil
 }
 
-// tkMaybeRetryAnthropicPassthrough400 runs the TokenKey 400 rectifier once and
-// returns the response to continue with. When retried is true the caller must
-// break out of the upstream attempt loop (matching the prior inline control
-// flow). On a successful rectifier hop it may replace resp and update
-// input.Body; otherwise it restores resp.Body from the buffered 400 body when
-// the original body was consumed.
+// tkMaybeRetryAnthropicPassthrough400 runs the TokenKey 400 rectifier (and for
+// cannot-be-modified, one signature-sensitive escalate hop) then returns.
+// When retried is true the caller must break out of the upstream attempt loop
+// (matching the prior inline control flow). On a successful rectifier hop it
+// may replace resp and update input.Body; otherwise it restores resp.Body from
+// the buffered 400 body when the original body was consumed.
 func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 	ctx context.Context,
 	c *gin.Context,
@@ -215,8 +215,13 @@ func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 							}
 						}
 					}
-					resp.Body = io.NopCloser(bytes.NewReader(retryRespBody))
-					return resp, true, nil
+					// Return the strip-historical 400 (not the original first-hop resp).
+					if retryReadErr != nil {
+						retryResp.Body = io.NopCloser(bytes.NewReader(nil))
+					} else {
+						retryResp.Body = io.NopCloser(bytes.NewReader(retryRespBody))
+					}
+					return retryResp, true, nil
 				}
 				return retryResp, true, nil
 			}

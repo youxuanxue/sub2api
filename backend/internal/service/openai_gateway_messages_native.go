@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -87,7 +86,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
-		_ = resp.Body.Close()
+		// readOpenAIUpstreamError already restores resp.Body; do not Close here.
 		if resp.StatusCode == http.StatusBadRequest {
 			retryResp, _, retryBody, retryMsg, recovered := s.retryAnthropicThinkingContract400HTTP(
 				ctx, c, account, upstreamModel, upstreamBody, resp, respBody, upstreamMsg,
@@ -104,9 +103,6 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 				}
 				return s.bufferNativeAnthropicMessages(c, resp, originalModel, billingModel, upstreamModel, startTime)
 			}
-		}
-		if resp.Body == nil {
-			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		}
 		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
 			return nil, errOpenAICyberPolicyForwarded
