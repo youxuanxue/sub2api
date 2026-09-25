@@ -114,10 +114,26 @@ func TestAgentRequiresTerminalUsage(t *testing.T) {
 	require.ErrorContains(t, err, "interrupted")
 }
 
+func TestAnthropicShapeReportedUsage(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, AgentUsage{Input: 11, Output: 3, CacheRead: 7, CacheWrite: 2},
+		anthropicShapeReportedUsage(AgentUsage{Input: 20, Output: 3, CacheRead: 7, CacheWrite: 2}),
+		"Cursor TurnEnded.input is total; expose Anthropic uncached remainder")
+	require.Equal(t, AgentUsage{Input: 0, Output: 1, CacheRead: 50, CacheWrite: 10},
+		anthropicShapeReportedUsage(AgentUsage{Input: 60, Output: 1, CacheRead: 50, CacheWrite: 10}))
+	require.Equal(t, AgentUsage{Input: 10, Output: 2, CacheRead: 30, CacheWrite: 5},
+		anthropicShapeReportedUsage(AgentUsage{Input: 10, Output: 2, CacheRead: 30, CacheWrite: 5}),
+		"already-disjoint input < cache sum must not be double-subtracted")
+	require.Equal(t, AgentUsage{Input: 15, Output: 2},
+		anthropicShapeReportedUsage(AgentUsage{Input: 15, Output: 2}),
+		"no cache buckets leave input unchanged")
+}
+
 func TestAgentUsagePreservesCacheBuckets(t *testing.T) {
 	var stream bytes.Buffer
+	// Cursor TurnEnded.input is total (uncached + caches), matching prod #150 shape.
 	require.NoError(t, writeAgentFrame(&stream, &pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{
-		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(11), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}}}))
+		TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(20), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}}}))
 	result, err := RunAgent(context.Background(), "test-credential", AgentRequest{Model: "composer-2.5", Messages: []AgentMessage{{Role: "user", Text: "hello"}}},
 		func(req *http.Request) (*http.Response, error) {
 			require.Empty(t, req.Header.Get("X-Cursor-Agent-Allowed-Tools"),
