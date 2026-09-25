@@ -1146,7 +1146,7 @@
     {
       "path": "backend/internal/engine/protocolrouter/router.go",
       "must_contain": [
-        "compatibleRequest(request, account.requestCapabilities(route.target))",
+        "compatibleRequest(providerRequest, account.requestCapabilities(route.target))",
         "CompatibilityRank()",
         "request: plan.effectiveRequest"
       ],
@@ -2569,11 +2569,9 @@
         "if !relay && !geminiWebRuntimeBound(account)",
         "GeminiWebRelayCredentialKey",
         "CandidateRequestFromContext(ctx)",
-        "geminiWebNativeBodySupported",
-        "geminiWebImageAspectRatioSupported",
         "shouldEstimateCountTokensLocally(account)"
       ],
-      "rationale": "Restricted Web session and relay capabilities share one native admission projection; native image requests must retain their request body outside the text Plan context."
+      "rationale": "Web runtime readiness and native action/local token eligibility retain their owner; original request capability is enforced by Plan and Worker fixtures directly test the engine validator."
     },
     {
       "path": "backend/internal/service/gemini_web_request_tk_test.go",
@@ -2732,7 +2730,7 @@
         "TestCandidateEligibilityCapacityIsNotEntitlement",
         "TestCandidateEligibilityKnownRouteRejectionIsNotInternal",
         "TestCandidateEligibilityErrorPrecedence",
-        "TestCandidateEligibilityUngovernedModelDenial"
+        "TestCandidateEligibilityNativeAndLocalModelDenial"
       ],
       "rationale": "Behavior regressions for Candidate Eligibility SSOT."
     },
@@ -14031,6 +14029,102 @@
         "require.NotContains(t, upstream.url, \"/v1/messages\")"
       ],
       "rationale": "Regression: anthropic-group MessagesIdentity for Cursor must hit AgentService/Run with Cursor HTTP/2 profile."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/gemini_web.go",
+      "must_contain": [
+        "func GeminiWebRequestSupported(",
+        "func GeminiWebNativeBodySupported(",
+        "ProviderCapabilityGeminiWeb",
+        "geminiWebImageAspectRatioSupported"
+      ],
+      "rationale": "One provider capability contract validates original native and converted requests without conflating Gemini native transport with restricted Web semantics."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/router.go",
+      "must_contain": [
+        "account.permitsProviderRequest(providerRequest)",
+        "compatibleProviderRequest(request, account)"
+      ],
+      "rationale": "Provider request restrictions must execute inside authoritative Plan before adapter selection, including native identity."
+    },
+    {
+      "path": "backend/internal/service/us057_gemini_web_protocol_test.go",
+      "must_contain": [
+        "func TestUS057_GeminiNativeProtocolTransport(",
+        "func TestUS057_GeminiImageCandidateKeepsSelectedPlan(",
+        "ExecuteSelectedProtocol(",
+        "data:image/png;base64,"
+      ],
+      "rationale": "Behavior tests verify original Plan through converter and native HTTP transport with images, mapped models, authentication and preserved image-model candidate Plans."
+    },
+    {
+      "path": "backend/internal/service/gemini_compat_image_options.go",
+      "must_contain": [
+        "func preserveGeminiCompatOptions(",
+        "func geminiInlineImageMarkdown("
+      ],
+      "rationale": "Compatible Gemini ingress shares image generation extension preservation and validated output projection rather than maintaining separate per-protocol image semantics."
+    },
+    {
+      "path": "backend/internal/service/gemini_compat_image_options_test.go",
+      "must_contain": [
+        "func TestGeminiCompatForwardPreservesInterruptedStreamUsage(",
+        "func TestGeminiCompatForwardBufferedTruncationDoesNotBillUnreturnedImage(",
+        "func TestGeminiCompatStreamsPreserveImagesOnce(",
+        "func TestGeminiCompatForwardPolicyBlockIsTerminal(",
+        "func TestGeminiForwardNativeBufferedSafetyEOFIsRequestScoped("
+      ],
+      "rationale": "Full forwarding tests preserve partial image usage without successful terminal events, and prevent billing images never delivered from a buffered failure."
+    },
+    {
+      "path": "backend/internal/service/protocol_endpoint_identity.go",
+      "must_contain": [
+        "func NativeDeclaredProtocolContract(",
+        "NativeDeclaration",
+        "gemini_web_single_turn_v1"
+      ],
+      "rationale": "Lifecycle native declaration is explicit and scoped to the native Gemini identity, distinct from empirical probe evidence and provider request limits."
+    },
+    {
+      "path": "backend/internal/repository/protocol_endpoint_capability_repo.go",
+      "must_contain": [
+        "service.NativeDeclaredProtocolContract(identity)",
+        "ON CONFLICT (capability_key) DO NOTHING",
+        "evidence.NativeDeclaration = current.ProbeEvidence.NativeDeclaration"
+      ],
+      "rationale": "Only a newly created capability receives the platform native declaration; linking must preserve existing denied or conflicted capability decisions."
+    },
+    {
+      "path": "backend/internal/repository/protocol_endpoint_capability_repo_test.go",
+      "must_contain": [
+        "func TestGeminiNativeDeclarationSeedsOnlyNewCapabilityAndPreservesProbeDenial("
+      ],
+      "rationale": "Executed capability lifecycle regression covers native seed availability and authoritative persisted denial."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/request_capabilities.go",
+      "must_contain": [
+        "func compatibleProviderRequest(",
+        "GeminiWebBestEffortTokenLimit",
+        "sjson.DeleteBytes(body, field)"
+      ],
+      "rationale": "Only the explicit Web provider uses immutable, audited best-effort budget adaptation; general Gemini retains strict limits."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/gemini_web_test.go",
+      "must_contain": [
+        "func TestGeminiWebBestEffortBudgetsUseImmutableAuditedPlan(",
+        "func TestGeminiWebBestEffortDoesNotAdmitInvalidBudgetsOrOtherControls("
+      ],
+      "rationale": "Protect original request identity and validated Web budget adaptation without admitting other unsupported controls."
+    },
+    {
+      "path": "backend/internal/handler/us057_gemini_partial_usage_test.go",
+      "must_contain": [
+        "func TestUS057_GeminiCompatIngressMetersDeliveredPartialImageOnce("
+      ],
+      "rationale": "Delivered partial images must settle once and must not replay on another eligible account."
     }
   ]
 }

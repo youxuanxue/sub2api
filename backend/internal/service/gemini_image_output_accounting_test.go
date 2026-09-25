@@ -85,7 +85,7 @@ func TestCountGeminiInlineImageOutputs(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, countGeminiInlineImageOutputs([]byte(tc.payload)))
+			require.Equal(t, tc.want, len(geminiInlineImageOutputs([]byte(tc.payload))))
 		})
 	}
 }
@@ -150,20 +150,20 @@ func TestResolveGeminiImageCount(t *testing.T) {
 		require.Equal(t, 1, resolveGeminiImageCount(c, "nana-banana-2", "nana-banana-2"))
 	})
 
-	t.Run("falls back to requested model name", func(t *testing.T) {
+	t.Run("text from image model has no image charge", func(t *testing.T) {
 		c := newGeminiImageTestContext(t)
 		beginGeminiImageOutputObservation(c)
 		observeGeminiImageOutputs(c, textOnly)
 
-		require.Equal(t, 1, resolveGeminiImageCount(c, "gemini-3-pro-image-preview", "gemini-3-pro-image-preview"))
+		require.Equal(t, 0, resolveGeminiImageCount(c, "gemini-3-pro-image-preview", "gemini-3-pro-image-preview"))
 	})
 
-	t.Run("falls back to mapped upstream model name", func(t *testing.T) {
+	t.Run("mapped image model without images has no image charge", func(t *testing.T) {
 		c := newGeminiImageTestContext(t)
 		beginGeminiImageOutputObservation(c)
 		observeGeminiImageOutputs(c, textOnly)
 
-		require.Equal(t, 1, resolveGeminiImageCount(c, "my-image-alias", "gemini-2.5-flash-image"))
+		require.Equal(t, 0, resolveGeminiImageCount(c, "my-image-alias", "gemini-2.5-flash-image"))
 	})
 
 	t.Run("text model stays unbilled", func(t *testing.T) {
@@ -174,10 +174,10 @@ func TestResolveGeminiImageCount(t *testing.T) {
 		require.Equal(t, 0, resolveGeminiImageCount(c, "gemini-2.5-pro", "gemini-2.5-pro"))
 	})
 
-	t.Run("no counter on context degrades to name heuristic", func(t *testing.T) {
+	t.Run("no observed output has no image charge", func(t *testing.T) {
 		c := newGeminiImageTestContext(t)
 		require.Equal(t, 0, resolveGeminiImageCount(c, "nana-banana-2", "nana-banana-2"))
-		require.Equal(t, 1, resolveGeminiImageCount(c, "gemini-3-pro-image", "gemini-3-pro-image"))
+		require.Equal(t, 0, resolveGeminiImageCount(c, "gemini-3-pro-image", "gemini-3-pro-image"))
 	})
 }
 

@@ -22,6 +22,7 @@ APP_URL="${APP_URL:-http://localhost:8080}"
 MAX_TOKENS="${MAX_TOKENS:-32}"
 PROMPT_TEXT="${PROMPT_TEXT:-hi}"
 REQUEST_EXTRA_JSON="${REQUEST_EXTRA_JSON:-}"
+REQUEST_BODY_JSON="${REQUEST_BODY_JSON:-}"
 KEEP_PROBE_ARTIFACTS="${KEEP_PROBE_ARTIFACTS:-0}"
 PROBE_REUSE_MODE="${PROBE_REUSE_MODE:-1}"
 PROBE_LOCK_TIMEOUT_SECONDS="${PROBE_LOCK_TIMEOUT_SECONDS:-120}"
@@ -40,6 +41,39 @@ print(json.dumps({"verdict": "setup_error", "error": sys.argv[1]}, ensure_ascii=
 PY
   exit 0
 }
+
+# Validate exact requests before container discovery or reserved-resource writes.
+# An exact body never inherits the realistic system prompt or default limits.
+if [[ -n "$REQUEST_BODY_JSON" ]]; then
+  [[ -z "$REQUEST_EXTRA_JSON" ]] || fail_json "REQUEST_BODY_JSON and REQUEST_EXTRA_JSON are mutually exclusive"
+  [[ "$ENDPOINT" != "transcriptions" ]] || fail_json "transcriptions does not accept REQUEST_BODY_JSON"
+  if ! REQUEST_BODY_JSON_VALUE="$REQUEST_BODY_JSON" python3 - "$ENDPOINT" "$MODEL" <<'PYBODY'
+import json
+import os
+import sys
+
+def reject_nonfinite(value):
+    raise ValueError("non-finite numbers are not valid JSON")
+
+try:
+    body = json.loads(os.environ["REQUEST_BODY_JSON_VALUE"], parse_constant=reject_nonfinite)
+    if not isinstance(body, dict):
+        raise ValueError("request body must be a JSON object")
+    endpoint, model = sys.argv[1:3]
+    if endpoint not in ("gemini", "gemini_image") and (not model or body.get("model") != model):
+        raise ValueError("request body model must exactly match MODEL")
+    if endpoint == "messages":
+        limit = body.get("max_tokens")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("Messages request body requires positive integer max_tokens")
+except (ValueError, TypeError) as error:
+    print(str(error), file=sys.stderr)
+    raise SystemExit(1)
+PYBODY
+  then
+    fail_json "invalid REQUEST_BODY_JSON: require a JSON object, matching MODEL, and positive Messages max_tokens"
+  fi
+fi
 
 PSQL=(sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -q -A -t -v ON_ERROR_STOP=1)
 PSQL_ARRAY=("${PSQL[@]}")
@@ -294,7 +328,9 @@ if [[ -z "$API_KEY" ]]; then
   fail_json "failed to read probe API key"
 fi
 
-if [[ "$ENDPOINT" == "messages" && "$TK_SMOKE_ANTHROPIC_REALISTIC" == "1" ]]; then
+if [[ -n "$REQUEST_BODY_JSON" ]]; then
+  payload="$REQUEST_BODY_JSON"
+elif [[ "$ENDPOINT" == "messages" && "$TK_SMOKE_ANTHROPIC_REALISTIC" == "1" ]]; then
   if [[ ! -f "$SMOKE_ANTHROPIC_REALISTIC_PY" ]]; then
     fail_json "missing smoke_anthropic_realistic.py at ${SMOKE_ANTHROPIC_REALISTIC_PY}"
   fi
@@ -383,6 +419,22 @@ PY
   fi
 fi
 
+# Explicit output intent owns both reserved-group permission and verdict checks.
+# Model names never imply image generation or a billable image output.
+EXPECT_IMAGE_OUTPUT="$(python3 - "$ENDPOINT" "$payload" <<'PYIMAGE'
+import json, sys
+endpoint, raw = sys.argv[1:3]
+body = json.loads(raw)
+config = body.get("generationConfig")
+modalities = config.get("responseModalities") if isinstance(config, dict) else None
+print("1" if endpoint in ("images", "gemini_image") or
+      (isinstance(modalities, list) and "IMAGE" in modalities) else "0")
+PYIMAGE
+)"
+if [[ "$EXPECT_IMAGE_OUTPUT" == "1" && "$ENDPOINT" != "images" ]]; then
+  python3 -c 'from PIL import Image' >/dev/null 2>&1 || fail_json "image output validation requires Pillow in the probe Python environment"
+fi
+
 case "$ENDPOINT" in
   gemini|gemini_image)
     [[ "$MODEL" =~ ^[a-zA-Z0-9._-]+$ ]] || fail_json "unsafe Gemini model path"
@@ -410,7 +462,7 @@ esac
 # - Pre-overlay / forced: set IMAGE_PROBE_PRICE=<usd> to seed flat
 #   image_price_{1k,2k,4k}. Requests often settle as size=2K, so all three tiers
 #   must be set together.
-if [[ ( "$ENDPOINT" == "images" || "$ENDPOINT" == "gemini_image" ) && -n "${GROUP_ID:-}" ]]; then
+if [[ "$EXPECT_IMAGE_OUTPUT" == "1" && -n "${GROUP_ID:-}" ]]; then
   if [[ -n "${IMAGE_PROBE_PRICE:-}" ]]; then
     "${PSQL[@]}" -c "
 UPDATE groups
@@ -556,7 +608,7 @@ python3 - \
   "$TARGET_JSON" "$PLATFORM" "$GROUP_ID" "$GROUP_NAME" "$API_KEY_ID" "$KEY_NAME" \
   "$MODEL" "$ENDPOINT" "$http_code" "$tmp_body" "$tmp_headers" "$tmp_err" "$tmp_logs" \
   "${usage_row:-null}" "$KEEP_PROBE_ARTIFACTS" "$LOG_WINDOW" "$REQUEST_TIMEOUT_SECONDS" \
-  "$PROBE_REUSE_MODE" "$PROBE_STARTED_AT" "$REQUEST_EXTRA_JSON" "$CLIENT_REQUEST_ID" <<'PY'
+  "$PROBE_REUSE_MODE" "$PROBE_STARTED_AT" "$REQUEST_EXTRA_JSON" "$CLIENT_REQUEST_ID" "${REQUEST_BODY_JSON:+1}" "$EXPECT_IMAGE_OUTPUT" <<'PY'
 import json
 import os
 import re
@@ -567,8 +619,8 @@ from pathlib import Path
     target_raw, platform, group_id, group_name, api_key_id, key_name,
     model, endpoint, http_code, body_path, headers_path, err_path, logs_path,
     usage_raw, keep_raw, log_window, request_timeout_seconds,
-    reuse_mode, probe_started_at, request_extra_raw, client_request_id,
-) = sys.argv[1:22]
+    reuse_mode, probe_started_at, request_extra_raw, client_request_id, request_body_override, expect_image_output,
+) = sys.argv[1:24]
 
 target = json.loads(target_raw)
 body = Path(body_path).read_text(encoding="utf-8", errors="replace")
@@ -585,7 +637,7 @@ except Exception:
     request_extra = {}
 
 sys.path.insert(0, os.environ.get("PROBE_SCRIPT_DIR", "."))
-from probe_account_model_verdict import classify_probe_verdict, gemini_response_summary
+from probe_account_model_verdict import classify_probe_verdict, gemini_response_summary, compat_image_response_summary
 
 def classify(code: str, body_text: str, usage_row, curl_err: str):
     return classify_probe_verdict(
@@ -595,6 +647,7 @@ def classify(code: str, body_text: str, usage_row, curl_err: str):
         target_account_id=int(target["id"]),
         usage_row=usage_row,
         curl_err=curl_err,
+        expect_image_output=expect_image_output == "1",
     )
 
 server_request_id = ""
@@ -620,6 +673,7 @@ for line in logs.splitlines():
         break
 
 gemini_summary = gemini_response_summary(body) if endpoint in ("gemini", "gemini_image") and http_code == "200" else None
+compat_summary = compat_image_response_summary(endpoint, body) if expect_image_output == "1" and endpoint in ("messages", "chat", "responses") and http_code == "200" else None
 body_excerpt = re.sub(r"\s+", " ", body).strip()[:1200]
 out = {
     "verdict": classify(http_code, body, usage, curl_error),
@@ -642,12 +696,15 @@ out = {
         "universal_routing_excluded": True,
         "request_timeout_seconds": int(request_timeout_seconds),
         "request_extra_keys": sorted(request_extra.keys()) if isinstance(request_extra, dict) else [],
+        "request_body_override": request_body_override == "1",
+        "expect_image_output": expect_image_output == "1",
     },
     "usage_match": usage,
     "response": {
         "headers_excerpt": headers[:1200],
         "x_request_id": server_request_id or None,
-        "body_excerpt": "[Gemini response summarized]" if gemini_summary else body_excerpt,
+        "body_excerpt": "[Image response summarized]" if compat_summary else "[Gemini response summarized]" if gemini_summary else body_excerpt,
+        "compat_image": compat_summary,
         "gemini": gemini_summary,
         "curl_error": curl_error[:600],
     },

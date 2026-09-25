@@ -22,6 +22,69 @@ GenerateContentResponse 格式。用户明确要求删除文件模式，控制�
 JSON，并要求消除并发、适用边界与凭证泄露风险。身份去重与保存时 bootstrap 验证
 不属于完成声明；导入成功仅证明持久化成功。API Key 输入框不能直接粘贴 Cookie。
 
+## 兼容协议推进计划（本轮会话授权）
+
+用户已确认区分通用 Gemini 与 Gemini Web，要求 Messages、Chat Completions、Responses
+复用 converter → 原生 generateContent，并明确指挥 Agent 并行实现。该授权覆盖本地实现、
+测试与复审；合并、部署和生产验收是后续独立步骤。本节取代下文原先“兼容入口一律不承接”的
+阶段性限制；未完成验证不代表已部署。
+
+### 复审结论与契约
+
+Gemini 是协议，Gemini Web 是受限供应源。传输 profile 负责原生端点和认证，能力 profile
+负责可接受的请求；不把 Web 限制施加到普通 Gemini。原始请求先由 `protocolrouter.Plan`
+判定，选中账号和 Plan 决定执行。不能在 converter 中压平历史、删除 system/tools，或者
+仅凭账号名、域名和模型别名判断 Web。无能力的候选退出当前请求的竞争，仍在原授权范围内
+寻找其他兼容账号；不放宽授权、收费组或供应源凭据检查。
+
+兼容协议统一使用 `generationConfig` 扩展传入 `responseModalities` 和 `imageConfig`，
+保留显式 null 和合法比例。三个入口复用现有 Gemini 转换及传输，不新增独立 Web 网关。
+回包复用经校验的图片 markdown data URI 文本投影，各协议保留合法 JSON/SSE 外壳；
+这一契约保证图片数据可获取，不保证所有客户端都会自动渲染。图片计数来自实际有效输出，
+文本响应或错误不能因模型名含 image 而计作一张图片。
+
+缓冲流沿用 Worker 现有语义：完成生成及下载后返回 SSE，不承诺首 token 延迟。
+断流不伪造成功，已经输出的内容不自动重放。
+
+**本轮补充批准：Web 输出上限采用 best-effort。** 用户明确选择“允许 Web best-effort：
+明确不保证 token 上限”。Messages 仍须提供合法正整数 `max_tokens`；Chat 的 `max_tokens` /
+`max_completion_tokens`、Responses 的 `max_output_tokens` 和原生 Gemini 的
+`generationConfig.maxOutputTokens` 具有同样的 Web 限制：网关不保证上游执行该上限。
+
+这项降级仅由 Plan 对显式 Web 供应源处理：验证原始请求，只从不可变 effective request
+移除对应输出预算，保留原始正文与 digest，并记录 `gemini_web_best_effort_token_limit`
+调整原因。converter 不再猜供应源能力。既有兼容等级排序优先有能力保持原请求的账号；
+需要 Web 承接时仍可选到合法的 best-effort Plan。普通 Gemini 原样保留预算；不删除 system、
+历史、tools、采样配置或图片输入。缺省预算不制造调整。原生 Worker 的严格 HTTP 契约不变，
+该 best-effort 发生在统一网关 Plan，随后发送它本来支持的原生请求。
+
+### 分工、依赖与交付门槛
+
+| 阶段 | 执行分工 | 完成条件 |
+|---|---|---|
+| 能力与 Plan | capability Agent | 复用现有 native Web 校验，覆盖四种入口、原始语义和兼容候选回退；普通 Gemini 回归通过 |
+| 转换与输出 | conversion Agent，可与能力工作并行 | 共享扩展透传、缺省上限保真、图片 JSON/SSE 输出与实际计数；错误及多图断言通过 |
+| 执行与集成 | execution Agent，依赖前两项接口 | 实际 converter + HTTP transport 验证 native path、认证、模型映射、参数和返回图片 |
+| 收敛与复审 | 主 Agent | 合并各项改动，更新 owner/sentinel/Story，运行聚焦测试、preflight，再按 Jobs 标准审查完整用户旅程 |
+| 发布与验收 | 主 Agent，取得发布授权后 | 部署可回滚版本，按下述单账号 canary 核对 HTTP、图片解码、账号和 usage，完成清理 |
+
+当前聚焦兼容生图与单轮文本。工具、多轮、多模态输入、会话管理重构、模型目录与定价
+变更不属于本次实现；这些工作不能靠静默删字段混进单轮成功路径。
+
+### 生产 canary 的执行契约
+
+复用 `ops/observability/run-probe.sh` 与保留调试资源的 account-model probe，目标由实时
+账号快照确认，不能凭名称推断能力。预先核对请求授权路径的图片权限，以及 Messages 转换所需
+的 `AllowMessagesDispatch`；探测不自动修改业务组开关。先测试文本控制，再逐项调用生图；每次付费生成串行，
+不以失败后盲重试获取绿灯。之前的 HTTP 400 仅证明网关拒绝，不能证明上游缺少生图能力。
+
+请求只含一个 user 文本，不注入探测用 system/instructions；Chat/Responses 缺省输出上限，
+Messages 提供合法 `max_tokens`，并核对 Web Plan 的 best-effort 调整。覆盖默认图片配置、显式 null、4:3；先做非流式，
+再验证约定的缓冲 SSE。判定必须包括 HTTP 成功、图片 base64/MIME/实际解码、非空像素、
+服务端响应 request ID、usage 的实际账号归属；HTTP 200 或有 image 模型名均不足以通过。
+单轮限制负向请求必须在上游副作用前拒绝或转交原授权池的合法候选。最终执行调试资源
+cleanup dry-run，并记录缺口。未部署时本地 HTTP fixture 测试仅称集成测试。
+
 ## 数据与会话 SSOT
 
 唯一可执行会话为目标 edge 的 `accounts.credentials.gemini_web.runtime`：
@@ -139,14 +202,20 @@ Worker 支持 `gemini-web-flash`、`gemini-web-pro`、`gemini-web-pro-image`，
 请求 Google 前返回 400，与 Go 候选准入保持一致。文本模型不接受 imageConfig。
 streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首 token 流式延迟。
 
-用户已确认先修复调度能力判断，不扩展或降级上述输入语义。共享候选准入在计费、
+Worker 输入契约保持不变；统一网关仅执行上文经用户批准的输出预算 best-effort。共享候选准入在计费、
 选槽及等待后刷新时排除 Worker 不支持的请求，继续在原授权范围选择其他兼容账号。
 edge 以 `credentials.gemini_web` 会话对象识别此能力边界；专用 prod 中继显式声明
 `credentials.gemini_web_relay=true`，不根据账号名、域名或公开模型别名推断。
-现有 Gemini API-key 账号仍走 native 能力 owner，不扩张 protocolrouter 的受管账号范围。
+Gemini API-key 账号的 native 请求与兼容请求统一进入 Plan。现有账号启动准备与新账号
+生命周期通过已有 capability owner 创建原生协议记录，以 `native_declaration` 区分平台
+声明和实际探测；不伪造探测成功，也不推断 Chat/Responses 上游端点。运行时只读关联记录，
+不按平台临时合成 supported_protocols；缺少链接必须拒绝并修复账号生命周期。
+已有链接必须继续通过身份、版本与证据校验；空能力、缺半边链接、冲突或陈旧证据不能被重新播种覆盖。
+Web 能力声明参加端点身份，变化后须重验 Plan。普通 Gemini 不套用 Web 的单轮限制。
 原生单轮文本与生图保留（generateContent / streamGenerateContent），包括上述五种比例；原生 countTokens
-不由 Worker 承接，继续选择其他授权兼容账号。Chat/Responses 转换会补入 Worker 不支持的 maxOutputTokens，
-Messages 的 max_tokens 也不能被静默丢弃，因此这些兼容入口不由该受限账号承接。
+不由 Worker 承接，继续选择其他授权兼容账号。Chat/Responses 转换保留客户端未指定上限的语义，
+不再补入人工 maxOutputTokens。显式输出预算按本轮已批准的 Web best-effort 契约由 Plan
+调整并审计；普通 Gemini 保留预算。
 Anthropic `count_tokens` 继续复用网关本地估算，不受 Worker 生成能力限制。
 调度投影与 Worker 共享请求测试样本，防止准入约束漂移。上线需要部署后端并给
 prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修复变更。 发布流程在目标镜像包含该准入逻辑时、

@@ -1493,7 +1493,7 @@
         "func (s *AccountTestService) probeGeminiGenerateContentSupport(",
         "s.antigravityGatewayService.TestConnection(ctx, account, model)",
         "s.buildGeminiServiceAccountRequest(ctx, account, model, payload)",
-        "case protocolrouter.GeminiEndpointAntigravityEdgeRelay:",
+        "case protocolrouter.GeminiEndpointNativeAPIKey, protocolrouter.GeminiEndpointAntigravityEdgeRelay:",
         "s.buildGeminiAPIKeyRequest(ctx, account, requestModel, payload)",
         "protocolProbeRelayCapacityVerdict(account, resp.StatusCode, body)"
       ],
@@ -1524,7 +1524,7 @@
       "path": "backend/internal/handler/openai_gemini_protocol_execution.go",
       "must_contain": [
         "func executeOpenAIGeminiRoute(",
-        "service.ExecuteGeminiProtocolProfile(profile, antigravity, vertex)",
+        "service.ExecuteGeminiProtocolProfile(profile, antigravity, native)",
         "service.OpenAIForwardResultFromForward(result)"
       ],
       "rationale": "The OpenAI-facing helper delegates profile dispatch to the service execution owner and performs only accounting-shape conversion. Responses, Chat Completions, and Messages handlers register callbacks but cannot independently invent profile or fallback policy."

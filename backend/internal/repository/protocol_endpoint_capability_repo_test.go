@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -137,5 +138,72 @@ func TestCommitPreparedProbeResultPersistsCapabilityWithoutPublishingLegacyState
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGeminiNativeDeclarationSeedsOnlyNewCapabilityAndPreservesProbeDenial(t *testing.T) {
+	for _, denied := range []bool{false, true} {
+		t.Run(fmt.Sprintf("denied=%t", denied), func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			account := &service.Account{ID: 200, Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://native.example.invalid", service.GeminiWebRelayCredentialKey: true}}
+			identity, governed, err := service.BuildProtocolEndpointIdentity(account)
+			if err != nil || !governed {
+				t.Fatalf("identity: governed=%v err=%v", governed, err)
+			}
+			encoded, err := identity.CanonicalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now()
+			protocols, evidence := `["gemini_generate_content"]`, `{"native_declaration":true}`
+			var probed any
+			inserted := int64(1)
+			if denied {
+				protocols = `[]`
+				evidence = `{"native_declaration":true,"initial_probe_completed":true}`
+				probed = now
+				inserted = 0
+			}
+			mock.ExpectBegin()
+			mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).WithArgs(identity.Key(), string(encoded), `["gemini_generate_content"]`, `{"native_declaration":true}`).WillReturnResult(sqlmock.NewResult(0, inserted))
+			mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).WithArgs(identity.Key()).WillReturnRows(sqlmock.NewRows([]string{
+				"id", "capability_key", "identity", "supported_protocols", "probe_evidence", "revision", "last_probed_at", "probe_lease_owner", "probe_lease_until", "probe_generation", "identity_conflict", "created_at", "updated_at",
+			}).AddRow(int64(9), identity.Key(), string(encoded), protocols, evidence, int64(1), probed, nil, nil, int64(0), false, now, now))
+			mock.ExpectExec(`UPDATE accounts`).WithArgs(account.ID, int64(9)).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectQuery(`SELECT COUNT\(\*\) FROM accounts`).WithArgs(int64(9)).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+			mock.ExpectCommit()
+			capability, err := newProtocolEndpointCapabilityRepositoryWithDB(db).EnsureAccountLink(context.Background(), account, identity, []protocolrouter.Protocol{protocolrouter.ProtocolChatCompletions}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !capability.ProbeEvidence.NativeDeclaration || capability.ProbeEvidence.OfficialSeed || capability.ProbeEvidence.InitialProbeCompleted != denied {
+				t.Fatalf("incorrect evidence: %+v", capability.ProbeEvidence)
+			}
+			snapshot, err := service.ProtocolAccountSnapshot(account, "gemini-3.8-flash")
+			if denied {
+				if !errors.Is(err, service.ErrProtocolCapabilityUnknown) {
+					t.Fatalf("denial was bypassed: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolGeminiGenerateContent, "", "gemini-3.8-flash", false, []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`))
+				if err != nil {
+					t.Fatal(err)
+				}
+				plan, err := service.NewProtocolRouter().Plan(request, snapshot)
+				if err != nil || plan.TargetProtocol() != protocolrouter.ProtocolGeminiGenerateContent {
+					t.Fatalf("declared contract unavailable: %v", err)
+				}
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

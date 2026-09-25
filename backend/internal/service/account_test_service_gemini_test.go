@@ -4,6 +4,7 @@ package service
 
 import (
 	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -175,7 +176,7 @@ func TestGeminiWebAdminTestUsesWorkerReferenceAndSupportedPayload(t *testing.T) 
 				var payload map[string]any
 				require.NoError(t, json.Unmarshal(body, &payload))
 				if kind != "ordinary" {
-					require.True(t, geminiWebNativeBodySupported(body, image), string(body))
+					require.True(t, protocolrouter.GeminiWebNativeBodySupported(body, image), string(body))
 					require.NotContains(t, payload, "systemInstruction")
 					if image {
 						require.Equal(t, map[string]any{"responseModalities": []any{"TEXT", "IMAGE"}}, payload["generationConfig"])

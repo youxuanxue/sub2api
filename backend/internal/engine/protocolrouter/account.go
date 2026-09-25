@@ -20,6 +20,7 @@ type GeminiEndpointProfile string
 
 const (
 	GeminiEndpointNone                 GeminiEndpointProfile = ""
+	GeminiEndpointNativeAPIKey         GeminiEndpointProfile = "gemini_native_api_key"
 	GeminiEndpointAntigravityCloudCode GeminiEndpointProfile = "antigravity_cloudcode"
 	GeminiEndpointAntigravityEdgeRelay GeminiEndpointProfile = "antigravity_edge_relay"
 	GeminiEndpointVertexServiceAccount GeminiEndpointProfile = "vertex_service_account"
@@ -27,7 +28,7 @@ const (
 
 func (p GeminiEndpointProfile) Valid() bool {
 	switch p {
-	case GeminiEndpointAntigravityCloudCode,
+	case GeminiEndpointNativeAPIKey, GeminiEndpointAntigravityCloudCode,
 		GeminiEndpointAntigravityEdgeRelay,
 		GeminiEndpointVertexServiceAccount:
 		return true
@@ -41,6 +42,8 @@ type TransportID string
 const TransportHTTP TransportID = "http"
 
 type AccountSnapshotInput struct {
+	ProviderCapability ProviderCapability
+	ImageOutput        bool
 	ModelCapabilities  map[Protocol]anthropicpolicy.Capabilities
 	AccountID          int64
 	CapabilityKey      string
@@ -57,6 +60,8 @@ type AccountSnapshotInput struct {
 }
 
 type AccountSnapshot struct {
+	providerCapability ProviderCapability
+	imageOutput        bool
 	modelCapabilities  map[Protocol]anthropicpolicy.Capabilities
 	accountID          int64
 	capabilityKey      string
@@ -130,10 +135,15 @@ func NewAccountSnapshot(input AccountSnapshotInput) (AccountSnapshot, error) {
 			exactEndpoints[protocol] = trimmed
 		}
 	}
+	if input.ProviderCapability != ProviderCapabilityGeneral && input.ProviderCapability != ProviderCapabilityGeminiWeb {
+		return AccountSnapshot{}, fmt.Errorf("invalid provider capability %q", input.ProviderCapability)
+	}
 	if input.GeminiProfile != GeminiEndpointNone && !input.GeminiProfile.Valid() {
 		return AccountSnapshot{}, fmt.Errorf("invalid Gemini endpoint profile %q", input.GeminiProfile)
 	}
 	return AccountSnapshot{
+		providerCapability: input.ProviderCapability,
+		imageOutput:        input.ImageOutput,
 		modelCapabilities:  modelCapabilities,
 		accountID:          input.AccountID,
 		capabilityKey:      capabilityKey,

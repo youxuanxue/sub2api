@@ -108,6 +108,7 @@ func TestExecuteGeminiProtocolProfileUsesOnlyPlannedProfile(t *testing.T) {
 		{name: "antigravity", profile: protocolrouter.GeminiEndpointAntigravityCloudCode, wantAntigravity: 1, wantValue: "ag"},
 		{name: "vertex", profile: protocolrouter.GeminiEndpointVertexServiceAccount, wantVertex: 1, wantValue: "vertex"},
 		{name: "antigravity edge relay", profile: protocolrouter.GeminiEndpointAntigravityEdgeRelay, wantVertex: 1, wantValue: "vertex"},
+		{name: "native API key", profile: protocolrouter.GeminiEndpointNativeAPIKey, wantVertex: 1, wantValue: "vertex"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

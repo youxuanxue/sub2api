@@ -34,6 +34,7 @@ func webCandidateAccount(relay bool) Account {
 func TestGeminiWebCandidateRejectsProductionChatWithoutPoisoningPeer(t *testing.T) {
 	for _, relay := range []bool{false, true} {
 		web := webCandidateAccount(relay)
+		attachTestNativeDeclaredCapability(&web)
 		peer := *protocolRoutingOpenAIAccount(62, "chat_completions")
 		peer.GroupIDs = []int64{16}
 		peer.Credentials["model_mapping"] = map[string]any{"gemini-3-flash": "gemini-3.8-flash"}
@@ -136,13 +137,13 @@ func TestGeminiWebAdmissionMatchesWorkerContractFixtures(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &cases))
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			require.Equal(t, tc.Accepted, geminiWebNativeBodySupported(tc.Body, isImageGenerationModel(tc.Model)))
+			require.Equal(t, tc.Accepted, protocolrouter.GeminiWebNativeBodySupported(tc.Body, isImageGenerationModel(tc.Model)))
 		})
 	}
 	for _, count := range []int{32000, 32001} {
 		body, err := json.Marshal(map[string]any{"contents": []any{map[string]any{"parts": []any{map[string]any{"text": strings.Repeat("中", count)}}}}})
 		require.NoError(t, err)
-		require.Equal(t, count == 32000, geminiWebNativeBodySupported(body, false))
+		require.Equal(t, count == 32000, protocolrouter.GeminiWebNativeBodySupported(body, false))
 	}
 }
 
@@ -156,7 +157,9 @@ func TestGeminiWebCapabilityMarkerDoesNotGuessFromModelOrName(t *testing.T) {
 	ctx := WithProtocolRouting(context.Background(), NewProtocolRouter(), request)
 	require.True(t, geminiWebSupportsRequest(ctx, &web, "gemini-3-flash", ShapeOpenAIChat))
 	web.Credentials[GeminiWebRelayCredentialKey] = true
-	require.False(t, geminiWebSupportsRequest(ctx, &web, "gemini-3-flash", ShapeOpenAIChat))
+	attachTestNativeDeclaredCapability(&web)
+	require.True(t, geminiWebSupportsRequest(ctx, &web, "gemini-3-flash", ShapeOpenAIChat))
+	require.True(t, ProtocolRouteLegal(ctx, &web, "gemini-3-flash"))
 	require.False(t, geminiWebSupportsRequest(context.Background(), &web, "gemini-3-flash", ShapeGemini))
 }
 
@@ -189,7 +192,7 @@ func TestGeminiWebChatAndResponsesDefaultLimitIsNotWorkerCapability(t *testing.T
 		body, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"generationConfig":{"maxOutputTokens":8192}}`, string(body))
-		require.False(t, geminiWebNativeBodySupported(body, false))
+		require.False(t, protocolrouter.GeminiWebNativeBodySupported(body, false))
 	}
 }
 
@@ -204,5 +207,5 @@ func TestGeminiWebCandidateRechecksCapabilityAfterWait(t *testing.T) {
 		account.Credentials[GeminiWebRelayCredentialKey] = true
 		return account
 	}
-	require.ErrorIs(t, state.recheck(state.current, candidateSelectOptions{}), ErrUniversalCapacityUnavailable)
+	require.ErrorIs(t, state.recheck(state.current, candidateSelectOptions{}), protocolrouter.ErrNoLegalRoute)
 }

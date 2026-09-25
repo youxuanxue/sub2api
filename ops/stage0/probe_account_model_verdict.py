@@ -7,6 +7,7 @@ import json
 import base64
 import hashlib
 import io
+import re
 from typing import Any
 
 
@@ -42,6 +43,130 @@ def gemini_response_summary(body_text: str) -> dict[str, Any]:
     return result
 
 
+def _compat_sse_document(endpoint: str, body_text: str) -> dict[str, Any] | None:
+    # The replay verifier owns SSE framing (including multiline data and CRLF)
+    # and explicit error-event detection; this projection owns protocol fields.
+    from prod_replay import sse_events, event_failed
+
+    texts: dict[tuple[int, int], str] = {}
+    terminal = False
+    saw_done = False
+    stopped = False
+    completed = None
+    for name, raw in sse_events(body_text.encode("utf-8")):
+        if event_failed(name, None):
+            return None
+        if not raw:
+            continue
+        if terminal:
+            # Our Responses adapter emits one optional DONE after completed.
+            if endpoint == "responses" and raw == "[DONE]" and not saw_done:
+                saw_done = True
+                continue
+            return None
+        if raw == "[DONE]":
+            if endpoint != "chat" or not stopped:
+                return None
+            terminal = True
+            saw_done = True
+            continue
+        event = json.loads(raw)
+        if not isinstance(event, dict) or event_failed(name, event):
+            return None
+        kind = event.get("type", name)
+        if endpoint == "chat":
+            for choice in event.get("choices", []):
+                if choice.get("index", 0) != 0:
+                    return None
+                key = (0, 0)
+                text = choice.get("delta", {}).get("content")
+                if text is not None:
+                    texts[key] = texts.get(key, "") + text
+                reason = choice.get("finish_reason")
+                if reason is not None:
+                    if reason != "stop":
+                        return None
+                    stopped = True
+        elif endpoint == "messages":
+            key = (int(event.get("index", 0)), 0)
+            if kind == "content_block_start" and event.get("content_block", {}).get("type") == "text":
+                texts[key] = event["content_block"].get("text", "")
+            elif kind == "content_block_delta" and event.get("delta", {}).get("type") == "text_delta":
+                texts[key] = texts.get(key, "") + event["delta"]["text"]
+            elif kind == "message_delta" and event.get("delta", {}).get("stop_reason") is not None:
+                if event["delta"]["stop_reason"] != "end_turn":
+                    return None
+                stopped = True
+            elif kind == "message_stop":
+                terminal = stopped
+                if not terminal:
+                    return None
+        elif endpoint == "responses":
+            key = (int(event.get("output_index", 0)), int(event.get("content_index", 0)))
+            if kind == "response.output_text.delta":
+                texts[key] = texts.get(key, "") + event["delta"]
+            elif kind == "response.output_text.done":
+                texts.setdefault(key, event["text"])
+            elif kind == "response.completed":
+                completed = event["response"]
+                if completed.get("status") != "completed" or event_failed("", completed):
+                    return None
+                terminal = True
+        else:
+            return None
+    if not terminal:
+        return None
+    text_parts = [texts[key] for key in sorted(texts)]
+    if endpoint == "chat":
+        return {"choices": [{"finish_reason": "stop", "message": {"content": "".join(text_parts)}}]}
+    if endpoint == "messages":
+        return {"stop_reason": "end_turn", "content": [{"type": "text", "text": text} for text in text_parts]}
+    # Completed Responses snapshots repeat streamed text; use exactly one copy.
+    if not texts:
+        return completed
+    return {"status": "completed", "output": [{"type": "message", "content": [
+        {"type": "output_text", "text": text} for text in text_parts]}]}
+
+
+def compat_image_response_summary(endpoint: str, body_text: str) -> dict[str, Any]:
+    """Project legal compatibility text fields into the native image validator."""
+    invalid = {"valid": False, "text_parts": 0, "images": []}
+    try:
+        try:
+            body = json.loads(body_text)
+        except json.JSONDecodeError:
+            body = _compat_sse_document(endpoint, body_text)
+        if endpoint == "messages":
+            if body.get("stop_reason") != "end_turn":
+                return invalid
+            texts = [part["text"] for part in body["content"] if part.get("type") == "text"]
+        elif endpoint == "chat":
+            choice = body["choices"][0]
+            if choice.get("finish_reason") != "stop":
+                return invalid
+            texts = [choice["message"]["content"]]
+        elif endpoint == "responses":
+            if body.get("status") != "completed":
+                return invalid
+            texts = [part["text"] for item in body["output"] if item.get("type") == "message"
+                     for part in item["content"] if part.get("type") == "output_text"]
+        else:
+            return invalid
+        parts = []
+        for text in texts:
+            if not isinstance(text, str):
+                return invalid
+            parts.append({"text": text})
+            for mime, data in re.findall(r"!\[[^\]]*\]\(data:([^;,()]+);base64,([^)]*)\)", text):
+                parts.append({"inlineData": {"mimeType": mime, "data": data}})
+        result = gemini_response_summary(json.dumps({"candidates": [{
+            "finishReason": "STOP", "content": {"parts": parts}}]}))
+        result["valid"] = result["valid"] and bool(result["images"])
+        return result
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return invalid
+
+
 def embedding_response_valid(body_text: str) -> bool:
     try:
         parsed = json.loads(body_text)
@@ -64,6 +189,7 @@ def classify_probe_verdict(
     target_account_id: int,
     usage_row: dict[str, Any] | None,
     curl_err: str,
+    expect_image_output: bool = False,
 ) -> str:
     if not http_code or http_code == "000":
         if curl_err:
@@ -74,9 +200,12 @@ def classify_probe_verdict(
     low = body_text.lower()
 
     if 200 <= status < 300:
+        if expect_image_output and endpoint in ("messages", "chat", "responses"):
+            if not compat_image_response_summary(endpoint, body_text)["valid"]:
+                return "uncorrelated_success"
         if endpoint in ("gemini", "gemini_image"):
             summary = gemini_response_summary(body_text)
-            if not summary["valid"] or (endpoint == "gemini_image" and not summary["images"]):
+            if not summary["valid"] or ((endpoint == "gemini_image" or expect_image_output) and not summary["images"]):
                 return "uncorrelated_success"
         if endpoint == "transcriptions":
             try:

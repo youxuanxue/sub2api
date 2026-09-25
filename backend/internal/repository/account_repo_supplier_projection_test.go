@@ -348,7 +348,7 @@ func TestUS048_SupplierAnthropicProjectionPublishesMessagesCapability(t *testing
 			int64(8),
 		))
 	mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).
-		WithArgs(identity.Key(), string(identityJSON)).
+		WithArgs(identity.Key(), string(identityJSON), `[]`, `{}`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).
 		WithArgs(identity.Key()).
@@ -470,7 +470,7 @@ func TestUS048_SupplierConfigurationRepositoryWritesOnlyOwnedFields(t *testing.T
 			int64(8),
 		))
 	mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).
-		WithArgs(identity.Key(), string(identityJSON)).
+		WithArgs(identity.Key(), string(identityJSON), `[]`, `{}`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).
 		WithArgs(identity.Key()).

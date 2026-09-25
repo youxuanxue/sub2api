@@ -207,6 +207,9 @@ func protocolRoutingGovernsAccount(account *Account) bool {
 	if account == nil || account.IsBedrock() {
 		return false
 	}
+	if account.Platform == PlatformGemini && account.Type == AccountTypeAPIKey {
+		return true
+	}
 	if protocolRoutingAccountHasNoTextModels(account) {
 		return false
 	}

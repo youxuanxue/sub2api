@@ -10,8 +10,8 @@ type openAIGeminiForwardFunc func() (*service.ForwardResult, error)
 func executeOpenAIGeminiRoute(
 	profile protocolrouter.GeminiEndpointProfile,
 	antigravity openAIGeminiForwardFunc,
-	vertex openAIGeminiForwardFunc,
+	native openAIGeminiForwardFunc,
 ) (*service.OpenAIForwardResult, error) {
-	result, err := service.ExecuteGeminiProtocolProfile(profile, antigravity, vertex)
+	result, err := service.ExecuteGeminiProtocolProfile(profile, antigravity, native)
 	return service.OpenAIForwardResultFromForward(result), err
 }

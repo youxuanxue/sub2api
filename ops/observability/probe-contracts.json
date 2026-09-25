@@ -3,6 +3,7 @@
     "companions": [
       "ops/pricing/probe_reserved_resources.sh",
       "ops/stage0/probe_account_model_verdict.py",
+      "ops/stage0/prod_replay.py",
       "ops/stage0/smoke_anthropic_realistic.py"
     ],
     "verdicts": [
@@ -118,6 +119,7 @@
       "ops/stage0/probe_account_model.sh",
       "ops/pricing/probe_reserved_resources.sh",
       "ops/stage0/probe_account_model_verdict.py",
+      "ops/stage0/prod_replay.py",
       "ops/stage0/smoke_anthropic_realistic.py"
     ],
     "verdicts": [

@@ -145,12 +145,31 @@ func TestCandidateFailureNativeExecutionUsesForwardModel(t *testing.T) {
 			}}
 			ctx := context.WithValue(context.Background(), candidateRequestContextKey{}, state)
 			failure := &UpstreamFailoverError{StatusCode: 502}
+			var router *protocolrouter.Router
+			selection := &AccountSelectionResult{Account: account}
+			execute := func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
+				return nil, failure
+			}
+			executors := ProtocolExecutors{NonGoverned: execute}
+			if tc.platform == PlatformGemini {
+				account.Credentials["api_key"] = "fixture"
+				attachTestNativeDeclaredCapability(account)
+				request, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolGeminiGenerateContent, "", tc.model, false, []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`))
+				require.NoError(t, err)
+				router = NewProtocolRouter()
+				ctx = WithProtocolRouting(ctx, router, request)
+				path.ctx = ctx
+				snapshot, err := protocolAccountSnapshotForRequest(account, request)
+				require.NoError(t, err)
+				plan, err := router.Plan(request, snapshot)
+				require.NoError(t, err)
+				selection.ProtocolPlan = &plan
+				path.plan = &plan
+				executors = protocolExecutorsForTest(plan, execute)
+			}
 			for range 3 {
-				_, err := ExecuteSelectedProtocol(ctx, nil, &AccountSelectionResult{Account: account}, account, nil, nil, ProtocolExecutors{
-					NonGoverned: func(context.Context, *Account, protocolrouter.Plan, protocolrouter.CanonicalRequest) (any, error) {
-						return nil, failure
-					},
-				})
+				_, err := ExecuteSelectedProtocol(ctx, router, selection, account,
+					func(context.Context, *Account, string) error { return nil }, func(context.Context, int64) (*Account, error) { fresh := *account; return &fresh, nil }, executors)
 				require.ErrorIs(t, err, failure)
 			}
 			require.Equal(t, map[CandidateFailureScope]int64{{42, tc.upstream}: 3}, counter.counts)

@@ -30,7 +30,6 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, transport := range []string{"native", "planned_edge", "planned_vertex"} {
 		for _, clean := range []bool{false, true} {
-			governed := transport != "native"
 			name := transport
 			if clean {
 				name += "/switched_or_missing_binding"
@@ -43,7 +42,7 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 				account := &service.Account{ID: 47, Platform: service.PlatformGemini, Type: service.AccountTypeAPIKey,
 					Status: service.StatusActive, Schedulable: true, Concurrency: 10, GroupIDs: []int64{10},
 					Credentials: map[string]any{"api_key": "test-key", "base_url": "https://api-us4.tokenkey.dev", "model_mapping": map[string]any{model: model}}}
-				if governed {
+				if transport != "native" {
 					account.Platform = service.PlatformAntigravity
 					if transport == "planned_vertex" {
 						account.Platform, account.Type = service.PlatformNewAPI, service.AccountTypeServiceAccount
@@ -51,6 +50,12 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 						account.Credentials["service_account_json"] = `{"project_id":"test-project","private_key":"test-only","client_email":"test@example.invalid"}`
 					}
 					attachHandlerTestProtocolCapability(t, account, protocolrouter.ProtocolGeminiGenerateContent)
+				} else {
+					identity, governed, err := service.BuildProtocolEndpointIdentity(account)
+					require.NoError(t, err)
+					require.True(t, governed)
+					attachHandlerTestProtocolCapability(t, account, service.NativeDeclaredProtocolContract(identity)...)
+					account.ProtocolEndpointCapability.ProbeEvidence = service.ProtocolProbeEvidence{NativeDeclaration: true}
 				}
 				request, err := newCanonicalProtocolRequest(protocolrouter.ProtocolGeminiGenerateContent, protocolrouter.ResponsesPathNone, model, true, body)
 				require.NoError(t, err)
@@ -68,20 +73,18 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/"+model+":streamGenerateContent", strings.NewReader(string(body)))
 				ctx := service.WithProtocolRouting(c.Request.Context(), router, request)
 				c.Request = c.Request.WithContext(ctx)
-				selection := &service.AccountSelectionResult{Account: account}
-				if governed {
-					group := &service.Group{ID: 10, Platform: service.PlatformGemini, Status: service.StatusActive, RateMultiplier: 1, Hydrated: true}
-					key := &service.APIKey{ID: 1, UserID: 7, Group: group, GroupID: &group.ID, User: &service.User{ID: 7, Balance: 10}}
-					api := service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg)
-					service.ProvideTKUniversalModelsProvider(api, h.gatewayService, nil, &service.OpenAIGatewayService{}, router)
-					c.Set(string(middleware.ContextKeyAPIKey), key)
-					_, err = api.UniversalResolver().PrepareCandidateIngress(c, key, service.ShapeGemini, c.Request.URL.Path, model, body, "")
-					require.NoError(t, err)
-					ctx = c.Request.Context()
-					selection, err = h.gatewayService.SelectAccountWithLoadAwareness(ctx, key.GroupID, "", model, nil, "", key.UserID)
-					require.NoError(t, err)
-					defer selection.ReleaseFunc()
-				}
+				// All three providers now enter execution through their selected Plan.
+				group := &service.Group{ID: 10, Platform: service.PlatformGemini, Status: service.StatusActive, RateMultiplier: 1, Hydrated: true}
+				key := &service.APIKey{ID: 1, UserID: 7, Group: group, GroupID: &group.ID, User: &service.User{ID: 7, Balance: 10}}
+				api := service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg)
+				service.ProvideTKUniversalModelsProvider(api, h.gatewayService, nil, &service.OpenAIGatewayService{}, router)
+				c.Set(string(middleware.ContextKeyAPIKey), key)
+				_, err = api.UniversalResolver().PrepareCandidateIngress(c, key, service.ShapeGemini, c.Request.URL.Path, model, body, "")
+				require.NoError(t, err)
+				ctx = c.Request.Context()
+				selection, err := h.gatewayService.SelectAccountWithLoadAwareness(ctx, key.GroupID, "", model, nil, "", key.UserID)
+				require.NoError(t, err)
+				defer selection.ReleaseFunc()
 				result, err := h.executeGeminiV1BetaSelectedProtocol(c, ctx, selection, account, model, "streamGenerateContent", true, true, 1, "session", clean)
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, recorder.Code)
@@ -99,8 +102,9 @@ func TestGeminiSelectedProtocolRepairsTransportSignature(t *testing.T) {
 				}
 				require.Equal(t, "test-image", gjson.GetBytes(upstream.body, imagePath).String())
 				require.Equal(t, body, request.Body(), "transport repair must not mutate canonical history")
-				if governed {
-					require.Equal(t, request.Digest(), selection.ProtocolPlan.RequestDigest())
+				require.Equal(t, request.Digest(), selection.ProtocolPlan.RequestDigest())
+				if transport == "native" {
+					require.Equal(t, protocolrouter.GeminiEndpointNativeAPIKey, selection.ProtocolPlan.GeminiProfile())
 				}
 			})
 		}

@@ -34,7 +34,7 @@ type ProtocolExecutionFunc func(
 func ExecuteGeminiProtocolProfile[T any](
 	profile protocolrouter.GeminiEndpointProfile,
 	antigravity func() (T, error),
-	vertex func() (T, error),
+	native func() (T, error),
 ) (T, error) {
 	var zero T
 	var execute func() (T, error)
@@ -42,10 +42,11 @@ func ExecuteGeminiProtocolProfile[T any](
 	case protocolrouter.GeminiEndpointAntigravityCloudCode:
 		execute = antigravity
 	case protocolrouter.GeminiEndpointVertexServiceAccount,
-		protocolrouter.GeminiEndpointAntigravityEdgeRelay:
-		// Vertex SA and AG edge stubs both speak native Gemini generateContent
-		// over HTTP (edge hop: {base}/antigravity/v1beta/...).
-		execute = vertex
+		protocolrouter.GeminiEndpointAntigravityEdgeRelay,
+		protocolrouter.GeminiEndpointNativeAPIKey:
+		// These profiles share native generateContent transport. Provider limits
+		// (including Gemini Web) are admitted by Plan, not selected here.
+		execute = native
 	default:
 		return zero, ErrProtocolRouteUnavailable
 	}

@@ -305,6 +305,26 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			accountReleaseFunc()
 		}
 
+		// Forward returns a result for successful or delivered partial output.
+		// Settle it once before branching; pre-output failures return nil.
+		if result != nil {
+			setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
+			setOpsClaudeUsageContext(c, result.Usage)
+			h.tkSubmitClaudeGatewayForwardUsage(tkClaudeGatewayForwardUsageInput{
+				C:                  c,
+				APIKey:             apiKey,
+				Account:            account,
+				Subscription:       subscription,
+				Result:             result,
+				ReqModel:           reqModel,
+				Body:               body,
+				PricingAt:          pricingAt,
+				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
+				ReqLog:             reqLog,
+				LogFailedEvent:     "gateway.responses.record_usage_failed",
+			})
+		}
+
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
@@ -339,22 +359,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 
-		// 6. Record usage
-		setOpsForwardResultContext(c, result.UpstreamModel, reqModel)
-		setOpsClaudeUsageContext(c, result.Usage)
-		h.tkSubmitClaudeGatewayForwardUsage(tkClaudeGatewayForwardUsageInput{
-			C:                  c,
-			APIKey:             apiKey,
-			Account:            account,
-			Subscription:       subscription,
-			Result:             result,
-			ReqModel:           reqModel,
-			Body:               body,
-			PricingAt:          pricingAt,
-			ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel),
-			ReqLog:             reqLog,
-			LogFailedEvent:     "gateway.responses.record_usage_failed",
-		})
 		return
 	}
 }
