@@ -29,6 +29,7 @@ type RateLimitService struct {
 	openAI403CounterCache              OpenAI403CounterCache
 	anthropicUpstreamErrorCounterCache AnthropicUpstreamErrorCounterCache
 	antigravitySaturationCounter       AntigravitySaturationCounterCache
+	antigravityValidationCounter       AntigravityValidationCounterCache
 	anthropicSaturationCounter         AnthropicSaturationCounterCache
 	openaiSaturationCounter            OpenAISaturationCounterCache
 	incidentNotifier                   AccountIncidentNotifier
@@ -104,6 +105,22 @@ const (
 	openAI403CounterWindowMinutes   = 180
 )
 
+// Antigravity VALIDATION_REQUIRED (403) 渐进惩罚。Google 的账号验证挑战是可
+// 恢复的，所以第 1~2 轮只临时停调；但真正需要人工验证的账号不会自愈，固定
+// 周期重放只会每轮烧掉一次真实上游请求，因此第 3 轮转为永久禁用等人工处理。
+// 轮数由 AntigravityValidationCounterCache 在窗口内累计，成功响应即清零。
+const (
+	antigravityValidationCounterWindowMinutes = 360
+	antigravityValidationDisableThreshold     = 3
+)
+
+// antigravityValidationCooldownLadder 按连续命中轮数选择冷却时长；超出长度
+// 的轮数已经由 antigravityValidationDisableThreshold 收敛为永久禁用。
+var antigravityValidationCooldownLadder = []time.Duration{
+	30 * time.Minute,
+	2 * time.Hour,
+}
+
 // anthropicCooldownTierLadder picks an exponentially longer cooldown when
 // the same account repeatedly trips the 3/3 short-window threshold inside
 // anthropicCooldownTierTTLMinutes. Tier index = (recent cooldown count - 1)
@@ -171,6 +188,12 @@ func (s *RateLimitService) SetOpenAI403CounterCache(cache OpenAI403CounterCache)
 
 func (s *RateLimitService) SetAnthropicUpstreamErrorCounterCache(cache AnthropicUpstreamErrorCounterCache) {
 	s.anthropicUpstreamErrorCounterCache = cache
+}
+
+// SetAntigravityValidationCounterCache 设置 Antigravity VALIDATION_REQUIRED
+// 连续命中计数器（可选依赖；缺失时惩罚退回单档固定冷却）。
+func (s *RateLimitService) SetAntigravityValidationCounterCache(cache AntigravityValidationCounterCache) {
+	s.antigravityValidationCounter = cache
 }
 
 func isAnthropicExtraUsage429(responseBody []byte) bool {
@@ -959,18 +982,7 @@ func (s *RateLimitService) handleAntigravity403(ctx context.Context, account *Ac
 		if validationURL := extractValidationURL(string(responseBody)); validationURL != "" {
 			msg += " | validation_url: " + validationURL
 		}
-		const validationCooldown = 30 * time.Minute
-		until := time.Now().Add(validationCooldown)
-		reason := "Antigravity validation required temporary cooldown: " + msg
-		s.notifyAccountSchedulingBlocked(account, until, "antigravity_validation_403")
-		if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
-			slog.Warn("antigravity_validation_403_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
-			// If the cooldown cannot be persisted, fail closed so the account is
-			// not retried in a tight loop.
-			s.handleAuthError(ctx, account, msg)
-		}
-		slog.Warn("antigravity_validation_403_temp_unschedulable", "account_id", account.ID, "until", until)
-		return true
+		return s.applyAntigravityValidationPenalty(ctx, account, msg)
 
 	case forbiddenTypeViolation:
 		// 违规封号: 永久禁用，需人工处理
@@ -2050,6 +2062,7 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 	}
 	s.ResetOpenAI403Counter(ctx, accountID)
 	s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
+	s.ResetAntigravityValidationCounter(ctx, accountID)
 	s.notifyAccountSchedulingBlockCleared(accountID)
 	return nil
 }
@@ -2119,6 +2132,7 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	if result.ClearedError || result.ClearedRateLimit {
 		s.ResetOpenAI403Counter(ctx, accountID)
 		s.ResetAnthropicUpstreamErrorCounter(ctx, accountID)
+		s.ResetAntigravityValidationCounter(ctx, accountID)
 		if result.ClearedError && !result.ClearedRateLimit {
 			s.notifyAccountSchedulingBlockCleared(accountID)
 		}

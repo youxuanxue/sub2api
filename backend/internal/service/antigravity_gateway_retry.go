@@ -760,6 +760,11 @@ urlFallbackLoop:
 	// 成功响应时清零 INTERNAL 500 连续失败计数器（覆盖所有成功路径，含 smart retry）
 	if resp != nil && resp.StatusCode < 400 {
 		s.resetInternal500Counter(p.ctx, p.prefix, p.account.ID)
+		// 同一个成功响应也证明 Google 的 VALIDATION_REQUIRED 挑战已解除，
+		// 清零验证阶梯轮数，避免账号带着旧计数进入下一次冷却升级。
+		if s.rateLimitService != nil {
+			s.rateLimitService.ResetAntigravityValidationCounter(p.ctx, p.account.ID)
+		}
 	}
 
 	return &antigravityRetryLoopResult{resp: resp}, nil

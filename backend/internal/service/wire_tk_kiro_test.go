@@ -22,6 +22,7 @@ func TestProvideRateLimitService_KiroOAuth401RefreshAPIWired(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		refreshAPI,
 		nil,
 	)
