@@ -28,6 +28,10 @@ AC-005: assert emitted image deltas, final envelope semantics, observed counts, 
 
 ## Linked Tests
 
+- `backend/internal/handler/us057_gemini_middleware_ingress_test.go`::`TestUS057_GeminiOpenAICompatMiddlewareIngressUsesAdmittedPlan`
+
+- `backend/internal/handler/gemini_messages_ingress_tk_test.go`::`TestGeminiMessagesIngressUsesAdmittedPlan`
+
 - `backend/internal/service/us057_gemini_web_protocol_test.go`::`TestUS057_GeminiNativeProtocolTransport`
 - `backend/internal/service/us057_gemini_web_protocol_test.go`::`TestUS057_GeminiImageCandidateKeepsSelectedPlan`
 - `backend/internal/handler/us057_gemini_partial_usage_test.go`::`TestUS057_GeminiCompatIngressMetersDeliveredPartialImageOnce`
@@ -59,7 +63,7 @@ Initial clean-main preflight passed. Focused execution matrix and AG/Vertex regr
 Engine, apicompat, service, handler and repository unit suites passed locally. After the final best-effort and policy-terminal fixes, the complete service suite (144.144s), engine suite and focused Web/native/US057 forwarding tests passed again. The handler full suite passed after partial-usage settlement changes; the strengthened eligible-peer no-replay regression also passed. Probe tooling tests passed with Pillow available.
 Final preflight evidence is recorded with the delivered change; production validation remains separate.
 HTTP transport fixtures are integration tests, not UI e2e and not production provider evidence.
-Production canary is pending deployment; no release, capability refresh or account mutation has been performed.
+PR #2323 was released as v1.8.254 and deployed to prod. The first reserved-group Messages text canary failed before upstream (HTTP 400; request ID b7f69b47-20fd-466a-aac1-04af79d67434): a middleware Anthropic platform hint overrode the admitted Gemini candidate. No image canary ran. The follow-up corrects actual handler dispatch and verifies middleware → handler → Plan → native transport; production acceptance remains pending the corrective release.
 The user explicitly approved Web best-effort output limits. All three compatibility ingresses must pass the corresponding transport tests; production success still requires deployment and account-attributed canaries.
 
 ## Status
