@@ -126,6 +126,7 @@ then run one request at a time (replace the example account/model with the verif
 ```bash
 bash ops/observability/run-probe.sh --target prod \
   --script ops/stage0/probe_account_model.sh \
+  --timeout-seconds 600 \
   --env ACCOUNT_ID=200 --env MODEL=gemini-3.1-flash-image --env ENDPOINT=chat \
   --env REQUEST_TIMEOUT_SECONDS=480 \
   --env 'REQUEST_BODY_JSON={"model":"gemini-3.1-flash-image","messages":[{"role":"user","content":"Draw a small red apple on a white table"}],"generationConfig":{"responseModalities":["TEXT","IMAGE"],"imageConfig":{"aspectRatio":"4:3"}}}'
