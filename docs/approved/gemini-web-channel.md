@@ -139,19 +139,14 @@ Worker 支持 `gemini-web-flash`、`gemini-web-pro`、`gemini-web-pro-image`，
 请求 Google 前返回 400，与 Go 候选准入保持一致。文本模型不接受 imageConfig。
 streamGenerateContent 返回生成及下载完成后的一条 SSE，不声明首 token 流式延迟。
 
-Worker 的输入语义保持上述限制不变。共享候选准入在计费、选槽及等待后刷新时排除
-Worker 不支持的请求；显式 prod 中继的跨协议请求统一交给 protocolrouter converter。
+用户已确认先修复调度能力判断，不扩展或降级上述输入语义。共享候选准入在计费、
+选槽及等待后刷新时排除 Worker 不支持的请求，继续在原授权范围选择其他兼容账号。
 edge 以 `credentials.gemini_web` 会话对象识别此能力边界；专用 prod 中继显式声明
 `credentials.gemini_web_relay=true`，不根据账号名、域名或公开模型别名推断。
-本地 Worker Gemini API-key 账号仍走 native 能力 owner，不进入 protocolrouter。显式声明
-`credentials.gemini_web_relay=true` 且 `extra.relay_kind=gemini_web` 的 prod 中继则进入
-protocolrouter，声明唯一上游协议 `gemini_generate_content`；Messages、Chat Completions
-和 Responses 统一由既有 converter 转成原生 `/v1beta/models/{model}:generateContent`
-（流式请求使用 `streamGenerateContent`），不在中继账号上复制一套协议判断。
+现有 Gemini API-key 账号仍走 native 能力 owner，不扩张 protocolrouter 的受管账号范围。
 原生单轮文本与生图保留（generateContent / streamGenerateContent），包括上述五种比例；原生 countTokens
-不由 Worker 承接，继续选择其他授权兼容账号。Worker 本地账号仍拒绝 Chat/Responses
-转换会补入的 Worker 不支持参数；prod 中继的转换请求按 protocolrouter converter 合同准入，不能静默丢弃
-`max_tokens`、`maxOutputTokens` 或其他受保护语义。
+不由 Worker 承接，继续选择其他授权兼容账号。Chat/Responses 转换会补入 Worker 不支持的 maxOutputTokens，
+Messages 的 max_tokens 也不能被静默丢弃，因此这些兼容入口不由该受限账号承接。
 Anthropic `count_tokens` 继续复用网关本地估算，不受 Worker 生成能力限制。
 调度投影与 Worker 共享请求测试样本，防止准入约束漂移。上线需要部署后端并给
 prod 中继补入声明；映射、Cookie、并发和调度开关不随代码修复变更。 发布流程在目标镜像包含该准入逻辑时、

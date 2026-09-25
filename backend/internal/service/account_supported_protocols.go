@@ -260,8 +260,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	// Edge-relay hops keep the public client model in the URL; mapped provider
 	// ids stay on ResolvedModel for billing/upstream attribution.
 	exactModel := resolvedModel
-	if geminiProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay ||
-		geminiProfile == protocolrouter.GeminiEndpointGeminiWebRelay {
+	if geminiProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
 		exactModel = requestedModel
 	}
 	exactEndpoints, err := protocolExactEndpoints(account, exactModel, geminiProfile, stream)
@@ -458,9 +457,6 @@ func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpoi
 	if tkIsAntigravityEdgeRelayStub(account) {
 		return protocolrouter.GeminiEndpointAntigravityEdgeRelay
 	}
-	if isGeminiWebEdgeRelayStub(account) {
-		return protocolrouter.GeminiEndpointGeminiWebRelay
-	}
 	if account.IsNewAPIVertexServiceAccount() {
 		return protocolrouter.GeminiEndpointVertexServiceAccount
 	}
@@ -480,16 +476,6 @@ func protocolGeminiExactEndpoint(
 		baseURL := strings.TrimRight(account.GetGeminiBaseURL(""), "/")
 		if baseURL == "" {
 			return "", errors.New("antigravity edge relay missing base_url")
-		}
-		action := "generateContent"
-		if stream {
-			action = "streamGenerateContent"
-		}
-		return fmt.Sprintf("%s/v1beta/models/%s:%s", baseURL, resolvedModel, action), nil
-	case protocolrouter.GeminiEndpointGeminiWebRelay:
-		baseURL := strings.TrimRight(account.GetGeminiBaseURL(""), "/")
-		if baseURL == "" {
-			return "", errors.New("gemini web edge relay missing base_url")
 		}
 		action := "generateContent"
 		if stream {

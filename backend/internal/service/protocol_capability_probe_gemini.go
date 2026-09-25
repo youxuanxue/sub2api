@@ -169,8 +169,6 @@ func (s *AccountTestService) probeGeminiGenerateContentSupport(
 		return s.observeGeminiHTTPProbe(account, req, &observation)
 
 	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
-		fallthrough
-	case protocolrouter.GeminiEndpointGeminiWebRelay:
 		if s == nil || s.httpUpstream == nil {
 			observation.verdict = ProtocolProbeInconclusive
 			return observation, true

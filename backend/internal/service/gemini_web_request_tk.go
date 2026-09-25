@@ -15,22 +15,6 @@ import (
 // Account names, public model aliases and edge hostnames are not capabilities.
 const GeminiWebRelayCredentialKey = "gemini_web_relay"
 
-// isGeminiWebEdgeRelayStub identifies the prod-side Gemini Web relay. The
-// explicit relay marker is the capability boundary: a local Worker account may
-// carry gemini_web runtime state, while the prod stub carries only the edge
-// reference and must never be treated as an import target.
-func isGeminiWebEdgeRelayStub(account *Account) bool {
-	if account == nil || account.Platform != PlatformGemini || account.Type != AccountTypeAPIKey {
-		return false
-	}
-	relayKind, _ := account.Extra["relay_kind"].(string)
-	if strings.TrimSpace(relayKind) != "gemini_web" {
-		return false
-	}
-	relay, ok := account.Credentials[GeminiWebRelayCredentialKey].(bool)
-	return ok && relay && isEdgeMirrorStub(account, edgeIDPattern)
-}
-
 // CanImportGeminiWebSession accepts local Gemini Web Worker declarations with
 // or without a runtime. An empty gemini_web object is the copied account's
 // explicit capability declaration; the runtime itself remains the binding SSOT.
@@ -71,23 +55,15 @@ func isGeminiWebAccount(account *Account) bool {
 	return session || relay
 }
 
-// Local Gemini Web Worker accounts retain their native capability owner.
-// Production relay stubs are projected into protocolrouter above and are
-// admitted here only as the native-body fallback. Candidate admission and
-// refresh both call this projection before billing or an upstream request.
+// Gemini API-key accounts retain the native capability owner; they are outside
+// protocolrouter's governed account set. Candidate admission and refresh both
+// call this projection, before billing or an upstream request. Worker validation
+// remains authoritative; shared fixtures check the projection against it.
 func geminiWebSupportsRequest(ctx context.Context, account *Account, model string, shape UniversalShape) bool {
 	if !isGeminiWebAccount(account) {
 		return true
 	}
 	relay, _ := account.Credentials[GeminiWebRelayCredentialKey].(bool)
-	if isGeminiWebEdgeRelayStub(account) {
-		// The prod relay is governed by protocolrouter. Messages/Chat/Responses
-		// are converted there and execute through the native Gemini hop; only the
-		// native Gemini body contract remains owned by the Worker admission gate.
-		if shape != ShapeGemini {
-			return true
-		}
-	}
 	if !relay && !geminiWebRuntimeBound(account) {
 		return false
 	}

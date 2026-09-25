@@ -216,9 +216,6 @@ func protocolRoutingGovernsAccount(account *Account) bool {
 	if protocolRoutingSupportsAntigravityAccount(account) {
 		return true
 	}
-	if isGeminiWebEdgeRelayStub(account) {
-		return true
-	}
 	if account.Type == AccountTypeServiceAccount {
 		return false
 	}

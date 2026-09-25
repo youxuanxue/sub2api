@@ -599,8 +599,7 @@ func ProtocolProbeCandidates(account *Account) []protocolrouter.Protocol {
 	geminiProfile := protocolGeminiEndpointProfile(account)
 	switch geminiProfile {
 	case protocolrouter.GeminiEndpointAntigravityCloudCode,
-		protocolrouter.GeminiEndpointVertexServiceAccount,
-		protocolrouter.GeminiEndpointGeminiWebRelay:
+		protocolrouter.GeminiEndpointVertexServiceAccount:
 		return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
 	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
 		// Edge stubs also expose OpenAI-shape text hops; continue collecting below.

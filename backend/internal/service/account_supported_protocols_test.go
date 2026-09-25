@@ -598,22 +598,6 @@ func TestProtocolRoutingGovernsStableGeminiAccountShapes(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "Gemini Web prod relay is governed by its explicit relay marker",
-			account: &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey,
-				Credentials: map[string]any{
-					"base_url":                  "https://api-us4.tokenkey.dev",
-					GeminiWebRelayCredentialKey: true,
-				},
-				Extra: map[string]any{"relay_kind": "gemini_web"}},
-			want: true,
-		},
-		{
-			name: "local Gemini Web Worker remains outside protocol governance",
-			account: &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey,
-				Credentials: map[string]any{"gemini_web": map[string]any{"runtime": map[string]any{"version": 1}}}},
-			want: false,
-		},
-		{
 			name: "arbitrary antigravity apikey account remains outside the stable relay shape",
 			account: &Account{Platform: PlatformAntigravity, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"base_url": "https://relay.example.test",
@@ -706,23 +690,6 @@ func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
 			wantProfile:  protocolrouter.GeminiEndpointAntigravityEdgeRelay,
 			wantEndpoint: "https://api-us3.tokenkey.dev/antigravity/v1beta/models/client-model:generateContent",
 		},
-		{
-			name: "Gemini Web edge relay uses public hop model",
-			account: &Account{
-				ID:       86,
-				Platform: PlatformGemini,
-				Type:     AccountTypeAPIKey,
-				Credentials: map[string]any{
-					"api_key":                   GeminiWebRelayCredentialKey,
-					"base_url":                  "https://api-us4.tokenkey.dev",
-					GeminiWebRelayCredentialKey: true,
-					"model_mapping":             map[string]any{"client-model": "gemini-3.8-flash"},
-				},
-				Extra: map[string]any{"relay_kind": "gemini_web"},
-			},
-			wantProfile:  protocolrouter.GeminiEndpointGeminiWebRelay,
-			wantEndpoint: "https://api-us4.tokenkey.dev/v1beta/models/client-model:generateContent",
-		},
 	}
 
 	for _, tt := range tests {
@@ -745,9 +712,8 @@ func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
 				t.Fatalf("GeminiProfile = %q, want %q", snapshot.GeminiProfile(), tt.wantProfile)
 			}
 			exactModel := snapshot.ResolvedModel()
-			if tt.wantProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay ||
-				tt.wantProfile == protocolrouter.GeminiEndpointGeminiWebRelay {
-				if tt.wantProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay && exactModel != "gemini-3.8-flash-medium" {
+			if tt.wantProfile == protocolrouter.GeminiEndpointAntigravityEdgeRelay {
+				if exactModel != "gemini-3.8-flash-medium" {
 					t.Fatalf("ResolvedModel = %q, want mapped provider model", exactModel)
 				}
 				exactModel = request.RequestedModel()
@@ -760,87 +726,6 @@ func TestProtocolAccountSnapshotDerivesGeminiEndpointProfile(t *testing.T) {
 				t.Fatalf("endpoint = %q, want %q", endpoint, tt.wantEndpoint)
 			}
 		})
-	}
-}
-
-func TestGeminiWebRelayMessagesUsesGeminiConverter(t *testing.T) {
-	account := &Account{
-		ID:       200,
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":                   "edge-key",
-			"base_url":                  "https://api-us4.tokenkey.dev",
-			GeminiWebRelayCredentialKey: true,
-			"model_mapping":             map[string]any{"gemini-3.8-flash": "gemini-3.8-flash"},
-		},
-		Extra: map[string]any{"relay_kind": "gemini_web"},
-	}
-	attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
-	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
-		InboundProtocol: protocolrouter.ProtocolMessages,
-		RequestedModel:  "gemini-3.8-flash",
-		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
-		Body:            []byte(`{"model":"gemini-3.8-flash","max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`),
-	})
-	if err != nil {
-		t.Fatalf("NewCanonicalRequest: %v", err)
-	}
-	snapshot, err := protocolAccountSnapshotForRequest(account, request)
-	if err != nil {
-		t.Fatalf("protocolAccountSnapshotForRequest: %v", err)
-	}
-	plan, err := NewProtocolRouter().Plan(request, snapshot)
-	if err != nil {
-		t.Fatalf("Plan: %v", err)
-	}
-	if plan.AdapterID() != protocolrouter.AdapterMessagesToGemini {
-		t.Fatalf("adapter = %q, want %q", plan.AdapterID(), protocolrouter.AdapterMessagesToGemini)
-	}
-	if plan.TargetProtocol() != protocolrouter.ProtocolGeminiGenerateContent {
-		t.Fatalf("target = %q, want Gemini generateContent", plan.TargetProtocol())
-	}
-	if plan.Endpoint() != "https://api-us4.tokenkey.dev/v1beta/models/gemini-3.8-flash:generateContent" {
-		t.Fatalf("endpoint = %q", plan.Endpoint())
-	}
-	if !candidatePathAllowsEndpoint(context.Background(), account, &Group{Platform: PlatformGemini}, ShapeAnthropicMessages, "gemini-3.8-flash", &plan) {
-		t.Fatal("Gemini relay Messages conversion should not require allow_messages_dispatch")
-	}
-}
-
-func TestGeminiWebRelayChatUsesGeminiConverter(t *testing.T) {
-	account := &Account{
-		ID:       201,
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":                   "edge-key",
-			"base_url":                  "https://api-us4.tokenkey.dev",
-			GeminiWebRelayCredentialKey: true,
-			"model_mapping":             map[string]any{"gemini-3.8-flash": "gemini-3.8-flash"},
-		},
-		Extra: map[string]any{"relay_kind": "gemini_web"},
-	}
-	attachTestProtocolCapability(account, protocolrouter.ProtocolGeminiGenerateContent)
-	request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
-		InboundProtocol: protocolrouter.ProtocolChatCompletions,
-		RequestedModel:  "gemini-3.8-flash",
-		Profile:         protocolrouter.RequestProfile{ContentKinds: protocolrouter.ContentText},
-		Body:            []byte(`{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hello"}]}`),
-	})
-	if err != nil {
-		t.Fatalf("NewCanonicalRequest: %v", err)
-	}
-	snapshot, err := protocolAccountSnapshotForRequest(account, request)
-	if err != nil {
-		t.Fatalf("protocolAccountSnapshotForRequest: %v", err)
-	}
-	plan, err := NewProtocolRouter().Plan(request, snapshot)
-	if err != nil {
-		t.Fatalf("Plan: %v", err)
-	}
-	if plan.AdapterID() != protocolrouter.AdapterChatToGemini {
-		t.Fatalf("adapter = %q, want %q", plan.AdapterID(), protocolrouter.AdapterChatToGemini)
 	}
 }
 

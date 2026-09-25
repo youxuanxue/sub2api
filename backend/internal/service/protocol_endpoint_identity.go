@@ -448,15 +448,6 @@ func canonicalGeminiIdentityEndpoint(account *Account, profile protocolrouter.Ge
 			URL:        baseURL + "/v1beta/models/{model}:{action}",
 			APIVersion: "v1beta",
 		}, nil
-	case protocolrouter.GeminiEndpointGeminiWebRelay:
-		baseURL := strings.TrimRight(account.GetGeminiBaseURL(""), "/")
-		if _, err := normalizeEndpointIdentityURL(baseURL); err != nil {
-			return ProtocolEndpoint{}, err
-		}
-		return ProtocolEndpoint{
-			URL:        baseURL + "/v1beta/models/{model}:{action}",
-			APIVersion: "v1beta",
-		}, nil
 	case protocolrouter.GeminiEndpointVertexServiceAccount:
 		projectID := strings.TrimSpace(account.VertexProjectID())
 		if projectID == "" {
