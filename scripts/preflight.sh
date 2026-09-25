@@ -2520,6 +2520,22 @@ else
     echo "  ok: edge-health schedule, scan, delivery, and state call sites anchored"
 fi
 
+# The Worker deploys on its own cadence (prod runs none, four edges do), so a
+# control-plane change can reach the edges before the Worker that understands it.
+# Cadence stays decoupled; compatibility is coupled here.
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'gemini web control protocol parity'; then
+echo "=== sub2api: gemini web control protocol parity ==="
+if ! python3 ./scripts/checks/gemini-web-control-protocol.py >/dev/null 2>&1; then
+    echo "  FAIL: gemini web control protocol parity"
+    echo "        — run: python3 scripts/checks/gemini-web-control-protocol.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: gemini web control protocol agreed between backend handler and worker"
+fi
+
 # ---- sub2api: edge disk/memory host-alert script selftest ------------------
 echo ""
 

@@ -491,6 +491,48 @@
       "rationale": "Exercise handler submission through RecordUsage to the persisted usage row, including absent-session behavior."
     },
     {
+      "path": "ops/gemini-web/worker.py",
+      "must_contain": [
+        "CONTROL_PROTOCOL_VERSION =",
+        "from build_digest import build_digest",
+        "BUILD_DIGEST = build_digest()",
+        "'build_digest': BUILD_DIGEST,",
+        "'control_protocol_version': CONTROL_PROTOCOL_VERSION,",
+        "if (response.get('protocol_version') != CONTROL_PROTOCOL_VERSION"
+      ],
+      "rationale": "The Worker deploys on its own cadence (prod does not run it), so its identity surface is the only way a fleet check can prove all edges run one build. Image tags are hand-typed and have lied before (1.8.253-147512b9d names a commit absent from main); the digest is derived from shipped sources instead. Removing it makes ops/observability/check-gemini-web-worker-fleet.sh blind. The protocol anchor pins the declaration, not the number: a paired bump with handler.GeminiWebControlProtocolVersion is legitimate, and scripts/checks/gemini-web-control-protocol.py owns whether the two agree."
+    },
+    {
+      "path": "ops/gemini-web/build_digest.py",
+      "must_contain": [
+        "DIGEST_FILES = ('worker.py', 'session_contract.py', 'requirements.txt', 'build_digest.py')",
+        "def build_digest(directory=None):",
+        "return UNKNOWN"
+      ],
+      "rationale": "Single owner of the Worker build-identity contract, imported by worker.py at runtime and run standalone by CI to tag the image. Must stay dependency-free so CI can compute the digest without curl_cffi/Pillow, and every shipped file must stay in DIGEST_FILES or two different builds can share one identity."
+    },
+    {
+      "path": ".github/workflows/gemini-web-worker.yml",
+      "must_contain": [
+        "python3 ops/gemini-web/build_digest.py",
+        "platforms: linux/amd64",
+        "refusing to publish an unidentified build",
+        "but is tagged"
+      ],
+      "rationale": "Worker images come from CI only; per-host docker build is what produced the lying 1.8.253-147512b9d tag. amd64-only is deliberate: deployable edges are x86_64 and prod runs no Worker, so CLAUDE.md §9 arm64 applies to the gateway image, not this one. The publish step must keep refusing an unidentified digest and must keep verifying the pushed image reports the tag it carries."
+    },
+    {
+      "path": "ops/observability/check-gemini-web-worker-fleet.sh",
+      "must_contain": [
+        "worker_reported_build_digest_over_deployable_edges",
+        "build_digest_divergence",
+        "control_protocol_divergence",
+        "identity_missing",
+        "'prod_runs_worker': False"
+      ],
+      "rationale": "Fleet convergence owner for the Gemini Web Worker. Denominator is deployable edges only; prod absence is correct state, never drift. Divergence of build digest or control protocol must stay detectable without SSH into each edge."
+    },
+    {
       "path": "ops/stage0/gateway_capability_host.py",
       "must_contain": [
         "def test_key(",
@@ -12335,6 +12377,16 @@
       "rationale": "The preflight checker recursively scans backend production Go and must reject future platform/channel-local failover implementations, comment-spoofed delegation, duplicated decision fields/actions and verdict-shaped semantics, including additions in files not yet listed in the sentinel registry."
     },
     {
+      "path": "scripts/checks/gemini-web-control-protocol.py",
+      "must_contain": [
+        "const GeminiWebControlProtocolVersion = (\\d+)$",
+        "^CONTROL_PROTOCOL_VERSION = (\\d+)$",
+        "SERVED_LITERAL = '\"protocol_version\": GeminiWebControlProtocolVersion'",
+        "\"!= CONTROL_PROTOCOL_VERSION\" not in worker_text"
+      ],
+      "rationale": "Couples the Gemini Web Worker to the backend by protocol while leaving cadence decoupled (prod runs no Worker; edges deploy on their own schedule). All four anchors are load-bearing: the two constant patterns detect a one-sided bump, SERVED_LITERAL stops /warm-accounts regressing to an anonymous literal that nothing can compare, and the worker-rejection anchor stops the check going cosmetic against a Worker that accepts any version."
+    },
+    {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
         "s.tkPrepareAnthropicPassthroughBody(ctx, c, account, &input)",
@@ -13268,6 +13320,51 @@
         "telemetry_run = _timestamp(telemetry.get(\"last_run_at\"))"
       ],
       "rationale": "Cumulative shadow loss counters amplify one failed upload into three findings; the loss finding owns its derived error/stale-clean-heartbeat, and liveness stays on last_run_at so a dead publisher still fails closed."
+    },
+    {
+      "path": "ops/stage0/deploy-gemini-web-worker-via-ssm.sh",
+      "must_contain": [
+        "PAYLOAD_SRC=\"${SCRIPT_DIR}/../gemini-web/deploy-worker-on-host.sh\"",
+        "base64 <\"${PAYLOAD_SRC}\" | tr -d '\\n'",
+        "tk_gemini_web_worker_deploy: OK"
+      ],
+      "rationale": "Sole SSM transport for Worker deploys. The host logic must stay in deploy-worker-on-host.sh and travel as base64: an earlier draft inlined multi-line Python into SSM JSON command strings and repaired newlines with sed, which is unreviewable. Success is decided by the host marker, not by SSM command status, because SSM reports Success for a script whose last command happened to exit 0."
+    },
+    {
+      "path": "ops/gemini-web/deploy-worker-on-host.sh",
+      "must_contain": [
+        "ENV_FILE=/etc/tokenkey/gemini-web.env",
+        "--entrypoint python \"$IMAGE\" build_digest.py",
+        "docker rename",
+        "*\"\\\"build_digest\\\": \\\"${DIGEST}\\\"\"*) ;;",
+        "--read-only",
+        "--cap-drop ALL",
+        "--security-opt no-new-privileges"
+      ],
+      "rationale": "Host-side Worker recreate. Two identity gates are load-bearing and must both stay: the pulled image is asked for its own digest before anything is stopped, and the running container must report that digest at /readyz before the deploy is called done. The previous container is renamed, never removed, so a bad deploy leaves evidence. The isolation flags are the Worker's security contract (it drives a browser session with real cookies), not tuning."
+    },
+    {
+      "path": "ops/gemini-web/prune-worker-pets.sh",
+      "must_contain": [
+        "APPLY=\"${TK_WORKER_PRUNE_APPLY:-0}\"",
+        "refusing to prune",
+        "KEPT_IMAGE_IDS=\"${RUNNING_IMAGE_ID}\"",
+        "referenced by a retained container",
+        "running, not the primary"
+      ],
+      "rationale": "Retention owner for superseded Worker containers/images; the counterpart to deploy-worker-on-host.sh renaming instead of deleting. Every anchor is a guard against deleting live state: dry-run must stay the default, a host with no running Worker must be refused rather than guessed at (nothing then distinguishes a superseded container from one about to be restarted), the running image must stay in the retained set or every image looks unreferenced, images are matched by ID because several tags share one build, and a second running Worker is an anomaly for a human, not a deletion. Docker 25 has no .ImageID on `docker ps`, so image ids come from `docker inspect`."
+    },
+    {
+      "path": ".github/workflows/deploy-gemini-web-worker.yml",
+      "must_contain": [
+        "group: deploy-gemini-web-worker-${{ inputs.edge_id }}",
+        "cancel-in-progress: false",
+        "environment: edge-${{ inputs.edge_id }}",
+        "ops/stage0/deploy-gemini-web-worker-via-ssm.sh",
+        "ops/observability/probe-gemini-web-worker-build.sh",
+        "::error::worker verdict="
+      ],
+      "rationale": "Sole Worker deploy entry point; cadence is decoupled from the gateway release by design and there is no prod target because prod runs no Worker. cancel-in-progress must stay false: a cancelled run can leave a host between old-container-stopped and new-container-ready. The post-deploy probe re-asks identity through the standard checker transport so the recorded evidence is the same fact the fleet convergence check reads."
     },
     {
       "path": "backend/internal/service/openai_gateway_qwen_token_plan_tk_test.go",
@@ -14236,6 +14333,14 @@
         "func TestUS057_GeminiCompatIngressMetersDeliveredPartialImageOnce("
       ],
       "rationale": "Delivered partial images must settle once and must not replay on another eligible account."
+    },
+    {
+      "path": "backend/internal/handler/gemini_web_session_handler.go",
+      "must_contain": [
+        "const GeminiWebControlProtocolVersion =",
+        "\"protocol_version\": GeminiWebControlProtocolVersion"
+      ],
+      "rationale": "Backend side of the Gemini Web control protocol. The version must stay a named constant served by /warm-accounts: an anonymous literal is how this could drift from the Worker's CONTROL_PROTOCOL_VERSION unnoticed. The anchor pins the declaration, not the number — a paired bump is legitimate and scripts/checks/gemini-web-control-protocol.py owns whether the two sides agree."
     }
   ]
 }

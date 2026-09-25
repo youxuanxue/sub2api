@@ -24,3 +24,83 @@ jobs:
       - run: pip install -r ops/gemini-web/requirements.txt
       - run: python -m unittest discover -s ops/gemini-web -v
       - run: python -m unittest discover -s ops/stage0 -p 'test_probe_account_model*.py'
+
+  # One CI-built image per content change, replacing per-host `docker build`.
+  # The tag is the build digest the Worker reports at runtime, so "which build is
+  # this edge running" is answerable without trusting a hand-typed tag.
+  #
+  # linux/amd64 only: every deployable edge is x86_64 and prod does not run this
+  # Worker. CLAUDE.md §9 (arm64) governs the gateway image, not this one — do not
+  # copy release.yml's multi-arch build here without an arm64 Worker host.
+  publish:
+    if: github.event_name == 'push'
+    needs: protocol-and-isolation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve build digest
+        id: digest
+        run: |
+          set -euo pipefail
+          # Same owner the Worker imports; no runtime dependencies needed here.
+          DIGEST="$(python3 ops/gemini-web/build_digest.py)"
+          case "$DIGEST" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+            *) echo "refusing to publish an unidentified build: ${DIGEST}" >&2; exit 1 ;;
+          esac
+          REPO="${GITHUB_REPOSITORY,,}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${REPO}-gemini-web:${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "gemini_web_build_digest: ${DIGEST}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ops/gemini-web
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.digest.outputs.image }}
+          provenance: false
+
+      - name: Verify pushed image reports the tagged digest
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.digest.outputs.image }}"
+          EXPECTED="${{ steps.digest.outputs.digest }}"
+          # The tag is only trustworthy if the image agrees with it. Ask the
+          # image itself, the same way the fleet check asks a running Worker.
+          REPORTED="$(docker run --rm --entrypoint python "$IMAGE" build_digest.py)"
+          if [ "$REPORTED" != "$EXPECTED" ]; then
+            echo "image reports ${REPORTED} but is tagged ${EXPECTED}" >&2
+            exit 1
+          fi
+          ARCH="$(docker image inspect "$IMAGE" --format '{{.Architecture}}')"
+          [ "$ARCH" = amd64 ] || { echo "unexpected architecture: ${ARCH}" >&2; exit 1; }
+          echo "gemini_web_image_verified: ${IMAGE} arch=${ARCH}"
+
+      - name: Summarize
+        run: |
+          {
+            echo "### Gemini Web Worker image"
+            echo
+            echo "- image: \`${{ steps.digest.outputs.image }}\`"
+            echo "- build digest: \`${{ steps.digest.outputs.digest }}\`"
+            echo "- platform: \`linux/amd64\` (deployable edges are x86_64; prod runs no Worker)"
+            echo
+            echo "Deploy with \`deploy-gemini-web-worker.yml\`; verify with"
+            echo "\`bash ops/observability/check-gemini-web-worker-fleet.sh\`."
+          } >> "$GITHUB_STEP_SUMMARY"

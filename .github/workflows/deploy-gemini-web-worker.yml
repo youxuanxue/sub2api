@@ -1,0 +1,192 @@
+name: Gemini Web Worker Deploy
+
+# run-name carries the dispatch identity so a run can be attributed to its edge
+# and to the build it shipped without opening logs — all edges share this file.
+run-name: "gemini-web edge=${{ inputs.edge_id }} digest=${{ inputs.build_digest }}"
+
+# Sole deploy path for the Gemini Web Worker container. The Worker runs on Edge
+# Lightsail hosts only; prod runs no Worker by design, so there is no prod
+# target here (see ops/gemini-web/README.md#build-identity-and-fleet-convergence).
+#
+# Cadence is deliberately decoupled from the gateway release: this workflow is
+# dispatched on its own, never from rollout. Compatibility is coupled instead,
+# through the control protocol_version gate.
+#
+# The image is built and published by gemini-web-worker.yml and addressed by its
+# build digest — the value the running process reports at /readyz — because
+# hand-typed version tags on this container have demonstrably named commits that
+# were never on main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      edge_id:
+        description: "Edge target id. Only deployable Lightsail edges run a Worker."
+        required: true
+        type: choice
+        options:
+          - us3
+          - us4
+          - us5
+          - us6
+      build_digest:
+        description: "12-hex build digest from ops/gemini-web/build_digest.py (the GHCR image tag published by Gemini Web Worker CI)."
+        required: true
+        type: string
+      confirm_instance:
+        description: "Must match instance_name from the Lightsail matrix (e.g. tokenkey-edge-us-oh1-ls-s30)."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  packages: read
+
+concurrency:
+  # Per-edge, and never cancel: a cancelled run can leave the host between the
+  # old container being stopped and the new one being ready.
+  group: deploy-gemini-web-worker-${{ inputs.edge_id }}
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    # Well above a pull + recreate + readiness wait, well below the 6h GHA
+    # default, so a hung step cannot hold the per-edge lock for hours.
+    timeout-minutes: 30
+    environment: edge-${{ inputs.edge_id }}
+    env:
+      OIDC_ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      INPUT_EDGE_ID: ${{ inputs.edge_id }}
+      INPUT_BUILD_DIGEST: ${{ inputs.build_digest }}
+      INPUT_CONFIRM_INSTANCE: ${{ inputs.confirm_instance }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Validate build digest
+        run: |
+          set -euo pipefail
+          case "$INPUT_BUILD_DIGEST" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+            *)
+              echo "::error::build_digest must be 12 lowercase hex chars, got: ${INPUT_BUILD_DIGEST}"
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve Lightsail edge target
+        id: edge
+        run: |
+          set -euo pipefail
+          if [ -z "${OIDC_ROLE_ARN:-}" ]; then
+            echo "::error::AWS_OIDC_ROLE_ARN repo variable not set"
+            exit 1
+          fi
+          python3 deploy/aws/lightsail/resolve-edge-lightsail-target.py \
+            --edge-id "$INPUT_EDGE_ID" \
+            --confirm-instance "$INPUT_CONFIRM_INSTANCE" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ env.OIDC_ROLE_ARN }}
+          aws-region: ${{ steps.edge.outputs.lightsail_region }}
+
+      - name: Resolve SSM managed instance
+        id: instance
+        env:
+          SSM_PREFIX: ${{ steps.edge.outputs.ssm_prefix }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+        run: |
+          set -euo pipefail
+          MID="$(bash ops/lightsail/resolve_ssm_instance_id.sh "$SSM_PREFIX" "$AWS_REGION")"
+          if [ -z "$MID" ] || [ "$MID" = "None" ]; then
+            echo "::error::could not resolve SSM managed instance id for $INPUT_EDGE_ID"
+            exit 1
+          fi
+          echo "managed_instance_id=$MID" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Worker via SSM
+        id: ssm
+        env:
+          INSTANCE_ID: ${{ steps.instance.outputs.managed_instance_id }}
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+          GEMINI_WEB_IMAGE_REPO: ghcr.io/${{ github.repository }}-gemini-web
+          STAGE0_SSM_OUTPUT_DIR: .
+        run: |
+          set -euo pipefail
+          # Repository names are mixed case in GitHub metadata; GHCR paths are not.
+          GEMINI_WEB_IMAGE_REPO="$(printf '%s' "$GEMINI_WEB_IMAGE_REPO" | tr '[:upper:]' '[:lower:]')"
+          export GEMINI_WEB_IMAGE_REPO
+          bash ops/stage0/deploy-gemini-web-worker-via-ssm.sh \
+            "$INPUT_BUILD_DIGEST" \
+            "deploy-gemini-web-worker edge=$INPUT_EDGE_ID"
+
+      - name: Verify Worker identity from outside the deploy path
+        # The deploy script already gates on /readyz reporting this digest. This
+        # step re-asks through the standard probe transport, so the recorded
+        # evidence comes from the same checker the fleet convergence check uses.
+        env:
+          AWS_REGION: ${{ steps.edge.outputs.lightsail_region }}
+        run: |
+          set -uo pipefail
+          # A `review` verdict makes the checker exit non-zero by design. Do not
+          # let that abort the step before the observation is parsed: the whole
+          # point of this step is to say what the Worker actually reports.
+          bash ops/observability/run-probe.sh \
+            --target "edge:$INPUT_EDGE_ID" \
+            --script ops/observability/probe-gemini-web-worker-build.sh \
+            > probe-gemini-web.json 2>probe-gemini-web.err || true
+          cat probe-gemini-web.err >&2 || true
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          expected = os.environ['INPUT_BUILD_DIGEST']
+          observed = None
+          with open('probe-gemini-web.json', encoding='utf-8') as handle:
+              for line in handle:
+                  line = line.strip()
+                  if not line.startswith('{'):
+                      continue
+                  try:
+                      entry = json.loads(line)
+                  except ValueError:
+                      continue
+                  if 'build_digest' in entry:
+                      observed = entry
+          if observed is None:
+              print('::error::probe emitted no build_digest line')
+              sys.exit(1)
+          print(json.dumps(observed, indent=2, sort_keys=True))
+          if observed.get('build_digest') != expected:
+              print(
+                  '::error::worker reports build_digest='
+                  f"{observed.get('build_digest') or 'none'}, expected {expected}"
+              )
+              sys.exit(1)
+          if observed.get('verdict') != 'ok':
+              print(f"::error::worker verdict={observed.get('verdict')}")
+              sys.exit(1)
+          print(f'gemini web worker on edge confirmed at {expected}')
+          PY
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## deploy-gemini-web-worker"
+            echo "- edge_id: \`${{ steps.edge.outputs.edge_id }}\`"
+            echo "- instance: \`${{ steps.edge.outputs.instance_name }}\`"
+            echo "- managed_instance_id: \`${{ steps.instance.outputs.managed_instance_id }}\`"
+            echo "- build_digest: \`${INPUT_BUILD_DIGEST}\`"
+            echo "- ssm command id: \`${{ steps.ssm.outputs.command_id }}\`"
+            echo
+            echo "prod runs no Gemini Web Worker by design; deployable edges are the whole fleet."
+            echo "Fleet convergence: \`bash ops/observability/check-gemini-web-worker-fleet.sh\`"
+          } >> "$GITHUB_STEP_SUMMARY"
