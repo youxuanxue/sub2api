@@ -3,6 +3,7 @@ package qa
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -571,8 +572,11 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	// traj-opt-in 的 Anthropic 记录：保留 thinking 块的 signature（仅 thinking 块，
 	// 见 thinking_preserve.go）。默认（非 opt-in / 非 Anthropic）行为不变。
 	preserveThinking := isAnthropicThinkingOptIn(input.Platform, input.DialogSynth)
-	requestValue := s.sanitizeQABody(input.RequestBody, preserveThinking)
-	responseValue := s.sanitizeQABody(input.ResponseBody, preserveThinking)
+	redactionMemo := newQARedactionMemo()
+	requestValue := s.sanitizeQABodyMemo(input.RequestBody, preserveThinking, redactionMemo)
+	responseValue := s.sanitizeQABodyMemo(input.ResponseBody, preserveThinking, redactionMemo)
+	requestValue = redactionBodyValue(requestValue)
+	responseValue = redactionBodyValue(responseValue)
 
 	chunks := make([]map[string]any, 0, min(len(input.StreamChunks), maxCapturedSSEChunks))
 	remaining := s.bodyMaxBytes
@@ -587,7 +591,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 			chunk.Bytes = chunk.Bytes[:remaining]
 		}
 		remaining -= len(chunk.Bytes)
-		redacted := logredact.RedactSSE(string(chunk.Bytes))
+		redacted := redactionValueString(s.sanitizeQABodyMemo(chunk.Bytes, preserveThinking, redactionMemo))
 		if preserveThinking {
 			redacted = restoreThinkingSignatureInChunk(redacted, chunk.Bytes)
 		}
@@ -607,7 +611,7 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	// 只在 opt-in 且字节不等时才填 UpstreamRequestBody，这里原样落进 blob，导出侧
 	// 据此机械标记 divergent 记录。
 	if len(input.UpstreamRequestBody) > 0 {
-		requestPayload["upstream_body"] = s.sanitizeQABody(input.UpstreamRequestBody, preserveThinking)
+		requestPayload["upstream_body"] = redactionBodyValue(s.sanitizeQABodyMemo(input.UpstreamRequestBody, preserveThinking, redactionMemo))
 		requestPayload["upstream_divergent"] = true
 	}
 
@@ -656,52 +660,82 @@ func (s *Service) buildBlob(input CaptureInput) ([]byte, string, string, []strin
 	return compressed, requestSHA, responseSHA, dedupeTags(input.Tags), nil
 }
 
-func sanitizeQABytes(raw []byte, maxBytes int) any {
-	if len(raw) == 0 {
-		return map[string]any{}
-	}
-	if maxBytes > 0 && len(raw) > maxBytes {
-		raw = raw[:maxBytes]
-	}
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 {
-		return map[string]any{}
-	}
-	if out, err := logredact.RedactJSONValue(trimmed); err == nil {
-		return out
-	}
-	return logredact.RedactSSE(string(trimmed))
+type qaRedactionMemoKey struct {
+	digest           [sha256.Size]byte
+	maxBytes         int
+	preserveThinking bool
 }
 
-// sanitizeQABody 与 sanitizeQABytes 同语义；当 preserveThinking=true 时，在脱敏后把
-// thinking 块的真实 signature 结构化回填（仅 thinking 块）。opt-in 记录用更高的截断上限，
-// 避免长 thinking 被切断。
-func (s *Service) sanitizeQABody(raw []byte, preserveThinking bool) any {
+type qaRedactionMemo struct {
+	values map[qaRedactionMemoKey]any
+}
+
+func newQARedactionMemo() *qaRedactionMemo {
+	return &qaRedactionMemo{values: make(map[qaRedactionMemoKey]any)}
+}
+
+func (s *Service) sanitizeQABodyMemo(raw []byte, preserveThinking bool, memo *qaRedactionMemo) any {
 	maxBytes := s.bodyMaxBytes
 	if preserveThinking && s.optInBodyMaxBytes > maxBytes {
 		maxBytes = s.optInBodyMaxBytes
 	}
-	if !preserveThinking {
-		return sanitizeQABytes(raw, maxBytes)
-	}
 	if len(raw) == 0 {
 		return map[string]any{}
 	}
 	if maxBytes > 0 && len(raw) > maxBytes {
 		raw = raw[:maxBytes]
 	}
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" {
+	payload := raw
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 {
 		return map[string]any{}
 	}
-	if json.Valid([]byte(trimmed)) {
-		redacted := restoreThinkingSignatures(logredact.RedactJSON([]byte(trimmed)), []byte(trimmed))
-		var out any
-		if err := json.Unmarshal([]byte(redacted), &out); err == nil {
-			return out
+	key := qaRedactionMemoKey{digest: sha256.Sum256(payload), maxBytes: maxBytes, preserveThinking: preserveThinking}
+	if memo != nil {
+		if value, ok := memo.values[key]; ok {
+			return value
 		}
 	}
-	return logredact.RedactSSE(trimmed)
+	result := logredact.RedactOnePass(payload, logredact.RedactOptions{})
+	value := result.Value
+	if preserveThinking {
+		switch result.Format {
+		case logredact.FormatJSON:
+			if redacted, err := json.Marshal(result.Value); err == nil {
+				restored := restoreThinkingSignatures(string(redacted), trimmed)
+				var out any
+				if err := json.Unmarshal([]byte(restored), &out); err == nil {
+					value = out
+				}
+			}
+		case logredact.FormatSSE:
+			if redacted, ok := result.Value.(string); ok {
+				value = restoreThinkingSignatureInChunk(redacted, payload)
+			}
+		}
+	}
+	if memo != nil {
+		memo.values[key] = value
+	}
+	return value
+}
+
+func redactionValueString(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
+func redactionBodyValue(value any) any {
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	return value
 }
 
 func captureRequestedModel(body []byte) string {

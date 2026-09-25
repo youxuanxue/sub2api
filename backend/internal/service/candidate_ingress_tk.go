@@ -11,6 +11,11 @@ import (
 // billing admission, when sticky-only eligibility already matters.
 func (r *UniversalRoutingResolver) PrepareCandidateIngress(c *gin.Context, key *APIKey, shape UniversalShape, path, model string, body []byte, forcedPlatform string) (*CandidateRequest, error) {
 	ctx := WithCandidateIdentity(c.Request.Context(), key.UserID, key.ID)
+	// Establish the protocolrouter request at the single HTTP candidate ingress.
+	// PrepareCandidateRequest reuses this immutable request's profile when the
+	// path has not applied a Direct-only model/body rewrite; handlers and
+	// converters then observe the same request digest through the context.
+	ctx = r.WithRequest(ctx, shape, path, model, body)
 	var document map[string]any
 	_ = json.Unmarshal(body, &document)
 	validator := NewClaudeCodeValidator()

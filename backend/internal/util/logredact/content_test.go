@@ -48,6 +48,14 @@ func TestRedactJSONStringPreservesOrdinaryContentAndTerminates(t *testing.T) {
 	require.NotContains(t, RedactJSON([]byte(`{"content":"special=synthetic"}`), "special"), "synthetic")
 }
 
+func TestRedactJSONStringStillScansIdentifiedCredentialLeaves(t *testing.T) {
+	input := []byte(`{"ordinary":"a long response leaf without credential markers","value":"Bearer secret-token"}`)
+	got := RedactJSON(input)
+	require.Contains(t, got, `"ordinary":"a long response leaf without credential markers"`)
+	require.NotContains(t, got, "Bearer secret-token")
+	require.Contains(t, got, `"value":"Bearer ***"`)
+}
+
 func TestRedactTextUnknownAssignmentPassthroughKeepsKnownShapes(t *testing.T) {
 	require.Equal(t, "custom_token=synthetic", RedactText("custom_token=synthetic"))
 	require.Equal(t, "provider_token=***", RedactText("provider_token=synthetic", "provider_token"))
