@@ -90,19 +90,47 @@ func TestTkPrefilterToolSearchHistoricalThinking_PreservesAssistantPrefill(t *te
 	require.True(t, hasThinking, "top-level thinking stays when prefill thinking survives")
 }
 
-func TestTkPrefilterToolSearchHistoricalThinking_NoOpWithoutToolSearch(t *testing.T) {
+func TestTkPrefilterToolSearchHistoricalThinking_NoOpWithoutToolSearchOrToolUse(t *testing.T) {
 	input := []byte(`{
 		"model":"claude-opus-4-8",
 		"tools":[{"name":"Bash"}],
 		"messages":[
+			{"role":"user","content":[{"type":"text","text":"hi"}]},
 			{"role":"assistant","content":[
 				{"type":"thinking","thinking":"keep","signature":"sig"},
-				{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}
-			]}
+				{"type":"text","text":"answer"}
+			]},
+			{"role":"user","content":[{"type":"text","text":"thanks"}]}
 		]
 	}`)
 	out := TkPrefilterToolSearchHistoricalThinking(input, "claude-opus-4-8")
 	require.Equal(t, input, out)
+}
+
+func TestTkPrefilterToolSearchHistoricalThinking_StripsPostToolSearchStormWithoutToolSearchTool(t *testing.T) {
+	// Prod 2026-09-25: after ToolSearch loads tools, the tools array no longer
+	// contains tool_search, but historical signed thinking + tool_use remains.
+	input := []byte(`{
+		"model":"claude-opus-4-8",
+		"tools":[{"name":"Bash"}],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"task"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"historical reasoning","signature":"EuAGCmMIDh_stale"},
+				{"type":"tool_use","id":"toolu_hist","name":"Bash","input":{"command":"ls"}}
+			]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_hist","content":"a.txt"}]},
+			{"role":"user","content":[{"type":"text","text":"continue"}]}
+		]
+	}`)
+	out := TkPrefilterToolSearchHistoricalThinking(input, "claude-opus-4-8")
+	require.NotEqual(t, string(input), string(out))
+
+	req := parseReq(t, out)
+	content := assistantContent(t, req, 1)
+	require.Equal(t, 0, countBlockType(content, "thinking"))
+	require.Equal(t, 1, countBlockType(content, "tool_use"))
+	require.Equal(t, 1, countBlockType(content, "text"))
 }
 
 func TestTkPrefilterToolSearchHistoricalThinking_SkipsPassbackRequiredUpstream(t *testing.T) {

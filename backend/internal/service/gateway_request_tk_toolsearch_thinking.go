@@ -85,14 +85,50 @@ func tkBodyHasSignedThinkingHistory(body []byte) bool {
 	return false
 }
 
+// tkBodyHasAssistantToolUse reports whether any assistant turn carries tool_use.
+// Used with signed-thinking history to detect post-ToolSearch "tool storms" after
+// the tools array no longer lists tool_search itself (prod 2026-09-25).
+func tkBodyHasAssistantToolUse(body []byte) bool {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return false
+	}
+	for _, msg := range msgs.Array() {
+		if msg.Get("role").String() != "assistant" {
+			continue
+		}
+		content := msg.Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		for _, block := range content.Array() {
+			if block.Get("type").String() == "tool_use" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// tkShouldPrefilterHistoricalThinking is the gate for proactive historical
+// thinking downgrade. Requires signed thinking history, plus either ToolSearch
+// tools still present OR any assistant tool_use (post-ToolSearch storms where
+// tool_search has left the tools array — prod 2026-09-25).
+func tkShouldPrefilterHistoricalThinking(body []byte) bool {
+	if !tkBodyHasSignedThinkingHistory(body) {
+		return false
+	}
+	return tkBodyHasToolSearchTools(body) || tkBodyHasAssistantToolUse(body)
+}
+
 // TkPrefilterToolSearchHistoricalThinking downgrades signed thinking blocks in
-// historical assistant turns when ToolSearch tools are present. Returns the input
-// unchanged when the gate does not apply or when no modification is needed.
+// historical assistant turns when ToolSearch / tool-storm gates match. Returns
+// the input unchanged when the gate does not apply or when no modification is needed.
 func TkPrefilterToolSearchHistoricalThinking(body []byte, mappedModel string) []byte {
 	if !ShouldApplyRetryFilters(mappedModel) {
 		return body
 	}
-	if !tkBodyHasToolSearchTools(body) || !tkBodyHasSignedThinkingHistory(body) {
+	if !tkShouldPrefilterHistoricalThinking(body) {
 		return body
 	}
 	return tkStripHistoricalAssistantThinking(body)

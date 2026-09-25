@@ -50,6 +50,12 @@ func (s *GatewayService) tkPrepareCountTokensAnthropicBody(
 	}
 	nextBody = getBody()
 
+	// Thinking-contract SSOT (FilterThinking + ToolSearch/tool-storm historical).
+	if err := replaceBody(tkApplyAnthropicThinkingContractPrefilters(nextBody, nextModel)); err != nil {
+		return nextBody, nextModel, err
+	}
+	nextBody = getBody()
+
 	// TK: normalize Anthropic native request body for count_tokens path.
 	if account != nil && account.Platform == PlatformAnthropic {
 		nextBody = s.tkNormalizeAnthropicRequestBody(ctx, c, nextBody, account)

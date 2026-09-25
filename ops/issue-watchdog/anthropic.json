@@ -69,20 +69,33 @@
     {
       "upstream": "anthropics/claude-code#63792, anthropics/claude-code#10199",
       "severity": "high",
-      "tokenkey_pr": "youxuanxue/sub2api (ToolSearch historical thinking pre-filter)",
-      "summary": "When Claude Code dynamic tool loading (ToolSearch) re-serializes prior assistant turns, signed thinking blocks in historical messages are perturbed and Anthropic returns 400 'cannot be modified', forcing a client strip-and-retry storm every turn. TokenKey proactively downgrades historical assistant thinking blocks to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking and tool_use blocks. Wired on OAuth Forward and API-Key passthrough paths after FilterThinkingBlocks.",
+      "tokenkey_pr": "youxuanxue/sub2api (Anthropic thinking-contract dual SSOT)",
+      "summary": "When Claude Code dynamic tool loading (ToolSearch) re-serializes prior assistant turns — including post-ToolSearch tool storms where tool_search has left the tools array — signed thinking blocks in historical messages are perturbed and Anthropic returns 400 'cannot be modified'. TokenKey dual SSOT: (1) tkPrepareAnthropicMessagesWireBody / tkApplyAnthropicThinkingContractPrefilters strips historical signed thinking before the first hop on every Anthropic Messages wire path (OAuth Forward, API-key passthrough, tokensea/CN native messages, count_tokens); (2) tkRectifyAnthropicThinkingContract400 repairs 400s by historical strip then signature-sensitive escalation. Prod 2026-09-25 user16 claude-fable-5 finals were the native-path blind spot.",
       "fixed_by": [
         "backend/internal/service/gateway_request_tk_toolsearch_thinking.go",
-        "backend/internal/service/gateway_service.go",
-        "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go"
+        "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go",
+        "backend/internal/service/openai_gateway_messages_native.go",
+        "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
+        "backend/internal/service/gateway_forward.go",
+        "backend/internal/service/gateway_anthropic_passthrough_tk.go",
+        "backend/internal/service/gateway_upstream_request.go",
+        "backend/internal/service/gateway_anthropic_passthrough.go",
+        "backend/internal/service/gateway_count_tokens_tk.go",
+        "backend/internal/service/gateway_count_tokens.go",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go",
+        "backend/internal/service/gateway_request_tk_anthropic_messages_wire_test.go",
+        "backend/internal/service/openai_gateway_messages_native_test.go"
       ],
       "fixed_if_all_present": [
         "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func TkPrefilterToolSearchHistoricalThinking",
-        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkBodyHasToolSearchTools",
-        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkStripHistoricalAssistantThinking",
-        "backend/internal/service/gateway_service.go:TkPrefilterToolSearchHistoricalThinking(body, reqModel)",
-        "backend/internal/service/gateway_service.go:TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)",
-        "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go:func TestTkPrefilterToolSearchHistoricalThinking_StripsHistoricalToolCoupledThinking"
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkBodyHasAssistantToolUse",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkShouldPrefilterHistoricalThinking",
+        "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go:func tkPrepareAnthropicMessagesWireBody",
+        "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go:func tkRectifyAnthropicThinkingContract400",
+        "backend/internal/service/openai_gateway_messages_native.go:tkPrepareAnthropicMessagesWireBody(account, body, mappedModel)",
+        "backend/internal/service/openai_gateway_messages_native.go:tkRectifyAnthropicThinkingContract400(upstreamBody, upstreamModel, respBody)",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go:func TestTkPrefilterToolSearchHistoricalThinking_StripsPostToolSearchStormWithoutToolSearchTool",
+        "backend/internal/service/gateway_request_tk_anthropic_messages_wire_test.go:func TestTkPrepareAnthropicMessagesWireBody_AppliesToolStormPrefilter"
       ],
       "status": "fixed_in_tokenkey"
     }

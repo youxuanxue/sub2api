@@ -74,8 +74,9 @@ func (s *GatewayService) tkPrepareAnthropicPassthroughBody(
 	// passback-required third-party upstreams such as GLM/Kimi/DeepSeek,
 	// which reject server_tool_use with 400). input.RequestModel 已是映射后的模型 ID。
 	input.Body = FilterWebSearchHistoryBlocks(input.Body, input.RequestModel)
-	// TK: ToolSearch + stale signed thinking pre-filter.
-	input.Body = TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)
+	// TK thinking-contract SSOT (FilterThinking + ToolSearch historical). Fable CM
+	// strip runs in the passthrough HTTP builder via tkPrepareAnthropicMessagesWireBody.
+	input.Body = tkApplyAnthropicThinkingContractPrefilters(input.Body, input.RequestModel)
 	if account.Platform == PlatformAnthropic {
 		input.Body = s.applySigPreemptIfArmed(ctx, c, account, input.Body, input.RequestModel)
 	}
@@ -138,7 +139,9 @@ func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 	_ = resp.Body.Close()
 	retryBody, retryKind, shouldRetry := s.rectifyAnthropicPassthrough400(ctx, account, input.Body, input.RequestModel, respBody)
 	if shouldRetry && time.Since(retryStart) < maxRetryElapsed {
-		if retryKind == "signature_retry_thinking" {
+		if retryKind == "signature_retry_thinking" ||
+			retryKind == "thinking_cannot_modify_strip_historical" ||
+			retryKind == "thinking_cannot_modify_signature_sensitive" {
 			s.armSigPreemptOnError(ctx, c, account)
 		}
 		retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
@@ -190,6 +193,9 @@ func (s *GatewayService) rectifyAnthropicPassthrough400(ctx context.Context, acc
 	}
 
 	if s.shouldRectifySignatureError(ctx, account, respBody, model) {
+		if repaired, kind, ok := tkRectifyAnthropicThinkingContract400(body, model, respBody); ok {
+			return repaired, kind, true
+		}
 		return FilterThinkingBlocksForRetry(body, model), "signature_retry_thinking", true
 	}
 
