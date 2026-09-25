@@ -152,6 +152,51 @@ func TestAgentNeverAdvertisesMCPToolCallAllowlist(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestAgentRelayUsesAskModeNotAgentMode(t *testing.T) {
+	// Positive: ConversationState + active UserMessage use ASK. Negative: must not
+	// advertise AGENT (invites native shell/read ExecServerMessage on #150).
+	run, _, err := buildAgentRun(AgentRequest{
+		Model:    "composer-2.5",
+		Messages: []AgentMessage{{Role: "user", Text: "hello"}},
+		Tools:    []AgentTool{{Name: "lookup", Schema: map[string]any{"type": "object"}}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, agentModeAsk, run.GetConversationState().GetMode())
+	require.NotEqualValues(t, agentModeAgent, run.GetConversationState().GetMode())
+	require.EqualValues(t, agentModeAsk, run.GetAction().GetUserMessageAction().GetUserMessage().GetMode())
+
+	ctx := run.GetAction().GetUserMessageAction().GetRequestContext()
+	require.NotNil(t, ctx)
+	require.True(t, ctx.GetMcpInfoComplete())
+	require.True(t, ctx.GetRulesInfoComplete())
+	require.True(t, ctx.GetEnvInfoComplete())
+	require.True(t, ctx.GetMcpFileSystemInfoComplete(), "empty FS category must be marked complete")
+	require.Len(t, ctx.GetTools(), 1)
+
+	// History user turns also carry ASK so resumed blobs stay relay-mode.
+	runHist, blobsHist, err := buildAgentRun(AgentRequest{
+		Model: "composer-2.5",
+		Messages: []AgentMessage{
+			{Role: "user", Text: "first"},
+			{Role: "assistant", Text: "ack"},
+			{Role: "user", Text: "second"},
+		},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, agentModeAsk, runHist.GetConversationState().GetMode())
+	require.NotEmpty(t, runHist.GetConversationState().GetTurns())
+	turnID := runHist.GetConversationState().GetTurns()[0]
+	raw, ok := blobsHist.data[string(turnID)]
+	require.True(t, ok)
+	var turnStruct pb.ConversationTurnStructure
+	require.NoError(t, proto.Unmarshal(raw, &turnStruct))
+	userRaw, ok := blobsHist.data[string(turnStruct.GetAgentConversationTurn().GetUserMessage())]
+	require.True(t, ok)
+	var histUser pb.UserMessage
+	require.NoError(t, proto.Unmarshal(userRaw, &histUser))
+	require.EqualValues(t, agentModeAsk, histUser.GetMode())
+}
+
 func TestAgentUsagePresenceOnNativeWire(t *testing.T) {
 	// Literal CLI wire fixtures keep this check independent of our proto encoder.
 	var update pb.InteractionUpdate

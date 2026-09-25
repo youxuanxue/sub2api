@@ -781,6 +781,9 @@
       "path": "backend/internal/integration/cursor/agent.go",
       "must_contain": [
         "func buildAgentRun",
+        "relayConversationMode",
+        "relayRequestContext",
+        "agentModeAsk",
         "cursorPromptToolName(input.Model, call.Name)",
         "cursorPromptToolName(input.Model, name)",
         "firstUserPrepared",
@@ -788,12 +791,56 @@
         "newAgentHTTPRejection(resp.StatusCode",
         "&agentTransportError{cause: err}",
         "Never set X-Cursor-Agent-Allowed-Tools=mcp_tool_call",
-        "Required tool GET_MCP_TOOLS not found in allTools"
+        "Required tool GET_MCP_TOOLS not found in allTools",
+        "classifyMessagesAlignedExec",
+        "execClientThrowAndClose",
+        "outsideExecThrowMessage",
+        "mcpArgsFromInteractionToolCall",
+        "cursor_agentrun_outside_exec_throw"
       ],
       "must_not_contain": [
-        "req.Header.Set(\"X-Cursor-Agent-Allowed-Tools\", \"mcp_tool_call\")"
+        "req.Header.Set(\"X-Cursor-Agent-Allowed-Tools\", \"mcp_tool_call\")",
+        "ConversationStateStructure{Mode: 1}",
+        "Mode: 1}, RequestContext: contextInfo",
+        "cursor requested unsupported local execution"
       ],
-      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Never advertise mcp_tool_call allowlist: Cursor then requires GET_MCP_TOOLS in allTools and returns Connect internal (prod #150 user16 claude-opus-5-5 final-502). Caller tools stay on RunAgent McpTools only."
+      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Never advertise mcp_tool_call allowlist: Cursor then requires GET_MCP_TOOLS in allTools and returns Connect internal (prod #150 user16 claude-opus-5-5 final-502). Caller tools stay on RunAgent McpTools only. Relay must use ASK mode (not AGENT). Outside Messages exec is answered with ExecClientThrow+stream_close so the model can continue text."
+    },
+    {
+      "path": "backend/internal/integration/cursor/messages_agentrun_tk.go",
+      "must_contain": [
+        "Messages ↔ AgentRun conversion boundary",
+        "classifyMessagesAlignedExec",
+        "mcpArgsFromInteractionToolCall",
+        "execClientThrowAndClose",
+        "exec_variant_unsupported",
+        "outsideExecThrowMessage",
+        "testOutsideExecThrowHook"
+      ],
+      "rationale": "Own the Messages-aligned AgentRun ingress/egress contract: only text/thinking and declared tool_use map; native exec is answered with ExecClientThrow so the model can continue text."
+    },
+    {
+      "path": "backend/internal/integration/cursor/messages_agentrun_tk_test.go",
+      "must_contain": [
+        "TestAgentRunOutsideExecThrowsAndContinuesText",
+        "TestExecClientThrowAndCloseShapes",
+        "TestAgentRunMapsInteractionToolCallStartedToMessagesHandoff",
+        "hello after throw",
+        "non_mcp_skipped_continues_text",
+        "testOutsideExecThrowHook",
+        "sawReplies",
+        "throw + stream_close"
+      ],
+      "rationale": "Positive/negative coverage for Messages-aligned AgentRun egress: outside exec throws in-band and continues text; MCP tool_call_started handoffs; non-MCP tool_call is skipped."
+    },
+    {
+      "path": "backend/internal/integration/cursor/agentpb/agent.proto",
+      "must_contain": [
+        "ExecClientControlMessage exec_client_control_message = 5",
+        "message ExecClientThrow",
+        "message ExecClientStreamClose"
+      ],
+      "rationale": "AgentRun subset must include ExecClientThrow/stream_close so outside exec can be answered without blocking Cursor."
     },
     {
       "path": "backend/internal/integration/cursor/agent_test.go",
@@ -803,11 +850,14 @@
         "TestAgentUsagePresenceOnNativeWire",
         "TestAgentHistoryReconstructsNativeToolTurns",
         "TestAgentNeverAdvertisesMCPToolCallAllowlist",
+        "TestAgentRelayUsesAskModeNotAgentMode",
         "text-only runs must not advertise mcp_tool_call",
         "mcp_tool_call allowlist triggers Required tool GET_MCP_TOOLS not found in allTools",
-        "require.Len(t, run.GetMcpTools().GetMcpTools(), 1)"
+        "require.Len(t, run.GetMcpTools().GetMcpTools(), 1)",
+        "require.EqualValues(t, agentModeAsk, run.GetConversationState().GetMode())",
+        "require.NotEqualValues(t, agentModeAgent, run.GetConversationState().GetMode())"
       ],
-      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard that tools never reintroduce the mcp_tool_call allowlist that caused prod #150 GET_MCP_TOOLS Connect internal, while still encoding caller tools on McpTools."
+      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard that tools never reintroduce the mcp_tool_call allowlist that caused prod #150 GET_MCP_TOOLS Connect internal, while still encoding caller tools on McpTools. ASK mode pins the Messages-aligned AgentRun ingress."
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",
@@ -13835,12 +13885,16 @@
     },
     {
       "path": "backend/internal/pkg/apicompat/responses_to_anthropic_request.go",
-      "must_contain": ["messages = normalizeAnthropicHistory(messages)"],
+      "must_contain": [
+        "messages = normalizeAnthropicHistory(messages)"
+      ],
       "rationale": "Responses eligibility and execution share decoded history normalization."
     },
     {
       "path": "backend/internal/pkg/apicompat/chat_to_anthropic_request.go",
-      "must_contain": ["return systemJSON, normalizeAnthropicHistory(messages), nil"],
+      "must_contain": [
+        "return systemJSON, normalizeAnthropicHistory(messages), nil"
+      ],
       "rationale": "Chat uses the same history owner as Responses."
     },
     {
@@ -13855,7 +13909,11 @@
     },
     {
       "path": "backend/internal/pkg/apicompat/anthropic_history_test.go",
-      "must_contain": ["TestAnthropicHistoryMatchesLegacy", "FuzzAnthropicHistoryMatchesLegacy", "BenchmarkAnthropicHistory"],
+      "must_contain": [
+        "TestAnthropicHistoryMatchesLegacy",
+        "FuzzAnthropicHistoryMatchesLegacy",
+        "BenchmarkAnthropicHistory"
+      ],
       "rationale": "Differential checks preserve legacy tool-pairing semantics and caller ownership while benchmarking reduced JSON work."
     },
     {
@@ -13974,6 +14032,5 @@
       ],
       "rationale": "Regression: anthropic-group MessagesIdentity for Cursor must hit AgentService/Run with Cursor HTTP/2 profile."
     }
-
   ]
 }
