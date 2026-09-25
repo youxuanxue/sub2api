@@ -11952,11 +11952,13 @@
         "model_group_peer_mismatch",
         "\"verdict\": \"review\" if findings else \"aligned\""
       ],
-      "rationale": "Pure advisory evaluator for account group bindings. It derives candidate groups from other healthy accounts carrying the same explicit model_mapping key, prevents an account from self-certifying its own binding, and keeps new no-peer models inconclusive instead of inventing a second model-to-group policy table."
+      "rationale": "Pure advisory evaluator for account group bindings. It derives candidate groups from healthy peers carrying the same explicit model_mapping key within the Web/general capability scope, prevents self-certification, and reports no-peer models as inconclusive without inventing a model-to-group policy table."
     },
     {
       "path": "ops/observability/probe-account-group-bindings.sh",
       "must_contain": [
+        "jsonb_typeof(a.credentials->'gemini_web') = 'object'",
+        "a.credentials->'gemini_web_relay' = 'true'::jsonb",
         "default_transaction_read_only=on",
         "a.status = 'active'",
         "a.schedulable = true",
@@ -11964,7 +11966,7 @@
         "a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW()",
         "python3 /tmp/account_group_binding_check.py --snapshot -"
       ],
-      "rationale": "Remote prod snapshot owner for the group-binding advisory. The SQL mirrors scheduler health gates, returns only account identity, model_mapping keys and group metadata, and runs under a read-only PostgreSQL transaction."
+      "rationale": "Remote prod snapshot owner for the group-binding advisory. The SQL mirrors scheduler health gates and isGeminiWebAccount's explicit capability declaration, returns only safe metadata (never session credentials), and runs under a read-only PostgreSQL transaction."
     },
     {
       "path": "ops/observability/check-account-group-bindings.sh",
@@ -11985,7 +11987,11 @@
         "test_one_peer_group_overlap_allows_intentional_model_subset",
         "test_account_never_self_certifies_its_group",
         "test_empty_mapping_is_accounted_for_but_not_compared",
-        "test_inactive_binding_counts_as_no_active_group"
+        "test_inactive_binding_counts_as_no_active_group",
+        "test_web_and_general_same_model_are_not_group_peers",
+        "test_web_same_contract_disjoint_groups_still_warn",
+        "test_lone_web_account_is_inconclusive_not_capability_verified",
+        "test_web_without_active_group_still_warns"
       ],
       "rationale": "Behavior tests pin aligned, ungrouped, mismatched, no-peer, no-mapping and inactive-group outcomes without duplicating a production model or group catalog."
     },
