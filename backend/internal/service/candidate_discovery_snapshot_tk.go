@@ -19,6 +19,17 @@ func candidatePathContextPreparer(request *CandidateRequest) func(context.Contex
 		result, ok := prepared[group.ID]
 		if !ok {
 			result.ctx, result.model, result.channel, result.err = request.pathContext(ctx, group)
+			if result.err == nil {
+				if routing, routed := result.ctx.Value(protocolRoutingContextKey{}).(protocolRoutingContextValue); routed {
+					// Candidate selection evaluates many accounts against this one
+					// prepared request. The account slice is fixed for the selection;
+					// recheck() still builds a fresh context and account snapshot before
+					// acquisition, so this only removes duplicate snapshot work inside
+					// the read-only admission pass.
+					routing.immutableAccounts = true
+					result.ctx = context.WithValue(result.ctx, protocolRoutingContextKey{}, routing)
+				}
+			}
 			prepared[group.ID] = result
 		}
 		return result.ctx, result.model, result.channel, result.err

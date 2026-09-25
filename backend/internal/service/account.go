@@ -86,6 +86,7 @@ type Account struct {
 	modelMappingCacheRawLen         int
 	modelMappingCacheRawSig         uint64
 	modelMappingCacheRuntimeVersion uint64
+	modelMappingCacheKeys           []string
 
 	// header_overrides 热路径缓存（非持久化字段，同 model_mapping 缓存先例）
 	headerOverrideCache               map[string]string
@@ -608,7 +609,11 @@ func (a *Account) GetModelMapping() map[string]string {
 		a.modelMappingCacheRawPtr == rawPtr &&
 		a.modelMappingCacheRawLen == rawLen &&
 		a.modelMappingCacheRuntimeVersion == runtimeVersion {
-		rawSig = modelMappingSignature(rawMapping)
+		if mappingKeysMatch(rawMapping, a.modelMappingCacheKeys) {
+			rawSig = modelMappingSignatureForKeys(rawMapping, a.modelMappingCacheKeys)
+		} else {
+			rawSig, a.modelMappingCacheKeys = modelMappingSignatureWithKeys(rawMapping)
+		}
 		rawSigReady = true
 		if a.modelMappingCacheRawSig == rawSig {
 			return a.modelMappingCache
@@ -618,7 +623,7 @@ func (a *Account) GetModelMapping() map[string]string {
 	mapping := a.resolveModelMapping(rawMapping)
 
 	if !rawSigReady {
-		rawSig = modelMappingSignature(rawMapping)
+		rawSig, a.modelMappingCacheKeys = modelMappingSignatureWithKeys(rawMapping)
 	}
 
 	a.modelMappingCache = mapping
@@ -699,15 +704,23 @@ func mapPtr(m map[string]any) uintptr {
 }
 
 func modelMappingSignature(rawMapping map[string]any) uint64 {
+	signature, _ := modelMappingSignatureWithKeys(rawMapping)
+	return signature
+}
+
+func modelMappingSignatureWithKeys(rawMapping map[string]any) (uint64, []string) {
 	if len(rawMapping) == 0 {
-		return 0
+		return 0, nil
 	}
 	keys := make([]string, 0, len(rawMapping))
 	for k := range rawMapping {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	return modelMappingSignatureForKeys(rawMapping, keys), keys
+}
 
+func modelMappingSignatureForKeys(rawMapping map[string]any, keys []string) uint64 {
 	h := fnv.New64a()
 	for _, k := range keys {
 		_, _ = h.Write([]byte(k))
@@ -720,6 +733,18 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 		_, _ = h.Write([]byte{0xff})
 	}
 	return h.Sum64()
+}
+
+func mappingKeysMatch(rawMapping map[string]any, keys []string) bool {
+	if len(rawMapping) != len(keys) {
+		return false
+	}
+	for _, key := range keys {
+		if _, ok := rawMapping[key]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeRequestedModelForLookup(platform, requestedModel string) string {

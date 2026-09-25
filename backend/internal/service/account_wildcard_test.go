@@ -764,3 +764,26 @@ func TestAccountGetModelMapping_CacheInvalidatesOnInPlaceValueChange(t *testing.
 		t.Fatalf("expected cache invalidated after in-place value change, got: %v", second)
 	}
 }
+
+func TestAccountGetModelMapping_CacheInvalidatesOnInPlaceKeyReplacement(t *testing.T) {
+	rawMapping := map[string]any{
+		"claude-sonnet": "sonnet-a",
+	}
+	account := &Account{
+		Credentials: map[string]any{
+			"model_mapping": rawMapping,
+		},
+	}
+
+	first := account.GetModelMapping()
+	if first["claude-sonnet"] != "sonnet-a" {
+		t.Fatalf("unexpected first mapping: %v", first)
+	}
+
+	delete(rawMapping, "claude-sonnet")
+	rawMapping["claude-opus"] = "opus-b"
+	second := account.GetModelMapping()
+	if second["claude-opus"] != "opus-b" || second["claude-sonnet"] != "" {
+		t.Fatalf("expected cache invalidated after in-place key replacement, got: %v", second)
+	}
+}
