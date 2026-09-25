@@ -287,3 +287,111 @@ func tkStripHistoricalAssistantThinking(body []byte) []byte {
 		"[ToolSearchThinkingPrefilter] stripped historical signed thinking blocks before upstream forward (claude-code #63792)")
 	return out
 }
+
+// tkRepairHistoricalAssistantTrailingThinking enforces Anthropic's structural
+// rule that thinking/redacted_thinking must not be the final content block of
+// an assistant message (prod 2026-09-25 user16 claude-fable-5:
+// "The final block in an assistant message cannot be `thinking`").
+//
+// Only historical turns are repaired; an assistant-prefill final message is
+// left intact. Trailing thinking is converted to text when it has content;
+// trailing redacted_thinking is dropped. Empty content gets a placeholder.
+func tkRepairHistoricalAssistantTrailingThinking(body []byte, mappedModel string) []byte {
+	if !ShouldApplyRetryFilters(mappedModel) {
+		return body
+	}
+	msgsRes := gjson.GetBytes(body, "messages")
+	if !msgsRes.Exists() || !msgsRes.IsArray() {
+		return body
+	}
+
+	var messages []any
+	if err := json.Unmarshal(sliceRawFromBody(body, msgsRes), &messages); err != nil {
+		return body
+	}
+	if len(messages) == 0 {
+		return body
+	}
+
+	prefillIdx := -1
+	if lastMap, ok := messages[len(messages)-1].(map[string]any); ok {
+		if role, _ := lastMap["role"].(string); role == "assistant" {
+			prefillIdx = len(messages) - 1
+		}
+	}
+
+	modified := false
+	for i := 0; i < len(messages); i++ {
+		if i == prefillIdx {
+			continue
+		}
+		msgMap, ok := messages[i].(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := msgMap["role"].(string)
+		if role != "assistant" {
+			continue
+		}
+		content, ok := msgMap["content"].([]any)
+		if !ok || len(content) == 0 {
+			continue
+		}
+		if !tkContentEndsWithThinking(content) {
+			continue
+		}
+
+		newContent := make([]any, 0, len(content))
+		newContent = append(newContent, content...)
+		for len(newContent) > 0 {
+			last, ok := newContent[len(newContent)-1].(map[string]any)
+			if !ok {
+				break
+			}
+			typ, _ := last["type"].(string)
+			if typ != "thinking" && typ != "redacted_thinking" {
+				break
+			}
+			newContent = newContent[:len(newContent)-1]
+			if typ == "thinking" {
+				if thinkingText, _ := last["thinking"].(string); thinkingText != "" {
+					newContent = append(newContent, map[string]any{"type": "text", "text": thinkingText})
+					// Converted trailing thinking is now a valid final text block.
+					break
+				}
+			}
+		}
+		if len(newContent) == 0 {
+			newContent = []any{map[string]any{"type": "text", "text": "(assistant content removed)"}}
+		}
+		msgMap["content"] = newContent
+		modified = true
+	}
+	if !modified {
+		return body
+	}
+
+	msgsBytes, err := json.Marshal(messages)
+	if err != nil {
+		return body
+	}
+	out, err := sjson.SetRawBytes(body, "messages", msgsBytes)
+	if err != nil {
+		return body
+	}
+	logger.LegacyPrintf("service.gateway",
+		"[TrailingThinkingRepair] repaired historical assistant messages ending with thinking/redacted_thinking")
+	return out
+}
+
+func tkContentEndsWithThinking(content []any) bool {
+	if len(content) == 0 {
+		return false
+	}
+	last, ok := content[len(content)-1].(map[string]any)
+	if !ok {
+		return false
+	}
+	typ, _ := last["type"].(string)
+	return typ == "thinking" || typ == "redacted_thinking"
+}
