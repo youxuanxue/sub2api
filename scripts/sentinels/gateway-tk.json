@@ -1123,6 +1123,16 @@
       "rationale": "Native Messages and Chat-to-Messages must share supplier capability refusal failover."
     },
     {
+      "path": "backend/internal/service/openai_gateway_messages_thinking_contract_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) allowAnthropicThinkingContract400Repair(",
+        "func (s *OpenAIGatewayService) retryAnthropicThinkingContract400HTTP(",
+        "tkRectifyAnthropicThinkingContract400(wireBody, mappedModel, respBody)",
+        "FilterSignatureSensitiveBlocksForRetry(outWire, mappedModel)"
+      ],
+      "rationale": "Shared tokensea/CN native thinking-contract 400 ladder + rectifier settings gate. Prevents duplicated retry/escalate drift and honors admin rectifier switches."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_test.go",
       "must_contain": [
         "TestNativeAnthropicPassthroughSupplierCapabilityFailover"
@@ -6424,12 +6434,13 @@
       "must_contain": [
         "func TkPrefilterToolSearchHistoricalThinking(body []byte, mappedModel string) []byte {",
         "func tkBodyHasToolSearchTools(body []byte) bool {",
-        "func tkBodyHasAssistantToolUse(body []byte) bool {",
+        "func tkBodyHasSignedThinkingHistory(body []byte) bool {",
+        "func tkBodyHasHistoricalToolCoupledSignedThinking(body []byte) bool {",
         "func tkShouldPrefilterHistoricalThinking(body []byte) bool {",
         "func tkStripHistoricalAssistantThinking(body []byte) []byte {",
-        "return tkBodyHasToolSearchTools(body) || tkBodyHasAssistantToolUse(body)"
+        "return tkBodyHasHistoricalToolCoupledSignedThinking(body)"
       ],
-      "rationale": "Pure, fork-only ToolSearch/tool-storm historical signed-thinking pre-filter (claude-code #63792 / #10199 + prod 2026-09-25), kept in a *_tk_*.go companion out of upstream-owned gateway_request.go (rule §5). Gate matches ToolSearch tools OR any assistant tool_use with signed thinking history (post-ToolSearch storms where tool_search left the tools array). Anchor gate + stripper so an upstream merge cannot delete this surface."
+      "rationale": "Pure ToolSearch/tool-storm historical signed-thinking pre-filter. Gate is ToolSearch tools OR historical same-message thinking+tool_use coupling (post-ToolSearch storms). Not bare any-tool_use."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go",
@@ -6447,7 +6458,7 @@
       "path": "backend/internal/service/openai_gateway_messages_native.go",
       "must_contain": [
         "tkPrepareAnthropicMessagesWireBody(account, body, mappedModel)",
-        "tkRectifyAnthropicThinkingContract400(upstreamBody, upstreamModel, respBody)",
+        "retryAnthropicThinkingContract400HTTP(",
         "func (s *OpenAIGatewayService) doNativeAnthropicMessagesHTTP("
       ],
       "rationale": "Tokensea/OpenAI-compat native Anthropic messages path must apply thinking-contract SSOT before first hop and rectify 400 cannot-be-modified/signature using the prepared wire body. This path builds http.NewRequest directly and historically skipped FilterThinking/ToolSearch prefilter (prod 2026-09-25)."
@@ -6456,7 +6467,7 @@
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
       "must_contain": [
         "tkPrepareAnthropicMessagesWireBody(account, body, gjson.GetBytes(body, \"model\").String())",
-        "tkRectifyAnthropicThinkingContract400(wireBody, upstreamModel, respBody)"
+        "retryAnthropicThinkingContract400HTTP("
       ],
       "rationale": "CN Anthropic native endpoint builder + 400 rectify must share the same thinking-contract SSOT as Forward/passthrough/tokensea native."
     },

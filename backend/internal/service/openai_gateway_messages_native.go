@@ -88,61 +88,26 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		_ = resp.Body.Close()
-		// Thinking-contract 400 repair (cannot-be-modified / signature) before
-		// failover or client error — SSOT shared with Forward/passthrough.
-		// Rectify the prepared wire body that was actually POSTed.
 		if resp.StatusCode == http.StatusBadRequest {
-			if repaired, kind, ok := tkRectifyAnthropicThinkingContract400(upstreamBody, upstreamModel, respBody); ok {
-				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform:           account.Platform,
-					AccountID:          account.ID,
-					AccountName:        account.Name,
-					UpstreamStatusCode: http.StatusBadRequest,
-					Kind:               kind,
-					Message:            extractUpstreamErrorMessage(respBody),
-				})
-				retryResp, retryErr := s.doNativeAnthropicMessagesHTTP(ctx, c, account, targetURL, repaired, clientStream, apiKey)
-				if retryErr == nil {
-					resp = retryResp
-					upstreamBody = repaired
-					if resp.StatusCode < 400 {
-						if clientStream {
-							return s.streamNativeAnthropicMessages(c, resp, account, originalModel, billingModel, upstreamModel, startTime)
-						}
-						return s.bufferNativeAnthropicMessages(c, resp, originalModel, billingModel, upstreamModel, startTime)
-					}
-					respBody, upstreamMsg = s.readOpenAIUpstreamError(resp)
-					_ = resp.Body.Close()
-					// Escalate cannot-be-modified after historical strip → signature-sensitive.
-					if resp.StatusCode == http.StatusBadRequest &&
-						kind == "thinking_cannot_modify_strip_historical" &&
-						isAnthropicThinkingCannotBeModifiedError(respBody) {
-						escalated := FilterSignatureSensitiveBlocksForRetry(upstreamBody, upstreamModel)
-						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-							Platform:           account.Platform,
-							AccountID:          account.ID,
-							AccountName:        account.Name,
-							UpstreamStatusCode: http.StatusBadRequest,
-							Kind:               "thinking_cannot_modify_signature_sensitive",
-							Message:            extractUpstreamErrorMessage(respBody),
-						})
-						retryResp2, retryErr2 := s.doNativeAnthropicMessagesHTTP(ctx, c, account, targetURL, escalated, clientStream, apiKey)
-						if retryErr2 == nil {
-							resp = retryResp2
-							if resp.StatusCode < 400 {
-								if clientStream {
-									return s.streamNativeAnthropicMessages(c, resp, account, originalModel, billingModel, upstreamModel, startTime)
-								}
-								return s.bufferNativeAnthropicMessages(c, resp, originalModel, billingModel, upstreamModel, startTime)
-							}
-							respBody, upstreamMsg = s.readOpenAIUpstreamError(resp)
-							_ = resp.Body.Close()
-						}
-					}
+			retryResp, _, retryBody, retryMsg, recovered := s.retryAnthropicThinkingContract400HTTP(
+				ctx, c, account, upstreamModel, upstreamBody, resp, respBody, upstreamMsg,
+				func(body []byte) (*http.Response, error) {
+					return s.doNativeAnthropicMessagesHTTP(ctx, c, account, targetURL, body, clientStream, apiKey)
+				},
+				s.readOpenAIUpstreamError,
+			)
+			resp = retryResp
+			respBody, upstreamMsg = retryBody, retryMsg
+			if recovered {
+				if clientStream {
+					return s.streamNativeAnthropicMessages(c, resp, account, originalModel, billingModel, upstreamModel, startTime)
 				}
+				return s.bufferNativeAnthropicMessages(c, resp, originalModel, billingModel, upstreamModel, startTime)
 			}
 		}
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if resp.Body == nil {
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		}
 		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
 			return nil, errOpenAICyberPolicyForwarded
 		}

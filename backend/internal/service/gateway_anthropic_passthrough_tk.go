@@ -170,6 +170,53 @@ func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 							return nil, true, err
 						}
 					}
+					return retryResp, true, nil
+				}
+				// Escalate cannot-be-modified after historical strip → signature-sensitive.
+				if retryResp.StatusCode == http.StatusBadRequest &&
+					retryKind == "thinking_cannot_modify_strip_historical" &&
+					time.Since(retryStart) < maxRetryElapsed {
+					retryRespBody, retryReadErr := s.readUpstreamErrorBody(retryResp)
+					_ = retryResp.Body.Close()
+					if retryReadErr == nil && isAnthropicThinkingCannotBeModifiedError(retryRespBody) {
+						escalated := FilterSignatureSensitiveBlocksForRetry(retryBody, input.RequestModel)
+						s.armSigPreemptOnError(ctx, c, account)
+						escCtx, releaseEscCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
+						escReq, escWireBody, escBuildErr := s.buildAnthropicPassthroughUpstreamRequest(escCtx, c, account, escalated, token, authKind)
+						releaseEscCtx()
+						if escBuildErr == nil {
+							escResp, escErr := s.httpUpstream.DoWithTLS(escReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+							if escErr == nil {
+								appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+									Platform:           account.Platform,
+									AccountID:          account.ID,
+									AccountName:        account.Name,
+									UpstreamStatusCode: http.StatusBadRequest,
+									UpstreamRequestID:  retryResp.Header.Get("x-request-id"),
+									UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+									Passthrough:        true,
+									Kind:               "thinking_cannot_modify_signature_sensitive",
+									Message:            extractUpstreamErrorMessage(retryRespBody),
+								})
+								if escResp.StatusCode < 400 {
+									input.Body = escWireBody
+									setOpsUpstreamRequestBody(c, escWireBody)
+									if input.Parsed != nil {
+										if err := input.Parsed.ReplaceBody(escWireBody); err != nil {
+											_ = escResp.Body.Close()
+											return nil, true, err
+										}
+									}
+								}
+								return escResp, true, nil
+							}
+							if escResp != nil && escResp.Body != nil {
+								_ = escResp.Body.Close()
+							}
+						}
+					}
+					resp.Body = io.NopCloser(bytes.NewReader(retryRespBody))
+					return resp, true, nil
 				}
 				return retryResp, true, nil
 			}

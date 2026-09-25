@@ -113,78 +113,38 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		_ = resp.Body.Close()
-		// Thinking-contract 400 repair shared with tokensea native / Forward.
 		if resp.StatusCode == http.StatusBadRequest {
-			if repaired, kind, ok := tkRectifyAnthropicThinkingContract400(wireBody, upstreamModel, respBody); ok {
-				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-					Platform:           account.Platform,
-					AccountID:          account.ID,
-					AccountName:        account.Name,
-					UpstreamStatusCode: http.StatusBadRequest,
-					Kind:               kind,
-					Message:            extractUpstreamErrorMessage(respBody),
-				})
-				retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, clientStream)
-				if account.IsCursor() {
-					retryCtx = ctx
-				}
-				retryReq, repairedWire, buildErr := s.buildNativeAnthropicUpstreamRequest(retryCtx, c, account, repaired, apiKey, targetURL)
-				releaseRetryCtx()
-				if buildErr == nil {
+			retryResp, _, retryBody, retryMsg, recovered := s.retryAnthropicThinkingContract400HTTP(
+				ctx, c, account, upstreamModel, wireBody, resp, respBody, upstreamMsg,
+				func(body []byte) (*http.Response, error) {
+					retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, clientStream)
+					if account.IsCursor() {
+						retryCtx = ctx
+					}
+					retryReq, _, buildErr := s.buildNativeAnthropicUpstreamRequest(retryCtx, c, account, body, apiKey, targetURL)
+					releaseRetryCtx()
+					if buildErr != nil {
+						return nil, buildErr
+					}
 					hwkaRetry := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
 					retryResp, retryErr := s.doNativeMessagesRequest(retryReq, account)
 					hwkaRetry.stop()
-					if retryErr == nil {
-						resp = retryResp
-						wireBody = repairedWire
-						if resp.StatusCode < 400 {
-							if clientStream {
-								return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
-							}
-							return s.handleNativeAnthropicBufferedResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
-						}
-						respBody, upstreamMsg = s.readOpenAIUpstreamError(resp)
-						_ = resp.Body.Close()
-						if resp.StatusCode == http.StatusBadRequest &&
-							kind == "thinking_cannot_modify_strip_historical" &&
-							isAnthropicThinkingCannotBeModifiedError(respBody) {
-							escalated := FilterSignatureSensitiveBlocksForRetry(wireBody, upstreamModel)
-							appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-								Platform:           account.Platform,
-								AccountID:          account.ID,
-								AccountName:        account.Name,
-								UpstreamStatusCode: http.StatusBadRequest,
-								Kind:               "thinking_cannot_modify_signature_sensitive",
-								Message:            extractUpstreamErrorMessage(respBody),
-							})
-							escCtx, releaseEscCtx := detachStreamUpstreamContext(ctx, clientStream)
-							if account.IsCursor() {
-								escCtx = ctx
-							}
-							escReq, _, escBuildErr := s.buildNativeAnthropicUpstreamRequest(escCtx, c, account, escalated, apiKey, targetURL)
-							releaseEscCtx()
-							if escBuildErr == nil {
-								hwkaEsc := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
-								escResp, escErr := s.doNativeMessagesRequest(escReq, account)
-								hwkaEsc.stop()
-								if escErr == nil {
-									resp = escResp
-									if resp.StatusCode < 400 {
-										if clientStream {
-											return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
-										}
-										return s.handleNativeAnthropicBufferedResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
-									}
-									respBody, upstreamMsg = s.readOpenAIUpstreamError(resp)
-									_ = resp.Body.Close()
-								}
-							}
-						}
-					}
+					return retryResp, retryErr
+				},
+				s.readOpenAIUpstreamError,
+			)
+			resp = retryResp
+			respBody, upstreamMsg = retryBody, retryMsg
+			if recovered {
+				if clientStream {
+					return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
 				}
+				return s.handleNativeAnthropicBufferedResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
 			}
 		}
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if resp.Body == nil {
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		}
 		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
 			return nil, errOpenAICyberPolicyForwarded
 		}

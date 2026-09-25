@@ -107,6 +107,29 @@ func TestTkPrefilterToolSearchHistoricalThinking_NoOpWithoutToolSearchOrToolUse(
 	require.Equal(t, input, out)
 }
 
+func TestTkPrefilterToolSearchHistoricalThinking_NoOpWhenToolUseNotCoupledWithHistoricalThinking(t *testing.T) {
+	// Ordinary tool session: historical signed thinking is text-only; tool_use
+	// appears later. Must NOT strip — gate requires same-message coupling.
+	input := []byte(`{
+		"model":"claude-opus-4-8",
+		"tools":[{"name":"Bash"}],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"hi"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"keep","signature":"sig"},
+				{"type":"text","text":"answer"}
+			]},
+			{"role":"user","content":[{"type":"text","text":"run ls"}]},
+			{"role":"assistant","content":[
+				{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}
+			]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}
+		]
+	}`)
+	out := TkPrefilterToolSearchHistoricalThinking(input, "claude-opus-4-8")
+	require.Equal(t, input, out)
+}
+
 func TestTkPrefilterToolSearchHistoricalThinking_StripsPostToolSearchStormWithoutToolSearchTool(t *testing.T) {
 	// Prod 2026-09-25: after ToolSearch loads tools, the tools array no longer
 	// contains tool_search, but historical signed thinking + tool_use remains.

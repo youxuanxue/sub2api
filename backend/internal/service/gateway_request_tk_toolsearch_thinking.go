@@ -85,24 +85,48 @@ func tkBodyHasSignedThinkingHistory(body []byte) bool {
 	return false
 }
 
-// tkBodyHasAssistantToolUse reports whether any assistant turn carries tool_use.
-// Used with signed-thinking history to detect post-ToolSearch "tool storms" after
-// the tools array no longer lists tool_search itself (prod 2026-09-25).
-func tkBodyHasAssistantToolUse(body []byte) bool {
+// tkBodyHasHistoricalToolCoupledSignedThinking reports whether any historical
+// assistant turn couples signed thinking/redacted_thinking with tool_use in the
+// same message — the post-ToolSearch storm shape (prod 2026-09-25).
+func tkBodyHasHistoricalToolCoupledSignedThinking(body []byte) bool {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
 		return false
 	}
-	for _, msg := range msgs.Array() {
-		if msg.Get("role").String() != "assistant" {
+	arr := msgs.Array()
+	if len(arr) == 0 {
+		return false
+	}
+	lastIsAssistantPrefill := arr[len(arr)-1].Get("role").String() == "assistant"
+	end := len(arr)
+	if lastIsAssistantPrefill {
+		end--
+	}
+	for i := 0; i < end; i++ {
+		if arr[i].Get("role").String() != "assistant" {
 			continue
 		}
-		content := msg.Get("content")
+		content := arr[i].Get("content")
 		if !content.IsArray() {
 			continue
 		}
+		hasSignedThinking := false
+		hasToolUse := false
 		for _, block := range content.Array() {
-			if block.Get("type").String() == "tool_use" {
+			typ := block.Get("type").String()
+			switch typ {
+			case "thinking":
+				if block.Get("signature").String() != "" {
+					hasSignedThinking = true
+				}
+			case "redacted_thinking":
+				if block.Get("data").String() != "" {
+					hasSignedThinking = true
+				}
+			case "tool_use":
+				hasToolUse = true
+			}
+			if hasSignedThinking && hasToolUse {
 				return true
 			}
 		}
@@ -111,14 +135,15 @@ func tkBodyHasAssistantToolUse(body []byte) bool {
 }
 
 // tkShouldPrefilterHistoricalThinking is the gate for proactive historical
-// thinking downgrade. Requires signed thinking history, plus either ToolSearch
-// tools still present OR any assistant tool_use (post-ToolSearch storms where
-// tool_search has left the tools array — prod 2026-09-25).
+// thinking downgrade:
+//   - ToolSearch tools present + signed thinking history, or
+//   - historical assistant turn that couples signed thinking with tool_use
+//     (post-ToolSearch storms where tool_search left the tools array).
 func tkShouldPrefilterHistoricalThinking(body []byte) bool {
-	if !tkBodyHasSignedThinkingHistory(body) {
-		return false
+	if tkBodyHasToolSearchTools(body) {
+		return tkBodyHasSignedThinkingHistory(body)
 	}
-	return tkBodyHasToolSearchTools(body) || tkBodyHasAssistantToolUse(body)
+	return tkBodyHasHistoricalToolCoupledSignedThinking(body)
 }
 
 // TkPrefilterToolSearchHistoricalThinking downgrades signed thinking blocks in
