@@ -70,7 +70,7 @@
       "upstream": "anthropics/claude-code#63792, anthropics/claude-code#10199",
       "severity": "high",
       "tokenkey_pr": "youxuanxue/sub2api (Anthropic thinking-contract dual SSOT)",
-      "summary": "When Claude Code dynamic tool loading (ToolSearch) re-serializes prior assistant turns — including post-ToolSearch tool storms where tool_search has left the tools array — signed thinking blocks in historical messages are perturbed and Anthropic returns 400 'cannot be modified'. TokenKey dual SSOT: (1) tkPrepareAnthropicMessagesWireBody / tkApplyAnthropicThinkingContractPrefilters strips historical signed thinking before the first hop on every Anthropic Messages wire path (OAuth Forward, API-key passthrough, tokensea/CN native messages, count_tokens); (2) tkRectifyAnthropicThinkingContract400 repairs 400s by historical strip then signature-sensitive escalation. Prod 2026-09-25 user16 claude-fable-5 finals were the native-path blind spot.",
+      "summary": "When Claude Code dynamic tool loading (ToolSearch) re-serializes prior assistant turns — including post-ToolSearch tool storms where tool_search has left the tools array — signed thinking blocks in historical messages are perturbed and Anthropic returns 400 'cannot be modified'. Separately, assistant messages whose final content block is thinking/redacted_thinking get 400 'final block cannot be thinking'. TokenKey dual SSOT: (1) tkPrepareAnthropicMessagesWireBody applies FilterThinking + ToolSearch/tool-storm strip + trailing-thinking repair + tokensea fable CM on every Anthropic Messages wire path; (2) tkRectifyAnthropicThinkingContract400 repairs 400s (final-block repair / cannot-be-modified historical strip → signature-sensitive). Prod 2026-09-25 user16 claude-fable-5 covered both error classes.",
       "fixed_by": [
         "backend/internal/service/gateway_request_tk_toolsearch_thinking.go",
         "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go",
@@ -91,13 +91,16 @@
         "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func TkPrefilterToolSearchHistoricalThinking",
         "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkBodyHasHistoricalToolCoupledSignedThinking",
         "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkShouldPrefilterHistoricalThinking",
+        "backend/internal/service/gateway_request_tk_toolsearch_thinking.go:func tkRepairHistoricalAssistantTrailingThinking",
         "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go:func tkPrepareAnthropicMessagesWireBody",
         "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go:func tkRectifyAnthropicThinkingContract400",
         "backend/internal/service/openai_gateway_messages_thinking_contract_tk.go:func (s *OpenAIGatewayService) retryAnthropicThinkingContract400HTTP",
         "backend/internal/service/openai_gateway_messages_native.go:tkPrepareAnthropicMessagesWireBody(account, body, mappedModel)",
         "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go:func TestTkPrefilterToolSearchHistoricalThinking_StripsPostToolSearchStormWithoutToolSearchTool",
         "backend/internal/service/gateway_request_tk_toolsearch_thinking_test.go:func TestTkPrefilterToolSearchHistoricalThinking_NoOpWhenToolUseNotCoupledWithHistoricalThinking",
-        "backend/internal/service/gateway_request_tk_anthropic_messages_wire_test.go:func TestTkPrepareAnthropicMessagesWireBody_AppliesToolStormPrefilter"
+        "backend/internal/service/gateway_request_tk_anthropic_messages_wire_test.go:func TestTkPrepareAnthropicMessagesWireBody_AppliesToolStormPrefilter",
+        "backend/internal/service/gateway_request_tk_anthropic_messages_wire_test.go:func TestTkPrepareAnthropicMessagesWireBody_RepairsTrailingThinking",
+        "backend/internal/service/gateway_request_tk_anthropic_messages_wire_test.go:func TestTkRectifyAnthropicThinkingContract400_FinalBlockThinking"
       ],
       "status": "fixed_in_tokenkey"
     }

@@ -107,3 +107,84 @@ func TestIsAnthropicThinkingCannotBeModifiedError(t *testing.T) {
 	require.False(t, isAnthropicThinkingCannotBeModifiedError([]byte(
 		`{"error":{"message":"Invalid signature in thinking block"}}`)))
 }
+
+func TestTkPrepareAnthropicMessagesWireBody_RepairsTrailingThinking(t *testing.T) {
+	// Prod 2026-09-25 user16: messages.N ends with thinking →
+	// "The final block in an assistant message cannot be `thinking`".
+	input := []byte(`{
+		"model":"claude-fable-5",
+		"thinking":{"type":"adaptive"},
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"q1"}]},
+			{"role":"assistant","content":[
+				{"type":"text","text":"partial"},
+				{"type":"thinking","thinking":"trailing","signature":"EuAG_stale"}
+			]},
+			{"role":"user","content":[{"type":"text","text":"continue"}]}
+		]
+	}`)
+
+	out := tkPrepareAnthropicMessagesWireBody(nil, input, "claude-fable-5")
+	require.NotEqual(t, string(input), string(out))
+
+	content := gjson.GetBytes(out, "messages.1.content")
+	require.True(t, content.IsArray())
+	require.GreaterOrEqual(t, len(content.Array()), 1)
+	last := content.Array()[len(content.Array())-1]
+	require.NotEqual(t, "thinking", last.Get("type").String())
+	require.NotEqual(t, "redacted_thinking", last.Get("type").String())
+	thinking, _, text := countContentTypes(content)
+	require.Equal(t, 0, thinking)
+	require.GreaterOrEqual(t, text, 1)
+}
+
+func TestTkPrepareAnthropicMessagesWireBody_ThinkingOnlyHistoricalBecomesText(t *testing.T) {
+	input := []byte(`{
+		"model":"claude-fable-5",
+		"thinking":{"type":"adaptive"},
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"q1"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"alone","signature":"EuAG_stale"}
+			]},
+			{"role":"user","content":[{"type":"text","text":"ok"}]}
+		]
+	}`)
+	out := tkPrepareAnthropicMessagesWireBody(nil, input, "claude-fable-5")
+	content := gjson.GetBytes(out, "messages.1.content")
+	thinking, _, text := countContentTypes(content)
+	require.Equal(t, 0, thinking)
+	require.Equal(t, 1, text)
+	require.Equal(t, "alone", content.Array()[0].Get("text").String())
+}
+
+func TestTkRectifyAnthropicThinkingContract400_FinalBlockThinking(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-fable-5",
+		"thinking":{"type":"adaptive"},
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"q1"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"alone","signature":"EuAG_stale"}
+			]},
+			{"role":"user","content":[{"type":"text","text":"ok"}]}
+		]
+	}`)
+	respBody := []byte("{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.1: The final block in an assistant message cannot be `thinking`.\"}}")
+
+	out, kind, ok := tkRectifyAnthropicThinkingContract400(body, "claude-fable-5", respBody)
+	require.True(t, ok)
+	require.Equal(t, "final_block_thinking_repair", kind)
+	thinking, _, text := countContentTypes(gjson.GetBytes(out, "messages.1.content"))
+	require.Equal(t, 0, thinking)
+	require.Equal(t, 1, text)
+}
+
+func TestIsAnthropicFinalBlockThinkingError(t *testing.T) {
+	require.True(t, isAnthropicFinalBlockThinkingError([]byte(
+		"{\"error\":{\"message\":\"messages.295: The final block in an assistant message cannot be `thinking`.\"}}")))
+	require.True(t, isAnthropicThinkingContractErrorMessage(
+		"messages.295: The final block in an assistant message cannot be `thinking`."))
+	require.False(t, isAnthropicFinalBlockThinkingError([]byte(
+		`{"error":{"message":"thinking blocks cannot be modified"}}`)))
+}

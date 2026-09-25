@@ -6438,9 +6438,10 @@
         "func tkBodyHasHistoricalToolCoupledSignedThinking(body []byte) bool {",
         "func tkShouldPrefilterHistoricalThinking(body []byte) bool {",
         "func tkStripHistoricalAssistantThinking(body []byte) []byte {",
+        "func tkRepairHistoricalAssistantTrailingThinking(body []byte, mappedModel string) []byte {",
         "return tkBodyHasHistoricalToolCoupledSignedThinking(body)"
       ],
-      "rationale": "Pure ToolSearch/tool-storm historical signed-thinking pre-filter. Gate is ToolSearch tools OR historical same-message thinking+tool_use coupling (post-ToolSearch storms). Not bare any-tool_use."
+      "rationale": "Pure ToolSearch/tool-storm historical signed-thinking pre-filter plus trailing-thinking structural repair. Gate is ToolSearch tools OR historical same-message thinking+tool_use coupling (post-ToolSearch storms). Trailing repair covers final-block-cannot-be-thinking independently of ToolSearch."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go",
@@ -6449,10 +6450,12 @@
         "func tkApplyAnthropicThinkingContractPrefilters(body []byte, mappedModel string) []byte {",
         "func tkRectifyAnthropicThinkingContract400(body []byte, mappedModel string, respBody []byte) (newBody []byte, kind string, ok bool) {",
         "TkPrefilterToolSearchHistoricalThinking(body, mappedModel)",
+        "tkRepairHistoricalAssistantTrailingThinking(body, mappedModel)",
         "thinking_cannot_modify_strip_historical",
-        "thinking_cannot_modify_signature_sensitive"
+        "thinking_cannot_modify_signature_sensitive",
+        "final_block_thinking_repair"
       ],
-      "rationale": "Dual SSOT for Anthropic Messages thinking-contract: egress prepare (FilterThinking + ToolSearch/tool-storm + tokensea fable CM) and 400 rectify (cannot-be-modified historical strip → signature-sensitive). Every Anthropic wire path and 400 recovery must call these owners — prod 2026-09-25 user16 native messages missed prepare and finalled 400."
+      "rationale": "Dual SSOT for Anthropic Messages thinking-contract: egress prepare (FilterThinking + ToolSearch/tool-storm + trailing-thinking repair + tokensea fable CM) and 400 rectify (final-block thinking repair / cannot-be-modified historical strip → signature-sensitive). Every Anthropic wire path and 400 recovery must call these owners — prod 2026-09-25 user16 native messages missed prepare and finalled 400."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
