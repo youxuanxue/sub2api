@@ -180,6 +180,14 @@
         "supplierSourceHandler := admin.NewSupplierSourceHandler(supplierSourceService)"
       ],
       "rationale": "Generated production graph for the final supplier-source chain: one repository, account-domain commands, an account store with no group dependency, the real in-memory probe adapter, existing secret encryption, and the admin handler. Provider declarations alone do not prove the deployed server retained this isolated graph after Wire regeneration or an upstream merge."
+    },
+    {
+      "path": "backend/cmd/server/wire_gen.go",
+      "must_contain": [
+        "antigravityValidationCounterCache := repository.NewAntigravityValidationCounterCache(redisClient)",
+        "antigravityValidationCounterCache, settingService"
+      ],
+      "rationale": "Generated production DI evidence that the Antigravity VALIDATION_REQUIRED counter reaches RateLimitService. The penalty ladder degrades fail-open by design: with a nil counter it silently falls back to the pre-fix single 30-minute cooldown, so a Wire regeneration that drops this argument compiles, passes every unit test (the ladder tests inject their own stub), and leaves production back on the infinite-replay behaviour with no visible signal. Provider declarations in service/wire.go alone do not prove the deployed graph wired it."
     }
   ]
 }

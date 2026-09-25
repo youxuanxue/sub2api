@@ -3058,6 +3058,29 @@
       "rationale": "TK prod P0 2026-06-25 (routing_capacity_rejection spike on gpt-5.5): a single `POST /v1/embeddings` with model=gpt-5.5 returned OpenAI 403 'You are not allowed to generate embeddings from this model'. handleOpenAI403 treated that client-induced model/endpoint capability 403 as account-level and wrote a 10-min temp_unschedulable on OAuth Codex accounts #9/#73 — the very accounts serving the bulk of gpt-5.5 chat traffic — emptying the openai compat pool and producing 628 'no available accounts' 429s until the cooldown lapsed. This companion holds the keyword predicate that handleOpenAI403 consults (anchored via the ratelimit_service.go sentinel) to SKIP the 403 counter + cooldown for deterministic per-request capability 403s, the OpenAI sibling of the Anthropic client-induced-400 skip (#2608). Dropping this file or its keywords silently restores OAuth-pool poisoning where one wrong-endpoint request cools a healthy shared account for all other models."
     },
     {
+      "path": "backend/internal/service/ratelimit_service_tk_antigravity_validation.go",
+      "must_contain": [
+        "func (s *RateLimitService) applyAntigravityValidationPenalty(",
+        "if s.antigravityValidationCounter == nil {",
+        "IncrementAntigravityValidationCount(",
+        "if count >= int64(antigravityValidationDisableThreshold) {",
+        "s.handleAuthError(ctx, account, disableMsg)",
+        "consecutive_validation_403=%d/%d",
+        ") ResetAntigravityValidationCounter("
+      ],
+      "rationale": "Antigravity VALIDATION_REQUIRED (403) 渐进惩罚 owner。Google 的账号验证挑战可恢复，但真正需要人工验证的账号不会自愈：修复前 handleAntigravity403 写死 30 分钟固定冷却且无轮数计数，账号每 30 分钟被放回调度池、烧掉一次真实上游请求、再被打下去，无限循环。本 companion 持有阶梯（30min → 2h → 第 3 轮 SetError 永久禁用），语义与同平台 antigravity_internal500_penalty.go 及 OpenAI 403 阶梯一致。两个 must_contain 是刻意的 fail-open 边界：`if s.antigravityValidationCounter == nil` 与计数失败分支必须退回单档冷却，绝不因为缺少可选依赖（未接线 / Redis 不可用）就把可恢复的验证挑战升级成永久禁用；删掉它们会让一次 Redis 抖动永久禁用整批健康账号。`ResetAntigravityValidationCounter` 必须存在并被成功路径与人工恢复路径调用，否则已解除验证的账号会带着陈旧轮数直接跳到永久禁用档。上游合并若把 validation 分支重新内联回固定冷却，可以编译通过且无测试红灯（旧用例不带计数器、命中 fallback），因此由 sentinel 捕获。"
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_antigravity_validation_test.go",
+      "must_contain": [
+        "TestAntigravityValidation403_第3轮永久禁用",
+        "TestAntigravityValidation403_计数器缺失时退回单档冷却",
+        "TestAntigravityValidation403_计数失败时退回单档冷却",
+        "TestAntigravityValidation403_违规403仍然永久禁用且不计入验证阶梯"
+      ],
+      "rationale": "锁定验证阶梯的四条不变量：阶梯确实会在第 3 轮收敛为人工处理（否则无限重放照旧）；计数器缺失与计数失败两条 fail-open 路径都退回单档冷却而非永久禁用；violation 403 一次都不碰计数器，不消耗验证阶梯预算（否则违规封号会污染验证轮数）。删掉任一用例都会让对应回归静默通过。"
+    },
+    {
       "path": "backend/internal/service/gateway_service_tk_sticky_saturation.go",
       "must_contain": [
         "func (s *GatewayService) tkShouldClearStickyForSaturation(",
@@ -8639,6 +8662,16 @@
         "s.anthropicUpstreamErrorCounterCache.ResetAnthropicBodyless403Count(ctx, accountID)"
       ],
       "rationale": "Recovery hotpath must reset the bodyless-403 counter when clearing Anthropic upstream-error state so a healed account does not carry a stale permanent-disable strike. Companion handle403 owns the escalate call site; this anchors the Reset in the upstream-shaped recovery path."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service.go",
+      "must_contain": [
+        "return s.applyAntigravityValidationPenalty(ctx, account, msg)",
+        "s.ResetAntigravityValidationCounter(ctx, accountID)",
+        "antigravityValidationCooldownLadder",
+        "antigravityValidationDisableThreshold"
+      ],
+      "rationale": "Antigravity validation-403 阶梯在 upstream-shaped 文件里的注入点与恢复挂钩。handleAntigravity403 的 validation 分支必须委托给 companion（ratelimit_service_tk_antigravity_validation.go），且两条人工恢复路径（ClearRateLimit / RecoverAccountState）必须调 ResetAntigravityValidationCounter —— 与相邻的 ResetOpenAI403Counter / ResetAnthropicUpstreamErrorCounter 并列。上游合并若把 validation 分支重新内联成写死的固定冷却，或在重写 recovery 汇聚点时丢掉 Reset 调用，都能编译通过且不触发红灯（旧 403 用例不带计数器、走 fallback 分支），结果是已验证账号带着陈旧轮数直跳永久禁用，或者需要人工验证的账号回到每 30 分钟无限重放。阶梯常量一并锚定，防止有人把 2h 档或第 3 轮阈值悄悄改回单档。"
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_anthropic_tls_fingerprint_403.go",
