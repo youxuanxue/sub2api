@@ -42,9 +42,10 @@ func ExecuteGeminiProtocolProfile[T any](
 	case protocolrouter.GeminiEndpointAntigravityCloudCode:
 		execute = antigravity
 	case protocolrouter.GeminiEndpointVertexServiceAccount,
-		protocolrouter.GeminiEndpointAntigravityEdgeRelay:
-		// Vertex SA and AG edge stubs both speak native Gemini generateContent
-		// over HTTP (edge hop: {base}/antigravity/v1beta/...).
+		protocolrouter.GeminiEndpointAntigravityEdgeRelay,
+		protocolrouter.GeminiEndpointGeminiWebRelay:
+		// Vertex SAs and edge relay stubs speak native Gemini generateContent over
+		// HTTP; their exact endpoint is supplied by the planned profile.
 		execute = vertex
 	default:
 		return zero, ErrProtocolRouteUnavailable

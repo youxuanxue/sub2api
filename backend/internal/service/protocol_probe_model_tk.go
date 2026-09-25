@@ -29,7 +29,7 @@ func protocolProbeModelCandidates(account *Account) []string {
 			continue
 		}
 		// Edge hops accept public mapping keys and resolve provider IDs themselves.
-		if tkIsAntigravityEdgeRelayStub(account) {
+		if tkIsAntigravityEdgeRelayStub(account) || isGeminiWebEdgeRelayStub(account) {
 			upstream = strings.TrimSpace(requested)
 			if upstream == "" || strings.Contains(upstream, "*") || protocolProbeModelIsNonText(upstream) {
 				continue

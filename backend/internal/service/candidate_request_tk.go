@@ -364,7 +364,15 @@ func (r *CandidateRequest) pathContext(ctx context.Context, group *Group) (conte
 		}
 	}
 	ctx = r.withRequest(ctx, model, body)
-	ctx = withProtocolNativeOnly(ctx, (r.shape == ShapeAnthropicMessages || r.shape == ShapeAnthropicCountTokens) && !group.AllowMessagesDispatch)
+	// Gemini relay accounts use the protocolrouter converter as their canonical
+	// Messages ingress. The group flag controls legacy Messages dispatch to
+	// OpenAI/Anthropic hops; it must not disable the native Gemini target.
+	nativeOnly := (r.shape == ShapeAnthropicCountTokens) ||
+		(r.shape == ShapeAnthropicMessages && !group.AllowMessagesDispatch)
+	if r.shape == ShapeAnthropicMessages && group.Platform == PlatformGemini {
+		nativeOnly = false
+	}
+	ctx = withProtocolNativeOnly(ctx, nativeOnly)
 	ctx = context.WithValue(ctx, ctxkey.Group, group)
 	return ctx, model, mapping, nil
 }
@@ -423,7 +431,9 @@ func candidatePathAllowsEndpoint(ctx context.Context, account *Account, group *G
 	if shape == ShapeAnthropicMessages || shape == ShapeAnthropicCountTokens {
 		// The dispatch switch authorizes conversion, not native Messages.
 		if plan != nil {
-			return plan.TargetProtocol() == protocolrouter.ProtocolMessages || group.AllowMessagesDispatch
+			return plan.TargetProtocol() == protocolrouter.ProtocolMessages ||
+				(plan.TargetProtocol() == protocolrouter.ProtocolGeminiGenerateContent && isGeminiWebEdgeRelayStub(account)) ||
+				group.AllowMessagesDispatch
 		}
 		if IsOpenAICompatPlatform(account.Platform) {
 			for _, supported := range routingSupportedProtocols(account) {

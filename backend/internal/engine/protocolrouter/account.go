@@ -22,6 +22,7 @@ const (
 	GeminiEndpointNone                 GeminiEndpointProfile = ""
 	GeminiEndpointAntigravityCloudCode GeminiEndpointProfile = "antigravity_cloudcode"
 	GeminiEndpointAntigravityEdgeRelay GeminiEndpointProfile = "antigravity_edge_relay"
+	GeminiEndpointGeminiWebRelay       GeminiEndpointProfile = "gemini_web_relay"
 	GeminiEndpointVertexServiceAccount GeminiEndpointProfile = "vertex_service_account"
 )
 
@@ -29,6 +30,7 @@ func (p GeminiEndpointProfile) Valid() bool {
 	switch p {
 	case GeminiEndpointAntigravityCloudCode,
 		GeminiEndpointAntigravityEdgeRelay,
+		GeminiEndpointGeminiWebRelay,
 		GeminiEndpointVertexServiceAccount:
 		return true
 	default:
