@@ -25,15 +25,16 @@ JSON，并要求消除并发、适用边界与凭证泄露风险。身份去重�
 ## 兼容协议推进计划（本轮会话授权）
 
 用户已确认区分通用 Gemini 与 Gemini Web，要求 Messages、Chat Completions、Responses
-复用 converter → 原生 generateContent，并明确指挥 Agent 并行实现。该授权覆盖本地实现、
-测试与复审；合并、部署和生产验收是后续独立步骤。本节取代下文原先“兼容入口一律不承接”的
+复用 converter → 原生 generateContent，并明确指挥 Agent 并行实现。用户随后明确批准推送、PR、合并、发布、prod 部署和账号归属实测；修复实测发现的
+入口缺口继续在该授权范围内推进，不修改业务分组开关。本节取代下文原先“兼容入口一律不承接”的
 阶段性限制；未完成验证不代表已部署。
 
 ### 复审结论与契约
 
 Gemini 是协议，Gemini Web 是受限供应源。传输 profile 负责原生端点和认证，能力 profile
 负责可接受的请求；不把 Web 限制施加到普通 Gemini。原始请求先由 `protocolrouter.Plan`
-判定，选中账号和 Plan 决定执行。不能在 converter 中压平历史、删除 system/tools，或者
+判定，选中账号和 Plan 决定执行。已准入候选的执行平台优先于入站协议的日志提示，
+Messages 不再进入绕过 Plan 的旧 Gemini 分支；配额平台保持独立，不能覆盖已准入账号的执行模型命名空间。不能在 converter 中压平历史、删除 system/tools，或者
 仅凭账号名、域名和模型别名判断 Web。无能力的候选退出当前请求的竞争，仍在原授权范围内
 寻找其他兼容账号；不放宽授权、收费组或供应源凭据检查。
 

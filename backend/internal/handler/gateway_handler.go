@@ -299,21 +299,22 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		sessionHash = candidateSession
 	}
 
-	// 获取平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则使用分组平台
 	// [DEBUG-STICKY] 打印会话 hash 生成结果
 	reqLog.Info("sticky.session_hash_generated",
 		zap.String("session_hash", sessionHash),
 		zap.String("metadata_user_id_raw", parsedReq.MetadataUserID),
 	)
 
-	// 获取平台：优先使用强制平台（/antigravity 路由），其次使用 composite 解析出的目标平台，否则使用分组平台
+	// Admission already enforces explicit platform restrictions. The selected
+	// account owns execution and model namespace; the ingress protocol hint and
+	// billing group remain fallbacks for requests without candidate admission.
 	platform := ""
-	if forcePlatform, ok := middleware2.GetForcePlatformFromContext(c); ok {
+	if candidatePlatform, ok := service.CandidateExecutionPlatform(c.Request.Context()); ok {
+		platform = candidatePlatform
+	} else if forcePlatform, ok := middleware2.GetForcePlatformFromContext(c); ok {
 		platform = forcePlatform
 	} else if resolvedPlatform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {
 		platform = resolvedPlatform
-	} else if candidatePlatform, ok := service.CandidateExecutionPlatform(c.Request.Context()); ok {
-		platform = candidatePlatform
 	} else if apiKey.Group != nil {
 		platform = apiKey.Group.Platform
 	}
@@ -348,7 +349,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		}
 	}
 
-	if platform == service.PlatformGemini {
+	// Governed Gemini requests use the shared selected-Plan executor below,
+	// including its immutable provider-effective request and pre-send recheck.
+	if platform == service.PlatformGemini && service.CandidateRequestFromContext(c.Request.Context()) == nil {
 		h.tkMessagesGeminiPlatform(c, reqLog, apiKey, subject, subscription, sessionKey, hasBoundSession, reqModel, reqStream, body, parsedReq, isClaudeCodeClient, streamStarted, platform, pricingAt, channelMapping)
 		return
 	}

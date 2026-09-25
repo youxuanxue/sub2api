@@ -93,7 +93,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		requestCtx = service.WithOpenAIImageGenerationIntent(requestCtx)
 	}
 	c.Request = c.Request.WithContext(requestCtx)
+	// Admitted candidates own execution guards. Without candidate admission,
+	// retain the legacy ForcePlatform/resolved/group precedence.
 	platform := service.QuotaPlatform(requestCtx, apiKey)
+	if executionPlatform, admitted := service.CandidateExecutionPlatform(requestCtx); admitted {
+		platform = executionPlatform
+	}
 
 	// TK: pre-flight body-size guard (see gateway_handler_tk_body_guard.go).
 	if h.cfg != nil {

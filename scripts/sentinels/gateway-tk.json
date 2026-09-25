@@ -14120,6 +14120,24 @@
       "rationale": "Protect original request identity and validated Web budget adaptation without admitting other unsupported controls."
     },
     {
+      "path": "backend/internal/handler/us057_gemini_middleware_ingress_test.go",
+      "must_contain": [
+        "func TestUS057_GeminiOpenAICompatMiddlewareIngressUsesAdmittedPlan(",
+        "middleware.MaybeResolveUniversal(",
+        "service.QuotaPlatform("
+      ],
+      "rationale": "Real Chat/Responses ingress must execute admitted Gemini Plans with correct provider guards, native images and independent Direct quota semantics."
+    },
+    {
+      "path": "backend/internal/handler/gemini_messages_ingress_tk_test.go",
+      "must_contain": [
+        "func TestGeminiMessagesIngressUsesAdmittedPlan(",
+        "middleware.MaybeResolveUniversal(",
+        "h.Messages(c)"
+      ],
+      "rationale": "The real Messages middleware/handler path must honor the admitted Gemini Plan despite an Anthropic ingress hint, preserving budget adaptation, images and single settlement."
+    },
+    {
       "path": "backend/internal/handler/us057_gemini_partial_usage_test.go",
       "must_contain": [
         "func TestUS057_GeminiCompatIngressMetersDeliveredPartialImageOnce("
