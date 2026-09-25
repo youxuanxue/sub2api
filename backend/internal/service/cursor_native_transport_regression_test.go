@@ -115,7 +115,7 @@ func TestCursorProtocolRoutesUseNativeTransportAndSettlement(t *testing.T) {
 					}
 					usage := &pb.TurnEndedUpdate{}
 					if outcome == "reported" || outcome == "resumed" {
-						usage = &pb.TurnEndedUpdate{InputTokens: proto.Int64(11), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}
+						usage = &pb.TurnEndedUpdate{InputTokens: proto.Int64(20), OutputTokens: proto.Int64(3), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}
 					}
 					if strings.HasPrefix(outcome, "cyber_") || strings.HasPrefix(outcome, "usage_") {
 						response.Write(cursorPolicyConnectFrame(t, strings.HasPrefix(outcome, "cyber_")))

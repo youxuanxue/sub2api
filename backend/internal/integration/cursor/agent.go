@@ -98,6 +98,21 @@ type AgentUsage struct {
 	CacheWrite int64 `json:"cache_creation_input_tokens"`
 	Reasoning  int64 `json:"reasoning_tokens"`
 }
+
+// anthropicShapeReportedUsage maps Cursor TurnEnded buckets onto Anthropic
+// Messages semantics: input_tokens is the uncached remainder, disjoint from
+// cache_read / cache_creation. Prod TurnEnded.input is the total prompt
+// (uncached + caches); when input already looks Anthropic-shaped
+// (input < cache sum) it is left alone so legacy fixtures and already-normalized
+// relays are not double-subtracted.
+func anthropicShapeReportedUsage(u AgentUsage) AgentUsage {
+	caches := u.CacheRead + u.CacheWrite
+	if caches > 0 && u.Input >= caches {
+		u.Input -= caches
+	}
+	return u
+}
+
 type AgentResult struct {
 	Thinking    string          `json:"thinking,omitempty"`
 	Text        string          `json:"text"`
@@ -664,8 +679,12 @@ func RunAgent(ctx context.Context, token string, input AgentRequest, do func(*ht
 					}
 					return result, errors.New("cursor returned incomplete terminal usage")
 				}
-				result.Usage = &AgentUsage{Input: usage.GetInputTokens(), Output: usage.GetOutputTokens(),
-					CacheRead: usage.GetCacheReadTokens(), CacheWrite: usage.GetCacheWriteTokens(), Reasoning: usage.GetReasoningTokens()}
+				shaped := anthropicShapeReportedUsage(AgentUsage{
+					Input: usage.GetInputTokens(), Output: usage.GetOutputTokens(),
+					CacheRead: usage.GetCacheReadTokens(), CacheWrite: usage.GetCacheWriteTokens(),
+					Reasoning: usage.GetReasoningTokens(),
+				})
+				result.Usage = &shaped
 				return result, nil
 			}
 		}

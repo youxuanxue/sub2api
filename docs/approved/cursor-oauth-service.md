@@ -1,7 +1,7 @@
 ---
 title: Cursor Stateless OAuth Model Service
 status: approved
-approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14; Cursor serving-family allowlist Claude/Grok/Composer/Muse and Opus 5.5 Cursor scope, 2026-09-24)"
+approved_by: "feng (conversation approval and implementation instruction, 2026-09-07; stateless architecture and estimated billing revision, 2026-09-08; system-to-user compatibility, review-fix push, shared unsupported-output-limit compatibility and automatic credential renewal instruction, 2026-09-09; Messages completion and Chat/Responses converter repair, shared usage/cyber policy no-retry SSOT, 2026-09-14; Cursor serving-family allowlist Claude/Grok/Composer/Muse and Opus 5.5 Cursor scope, 2026-09-24; TurnEnded.input=total → Anthropic disjoint buckets before settlement, Jobs review approval 2026-09-25)"
 created: 2026-09-07
 ---
 
@@ -102,6 +102,10 @@ owner. Never add estimated tokens to reported tokens or reconcile separate runs.
 The optional terminal Messages usage field `tk_billing_tier` carries provenance
 through Edge relays. The shared usage parser preserves it; accounting accepts
 only the two Cursor labels and only for Cursor accounts.
+Cursor `TurnEnded.input` is the total prompt (uncached plus cache buckets). Before
+Messages exposure and settlement, the native adapter maps it to Anthropic-shaped
+disjoint buckets: `input_tokens = max(0, input - cache_read - cache_write)` when
+`input >= cache_read + cache_write`. Cache tokens settle only at cache rates.
 The native optional fields retain presence: missing input, output or cache
 buckets are not reported zeros. A normal completion with incomplete usage fails;
 a successful tool handoff uses the approved estimate. Negative usage is rejected.

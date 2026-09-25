@@ -49,7 +49,7 @@ func TestMessagesReportedUsageAndStreaming(t *testing.T) {
 		require.NoError(t, err)
 		resp, err := Messages(context.Background(), "test-token", body, nil, "composer-2.5", messagesTestTransport(t,
 			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "OK"}}},
-			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(10), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(30), CacheWriteTokens: proto.Int64(5)}}},
+			&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(20), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(7), CacheWriteTokens: proto.Int64(2)}}},
 		))
 		require.NoError(t, err)
 		require.Equal(t, 200, resp.StatusCode)
@@ -60,8 +60,9 @@ func TestMessagesReportedUsageAndStreaming(t *testing.T) {
 		tier, err := output.Outcome()
 		require.NoError(t, err)
 		require.Equal(t, ReportedBillingTier, tier)
-		require.Contains(t, string(raw), `"input_tokens":10`)
-		require.Contains(t, string(raw), `"cache_read_input_tokens":30`)
+		require.Contains(t, string(raw), `"input_tokens":11`)
+		require.Contains(t, string(raw), `"cache_read_input_tokens":7`)
+		require.Contains(t, string(raw), `"cache_creation_input_tokens":2`)
 		require.Contains(t, string(raw), `"tk_billing_tier":"cursor-oauth-reported"`)
 		if stream {
 			require.Contains(t, string(raw), "event: message_stop")
@@ -69,6 +70,21 @@ func TestMessagesReportedUsageAndStreaming(t *testing.T) {
 		}
 		require.NoError(t, resp.Body.Close())
 	}
+}
+
+func TestMessagesReportedUsageKeepsAlreadyDisjointInput(t *testing.T) {
+	body, err := json.Marshal(map[string]any{"model": "composer-2.5", "messages": []map[string]any{{"role": "user", "content": "hello"}}})
+	require.NoError(t, err)
+	resp, err := Messages(context.Background(), "test-token", body, nil, "composer-2.5", messagesTestTransport(t,
+		&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TextDelta: &pb.TextDeltaUpdate{Text: "OK"}}},
+		&pb.AgentServerMessage{InteractionUpdate: &pb.InteractionUpdate{TurnEnded: &pb.TurnEndedUpdate{InputTokens: proto.Int64(10), OutputTokens: proto.Int64(2), CacheReadTokens: proto.Int64(30), CacheWriteTokens: proto.Int64(5)}}},
+	))
+	require.NoError(t, err)
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"input_tokens":10`)
+	require.Contains(t, string(raw), `"cache_read_input_tokens":30`)
+	require.NoError(t, resp.Body.Close())
 }
 func TestMessagesAcceptsAndPropagatesSystemPrompt(t *testing.T) {
 	for _, system := range []string{`"Follow the caller's instructions"`, `[{"type":"text","text":"Follow the caller's instructions"}]`} {
