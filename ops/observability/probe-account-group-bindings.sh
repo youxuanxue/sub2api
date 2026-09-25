@@ -9,6 +9,13 @@ SELECT jsonb_build_object(
       'id', a.id,
       'name', a.name,
       'platform', a.platform,
+      -- Project isGeminiWebAccount (gemini_web_request_tk.go), never cookies.
+      'gemini_web', COALESCE(
+        a.platform = 'gemini' AND a.type = 'apikey' AND (
+          jsonb_typeof(a.credentials->'gemini_web') = 'object'
+          OR a.credentials->'gemini_web_relay' = 'true'::jsonb
+        ), false
+      ),
       'model_ids', COALESCE((
         SELECT jsonb_agg(model_id ORDER BY model_id)
         FROM jsonb_object_keys(

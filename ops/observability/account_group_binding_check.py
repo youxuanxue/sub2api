@@ -3,8 +3,9 @@
 
 The checker deliberately does not own a model-to-group catalog. For each explicit
 client model, it derives the established groups from other healthy, schedulable
-accounts in the same snapshot. This keeps new models and operator-created groups
-out of a second hand-maintained policy table.
+accounts in the same snapshot and capability scope. Gemini Web's restricted
+contract is separate from general providers, even for identical client aliases.
+This keeps new models and operator-created groups out of a second policy table.
 """
 from __future__ import annotations
 
@@ -90,6 +91,7 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             "id": account_id,
             "name": str(raw.get("name") or ""),
             "platform": str(raw.get("platform") or ""),
+            "peer_scope": "gemini_web" if raw.get("gemini_web") is True else "general",
             "model_ids": models,
             "active_group_ids": active_group_ids,
             "inactive_groups": [
@@ -103,17 +105,18 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         else:
             skipped_ids.append(account_id)
 
-    model_group_accounts: dict[str, dict[int, set[int]]] = defaultdict(
+    model_group_accounts: dict[tuple[str, str], dict[int, set[int]]] = defaultdict(
         lambda: defaultdict(set)
     )
     for account in accounts:
         for model_id in account["model_ids"]:
             for group_id in account["active_group_ids"]:
-                model_group_accounts[model_id][group_id].add(account["id"])
+                model_group_accounts[(account["peer_scope"], model_id)][group_id].add(account["id"])
 
     findings: list[dict[str, Any]] = []
     evaluated_ids: list[int] = []
     inconclusive_model_count = 0
+    inconclusive: list[dict[str, Any]] = []
 
     for account in sorted(accounts, key=lambda item: item["id"]):
         evaluated_ids.append(account["id"])
@@ -124,7 +127,9 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
 
         for model_id in account["model_ids"]:
             has_peer_group = False
-            for group_id, account_ids in sorted(model_group_accounts[model_id].items()):
+            for group_id, account_ids in sorted(
+                model_group_accounts[(account["peer_scope"], model_id)].items()
+            ):
                 peer_ids = sorted(account_ids - {account["id"]})
                 if not peer_ids:
                     continue
@@ -135,6 +140,14 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
                 inconclusive_models.append(model_id)
 
         inconclusive_model_count += len(inconclusive_models)
+        if inconclusive_models:
+            inconclusive.append({
+                "account_id": account["id"],
+                "account_name": account["name"],
+                "peer_scope": account["peer_scope"],
+                "model_ids": inconclusive_models,
+                "reason": "no_same_contract_peer",
+            })
         candidates = [
             {
                 "group_id": group_id,
@@ -156,6 +169,7 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             "account_id": account["id"],
             "account_name": account["name"],
             "platform": account["platform"],
+            "peer_scope": account["peer_scope"],
             "active_groups": [
                 {"id": group_id, "name": group_names[group_id]}
                 for group_id in account["active_group_ids"]
@@ -206,6 +220,7 @@ def evaluate_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             "skipped_no_explicit_mapping_account_ids": sorted(skipped_ids),
         },
         "findings": findings,
+        "inconclusive": inconclusive,
     }
 
 
