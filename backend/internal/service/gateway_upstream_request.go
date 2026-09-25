@@ -124,8 +124,10 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
 		body = sanitized
 	}
-	// tokensea + fable: strip context_management (prod 2026-09-20 user16).
-	body = tkStripTokenseaFableContextManagement(account, body)
+	// tokensea + fable CM + thinking-contract SSOT (FilterThinking + ToolSearch
+	// historical strip + fable CM). Safe to re-run after Forward's thinking
+	// prefilters — all steps are idempotent.
+	body = tkPrepareAnthropicMessagesWireBody(account, body, modelID)
 	outgoingFinalBetaHeader := finalBetaHeader
 	if !betaOverridden && tokenType == "oauth" && mimicClaudeCode && strings.Contains(strings.ToLower(modelID), "haiku") {
 		outgoingFinalBetaHeader = mergeAnthropicBetaDropping(claude.FullClaudeCodeHaikuMimicryBetas(), "", effectiveDropSet)

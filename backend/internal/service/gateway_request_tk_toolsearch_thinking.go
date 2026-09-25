@@ -85,14 +85,75 @@ func tkBodyHasSignedThinkingHistory(body []byte) bool {
 	return false
 }
 
+// tkBodyHasHistoricalToolCoupledSignedThinking reports whether any historical
+// assistant turn couples signed thinking/redacted_thinking with tool_use in the
+// same message — the post-ToolSearch storm shape (prod 2026-09-25).
+func tkBodyHasHistoricalToolCoupledSignedThinking(body []byte) bool {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return false
+	}
+	arr := msgs.Array()
+	if len(arr) == 0 {
+		return false
+	}
+	lastIsAssistantPrefill := arr[len(arr)-1].Get("role").String() == "assistant"
+	end := len(arr)
+	if lastIsAssistantPrefill {
+		end--
+	}
+	for i := 0; i < end; i++ {
+		if arr[i].Get("role").String() != "assistant" {
+			continue
+		}
+		content := arr[i].Get("content")
+		if !content.IsArray() {
+			continue
+		}
+		hasSignedThinking := false
+		hasToolUse := false
+		for _, block := range content.Array() {
+			typ := block.Get("type").String()
+			switch typ {
+			case "thinking":
+				if block.Get("signature").String() != "" {
+					hasSignedThinking = true
+				}
+			case "redacted_thinking":
+				if block.Get("data").String() != "" {
+					hasSignedThinking = true
+				}
+			case "tool_use":
+				hasToolUse = true
+			}
+			if hasSignedThinking && hasToolUse {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// tkShouldPrefilterHistoricalThinking is the gate for proactive historical
+// thinking downgrade:
+//   - ToolSearch tools present + signed thinking history, or
+//   - historical assistant turn that couples signed thinking with tool_use
+//     (post-ToolSearch storms where tool_search left the tools array).
+func tkShouldPrefilterHistoricalThinking(body []byte) bool {
+	if tkBodyHasToolSearchTools(body) {
+		return tkBodyHasSignedThinkingHistory(body)
+	}
+	return tkBodyHasHistoricalToolCoupledSignedThinking(body)
+}
+
 // TkPrefilterToolSearchHistoricalThinking downgrades signed thinking blocks in
-// historical assistant turns when ToolSearch tools are present. Returns the input
-// unchanged when the gate does not apply or when no modification is needed.
+// historical assistant turns when ToolSearch / tool-storm gates match. Returns
+// the input unchanged when the gate does not apply or when no modification is needed.
 func TkPrefilterToolSearchHistoricalThinking(body []byte, mappedModel string) []byte {
 	if !ShouldApplyRetryFilters(mappedModel) {
 		return body
 	}
-	if !tkBodyHasToolSearchTools(body) || !tkBodyHasSignedThinkingHistory(body) {
+	if !tkShouldPrefilterHistoricalThinking(body) {
 		return body
 	}
 	return tkStripHistoricalAssistantThinking(body)

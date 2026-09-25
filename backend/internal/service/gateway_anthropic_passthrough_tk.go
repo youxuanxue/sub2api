@@ -74,8 +74,9 @@ func (s *GatewayService) tkPrepareAnthropicPassthroughBody(
 	// passback-required third-party upstreams such as GLM/Kimi/DeepSeek,
 	// which reject server_tool_use with 400). input.RequestModel 已是映射后的模型 ID。
 	input.Body = FilterWebSearchHistoryBlocks(input.Body, input.RequestModel)
-	// TK: ToolSearch + stale signed thinking pre-filter.
-	input.Body = TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)
+	// TK thinking-contract SSOT (FilterThinking + ToolSearch historical). Fable CM
+	// strip runs in the passthrough HTTP builder via tkPrepareAnthropicMessagesWireBody.
+	input.Body = tkApplyAnthropicThinkingContractPrefilters(input.Body, input.RequestModel)
 	if account.Platform == PlatformAnthropic {
 		input.Body = s.applySigPreemptIfArmed(ctx, c, account, input.Body, input.RequestModel)
 	}
@@ -110,12 +111,12 @@ func (s *GatewayService) tkPrepareAnthropicPassthroughBody(
 	return nil
 }
 
-// tkMaybeRetryAnthropicPassthrough400 runs the TokenKey 400 rectifier once and
-// returns the response to continue with. When retried is true the caller must
-// break out of the upstream attempt loop (matching the prior inline control
-// flow). On a successful rectifier hop it may replace resp and update
-// input.Body; otherwise it restores resp.Body from the buffered 400 body when
-// the original body was consumed.
+// tkMaybeRetryAnthropicPassthrough400 runs the TokenKey 400 rectifier (and for
+// cannot-be-modified, one signature-sensitive escalate hop) then returns.
+// When retried is true the caller must break out of the upstream attempt loop
+// (matching the prior inline control flow). On a successful rectifier hop it
+// may replace resp and update input.Body; otherwise it restores resp.Body from
+// the buffered 400 body when the original body was consumed.
 func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 	ctx context.Context,
 	c *gin.Context,
@@ -138,7 +139,9 @@ func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 	_ = resp.Body.Close()
 	retryBody, retryKind, shouldRetry := s.rectifyAnthropicPassthrough400(ctx, account, input.Body, input.RequestModel, respBody)
 	if shouldRetry && time.Since(retryStart) < maxRetryElapsed {
-		if retryKind == "signature_retry_thinking" {
+		if retryKind == "signature_retry_thinking" ||
+			retryKind == "thinking_cannot_modify_strip_historical" ||
+			retryKind == "thinking_cannot_modify_signature_sensitive" {
 			s.armSigPreemptOnError(ctx, c, account)
 		}
 		retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
@@ -167,6 +170,58 @@ func (s *GatewayService) tkMaybeRetryAnthropicPassthrough400(
 							return nil, true, err
 						}
 					}
+					return retryResp, true, nil
+				}
+				// Escalate cannot-be-modified after historical strip → signature-sensitive.
+				if retryResp.StatusCode == http.StatusBadRequest &&
+					retryKind == "thinking_cannot_modify_strip_historical" &&
+					time.Since(retryStart) < maxRetryElapsed {
+					retryRespBody, retryReadErr := s.readUpstreamErrorBody(retryResp)
+					_ = retryResp.Body.Close()
+					if retryReadErr == nil && isAnthropicThinkingCannotBeModifiedError(retryRespBody) {
+						escalated := FilterSignatureSensitiveBlocksForRetry(retryBody, input.RequestModel)
+						s.armSigPreemptOnError(ctx, c, account)
+						escCtx, releaseEscCtx := detachStreamUpstreamContext(ctx, input.RequestStream)
+						escReq, escWireBody, escBuildErr := s.buildAnthropicPassthroughUpstreamRequest(escCtx, c, account, escalated, token, authKind)
+						releaseEscCtx()
+						if escBuildErr == nil {
+							escResp, escErr := s.httpUpstream.DoWithTLS(escReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+							if escErr == nil {
+								appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+									Platform:           account.Platform,
+									AccountID:          account.ID,
+									AccountName:        account.Name,
+									UpstreamStatusCode: http.StatusBadRequest,
+									UpstreamRequestID:  retryResp.Header.Get("x-request-id"),
+									UpstreamURL:        safeUpstreamURL(upstreamReq.URL.String()),
+									Passthrough:        true,
+									Kind:               "thinking_cannot_modify_signature_sensitive",
+									Message:            extractUpstreamErrorMessage(retryRespBody),
+								})
+								if escResp.StatusCode < 400 {
+									input.Body = escWireBody
+									setOpsUpstreamRequestBody(c, escWireBody)
+									if input.Parsed != nil {
+										if err := input.Parsed.ReplaceBody(escWireBody); err != nil {
+											_ = escResp.Body.Close()
+											return nil, true, err
+										}
+									}
+								}
+								return escResp, true, nil
+							}
+							if escResp != nil && escResp.Body != nil {
+								_ = escResp.Body.Close()
+							}
+						}
+					}
+					// Return the strip-historical 400 (not the original first-hop resp).
+					if retryReadErr != nil {
+						retryResp.Body = io.NopCloser(bytes.NewReader(nil))
+					} else {
+						retryResp.Body = io.NopCloser(bytes.NewReader(retryRespBody))
+					}
+					return retryResp, true, nil
 				}
 				return retryResp, true, nil
 			}
@@ -190,6 +245,9 @@ func (s *GatewayService) rectifyAnthropicPassthrough400(ctx context.Context, acc
 	}
 
 	if s.shouldRectifySignatureError(ctx, account, respBody, model) {
+		if repaired, kind, ok := tkRectifyAnthropicThinkingContract400(body, model, respBody); ok {
+			return repaired, kind, true
+		}
 		return FilterThinkingBlocksForRetry(body, model), "signature_retry_thinking", true
 	}
 

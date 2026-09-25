@@ -1123,6 +1123,16 @@
       "rationale": "Native Messages and Chat-to-Messages must share supplier capability refusal failover."
     },
     {
+      "path": "backend/internal/service/openai_gateway_messages_thinking_contract_tk.go",
+      "must_contain": [
+        "func (s *OpenAIGatewayService) allowAnthropicThinkingContract400Repair(",
+        "func (s *OpenAIGatewayService) retryAnthropicThinkingContract400HTTP(",
+        "tkRectifyAnthropicThinkingContract400(wireBody, mappedModel, respBody)",
+        "FilterSignatureSensitiveBlocksForRetry(outWire, mappedModel)"
+      ],
+      "rationale": "Shared tokensea/CN native thinking-contract 400 ladder + rectifier settings gate. Prevents duplicated retry/escalate drift and honors admin rectifier switches."
+    },
+    {
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_test.go",
       "must_contain": [
         "TestNativeAnthropicPassthroughSupplierCapabilityFailover"
@@ -3864,7 +3874,7 @@
     {
       "path": "backend/internal/service/gateway_forward.go",
       "must_contain": [
-        "filteredBody := FilterThinkingBlocksForRetry(body, reqModel)",
+        "tkRectifyAnthropicThinkingContract400(body, reqModel, respBody)",
         "parseRejectedAnthropicBetas(respBody)"
       ],
       "must_not_contain": [
@@ -6424,9 +6434,70 @@
       "must_contain": [
         "func TkPrefilterToolSearchHistoricalThinking(body []byte, mappedModel string) []byte {",
         "func tkBodyHasToolSearchTools(body []byte) bool {",
-        "func tkStripHistoricalAssistantThinking(body []byte) []byte {"
+        "func tkBodyHasSignedThinkingHistory(body []byte) bool {",
+        "func tkBodyHasHistoricalToolCoupledSignedThinking(body []byte) bool {",
+        "func tkShouldPrefilterHistoricalThinking(body []byte) bool {",
+        "func tkStripHistoricalAssistantThinking(body []byte) []byte {",
+        "return tkBodyHasHistoricalToolCoupledSignedThinking(body)"
       ],
-      "rationale": "Pure, fork-only ToolSearch historical signed-thinking pre-filter (claude-code #63792 / #10199), kept in a *_tk_*.go companion out of upstream-owned gateway_request.go (rule §5). When dynamic tool loading re-serializes prior assistant turns, stale signed thinking blocks trigger upstream 400 'cannot be modified' and a client strip-and-retry storm every turn. TkPrefilterToolSearchHistoricalThinking downgrades historical assistant thinking to text before the first upstream call when ToolSearch tools are present, preserving assistant-prefill thinking. Anchor the gate + stripper so an upstream merge cannot delete this surface and silently re-expose the per-turn double round-trip. Exhaustively covered by gateway_request_tk_toolsearch_thinking_test.go."
+      "rationale": "Pure ToolSearch/tool-storm historical signed-thinking pre-filter. Gate is ToolSearch tools OR historical same-message thinking+tool_use coupling (post-ToolSearch storms). Not bare any-tool_use."
+    },
+    {
+      "path": "backend/internal/service/gateway_request_tk_anthropic_messages_wire.go",
+      "must_contain": [
+        "func tkPrepareAnthropicMessagesWireBody(account *Account, body []byte, mappedModel string) []byte {",
+        "func tkApplyAnthropicThinkingContractPrefilters(body []byte, mappedModel string) []byte {",
+        "func tkRectifyAnthropicThinkingContract400(body []byte, mappedModel string, respBody []byte) (newBody []byte, kind string, ok bool) {",
+        "TkPrefilterToolSearchHistoricalThinking(body, mappedModel)",
+        "thinking_cannot_modify_strip_historical",
+        "thinking_cannot_modify_signature_sensitive"
+      ],
+      "rationale": "Dual SSOT for Anthropic Messages thinking-contract: egress prepare (FilterThinking + ToolSearch/tool-storm + tokensea fable CM) and 400 rectify (cannot-be-modified historical strip → signature-sensitive). Every Anthropic wire path and 400 recovery must call these owners — prod 2026-09-25 user16 native messages missed prepare and finalled 400."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_native.go",
+      "must_contain": [
+        "tkPrepareAnthropicMessagesWireBody(account, body, mappedModel)",
+        "retryAnthropicThinkingContract400HTTP(",
+        "func (s *OpenAIGatewayService) doNativeAnthropicMessagesHTTP("
+      ],
+      "rationale": "Tokensea/OpenAI-compat native Anthropic messages path must apply thinking-contract SSOT before first hop and rectify 400 cannot-be-modified/signature using the prepared wire body. This path builds http.NewRequest directly and historically skipped FilterThinking/ToolSearch prefilter (prod 2026-09-25)."
+    },
+    {
+      "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
+      "must_contain": [
+        "tkPrepareAnthropicMessagesWireBody(account, body, gjson.GetBytes(body, \"model\").String())",
+        "retryAnthropicThinkingContract400HTTP("
+      ],
+      "rationale": "CN Anthropic native endpoint builder + 400 rectify must share the same thinking-contract SSOT as Forward/passthrough/tokensea native."
+    },
+    {
+      "path": "backend/internal/service/gateway_upstream_request.go",
+      "must_contain": [
+        "tkPrepareAnthropicMessagesWireBody(account, body, modelID)"
+      ],
+      "rationale": "OAuth Forward buildUpstreamRequest applies thinking-contract SSOT (including tokensea fable CM) on every Anthropic wire hop."
+    },
+    {
+      "path": "backend/internal/service/gateway_anthropic_passthrough.go",
+      "must_contain": [
+        "tkPrepareAnthropicMessagesWireBody(account, body, gjson.GetBytes(body, \"model\").String())"
+      ],
+      "rationale": "API-key/OAuth Anthropic passthrough HTTP builder applies thinking-contract SSOT before upstream POST."
+    },
+    {
+      "path": "backend/internal/service/gateway_count_tokens_tk.go",
+      "must_contain": [
+        "tkApplyAnthropicThinkingContractPrefilters(nextBody, nextModel)"
+      ],
+      "rationale": "count_tokens prepare must apply thinking-contract prefilters so signature/ToolSearch storms are healed before the estimate or upstream hop."
+    },
+    {
+      "path": "backend/internal/service/gateway_count_tokens.go",
+      "must_contain": [
+        "tkRectifyAnthropicThinkingContract400(body, reqModel, respBody)"
+      ],
+      "rationale": "count_tokens 400 signature/cannot-be-modified recovery uses the shared thinking-contract rectifier SSOT."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_cc_prompt_surface.go",
@@ -6508,15 +6579,15 @@
       "must_contain": [
         "tkApplyToolSearchHistoricalThinkingPrefilter(reqModel, getBody, replaceBody)"
       ],
-      "rationale": "Thin Forward wiring for ToolSearch historical thinking pre-filter after P3 companion extraction. Passthrough/count_tokens/Bedrock retain their own call sites. Implementation: gateway_forward_tk_toolsearch.go."
+      "rationale": "Forward thinking-contract SSOT wiring: FilterThinking + ToolSearch/tool-storm historical prefilter via tkApplyAnthropicThinkingContractPrefilters. Replacing the prior thin ToolSearch-only wrapper; tokensea fable CM strip remains in buildUpstreamRequest via tkPrepareAnthropicMessagesWireBody."
     },
     {
       "path": "backend/internal/service/gateway_forward_tk_toolsearch.go",
       "must_contain": [
         "func tkApplyToolSearchHistoricalThinkingPrefilter(",
-        "TkPrefilterToolSearchHistoricalThinking(getBody(), reqModel)"
+        "tkApplyAnthropicThinkingContractPrefilters(getBody(), reqModel)"
       ],
-      "rationale": "P3 companion: Forward-path ToolSearch historical signed-thinking prefilter thin wrapper over TkPrefilterToolSearchHistoricalThinking. Pure filter stays in gateway_request_tk_toolsearch_thinking.go."
+      "rationale": "P3 companion: Forward-path thinking-contract prefilter thin wrapper over tkApplyAnthropicThinkingContractPrefilters (FilterThinking + ToolSearch/tool-storm)."
     },
     {
       "rationale": "Wiring of ToolSearch historical thinking pre-filter and CC prompt-surface normalize into OAuth Forward, API-Key passthrough, count_tokens passthrough, and Bedrock.",
@@ -6535,10 +6606,10 @@
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough_tk.go",
       "must_contain": [
-        "TkPrefilterToolSearchHistoricalThinking(input.Body, input.RequestModel)",
+        "tkApplyAnthropicThinkingContractPrefilters(input.Body, input.RequestModel)",
         "tkApplyAnthropicCCPromptSurfaceNormalize(ctx, c, account, input.Body)"
       ],
-      "rationale": "Passthrough ToolSearch historical thinking pre-filter and CC prompt-surface normalize split from gateway_service.go."
+      "rationale": "Passthrough thinking-contract SSOT (FilterThinking + ToolSearch/tool-storm) plus CC prompt-surface normalize. Dropping either re-exposes signed-thinking 400 storms on API-key passthrough."
     },
     {
       "path": "backend/internal/service/gateway_forward_tk.go",
@@ -7659,14 +7730,14 @@
       "path": "backend/internal/service/openai_gateway_messages_anthropic_native_tk.go",
       "must_contain": [
         "NormalizeGLM53AnthropicThinking",
-        "body = tkStripTokenseaFableContextManagement(account, body)"
+        "tkPrepareAnthropicMessagesWireBody("
       ],
-      "rationale": "Native Anthropic Messages egress via buildNativeAnthropicUpstreamRequest (CN/Anthropic-protocol accounts) must call tkStripTokenseaFableContextManagement after beta-body sanitize, and must soft-remap always-thinking GLM-5.3 family thinking-disable via NormalizeGLM53AnthropicThinking before upstream."
+      "rationale": "Native Anthropic Messages egress via buildNativeAnthropicUpstreamRequest (CN/Anthropic-protocol accounts) must call tkStripTokenseaFableContextManagement after beta-body sanitize, and must soft-remap always-thinking GLM-5.3 family thinking-disable via NormalizeGLM53AnthropicThinking before upstream. CM strip now owned by tkPrepareAnthropicMessagesWireBody SSOT."
     },
     {
       "path": "backend/internal/service/openai_gateway_messages_native.go",
       "must_contain": [
-        "body = tkStripTokenseaFableContextManagement(account, body)",
+        "tkPrepareAnthropicMessagesWireBody(",
         "func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest("
       ],
       "rationale": "Prod user16 Cursor→tokensea failover uses ForwardAsAnthropic → forwardAnthropicViaNativeMessages → sendNativeAnthropicMessagesRequest (platform=newapi agent.tokensea.ai). This path builds http.NewRequest directly and does NOT call buildNativeAnthropicUpstreamRequest; the strip must live here or claude-fable-5 still 400s with context_management Extra inputs."
@@ -7682,16 +7753,16 @@
     {
       "path": "backend/internal/service/gateway_upstream_request.go",
       "must_contain": [
-        "body = tkStripTokenseaFableContextManagement(account, body)"
+        "tkPrepareAnthropicMessagesWireBody("
       ],
-      "rationale": "Main Anthropic buildUpstreamRequest egress must call tkStripTokenseaFableContextManagement after beta-body sanitize so anthropic-platform tokensea relays get the same fable CM strip as the OpenAI-gateway native path."
+      "rationale": "Main Anthropic buildUpstreamRequest egress must call tkStripTokenseaFableContextManagement after beta-body sanitize so anthropic-platform tokensea relays get the same fable CM strip as the OpenAI-gateway native path. CM strip now owned by tkPrepareAnthropicMessagesWireBody SSOT."
     },
     {
       "path": "backend/internal/service/gateway_anthropic_passthrough.go",
       "must_contain": [
-        "body = tkStripTokenseaFableContextManagement(account, body)"
+        "tkPrepareAnthropicMessagesWireBody("
       ],
-      "rationale": "API-key Anthropic passthrough egress must call tkStripTokenseaFableContextManagement after beta-body sanitize so tokensea+fable CM strip is not limited to the OAuth/mimic Forward path."
+      "rationale": "API-key Anthropic passthrough egress must call tkStripTokenseaFableContextManagement after beta-body sanitize so tokensea+fable CM strip is not limited to the OAuth/mimic Forward path. CM strip now owned by tkPrepareAnthropicMessagesWireBody SSOT."
     },
     {
       "path": "backend/internal/service/gateway_request_tk_deprecated_sampling.go",

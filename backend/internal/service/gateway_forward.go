@@ -308,20 +308,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if err := replaceBody(FilterWebSearchHistoryBlocks(body, reqModel)); err != nil {
 		return nil, err
 	}
-	// Pre-filter: remove thinking blocks with missing/invalid signatures before forwarding.
-	// Clients (e.g. Claude Code) sometimes send multi-turn conversations where a historical
-	// assistant message contains a thinking block that is missing the required "signature" field,
-	// causing upstream to reject the request with 400 "thinking.signature: Field required".
-	// FilterThinkingBlocks removes only the invalid blocks; thinking blocks with valid signatures
-	// are preserved. This avoids relying solely on the post-error retry path, which can time out
-	// (maxRetryElapsed = 10s) for long conversations before the retry budget is exhausted.
-	//
-	// 仅 anthropic-strict 模型族执行此过滤；passback-required 上游 (DeepSeek/Kimi/GLM 等)
-	// 要求历史 thinking block 原样回传，过滤反而制造 400。reqModel 此时已是映射后的模型 ID。
-	if err := replaceBody(FilterThinkingBlocks(body, reqModel)); err != nil {
-		return nil, err
-	}
-	// TK: ToolSearch historical-thinking prefilter — see gateway_forward_tk_toolsearch.go
+	// TK thinking-contract SSOT via Forward companion: invalid-signature strip +
+	// ToolSearch/tool-storm historical prefilter. Tokensea fable CM strip runs
+	// later in buildUpstreamRequest via tkPrepareAnthropicMessagesWireBody.
 	if err := tkApplyToolSearchHistoricalThinkingPrefilter(reqModel, getBody, replaceBody); err != nil {
 		return nil, err
 	}
@@ -416,12 +405,18 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					}
 					logger.LegacyPrintf("service.gateway", "[warn] Account %d: thinking blocks have invalid signature, retrying with filtered blocks", account.ID)
 
-					// Conservative two-stage fallback:
-					// 1) Disable thinking + thinking->text (preserve content)
-					// 2) Only if upstream still errors AND error message points to tool/function signature issues:
-					//    also downgrade tool_use/tool_result blocks to text.
+					// Conservative multi-stage fallback via thinking-contract SSOT:
+					// 1) cannot-be-modified → strip historical (else signature-sensitive);
+					//    other signature errors → FilterThinkingBlocksForRetry
+					// 2) If still failing and tool-related (or cannot-be-modified after
+					//    historical strip): FilterSignatureSensitiveBlocksForRetry.
 
-					filteredBody := FilterThinkingBlocksForRetry(body, reqModel)
+					filteredBody, rectifyKind, rectified := tkRectifyAnthropicThinkingContract400(body, reqModel, respBody)
+					if !rectified {
+						filteredBody = FilterThinkingBlocksForRetry(body, reqModel)
+						rectifyKind = "signature_retry_thinking"
+					}
+					_ = rectifyKind
 					retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
 					retryReq, retryWireBody, buildErr := s.buildUpstreamRequest(retryCtx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					releaseRetryCtx()
@@ -463,7 +458,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									}(),
 								})
 								msg2 := extractUpstreamErrorMessage(retryRespBody)
-								if looksLikeToolSignatureError(msg2) && time.Since(retryStart) < maxRetryElapsed {
+								escalateTools := looksLikeToolSignatureError(msg2) ||
+									(isAnthropicThinkingCannotBeModifiedError(retryRespBody) &&
+										rectifyKind == "thinking_cannot_modify_strip_historical")
+								if escalateTools && time.Since(retryStart) < maxRetryElapsed {
 									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing and looks tool-related, retrying with tool blocks downgraded", account.ID)
 									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body, reqModel)
 									retryCtx2, releaseRetryCtx2 := detachStreamUpstreamContext(ctx, reqStream)

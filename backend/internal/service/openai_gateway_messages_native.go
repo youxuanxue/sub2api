@@ -77,7 +77,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 		zap.Bool("stream", clientStream),
 	)
 
-	resp, err := s.sendNativeAnthropicMessagesRequest(ctx, c, account, targetURL, upstreamBody, clientStream, apiKey)
+	resp, upstreamBody, err := s.sendNativeAnthropicMessagesRequest(ctx, c, account, targetURL, upstreamBody, clientStream, apiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +86,24 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeMessages(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		// readOpenAIUpstreamError already restores resp.Body; do not Close here.
+		if resp.StatusCode == http.StatusBadRequest {
+			retryResp, _, retryBody, retryMsg, recovered := s.retryAnthropicThinkingContract400HTTP(
+				ctx, c, account, upstreamModel, upstreamBody, resp, respBody, upstreamMsg,
+				func(body []byte) (*http.Response, error) {
+					return s.doNativeAnthropicMessagesHTTP(ctx, c, account, targetURL, body, clientStream, apiKey)
+				},
+				s.readOpenAIUpstreamError,
+			)
+			resp = retryResp
+			respBody, upstreamMsg = retryBody, retryMsg
+			if recovered {
+				if clientStream {
+					return s.streamNativeAnthropicMessages(c, resp, account, originalModel, billingModel, upstreamModel, startTime)
+				}
+				return s.bufferNativeAnthropicMessages(c, resp, originalModel, billingModel, upstreamModel, startTime)
+			}
+		}
 		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
 			return nil, errOpenAICyberPolicyForwarded
 		}
@@ -124,13 +142,29 @@ func (s *OpenAIGatewayService) sendNativeAnthropicMessagesRequest(
 	body []byte,
 	stream bool,
 	bearerToken string,
-) (*http.Response, error) {
-	// tokensea + fable: strip context_management before native Messages egress.
-	// Prod 2026-09-20 user16: Cursor→tokensea failover uses this path
-	// (ForwardAsAnthropic → forwardAnthropicViaNativeMessages), not
-	// buildNativeAnthropicUpstreamRequest.
-	body = tkStripTokenseaFableContextManagement(account, body)
+) (*http.Response, []byte, error) {
+	mappedModel := tkMappedModelFromAnthropicBody(body, "")
+	// Thinking-contract SSOT + tokensea fable CM. This path builds http.NewRequest
+	// directly and does NOT call buildNativeAnthropicUpstreamRequest (prod
+	// 2026-09-20 / 2026-09-25 user16).
+	body = tkPrepareAnthropicMessagesWireBody(account, body, mappedModel)
 
+	resp, err := s.doNativeAnthropicMessagesHTTP(ctx, c, account, targetURL, body, stream, bearerToken)
+	return resp, body, err
+}
+
+// doNativeAnthropicMessagesHTTP sends an already-prepared Anthropic Messages body.
+// Callers that need a thinking-contract 400 retry must prepare the repaired body
+// themselves and call this helper so filters are not applied twice incorrectly.
+func (s *OpenAIGatewayService) doNativeAnthropicMessagesHTTP(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	targetURL string,
+	body []byte,
+	stream bool,
+	bearerToken string,
+) (*http.Response, error) {
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	if account.IsCursor() {
 		upstreamCtx = ctx

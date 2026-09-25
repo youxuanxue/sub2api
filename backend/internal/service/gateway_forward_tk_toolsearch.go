@@ -1,12 +1,13 @@
 package service
 
-// tkApplyToolSearchHistoricalThinkingPrefilter drops incompatible signed
-// thinking history that ToolSearch dynamic loading can perturb before the
-// first upstream hop.
+// tkApplyToolSearchHistoricalThinkingPrefilter is the Forward-path thin
+// wrapper over the shared thinking-contract prefilters (FilterThinking +
+// ToolSearch/tool-storm historical strip). Kept as a companion call site so
+// upstream-shaped gateway_forward.go stays a one-line hook.
 func tkApplyToolSearchHistoricalThinkingPrefilter(
 	reqModel string,
 	getBody func() []byte,
 	replaceBody func([]byte) error,
 ) error {
-	return replaceBody(TkPrefilterToolSearchHistoricalThinking(getBody(), reqModel))
+	return replaceBody(tkApplyAnthropicThinkingContractPrefilters(getBody(), reqModel))
 }

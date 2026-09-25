@@ -349,8 +349,8 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
 		body = sanitized
 	}
-	// tokensea + fable: strip context_management (prod 2026-09-20 user16).
-	body = tkStripTokenseaFableContextManagement(account, body)
+	// tokensea + fable CM + thinking-contract SSOT.
+	body = tkPrepareAnthropicMessagesWireBody(account, body, gjson.GetBytes(body, "model").String())
 
 	// Ollama Cloud DeepSeek 出站 max_tokens clamp：判定与上方 targetURL 的
 	// base 取值同源（GetBaseURL），详见 helper 注释。

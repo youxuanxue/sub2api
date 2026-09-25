@@ -119,6 +119,113 @@ func TestForwardAsAnthropic_NativeMessages_TokenseaFableStripsContextManagement(
 	require.Equal(t, "adaptive", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
 }
 
+// TestForwardAsAnthropic_NativeMessages_PrefiltersToolStormThinking pins the
+// prod 2026-09-25 user16 path: native messages missed ToolSearch/tool-storm
+// historical thinking prefilter and returned final 400 cannot-be-modified.
+func TestForwardAsAnthropic_NativeMessages_PrefiltersToolStormThinking(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{
+		"model":"claude-fable-5",
+		"max_tokens":64,
+		"thinking":{"type":"adaptive"},
+		"tools":[{"name":"Bash"}],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"task"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"historical","signature":"EuAG_stale"},
+				{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}
+			]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"type":"message","model":"claude-fable-5","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":1}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, tokenseaNativeMessagesAccount(), body, "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.bodies, 1)
+
+	var thinkingCount int
+	for _, b := range gjson.GetBytes(upstream.lastBody, "messages.1.content").Array() {
+		if b.Get("type").String() == "thinking" {
+			thinkingCount++
+		}
+	}
+	require.Equal(t, 0, thinkingCount, "native messages must strip historical signed thinking before first hop")
+}
+
+// TestForwardAsAnthropic_NativeMessages_ThinkingContract400Retry verifies the
+// shared rectifier fires on the native path when prefilter still misses a case.
+func TestForwardAsAnthropic_NativeMessages_ThinkingContract400Retry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Prefill-only signed thinking + tool_use: gate does not strip (no
+	// historical), so first hop can still 400 cannot-be-modified; rectifier
+	// escalates to signature-sensitive.
+	body := []byte(`{
+		"model":"claude-fable-5",
+		"max_tokens":64,
+		"thinking":{"type":"adaptive"},
+		"tools":[{"name":"Bash"}],
+		"messages":[
+			{"role":"user","content":[{"type":"text","text":"hi"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"latest","signature":"sig"},
+				{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}
+			]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	err400 := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"type":"error","error":{"type":"invalid_request_error","message":"thinking blocks in the latest assistant message cannot be modified"}}`,
+		)),
+	}
+	ok200 := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"type":"message","model":"claude-fable-5","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":1}}`,
+		)),
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{err400, ok200}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, tokenseaNativeMessagesAccount(), body, "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.bodies, 2)
+
+	var toolUse int
+	for _, b := range gjson.GetBytes(upstream.bodies[1], "messages.1.content").Array() {
+		if b.Get("type").String() == "tool_use" {
+			toolUse++
+		}
+	}
+	require.Equal(t, 0, toolUse, "400 retry must escalate to signature-sensitive tool downgrade")
+}
+
 func TestForwardAsAnthropic_NativeMessagesPreferredOverChatFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

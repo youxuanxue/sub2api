@@ -75,6 +75,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 
 	// 与 Anthropic 平台 passthrough 相同的 pre-filter：剥离空文本块与上游
 	// 无法接受的 web-search 历史块（GLM/Kimi/DeepSeek 对 server_tool_use 400）。
+	// Thinking-contract SSOT runs inside buildNativeAnthropicUpstreamRequest.
 	body = StripEmptyTextBlocks(body)
 	body = FilterWebSearchHistoryBlocks(body, upstreamModel)
 
@@ -94,7 +95,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	if account.IsCursor() {
 		upstreamCtx = ctx
 	}
-	upstreamReq, _, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, body, apiKey, targetURL)
+	upstreamReq, wireBody, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, body, apiKey, targetURL)
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, err
@@ -111,6 +112,36 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
+		// readOpenAIUpstreamError already restores resp.Body; do not Close here.
+		if resp.StatusCode == http.StatusBadRequest {
+			retryResp, _, retryBody, retryMsg, recovered := s.retryAnthropicThinkingContract400HTTP(
+				ctx, c, account, upstreamModel, wireBody, resp, respBody, upstreamMsg,
+				func(body []byte) (*http.Response, error) {
+					retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, clientStream)
+					if account.IsCursor() {
+						retryCtx = ctx
+					}
+					retryReq, _, buildErr := s.buildNativeAnthropicUpstreamRequest(retryCtx, c, account, body, apiKey, targetURL)
+					releaseRetryCtx()
+					if buildErr != nil {
+						return nil, buildErr
+					}
+					hwkaRetry := s.beginAnthropicClientHeaderWaitKeepalive(c, clientStream)
+					retryResp, retryErr := s.doNativeMessagesRequest(retryReq, account)
+					hwkaRetry.stop()
+					return retryResp, retryErr
+				},
+				s.readOpenAIUpstreamError,
+			)
+			resp = retryResp
+			respBody, upstreamMsg = retryBody, retryMsg
+			if recovered {
+				if clientStream {
+					return s.handleNativeAnthropicStreamingResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
+				}
+				return s.handleNativeAnthropicBufferedResponse(ctx, resp, c, account, originalModel, billingModel, upstreamModel, reasoningEffort, startTime)
+			}
+		}
 		if forwardNativeMessagesPolicy(c, respBody, resp.StatusCode, nil, "messages", false, "", "") {
 			return nil, errOpenAICyberPolicyForwarded
 		}
@@ -189,8 +220,9 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
 		body = sanitized
 	}
-	// tokensea + fable: strip context_management (prod 2026-09-20 user16).
-	body = tkStripTokenseaFableContextManagement(account, body)
+	// tokensea + fable CM + thinking-contract SSOT. Mapped model prefers the
+	// body model already rewritten by the caller (upstreamModel).
+	body = tkPrepareAnthropicMessagesWireBody(account, body, gjson.GetBytes(body, "model").String())
 
 	// Ollama Cloud DeepSeek 出站 max_tokens clamp：判定与 nativeAnthropicTargetURL
 	// 的 base 取值同源（GetAnthropicProtocolBaseURL，adaptive 时是 Anthropic 协议
