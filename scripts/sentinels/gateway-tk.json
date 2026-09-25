@@ -498,9 +498,11 @@
         "BUILD_DIGEST = build_digest()",
         "'build_digest': BUILD_DIGEST,",
         "'control_protocol_version': CONTROL_PROTOCOL_VERSION,",
-        "if (response.get('protocol_version') != CONTROL_PROTOCOL_VERSION"
+        "if (response.get('protocol_version') != CONTROL_PROTOCOL_VERSION",
+        "self.last_control_ok = None",
+        "if self.last_control_ok is None or time.monotonic() - self.last_control_ok >= POLL_SECONDS:"
       ],
-      "rationale": "The Worker deploys on its own cadence (prod does not run it), so its identity surface is the only way a fleet check can prove all edges run one build. Image tags are hand-typed and have lied before (1.8.253-147512b9d names a commit absent from main); the digest is derived from shipped sources instead. Removing it makes ops/observability/check-gemini-web-worker-fleet.sh blind. The protocol anchor pins the declaration, not the number: a paired bump with handler.GeminiWebControlProtocolVersion is legitimate, and scripts/checks/gemini-web-control-protocol.py owns whether the two agree."
+      "rationale": "The Worker deploys on its own cadence (prod does not run it), so its identity surface is the only way a fleet check can prove all edges run one build. Image tags are hand-typed and have lied before (1.8.253-147512b9d names a commit absent from main); the digest is derived from shipped sources instead. Removing it makes ops/observability/check-gemini-web-worker-fleet.sh blind. The protocol anchor pins the declaration, not the number: a paired bump with handler.GeminiWebControlProtocolVersion is legitimate, and scripts/checks/gemini-web-control-protocol.py owns whether the two agree. Readiness must distinguish never-verified from verified-long-ago: time.monotonic() counts from boot, so a 0 sentinel made the freshness window look satisfied for a host's first POLL_SECONDS and ready() reported not-ready without ever calling the control plane."
     },
     {
       "path": "ops/gemini-web/build_digest.py",

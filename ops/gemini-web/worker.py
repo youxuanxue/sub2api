@@ -644,7 +644,12 @@ class ControlAdapter:
         self.registry_lock = threading.Lock()
         self.accounts = {}
         self.stopping = threading.Event()
-        self.last_control_ok = 0
+        # None means "never verified", which is not the same as "verified long ago".
+        # time.monotonic() counts from boot, so a 0 sentinel made the freshness
+        # window below look satisfied for the first POLL_SECONDS of a host's life:
+        # a Worker started in that window reported not-ready without ever calling
+        # the control plane.
+        self.last_control_ok = None
 
     def check_control(self):
         response = self.control.warm_accounts()
@@ -659,12 +664,12 @@ class ControlAdapter:
         if self.stopping.is_set():
             return False
         # Long maintenance operations must not age out a healthy control plane.
-        if time.monotonic() - self.last_control_ok >= POLL_SECONDS:
+        if self.last_control_ok is None or time.monotonic() - self.last_control_ok >= POLL_SECONDS:
             try:
                 self.check_control()
             except (Failure, ValueError, TypeError):
                 return False
-        return self.last_control_ok > 0
+        return self.last_control_ok is not None
 
     def check_accounts(self, account_ids):
         """Read-only deployment check: no lease, persistence or Google calls."""

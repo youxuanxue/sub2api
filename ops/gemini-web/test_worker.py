@@ -608,6 +608,31 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
         for name in build_digest.DIGEST_FILES:
             self.assertIn(name, copied, f'{name} is hashed but never COPYed into the image')
 
+    def test_readiness_verifies_control_on_a_freshly_booted_host(self):
+        """time.monotonic() counts from boot, so uptime must not imply freshness.
+
+        A 0 sentinel for "never checked" made the freshness window look already
+        satisfied for the first POLL_SECONDS of a host's life: ready() skipped the
+        control check and reported not-ready. CI runners are always in that window,
+        which is how this surfaced.
+        """
+        control = Control()
+        adapter = worker.ControlAdapter(control)
+        self.assertIsNone(adapter.last_control_ok, 'never-checked must not be a timestamp')
+        with patch('worker.time.monotonic', return_value=12.0):
+            with patch.object(control, 'warm_accounts', wraps=control.warm_accounts) as warm:
+                self.assertTrue(adapter.ready(), 'a Worker on a just-booted host must verify, not assume')
+                warm.assert_called_once()
+            # Once verified, a second call inside the same window short-circuits.
+            with patch.object(control, 'warm_accounts', wraps=control.warm_accounts) as warm:
+                self.assertTrue(adapter.ready())
+                warm.assert_not_called()
+        # And an unreachable control plane on a fresh host is not-ready, not ready.
+        fresh = worker.ControlAdapter(Control())
+        with patch('worker.time.monotonic', return_value=3.0):
+            with patch.object(fresh.control, 'warm_accounts', side_effect=worker.Failure(503, 'down')):
+                self.assertFalse(fresh.ready())
+
     def test_readyz_reports_identity_in_both_outcomes(self):
         control = Control()
         adapter = worker.ControlAdapter(control)
