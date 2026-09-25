@@ -796,7 +796,10 @@
         "execClientThrowAndClose",
         "outsideExecThrowMessage",
         "mcpArgsFromInteractionToolCall",
-        "cursor_agentrun_outside_exec_throw"
+        "cursor_agentrun_outside_exec_throw",
+        "func anthropicShapeReportedUsage",
+        "shaped := anthropicShapeReportedUsage(AgentUsage{",
+        "result.Usage = &shaped"
       ],
       "must_not_contain": [
         "req.Header.Set(\"X-Cursor-Agent-Allowed-Tools\", \"mcp_tool_call\")",
@@ -804,7 +807,7 @@
         "Mode: 1}, RequestContext: contextInfo",
         "cursor requested unsupported local execution"
       ],
-      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Never advertise mcp_tool_call allowlist: Cursor then requires GET_MCP_TOOLS in allTools and returns Connect internal (prod #150 user16 claude-opus-5-5 final-502). Caller tools stay on RunAgent McpTools only. Relay must use ASK mode (not AGENT). Outside Messages exec is answered with ExecClientThrow+stream_close so the model can continue text."
+      "rationale": "The approved system-to-user compatibility path must survive native history reconstruction changes. Never advertise mcp_tool_call allowlist: Cursor then requires GET_MCP_TOOLS in allTools and returns Connect internal (prod #150 user16 claude-opus-5-5 final-502). Caller tools stay on RunAgent McpTools only. Relay must use ASK mode (not AGENT). Outside Messages exec is answered with ExecClientThrow+stream_close so the model can continue text. TurnEnded.input is total prompt; anthropicShapeReportedUsage must map to Anthropic disjoint buckets before Messages/settlement or cache tokens are double-billed at input+cache rates."
     },
     {
       "path": "backend/internal/integration/cursor/messages_agentrun_tk.go",
@@ -851,13 +854,17 @@
         "TestAgentHistoryReconstructsNativeToolTurns",
         "TestAgentNeverAdvertisesMCPToolCallAllowlist",
         "TestAgentRelayUsesAskModeNotAgentMode",
+        "TestAnthropicShapeReportedUsage",
+        "TestAgentUsagePreservesCacheBuckets",
+        "Cursor TurnEnded.input is total; expose Anthropic uncached remainder",
+        "already-disjoint input < cache sum must not be double-subtracted",
         "text-only runs must not advertise mcp_tool_call",
         "mcp_tool_call allowlist triggers Required tool GET_MCP_TOOLS not found in allTools",
         "require.Len(t, run.GetMcpTools().GetMcpTools(), 1)",
         "require.EqualValues(t, agentModeAsk, run.GetConversationState().GetMode())",
         "require.NotEqualValues(t, agentModeAgent, run.GetConversationState().GetMode())"
       ],
-      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard that tools never reintroduce the mcp_tool_call allowlist that caused prod #150 GET_MCP_TOOLS Connect internal, while still encoding caller tools on McpTools. ASK mode pins the Messages-aligned AgentRun ingress."
+      "rationale": "Decode native history to guard system propagation through fresh and resumed turns without mutating caller history. Guard that tools never reintroduce the mcp_tool_call allowlist that caused prod #150 GET_MCP_TOOLS Connect internal, while still encoding caller tools on McpTools. ASK mode pins the Messages-aligned AgentRun ingress. Billing: total TurnEnded.input must normalize to uncached remainder; already-disjoint fixtures must not be double-subtracted."
     },
     {
       "path": "backend/internal/integration/cursor/messages_test.go",
@@ -865,9 +872,13 @@
         "TestMessagesAcceptsAndPropagatesSystemPrompt",
         "TestMessagesSystemAndToolRolesValidateTextContent",
         "TestMessagesIncompleteUsageCannotSettleAsReported",
-        "TestValidateMessagesContentSharesNativeParser"
+        "TestValidateMessagesContentSharesNativeParser",
+        "TestMessagesReportedUsageAndStreaming",
+        "TestMessagesReportedUsageKeepsAlreadyDisjointInput",
+        "\"input_tokens\":11",
+        "\"input_tokens\":10"
       ],
-      "rationale": "The public adapter must emit the approved system text and reject malformed content before upstream execution."
+      "rationale": "The public adapter must emit the approved system text and reject malformed content before upstream execution. Reported Messages usage must expose Anthropic-shaped uncached input (total 20→11) and leave already-disjoint input unchanged."
     },
     {
       "path": "backend/internal/service/cursor_rollout_regression_test.go",
@@ -950,9 +961,11 @@
         "errOpenAICyberPolicyForwarded",
         "cyber_http",
         "usage_message_http",
-        "logEntries.FilterMessage(\"cursor_messages_run_agent_failed\")"
+        "logEntries.FilterMessage(\"cursor_messages_run_agent_failed\")",
+        "InputTokens: proto.Int64(20)",
+        "OpenAI input includes fresh and cached buckets"
       ],
-      "rationale": "All public protocol routes must reach native Cursor transport and preserve reported, estimated and failed-run settlement."
+      "rationale": "All public protocol routes must reach native Cursor transport and preserve reported, estimated and failed-run settlement. TurnEnded fixture must use total input=20 so anthropicShapeReportedUsage + OpenAI convert still settle disjoint buckets (OpenAI input 20 = 11+7+2)."
     },
     {
       "path": "backend/internal/pkg/apicompat/types.go",
