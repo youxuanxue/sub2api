@@ -113,6 +113,44 @@ accidental forwarding, not misuse after process compromise.
 
 Authorized integration probes use the existing run-probe / probe_account_model workflow
 with `ENDPOINT=gemini` or `gemini_image` and exact account attribution. They are not UI e2e.
+After the gateway compatibility change is deployed, use `REQUEST_BODY_JSON` to send
+an exact single-turn payload. This bypasses the probe's default system/instructions
+and token limits. It must be a JSON object with the selected model, and cannot be
+combined with `REQUEST_EXTRA_JSON`. Messages still requires a positive `max_tokens`. The approved Web best-effort contract
+does not guarantee this budget: Plan records the adjustment and omits the unsupported
+limit only in its effective upstream request. General Gemini retains the original limit.
+
+For an authorized image canary, first confirm the target account and current deployment,
+then run one request at a time (replace the example account/model with the verified values):
+
+```bash
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/stage0/probe_account_model.sh \
+  --timeout-seconds 600 \
+  --env ACCOUNT_ID=200 --env MODEL=gemini-3.1-flash-image --env ENDPOINT=chat \
+  --env REQUEST_TIMEOUT_SECONDS=480 \
+  --env 'REQUEST_BODY_JSON={"model":"gemini-3.1-flash-image","messages":[{"role":"user","content":"Draw a small red apple on a white table"}],"generationConfig":{"responseModalities":["TEXT","IMAGE"],"imageConfig":{"aspectRatio":"4:3"}}}'
+```
+
+For Responses, use `ENDPOINT=responses` and replace `messages` with
+`"input":"Draw a small red apple on a white table"`. For Messages, use
+`ENDPOINT=messages`, retain `messages`, and add `"max_tokens":1024`; confirm the
+Web Plan records `gemini_web_best_effort_token_limit`. Omit `imageConfig` to test defaults,
+or set it to null to test explicit null. The explicit IMAGE modality activates image
+permission only on the reserved probe group and requires decodable image output for a
+servable verdict. Preserve account attribution and the server response request ID.
+Set `"stream":true` in the exact body to validate buffered SSE; the probe requires the
+protocol terminal event and rejects error or truncated streams even when image data arrived.
+This direct reserved-key probe does not establish Universal-key parity; validate that
+separately with a normally authorized test key after deployment.
+
+Run the existing cleanup dry-run after the canaries:
+
+```bash
+bash ops/observability/run-probe.sh --target prod \
+  --script ops/observability/cleanup-probe-resources.sh
+```
+
 Commercial catalog activation is separate. Rollback disables affected Gemini Web accounts
 and stops the Worker; it does not alter other gateway accounts.
 Drain the Worker before rolling back the backend control API. Preserve current database

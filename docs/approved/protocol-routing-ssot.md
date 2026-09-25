@@ -434,6 +434,17 @@ text/NewAPI endpoints, Antigravity OAuth (`antigravity_cloudcode`), exact Vertex
 service-account, and exact TokenKey Antigravity edge-relay stubs. Official seed only
 for immutable compile-time official endpoint profiles.
 
+The Gemini Web compatibility follow-up in [gemini-web-channel.md](gemini-web-channel.md)
+adds the native Gemini API-key endpoint profile. Its existing platform contract is
+seeded by the same capability lifecycle only when creating a new identity row,
+with `probe_evidence.native_declaration=true`; this is distinct from an official
+seed or a completed live probe. Startup preparation links existing accounts before
+runtime. Explicit denied/conflicted rows are never overwritten by this seed.
+Runtime still consumes the linked persisted native protocol set; a missing link
+is not permission to reconstruct capability from platform or account type.
+The separate Web provider profile constrains original request semantics in Plan,
+including native identity, without changing general Gemini capability.
+
 Admin entry remains `POST /api/v1/admin/accounts/:id/protocol-probe` (endpoint-scoped
 job). `account.supported_protocols` is a derived projection, never admin-written.
 Outcomes: `updated` / `unchanged` / `inconclusive` / `not_applicable`. No protocol

@@ -96,6 +96,10 @@ func (r *Router) plan(request CanonicalRequest, account AccountSnapshot, nativeO
 	if account.modelPolicyDenied {
 		return Plan{}, fmt.Errorf("%w: %w: %w", ErrNoLegalRoute, ErrModelNotAllowed, ErrModelPolicyDenied)
 	}
+	providerRequest, providerAdjustment, supported := compatibleProviderRequest(request, account)
+	if !supported || !account.permitsProviderRequest(providerRequest) {
+		return Plan{}, ErrNoLegalRoute
+	}
 	supportedTargetSeen := false
 	modelPermittedSeen := false
 	var fallback *Plan
@@ -134,7 +138,14 @@ func (r *Router) plan(request CanonicalRequest, account AccountSnapshot, nativeO
 		if err != nil {
 			continue
 		}
-		effective, adjustment := compatibleRequest(request, account.requestCapabilities(route.target))
+		effective, adjustment := compatibleRequest(providerRequest, account.requestCapabilities(route.target))
+		if providerAdjustment != "" {
+			if adjustment != "" {
+				adjustment = providerAdjustment + "," + adjustment
+			} else {
+				adjustment = providerAdjustment
+			}
+		}
 		plan := Plan{
 			effectiveRequest: effective,
 			adjustment:       adjustment,

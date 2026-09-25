@@ -109,10 +109,20 @@ func ensureProtocolEndpointCapabilityLink(
 	if err != nil {
 		return nil, err
 	}
+	initialProtocols := "[]"
+	initialEvidence := "{}"
+	if declared := service.NativeDeclaredProtocolContract(identity); len(declared) > 0 {
+		encoded, encodeErr := marshalProtocols(declared)
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		initialProtocols = string(encoded)
+		initialEvidence = `{"native_declaration":true}`
+	}
 	_, err = db.ExecContext(ctx, `
 INSERT INTO protocol_endpoint_capabilities (capability_key, identity, supported_protocols, probe_evidence)
-VALUES ($1, $2::jsonb, '[]'::jsonb, '{}'::jsonb)
-ON CONFLICT (capability_key) DO NOTHING`, key, string(identityJSON))
+VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb)
+ON CONFLICT (capability_key) DO NOTHING`, key, string(identityJSON), initialProtocols, initialEvidence)
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +146,10 @@ FOR UPDATE`, key)
 	}
 
 	seedProtocols := normalizedHistorical
+	if len(service.NativeDeclaredProtocolContract(identity)) > 0 {
+		// Legacy compatibility ingress projections are not native endpoint facts.
+		seedProtocols = nil
+	}
 	if capability.LastProbedAt != nil && !officialSeed {
 		seedProtocols = nil
 	}
@@ -421,6 +435,7 @@ FOR UPDATE`, lease.CapabilityKey)
 		evidence.Verdicts = current.ProbeEvidence.Verdicts
 	}
 	evidence.OfficialSeed = current.ProbeEvidence.OfficialSeed
+	evidence.NativeDeclaration = current.ProbeEvidence.NativeDeclaration
 	evidence.InitialProbeCompleted = mutation.InitialProbeCompleted || current.ProbeEvidence.InitialProbeCompleted
 	evidence.IdentityConflict = mutation.IdentityConflict
 	changed := !protocolSlicesEqual(current.SupportedProtocols, normalized) || current.IdentityConflict != mutation.IdentityConflict

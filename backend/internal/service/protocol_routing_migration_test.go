@@ -172,9 +172,16 @@ func (r *protocolRoutingMigrationRepo) EnsureAccountLink(_ context.Context, acco
 	capability := r.capabilities[key]
 	if capability == nil {
 		capability = &ProtocolEndpointCapability{ID: int64(len(r.capabilities) + 1), CapabilityKey: key, Identity: identity, Revision: 1}
+		if declared := NativeDeclaredProtocolContract(identity); len(declared) > 0 {
+			capability.SupportedProtocols = declared
+			capability.ProbeEvidence.NativeDeclaration = true
+		}
 		r.capabilities[key] = capability
 	}
 	seedProtocols := historical
+	if len(NativeDeclaredProtocolContract(identity)) > 0 {
+		seedProtocols = nil
+	}
 	if capability.LastProbedAt != nil && !official {
 		seedProtocols = nil
 	}
@@ -286,7 +293,7 @@ func (r *protocolRoutingMigrationRepo) commitProbeResult(lease ProtocolProbeLeas
 	return capability, affected, nil
 }
 
-func TestMigrateProtocolRoutingSSOTSeedsOnlyOfficialProfilesAndReportsCustomAccounts(t *testing.T) {
+func TestMigrateProtocolRoutingSSOTSeparatesOfficialAndNativeDeclarationsFromCustomEvidence(t *testing.T) {
 	repo := &protocolRoutingMigrationRepo{accounts: []Account{
 		{ID: 1, Name: "official-openai", Platform: PlatformOpenAI, Type: AccountTypeOAuth,
 			Credentials: map[string]any{"access_token": "secret"}},
@@ -300,7 +307,7 @@ func TestMigrateProtocolRoutingSSOTSeedsOnlyOfficialProfilesAndReportsCustomAcco
 	if err != nil {
 		t.Fatalf("MigrateProtocolRoutingSSOT: %v", err)
 	}
-	if report.ActiveGoverned != 2 || report.SeededOfficial != 1 || report.CutoverReady {
+	if report.ActiveGoverned != 3 || report.SeededOfficial != 1 || report.CutoverReady {
 		t.Fatalf("report = %+v", report)
 	}
 	if projection, exists := repo.accounts[0].Extra[SupportedProtocolsExtraKey]; exists {
@@ -308,6 +315,10 @@ func TestMigrateProtocolRoutingSSOTSeedsOnlyOfficialProfilesAndReportsCustomAcco
 	}
 	if capability, err := repo.GetByAccountID(context.Background(), 1); err != nil || !reflect.DeepEqual(capability.SupportedProtocols, []protocolrouter.Protocol{protocolrouter.ProtocolResponses}) {
 		t.Fatalf("official capability = %#v err=%v, want responses", capability, err)
+	}
+	native, nativeErr := repo.GetByAccountID(context.Background(), 3)
+	if nativeErr != nil || !protocolCapabilityHasNativeDeclaration(native) || native.ProbeEvidence.InitialProbeCompleted || native.ProbeEvidence.OfficialSeed {
+		t.Fatalf("native declaration was lost or fabricated evidence: capability=%+v err=%v", native, nativeErr)
 	}
 	if _, ok := repo.updates[2]; ok {
 		t.Fatal("custom account was inferred instead of reported for probe")

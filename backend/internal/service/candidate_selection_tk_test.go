@@ -32,6 +32,9 @@ func (r *globalCandidateRepo) GetByID(ctx context.Context, id int64) (*Account, 
 }
 
 func globalCandidateFixture(groups []Group, accounts []Account) (*UniversalRoutingResolver, *globalCandidateRepo, *APIKey) {
+	for i := range accounts {
+		attachTestNativeDeclaredCapability(&accounts[i])
+	}
 	repo := &globalCandidateRepo{stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: accounts}}
 	gw := &GatewayService{accountRepo: repo}
 	r := NewUniversalRoutingResolver(&stubSpanLister{groups: groups})

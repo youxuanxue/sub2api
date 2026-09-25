@@ -1075,12 +1075,14 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	var usage *ClaudeUsage
+	var responseErr error
 	var firstTokenMs *int
 	if req.Stream {
 		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel)
-		if err != nil {
+		if streamRes == nil {
 			return nil, err
 		}
+		responseErr = err
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 	} else {
@@ -1093,9 +1095,13 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 			}
 			collectedBytes, _ := json.Marshal(collected)
+			s.markGeminiCompatPolicySignal(c, collectedBytes, false)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(collectedBytes)
 			observeGeminiImageOutputs(c, collectedBytes)
-			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes, false)
+			if err := validateGeminiCompatImageResponse(collected); err != nil {
+				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
+			}
+			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes)
 			c.JSON(http.StatusOK, claudeResp)
 			usage = usageObj2
 			if usageObj != nil && (usageObj.InputTokens > 0 || usageObj.OutputTokens > 0) {
@@ -1107,6 +1113,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				return nil, err
 			}
 		}
+	}
+
+	if usage == nil {
+		usage = &ClaudeUsage{}
 	}
 
 	// 图片生成计费
@@ -1128,7 +1138,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		ImageCount:                    imageCount,
 		ImageSize:                     imageSize,
 		ImageInputSize:                imageInputSize,
-	}, nil
+	}, responseErr
 }
 
 func isGeminiSignatureRelatedError(respBody []byte) bool {
@@ -2023,6 +2033,7 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	}
 	observer.ObserveGemini(unwrappedBody)
 	observeGeminiImageOutputs(c, unwrappedBody)
+	s.markGeminiCompatPolicySignal(c, unwrappedBody, false)
 
 	var geminiResp map[string]any
 	if err := json.Unmarshal(unwrappedBody, &geminiResp); err != nil {
@@ -2033,7 +2044,10 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	if len(internalThinkingBlocks) > 0 {
 		c.Set("ops_gemini_internal_thinking_blocks", internalThinkingBlocks)
 	}
-	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody, false)
+	if err := validateGeminiCompatImageResponse(geminiResp); err != nil {
+		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
+	}
+	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody)
 	c.JSON(http.StatusOK, claudeResp)
 
 	return usage, nil
@@ -2074,12 +2088,15 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	var firstTokenMs *int
 	var usage ClaudeUsage
 	finishReason := ""
+	sawDone := false
+	sawPolicyBlock := false
 	sawToolUse := false
 
 	nextBlockIndex := 0
 	openBlockIndex := -1
 	openBlockType := ""
 	seenText := ""
+	imageStream := newGeminiImageStream()
 	openToolIndex := -1
 	openToolID := ""
 	openToolName := ""
@@ -2090,7 +2107,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("stream read error: %w", err)
+			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", err)
 		}
 
 		if !strings.HasPrefix(line, "data:") {
@@ -2100,6 +2117,9 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			continue
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			sawDone = true
+		}
 		if payload == "" || payload == "[DONE]" {
 			if errors.Is(err, io.EOF) {
 				break
@@ -2116,26 +2136,34 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			observer = beginUpstreamResponseModelObservation(c)
 		}
 		observer.ObserveGemini(unwrappedBytes)
-		observeGeminiImageOutputs(c, unwrappedBytes)
 
 		var geminiResp map[string]any
 		if err := json.Unmarshal(unwrappedBytes, &geminiResp); err != nil {
-			continue
+			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("malformed Gemini stream response: %w", err)
 		}
 
+		if err := validateGeminiCompatImageResponse(geminiResp); err != nil {
+			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, err
+		}
+		observeGeminiImageOutputs(c, unwrappedBytes)
+		if !sawPolicyBlock {
+			sawPolicyBlock = s.markGeminiCompatPolicySignal(c, unwrappedBytes, true)
+		}
 		if fr := extractGeminiFinishReason(geminiResp); fr != "" {
 			finishReason = fr
 		}
 
-		parts := extractGeminiParts(geminiResp)
+		parts := imageStream.textParts(extractGeminiParts(geminiResp))
 		for _, part := range parts {
 			if text, ok := part["text"].(string); ok && text != "" {
 				if shouldDropGeminiInternalText(text) {
 					internalThinkingBlocks = append(internalThinkingBlocks, strings.TrimSpace(text))
 					continue
 				}
-				delta, newSeen := computeGeminiTextDelta(seenText, text)
-				seenText = newSeen
+				delta := text
+				if part["gemini_inline_image"] != true {
+					delta, seenText = computeGeminiTextDelta(seenText, text)
+				}
 				if delta == "" {
 					continue
 				}
@@ -2266,6 +2294,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		}
 	}
 
+	if finishReason == "" && !sawDone && !sawPolicyBlock {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("incomplete Gemini stream: missing terminal event")
+	}
+
 	if openBlockIndex >= 0 {
 		writeSSE(c.Writer, "content_block_stop", map[string]any{
 			"type":  "content_block_stop",
@@ -2384,9 +2416,12 @@ type geminiSSECollectStats struct {
 func collectGeminiSSEObservedWithThinking(body io.Reader, isOAuth bool, observe func(rawBytes []byte)) (map[string]any, *ClaudeUsage, []string, geminiSSECollectStats, error) {
 	reader := bufio.NewReader(body)
 
+	sawTerminal := false
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedTextParts []string // Collect all text parts for aggregation
+	var collectedImageParts []any
+	imageStream := newGeminiImageStream()
 	var internalThinkingBlocks []string
 	usage := &ClaudeUsage{}
 	stats := geminiSSECollectStats{fallback: &geminiSSEFallbackBody{}}
@@ -2404,7 +2439,7 @@ func collectGeminiSSEObservedWithThinking(body io.Reader, isOAuth bool, observe 
 				switch payload {
 				case "", "[DONE]":
 					if payload == "[DONE]" {
-						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, internalThinkingBlocks, stats, nil
+						return mergeCollectedGeminiParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts, collectedImageParts), usage, internalThinkingBlocks, stats, nil
 					}
 				default:
 					var parsed map[string]any
@@ -2425,13 +2460,28 @@ func collectGeminiSSEObservedWithThinking(body io.Reader, isOAuth bool, observe 
 							observe(rawBytes)
 						}
 					}
+					if parsed == nil {
+						return nil, usage, internalThinkingBlocks, stats, fmt.Errorf("malformed Gemini stream response")
+					}
+					if err := validateGeminiImageResponse(parsed, true); err != nil {
+						return nil, usage, internalThinkingBlocks, stats, err
+					}
 					if parsed != nil {
 						last = parsed
+						_, policyTerminal := geminiCompatPolicySignal(rawBytes)
+						if extractGeminiFinishReason(parsed) != "" || policyTerminal {
+							sawTerminal = true
+						}
 						if u := extractGeminiUsage(rawBytes); u != nil {
 							usage = u
 						}
 						if parts := extractGeminiParts(parsed); len(parts) > 0 {
 							lastWithParts = parsed
+							for _, part := range imageStream.parts(parts, false) {
+								if _, ok := geminiInlineImageMarkdown(part); ok {
+									collectedImageParts = append(collectedImageParts, part)
+								}
+							}
 							// Collect text from each part for aggregation
 							for _, part := range parts {
 								if text, ok := part["text"].(string); ok && text != "" {
@@ -2456,7 +2506,42 @@ func collectGeminiSSEObservedWithThinking(body io.Reader, isOAuth bool, observe 
 		}
 	}
 
-	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, internalThinkingBlocks, stats, nil
+	if stats.dataEvents > 0 && !sawTerminal {
+		return nil, usage, internalThinkingBlocks, stats, fmt.Errorf("incomplete Gemini stream: missing terminal event")
+	}
+
+	return mergeCollectedGeminiParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts, collectedImageParts), usage, internalThinkingBlocks, stats, nil
+}
+
+// Retain image parts from every event, including when the final event carries
+// text or usage only. Native clients keep native inlineData in buffered output.
+func mergeCollectedGeminiParts(response map[string]any, textParts []string, images []any) map[string]any {
+	response = mergeCollectedTextParts(response, textParts)
+	if len(images) == 0 {
+		return response
+	}
+	candidates, _ := response["candidates"].([]any)
+	if len(candidates) == 0 {
+		return response
+	}
+	candidate, _ := candidates[0].(map[string]any)
+	content, _ := candidate["content"].(map[string]any)
+	if content == nil {
+		content = map[string]any{"role": "model"}
+		candidate["content"] = content
+	}
+	parts, _ := content["parts"].([]any)
+	kept := make([]any, 0, len(parts)+len(images))
+	for _, part := range parts {
+		if p, ok := part.(map[string]any); ok {
+			if _, isImage := geminiInlineImageMarkdown(p); isImage {
+				continue
+			}
+		}
+		kept = append(kept, part)
+	}
+	content["parts"] = append(kept, images...)
+	return response
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
@@ -2900,7 +2985,7 @@ func unwrapGeminiResponse(raw []byte) ([]byte, error) {
 	return raw, nil
 }
 
-func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel string, rawData []byte, includeInlineData bool) (map[string]any, *ClaudeUsage) {
+func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel string, rawData []byte) (map[string]any, *ClaudeUsage) {
 	usage := extractGeminiUsage(rawData)
 	if usage == nil {
 		usage = &ClaudeUsage{}
@@ -2926,15 +3011,8 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 								"text": text,
 							})
 						}
-						if inlineData, ok := pm["inlineData"].(map[string]any); includeInlineData && ok {
-							mimeType, _ := inlineData["mimeType"].(string)
-							data, _ := inlineData["data"].(string)
-							if isGeminiInlineImageMIMEType(mimeType) && isValidBase64(data) {
-								contentBlocks = append(contentBlocks, map[string]any{
-									"type": "text",
-									"text": fmt.Sprintf("![image](data:%s;base64,%s)", mimeType, data),
-								})
-							}
+						if markdown, ok := geminiInlineImageMarkdown(pm); ok {
+							contentBlocks = append(contentBlocks, map[string]any{"type": "text", "text": markdown})
 						}
 						if fc, ok := pm["functionCall"].(map[string]any); ok {
 							name, _ := fc["name"].(string)
@@ -3348,6 +3426,16 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 	}
 
 	generationConfig := convertClaudeGenerationConfig(req)
+	imageConfig, err := geminiCompatGenerationOptions(req)
+	if err != nil {
+		return nil, err
+	}
+	if len(imageConfig) > 0 && generationConfig == nil {
+		generationConfig = make(map[string]any)
+	}
+	for key, value := range imageConfig {
+		generationConfig[key] = value
+	}
 	if generationConfig != nil {
 		out["generationConfig"] = generationConfig
 	}

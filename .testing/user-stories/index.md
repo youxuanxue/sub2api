@@ -58,3 +58,5 @@
 | US-054 | Public Quickstart 与统一注册承诺 | Done | `.testing/user-stories/stories/US-054-public-quickstart-registration-offer.md` |
 
 | US-056 | Gemini Web Cookie HTTP gateway | InTest | `.testing/user-stories/stories/US-056-gemini-web-http.md` |
+
+| US-057 | Gemini Web 兼容入口复用原生协议 | InTest | `.testing/user-stories/stories/US-057-gemini-web-protocol-ssot.md` |

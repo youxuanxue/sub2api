@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropicpolicy"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 )
 
 const protocolEndpointCapabilityKeySchemaVersion = 1
@@ -37,6 +38,7 @@ type ProtocolEndpointIdentity struct {
 }
 
 type ProtocolProbeEvidence struct {
+	NativeDeclaration     bool                                                                `json:"native_declaration,omitempty"`
 	ModelCapabilities     map[string]map[protocolrouter.Protocol]anthropicpolicy.Capabilities `json:"model_capabilities,omitempty"`
 	InitialProbeCompleted bool                                                                `json:"initial_probe_completed"`
 	OfficialSeed          bool                                                                `json:"official_seed"`
@@ -290,6 +292,9 @@ func protocolUpstreamRequestProfile(account *Account) string {
 	if account == nil {
 		return ""
 	}
+	if isGeminiWebAccount(account) {
+		return "gemini_web_single_turn_v1"
+	}
 	if account.IsCursor() {
 		return "cursor_oauth_v1"
 	}
@@ -439,8 +444,12 @@ func canonicalGeminiIdentityEndpoint(account *Account, profile protocolrouter.Ge
 		}
 		base.Path = path.Clean(strings.TrimSuffix(base.Path, "/") + "/v1internal:streamGenerateContent")
 		return ProtocolEndpoint{URL: base.String()}, nil
-	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
-		baseURL := strings.TrimRight(account.GetGeminiBaseURL(""), "/")
+	case protocolrouter.GeminiEndpointNativeAPIKey, protocolrouter.GeminiEndpointAntigravityEdgeRelay:
+		defaultBaseURL := ""
+		if profile == protocolrouter.GeminiEndpointNativeAPIKey {
+			defaultBaseURL = geminicli.AIStudioBaseURL
+		}
+		baseURL := strings.TrimRight(account.GetGeminiBaseURL(defaultBaseURL), "/")
 		if _, err := normalizeEndpointIdentityURL(baseURL); err != nil {
 			return ProtocolEndpoint{}, err
 		}
@@ -467,4 +476,23 @@ func canonicalGeminiIdentityEndpoint(account *Account, profile protocolrouter.Ge
 	default:
 		return ProtocolEndpoint{}, fmt.Errorf("unsupported Gemini endpoint profile %q", profile)
 	}
+}
+
+// NativeDeclaredProtocolContract is the existing platform's native wire
+// contract, independent of measured endpoint evidence. It is used only when a
+// capability row is first created; existing negative/conflicted rows win.
+func NativeDeclaredProtocolContract(identity ProtocolEndpointIdentity) []protocolrouter.Protocol {
+	if identity.Platform != PlatformGemini || identity.EndpointProfile != string(protocolrouter.GeminiEndpointNativeAPIKey) ||
+		(identity.UpstreamRequestProfile != string(protocolrouter.GeminiEndpointNativeAPIKey) && identity.UpstreamRequestProfile != "gemini_web_single_turn_v1") || len(identity.ProtocolEndpoints) != 1 {
+		return nil
+	}
+	if endpoint, ok := identity.ProtocolEndpoints[protocolrouter.ProtocolGeminiGenerateContent]; !ok || endpoint.URL == "" {
+		return nil
+	}
+	return []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent}
+}
+
+func protocolCapabilityHasNativeDeclaration(capability *ProtocolEndpointCapability) bool {
+	return capability != nil && capability.ProbeEvidence.NativeDeclaration && len(NativeDeclaredProtocolContract(capability.Identity)) > 0 &&
+		len(capability.SupportedProtocols) == 1 && capability.SupportedProtocols[0] == protocolrouter.ProtocolGeminiGenerateContent
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
 	newapiintegration "github.com/Wei-Shaw/sub2api/internal/integration/newapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/relay/bridge"
 )
 
@@ -165,6 +167,14 @@ func SeedOfficialSupportedProtocols(account *Account) bool {
 // Restrictions may only remove protocols from the persisted capability owner.
 func routingSupportedProtocols(account *Account) []protocolrouter.Protocol {
 	protocols := account.SupportedProtocols()
+	if protocolGeminiEndpointProfile(account) == protocolrouter.GeminiEndpointNativeAPIKey {
+		for _, protocol := range protocols {
+			if protocol == protocolrouter.ProtocolGeminiGenerateContent {
+				return []protocolrouter.Protocol{protocol}
+			}
+		}
+		return nil
+	}
 	if account.IsKiroMirrorStub() {
 		for _, protocol := range protocols {
 			if protocol == protocolrouter.ProtocolMessages {
@@ -230,8 +240,7 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 	if capability == nil || account.ProtocolEndpointCapabilityID == nil || capability.ID != *account.ProtocolEndpointCapabilityID {
 		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: governed account is missing protocol endpoint capability link", ErrProtocolCapabilityUnknown)
 	}
-	if capability.CapabilityKey == "" || capability.Revision <= 0 ||
-		!protocolCapabilityHasVerifiedRoutingEvidence(capability) {
+	if capability.CapabilityKey == "" || capability.Revision <= 0 || !protocolCapabilityHasVerifiedRoutingEvidence(capability) {
 		return protocolrouter.AccountSnapshot{}, fmt.Errorf("%w: %w: protocol endpoint capability is invalid or conflicted", ErrProtocolCapabilityUnknown, protocolrouter.ErrNoLegalRoute)
 	}
 	identity, governed, err := BuildProtocolEndpointIdentity(account)
@@ -257,6 +266,15 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 			modelAdmitted,
 		)
 	}
+	if request != nil && request.InboundProtocol() != protocolrouter.ProtocolGeminiGenerateContent && modelAllowed[protocolrouter.ProtocolGeminiGenerateContent] {
+		var original map[string]any
+		if err := json.Unmarshal(request.Body(), &original); err != nil {
+			modelAllowed[protocolrouter.ProtocolGeminiGenerateContent] = false
+		} else if _, err := geminiCompatGenerationOptions(original); err != nil {
+			// Converter legality is shared with execution and decided before selection.
+			modelAllowed[protocolrouter.ProtocolGeminiGenerateContent] = false
+		}
+	}
 	// Edge-relay hops keep the public client model in the URL; mapped provider
 	// ids stay on ResolvedModel for billing/upstream attribution.
 	exactModel := resolvedModel
@@ -268,6 +286,12 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		return protocolrouter.AccountSnapshot{}, err
 	}
 	protocols = retainResolvedNewAPIExactProtocols(account, protocols, exactEndpoints)
+	if isGeminiWebAccount(account) {
+		relay, _ := account.Credentials[GeminiWebRelayCredentialKey].(bool)
+		if !relay && !geminiWebRuntimeBound(account) {
+			protocols = nil
+		}
+	}
 	if !protocolRequestParametersSupported(account, resolvedModel, request, content) {
 		// Keep stored capability evidence intact. Plan rejects this request's
 		// unsupported paths before selection, billing admission or transport.
@@ -284,6 +308,8 @@ func protocolAccountSnapshot(account *Account, requestedModel string, requireCom
 		ExactEndpoints:     exactEndpoints,
 		OfficialProfile:    officialProfile,
 		GeminiProfile:      geminiProfile,
+		ProviderCapability: protocolProviderCapability(account),
+		ImageOutput:        isImageGenerationModel(resolvedModel),
 		ModelAllowed:       modelAllowed,
 		ModelPolicyDenied:  !modelAdmitted,
 		Transports:         []protocolrouter.TransportID{protocolrouter.TransportHTTP},
@@ -451,6 +477,9 @@ func protocolGeminiEndpointProfile(account *Account) protocolrouter.GeminiEndpoi
 	if account == nil {
 		return protocolrouter.GeminiEndpointNone
 	}
+	if account.Platform == PlatformGemini && account.Type == AccountTypeAPIKey {
+		return protocolrouter.GeminiEndpointNativeAPIKey
+	}
 	if account.Platform == PlatformAntigravity && account.Type == AccountTypeOAuth {
 		return protocolrouter.GeminiEndpointAntigravityCloudCode
 	}
@@ -470,6 +499,12 @@ func protocolGeminiExactEndpoint(
 	stream bool,
 ) (string, error) {
 	switch profile {
+	case protocolrouter.GeminiEndpointNativeAPIKey:
+		action := "generateContent"
+		if stream {
+			action = "streamGenerateContent"
+		}
+		return buildGeminiAIStudioModelActionURL(account.GetGeminiBaseURL(geminicli.AIStudioBaseURL), resolvedModel, action, false)
 	case protocolrouter.GeminiEndpointAntigravityCloudCode:
 		return strings.TrimRight(resolveAntigravityForwardBaseURL(account), "/") + "/v1internal:streamGenerateContent", nil
 	case protocolrouter.GeminiEndpointAntigravityEdgeRelay:
@@ -593,4 +628,11 @@ func copyProtocolBaseURL(raw map[string]any, key string, protocol protocolrouter
 	if value = strings.TrimSpace(value); value != "" {
 		out[protocol] = value
 	}
+}
+
+func protocolProviderCapability(account *Account) protocolrouter.ProviderCapability {
+	if isGeminiWebAccount(account) {
+		return protocolrouter.ProviderCapabilityGeminiWeb
+	}
+	return protocolrouter.ProviderCapabilityGeneral
 }

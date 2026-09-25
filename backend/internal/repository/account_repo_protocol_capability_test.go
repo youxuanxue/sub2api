@@ -107,7 +107,7 @@ func TestEnsureProtocolEndpointCapabilityLinkPreparesWithoutPublishingLegacyStat
 	now := time.Date(2026, time.August, 27, 0, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).
-		WithArgs(identity.Key(), string(identityJSON)).
+		WithArgs(identity.Key(), string(identityJSON), `[]`, `{}`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).
 		WithArgs(identity.Key()).
@@ -167,7 +167,7 @@ func TestEnsureAccountProtocolEndpointCapabilityPublishesNormalLifecycleChange(t
 	now := time.Date(2026, time.August, 27, 0, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).
-		WithArgs(identity.Key(), string(identityJSON)).
+		WithArgs(identity.Key(), string(identityJSON), `[]`, `{}`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).
 		WithArgs(identity.Key()).
@@ -228,7 +228,7 @@ func TestEnsureProtocolEndpointCapabilityLinkDoesNotReintroduceHistoricalSeedAft
 	now := time.Date(2026, time.August, 27, 0, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).
-		WithArgs(identity.Key(), string(identityJSON)).
+		WithArgs(identity.Key(), string(identityJSON), `[]`, `{}`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).
 		WithArgs(identity.Key()).
@@ -290,7 +290,7 @@ func TestEnsureProtocolEndpointCapabilityLinkDoesNotReintroduceHistoricalSeedAft
 	now := time.Date(2026, time.August, 27, 0, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec(`INSERT INTO protocol_endpoint_capabilities`).
-		WithArgs(identity.Key(), string(identityJSON)).
+		WithArgs(identity.Key(), string(identityJSON), `[]`, `{}`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`(?s)FROM protocol_endpoint_capabilities.*FOR UPDATE`).
 		WithArgs(identity.Key()).

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/engine/protocolrouter"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/tidwall/gjson"
 )
 
@@ -53,7 +52,8 @@ func (r *UniversalRoutingResolver) SetCandidateEvaluator(router *protocolrouter.
 }
 
 // WithRequest uses the same canonical parser as execution, before billing binds
-// a group. Malformed/non-text requests retain their handler's validation path.
+// a group. Image-output models use the same Plan as text-output models;
+// malformed requests retain their handler's validation path.
 func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape UniversalShape, path, model string, body []byte) context.Context {
 	return r.withRequestProfile(ctx, shape, path, model, body, nil)
 }
@@ -74,7 +74,7 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 	r.mu.RLock()
 	router := r.router
 	r.mu.RUnlock()
-	if router == nil || antigravity.IsImageModel(model) {
+	if router == nil {
 		return ctx
 	}
 	inbound, responsesPath, ok := candidateCanonicalProtocol(shape, path)

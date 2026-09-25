@@ -28,6 +28,7 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(
 	body []byte,
 ) (*ForwardResult, error) {
 	startTime := time.Now()
+	beginGeminiImageOutputObservation(c)
 
 	var responsesReq apicompat.ResponsesRequest
 	if err := json.Unmarshal(body, &responsesReq); err != nil {
@@ -49,6 +50,11 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(
 	claudeBody, err := json.Marshal(anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal responses compat request: %w", err)
+	}
+
+	claudeBody, err = preserveGeminiCompatOptions(body, claudeBody)
+	if err != nil {
+		return nil, s.writeResponsesCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 
 	return s.forwardClaudeBodyAsResponses(ctx, c, account, claudeBody, originalModel, clientStream, startTime, body)
@@ -227,12 +233,14 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		c.Header("x-request-id", requestID)
 	}
 	var usage *ClaudeUsage
+	var responseErr error
 	var firstTokenMs *int
 	if clientStream {
 		streamRes, err := s.handleResponsesStreamingResponseFromGemini(c, resp, startTime, originalModel, account.Type == AccountTypeOAuth)
-		if err != nil {
+		if streamRes == nil {
 			return nil, err
 		}
+		responseErr = err
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 	} else if useUpstreamStream {
@@ -241,6 +249,8 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 			return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 		}
 		collectedBytes, _ := json.Marshal(collected)
+		s.markGeminiCompatPolicySignal(c, collectedBytes, false)
+		observeGeminiImageOutputs(c, collectedBytes)
 		responsesResp, usageObj2, err := geminiResponseToResponses(collected, originalModel, collectedBytes, usageObj)
 		if err != nil {
 			return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
@@ -263,12 +273,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		usage = &ClaudeUsage{}
 	}
 
-	imageCount := 0
+	imageCount := resolveGeminiImageCount(c, originalModel, mappedModel)
 	imageInputSize := s.extractImageInputSize(claudeBody)
 	imageSize := normalizeOpenAIImageSizeTier(imageInputSize)
-	if isImageGenerationModel(originalModel) {
-		imageCount = 1
-	}
 
 	return &ForwardResult{
 		RequestID:        requestID,
@@ -283,7 +290,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsResponses(
 		ImageSize:        imageSize,
 		ImageInputSize:   imageInputSize,
 		ClientDisconnect: false,
-	}, nil
+	}, responseErr
 }
 
 func (s *GeminiMessagesCompatService) handleResponsesNonStreamingResponseFromGemini(
@@ -302,6 +309,8 @@ func (s *GeminiMessagesCompatService) handleResponsesNonStreamingResponseFromGem
 		}
 	}
 
+	observeGeminiImageOutputs(c, respBody)
+	s.markGeminiCompatPolicySignal(c, respBody, false)
 	var geminiResp map[string]any
 	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
 		return nil, s.writeResponsesCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
@@ -326,7 +335,10 @@ func geminiResponseToResponses(
 	rawData []byte,
 	usageOverride *ClaudeUsage,
 ) (*apicompat.ResponsesResponse, *ClaudeUsage, error) {
-	claudeRespMap, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, rawData, false)
+	if err := validateGeminiCompatImageResponse(geminiResp); err != nil {
+		return nil, nil, err
+	}
+	claudeRespMap, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, rawData)
 	if usageOverride != nil && (usageOverride.InputTokens > 0 || usageOverride.OutputTokens > 0 || usageOverride.CacheReadInputTokens > 0) {
 		usage = usageOverride
 		if usageMap, ok := claudeRespMap["usage"].(map[string]any); ok {
@@ -415,11 +427,14 @@ func (s *GeminiMessagesCompatService) handleResponsesStreamingResponseFromGemini
 	}
 
 	finishReason := ""
+	sawDone := false
+	sawPolicyBlock := false
 	sawToolUse := false
 	nextBlockIndex := 0
 	openBlockIndex := -1
 	openBlockType := ""
 	seenText := ""
+	imageStream := newGeminiImageStream()
 	openToolIndex := -1
 	openToolName := ""
 	seenToolJSON := ""
@@ -451,6 +466,9 @@ func (s *GeminiMessagesCompatService) handleResponsesStreamingResponseFromGemini
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+				if payload == "[DONE]" {
+					sawDone = true
+				}
 				if payload != "" && payload != "[DONE]" {
 					rawBytes := []byte(payload)
 					if isOAuth {
@@ -460,7 +478,17 @@ func (s *GeminiMessagesCompatService) handleResponsesStreamingResponseFromGemini
 					}
 
 					var geminiResp map[string]any
-					if err := json.Unmarshal(rawBytes, &geminiResp); err == nil {
+					if err := json.Unmarshal(rawBytes, &geminiResp); err != nil {
+						return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("malformed Gemini stream response: %w", err)
+					}
+					{
+						if err := validateGeminiCompatImageResponse(geminiResp); err != nil {
+							return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, err
+						}
+						observeGeminiImageOutputs(c, rawBytes)
+						if !sawPolicyBlock {
+							sawPolicyBlock = s.markGeminiCompatPolicySignal(c, rawBytes, true)
+						}
 						if firstChunk {
 							firstChunk = false
 							ms := int(time.Since(startTime).Milliseconds())
@@ -473,15 +501,17 @@ func (s *GeminiMessagesCompatService) handleResponsesStreamingResponseFromGemini
 							usage = *u
 						}
 
-						for _, part := range extractGeminiParts(geminiResp) {
+						for _, part := range imageStream.textParts(extractGeminiParts(geminiResp)) {
 							if text, ok := part["text"].(string); ok && text != "" {
 								if openToolIndex >= 0 {
 									if closeOpenTool() {
 										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 									}
 								}
-								delta, newSeen := computeGeminiTextDelta(seenText, text)
-								seenText = newSeen
+								delta := text
+								if part["gemini_inline_image"] != true {
+									delta, seenText = computeGeminiTextDelta(seenText, text)
+								}
 								if delta == "" {
 									continue
 								}
@@ -585,8 +615,12 @@ func (s *GeminiMessagesCompatService) handleResponsesStreamingResponseFromGemini
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("stream read error: %w", err)
+			return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", err)
 		}
+	}
+
+	if finishReason == "" && !sawDone && !sawPolicyBlock {
+		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, fmt.Errorf("incomplete Gemini stream: missing terminal event")
 	}
 
 	if closeOpenBlock() {

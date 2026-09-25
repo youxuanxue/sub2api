@@ -888,11 +888,11 @@ func TestProtocolProbeCandidatesCoverGovernedCustomAccountsOnly(t *testing.T) {
 			},
 		},
 		{
-			name: "ungoverned gemini is excluded",
+			name: "native gemini API key probes only its declared native endpoint",
 			account: &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{
 				"api_key": "secret", "base_url": "https://gemini.example.test",
 			}},
-			want: nil,
+			want: []protocolrouter.Protocol{protocolrouter.ProtocolGeminiGenerateContent},
 		},
 		{
 			name: "antigravity oauth probes provider specific gemini only",

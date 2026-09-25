@@ -381,7 +381,7 @@ func TestUpdateWithAccountBillingSettingsRollsBackWhenOutboxFails(t *testing.T) 
 		WillReturnRows(updatedAccountRows(27, `{"upstream_billing_probe_enabled":false,"upstream_billing_rate_sync_enabled":false}`))
 	now := time.Now()
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO protocol_endpoint_capabilities")).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), `[]`, `{}`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`(?s)SELECT id, capability_key, identity, supported_protocols, probe_evidence, revision,.*FROM protocol_endpoint_capabilities.*FOR UPDATE`).
 		WithArgs(sqlmock.AnyArg()).

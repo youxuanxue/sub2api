@@ -14,6 +14,9 @@ import (
 )
 
 func wireCandidateTestResolver(resolver *UniversalRoutingResolver, gateway *GatewayService, accounts []Account) {
+	for i := range accounts {
+		attachTestNativeDeclaredCapability(&accounts[i])
+	}
 	repo := groupAwareStubOpenAIAccountRepo{stubOpenAIAccountRepo{accounts: accounts}}
 	gateway.accountRepo = repo
 	openai := &OpenAIGatewayService{accountRepo: repo}
@@ -143,7 +146,7 @@ func TestCandidateEligibilityNativeAndConverterEqual(t *testing.T) {
 	}
 }
 
-func TestCandidateEligibilityUngovernedModelDenial(t *testing.T) {
+func TestCandidateEligibilityNativeAndLocalModelDenial(t *testing.T) {
 	for _, test := range []struct {
 		name, platform, model, path string
 		shape                       UniversalShape
@@ -163,13 +166,23 @@ func TestCandidateEligibilityUngovernedModelDenial(t *testing.T) {
 				account := Account{ID: 101, GroupIDs: []int64{1}, Platform: test.platform,
 					Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: false,
 					Credentials: map[string]any{"api_key": "test-only", "model_mapping": map[string]any{model: model}}}
+				attachTestNativeDeclaredCapability(&account)
 				resolver := NewUniversalRoutingResolver(&stubSpanLister{groups: []Group{group}})
 				wireCandidateTestResolver(resolver, &GatewayService{}, []Account{account})
 				body := []byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`, test.model))
 				ctx := resolver.WithRequest(context.Background(), test.shape, test.path, test.model, body)
 				_, governed, err := protocolPlanForAccount(ctx, &account, test.model)
-				require.False(t, governed)
-				require.NoError(t, err)
+				if test.platform == PlatformGemini {
+					require.True(t, governed)
+					if supported {
+						require.NoError(t, err)
+					} else {
+						require.ErrorIs(t, err, protocolrouter.ErrModelPolicyDenied)
+					}
+				} else {
+					require.False(t, governed)
+					require.NoError(t, err)
+				}
 				selected, err := resolver.Resolve(ctx, universalKey(1), test.shape, test.model, "")
 				require.Nil(t, selected)
 				if supported {

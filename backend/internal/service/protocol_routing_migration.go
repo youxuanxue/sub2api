@@ -149,7 +149,7 @@ func evaluateProtocolRoutingSSOT(
 			})
 			continue
 		}
-		if !capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed {
+		if !capability.ProbeEvidence.InitialProbeCompleted && !capability.ProbeEvidence.OfficialSeed && !protocolCapabilityHasNativeDeclaration(capability) {
 			report.CutoverReady = false
 			report.Remediation = append(report.Remediation, ProtocolRoutingRemediation{
 				AccountID: account.ID,
@@ -317,7 +317,7 @@ func protocolCapabilityHasVerifiedRoutingEvidence(capability *ProtocolEndpointCa
 	if len(capability.SupportedProtocols) == 0 {
 		return false
 	}
-	if capability.ProbeEvidence.OfficialSeed || capability.ProbeEvidence.InitialProbeCompleted {
+	if capability.ProbeEvidence.OfficialSeed || capability.ProbeEvidence.InitialProbeCompleted || protocolCapabilityHasNativeDeclaration(capability) {
 		return true
 	}
 	for _, protocol := range capability.SupportedProtocols {
@@ -334,6 +334,10 @@ func accountHasLegalProtocolRoute(router *protocolrouter.Router, account *Accoun
 	}
 	for _, model := range models {
 		for _, inbound := range protocolrouter.AllProtocols() {
+			body := []byte(`{"model":"migration-probe"}`)
+			if inbound == protocolrouter.ProtocolGeminiGenerateContent {
+				body = []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`)
+			}
 			request, err := protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{
 				InboundProtocol: inbound,
 				RequestedModel:  model,
@@ -341,7 +345,7 @@ func accountHasLegalProtocolRoute(router *protocolrouter.Router, account *Accoun
 				Profile: protocolrouter.RequestProfile{
 					ContentKinds: protocolrouter.ContentText,
 				},
-				Body: []byte(`{"model":"migration-probe"}`),
+				Body: body,
 			})
 			if err != nil {
 				continue

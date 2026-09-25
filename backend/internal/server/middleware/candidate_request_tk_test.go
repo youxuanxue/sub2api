@@ -225,7 +225,15 @@ func TestUS050_GoogleAuthUsesCandidateActualAccount(t *testing.T) {
 		account := &accounts.accounts[i]
 		account.Platform = service.PlatformGemini
 		account.Credentials = map[string]any{"api_key": "test-key", "model_mapping": map[string]string{"gemini-2.5-flash": "gemini-2.5-flash"}}
-		account.ProtocolEndpointCapability, account.ProtocolEndpointCapabilityID = nil, nil
+		identity, governed, err := service.BuildProtocolEndpointIdentity(account)
+		require.NoError(t, err)
+		require.True(t, governed)
+		account.ProtocolEndpointCapabilityID = &account.ID
+		account.ProtocolEndpointCapability = &service.ProtocolEndpointCapability{
+			ID: account.ID, CapabilityKey: identity.Key(), Identity: identity, Revision: 1,
+			SupportedProtocols: service.NativeDeclaredProtocolContract(identity),
+			ProbeEvidence:      service.ProtocolProbeEvidence{NativeDeclaration: true},
+		}
 	}
 	cfg := &config.Config{RunMode: config.RunModeStandard}
 	router := gin.New()
