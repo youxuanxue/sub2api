@@ -42,11 +42,11 @@ func RedactOnePass(raw []byte, options RedactOptions) RedactionResult {
 		return RedactionResult{Format: FormatUnknown, Value: map[string]any{}}
 	}
 	extra := options.ExtraKeys
-	if json.Valid(trimmed) {
-		value, err := RedactJSONValue(trimmed, extra...)
-		if err == nil {
-			return RedactionResult{Format: FormatJSON, Value: value}
-		}
+	// RedactJSONValue performs the decode and validation in one pass. Avoid a
+	// separate json.Valid scan before it: large response bodies would otherwise
+	// pay a full extra walk before the actual leaf traversal.
+	if value, err := RedactJSONValue(trimmed, extra...); err == nil {
+		return RedactionResult{Format: FormatJSON, Value: value}
 	}
 	// Keep the original bytes for identified SSE. Trimming an SSE stream would
 	// discard its terminal event separator and violate the framing contract.
