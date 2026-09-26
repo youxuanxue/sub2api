@@ -177,10 +177,26 @@ Read the whole fleet in one command (read-only, per-edge SSM):
 bash ops/observability/check-gemini-web-worker-fleet.sh
 ```
 
-Exit `0` converged, `1` review (digests disagree, a Worker is not ready, or a
-build predates identity reporting), `2` setup/transport failure. The denominator
-is deployable edges; prod having no Worker container is correct state, never
-drift. Differing image tags over one shared digest still count as converged.
+Exit `0` converged, `1` review, `2` setup/transport failure. A `review` covers
+digests disagreeing, a Worker not ready, a build that predates identity reporting,
+a host with no Worker container at all (`worker_absent` — what a failed deploy
+whose restore also failed leaves behind), and a fleet whose control protocol is
+behind the backend's. `setup_error` is reserved for a fleet where no edge could be
+reached: an edge that answers "no container" is a fact about the fleet, not a
+failure to observe, and one unreachable host must never mask a real finding behind
+an exit code that reads as "tooling broke".
+
+The check also compares the fleet against the backend's
+`GeminiWebControlProtocolVersion`, not only against itself. A paired release bumps
+both sides in one commit, so the parity gate passes while no edge has been deployed
+yet — and a uniformly stale fleet would otherwise report converged while every
+Worker refuses the control response. Pin all of this with
+`bash ops/observability/check-gemini-web-worker-fleet.sh --selftest`, which needs no
+AWS account and runs in preflight.
+
+The denominator is deployable edges; prod having no Worker container is correct
+state, never drift. Differing image tags over one shared digest still count as
+converged.
 
 `CONTROL_PROTOCOL_VERSION` is the contract with the backend control API. Bump it
 only together with that API: `check_control` rejects any other value, so a

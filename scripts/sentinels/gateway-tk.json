@@ -537,9 +537,13 @@
         "build_digest_divergence",
         "control_protocol_divergence",
         "identity_missing",
-        "'prod_runs_worker': False"
+        "'prod_runs_worker': False",
+        "'code': 'worker_absent'",
+        "elif not reached:",
+        "'code': 'control_protocol_behind_backend'",
+        "--selftest"
       ],
-      "rationale": "Fleet convergence owner for the Gemini Web Worker. Denominator is deployable edges only; prod absence is correct state, never drift. Divergence of build digest or control protocol must stay detectable without SSH into each edge."
+      "rationale": "Fleet convergence owner for the Gemini Web Worker. Denominator is deployable edges only; prod absence is correct state, never drift. Divergence of build digest or control protocol must stay detectable without SSH into each edge. Two verdict boundaries are load-bearing. An edge that answers \"no Worker container\" is the worst fleet state there is (a failed deploy whose restore also failed leaves exactly that), so it must be a review finding; reported as setup_error it read as \"the check could not run\" and was ignored. setup_error is reserved for a fleet where no edge was reached at all, or one unreachable host could mask a real finding behind an exit code operators dismiss as tooling. And the fleet must be compared against the backend's GeminiWebControlProtocolVersion, not only against itself: a paired release bumps both sides in one commit, so the parity gate passes while no edge has been deployed and a uniformly stale fleet would otherwise report converged. --selftest pins all of this without an AWS account."
     },
     {
       "path": "ops/stage0/gateway_capability_host.py",

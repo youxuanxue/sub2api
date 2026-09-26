@@ -17,6 +17,12 @@ check makes that drift fail preflight instead of failing in production:
 Bumping either alone fails. Bumping both is the signal that this release must be
 paired: ship the backend, then deploy every edge Worker (or the reverse), and do
 not leave the fleet half-converged.
+
+This check sees source, not the fleet. It passes the moment both constants move in
+one commit — which is before any edge has been deployed. The fleet side of the same
+contract is check-gemini-web-worker-fleet.sh, which compares what each Worker
+reports against this backend constant and calls a uniformly stale fleet drift
+rather than convergence.
 """
 from __future__ import annotations
 

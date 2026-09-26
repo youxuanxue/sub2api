@@ -196,7 +196,8 @@
     "deployment test suite": "deploy-tests",
     "backend lint": "backend",
     "changed script syntax": "base",
-    "gemini web control protocol parity": "gemini-web"
+    "gemini web control protocol parity": "gemini-web",
+    "gemini web worker fleet verdict selftest": "gemini-web"
   },
   "backgrounds": {
     "qa_bundle": "QA Bundle service/worker contract",
@@ -339,7 +340,9 @@
     ],
     "gemini-web": [
       "ops/gemini-web/*",
-      "backend/internal/handler/gemini_web_session_handler.go"
+      "backend/internal/handler/gemini_web_session_handler.go",
+      "ops/observability/check-gemini-web-worker-fleet.sh",
+      "ops/observability/probe-gemini-web-worker-build.sh"
     ]
   },
   "isolated_inputs": {
