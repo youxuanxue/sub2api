@@ -122,8 +122,14 @@ jobs:
           # Repository names are mixed case in GitHub metadata; GHCR paths are not.
           GEMINI_WEB_IMAGE_REPO="$(printf '%s' "$GEMINI_WEB_IMAGE_REPO" | tr '[:upper:]' '[:lower:]')"
           export GEMINI_WEB_IMAGE_REPO
+          # Positional contract is <digest> <instance-id> [comment]. Passing only
+          # two arguments put the comment in the instance-id slot, where it beat
+          # the INSTANCE_ID env default and reached SendCommand as an instance id:
+          # every run of this workflow failed AWS validation before touching a
+          # host. Pass all three explicitly so the slots cannot shift again.
           bash ops/stage0/deploy-gemini-web-worker-via-ssm.sh \
             "$INPUT_BUILD_DIGEST" \
+            "$INSTANCE_ID" \
             "deploy-gemini-web-worker edge=$INPUT_EDGE_ID"
 
       - name: Verify Worker identity from outside the deploy path

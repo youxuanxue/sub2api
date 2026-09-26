@@ -58,6 +58,14 @@ if [ -z "${INSTANCE_ID}" ]; then
   echo "deploy_gemini_web_worker: instance id is required" >&2
   exit 1
 fi
+# Shape-check the id here rather than letting SendCommand reject it. A caller that
+# passes <digest> <comment> and omits the instance id lands the comment in this
+# slot, where it also shadows the INSTANCE_ID env default; the AWS-side
+# ValidationException named 'instanceIds' without naming the caller's mistake.
+case "${INSTANCE_ID}" in
+  i-* | mi-*) ;;
+  *) echo "deploy_gemini_web_worker: instance id must look like i-… or mi-…, got: ${INSTANCE_ID} (positional contract is <digest> <instance-id> [comment])" >&2; exit 1 ;;
+esac
 if [ -z "${IMAGE_REPO}" ]; then
   echo "deploy_gemini_web_worker: GEMINI_WEB_IMAGE_REPO is required (e.g. ghcr.io/owner/repo-gemini-web)" >&2
   exit 1
