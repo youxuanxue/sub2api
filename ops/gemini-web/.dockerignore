@@ -3,3 +3,4 @@
 !requirements.txt
 !worker.py
 !session_contract.py
+!build_digest.py

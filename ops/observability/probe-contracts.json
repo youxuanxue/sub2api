@@ -61,7 +61,9 @@
     "success_when": "http_status == 200; inspect reasoningContentEvent_count and frames_with_signature_key"
   },
   "probe_account_upstream_models.sh": {
-    "companions": ["ops/lib/resolve_app_container.py"],
+    "companions": [
+      "ops/lib/resolve_app_container.py"
+    ],
     "verdicts": [
       "servable",
       "upstream_rejected",
@@ -101,8 +103,22 @@
     ]
   },
   "probe-gemini-web-relay-declarations.sh": {
-    "companions": ["ops/observability/gemini_web_relay_check.py"],
-    "verdicts": ["aligned", "review", "setup_error"]
+    "companions": [
+      "ops/observability/gemini_web_relay_check.py"
+    ],
+    "verdicts": [
+      "aligned",
+      "review",
+      "setup_error"
+    ]
+  },
+  "probe-gemini-web-worker-build.sh": {
+    "companions": [],
+    "verdicts": [
+      "ok",
+      "review",
+      "setup_error"
+    ]
   },
   "probe-account-group-bindings.sh": {
     "companions": [
@@ -130,6 +146,15 @@
       "uncorrelated_success",
       "setup_error",
       "parse_error"
+    ]
+  },
+  "prune-worker-pets.sh": {
+    "companions": [],
+    "verdicts": [
+      "OK",
+      "DRY-RUN",
+      "SKIPPED",
+      "FAILED"
     ]
   }
 }
