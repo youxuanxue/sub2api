@@ -4,15 +4,18 @@ import http.client
 import io
 import json
 import re
+import shutil
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import build_digest
 import worker
 from PIL import Image
 
@@ -570,6 +573,137 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
         self.assertIsNone(owner.account)
         with self.assertRaises(worker.SessionVersionConflict):
             control.acquire('28', 'another-owner')
+
+    def test_build_digest_identifies_shipped_code(self):
+        self.assertRegex(worker.BUILD_DIGEST, r'^[0-9a-f]{12}$')
+        self.assertEqual(build_digest.build_digest(), worker.BUILD_DIGEST)
+        self.assertTrue(worker.Handler.server_version.endswith(worker.BUILD_DIGEST))
+        # requirements.txt is part of identity: same code on different pinned
+        # dependencies must not share a digest.
+        self.assertIn('requirements.txt', build_digest.DIGEST_FILES)
+        with patch('build_digest.open', side_effect=OSError):
+            self.assertEqual(build_digest.build_digest(), build_digest.UNKNOWN)
+
+    def test_build_digest_tracks_every_shipped_file(self):
+        """CI tags the image with this value, so each shipped file must move it."""
+        source = Path(build_digest.__file__).parent
+        with tempfile.TemporaryDirectory() as work:
+            staged = Path(work) / 'staged'
+            shutil.copytree(source, staged, ignore=shutil.ignore_patterns('__pycache__'))
+            baseline = build_digest.build_digest(str(staged))
+            self.assertEqual(baseline, worker.BUILD_DIGEST)
+            for name in build_digest.DIGEST_FILES:
+                target = staged / name
+                original = target.read_bytes()
+                target.write_bytes(original + b'\n# digest probe\n')
+                self.assertNotEqual(build_digest.build_digest(str(staged)), baseline,
+                                    f'{name} does not affect the build digest')
+                target.write_bytes(original)
+            self.assertEqual(build_digest.build_digest(str(staged)), baseline)
+
+    def test_dockerfile_ships_every_digest_input(self):
+        """A file in the digest but absent from the image makes identity a lie.
+
+        The Dockerfile itself is the exception: it is a build input, so it changes
+        the digest without needing to be inside the image. Everything else is
+        hashed precisely so a running container can prove what it ships, which it
+        cannot do for a file that never arrived.
+        """
+        source = Path(build_digest.__file__).parent
+        dockerfile = (source / 'Dockerfile').read_text()
+        copied = ' '.join(line for line in dockerfile.splitlines() if line.startswith('COPY'))
+        for name in build_digest.DIGEST_FILES:
+            if name == 'Dockerfile':
+                continue
+            self.assertIn(name, copied, f'{name} is hashed but never COPYed into the image')
+        # The build context must actually contain every digest input, or CI would
+        # hash bytes that never reached the image.
+        ignore = (source / '.dockerignore').read_text().splitlines()
+        for name in build_digest.DIGEST_FILES:
+            self.assertIn(f'!{name}', ignore,
+                          f'{name} is hashed but excluded from the build context')
+
+    def test_dockerfile_changes_the_build_digest(self):
+        """The Dockerfile owns the security contract, so it must move identity.
+
+        Without this, dropping `USER 1000:1000` published a root container under
+        the previous tag: the host pulled nothing new and the digest gate agreed.
+        """
+        source = Path(build_digest.__file__).parent
+        with tempfile.TemporaryDirectory() as work:
+            staged = Path(work) / 'staged'
+            shutil.copytree(source, staged, ignore=shutil.ignore_patterns('__pycache__'))
+            baseline = build_digest.build_digest(str(staged))
+            target = staged / 'Dockerfile'
+            original = target.read_text()
+            target.write_text(original.replace('USER 1000:1000', 'USER 0:0'))
+            self.assertNotEqual(build_digest.build_digest(str(staged)), baseline,
+                                'a changed container contract must not reuse a tag')
+
+    def test_readiness_verifies_control_on_a_freshly_booted_host(self):
+        """time.monotonic() counts from boot, so uptime must not imply freshness.
+
+        A 0 sentinel for "never checked" made the freshness window look already
+        satisfied for the first POLL_SECONDS of a host's life: ready() skipped the
+        control check and reported not-ready. CI runners are always in that window,
+        which is how this surfaced.
+        """
+        control = Control()
+        adapter = worker.ControlAdapter(control)
+        self.assertIsNone(adapter.last_control_ok, 'never-checked must not be a timestamp')
+        with patch('worker.time.monotonic', return_value=12.0):
+            with patch.object(control, 'warm_accounts', wraps=control.warm_accounts) as warm:
+                self.assertTrue(adapter.ready(), 'a Worker on a just-booted host must verify, not assume')
+                warm.assert_called_once()
+            # Once verified, a second call inside the same window short-circuits.
+            with patch.object(control, 'warm_accounts', wraps=control.warm_accounts) as warm:
+                self.assertTrue(adapter.ready())
+                warm.assert_not_called()
+        # And an unreachable control plane on a fresh host is not-ready, not ready.
+        fresh = worker.ControlAdapter(Control())
+        with patch('worker.time.monotonic', return_value=3.0):
+            with patch.object(fresh.control, 'warm_accounts', side_effect=worker.Failure(503, 'down')):
+                self.assertFalse(fresh.ready())
+
+    def test_readyz_reports_identity_in_both_outcomes(self):
+        control = Control()
+        adapter = worker.ControlAdapter(control)
+        server = worker.Server(('127.0.0.1', 0), adapter)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection(*server.server_address)
+            connection.request('GET', '/readyz')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            body = json.loads(response.read())
+            self.assertEqual(body['status'], 'ready')
+            self.assertEqual(body['build_digest'], worker.BUILD_DIGEST)
+            self.assertEqual(body['control_protocol_version'], worker.CONTROL_PROTOCOL_VERSION)
+            adapter.stopping.set()
+            connection.request('GET', '/readyz')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 503)
+            body = json.loads(response.read())
+            self.assertEqual(body['status'], 'not_ready')
+            self.assertEqual(body['build_digest'], worker.BUILD_DIGEST)
+            self.assertEqual(body['control_protocol_version'], worker.CONTROL_PROTOCOL_VERSION)
+            connection.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+            for owner in adapter.accounts.values():
+                owner.close()
+
+    def test_control_protocol_version_gates_incompatible_plane(self):
+        control = Control()
+        adapter = worker.ControlAdapter(control)
+        with patch.object(control, 'warm_accounts', return_value={
+                'accounts': [], 'protocol_version': worker.CONTROL_PROTOCOL_VERSION + 1}):
+            with self.assertRaises(worker.Failure):
+                adapter.check_control()
+            self.assertFalse(adapter.ready())
 
     def test_http_auth_and_buffered_sse(self):
         key = 'a' * 40

@@ -2520,6 +2520,36 @@ else
     echo "  ok: edge-health schedule, scan, delivery, and state call sites anchored"
 fi
 
+# The Worker deploys on its own cadence (prod runs none, four edges do), so a
+# control-plane change can reach the edges before the Worker that understands it.
+# Cadence stays decoupled; compatibility is coupled here.
+echo ""
+
+fi # preflight gate
+if _preflight_selected 'gemini web worker fleet verdict selftest'; then
+echo "=== sub2api: gemini web worker fleet verdict selftest ==="
+# The boundary this pins: an edge answering "no Worker container" is the worst
+# fleet state there is, and reporting it as setup_error made it read as "the check
+# could not run". A failed deploy whose restore also failed leaves exactly that.
+if ! bash ./ops/observability/check-gemini-web-worker-fleet.sh --selftest >/dev/null 2>&1; then
+    echo "  FAIL: gemini web worker fleet verdict selftest"
+    echo "        — run: bash ops/observability/check-gemini-web-worker-fleet.sh --selftest"
+    errors=$((errors + 1))
+else
+    echo "  ok: absent worker is a review finding; only an unobservable fleet is setup_error"
+fi
+
+fi # preflight gate
+if _preflight_selected 'gemini web control protocol parity'; then
+echo "=== sub2api: gemini web control protocol parity ==="
+if ! python3 ./scripts/checks/gemini-web-control-protocol.py >/dev/null 2>&1; then
+    echo "  FAIL: gemini web control protocol parity"
+    echo "        — run: python3 scripts/checks/gemini-web-control-protocol.py"
+    errors=$((errors + 1))
+else
+    echo "  ok: gemini web control protocol agreed between backend handler and worker"
+fi
+
 # ---- sub2api: edge disk/memory host-alert script selftest ------------------
 echo ""
 

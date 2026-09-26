@@ -123,6 +123,14 @@ func (h *GeminiWebSessionHandler) PutRuntime(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"account_id": account.ID, "runtime": request.Runtime})
 }
 
+// GeminiWebControlProtocolVersion is the control-plane contract this backend
+// speaks to the Gemini Web Worker. The Worker deploys on its own cadence, so a
+// bump here MUST be paired with CONTROL_PROTOCOL_VERSION in ops/gemini-web
+// worker.py; scripts/checks/gemini-web-control-protocol.py fails preflight when
+// the two drift. The Worker refuses an unrecognised version rather than guessing,
+// so drift takes the fleet out of service instead of corrupting sessions.
+const GeminiWebControlProtocolVersion = 1
+
 // WarmAccounts returns only account references. The worker loads each session
 // through Get, keeping bulk scheduling metadata free of cookies.
 func (h *GeminiWebSessionHandler) WarmAccounts(c *gin.Context) {
@@ -134,7 +142,7 @@ func (h *GeminiWebSessionHandler) WarmAccounts(c *gin.Context) {
 		c.Status(http.StatusInternalServerError)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"accounts": ids, "protocol_version": 1})
+	c.JSON(http.StatusOK, gin.H{"accounts": ids, "protocol_version": GeminiWebControlProtocolVersion})
 }
 
 var geminiWebLeaseOwner = regexp.MustCompile(`^[a-f0-9]{32}$`)

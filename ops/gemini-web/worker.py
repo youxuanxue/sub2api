@@ -22,6 +22,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from build_digest import build_digest
 from curl_cffi import requests
 from curl_cffi.requests.impersonate import BrowserType
 from PIL import Image
@@ -38,7 +39,14 @@ MAX_BYTES = 24 * 1024 * 1024
 BROWSER_PROFILE = BrowserType.chrome145.value  # Fail startup if dependency cannot provide it.
 REFRESH_SECONDS = 600
 POLL_SECONDS = 60
+# Control-plane contract this build speaks; check_control rejects anything else.
+CONTROL_PROTOCOL_VERSION = 1
 MAX_IMAGE_PIXELS = 16_000_000
+
+
+# Identity is owned by build_digest.py so CI tags the image with the exact value
+# this process reports at runtime.
+BUILD_DIGEST = build_digest()
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
@@ -636,12 +644,17 @@ class ControlAdapter:
         self.registry_lock = threading.Lock()
         self.accounts = {}
         self.stopping = threading.Event()
-        self.last_control_ok = 0
+        # None means "never verified", which is not the same as "verified long ago".
+        # time.monotonic() counts from boot, so a 0 sentinel made the freshness
+        # window below look satisfied for the first POLL_SECONDS of a host's life:
+        # a Worker started in that window reported not-ready without ever calling
+        # the control plane.
+        self.last_control_ok = None
 
     def check_control(self):
         response = self.control.warm_accounts()
         records = response.get('accounts')
-        if (response.get('protocol_version') != 1 or not isinstance(records, list)
+        if (response.get('protocol_version') != CONTROL_PROTOCOL_VERSION or not isinstance(records, list)
                 or any(type(x) is not int or x <= 0 for x in records)):
             raise Failure(503, 'Incompatible Gemini Web control API')
         self.last_control_ok = time.monotonic()
@@ -651,12 +664,12 @@ class ControlAdapter:
         if self.stopping.is_set():
             return False
         # Long maintenance operations must not age out a healthy control plane.
-        if time.monotonic() - self.last_control_ok >= POLL_SECONDS:
+        if self.last_control_ok is None or time.monotonic() - self.last_control_ok >= POLL_SECONDS:
             try:
                 self.check_control()
             except (Failure, ValueError, TypeError):
                 return False
-        return self.last_control_ok > 0
+        return self.last_control_ok is not None
 
     def check_accounts(self, account_ids):
         """Read-only deployment check: no lease, persistence or Google calls."""
@@ -753,7 +766,7 @@ class Server(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'GeminiWebAdapter'
+    server_version = 'GeminiWebAdapter/' + BUILD_DIGEST
 
     def setup(self):
         super().setup()
@@ -780,7 +793,13 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {'status': 'ok'})
         elif self.path == '/readyz':
             ready = self.server.adapter.ready()
-            self.reply(200 if ready else 503, {'status': 'ready' if ready else 'not_ready'})
+            # Identity travels with both outcomes: a fleet check must be able to
+            # tell "all four are stale" from "all four are ready" either way.
+            self.reply(200 if ready else 503, {
+                'status': 'ready' if ready else 'not_ready',
+                'build_digest': BUILD_DIGEST,
+                'control_protocol_version': CONTROL_PROTOCOL_VERSION,
+            })
         else:
             self.reply(404, {'error': {'code': 404, 'status': 'NOT_FOUND', 'message': 'Not found'}})
 
@@ -853,7 +872,9 @@ def main():
         adapter = ControlAdapter(SessionControl(control_url, os.environ.pop('GEMINI_WEB_CONTROL_TOKEN', '')))
         if args.check:
             adapter.check_accounts(args.check)
-            print(json.dumps({'status': 'ready', 'accounts': args.check}), flush=True)
+            print(json.dumps({'status': 'ready', 'accounts': args.check,
+                              'build_digest': BUILD_DIGEST,
+                              'control_protocol_version': CONTROL_PROTOCOL_VERSION}), flush=True)
             return 0
         adapter.check_control()
     except (Failure, ValueError, TypeError) as exc:
