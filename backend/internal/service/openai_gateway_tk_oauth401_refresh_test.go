@@ -29,6 +29,7 @@ func TestTkIsRecoverableOpenAI401(t *testing.T) {
 	require.False(t, tkIsRecoverableOpenAI401(http.StatusUnauthorized, []byte(`{"error":{"code":"token_invalidated","message":"invalidated"}}`)))
 	require.False(t, tkIsRecoverableOpenAI401(http.StatusUnauthorized, []byte(`{"detail":"Unauthorized"}`)))
 	require.False(t, tkIsRecoverableOpenAI401(http.StatusUnauthorized, []byte(tkCapabilityScope401IncidentBody)))
+	require.False(t, tkIsRecoverableOpenAI401(http.StatusUnauthorized, []byte(tkOpenAICodexBackendSvcacct401IncidentBody)))
 }
 
 func TestOpenAITokenProvider_ForceRefresh_BypassesExpirySkewAndClearsCache(t *testing.T) {

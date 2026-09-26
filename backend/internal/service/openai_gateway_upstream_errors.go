@@ -299,6 +299,10 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		semantic = gatewayFailureSemanticAccountFault
 	} else if tkIsCapabilityScope401(statusCode, upstreamBody) {
 		semantic = gatewayFailureSemanticSharedFault
+	} else if tkIsOpenAICodexBackendSvcacct401(statusCode, upstreamBody, upstreamMsg) {
+		// Fleet-wide Codex backend service-account rejection — rotating OAuth
+		// accounts cannot help and would amplify pool drain during outages.
+		semantic = gatewayFailureSemanticSharedFault
 	} else if isOpenAIImageCapabilityLoss400(statusCode, upstreamBody) {
 		// Account-level "image_generation not supported/available" — failover.
 		// Do NOT include isOpenAIImageCapabilityLossError here: that shape is

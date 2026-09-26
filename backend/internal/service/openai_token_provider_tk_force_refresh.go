@@ -187,5 +187,10 @@ func tkIsRecoverableOpenAI401(statusCode int, body []byte) bool {
 	if tkIsCapabilityScope401(statusCode, body) {
 		return false
 	}
+	// Backend service-account echo: refresh succeeds but /responses still 401.
+	// Force-refresh only amplifies oauth/token traffic (openai/codex#48303).
+	if tkIsOpenAICodexBackendSvcacct401(statusCode, body) {
+		return false
+	}
 	return !tkIsPermanentOpenAIAuth401(body)
 }

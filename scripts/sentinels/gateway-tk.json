@@ -3545,13 +3545,15 @@
         "tkIsPermanentOpenAIAuth401(responseBody)",
         "tkIsCapabilityScope401(statusCode, responseBody)",
         "capability_scope_401_skip_penalty",
+        "tkIsOpenAICodexBackendSvcacct401(statusCode, responseBody, upstreamMsg)",
+        "openai_codex_backend_svcacct_401_skip_penalty",
         "IsOpenAICompatModelNotFound404(responseBody, upstreamMsg)",
         "newapi_model_not_found_401_skip_auth_penalty",
         "tkSkipDownstreamKiroOAuthAuthRejectPenalty(account, statusCode, upstreamMsg, responseBody)",
         "anthropic_downstream_kiro_oauth_401_skip_penalty",
         "s.recordAnthropicStubSaturation(ctx, account.ID, statusCode, \"kiro_oauth_401\")"
       ],
-      "rationale": "HandleUpstreamError case 401 companion. Capability-scope / newapi model-not-found skips, Kiro mirror OAuth 401 skip, Anthropic OAuth immediate disable, permanent OpenAI 401, and valid-token revoke gate must stay ordered before SetError / temp_unschedulable. Thin call site: s.tkHandleAuth401 in ratelimit_service.go."
+      "rationale": "HandleUpstreamError case 401 companion. Capability-scope / Codex-backend sk-svcacct / newapi model-not-found skips, Kiro mirror OAuth 401 skip, Anthropic OAuth immediate disable, permanent OpenAI 401, and valid-token revoke gate must stay ordered before SetError / temp_unschedulable. Thin call site: s.tkHandleAuth401 in ratelimit_service.go. Dropping openai_codex_backend_svcacct_401_skip_penalty reintroduces the 2026-09-25 mass-disable of OpenAI OAuth pools during a ChatGPT Codex backend outage."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_handle403.go",
@@ -3847,6 +3849,8 @@
         "s.cfg.TokenRefresh.RefreshBeforeExpiryHours",
         "oauth_401_valid_token_revoked",
         "oauth_401_expiry_unknown_fallback_cooldown",
+        "openai_codex_backend_svcacct_401_skip_valid_token_disable",
+        "tkIsOpenAICodexBackendSvcacct401(401, nil, upstreamMsg)",
         "manual re-authorization required",
         "s.handleAuthError(ctx, account, msg)",
         "func (s *RateLimitService) tkMaybeRefreshKiroInvalidBearer403(",
@@ -3855,7 +3859,28 @@
         "s.oauthRefreshAPI.RefreshNow(ctx, account, executor)",
         "kiro_oauth_auth_reject_force_refresh_recovered"
       ],
-      "rationale": "TK companion holding OAuth auth-rejection handling. For non-Anthropic OAuth 401, tkDisableIfOAuth401OnValidToken keeps the original safety gate: only a STILL-VALID access_token (remaining lifetime >= tkOAuth401ValidTokenMargin = max(refresh window, 5min floor)) is treated as grant revocation and SetError on the first strike; expired/near-expiry/missing expires_at falls through to temp_unschedulable cooldown + background refresh. Kiro is the narrow exception: valid-token 401 and Kiro upstream 403 bodies/messages containing invalid bearer token both call the shared tkHandleKiroOAuthAuthReject path, which uses OAuthRefreshAPI.RefreshNow under the distributed lock and clears error/schedulability/temp cooldown after a successful refresh. The 403_invalid_bearer path deliberately does NOT require expires_at because live edge-us4 Kiro credentials lacked expires_at while returning HTTP 403 \"The bearer token included in the request is invalid.\" Nonretryable refresh errors still fall back to handleAuthError/manual re-auth, so revoked grants are not hidden. Anchors here prevent an upstream merge from turning the 403 fix into a broad 403 retry, dropping RefreshNow, or removing the 401 validity gate."
+      "rationale": "TK companion holding OAuth auth-rejection handling. For non-Anthropic OAuth 401, tkDisableIfOAuth401OnValidToken keeps the original safety gate: only a STILL-VALID access_token (remaining lifetime >= tkOAuth401ValidTokenMargin = max(refresh window, 5min floor)) is treated as grant revocation and SetError on the first strike; expired/near-expiry/missing expires_at falls through to temp_unschedulable cooldown + background refresh. OpenAI Codex-backend sk-svcacct echo must skip SetError (belt-and-suspenders with tkHandleAuth401). Kiro is the narrow exception: valid-token 401 and Kiro upstream 403 bodies/messages containing invalid bearer token both call the shared tkHandleKiroOAuthAuthReject path, which uses OAuthRefreshAPI.RefreshNow under the distributed lock and clears error/schedulability/temp cooldown after a successful refresh. The 403_invalid_bearer path deliberately does NOT require expires_at because live edge-us4 Kiro credentials lacked expires_at while returning HTTP 403 \"The bearer token included in the request is invalid.\" Nonretryable refresh errors still fall back to handleAuthError/manual re-auth, so revoked grants are not hidden. Anchors here prevent an upstream merge from turning the 403 fix into a broad 403 retry, dropping RefreshNow, or removing the 401 validity gate."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_codex_backend_svcacct_401.go",
+      "must_contain": [
+        "func tkIsOpenAICodexBackendSvcacct401(",
+        "tkOpenAICodexBackendSvcacct401IncorrectKey",
+        "tkOpenAICodexBackendSvcacct401KeyPrefix",
+        "sk-svcac"
+      ],
+      "rationale": "Owner for ChatGPT Codex backend service-account 401 echo detection (prod 2026-09-25). Distinguishes fleet-wide sk-svcacct Incorrect API key bodies from per-account grant revocation so OpenAI OAuth pools are not mass-SetError'd during upstream outages."
+    },
+    {
+      "path": "backend/internal/service/ratelimit_service_tk_openai_codex_backend_svcacct_401_test.go",
+      "must_contain": [
+        "TestTkIsOpenAICodexBackendSvcacct401",
+        "TestRateLimitService_HandleUpstreamError_OpenAICodexBackendSvcacct401_DoesNotDisable",
+        "TestRateLimitService_OAuth401_OpenAIValidTokenStillDisablesOnGenericUnauthorized",
+        "TestTkIsRecoverableOpenAI401_CodexBackendSvcacctIsNotRecoverable",
+        "TestOpenAIGatewayService_ShouldFailover_CodexBackendSvcacct401IsSharedFault"
+      ],
+      "rationale": "Positive Codex-backend sk-svcacct skip-penalty + SharedFault coverage, with regression that generic still-valid-token OpenAI OAuth 401 still SetErrors on first strike."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_kiro_quota402.go",
@@ -8608,17 +8633,20 @@
       "must_contain": [
         "tkIsCapabilityScope401(statusCode, responseBody)",
         "capability_scope_401_skip_penalty",
+        "tkIsOpenAICodexBackendSvcacct401(statusCode, responseBody, upstreamMsg)",
+        "openai_codex_backend_svcacct_401_skip_penalty",
         "IsOpenAICompatModelNotFound404(responseBody, upstreamMsg)",
         "newapi_model_not_found_401_skip_auth_penalty"
       ],
-      "rationale": "Injection point: HandleUpstreamError case 401 short-circuits (a) capability-scope 401 and (b) newapi openai-compat model-not-found on 401 (Baidu Qianfan invalid_model, prod 2026-08-07 account 90) to shouldDisable=false BEFORE any temp_unschedulable / SetError path, so the account stays schedulable for every other model. Anchors the no-cooldown guards against silent upstream-merge reversion (paired with ratelimit_service_tk_capability_scope_401.go and newapi_model_not_found_tk.go)."
+      "rationale": "Injection point: HandleUpstreamError case 401 short-circuits (a) capability-scope 401, (b) Codex-backend sk-svcacct echo (prod 2026-09-25), and (c) newapi openai-compat model-not-found on 401 (Baidu Qianfan invalid_model, prod 2026-08-07 account 90) to shouldDisable=false BEFORE any temp_unschedulable / SetError path, so the account stays schedulable for every other model. Anchors the no-cooldown guards against silent upstream-merge reversion (paired with ratelimit_service_tk_capability_scope_401.go, ratelimit_service_tk_openai_codex_backend_svcacct_401.go and newapi_model_not_found_tk.go)."
     },
     {
-      "rationale": "Injection points: shouldFailoverOpenAIUpstreamResponse treats IMAGE capability-scope 401 (api.model.images.request) as AccountFault so mixed GPT专线 pools can try the next account after cooling openai:image_generation; non-image capability-scope 401 stays SharedFault (no failover). Anchors the image vs non-image split against silent upstream-merge reversion.",
+      "rationale": "Injection points: shouldFailoverOpenAIUpstreamResponse treats IMAGE capability-scope 401 (api.model.images.request) as AccountFault so mixed GPT专线 pools can try the next account after cooling openai:image_generation; non-image capability-scope 401 and Codex-backend sk-svcacct 401 stay SharedFault (no failover). Anchors the image vs non-image / backend-echo split against silent upstream-merge reversion.",
       "path": "backend/internal/service/openai_gateway_upstream_errors.go",
       "must_contain": [
         "tkIsImageCapabilityScope401(statusCode, upstreamBody)",
-        "if tkIsCapabilityScope401(statusCode, upstreamBody) {"
+        "if tkIsCapabilityScope401(statusCode, upstreamBody) {",
+        "tkIsOpenAICodexBackendSvcacct401(statusCode, upstreamBody, upstreamMsg)"
       ]
     },
     {
@@ -11270,10 +11298,11 @@
       "must_contain": [
         "func tkIsPermanentOpenAIAuth401(body []byte) bool",
         "func tkIsRecoverableOpenAI401(statusCode int, body []byte) bool",
+        "tkIsOpenAICodexBackendSvcacct401(statusCode, body)",
         "func (p *OpenAITokenProvider) awaitForceRefreshWinner(ctx context.Context, account *Account) (*Account, error)",
         "if result.LockHeld {"
       ],
-      "rationale": "Single classifier for permanent vs recoverable OpenAI 401, and LockHeld must wait for the in-flight RefreshNow winner instead of returning a refresh failure that SetError can take as a permanent disable."
+      "rationale": "Single classifier for permanent vs recoverable OpenAI 401, and LockHeld must wait for the in-flight RefreshNow winner instead of returning a refresh failure that SetError can take as a permanent disable. Codex-backend sk-svcacct echo must stay non-recoverable so force-refresh does not amplify oauth/token storms during outages (openai/codex#48303)."
     },
     {
       "path": "backend/internal/service/openai_ws_v2_passthrough_adapter.go",

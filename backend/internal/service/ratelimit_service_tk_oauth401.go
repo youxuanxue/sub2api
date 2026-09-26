@@ -56,6 +56,15 @@ func (s *RateLimitService) tkDisableIfOAuth401OnValidToken(ctx context.Context, 
 			return true
 		}
 	}
+	// Codex backend sk-svcacct echo must not reach SetError even if an older
+	// call site only passed the message string (belt-and-suspenders with
+	// tkHandleAuth401's early skip).
+	if account.Platform == PlatformOpenAI &&
+		tkIsOpenAICodexBackendSvcacct401(401, nil, upstreamMsg) {
+		slog.Info("openai_codex_backend_svcacct_401_skip_valid_token_disable",
+			"account_id", account.ID, "expires_at", expiresAt.UTC().Format(time.RFC3339))
+		return false
+	}
 	// token 仍 solidly valid 却被上游 401 → grant 吊销 → 第一次即禁用，人工重授权。
 	msg := "OAuth 401 on a still-valid access token — grant revoked upstream, manual re-authorization required (re-login via account management)"
 	if strings.TrimSpace(upstreamMsg) != "" {

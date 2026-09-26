@@ -50,6 +50,14 @@ func (s *RateLimitService) tkHandleAuth401(
 	if resolved, rerr := resolveCredentialAccount(ctx, s.accountRepo, account); rerr == nil && resolved != nil {
 		authAccount = resolved
 	}
+	// Codex backend service-account echo (sk-svcacct…): fleet-wide upstream
+	// outage, not per-account grant revocation — see companion file.
+	if authAccount.Platform == PlatformOpenAI && authAccount.Type == AccountTypeOAuth &&
+		tkIsOpenAICodexBackendSvcacct401(statusCode, responseBody, upstreamMsg) {
+		slog.Info("openai_codex_backend_svcacct_401_skip_penalty",
+			"account_id", authAccount.ID, "platform", authAccount.Platform, "message", upstreamMsg)
+		return false
+	}
 	if authAccount.Platform == PlatformOpenAI && tkIsPermanentOpenAIAuth401(responseBody) {
 		openai401Code := extractUpstreamErrorCode(responseBody)
 		msg := "Unauthorized (401): account authentication failed permanently"
