@@ -52,10 +52,17 @@ func (s *BillingService) tkInitFallbackPricingTables() {
 		CacheReadPricePerToken:     1.0e-6,
 		SupportsCacheBreakdown:     false,
 	}
-	// Fable 5.1 shares the Fable 5 card; keep an explicit key so
-	// getFallbackPricing's isClaudeFable51Model branch does not no-op when the
-	// overlay alias path is unavailable.
-	s.fallbackPrices["claude-fable-5-1"] = s.fallbackPrices["claude-fable-5"]
+	// Claude Fable 5.1: same I/O and cache-write as Fable 5, but cache read is
+	// official 0.025× base input ($0.25/MTok) — not Fable 5's $1/MTok. Keep an
+	// explicit card so getFallbackPricing's isClaudeFable51Model branch and
+	// overlay owner stay aligned (do not share the Fable 5 pointer).
+	s.fallbackPrices["claude-fable-5-1"] = &ModelPricing{
+		InputPricePerToken:         10e-6,
+		OutputPricePerToken:        50e-6,
+		CacheCreationPricePerToken: 12.5e-6,
+		CacheReadPricePerToken:     0.25e-6,
+		SupportsCacheBreakdown:     false,
+	}
 
 	// Gemini 3.1 Pro
 	s.fallbackPrices["gemini-3.1-pro"] = &ModelPricing{
