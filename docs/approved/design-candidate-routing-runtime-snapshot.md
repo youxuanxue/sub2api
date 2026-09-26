@@ -357,8 +357,10 @@ single synthetic percentage.
 
 ## 10. Approval boundary
 
-This document is a pending high-risk design baseline. Before implementation,
-the project must update the candidate SSOT owner table and US-050 acceptance
-matrix with the materialized read-model owner and the shadow/fallback contract.
-No schema migration, public API change, production switch or deletion of the
-existing database path is authorized by this document alone.
+This document is the approved high-risk design baseline. The candidate SSOT
+owner table now registers the materialized read-model owner, and this PR adds
+the shadow/fallback contract and its focused tests. The current implementation
+keeps the snapshot read-only and shadow-only; it does not authorize a schema
+migration, public API change, production switch or deletion of the existing
+database path. Those rollout steps require their own acceptance evidence and
+release approval.
