@@ -25,7 +25,8 @@ import (
 // P0 card (classifyIncident "newapi_arrears").
 //
 // Explicitly NOT standing (must fall through):
-//   - weekly / 5h / 7d usage windows that reset (account 88 weekly quota)
+//   - monthly / weekly / 5h / 7d usage windows that reset (account 88 weekly
+//     quota; monthly wording owned by newAPIMonthlyQuotaMarkers)
 //   - CloudWise per-model 402 (other models still work; handled earlier)
 //   - CN-provider 402/429 (balance probe auto-recovers; leave that loop)
 //   - RPM / rate-limit 429 without billing-standing text
@@ -87,17 +88,17 @@ func tkIsRecoverableUsageWindowMessage(haystack string) bool {
 	if haystack == "" {
 		return false
 	}
+	// Monthly wording is owned by newAPIMonthlyQuotaMarkers so that anything
+	// recoverable here also reaches the monthly calendar reset fallback.
+	if tkIsNewAPIMonthlyQuotaMessage(haystack) {
+		return true
+	}
 	for _, marker := range []string{
-		"monthly usage quota",
-		newAPIQianfanMonthlyQuotaMessage,
 		"weekly usage quota",
 		"exceeded the weekly",
 		"1-week quota",
 		"5-hour",
 		"7-day",
-		"exceeded the monthly",
-		"1-month quota",
-		"30-day quota",
 	} {
 		if strings.Contains(haystack, marker) {
 			return true
