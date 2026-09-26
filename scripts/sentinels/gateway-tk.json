@@ -3062,9 +3062,10 @@
       "must_contain": [
         "func TestOpsErrorLoggerMiddlewareWritesDeletedKeyAttribution",
         "entry.DeletedKeyOwnerUserID",
-        "func TestOpsErrorLoggerMiddlewareSkipsAuditLookupForNonSystemKey"
+        "func TestOpsErrorLoggerMiddlewareSkipsAuditLookupForNonSystemKey",
+        "func TestOpsErrorLoggerMiddlewareStillLogsWhenAuditLookupFails"
       ],
-      "rationale": "Behavioural regression test for the deleted-key attribution writer, pinned next to the writer itself. The upstream merge that dropped the writer also dropped this file's 118-line predecessor, and the surviving helper-level tests (looksLikeSystemKey / keyPrefix / extractAttemptedKey) all still passed — which is why the loss was invisible. These cases drive OpsErrorLoggerMiddleware end to end and assert the three columns on the queued entry, so deleting the writer fails the suite instead of only tripping a literal-matching sentinel. Verified by removing the writer block: the suite fails. Keep the middleware-level cases, not just the helper unit tests."
+      "rationale": "Behavioural regression test for the deleted-key attribution writer, pinned next to the writer itself. The upstream merge that dropped the writer also dropped this file's 118-line predecessor, and the surviving helper-level tests (looksLikeSystemKey / keyPrefix / extractAttemptedKey) all still passed — which is why the loss was invisible. These cases drive OpsErrorLoggerMiddleware end to end and assert the three columns on the queued entry, so deleting the writer fails the suite instead of only tripping a literal-matching sentinel. Verified by removing the writer block: the suite fails. Keep the middleware-level cases, not just the helper unit tests. The audit-lookup failure case is pinned with them: on a lookup error the middleware logs and falls through, so the error row is still persisted with its key prefix and no invented owner. Turning that log into an early return would silently drop a batch of gateway error rows whenever deleted_api_key_audits is slow or unavailable — the same compile-clean, test-green failure shape as the lost writer. Verified by injecting the early return: the case fails."
     },
     {
       "path": "backend/internal/repository/ops_repo_request_details.go",

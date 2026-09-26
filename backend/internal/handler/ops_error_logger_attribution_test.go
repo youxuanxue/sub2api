@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -256,4 +257,34 @@ func TestOpsErrorLoggerMiddlewareLeavesAttributionEmptyForOtherFailures(t *testi
 	require.Empty(t, entry.AttemptedKeyPrefix)
 	require.Nil(t, entry.DeletedKeyOwnerUserID)
 	require.Empty(t, repo.lookedUp)
+}
+
+// 审计表查询失败(DB 抖动、deleted_api_key_audits 慢查询超时)只降级归因,不能把整条错误
+// 日志丢掉。归因是锦上添花,落库是本职:这里如果哪天被改成 return,网关的错误日志会在审计
+// 表出问题时静默少一批行——与本文件上方那个「writer 被静默删掉」的 bug 同一形态。
+func TestOpsErrorLoggerMiddlewareStillLogsWhenAuditLookupFails(t *testing.T) {
+	setupOpsErrorLogTestQueue(t, 2)
+	gin.SetMode(gin.TestMode)
+
+	repo := &deletedKeyAuditOpsRepo{lookupErr: errors.New("audit table unavailable")}
+	ops := service.NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	router := gin.New()
+	router.Use(OpsErrorLoggerMiddleware(ops))
+	router.POST("/v1/messages", func(c *gin.Context) {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "INVALID_API_KEY", "message": "Invalid API key"})
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer sk-lookup-fails-0123456789")
+	router.ServeHTTP(httptest.NewRecorder(), req)
+
+	require.Equal(t, int64(1), OpsErrorLogQueueLength(),
+		"审计查询失败不得吞掉错误日志——归因是附加值,落库才是本职")
+	entry := (<-opsErrorLogQueue).entry
+
+	require.Equal(t, "sk-looku", entry.AttemptedKeyPrefix, "前缀不依赖审计表,失败时仍要留下")
+	require.Nil(t, entry.DeletedKeyOwnerUserID, "查询失败时不得猜一个所有者")
+	require.Empty(t, entry.DeletedKeyName)
+	require.Len(t, repo.lookedUp, 1, "确实尝试过查询(而非被粗筛挡掉)")
 }
