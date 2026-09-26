@@ -94,7 +94,7 @@ _BUNDLE = importlib.util.module_from_spec(_bundle_spec)
 _bundle_spec.loader.exec_module(_BUNDLE)
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
-REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
+REDISCLI = "sudo docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli"
 APPLY_CONFIRM = "yes-apply-account-model-mapping"
 RUNTIME_MUTATION_CONFIRM = "yes-change-account-model-mapping-runtime"
 VERTEX_PROFILE_ASSIGN_CONFIRM = "yes-assign-vertex-capability-profiles"

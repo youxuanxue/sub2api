@@ -32,7 +32,7 @@ SELLER_KEY_NAME = "openrouter"
 APP_URL = "http://127.0.0.1:8080"
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
-REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
+REDISCLI = "sudo docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli"
 
 _ssm_spec = importlib.util.spec_from_file_location(
     "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py")
@@ -218,7 +218,7 @@ proc.communicate(input=upsert_sql.encode())
 if proc.returncode != 0:
     raise SystemExit("settings upsert failed")
 subprocess.run(
-    ["env", "-u", "REDISCLI_AUTH", "sudo", "docker", "exec", "tokenkey-redis", "redis-cli",
+    ["sudo", "docker", "exec", "tokenkey-redis", "env", "-u", "REDISCLI_AUTH", "redis-cli",
      "PUBLISH", "settings_updated", "refresh"],
     check=False,
 )
@@ -365,7 +365,7 @@ proc.communicate(input=upsert_sql.encode())
 if proc.returncode != 0:
     raise SystemExit("settings upsert failed")
 subprocess.run(
-    ["env", "-u", "REDISCLI_AUTH", "sudo", "docker", "exec", "tokenkey-redis", "redis-cli",
+    ["sudo", "docker", "exec", "tokenkey-redis", "env", "-u", "REDISCLI_AUTH", "redis-cli",
      "PUBLISH", "settings_updated", "refresh"],
     check=False,
 )

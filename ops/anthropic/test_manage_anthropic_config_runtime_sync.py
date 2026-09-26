@@ -25,6 +25,50 @@ class RuntimeSyncShellTest(unittest.TestCase):
         self.assertIn("DEL tls_fingerprint_profiles", shell)
         self.assertIn("PUBLISH tls_fingerprint_profiles_updated", shell)
 
+    def test_rediscli_auth_unset_runs_inside_container(self) -> None:
+        """env -u REDISCLI_AUTH must be INSIDE the docker exec, not on the host.
+
+        On hosts where REDIS_PASSWORD is empty, docker-compose sets
+        ``REDISCLI_AUTH=""`` inside the container. The old pattern
+        ``env -u REDISCLI_AUTH sudo docker exec ...`` unset the host-side
+        variable, which is irrelevant — docker exec inherits the container's
+        env.  Placing ``env -u`` after ``docker exec`` runs it inside the
+        container, actually removing the env var before redis-cli starts."""
+        shell = mgr.render_runtime_sync_shell("2.1.283")
+        # Must be:  docker exec <container> env -u REDISCLI_AUTH redis-cli
+        # Must NOT be:  env -u REDISCLI_AUTH ... docker exec <container> redis-cli
+        self.assertIn("docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli", shell)
+        self.assertNotIn("env -u REDISCLI_AUTH sudo docker exec", shell)
+
+    def test_redis_invalidation_failure_not_swallowed(self) -> None:
+        """tls_fingerprint_profiles DEL/PUBLISH must NOT use ``|| true``.
+
+        If redis-cli fails (container down, auth error), the script must exit
+        non-zero so the SSM invocation reports failure and the caller sees
+        ``"ok": false`` in the sync-runtime JSON report."""
+        shell = mgr.render_runtime_sync_shell("2.1.283")
+        # Find the tls_fingerprint_profiles section; after the redis_fingerprint_del
+        # section there should be no blanket ``|| true`` swallowing redis-cli exit.
+        tls_start = shell.index("redis_tls_fingerprint_profiles_invalidate")
+        settings_start = shell.index("settings_after")
+        tls_section = shell[tls_start:settings_start]
+        self.assertNotIn("|| true", tls_section)  # preflight-allow: swallow (assertion of absence, not a swallow site)
+        # The redis_rc tracker and non-zero exit must be present.
+        self.assertIn("redis_rc", shell)
+        self.assertIn("REDIS_INVALIDATION_FAILED", shell)
+
+    def test_probe_shell_rediscli_auth_inside_container(self) -> None:
+        """Live node probe shell must also unset REDISCLI_AUTH inside the container."""
+        sh = mgr.render_live_node_probe_shell()
+        self.assertIn("docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli", sh)
+        self.assertNotIn("env -u REDISCLI_AUTH sudo docker exec", sh)
+
+    def test_tiers_cache_invalidation_shell_rediscli_auth_inside_container(self) -> None:
+        """Tiers cache invalidation must also unset REDISCLI_AUTH inside the container."""
+        sh = mgr.render_tiers_cache_invalidation_shell()
+        self.assertIn("docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli", sh)
+        self.assertNotIn("env -u REDISCLI_AUTH sudo docker exec", sh)
+
     def test_render_runtime_sync_shell_persists_valid_json_manifest(self) -> None:
         # Regression: the manifest UPSERT must be delivered as base64 SQL piped to
         # psql, never inlined into `psql -c "..."`. Inlining stripped the JSON's
