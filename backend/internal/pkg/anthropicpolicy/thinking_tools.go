@@ -30,6 +30,19 @@ func Normalize(body []byte, messages bool, capabilities Capabilities) ([]byte, b
 	if !gjson.ValidBytes(body) {
 		return body, false
 	}
+	return normalizeValidated(body, messages, capabilities)
+}
+
+// NormalizeValidated is Normalize for a body whose JSON validity the caller has
+// already established, such as one carried by a parsed canonical request. The
+// scan that ValidBytes performs is linear in body size and its outcome depends
+// only on the bytes, so repeating it for every candidate route re-reads an
+// immutable body. Callers that cannot prove validity must use Normalize.
+func NormalizeValidated(body []byte, messages bool, capabilities Capabilities) ([]byte, bool) {
+	return normalizeValidated(body, messages, capabilities)
+}
+
+func normalizeValidated(body []byte, messages bool, capabilities Capabilities) ([]byte, bool) {
 	thinking := gjson.GetBytes(body, "thinking.type").String()
 	next, changed := body, false
 	if (capabilities.AlwaysThinking && thinking == "disabled") || (capabilities.AdaptiveOnlyThinking && thinking == "enabled") {

@@ -52,3 +52,39 @@ func TestNormalizeFableThinkingModes(t *testing.T) {
 		}
 	}
 }
+
+// NormalizeValidated skips the JSON scan its caller already performed. It must
+// therefore agree with Normalize on every well-formed body: a divergence would
+// make the per-route fast path apply a different thinking/tool policy than the
+// audited one.
+func TestNormalizeValidatedMatchesNormalizeOnValidBodies(t *testing.T) {
+	for _, tc := range []struct {
+		name, body   string
+		capabilities Capabilities
+	}{
+		{"adaptive forced", `{"thinking":{"type":"adaptive"},"tool_choice":{"type":"tool","name":"lookup","disable_parallel_tool_use":true}}`, Capabilities{}},
+		{"optional off", `{"thinking":{"type":"disabled"},"tool_choice":{"type":"any"}}`, Capabilities{}},
+		{"implicit always on", `{"tool_choice":{"type":"tool","name":"lookup"}}`, Capabilities{AlwaysThinking: true}},
+		{"adaptive only", `{"thinking":{"type":"enabled","budget_tokens":2048},"tool_choice":{"type":"any"}}`, Capabilities{AdaptiveOnlyThinking: true}},
+		{"none stays", `{"thinking":{"type":"adaptive"},"tool_choice":{"type":"none"}}`, Capabilities{AlwaysThinking: true}},
+		{"exact endpoint", `{"thinking":{"type":"adaptive"},"tool_choice":{"type":"any"}}`, Capabilities{ForcedToolsWithThinking: true}},
+		{"reasoning effort chat", `{"reasoning_effort":"high","tool_choice":"required"}`, Capabilities{}},
+	} {
+		for _, messages := range []bool{true, false} {
+			t.Run(tc.name, func(t *testing.T) {
+				want, wantChanged := Normalize([]byte(tc.body), messages, tc.capabilities)
+				got, gotChanged := NormalizeValidated([]byte(tc.body), messages, tc.capabilities)
+				require.Equal(t, wantChanged, gotChanged)
+				require.Equal(t, string(want), string(got))
+			})
+		}
+	}
+}
+
+// Normalize keeps its own guard for callers that cannot prove validity.
+func TestNormalizeRejectsMalformedBody(t *testing.T) {
+	body := []byte(`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"any"}`)
+	out, changed := Normalize(body, true, Capabilities{})
+	require.False(t, changed)
+	require.Equal(t, body, out)
+}

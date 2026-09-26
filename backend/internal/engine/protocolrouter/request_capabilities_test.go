@@ -127,3 +127,48 @@ func TestNativeReasoningCapabilities(t *testing.T) {
 		}
 	}
 }
+
+// ParseCanonicalRequest decodes the body, so the request it returns may skip the
+// per-route revalidation. NewCanonicalRequest makes no such promise.
+func TestCanonicalRequestBodyValidationProvenance(t *testing.T) {
+	body := []byte(`{"model":"alias","thinking":{"type":"adaptive"},"tool_choice":{"type":"any"}}`)
+	parsed, err := ParseCanonicalRequest(ProtocolMessages, ResponsesPathNone, "alias", false, body)
+	require.NoError(t, err)
+	require.True(t, parsed.bodyJSONValidated, "a decoded body is known-valid JSON")
+
+	unproven, err := NewCanonicalRequest(CanonicalRequestInput{
+		InboundProtocol: ProtocolMessages,
+		RequestedModel:  "alias",
+		Profile:         RequestProfile{ContentKinds: ContentText},
+		Body:            body,
+	})
+	require.NoError(t, err)
+	require.False(t, unproven.bodyJSONValidated, "callers must opt in explicitly")
+
+	// Both provenances must reach the same compatibility outcome.
+	capabilities := anthropicpolicy.Capabilities{}
+	fromParsed, adjustParsed := compatibleRequest(parsed, capabilities)
+	fromUnproven, adjustUnproven := compatibleRequest(unproven, capabilities)
+	require.Equal(t, adjustParsed, adjustUnproven)
+	require.Equal(t, string(fromParsed.Body()), string(fromUnproven.Body()))
+	require.Equal(t, "auto", gjson.GetBytes(fromParsed.Body(), "tool_choice.type").String())
+}
+
+// A malformed body can only arrive through the unproven constructor, and it must
+// still fail closed rather than be rewritten.
+func TestCompatibleRequestLeavesMalformedUnprovenBodyIntact(t *testing.T) {
+	malformed := []byte(`{"model":"alias","thinking":{"type":"adaptive"},"tool_choice":{"type":"any"}`)
+	_, err := ParseCanonicalRequest(ProtocolMessages, ResponsesPathNone, "alias", false, malformed)
+	require.Error(t, err, "the decoding entry point rejects it outright")
+
+	unproven, err := NewCanonicalRequest(CanonicalRequestInput{
+		InboundProtocol: ProtocolMessages,
+		RequestedModel:  "alias",
+		Profile:         RequestProfile{ContentKinds: ContentText},
+		Body:            malformed,
+	})
+	require.NoError(t, err)
+	result, adjustment := compatibleRequest(unproven, anthropicpolicy.Capabilities{})
+	require.Empty(t, adjustment)
+	require.Equal(t, malformed, result.Body())
+}

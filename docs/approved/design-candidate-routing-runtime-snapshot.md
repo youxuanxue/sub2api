@@ -335,6 +335,42 @@ Shadow comparison has an explicit exit condition. It is disabled after the
 candidate, Plan, authorization and billing projections meet the acceptance
 matrix; it is not a permanent duplicate production evaluator.
 
+### 9.1 Measured cost slope and resequencing (2026-09-26)
+
+The list above was written before the candidate path had a repeatable cost
+measurement, so it ordered the snapshot first. `BenchmarkCandidateAdmissionCost*`
+in `candidate_selection_cost_bench_tk_test.go` now measures the two dimensions
+that actually grow, and they disagree with that order:
+
+- growing the account x group fan-out at a fixed body *lowers* cost per
+  evaluation (28.5us at 1x1 to 11.1us at 32x4), so per-candidate account reuse
+  is already effective and a read model removes little CPU;
+- growing the body at a fixed fan-out raises cost nearly linearly, because the
+  per-route compatibility pass re-scanned one immutable body.
+
+A single production profile cannot show this: `anthropicpolicy.Normalize` was
+4.38% of samples on 2026-09-26 prod traffic but 64% of a 64KiB-body benchmark,
+because the sampled window carried small bodies. Removing the repeated
+validation (step 1 below) measured -37% to -55% per evaluation at 8KiB and above,
+`p=0.002, n=6`.
+
+The user therefore approved this order in the 2026-09-26 conversation, replacing
+the sequence above without changing any ownership boundary in this document:
+
+0. a repeatable CPU benchmark over (accounts x groups) and body bytes;
+1. remove per-candidate repeated work over the immutable body;
+2. make `CanonicalRequest` the only routing parser (was step 3);
+3. re-decide the snapshot on PostgreSQL load and tail-latency evidence rather
+   than on CPU profiles (was steps 1-2); build it only if those metrics justify
+   it;
+4. QA one-pass is demoted: regex is 1.39% of samples in total and `buildBlob`
+   already runs on the async capture pool. Only the unknown-format byte/record
+   accounting in section 8 remains required, as privacy debt.
+
+The snapshot's approval boundary in section 10 is unchanged: it stays read-only
+and shadow-only, and a production read-source switch still needs its own
+acceptance evidence and release approval.
+
 Required behavior checks include:
 
 - group order and topology invariance;

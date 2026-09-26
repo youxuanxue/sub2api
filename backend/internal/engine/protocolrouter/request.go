@@ -17,15 +17,21 @@ type CanonicalRequestInput struct {
 	ResponsesPath   ResponsesPathKind
 	Profile         RequestProfile
 	Body            []byte
+	// BodyJSONValidated records that the caller already decoded Body as JSON, so
+	// per-route compatibility work may skip re-validating it. Leave it false
+	// unless the body came from a successful decode of these exact bytes; a
+	// wrong true would let an invalid body reach the rewrite helpers.
+	BodyJSONValidated bool
 }
 
 type CanonicalRequest struct {
-	inboundProtocol Protocol
-	requestedModel  string
-	responsesPath   ResponsesPathKind
-	profile         RequestProfile
-	body            []byte
-	digest          RequestDigest
+	inboundProtocol   Protocol
+	requestedModel    string
+	responsesPath     ResponsesPathKind
+	profile           RequestProfile
+	body              []byte
+	digest            RequestDigest
+	bodyJSONValidated bool
 }
 
 func NewCanonicalRequest(input CanonicalRequestInput) (CanonicalRequest, error) {
@@ -52,11 +58,12 @@ func NewCanonicalRequest(input CanonicalRequestInput) (CanonicalRequest, error) 
 		return CanonicalRequest{}, errors.New("request body is required")
 	}
 	req := CanonicalRequest{
-		inboundProtocol: input.InboundProtocol,
-		requestedModel:  model,
-		responsesPath:   path,
-		profile:         input.Profile,
-		body:            body,
+		inboundProtocol:   input.InboundProtocol,
+		requestedModel:    model,
+		responsesPath:     path,
+		profile:           input.Profile,
+		body:              body,
+		bodyJSONValidated: input.BodyJSONValidated,
 	}
 	req.digest = digestRequest(req)
 	return req, nil
