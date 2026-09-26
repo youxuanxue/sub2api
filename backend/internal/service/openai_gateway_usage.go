@@ -166,7 +166,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		result.UpstreamEndpoint = facts.UpstreamEndpoint()
 		result.UpstreamModel = facts.ResolvedModel()
 	}
-	if s.rateLimitService != nil && input.Account != nil && input.Account.Platform == PlatformOpenAI {
+	// 成功响应清零累计 403 计数。必须覆盖阶梯递增侧的全部 platform
+	// （UsesOpenAI403Ladder），而不只是 openai：CN 供应商与 OpenCodeGo 同样会被
+	// handle403 喂进这个阶梯，若此处漏掉它们，计数只增不减，健康账号会在 180 分钟
+	// 窗口内攒够 3 次零散 403 后被永久禁用。
+	if s.rateLimitService != nil && input.Account != nil && UsesOpenAI403Ladder(input.Account.Platform) {
 		s.rateLimitService.ResetOpenAI403Counter(ctx, input.Account.ID)
 	}
 
