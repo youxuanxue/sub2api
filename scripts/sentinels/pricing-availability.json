@@ -367,6 +367,24 @@
       "rationale": "Executable SSOT for all currently taxed official-list providers. The embedded registry is the last-known-good fallback and a valid protected-main envelope replaces the whole snapshot atomically. Pinning every behavior-preserving provider row and the multiplier prevents an upstream merge from silently dropping one tax family while model prices continue to parse. New providers are added here, not in Go. thinking_output_cost_per_token and moonshot-v1-auto keep official thinking/tiered rows from regressing to flat non-thinking owners."
     },
     {
+      "path": "backend/internal/service/tk_pricing_overlay.json",
+      "must_contain": [
+        "\"claude-fable-5-1\": {",
+        "\"cache_read_input_token_cost\": 2.5e-07"
+      ],
+      "must_not_contain": [
+        "\"claude-fable-5-1\": \"claude-fable-5\""
+      ],
+      "rationale": "Claude Fable 5.1 is a first-class registry owner (official cache read $0.25/MTok = 0.025×), not an `_aliases` hop onto Fable 5 ($1/MTok cache read). Prod 2026-09-26: aliasing conflated settlement with Fable 5 and confused admission. Keep the owner row and forbid reintroducing the alias pair."
+    },
+    {
+      "path": "backend/internal/service/pricing_service_tk_overlay_test.go",
+      "must_contain": [
+        "claude-fable-5-1 must own official $0.25/MTok cache read, not Fable 5's $1/MTok"
+      ],
+      "rationale": "Regression that GetModelPricing(claude-fable-5-1) returns the distinct cache-read card rather than Fable 5's $1/MTok via alias."
+    },
+    {
       "path": "backend/internal/service/pricing_service_test.go",
       "must_contain": [
         "TestCodexAutoReviewBundledPricingCannotOverrideRegistry",
@@ -483,13 +501,15 @@
         "func (s *BillingService) tkInitFallbackPricingTables()",
         "func (s *BillingService) tkResolveFallbackTableFamilyPricing",
         "s.fallbackPrices[\"claude-fable-5\"]",
+        "s.fallbackPrices[\"claude-fable-5-1\"] = &ModelPricing{",
+        "CacheReadPricePerToken:     0.25e-6",
         "s.fallbackPrices[\"gemini-3.1-pro\"]",
         "s.fallbackPrices[\"gpt-5.4\"]",
         "s.fallbackPrices[\"gpt-6-astra\"]",
         "s.fallbackPrices[\"deepseek-v4-pro\"]",
         "s.fallbackPrices[\"glm-5.2\"]"
       ],
-      "rationale": "P3 companion: hardcoded fallback price tables for Fable/Gemini/GPT/DeepSeek/GLM/domestic LLM and Fable/Claude-floor/Gemini family matchers. Dropping this file silently removes extended fallback cards while Claude classic + Grok remain, causing under/over-charge on those families when dynamic pricing is unavailable."
+      "rationale": "P3 companion: hardcoded fallback price tables for Fable/Gemini/GPT/DeepSeek/GLM/domestic LLM and Fable/Claude-floor/Gemini family matchers. Claude Fable 5.1 must keep its own card with official $0.25/MTok cache read (0.025×) — sharing the Fable 5 pointer rebinds cache read to $1/MTok. Dropping this file silently removes extended fallback cards while Claude classic + Grok remain, causing under/over-charge on those families when dynamic pricing is unavailable."
     },
     {
       "path": "backend/internal/service/billing_service_tk_registry_alias.go",

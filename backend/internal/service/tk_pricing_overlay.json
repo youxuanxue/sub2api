@@ -6,7 +6,6 @@
     "migration_baseline_external_sha256": "f7244f5dc8d9423b93bae92ace97c63750d759b59d0dfe7b90e4a603153b07fa"
   },
   "_aliases": {
-    "claude-fable-5-1": "claude-fable-5",
     "deepseek-chat": "deepseek-v4-flash",
     "deepseek-flash": "deepseek-v4-flash",
     "deepseek-reasoner": "deepseek-v4-flash",
@@ -378,6 +377,45 @@
     "supports_pdf_input": true,
     "supports_reasoning": true,
     "source": "Anthropic official Fable 5 list price (2026-06: in $10/M, out $50/M, 1M ctx, 128K out); imported provider snapshot lagged this model, so this registry row is authoritative",
+    "prompt_cache_min_tokens": 512,
+    "provider_specific_entry": {
+      "fast": 6.0,
+      "us": 1.1
+    },
+    "search_context_cost_per_query": {
+      "search_context_size_high": 0.01,
+      "search_context_size_low": 0.01,
+      "search_context_size_medium": 0.01
+    },
+    "supports_adaptive_thinking": true,
+    "supports_assistant_prefill": false,
+    "supports_computer_use": true,
+    "supports_max_reasoning_effort": true,
+    "supports_minimal_reasoning_effort": true,
+    "supports_output_config": true,
+    "supports_response_schema": true,
+    "supports_sampling_params": false,
+    "supports_xhigh_reasoning_effort": true,
+    "tool_use_system_prompt_tokens": 346
+  },
+  "claude-fable-5-1": {
+    "litellm_provider": "anthropic",
+    "mode": "chat",
+    "input_cost_per_token": 1e-05,
+    "output_cost_per_token": 5e-05,
+    "cache_creation_input_token_cost": 1.25e-05,
+    "cache_creation_input_token_cost_above_1hr": 2e-05,
+    "cache_read_input_token_cost": 2.5e-07,
+    "max_input_tokens": 1000000,
+    "max_output_tokens": 128000,
+    "max_tokens": 128000,
+    "supports_prompt_caching": true,
+    "supports_function_calling": true,
+    "supports_tool_choice": true,
+    "supports_vision": true,
+    "supports_pdf_input": true,
+    "supports_reasoning": true,
+    "source": "Anthropic official Fable 5.1 list price (platform.claude.com/docs/en/about-claude/pricing, captured 2026-09-26: in $10/M, out $50/M, 5m/1h cache write $12.50/$20, cache read $0.25/M = 0.025x base input — distinct from Fable 5 cache read $1/M)",
     "prompt_cache_min_tokens": 512,
     "provider_specific_entry": {
       "fast": 6.0,

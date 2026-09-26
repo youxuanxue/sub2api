@@ -1897,7 +1897,8 @@ func TestGetModelPricing_Fable51FallbackPricing(t *testing.T) {
 	require.InDelta(t, 50e-6, pricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 12.5e-6, pricing.CacheCreation5mPrice, 1e-12)
 	require.InDelta(t, 20e-6, pricing.CacheCreation1hPrice, 1e-12)
-	require.InDelta(t, 1e-6, pricing.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, 2.5e-7, pricing.CacheReadPricePerToken, 1e-12,
+		"official Fable 5.1 cache read is $0.25/MTok (0.025×), not Fable 5's $1/MTok")
 	require.NotNil(t, pricing.MaxReasoningEffortMultiplier)
 	require.Equal(t, 3.0, *pricing.MaxReasoningEffortMultiplier)
 }
