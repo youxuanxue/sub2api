@@ -84,6 +84,73 @@ var (
 	qaCapturePersistFailedCount atomic.Int64
 )
 
+// Unknown-format payloads are retained verbatim by RedactOnePass, which is the
+// documented residual exposure of the capture path. It is only an accounted
+// residual if its size is observable, so every sanitized payload adds to the
+// redacted total and unknown ones additionally to the unknown total. Counting
+// happens where the classification already occurred, so it adds no scan.
+var (
+	qaRedactedRecordCount      atomic.Int64
+	qaRedactedByteCount        atomic.Int64
+	qaUnknownFormatRecordCount atomic.Int64
+	qaUnknownFormatByteCount   atomic.Int64
+)
+
+// qaUnknownFormatDriftRatio is the share of sanitized records that may be
+// retained verbatim before the capture path reports degraded. Unknown formats
+// are expected to be a small remainder: a sustained rise means a wire shape
+// changed and is now passing through unredacted, which is a privacy signal
+// rather than a capacity one.
+const (
+	qaUnknownFormatDriftRatio      = 0.05
+	qaUnknownFormatDriftMinRecords = 200
+)
+
+// qaRedactionAccounting is the observable form of that residual. It rides the
+// existing qa_capture health payload, so it reaches the same job heartbeat the
+// ledger health already uses instead of introducing a second channel.
+type qaRedactionAccounting struct {
+	RedactedRecords      int64   `json:"redacted_records"`
+	RedactedBytes        int64   `json:"redacted_bytes"`
+	UnknownFormatRecords int64   `json:"unknown_format_records"`
+	UnknownFormatBytes   int64   `json:"unknown_format_bytes"`
+	UnknownFormatRatio   float64 `json:"unknown_format_ratio"`
+	RedactionVersion     string  `json:"redaction_version"`
+	Drift                bool    `json:"unknown_format_drift"`
+}
+
+func qaRedactionAccountingSnapshot() qaRedactionAccounting {
+	records := qaRedactedRecordCount.Load()
+	unknown := qaUnknownFormatRecordCount.Load()
+	accounting := qaRedactionAccounting{
+		RedactedRecords:      records,
+		RedactedBytes:        qaRedactedByteCount.Load(),
+		UnknownFormatRecords: unknown,
+		UnknownFormatBytes:   qaUnknownFormatByteCount.Load(),
+		RedactionVersion:     qaRedactionVersion,
+	}
+	if records > 0 {
+		accounting.UnknownFormatRatio = float64(unknown) / float64(records)
+	}
+	// Require a floor of records so a handful of early unknown payloads cannot
+	// pin the ratio at 1.0 and report drift for the process lifetime.
+	accounting.Drift = records >= qaUnknownFormatDriftMinRecords &&
+		accounting.UnknownFormatRatio > qaUnknownFormatDriftRatio
+	return accounting
+}
+
+// recordQARedactionFormat accounts one sanitized payload. format and size come
+// from the classification that already ran, so an unknown payload is counted by
+// the same bytes that were retained.
+func recordQARedactionFormat(format logredact.InputFormat, size int) {
+	qaRedactedRecordCount.Add(1)
+	qaRedactedByteCount.Add(int64(size))
+	if format == logredact.FormatUnknown {
+		qaUnknownFormatRecordCount.Add(1)
+		qaUnknownFormatByteCount.Add(int64(size))
+	}
+}
+
 const (
 	qaRedactionVersion               = "logredact-v4"
 	captureStatusCaptured            = "captured"
@@ -212,11 +279,41 @@ func (s *Service) QACaptureHealth() (string, string, error) {
 	if err != nil {
 		return string(captureledger.HealthFailed), `{"status":"failed","reason":"ledger_unreadable"}`, errors.New("qa capture ledger unreadable")
 	}
-	body, err := json.Marshal(health)
+	// Mirror the ledger's own fields verbatim and append the redaction
+	// accounting, so an existing consumer keeps reading what it read before.
+	payload, err := json.Marshal(health)
 	if err != nil {
 		return string(captureledger.HealthFailed), `{"status":"failed","reason":"ledger_unreadable"}`, errors.New("qa capture health serialization failed")
 	}
-	return string(health.Status), string(body), nil
+	accounting := qaRedactionAccountingSnapshot()
+	body, err := appendQARedactionAccounting(payload, accounting)
+	if err != nil {
+		return string(captureledger.HealthFailed), `{"status":"failed","reason":"ledger_unreadable"}`, errors.New("qa capture health serialization failed")
+	}
+	status := health.Status
+	// Unknown-format drift is a privacy signal, so it degrades the reported
+	// status. It never escalates to failed: capture itself is working, and it
+	// never downgrades an already-failed ledger.
+	if accounting.Drift && status == captureledger.HealthHealthy {
+		status = captureledger.HealthDegraded
+	}
+	return string(status), string(body), nil
+}
+
+func appendQARedactionAccounting(payload []byte, accounting qaRedactionAccounting) ([]byte, error) {
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &merged); err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(accounting)
+	if err != nil {
+		return nil, err
+	}
+	if merged == nil {
+		merged = map[string]json.RawMessage{}
+	}
+	merged["redaction"] = encoded
+	return json.Marshal(merged)
 }
 
 func (s *Service) Middleware() gin.HandlerFunc {
@@ -697,6 +794,9 @@ func (s *Service) sanitizeQABodyMemo(raw []byte, preserveThinking bool, memo *qa
 		}
 	}
 	result := logredact.RedactOnePass(payload, logredact.RedactOptions{})
+	// Count the classification, not the call: a memo hit above returned early,
+	// so one payload is accounted once even when several fields repeat it.
+	recordQARedactionFormat(result.Format, len(payload))
 	value := result.Value
 	if preserveThinking {
 		switch result.Format {

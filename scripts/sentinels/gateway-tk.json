@@ -14641,6 +14641,30 @@
         "ns/eval"
       ],
       "rationale": "Keeps a repeatable per-evaluation cost measure for Cursor content admission across model fan-out and production-bracketed body sizes."
+    },
+    {
+      "path": "backend/internal/observability/qa/service.go",
+      "must_contain": [
+        "func recordQARedactionFormat(format logredact.InputFormat, size int)",
+        "recordQARedactionFormat(result.Format, len(payload))",
+        "func qaRedactionAccountingSnapshot() qaRedactionAccounting",
+        "qaUnknownFormatDriftRatio",
+        "qaUnknownFormatDriftMinRecords",
+        "merged[\"redaction\"] = encoded",
+        "if accounting.Drift && status == captureledger.HealthHealthy"
+      ],
+      "rationale": "QA unknown-format passthrough is the documented residual privacy exposure, so it must stay accounted: every sanitized payload is counted where classification already happened, unknown ones also by retained bytes, and a sustained share degrades the qa_capture health status instead of staying an unread counter."
+    },
+    {
+      "path": "backend/internal/observability/qa/redaction_accounting_tk_test.go",
+      "must_contain": [
+        "TestQARedactionAccountingCountsUnknownFormatBytesAndRecords",
+        "TestQARedactionAccountingCountsEachPayloadOnce",
+        "TestQARedactionAccountingDriftNeedsSustainedShare",
+        "TestQACaptureHealthCarriesRedactionAccountingAndDegradesOnDrift",
+        "TestQACaptureHealthDriftDoesNotOverrideLedgerFailure"
+      ],
+      "rationale": "Pins unknown-format byte/record accounting, single counting per payload despite the memo, the record floor before drift is reported, and that drift degrades a healthy ledger without softening a failed one."
     }
   ]
 }

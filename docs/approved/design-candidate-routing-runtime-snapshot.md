@@ -296,7 +296,7 @@ constraints are part of the design, not operational advice:
 | Snapshot outage becomes a database storm | One provider owns fallback, batch loads, singleflight and a rate budget; no caller-specific fallback | Some requests may receive the existing capacity/error response during degraded mode |
 | Blue/green or rollback reads an incompatible cache | Versioned cache schema and generation keys; old binaries ignore unknown generations | Rollback may temporarily use the old database path |
 | Degraded reads change customer-facing error semantics | Preserve the existing distinction between authorization, unsupported model, capacity and infrastructure errors; never turn a read failure into an empty entitlement set | Degraded mode may fail a request, but must not misclassify it as a client error |
-| QA unknown-format passthrough becomes invisible privacy debt | Count unknown format bytes and records asynchronously, alert on drift, retain redaction version in every Bundle and keep lifecycle controls unchanged | Unknown formats remain an explicitly documented residual exposure |
+| QA unknown-format passthrough becomes invisible privacy debt | Count unknown format bytes and records asynchronously, alert on drift, retain redaction version in every Bundle and keep lifecycle controls unchanged | Unknown formats remain an explicitly documented residual exposure — implemented, see §9.5 |
 
 The snapshot is not an authorization cache with an independent TTL. Its
 freshness is governed by source watermarks and invalidation coverage. A periodic
@@ -485,6 +485,35 @@ already edited, so the "before" binary was partly the "after" code. The figures
 above come from a baseline measured with the changes stashed. Section 9.2's
 noise finding still applies — two runs of one binary differed by 7.3% geomean on
 this host — so `models_1` at -3.6% is inside noise and is reported as unchanged.
+
+### 9.5 Unknown-format accounting, the remaining §8 privacy debt (2026-09-26)
+
+Section 8 required unknown-format passthrough to be counted and alerted on. The
+redaction version was already persisted (`logredact-v4`), but the counting half
+was absent: `RedactOnePass` returned `FormatUnknown` payloads verbatim and no
+production code read that classification, so the residual exposure had no
+observable size. `FormatUnknown` appeared nowhere outside its own definition and
+a test.
+
+Counting now happens at the classification that already ran, so it adds no scan
+and no second pass over a body. Every sanitized payload adds to a redacted
+record/byte total and unknown ones additionally to an unknown total; the
+capture-local memo returns before classification, so a payload repeated across
+fields is counted once, and empty payloads are not records at all.
+
+Alerting reuses the existing channel rather than adding one. The counters ride
+the `qa_capture` health payload that `OpsMetricsCollector.mirrorQACaptureHealth`
+already writes to a job heartbeat, appended under a `redaction` key so existing
+consumers still decode the ledger's own fields unchanged. A sustained unknown
+share degrades a healthy status, which is what that heartbeat records. Two
+boundaries are deliberate: drift never escalates to `failed`, because capture
+itself is working and this is a privacy signal rather than a capacity one, and it
+never softens an already-failed ledger. A record floor keeps a handful of early
+unknown payloads from pinning the ratio at 1.0 for the process lifetime.
+
+This closes the §8 row. Lifecycle controls, retention and redaction coverage are
+untouched: unknown formats are still retained verbatim, which remains the
+documented residual exposure — it is now an accounted one.
 
 Required behavior checks include:
 
