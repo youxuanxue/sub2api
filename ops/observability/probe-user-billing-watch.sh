@@ -19,9 +19,10 @@
 #   - window-over-window 环比 rows with delta_*_pct already calculated
 #   - trailing-24h per-bucket baseline (avg/max), so "is this a spike"
 #     compares against a real distribution, not two raw points.
-#   - user-facing failures (status_code <> 200) already joined to model, serving
-#     account, group/key and a root-cause sample, so the terminal-impact basics
-#     never need a second round-trip or a manual cross-join.
+#   - user-facing failures (excluding recovered-200 and 499 client-cancel)
+#     already joined to model, serving account, group/key and a root-cause
+#     sample, so the terminal-impact basics never need a second round-trip
+#     or a manual cross-join.
 set -u
 
 USER_IDS_OVERRIDE="${USER_IDS:-}"
@@ -186,10 +187,13 @@ SELECT row_to_json(t) FROM (SELECT
 
 echo
 echo "=== errors: user-facing failures by model/account (window) ==="
-# Only rows the client actually received as a failure (status_code <> 200, i.e.
-# NOT recovered-200). Each row carries the terminal-experience basics in one
-# place: model, serving account (+platform/status), group/key used, and a root
-# cause sample — so the report never has to guess or cross-join by hand.
+# Failures the client actually received: status_code <> 200 excludes recovered-200
+# (retry succeeded, user felt nothing), and 499 is excluded because that is the
+# caller hanging up — the user's own cancel, not a gateway failure
+# (docs/approved/client-closed-499-ssot.md). Each row carries the
+# terminal-experience basics in one place: model, serving account
+# (+platform/status), group/key used, and a root cause sample — so the report
+# never has to guess or cross-join by hand.
 # account_id IS NULL here means the request never reached a pool (routing phase).
 $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   e.user_id,
@@ -201,23 +205,27 @@ $PSQL -c "SELECT row_to_json(t) FROM (SELECT
   COALESCE(a.name,'')                     AS account_name,
   COALESCE(a.platform, e.platform, '')    AS account_platform,
   COALESCE(e.account_status, a.status,'')  AS account_status,
+  (a.deleted_at IS NOT NULL)               AS account_soft_deleted,
   COALESCE(g.name,'')                                     AS group_name,
   COALESCE(ak.name, e.deleted_key_name,'')                AS api_key_name,
   COALESCE(e.api_key_prefix,'')                           AS api_key_prefix,
   (COALESCE(ak.routing_mode,'direct') = 'universal')       AS is_universal_key,
   count(*) AS n,
-  COALESCE(mode() WITHIN GROUP (ORDER BY e.provider_error_code), '') AS provider_error_code,
-  COALESCE(mode() WITHIN GROUP (ORDER BY e.network_error_type), '')  AS network_error_type,
   left((array_agg(COALESCE(e.upstream_error_message, e.error_message, '')
         ORDER BY e.created_at DESC))[1], 200) AS root_cause_sample,
   max(e.created_at) AT TIME ZONE 'UTC' AS last_at_utc
   FROM ops_error_logs e
+  -- ops-allow-soft-deleted: past failures of a deleted account still happened,
+  -- so keep the row and surface the ghost via account_soft_deleted. Soft delete
+  -- does NOT reset status, so a deleted account still reads status=active and
+  -- would otherwise look live.
   LEFT JOIN accounts a ON a.id = e.account_id
   LEFT JOIN groups g   ON g.id = e.group_id AND g.deleted_at IS NULL
   LEFT JOIN api_keys ak ON ak.id = e.api_key_id AND ak.deleted_at IS NULL
   WHERE e.user_id IN (${IDS}) AND e.created_at >= now() - ${W}
     AND e.status_code IS DISTINCT FROM 200
-  GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
+    AND e.status_code IS DISTINCT FROM 499
+  GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
   ORDER BY count(*) DESC, e.user_id
   LIMIT 40) t;" 2>&1
 

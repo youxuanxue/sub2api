@@ -138,17 +138,35 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
     def test_user_facing_failures_carry_model_account_and_root_cause(self) -> None:
         proc, logged = self.run_probe(USER_IDS="1,16")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
-        failures = [q for q in logged.split(";\n") if "AS root_cause_sample" in q]
+        # Split on the logged-query boundary, not on ";\n" — SQL comments inside a
+        # statement may themselves contain ";\n" and would truncate the match.
+        failures = [q for q in logged.split("\nSELECT row_to_json") if "AS root_cause_sample" in q]
         self.assertEqual(len(failures), 1, logged)
         q = failures[0]
         # recovered-200 must not show up as a user-facing failure
         self.assertIn("status_code IS DISTINCT FROM 200", q)
+        # 499 is the caller hanging up, not a gateway failure — see
+        # docs/approved/client-closed-499-ssot.md
+        self.assertIn("status_code IS DISTINCT FROM 499", q)
         # terminal-impact basics resolved in-query, not left to a manual join
         self.assertIn("LEFT JOIN accounts a ON a.id = e.account_id", q)
         self.assertIn("AS account_name", q)
         self.assertIn("AS account_platform", q)
         self.assertIn("AS group_name", q)
         self.assertIn("e.model", q)
+        # soft-deleted accounts keep status=active, so the ghost must be visible
+        # rather than silently read as a live account
+        self.assertIn("AS account_soft_deleted", q)
+        self.assertIn("ops-allow-soft-deleted", q)
+
+    def test_user_facing_failures_omit_never_written_columns(self) -> None:
+        """provider_error_code / network_error_type exist in migration 033 but have
+        no writer in backend/internal, so selecting them only advertises empty
+        strings as if they were root-cause signal."""
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertNotIn("provider_error_code", logged)
+        self.assertNotIn("network_error_type", logged)
 
     def test_trailing_24h_baseline_excludes_current_window(self) -> None:
         proc, logged = self.run_probe(USER_IDS="1,16", WINDOW_MINUTES="15")
