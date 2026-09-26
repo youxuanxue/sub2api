@@ -4,27 +4,13 @@ description: >-
   Read-only TokenKey production user billing/usage/error watch. Use for active-user monitoring, 盯盘, 30-minute reporting loops, anomaly notification, or distinguishing client noise from real metering/system issues.
 ---
 
-# TokenKey：按用户用量/计费/错误盯盘（新会话一键启动）
+# TokenKey：按用户用量/计费/错误盯盘
 
-把"先快速查当前活跃用户清单，再盯这些用户的请求、用量、错误并按需推送"固定成稳定的**只读**流程，让任何新会话敲 `/tokenkey-user-billing-watch` 即可起盘，无需手敲整段 spec。
+一键起盘：自动发现活跃用户 → 取请求/用量/错误 → 按 §3 判是否推送。全程**只读**（纯 SELECT，经 `run-probe.sh` 下发）。要改限额/账号/重启/部署，停下显式确认并转交写入面 skill。纪律以仓库根 `CLAUDE.md` 为准。
 
-权威纪律以仓库根 `CLAUDE.md` 为准。本 skill **只读**：只经 `run-probe.sh` 下发纯 SELECT 的 probe 脚本。任何写配置、改限额、重启、部署都必须另行显式确认。
+**脚本已算完的，prompt 不要重算**：活跃用户发现、image/video 判别、环比、24h 基线、用户侧失败的模型/账号/根因关联，全在 `ops/observability/probe-user-billing-watch.sh` 的 SQL 里。直接读字段，禁止自己做减法或跨表对照。留给判断的只有两件：错误是客户端噪声还是系统异常（§4）、数字是否值得推送（§3）。
 
-## 确定性基线（机械化 vs 真判断）
-
-按 dev-rules `rules/dev-rules-convention.mdc` §「skill / command 确定性基线」自审：
-
-- **机械化（脚本承载，prompt 不重写）**：活跃用户发现、取数、字段解析、image/video 判别、窗口/用户参数化、SQL 注入守卫、**环比**、**异常基线**——全在 `ops/observability/probe-user-billing-watch.sh` 里用 SQL 直接算出来，一次 probe 自带对照，不依赖对话记忆，也**不要在 prompt 里再做减法**：
-  - 倍率按 `actual_cost / total_cost`。
-  - 环比：读 `delta_reqs_pct` / `delta_cost_pct` / `delta_n_pct`（`环比` 系列输出）。上一窗为 0 时字段是 `null`，写成 `新出现`，不要自己除。换会话、隔几小时、上下文被压缩都不影响环比准确性。
-  - 异常基线：按 `WINDOW_MINUTES` 分桶回溯过去 24 小时，读每用户请求/成本的 `avg`/`max`（`baseline: ... request/cost trailing 24h`），以及每个错误指纹的 `avg`/`max`（`baseline: ... error fingerprint trailing 24h`）。判断"是否突升/飙升"时把当前窗和这份 `max`/`avg` 比，而不是拿两个点瞪着猜。
-- **真判断（留给 prompt / 本 skill）**：一条错误是客户端侧噪声还是系统异常（§4 判别法）、基线之上的数字是否值得推送（§3）。仅此二者。
-
-## §1 启动（每次起盘跑这一条）
-
-先快速查活跃用户清单，再用这份清单跑 billing watch；默认以当前 `users.status = 'active' AND deleted_at IS NULL` 的整份清单为准。若你要盯一个固定子集，才手动传 `USER_IDS=...` 覆盖。
-
-在仓库根（或当前 worktree 根）运行：
+## §1 起盘
 
 ```bash
 bash ops/observability/run-probe.sh \
@@ -35,51 +21,50 @@ bash ops/observability/run-probe.sh \
   --compressed-output
 ```
 
-- `--compressed-output` 用 gzip + 长度/SHA-256 校验承载完整 stdout，避免活跃用户清单和基线明细触发 SSM 输出截断；若压缩帧或校验失败，仍按失败处理，不使用部分结果。
-- `probe-user-billing-watch.sh` 会先读当前活跃用户清单，再继续请求 / 用量 / 错误统计；若活跃用户为空，直接报空窗。
-- 需要盯固定子集时，才额外传 `--env USER_IDS=1,6,16,38` 覆盖默认活跃清单。
-- 若 `run-probe.sh` 在本机 `aws/pyexpat` 启动阶段就失败（macOS/Homebrew 常见），先运行：`python3 scripts/checks/check-local-aws-pyexpat.py --apply`，再重试本命令。
-- **失败如实报告，绝不编数**：`status!=Success` / 非零退出 / SSM 传输错误时，直接报失败与原因，不臆造任何数字。
+- 默认盯 `users.status='active' AND deleted_at IS NULL` 全量；固定子集才加 `--env USER_IDS=1,6,16`。
+- `--compressed-output` 防 SSM 截断；压缩帧/校验失败按失败处理，不用部分结果。
+- 本机 `aws/pyexpat` 启动失败（macOS 常见）：先 `python3 scripts/checks/check-local-aws-pyexpat.py --apply`。
+- **失败如实报告**：`status!=Success` / 非零退出 / 传输错误 → 报失败与原因，绝不编数。
 
-## §2 报告格式（固定）—— 先结论、再细节，别把 schema 甩给读者
+## §2 读数口径
 
-生成报告时读取固定口径与示例；先给业务结论，区分客户端噪声与真实计量/系统错误，不把 schema 原样甩给用户。用户概览表必须包含“用户邮箱”列，按 `user_id` 从 `active users (discovery)` 结果关联 `email`，不得猜测或改写邮箱。见 [操作细则](references/report.md)。
+- 环比：读 `delta_reqs_pct` / `delta_cost_pct` / `delta_n_pct`；上一窗为 0 时字段为 `null`，写"新出现"。
+- 突升/飙升：拿当前窗对 `baseline: ...trailing 24h` 的 `avg`/`max` 比，不拿两个点瞪着猜。
+- 倍率：`actual_cost / total_cost`，内部口径，默认不进表。
+- **用户侧失败**：只看 `errors: user-facing failures by model/account`（已过滤 `status_code<>200`，即排除 recovered-200）。每行自带模型、承接账号（`account_name`/`account_platform`/`account_status`）、分组与 key、`provider_error_code`/`network_error_type`、`root_cause_sample`。`account_id=null` 表示请求没进池（routing 阶段）。这一节是"用户终端到底遇到了什么"的唯一取数口径，**必须报出模型 + 承接账号 + 根因**，不要只报个错误码。
+
+报告格式与示例：[references/report.md](references/report.md)。
 
 ## §3 推送判据（仅这四类才 PushNotification）
 
-1. 某用户**流量归零**：窗口内 0 成功，且 `last_success_utc` / `last_error_utc` 仍在近期（上一窗或最近几个窗还能看到活动）。这类用户即使本窗无请求/无用量，也要作为例外单独报出并按异常判断是否推送。`status=active` 但长期无 last-seen 的空闲账号不进表、不推送；若需要说明，只在表后一句带过即可。
-2. **错误率明显突升**（注意：总量骤降导致的比率被动抬高、而错误绝对量没涨，**不算**突升）。
-3. **成本异常飙升**（区分真实高价模型消费 vs 异常；前者不推）。
-4. **新出现的错误类型**（§4 三条规则都覆盖不到的新指纹）。
+1. **流量归零**：窗口内 0 成功，但 `last_success_utc`/`last_error_utc` 仍在近期。长期无 last-seen 的空闲 active 账号不进表、不推送。
+2. **错误绝对量突升**（总量骤降导致的比率被动抬高，**不算**）。
+3. **成本异常飙升**（真实高价模型消费不算）。
+4. **新指纹**：§4 各行都覆盖不到的错误。
 
-常规读数只在对话内汇报，不打扰。
+常规读数只在对话内汇报。
 
-## §4 客户端侧 vs 系统异常的判别法（固化"怎么判"，不固化"哪几条"）
+## §4 客户端噪声 vs 系统异常
 
-核心是**结构指纹分类**——靠 schema 级字段判别，长期稳定；具体命中的模型名/把数是 point-in-time、会变，**不写死成白名单**（写死会沉淀为错误记忆）。
-
-**判别规则（durable，照此现场判）：**
+按 schema 级字段现场判（durable）；具体模型名是 point-in-time，**不写死白名单**。
 
 | 指纹 | 含义 | 处置 |
 |---|---|---|
-| `error_phase=routing` + `account_id=null` + `error_owner=client` | 错组 key 误投等客户端路由过错（如 newapi 长尾模型用 anthropic 组 key 发 `/v1/messages`） | 客户端侧，**非系统**，不推送 |
-| `error_phase=routing` + `error_owner=platform` | 空池 / 镜像 edge 下游容量拒绝（计入 SLA，但专用 `routing_capacity_rejection` 计数告警仍隔离风暴） | 容量侧；单点少量可不推送，**突升**按系统异常推送 |
-| `status_code=200` + `upstream_status_code∈{429,502,5xx}` | recovered-200：重试已成功，用户侧无感 | 不推送 |
-| `status_code=200` + `msg` 仅含 `cc_environment_stripped` / `cc_geo_stego_normalized`（或 `request_normalized` 审计类） | v1.8.64+ Anthropic CC prompt normalize 预期改写；`gateway.anthropic_request_normalized` 为 canonical 审计 | 不推送 |
-| `error_phase∈{request,upstream}` 的 4xx（`data_inspection_failed` 内容审核 / 退役模型 / prompt too long / 参数错） | 客户端输入或用法问题 | 不推送 |
-| `status_code≥500` 真失败（非 recovered） / 空池 429 绝对量**突升** / 流量归零 / 成本飙升 / 上述都不匹配的**新指纹** | 疑似系统异常 | **推送**并简述 |
+| `status_code=200` + `upstream_status_code∈{429,5xx}` | recovered-200，重试兜住，用户无感 | 不推送（但要报出） |
+| `status_code=200` + msg 仅 `cc_environment_stripped`/`cc_geo_stego_normalized`/`request_normalized` | Anthropic CC prompt normalize 预期改写 | 不推送 |
+| `error_phase=routing` + `account_id=null` + `error_owner=client` | 错组 key 误投等客户端路由过错 | 客户端侧，不推送 |
+| `error_phase=routing` + `error_owner=platform` | 空池 / 镜像 edge 容量拒绝 | 容量侧；少量不推，**突升**按系统异常推 |
+| `error_phase∈{request,upstream}` 4xx（内容审核 / 退役模型 / prompt 超长 / 参数错） | 客户端输入或用法问题 | 不推送 |
+| `status_code>=500` 真失败 / 空池 429 绝对量突升 / 流量归零 / 成本飙升 / 新指纹 | 疑似系统异常 | **推送**并简述模型+账号+根因 |
 
-**当前实例只作锚点、需复核（会变，别照搬）：** 截至最近观察，常见噪声为「某 deepseek/qwen 长尾模型经 anthropic 组 key 误投触发空池 429」「qwen 阿里内容审核 400」。这些**会随模型上下线、客户端改 key 而变化**——新会话先按上表规则现场判，再对照锚点确认是不是同一桩，**不要**把具体模型名当成永久"忽略清单"。
+**锚点（会变，需复核，别当忽略清单）**：近期常见噪声为「长尾 deepseek/qwen 模型经 anthropic 组 key 误投触发空池 429」「qwen 内容审核 400」。先按上表判，再对照锚点确认是不是同一桩。
 
-相关记忆：`gateway_empty_pool_429_not_503`（空池 429 四分类，含错组 key 误投）、`project_account_incident_feishu_alert`（`routing_capacity_rejection_count` 专用 P0 仍隔离 error_phase=routing 风暴；SLA 分子已含 platform 路由过错）。
+相关记忆：`gateway_empty_pool_429_not_503`、`project_account_incident_feishu_alert`。
 
-## §5 挂 30 分钟循环
+## §5 循环
 
-起盘后，用 `CronCreate` 挂会话级循环（例：`13,43 * * * *`），prompt 即"重跑 §1 + 按 §2/§3/§4 汇报"。
-- **会话级、7 天自动过期**——告知用户，关会话即停；要跨会话长跑需重新起盘（这正是本 skill 的意义：随时一键重起）。
-- 或交给通用 `loop` skill 自带调度。
+`CronCreate` 挂会话级循环（例 `13,43 * * * *`），prompt 即"重跑 §1，按 §2/§3/§4 汇报"。会话级、7 天过期——告知用户，关会话即停。
 
 ## §6 边界
 
-- probe 脚本本身承载"环比 / 基线"这类机械计算是允许且鼓励的改动（见「确定性基线」一节）；**不建新脚本**——一切新增取数都加进现有 `probe-user-billing-watch.sh`，保持单一只读入口。改动后必须先跑一次真实 probe 验证 SQL 语法与返回结构，再收工。
-- 本 skill 全程只读；遇到需要写操作（改限额 / 重启 / 改账号）的诉求，停下显式确认并转交写入面 skill。
+新增取数一律加进现有 `probe-user-billing-watch.sh`，**不建新脚本**；改完必须跑一次真实 probe 验证 SQL 与返回结构。

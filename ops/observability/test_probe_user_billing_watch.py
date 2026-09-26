@@ -135,6 +135,21 @@ class ProbeUserBillingWatchTest(unittest.TestCase):
         self.assertEqual(len(error_wow), 1, logged)
         self.assertNotIn("ORDER BY n DESC LIMIT 40", error_wow[0])
 
+    def test_user_facing_failures_carry_model_account_and_root_cause(self) -> None:
+        proc, logged = self.run_probe(USER_IDS="1,16")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        failures = [q for q in logged.split(";\n") if "AS root_cause_sample" in q]
+        self.assertEqual(len(failures), 1, logged)
+        q = failures[0]
+        # recovered-200 must not show up as a user-facing failure
+        self.assertIn("status_code IS DISTINCT FROM 200", q)
+        # terminal-impact basics resolved in-query, not left to a manual join
+        self.assertIn("LEFT JOIN accounts a ON a.id = e.account_id", q)
+        self.assertIn("AS account_name", q)
+        self.assertIn("AS account_platform", q)
+        self.assertIn("AS group_name", q)
+        self.assertIn("e.model", q)
+
     def test_trailing_24h_baseline_excludes_current_window(self) -> None:
         proc, logged = self.run_probe(USER_IDS="1,16", WINDOW_MINUTES="15")
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
