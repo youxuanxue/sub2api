@@ -41,7 +41,7 @@ RUNTIME_CHUNK_BYTES = 12 << 10
 MAX_RUNTIME_DOCUMENT_BYTES = 12 << 20
 
 PSQL = "sudo docker exec -i tokenkey-postgres psql -U tokenkey -d tokenkey -X -A -t -v ON_ERROR_STOP=1"
-REDISCLI = "env -u REDISCLI_AUTH sudo docker exec tokenkey-redis redis-cli"
+REDISCLI = "sudo docker exec tokenkey-redis env -u REDISCLI_AUTH redis-cli"
 
 _ssm_spec = __import__("importlib.util").util.spec_from_file_location(
     "tk_ssm_execution", REPO_ROOT / "ops" / "stage0" / "ssm_execution.py"
