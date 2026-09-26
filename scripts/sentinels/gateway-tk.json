@@ -2852,14 +2852,17 @@
         "isNewAPINVIDIABuildAccount(account)",
         "normalizeGrokReasoningEffortValue(value.String(), resolvedModel)",
         "content.supported(*request, resolvedModel)",
-        "cursor.ValidateMessagesContent(body)",
+        "cursor.ValidateMessagesContent(filterWebSearchHistoryBlocks(wire, stripAll))",
         "apicompat.ChatCompletionsToAnthropicRequest",
         "apicompat.ResponsesToAnthropicRequest",
-        "normalizeCursorMessagesContent(body, resolvedModel)",
+        "return StripEmptyTextBlocks(body), true",
         "type cursorRequestContentCache struct",
-        "digest: request.Digest(), model: model"
+        "key := cursorRequestContentKey{digest: request.Digest(), stripAll: stripAll}",
+        "func cursorExecutionWire(request protocolrouter.CanonicalRequest) ([]byte, bool)",
+        "func cursorWireContentSupported(wire []byte, stripAll bool) bool",
+        "outcomes map[cursorRequestContentKey]bool"
       ],
-      "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent."
+      "rationale": "Known provider/model parameter rejections exclude request paths without weakening explicit client intent. The Cursor content decision stays split: cursorExecutionWire reads only body and inbound protocol, the model reaches the answer solely as stripAll, and the outcome cache keys on stripAll so every account mapping to models that agree on it derives the wire once. Keying on the model string instead would restore the per-model fan-out this split removed."
     },
     {
       "path": "backend/internal/service/protocol_request_parameters_tk_test.go",
@@ -8053,6 +8056,15 @@
         "COALESCE(status_code, 0) >= 400 AND error_owner = 'provider'"
       ],
       "rationale": "upstream_error_rate numerator (upstream_excl) requires a final failure (status >= 400): provider errors recovered to 200 (signature_preempt thinking_blocks_stripped retries, failover) must not drive the P0 capacity alert — us7 false P0 2026-06-10 was 60 recovered-200 rows / 5min window reading 27.5%. The filter is an in-place edit inside upstream-shaped SQL hotspots, compile-clean if dropped, so an upstream merge resolving these SELECT blocks can silently revert it and the false P0 recurs. Same gate must stay in all four sites: dashboard queryErrorCounts (alert evaluator raw path), trends, preagg hourly, 1m metrics collector."
+    },
+    {
+      "path": "backend/internal/service/ops_metrics_collector.go",
+      "must_contain": [
+        "qaCaptureStatusNeedsAttention(status)",
+        "qaCaptureStatusDegraded = \"degraded\"",
+        "case qaCaptureStatusFailed, qaCaptureStatusDegraded:"
+      ],
+      "rationale": "A degraded qa_capture ledger must mirror as an error, not a success. LastErrorAt is the only field a consumer acts on (ops_health_score counts a heartbeat whose LastErrorAt is newer than LastSuccessAt as a failed job); LastResult carries unknown_format_drift but alerts on nothing. Collapsing this back to an `else if status == \"failed\"` branch is compile-clean and silently records unknown-format drift and evidence_dlq as successful runs, voiding the section 8 alert-on-drift requirement."
     },
     {
       "path": "backend/internal/service/ratelimit_service_tk_canonical_ingress_reject.go",
@@ -14610,6 +14622,58 @@
         "req.policyFacts = anthropicpolicy.InspectValidated(req.body, req.inboundProtocol == ProtocolMessages)"
       ],
       "rationale": "The canonical request derives policy facts once, and only for a proven body; deriving them unconditionally would let gjson's reading of a malformed document drive a rewrite, and dropping them restores a per-route body walk."
+    },
+    {
+      "path": "backend/internal/service/gateway_websearch_block_filter.go",
+      "must_contain": [
+        "func WebSearchHistoryStripsAllBlocks(mappedModel string) bool",
+        "return ResolveThinkingProtocol(mappedModel) == ThinkingProtocolPassbackRequired",
+        "func filterWebSearchHistoryBlocks(body []byte, stripAll bool) []byte"
+      ],
+      "rationale": "WebSearchHistoryStripsAllBlocks is the only channel through which a model reaches web-search block filtering. Callers that judge one body against many models depend on it staying the whole model influence."
+    },
+    {
+      "path": "backend/internal/service/cursor_content_split_equivalence_tk_test.go",
+      "must_contain": [
+        "func cursorContentSupportedPerModel(",
+        "TestCursorContentSplitMatchesPerModelPath",
+        "TestCursorContentCacheSeparatesRequestsAndStripDecisions",
+        "TestCursorContentCacheSharesProjectionAcrossAgreeingModels"
+      ],
+      "rationale": "Pins that the split content decision answers identically to the pre-split per-model path, that differing strip decisions and differing requests stay separated, and that agreeing models share one projection."
+    },
+    {
+      "path": "backend/internal/service/cursor_content_fanout_cost_bench_tk_test.go",
+      "must_contain": [
+        "BenchmarkCursorContentByModelFanout",
+        "BenchmarkCursorContentByBodyBytes",
+        "ns/eval"
+      ],
+      "rationale": "Keeps a repeatable per-evaluation cost measure for Cursor content admission across model fan-out and production-bracketed body sizes."
+    },
+    {
+      "path": "backend/internal/observability/qa/service.go",
+      "must_contain": [
+        "func recordQARedactionFormat(format logredact.InputFormat, size int)",
+        "recordQARedactionFormat(result.Format, len(payload))",
+        "func qaRedactionAccountingSnapshot() qaRedactionAccounting",
+        "qaUnknownFormatDriftRatio",
+        "qaUnknownFormatDriftMinRecords",
+        "merged[\"redaction\"] = encoded",
+        "if accounting.Drift && status == captureledger.HealthHealthy"
+      ],
+      "rationale": "QA unknown-format passthrough is the documented residual privacy exposure, so it must stay accounted: every sanitized payload is counted where classification already happened, unknown ones also by retained bytes, and a sustained share degrades the qa_capture health status instead of staying an unread counter."
+    },
+    {
+      "path": "backend/internal/observability/qa/redaction_accounting_tk_test.go",
+      "must_contain": [
+        "TestQARedactionAccountingCountsUnknownFormatBytesAndRecords",
+        "TestQARedactionAccountingCountsEachPayloadOnce",
+        "TestQARedactionAccountingDriftNeedsSustainedShare",
+        "TestQACaptureHealthCarriesRedactionAccountingAndDegradesOnDrift",
+        "TestQACaptureHealthDriftDoesNotOverrideLedgerFailure"
+      ],
+      "rationale": "Pins unknown-format byte/record accounting, single counting per payload despite the memo, the record floor before drift is reported, and that drift degrades a healthy ledger without softening a failed one."
     }
   ]
 }

@@ -296,7 +296,7 @@ constraints are part of the design, not operational advice:
 | Snapshot outage becomes a database storm | One provider owns fallback, batch loads, singleflight and a rate budget; no caller-specific fallback | Some requests may receive the existing capacity/error response during degraded mode |
 | Blue/green or rollback reads an incompatible cache | Versioned cache schema and generation keys; old binaries ignore unknown generations | Rollback may temporarily use the old database path |
 | Degraded reads change customer-facing error semantics | Preserve the existing distinction between authorization, unsupported model, capacity and infrastructure errors; never turn a read failure into an empty entitlement set | Degraded mode may fail a request, but must not misclassify it as a client error |
-| QA unknown-format passthrough becomes invisible privacy debt | Count unknown format bytes and records asynchronously, alert on drift, retain redaction version in every Bundle and keep lifecycle controls unchanged | Unknown formats remain an explicitly documented residual exposure |
+| QA unknown-format passthrough becomes invisible privacy debt | Count unknown format bytes and records asynchronously, alert on drift, retain redaction version in every Bundle and keep lifecycle controls unchanged | Unknown formats remain an explicitly documented residual exposure — implemented, see §9.5 |
 
 The snapshot is not an authorization cache with an independent TTL. Its
 freshness is governed by source watermarks and invalidation coverage. A periodic
@@ -409,6 +409,135 @@ After this change `gjson` does not appear in the admission profile at all; the
 remaining samples are GC and scheduler. The parser-convergence work named in
 section 6 therefore stands on its own correctness argument (one owner for routing
 metadata), not on a CPU argument, and is no longer a performance step.
+
+### 9.3 Production baseline on 1.8.259, and what it reordered (2026-09-26)
+
+The earlier production profile was taken over a 40s window carrying 59 mostly
+small requests, which is why `anthropicpolicy.Normalize` measured 4.38% there
+while the same work was 64% of a 64KiB benchmark. A profile without a body-size
+dimension cannot say which size bracket it represents, so the 1.8.259 capture
+records both. Over 30 minutes of production traffic (2370 requests):
+`input_tokens` p50 3263 / p90 12258 / p99 51159 / max 246954, i.e. roughly 13KiB
+/ 49KiB / 205KiB of body at ~4 bytes per token. Inbound mix was
+`/v1/chat/completions` 1698, `/v1/responses` 428, `/v1/messages` 330. The real
+p90 therefore sits in the 49KiB bracket, where step 2 measured -66.8% — not in
+the small-body bracket the earlier window suggested.
+
+The 120s / 20.32s-sample profile on 1.8.259 then showed:
+
+- `anthropicpolicy` is now `InspectValidated` at 5.12%, and it runs once per
+  request rather than once per route, so it no longer amplifies with fan-out;
+- `gjson.parseSquash` remains the top flat cost at 12.70%, but 60.5% of it is
+  that single per-request derivation. The rest is a long tail of roughly twenty
+  independent functions each walking the same body again (about 0.4s of 20.32s);
+- `cursorProtocolContentSupported` rose from 7.17% to 8.56% and became the
+  largest business hotspot — not a regression, but the share left standing once
+  the surrounding work was removed.
+
+Two things this changes. First, parser convergence gains a second argument
+beyond correctness: with no single owner for "parse this body once", the
+scattered read sites are a structural source of long-tail CPU. It stays behind
+the Cursor work at about 2% of samples. Second, and more important for section
+10, CPU is not the tail-latency story. `gateway_latency_ms` correlates weakly
+with body size — a 460-token request measured 457ms while a 217k-token request
+measured 461ms — and the >64KiB bucket shows p50 55ms against p95 380ms, a
+sevenfold spread inside one size bucket. Weak size correlation plus large
+within-bucket spread is the signature of waiting, not computing, and the whole
+profile accounts for only 16.93% of wall time. Any work on that tail needs its
+own plan measured in `gateway_latency_ms` percentiles; it is not covered by this
+document and must not be folded into it.
+
+### 9.4 Cursor content admission: one projection per body (2026-09-26)
+
+`cursorProtocolContentSupported` was cached on `{digest, resolvedModel}`, and
+`resolvedModel` comes from each account's own model mapping, so one request
+evaluated against accounts mapping to different upstream models re-ran the
+entire projection per distinct model. The production profile showed 1.75s
+entering the cache and 1.74s (99.4%) passing through it, spent on
+`ResponsesToAnthropicRequest` (43.1%), `cursor.ValidateMessagesContent` (19.0%),
+`adaptResponsesClientToolsForAnthropic` (17.2%) and the `json.Unmarshal` /
+`json.Marshal` pair — full codec work, not `gjson` scanning.
+
+The model's entire influence on that decision is one bool. It reaches the filter
+only through `ResolveThinkingProtocol(mappedModel) ==
+ThinkingProtocolPassbackRequired`, now named `WebSearchHistoryStripsAllBlocks`,
+and `StripEmptyTextBlocks` does not read the model at all. So the decision splits
+the same way section 9.2's did: `cursorExecutionWire` derives the Messages wire
+from body and inbound protocol alone, while `cursorWireContentSupported` applies
+the per-route half. The cache keys the outcome on `stripAll` instead of the model
+string, because models that agree on it cannot disagree on the answer.
+Anthropic-strict models — which is what a Cursor account maps to — all collapse
+to one entry, so the wire is derived once no matter how many models are judged.
+
+That single outcome key is the whole mechanism. A first version also memoized the
+projection itself in a `wires` map, described as what let distinct models share
+one projection. It was not: with the outcome cache in place, an instrumented
+build derived the wire exactly once at 1, 4 and 16 models, and `wires` never took
+a second hit. It could only earn one when a single body met both a
+passback-required and an anthropic-strict model, and to serve that it retained
+whole projected bodies — 1,632,592 bytes measured across 8 groups at 205KiB,
+where the pre-change cache held only bools. Removing it left the timings
+indistinguishable (interleaved in one process: -0.47%, -2.95%, +3.45% at 1, 4 and
+16 models, inconsistent in sign) while dropping one map and one allocation per
+request. A cross-session comparison had first reported +10.84% on `models_1` for
+the removal, which is impossible — that path does strictly less work and its
+allocation count falls — and was section 9.2's between-run bias again.
+
+Measured at `n=8`, against a baseline re-measured on unmodified code:
+
+- `models_4` -75.5%, `models_16` -93.0%, both `p=0.000`; `ns/eval` falls from a
+  flat ~136µs (the signature of a cache that never helps) to 4.8µs at 16 models;
+- across production-bracketed body sizes, 8KiB -74.1%, 49KiB -75.8%,
+  205KiB -73.5%, all `p=0.000`;
+- allocations -72.8% geomean, and flat at 46/op regardless of model count;
+- `models_1` is -3.6% (`p=0.050`), i.e. no material change: a single evaluation
+  has no duplicate to remove.
+
+A first comparison here reported -53.5% on `models_1` and -87.4% geomean. That
+baseline was invalid: the benchmark ran in the background while the source was
+already edited, so the "before" binary was partly the "after" code. The figures
+above come from a baseline measured with the changes stashed. Section 9.2's
+noise finding still applies — two runs of one binary differed by 7.3% geomean on
+this host — so `models_1` at -3.6% is inside noise and is reported as unchanged.
+
+### 9.5 Unknown-format accounting, the remaining §8 privacy debt (2026-09-26)
+
+Section 8 required unknown-format passthrough to be counted and alerted on. The
+redaction version was already persisted (`logredact-v4`), but the counting half
+was absent: `RedactOnePass` returned `FormatUnknown` payloads verbatim and no
+production code read that classification, so the residual exposure had no
+observable size. `FormatUnknown` appeared nowhere outside its own definition and
+a test.
+
+Counting now happens at the classification that already ran, so it adds no scan
+and no second pass over a body. Every sanitized payload adds to a redacted
+record/byte total and unknown ones additionally to an unknown total; the
+capture-local memo returns before classification, so a payload repeated across
+fields is counted once, and empty payloads are not records at all.
+
+Alerting reuses the existing channel rather than adding one. The counters ride
+the `qa_capture` health payload that `OpsMetricsCollector.mirrorQACaptureHealth`
+already writes to a job heartbeat, appended under a `redaction` key so existing
+consumers still decode the ledger's own fields unchanged. A sustained unknown
+share degrades a healthy status. Two boundaries are deliberate: drift never
+escalates to `failed`, because capture itself is working and this is a privacy
+signal rather than a capacity one, and it never softens an already-failed ledger.
+A record floor keeps a handful of early unknown payloads from pinning the ratio
+at 1.0 for the process lifetime.
+
+Riding that channel required fixing it. `mirrorQACaptureHealth` special-cased
+only `failed`, so a `degraded` ledger fell through to `LastSuccessAt` and drift
+was recorded as a successful run — as was the pre-existing `evidence_dlq`
+degradation. `LastErrorAt` is the only field a consumer acts on: `ops_health_score`
+counts a heartbeat whose `LastErrorAt` is newer than its `LastSuccessAt` as a
+failed job, while `LastResult` — which does carry `unknown_format_drift` — is
+stored for display and alerts on nothing. Both attention-worthy statuses now
+mirror as errors, and an unrecognized or empty status keeps the benign handling so
+a future ledger status cannot turn every run into a false failure.
+
+This closes the §8 row. Lifecycle controls, retention and redaction coverage are
+untouched: unknown formats are still retained verbatim, which remains the
+documented residual exposure — it is now an accounted one.
 
 Required behavior checks include:
 

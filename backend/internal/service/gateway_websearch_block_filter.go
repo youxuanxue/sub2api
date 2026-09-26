@@ -44,11 +44,23 @@ var (
 // empty gets a placeholder text block (mirroring FilterThinkingBlocksForRetry).
 // Returns the original body unchanged when nothing needs stripping.
 func FilterWebSearchHistoryBlocks(body []byte, mappedModel string) []byte {
+	return filterWebSearchHistoryBlocks(body, WebSearchHistoryStripsAllBlocks(mappedModel))
+}
+
+// WebSearchHistoryStripsAllBlocks reports the entire influence mappedModel has
+// on FilterWebSearchHistoryBlocks: passback-required upstreams lose every
+// web-search block, every other upstream loses only the emulation-synthesized
+// ones. The model reaches the filter through nothing else, so a caller that
+// judges one body against many models collapses those models to this single
+// bool instead of re-filtering once per model.
+func WebSearchHistoryStripsAllBlocks(mappedModel string) bool {
+	return ResolveThinkingProtocol(mappedModel) == ThinkingProtocolPassbackRequired
+}
+
+func filterWebSearchHistoryBlocks(body []byte, stripAll bool) []byte {
 	if !bytes.Contains(body, patternServerToolUse) && !bytes.Contains(body, patternWebSearchToolResult) {
 		return body
 	}
-
-	stripAll := ResolveThinkingProtocol(mappedModel) == ThinkingProtocolPassbackRequired
 
 	jsonStr := *(*string)(unsafe.Pointer(&body))
 	msgsRes := gjson.Get(jsonStr, "messages")
