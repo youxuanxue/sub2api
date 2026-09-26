@@ -14544,6 +14544,20 @@
         "TestResetCounters_计数器未接线时仍释放槽位"
       ],
       "rationale": "两条迁移阶梯的并发回归。用真实 INCR 语义复刻同一故障事件下的 3 个 in-flight 请求，锁定「一次事件只推进一轮」：抽掉任一守卫后对应用例确定性失败（已反向验证），而单请求用例全绿——没有这些用例这两个回归会完全静默。另锚定槽位 TTL 收缩到本轮冷却、恢复路径释放槽位、三条阶梯 key 前缀互不重叠。 后三条锚住联合复审收敛进来的修复：管理员清理必须覆盖四条阶梯（抽掉 ClearRateLimit 里的 ResetInternal500Counter 后确定性失败，已反向验证）；nil 接收者上的清理必须静默返回而非 panic（把守卫顺序改回「release 在 s == nil 之前」后确定性 panic，已反向验证）；计数器缓存未接线时仍必须释放槽位，两者是独立依赖。"
+    },
+    {
+      "path": ".github/workflows/backend-ci.yml",
+      "must_contain": [
+        "+refs/heads/main:refs/remotes/origin/main"
+      ],
+      "rationale": "preflight 的 diff 门禁以 origin/main 为默认基线：scripts/preflight/plan.py 与约 29 处门禁调用都硬编码 origin/main，而不是 PR 自己的 base。此前这一步只 fetch $GITHUB_BASE_REF，于是任何 stacked PR（base 指向另一个功能分支）的 CI 里 origin/main 根本不存在，plan.py 以 exit 128 整体失败——#2338 实测踩中，只能把 base 改回 main 绕过。因此 origin/main 必须无条件 fetch，且不能嵌进 $GITHUB_BASE_REF 条件分支里。锚定强制 refspec 形式（`+`）：checkout 若已留下不同深度的同名 ref，非强制更新会被当成 non-fast-forward 拒绝，与 ops-daily-diagnostics.yml / pricing-registry-publish.yml 的写法一致。"
+    },
+    {
+      "path": "scripts/test_backend_ci_routing.py",
+      "must_contain": [
+        "def test_base_ref_fetch_always_materializes_origin_main("
+      ],
+      "rationale": "守护上一条不变量的契约用例。删掉它，把 origin/main 的 fetch 改回「只 fetch $GITHUB_BASE_REF」在 base=main 的普通 PR 上完全看不出问题——CI 全绿，只有下一个 stacked PR 才会以 exit 128 炸掉，而那时现场已经和改动脱钩。该用例同时断言 fetch 不得嵌在 $GITHUB_BASE_REF 条件内（两种失败形态均已反向验证）。经 .preflight/gates.json 的 `backend-ci routing and base-ref contract` 接入 preflight，pre-push 即可拦住。"
     }
   ]
 }

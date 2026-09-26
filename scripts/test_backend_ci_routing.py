@@ -579,6 +579,38 @@ class BackendCIRoutingTest(unittest.TestCase):
         self.assertIn("go test -tags=unit ./...", result.stdout)
         self.assertNotIn("unit_test_runner.py", result.stdout)
 
+    def test_base_ref_fetch_always_materializes_origin_main(self) -> None:
+        """Stacked PRs must not lose origin/main.
+
+        scripts/preflight/plan.py and ~29 gate invocations default to
+        PREFLIGHT_BASE=origin/main. A step that fetches only $GITHUB_BASE_REF
+        leaves origin/main absent whenever a PR is stacked on another feature
+        branch, and preflight then dies resolving its own gate scope
+        (`git diff origin/main...HEAD` exit 128) before any gate runs.
+        """
+        steps = self.jobs["preflight"]["steps"]
+        fetch = [s for s in steps if s.get("name") == "Fetch base ref for diff gates"]
+        self.assertEqual(len(fetch), 1, "expected exactly one base-ref fetch step")
+        run = fetch[0]["run"]
+
+        self.assertIn(
+            "+refs/heads/main:refs/remotes/origin/main",
+            run,
+            "origin/main must be fetched unconditionally, not only when it is the PR base",
+        )
+        # The origin/main fetch must be unconditional: everything up to the first
+        # `if` must already contain it, so no base-ref condition can gate it.
+        # (Line continuations mean the refspec need not share a line with `git fetch`.)
+        before_condition = run.split("\nif ", 1)[0]
+        self.assertIn(
+            "+refs/heads/main:refs/remotes/origin/main",
+            before_condition,
+            "the origin/main fetch must not be nested inside a $GITHUB_BASE_REF condition",
+        )
+        self.assertNotIn("GITHUB_BASE_REF", before_condition)
+        # Stacked PRs still need their own base ref for base-relative gates.
+        self.assertIn("GITHUB_BASE_REF", run)
+
     def test_unit_target_uses_compile_once_shards_on_cold_path(self) -> None:
         result = subprocess.run(
             [

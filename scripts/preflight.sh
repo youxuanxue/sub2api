@@ -3900,6 +3900,28 @@ fi
 echo ""
 
 fi # preflight gate
+# ---- sub2api: backend-ci routing / base-ref contract ------------------------
+# Owns the expensive-job routing contract in backend-ci.yml plus the base-ref
+# fetch that every diff gate depends on. CI already runs this module in its
+# "CI orchestration contract tests" step, but that is the workflow validating
+# itself: a change that breaks the base-ref fetch would be pushed before anyone
+# learns of it. Gating it locally means preflight catches it pre-push.
+if _preflight_selected 'backend-ci routing and base-ref contract'; then
+echo "=== sub2api: backend-ci routing and base-ref contract ==="
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "  FAIL: python3 not on PATH (required by backend-ci routing contract)"
+    errors=$((errors + 1))
+elif ! python3 -m unittest scripts.test_backend_ci_routing >/dev/null 2>&1; then
+    echo "  FAIL: backend-ci routing / base-ref contract"
+    echo "        — run: python3 -m unittest scripts.test_backend_ci_routing -v"
+    errors=$((errors + 1))
+else
+    echo "  ok: expensive-job routing and the origin/main base-ref fetch hold"
+fi
+
+echo ""
+
+fi # preflight gate
 if _preflight_selected 'GitHub cache action Node runtime'; then
 echo "=== sub2api: GitHub cache action Node runtime ==="
 if ! command -v python3 >/dev/null 2>&1; then

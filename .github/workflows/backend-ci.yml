@@ -129,7 +129,26 @@ jobs:
       - name: Fetch base ref for diff gates
         # fetch-depth alone does not guarantee origin/main on PR checkouts; preflight
         # deleted-file / merge-base gates need origin/main...HEAD.
-        run: git fetch --no-tags origin "${GITHUB_BASE_REF:-main}:refs/remotes/origin/${GITHUB_BASE_REF:-main}" --depth=64
+        #
+        # origin/main is fetched unconditionally, not just when it happens to be the
+        # PR base: scripts/preflight/plan.py and ~29 gate invocations default to
+        # PREFLIGHT_BASE=origin/main. On a stacked PR (base = another feature branch)
+        # fetching only $GITHUB_BASE_REF leaves origin/main absent, and the very first
+        # thing preflight does — resolving its gate scope — dies with
+        # `git diff origin/main...HEAD` exit 128 before any gate runs.
+        #
+        # Both refspecs are forced (+) like the other origin/main fetches in this
+        # repo: a ref the checkout already left behind at a different depth would
+        # otherwise reject the update as a non-fast-forward.
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/heads/main:refs/remotes/origin/main" --depth=64
+          # Stacked PRs additionally need their own base ref for base-relative gates.
+          if [ -n "${GITHUB_BASE_REF:-}" ] && [ "${GITHUB_BASE_REF}" != "main" ]; then
+            git fetch --no-tags origin \
+              "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" --depth=64
+          fi
       - uses: actions/setup-go@v6
         if: needs.changes.outputs.preflight_go == 'true'
         with:
