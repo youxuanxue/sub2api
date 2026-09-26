@@ -173,6 +173,7 @@
     "Go cache prune plan": "build",
     "Go cache boundary contract": "build",
     "GitHub cache action Node runtime": "build",
+    "backend-ci routing and base-ref contract": "build",
     "Docker action Node runtime": "build",
     "pnpm audit owner contract": "build",
     "Cursor deployment isolation": "build",
