@@ -160,7 +160,13 @@ identical code on different pinned dependencies is a different build — and the
 `Dockerfile`, which owns the base image, the non-root user and the read-only
 filesystem. Leaving the `Dockerfile` out meant a changed security contract
 published under an unchanged tag, where the host's `docker pull` found nothing new
-and the deploy's digest gate still agreed. CI runs it standalone to tag the image
+and the deploy's digest gate still agreed.
+
+Every digest input ships inside the image, the `Dockerfile` included. The digest is
+computed at runtime from files on disk, so an input that never reached the image
+makes the Worker report `unknown` and the publish gate reject the build with
+`image reports unknown but is tagged <digest>`. Add a file to `DIGEST_FILES` and you
+must add it to both the `COPY` line and `.dockerignore`. CI runs it standalone to tag the image
 and the Worker imports it at runtime, so the tag and the process cannot disagree.
 Run it yourself with
 `python3 ops/gemini-web/build_digest.py`; it needs no dependencies.

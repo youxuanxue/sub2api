@@ -85,30 +85,55 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push worker image
+      # Build into the local daemon first, WITHOUT pushing. Identity is verified
+      # before anything reaches the registry: a push-then-verify order leaves a
+      # lying tag behind on failure, which is the exact class of problem this
+      # digest exists to eliminate (a tag naming a build nobody can reproduce).
+      # It happened: a build whose image reported `unknown` was pushed, the verify
+      # step failed the job, and the tag stayed in GHCR permanently.
+      #
+      # `load: true` only works for a single-platform build, which this is by
+      # design (see the job comment above: every deployable edge is x86_64). Adding
+      # a second platform here would silently break the load, so a Worker that ever
+      # needs arm64 must verify by digest from the registry instead of reordering
+      # these steps back to push-then-verify.
+      - name: Build worker image (no push)
         uses: docker/build-push-action@v6
         with:
           context: ops/gemini-web
           platforms: linux/amd64
-          push: true
+          push: false
+          load: true
           tags: ${{ steps.digest.outputs.image }}
           provenance: false
 
-      - name: Verify pushed image reports the tagged digest
+      - name: Verify the built image reports the tagged digest
         run: |
           set -euo pipefail
           IMAGE="${{ steps.digest.outputs.image }}"
           EXPECTED="${{ steps.digest.outputs.digest }}"
           # The tag is only trustworthy if the image agrees with it. Ask the
           # image itself, the same way the fleet check asks a running Worker.
+          # `unknown` here means a DIGEST_FILES entry is not in the image: the
+          # digest is computed at runtime from files on disk.
           REPORTED="$(docker run --rm --entrypoint python "$IMAGE" build_digest.py)"
           if [ "$REPORTED" != "$EXPECTED" ]; then
             echo "image reports ${REPORTED} but is tagged ${EXPECTED}" >&2
+            if [ "$REPORTED" = unknown ]; then
+              echo "a file in build_digest.py DIGEST_FILES is missing from the image; check the Dockerfile COPY line" >&2
+            fi
             exit 1
           fi
           ARCH="$(docker image inspect "$IMAGE" --format '{{.Architecture}}')"
           [ "$ARCH" = amd64 ] || { echo "unexpected architecture: ${ARCH}" >&2; exit 1; }
           echo "gemini_web_image_verified: ${IMAGE} arch=${ARCH}"
+
+      # Only a verified image gets a tag in the registry.
+      - name: Push verified worker image
+        run: |
+          set -euo pipefail
+          docker push "${{ steps.digest.outputs.image }}"
+          echo "gemini_web_image_pushed: ${{ steps.digest.outputs.image }}"
 
       - name: Summarize
         run: |

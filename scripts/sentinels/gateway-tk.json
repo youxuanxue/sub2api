@@ -519,6 +519,25 @@
       "rationale": "Single owner of the Worker build-identity contract, imported by worker.py at runtime and run standalone by CI to tag the image. Must stay dependency-free so CI can compute the digest without curl_cffi/Pillow, and every shipped file must stay in DIGEST_FILES or two different builds can share one identity. The Dockerfile is a digest input because it owns the base image, the non-root user and the read-only filesystem: while it was excluded, dropping USER 1000:1000 produced a root container under the previous tag, where the host's docker pull found nothing new and the deploy's digest gate still agreed."
     },
     {
+      "path": "ops/gemini-web/Dockerfile",
+      "must_contain": [
+        "COPY --chmod=0444 worker.py session_contract.py build_digest.py Dockerfile .",
+        "USER 1000:1000"
+      ],
+      "rationale": "Every build_digest.py DIGEST_FILES input must be COPYed into the image, the Dockerfile included: the digest is computed at runtime from files on disk, so a hashed file that never arrived makes the Worker report `unknown` and the publish gate reject the build with 'image reports unknown but is tagged <digest>'. That regression reached main once. USER 1000:1000 is part of the security contract the digest now covers, so changing it must move the tag rather than republish under the old one."
+    },
+    {
+      "path": "ops/gemini-web/test_worker.py",
+      "must_contain": [
+        "def test_dockerfile_ships_every_digest_input(self):",
+        "def test_digest_is_computable_from_the_shipped_file_set_alone(self):",
+        "def test_dockerfile_changes_the_build_digest(self):",
+        "def test_readiness_verifies_control_on_a_freshly_booted_host(self):",
+        "cannot identify itself"
+      ],
+      "rationale": "Guards the Worker's build-identity contract, which has failed in both directions already. test_dockerfile_ships_every_digest_input must cover every DIGEST_FILES entry with no exemption: exempting the Dockerfile (on the false reasoning that a build input need not ship) published an image reporting `unknown`. test_digest_is_computable_from_the_shipped_file_set_alone stages exactly the COPYed set and computes the digest the way the running container does, because asserting over the Dockerfile's text cannot catch an input that never arrived. test_dockerfile_changes_the_build_digest keeps a changed security contract from reusing a tag. The freshly-booted-host test pins that time.monotonic() counting from boot must not make never-verified look like verified-long-ago, which made a Worker started in a host's first POLL_SECONDS never become ready."
+    },
+    {
       "path": ".github/workflows/gemini-web-worker.yml",
       "must_contain": [
         "python3 ops/gemini-web/build_digest.py",
@@ -526,9 +545,11 @@
         "refusing to publish an unidentified build",
         "but is tagged",
         "bash ops/gemini-web/test_deploy_worker_on_host.sh",
-        "bash ops/gemini-web/test_prune_worker_pets.sh"
+        "bash ops/gemini-web/test_prune_worker_pets.sh",
+        "push: false",
+        "name: Push verified worker image"
       ],
-      "rationale": "Worker images come from CI only; per-host docker build is what produced the lying 1.8.253-147512b9d tag. amd64-only is deliberate: deployable edges are x86_64 and prod runs no Worker, so CLAUDE.md §9 arm64 applies to the gateway image, not this one. The publish step must keep refusing an unidentified digest and must keep verifying the pushed image reports the tag it carries. The deploy and retention fixtures run here because those scripts decide whether a host keeps a serving Worker; leaving them to an operator is how the untested path ships."
+      "rationale": "Worker images come from CI only; per-host docker build is what produced the lying 1.8.253-147512b9d tag. amd64-only is deliberate: deployable edges are x86_64 and prod runs no Worker, so CLAUDE.md §9 arm64 applies to the gateway image, not this one. The publish step must keep refusing an unidentified digest and must keep verifying the pushed image reports the tag it carries. The deploy and retention fixtures run here because those scripts decide whether a host keeps a serving Worker; leaving them to an operator is how the untested path ships. The image is built and verified locally before any push: a push-then-verify order left a tag in GHCR whose image reported `unknown` when the verify step failed the job, which is exactly the lying-tag class the digest exists to eliminate. Only a verified image may be tagged in the registry."
     },
     {
       "path": "ops/observability/check-gemini-web-worker-fleet.sh",
