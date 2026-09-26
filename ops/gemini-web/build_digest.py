@@ -17,8 +17,18 @@ import os
 
 # Every shipped file whose contents change behaviour, this module included.
 # requirements.txt counts: identical code on different pinned dependency
-# versions is a different build.
-DIGEST_FILES = ('worker.py', 'session_contract.py', 'requirements.txt', 'build_digest.py')
+# versions is a different build. So does the Dockerfile: it owns the base image,
+# the non-root user and the read-only filesystem, so identical sources built
+# under a changed Dockerfile are a different container. Leaving it out meant a
+# security-contract change published to an unchanged tag, where the host's
+# `docker pull` finds nothing new and the deploy's digest gate still passes.
+DIGEST_FILES = (
+    'worker.py',
+    'session_contract.py',
+    'requirements.txt',
+    'build_digest.py',
+    'Dockerfile',
+)
 DIGEST_LENGTH = 12
 UNKNOWN = 'unknown'
 

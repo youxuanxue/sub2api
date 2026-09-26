@@ -507,11 +507,16 @@
     {
       "path": "ops/gemini-web/build_digest.py",
       "must_contain": [
-        "DIGEST_FILES = ('worker.py', 'session_contract.py', 'requirements.txt', 'build_digest.py')",
         "def build_digest(directory=None):",
-        "return UNKNOWN"
+        "return UNKNOWN",
+        "    'Dockerfile',",
+        "DIGEST_FILES = (",
+        "'worker.py'",
+        "'session_contract.py'",
+        "'requirements.txt'",
+        "'build_digest.py'"
       ],
-      "rationale": "Single owner of the Worker build-identity contract, imported by worker.py at runtime and run standalone by CI to tag the image. Must stay dependency-free so CI can compute the digest without curl_cffi/Pillow, and every shipped file must stay in DIGEST_FILES or two different builds can share one identity."
+      "rationale": "Single owner of the Worker build-identity contract, imported by worker.py at runtime and run standalone by CI to tag the image. Must stay dependency-free so CI can compute the digest without curl_cffi/Pillow, and every shipped file must stay in DIGEST_FILES or two different builds can share one identity. The Dockerfile is a digest input because it owns the base image, the non-root user and the read-only filesystem: while it was excluded, dropping USER 1000:1000 produced a root container under the previous tag, where the host's docker pull found nothing new and the deploy's digest gate still agreed."
     },
     {
       "path": ".github/workflows/gemini-web-worker.yml",

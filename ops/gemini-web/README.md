@@ -154,11 +154,15 @@ The Worker deploys on its own cadence: prod does not run it, and the four
 deployable edges do. Nothing couples it to a gateway release, so the only way to
 prove every edge runs one build is to ask each Worker what it runs.
 
-`build_digest.py` owns the contract: sha256 over every shipped file that changes
-behaviour (`DIGEST_FILES`, including `requirements.txt` — identical code on
-different pinned dependencies is a different build), first 12 hex. CI runs it
-standalone to tag the image and the Worker imports it at runtime, so the tag and
-the process cannot disagree. Run it yourself with
+`build_digest.py` owns the contract: sha256 over every file that changes what the
+container is (`DIGEST_FILES`), first 12 hex. That includes `requirements.txt` —
+identical code on different pinned dependencies is a different build — and the
+`Dockerfile`, which owns the base image, the non-root user and the read-only
+filesystem. Leaving the `Dockerfile` out meant a changed security contract
+published under an unchanged tag, where the host's `docker pull` found nothing new
+and the deploy's digest gate still agreed. CI runs it standalone to tag the image
+and the Worker imports it at runtime, so the tag and the process cannot disagree.
+Run it yourself with
 `python3 ops/gemini-web/build_digest.py`; it needs no dependencies.
 
 `/readyz` reports `build_digest` and `control_protocol_version` on both the 200

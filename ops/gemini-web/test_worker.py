@@ -602,11 +602,43 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
             self.assertEqual(build_digest.build_digest(str(staged)), baseline)
 
     def test_dockerfile_ships_every_digest_input(self):
-        """A file in the digest but absent from the image makes identity a lie."""
-        dockerfile = (Path(build_digest.__file__).parent / 'Dockerfile').read_text()
+        """A file in the digest but absent from the image makes identity a lie.
+
+        The Dockerfile itself is the exception: it is a build input, so it changes
+        the digest without needing to be inside the image. Everything else is
+        hashed precisely so a running container can prove what it ships, which it
+        cannot do for a file that never arrived.
+        """
+        source = Path(build_digest.__file__).parent
+        dockerfile = (source / 'Dockerfile').read_text()
         copied = ' '.join(line for line in dockerfile.splitlines() if line.startswith('COPY'))
         for name in build_digest.DIGEST_FILES:
+            if name == 'Dockerfile':
+                continue
             self.assertIn(name, copied, f'{name} is hashed but never COPYed into the image')
+        # The build context must actually contain every digest input, or CI would
+        # hash bytes that never reached the image.
+        ignore = (source / '.dockerignore').read_text().splitlines()
+        for name in build_digest.DIGEST_FILES:
+            self.assertIn(f'!{name}', ignore,
+                          f'{name} is hashed but excluded from the build context')
+
+    def test_dockerfile_changes_the_build_digest(self):
+        """The Dockerfile owns the security contract, so it must move identity.
+
+        Without this, dropping `USER 1000:1000` published a root container under
+        the previous tag: the host pulled nothing new and the digest gate agreed.
+        """
+        source = Path(build_digest.__file__).parent
+        with tempfile.TemporaryDirectory() as work:
+            staged = Path(work) / 'staged'
+            shutil.copytree(source, staged, ignore=shutil.ignore_patterns('__pycache__'))
+            baseline = build_digest.build_digest(str(staged))
+            target = staged / 'Dockerfile'
+            original = target.read_text()
+            target.write_text(original.replace('USER 1000:1000', 'USER 0:0'))
+            self.assertNotEqual(build_digest.build_digest(str(staged)), baseline,
+                                'a changed container contract must not reuse a tag')
 
     def test_readiness_verifies_control_on_a_freshly_booted_host(self):
         """time.monotonic() counts from boot, so uptime must not imply freshness.
