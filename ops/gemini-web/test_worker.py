@@ -604,17 +604,15 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
     def test_dockerfile_ships_every_digest_input(self):
         """A file in the digest but absent from the image makes identity a lie.
 
-        The Dockerfile itself is the exception: it is a build input, so it changes
-        the digest without needing to be inside the image. Everything else is
-        hashed precisely so a running container can prove what it ships, which it
-        cannot do for a file that never arrived.
+        There is no exception to this, the Dockerfile included. build_digest.py
+        reads its inputs at runtime, so a hashed file that never reached the image
+        makes the Worker report `unknown`: exempting the Dockerfile here shipped a
+        build whose own publish gate rejected it.
         """
         source = Path(build_digest.__file__).parent
         dockerfile = (source / 'Dockerfile').read_text()
         copied = ' '.join(line for line in dockerfile.splitlines() if line.startswith('COPY'))
         for name in build_digest.DIGEST_FILES:
-            if name == 'Dockerfile':
-                continue
             self.assertIn(name, copied, f'{name} is hashed but never COPYed into the image')
         # The build context must actually contain every digest input, or CI would
         # hash bytes that never reached the image.
@@ -622,6 +620,33 @@ assert rss_bytes < 384 * 1024 * 1024, rss_bytes
         for name in build_digest.DIGEST_FILES:
             self.assertIn(f'!{name}', ignore,
                           f'{name} is hashed but excluded from the build context')
+
+    def test_digest_is_computable_from_the_shipped_file_set_alone(self):
+        """The container has only what COPY put there, and must still identify itself.
+
+        Asserting over the Dockerfile's text is not enough: this stages exactly the
+        COPYed set and computes the digest the way the running Worker does. A
+        missing input returns UNKNOWN, which the publish gate reads as "image
+        reports unknown but is tagged <digest>".
+        """
+        source = Path(build_digest.__file__).parent
+        copied = []
+        for line in (source / 'Dockerfile').read_text().splitlines():
+            if not line.startswith('COPY'):
+                continue
+            # Drop the COPY keyword, any --flags, and the destination.
+            parts = [p for p in line.split()[1:] if not p.startswith('--')]
+            copied.extend(parts[:-1])
+        with tempfile.TemporaryDirectory() as work:
+            image = Path(work) / 'app'
+            image.mkdir()
+            for name in copied:
+                shutil.copy(source / name, image / name)
+            digest = build_digest.build_digest(str(image))
+            self.assertNotEqual(digest, build_digest.UNKNOWN,
+                                f'a container holding only {sorted(copied)} cannot identify itself')
+            self.assertEqual(digest, worker.BUILD_DIGEST,
+                             'the shipped file set must produce the digest CI tags with')
 
     def test_dockerfile_changes_the_build_digest(self):
         """The Dockerfile owns the security contract, so it must move identity.
