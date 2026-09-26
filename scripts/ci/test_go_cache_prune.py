@@ -280,7 +280,14 @@ class GoCachePruneTest(unittest.TestCase):
             with patch.object(go_cache_prune, "_list_caches", return_value=[]), \
                     patch.object(go_cache_prune, "family_fits", return_value=True) as fits:
                 self.assertEqual(go_cache_prune.main(["--save-budget", "test", "--path", root]), 0)
-            self.assertEqual(fits.call_args.kwargs["size"], 1024 * 1024 + 3 * 1024 + 8 + link.lstat().st_size)
+            # The walk still counts nested files once and never follows the
+            # symlink cycle; family_fits receives that raw total normalized to
+            # the compressed bytes the budget is expressed in.
+            raw = 1024 * 1024 + 3 * 1024 + 8 + link.lstat().st_size
+            self.assertEqual(
+                fits.call_args.kwargs["size"],
+                go_cache_prune.estimate_compressed_size(raw),
+            )
 
     def test_heal_actually_deletes_an_oversized_single_snapshot(self) -> None:
         caches = [_cache("Linux-gobuild-test-v1-too-large", BUDGET_BYTES + 1, cache_id=23)]
@@ -305,6 +312,196 @@ class GoCachePruneTest(unittest.TestCase):
 
     def test_default_budget_is_six_gib(self) -> None:
         self.assertEqual(BUDGET_BYTES, 6 * 1024**3)
+
+    def test_save_budget_admits_real_main_snapshots(self) -> None:
+        # Regression for the unit mismatch that froze all five families.
+        # --save-budget can only measure the UNCOMPRESSED tree, but the budget
+        # and `gh cache list` are in COMPRESSED bytes. Comparing them directly
+        # made every family report fits=False, so warm-release-cache skipped
+        # every save for days while still exiting 0, and required CI restored
+        # snapshots ~71 backend commits stale.
+        #
+        # Inventory = real compressed sizeInBytes from main on 2026-09-25;
+        # raw = the exact walk totals those runs logged. All five must be
+        # admitted: their true compressed total is ~4.16 GiB, well under budget.
+        inventory = {
+            "test": 1317276175,
+            "gomod": 611470268,
+            "integration": 1046443064,
+            "analysis": 737013033,
+            "release": 751774505,
+        }
+        caches = [
+            _cache(f"{go_cache_prune.PREFIXES[family]}main", size, cache_id=index)
+            for index, (family, size) in enumerate(inventory.items(), start=1)
+        ]
+        self.assertLess(sum(inventory.values()), BUDGET_BYTES)
+
+        observed_raw = {
+            "test": 6609579398,
+            "integration": 4732505521,
+            "analysis": 3861668299,
+            "release": 4215714343,
+        }
+        for family, raw in observed_raw.items():
+            with self.subTest(family=family):
+                self.assertGreater(raw, BUDGET_BYTES * 0.5)  # raw really is huge
+                estimated = go_cache_prune.estimate_compressed_size(raw)
+                self.assertTrue(
+                    go_cache_prune.family_fits(caches, family, size=estimated),
+                    f"{family} must be admitted; raw={raw} est={estimated}",
+                )
+                # Stay conservative: never predict a save smaller than what the
+                # registry actually stored for this family.
+                self.assertGreaterEqual(estimated, inventory[family])
+
+    def test_save_budget_still_rejects_a_genuinely_oversized_save(self) -> None:
+        # The normalization must not defang the gate: a tree whose compressed
+        # estimate alone exceeds the budget is still refused.
+        caches = [
+            _cache(f"{go_cache_prune.PREFIXES[family]}main", 512 * 1024**2, cache_id=index)
+            for index, family in enumerate(go_cache_prune.FAMILIES, start=1)
+        ]
+        huge_raw = int(BUDGET_BYTES * go_cache_prune.SAVE_COMPRESSION_DIVISOR * 2)
+        self.assertFalse(
+            go_cache_prune.family_fits(
+                caches, "release", size=go_cache_prune.estimate_compressed_size(huge_raw)
+            )
+        )
+
+    def test_audit_staleness_flags_frozen_and_missing_families(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime(2026, 9, 25, 15, 0, tzinfo=timezone.utc)
+
+        def at(hours_ago: float) -> str:
+            return (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        fresh = [
+            _cache(
+                f"{go_cache_prune.PREFIXES[family]}main",
+                1024,
+                cache_id=index,
+                created_at=at(1),
+            )
+            for index, family in enumerate(go_cache_prune.FAMILIES, start=1)
+        ]
+        ok, lines = go_cache_prune.audit_staleness(fresh, now=now)
+        self.assertTrue(ok)
+        self.assertEqual(len(lines), len(go_cache_prune.FAMILIES))
+        # Age-limited families report "ok"; gomod reports "present" (exempt).
+        self.assertFalse(any("STALE" in line or "MISSING" in line for line in lines))
+
+        # One frozen family fails the audit and is named.
+        frozen = list(fresh)
+        frozen[-1] = _cache(
+            f"{go_cache_prune.PREFIXES['release']}main",
+            1024,
+            cache_id=99,
+            created_at=at(200),
+        )
+        ok, lines = go_cache_prune.audit_staleness(frozen, now=now)
+        self.assertFalse(ok)
+        self.assertTrue(any("release" in line and "STALE" in line for line in lines))
+
+        # A family with no snapshot at all is a failure, not a pass.
+        ok, lines = go_cache_prune.audit_staleness([], now=now)
+        self.assertFalse(ok)
+        self.assertEqual(len(lines), len(go_cache_prune.FAMILIES))
+        self.assertTrue(all("MISSING" in line for line in lines))
+
+        # Non-main refs must not satisfy a family.
+        tag_scoped = [
+            {
+                "id": 1,
+                "key": f"{go_cache_prune.PREFIXES['release']}tag",
+                "sizeInBytes": 1024,
+                "ref": "refs/tags/v1.0.0",
+                "createdAt": at(1),
+            }
+        ]
+        ok, _ = go_cache_prune.audit_staleness(tag_scoped, now=now)
+        self.assertFalse(ok)
+
+    def test_audit_staleness_exempts_gomod_from_the_age_limit(self) -> None:
+        # gomod's key covers only go.mod / go.sum / .new-api-ref, so a correctly
+        # cached module tree hits and is legitimately never re-saved; it ages for
+        # weeks while perfectly healthy. Age-limiting it would make the audit a
+        # permanent false positive. Presence is still asserted.
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime(2026, 9, 25, 15, 0, tzinfo=timezone.utc)
+
+        def at(hours_ago: float) -> str:
+            return (now - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        self.assertIn("gomod", go_cache_prune.AGE_EXEMPT_FAMILIES)
+        caches = [
+            _cache(
+                f"{go_cache_prune.PREFIXES[family]}main",
+                1024,
+                cache_id=index,
+                # Ancient gomod, fresh everything else.
+                created_at=at(900 if family == "gomod" else 1),
+            )
+            for index, family in enumerate(go_cache_prune.FAMILIES, start=1)
+        ]
+        ok, lines = go_cache_prune.audit_staleness(caches, now=now)
+        self.assertTrue(ok, f"gomod age must not fail the audit: {lines}")
+        self.assertTrue(any("gomod" in line and "STALE" not in line for line in lines))
+
+        # But a missing gomod snapshot is still a failure.
+        without_gomod = [
+            cache
+            for cache in caches
+            if not str(cache["key"]).startswith(go_cache_prune.PREFIXES["gomod"])
+        ]
+        ok, _ = go_cache_prune.audit_staleness(without_gomod, now=now)
+        self.assertFalse(ok)
+
+        # The four source-fingerprinted families are NOT exempt.
+        for family in set(go_cache_prune.FAMILIES) - go_cache_prune.AGE_EXEMPT_FAMILIES:
+            with self.subTest(family=family):
+                aged = [
+                    _cache(
+                        f"{go_cache_prune.PREFIXES[name]}main",
+                        1024,
+                        cache_id=index,
+                        created_at=at(900 if name == family else 1),
+                    )
+                    for index, name in enumerate(go_cache_prune.FAMILIES, start=1)
+                ]
+                ok, lines = go_cache_prune.audit_staleness(aged, now=now)
+                self.assertFalse(ok, f"{family} must be age-limited: {lines}")
+
+    def test_audit_staleness_exits_nonzero_from_cli(self) -> None:
+        stale = [
+            _cache(
+                f"{go_cache_prune.PREFIXES[family]}main",
+                1024,
+                cache_id=index,
+                created_at="2020-01-01T00:00:00Z",
+            )
+            for index, family in enumerate(go_cache_prune.FAMILIES, start=1)
+        ]
+        with patch.object(go_cache_prune, "_list_caches", return_value=stale), \
+                patch.object(go_cache_prune, "_delete_caches") as delete:
+            self.assertEqual(go_cache_prune.main(["--audit-staleness"]), 1)
+            delete.assert_not_called()
+
+    def test_estimate_compressed_size_contract(self) -> None:
+        self.assertEqual(go_cache_prune.estimate_compressed_size(0), 0)
+        self.assertEqual(
+            go_cache_prune.estimate_compressed_size(3000, divisor=3.0), 1000
+        )
+        # Pessimistic against the ~4.5x floor measured across all families, so
+        # an overestimate skips one upload rather than uploading a doomed save.
+        self.assertLessEqual(go_cache_prune.SAVE_COMPRESSION_DIVISOR, 4.5)
+        self.assertGreater(go_cache_prune.SAVE_COMPRESSION_DIVISOR, 1.0)
+        with self.assertRaises(ValueError):
+            go_cache_prune.estimate_compressed_size(-1)
+        with self.assertRaises(ValueError):
+            go_cache_prune.estimate_compressed_size(1, divisor=0)
 
     @patch("subprocess.check_output", return_value="[]")
     def test_inventory_is_main_scoped_created_at_sorted_and_exhaustive(self, run) -> None:

@@ -7,8 +7,14 @@ builds:
     dir: backend
     main: ./cmd/server
     binary: sub2api
+    # -trimpath MUST match warm-release-cache-main.yml's release-family GOFLAGS.
+    # It participates in Go's build cache action ID, so a mismatch makes the
+    # main-warmed `Linux-go-release-v1-*` snapshot entirely invisible here and
+    # GoReleaser cold-compiles both arches every release (~4m45s). GoReleaser
+    # does not add -trimpath on its own. Gate: test_release_cache_key_parity.py.
     flags:
       - -tags=embed
+      - -trimpath
     env:
       - CGO_ENABLED=0
     goos:
@@ -25,6 +31,9 @@ builds:
     dir: backend
     main: ./cmd/qa-archive
     binary: qa-archive
+    # -trimpath: same cache-parity reason as the sub2api build above.
+    flags:
+      - -trimpath
     env:
       - CGO_ENABLED=0
     goos:
