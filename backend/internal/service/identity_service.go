@@ -132,7 +132,7 @@ func floorClaudeCLIUserAgentVersion(ua string) (string, bool) {
 // 字面量与 canonical 的一致性改由 identity_canonical_consistency_test.go 机械锁死。
 func defaultFingerprint() Fingerprint {
 	fp := Fingerprint{
-		UserAgent:               "claude-cli/2.1.282 (external, cli)",
+		UserAgent:               "claude-cli/2.1.283 (external, cli)",
 		StainlessLang:           "js",
 		StainlessPackageVersion: "0.112.1",
 		StainlessOS:             "MacOS",
