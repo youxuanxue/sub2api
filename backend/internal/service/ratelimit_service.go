@@ -121,6 +121,13 @@ var antigravityValidationCooldownLadder = []time.Duration{
 	2 * time.Hour,
 }
 
+// 升级槽位的占位 TTL：取阶梯最长一档，抢到槽位后立刻收缩到实际冷却长度。
+// 占位值只在「抢到槽位但收缩失败」时生效，取最长档保证宁可多抑制一轮升级，
+// 也不要让一次验证事件被拆成多轮把账号推向永久禁用。
+var antigravityValidationEscalationSlotMaxSeconds = int(
+	antigravityValidationCooldownLadder[len(antigravityValidationCooldownLadder)-1].Seconds(),
+)
+
 // anthropicCooldownTierLadder picks an exponentially longer cooldown when
 // the same account repeatedly trips the 3/3 short-window threshold inside
 // anthropicCooldownTierTTLMinutes. Tier index = (recent cooldown count - 1)
