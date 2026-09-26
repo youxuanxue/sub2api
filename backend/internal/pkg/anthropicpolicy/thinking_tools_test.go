@@ -52,3 +52,58 @@ func TestNormalizeFableThinkingModes(t *testing.T) {
 		}
 	}
 }
+
+// Facts is the body-derived half of the decision, so deriving it once up front
+// and deciding later must match reading the body inside the decision. This is
+// what lets a caller hold one Facts across many per-route capability sets.
+//
+// The body shapes below include the ones an earlier NormalizeValidated parity
+// test covered; that wrapper is gone, but each of its bodies is still checked
+// here against every capability set rather than the single one it used.
+func TestNormalizeWithFactsMatchesNormalizeAcrossCapabilities(t *testing.T) {
+	bodies := []string{
+		`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"tool","name":"lookup","disable_parallel_tool_use":true}}`,
+		`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"tool","name":"lookup","disable_parallel_tool_use":false}}`,
+		`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"any"}}`,
+		`{"thinking":{"type":"disabled"},"tool_choice":{"type":"any"}}`,
+		`{"thinking":{"type":"disabled"},"tool_choice":"required"}`,
+		`{"tool_choice":{"type":"tool","name":"lookup"}}`,
+		`{"thinking":{"type":"enabled","budget_tokens":2048},"tool_choice":{"type":"any"}}`,
+		`{"thinking":{"type":"enabled","budget_tokens":2048},"tool_choice":{"type":"function"}}`,
+		`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"none"}}`,
+		`{"reasoning":{"effort":"medium"},"tool_choice":"required"}`,
+		`{"reasoning_effort":"high","tool_choice":"required"}`,
+		`{"reasoning_effort":"xhigh","tool_choice":{"type":"function"}}`,
+		`{"tool_choice":{"type":"none"}}`,
+		`{"model":"claude-fable-5"}`,
+	}
+	capabilities := []Capabilities{
+		{},
+		{AlwaysThinking: true},
+		{AdaptiveOnlyThinking: true},
+		{AlwaysThinking: true, AdaptiveOnlyThinking: true},
+		{ForcedToolsWithThinking: true},
+		{AlwaysThinking: true, ForcedToolsWithThinking: true},
+	}
+	for _, body := range bodies {
+		for _, messages := range []bool{true, false} {
+			// One derivation, reused for every capability set, exactly as a caller
+			// evaluating many candidate routes over one immutable body would.
+			facts := InspectValidated([]byte(body), messages)
+			for _, capability := range capabilities {
+				want, wantChanged := Normalize([]byte(body), messages, capability)
+				got, gotChanged := NormalizeWithFacts([]byte(body), messages, facts, capability)
+				require.Equal(t, wantChanged, gotChanged, "body=%s messages=%v caps=%+v", body, messages, capability)
+				require.Equal(t, string(want), string(got), "body=%s messages=%v caps=%+v", body, messages, capability)
+			}
+		}
+	}
+}
+
+// Normalize keeps its own guard for callers that cannot prove validity.
+func TestNormalizeRejectsMalformedBody(t *testing.T) {
+	body := []byte(`{"thinking":{"type":"adaptive"},"tool_choice":{"type":"any"}`)
+	out, changed := Normalize(body, true, Capabilities{})
+	require.False(t, changed)
+	require.Equal(t, body, out)
+}

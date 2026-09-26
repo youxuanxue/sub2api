@@ -37,6 +37,8 @@ func ParseCanonicalRequest(
 		ResponsesPath:   responsesPath,
 		Profile:         profile,
 		Body:            body,
+		// The Unmarshal above decoded exactly these bytes.
+		BodyJSONValidated: true,
 	})
 }
 

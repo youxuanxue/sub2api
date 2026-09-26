@@ -71,7 +71,19 @@ func (a AccountSnapshot) requestCapabilities(target Protocol) anthropicpolicy.Ca
 }
 
 func compatibleRequest(request CanonicalRequest, capabilities anthropicpolicy.Capabilities) (CanonicalRequest, string) {
-	body, changed := anthropicpolicy.Normalize(request.body, request.inboundProtocol == ProtocolMessages, capabilities)
+	// plan() calls this once per candidate route, and every inbound protocol has
+	// three or four of them, so a body validation here is repeated per route and
+	// per account over bytes that cannot change within one request.
+	messages := request.inboundProtocol == ProtocolMessages
+	var body []byte
+	var changed bool
+	if request.bodyJSONValidated {
+		// The facts were derived from these exact bytes and this same messages flag
+		// by the constructor, so only the capability half is left to decide here.
+		body, changed = anthropicpolicy.NormalizeWithFacts(request.body, messages, request.policyFacts, capabilities)
+	} else {
+		body, changed = anthropicpolicy.Normalize(request.body, messages, capabilities)
+	}
 	if !changed {
 		return request, ""
 	}

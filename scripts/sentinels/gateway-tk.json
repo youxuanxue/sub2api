@@ -14558,6 +14558,58 @@
         "def test_base_ref_fetch_always_materializes_origin_main("
       ],
       "rationale": "守护上一条不变量的契约用例。删掉它，把 origin/main 的 fetch 改回「只 fetch $GITHUB_BASE_REF」在 base=main 的普通 PR 上完全看不出问题——CI 全绿，只有下一个 stacked PR 才会以 exit 128 炸掉，而那时现场已经和改动脱钩。该用例同时断言 fetch 不得嵌在 $GITHUB_BASE_REF 条件内（两种失败形态均已反向验证）。经 .preflight/gates.json 的 `backend-ci routing and base-ref contract` 接入 preflight，pre-push 即可拦住。"
+    },
+    {
+      "path": "backend/internal/pkg/anthropicpolicy/thinking_tools.go",
+      "must_contain": [
+        "func Normalize(body []byte, messages bool, capabilities Capabilities) ([]byte, bool) {",
+        "if !gjson.ValidBytes(body) {",
+        "func normalizeValidated("
+      ],
+      "rationale": "Normalize keeps its own JSON guard for unproven callers; the validated variant only skips that scan and must share one rewrite body."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/request_capabilities.go",
+      "must_contain": [
+        "if request.bodyJSONValidated {",
+        "anthropicpolicy.NormalizeWithFacts(request.body, messages, request.policyFacts, capabilities)",
+        "anthropicpolicy.Normalize("
+      ],
+      "rationale": "Per-route compatibility skips body revalidation only when the canonical request proves its body was decoded; an unproven body must still fail closed."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/parse_request.go",
+      "must_contain": [
+        "if err := json.Unmarshal(body, &document); err != nil {",
+        "BodyJSONValidated: true,"
+      ],
+      "rationale": "ParseCanonicalRequest is the decode that licenses skipping per-route revalidation; the flag must stay tied to that Unmarshal."
+    },
+    {
+      "path": "backend/internal/service/universal_candidate_eligibility.go",
+      "must_contain": [
+        "BodyJSONValidated: true,",
+        "request, err = protocolrouter.NewCanonicalRequest(protocolrouter.CanonicalRequestInput{"
+      ],
+      "rationale": "The candidate fast path builds the canonical request from an already-parsed profile, so dropping the provenance flag silently restores a per-route full-body JSON scan."
+    },
+    {
+      "path": "backend/internal/pkg/anthropicpolicy/thinking_tools.go",
+      "must_contain": [
+        "func InspectValidated(body []byte, messages bool) Facts {",
+        "func NormalizeWithFacts(body []byte, messages bool, facts Facts, capabilities Capabilities) ([]byte, bool) {",
+        "return NormalizeWithFacts(body, messages, InspectValidated(body, messages), capabilities)"
+      ],
+      "rationale": "Facts splits the body-derived reads from the per-route capability decision. normalizeValidated must stay defined as the composition of the two, or the single-derivation callers and the validating callers can drift apart."
+    },
+    {
+      "path": "backend/internal/engine/protocolrouter/request.go",
+      "must_contain": [
+        "policyFacts anthropicpolicy.Facts",
+        "if req.bodyJSONValidated {",
+        "req.policyFacts = anthropicpolicy.InspectValidated(req.body, req.inboundProtocol == ProtocolMessages)"
+      ],
+      "rationale": "The canonical request derives policy facts once, and only for a proven body; deriving them unconditionally would let gjson's reading of a malformed document drive a rewrite, and dropping them restores a per-route body walk."
     }
   ]
 }

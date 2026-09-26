@@ -63,6 +63,13 @@ func (r *UniversalRoutingResolver) WithRequest(ctx context.Context, shape Univer
 // rewrites the model field. Keeping it separate from the body preserves the
 // canonical digest and the actual request sent to the selected account while
 // avoiding another full JSON walk for every entitled group.
+//
+// A caller reaches this only by holding a profile, and a profile exists only
+// after ParseCanonicalRequest decoded the original body. The one rewrite between
+// that decode and here is pathContext's sjson.SetBytes on "model", which edits a
+// well-formed document in place and keeps it well-formed. The canonical request
+// therefore carries that provenance so per-route compatibility work can skip
+// re-validating the same bytes once per route per account.
 func (r *UniversalRoutingResolver) WithRequestProfile(ctx context.Context, shape UniversalShape, path, model string, body []byte, profile protocolrouter.RequestProfile) context.Context {
 	return r.withRequestProfile(ctx, shape, path, model, body, &profile)
 }
@@ -108,6 +115,8 @@ func (r *UniversalRoutingResolver) withRequestProfile(ctx context.Context, shape
 			ResponsesPath:   responsesPath,
 			Profile:         *profile,
 			Body:            body,
+			// See the provenance note on WithRequestProfile.
+			BodyJSONValidated: true,
 		})
 	} else {
 		request, err = protocolrouter.ParseCanonicalRequest(inbound, responsesPath, model, stream, body)

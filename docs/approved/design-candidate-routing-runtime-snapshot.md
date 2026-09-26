@@ -335,6 +335,81 @@ Shadow comparison has an explicit exit condition. It is disabled after the
 candidate, Plan, authorization and billing projections meet the acceptance
 matrix; it is not a permanent duplicate production evaluator.
 
+### 9.1 Measured cost slope and resequencing (2026-09-26)
+
+The list above was written before the candidate path had a repeatable cost
+measurement, so it ordered the snapshot first. `BenchmarkCandidateAdmissionCost*`
+in `candidate_selection_cost_bench_tk_test.go` now measures the two dimensions
+that actually grow, and they disagree with that order:
+
+- growing the account x group fan-out at a fixed body *lowers* cost per
+  evaluation (28.5us at 1x1 to 11.1us at 32x4), so per-candidate account reuse
+  is already effective and a read model removes little CPU;
+- growing the body at a fixed fan-out raises cost nearly linearly, because the
+  per-route compatibility pass re-scanned one immutable body.
+
+A single production profile cannot show this: `anthropicpolicy.Normalize` was
+4.38% of samples on 2026-09-26 prod traffic but 64% of a 64KiB-body benchmark,
+because the sampled window carried small bodies. Removing the repeated
+validation (step 1 below) measured -37% to -55% per evaluation at 8KiB and above,
+`p=0.002, n=6`.
+
+The user therefore approved this order in the 2026-09-26 conversation, replacing
+the sequence above without changing any ownership boundary in this document:
+
+0. a repeatable CPU benchmark over (accounts x groups) and body bytes;
+1. remove per-candidate repeated work over the immutable body;
+2. make `CanonicalRequest` the only routing parser (was step 3);
+3. re-decide the snapshot on PostgreSQL load and tail-latency evidence rather
+   than on CPU profiles (was steps 1-2); build it only if those metrics justify
+   it;
+4. QA one-pass is demoted: regex is 1.39% of samples in total and `buildBlob`
+   already runs on the async capture pool. Only the unknown-format byte/record
+   accounting in section 8 remains required, as privacy debt.
+
+The snapshot's approval boundary in section 10 is unchanged: it stays read-only
+and shadow-only, and a production read-source switch still needs its own
+acceptance evidence and release approval.
+
+### 9.2 What step 2 turned out to be (2026-09-26)
+
+Step 2 above was written as "make `CanonicalRequest` the only routing parser",
+on the assumption that the duplicated parse sites were the remaining cost. The
+post-step-1 profile disagreed. `pathContext` is already memoized per group by
+`candidatePathContextPreparer`, so the repeated parse is bounded by group count,
+not by fan-out; what dominated instead was `anthropicpolicy` walking the body
+again on every route, which after step 1 was 43.6% of the benchmark and entirely
+`gjson.parseSquash`.
+
+Those reads depend only on the request bytes and the inbound protocol, both
+immutable within one request, while `Capabilities` supplies the per-route half.
+Splitting them (`anthropicpolicy.Facts` / `InspectValidated` /
+`NormalizeWithFacts`, derived once in the canonical request constructor and only
+for a body whose validity is proven) measured, against the step-1 baseline at
+`n=6`:
+
+- geomean `sec/op` -42.8%; 64KiB -69.6%, 256KiB -77.1%, 32x4 fan-out -42.4%,
+  all `p=0.002`;
+- `accounts_1/groups_1` *regressed* 6.5% (`p=0.000, n=10`), because a single
+  evaluation pays the up-front derivation without amortizing it. This is the
+  accepted trade: the fan-out the gateway actually serves is many accounts per
+  group, and the 1x1 case is the cheapest absolute case anyway.
+
+Re-measured after rebasing onto a later `main`, at `n=12`, the same comparison
+gives geomean -37.9%, with 64KiB -66.8%, 256KiB -74.9% and 32x4 fan-out -36.0%
+(`p=0.000`), and `bytes_1024` no longer separable from its baseline. Two runs of
+the *identical* binary differed by geomean 7.3% on that host, individual cases up
+to 13%, so any single-run figure below roughly 13% is not distinguishable there.
+Read these numbers as: the large-body and high-fan-out gains are far outside the
+noise and reproduce; the smallest cases are within it and should not be quoted as
+either a gain or a loss. A regression check on this benchmark therefore needs
+repeated runs, not one `count=6` pair.
+
+After this change `gjson` does not appear in the admission profile at all; the
+remaining samples are GC and scheduler. The parser-convergence work named in
+section 6 therefore stands on its own correctness argument (one owner for routing
+metadata), not on a CPU argument, and is no longer a performance step.
+
 Required behavior checks include:
 
 - group order and topology invariance;
