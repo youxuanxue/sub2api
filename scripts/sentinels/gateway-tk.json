@@ -534,9 +534,11 @@
         "refusing to publish an unidentified build",
         "but is tagged",
         "bash ops/gemini-web/test_deploy_worker_on_host.sh",
-        "bash ops/gemini-web/test_prune_worker_pets.sh"
+        "bash ops/gemini-web/test_prune_worker_pets.sh",
+        "push: false",
+        "name: Push verified worker image"
       ],
-      "rationale": "Worker images come from CI only; per-host docker build is what produced the lying 1.8.253-147512b9d tag. amd64-only is deliberate: deployable edges are x86_64 and prod runs no Worker, so CLAUDE.md §9 arm64 applies to the gateway image, not this one. The publish step must keep refusing an unidentified digest and must keep verifying the pushed image reports the tag it carries. The deploy and retention fixtures run here because those scripts decide whether a host keeps a serving Worker; leaving them to an operator is how the untested path ships."
+      "rationale": "Worker images come from CI only; per-host docker build is what produced the lying 1.8.253-147512b9d tag. amd64-only is deliberate: deployable edges are x86_64 and prod runs no Worker, so CLAUDE.md §9 arm64 applies to the gateway image, not this one. The publish step must keep refusing an unidentified digest and must keep verifying the pushed image reports the tag it carries. The deploy and retention fixtures run here because those scripts decide whether a host keeps a serving Worker; leaving them to an operator is how the untested path ships. The image is built and verified locally before any push: a push-then-verify order left a tag in GHCR whose image reported `unknown` when the verify step failed the job, which is exactly the lying-tag class the digest exists to eliminate. Only a verified image may be tagged in the registry."
     },
     {
       "path": "ops/observability/check-gemini-web-worker-fleet.sh",
