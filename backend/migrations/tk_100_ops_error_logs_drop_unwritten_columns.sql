@@ -21,6 +21,32 @@
 -- 之后由 scripts/checks/ops-error-log-column-writers.py 保证不再新增同类列:
 -- 声明(migrations)/ 写入(ops_repo.go)/ 读取(ops + deploy + backend)三方不一致会 fail
 -- preflight。
+--
+-- bluegreen-safe-destructive-ok: 窗口内旧 color 的写入路径完全不碰这六列,读取只有一处
+-- 且是 admin 只读页面。逐条核过 origin/main:
+--   * 热路径 INSERT(insertOpsErrorLogSQL)的列清单里没有这六列中的任何一个——它们本来
+--     就没有写入方,这正是删除的理由。网关落库不受影响。
+--   * ops_error_logs 上唯一的 UPDATE 只 SET resolved / resolved_at /
+--     resolved_by_user_id。不受影响。
+--   * 别名限定读取全仓库只有一处:ops_repo_request_details.go 的 o.duration_ms。
+--     ops_repo_dashboard.go / ops_repo_preagg.go / ops_metrics_collector.go 里的裸
+--     duration_ms 都是 FROM usage_logs,与本表无关(已逐个看 FROM 子句确认)。
+--   * ops_error_logs 不在 ent/migrate/schema.go 里(裸 DDL 表),所以没有 ent 侧
+--     SELECT 会枚举全部列。
+-- 因此窗口内的唯一影响面:旧 color 上 admin「请求详情」列表(ListRequestDetails,
+-- handler/admin/ops_handler.go)在切流前若被访问会返回 42703。这个页面在本次删除前
+-- 对错误行本来就只显示空耗时、且按耗时筛选会把错误行全部排除,即它在旧代码里已经是坏
+-- 的;它是管理员只读钻取页,不在客户流量路径上,不影响计费/调度/SLA 分子。新 color
+-- 已改读 o.response_latency_ms(本 PR 同批),切流后即恢复且首次真正可用。
+-- 前置校验(prod 实测,2026-09-26):relkind='p' 分区表、92 个分区、全时段 2,213,666 行,
+-- 六列均 0 非空;六列上没有任何索引,也没有视图/物化视图依赖本表(视图依赖会直接阻塞
+-- DROP COLUMN)。无数据丢失,无对象需要先行重建。
+-- 锁:DROP COLUMN 只改 catalog、不重写表(不回收已有行的空间),但在分区表上会递归,需要
+-- 父表 + 92 个分区共 93 把 ACCESS EXCLUSIVE 锁。lock_timeout=5s 是逐次加锁计时而非整条
+-- 语句的总预算:任何一把锁 5s 内抢不到就整条事务放弃回滚,宁可迁移失败也不排在热路径
+-- INSERT 前面形成锁队列。失败是安全的——这六列没有写入方,推迟删除不影响任何功能,重跑
+-- 即可(DROP COLUMN IF EXISTS 幂等)。
+-- 回滚:本列无写入方,回滚只需重新 ADD COLUMN(可空、无默认值、不回填),同样不重写表。
 
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '10min';

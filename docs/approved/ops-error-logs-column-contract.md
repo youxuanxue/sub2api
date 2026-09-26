@@ -53,9 +53,22 @@ NULL,而外面一层 `COALESCE` 会安静地退到 fallback,让空列看起来�
 | `account_status` | 033 | 关联 `accounts.status`(语义是「当前」,不是「失败时」) |
 | `retry_after_seconds` | 033 | 无(重试/回放存储已由 136 移除,本列是残留) |
 
-**安全性依据**:prod 全时段实测 2,213,627 行,上述六列 `count(<col>)` 均为 0,删除不丢
-任何数据。读取侧已在同一 PR 全部改到有写入方的等价列,并经 prod 实跑验证(probe-caps、
-probe-ops-error-request-shape、probe-user-billing-watch 均无 SQL 错误且字段有真值)。
+**安全性依据**(prod 只读实测,2026-09-26):全时段 2,213,666 行,上述六列 `count(<col>)`
+均为 0,删除不丢任何数据。六列上没有任何索引,也没有视图/物化视图依赖本表(视图依赖会直接
+阻塞 `DROP COLUMN`)。读取侧已在同一 PR 全部改到有写入方的等价列,并经 prod 实跑验证
+(probe-caps、probe-ops-error-request-shape、probe-user-billing-watch 均无 SQL 错误且字段
+有真值)。
+
+**blue/green 窗口**:本表是分区表(`relkind='p'`,92 个分区),`DROP COLUMN` 递归加锁,需要
+父表 + 92 个分区共 93 把 `ACCESS EXCLUSIVE`;只改 catalog、不重写表。迁移在新 color 启动时
+执行,此时旧 color 仍在服务同一个库,因此逐条核过旧代码:热路径 INSERT 的列清单不含这六列
+(它们本就没有写入方),唯一的 `UPDATE` 只 SET `resolved*`,本表不在 `ent/migrate/schema.go`
+中(裸 DDL 表,没有 ent 侧全列 SELECT)。窗口内唯一影响面是旧 color 上 admin 只读的「请求
+详情」列表(`ListRequestDetails`)会返回 42703——该页面在删除前对错误行本来就只显示空耗时、
+且按耗时筛选会把错误行全部排除,即旧代码里它已经是坏的;它不在客户流量路径上,不影响计费、
+调度或 SLA 分子,切流后即恢复且首次真正可用。迁移设 `lock_timeout = 5s`(逐次加锁计时),
+抢不到锁即整条回滚,宁可迁移失败也不在热路径 INSERT 前形成锁队列;失败是安全的,重跑即可
+(`DROP COLUMN IF EXISTS` 幂等)。
 
 **保留 vs 删除**:按硬规则 §5.x 默认保留上游功能。这里选择删除,因为这些列没有行为、
 没有开关、没有任何可以被打开的写入路径——留着只会让声明与现实继续分叉,让下一个读它
