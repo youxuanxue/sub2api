@@ -229,6 +229,28 @@ func (c *OpsMetricsCollector) collectOnce() {
 	})
 }
 
+// QA capture health statuses that must be mirrored as an error. They are
+// literals because QACaptureHealthSource reports status as a string to keep this
+// package off the qa ledger; a test pins them against the ledger's own
+// constants so the two cannot drift apart silently.
+const (
+	qaCaptureStatusFailed   = "failed"
+	qaCaptureStatusDegraded = "degraded"
+)
+
+// qaCaptureStatusNeedsAttention reports whether a QA capture health status must
+// be mirrored as an error rather than a success. It lists the attention-worthy
+// statuses instead of treating "not healthy" as bad so that an unrecognized or
+// empty status keeps the previous benign handling.
+func qaCaptureStatusNeedsAttention(status string) bool {
+	switch status {
+	case qaCaptureStatusFailed, qaCaptureStatusDegraded:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *OpsMetricsCollector) mirrorQACaptureHealth(ctx context.Context, runAt time.Time) {
 	if c == nil || c.opsRepo == nil || c.qaCaptureHealth == nil {
 		return
@@ -247,7 +269,13 @@ func (c *OpsMetricsCollector) mirrorQACaptureHealth(ctx context.Context, runAt t
 		message := truncateString(healthErr.Error(), 2048)
 		input.LastErrorAt = &runAt
 		input.LastError = &message
-	} else if status == "failed" {
+	} else if qaCaptureStatusNeedsAttention(status) {
+		// A degraded ledger has to reach LastErrorAt too: that is the only field
+		// a consumer acts on (ops_health_score counts a heartbeat whose
+		// LastErrorAt is newer than LastSuccessAt as a failed job), while
+		// LastResult is stored for display and alerts on nothing. Recording it
+		// as LastSuccessAt reported unknown-format drift and evidence DLQ as
+		// successful runs.
 		message := status
 		input.LastErrorAt = &runAt
 		input.LastError = &message

@@ -70,12 +70,12 @@ func TestCursorContentCacheSeparatesRequestsAndStripDecisions(t *testing.T) {
 	// the two must not share an outcome even though they share one wire.
 	require.True(t, cache.supported(genuine, "deepseek-v3.2"))
 	require.False(t, cache.supported(genuine, model), "differing strip decisions cannot borrow each other's outcome")
-	require.Len(t, cache.wires, 1, "one body must be projected once, not once per model")
+	require.Len(t, cache.outcomes, 2, "differing strip decisions need their own entries")
 
 	text, err := protocolrouter.ParseCanonicalRequest(protocolrouter.ProtocolMessages, protocolrouter.ResponsesPathNone, model, false, []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
 	require.True(t, cache.supported(text, model), "a different request cannot inherit a cached rejection")
-	require.Len(t, cache.wires, 2, "a second body needs its own projection")
+	require.Len(t, cache.outcomes, 3, "a second body needs its own entry")
 }
 
 // Models that agree on the strip decision must share one projection, which is
@@ -88,6 +88,5 @@ func TestCursorContentCacheSharesProjectionAcrossAgreeingModels(t *testing.T) {
 		require.False(t, WebSearchHistoryStripsAllBlocks(model), "fixture expects anthropic-strict models")
 		cache.supported(request, model)
 	}
-	require.Len(t, cache.outcomes, 1, "models agreeing on the strip decision must share one outcome")
-	require.Len(t, cache.wires, 1, "models agreeing on the strip decision must share one projection")
+	require.Len(t, cache.outcomes, 1, "models agreeing on the strip decision must share one outcome, so the wire is derived once")
 }

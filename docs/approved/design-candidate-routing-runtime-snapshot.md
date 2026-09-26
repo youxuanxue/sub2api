@@ -463,11 +463,25 @@ only through `ResolveThinkingProtocol(mappedModel) ==
 ThinkingProtocolPassbackRequired`, now named `WebSearchHistoryStripsAllBlocks`,
 and `StripEmptyTextBlocks` does not read the model at all. So the decision splits
 the same way section 9.2's did: `cursorExecutionWire` derives the Messages wire
-from body and inbound protocol alone and is memoized per digest, while
-`cursorWireContentSupported` applies the per-route half. The cache keys on
-`stripAll` instead of the model string, because models that agree on it cannot
-disagree on the answer. Anthropic-strict models — which is what a Cursor account
-maps to — all collapse to one entry.
+from body and inbound protocol alone, while `cursorWireContentSupported` applies
+the per-route half. The cache keys the outcome on `stripAll` instead of the model
+string, because models that agree on it cannot disagree on the answer.
+Anthropic-strict models — which is what a Cursor account maps to — all collapse
+to one entry, so the wire is derived once no matter how many models are judged.
+
+That single outcome key is the whole mechanism. A first version also memoized the
+projection itself in a `wires` map, described as what let distinct models share
+one projection. It was not: with the outcome cache in place, an instrumented
+build derived the wire exactly once at 1, 4 and 16 models, and `wires` never took
+a second hit. It could only earn one when a single body met both a
+passback-required and an anthropic-strict model, and to serve that it retained
+whole projected bodies — 1,632,592 bytes measured across 8 groups at 205KiB,
+where the pre-change cache held only bools. Removing it left the timings
+indistinguishable (interleaved in one process: -0.47%, -2.95%, +3.45% at 1, 4 and
+16 models, inconsistent in sign) while dropping one map and one allocation per
+request. A cross-session comparison had first reported +10.84% on `models_1` for
+the removal, which is impossible — that path does strictly less work and its
+allocation count falls — and was section 9.2's between-run bias again.
 
 Measured at `n=8`, against a baseline re-measured on unmodified code:
 
@@ -477,7 +491,7 @@ Measured at `n=8`, against a baseline re-measured on unmodified code:
   205KiB -73.5%, all `p=0.000`;
 - allocations -72.8% geomean, and flat at 46/op regardless of model count;
 - `models_1` is -3.6% (`p=0.050`), i.e. no material change: a single evaluation
-  has no duplicate to remove. Its `B/op` is +0.51% from the extra map.
+  has no duplicate to remove.
 
 A first comparison here reported -53.5% on `models_1` and -87.4% geomean. That
 baseline was invalid: the benchmark ran in the background while the source was
@@ -505,11 +519,21 @@ Alerting reuses the existing channel rather than adding one. The counters ride
 the `qa_capture` health payload that `OpsMetricsCollector.mirrorQACaptureHealth`
 already writes to a job heartbeat, appended under a `redaction` key so existing
 consumers still decode the ledger's own fields unchanged. A sustained unknown
-share degrades a healthy status, which is what that heartbeat records. Two
-boundaries are deliberate: drift never escalates to `failed`, because capture
-itself is working and this is a privacy signal rather than a capacity one, and it
-never softens an already-failed ledger. A record floor keeps a handful of early
-unknown payloads from pinning the ratio at 1.0 for the process lifetime.
+share degrades a healthy status. Two boundaries are deliberate: drift never
+escalates to `failed`, because capture itself is working and this is a privacy
+signal rather than a capacity one, and it never softens an already-failed ledger.
+A record floor keeps a handful of early unknown payloads from pinning the ratio
+at 1.0 for the process lifetime.
+
+Riding that channel required fixing it. `mirrorQACaptureHealth` special-cased
+only `failed`, so a `degraded` ledger fell through to `LastSuccessAt` and drift
+was recorded as a successful run — as was the pre-existing `evidence_dlq`
+degradation. `LastErrorAt` is the only field a consumer acts on: `ops_health_score`
+counts a heartbeat whose `LastErrorAt` is newer than its `LastSuccessAt` as a
+failed job, while `LastResult` — which does carry `unknown_format_drift` — is
+stored for display and alerts on nothing. Both attention-worthy statuses now
+mirror as errors, and an unrecognized or empty status keeps the benign handling so
+a future ledger status cannot turn every run into a false failure.
 
 This closes the §8 row. Lifecycle controls, retention and redaction coverage are
 untouched: unknown formats are still retained verbatim, which remains the

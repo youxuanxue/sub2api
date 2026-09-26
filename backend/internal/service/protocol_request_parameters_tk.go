@@ -122,21 +122,16 @@ func cursorWireContentSupported(wire []byte, stripAll bool) bool {
 // Cache only immutable content validation, shared across candidate accounts and
 // conversion permissions. Account and endpoint snapshots still refresh normally.
 type cursorRequestContentCache struct {
-	mu sync.Mutex
-	// wires memoizes the body-derived projection per request. Distinct resolved
-	// models share one entry because the projection never reads the model.
-	wires    map[protocolrouter.RequestDigest]cursorExecutionWireResult
+	mu       sync.Mutex
 	outcomes map[cursorRequestContentKey]bool
 }
 
-type cursorExecutionWireResult struct {
-	wire []byte
-	ok   bool
-}
-
 // cursorRequestContentKey keys the outcome on stripAll rather than on the model
-// string: models that agree on it cannot disagree on the answer, so keying by
-// model would re-run the conversion once per account mapping.
+// string: models that agree on it cannot disagree on the answer, so one entry
+// covers every model that maps to the same strip decision. That is what removes
+// the per-model fan-out — a body meeting 16 anthropic-strict models derives the
+// wire once — so the projection needs no cache of its own, and nothing retains
+// the projected body past the call.
 type cursorRequestContentKey struct {
 	digest   protocolrouter.RequestDigest
 	stripAll bool
@@ -144,27 +139,19 @@ type cursorRequestContentKey struct {
 
 func (c *cursorRequestContentCache) supported(request protocolrouter.CanonicalRequest, model string) bool {
 	if c == nil {
-		// No cache to share a projection through, so this is exactly the
-		// uncached decision; keep one owner for it rather than inlining it.
+		// No cache to memoize the outcome in, so this is exactly the uncached
+		// decision; keep one owner for it rather than inlining it.
 		return cursorProtocolContentSupported(request, model)
 	}
 	stripAll := WebSearchHistoryStripsAllBlocks(model)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	digest := request.Digest()
-	key := cursorRequestContentKey{digest: digest, stripAll: stripAll}
+	key := cursorRequestContentKey{digest: request.Digest(), stripAll: stripAll}
 	if supported, ok := c.outcomes[key]; ok {
 		return supported
 	}
-	projection, cached := c.wires[digest]
-	if !cached {
-		projection.wire, projection.ok = cursorExecutionWire(request)
-		if c.wires == nil {
-			c.wires = make(map[protocolrouter.RequestDigest]cursorExecutionWireResult)
-		}
-		c.wires[digest] = projection
-	}
-	supported := projection.ok && cursorWireContentSupported(projection.wire, stripAll)
+	wire, ok := cursorExecutionWire(request)
+	supported := ok && cursorWireContentSupported(wire, stripAll)
 	if c.outcomes == nil {
 		c.outcomes = make(map[cursorRequestContentKey]bool)
 	}
