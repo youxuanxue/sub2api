@@ -27,7 +27,7 @@ import (
 //  1. FilterThinkingBlocks (drop invalid/missing signatures on anthropic-strict)
 //  2. TkPrefilterToolSearchHistoricalThinking (claude-code #63792 / #10199)
 //  3. tkRepairHistoricalAssistantTrailingThinking (final-block-cannot-be-thinking)
-//  4. tkStripTokenseaFableContextManagement (tokensea+fable CM reject)
+//  4. tkStripTokenseaContextManagement (tokensea rejects CM on all models)
 //
 // Callers that already applied (1)/(4) may call this anyway — all steps are
 // idempotent on a clean body.
@@ -35,12 +35,12 @@ func tkPrepareAnthropicMessagesWireBody(account *Account, body []byte, mappedMod
 	body = FilterThinkingBlocks(body, mappedModel)
 	body = TkPrefilterToolSearchHistoricalThinking(body, mappedModel)
 	body = tkRepairHistoricalAssistantTrailingThinking(body, mappedModel)
-	body = tkStripTokenseaFableContextManagement(account, body)
+	body = tkStripTokenseaContextManagement(account, body)
 	return body
 }
 
 // tkApplyAnthropicThinkingContractPrefilters is the thinking-only subset for
-// paths that already own tokensea fable CM stripping later in buildUpstream /
+// paths that already own tokensea CM stripping later in buildUpstream /
 // passthrough HTTP builders.
 func tkApplyAnthropicThinkingContractPrefilters(body []byte, mappedModel string) []byte {
 	body = FilterThinkingBlocks(body, mappedModel)

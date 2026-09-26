@@ -85,29 +85,32 @@ func isTokenseaRelayUpstream(account *Account) bool {
 	return isTokenseaRelayBaseURL(account.GetCredential("base_url"))
 }
 
-// tkStripTokenseaFableContextManagement drops body.context_management before
-// forwarding Fable models to agent.tokensea.ai.
+// tkStripTokenseaContextManagement drops body.context_management before
+// forwarding any model to agent.tokensea.ai.
 //
-// Prod 2026-09-20 user 16 (ops_error_logs id 4222978): Claude CLI 2.1.276 →
-// Cursor Connect 429 → failover to tokensea/anthropic (account 136) returned
-// HTTP 400 "context_management: Extra inputs are not permitted" for
-// claude-fable-5. Cursor accepts the same client payload; 7d prod only saw
-// this 400 on account 136 × fable. Strip is surgical and account+model gated
-// so Sonnet/Opus on tokensea and Fable on Cursor keep context_management.
-func tkStripTokenseaFableContextManagement(account *Account, body []byte) []byte {
+// Tokensea's Anthropic schema rejects context_management with HTTP 400
+// "Extra inputs are not permitted" across models — not only Fable:
+//   - 2026-09-20 user16: account 136 × claude-fable-5 (ops_error 4222978)
+//   - 2026-09-20: account 136 × claude-opus-4-8 (3 finals)
+//   - 2026-09-26 user1: account 136 × claude-opus-5 (ops_error 5275273+)
+//
+// The earlier fable-only gate (tkStripTokenseaFableContextManagement) let
+// Opus variants keep recurring. Cursor accepts the same client payload; strip
+// is account-gated only so non-tokensea upstreams keep context_management.
+func tkStripTokenseaContextManagement(account *Account, body []byte) []byte {
 	if len(body) == 0 || !isTokenseaRelayUpstream(account) {
 		return body
 	}
-	model := gjson.GetBytes(body, "model").String()
-	if !isFableModel(model) || !gjson.GetBytes(body, "context_management").Exists() {
+	if !gjson.GetBytes(body, "context_management").Exists() {
 		return body
 	}
 	stripped, err := sjson.DeleteBytes(body, "context_management")
 	if err != nil {
 		return body
 	}
+	model := gjson.GetBytes(body, "model").String()
 	logger.LegacyPrintf("service.gateway",
-		"[Forward] stripped context_management for tokensea+fable before upstream forward (tokensea returns 400 Extra inputs are not permitted): account=%d model=%s original_bytes=%d stripped_bytes=%d",
+		"[Forward] stripped context_management for tokensea before upstream forward (tokensea returns 400 Extra inputs are not permitted): account=%d model=%s original_bytes=%d stripped_bytes=%d",
 		account.ID, model, len(body), len(stripped))
 	return stripped
 }

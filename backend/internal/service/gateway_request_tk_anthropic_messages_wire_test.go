@@ -158,6 +158,17 @@ func TestTkPrepareAnthropicMessagesWireBody_ThinkingOnlyHistoricalBecomesText(t 
 	require.Equal(t, "alone", content.Array()[0].Get("text").String())
 }
 
+// Prod 2026-09-26 user1: claude-opus-5 → account 136 (tokensea) 400
+// "context_management: Extra inputs are not permitted". Wire-body SSOT must
+// strip CM for all tokensea models, not only fable.
+func TestTkPrepareAnthropicMessagesWireBody_StripsTokenseaContextManagement(t *testing.T) {
+	account := tokenseaNewAPIAccount(136)
+	input := []byte(`{"model":"claude-opus-5","thinking":{"type":"adaptive"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"messages":[{"role":"user","content":"hi"}]}`)
+	out := tkPrepareAnthropicMessagesWireBody(account, input, "claude-opus-5")
+	require.False(t, gjson.GetBytes(out, "context_management").Exists())
+	require.Equal(t, "adaptive", gjson.GetBytes(out, "thinking.type").String())
+}
+
 func TestTkRectifyAnthropicThinkingContract400_FinalBlockThinking(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-fable-5",

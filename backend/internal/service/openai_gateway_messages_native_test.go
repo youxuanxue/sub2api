@@ -84,39 +84,44 @@ func TestForwardAsAnthropic_NativeMessagesPassthrough(t *testing.T) {
 	require.Equal(t, 1, result.Usage.OutputTokens)
 }
 
-// TestForwardAsAnthropic_NativeMessages_TokenseaFableStripsContextManagement pins
-// the prod 2026-09-20 user16 path: ForwardAsAnthropic → forwardAnthropicViaNativeMessages
+// TestForwardAsAnthropic_NativeMessages_TokenseaStripsContextManagement pins
+// the prod path: ForwardAsAnthropic → forwardAnthropicViaNativeMessages
 // → sendNativeAnthropicMessagesRequest must strip context_management for
-// tokensea+fable before the upstream POST (this path does not use
-// buildNativeAnthropicUpstreamRequest).
-func TestForwardAsAnthropic_NativeMessages_TokenseaFableStripsContextManagement(t *testing.T) {
+// any tokensea model before the upstream POST (this path does not use
+// buildNativeAnthropicUpstreamRequest). Covers fable-5 (2026-09-20 user16)
+// and opus-5 (2026-09-26 user1).
+func TestForwardAsAnthropic_NativeMessages_TokenseaStripsContextManagement(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"claude-fable-5","max_tokens":8,"thinking":{"type":"adaptive"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"messages":[{"role":"user","content":"hi"}]}`)
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-	c.Request.Header.Set("anthropic-beta", "context-management-2025-06-27")
+	for _, model := range []string{"claude-fable-5", "claude-opus-5"} {
+		t.Run(model, func(t *testing.T) {
+			body := []byte(`{"model":"` + model + `","max_tokens":8,"thinking":{"type":"adaptive"},"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"messages":[{"role":"user","content":"hi"}]}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+			c.Request.Header.Set("anthropic-beta", "context-management-2025-06-27")
 
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(
-			`{"type":"message","model":"claude-fable-5","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":1}}`,
-		)),
-	}}
-	svc := &OpenAIGatewayService{
-		cfg:          rawChatCompletionsTestConfig(),
-		httpUpstream: upstream,
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"type":"message","model":"` + model + `","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":3,"output_tokens":1}}`,
+				)),
+			}}
+			svc := &OpenAIGatewayService{
+				cfg:          rawChatCompletionsTestConfig(),
+				httpUpstream: upstream,
+			}
+
+			_, err := svc.ForwardAsAnthropic(context.Background(), c, tokenseaNativeMessagesAccount(), body, "", "")
+			require.NoError(t, err)
+			require.Equal(t, "https://agent.tokensea.ai/v1/messages", upstream.lastReq.URL.String())
+			require.Equal(t, model, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.False(t, gjson.GetBytes(upstream.lastBody, "context_management").Exists(),
+				"native messages egress must strip context_management for tokensea (all models)")
+			require.Equal(t, "adaptive", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
+		})
 	}
-
-	_, err := svc.ForwardAsAnthropic(context.Background(), c, tokenseaNativeMessagesAccount(), body, "", "")
-	require.NoError(t, err)
-	require.Equal(t, "https://agent.tokensea.ai/v1/messages", upstream.lastReq.URL.String())
-	require.Equal(t, "claude-fable-5", gjson.GetBytes(upstream.lastBody, "model").String())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "context_management").Exists(),
-		"native messages egress must strip context_management for tokensea+fable")
-	require.Equal(t, "adaptive", gjson.GetBytes(upstream.lastBody, "thinking.type").String())
 }
 
 // TestForwardAsAnthropic_NativeMessages_PrefiltersToolStormThinking pins the
