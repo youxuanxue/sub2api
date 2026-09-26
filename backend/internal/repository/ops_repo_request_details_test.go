@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -46,7 +45,7 @@ func TestOpsRepositoryListRequestDetails_LatencySort(t *testing.T) {
 				AddRow("success", start, "req-slow", "openai", "gpt-5.5", 12000, 800, nil, nil, nil, nil, nil, 1, 2, 3, 4, "u@example.com", "user1", "key1", "grp1", "acc1", true).
 				AddRow("error", start, "req-zero", "openai", "gpt-5.5", 9000, 0, 502, 5, "upstream", "error", "failed", 1, 2, 3, 4, "u@example.com", "user1", "key1", "grp1", "acc1", true).
 				AddRow("success", start, "req-missing", "openai", "gpt-5.5", 5000, nil, nil, nil, nil, nil, nil, 1, 2, 3, 4, "u@example.com", "user1", "key1", "grp1", "acc1", false)
-			mock.ExpectQuery(`(?s)ul\.first_token_ms AS first_token_ms.*o\.time_to_first_token_ms AS first_token_ms.*SELECT.*duration_ms,\s+first_token_ms,.*ORDER BY `+tc.order+`\s+LIMIT \$3 OFFSET \$4`).
+			mock.ExpectQuery(`(?s)ul\.duration_ms AS duration_ms.*ul\.first_token_ms AS first_token_ms.*o\.response_latency_ms AS duration_ms.*o\.time_to_first_token_ms AS first_token_ms.*SELECT.*duration_ms,\s+first_token_ms,.*ORDER BY `+tc.order+`\s+LIMIT \$3 OFFSET \$4`).
 				WithArgs(start, end, 10, 10).
 				WillReturnRows(rows)
 
@@ -63,23 +62,4 @@ func TestOpsRepositoryListRequestDetails_LatencySort(t *testing.T) {
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
-}
-
-// TestOpsRequestDetailsErrorSideDurationHasAWriter pins where the error side of the
-// UNION gets its duration. ops_error_logs.duration_ms was declared but never written
-// (always NULL) and was dropped in tk_100, so this side must read the written
-// response_latency_ms instead — otherwise duration is blank for every error row and a
-// MinDurationMs filter silently excludes all of them. Asserted against the source so
-// the query need not be refactored into a constant just to be testable.
-func TestOpsRequestDetailsErrorSideDurationHasAWriter(t *testing.T) {
-	src, err := os.ReadFile("ops_repo_request_details.go")
-	require.NoError(t, err)
-	sql := string(src)
-
-	require.Contains(t, sql, "o.response_latency_ms AS duration_ms",
-		"error side must project a written latency column as duration_ms")
-	require.NotContains(t, sql, "o.duration_ms AS duration_ms",
-		"ops_error_logs.duration_ms had no writer and was dropped in tk_100")
-	require.Contains(t, sql, "ul.duration_ms AS duration_ms",
-		"the usage side keeps its own real column")
 }

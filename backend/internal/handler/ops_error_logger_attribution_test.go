@@ -53,6 +53,7 @@ func TestExtractAttemptedKey(t *testing.T) {
 	cases := []struct {
 		name    string
 		headers map[string]string
+		path    string
 		want    string
 	}{
 		{
@@ -74,6 +75,16 @@ func TestExtractAttemptedKey(t *testing.T) {
 			name:    "x-goog-api-key header",
 			headers: map[string]string{"x-goog-api-key": "sk-goog0123456789"},
 			want:    "sk-goog0123456789",
+		},
+		{
+			name: "Google auth prefers x-goog-api-key over other headers",
+			path: "/v1beta/models/gemini:generateContent",
+			headers: map[string]string{
+				"x-goog-api-key": "sk-goog0123456789",
+				"Authorization":  "Bearer sk-other0123456789",
+				"x-api-key":      "sk-xapi0123456789",
+			},
+			want: "sk-goog0123456789",
 		},
 		{
 			name:    "Authorization takes priority over x-api-key",
@@ -107,7 +118,11 @@ func TestExtractAttemptedKey(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
-			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			path := tc.path
+			if path == "" {
+				path = "/v1/chat/completions"
+			}
+			req := httptest.NewRequest(http.MethodPost, path, nil)
 			for k, v := range tc.headers {
 				req.Header.Set(k, v)
 			}

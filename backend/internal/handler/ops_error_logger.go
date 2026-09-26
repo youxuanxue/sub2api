@@ -91,6 +91,17 @@ func keyPrefix(key string, n int) string {
 
 // extractAttemptedKey 按认证中间件同样的顺序从请求头提取提交的 key 明文。
 func extractAttemptedKey(c *gin.Context) string {
+	googleAuth := false
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		path := c.Request.URL.Path
+		googleAuth = path == "/v1beta" || strings.HasPrefix(path, "/v1beta/") ||
+			path == "/antigravity/v1beta" || strings.HasPrefix(path, "/antigravity/v1beta/")
+	}
+	if googleAuth {
+		if k := c.GetHeader("x-goog-api-key"); k != "" {
+			return strings.TrimSpace(k)
+		}
+	}
 	if h := c.GetHeader("Authorization"); h != "" {
 		parts := strings.SplitN(h, " ", 2)
 		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
